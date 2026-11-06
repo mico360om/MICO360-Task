@@ -642,7 +642,9 @@ function ChecklistCard({
         </p>
       ) : null}
       {suggestion}
-      {card.roots.length === 0 && !c.actions.addItem && !c.actions.addItems ? <p className="py-1 text-sm text-ink-3">No items.</p> : null}
+      {card.roots.length === 0 && c.panel ? (
+        <p className="py-1 text-sm text-ink-3">{c.actions.addItem || c.actions.addItems ? 'No steps yet — break the work down below.' : 'No checklist items.'}</p>
+      ) : null}
       <ItemList nodes={card.roots} parent={null} listId={listId} />
       {c.actions.addItem || c.actions.addItems ? <EndBox card={card} /> : null}
     </div>

@@ -273,10 +273,10 @@ describe('TaskDrawer checklist', () => {
     { id: 'i2', text: 'Send it', done: false },
   ];
 
-  it('shows progress as a count and a bar', () => {
+  it('shows progress as a count and a bar (one “Checklist” from an older server’s flat list)', () => {
     render(<TaskDrawer task={task} checklist={items} comments={[]} onClose={vi.fn()} />);
-    expect(screen.getByText('1 of 2 done')).toBeInTheDocument();
-    expect(screen.getByRole('progressbar', { name: 'Checklist progress' })).toHaveAttribute('aria-valuenow', '50');
+    expect(screen.getByText('1/2 completed')).toBeInTheDocument();
+    expect(screen.getByRole('progressbar', { name: 'Progress of “Checklist”' })).toHaveAttribute('aria-valuenow', '50');
   });
 
   it('ticks an item at once, before the server answers (and the count follows)', async () => {
@@ -285,7 +285,7 @@ describe('TaskDrawer checklist', () => {
     await userEvent.click(screen.getByRole('checkbox', { name: 'Send it' }));
     expect(onToggleChecklistItem).toHaveBeenCalledWith('i2', true);
     expect(screen.getByRole('checkbox', { name: 'Send it' })).toBeChecked();
-    expect(screen.getByText('2 of 2 done')).toBeInTheDocument();
+    expect(screen.getByText('2/2 completed')).toBeInTheDocument();
   });
 
   it('puts the tick back and says why when it could not be saved', async () => {
@@ -294,15 +294,16 @@ describe('TaskDrawer checklist', () => {
     await userEvent.click(screen.getByRole('checkbox', { name: 'Send it' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('You don’t have permission to do that.');
     expect(screen.getByRole('checkbox', { name: 'Send it' })).not.toBeChecked();
-    expect(screen.getByText('1 of 2 done')).toBeInTheDocument();
+    expect(screen.getByText('1/2 completed')).toBeInTheDocument();
   });
 
   it('adds with Enter and keeps the box ready for the next one; pasting lines adds each', async () => {
     const onAddChecklistItem = vi.fn(async (_text: string) => {});
     render(<TaskDrawer task={task} checklist={[]} comments={[]} onAddChecklistItem={onAddChecklistItem} onClose={vi.fn()} />);
-    const input = screen.getByRole('textbox', { name: 'Add a checklist item' });
+    const input = screen.getByRole('textbox', { name: 'Add an item to “Checklist”' });
     await userEvent.type(input, 'New step{Enter}');
-    expect(onAddChecklistItem).toHaveBeenCalledWith('New step');
+    // A task with no checklist yet: the first item makes its "Checklist" (the server does).
+    expect(onAddChecklistItem).toHaveBeenCalledWith('New step', { listId: '', parentId: null, afterId: null });
     await waitFor(() => expect(input).toHaveValue(''));
     expect(input).toHaveFocus();
     await userEvent.paste('Collect figures\nDraft report\n\n');
@@ -320,23 +321,40 @@ describe('TaskDrawer checklist', () => {
     expect(onRenameChecklistItem).toHaveBeenCalledWith('i2', 'Send it today');
   });
 
-  it('reorders with the keyboard on an item’s handle and says where it went', async () => {
-    const onReorderChecklist = vi.fn(async () => {});
-    render(<TaskDrawer task={task} checklist={items} comments={[]} onToggleChecklistItem={vi.fn()} onReorderChecklist={onReorderChecklist} onClose={vi.fn()} />);
-    screen.getByRole('button', { name: 'Reorder “Verify quotation”' }).focus();
-    await userEvent.keyboard('{ArrowDown}');
-    expect(onReorderChecklist).toHaveBeenCalledWith(['i2', 'i1']);
-    expect(screen.getByText('“Verify quotation” moved to position 2 of 2.')).toBeInTheDocument();
+  it('1.23.3: moves an item up, down, in and out from its menu (Move up / Move down / Indent / Outdent)', async () => {
+    const move = vi.fn(async () => {});
+    render(<TaskDrawer task={task} checklist={items} comments={[]} onToggleChecklistItem={vi.fn()} checklistActions={{ move }} onClose={vi.fn()} />);
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for “Send it”' }));
+    expect(screen.getAllByRole('menuitem').map((m) => m.textContent)).toEqual(['Indent', 'Move up']);
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Move up' }));
+    expect(move).toHaveBeenCalledWith('i2', 'up');
   });
 
-  it('reorders by dragging an item onto another', () => {
-    const onReorderChecklist = vi.fn(async () => {});
-    render(<TaskDrawer task={task} checklist={items} comments={[]} onToggleChecklistItem={vi.fn()} onReorderChecklist={onReorderChecklist} onClose={vi.fn()} />);
-    const rows = screen.getAllByTestId('checklist-item');
-    fireEvent.dragStart(rows[1]!, { dataTransfer: { setData: () => {}, effectAllowed: 'move' } });
-    fireEvent.dragOver(rows[0]!, { dataTransfer: { dropEffect: 'move' } });
-    fireEvent.drop(rows[0]!, { dataTransfer: {} });
-    expect(onReorderChecklist).toHaveBeenCalledWith(['i2', 'i1']);
+  it('1.23.3: several checklists, each with its title, count and bar; a person and a due date on an item', () => {
+    render(
+      <TaskDrawer
+        task={task}
+        timeZone="UTC"
+        checklistLists={[
+          { id: 'L1', title: 'Electrical' },
+          { id: 'L2', title: 'Plumbing' },
+        ]}
+        checklist={[
+          { id: 'a', listId: 'L1', parentId: null, text: 'Wiring', done: false },
+          { id: 'a1', listId: 'L1', parentId: 'a', text: 'Label circuits', done: true, assignee: { id: 'u2', name: 'Omar Ahmed' }, dueDate: '2020-01-03' },
+          { id: 'c', listId: 'L2', parentId: null, text: 'Pipes', done: false },
+        ]}
+        comments={[]}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.getByText('1/2 completed')).toBeInTheDocument();
+    expect(screen.getAllByTestId('checklist-card').map((c) => c.getAttribute('data-list-id'))).toEqual(['L1', 'L2']);
+    expect(screen.getByRole('progressbar', { name: 'Progress of “Electrical”' })).toHaveAttribute('aria-valuenow', '100');
+    const label = screen.getAllByTestId('checklist-item').find((li) => li.getAttribute('data-item-id') === 'a1')!;
+    expect(label).toHaveAttribute('data-depth', '1');
+    expect(within(label).getByRole('img', { name: 'Omar Ahmed' })).toBeInTheDocument();
+    expect(within(label).getByText('3 Jan 2020')).toBeInTheDocument();
   });
 
   it('suggests steps with AI for review: you pick which to add', async () => {

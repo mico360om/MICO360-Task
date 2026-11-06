@@ -17,7 +17,9 @@ import { Icon } from './meeting/kit';
 import type { MentionPerson } from '../lib/mentions';
 import { InlineDescription, InlineTitle } from './task-drawer/inline-text';
 import { PropertiesPanel, type DrawerAssignee, type DrawerStatusColumn, type FieldPatch } from './task-drawer/properties';
-import { ChecklistSection, type DrawerChecklistItem } from './task-drawer/checklist';
+import { NestedChecklists, type ChecklistActions, type ChecklistRemovedBatch } from './checklists/NestedChecklists';
+import type { ChecklistAt, CLList, CLPerson } from '../lib/checklist-tree';
+import { todayKey } from '../lib/due-date';
 import { CommentsSection, type DrawerComment, type ReplyToComment } from './task-drawer/comments';
 import { ActivityTimeline, type DrawerActivity } from './task-drawer/activity';
 import { AttachmentsSection, type DrawerAttachment, type LoadOfficePreview } from './task-drawer/attachments';
@@ -35,7 +37,21 @@ const carriedDay = (key: string) => dayText(key) || key;
 /** Below 768px (the md width, in em as the layout's widths are). */
 const PHONE_QUERY = '(max-width: 47.9375em)';
 
-export type { DrawerAssignee, DrawerStatusColumn, DrawerChecklistItem, DrawerComment, DrawerActivity, DrawerAttachment, DrawerDependencies, DrawerTaskRef };
+/** A checklist item as the panel gets it (1.23.3: in a checklist, under a parent, with a person and a due day). */
+export interface DrawerChecklistItem {
+  id: string;
+  text: string;
+  done: boolean;
+  position?: number;
+  listId?: string;
+  parentId?: string | null;
+  assignee?: CLPerson | null;
+  /** 'YYYY-MM-DD'. */
+  dueDate?: string | null;
+}
+export type DrawerChecklistList = CLList;
+
+export type { DrawerAssignee, DrawerStatusColumn, DrawerComment, DrawerActivity, DrawerAttachment, DrawerDependencies, DrawerTaskRef };
 
 export interface TaskDrawerProps {
   task: ApiTask;
@@ -44,14 +60,23 @@ export interface TaskDrawerProps {
   /** A failed action (assign, upload, delete, status…) to show at the top of the drawer. */
   actionError?: string | null;
   onDismissError?: () => void;
+  /** Every checklist item, list by list in tree order. */
   checklist: DrawerChecklistItem[];
+  /** 1.23.3: the task's checklists (none yet, or an older server: one "Checklist"). */
+  checklistLists?: DrawerChecklistList[];
   comments: DrawerComment[];
   onToggleChecklistItem?: (id: string, done: boolean) => Promise<void> | void;
-  onAddChecklistItem?: (text: string) => Promise<void> | void;
+  /** Add an item at a place (a checklist, under a parent, after a sibling); answers its id. */
+  onAddChecklistItem?: (text: string, at: ChecklistAt) => Promise<string | void> | string | void;
   onRenameChecklistItem?: (id: string, text: string) => Promise<void> | void;
-  onRemoveChecklistItem?: (id: string) => void;
-  /** Save a new order of the checklist (every item id, first to last). */
-  onReorderChecklist?: (orderedIds: string[]) => Promise<void> | void;
+  /** Delete an item (and its sub-items); answers the batch Undo restores. */
+  onRemoveChecklistItem?: (id: string) => Promise<ChecklistRemovedBatch | void> | ChecklistRemovedBatch | void;
+  /** 1.23.3: everything else the checklists offer (sub-items, people, dates, moves, copies, whole checklists, restore). */
+  checklistActions?: ChecklistActions;
+  /** Opened at a checklist item (…&item=<id>): it is brought into view and marked. */
+  checklistFocusItemId?: string | null;
+  /** Deleted checklist items and checklists that can still be restored (their batches), for Restore in the history. */
+  checklistRestorable?: ReadonlySet<string>;
   /** Ask AI to break the task into steps; the user reviews them before any is added. */
   onSuggestChecklist?: () => Promise<string[] | void>;
   /** Ask AI for a recommended priority + reason; the user applies it or not. */
@@ -303,12 +328,15 @@ export function TaskDrawer({
   actionError,
   onDismissError,
   checklist,
+  checklistLists = [],
   comments,
   onToggleChecklistItem,
   onAddChecklistItem,
   onRenameChecklistItem,
   onRemoveChecklistItem,
-  onReorderChecklist,
+  checklistActions,
+  checklistFocusItemId,
+  checklistRestorable,
   onSuggestChecklist,
   onSuggestPriority,
   onAddComment,
@@ -414,6 +442,15 @@ export function TaskDrawer({
   // the checklist and comments, which come first.
   const phone = useMediaQuery(PHONE_QUERY);
   const former = mergedFromKeys(task).former;
+  // The checklists: the panel's own changes, then everything else the container offers.
+  const checklistItems = checklist.map((i) => ({ id: i.id, listId: i.listId ?? '', parentId: i.parentId ?? null, text: i.text, done: i.done, assignee: i.assignee ?? null, dueDate: i.dueDate ?? null }));
+  const listActions: ChecklistActions = {
+    toggle: onToggleChecklistItem,
+    addItem: onAddChecklistItem ? (at, text) => onAddChecklistItem(text, at) : undefined,
+    rename: onRenameChecklistItem,
+    remove: onRemoveChecklistItem,
+    ...checklistActions,
+  };
   const sideParts = (
     <>
       {mergedFrom}
@@ -633,13 +670,14 @@ export function TaskDrawer({
             {phone ? null : sideParts}
           </div>
           <div className="min-w-0 lg:col-start-1 lg:row-start-2">
-            <ChecklistSection
-              items={checklist}
-              onToggle={onToggleChecklistItem}
-              onAdd={onAddChecklistItem}
-              onRename={onRenameChecklistItem}
-              onRemove={onRemoveChecklistItem}
-              onReorder={onReorderChecklist}
+            <NestedChecklists
+              lists={checklistLists}
+              items={checklistItems}
+              actions={listActions}
+              people={assignableUsers}
+              today={todayKey(timeZone)}
+              memoryKey={task.id}
+              focusItemId={checklistFocusItemId}
               onSuggest={onSuggestChecklist}
               fromKeys={checklistFromKeys}
             />
@@ -650,7 +688,7 @@ export function TaskDrawer({
           {phone ? <div className="flex min-w-0 flex-col gap-5">{sideParts}</div> : null}
           {activity.length > 0 ? (
             <div className="min-w-0 lg:col-start-1 lg:row-start-4">
-              <ActivityTimeline activity={activity} fromKeys={activityFromKeys} />
+              <ActivityTimeline activity={activity} fromKeys={activityFromKeys} restorable={checklistRestorable} onRestore={checklistActions?.restore} />
             </div>
           ) : null}
         </div>

@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
-import { checklistApi } from '../api/checklist';
+import { checklistApi, type ChecklistPlace } from '../api/checklist';
+import type { ChecklistAt } from '../lib/checklist-tree';
 import { commentsApi, type CommentReply } from '../api/comments';
 import { attachmentsApi } from '../api/attachments';
 import { dependenciesApi } from '../api/dependencies';
@@ -45,6 +46,8 @@ import { UndoMergeDialog } from './task-merge/UndoMergeDialog';
 export interface TaskDrawerContainerProps {
   taskId: string;
   onClose: () => void;
+  /** 1.23.3: opened at a checklist item (…&item=<id>). */
+  focusItemId?: string | null;
   /** Previous / Next through the list the task was opened from (the app shell's panel; 1.22). */
   stepper?: TaskStepper;
 }
@@ -122,7 +125,10 @@ export function TaskDrawerContainer(props: TaskDrawerContainerProps) {
   );
 }
 
-function TaskDrawerPanel({ taskId, onClose, stepper, mergeNotice }: TaskDrawerContainerProps & { mergeNotice: string | null }) {
+/** A place in the checklists as the server takes it (the implicit first "Checklist" has no id yet). */
+const placeOf = (at: ChecklistAt): ChecklistPlace => ({ listId: at.listId || undefined, parentId: at.parentId, afterId: at.afterId });
+
+function TaskDrawerPanel({ taskId, onClose, stepper, mergeNotice, focusItemId }: TaskDrawerContainerProps & { mergeNotice: string | null }) {
   const queryClient = useQueryClient();
   const timeZone = useCompanyTimeZone();
   const isAdmin = useAuthStore((s) => s.isAdmin());
@@ -160,6 +166,10 @@ function TaskDrawerPanel({ taskId, onClose, stepper, mergeNotice }: TaskDrawerCo
 
   const taskQ = useQuery({ queryKey: ['task', taskId], queryFn: () => tasksApi(apiClient).get(taskId) });
   const checklistQ = useQuery({ queryKey: ['checklist', taskId], queryFn: () => checklistApi(apiClient).list(taskId) });
+  // 1.23.3: deleted items and checklists that can still be restored (Restore in the history). An older
+  // server has no such list: nothing to restore, asked once.
+  const deletedQ = useQuery({ queryKey: ['checklist-deleted', taskId], queryFn: () => checklistApi(apiClient).deleted(taskId), retry: false });
+  const restorable = useMemo(() => new Set((Array.isArray(deletedQ.data) ? deletedQ.data : []).map((b) => b.batchId)), [deletedQ.data]);
   const commentsQ = useQuery({ queryKey: ['comments', taskId], queryFn: () => commentsApi(apiClient).list(taskId) });
   const mentionableQ = useQuery({ queryKey: ['mentionable', taskId], queryFn: () => commentsApi(apiClient).mentionable(taskId), staleTime: 60_000 });
   const mentionable = useMemo(
@@ -305,14 +315,18 @@ function TaskDrawerPanel({ taskId, onClose, stepper, mergeNotice }: TaskDrawerCo
   });
 
   const invalidateChecklist = () => {
-    queryClient.invalidateQueries({ queryKey: ['checklist', taskId] });
-    refreshTaskViews(); // progress + checklist counts on cards
+    void queryClient.invalidateQueries({ queryKey: ['checklist', taskId] });
+    void queryClient.invalidateQueries({ queryKey: ['checklist-deleted', taskId] });
+    refreshTaskViews(); // progress + checklist counts on cards, My Tasks' items for me, the calendar, the history
   };
-  const removeItemM = useMutation({
-    mutationFn: (id: string) => checklistApi(apiClient).remove(id),
-    onSuccess: invalidateChecklist,
-    onError: failed('Couldn’t remove the checklist item.'),
-  });
+  /** A checklist change saved, then every view of it refreshed; a refusal carries the server's words. */
+  const saveChecklist = <T,>(action: () => Promise<T>, fallback: string) =>
+    attempt(async () => {
+      const result = await action();
+      invalidateChecklist();
+      return result;
+    }, fallback);
+  const cl = checklistApi(apiClient);
   const editCommentM = useMutation({
     mutationFn: ({ id, body }: { id: string; body: string }) => commentsApi(apiClient).update(id, body),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['comments', taskId] }),
@@ -423,31 +437,25 @@ function TaskDrawerPanel({ taskId, onClose, stepper, mergeNotice }: TaskDrawerCo
             actionError={actionError}
             onDismissError={() => setActionError(null)}
             checklist={checklistQ.data?.items ?? []}
-            onToggleChecklistItem={(id, done) =>
-              attempt(async () => {
-                await checklistApi(apiClient).toggle(id, done);
-                invalidateChecklist();
-              }, 'Couldn’t update the checklist.')
-            }
-            onAddChecklistItem={(text) =>
-              attempt(async () => {
-                await checklistApi(apiClient).add(taskId, text);
-                invalidateChecklist();
-              }, 'Couldn’t add the checklist item.')
-            }
-            onRenameChecklistItem={(id, text) =>
-              attempt(async () => {
-                await checklistApi(apiClient).rename(id, text);
-                invalidateChecklist();
-              }, 'Couldn’t rename the checklist item.')
-            }
-            onReorderChecklist={(orderedIds) =>
-              attempt(async () => {
-                await checklistApi(apiClient).reorder(taskId, orderedIds);
-                await queryClient.invalidateQueries({ queryKey: ['checklist', taskId] });
-              }, 'Couldn’t reorder the checklist.')
-            }
-            onRemoveChecklistItem={(id) => removeItemM.mutate(id)}
+            checklistLists={checklistQ.data?.lists ?? []}
+            onToggleChecklistItem={(id, done) => saveChecklist(() => cl.toggle(id, done), 'Couldn’t update the checklist.').then(() => undefined)}
+            onAddChecklistItem={(text, at) => saveChecklist(() => cl.add(taskId, text, placeOf(at)), 'Couldn’t add the checklist item.').then((item) => item.id)}
+            onRenameChecklistItem={(id, text) => saveChecklist(() => cl.rename(id, text), 'Couldn’t rename the checklist item.').then(() => undefined)}
+            onRemoveChecklistItem={(id) => saveChecklist(() => cl.remove(id), 'Couldn’t delete the checklist item.')}
+            checklistActions={{
+              addItems: (at, texts) => saveChecklist(() => cl.addMany(taskId, texts, placeOf(at)), 'Couldn’t add the items.').then(() => undefined),
+              duplicate: (id) => saveChecklist(() => cl.duplicate(id), 'Couldn’t duplicate the item.').then(() => undefined),
+              move: (id, how) => saveChecklist(() => cl.move(id, how), 'Couldn’t move the item.').then(() => undefined),
+              assign: (id, userId) => saveChecklist(() => cl.assign(id, userId), 'Couldn’t change who it’s for.').then(() => undefined),
+              setDue: (id, day) => saveChecklist(() => cl.setDue(id, day), 'Couldn’t save the due date.').then(() => undefined),
+              addList: (title, afterId) => saveChecklist(() => cl.addList(taskId, title, afterId), 'Couldn’t add the checklist.').then((list) => list.id),
+              renameList: (id, title) => saveChecklist(() => cl.renameList(id, title), 'Couldn’t rename the checklist.').then(() => undefined),
+              duplicateList: (id) => saveChecklist(() => cl.duplicateList(id), 'Couldn’t duplicate the checklist.').then(() => undefined),
+              removeList: (id) => saveChecklist(() => cl.removeList(id), 'Couldn’t delete the checklist.'),
+              restore: (batchId) => saveChecklist(() => cl.restore(taskId, batchId), 'Couldn’t restore it.').then(() => undefined),
+            }}
+            checklistFocusItemId={focusItemId}
+            checklistRestorable={restorable}
             onSuggestChecklist={suggestChecklist}
             onSuggestPriority={suggestPriority}
             comments={(Array.isArray(commentsQ.data) ? commentsQ.data : []).map((c) => ({
