@@ -5,7 +5,8 @@ import type { CalItem } from '../../lib/calendar-model';
 import type { CalMeeting } from '../../lib/calendar-meetings';
 import type { MoveScope } from '../../lib/calendar-reschedule';
 import { recurrenceSummary } from '../../lib/recurrence-summary';
-import { MeetingChip, PRIORITY_LABEL, STATUS_META, TaskChip, dayLabel, fullDayLabel } from './calendar-ui';
+import { ChecklistChip, MeetingChip, PRIORITY_LABEL, STATUS_META, TaskChip, dayLabel, fullDayLabel } from './calendar-ui';
+import type { CalendarChecklistItem } from '../../lib/calendar-checklist';
 import { ProjectAvatar, type ProjectLook } from '../ProjectAvatar';
 import { ApprovalChip } from '../approvals/ApprovalChip';
 import { isWaitingForApproval } from '../../lib/approvals';
@@ -51,11 +52,15 @@ function Header({ title, onClose, sub }: { title: ReactNode; onClose: () => void
 }
 
 /** Every task due on one day (the filters still apply), and a way to add one there. */
-export function DayDialog({ day, items, meetings = [], colorOf, canDrag, canCreate, onOpen, onAdd, onClose }: {
+export function DayDialog({ day, items, meetings = [], steps = [], today = '', onOpenStep, colorOf, canDrag, canCreate, onOpen, onAdd, onClose }: {
   day: string;
   items: CalItem[];
   /** The day's meetings (listed first). */
   meetings?: CalMeeting[];
+  /** 1.23.3: checklist items due that day (listed last), each opening its task at it. */
+  steps?: CalendarChecklistItem[];
+  today?: string;
+  onOpenStep?: (item: CalendarChecklistItem) => void;
   colorOf: (projectId: string) => string | undefined;
   canDrag: (item: CalItem) => boolean;
   canCreate: boolean;
@@ -68,11 +73,21 @@ export function DayDialog({ day, items, meetings = [], colorOf, canDrag, canCrea
     <Shell label={label} onClose={onClose}>
       <Header
         title={label}
-        sub={items.length === 0 && meetings.length === 0 ? 'Nothing due' : [meetings.length ? `${meetings.length} ${meetings.length === 1 ? 'meeting' : 'meetings'}` : '', items.length ? `${items.length} ${items.length === 1 ? 'task' : 'tasks'}` : ''].filter(Boolean).join(' · ')}
+        sub={
+          items.length === 0 && meetings.length === 0 && steps.length === 0
+            ? 'Nothing due'
+            : [
+                meetings.length ? `${meetings.length} ${meetings.length === 1 ? 'meeting' : 'meetings'}` : '',
+                items.length ? `${items.length} ${items.length === 1 ? 'task' : 'tasks'}` : '',
+                steps.length ? `${steps.length} ${steps.length === 1 ? 'checklist item' : 'checklist items'}` : '',
+              ]
+                .filter(Boolean)
+                .join(' · ')
+        }
         onClose={onClose}
       />
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-3">
-        {items.length === 0 && meetings.length === 0 ? (
+        {items.length === 0 && meetings.length === 0 && steps.length === 0 ? (
           <p className="py-4 text-center text-sm text-ink-2">Nothing is due on this day{canCreate ? '.' : ' with these filters.'}</p>
         ) : (
           <ul className="flex flex-col gap-1.5">
@@ -84,6 +99,11 @@ export function DayDialog({ day, items, meetings = [], colorOf, canDrag, canCrea
             {items.map((item) => (
               <li key={item.key}>
                 <TaskChip item={item} color={colorOf(item.task.projectId)} draggable={canDrag(item)} onOpen={onOpen} meta={dayMeta(item)} />
+              </li>
+            ))}
+            {steps.map((s) => (
+              <li key={`cl:${s.id}`}>
+                <ChecklistChip item={s} late={!s.done && s.dueDate.slice(0, 10) < today} onOpen={(i) => onOpenStep?.(i)} />
               </li>
             ))}
           </ul>

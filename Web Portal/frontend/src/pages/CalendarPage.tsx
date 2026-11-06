@@ -5,6 +5,8 @@ import { apiClient } from '../api/client';
 import { calendarApi, type CalendarRange } from '../api/calendar';
 import { meetingsApi } from '../api/meetings';
 import { filterCalendarMeetings, groupMeetingsByDay, meetingItems, meetingRange } from '../lib/calendar-meetings';
+import { checklistByDay as checklistItemsByDay } from '../lib/calendar-checklist';
+import { ChecklistChip } from '../components/calendar/calendar-ui';
 import { projectsApi } from '../api/projects';
 import { useProjectsWithAll } from '../lib/useProjectsWith';
 import { tasksApi, type ApiTask } from '../api/tasks';
@@ -75,13 +77,15 @@ function placeFromParams(p: URLSearchParams): PlaceState {
   return { view: v && VIEWS.includes(v) ? v : 'month', date: isDay(p.get('date')) ? p.get('date') : null, filters: filtersFromParams(p) };
 }
 
-/** The address for a place (an open task panel's `task` is kept). */
+/** The address for a place (an open task panel's `task` is kept, and the checklist item it was opened at). */
 function paramsFor(s: PlaceState, keep: URLSearchParams): URLSearchParams {
   const next = filtersToParams(s.filters);
   if (s.view !== 'month') next.set('view', s.view);
   if (s.date) next.set('date', s.date);
   const task = keep.get('task');
   if (task) next.set('task', task);
+  const item = keep.get('item');
+  if (task && item) next.set('item', item);
   return next;
 }
 
@@ -163,6 +167,12 @@ export function CalendarPage() {
     [meetingsQ.data, timeZone, filters, myId],
   );
   const meetingsByDay = useMemo(() => groupMeetingsByDay(shownMeetings), [shownMeetings]);
+  // 1.23.3: dated checklist items — mine across every project; a project's calendar, all of its own.
+  const checklistByDay = useMemo(
+    () => checklistItemsByDay(rangeQ.data?.checklistItems, filters, { myId, today, projectStatus }),
+    [rangeQ.data, filters, myId, today, projectStatus],
+  );
+  const shownSteps = useMemo(() => [...checklistByDay.values()].reduce((n, l) => n + l.length, 0), [checklistByDay]);
   const overdueItems = useMemo(() => {
     if (view !== 'agenda' || !Array.isArray(overdueQ.data)) return [];
     const list = buildItems({ tasks: overdueQ.data, occurrences: [], series: [] }, { today, timeZone, projectStatus }).filter((i) => i.status === 'overdue');
@@ -245,6 +255,9 @@ export function CalendarPage() {
     onOpenDay: setOpenDay,
     onDrop: requestMove,
     meetingsByDay,
+    checklistByDay,
+    // A checklist item opens its task at it (its parents open, it is marked).
+    onOpenChecklistItem: (item) => openTask(item.taskId, undefined, { item: item.id }),
   };
   const meta = (item: CalItem) => {
     const p = projectById.get(item.task.projectId);
@@ -280,6 +293,7 @@ export function CalendarPage() {
   const dayList = (day: string) => {
     const list = byDay.get(day) ?? [];
     const dayMeetings = meetingsByDay.get(day) ?? [];
+    const daySteps = checklistByDay.get(day) ?? [];
     return (
       <section aria-label={dayLabel(day)} className="rounded-xl border border-line bg-surface p-3">
         <div className="mb-2 flex items-center justify-between gap-2">
@@ -290,7 +304,7 @@ export function CalendarPage() {
             </button>
           ) : null}
         </div>
-        {list.length === 0 && dayMeetings.length === 0 ? (
+        {list.length === 0 && dayMeetings.length === 0 && daySteps.length === 0 ? (
           <p className="py-2 text-sm text-ink-2">Nothing due{filtered ? ' with these filters' : ''}.</p>
         ) : (
           <ul className="flex flex-col gap-1.5">
@@ -302,6 +316,11 @@ export function CalendarPage() {
             {list.map((item) => (
               <li key={item.key}>
                 <TaskChip item={item} color={colorOf(item.task.projectId)} draggable={false} onOpen={viewProps.onOpen} meta={meta(item)} />
+              </li>
+            ))}
+            {daySteps.map((s) => (
+              <li key={`cl:${s.id}`}>
+                <ChecklistChip item={s} late={!s.done && s.dueDate.slice(0, 10) < today} onOpen={(i) => viewProps.onOpenChecklistItem?.(i)} />
               </li>
             ))}
           </ul>
@@ -356,7 +375,7 @@ export function CalendarPage() {
         </div>
       ) : (
         <div className={`flex flex-col gap-2.5 transition-opacity ${fit ? 'min-h-0 flex-1' : ''} ${rangeQ.isPlaceholderData ? 'opacity-60' : ''}`} aria-busy={rangeQ.isFetching || undefined}>
-          {view !== 'agenda' && shown.length === 0 && shownMeetings.length === 0 ? nothingBar : null}
+          {view !== 'agenda' && shown.length === 0 && shownMeetings.length === 0 && shownSteps === 0 ? nothingBar : null}
           {view === 'month' ? (
             phone || compactMonth ? (
               <MobileMonth key={cursor.slice(0, 7)} cursor={cursor} p={viewProps} label={label} renderDayList={dayList} />
@@ -382,6 +401,12 @@ export function CalendarPage() {
           day={openDay}
           items={byDay.get(openDay) ?? []}
           meetings={meetingsByDay.get(openDay) ?? []}
+          steps={checklistByDay.get(openDay) ?? []}
+          today={today}
+          onOpenStep={(item) => {
+            setOpenDay(null);
+            viewProps.onOpenChecklistItem?.(item);
+          }}
           colorOf={colorOf}
           canDrag={() => false}
           canCreate={canCreate}

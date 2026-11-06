@@ -1,8 +1,9 @@
 import { useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import type { CalItem } from '../../lib/calendar-model';
 import type { CalMeeting } from '../../lib/calendar-meetings';
+import type { CalendarChecklistItem } from '../../lib/calendar-checklist';
 import { monthOf, monthWeeks, weekDays, weekdayLabels, type WeekStart } from '../../lib/calendar';
-import { MeetingChip, STATUS_META, TaskChip, dayLabel } from './calendar-ui';
+import { ChecklistChip, MeetingChip, STATUS_META, TaskChip, dayLabel } from './calendar-ui';
 import { chipSlots, isTouchScreen } from '../../lib/calendar-fit';
 
 /** Overdue tasks listed before "Show all" in the agenda. */
@@ -24,11 +25,23 @@ export interface ViewProps {
   onDrop: (taskId: string, day: string) => void;
   /** Meetings by day (shown before the day's tasks). */
   meetingsByDay?: Map<string, CalMeeting[]>;
+  /** 1.23.3: checklist items by their due day (shown after the day's tasks), each opening its task at it. */
+  checklistByDay?: Map<string, CalendarChecklistItem[]>;
+  onOpenChecklistItem?: (item: CalendarChecklistItem) => void;
 }
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
-const countLabel = (n: number, meetings = 0) => [meetings ? plural(meetings, 'meeting', 'meetings') : '', n ? plural(n, 'task', 'tasks') : ''].filter(Boolean).map((s) => `, ${s}`).join('');
+const countLabel = (n: number, meetings = 0, steps = 0) =>
+  [meetings ? plural(meetings, 'meeting', 'meetings') : '', n ? plural(n, 'task', 'tasks') : '', steps ? plural(steps, 'checklist item', 'checklist items') : '']
+    .filter(Boolean)
+    .map((s) => `, ${s}`)
+    .join('');
 const meetingsOf = (p: ViewProps, day: string) => p.meetingsByDay?.get(day) ?? [];
+const stepsOf = (p: ViewProps, day: string) => p.checklistByDay?.get(day) ?? [];
+/** A checklist item's chip in a view (late: an open item before today). */
+function StepChip({ p, item, lines = 2 }: { p: ViewProps; item: CalendarChecklistItem; lines?: 1 | 2 }) {
+  return <ChecklistChip item={item} lines={lines} late={!item.done && item.dueDate.slice(0, 10) < p.today} onOpen={(i) => p.onOpenChecklistItem?.(i)} />;
+}
 /** A meeting's line under its title: its times and place. */
 const meetingMeta = (m: CalMeeting) => [m.time, m.location, m.cancelled ? 'Cancelled' : null].filter(Boolean).join(' · ');
 
@@ -80,12 +93,17 @@ function useHeight(ref: RefObject<HTMLElement | null>, enabled: boolean): number
 function MonthCell({ cellKey, dayNumber, outside, p, rowHeight }: { cellKey: string; dayNumber: number; outside: boolean; p: ViewProps; rowHeight?: number }) {
   const items = p.byDay.get(cellKey) ?? [];
   const meetings = meetingsOf(p, cellKey);
-  const max = chipSlots(rowHeight, items.length + meetings.length, isTouchScreen());
+  const steps = stepsOf(p, cellKey);
+  const max = chipSlots(rowHeight, items.length + meetings.length + steps.length, isTouchScreen());
   const shownMeetings = meetings.slice(0, max);
   const shown = items.slice(0, Math.max(0, max - shownMeetings.length));
+  const shownSteps = steps.slice(0, Math.max(0, max - shownMeetings.length - shown.length));
   const hiddenMeetings = meetings.length - shownMeetings.length;
-  const more = items.length - shown.length + hiddenMeetings;
-  const moreNoun = hiddenMeetings === 0 ? (more === 1 ? 'task' : 'tasks') : hiddenMeetings === more ? (more === 1 ? 'meeting' : 'meetings') : 'items';
+  const hiddenTasks = items.length - shown.length;
+  const hiddenSteps = steps.length - shownSteps.length;
+  const more = hiddenTasks + hiddenMeetings + hiddenSteps;
+  const moreNoun =
+    hiddenTasks === more ? (more === 1 ? 'task' : 'tasks') : hiddenMeetings === more ? (more === 1 ? 'meeting' : 'meetings') : hiddenSteps === more ? (more === 1 ? 'checklist item' : 'checklist items') : 'items';
   const isToday = cellKey === p.today;
   const drop = useDropTarget(cellKey, p.onDrop);
   return (
@@ -102,7 +120,7 @@ function MonthCell({ cellKey, dayNumber, outside, p, rowHeight }: { cellKey: str
         <button
           type="button"
           onClick={() => p.onOpenDay(cellKey)}
-          aria-label={`${dayLabel(cellKey)}${countLabel(items.length, meetings.length)}`}
+          aria-label={`${dayLabel(cellKey)}${countLabel(items.length, meetings.length, steps.length)}`}
           aria-current={isToday ? 'date' : undefined}
           className={`grid h-6 min-w-6 place-items-center rounded-full px-1 text-[13px] font-semibold tabular-nums transition-colors hover:bg-ground ${
             isToday ? 'bg-brand text-white hover:bg-brand' : outside ? 'text-ink-3' : 'text-ink'
@@ -120,6 +138,11 @@ function MonthCell({ cellKey, dayNumber, outside, p, rowHeight }: { cellKey: str
         {shown.map((item) => (
           <li key={item.key} className="min-w-0">
             <TaskChip item={item} color={p.colorOf(item.task.projectId)} draggable={p.canDrag(item)} onOpen={p.onOpen} lines={1} />
+          </li>
+        ))}
+        {shownSteps.map((s) => (
+          <li key={`cl:${s.id}`} className="min-w-0">
+            <StepChip p={p} item={s} lines={1} />
           </li>
         ))}
       </ul>
@@ -199,6 +222,7 @@ export function MobileMonth({ cursor, p, label, renderDayList }: { cursor: strin
             {week.map((cell) => {
               const items = p.byDay.get(cell.key) ?? [];
               const meetings = meetingsOf(p, cell.key);
+              const steps = stepsOf(p, cell.key);
               const isToday = cell.key === p.today;
               const isChosen = cell.key === chosen;
               return (
@@ -206,7 +230,7 @@ export function MobileMonth({ cursor, p, label, renderDayList }: { cursor: strin
                   <button
                     type="button"
                     onClick={() => setSelected(cell.key)}
-                    aria-label={`${dayLabel(cell.key)}${countLabel(items.length, meetings.length)}`}
+                    aria-label={`${dayLabel(cell.key)}${countLabel(items.length, meetings.length, steps.length)}`}
                     aria-current={isToday ? 'date' : undefined}
                     aria-pressed={isChosen}
                     className={`flex h-12 w-full flex-col items-center justify-center gap-1 rounded-lg text-sm font-semibold tabular-nums transition-colors ${
@@ -220,6 +244,9 @@ export function MobileMonth({ cursor, p, label, renderDayList }: { cursor: strin
                       ))}
                       {items.slice(0, Math.max(0, 3 - meetings.length)).map((i) => (
                         <span key={i.key} className={`h-1.5 w-1.5 rounded-full ${isChosen ? 'bg-white' : STATUS_META[i.status].dot}`} />
+                      ))}
+                      {steps.slice(0, Math.max(0, 3 - meetings.length - items.length)).map((s) => (
+                        <span key={`cl:${s.id}`} className={`h-1.5 w-1.5 rounded-[1px] border ${isChosen ? 'border-white' : 'border-ink-2'}`} />
                       ))}
                     </span>
                   </button>
@@ -252,6 +279,7 @@ export function WeekView({ cursor, p, phone, meta, fit = false }: { cursor: stri
 function WeekDay({ day, p, phone, meta, fit }: { day: string; p: ViewProps; phone: boolean; meta: (item: CalItem) => ReactNode; fit: boolean }) {
   const items = p.byDay.get(day) ?? [];
   const meetings = meetingsOf(p, day);
+  const steps = stepsOf(p, day);
   const isToday = day === p.today;
   const drop = useDropTarget(day, p.onDrop);
   return (
@@ -264,14 +292,14 @@ function WeekDay({ day, p, phone, meta, fit }: { day: string; p: ViewProps; phon
       <button
         type="button"
         onClick={() => p.onOpenDay(day)}
-        aria-label={`${dayLabel(day)}${countLabel(items.length, meetings.length)}`}
+        aria-label={`${dayLabel(day)}${countLabel(items.length, meetings.length, steps.length)}`}
         aria-current={isToday ? 'date' : undefined}
         className={`flex items-baseline justify-between rounded-md px-1.5 py-1 text-start transition-colors hover:bg-ground [@media(pointer:coarse)]:!min-h-11 [@media(pointer:coarse)]:items-center ${isToday ? 'text-brand' : 'text-ink'}`}
       >
         <span className="text-xs font-bold uppercase tracking-wide">{dayLabel(day, { weekday: 'short' })}{isToday ? ' · Today' : ''}</span>
         <span className="text-sm font-semibold tabular-nums">{dayLabel(day, { day: 'numeric', month: 'short' })}</span>
       </button>
-      {items.length === 0 && meetings.length === 0 ? (
+      {items.length === 0 && meetings.length === 0 && steps.length === 0 ? (
         <p className="px-1.5 text-xs text-ink-3">Nothing due</p>
       ) : (
         <ul className={`flex flex-col gap-1 ${fit ? 'min-h-0 flex-1 overflow-y-auto overscroll-contain' : ''}`}>
@@ -283,6 +311,11 @@ function WeekDay({ day, p, phone, meta, fit }: { day: string; p: ViewProps; phon
           {items.map((item) => (
             <li key={item.key}>
               <TaskChip item={item} color={p.colorOf(item.task.projectId)} draggable={p.canDrag(item)} onOpen={p.onOpen} meta={meta(item)} />
+            </li>
+          ))}
+          {steps.map((s) => (
+            <li key={`cl:${s.id}`}>
+              <StepChip p={p} item={s} />
             </li>
           ))}
         </ul>
@@ -310,7 +343,7 @@ export function AgendaView({
   const [showEarlier, setShowEarlier] = useState(false);
   const [allOverdue, setAllOverdue] = useState(false);
   const overdueShown = allOverdue ? overdue : overdue.slice(0, OVERDUE_PREVIEW);
-  const days = [...new Set([...p.byDay.keys(), ...(p.meetingsByDay?.keys() ?? [])])].filter((d) => d >= from && d <= to).sort();
+  const days = [...new Set([...p.byDay.keys(), ...(p.meetingsByDay?.keys() ?? []), ...(p.checklistByDay?.keys() ?? [])])].filter((d) => d >= from && d <= to).sort();
   const hasToday = p.today >= from && p.today <= to;
   const earlier = hasToday ? days.filter((d) => d < p.today) : [];
   const listed = hasToday && !showEarlier ? days.filter((d) => d >= p.today) : days;
@@ -355,6 +388,11 @@ export function AgendaView({
                 </li>
               ))}
               {items.map(chip)}
+              {stepsOf(p, d).map((s) => (
+                <li key={`cl:${s.id}`}>
+                  <StepChip p={p} item={s} />
+                </li>
+              ))}
             </ul>
           </section>
         );
