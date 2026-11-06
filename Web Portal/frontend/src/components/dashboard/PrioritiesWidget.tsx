@@ -41,8 +41,11 @@ import { MergedToast } from '../task-merge/MergedToast';
 
 const messageOf = (e: unknown, fallback: string) => (e instanceof Error && e.message ? e.message : fallback);
 /** A quick action's button: small, finger-sized on a touch screen. */
-const ACTION =
-  'inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1 text-xs font-semibold text-ink transition-colors hover:border-brand/30 hover:bg-ground disabled:opacity-60 [@media(pointer:coarse)]:!min-h-11 [@media(pointer:coarse)]:px-3';
+const ACTION_SHAPE =
+  'inline-flex items-center justify-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-semibold transition-colors disabled:opacity-60 [@media(pointer:coarse)]:!min-h-11 [@media(pointer:coarse)]:px-3';
+const ACTION = `${ACTION_SHAPE} border-line bg-surface text-ink hover:border-brand/30 hover:bg-ground`;
+/** The row's main action (Approve). */
+const ACTION_MAIN = `${ACTION_SHAPE} border-brand bg-brand text-white hover:bg-brand-2`;
 /** A small menu beside its button (Reschedule, Assign). */
 const POPOVER = 'rounded-xl border border-line bg-surface shadow-lift';
 const MENU_ITEM = `flex w-full items-center justify-between gap-4 rounded-lg px-3 py-2 text-start text-sm text-ink hover:bg-ground focus-visible:bg-ground ${TOUCH_TALL}`;
@@ -466,10 +469,11 @@ function PriorityItem({ row, today, weekStart, busy, locked, problem, onOpenTask
         ) : null}
       </div>
 
-      <div className="flex flex-none flex-wrap items-center gap-1.5" aria-label={`Actions for ${label}`} role="group">
+      {/* Two to a row on a phone (finger-sized, nothing left alone on a line), in one line on a wide screen. */}
+      <div className="grid flex-none grid-cols-2 items-center gap-1.5 md:flex md:flex-wrap" aria-label={`Actions for ${label}`} role="group">
         {row.kind === 'approval' && t ? (
           <>
-            <button type="button" className={`${ACTION} border-brand bg-brand text-white hover:bg-brand-2 hover:text-white`} aria-label={approveLabel(t.key)} disabled={disabled} onClick={() => onApprove(t)}>
+            <button type="button" className={ACTION_MAIN} aria-label={approveLabel(t.key)} disabled={disabled} onClick={() => onApprove(t)}>
               {busy ? 'Approving…' : 'Approve'}
             </button>
             <button type="button" className={ACTION} aria-label={sendBackLabel(t.key)} disabled={disabled} onClick={() => onSendBack(t)}>
@@ -480,7 +484,7 @@ function PriorityItem({ row, today, weekStart, busy, locked, problem, onOpenTask
         {row.kind === 'task' && t ? (
           <>
             {t.blockers.length > 0 ? (
-              <span className="inline-flex items-center gap-1 text-xs text-ink-2">
+              <span className="inline-flex items-center justify-center gap-1 text-xs text-ink-2">
                 Blocked by <TaskKeyButton value={t.blockers[0]!.key} onClick={() => onOpenTask(t.blockers[0]!.id)} />
               </span>
             ) : t.can.complete ? (
@@ -550,7 +554,8 @@ function RescheduleMenu({ label, today, weekStart, value, disabled, onPick }: { 
         <CalendarIcon /> Reschedule
       </button>
       {open ? (
-        <AnchoredPopover anchor={anchor} label={`Reschedule ${label}`} onClose={close} className={`${POPOVER} ${picking ? 'w-[min(19rem,calc(100vw-1rem))] p-3' : 'w-64 p-1.5'}`}>
+        // A new popover for the month calendar, so it is placed for its own size (a phone's edge too).
+        <AnchoredPopover key={picking ? 'month' : 'days'} anchor={anchor} label={`Reschedule ${label}`} onClose={close} className={`${POPOVER} ${picking ? 'w-[min(19rem,calc(100vw-1rem))] p-3' : 'w-64 p-1.5'}`}>
           <p data-popover-heading tabIndex={-1} className="px-3 pb-1 pt-1.5 text-xs font-semibold uppercase tracking-wide text-ink-2">
             {picking ? 'Pick a date' : 'Reschedule to'}
           </p>

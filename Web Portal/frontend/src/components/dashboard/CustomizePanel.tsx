@@ -146,7 +146,7 @@ function WidgetRow({ place, first, last, onMove, onToggle, onSize }: { place: Wi
       ref={setNodeRef}
       style={style}
       data-widget-row={place.id}
-      className={`flex flex-wrap items-center gap-2 rounded-xl border bg-surface p-2 ${isDragging ? 'border-brand/40 shadow-lift' : 'border-line'} ${place.hidden ? 'opacity-70' : ''}`}
+      className={`flex flex-wrap items-center gap-2 rounded-xl border p-2 ${isDragging ? 'border-brand/40 shadow-lift' : 'border-line'} ${place.hidden ? 'border-dashed bg-ground' : 'bg-surface'}`}
     >
       <button
         type="button"
@@ -164,9 +164,9 @@ function WidgetRow({ place, first, last, onMove, onToggle, onSize }: { place: Wi
           <circle cx="15" cy="18" r="1.6" />
         </svg>
       </button>
-      <span className={`min-w-0 flex-1 basis-32 truncate text-sm font-medium ${place.hidden ? 'text-ink-2 line-through decoration-ink-3' : 'text-ink'}`}>
-        {name}
-        {place.hidden ? <span className="sr-only"> (hidden)</span> : null}
+      <span className="flex min-w-0 flex-1 basis-32 items-center gap-2 text-sm font-medium text-ink">
+        <span className="truncate">{name}</span>
+        {place.hidden ? <span className="flex-none rounded-md bg-surface px-1.5 py-0.5 text-[11px] font-semibold text-ink-2">Hidden</span> : null}
       </span>
       <div className="flex flex-none items-center gap-1.5">
         <button type="button" className={SMALL_BUTTON} aria-label={`Move ${name} up`} disabled={first} onClick={() => onMove(-1)}>
