@@ -156,6 +156,9 @@ model User {
   phone            String?         @db.VarChar(40)
   /// A client's projects in the Client portal, each with its ticked modules and actions.
   clientGrants     ClientProjectGrant[]
+  /// 1.23.6: the searches this person saved, and the saved searches they pinned to the side menu.
+  savedSearches    SavedSearch[]    @relation("SavedSearchOwner")
+  savedSearchPins  SavedSearchPin[] @relation("SavedSearchPinner")
 
   @@index([status])
   @@index([departmentId])
@@ -299,6 +302,8 @@ model Project {
   companies      ProjectCompany[]
   /// 1.23: the client accounts that may open this project in the Client portal.
   clientGrants   ClientProjectGrant[]
+  /// 1.23.6: saved searches shared with this project's team.
+  savedSearches  SavedSearch[]
 
   @@index([status])
   @@index([managerId])
@@ -605,6 +610,45 @@ model SearchEmbedding {
   @@id([kind, recordId])
   @@index([model])
   @@map("search_embeddings")
+}
+
+/// 1.23.6 Saved searches: a person's search — the words as typed, the page's filters and the reader's
+/// chips taken off — under a name. It may be shared with one project's team (they use and pin it, never
+/// change it). It is read again whenever it runs, for whoever runs it ("me" is them), so its results
+/// always follow each person's own access.
+model SavedSearch {
+  id        String    @id @default(cuid())
+  ownerId   String
+  name      String    @db.VarChar(80)
+  q         String    @db.VarChar(200)
+  /// The page's filters: type, projectId, status, person, from, to, done, archived, off (chips taken off), plain.
+  filters   Json?
+  /// Shared with this project's team; null: its owner's alone.
+  projectId String?
+  sharedAt  DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  owner     User             @relation("SavedSearchOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  project   Project?         @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  pins      SavedSearchPin[]
+
+  @@index([ownerId])
+  @@index([projectId])
+  @@map("saved_searches")
+}
+
+/// 1.23.6: a saved search pinned to someone's side menu (up to 5 each: their own, or one shared with them).
+model SavedSearchPin {
+  userId        String
+  savedSearchId String
+  position      Int         @default(0)
+  createdAt     DateTime    @default(now())
+  user          User        @relation("SavedSearchPinner", fields: [userId], references: [id], onDelete: Cascade)
+  savedSearch   SavedSearch @relation(fields: [savedSearchId], references: [id], onDelete: Cascade)
+
+  @@id([userId, savedSearchId])
+  @@index([savedSearchId])
+  @@map("saved_search_pins")
 }
 
 /// A task's old key, kept when it moved to another project (RIG-4 became OPS-17): looking up RIG-4

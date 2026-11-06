@@ -36,7 +36,7 @@ async function makeApp(opts: { searchPerMinute?: number } = {}) {
       engine: {
         async search(input): Promise<SearchAllResult> {
           calls.push(input);
-          return { hits: [hit('task', 't1'), hit('note', 'n1')], next: input.offset ? null : { offset: 2, extra: false }, corrected: [], ...(input.withCounts ? { counts: { task: 1, project: 0, meeting: 0, note: 1, minutes: 0, file: 0, inspection: 0 }, total: 2, totalCapped: false } : {}) };
+          return { hits: [hit('task', 't1'), hit('note', 'n1')], next: input.offset ? null : { offset: 2, extra: false }, corrected: [], ...(input.withCounts ? { counts: { task: 1, project: 0, meeting: 0, note: 1, minutes: 0, file: 0, inspection: 0, checklist: 0, contact: 0 }, total: 2, totalCapped: false } : {}) };
         },
       },
       scope: { async forViewer(viewer, pick) { scopes.push({ viewer: viewer.id, pick }); return scope; } },

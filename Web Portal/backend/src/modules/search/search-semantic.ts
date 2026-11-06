@@ -11,6 +11,12 @@ import type { SearchKind } from './search-types';
  * keeps only when the person may see them (search-engine `only`), like every other result.
  */
 
+/**
+ * 1.23.6: the kinds given meaning vectors besides tasks — the 1.23 kinds. Checklist items, contacts,
+ * clients and client accounts are short names found by their words (no vectors made, none compared).
+ */
+export const MEANING_KINDS = ['project', 'meeting', 'note', 'minutes', 'file', 'inspection'] as const;
+
 /** The text a vector is made from: the title and this much of the rest. */
 const TEXT_CHARS = 1500;
 /** Items embedded per sweep run. */
@@ -52,7 +58,7 @@ export function createSemanticSearch({ prisma, ai, logger, now = () => new Date(
     const others = tasks.length >= limit ? [] : await prisma.$queryRaw<{ kind: string; id: string; head: Buffer; body: Buffer | null; hash: string | null; model: string | null }[]>`SELECT si.kind AS kind, si.recordId AS id, si.head AS head,
         (CASE WHEN si.kind = 'meeting' THEN si.limited ELSE si.doc END) AS body, e.textHash AS hash, e.model AS model
       FROM search_index si LEFT JOIN search_embeddings e ON e.kind = si.kind AND e.recordId = si.recordId
-      WHERE e.recordId IS NULL OR e.model <> ${model.id} OR e.embeddedAt < si.indexedAt LIMIT ${limit - tasks.length}`;
+      WHERE si.kind IN (${Prisma.join([...MEANING_KINDS])}) AND (e.recordId IS NULL OR e.model <> ${model.id} OR e.embeddedAt < si.indexedAt) LIMIT ${limit - tasks.length}`;
     const found = [...tasks.map((t) => ({ kind: 'task', id: t.id, text: textOf(t.head, t.body), hash: t.hash, model: t.model })), ...others.map((o) => ({ kind: o.kind, id: o.id, text: textOf(o.head, o.body), hash: o.hash, model: o.model }))];
     // Indexed again with the same text (review M3): the vector it has still holds — only its time moves on.
     const same = found.filter((f) => f.model === model.id && f.hash === hash(f.text));

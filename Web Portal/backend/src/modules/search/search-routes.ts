@@ -12,11 +12,22 @@ import type { SearchAllInput, SearchAllResult } from './search-engine';
 import type { SearchScopeAll } from './search-scope';
 import type { AiSearchAnswer, AiSearchFilters } from './search-ai';
 import type { SearchViewer } from './task-search-scope';
+import { savedSearchBody, type SavedSearches, type SavedSearchView } from './saved-searches';
+import { READER_CHIP_KEYS, readQuery, type ReaderChip, type ReaderChipKey, type ReaderContext, type ReaderFilters } from './search-reader';
 
 /** 1.23 Search everything: the engine, the person's scope and the AI panel (see search-engine, search-ai). */
 export interface SearchEverythingDeps {
-  engine: { search(input: SearchAllInput): Promise<SearchAllResult> };
+  engine: {
+    search(input: SearchAllInput): Promise<SearchAllResult>;
+    /** 1.23.6: how many items a search finds (the top bar's "→ 7", a saved search's count). */
+    count?(input: SearchAllInput): Promise<{ total: number; capped: boolean }>;
+  };
   scope: { forViewer(viewer: SearchViewer, pick: string | null): Promise<SearchScopeAll> };
+  /**
+   * 1.23.6 The built-in reader's context for this person: today, the week's first day, and the projects
+   * and people they may see (`people`: those they may find, null = everyone). Absent: nothing is read.
+   */
+  reader?: (viewer: SearchViewer, pick: string | null, scope: SearchScopeAll, people: () => Promise<ReadonlySet<string> | null>) => Promise<ReaderContext>;
   ai?: {
     status(): Promise<{ ready: boolean; semantic: boolean }>;
     ask(input: { q: string; viewer: SearchViewer; scope: SearchScopeAll; filters: AiSearchFilters }): Promise<AiSearchAnswer>;
@@ -39,6 +50,8 @@ const csv = <T extends string>(values: readonly [T, ...T[]]) =>
     .transform((v) => (v ? v.split(',').map((s) => s.trim()).filter(Boolean) : undefined))
     .pipe(z.array(z.enum(values)).optional());
 const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'A date like 2026-11-03.').optional();
+/** 1.23.6: the reader's chips taken off ("off=due,project"). */
+const offList = csv(READER_CHIP_KEYS);
 const allFilters = {
   type: csv(SEARCH_KINDS),
   projectId: z.string().min(1).max(64).optional(),
@@ -120,7 +133,14 @@ export interface SearchRouteDeps {
   perMinute?: number;
   /** 1.23.1: a part of a search that failed while the rest was shown is recorded here (the Error log). */
   logger?: { error(message: string, ctx?: Record<string, unknown>): void };
+  /** 1.23.6 Saved searches (with `everything`: their counts too). */
+  savedSearches?: SavedSearches;
 }
+
+/** 1.23.6: a saved search's count is kept this long (the side menu's pinned searches ask every minute). */
+export const SAVED_COUNT_TTL_MS = 60_000;
+/** At most this many saved searches are counted in one request. */
+export const MAX_COUNTED = 10;
 
 /** A person's searches a minute on each search route: well above typing in the top bar (a search per 250 ms pause). */
 export const SEARCHES_PER_MINUTE = 120;
@@ -160,8 +180,10 @@ export async function registerSearchRoutes(app: FastifyInstance, deps: SearchRou
       admin && deps.myProjectsOnly ? deps.myProjectsOnly(viewer) : Promise.resolve(false),
     ]);
     const everything = deps.everything;
+    // 1.23.6: what the reader understood, and how many items that finds ("Tasks · Overdue · MICO · Assigned to me → 7").
+    const understood = everything?.reader && everything.engine.count ? understoodRow(everything, viewer, pick, q).catch(() => undefined) : Promise.resolve(undefined);
     // 1.23: the top bar also shows the best few notes, minutes, files and inspections (never holding it up on a failure).
-    const [found, more] = await Promise.all([
+    const [found, more, row] = await Promise.all([
       // 1.23.1: the task search failing leaves the rest (`tasksUnavailable`, recorded once).
       searchService.search(q, { allowedProjectIds, userId: viewer.id, pick, admin: admin && !mineOnly, people, companyIds }, { onTasksFailed: partFailed(req, 'tasks') }),
       everything && parseTaskQuery(q).terms.length
@@ -179,9 +201,102 @@ export async function registerSearchRoutes(app: FastifyInstance, deps: SearchRou
               },
             )
         : Promise.resolve(null),
+      understood,
     ]);
-    return { data: more ? { ...found, more } : found };
+    return { data: { ...found, ...(more ? { more } : {}), ...(row ? { understood: row } : {}) } };
   });
+
+  /** The top bar's first row: only when something was read. */
+  /**
+   * 1.23.6 Saved searches: the person's own and those shared with their teams; save, rename, re-save,
+   * delete, share with a team (owner only), pin (up to 5), and each one's count — the saved search run
+   * for whoever asks, kept for a minute.
+   */
+  function registerSaved(saved: SavedSearches, everything: SearchEverythingDeps): void {
+    const own = { preHandler: guard.authenticate };
+    const viewerOf = (req: FastifyRequest) => ({ id: req.user!.id, roles: req.user!.roles ?? [] });
+    const idParam = z.object({ id: z.string().min(1).max(64) });
+    app.get('/search/saved', own, async (req) => ({ data: await saved.list(viewerOf(req)) }));
+    app.get('/search/saved/share-options', own, async (req) => ({ data: await saved.shareOptions(viewerOf(req)) }));
+    app.post('/search/saved', own, async (req, reply) => {
+      const created = await saved.create(viewerOf(req), savedSearchBody.parse(req.body ?? {}));
+      reply.code(201);
+      return { data: created };
+    });
+    app.patch('/search/saved/:id', own, async (req) => {
+      const { id } = idParam.parse(req.params);
+      return { data: await saved.update(viewerOf(req), id, savedSearchBody.partial().parse(req.body ?? {})) };
+    });
+    app.delete('/search/saved/:id', own, async (req, reply) => {
+      const { id } = idParam.parse(req.params);
+      await saved.remove(viewerOf(req), id);
+      reply.code(204);
+      return null;
+    });
+    app.put('/search/saved/:id/share', own, async (req) => {
+      const { id } = idParam.parse(req.params);
+      const { projectId } = z.object({ projectId: z.string().min(1).max(64).nullable() }).parse(req.body ?? {});
+      return { data: await saved.share(viewerOf(req), id, projectId) };
+    });
+    app.put('/search/saved/:id/pin', own, async (req) => {
+      const { id } = idParam.parse(req.params);
+      const { pinned } = z.object({ pinned: z.boolean() }).parse(req.body ?? {});
+      return { data: await saved.pin(viewerOf(req), id, pinned) };
+    });
+
+    const kept = new Map<string, { at: number; value: { total: number; capped: boolean } }>();
+    const countOf = async (viewer: SearchViewer, pick: string | null, s: SavedSearchView): Promise<{ total: number; capped: boolean }> => {
+      const key = `${viewer.id}|${pick ?? ''}|${s.id}|${s.updatedAt}`;
+      const hit = kept.get(key);
+      if (hit && Date.now() - hit.at < SAVED_COUNT_TTL_MS) return hit.value;
+      const scope = await everything.scope.forViewer(viewer, pick);
+      const f = s.filters;
+      const read = await readFor(everything, viewer, pick, scope, s.q, f.off ?? [], f.plain ?? false);
+      const input = engineInput(everything.timeZone, read?.ctx ?? null, viewer.id, { q: s.q, ...(f.type ? { type: [f.type] } : {}), projectId: f.projectId, ...(f.status ? { status: [f.status] } : {}), done: f.done, person: f.person, from: f.from, to: f.to, archived: f.archived }, read);
+      const value = everything.engine.count && (input.browse || parseTaskQuery(input.q).terms.length) ? await everything.engine.count({ ...input, scope, viewerId: viewer.id, limit: 1 }) : { total: 0, capped: false };
+      if (kept.size >= 5000) kept.clear();
+      kept.set(key, { at: Date.now(), value });
+      return value;
+    };
+    const idsQuery = z.object({
+      ids: z
+        .string()
+        .max(800)
+        .transform((v) => [...new Set(v.split(',').map((x) => x.trim()).filter(Boolean))])
+        .pipe(z.array(z.string().min(1).max(64)).min(1).max(MAX_COUNTED)),
+    });
+    /** Counts of these saved searches (the side menu's pinned ones): one the person may not use is left out. */
+    app.get('/search/saved/counts', searchRoute, async (req) => {
+      const { ids } = idsQuery.parse(req.query);
+      const viewer = viewerOf(req);
+      const pick = await pickOf(req);
+      const out: Record<string, { total: number; capped: boolean }> = {};
+      for (const id of ids) {
+        const s = await saved.usable(viewer, id).catch(() => null);
+        if (s) out[id] = await countOf(viewer, pick, s);
+      }
+      return { data: out };
+    });
+  }
+
+  async function understoodRow(everything: SearchEverythingDeps, viewer: SearchViewer, pick: string | null, q: string): Promise<(Understood & { total: number; capped: boolean }) | undefined> {
+    if (!q.trim()) return undefined;
+    const scope = await everything.scope.forViewer(viewer, pick);
+    const read = await readFor(everything, viewer, pick, scope, q, [], false);
+    if (!read || read.understood.chips.length === 0) return undefined;
+    const input = engineInput(everything.timeZone, read.ctx, viewer.id, { q }, read);
+    const counted = await everything.engine.count!({ ...input, scope, viewerId: viewer.id, limit: 1 });
+    return { ...read.understood, total: counted.total, capped: counted.capped };
+  }
+
+  /** The reader's reading of the words, for this person (null: not read — plain words asked for, or no reader). */
+  async function readFor(everything: SearchEverythingDeps, viewer: SearchViewer, pick: string | null, scope: SearchScopeAll, q: string, off: readonly ReaderChipKey[], plain: boolean): Promise<Reading | null> {
+    if (plain || !everything.reader || !q.trim()) return null;
+    const ctx = await everything.reader(viewer, pick, scope, () => (deps.peopleFor ? deps.peopleFor(viewer, pick) : Promise.resolve(null)));
+    const all = readQuery(q, ctx);
+    const read = off.length ? readQuery(q, ctx, { off }) : all;
+    return { ctx, read, understood: { chips: read.chips, words: read.words, removed: all.chips.filter((c) => off.includes(c.key)).map((c) => ({ key: c.key, label: c.label })) } };
+  }
 
   const taskSearch = deps.taskSearch;
   if (taskSearch) registerTaskSearch(taskSearch);
@@ -221,24 +336,15 @@ export async function registerSearchRoutes(app: FastifyInstance, deps: SearchRou
 
   function registerEverything(everything: SearchEverythingDeps): void {
     const tz = everything.timeZone;
-    const startOf = (dayKey: string) => zonedStartOfDay(dayKey, tz);
-    /** The page's filters, as the engine and the AI panel take them ("me" is the person). */
-    const filtersOf = (p: { type?: SearchKind[]; projectId?: string; done?: boolean; person?: string; from?: string; to?: string; archived?: boolean }, userId: string): AiSearchFilters => ({
-      ...(p.type?.length ? { kinds: p.type } : {}),
-      ...(p.projectId ? { projectId: p.projectId } : {}),
-      ...(p.done !== undefined ? { done: p.done } : {}),
-      ...(p.person ? { personId: p.person === 'me' ? userId : p.person } : {}),
-      // Company days: "to 7 Nov" includes all of 7 Nov; a task's due date by its calendar day (UTC midnight).
-      ...(p.from ? { from: startOf(p.from), dueFrom: new Date(`${p.from}T00:00:00Z`) } : {}),
-      ...(p.to ? { to: startOf(shiftDayKey(p.to, 1)), dueTo: new Date(`${shiftDayKey(p.to, 1)}T00:00:00Z`) } : {}),
-      ...(p.archived ? { includeArchived: true } : {}),
-    });
 
     const allQuery = z.object({
       q: z.string().max(MAX_QUERY).default(''),
       ...allFilters,
       done: flag.optional(),
       archived: flag.optional(),
+      // 1.23.6: the reader's chips taken off, and "Search the words instead".
+      off: offList,
+      plain: flag.optional(),
       limit: z.coerce.number().int().min(1).max(50).default(ALL_PAGE_SIZE),
       cursor: z.string().max(40).optional(),
     });
@@ -253,12 +359,14 @@ export async function registerSearchRoutes(app: FastifyInstance, deps: SearchRou
       const { offset, extra } = decodeAllCursor(p.cursor);
       const first = offset === 0 && !extra;
       const viewer = { id: req.user!.id, roles: req.user!.roles ?? [] };
+      const pick = await pickOf(req);
+      const scope = await everything.scope.forViewer(viewer, pick); // companies: the pick
+      // 1.23.6: the words as typed are read (unless plain words were asked for); the engine gets what is left.
+      const read = await readFor(everything, viewer, pick, scope, p.q, p.off ?? [], p.plain ?? false);
       const result = await everything.engine.search({
-        q: p.q,
-        scope: await everything.scope.forViewer(viewer, await pickOf(req)), // companies: the pick
+        ...engineInput(tz, read?.ctx ?? null, viewer.id, p, read),
+        scope,
         viewerId: viewer.id,
-        ...filtersOf(p, viewer.id),
-        ...(p.status?.length ? { taskStatuses: p.status } : {}),
         limit: p.limit,
         offset,
         extra,
@@ -272,8 +380,11 @@ export async function registerSearchRoutes(app: FastifyInstance, deps: SearchRou
         corrected: result.corrected,
         ...(result.counts ? { counts: result.counts, total: result.total ?? result.hits.length, totalCapped: result.totalCapped ?? false } : {}),
         ...(result.tasksUnavailable ? { tasksUnavailable: true } : {}),
+        ...(first ? { understood: read ? read.understood : null } : {}),
       };
     });
+
+    if (deps.savedSearches) registerSaved(deps.savedSearches, everything);
 
     const ai = everything.ai;
     if (!ai) return;
@@ -282,6 +393,9 @@ export async function registerSearchRoutes(app: FastifyInstance, deps: SearchRou
 
     const askBody = z.object({
       q: z.string().trim().min(2).max(300),
+      // 1.23.6: as the results page reads the question (its chips taken off, or plain words).
+      off: z.array(z.enum(READER_CHIP_KEYS)).max(READER_CHIP_KEYS.length).optional(),
+      plain: z.boolean().optional(),
       type: z.union([z.array(z.enum(SEARCH_KINDS)), z.string()]).optional(),
       projectId: z.string().min(1).max(64).optional(),
       done: z.boolean().optional(),
@@ -295,10 +409,95 @@ export async function registerSearchRoutes(app: FastifyInstance, deps: SearchRou
       const b = askBody.parse(req.body ?? {});
       const type = typeof b.type === 'string' ? z.array(z.enum(SEARCH_KINDS)).parse(b.type.split(',').map((s) => s.trim()).filter(Boolean)) : b.type;
       const viewer = { id: req.user!.id, roles: req.user!.roles ?? [] };
-      const scope = await everything.scope.forViewer(viewer, await pickOf(req));
-      return { data: await ai.ask({ q: b.q, viewer, scope, filters: filtersOf({ ...b, type }, viewer.id) }) };
+      const pick = await pickOf(req);
+      const scope = await everything.scope.forViewer(viewer, pick);
+      // 1.23.6: the AI is given what the reader read as filters (the whole question still goes to it).
+      const read = await readFor(everything, viewer, pick, scope, b.q, b.off ?? [], b.plain ?? false);
+      const { q: _words, browse: _browse, ...filters } = engineInput(tz, read?.ctx ?? null, viewer.id, { ...b, type }, read);
+      void _words;
+      void _browse;
+      return { data: await ai.ask({ q: b.q, viewer, scope, filters }) };
     });
   }
+}
+
+/** 1.23.6: what the reader understood, as the page shows it — and the chips taken off ("Show 2 hidden filters"). */
+export interface Understood {
+  chips: ReaderChip[];
+  words: string;
+  removed: { key: ReaderChipKey; label: string }[];
+}
+interface Reading {
+  ctx: ReaderContext;
+  read: { chips: ReaderChip[]; words: string; filters: ReaderFilters };
+  understood: Understood;
+}
+
+/** The page's own filters (GET /search/all, the AI panel's body). */
+interface PageFilters {
+  q: string;
+  type?: SearchKind[];
+  projectId?: string;
+  status?: string[];
+  done?: boolean;
+  person?: string;
+  from?: string;
+  to?: string;
+  archived?: boolean;
+}
+
+/**
+ * 1.23.6 What the engine is asked: the words left by the reader (or as typed), the page's own filters,
+ * and the reader's where the page sets none — "me" is whoever searches. A chip the page's filter
+ * overrides is not shown. With no words but a filter, every item the filters hold (`browse`).
+ */
+export function engineInput(timeZone: string, ctx: ReaderContext | null, viewerId: string, p: PageFilters, reading: Reading | null): Omit<SearchAllInput, 'scope' | 'viewerId' | 'limit'> & AiSearchFilters & { q: string } {
+  const f: ReaderFilters = reading?.read.filters ?? {};
+  const startOf = (dayKey: string) => zonedStartOfDay(dayKey, timeZone);
+  const utcDay = (dayKey: string) => new Date(`${dayKey}T00:00:00Z`);
+  const me = (ids: string[]) => [...new Set(ids.map((id) => (id === 'me' ? viewerId : id)))];
+  // A chip the page's own filter overrides is left out of what was understood.
+  if (reading) {
+    const overridden = new Set<ReaderChipKey>([
+      ...(p.type?.length ? (['kind'] as const) : []),
+      ...(p.projectId ? (['project'] as const) : []),
+      ...(p.status?.length ? (['status'] as const) : []),
+      ...(p.done !== undefined ? (['done'] as const) : []),
+      ...(p.person ? (['mine'] as const) : []),
+      ...(p.from || p.to ? (['when'] as const) : []),
+    ]);
+    reading.understood.chips = reading.understood.chips.filter((c) => !overridden.has(c.key));
+  }
+  const from = p.from || p.to ? p.from : f.from;
+  const to = p.from || p.to ? p.to : f.to;
+  const due = f.due === 'overdue' && ctx ? { before: utcDay(ctx.today), open: true } : f.due === 'none' ? { none: true } : f.due && typeof f.due === 'object' ? { ...(f.due.from ? { from: utcDay(f.due.from) } : {}), ...(f.due.to ? { before: utcDay(shiftDayKey(f.due.to, 1)) } : {}) } : undefined;
+  const kinds = p.type?.length ? p.type : f.kinds;
+  const statuses = p.status?.length ? p.status : f.statuses;
+  const projectId = p.projectId ?? f.projectId;
+  const done = p.done ?? f.done;
+  const personId = p.person ? (p.person === 'me' ? viewerId : p.person) : f.mine ? viewerId : undefined;
+  const q = reading ? reading.read.words : p.q;
+  const out = {
+    q,
+    ...(kinds?.length ? { kinds } : {}),
+    ...(projectId ? { projectId } : {}),
+    ...(statuses?.length ? { taskStatuses: statuses } : {}),
+    ...(done !== undefined ? { done } : {}),
+    ...(personId ? { personId } : {}),
+    // Company days: "to 7 Nov" includes all of 7 Nov; a task's due date by its calendar day (UTC midnight).
+    ...(from ? { from: startOf(from), dueFrom: utcDay(from) } : {}),
+    ...(to ? { to: startOf(shiftDayKey(to, 1)), dueTo: utcDay(shiftDayKey(to, 1)) } : {}),
+    ...(p.archived ? { includeArchived: true } : {}),
+    ...(due ? { due } : {}),
+    ...(f.priorities?.length ? { priorities: f.priorities } : {}),
+    ...(f.approval ? { approval: true } : {}),
+    ...(Array.isArray(f.assignee) && f.assignee.length ? { assigneeIds: me(f.assignee) } : {}),
+    ...(f.assignee === 'none' ? { unassigned: true } : {}),
+    ...(f.creator?.length ? { creatorIds: me(f.creator) } : {}),
+    ...(f.organizer?.length ? { organizerIds: me(f.organizer) } : {}),
+  };
+  const filtered = Object.keys(out).some((k) => k !== 'q' && k !== 'includeArchived');
+  return { ...out, ...(parseTaskQuery(q).terms.length === 0 && filtered ? { browse: true } : {}) };
 }
 
 /** Search everything's next page: where it starts, and whether it is in the extra passes' list. */

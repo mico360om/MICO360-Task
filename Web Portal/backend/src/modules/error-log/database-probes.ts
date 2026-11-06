@@ -21,10 +21,13 @@ export function databaseProbes({
   timeZone,
   taskMerge,
   checklists,
+  searchIndex,
 }: {
   prisma: PrismaClient;
   taskSearch: Pick<TaskSearchEngine, 'search'>;
-  searchEngine?: Pick<SearchEngine, 'search'>;
+  searchEngine?: Pick<SearchEngine, 'search'> & Partial<Pick<SearchEngine, 'count' | 'describe'>>;
+  /** 1.23.6: the search index's own SQL for every kind (read only: its heal and fingerprint reads). */
+  searchIndex?: { probe(): Promise<void> };
   timeZone: string;
   /** 1.23.2 Merge tasks: its transaction, row locks and late-writes look (merge-service selfCheck). */
   taskMerge?: Pick<TaskMergeService, 'selfCheck'>;
@@ -45,7 +48,30 @@ export function databaseProbes({
       { name: 'search everything (the top bar’s notes and files)', run: () => searchEngine.search({ q: 'zzcheck', scope: nowhere, viewerId: NOWHERE, kinds: ['note', 'minutes', 'file', 'inspection'], limit: 1, exactOnly: true }) },
       { name: 'search everything (filters)', run: () => searchEngine.search({ q: 'zzcheck', scope: nowhere, viewerId: NOWHERE, limit: 1, withCounts: true, kinds: ['task'], taskStatuses: ['TODO'], done: false, personId: NOWHERE, projectId: NOWHERE, from: new Date(0), to: new Date(), includeArchived: true }) },
     );
+    // 1.23.6 Advanced search: the reader's filters, filters with no words, the new kinds and a saved search's count.
+    const admin: SearchScopeAll = { ...nowhere, clientAccounts: true };
+    const day = new Date(Date.UTC(2026, 0, 5));
+    probes.push(
+      { name: 'search everything (filters and no words: due, assignee)', run: () => searchEngine.search({ q: '', browse: true, scope: admin, viewerId: NOWHERE, limit: 1, withCounts: true, kinds: ['task', 'checklist'], due: { before: day, open: true }, assigneeIds: [NOWHERE] }) },
+      { name: 'search everything (priority, approval, unassigned, made by)', run: () => searchEngine.search({ q: 'zzcheck', scope: admin, viewerId: NOWHERE, limit: 1, withCounts: true, priorities: ['HIGH'], approval: true, unassigned: true, creatorIds: [NOWHERE], due: { from: day, before: day, none: true } }) },
+      { name: 'search everything (clients and contacts, checklist items, organised by)', run: async () => {
+        await searchEngine.search({ q: 'zzcheck', scope: admin, viewerId: NOWHERE, limit: 1, withCounts: true, kinds: ['contact', 'checklist'], projectId: NOWHERE, done: false, creatorIds: [NOWHERE] });
+        await searchEngine.search({ q: '', browse: true, scope: admin, viewerId: NOWHERE, limit: 1, withCounts: true, organizerIds: [NOWHERE], personId: NOWHERE, from: day, to: day });
+      } },
+    );
+    if (searchEngine.count) {
+      const count = searchEngine.count;
+      probes.push({ name: 'a saved search’s count', run: () => count({ q: '', browse: true, scope: admin, viewerId: NOWHERE, limit: 1, kinds: ['task'], due: { none: true } }) });
+    }
+    if (searchEngine.describe) {
+      const describe = searchEngine.describe;
+      probes.push({
+        name: 'search results: clients, accounts, contacts and checklist items',
+        run: () => describe([{ kind: 'contact', id: `client:${NOWHERE}` }, { kind: 'contact', id: `account:${NOWHERE}` }, { kind: 'contact', id: `contact:${NOWHERE}` }, { kind: 'checklist', id: NOWHERE }], [], () => true, { q: '', scope: admin, viewerId: NOWHERE, limit: 1, projectId: NOWHERE }),
+      });
+    }
   }
+  if (searchIndex) probes.push({ name: 'the search index (every kind’s heal and fingerprint)', run: () => searchIndex.probe() });
   const source = createPrismaManagementSource(prisma, timeZone);
   probes.push({
     name: 'the Management page',

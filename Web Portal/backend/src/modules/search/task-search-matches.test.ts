@@ -48,6 +48,16 @@ describe('describeMatches — where a task matched, for the results', () => {
     expect(labels(['rig-4'])).toEqual([['key', 'Former key']]);
   });
 
+  it('1.23.6: a checklist item names its checklist (“Checklist ‘Electrical’: Label circuits”)', () => {
+    const t = task({ lists: [{ title: 'Electrical' }], checklist: [{ text: 'Label circuits', done: false, listTitle: 'Electrical' }, { text: 'Label valves', done: false, listTitle: 'Checklist' }, { text: 'Label pipes', done: false, listTitle: null }] });
+    const r = describeMatches(t, ['label'], { timeZone: tz, max: 3 });
+    expect(r.matches.map((m) => [m.label, m.snippet])).toEqual([
+      ['Checklist ‘Electrical’', 'Label circuits'],
+      ['Checklist item', 'Label valves'],
+      ['Checklist item', 'Label pipes'],
+    ]);
+  });
+
   it('finds an external contact by any of their details, shown together', () => {
     for (const q of ['oxy', 'ahmed@oxy', '9912', 'al said']) {
       const [m] = describeMatches(task({ assignees: [] }), [q], { timeZone: tz }).matches;

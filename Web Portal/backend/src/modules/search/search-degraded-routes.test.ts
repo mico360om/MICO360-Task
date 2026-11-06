@@ -57,7 +57,7 @@ async function makeApp({ tasksFail = false, moreFails = false, allTasksFail = fa
             input.onTasksFailed?.(taskError);
             input.onTasksFailed?.(taskError);
           }
-          return { hits: [hit('note', 'n1')], next: null, corrected: [], ...(allTasksFail ? { tasksUnavailable: true as const } : {}), ...(input.withCounts ? { counts: { task: 0, project: 0, meeting: 0, note: 1, minutes: 0, file: 0, inspection: 0 }, total: 1, totalCapped: false } : {}) };
+          return { hits: [hit('note', 'n1')], next: null, corrected: [], ...(allTasksFail ? { tasksUnavailable: true as const } : {}), ...(input.withCounts ? { counts: { task: 0, project: 0, meeting: 0, note: 1, minutes: 0, file: 0, inspection: 0, checklist: 0, contact: 0 }, total: 1, totalCapped: false } : {}) };
         },
       },
       scope: { async forViewer() { return scope; } },

@@ -56,6 +56,28 @@ export interface SearchAllInput {
   dueFrom?: Date;
   dueTo?: Date;
   includeArchived?: boolean;
+  /**
+   * 1.23.6 (the reader): tasks' and checklist items' due dates — from / before (company days at UTC
+   * midnight, as they are stored), none at all, and `open` (overdue: not done). Every other kind is
+   * left out.
+   */
+  due?: { from?: Date; before?: Date; none?: boolean; open?: boolean };
+  /** 1.23.6: task priorities (tasks only). */
+  priorities?: string[];
+  /** 1.23.6: tasks waiting for approval (tasks only). */
+  approval?: boolean;
+  /** 1.23.6: assigned to any of these people — tasks and checklist items only; `unassigned`: to nobody. */
+  assigneeIds?: string[];
+  unassigned?: boolean;
+  /** 1.23.6: made by any of these people (tasks, projects, meetings, notes, files, external contacts). */
+  creatorIds?: string[];
+  /** 1.23.6: meetings (and their minutes) organised by any of these people. */
+  organizerIds?: string[];
+  /**
+   * 1.23.6: no words but filters (the reader's chips, a saved search): every item the filters hold, a
+   * page at a time. Without it a search with no words finds nothing (as before).
+   */
+  browse?: boolean;
   limit: number;
   /**
    * Security review (1.23): only items holding every word — no spelling or some-words pass, no counts
@@ -160,6 +182,21 @@ const tasksOf = <T>(input: SearchAllInput, work: Promise<T>, none: T): Promise<T
         return none;
       })
     : work;
+/**
+ * 1.23.6: the kinds of item search_index holds for each kind of result — "Clients & contacts" is three
+ * (a client organisation named on projects, a client portal account, an external contact on a task).
+ */
+const INDEX_KINDS_OF: Record<Exclude<SearchKind, 'task'>, IndexKind[]> = {
+  project: ['project'],
+  meeting: ['meeting'],
+  note: ['note'],
+  minutes: ['minutes'],
+  file: ['file'],
+  inspection: ['inspection'],
+  checklist: ['checklist'],
+  contact: ['client', 'account', 'contact'],
+};
+const anyIds = (col: Prisma.Sql, list: readonly string[]) => Prisma.sql`${col} IN (${ids(list)})`;
 const recency = (at: Prisma.Sql) => Prisma.sql`GREATEST(0, 25 - LEAST(25, ABS(DATEDIFF(${at}, NOW())) / 7))`;
 
 export function createSearchEngine({
@@ -174,7 +211,7 @@ export function createSearchEngine({
   /** Spellings a word may be a mistake for (the vocabulary), each stopping at `deadline`; absent: no spelling pass. */
   suggest?: (word: string, opts?: { deadline?: number }) => Promise<string[]>;
   /** An item the index was behind on: re-index it. */
-  onStale?: (kind: SearchKind, id: string) => void;
+  onStale?: (kind: 'task' | IndexKind, id: string) => void;
   /** The clock the spelling pass's deadline is on (the vocabulary's: performance.now). */
   clock?: () => number;
 }) {
@@ -182,8 +219,12 @@ export function createSearchEngine({
   function taskPart(pass: Pass, input: SearchAllInput, scored: boolean): Prisma.Sql | null {
     const kinds = input.kinds;
     if (kinds && !kinds.includes('task')) return null;
+    // Tasks have no organizer.
+    if (input.organizerIds?.length) return null;
     const onlyTasks = input.only?.filter((o) => o.kind === 'task').map((o) => o.id);
     if (onlyTasks && onlyTasks.length === 0) return null;
+    // 1.23.6: no words (filters only) — the tasks themselves, without the word index.
+    const noWords = pass.groups.length === 0 && !pass.byNumber;
     const prepared = !!input.deletedIds && (!!input.archivedIds || !!input.includeArchived);
     // visibleTasksSql's rule, with the deleted and archived projects read once for the search (the same
     // projects): no project row needs reading for each task.
@@ -194,7 +235,8 @@ export function createSearchEngine({
     const doc = Prisma.sql`si.doc`;
     const some = pass.min < pass.groups.length;
     const words = pass.min >= pass.groups.length ? allOf(doc, pass.groups) : Prisma.sql`${howMany(doc, pass.groups)} >= ${pass.min}`;
-    const where: Prisma.Sql[] = [visible, pass.byNumber ? Prisma.sql`(${words} OR ${pass.byNumber})` : words];
+    const where: Prisma.Sql[] = [visible];
+    if (!noWords) where.push(pass.byNumber ? Prisma.sql`(${words} OR ${pass.byNumber})` : words);
     if (onlyTasks) where.push(Prisma.sql`t.id IN (${Prisma.join(onlyTasks)})`);
     if (input.projectId) where.push(Prisma.sql`t.projectId = ${input.projectId}`);
     if (input.taskStatuses?.length) where.push(Prisma.sql`c.category IN (${Prisma.join(input.taskStatuses)})`);
@@ -207,14 +249,28 @@ export function createSearchEngine({
     const dueTo = input.dueTo ?? input.to;
     if (dueFrom) where.push(Prisma.sql`t.dueDate >= ${dueFrom}`);
     if (dueTo) where.push(Prisma.sql`t.dueDate < ${dueTo}`);
+    // 1.23.6: the reader's filters.
+    if (input.due?.none) where.push(Prisma.sql`t.dueDate IS NULL`);
+    if (input.due?.from) where.push(Prisma.sql`t.dueDate >= ${input.due.from}`);
+    if (input.due?.before) where.push(Prisma.sql`t.dueDate < ${input.due.before}`);
+    if (input.due?.open) where.push(Prisma.sql`NOT ${done}`);
+    if (input.priorities?.length) where.push(Prisma.sql`t.priority IN (${Prisma.join(input.priorities)})`);
+    if (input.approval) where.push(Prisma.sql`t.approvalRequestedAt IS NOT NULL`);
+    if (input.assigneeIds?.length) where.push(Prisma.sql`EXISTS (SELECT 1 FROM task_assignees a WHERE a.taskId = t.id AND ${anyIds(Prisma.sql`a.userId`, input.assigneeIds)})`);
+    if (input.unassigned) where.push(Prisma.sql`NOT EXISTS (SELECT 1 FROM task_assignees a WHERE a.taskId = t.id)`);
+    if (input.creatorIds?.length) where.push(anyIds(Prisma.sql`t.createdById`, input.creatorIds));
     const score = scored
-      ? Prisma.sql`(${pass.byNumber ?? Prisma.sql`FALSE`}) * 1000
-        + (${allOf(Prisma.sql`si.head`, pass.groups)}) * 200 + ${howMany(Prisma.sql`si.head`, pass.groups)} * 20 + (${wordStarts(pass.groups)}) * 50
+      ? Prisma.sql`${pass.byNumber ? Prisma.sql`(${pass.byNumber}) * 1000 + ` : Prisma.empty}(${allOf(Prisma.sql`si.head`, pass.groups)}) * 200 + ${howMany(Prisma.sql`si.head`, pass.groups)} * 20 + (${wordStarts(pass.groups)}) * 50
         + ${pass.phrase ? Prisma.sql`(si.head LIKE ${like(pass.phrase)} ESCAPE '!') * 100 + (si.doc LIKE ${like(pass.phrase)} ESCAPE '!') * 300` : Prisma.sql`0`}
         + (${allOf(Prisma.sql`COALESCE(si.lead, '')`, pass.groups)}) * 80
         + ${some ? Prisma.sql`${howMany(doc, pass.groups)} * 40` : Prisma.sql`0`} + 10
         + (NOT ${done}) * 30 + (${input.mine ? inList(Prisma.sql`t.id`, input.mine.tasks) : assigned(input.viewerId)}) * 15 + ${recency(Prisma.sql`t.updatedAt`)}`
       : Prisma.sql`0`;
+    if (noWords) {
+      return Prisma.sql`SELECT 'task' AS kind, t.id AS id, ${score} AS score, t.updatedAt AS at
+      FROM tasks t ${prepared ? Prisma.empty : Prisma.sql`JOIN projects p ON p.id = t.projectId`} JOIN kanban_columns c ON c.id = t.columnId
+      WHERE ${Prisma.join(where, ' AND ')}`;
+    }
     // The index first (one quick pass over the words), then only the matching tasks are read: left to
     // itself the planner reads every task of every project first.
     return Prisma.sql`SELECT 'task' AS kind, t.id AS id, ${score} AS score, t.updatedAt AS at
@@ -222,10 +278,23 @@ export function createSearchEngine({
       WHERE ${Prisma.join(where, ' AND ')}`;
   }
 
-  /** The other half: projects, meetings, notes, minutes, files and inspections this person may see. */
+  /**
+   * The other half: projects, meetings, notes, minutes, files and inspections this person may see — and
+   * (1.23.6) checklist items, external contacts on tasks they may open, client organisations named on
+   * projects they may see, and client portal accounts (administrators only).
+   */
   function indexPart(pass: Pass, input: SearchAllInput, scored: boolean): Prisma.Sql | null {
     if (input.taskStatuses?.length) return null; // a task status: tasks only
-    const wanted = (input.kinds ?? [...SEARCH_KINDS]).filter((k): k is IndexKind => k !== 'task');
+    // 1.23.6: a priority or approval is a task's; a due date or an assignee a task's or a checklist item's.
+    if (input.priorities?.length || input.approval) return null;
+    let wanted = (input.kinds ?? [...SEARCH_KINDS]).filter((k): k is Exclude<SearchKind, 'task'> => k !== 'task').flatMap((k) => INDEX_KINDS_OF[k]);
+    const keep = (allowed: IndexKind[]) => (wanted = wanted.filter((k) => allowed.includes(k)));
+    if (input.due || input.assigneeIds?.length || input.unassigned) keep(['checklist']);
+    if (input.organizerIds?.length) keep(['meeting', 'minutes']);
+    if (input.creatorIds?.length) keep(['project', 'meeting', 'note', 'file', 'contact']);
+    // A client organisation or account has no person, date or "done" of its own.
+    if (input.personId || input.from || input.to || input.done === true) wanted = wanted.filter((k) => k !== 'client' && k !== 'account');
+    if (!input.scope.clientAccounts) wanted = wanted.filter((k) => k !== 'account');
     if (wanted.length === 0) return null;
     const { projectIds, meetings } = input.scope;
     const invitee = meetings.invitee;
@@ -236,24 +305,39 @@ export function createSearchEngine({
     const full = fullMeetingSql(meetings);
     const seen = Prisma.sql`(${full} OR ${inList(Prisma.sql`m.id`, invitee)})`;
     const editable = editableMeetingSql(meetings);
+    // A client organisation: named on at least one project the person may see (live, unless archived ones are asked for).
+    const clientOf = (projectId?: string) =>
+      Prisma.sql`EXISTS (SELECT 1 FROM projects p WHERE p.deletedAt IS NULL AND LOWER(TRIM(p.clientName)) = si.recordId AND ${inList(Prisma.sql`p.id`, projectIds)} AND ${live}${projectId ? Prisma.sql` AND p.id = ${projectId}` : Prisma.empty})`;
+    const onTask = Prisma.sql`ft.deletedAt IS NULL AND p.deletedAt IS NULL AND ${inList(Prisma.sql`ft.projectId`, projectIds)} AND ${live}`;
     const visible = Prisma.sql`(
       (si.kind IN ('project', 'inspection') AND p.deletedAt IS NULL AND ${inList(Prisma.sql`si.projectId`, projectIds)} AND ${live})
-      OR (si.kind = 'file' AND ft.deletedAt IS NULL AND p.deletedAt IS NULL AND ${inList(Prisma.sql`ft.projectId`, projectIds)} AND ${live})
+      OR (si.kind IN ('file', 'contact') AND ${onTask})
+      OR (si.kind = 'checklist' AND ci.deletedAt IS NULL AND (cl.id IS NULL OR cl.deletedAt IS NULL) AND ${onTask})
       OR (si.kind = 'meeting' AND m.deletedAt IS NULL AND ${seen})
       OR (si.kind = 'note' AND m.deletedAt IS NULL AND ${full})
-      OR (si.kind = 'minutes' AND m.deletedAt IS NULL AND ((si.status = 'APPROVED' AND ${seen}) OR (si.status <> 'APPROVED' AND ${full} AND ${editable}))))`;
+      OR (si.kind = 'minutes' AND m.deletedAt IS NULL AND ((si.status = 'APPROVED' AND ${seen}) OR (si.status <> 'APPROVED' AND ${full} AND ${editable})))
+      OR (si.kind = 'client' AND ${clientOf(input.projectId)})
+      OR (si.kind = 'account' AND cu.deletedAt IS NULL))`;
+    const noWords = pass.groups.length === 0;
     const words = pass.min >= pass.groups.length ? allOf(txt, pass.groups) : Prisma.sql`${howMany(txt, pass.groups)} >= ${pass.min}`;
-    const where: Prisma.Sql[] = [Prisma.sql`si.kind IN (${Prisma.join(wanted)})`, visible, words];
+    const where: Prisma.Sql[] = [Prisma.sql`si.kind IN (${Prisma.join(wanted)})`, visible];
+    if (!noWords) where.push(words);
     if (input.only) {
       const others = input.only.filter((o) => o.kind !== 'task');
       if (others.length === 0) return null;
       where.push(Prisma.sql`(si.kind, si.recordId) IN (${Prisma.join(others.map((o) => Prisma.sql`(${o.kind}, ${o.id})`))})`);
     }
-    if (input.projectId) where.push(Prisma.sql`p.id = ${input.projectId}`);
+    // A client organisation's project is checked inside clientOf.
+    if (input.projectId) where.push(Prisma.sql`(si.kind = 'client' OR p.id = ${input.projectId})`);
+    const taskDone = Prisma.sql`(ft.completedAt IS NOT NULL OR fc.category = 'DONE')`;
     const done = Prisma.sql`(CASE si.kind
       WHEN 'project' THEN p.status IN ('COMPLETED', 'ARCHIVED')
       WHEN 'inspection' THEN si.status = 'FINISHED'
-      WHEN 'file' THEN (ft.completedAt IS NOT NULL OR fc.category = 'DONE')
+      WHEN 'file' THEN ${taskDone}
+      WHEN 'contact' THEN ${taskDone}
+      WHEN 'checklist' THEN ci.done
+      WHEN 'client' THEN FALSE
+      WHEN 'account' THEN FALSE
       WHEN 'minutes' THEN si.status = 'APPROVED'
       ELSE m.status IN ('COMPLETED', 'CANCELLED') END)`;
     if (input.done === true) where.push(Prisma.sql`COALESCE(${done}, FALSE)`);
@@ -262,26 +346,53 @@ export function createSearchEngine({
       WHEN 'project' THEN (p.ownerId = ${userId} OR p.managerId = ${userId} OR EXISTS (SELECT 1 FROM project_members pm WHERE pm.projectId = p.id AND pm.userId = ${userId}))
       WHEN 'meeting' THEN (m.organizerId = ${userId} OR EXISTS (SELECT 1 FROM meeting_attendees ma WHERE ma.meetingId = m.id AND ma.userId = ${userId}))
       WHEN 'minutes' THEN (m.organizerId = ${userId} OR EXISTS (SELECT 1 FROM meeting_attendees ma WHERE ma.meetingId = m.id AND ma.userId = ${userId}))
+      WHEN 'checklist' THEN ci.assigneeId = ${userId}
+      WHEN 'contact' THEN ec.createdById = ${userId}
+      WHEN 'client' THEN FALSE
+      WHEN 'account' THEN FALSE
       ELSE si.personId = ${userId} END)`;
     if (input.personId) where.push(Prisma.sql`COALESCE(${theirs(input.personId)}, FALSE)`);
-    const when = Prisma.sql`COALESCE(CASE WHEN si.kind = 'meeting' THEN m.startAt END, si.at, si.indexedAt)`;
+    // 1.23.6: a checklist item's date is its own due date (none: no date); a client or an account has none.
+    const when = Prisma.sql`(CASE si.kind WHEN 'meeting' THEN m.startAt WHEN 'checklist' THEN ci.dueDate WHEN 'client' THEN NULL WHEN 'account' THEN NULL ELSE COALESCE(si.at, si.indexedAt) END)`;
     if (input.from) where.push(Prisma.sql`${when} >= ${input.from}`);
     if (input.to) where.push(Prisma.sql`${when} < ${input.to}`);
-    const leadWeight = Prisma.sql`(CASE si.kind WHEN 'file' THEN 0 WHEN 'note' THEN 30 WHEN 'minutes' THEN 50 ELSE 80 END)`;
-    const kindWeight = Prisma.sql`(CASE si.kind WHEN 'file' THEN -20 WHEN 'note' THEN 0 WHEN 'minutes' THEN 0 ELSE 10 END)`;
+    // 1.23.6: the reader's filters (the kinds without them are already left out above).
+    if (input.due?.none) where.push(Prisma.sql`ci.dueDate IS NULL`);
+    if (input.due?.from) where.push(Prisma.sql`ci.dueDate >= ${input.due.from}`);
+    if (input.due?.before) where.push(Prisma.sql`ci.dueDate < ${input.due.before}`);
+    if (input.due?.open) where.push(Prisma.sql`NOT ci.done`);
+    if (input.assigneeIds?.length) where.push(anyIds(Prisma.sql`ci.assigneeId`, input.assigneeIds));
+    if (input.unassigned) where.push(Prisma.sql`ci.assigneeId IS NULL`);
+    if (input.creatorIds?.length) {
+      where.push(Prisma.sql`(CASE si.kind
+        WHEN 'project' THEN ${anyIds(Prisma.sql`p.createdById`, input.creatorIds)}
+        WHEN 'meeting' THEN ${anyIds(Prisma.sql`m.createdById`, input.creatorIds)}
+        WHEN 'contact' THEN ${anyIds(Prisma.sql`ec.createdById`, input.creatorIds)}
+        ELSE ${anyIds(Prisma.sql`si.personId`, input.creatorIds)} END)`);
+    }
+    if (input.organizerIds?.length) where.push(anyIds(Prisma.sql`m.organizerId`, input.organizerIds));
+    const leadWeight = Prisma.sql`(CASE si.kind WHEN 'file' THEN 0 WHEN 'note' THEN 30 WHEN 'minutes' THEN 50 WHEN 'checklist' THEN 0 WHEN 'contact' THEN 20 WHEN 'account' THEN 20 ELSE 80 END)`;
+    const kindWeight = Prisma.sql`(CASE si.kind WHEN 'file' THEN -20 WHEN 'checklist' THEN -20 WHEN 'contact' THEN -10 WHEN 'account' THEN -10 WHEN 'note' THEN 0 WHEN 'minutes' THEN 0 ELSE 10 END)`;
+    const ranked = Prisma.sql`COALESCE(${when}, si.indexedAt)`;
     const score = scored
       ? Prisma.sql`(${allOf(Prisma.sql`si.head`, pass.groups)}) * 200 + ${howMany(Prisma.sql`si.head`, pass.groups)} * 20 + (${wordStarts(pass.groups)}) * 50
         + ${pass.phrase ? Prisma.sql`(si.head LIKE ${like(pass.phrase)} ESCAPE '!') * 100 + (${txt} LIKE ${like(pass.phrase)} ESCAPE '!') * 300` : Prisma.sql`0`}
         + (${allOf(Prisma.sql`COALESCE(si.lead, '')`, pass.groups)}) * ${leadWeight}
         + ${some ? Prisma.sql`${howMany(txt, pass.groups)} * 40` : Prisma.sql`0`} + ${kindWeight}
-        + (NOT COALESCE(${done}, FALSE)) * 30 + COALESCE(${input.mine ? mineOf(input.mine, input.viewerId) : theirs(input.viewerId)}, FALSE) * 15 + ${recency(when)}`
+        + (NOT COALESCE(${done}, FALSE)) * 30 + COALESCE(${input.mine ? mineOf(input.mine, input.viewerId) : theirs(input.viewerId)}, FALSE) * 15 + ${recency(ranked)}`
       : Prisma.sql`0`;
-    return Prisma.sql`SELECT si.kind AS kind, si.recordId AS id, ${score} AS score, ${when} AS at
+    // "Clients & contacts" results say which of the three they are ("client:acme", "account:<id>", "contact:<id>").
+    return Prisma.sql`SELECT (CASE WHEN si.kind IN ('client', 'account') THEN 'contact' ELSE si.kind END) AS kind,
+        (CASE WHEN si.kind IN ('client', 'account', 'contact') THEN CONCAT(si.kind, ':', si.recordId) ELSE si.recordId END) AS id, ${score} AS score, ${ranked} AS at
       FROM search_index si
       LEFT JOIN tasks ft ON ft.id = si.taskId
       LEFT JOIN kanban_columns fc ON fc.id = ft.columnId
       LEFT JOIN meetings m ON m.id = si.meetingId
-      LEFT JOIN projects p ON p.id = (CASE WHEN si.kind = 'file' THEN ft.projectId WHEN si.meetingId IS NOT NULL THEN m.projectId ELSE si.projectId END)
+      LEFT JOIN task_checklists ci ON si.kind = 'checklist' AND ci.id = si.recordId
+      LEFT JOIN task_checklist_lists cl ON cl.id = ci.listId
+      LEFT JOIN task_external_contacts ec ON si.kind = 'contact' AND ec.id = si.recordId
+      LEFT JOIN users cu ON si.kind = 'account' AND cu.id = si.recordId
+      LEFT JOIN projects p ON p.id = (CASE WHEN si.kind IN ('file', 'checklist', 'contact') THEN ft.projectId WHEN si.meetingId IS NOT NULL THEN m.projectId ELSE si.projectId END)
       WHERE ${Prisma.join(where, ' AND ')}`;
   }
 
@@ -347,7 +458,16 @@ export function createSearchEngine({
     const others = found.filter((f): f is { kind: Exclude<SearchKind, 'task'>; id: string } => f.kind !== 'task');
     const [tasks, indexed] = await Promise.all([
       tasksOf(input, describeTaskHits(prisma, taskIds, terms, { timeZone, max: 2, ...(byNumber ? { byNumber } : {}), accept, onStale: (id) => onStale?.('task', id) }), []),
-      describeIndexed(prisma, others, { terms, accept, invitee: new Set(input.scope.meetings.invitee), canSeeDraft: (m) => canSeeDraft(input.scope.meetings, m), timeZone, onStale: (kind, id) => onStale?.(kind, id) }),
+      describeIndexed(prisma, others, {
+        terms,
+        accept,
+        invitee: new Set(input.scope.meetings.invitee),
+        canSeeDraft: (m) => canSeeDraft(input.scope.meetings, m),
+        timeZone,
+        onStale: (kind, id) => onStale?.(kind, id),
+        clientAccounts: !!input.scope.clientAccounts,
+        clientProjects: (names) => clientProjects(names, input),
+      }),
     ]);
     const looks = await projectLooks(prisma, tasks.map((t) => t.projectId));
     const taskHits = new Map(tasks.map((t) => [t.id, fromTask(t, looks.get(t.projectId) ?? null)]));
@@ -355,6 +475,26 @@ export function createSearchEngine({
     for (const f of found) {
       const hit = f.kind === 'task' ? taskHits.get(f.id) : indexed.get(`${f.kind}:${f.id}`);
       if (hit) out.push(f.match ? { ...hit, match: f.match } : hit);
+    }
+    return out;
+  }
+
+  /**
+   * 1.23.6: client organisations as the person sees them — only the projects they may see that name
+   * each (live ones, unless archived ones are asked for), never another project's spelling or count.
+   */
+  async function clientProjects(names: string[], input: SearchAllInput): Promise<Map<string, { count: number; shown: string; projectId: string | null }>> {
+    const out = new Map<string, { count: number; shown: string; projectId: string | null }>();
+    if (names.length === 0) return out;
+    const live = liveSql(input) ?? (input.includeArchived ? Prisma.sql`TRUE` : LIVE_PROJECT_SQL);
+    const rows = await prisma.$queryRaw<{ name: string; shown: string; n: bigint | number; one: string }[]>`SELECT LOWER(TRIM(p.clientName)) AS name, MAX(TRIM(p.clientName)) AS shown, COUNT(*) AS n, MIN(p.id) AS one
+      FROM projects p WHERE p.deletedAt IS NULL AND LOWER(TRIM(p.clientName)) IN (${Prisma.join(names)}) AND ${inList(Prisma.sql`p.id`, input.scope.projectIds)} AND ${live}${input.projectId ? Prisma.sql` AND p.id = ${input.projectId}` : Prisma.empty}
+      GROUP BY LOWER(TRIM(p.clientName))`;
+    for (const r of rows) {
+      const count = Number(r.n);
+      // The name as asked: the index keeps it in lower case (the database's own folding).
+      const key = names.find((n) => n === String(r.name)) ?? names.find((n) => n.toLowerCase() === String(r.name).toLowerCase()) ?? String(r.name);
+      out.set(key, { count, shown: String(r.shown), projectId: count === 1 ? r.one : null });
     }
     return out;
   }
@@ -374,14 +514,19 @@ export function createSearchEngine({
     return failed ? { ...result, tasksUnavailable: true } : result;
   }
 
+  /** Every word, and the task number the query may be (none with no words). */
+  const exactPass = (terms: string[], whole: string, q: string): Pass => ({ groups: terms.map((t) => [t]), min: terms.length, byNumber: terms.length ? numberSql(whole, q) : null, phrase: terms.length > 1 ? whole : null });
+
   async function searchEverything(given: SearchAllInput): Promise<SearchAllResult> {
     const { terms, whole } = parseTaskQuery(given.q);
-    const input = terms.length ? await withArchived(given) : given;
+    // 1.23.6: no words but filters — every item they hold (a saved search, the reader's chips).
+    const browse = terms.length === 0 && !!given.browse;
+    const input = terms.length || browse ? await withArchived(given) : given;
     const limit = Math.max(1, Math.min(50, Math.floor(input.limit)));
     const offset = Math.max(0, Math.floor(input.offset ?? 0));
     const empty: SearchAllResult = { hits: [], next: null, corrected: [], ...(input.withCounts ? { counts: Object.fromEntries(SEARCH_KINDS.map((k) => [k, 0])) as Record<SearchKind, number>, total: 0, totalCapped: false } : {}) };
-    if (terms.length === 0) return empty;
-    const exact: Pass = { groups: terms.map((t) => [t]), min: terms.length, byNumber: numberSql(whole, input.q), phrase: terms.length > 1 ? whole : null };
+    if (terms.length === 0 && !browse) return empty;
+    const exact = exactPass(terms, whole, input.q);
     const byNumber = (task: { key: string; formerKeys: string[] }) => numberOf(task, whole, input.q);
     const all = (words: string[]) => words.length === terms.length;
 
@@ -395,8 +540,9 @@ export function createSearchEngine({
         wantCounts && input.withCounts && narrowed(input) ? counts(exact, unnarrowed(input)) : Promise.resolve(null),
       ]);
       const total = counted ? Object.values(counted).reduce((a, b) => a + b, 0) : null;
-      // Plenty hold every word (or this is a later page of them, or only whole matches are asked for): those, a page at a time.
-      if (offset > 0 || total === null || total >= FEW || input.exactOnly) {
+      // Plenty hold every word (or this is a later page of them, or only whole matches are asked for, or
+      // there are no words to correct): those, a page at a time.
+      if (offset > 0 || total === null || total >= FEW || input.exactOnly || browse) {
         const hits = await describe(page.slice(0, limit), terms, all, input, byNumber);
         return {
           hits,
@@ -507,7 +653,20 @@ export function createSearchEngine({
     return describe(found, groups.flat(), (words) => groups.length === 0 || words.length > 0, input);
   }
 
-  return { search, anyWords, describe, rows, counts };
+  /**
+   * 1.23.6 A saved search's count: how many items hold every word (with no words, the filters' items),
+   * the spelling and some-words passes left out — up to COUNT_CAP ("1000+": `capped`).
+   */
+  async function count(given: SearchAllInput): Promise<{ total: number; capped: boolean }> {
+    const { terms, whole } = parseTaskQuery(given.q);
+    if (terms.length === 0 && !given.browse) return { total: 0, capped: false };
+    const input = await withArchived(given);
+    const byKind = await counts(exactPass(terms, whole, input.q), input);
+    const total = Object.values(byKind).reduce((a, b) => a + b, 0);
+    return { total: Math.min(total, COUNT_CAP), capped: total > COUNT_CAP };
+  }
+
+  return { search, anyWords, describe, rows, counts, count };
 }
 
 export type SearchEngine = ReturnType<typeof createSearchEngine>;

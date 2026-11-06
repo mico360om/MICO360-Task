@@ -193,6 +193,8 @@ import { createSearchEngine } from './modules/search/search-engine';
 import { createSemanticSearch } from './modules/search/search-semantic';
 import { createAiSearch } from './modules/search/search-ai';
 import { startSearchSweeps } from './modules/search/search-sweeps';
+import { createReaderContext } from './modules/search/search-reader-context';
+import { createSavedSearches } from './modules/search/saved-searches';
 import { createPrismaMeetingRepository } from './modules/meetings/prisma-meeting-repository';
 import { createMeetingService } from './modules/meetings/meeting-service';
 import { createMeetingSeriesService } from './modules/meetings/meeting-series-service';
@@ -404,6 +406,8 @@ async function main(): Promise<void> {
     ...taskSearchIndexBase,
     taskChanged: (taskId) => {
       void searchIndex.linkedTaskChanged(taskId);
+      // 1.23.6: its checklist items and external contacts are results of their own.
+      void searchIndex.taskPartsChanged(taskId);
       return taskSearchIndexBase.taskChanged(taskId);
     },
   };
@@ -1843,7 +1847,7 @@ async function main(): Promise<void> {
   // and settings; System Settings → Error log shows the result.
   const databaseCheck = createDatabaseCheck({
     ...prismaDatabaseReads(prisma),
-    probes: databaseProbes({ prisma, taskSearch: taskSearchEngine, searchEngine, timeZone: companyTz, taskMerge: taskMergeService, checklists: checklistStore }),
+    probes: databaseProbes({ prisma, taskSearch: taskSearchEngine, searchEngine, searchIndex, timeZone: companyTz, taskMerge: taskMergeService, checklists: checklistStore }),
     // 1.23.2: "pool 10" with the result (the URL itself is never shown or logged).
     poolSize: poolSizeOf(withPoolDefaults(process.env.DATABASE_URL)),
     record: ({ text, err }) => logger.job('database check').error(text, err !== undefined ? { err } : undefined),
@@ -1868,6 +1872,8 @@ async function main(): Promise<void> {
   const searchEverything = {
     engine: searchEngine,
     scope: searchScope,
+    // 1.23.6 the built-in reader: the person's projects and people, today and their company's week.
+    reader: createReaderContext({ prisma, timeZone: companyTz, weekStart: (viewer, pick) => companyTime.weekStartOfScope(viewer, pick) }),
     ai: {
       status: async () => ({ ready: await aiFeatureService.chatReady().catch(() => false), semantic: await searchSemantic.ready() }),
       ask: aiSearch.ask,
@@ -2118,6 +2124,12 @@ async function main(): Promise<void> {
     searchService,
     taskSearch: taskSearchEngine,
     searchEverything,
+    // 1.23.6: saved searches — a person's own and those shared with their teams; shared only with a project they run.
+    savedSearches: createSavedSearches({
+      prisma,
+      accessibleProjectIds: (userId, roles) => projectAccess.accessibleProjectIds(userId, roles, null),
+      manageableProjectIds: (userId, roles, ids) => projectAuthz.manageableProjectIds(userId, roles, ids),
+    }),
     meetingService,
     meetingSeriesService,
     namedSeriesService,

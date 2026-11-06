@@ -454,4 +454,15 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   'GET /task-merges/:mergeId/tasks/:taskId': 'object',
   'GET /task-merges/:mergeId/undo-preview': 'object',
   'POST /task-merges/:mergeId/undo': 'object',
+  // 1.23.6 Saved searches: a person's own (theirs to change; shared ones the team may use and pin);
+  // sharing is checked by the project rule (only a project they run); share-options and counts follow
+  // what the person can see (counts with the pick, as the search itself).
+  'GET /search/saved': 'own',
+  'POST /search/saved': 'own',
+  'PATCH /search/saved/:id': 'own',
+  'DELETE /search/saved/:id': 'own',
+  'PUT /search/saved/:id/pin': 'own',
+  'PUT /search/saved/:id/share': 'object',
+  'GET /search/saved/share-options': 'list',
+  'GET /search/saved/counts': 'list',
 };

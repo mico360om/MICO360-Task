@@ -24,7 +24,14 @@ export interface SearchPerson {
 /** A task as it is now, for describing its matches (comments newest first). */
 export interface TaskSearchLive extends TaskSearchSource {
   comments: { id: string; parentId: string | null; body: string; createdAt: Date; author: SearchPerson | null }[];
-  checklist: { text: string; done: boolean }[];
+  /** 1.23.6: with the title of the checklist each item is in. */
+  checklist: { text: string; done: boolean; listTitle?: string | null }[];
+}
+
+/** "Checklist ‘Electrical’" — or "Checklist item" when it is in no checklist or the default "Checklist". */
+export function checklistItemLabel(listTitle: string | null | undefined): string {
+  const title = displayText(listTitle);
+  return title && title.toLowerCase() !== 'checklist' ? `Checklist ‘${title}’` : 'Checklist item';
 }
 
 /** A person's name as the apps write it: first and last, else the username. */
@@ -64,7 +71,7 @@ export function describeMatches(
       text: displayText(c.body),
     })),
     ...(task.lists ?? []).map((l) => ({ field: 'checklist' as const, label: 'Checklist', text: displayText(l.title) })),
-    ...task.checklist.map((i) => ({ field: 'checklist' as const, label: 'Checklist item', text: displayText(i.text) })),
+    ...task.checklist.map((i) => ({ field: 'checklist' as const, label: checklistItemLabel(i.listTitle), text: displayText(i.text) })),
     ...task.assignees.map((a) => ({ field: 'assignee' as const, label: 'Assigned to', text: [personLabel(a), a.username].filter(Boolean).join(' · ') })),
     ...task.contacts.map((c) => ({ field: 'contact' as const, label: 'External contact', text: contactLine(c) })),
     ...task.tags.map((t) => ({ field: 'tag' as const, label: 'Tag', text: displayText(t.name) })),

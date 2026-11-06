@@ -59,7 +59,7 @@ export async function loadTaskSearchLive(prisma: PrismaClient, ids: string[]): P
       description: true,
       keyAliases: { select: { key: true }, orderBy: { createdAt: 'asc' } },
       comments: { where: { deletedAt: null }, orderBy: { createdAt: 'desc' }, select: { id: true, parentId: true, body: true, createdAt: true, user: person } },
-      checklist: { where: { deletedAt: null }, orderBy: { position: 'asc' }, select: { text: true, done: true } },
+      checklist: { where: { deletedAt: null }, orderBy: { position: 'asc' }, select: { text: true, done: true, list: { select: { title: true } } } },
       checklistLists: { where: { deletedAt: null }, orderBy: { position: 'asc' }, select: { title: true } },
       assignees: { orderBy: { assignedAt: 'asc' }, select: { user: person } },
       externalContacts: { orderBy: { position: 'asc' }, select: { name: true, company: true, designation: true, email: true, phone: true, remarks: true } },
@@ -76,7 +76,8 @@ export async function loadTaskSearchLive(prisma: PrismaClient, ids: string[]): P
         title: t.title,
         description: t.description,
         comments: t.comments.map((c) => ({ id: c.id, parentId: c.parentId, body: c.body, createdAt: c.createdAt, author: c.user ?? null })),
-        checklist: t.checklist,
+        // 1.23.6: each item with its checklist's title ("Checklist ‘Electrical’: Label circuits").
+        checklist: t.checklist.map((i) => ({ text: i.text, done: i.done, listTitle: i.list?.title ?? null })),
         lists: t.checklistLists,
         assignees: t.assignees.map((a) => a.user),
         contacts: t.externalContacts,

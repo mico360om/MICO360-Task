@@ -4,6 +4,10 @@ import { personLabel } from './task-search-matches';
 import {
   INDEX_KINDS,
   SEARCH_DOC_VERSION,
+  accountDoc,
+  checklistItemDoc,
+  clientDoc,
+  contactDoc,
   fileDoc,
   inspectionDoc,
   meetingDoc,
@@ -112,6 +116,39 @@ const KIND_SQL: Record<IndexKind, KindSql> = {
       (SELECT COALESCE(CRC32(CONCAT(t.\`key\`, '/', t.title, '/', t.projectId, '/', COALESCE(t.deletedAt, ''))), 0) FROM tasks t WHERE t.id = x.taskId))`,
     // Its task moved or deleted changes what it is found by (review C1).
     changedAt: Prisma.sql`GREATEST(x.updatedAt, COALESCE((SELECT t.updatedAt FROM tasks t WHERE t.id = x.taskId), x.updatedAt))`,
+  },
+  // 1.23.6: a checklist item (live, in a live checklist or none).
+  checklist: {
+    from: Prisma.sql`FROM task_checklists x LEFT JOIN task_checklist_lists xl ON xl.id = x.listId`,
+    id: Prisma.sql`x.id`,
+    live: Prisma.sql`x.deletedAt IS NULL AND (xl.id IS NULL OR xl.deletedAt IS NULL)`,
+    stamp: Prisma.sql`CONCAT_WS('|', CRC32(CONCAT_WS('/', x.text, x.taskId, COALESCE(x.assigneeId, ''), COALESCE(x.dueDate, ''), x.done)))`,
+    changedAt: Prisma.sql`x.updatedAt`,
+  },
+  // 1.23.6: an external contact on a task.
+  contact: {
+    from: Prisma.sql`FROM task_external_contacts x`,
+    id: Prisma.sql`x.id`,
+    live: Prisma.sql`TRUE`,
+    stamp: Prisma.sql`CONCAT_WS('|', CRC32(CONCAT_WS('/', x.name, COALESCE(x.company, ''), COALESCE(x.designation, ''), COALESCE(x.email, ''), COALESCE(x.phone, ''), COALESCE(x.remarks, ''), x.taskId, COALESCE(x.createdById, ''))))`,
+    changedAt: Prisma.sql`x.updatedAt`,
+  },
+  // 1.23.6: a client organisation — every live project naming it, by its name in lower case.
+  client: {
+    from: Prisma.sql`FROM (SELECT LOWER(TRIM(cp.clientName)) AS id, MAX(TRIM(cp.clientName)) AS shown, MAX(cp.updatedAt) AS changedAt FROM projects cp
+      WHERE cp.deletedAt IS NULL AND cp.clientName IS NOT NULL AND TRIM(cp.clientName) <> '' GROUP BY LOWER(TRIM(cp.clientName))) x`,
+    id: Prisma.sql`x.id`,
+    live: Prisma.sql`TRUE`,
+    stamp: Prisma.sql`CONCAT_WS('|', CRC32(x.shown))`,
+    changedAt: Prisma.sql`x.changedAt`,
+  },
+  // 1.23.6: a client portal account (role CLIENT).
+  account: {
+    from: Prisma.sql`FROM users x`,
+    id: Prisma.sql`x.id`,
+    live: Prisma.sql`x.deletedAt IS NULL AND EXISTS (SELECT 1 FROM user_roles ur JOIN roles r ON r.id = ur.roleId WHERE ur.userId = x.id AND r.name = 'CLIENT')`,
+    stamp: Prisma.sql`CONCAT_WS('|', CRC32(CONCAT_WS('/', x.firstName, x.lastName, x.username, x.email, COALESCE(x.organisation, ''), COALESCE(x.phone, ''), x.status)))`,
+    changedAt: Prisma.sql`x.updatedAt`,
   },
 };
 
@@ -227,6 +264,33 @@ export function createSearchIndex({
         }
         break;
       }
+      case 'checklist': {
+        const rows = await prisma.checklistItem.findMany({
+          where: { id: { in: ids }, deletedAt: null, OR: [{ listId: null }, { list: { deletedAt: null } }] },
+          select: { id: true, taskId: true, text: true, done: true, assigneeId: true, dueDate: true },
+        });
+        for (const r of rows) out.set(r.id, { doc: checklistItemDoc(r), meta: meta({ taskId: r.taskId, personId: r.assigneeId, status: r.done ? 'DONE' : 'OPEN', at: r.dueDate }) });
+        break;
+      }
+      case 'contact': {
+        const rows = await prisma.taskExternalContact.findMany({ where: { id: { in: ids } }, select: { id: true, taskId: true, name: true, company: true, designation: true, email: true, phone: true, remarks: true, createdById: true, createdAt: true } });
+        for (const c of rows) out.set(c.id, { doc: contactDoc(c), meta: meta({ taskId: c.taskId, personId: c.createdById, at: c.createdAt }) });
+        break;
+      }
+      case 'client': {
+        const rows = await prisma.$queryRaw<{ id: string; shown: string }[]>`SELECT LOWER(TRIM(clientName)) AS id, MAX(TRIM(clientName)) AS shown FROM projects
+          WHERE deletedAt IS NULL AND LOWER(TRIM(clientName)) IN (${Prisma.join(ids)}) GROUP BY LOWER(TRIM(clientName))`;
+        for (const r of rows) if (r.shown) out.set(String(r.id), { doc: clientDoc(r.shown), meta: meta({}) });
+        break;
+      }
+      case 'account': {
+        const rows = await prisma.user.findMany({
+          where: { id: { in: ids }, deletedAt: null, roles: { some: { role: { name: 'CLIENT' } } } },
+          select: { id: true, firstName: true, lastName: true, username: true, email: true, organisation: true, phone: true, status: true },
+        });
+        for (const u of rows) out.set(u.id, { doc: accountDoc(u), meta: meta({ personId: u.id, status: u.status }) });
+        break;
+      }
     }
     return out;
   }
@@ -309,8 +373,30 @@ export function createSearchIndex({
     return next;
   }
 
-  /** A project changed (or was made, archived, deleted). Never throws. */
-  const projectChanged = (projectId: string) => queued(`project:${projectId}`, () => refresh('project', [projectId]));
+  /**
+   * A project changed (or was made, archived, deleted). Never throws. 1.23.6: and the client it names
+   * now (a name no project uses any more leaves at the next heal).
+   */
+  const projectChanged = (projectId: string) =>
+    queued(`project:${projectId}`, async () => {
+      await refresh('project', [projectId]);
+      const rows = await prisma.$queryRaw<{ id: string | null }[]>`SELECT LOWER(TRIM(clientName)) AS id FROM projects WHERE id = ${projectId} AND clientName IS NOT NULL AND TRIM(clientName) <> ''`;
+      const names = rows.map((r) => r.id).filter((n): n is string => !!n);
+      if (names.length) await refresh('client', names);
+    });
+
+  /** 1.23.6: a task's checklist items or external contacts changed: they are read again. Never throws. */
+  function taskPartsChanged(taskId: string): Promise<void> {
+    return queued(`parts:${taskId}`, async () => {
+      for (const [kind, rows] of [
+        ['checklist', await prisma.checklistItem.findMany({ where: { taskId }, select: { id: true } })],
+        ['contact', await prisma.taskExternalContact.findMany({ where: { taskId }, select: { id: true } })],
+      ] as const) {
+        const indexed = (await prisma.searchIndex.findMany({ where: { kind, taskId }, select: { recordId: true } })).map((r) => r.recordId);
+        await refresh(kind, [...new Set([...rows.map((r) => r.id), ...indexed])]);
+      }
+    });
+  }
 
   /** A meeting or anything of it changed: the meeting, its notes and its final minutes are read again. Never throws. */
   function meetingChanged(meetingId: string): Promise<void> {
@@ -404,7 +490,22 @@ export function createSearchIndex({
     return written;
   }
 
-  return { refresh, projectChanged, meetingChanged, taskFilesChanged, fileChanged, inspectionChanged, linkedTaskChanged, healRecent, healAll, rebuildAll };
+  /**
+   * 1.23.6 the database check: each kind's heal, fingerprint and gone-rows reads once, harmlessly (read
+   * only, at an id no row has).
+   */
+  async function probe(): Promise<void> {
+    const nowhere = '~database-check~';
+    for (const kind of INDEX_KINDS) {
+      const k = KIND_SQL[kind];
+      await readStamps(kind, [nowhere]);
+      await prisma.$queryRaw`SELECT ${k.id} AS id ${k.from} LEFT JOIN search_index si ON si.kind = ${kind} AND si.recordId = ${k.id}
+        WHERE ${k.live} AND ${k.id} > ${nowhere} AND (si.recordId IS NULL OR si.version <> ${SEARCH_DOC_VERSION} OR ${k.changedAt} > si.indexedAt) ORDER BY ${k.id} LIMIT 1`;
+      await prisma.$queryRaw`SELECT COUNT(*) AS n FROM search_index WHERE kind = ${kind} AND recordId = ${nowhere} AND recordId NOT IN (SELECT id FROM (SELECT ${k.id} AS id ${k.from} WHERE ${k.live}) live)`;
+    }
+  }
+
+  return { probe, refresh, projectChanged, meetingChanged, taskFilesChanged, taskPartsChanged, fileChanged, inspectionChanged, linkedTaskChanged, healRecent, healAll, rebuildAll };
 }
 
 export type SearchIndex = ReturnType<typeof createSearchIndex>;

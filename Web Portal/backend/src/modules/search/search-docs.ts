@@ -13,8 +13,12 @@ import { normalizeForSearch } from './text-normalize';
 /** Bump when what goes into a document (or how it is normalised) changes: every item is re-indexed. */
 export const SEARCH_DOC_VERSION = 1;
 
-/** The kinds of item search_index holds (tasks have their own index). */
-export const INDEX_KINDS = ['project', 'meeting', 'note', 'minutes', 'file', 'inspection'] as const;
+/**
+ * The kinds of item search_index holds (tasks have their own index). 1.23.6: checklist items, external
+ * contacts on tasks, client organisations named on projects (keyed by the name, lower case) and client
+ * portal accounts.
+ */
+export const INDEX_KINDS = ['project', 'meeting', 'note', 'minutes', 'file', 'inspection', 'checklist', 'contact', 'client', 'account'] as const;
 export type IndexKind = (typeof INDEX_KINDS)[number];
 
 /** A very long item is indexed up to this many characters. */
@@ -102,6 +106,26 @@ export function checklistNames(structure: unknown): string[] {
 
 export function inspectionDoc(i: InspectionDocSource): SearchDoc {
   return build([i.title], i.description, [i.place, ...checklistNames(i.structure), ...i.answers.flatMap((a) => [a.note, a.reading]), i.task?.key, i.task?.title]);
+}
+
+/** 1.23.6: a checklist item — its text (its checklist's title stays the task's, so a list's every item isn't found by it). */
+export function checklistItemDoc(i: { text: string }): SearchDoc {
+  return build([i.text], null, []);
+}
+
+/** 1.23.6: an external contact on a task — the name, then the company, then the rest of the card. */
+export function contactDoc(c: { name: string; company: Text; designation: Text; email: Text; phone: Text; remarks: Text }): SearchDoc {
+  return build([c.name], c.company, [c.designation, c.email, c.phone, c.remarks]);
+}
+
+/** 1.23.6: a client organisation named on projects — its name only (never its projects' words). */
+export function clientDoc(name: string): SearchDoc {
+  return build([name], null, []);
+}
+
+/** 1.23.6: a client portal account (administrators only) — the name, the organisation, the username, email and phone. */
+export function accountDoc(a: { firstName: string; lastName: string; username: string; email: string; organisation: Text; phone: Text }): SearchDoc {
+  return build([`${a.firstName} ${a.lastName}`], a.organisation, [a.username, a.email, a.phone]);
 }
 
 /** Words for the spelling-mistake pass, from a normalised text: letters only, 3–40 of them, each once (at most 5,000). */

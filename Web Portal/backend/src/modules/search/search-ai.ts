@@ -5,6 +5,7 @@ import { parseJsonObject } from '../ai/ai-feature-service';
 import { parseTaskQuery } from './task-search-query';
 import { SEARCH_KINDS, type SearchHit, type SearchKind } from './search-types';
 import type { SearchScopeAll } from './search-scope';
+import type { SearchAllInput } from './search-engine';
 
 /**
  * 1.23 Search everything with AI — the panel above the normal results. The normal results never wait
@@ -25,7 +26,7 @@ export const AI_SEARCH_BUDGET_MS = 20_000;
 const MAX_CANDIDATES = 30;
 const MAX_BEST = 5;
 
-export interface AiSearchFilters {
+export interface AiSearchFilters extends Pick<SearchAllInput, 'due' | 'priorities' | 'approval' | 'assigneeIds' | 'unassigned' | 'creatorIds' | 'organizerIds'> {
   kinds?: SearchKind[];
   projectId?: string;
   done?: boolean;
@@ -79,11 +80,24 @@ export type AiSearchAnswer =
   | { state: 'ok'; answer: string; hits: SearchHit[]; understood: AiUnderstood; semantic: boolean }
   | { state: 'off' | 'limit' | 'slow' | 'failed'; message: string };
 
-const KIND_LABEL: Record<SearchKind, string> = { task: 'Task', project: 'Project', meeting: 'Meeting', note: 'Meeting note', minutes: 'Minutes', file: 'File', inspection: 'Inspection' };
+const KIND_LABEL: Record<SearchKind, string> = { task: 'Task', project: 'Project', meeting: 'Meeting', note: 'Meeting note', minutes: 'Minutes', file: 'File', inspection: 'Inspection', checklist: 'Checklist item', contact: 'Client or contact' };
 const strings = (v: unknown, max: number): string[] => (Array.isArray(v) ? v.filter((s): s is string => typeof s === 'string' && !!s.trim()).map((s) => s.trim().slice(0, 60)).slice(0, max) : []);
 /** A day as due dates are stored: its UTC midnight. */
 const utcDay = (key: string) => new Date(`${key}T00:00:00Z`);
 const dayOf = (v: unknown): string | null => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null);
+
+/** 1.23.6: the built-in reader's filters among the page's (they hold for the AI's candidates too). */
+function readerFilters(f: AiSearchFilters): Partial<AiSearchFilters> {
+  const out: Partial<AiSearchFilters> = {};
+  if (f.due) out.due = f.due;
+  if (f.priorities?.length) out.priorities = f.priorities;
+  if (f.approval) out.approval = true;
+  if (f.assigneeIds?.length) out.assigneeIds = f.assigneeIds;
+  if (f.unassigned) out.unassigned = true;
+  if (f.creatorIds?.length) out.creatorIds = f.creatorIds;
+  if (f.organizerIds?.length) out.organizerIds = f.organizerIds;
+  return out;
+}
 
 export function createAiSearch(deps: AiSearchDeps) {
   const now = deps.now ?? (() => new Date());
@@ -97,7 +111,7 @@ export function createAiSearch(deps: AiSearchDeps) {
         'You turn a person\'s search question for MICO360 Tasks (tasks, projects, meetings, meeting notes, minutes, files and inspections) into a search plan.',
         `Today is ${today} (company time). Reply with ONLY JSON:`,
         '{"keywords": [1 to 6 important words or short phrases from the question, as written], "synonyms": [up to 8 other words people may have written instead, same language],',
-        ' "kinds": [any of "task","project","meeting","note","minutes","file","inspection" the question is about; [] if any], "status": "open"|"done"|null,',
+        ' "kinds": [any of "task","project","meeting","note","minutes","file","inspection","checklist","contact" the question is about; [] if any], "status": "open"|"done"|null,',
         ' "overdue": true|false, "dateFrom": "YYYY-MM-DD"|null, "dateTo": "YYYY-MM-DD"|null, "project": code of a project from the list|null, "mine": true|false (the person\'s own)}.',
         'Leave out words that only say what kind of thing or when ("tasks", "this week"): put those in kinds and dates.',
         projects.length ? `Projects (code | name):\n${projects.map((p) => `${p.code} | ${p.name}`).join('\n')}` : '',
@@ -113,7 +127,7 @@ export function createAiSearch(deps: AiSearchDeps) {
     return {
       keywords: keywords.length ? keywords : own,
       synonyms: strings(o.synonyms, 8),
-      kinds: strings(o.kinds, 7).filter((k): k is SearchKind => (SEARCH_KINDS as readonly string[]).includes(k)),
+      kinds: strings(o.kinds, 9).filter((k): k is SearchKind => (SEARCH_KINDS as readonly string[]).includes(k)),
       done: o.status === 'open' ? false : o.status === 'done' ? true : null,
       overdue: o.overdue === true,
       from: dayOf(o.dateFrom),
@@ -166,6 +180,8 @@ export function createAiSearch(deps: AiSearchDeps) {
         dueFrom: f.dueFrom ?? (f.from ? undefined : plan.from ? utcDay(plan.from) : undefined),
         dueTo: f.dueTo ?? (f.to ? undefined : plan.overdue ? utcDay(today) : plan.to ? utcDay(shiftDayKey(plan.to, 1)) : undefined),
         includeArchived: f.includeArchived,
+        // 1.23.6: what the built-in reader read in the question holds as the page's filters do.
+        ...readerFilters(f),
       };
       const words = [...new Set([...plan.keywords, ...plan.synonyms])];
       let found = await inTime(deps.candidates({ ...planned, words, limit: MAX_CANDIDATES }, input.viewer, input.scope));

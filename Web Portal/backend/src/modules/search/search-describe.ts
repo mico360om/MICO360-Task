@@ -5,7 +5,7 @@ import { ARCHIVE_SELECT, archivedOf } from '../companies/project-archive';
 import { checklistNames } from './search-docs';
 import { readMinutesContent } from './search-index';
 import { displayText, findRanges, snippetAround, type TextRange } from './task-search-text';
-import { personLabel } from './task-search-matches';
+import { checklistItemLabel, personLabel } from './task-search-matches';
 import { normalizeForSearch } from './text-normalize';
 import type { SearchHit, SearchKind, SearchMatch } from './search-types';
 import type { IndexKind } from './search-docs';
@@ -81,7 +81,19 @@ export interface DescribeContext {
   timeZone: string;
   /** An item the index was behind on (re-index it). */
   onStale: (kind: IndexKind, id: string) => void;
+  /** 1.23.6: client portal accounts may be shown (administrators only). Absent: never. */
+  clientAccounts?: boolean;
+  /**
+   * 1.23.6: of these client names (lower case), the projects naming each that the person may see (and
+   * that the search's archive rule keeps): how many, the name as written there, and the one project
+   * when there is just one. A name with none is not a result.
+   */
+  clientProjects?: (names: string[]) => Promise<Map<string, { count: number; shown: string; projectId: string | null }>>;
 }
+
+const ACCOUNT_STATUS: Record<string, string> = { ACTIVE: 'Active', INACTIVE: 'Inactive', SUSPENDED: 'Suspended', LOCKED: 'Locked' };
+/** "Clients & contacts" results: their index kind and record, from the result id ("client:acme"). */
+const CONTACT_PREFIXES = ['client', 'account', 'contact'] as const;
 
 type ProjectLook = NonNullable<SearchHit['project']>;
 
@@ -97,6 +109,8 @@ export async function projectLooks(prisma: PrismaClient, ids: (string | null | u
 export async function describeIndexed(prisma: PrismaClient, items: { kind: Exclude<SearchKind, 'task'>; id: string }[], ctx: DescribeContext): Promise<Map<string, SearchHit>> {
   const out = new Map<string, SearchHit>();
   const ids = (kind: SearchKind) => items.filter((i) => i.kind === kind).map((i) => i.id);
+  // 1.23.6 Clients & contacts: "client:acme", "account:<id>", "contact:<id>".
+  const sub = (prefix: (typeof CONTACT_PREFIXES)[number]) => items.filter((i) => i.kind === 'contact' && i.id.startsWith(`${prefix}:`)).map((i) => i.id.slice(prefix.length + 1));
   const day = (at: Date) => formatDay(wallClock(at, ctx.timeZone).slice(0, 10));
   const users = new Map<string, string>();
   const nameOf = (id: string | null | undefined) => (id ? users.get(id) : undefined);
@@ -111,9 +125,31 @@ export async function describeIndexed(prisma: PrismaClient, items: { kind: Exclu
       ctx.onStale(kind, id);
       return;
     }
-    out.set(`${kind}:${id}`, { kind, id, ...hit, title, titleRanges: d.titleRanges, matches: d.matches });
+    // A client, an account or an external contact is a "Clients & contacts" result, its id saying which.
+    const contact = (CONTACT_PREFIXES as readonly string[]).includes(kind);
+    const hitKind: SearchKind = contact ? 'contact' : (kind as SearchKind);
+    const hitId = contact ? `${kind}:${id}` : id;
+    out.set(`${hitKind}:${hitId}`, { kind: hitKind, id: hitId, ...hit, title, titleRanges: d.titleRanges, matches: d.matches });
   };
 
+  const [items1236, contacts, clients, accounts] = await Promise.all([
+    ids('checklist').length
+      ? prisma.checklistItem.findMany({
+          where: { id: { in: ids('checklist') }, deletedAt: null },
+          select: { id: true, taskId: true, text: true, done: true, dueDate: true, assigneeId: true, list: { select: { title: true, deletedAt: true } }, task: { select: { key: true, title: true, projectId: true, deletedAt: true } } },
+        })
+      : [],
+    sub('contact').length
+      ? prisma.taskExternalContact.findMany({
+          where: { id: { in: sub('contact') } },
+          select: { id: true, taskId: true, name: true, company: true, designation: true, email: true, phone: true, remarks: true, createdAt: true, task: { select: { key: true, title: true, projectId: true, deletedAt: true, completedAt: true, column: { select: { name: true, category: true } } } } },
+        })
+      : [],
+    sub('client').length && ctx.clientProjects ? ctx.clientProjects(sub('client')) : new Map<string, { count: number; shown: string; projectId: string | null }>(),
+    sub('account').length && ctx.clientAccounts
+      ? prisma.user.findMany({ where: { id: { in: sub('account') }, deletedAt: null, roles: { some: { role: { name: 'CLIENT' } } } }, select: { id: true, firstName: true, lastName: true, username: true, email: true, organisation: true, phone: true, status: true } })
+      : [],
+  ]);
   const [projects, meetings, notes, minutes, files, inspections] = await Promise.all([
     ids('project').length ? prisma.project.findMany({ where: { id: { in: ids('project') }, deletedAt: null }, select: { id: true, code: true, number: true, name: true, description: true, clientName: true, notes: true, status: true, createdAt: true, ownerId: true, managerId: true } }) : [],
     ids('meeting').length
@@ -133,8 +169,18 @@ export async function describeIndexed(prisma: PrismaClient, items: { kind: Exclu
       ? prisma.inspection.findMany({ where: { id: { in: ids('inspection') }, deletedAt: null }, select: { id: true, projectId: true, title: true, description: true, place: true, structure: true, status: true, inspectorId: true, startedAt: true, answers: { select: { note: true, reading: true } }, task: { select: { key: true, title: true, projectId: true, deletedAt: true } } } })
       : [],
   ]);
-  await loadNames([...meetings.flatMap((m) => [m.organizerId, ...m.attendees.map((a) => a.userId)]), ...notes.map((n) => n.authorId), ...minutes.map((m) => m.meeting.organizerId), ...files.map((f) => f.uploadedById), ...inspections.map((i) => i.inspectorId)]);
-  const looks = await projectLooks(prisma, [...projects.map((p) => p.id), ...meetings.map((m) => m.projectId), ...notes.map((n) => n.meeting.projectId), ...minutes.map((m) => m.meeting.projectId), ...files.map((f) => f.task.projectId), ...inspections.map((i) => i.projectId)]);
+  await loadNames([...meetings.flatMap((m) => [m.organizerId, ...m.attendees.map((a) => a.userId)]), ...notes.map((n) => n.authorId), ...minutes.map((m) => m.meeting.organizerId), ...files.map((f) => f.uploadedById), ...inspections.map((i) => i.inspectorId), ...items1236.map((i) => i.assigneeId)]);
+  const looks = await projectLooks(prisma, [
+    ...projects.map((p) => p.id),
+    ...meetings.map((m) => m.projectId),
+    ...notes.map((n) => n.meeting.projectId),
+    ...minutes.map((m) => m.meeting.projectId),
+    ...files.map((f) => f.task.projectId),
+    ...inspections.map((i) => i.projectId),
+    ...items1236.map((i) => i.task.projectId),
+    ...contacts.map((c) => c.task.projectId),
+    ...[...clients.values()].map((c) => c.projectId),
+  ]);
   const look = (id: string | null | undefined) => (id ? (looks.get(id) ?? null) : null);
 
   for (const p of projects) {
@@ -271,6 +317,100 @@ export async function describeIndexed(prisma: PrismaClient, items: { kind: Exclu
         ...checklistNames(i.structure).map((t) => ({ field: 'checklist', label: 'Checklist item', text: t })),
         ...i.answers.flatMap((a) => [{ field: 'answer', label: 'Inspector’s note', text: a.note ?? '' }, { field: 'answer', label: 'Reading', text: a.reading ?? '' }]),
         ...(task ? [{ field: 'task', label: 'Task', text: `${task.key} ${task.title}` }] : []),
+      ],
+    );
+  }
+  // 1.23.6: checklist items, each in its task (gone with its task or its checklist).
+  for (const i of items1236) {
+    if (i.task.deletedAt || i.list?.deletedAt) {
+      ctx.onStale('checklist', i.id);
+      continue;
+    }
+    keep(
+      'checklist',
+      i.id,
+      {
+        key: i.task.key,
+        context: `${i.task.key} ${i.task.title} · ${checklistItemLabel(i.list?.title)}`,
+        project: look(i.task.projectId),
+        status: { label: i.done ? 'Done' : 'Open', category: i.done ? 'DONE' : 'TODO', done: i.done },
+        date: i.dueDate ? { at: i.dueDate.toISOString(), kind: 'due' } : null,
+        people: nameOf(i.assigneeId) ? { names: [nameOf(i.assigneeId)!], count: 1 } : null,
+        target: { type: 'checklist', taskId: i.taskId, itemId: i.id },
+      },
+      i.text,
+      [],
+    );
+  }
+
+  // 1.23.6: external contacts on tasks (their task's state; it opens with the contact shown).
+  for (const c of contacts) {
+    if (c.task.deletedAt) continue;
+    const done = c.task.completedAt !== null || c.task.column.category === 'DONE';
+    keep(
+      'contact',
+      c.id,
+      {
+        sub: 'external',
+        key: c.task.key,
+        context: `External contact on ${c.task.key} ${c.task.title}`,
+        project: look(c.task.projectId),
+        status: { label: c.task.column.name, category: c.task.column.category, done },
+        date: { at: c.createdAt.toISOString(), kind: 'added' },
+        people: null,
+        target: { type: 'contact', taskId: c.taskId, contactId: c.id },
+      },
+      c.name,
+      [
+        { field: 'company', label: 'Company', text: c.company ?? '' },
+        { field: 'designation', label: 'Designation', text: c.designation ?? '' },
+        { field: 'email', label: 'Email', text: c.email ?? '' },
+        { field: 'phone', label: 'Phone', text: c.phone ?? '' },
+        { field: 'remarks', label: 'Remarks', text: c.remarks ?? '' },
+      ],
+    );
+  }
+
+  // 1.23.6: client organisations — counted over the projects the person may see only.
+  for (const [name, c] of clients) {
+    if (c.count === 0) continue;
+    keep(
+      'client',
+      name,
+      {
+        sub: 'client',
+        context: `Client of ${c.count} ${c.count === 1 ? 'project' : 'projects'}`,
+        project: c.count === 1 ? look(c.projectId) : null,
+        status: null,
+        date: null,
+        people: null,
+        target: { type: 'client', name: c.shown },
+      },
+      c.shown,
+      [],
+    );
+  }
+
+  // 1.23.6: client portal accounts (administrators only).
+  for (const u of accounts) {
+    keep(
+      'account',
+      u.id,
+      {
+        sub: 'account',
+        context: u.organisation ? `Client account · ${u.organisation}` : 'Client account',
+        project: null,
+        status: { label: ACCOUNT_STATUS[u.status] ?? u.status, category: u.status, done: false },
+        date: null,
+        people: null,
+        target: { type: 'account', userId: u.id },
+      },
+      `${u.firstName} ${u.lastName}`.trim() || u.username,
+      [
+        { field: 'organisation', label: 'Organisation', text: u.organisation ?? '' },
+        { field: 'username', label: 'Username', text: u.username },
+        { field: 'email', label: 'Email', text: u.email },
+        { field: 'phone', label: 'Phone', text: u.phone ?? '' },
       ],
     );
   }

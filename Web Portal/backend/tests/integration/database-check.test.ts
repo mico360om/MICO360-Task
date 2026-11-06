@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { createDatabaseCheck, expectedSchema, prismaDatabaseReads } from '../../src/modules/error-log/database-check';
 import { databaseProbes } from '../../src/modules/error-log/database-probes';
+import { createSearchIndex } from '../../src/modules/search/search-index';
 import { createPrismaChecklistStore } from '../../src/modules/tasks/prisma-checklist-store';
 import { createTaskSearchIndex } from '../../src/modules/search/task-search-index';
 import { createTaskSearchEngine } from '../../src/modules/search/task-search-engine';
@@ -50,8 +51,10 @@ describe('database check on a database the migrations built', () => {
     const { taskSearch, searchEngine } = engines(prisma);
     const recorded: string[] = [];
     // 1.23.3: and the hold every checklist change takes (SELECT … FOR UPDATE).
-    const probes = databaseProbes({ prisma, taskSearch, searchEngine, timeZone: 'Asia/Muscat', checklists: createPrismaChecklistStore(prisma) });
+    const probes = databaseProbes({ prisma, taskSearch, searchEngine, searchIndex: createSearchIndex({ prisma }), timeZone: 'Asia/Muscat', checklists: createPrismaChecklistStore(prisma) });
     expect(probes.map((p) => p.name)).toContain('checklists (holding a task while it changes)');
+    // 1.23.6: the reader's filters, the new kinds, a saved search's count, every kind of the search index.
+    expect(probes.map((p) => p.name)).toEqual(expect.arrayContaining(['a saved search’s count', 'search results: clients, accounts, contacts and checklist items', 'the search index (every kind’s heal and fingerprint)']));
     const check = createDatabaseCheck({ ...prismaDatabaseReads(prisma), probes, record: (p) => void recorded.push(p.text) });
     const r = await check.run();
     expect(r.problems).toEqual([]);
@@ -112,7 +115,7 @@ describe('every search query under the sql_mode the live server might have', () 
         const recorded: string[] = [];
         // 1.23.2: and the merge's own SQL (its locks and late-writes look) under the same sql_mode.
         const taskMerge = createTaskMergeService({ prisma: client, timeZone: 'Asia/Muscat' });
-        const r = await createDatabaseCheck({ ...prismaDatabaseReads(client), probes: databaseProbes({ prisma: client, taskSearch, searchEngine, timeZone: 'Asia/Muscat', taskMerge, checklists: createPrismaChecklistStore(client) }), record: (p) => void recorded.push(p.text) }).run();
+        const r = await createDatabaseCheck({ ...prismaDatabaseReads(client), probes: databaseProbes({ prisma: client, taskSearch, searchEngine, searchIndex: createSearchIndex({ prisma: client }), timeZone: 'Asia/Muscat', taskMerge, checklists: createPrismaChecklistStore(client) }), record: (p) => void recorded.push(p.text) }).run();
         expect(r.problems).toEqual([]);
       } finally {
         await client.$disconnect();

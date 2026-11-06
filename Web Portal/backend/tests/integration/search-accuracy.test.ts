@@ -11,7 +11,8 @@ import type { SearchScopeAll } from '../../src/modules/search/search-scope';
 // 1.23 Search everything — the accuracy test set: 63 questions over a seeded set of projects, tasks,
 // meetings, notes, minutes, files and inspections (English and Arabic), each with the items that must
 // come back — whole words, parts of words, spelling mistakes, Arabic spellings, file text, notes and
-// minutes, task numbers, contacts and questions holding only some of the words. Measured: recall@10
+// minutes, task numbers, contacts and questions holding only some of the words. 1.23.6: with checklist
+// items, external contacts and the client named on a project as results of their own. Measured: recall@10
 // (the expected items among the first ten), precision@1 (the first result is one of them) and
 // precision@10 (of the first ten, how many are expected). The numbers are printed.
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.TEST_DATABASE_URL } } });
@@ -43,12 +44,17 @@ async function seed(): Promise<void> {
     const t = await prisma.task.create({ data: { key: `${p.code}-${n[p.code]}`, title, description: data.description ?? null, projectId: ids[projectKey]!, columnId: data.done ? p.done : p.todo, createdById: owner, ...(data.done ? { completedAt: new Date() } : {}) } });
     ids[key] = t.id;
     if (data.comment) await prisma.comment.create({ data: { taskId: t.id, userId: owner, body: data.comment } });
-    for (const [i, text] of (data.checklist ?? []).entries()) await prisma.checklistItem.create({ data: { taskId: t.id, text, position: i } });
+    for (const [i, text] of (data.checklist ?? []).entries()) {
+      const item = await prisma.checklistItem.create({ data: { taskId: t.id, text, position: i } });
+      // 1.23.6: checklist items are results of their own (CK1, CK2… in the order made).
+      ids[`CK${Object.keys(ids).filter((k) => k.startsWith('CK')).length + 1}`] = item.id;
+    }
     if (data.tag) {
       const tag = await prisma.tag.upsert({ where: { name: `${data.tag}-${TAG}` }, update: {}, create: { name: `${data.tag}-${TAG}` } });
       await prisma.taskTag.create({ data: { taskId: t.id, tagId: tag.id } });
     }
-    if (data.contact) await prisma.taskExternalContact.create({ data: { taskId: t.id, name: data.contact.name, company: data.contact.company } });
+    // 1.23.6: an external contact is a result of its own (C1).
+    if (data.contact) ids.C1 = (await prisma.taskExternalContact.create({ data: { taskId: t.id, name: data.contact.name, company: data.contact.company } })).id;
     return t;
   };
   await task('T1', P1, 'P1', 'Replace mud pump liners', { description: 'Liners worn on pump 2; order spares from Weatherford.' });
@@ -123,6 +129,9 @@ async function seed(): Promise<void> {
   for (const k of ['M1', 'M2', 'M3']) await index.meetingChanged(ids[k]!);
   await index.refresh('file', [ids.F1!, ids.F2!, ids.F3!, ids.F4!]);
   await index.refresh('inspection', [ids.I1!, ids.I2!]);
+  // 1.23.6: the new kinds, as the server indexes them — checklist items, contacts, the client named on P1.
+  for (const t of taskIds) await index.taskPartsChanged(t);
+  for (const p of [ids.P1!, ids.P2!, ids.P3!]) await index.projectChanged(p);
   // The person running these projects: sees all of them, the meetings in full, the drafts too.
   const meetings = [ids.M1!, ids.M2!, ids.M3!];
   scope = { projectIds: [ids.P1!, ids.P2!, ids.P3!], meetings: { full: meetings, invitee: [], editable: meetings } };
@@ -196,10 +205,13 @@ const QUESTIONS: [string, string[]][] = [
   ['@T5hash', ['T5']],
   // Projects, clients and contacts
   ['North Field', ['P1']],
-  ['Petroleum Development Oman', ['P1']],
+  ['Petroleum Development Oman', ['P1', 'CL1']],
   ['tank farm', ['P2', 'T12']],
-  ['Khalid Al Balushi', ['T13']],
-  ['Larsen', ['T13']],
+  ['Khalid Al Balushi', ['T13', 'C1']],
+  ['Larsen', ['T13', 'C1']],
+  // 1.23.6 Checklist items, and the client named on a project
+  ['verify zero energy', ['CK1', 'T5']],
+  ['apply locks', ['CK2', 'T5']],
   // Some of the words
   ['mud pump vibration', ['T1']],
   ['generator load test schedule', ['T3']],
@@ -207,7 +219,13 @@ const QUESTIONS: [string, string[]][] = [
 
 /** The kind each seeded name is. */
 const KIND: Record<string, string> = { P: 'project', T: 'task', F: 'file', M: 'meeting', N: 'note', I: 'inspection' };
-const keyOf = (name: string) => (name.startsWith('MIN') ? `minutes:${ids[name]}` : `${KIND[name[0]!]}:${ids[name]}`);
+const keyOf = (name: string) =>
+  name.startsWith('MIN') ? `minutes:${ids[name]}`
+  // 1.23.6: a checklist item; a contact and a client are "Clients & contacts" results.
+  : name.startsWith('CK') ? `checklist:${ids[name]}`
+  : name === 'C1' ? `contact:contact:${ids.C1}`
+  : name === 'CL1' ? 'contact:client:petroleum development oman'
+  : `${KIND[name[0]!]}:${ids[name]}`;
 
 beforeAll(async () => {
   await prisma.$connect();
@@ -216,7 +234,8 @@ beforeAll(async () => {
 
 afterAll(async () => {
   const projectIds = [ids.P1, ids.P2, ids.P3].filter((x): x is string => !!x);
-  await prisma.searchIndex.deleteMany({ where: { OR: [{ projectId: { in: projectIds } }, { meetingId: { in: [ids.M1, ids.M2, ids.M3].filter((x): x is string => !!x) } }, { recordId: { in: [ids.F1, ids.F2, ids.F3, ids.F4, ids.I1, ids.I2].filter((x): x is string => !!x) } }] } });
+  await prisma.searchIndex.deleteMany({ where: { kind: 'client', recordId: 'petroleum development oman' } });
+  await prisma.searchIndex.deleteMany({ where: { OR: [{ projectId: { in: projectIds } }, { taskId: { in: Object.entries(ids).filter(([k]) => /^T\d+$/.test(k)).map(([, v]) => v) } }, { meetingId: { in: [ids.M1, ids.M2, ids.M3].filter((x): x is string => !!x) } }, { recordId: { in: [ids.F1, ids.F2, ids.F3, ids.F4, ids.I1, ids.I2].filter((x): x is string => !!x) } }] } });
   await prisma.inspection.deleteMany({ where: { projectId: { in: projectIds } } });
   await prisma.decision.deleteMany({ where: { createdById: owner } });
   await prisma.actionItem.deleteMany({ where: { createdById: owner } });

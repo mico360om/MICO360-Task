@@ -256,6 +256,8 @@ export interface AppDeps extends AuthRouteDeps {
   taskSearch?: Pick<import('./modules/search/task-search-engine').TaskSearchEngine, 'search'>;
   /** 1.23 Search everything (GET /search/all, the AI panel): every kind of item each person may open. */
   searchEverything?: import('./modules/search/search-routes').SearchEverythingDeps;
+  /** 1.23.6 Saved searches (GET/POST /search/saved…). */
+  savedSearches?: import('./modules/search/saved-searches').SavedSearches;
   meetingService?: MeetingService;
   /** Repeating meetings: creates a series' meetings and changes all its upcoming ones. */
   meetingSeriesService?: MeetingSeriesService;
@@ -930,7 +932,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       }
       if (deps.searchService) {
         // companies: both searches follow the pick; people are colleagues (with a pick, that company's).
-        await registerSearchRoutes(api, { searchService: deps.searchService, guard, accessibleProjectIds, taskSearch: deps.taskSearch, pickOf, peopleFor: searchPeople, companiesOf, myProjectsOnly, everything: deps.searchEverything, logger: deps.logger, ...(deps.searchPerMinute ? { perMinute: deps.searchPerMinute } : {}) });
+        await registerSearchRoutes(api, { searchService: deps.searchService, guard, accessibleProjectIds, taskSearch: deps.taskSearch, pickOf, peopleFor: searchPeople, companiesOf, myProjectsOnly, everything: deps.searchEverything, savedSearches: deps.savedSearches, logger: deps.logger, ...(deps.searchPerMinute ? { perMinute: deps.searchPerMinute } : {}) });
       }
       if (deps.meetingService) {
         await registerMeetingRoutes(api, {
