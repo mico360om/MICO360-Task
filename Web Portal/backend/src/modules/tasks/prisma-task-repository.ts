@@ -9,6 +9,7 @@ import {
   type UpdateTaskData,
 } from './task-repository';
 import type { RecurrenceRule } from './recurrence';
+import type { MonthWindow } from './month-list';
 import type { CarryForwardRepo } from './carry-forward-service';
 import type { CarryLogEntry } from './board-date';
 import { paletteColorFor } from './tag-repository';
@@ -94,6 +95,26 @@ function toRecord(t: EnrichedTask): TaskRecord {
 
 /** Live tasks only: not deleted, and not in a deleted project. */
 export const liveTaskWhere = { deletedAt: null, project: { is: { deletedAt: null } } } satisfies Prisma.TaskWhereInput;
+
+/**
+ * Month view (month-list.ts): the tasks that may show in a month's window — completed in it (a Done
+ * task with no completion time: changed in it), open and running into it (started before its end, due
+ * after its start or not at all), open and due in it, open and overdue before it (the current month
+ * only), and open ones with no dates (the "No date" chip). Wider than the rule; never narrower.
+ */
+export function monthWindowWhere(w: MonthWindow): Prisma.TaskWhereInput {
+  const open: Prisma.TaskWhereInput = { completedAt: null, column: { is: { category: { not: 'DONE' } } } };
+  return {
+    OR: [
+      { completedAt: { gte: w.from, lt: w.to } },
+      { completedAt: null, column: { is: { category: 'DONE' } }, updatedAt: { gte: w.from, lt: w.to } },
+      { ...open, startDate: { lt: w.to }, OR: [{ dueDate: null }, { dueDate: { gte: w.from } }] },
+      { ...open, dueDate: { gte: w.from, lt: w.to } },
+      ...(w.carry ? [{ ...open, dueDate: { lt: w.to } }] : []),
+      { ...open, startDate: null, dueDate: null },
+    ],
+  };
+}
 
 /** True for a unique-constraint violation on the task key (a concurrent create took it). */
 export function isTaskKeyConflict(err: unknown): boolean {
@@ -251,6 +272,7 @@ export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository
       if (filter.dueAfter) and.push({ dueDate: { gte: filter.dueAfter } });
       if (filter.recurring) and.push({ recurrenceRule: { not: Prisma.DbNull } });
       if (filter.awaitingApproval) and.push({ approvalRequestedAt: { not: null } });
+      if (filter.month) and.push(monthWindowWhere(filter.month));
       const ts = await prisma.task.findMany({
         where: { ...liveTaskWhere, AND: and },
         // Enrich list rows for card display: assignees + lightweight aggregate counts. `_count`

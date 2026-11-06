@@ -1,3 +1,4 @@
+import type { MonthWindow } from './month-list';
 import type { RecurrenceRule } from './recurrence';
 import type { CarryLogEntry } from './board-date';
 import type { ProjectTaskSettings } from '../projects/project-task-settings';
@@ -192,6 +193,11 @@ export interface TaskListFilter {
   recurring?: boolean;
   /** Only tasks waiting for approval (task-approval). */
   awaitingApproval?: boolean;
+  /**
+   * Month view: only tasks that may show in this window (month-list.ts) — the exact month rule then
+   * runs on the rows. Repositories that can't narrow may return more; never fewer.
+   */
+  month?: MonthWindow;
 }
 
 export interface SeriesUpdateOptions {
