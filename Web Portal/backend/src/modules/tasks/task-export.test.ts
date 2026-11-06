@@ -341,6 +341,14 @@ describe('1.23.3 nested checklists in the export', () => {
       ['Fit-out · 1/1', 'Done', 'Paint'],
     ]);
   });
+  it('two checklists with the same title stay apart, each with its own count', () => {
+    const twins = [
+      { text: 'A', done: true, depth: 0, list: 'Checklist', listId: 'L1', leaf: true },
+      { text: 'B', done: false, depth: 0, list: 'Checklist', listId: 'L2', leaf: true },
+    ];
+    const sheet = taskSheets(task({ checklist: twins }), ctx).find((s) => s.name === 'Checklist')!;
+    expect(sheet.rows.map((r) => r[0])).toEqual(['Checklist · 1/1', 'Checklist · 0/1']);
+  });
   it('the PDF counts the real to-do items, titles each checklist with its count and indents sub-items', () => {
     const lines = linesOf(taskPdf(task({ checklist: nested }), ctx));
     const at = (s: string) => lines.find((l) => l.text === s)!;

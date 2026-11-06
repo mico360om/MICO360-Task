@@ -462,6 +462,21 @@ describe('Merging tasks (integration)', () => {
     expect(await prisma.taskDependency.count({ where: { taskId: x.id, dependsOnTaskId: other.id } })).toBe(1);
   });
 
+  it('1.23.3: Undo gives an item back to its task even when it was moved into the main task’s own checklist since', async () => {
+    const main = await fullTask('Keeper', {}, 1);
+    const other = await fullTask('Mover', {}, 2);
+    const r = await merges.merge(manager, { taskIds: [main.id, other.id], mainTaskId: main.id });
+    const own = await prisma.checklistList.findFirstOrThrow({ where: { taskId: main.id, title: 'Checklist' } });
+    const moved = await prisma.checklistItem.findFirstOrThrow({ where: { taskId: main.id, text: 'Mover: step' } });
+    await prisma.checklistItem.update({ where: { id: moved.id }, data: { listId: own.id } });
+    await merges.undo(manager, r.mergeId);
+    const back = await prisma.checklistItem.findUniqueOrThrow({ where: { id: moved.id } });
+    expect(back.taskId).toBe(other.id);
+    // Not left pointing at the main task's checklist: back in its own task's first one.
+    const mine = await prisma.checklistList.findFirstOrThrow({ where: { taskId: other.id, deletedAt: null } });
+    expect(back.listId).toBe(mine.id);
+  });
+
   it('Undo gives back what is still there, lists what was deleted since, and keeps later additions on the main task', async () => {
     const main = await fullTask('Main', {}, 1);
     const other = await fullTask('Other', { assigneeIds: [mateId] }, 2);

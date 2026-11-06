@@ -104,7 +104,9 @@ export function createMemoryChecklistStore(opts: { liveTasks: () => Iterable<str
       const keepItem = (i: ItemRow) => !(i.deletedAt && i.deletedAt < before);
       const keepList = (l: ListRow) => !(l.deletedAt && l.deletedAt < before);
       const gone = new Set(rows.lists.filter((l) => !keepList(l)).map((l) => l.id));
-      rows.items.splice(0, rows.items.length, ...rows.items.filter((i) => keepItem(i) && !(i.listId && gone.has(i.listId))));
+      // An item kept whose checklist goes (it sits on another task after a merge Undo) loses only the link.
+      for (const i of rows.items) if (keepItem(i) && i.listId && gone.has(i.listId)) i.listId = null;
+      rows.items.splice(0, rows.items.length, ...rows.items.filter(keepItem));
       rows.lists.splice(0, rows.lists.length, ...rows.lists.filter(keepList));
       return n - rows.items.length - rows.lists.length;
     },

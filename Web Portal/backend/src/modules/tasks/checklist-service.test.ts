@@ -222,6 +222,93 @@ describe('moving', () => {
   });
 });
 
+describe('review fixes (1.23.3)', () => {
+  it('never looks anything else up while it holds the task (a second database connection inside the hold)', async () => {
+    const store = createMemoryChecklistStore({ liveTasks: () => ['t1'] });
+    let holding = false;
+    const held: typeof store = {
+      ...store,
+      async edit(taskId, change) {
+        return store.edit(taskId, async (rows) => {
+          holding = true;
+          try {
+            return await change(rows);
+          } finally {
+            holding = false;
+          }
+        });
+      },
+    };
+    const looked: boolean[] = [];
+    const service = createChecklistService({
+      store: held,
+      now: () => clock,
+      eligibleAssignees: async (_t, ids) => (looked.push(holding), ids),
+      namesOf: async (ids) => (looked.push(holding), new Map(ids.map((id) => [id, 'Mariam Said']))),
+    });
+    const [a] = (await service.addItems('t1', 'u1', { texts: ['A'] })).items;
+    await service.updateItem(a!.id, 'u1', { assigneeId: 'u2', dueDate: new Date('2026-11-10T00:00:00Z') });
+    const res = await service.updateItem(a!.id, 'u1', { done: true, text: 'A2' });
+    expect(res.before).toMatchObject({ text: 'A', assignee: { id: 'u2', name: 'Mariam Said' } });
+    expect(res.item).toMatchObject({ text: 'A2', done: true, assignee: { name: 'Mariam Said' } });
+    expect(looked.length).toBeGreaterThan(0);
+    expect(looked.every((inside) => !inside)).toBe(true);
+  });
+
+  it('the purge never takes a live item with it: one whose checklist is on another task (a merge Undo) is kept', async () => {
+    const s = setup();
+    const [own] = (await s.service.addItems('t1', 'u1', { texts: ['Own'] })).items;
+    const [stray] = (await s.service.addItems('t2', 'u1', { texts: ['Stray'] })).items;
+    // As after a merge Undo: the item went back to t2 by its task, its checklist stayed on t1.
+    s.store.rows.items.find((i) => i.id === stray!.id)!.listId = own!.listId;
+    await s.service.removeList(own!.listId, 'u1');
+    clock = new Date(clock.getTime() + (RESTORE_DAYS + 1) * 86_400_000);
+    await s.service.purge();
+    expect(s.store.rows.items.map((i) => i.text)).toEqual(['Stray']);
+    expect((await s.service.view('t2')).items.map((i) => i.text)).toEqual(['Stray']);
+  });
+
+  it('restoring under a parent that moved to another checklist goes with the parent (and its counts agree)', async () => {
+    const s = setup();
+    const [p, q] = (await s.service.addItems('t1', 'u1', { texts: ['P', 'Q'] })).items;
+    const [c1] = (await s.service.addItems('t1', 'u1', { texts: ['C1'], parentId: p!.id })).items;
+    const second = await s.service.addList('t1', 'u1', 'Second');
+    const gone = await s.service.removeItem(c1!.id, 'u1');
+    await s.service.moveItem(p!.id, 'u1', { listId: second.id, parentId: null, afterId: null });
+    await s.service.restore('t1', 'u1', gone.batchId);
+    const v = await s.service.view('t1');
+    expect(v.items.map((i) => `${i.depth}${i.text}:${v.lists.find((l) => l.id === i.listId)!.title}`)).toEqual(['0Q:Checklist', '0P:Second', '1C1:Second']);
+    expect(v.lists.map((l) => [l.title, l.total])).toEqual([['Checklist', 1], ['Second', 1]]);
+    // Deleting P now takes exactly P and C1.
+    expect((await s.service.removeItem(p!.id, 'u1')).count).toBe(2);
+    void q;
+  });
+
+  it('a restore that would go past 20 levels comes back one level up instead (never refused, never too deep)', async () => {
+    const s = setup();
+    let parentId: string | null = null;
+    const chain: string[] = [];
+    for (let level = 0; level < 19; level++) {
+      const res: { items: { id: string }[] } = await s.service.addItems('t1', 'u1', { texts: [`L${level}`], parentId });
+      parentId = res.items[0]!.id;
+      chain.push(parentId);
+    }
+    // A two-level sub-tree under L5, deleted; then L5's branch is moved under L17's level… simulated by moving L6 deeper.
+    const [x] = (await s.service.addItems('t1', 'u1', { texts: ['X'], parentId: chain[5]! })).items;
+    const [x1] = (await s.service.addItems('t1', 'u1', { texts: ['X1'], parentId: x!.id })).items;
+    const [x2] = (await s.service.addItems('t1', 'u1', { texts: ['X2'], parentId: x1!.id })).items;
+    void x2;
+    const gone = await s.service.removeItem(x!.id, 'u1');
+    // Its old parent L5 now sits at level 18 (moved under L18 by hand): X, X1, X2 would reach level 21.
+    s.store.rows.items.find((i) => i.id === chain[5])!.parentId = chain[18]!;
+    s.store.rows.items.find((i) => i.id === chain[6])!.parentId = chain[4]!;
+    await s.service.restore('t1', 'u1', gone.batchId);
+    const v = await s.service.view('t1');
+    expect(Math.max(...v.items.map((i) => i.depth))).toBeLessThan(20);
+    expect(v.items.some((i) => i.text === 'X2')).toBe(true);
+  });
+});
+
 describe('people and dates', () => {
   it('assigns an item to someone on the team with a due date, and clears them', async () => {
     const s = setup();

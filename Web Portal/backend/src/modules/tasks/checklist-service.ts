@@ -468,11 +468,14 @@ export function createChecklistService(deps: ChecklistServiceDeps) {
     const taskId = await taskOfItem(itemId);
     const text = patch.text !== undefined ? cleanText(patch.text) : undefined;
     if (patch.assigneeId !== undefined) await assertAssignable(taskId, patch.assigneeId);
-    const { value: before, rows } = await edit(
+    const { value: was, rows } = await edit(
       taskId,
       actorId,
-      async (rows, at) => {
-        const was = await itemFrom(rows, itemId);
+      (rows, at) => {
+        // Read from the rows only: nothing else is asked of the database while the task is held (a
+        // second connection inside the hold could wait on a pool the holds have filled).
+        const was = arrange(rows.lists, rows.items).items.find((i) => i.id === itemId);
+        if (!was) throw new NotFoundError('Checklist item not found.');
         const row = liveItem(rows, itemId);
         if (patch.done !== undefined && patch.done !== row.done) {
           if (was.childCount > 0) {
@@ -500,7 +503,9 @@ export function createChecklistService(deps: ChecklistServiceDeps) {
       },
       { words: text !== undefined },
     );
-    return { before, item: await itemFrom(rows, itemId) };
+    const item = await itemFrom(rows, itemId);
+    const names = await namesFor([was]);
+    return { before: itemView(was, names), item };
   }
 
   async function toggleItem(itemId: string, done: boolean, actorId: string | null = null): Promise<ChecklistItemView> {
@@ -605,7 +610,7 @@ export function createChecklistService(deps: ChecklistServiceDeps) {
       if (target.afterId === itemId) return row.text;
       const old = { listId: row.listId!, parentId: row.parentId ?? null };
       if (target.listId !== row.listId) {
-        for (const id of [row.id, ...descendantIds(rows.items, row.id)]) {
+        for (const id of [row.id, ...descendantIds(rows.items, row.id, { withDeleted: true })]) {
           const r = rows.items.find((i) => i.id === id)!;
           r.listId = target.listId;
           r.updatedAt = at;
@@ -813,6 +818,15 @@ export function createChecklistService(deps: ChecklistServiceDeps) {
             for (const id of [i.id, ...descendantIds(rows.items, i.id)]) rows.items.find((x) => x.id === id)!.listId = first.id;
             i.parentId = null;
           } else if (i.parentId && !liveIds.has(i.parentId)) i.parentId = null;
+          else if (i.parentId) {
+            // Its parent is live but moved to another checklist since: it goes with its parent.
+            const parent = rows.items.find((x) => x.id === i.parentId)!;
+            if (parent.listId !== i.listId) for (const id of [i.id, ...descendantIds(rows.items, i.id)]) rows.items.find((x) => x.id === id)!.listId = parent.listId;
+          }
+          // Never past 20 levels (its old parent may sit deeper now): it comes back as far up as needed.
+          while (i.parentId && depthOf(rows.items, i.parentId) + subtreeHeight(rows.items, i.id) >= MAX_DEPTH) {
+            i.parentId = rows.items.find((x) => x.id === i.parentId)?.parentId ?? null;
+          }
         }
         if (root && !lists.length) {
           // Back where it was in its group (its old position), the rest shifted after it.

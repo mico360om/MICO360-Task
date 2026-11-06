@@ -141,6 +141,23 @@ describe('the service on the database', () => {
   });
 });
 
+describe('the purge on the database (review fix)', () => {
+  it('removes a checklist deleted over 30 days ago but never a live item of another task that points at it', async () => {
+    const a = await task('NCL-20');
+    const b = await task('NCL-21');
+    const [own] = (await service.addItems(a.id, ids.owner!, { texts: ['Own'] })).items;
+    const [stray] = (await service.addItems(b.id, ids.owner!, { texts: ['Stray'] })).items;
+    // As after a merge Undo of an older merge: the item is back on B, its checklist still A's.
+    await prisma.checklistItem.update({ where: { id: stray!.id }, data: { listId: own!.listId } });
+    await service.removeList(own!.listId, ids.owner!);
+    clock = new Date(clock.getTime() + 31 * 86_400_000);
+    await service.purge();
+    expect(await prisma.checklistList.count({ where: { id: own!.listId } })).toBe(0);
+    expect(await prisma.checklistItem.findUnique({ where: { id: stray!.id } })).toMatchObject({ taskId: b.id, listId: null, deletedAt: null });
+    expect((await service.view(b.id)).items.map((i) => i.text)).toEqual(['Stray']);
+  });
+});
+
 describe('reads across tasks', () => {
   it('My Tasks lists my open items of open tasks; the calendar and the reminders find dated items', async () => {
     const open = await task('NCL-6', { dueDate: new Date('2026-11-20T00:00:00Z') });

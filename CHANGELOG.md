@@ -51,6 +51,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   PDF and spreadsheet list each checklist with its count ("Electrical · 5/8") and sub-items indented.
 - The Android app and the Chrome extension keep working as they are: they see every checklist item in
   one list and can tick items without sub-items (ticking a parent there says which sub-items are open).
+  Deleting an item with sub-items there deletes its sub-items too; it can be restored on the website
+  for 30 days.
 - Error log: a slow request says where the time went — the server, the database or the network (for
   example "server 9.9 s · in the database 9.7 s", or "server 0.1 s · the rest was the network"). Every
   answer from the server now carries its own time and its time in the database; the row shows the last

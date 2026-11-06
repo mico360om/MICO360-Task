@@ -620,6 +620,8 @@ export interface TaskExportChecklistItem {
   done: boolean;
   /** Its checklist's title (absent: one untitled list, as before 1.23.3). */
   list?: string;
+  /** Its checklist (two checklists may share a title). */
+  listId?: string;
   /** 0 = top level. */
   depth?: number;
   /** A real to-do item (no sub-items); absent = yes. */
@@ -633,11 +635,14 @@ const isLeaf = (c: TaskExportChecklistItem) => c.leaf !== false;
 /** The items grouped by checklist, in order, each with its "Electrical · 5/8" label. */
 function checklistGroups(items: TaskExportChecklistItem[]): { title: string | null; label: string; items: TaskExportChecklistItem[] }[] {
   const groups: { title: string | null; label: string; items: TaskExportChecklistItem[] }[] = [];
+  let lastKey: string | null | undefined;
   for (const c of items) {
     const title = c.list ?? null;
+    const key = c.listId ?? title;
     const last = groups[groups.length - 1];
-    if (last && last.title === title) last.items.push(c);
+    if (last && key === lastKey) last.items.push(c);
     else groups.push({ title, label: '', items: [c] });
+    lastKey = key;
   }
   for (const g of groups) {
     const leaves = g.items.filter(isLeaf);
@@ -658,5 +663,5 @@ function checklistSheet(items: TaskExportChecklistItem[], title: string, notes: 
 export function exportChecklist(lists: ListRow[], items: ItemRow[]): TaskExportChecklistItem[] {
   const a = arrange(lists, items);
   const titles = new Map(a.lists.map((l) => [l.id, l.title]));
-  return a.items.map((i) => ({ text: i.text, done: i.done, list: titles.get(i.listId) ?? 'Checklist', depth: i.depth, leaf: i.childCount === 0 }));
+  return a.items.map((i) => ({ text: i.text, done: i.done, list: titles.get(i.listId) ?? 'Checklist', listId: i.listId, depth: i.depth, leaf: i.childCount === 0 }));
 }

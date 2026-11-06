@@ -259,9 +259,9 @@ export function settleParents(items: ItemRow[], opts: { now: Date; actorId: stri
   return changed;
 }
 
-/** Every live item under this one, at any depth. */
-export function descendantIds(items: readonly ItemRow[], id: string): string[] {
-  const live = items.filter(isLive);
+/** Every live item under this one, at any depth (with `withDeleted`, deleted ones too). */
+export function descendantIds(items: readonly ItemRow[], id: string, opts: { withDeleted?: boolean } = {}): string[] {
+  const live = opts.withDeleted ? items : items.filter(isLive);
   const out: string[] = [];
   const queue = [id];
   const seen = new Set<string>([id]);

@@ -3,6 +3,8 @@ import { arrange, type ItemRow, type ListRow } from './checklist-tree';
 import { isTaskDone } from './task-status';
 import type { MyChecklistItem } from './checklist-routes';
 
+/** "Checklist items for me" shows at most this many (the soonest due). */
+const MINE_MAX = 500;
 /** A live task: not deleted (or merged), its project not deleted. */
 const liveTask = { deletedAt: null, project: { is: { deletedAt: null } } } as const;
 const dayKey = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
@@ -53,16 +55,17 @@ export function createPrismaChecklistQueries(prisma: PrismaClient) {
     /** My Tasks → "Checklist items for me": open items given to this person, in these projects (null = any). */
     async mine(userId: string, projectIds: string[] | null): Promise<MyChecklistItem[]> {
       if (projectIds && projectIds.length === 0) return [];
-      const rows = await prisma.checklistItem.findMany({
-        where: {
-          assigneeId: userId,
-          done: false,
-          deletedAt: null,
-          task: { ...liveTask, approvalRequestedAt: null, completedAt: null, ...(projectIds ? { projectId: { in: projectIds } } : {}) },
-        },
-        select: { id: true, taskId: true, task: { select: { key: true, title: true, projectId: true, column: { select: { category: true } } } } },
-        take: 500,
-      });
+      const where = {
+        assigneeId: userId,
+        done: false,
+        deletedAt: null,
+        task: { ...liveTask, approvalRequestedAt: null, completedAt: null, ...(projectIds ? { projectId: { in: projectIds } } : {}) },
+      };
+      const select = { id: true, taskId: true, task: { select: { key: true, title: true, projectId: true, column: { select: { category: true } } } } } as const;
+      // The 500 soonest: dated ones first (soonest due), then undated ones (oldest first).
+      const dated = await prisma.checklistItem.findMany({ where: { ...where, dueDate: { not: null } }, select, orderBy: [{ dueDate: 'asc' }, { id: 'asc' }], take: MINE_MAX });
+      const undated = dated.length < MINE_MAX ? await prisma.checklistItem.findMany({ where: { ...where, dueDate: null }, select, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], take: MINE_MAX - dated.length }) : [];
+      const rows = [...dated, ...undated];
       const open = rows.filter((r) => !isTaskDone({ columnCategory: r.task.column?.category ?? null, completedAt: null }));
       const arranged = await arrangedOf([...new Set(open.map((r) => r.taskId))]);
       const out: MyChecklistItem[] = [];
@@ -105,7 +108,6 @@ export function createPrismaChecklistQueries(prisma: PrismaClient) {
         },
         select: { id: true, text: true, done: true, dueDate: true, assigneeId: true, taskId: true, task: { select: { key: true, title: true, projectId: true } } },
         orderBy: [{ dueDate: 'asc' }, { id: 'asc' }],
-        take: 2000,
       });
       return rows.map((r) => ({ id: r.id, text: r.text, done: r.done, dueDate: dayKey(r.dueDate)!, assigneeId: r.assigneeId, taskId: r.taskId, taskKey: r.task.key, taskTitle: r.task.title, projectId: r.task.projectId }));
     },

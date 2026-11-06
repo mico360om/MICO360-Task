@@ -1369,6 +1369,17 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
       const position = (i.data as { position?: number } | null)?.position ?? 0;
       await tx.checklistItem.updateMany({ where: { id: i.rowId, taskId: main.id }, data: { taskId: i.fromTaskId, position } });
     }
+    // 1.23.3: an item given back whose checklist stayed on the main task (moved there since, or a merge
+    // made before 1.23.3) goes to the top of its own task's first checklist — never left pointing at
+    // another task's.
+    const givenBack = ids('checklist');
+    if (givenBack.length) {
+      const stray = (await tx.checklistItem.findMany({ where: { id: { in: givenBack } }, select: { id: true, taskId: true, list: { select: { taskId: true } } } })).filter((x) => x.list && x.list.taskId !== x.taskId);
+      for (const x of stray) {
+        const first = await tx.checklistList.findFirst({ where: { taskId: x.taskId, deletedAt: null }, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }], select: { id: true } });
+        await tx.checklistItem.update({ where: { id: x.id }, data: { listId: first?.id ?? null, parentId: null } });
+      }
+    }
     // A contact the merge filled in loses what it was given — unless that was changed since.
     for (const i of of('contactFill')) {
       const fill = ((i.data as { fill?: Partial<ContactValues> } | null)?.fill ?? {}) as Partial<ContactValues>;

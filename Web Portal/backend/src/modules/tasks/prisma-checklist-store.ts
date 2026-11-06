@@ -71,8 +71,16 @@ export function createPrismaChecklistStore(prisma: PrismaClient): ChecklistStore
     },
     async purge(before) {
       const items = await prisma.checklistItem.deleteMany({ where: { deletedAt: { lt: before } } });
-      // A checklist's own items went with it (same time); anything still in it goes with it (cascade).
-      const lists = await prisma.checklistList.deleteMany({ where: { deletedAt: { lt: before } } });
+      const old = (await prisma.checklistList.findMany({ where: { deletedAt: { lt: before } }, select: { id: true } })).map((l) => l.id);
+      if (!old.length) return items.count;
+      // An item still kept that points at one of them (it sits on another task after a merge Undo, or was
+      // deleted later) loses only the link — never the item (the foreign key would cascade): it reads as in
+      // its task's first checklist. Then the old checklists go.
+      for (let i = 0; i < old.length; i += 500) {
+        const chunk = old.slice(i, i + 500);
+        await prisma.checklistItem.updateMany({ where: { listId: { in: chunk } }, data: { listId: null } });
+      }
+      const lists = await prisma.checklistList.deleteMany({ where: { id: { in: old }, deletedAt: { lt: before } } });
       return items.count + lists.count;
     },
     /** The start-up database check: the hold, on a task no row has (nothing found, nothing written). */
