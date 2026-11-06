@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MemoryRouter, useLocation } from 'react-router-dom';
+import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { BoardPage } from './BoardPage';
@@ -15,15 +15,24 @@ vi.mock('../lib/useBoardRealtime', () => ({ useBoardRealtime: () => {} }));
 
 // A stand-in board: each column's cards with their month line, and buttons that do what a drag would.
 vi.mock('../components/KanbanBoard', () => ({
-  KanbanBoard: ({ columns, onMove }: { columns: KanbanColumnData[]; onMove?: (key: string, to: string, index: number) => void }) => (
-    <div>
+  KanbanBoard: ({ columns, onMove, onReorder }: { columns: KanbanColumnData[]; onMove?: (key: string, to: string, index: number) => void; onReorder?: unknown }) => (
+    <div data-testid="kanban" data-reorder={onReorder ? 'on' : 'off'}>
       {columns.map((c) => (
         <section key={c.id} aria-label={c.name}>
           {c.tasks.map((t) => (
             <div key={t.key} data-testid="card">
               {t.key} · {t.dateLine?.text ?? 'no line'}
               {t.dateLine?.overdue ? ' · red' : ''}
-              {onMove ? columns.map((to) => (to.id === c.id ? null : <button key={to.id} onClick={() => onMove(t.key, to.id, 0)}>{`Move ${t.key} to ${to.name}`}</button>)) : null}
+              {onMove
+                ? columns.map((to) =>
+                    to.id === c.id ? null : (
+                      <span key={to.id}>
+                        <button onClick={() => onMove(t.key, to.id, 0)}>{`Move ${t.key} to ${to.name}`}</button>
+                        <button onClick={() => onMove(t.key, to.id, 1)}>{`Move ${t.key} to ${to.name} at 1`}</button>
+                      </span>
+                    ),
+                  )
+                : null}
             </div>
           ))}
         </section>
@@ -62,23 +71,36 @@ const task = (id: string, key: string, extra: Partial<ApiTask> = {}) =>
 let MONTHS: Record<string, ApiTask[]> = {};
 type Call = { url: string; method: string; body?: Record<string, unknown> };
 let calls: Call[] = [];
+/** Moves never answer (the board shows its own optimistic move). */
+let hangMoves = false;
+const ext = (company: string) => ({ count: 1, name: `Someone at ${company}`, company, names: [`Someone at ${company}`], companies: [company] });
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date('2026-11-07T08:00:00.000Z'));
   calls = [];
   created = {};
+  hangMoves = false;
   MONTHS = {
     '2026-11': [
-      task('t1', 'MICO-1', { startDate: day('2026-11-05'), dueDate: day('2026-11-20') }),
+      task('t1', 'MICO-1', { startDate: day('2026-11-05'), dueDate: day('2026-11-20'), externalSummary: ext('OXY') }),
       task('t2', 'MICO-2', { startDate: day('2026-10-01'), dueDate: day('2026-10-30') }),
-      task('t3', 'MICO-3'),
+      task('t3', 'MICO-3', { externalSummary: ext('OXY') }),
+      task('t10', 'MICO-7', { externalSummary: ext('PDO') }),
+      task('t11', 'OPS-2', { projectId: 'p2', columnId: 'p2-todo' }),
       task('t4', 'MICO-4', { columnId: 'p1-done', columnCategory: 'DONE', completedAt: '2026-11-03T08:00:00.000Z' }),
       task('t7', 'OPS-1', { projectId: 'p2', columnId: 'p2-todo', dueDate: day('2026-11-25') }),
       task('t8', 'OLD-1', { projectId: 'p3', columnId: 'p3-todo', dueDate: day('2026-11-26') }),
     ],
     '2026-12': [task('t5', 'MICO-5', { dueDate: day('2026-12-18') })],
     '2026-10': [task('t6', 'MICO-6', { dueDate: day('2026-10-20') }), task('t3', 'MICO-3')],
+    // In Progress holds A, an undated U, then B (by position); X waits in To Do.
+    '2027-01': [
+      task('a1', 'MICO-11', { columnId: 'p1-doing', columnCategory: 'IN_PROGRESS', position: 0, dueDate: day('2027-01-10') }),
+      task('u1', 'MICO-12', { columnId: 'p1-doing', columnCategory: 'IN_PROGRESS', position: 1 }),
+      task('b1', 'MICO-13', { columnId: 'p1-doing', columnCategory: 'IN_PROGRESS', position: 2, dueDate: day('2027-01-12') }),
+      task('x1', 'MICO-14', { dueDate: day('2027-01-15') }),
+    ],
   };
   clearQueue(localStorageQueueStore);
   localStorage.clear();
@@ -91,6 +113,7 @@ beforeEach(() => {
       calls.push({ url: u, method, body: init?.body ? JSON.parse(String(init.body)) : undefined });
       if (u.endsWith('/config')) return json({ data: { timeZone: 'Asia/Muscat', productName: 'x', companyName: 'y', serverTime: new Date().toISOString() } });
       if (method === 'PATCH' && u.includes('/move')) {
+        if (hangMoves) return new Promise<Response>(() => {});
         const id = /\/tasks\/([^/]+)\/move/.exec(u)![1]!;
         const columnId = String(JSON.parse(String(init!.body)).columnId);
         const category = COLUMNS(columnId.split('-')[0]!).find((c) => c.id === columnId)!.category;
@@ -125,7 +148,14 @@ afterEach(() => {
 
 function Where() {
   const loc = useLocation();
-  return <p data-testid="where">{loc.pathname + loc.search}</p>;
+  const navigate = useNavigate();
+  return (
+    <>
+      <p data-testid="where">{loc.pathname + loc.search}</p>
+      {/* The sidebar's "Kanban Board" link, for the page already open. */}
+      <button type="button" onClick={() => navigate('/board?project=p1')}>Sidebar board link</button>
+    </>
+  );
 }
 function renderPage(path: string) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -213,7 +243,7 @@ describe('Kanban Board: the month’s cards', () => {
     expect(card('MICO-2')!.textContent).toContain('Overdue · from Oct · red');
     expect(card('MICO-4')!.textContent).toContain('Done 3 Nov');
     expect(card('MICO-3')).toBeUndefined();
-    const chip = screen.getByRole('button', { name: 'No date (1)' });
+    const chip = screen.getByRole('button', { name: 'No date (2)' });
     await userEvent.click(chip);
     expect(chip).toHaveAttribute('aria-pressed', 'true');
     expect(card('MICO-3')!.textContent).toContain('No date');
@@ -282,5 +312,100 @@ describe('Kanban Board: Month on All projects and on a read-only project', () =>
     expect(within(card('OLD-1')!).queryByRole('button')).toBeNull();
     expect(screen.queryByRole('button', { name: /\+ new task/i })).not.toBeInTheDocument();
     expect(screen.getByRole('group', { name: 'Month: November 2026' })).toBeInTheDocument();
+  });
+});
+
+describe('Kanban Board: month view review fixes', () => {
+  it('Month is remembered, but this month moves on: picked on 7 Nov, the board opens on December on 2 Dec', async () => {
+    const first = renderPage('/board?project=p1');
+    await screen.findByRole('region', { name: 'To Do' });
+    await userEvent.click(screen.getByRole('button', { name: 'Month view' }));
+    await screen.findByRole('group', { name: 'Month: November 2026' });
+    await waitFor(() => expect(localStorage.getItem(userStorageKey('u1', 'board.period'))).toBe('month'));
+    // This month is kept as "this month", not as November.
+    expect(localStorage.getItem(userStorageKey('u1', 'board.month'))).toBeNull();
+    first.unmount();
+    vi.setSystemTime(new Date('2026-12-02T08:00:00.000Z'));
+    renderPage('/board?project=p1');
+    expect(await screen.findByRole('group', { name: 'Month: December 2026' })).toBeInTheDocument();
+    await waitFor(() => expect(where()).toContain('month=2026-12'));
+  });
+
+  it('a month opened by a link is the remembered choice at once (the sidebar link, same page, opens it again)', async () => {
+    renderPage('/board?project=p1&month=2027-01');
+    await screen.findByRole('group', { name: 'Month: January 2027' });
+    await userEvent.click(screen.getByRole('button', { name: 'Sidebar board link' }));
+    expect(await screen.findByRole('group', { name: 'Month: January 2027' })).toBeInTheDocument();
+    await waitFor(() => expect(where()).toContain('month=2027-01'));
+  });
+
+  it('a card dropped on Done reads “Done 7 Nov” at once — no longer red — before the server answers (one project)', async () => {
+    hangMoves = true;
+    renderPage('/board?project=p1&month=2026-11');
+    await waitFor(() => expect(card('MICO-2')).toBeTruthy());
+    expect(card('MICO-2')!.textContent).toContain('Overdue · from Oct · red');
+    await userEvent.click(within(card('MICO-2')!).getByRole('button', { name: 'Move MICO-2 to Done' }));
+    await waitFor(() => expect(within(screen.getByRole('region', { name: 'Done' })).getByRole('button', { name: 'Move MICO-2 to To Do' })).toBeInTheDocument());
+    expect(card('MICO-2')!.textContent).toContain('MICO-2 · Done 7 Nov');
+    expect(card('MICO-2')!.textContent).not.toContain('red');
+  });
+
+  it('…and on All projects', async () => {
+    hangMoves = true;
+    renderPage('/board?project=all&month=2026-11');
+    await waitFor(() => expect(card('MICO-2')).toBeTruthy());
+    await userEvent.click(within(card('MICO-2')!).getByRole('button', { name: 'Move MICO-2 to Done' }));
+    await waitFor(() => expect(card('MICO-2')!.textContent).toContain('MICO-2 · Done 7 Nov'));
+    expect(within(screen.getByRole('region', { name: 'Done' })).getByRole('button', { name: 'Move MICO-2 to To Do' })).toBeInTheDocument();
+  });
+
+  it('with the cards without dates left off, a drop lands in the whole column, and in-column order is off until “No date” is on', async () => {
+    renderPage('/board?project=p1&month=2027-01');
+    await waitFor(() => expect(card('MICO-14')).toBeTruthy());
+    expect(card('MICO-12')).toBeUndefined();
+    expect(screen.getByTestId('kanban')).toHaveAttribute('data-reorder', 'off');
+    // Dropped between A and B as shown: after the hidden U, before B.
+    await userEvent.click(within(card('MICO-14')!).getByRole('button', { name: 'Move MICO-14 to In Progress at 1' }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT' && c.url.includes('/columns/p1-doing/tasks/reorder'))).toBe(true));
+    expect(calls.find((c) => c.method === 'PUT' && c.url.includes('/columns/p1-doing/tasks/reorder'))!.body).toEqual({ orderedIds: ['a1', 'u1', 'x1', 'b1'] });
+    await userEvent.click(screen.getByRole('button', { name: 'No date (1)' }));
+    expect(screen.getByTestId('kanban')).toHaveAttribute('data-reorder', 'on');
+  });
+
+  it('“No date (N)” counts what it would add: the company filter applies to it', async () => {
+    renderPage('/board?project=p1&month=2026-11');
+    expect(await screen.findByRole('button', { name: 'No date (2)' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Filter by external company' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'OXY' }));
+    expect(await screen.findByRole('button', { name: 'No date (1)' })).toBeInTheDocument();
+  });
+
+  it('…and on All projects it leaves out the projects filtered off', async () => {
+    localStorage.setItem(userStorageKey('u1', 'board.hiddenProjects'), JSON.stringify(['p2']));
+    renderPage('/board?project=all&month=2026-11');
+    await waitFor(() => expect(card('MICO-1')).toBeTruthy());
+    expect(screen.getByRole('button', { name: 'No date (2)' })).toBeInTheDocument();
+  });
+
+  it('“Saved — it’s in Dec” stays with its project and its month view', async () => {
+    renderPage('/board?project=p1&month=2026-11');
+    await waitFor(() => expect(card('MICO-1')).toBeTruthy());
+    created = task('t9', 'MICO-9', { startDate: day('2026-12-01'), dueDate: day('2026-12-18') });
+    await userEvent.click(screen.getByRole('button', { name: /\+ new task/i }));
+    await userEvent.click(within(await screen.findByRole('dialog', { name: 'New task' })).getByRole('button', { name: 'Fake create' }));
+    expect(await screen.findByText('Saved — it’s in Dec.')).toBeInTheDocument();
+    // Day and back: it doesn't come back.
+    await userEvent.click(screen.getByRole('button', { name: 'Day view' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Month view' }));
+    await screen.findByRole('group', { name: 'Month: November 2026' });
+    expect(screen.queryByText('Saved — it’s in Dec.')).not.toBeInTheDocument();
+    // Another project: not there either.
+    await userEvent.click(screen.getByRole('button', { name: /\+ new task/i }));
+    await userEvent.click(within(await screen.findByRole('dialog', { name: 'New task' })).getByRole('button', { name: 'Fake create' }));
+    expect(await screen.findByText('Saved — it’s in Dec.')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Select project' }));
+    await userEvent.click(await screen.findByRole('option', { name: /Operations/ }));
+    await waitFor(() => expect(card('OPS-1')).toBeTruthy());
+    expect(screen.queryByText('Saved — it’s in Dec.')).not.toBeInTheDocument();
   });
 });

@@ -60,3 +60,14 @@ describe('MonthBar', () => {
     expect(screen.getByRole('button', { name: 'No date (0)' })).toHaveAttribute('aria-pressed', 'true');
   });
 });
+
+describe('MonthBar at the ends of the calendar', () => {
+  it('no step past December 2999 or before January 1000', () => {
+    const { unmount } = render(<MonthBar month="2999-12" thisMonth="2026-11" onChange={vi.fn()} undated={0} showUndated={false} onShowUndated={vi.fn()} />);
+    expect(screen.getByRole('button', { name: 'Next month' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Previous month' })).toBeEnabled();
+    unmount();
+    render(<MonthBar month="1000-01" thisMonth="2026-11" onChange={vi.fn()} undated={0} showUndated={false} onShowUndated={vi.fn()} />);
+    expect(screen.getByRole('button', { name: 'Previous month' })).toBeDisabled();
+  });
+});

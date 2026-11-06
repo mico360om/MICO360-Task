@@ -153,5 +153,5 @@ export function nearestMonth(t: MonthTask, month: string, clock: MonthClock): st
     const [by, bm] = month.split('-').map(Number) as [number, number];
     return Math.abs(ay * 12 + am - (by * 12 + bm));
   };
-  return distance(carried) < distance(clamped) ? carried : clamped;
+  return distance(carried) <= distance(clamped) ? carried : clamped;
 }

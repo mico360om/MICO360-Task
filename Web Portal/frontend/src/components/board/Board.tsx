@@ -143,12 +143,12 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
   const monthClock = useMemo<MonthClock>(() => ({ timeZone, today: todayKey }), [timeZone, todayKey]);
   const [showUndated, setShowUndated] = useState(false);
   // A task saved or moved out of the month shown: where it went, and a way there.
-  const [elsewhere, setElsewhere] = useState<{ text: string; month: string; from: string } | null>(null);
+  const [elsewhere, setElsewhere] = useState<{ text: string; month: string; from: string; projectId: string | undefined } | null>(null);
   const boardKey = isMonth ? ['board', projectId, 'month', month] : ['board', projectId, boardDate];
   /** In the month view, a task that left the month says where it is now ("Saved — it’s in Dec."). */
   const tellWhere = (t: ApiTask | undefined, said: (word: string) => string) => {
     const there = isMonth && t ? nearestMonth(t, month, monthClock) : null;
-    if (there) setElsewhere({ text: said(monthWord(there, month)), month: there, from: month });
+    if (there) setElsewhere({ text: said(monthWord(there, month)), month: there, from: month, projectId });
   };
 
   // Auto carry-forward: when an admin opens today's board, run the sweep once so any still-open tasks
@@ -240,7 +240,15 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
       await qc.cancelQueries({ queryKey: key });
       const prev = qc.getQueryData<BoardData>(key);
       if (prev) {
-        qc.setQueryData<BoardData>(key, { ...prev, columns: moveTaskInBoard(prev.columns, taskKey, toColumnId, toIndex) });
+        // The task itself moves too (the month view's card dates and the Table read it): into a Done
+        // column it is finished now, out of one it is open again.
+        const column = prev.apiColumns?.find((c) => c.id === toColumnId);
+        const tasks = prev.tasks?.map((t) =>
+          t.key !== taskKey || !column
+            ? t
+            : { ...t, columnId: toColumnId, columnCategory: column.category, completedAt: column.category === 'DONE' ? t.completedAt ?? new Date().toISOString() : null },
+        );
+        qc.setQueryData<BoardData>(key, { ...prev, columns: moveTaskInBoard(prev.columns, taskKey, toColumnId, toIndex), ...(tasks ? { tasks } : {}) });
       }
       return { prev, key };
     },
@@ -307,7 +315,7 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
       if (prev) {
         qc.setQueryData<ApiTask[]>(
           key,
-          prev.map((t) => (t.key === taskKey ? { ...t, columnId: toColumnId, columnCategory: status, ...(status !== 'DONE' ? { completedAt: null } : {}) } : t)),
+          prev.map((t) => (t.key === taskKey ? { ...t, columnId: toColumnId, columnCategory: status, completedAt: status === 'DONE' ? t.completedAt ?? new Date().toISOString() : null } : t)),
         );
       }
       return { prev, key };
@@ -534,7 +542,16 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
         </div>
       ) : projectId ? (
         <div className="mb-4 flex flex-wrap items-center gap-2">
-          <ViewSwitch label="Show the board for" value={period} onChange={choosePeriod} options={PERIODS} density={false} />
+          <ViewSwitch
+            label="Show the board for"
+            value={period}
+            onChange={(p) => {
+              setElsewhere(null);
+              choosePeriod(p);
+            }}
+            options={PERIODS}
+            density={false}
+          />
           {isMonth ? (
             <MonthBar
               month={month}
@@ -648,7 +665,7 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
       ) : null}
 
       {/* Said in the month it happened in (another month, or Day, leaves it behind). */}
-      {elsewhere && isMonth && elsewhere.from === month ? (
+      {elsewhere && isMonth && elsewhere.from === month && elsewhere.projectId === projectId ? (
         <p role="status" className="mb-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink-2">
           <span>{elsewhere.text}</span>
           <span className="flex flex-none items-center gap-3">

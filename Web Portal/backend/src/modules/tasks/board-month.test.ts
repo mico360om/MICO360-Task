@@ -173,4 +173,8 @@ describe('where to find a task that isn’t in the month shown', () => {
     expect(nearestMonth(t, '2027-01', clock)).toBe('2026-11');
     expect(nearestMonth(t, '2026-08', clock)).toBe('2026-09');
   });
+
+  it('as near as its own month: this month, where it waits overdue (e.g. reopened while looking at October)', () => {
+    expect(nearestMonth(open({ dueDate: day('2026-09-15') }), '2026-10', clock)).toBe('2026-11');
+  });
 });

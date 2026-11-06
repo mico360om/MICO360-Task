@@ -31,11 +31,10 @@ export function currentMonth(timeZone: string, now: Date = new Date()): string {
   return todayKey(timeZone, now).slice(0, 7);
 }
 
-/** The year selector's years: five either side of this year, stretched to the shown month's year. */
+/** The year selector's years: five either side of this year, and the shown month's year when it is further off. */
 export function yearChoices(shown: string, thisMonth: string): number[] {
-  const from = Math.min(yearOf(thisMonth) - 5, yearOf(shown));
-  const to = Math.max(yearOf(thisMonth) + 5, yearOf(shown));
-  return Array.from({ length: to - from + 1 }, (_, i) => from + i);
+  const years = Array.from({ length: 11 }, (_, i) => yearOf(thisMonth) - 5 + i);
+  return years.includes(yearOf(shown)) ? years : [...years, yearOf(shown)].sort((a, b) => a - b);
 }
 
 /** What a month with no tasks on it says. */

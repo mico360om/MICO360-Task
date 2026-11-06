@@ -52,6 +52,10 @@ beforeAll(async () => {
   // In a Done column with no completion time (older data): the month it last changed.
   await make('legacyDone', { updatedAt: new Date(`${prev}-12T08:00:00.000Z`) }, w.projects.PA, paDone);
   await make('overdue', { startDate: day(`${old}-02`), dueDate: day(`${old}-15`) });
+  // Older data: a start after its due date (its due month, carried while overdue) and a completion time
+  // outside a Done column (finished: its completion month only).
+  await make('startAfterDue', { startDate: day(`${next}-10`), dueDate: day(`${prev}-20`) });
+  await make('doneOutside', { completedAt: new Date(`${prev}-10T08:00:00.000Z`), dueDate: day(`${old}-05`) });
   await make('pbNow', { dueDate: day(`${cur}-20`) }, w.projects.PB, pbTodo);
   // @updatedAt is stamped on create: set the older change time afterwards.
   await prisma.task.update({ where: { id: ids.legacyDone }, data: { updatedAt: new Date(`${prev}-12T08:00:00.000Z`) } });
@@ -74,12 +78,12 @@ const monthOf = async (month: string, query = '') => (await api.getRaw(w.as.ana,
 describe('the month view over the database', () => {
   it('this month: spans, open starts, the start and the completion just after midnight on the 1st, overdue carry-over; two without dates', async () => {
     const res = await monthOf(cur);
-    expect(keysOf(res.data)).toEqual(['span', 'startOld', 'startEdge', 'doneEdge', 'overdue'].map(K).sort());
+    expect(keysOf(res.data)).toEqual(['span', 'startOld', 'startEdge', 'doneEdge', 'overdue', 'startAfterDue'].map(K).sort());
     expect(res.meta).toEqual({ month: cur, undated: 2 });
   });
 
-  it('last month: the span, the old start, completions in it (23:59 on its last day too) and the older Done task — no carry-over', async () => {
-    expect(keysOf((await monthOf(prev)).data)).toEqual(['span', 'startOld', 'doneLate', 'donePrev', 'legacyDone'].map(K).sort());
+  it('last month: the span, the old start, completions in it (23:59 on its last day too, and outside a Done column), the older Done task, a start after its due date — no carry-over', async () => {
+    expect(keysOf((await monthOf(prev)).data)).toEqual(['span', 'startOld', 'doneLate', 'donePrev', 'legacyDone', 'startAfterDue', 'doneOutside'].map(K).sort());
   });
 
   it('next month: the span, the due date, the open starts — the overdue task never shows in a future month', async () => {
@@ -94,7 +98,7 @@ describe('the month view over the database', () => {
   it('undated=true adds the tasks without dates (the world’s TA1 and TA2)', async () => {
     const res = await monthOf(cur, '&undated=true');
     expect(res.data.map((r) => r.id)).toEqual(expect.arrayContaining([w.tasks.TA1, w.tasks.TA2]));
-    expect(res.data).toHaveLength(7);
+    expect(res.data).toHaveLength(8);
   });
 });
 

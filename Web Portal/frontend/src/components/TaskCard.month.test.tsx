@@ -18,6 +18,9 @@ describe('TaskCard in the month view', () => {
     expect(chip).toHaveTextContent('Overdue · from Oct');
     expect(chip).toHaveAttribute('title', 'Due 30 Oct');
     expect(chip.className).toContain('text-danger');
+    // Not only on hover: touch, keyboard and screen readers get the due day too.
+    expect(chip).toHaveTextContent('Overdue · from Oct (Due 30 Oct)');
+    expect(screen.getByText('(Due 30 Oct)')).toHaveClass('sr-only');
   });
 
   it('a card without a due date still shows its line (“From 5 Nov”, “No date”)', () => {

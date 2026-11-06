@@ -11,6 +11,8 @@ export type BoardPeriod = 'day' | 'month';
  * before — or one month. The month is in the address (?month=2026-11: a link opens that month) and,
  * with the choice of Day or Month, remembered for the person on this device per place (`place`: the
  * Board page's 'board', a project page's Board tab's 'project-board'), so the board opens as they left it.
+ * The current month is remembered as "this month" (nothing stored): when the month changes, the board
+ * opens on the new one — with the overdue tasks carried into it — not on last month.
  */
 export function useBoardPeriod(place: string, thisMonth: string) {
   const userId = useAuthStore((s) => s.user?.id);
@@ -43,16 +45,18 @@ export function useBoardPeriod(place: string, thisMonth: string) {
   useEffect(() => {
     if (inMonth && asked !== month) showMonth(month);
   }, [inMonth, asked, month, showMonth]);
-  // Remember it — a month opened by a link too.
+  // Remember it — a month opened by a link too (so the page's own link, /board, opens it again).
   useEffect(() => {
     if (!inMonth) return;
+    const at = month === thisMonth ? null : month;
     writeUserValue(userId, `${place}.period`, 'month');
-    writeUserValue(userId, `${place}.month`, month);
-  }, [inMonth, month, place, userId]);
+    writeUserValue(userId, `${place}.month`, at);
+    setSaved((s) => (s.inMonth && s.at === at ? s : { inMonth: true, at }));
+  }, [inMonth, month, thisMonth, place, userId]);
 
   const choosePeriod = (period: BoardPeriod) => {
     if (period === 'month') {
-      setSaved({ inMonth: true, at: month });
+      setSaved({ inMonth: true, at: month === thisMonth ? null : month });
       showMonth(month);
     } else {
       setSaved((s) => ({ ...s, inMonth: false }));
@@ -61,7 +65,9 @@ export function useBoardPeriod(place: string, thisMonth: string) {
     }
   };
   const chooseMonth = (m: string) => {
-    setSaved({ inMonth: true, at: m });
+    // Past the years a month can be (1000–2999): stay.
+    if (!isMonthKey(m)) return;
+    setSaved({ inMonth: true, at: m === thisMonth ? null : m });
     showMonth(m);
   };
 

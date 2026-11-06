@@ -205,6 +205,7 @@ export function TaskCard({ task, onClick, timeZone = DEFAULT_TIME_ZONE, interact
                 <rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" />
               </svg>
               {line ? line.text : overdue ? `Overdue · ${dueText}` : dueText}
+              {line?.title ? <span className="sr-only"> ({line.title})</span> : null}
             </span>
           ) : null}
           {c && c.checklistTotal > 0 ? (

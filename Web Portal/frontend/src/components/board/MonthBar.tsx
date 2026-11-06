@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { shiftMonth } from '../../lib/board-month';
+import { isMonthKey, shiftMonth } from '../../lib/board-month';
 import { MONTH_NAMES, monthTitle, yearChoices } from '../../lib/month-view';
 import { TOUCH_TALL } from '../../lib/touch';
 import type { BoardPeriod } from './useBoardPeriod';
@@ -29,7 +29,7 @@ export const PERIODS: { value: BoardPeriod; label: string; icon: ReactNode }[] =
   },
 ];
 
-const ARROW = 'grid h-8 w-8 flex-none place-items-center rounded-lg text-ink-2 transition-colors hover:bg-ground hover:text-ink [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11';
+const ARROW = 'grid h-8 w-8 flex-none place-items-center rounded-lg text-ink-2 transition-colors hover:bg-ground hover:text-ink disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11';
 const SELECT =
   'rounded-lg border-0 bg-transparent px-1 text-sm font-semibold text-ink outline-none transition-colors hover:bg-ground focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand [@media(pointer:coarse)]:h-11 [&>option]:bg-surface [&>option]:font-normal [&>option]:text-ink';
 
@@ -58,7 +58,7 @@ export function MonthBar({
   return (
     <>
       <div role="group" aria-label={`Month: ${monthTitle(month)}`} className="inline-flex items-center rounded-xl border border-line bg-surface p-0.5 [@media(pointer:coarse)]:p-0">
-        <button type="button" onClick={() => onChange(shiftMonth(month, -1))} aria-label="Previous month" title="Previous month" className={ARROW}>
+        <button type="button" onClick={() => onChange(shiftMonth(month, -1))} disabled={!isMonthKey(shiftMonth(month, -1))} aria-label="Previous month" title="Previous month" className={ARROW}>
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6" /></svg>
         </button>
         <select aria-label="Month" value={mm} onChange={(e) => onChange(`${year}-${e.target.value}`)} className={SELECT}>
@@ -72,7 +72,7 @@ export function MonthBar({
             <option key={y} value={y}>{y}</option>
           ))}
         </select>
-        <button type="button" onClick={() => onChange(shiftMonth(month, 1))} aria-label="Next month" title="Next month" className={ARROW}>
+        <button type="button" onClick={() => onChange(shiftMonth(month, 1))} disabled={!isMonthKey(shiftMonth(month, 1))} aria-label="Next month" title="Next month" className={ARROW}>
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6" /></svg>
         </button>
       </div>

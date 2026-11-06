@@ -25,6 +25,11 @@ describe('month words', () => {
     expect(yearChoices('2001-03', '2026-11')[0]).toBe(2001);
   });
 
+  it('a far-off month adds just its year, not every year between', () => {
+    expect(yearChoices('1000-01', '2026-11')).toEqual([1000, 2021, 2022, 2023, 2024, 2025, 2026, 2027, 2028, 2029, 2030, 2031]);
+    expect(yearChoices('2999-12', '2026-11')).toHaveLength(12);
+  });
+
   it('an empty month says why', () => {
     expect(emptyMonthText('2026-11', '2026-11')).toBe('Nothing on this month’s board yet. Add a task with “New task” or a column’s +.');
     expect(emptyMonthText('2026-12', '2026-11')).toBe('Nothing planned for December 2026 yet.');
