@@ -260,7 +260,7 @@ import { createMapStore } from './modules/error-log/stack';
 // an administrator's "Send password reset", the forms' duplicate check.
 import { hkdfSync } from 'node:crypto';
 import { createSignInChallenges } from './modules/auth/sign-in-challenge';
-import { createPrismaSignInChallengeStore } from './modules/auth/prisma-sign-in-challenge-store';
+import { createPrismaSignInChallengeStore, endEveryCode } from './modules/auth/prisma-sign-in-challenge-store';
 import { createEmailVerification, createPrismaVerificationRepo } from './modules/auth/email-verification';
 import { createOnboardingEvents, type OnboardingEvents } from './modules/users/onboarding-events';
 import { createInvitationSweep, createPrismaExpiredInvitationStore } from './modules/users/invitation-sweep';
@@ -1732,7 +1732,9 @@ async function main(): Promise<void> {
     activate: async (userId) => {
       await prisma.user.updateMany({ where: { id: userId, activatedAt: null }, data: { activatedAt: new Date() } });
     },
-    endChallenges: (userId) => signInChallenges.endAll(userId),
+    // A code sent to the old address must not count: the open sign-in challenges and the emailed-code
+    // sign-in's unused codes end with the change.
+    endChallenges: (userId) => endEveryCode(prisma, userId),
     audit: auditService,
     mailer: emailService,
     firstNameOf: async (userId) => {

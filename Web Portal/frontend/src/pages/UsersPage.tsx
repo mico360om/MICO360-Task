@@ -371,7 +371,7 @@ export function UsersPage() {
           {card ? <span>Send password reset</span> : (
             <>
               <KeyIcon />
-              <span className="hidden sm:inline">Reset link</span>
+              <span className="hidden sm:inline">Password reset</span>
             </>
           )}
         </button>

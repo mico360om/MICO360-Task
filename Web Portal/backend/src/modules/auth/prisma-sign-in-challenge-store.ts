@@ -61,3 +61,15 @@ export function createPrismaSignInChallengeStore(prisma: PrismaClient): SignInCh
     },
   };
 }
+
+/**
+ * Onboarding: every code a person could still use to sign in — open sign-in challenges and the emailed-code
+ * sign-in's unused codes — ends at once (their email address changed: a code sent to the old one must
+ * not count).
+ */
+export async function endEveryCode(prisma: PrismaClient, userId: string, at: Date = new Date()): Promise<void> {
+  await prisma.$transaction([
+    prisma.signInChallenge.updateMany({ where: { userId, consumedAt: null }, data: { consumedAt: at } }),
+    prisma.loginOtp.updateMany({ where: { userId, purpose: 'LOGIN', consumedAt: null }, data: { consumedAt: at } }),
+  ]);
+}

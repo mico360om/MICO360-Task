@@ -3,7 +3,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { PrismaClient } from '@prisma/client';
 import { portabilityProblems } from '../../src/lib/sql-portability';
-import { createPrismaSignInChallengeStore } from '../../src/modules/auth/prisma-sign-in-challenge-store';
+import { createPrismaSignInChallengeStore, endEveryCode } from '../../src/modules/auth/prisma-sign-in-challenge-store';
 import { createSignInChallenges } from '../../src/modules/auth/sign-in-challenge';
 import { createEmailVerification, createPrismaVerificationRepo } from '../../src/modules/auth/email-verification';
 import { createPrismaUserRepository as createAuthUsers } from '../../src/modules/auth/prisma-user-repository';
@@ -122,6 +122,19 @@ describe('Sign-in challenges in sign_in_challenges', () => {
     expect(guesses.filter((g) => g === 'WRONG_CODE')).toHaveLength(5);
     expect(guesses.filter((g) => g === 'TOO_MANY_WRONG_CODES')).toHaveLength(2);
     expect((await prisma.signInChallenge.findFirstOrThrow({ where: { userId: ann.id } })).attempts).toBe(5);
+  });
+
+  it('an email change ends every code the person could still use: challenges and emailed sign-in codes', async () => {
+    const cy = await person('cy');
+    const svc = createSignInChallenges({ store: createPrismaSignInChallengeStore(prisma), key: 'db-test-key', mailer: { isConfigured: () => true, async sendSignInCode() {} } });
+    await svc.start({ id: cy.id, email: cy.email }, 'VERIFY_EMAIL');
+    await prisma.loginOtp.create({ data: { userId: cy.id, codeHash: 'x', purpose: 'LOGIN', expiresAt: new Date(Date.now() + 10 * MIN) } });
+    const other = await person('dee');
+    await prisma.loginOtp.create({ data: { userId: other.id, codeHash: 'y', purpose: 'LOGIN', expiresAt: new Date(Date.now() + 10 * MIN) } });
+    await endEveryCode(prisma, cy.id);
+    expect(await prisma.signInChallenge.count({ where: { userId: cy.id, consumedAt: null } })).toBe(0);
+    expect(await prisma.loginOtp.count({ where: { userId: cy.id, consumedAt: null } })).toBe(0);
+    expect(await prisma.loginOtp.count({ where: { userId: other.id, consumedAt: null } })).toBe(1);
   });
 
   it('the right code works once even when sent twice at the same moment', async () => {
