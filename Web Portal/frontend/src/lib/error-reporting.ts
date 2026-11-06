@@ -1,6 +1,7 @@
 import { createErrorReporter, type ErrorReporter, type ReporterWorld } from './error-reporter';
 import { CHUNK_FAILURE, installErrorCapture, isLeaving, requestReport } from './error-capture';
 import { recoverChunk } from './update-recovery';
+import type { RequestDone } from './api-client';
 
 /**
  * The page's Error log reporter (1.22.4), set up once by main.tsx before the app renders. Until then
@@ -73,8 +74,8 @@ export function reportPageError(error: unknown): void {
   }
 }
 
-/** One API request, from the API client: blocked on the way (status 0 while online) or slow. */
-export function noteRequest(info: { method: string; path: string; status: number; ms: number }): void {
+/** One API request, from the API client: blocked on the way (status 0 while online) or slow (1.23.3: with its Server-Timing). */
+export function noteRequest(info: RequestDone): void {
   try {
     if (!reporter) return;
     const r = requestReport(info, { online: navigator.onLine !== false, leaving: isLeaving() || document.visibilityState === 'hidden' });

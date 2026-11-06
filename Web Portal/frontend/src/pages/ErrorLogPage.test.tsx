@@ -179,6 +179,65 @@ describe('ErrorLogPage (System Settings → Error log)', () => {
   });
 });
 
+// 1.23.3 — a slow request says where its time went: the server, the database or the network (the
+// server's Server-Timing, sent by the page with its report).
+describe('Error log — where a slow request’s time went', () => {
+  const slowRow = (id: string, title: string, timing: unknown) => ({ ...GROUPS[0], id, kind: 'SLOW', title, count: 2, people: 1, page: '/board', timing });
+  const SLOW_GROUPS = [
+    slowRow('s1', 'Slow request: GET /api/v1/tasks', { totalMs: 10_200, serverMs: 9900, dbMs: 9700 }),
+    slowRow('s2', 'Slow request: GET /api/v1/projects', { totalMs: 12_000, serverMs: 100, dbMs: 40 }),
+    slowRow('s3', 'Slow page load', null),
+    { ...slowRow('s4', 'Slow request: GET /api/v1/chat', null), timing: undefined }, // an older server: no timing at all
+  ];
+  const occurrence = (id: string, message: string, value: number, timing: unknown) => ({ id, at: '2026-11-05T10:00:00.000Z', kind: 'SLOW', detail: 'api', message, stack: null, page: '/board', job: null, resource: 'GET /api/v1/tasks', value, count: 1, version: '1.23.3', browser: 'Chrome 130', system: 'Windows', screen: null, signedIn: true, person: { id: 'u1', name: 'Sara Ali' }, timing });
+  const S1_DETAIL = {
+    group: { ...SLOW_GROUPS[0], topFile: null, topLine: null, topFunction: null },
+    events: [
+      occurrence('o1', 'Slow request: GET /api/v1/tasks took 10.2 s', 10_200, { totalMs: 10_200, serverMs: 9900, dbMs: 9700 }),
+      occurrence('o2', 'Slow request: GET /api/v1/tasks took 11.0 s', 11_000, null), // before 1.23.3
+    ],
+  };
+  beforeEach(() => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const u = String(url);
+        if (u.endsWith('/error-log/visit')) return json({ data: { previousVisitAt: null } });
+        if (/\/error-log\/s1$/.test(u)) return json({ data: S1_DETAIL });
+        if (u.includes('/error-log?')) return json({ data: { groups: SLOW_GROUPS, next: null, counts: { all: 4, errors: 0, blocked: 0, slow: 4, server: 0 } } });
+        if (u.endsWith('/config')) return json({ data: { timeZone: 'Asia/Muscat' } });
+        return json({ data: [] });
+      }),
+    );
+  });
+
+  it('a row says where the last time’s wait went: in the database, or the network', async () => {
+    renderPage();
+    const tasks = (await screen.findByText('Slow request: GET /api/v1/tasks')).closest('li')!;
+    expect(within(tasks).getByText('Last time 10.2 s: server 9.9 s · in the database 9.7 s')).toBeInTheDocument();
+    const projects = screen.getByText('Slow request: GET /api/v1/projects').closest('li')!;
+    expect(within(projects).getByText('Last time 12.0 s: server 0.1 s · the rest was the network')).toBeInTheDocument();
+  });
+
+  it('rows without it (other slow kinds, older reports, an older server) look as before', async () => {
+    renderPage();
+    const load = (await screen.findByText('Slow page load')).closest('li')!;
+    expect(within(load).queryByText(/Last time/)).toBeNull();
+    expect(within(screen.getByText('Slow request: GET /api/v1/chat').closest('li')!).queryByText(/Last time/)).toBeNull();
+  });
+
+  it('the details: each occurrence that said it, under its own words; no stack', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click((await screen.findByText('Slow request: GET /api/v1/tasks')).closest('button')!);
+    const occurrences = (await screen.findByText('Latest occurrences')).parentElement!;
+    expect(within(occurrences).getByText('Slow request: GET /api/v1/tasks took 10.2 s')).toBeInTheDocument();
+    expect(within(occurrences).getAllByText('server 9.9 s · in the database 9.7 s')).toHaveLength(1);
+    expect(within(occurrences).getByText('Slow request: GET /api/v1/tasks took 11.0 s')).toBeInTheDocument();
+    expect(screen.queryByText('Stack (latest)')).toBeNull();
+  });
+});
+
 // 1.23.1 — the database self-check: what the live database is (its server, settings) and whether it
 // holds what the app expects. One line above the rows; its problems listed when there are any.
 describe('Error log — the database check', () => {

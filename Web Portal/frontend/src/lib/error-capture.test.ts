@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { installErrorCapture, isLeaving, layoutShiftScore, requestReport, SLOW } from './error-capture';
+import { installErrorCapture, isLeaving, layoutShiftScore, requestReport, serverTimingOf, SLOW } from './error-capture';
 import type { ErrorReport } from './error-reporter';
 
 let reports: ErrorReport[];
@@ -173,6 +173,31 @@ describe('requestReport: the API client’s requests', () => {
   });
   it('never about its own reports', () => {
     expect(requestReport({ method: 'POST', path: '/client-errors', status: 0, ms: 20_000 }, { online: true, leaving: false })).toBeNull();
+  });
+
+  // 1.23.3: a slow request says where its time went — the server's own time and its time in the database.
+  it('a slow request carries the server’s time and its time in the database (Server-Timing)', () => {
+    const ok = { online: true, leaving: false };
+    expect(requestReport({ method: 'GET', path: '/tasks', status: 200, ms: 10_200, serverTiming: 'app;dur=9912.3, db;dur=9700.1' }, ok)).toEqual({ kind: 'SLOW', detail: 'api', value: 10_200, resource: 'GET /api/v1/tasks', serverMs: 9912.3, dbMs: 9700.1 });
+    // No header (an older server, a proxy's own answer): as before.
+    expect(requestReport({ method: 'GET', path: '/tasks', status: 200, ms: 10_200 }, ok)).toEqual({ kind: 'SLOW', detail: 'api', value: 10_200, resource: 'GET /api/v1/tasks' });
+    // A request that wasn't slow says nothing, whatever its header.
+    expect(requestReport({ method: 'GET', path: '/tasks', status: 200, ms: 300, serverTiming: 'app;dur=250, db;dur=200' }, ok)).toBeNull();
+  });
+});
+
+describe('serverTimingOf: the server’s time and its time in the database, from a Server-Timing header', () => {
+  it('reads app and db, among others a proxy may add, in any order', () => {
+    expect(serverTimingOf('app;dur=9912.3, db;dur=9700.1')).toEqual({ serverMs: 9912.3, dbMs: 9700.1 });
+    expect(serverTimingOf('cdn-cache;desc=HIT, db;dur=12, edge;dur=4, app;desc="Server";dur=80')).toEqual({ serverMs: 80, dbMs: 12 });
+    expect(serverTimingOf('APP;DUR=5')).toEqual({ serverMs: 5, dbMs: null });
+  });
+
+  it('nothing without the server’s time or when it is nonsense', () => {
+    for (const h of [null, undefined, '', 'db;dur=5', 'app', 'app;dur=', 'app;dur=-3', 'app;dur=abc', 'app;dur=Infinity', 'apps;dur=4']) {
+      expect(serverTimingOf(h), String(h)).toBeNull();
+    }
+    expect(serverTimingOf('app;dur=50, db;dur=x')).toEqual({ serverMs: 50, dbMs: null });
   });
 });
 

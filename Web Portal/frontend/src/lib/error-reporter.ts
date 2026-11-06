@@ -27,6 +27,9 @@ export interface ErrorReport {
   value?: number | null;
   /** The page it happened on, when not the one open now (a slow first load measured later). */
   page?: string | null;
+  /** 1.23.3, a slow request: the server's own time and its time in the database (ms, its Server-Timing). */
+  serverMs?: number | null;
+  dbMs?: number | null;
 }
 
 /** What the reporter needs from the page (a test gives it a fake one). */
@@ -142,6 +145,14 @@ export function createErrorReporter(world: ReporterWorld) {
       if (r.directive) out.directive = String(r.directive).slice(0, 60);
       if (r.tag) out.tag = r.tag;
       if (typeof r.value === 'number' && Number.isFinite(r.value) && r.value >= 0) out.value = Math.round(r.value * 1000) / 1000;
+      // 1.23.3: a slow request's server and database times (ms; the database's only with the server's).
+      const ms = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 1e9 ? Math.round(v * 1000) / 1000 : null);
+      const serverMs = ms(r.serverMs);
+      const dbMs = ms(r.dbMs);
+      if (serverMs !== null) {
+        out.serverMs = serverMs;
+        if (dbMs !== null) out.dbMs = dbMs;
+      }
       out.count = 1;
       out.version = world.version;
       const size = world.windowSize();

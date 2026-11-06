@@ -14,6 +14,12 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### Improvements
+- Error log: a slow request says where the time went — the server, the database or the network (for
+  example "server 9.9 s · in the database 9.7 s", or "server 0.1 s · the rest was the network"). Every
+  answer from the server now carries its own time and its time in the database; the row shows the last
+  time's, and each occurrence its own. Rows from before the update look as they did.
+
 ## [1.23.2] - 2026-11-06
 
 ### New features

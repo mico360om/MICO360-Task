@@ -64,6 +64,35 @@ describe('parseClientBatch: what the page sends, checked report by report', () =
     expect(r).not.toHaveProperty('token');
     expect(r).not.toHaveProperty('cookie');
   });
+
+  // 1.23.3: a slow request says where its time went — the server's own time and its time in the
+  // database, from the answer's Server-Timing.
+  it('a slow request keeps the server’s time and its time in the database', () => {
+    const slow = { kind: 'SLOW', detail: 'api', value: 10_200, page: '/', resource: 'GET /api/v1/tasks' };
+    expect(parseClientBatch({ reports: [{ ...slow, serverMs: 9912.3, dbMs: 9700.1 }] })[0]).toMatchObject({ value: 10_200, serverMs: 9912.3, dbMs: 9700.1 });
+    // Without the database's part (an answer that said only the server's time).
+    expect(parseClientBatch({ reports: [{ ...slow, serverMs: 120 }] })[0]).toMatchObject({ serverMs: 120, dbMs: null });
+    // The database's part is part of the server's: never more.
+    expect(parseClientBatch({ reports: [{ ...slow, serverMs: 100, dbMs: 900 }] })[0]).toMatchObject({ serverMs: 100, dbMs: 100 });
+    // An old page sends neither: the report is as before.
+    const [old] = parseClientBatch({ reports: [slow] });
+    expect(old).not.toHaveProperty('serverMs');
+    expect(old).not.toHaveProperty('dbMs');
+  });
+
+  it('those times only on a slow request, and only as sensible numbers', () => {
+    const slow = { kind: 'SLOW', detail: 'api', value: 10_200, page: '/', resource: 'GET /api/v1/tasks' };
+    expect(parseClientBatch({ reports: [{ ...slow, serverMs: -1, dbMs: 5 }] })).toEqual([]);
+    expect(parseClientBatch({ reports: [{ ...slow, serverMs: 'x' }] })).toEqual([]);
+    expect(parseClientBatch({ reports: [{ ...slow, serverMs: 2e9 }] })).toEqual([]);
+    // A database time without the server's says nothing.
+    expect(parseClientBatch({ reports: [{ ...slow, dbMs: 5 }] })[0]).not.toHaveProperty('dbMs');
+    for (const other of [{ kind: 'SLOW', detail: 'load', value: 9000, page: '/' }, ok]) {
+      const [r] = parseClientBatch({ reports: [{ ...other, serverMs: 50, dbMs: 40 }] });
+      expect(r).not.toHaveProperty('serverMs');
+      expect(r).not.toHaveProperty('dbMs');
+    }
+  });
 });
 
 describe('parseCspReports: what the browser itself sends for the security policy', () => {

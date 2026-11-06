@@ -66,6 +66,8 @@ describe('CORS for trusted origins (the Chrome extension, a separately hosted we
     expect(String(res.headers['access-control-expose-headers'])).toContain('Content-Disposition');
     // 1.22.4: and whether the Error log is collecting (a page on another origin, in development).
     expect(String(res.headers['access-control-expose-headers'])).toContain('X-Collect-Browser-Errors');
+    // 1.23.3: and where a request's time went (a slow request in the Error log).
+    expect(String(res.headers['access-control-expose-headers'])).toContain('Server-Timing');
   });
 
   // Companies: the picked company travels in X-Company-Id on every call (CORS reflects the asked-for
@@ -95,6 +97,22 @@ describe('private data: caching and search engines', () => {
     const app = await buildApp({ authService, tokenService });
     const res = await app.inject({ method: 'GET', url: '/uploads/some-file.pdf' });
     expect(res.headers['x-robots-tag']).toBe('noindex, nofollow');
+  });
+});
+
+describe('where a request’s time went (1.23.3, the Error log’s slow requests)', () => {
+  it('API answers say the server’s time and its time in the database (Server-Timing)', async () => {
+    const app = await buildApp({ authService, tokenService });
+    for (const url of ['/api/v1/health', '/api/v1/tasks/mine']) {
+      const res = await app.inject({ method: 'GET', url });
+      expect(String(res.headers['server-timing']), url).toMatch(/^app;dur=\d+(\.\d)?, db;dur=\d+(\.\d)?$/);
+    }
+  });
+
+  it('uploaded files don’t', async () => {
+    const app = await buildApp({ authService, tokenService });
+    const res = await app.inject({ method: 'GET', url: '/uploads/some-file.pdf' });
+    expect(res.headers['server-timing']).toBeUndefined();
   });
 });
 

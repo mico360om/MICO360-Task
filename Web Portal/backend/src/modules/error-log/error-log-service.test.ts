@@ -483,3 +483,50 @@ describe('requests that met a database blip: one row per kind', () => {
     expect(repo.eventRows[0]).toMatchObject({ job: 'weekly-management-summary' });
   });
 });
+
+// 1.23.3 — a slow request says where its time went: the server's own time and its time in the database
+// (the answer's Server-Timing, sent by the page), beside the whole time the page waited.
+describe('a slow request: where the time went', () => {
+  const slow = (over: Record<string, unknown> = {}) => ({ kind: 'SLOW', detail: 'api', value: 10_200, page: '/board', resource: 'GET /api/v1/tasks', ...over });
+  const slowRows = async () => (await service.list({ kind: 'slow', range: '30d', q: null, status: 'open', before: null })).groups;
+
+  it('each occurrence keeps it; the details and the row show the latest', async () => {
+    service.acceptClientBatch({ body: batch(slow({ serverMs: 9912.3, dbMs: 9700.1 })), ip: '1', userAgent: CHROME, userId: 'u1' });
+    await service.settled();
+    clock = new Date('2026-11-05T08:05:00Z');
+    service.acceptClientBatch({ body: batch(slow({ value: 12_000, serverMs: 80, dbMs: 30 })), ip: '2', userAgent: CHROME, userId: 'u2' });
+    await service.settled();
+    expect(repo.groups).toHaveLength(1); // still one row: the times aren't part of what it is
+    const [row] = await slowRows();
+    expect(row!.timing).toEqual({ totalMs: 12_000, serverMs: 80, dbMs: 30 });
+    const d = await service.detail(row!.id);
+    expect(d!.events.map((e) => e.timing)).toEqual([
+      { totalMs: 12_000, serverMs: 80, dbMs: 30 },
+      { totalMs: 10_200, serverMs: 9912.3, dbMs: 9700.1 },
+    ]);
+    expect(d!.events.every((e) => e.stack === null)).toBe(true); // kept in its own words, never shown as a stack
+    expect(d!.events[0]!.message).toBe('Slow request: GET /api/v1/tasks took 12.0 s');
+  });
+
+  it('without them (an older page, or an answer that didn’t say) the row and details are as before', async () => {
+    service.acceptClientBatch({ body: batch(slow({ serverMs: 9000, dbMs: 100 })), ip: '1', userAgent: CHROME, userId: 'u1' });
+    await service.settled();
+    clock = new Date('2026-11-05T08:05:00Z');
+    service.acceptClientBatch({ body: batch(slow()), ip: '2', userAgent: CHROME, userId: 'u2' });
+    await service.settled();
+    const [row] = await slowRows();
+    expect(row!.timing).toBeNull(); // the latest didn't say: an older one's times aren't the latest
+    const d = await service.detail(row!.id);
+    expect(d!.events.map((e) => e.timing)).toEqual([null, { totalMs: 10_200, serverMs: 9000, dbMs: 100 }]);
+  });
+
+  it('only the server’s time when the database’s wasn’t said; other rows have none', async () => {
+    service.acceptClientBatch({ body: batch(slow({ serverMs: 150 }), { kind: 'SLOW', detail: 'load', value: 9000, page: '/board' }, err()), ip: '1', userAgent: CHROME, userId: 'u1' });
+    await service.settled();
+    const all = (await service.list({ kind: 'all', range: '30d', q: null, status: 'open', before: null })).groups;
+    expect(all.find((g) => g.title.startsWith('Slow request'))!.timing).toEqual({ totalMs: 10_200, serverMs: 150, dbMs: null });
+    expect(all.filter((g) => !g.title.startsWith('Slow request')).map((g) => g.timing)).toEqual([null, null]);
+    const e = all.find((g) => g.kind === 'ERROR')!;
+    expect((await service.detail(e.id))!.events[0]).toMatchObject({ timing: null, stack: expect.stringContaining('TypeError') });
+  });
+});

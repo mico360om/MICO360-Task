@@ -1,5 +1,34 @@
 import { describe, it, expect } from 'vitest';
-import { browserText, detailText, isNewSince, peopleText, personText, placeText, timesText, topFrameText } from './error-log-words';
+import { browserText, detailText, isNewSince, lastTimeText, peopleText, personText, placeText, slowTimingText, timesText, topFrameText } from './error-log-words';
+
+// 1.23.3 — where a slow request's time went: the server's own time, the database's part of it when the
+// server's part matters (a second or more), and the network when the server's part is under half the whole.
+describe('Error log words: where a slow request’s time went', () => {
+  it('in the database', () => {
+    expect(slowTimingText({ totalMs: 10_200, serverMs: 9900, dbMs: 9700 })).toBe('server 9.9 s · in the database 9.7 s');
+    expect(slowTimingText({ totalMs: 10_200, serverMs: 9900, dbMs: 200 })).toBe('server 9.9 s · in the database 0.2 s'); // the server's own work
+  });
+
+  it('the network', () => {
+    expect(slowTimingText({ totalMs: 12_000, serverMs: 100, dbMs: 40 })).toBe('server 0.1 s · the rest was the network');
+    expect(slowTimingText({ totalMs: 12_000, serverMs: 30, dbMs: 10 })).toBe('server under 0.1 s · the rest was the network');
+    expect(slowTimingText({ totalMs: 10_200, serverMs: 4000, dbMs: 3900 })).toBe('server 4.0 s · in the database 3.9 s · the rest was the network');
+    expect(slowTimingText({ totalMs: 10_200, serverMs: 1500, dbMs: 20 })).toBe('server 1.5 s · in the database under 0.1 s · the rest was the network');
+  });
+
+  it('only what is known', () => {
+    expect(slowTimingText({ totalMs: 10_200, serverMs: 9900, dbMs: null })).toBe('server 9.9 s');
+    expect(slowTimingText({ totalMs: null, serverMs: 100, dbMs: 40 })).toBe('server 0.1 s');
+    expect(slowTimingText(null)).toBe('');
+    expect(slowTimingText(undefined)).toBe('');
+  });
+
+  it('a row says it of the last time, with that time’s whole wait', () => {
+    expect(lastTimeText({ totalMs: 10_200, serverMs: 9900, dbMs: 9700 })).toBe('Last time 10.2 s: server 9.9 s · in the database 9.7 s');
+    expect(lastTimeText({ totalMs: null, serverMs: 9900, dbMs: 9700 })).toBe('Last time: server 9.9 s · in the database 9.7 s');
+    expect(lastTimeText(null)).toBe('');
+  });
+});
 
 describe('Error log words', () => {
   it('counts and people', () => {

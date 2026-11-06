@@ -48,15 +48,26 @@ export interface ApiClientOptions {
   /**
    * 1.22.4 (the Error log): each request's method, path, answer and time — status 0 when it never
    * reached the server — so a request blocked on the way or a slow one can be reported. Told after
-   * the fact; nothing it does changes the request.
+   * the fact; nothing it does changes the request. 1.23.3: with the answer's Server-Timing header when it
+   * has one (the server's time and its time in the database: where a slow request's time went).
    */
-  onRequestDone?: (info: { method: string; path: string; status: number; ms: number }) => void;
+  onRequestDone?: (info: RequestDone) => void;
   /**
    * 1.23.1: the server answered DATABASE_BUSY (503 — its database was away for a moment, a deploy
    * restart) to a read or a change — just before it is thrown to the caller; the app says so across the
    * page in the server's words.
    */
   onDatabaseBusy?: (err: ApiError) => void;
+}
+
+/** How one request went (onRequestDone). */
+export interface RequestDone {
+  method: string;
+  path: string;
+  status: number;
+  ms: number;
+  /** 1.23.3: the answer's Server-Timing ("app;dur=9912.3, db;dur=9700.1"); absent when it had none. */
+  serverTiming?: string;
 }
 
 /** The code the server answers a database blip with (lib/db-connection.ts there). */
@@ -118,10 +129,17 @@ async function refusesCompany(status: number, text: () => Promise<string>): Prom
 
 export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthorized, getHeaders, onCompanyGone, onRefused, onRequestDone, onDatabaseBusy }: ApiClientOptions): ApiClient {
   const clock = () => (typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now());
-  /** Tell onRequestDone how a request went (never in its way). */
-  const told = (method: string, path: string, status: number, started: number) => {
+  /** Tell onRequestDone how a request went (never in its way); `header` reads one of the answer's headers. */
+  const told = (method: string, path: string, status: number, started: number, header?: (name: string) => string | null) => {
     try {
-      onRequestDone?.({ method, path: path.split('?')[0]!, status, ms: Math.max(0, clock() - started) });
+      const info: RequestDone = { method, path: path.split('?')[0]!, status, ms: Math.max(0, clock() - started) };
+      try {
+        const serverTiming = header?.('server-timing');
+        if (serverTiming) info.serverTiming = serverTiming;
+      } catch {
+        // An answer whose headers can't be read is told without them.
+      }
+      onRequestDone?.(info);
     } catch {
       // Reporting must never change what the caller gets.
     }
@@ -193,7 +211,7 @@ export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthoriz
       ...(opts.credentials ? { credentials: opts.credentials } : {}),
     }).then(
       (res) => {
-        told(method, path, res.status, started);
+        told(method, path, res.status, started, (name) => res.headers.get(name));
         return res;
       },
       (err: unknown) => {
@@ -254,7 +272,7 @@ export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthoriz
       };
       const started = clock();
       xhr.onload = () => {
-        told('POST', path, xhr.status, started);
+        told('POST', path, xhr.status, started, (name) => xhr.getResponseHeader(name));
         resolve({ status: xhr.status, text: xhr.responseText });
       };
       // Same as a failed fetch, so callers report it as a connection problem.
