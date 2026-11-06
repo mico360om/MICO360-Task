@@ -94,6 +94,18 @@ describe.skipIf(!web)('activity: src/activity-feed.js matches the web app (lib/a
     // A project's companies changed (its history): added, removed, its main company; parts with nothing left out.
     ['PROJECT_COMPANIES_CHANGED', { added: ['Beta Co'], removed: ['Gamma Co'], main: 'Alpha Co' }], ['PROJECT_COMPANIES_CHANGED', { added: ['B', 'C', 'D'], removed: [], main: null }],
     ['PROJECT_COMPANIES_CHANGED', { added: [], removed: ['شركة'], main: null }], ['PROJECT_COMPANIES_CHANGED', { added: 'not a list', main: '' }], ['PROJECT_COMPANIES_CHANGED'],
+    // 1.23.3 nested checklists: adds to a checklist (single and batches), people, dates, moves, copies, deletes with Restore, whole checklists.
+    ['CHECKLIST_ADDED', { itemId: 'i1', text: 'Panel', listTitle: 'Electrical' }], ['CHECKLIST_ADDED', { itemId: 'i2', text: 'Label', listTitle: 'Electrical', parentText: 'Panel' }],
+    ['CHECKLIST_ADDED', { count: 3, texts: ['A', 'B', 'C'], listTitle: 'Electrical' }], ['CHECKLIST_ADDED', { count: 7, texts: ['A', 'B', 'C', 'D', 'E'], listTitle: 'Fit-out' }],
+    ['CHECKLIST_ASSIGNED', { itemId: 'i1', text: 'Panel', assigneeId: 'u2', assignee: 'Mariam Said' }], ['CHECKLIST_ASSIGNED', { text: 'Panel' }],
+    ['CHECKLIST_UNASSIGNED', { itemId: 'i1', text: 'Panel', assigneeId: 'u2', assignee: 'Mariam Said' }], ['CHECKLIST_UNASSIGNED'],
+    ['CHECKLIST_DUE', { text: 'Panel', from: null, to: '2026-11-10' }], ['CHECKLIST_DUE', { text: 'Panel', from: '2026-11-10', to: null }], ['CHECKLIST_DUE', { text: 'Panel', from: '2026-11-10', to: '2026-11-12' }],
+    ['CHECKLIST_MOVED', { text: 'Panel', how: 'indent' }], ['CHECKLIST_MOVED', { text: 'Panel', how: 'outdent' }], ['CHECKLIST_MOVED', { text: 'Panel', how: 'up' }], ['CHECKLIST_MOVED', { text: 'Panel', how: 'down' }], ['CHECKLIST_MOVED', { text: 'Panel', how: 'move' }],
+    ['CHECKLIST_DUPLICATED', { text: 'Panel', count: 3 }], ['CHECKLIST_DUPLICATED', { text: 'Panel', count: 1 }],
+    ['CHECKLIST_REMOVED', { itemId: 'i1', text: 'Panel', count: 3, batchId: 'b1' }], ['CHECKLIST_REMOVED', { text: 'Lights', count: 1, batchId: 'b2' }],
+    ['CHECKLIST_RESTORED', { text: 'Panel', count: 3, batchId: 'b1', kind: 'item' }],
+    ['CHECKLIST_LIST_ADDED', { listId: 'L2', title: 'Fit-out' }], ['CHECKLIST_LIST_ADDED'], ['CHECKLIST_LIST_RENAMED', { listId: 'L2', from: 'Fit-out', to: 'Finishes' }],
+    ['CHECKLIST_LIST_DUPLICATED', { listId: 'L3', title: 'Electrical', count: 8 }], ['CHECKLIST_LIST_REMOVED', { listId: 'L2', title: 'Fit-out', count: 2, batchId: 'b3' }], ['CHECKLIST_LIST_REMOVED', { title: 'Old' }],
   ];
   const ACTORS = ['Omar Ahmed', 'Aisha Khan', 'سارة'];
   const GAPS = [0, 1, 5, 29, 30, 31, 120];
