@@ -1,6 +1,6 @@
 import type { ApiTask } from '../api/tasks';
 import { dueMatches, ME, NO_PERSON, type DueContext, type SortState, type SortValue, type TableFilters } from './data-table';
-import { dueDayKey } from './due-date';
+import { dueDayKey, zonedStartOfDay } from './due-date';
 import { isTaskLate } from './due-display';
 import { matchesTaskNumber } from './task-number';
 import { projectReadOnly, type ProjectReadOnly } from './project-archive';
@@ -37,7 +37,7 @@ export function filterTaskRows(tasks: readonly ApiTask[], f: TableFilters, ctx: 
     const people = t.assignees ?? [];
     if (f.person === NO_PERSON ? people.length > 0 : f.person === ME ? !people.some((a) => a.id === ctx.myId) : f.person && !people.some((a) => a.id === f.person)) return false;
     if (f.priority && t.priority !== f.priority) return false;
-    if (f.due && !dueMatches({ dueKey: dueDayKey(t.dueDate, ctx.timeZone), late: isTaskLate(t, ctx.timeZone) }, f.due, ctx)) return false;
+    if (f.due && !dueMatches({ dueKey: dueDayKey(t.dueDate, ctx.timeZone), late: isTaskLate(t, ctx.timeZone, zonedStartOfDay(ctx.today, ctx.timeZone)) }, f.due, ctx)) return false;
     return true;
   });
 }
