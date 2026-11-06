@@ -168,6 +168,14 @@ describe('Search page — saved searches', () => {
     await waitFor(() => expect(s.sent.find((x) => x.path === '/search/saved')?.body).toEqual({ name: 'Pump tasks', q: 'pump', filters: { type: 'task', off: ['due'] } }));
   });
 
+  it('a search already saved says so (one line, the name in quotes)', async () => {
+    serve({ list: { mine: [saved({ name: 'Pump tasks', q: 'pump', filters: { type: 'task' } })], shared: [], pinned: [] } });
+    open('/search?q=pump&type=task');
+    // One run of text (a flex gap between its pieces spread the quotes apart).
+    expect(await screen.findByText((_, el) => el?.hasAttribute('data-saved-as') === true && el.textContent === 'Saved as “Pump tasks”')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Save this search/ })).toBeNull();
+  });
+
   it('the panel: yours and shared with you; pin; a refused pin says why', async () => {
     const list = { mine: [saved({ shared: { projectId: 'p1', code: 'MICO', name: 'MICO360' } })], shared: [saved({ id: 's2', name: 'Team overdue', mine: false, owner: { id: 'u2', name: 'Cat Both' }, shared: { projectId: 'p1', code: 'MICO', name: 'MICO360' } })], pinned: [] };
     const s = serve({ list, refusePin: true });

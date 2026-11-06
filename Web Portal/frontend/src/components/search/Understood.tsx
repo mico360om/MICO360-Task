@@ -1,7 +1,7 @@
 import type { ReaderChipKey, Understood as UnderstoodRead } from '../../lib/search-everything';
 
 const chipClass = 'inline-flex items-center gap-1 rounded-full border border-brand/30 bg-brand/10 py-0.5 pe-1 ps-2.5 text-xs font-medium text-brand [@media(pointer:coarse)]:min-h-11';
-const linkClass = 'rounded-md px-1.5 py-0.5 text-xs font-medium text-brand underline-offset-2 hover:underline focus-visible:underline [@media(pointer:coarse)]:min-h-11';
+const linkClass = 'inline-flex items-center rounded-md px-1.5 py-0.5 text-xs font-medium text-brand underline-offset-2 hover:underline focus-visible:underline [@media(pointer:coarse)]:!min-h-11';
 
 /**
  * 1.23.6 "Understood as:" — what the built-in reader read in the words (a chip per filter, each

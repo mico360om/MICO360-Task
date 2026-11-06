@@ -46,6 +46,8 @@ describe('GlobalSearch — 1.23.6 advanced search', () => {
     const row = await screen.findByRole('button', { name: /Tasks · Overdue · MICO · Assigned to me/ });
     expect(row).toHaveTextContent('→ 7');
     expect(row).toHaveAttribute('data-active', 'true');
+    // The words themselves find nothing, but the row does: no "Nothing matches" above it.
+    expect(screen.queryByText(/Nothing matches/)).toBeNull();
     expect(screen.getByText('Search with filters')).toBeInTheDocument();
     await userEvent.keyboard('{Enter}');
     await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/search?q=Show+overdue+MICO+tasks+assigned+to+me'));

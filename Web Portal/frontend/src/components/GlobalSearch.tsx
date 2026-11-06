@@ -329,7 +329,9 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
   // (Not for a typed command — "go to calendar" is an instruction, not a search.)
   const nothingFound =
     searchEnabled && q.isSuccess && !!found && !items.some((it) => it.group === 'Command') &&
-    found.tasks.length === 0 && found.projects.length === 0 && found.users.length === 0 && (found.meetings ?? []).length === 0 && (found.more ?? []).length === 0;
+    found.tasks.length === 0 && found.projects.length === 0 && found.users.length === 0 && (found.meetings ?? []).length === 0 && (found.more ?? []).length === 0 &&
+    // 1.23.6: the words read as filters find something (the first row says how many).
+    !(found.understood?.chips.length && found.understood.total > 0);
   // 1.23.1: the server couldn't search the tasks this time; the rest is what it found (one quiet line says so).
   const tasksDown = searchEnabled && q.isSuccess && !!found?.tasksUnavailable;
   let idx = -1; // running index across groups for keyboard highlight

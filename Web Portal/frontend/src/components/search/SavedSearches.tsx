@@ -39,7 +39,10 @@ export function SaveSearch({ filters, suggested }: { filters: EverythingFilters;
   if (current && !open) {
     return (
       <p className="inline-flex items-center gap-1.5 text-xs text-ink-2" role="status">
-        <span aria-hidden="true" className="text-brand">★</span> Saved as “<span dir="auto" className="font-medium text-ink">{current.name}</span>”
+        <span aria-hidden="true" className="text-brand">★</span>
+        <span data-saved-as>
+          Saved as “<bdi className="font-medium text-ink">{current.name}</bdi>”
+        </span>
       </p>
     );
   }
@@ -113,7 +116,7 @@ export function SavedSearchesPanel({ filters, searching }: { filters: Everything
   };
   return (
     <section className="card mb-4 p-3" aria-label="Saved searches">
-      <button type="button" aria-expanded={open} aria-controls={panelId} onClick={() => setShown(!open)} className="flex w-full items-center justify-between gap-2 rounded-lg text-start text-sm font-semibold text-ink [@media(pointer:coarse)]:min-h-11">
+      <button type="button" aria-expanded={open} aria-controls={panelId} onClick={() => setShown(!open)} className="flex w-full items-center justify-between gap-2 rounded-lg text-start text-sm font-semibold text-ink [@media(pointer:coarse)]:!min-h-11">
         <span>
           <span aria-hidden="true" className="me-1.5 text-brand">★</span>
           Saved searches <span className="font-normal text-ink-2">({total})</span>
