@@ -100,7 +100,7 @@ describe('describeActivity (the website’s activity wording)', () => {
 
   it('names the checklist step, the file and the comment', () => {
     expect(describeActivity('CHECKLIST_ADDED', { text: 'Order the parts' })).toBe('Added the step “Order the parts”');
-    expect(describeActivity('CHECKLIST_DONE', { text: 'Order the parts' })).toBe('Ticked off “Order the parts”');
+    expect(describeActivity('CHECKLIST_DONE', { text: 'Order the parts' })).toBe('Ticked “Order the parts”');
     expect(describeActivity('CHECKLIST_REOPENED', { text: 'Order the parts' })).toBe('Unticked “Order the parts”');
     expect(describeActivity('CHECKLIST_RENAMED', { from: 'Order parts', to: 'Order the parts' })).toBe('Renamed the step “Order parts” to “Order the parts”');
     expect(describeActivity('CHECKLIST_REMOVED', { text: 'Order the parts' })).toBe('Removed the step “Order the parts”');
@@ -439,7 +439,7 @@ describe('taskPdf: dependencies and activity', () => {
       { at: at(3), who: 'Aisha Khan', action: 'ATTACHED', meta: { filename: 'sales-sep.xlsx' } },
     ];
     const text = textOf(taskPdf(task({ activity }), ctx));
-    const lines = ['Attached sales-sep.xlsx', 'Changed priority from Normal to High', 'Ticked off “Write the summary”', 'Ticked off “Collect figures”'];
+    const lines = ['Attached sales-sep.xlsx', 'Changed priority from Normal to High', 'Ticked “Write the summary”', 'Ticked “Collect figures”'];
     for (const line of lines) expect(text, line).toContain(line);
     expect(lines.map((l) => text.indexOf(l))).toEqual(lines.map((l) => text.indexOf(l)).sort((a, b) => a - b)); // newest first
   });

@@ -9,7 +9,7 @@ import { createTaskMergeService } from '../../src/modules/task-merge/merge-servi
 import { createCommentService } from '../../src/modules/tasks/comment-service';
 import { createPrismaCommentRepository } from '../../src/modules/tasks/prisma-comment-repository';
 import { createChecklistService } from '../../src/modules/tasks/checklist-service';
-import { createPrismaChecklistRepository } from '../../src/modules/tasks/prisma-checklist-repository';
+import { createPrismaChecklistStore } from '../../src/modules/tasks/prisma-checklist-store';
 import { createAttachmentService } from '../../src/modules/tasks/attachment-service';
 import { createPrismaAttachmentRepository } from '../../src/modules/tasks/prisma-attachment-repository';
 import { createWatcherService } from '../../src/modules/tasks/watcher-service';
@@ -56,7 +56,7 @@ beforeAll(async () => {
   app = await buildCompanyApp(prisma, () => ({
     taskMergeService: createTaskMergeService({ prisma, timeZone: TZ }),
     commentService: createCommentService({ repo: createPrismaCommentRepository(prisma), taskLookup: lookup }),
-    checklistService: createChecklistService({ repo: createPrismaChecklistRepository(prisma), taskLookup: lookup }),
+    checklistService: createChecklistService({ store: createPrismaChecklistStore(prisma), taskLookup: lookup }),
     attachmentService: createAttachmentService({ repo: createPrismaAttachmentRepository(prisma), storage: createLocalDiskStorage({ baseDir: uploads, publicPrefix: '/uploads' }), taskLookup: lookup, maxSizeBytes: 1_000_000, allowedMimeTypes: [] }),
     watcherService: createWatcherService({ repo: createPrismaWatcherRepository(prisma), taskLookup: lookup }),
     externalContactService: createExternalContactService({ repo: createPrismaExternalContactRepository(prisma), taskLookup: lookup }),

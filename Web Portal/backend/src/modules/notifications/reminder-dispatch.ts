@@ -1,5 +1,5 @@
 import type { CreateNotificationData } from './notification-repository';
-import { reminderKey } from './reminder';
+import { reminderKey, type PlannedReminder } from './reminder';
 
 /**
  * Persistence port for reminder idempotency markers. Backed by a DB table in prod so the guard
@@ -26,13 +26,16 @@ export interface DispatchRemindersDeps {
  * Returns how many reminders were actually sent.
  */
 export async function dispatchReminders(
-  planned: CreateNotificationData[],
+  planned: PlannedReminder[],
   { period, store, notify }: DispatchRemindersDeps,
 ): Promise<number> {
   let sent = 0;
-  for (const n of planned) {
-    const key = reminderKey(n, period);
+  for (const planned1 of planned) {
+    const key = reminderKey(planned1, period);
     if (await store.has(key)) continue;
+    // The key's own id (a checklist item's) is the sweep's, not part of the notice.
+    const { dedupeId: _key, ...n } = planned1;
+    void _key;
     await notify(n);
     await store.add(key);
     sent++;

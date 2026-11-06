@@ -193,6 +193,14 @@ export interface AppDeps extends AuthRouteDeps {
   watcherService?: WatcherService;
   tagService?: TagService;
   checklistService?: ChecklistService;
+  /** 1.23.3: tell someone they were given a checklist item (bell, and email/push by their settings). */
+  onChecklistItemAssigned?: (n: { taskId: string; itemId: string; text: string; assigneeId: string; actorId: string }) => Promise<void>;
+  /** 1.23.3 My Tasks → "Checklist items for me": open items given to a person, in these projects. */
+  checklistMine?: (userId: string, projectIds: string[] | null) => Promise<import('./modules/tasks/checklist-routes').MyChecklistItem[]>;
+  /** 1.23.3: dated checklist items for the calendar, in the caller's scope. */
+  checklistDue?: (opts: { from: string; to: string; userId: string; ownIds: string[] | null; listIds: string[] | null }) => Promise<unknown[]>;
+  /** People's names by id (checklist: who deleted something, who an item was taken from). */
+  namesOfUsers?: (userIds: string[]) => Promise<Map<string, string>>;
   /** External contacts on tasks: the people outside the company responsible for a task. */
   externalContactService?: ExternalContactService;
   commentService?: CommentService;
@@ -754,6 +762,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           taskApproval: deps.taskApprovalDetails,
           // 1.23.1: the tasks merged into a task (its "Merged from" panel opens from them).
           mergedFrom: deps.taskMergeService ? (id) => deps.taskMergeService!.mergedInto(id) : undefined,
+          checklistDue: deps.checklistDue,
           projectOwnerOf: deps.projectService
             ? async (projectId) => (await deps.projectService!.getProject(projectId)).ownerId
             : undefined,
@@ -821,6 +830,11 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
             : undefined,
           canViewTask,
           recordActivity: deps.recordTaskActivity,
+          onItemAssigned: deps.onChecklistItemAssigned,
+          namesOf: deps.namesOfUsers,
+          myItems: deps.checklistMine,
+          ownProjectIds,
+          pickOf,
         });
       }
       if (deps.externalContactService) {

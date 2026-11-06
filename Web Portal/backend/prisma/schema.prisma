@@ -123,39 +123,39 @@ model User {
   updatedAt           DateTime   @updatedAt
   deletedAt           DateTime?
 
-  department       Department?      @relation(fields: [departmentId], references: [id])
-  roles            UserRole[]
-  memberships      ProjectMember[]
-  managedProjects  Project[]        @relation("ProjectManager")
-  createdProjects  Project[]        @relation("ProjectCreator")
-  createdTasks     Task[]           @relation("TaskCreator")
+  department          Department?           @relation(fields: [departmentId], references: [id])
+  roles               UserRole[]
+  memberships         ProjectMember[]
+  managedProjects     Project[]             @relation("ProjectManager")
+  createdProjects     Project[]             @relation("ProjectCreator")
+  createdTasks        Task[]                @relation("TaskCreator")
   /// Tasks this person finished that are waiting for approval, and tasks they approved last.
-  approvalsRequested Task[]         @relation("TaskApprovalRequester")
-  approvalsGiven     Task[]         @relation("TaskApprover")
+  approvalsRequested  Task[]                @relation("TaskApprovalRequester")
+  approvalsGiven      Task[]                @relation("TaskApprover")
   /// External contacts this person added to tasks (the contact belongs to its task).
-  externalContacts TaskExternalContact[] @relation("ExternalContactCreator")
-  assignments      TaskAssignee[]
-  watching         TaskWatcher[]
-  comments         Comment[]
-  attachments      Attachment[]
-  activities       Activity[]
-  notifications    Notification[]
-  refreshTokens    RefreshToken[]
-  auditLogs        AuditLog[]
-  loginOtps        LoginOtp[]
-  deviceTokens     DeviceToken[]
-  dailyTaskEmails  DailyTaskEmail[]
+  externalContacts    TaskExternalContact[] @relation("ExternalContactCreator")
+  assignments         TaskAssignee[]
+  watching            TaskWatcher[]
+  comments            Comment[]
+  attachments         Attachment[]
+  activities          Activity[]
+  notifications       Notification[]
+  refreshTokens       RefreshToken[]
+  auditLogs           AuditLog[]
+  loginOtps           LoginOtp[]
+  deviceTokens        DeviceToken[]
+  dailyTaskEmails     DailyTaskEmail[]
   weeklySummaryEmails WeeklySummaryEmail[]
-  settings         UserSetting?
+  settings            UserSetting?
   /// Companies: the ones this person belongs to, and the one whose branding and week their own emails use.
-  primaryCompanyId String?
-  primaryCompany   Company?        @relation("UserPrimaryCompany", fields: [primaryCompanyId], references: [id], onDelete: SetNull)
-  companies        CompanyMember[]
+  primaryCompanyId    String?
+  primaryCompany      Company?              @relation("UserPrimaryCompany", fields: [primaryCompanyId], references: [id], onDelete: SetNull)
+  companies           CompanyMember[]
   /// 1.23 Client accounts (role CLIENT only): their organisation and phone (staff leave them empty).
-  organisation     String?         @db.VarChar(160)
-  phone            String?         @db.VarChar(40)
+  organisation        String?               @db.VarChar(160)
+  phone               String?               @db.VarChar(40)
   /// A client's projects in the Client portal, each with its ticked modules and actions.
-  clientGrants     ClientProjectGrant[]
+  clientGrants        ClientProjectGrant[]
 
   @@index([status])
   @@index([departmentId])
@@ -175,8 +175,8 @@ model Role {
 model UserRole {
   userId String
   roleId String
-  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role   Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
 
   @@id([userId, roleId])
   @@index([roleId])
@@ -256,46 +256,46 @@ model ProjectCompany {
 // ---------------------------------------------------------------------------
 
 model Project {
-  id          String        @id @default(cuid())
-  code        String        @unique
-  number      String?       @db.VarChar(40) // the client's / contract project number, free text (optional)
-  name        String
-  description String?       @db.Text
-  clientName  String?
-  managerId   String?
-  ownerId     String? // project owner — new tasks default-assign to them
-  status      ProjectStatus @default(PLANNING)
-  priority    Priority      @default(NORMAL)
-  color       String        @default("#8B1E1E")
-  icon        String?       @db.VarChar(32) // one of the web app's project icons; null = initials
-  imageUrl    String?
-  startDate   DateTime?
-  targetDate  DateTime?
-  notes       String?       @db.Text
+  id                   String        @id @default(cuid())
+  code                 String        @unique
+  number               String?       @db.VarChar(40) // the client's / contract project number, free text (optional)
+  name                 String
+  description          String?       @db.Text
+  clientName           String?
+  managerId            String?
+  ownerId              String? // project owner — new tasks default-assign to them
+  status               ProjectStatus @default(PLANNING)
+  priority             Priority      @default(NORMAL)
+  color                String        @default("#8B1E1E")
+  icon                 String?       @db.VarChar(32) // one of the web app's project icons; null = initials
+  imageUrl             String?
+  startDate            DateTime?
+  targetDate           DateTime?
+  notes                String?       @db.Text
   /// Each night, unfinished tasks on past board days move to today's board (when the company-wide switch is on too).
-  carryForward    Boolean   @default(true)
+  carryForward         Boolean       @default(true)
   /// A task created in the project without a due date gets today's date (the company's calendar day).
-  defaultDueToday Boolean   @default(false)
+  defaultDueToday      Boolean       @default(false)
   /// "New tasks in this project need approval": a task created in it without saying gets the tick.
-  newTasksNeedApproval Boolean @default(false)
-  createdById String
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
-  deletedAt   DateTime?
+  newTasksNeedApproval Boolean       @default(false)
+  createdById          String
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+  deletedAt            DateTime?
 
-  manager   User?           @relation("ProjectManager", fields: [managerId], references: [id])
-  createdBy User            @relation("ProjectCreator", fields: [createdById], references: [id])
-  members   ProjectMember[]
-  columns   KanbanColumn[]
-  tasks     Task[]
-  activities Activity[]
+  manager        User?                @relation("ProjectManager", fields: [managerId], references: [id])
+  createdBy      User                 @relation("ProjectCreator", fields: [createdById], references: [id])
+  members        ProjectMember[]
+  columns        KanbanColumn[]
+  tasks          Task[]
+  activities     Activity[]
   taskKeyAliases TaskKeyAlias[]
   clientShares   ClientShare[]
   inspections    Inspection[]
   /// Companies: every project belongs to one or more; the main one (always also a project_companies row)
   /// gives it its branding and week.
   mainCompanyId  String?
-  mainCompany    Company?         @relation("ProjectMainCompany", fields: [mainCompanyId], references: [id], onDelete: SetNull)
+  mainCompany    Company?             @relation("ProjectMainCompany", fields: [mainCompanyId], references: [id], onDelete: SetNull)
   companies      ProjectCompany[]
   /// 1.23: the client accounts that may open this project in the Client portal.
   clientGrants   ClientProjectGrant[]
@@ -315,9 +315,9 @@ model ProjectMember {
   projectId String
   userId    String
   role      ProjectMemberRole @default(MEMBER)
-  addedAt   DateTime @default(now())
-  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  addedAt   DateTime          @default(now())
+  project   Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([projectId, userId])
   @@index([userId])
@@ -345,43 +345,43 @@ model KanbanColumn {
 // ---------------------------------------------------------------------------
 
 model Task {
-  id             String    @id @default(cuid())
-  key            String    @unique // e.g. MICO-142
-  title          String
-  description    String?   @db.Text
-  projectId      String
-  columnId       String
-  position       Int       @default(0)
-  priority       Priority  @default(NORMAL)
-  startDate      DateTime?
-  dueDate        DateTime?
-  estimatedHours Float?
-  actualHours    Float?
-  progress       Int       @default(0)
+  id                    String    @id @default(cuid())
+  key                   String    @unique // e.g. MICO-142
+  title                 String
+  description           String?   @db.Text
+  projectId             String
+  columnId              String
+  position              Int       @default(0)
+  priority              Priority  @default(NORMAL)
+  startDate             DateTime?
+  dueDate               DateTime?
+  estimatedHours        Float?
+  actualHours           Float?
+  progress              Int       @default(0)
   /// A milestone: a key date or deliverable of its project (shown on the project dashboard).
-  isMilestone    Boolean   @default(false)
+  isMilestone           Boolean   @default(false)
   /// Shown on its project's client page (title, status and due date only). Off unless someone who runs
   /// the project turns it on; moving the task to another project turns it off.
-  clientVisible  Boolean   @default(false)
+  clientVisible         Boolean   @default(false)
   /// 1.23: the Client portal shows its description too (a tick of its own beside "Show to client").
-  clientShowDescription Boolean @default(false)
+  clientShowDescription Boolean   @default(false)
   /// 1.23: a client signed it off ("Client accepted · date"); cleared when it leaves Done or is sent back.
-  clientAcceptedAt   DateTime?
-  clientAcceptedById String?
-  createdById    String
-  completedAt    DateTime?
-  boardDate       DateTime?  // per-date boards: the calendar day this task appears on (noon-UTC anchor)
-  carryForwardLog Json?      // append-only carry-forward history [{ from, to, at }]
-  recurrenceRule     Json?    // RecurrenceRule for a recurring task (null = one-off)
-  recurrenceParentId String?  // links a generated instance back to its series template
-  recurrenceSourceId String?  @unique // the task this copy was made from — unique, so a task never gets two next copies
+  clientAcceptedAt      DateTime?
+  clientAcceptedById    String?
+  createdById           String
+  completedAt           DateTime?
+  boardDate             DateTime? // per-date boards: the calendar day this task appears on (noon-UTC anchor)
+  carryForwardLog       Json? // append-only carry-forward history [{ from, to, at }]
+  recurrenceRule        Json? // RecurrenceRule for a recurring task (null = one-off)
+  recurrenceParentId    String? // links a generated instance back to its series template
+  recurrenceSourceId    String?   @unique // the task this copy was made from — unique, so a task never gets two next copies
   /// The meeting this task was created from (a Live note made into a task); the task links back to it.
-  meetingId      String?
+  meetingId             String?
   /// The inspection form this task is carried out with (a scheduled check, or a one-off task that
   /// carries a form). Copies of a repeating task keep it. Cleared if the form row is ever removed.
-  inspectionFormId String?
+  inspectionFormId      String?
   /// Where the check is done ("Rig 3"); given to the inspection when it starts.
-  inspectionPlace  String? @db.VarChar(200)
+  inspectionPlace       String?   @db.VarChar(200)
   /// Needs approval: the person who runs the project must approve it before it counts as done.
   needsApproval         Boolean   @default(false)
   /// Set while it waits for approval (someone who can't approve finished it): it is NOT done.
@@ -391,43 +391,45 @@ model Task {
   /// Its last approval (history; cleared when it is re-opened).
   approvedAt            DateTime?
   approvedById          String?
-  version        Int       @default(0) // optimistic concurrency (T4.3)
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  deletedAt      DateTime?
+  version               Int       @default(0) // optimistic concurrency (T4.3)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  deletedAt             DateTime?
   /// 1.23.1 Merge tasks: the main task this one was merged into. A merged task is a read-only merged
   /// record: hidden like a deleted one (deletedAt is set with it), its number an alias of the main task.
   /// Undo (task_merges) clears all four.
-  mergedIntoId   String?
-  mergedAt       DateTime?
-  mergedById     String?
+  mergedIntoId          String?
+  mergedAt              DateTime?
+  mergedById            String?
   /// The merge (task_merges) that merged it.
-  mergeId        String?
+  mergeId               String?
 
-  project      Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  column       KanbanColumn     @relation(fields: [columnId], references: [id])
-  createdBy    User             @relation("TaskCreator", fields: [createdById], references: [id])
-  approvalRequestedBy User?     @relation("TaskApprovalRequester", fields: [approvalRequestedById], references: [id], onDelete: SetNull)
-  approvedBy   User?            @relation("TaskApprover", fields: [approvedById], references: [id], onDelete: SetNull)
-  assignees    TaskAssignee[]
-  watchers     TaskWatcher[]
-  tags         TaskTag[]
-  comments     Comment[]
-  checklist    ChecklistItem[]
+  project             Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  column              KanbanColumn          @relation(fields: [columnId], references: [id])
+  createdBy           User                  @relation("TaskCreator", fields: [createdById], references: [id])
+  approvalRequestedBy User?                 @relation("TaskApprovalRequester", fields: [approvalRequestedById], references: [id], onDelete: SetNull)
+  approvedBy          User?                 @relation("TaskApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  assignees           TaskAssignee[]
+  watchers            TaskWatcher[]
+  tags                TaskTag[]
+  comments            Comment[]
+  checklist           ChecklistItem[]
+  /// 1.23.3: its checklists (each item is in one).
+  checklistLists      ChecklistList[]
   /// People outside the company responsible for this task (kept apart from its assignees).
-  externalContacts TaskExternalContact[]
-  attachments  Attachment[]
-  dependencies TaskDependency[] @relation("DependentTask")
-  dependedOnBy TaskDependency[] @relation("BlockingTask")
-  activities   Activity[]
-  meeting      Meeting?         @relation(fields: [meetingId], references: [id], onDelete: SetNull)
-  inspectionForm InspectionForm? @relation("TaskInspectionForm", fields: [inspectionFormId], references: [id], onDelete: SetNull)
-  keyAliases   TaskKeyAlias[]
+  externalContacts    TaskExternalContact[]
+  attachments         Attachment[]
+  dependencies        TaskDependency[]      @relation("DependentTask")
+  dependedOnBy        TaskDependency[]      @relation("BlockingTask")
+  activities          Activity[]
+  meeting             Meeting?              @relation(fields: [meetingId], references: [id], onDelete: SetNull)
+  inspectionForm      InspectionForm?       @relation("TaskInspectionForm", fields: [inspectionFormId], references: [id], onDelete: SetNull)
+  keyAliases          TaskKeyAlias[]
   /// Inspections carried out for this task, and the failed item this task follows up (if any).
-  inspections        Inspection[]        @relation("InspectionTask")
-  inspectionFollowUp InspectionFollowUp? @relation("InspectionFollowUpTask")
+  inspections         Inspection[]          @relation("InspectionTask")
+  inspectionFollowUp  InspectionFollowUp?   @relation("InspectionFollowUpTask")
   /// Its entry in the task search index (derived; rebuilt by `npm run search:rebuild`).
-  searchIndex        TaskSearchIndex?
+  searchIndex         TaskSearchIndex?
 
   @@index([projectId])
   /// A project's checks (scheduled inspections): its tasks that carry a form.
@@ -637,8 +639,8 @@ model TaskAssignee {
 model TaskWatcher {
   taskId String
   userId String
-  task   Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([taskId, userId])
   @@index([userId])
@@ -657,8 +659,8 @@ model Tag {
 model TaskTag {
   taskId String
   tagId  String
-  task   Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  tag    Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  tag    Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
 
   @@id([taskId, tagId])
   @@index([tagId])
@@ -666,39 +668,84 @@ model TaskTag {
 }
 
 model Comment {
-  id        String    @id @default(cuid())
-  taskId    String
-  userId    String
-  body      String    @db.Text
-  parentId  String?   // set when this comment is a reply to another (threaded replies)
+  id            String    @id @default(cuid())
+  taskId        String
+  userId        String
+  body          String    @db.Text
+  parentId      String? // set when this comment is a reply to another (threaded replies)
   /// 1.23: written by a client account in the Client portal (shown to the team marked "Client").
-  fromClient    Boolean @default(false)
+  fromClient    Boolean   @default(false)
   /// 1.23: a team reply to a client's comment the client may see ("Visible to client").
-  clientVisible Boolean @default(false)
-  editedAt  DateTime?
-  createdAt DateTime  @default(now())
-  deletedAt DateTime?
-  task      Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  user      User      @relation(fields: [userId], references: [id])
-  parent    Comment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
-  replies   Comment[] @relation("CommentReplies")
+  clientVisible Boolean   @default(false)
+  editedAt      DateTime?
+  createdAt     DateTime  @default(now())
+  deletedAt     DateTime?
+  task          Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user          User      @relation(fields: [userId], references: [id])
+  parent        Comment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies       Comment[] @relation("CommentReplies")
 
   @@index([taskId])
   @@index([parentId])
   @@map("task_comments")
 }
 
-model ChecklistItem {
-  id        String   @id @default(cuid())
-  taskId    String
-  text      String
-  done      Boolean  @default(false)
-  position  Int      @default(0)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  task      Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+/// 1.23.3 Nested checklists: one of a task's checklists ("Electrical"), each with its own title. Every
+/// item belongs to one (`listId`); a task's items from before 1.23.3 were put in one titled "Checklist".
+/// Deleted ones are kept 30 days (deletedAt; the items deleted with it share `deletedBatchId`) so Undo
+/// and the task's history can restore them; a daily sweep removes them for good after that.
+model ChecklistList {
+  id             String          @id @default(cuid())
+  taskId         String
+  title          String          @db.VarChar(191)
+  position       Int             @default(0)
+  /// Who made it (no foreign key, like the other "by" columns of history).
+  createdById    String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  deletedAt      DateTime?
+  deletedById    String?
+  deletedBatchId String?
+  task           Task            @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  items          ChecklistItem[]
 
   @@index([taskId])
+  @@index([deletedAt])
+  @@map("task_checklist_lists")
+}
+
+/// A checklist item. 1.23.3: items nest — `parentId` is the item it sits under (no foreign key: the
+/// server keeps the tree, and a deep tree must never hit the database's cascade depth). A parent's
+/// `done` is kept in step with its sub-items by the server (done when they all are); a leaf's is set
+/// by people. Counts use the leaves only. An item may be for one person (`assigneeId`) by a day
+/// (`dueDate`, UTC midnight like a task's). Deleted items are kept 30 days (see ChecklistList).
+model ChecklistItem {
+  id             String         @id @default(cuid())
+  taskId         String
+  text           String
+  done           Boolean        @default(false)
+  position       Int            @default(0)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  listId         String?
+  parentId       String?
+  assigneeId     String?
+  dueDate        DateTime?
+  completedAt    DateTime?
+  completedById  String?
+  deletedAt      DateTime?
+  deletedById    String?
+  deletedBatchId String?
+  task           Task           @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  list           ChecklistList? @relation(fields: [listId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@index([listId])
+  @@index([parentId])
+  /// "Checklist items for me", reminders and the calendar.
+  @@index([assigneeId])
+  @@index([dueDate])
+  @@index([deletedAt])
   @@map("task_checklists")
 }
 
@@ -733,8 +780,8 @@ model TaskDependency {
   id              String @id @default(cuid())
   taskId          String // the dependent (blocked) task
   dependsOnTaskId String // the blocking task
-  task      Task @relation("DependentTask", fields: [taskId], references: [id], onDelete: Cascade)
-  dependsOn Task @relation("BlockingTask", fields: [dependsOnTaskId], references: [id], onDelete: Cascade)
+  task            Task   @relation("DependentTask", fields: [taskId], references: [id], onDelete: Cascade)
+  dependsOn       Task   @relation("BlockingTask", fields: [dependsOnTaskId], references: [id], onDelete: Cascade)
 
   @@unique([taskId, dependsOnTaskId])
   @@index([dependsOnTaskId])
@@ -742,7 +789,7 @@ model TaskDependency {
 }
 
 model Attachment {
-  id           String   @id @default(cuid())
+  id           String          @id @default(cuid())
   taskId       String
   uploadedById String
   filename     String
@@ -750,11 +797,11 @@ model Attachment {
   sizeBytes    Int
   storageKey   String
   url          String
-  createdAt    DateTime @default(now())
-  task       Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  uploadedBy User @relation(fields: [uploadedById], references: [id])
+  createdAt    DateTime        @default(now())
+  task         Task            @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  uploadedBy   User            @relation(fields: [uploadedById], references: [id])
   /// 1.23: the text read from it for search (derived).
-  searchText SearchFileText?
+  searchText   SearchFileText?
 
   @@index([taskId])
   @@map("task_attachments")
@@ -768,9 +815,9 @@ model Activity {
   action    String
   meta      Json?
   createdAt DateTime @default(now())
-  task    Task?    @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  project Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  user    User     @relation(fields: [userId], references: [id])
+  task      Task?    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id])
 
   @@index([taskId])
   @@index([projectId])
@@ -794,7 +841,7 @@ model Notification {
   projectId  String?
   readAt     DateTime?
   createdAt  DateTime  @default(now())
-  user       User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, readAt])
   @@index([userId, projectId])
@@ -804,11 +851,11 @@ model Notification {
 }
 
 model UserSetting {
-  userId       String  @id
-  notifyInApp  Json?
-  notifyEmail  Json?
-  notifyPush   Json?
-  user         User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      String @id
+  notifyInApp Json?
+  notifyEmail Json?
+  notifyPush  Json?
+  user        User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("user_settings")
 }
@@ -843,24 +890,24 @@ model MicrosoftConnection {
 }
 
 model RefreshToken {
-  id        String    @id @default(cuid())
-  userId    String
-  tokenHash String    @unique
-  userAgent String?
-  ip        String?
-  expiresAt DateTime
-  revokedAt DateTime?
+  id           String    @id @default(cuid())
+  userId       String
+  tokenHash    String    @unique
+  userAgent    String?
+  ip           String?
+  expiresAt    DateTime
+  revokedAt    DateTime?
   // Rotation family: every token rotated from the same login shares it, so presenting an
   // already-rotated token (reuse → likely theft) revokes the whole family.
-  familyId  String?
+  familyId     String?
   /// The token this one was rotated to, sealed with the app's secret box — so a phone whose refresh
   /// reply was lost can present this token again (for 2 minutes) and get that same successor back.
-  successorEnc String? @db.Text
+  successorEnc String?   @db.Text
   /// 'biometric' for a phone's fingerprint sign-in key (never refreshes a session; its end moves on
   /// with each use of the app); null for a session's refresh token.
-  purpose   String?   @db.VarChar(16)
-  createdAt DateTime  @default(now())
-  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  purpose      String?   @db.VarChar(16)
+  createdAt    DateTime  @default(now())
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([familyId])
@@ -919,7 +966,7 @@ model AuditLog {
   newValue  Json?
   ip        String?
   createdAt DateTime @default(now())
-  user      User? @relation(fields: [userId], references: [id])
+  user      User?    @relation(fields: [userId], references: [id])
 
   @@index([userId])
   @@index([module])
@@ -952,7 +999,7 @@ model LoginOtp {
   expiresAt  DateTime
   consumedAt DateTime?
   createdAt  DateTime   @default(now())
-  user       User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@map("login_otps")
@@ -965,7 +1012,7 @@ model DeviceToken {
   platform   DevicePlatform @default(ANDROID)
   createdAt  DateTime       @default(now())
   lastSeenAt DateTime       @default(now())
-  user       User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@map("device_tokens")
@@ -991,17 +1038,17 @@ model Conversation {
 }
 
 model ConversationParticipant {
-  conversationId String
-  userId         String
-  lastReadAt     DateTime?
-  addedAt        DateTime     @default(now())
+  conversationId  String
+  userId          String
+  lastReadAt      DateTime?
+  addedAt         DateTime     @default(now())
   /// The person's own settings for this conversation (private to them).
   favorite        Boolean      @default(false)
   archivedAt      DateTime?
   mutedAt         DateTime?
   /// When their app last received the conversation's messages ("delivered").
   lastDeliveredAt DateTime?
-  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
   @@id([conversationId, userId])
   @@index([userId])
@@ -1127,37 +1174,37 @@ enum MinutesStatus {
 }
 
 model Meeting {
-  id                 String        @id @default(cuid())
-  title              String
-  description        String?       @db.Text
-  category           String?
-  status             MeetingStatus @default(DRAFT)
-  projectId          String?
-  organizerId        String
-  location           String?
+  id                    String        @id @default(cuid())
+  title                 String
+  description           String?       @db.Text
+  category              String?
+  status                MeetingStatus @default(DRAFT)
+  projectId             String?
+  organizerId           String
+  location              String?
   /// 1.23: up to 2048 characters (a Teams join link is about 250; the API has always taken 2048).
-  onlineLink         String?       @db.VarChar(2048)
+  onlineLink            String?       @db.VarChar(2048)
   /// 1.23: 'TEAMS' when the online link was (or is to be) made by Microsoft Teams; null for a hand-pasted link.
-  onlineMeetingProvider String?    @db.VarChar(16)
+  onlineMeetingProvider String?       @db.VarChar(16)
   /// 1.23: the Teams meeting's id in Microsoft Graph (null: none made yet). Never sent to the apps.
-  onlineMeetingId    String?       @db.VarChar(512)
+  onlineMeetingId       String?       @db.VarChar(512)
   /// 1.23: whose own Microsoft account made the Teams meeting (only theirs may change or delete it).
-  onlineMeetingOwnerId String?     @db.VarChar(191)
-  startAt            DateTime
-  endAt              DateTime?
-  timeZone           String?
-  recurrenceRule     Json?
-  recurrenceParentId String?
+  onlineMeetingOwnerId  String?       @db.VarChar(191)
+  startAt               DateTime
+  endAt                 DateTime?
+  timeZone              String?
+  recurrenceRule        Json?
+  recurrenceParentId    String?
   /// A series meeting's place in its series: the start the rule gave it (kept when it is moved on its own).
-  recurrenceStart    DateTime?
-  templateId         String?
-  transcript         String?       @db.Text
-  invitesSentAt      DateTime?
-  reminderSentAt     DateTime?
-  createdById        String
-  createdAt          DateTime      @default(now())
-  updatedAt          DateTime      @updatedAt
-  deletedAt          DateTime?
+  recurrenceStart       DateTime?
+  templateId            String?
+  transcript            String?       @db.Text
+  invitesSentAt         DateTime?
+  reminderSentAt        DateTime?
+  createdById           String
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+  deletedAt             DateTime?
 
   attendees     MeetingAttendee[]
   agendaItems   AgendaItem[]
@@ -1171,11 +1218,13 @@ model Meeting {
   aiJobs        AiJob[]
   /// A meeting without a project belongs to a company (null for project meetings: theirs is the project's).
   companyId     String?
-  company       Company?            @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  company       Company?              @relation(fields: [companyId], references: [id], onDelete: SetNull)
   /// 1.23: the named series it is in ("Monthly OXY review"), if any — not its repeat (recurrenceParentId).
   seriesId      String?
-  namedSeries   MeetingSeries?      @relation(fields: [seriesId], references: [id], onDelete: SetNull)
+  namedSeries   MeetingSeries?        @relation(fields: [seriesId], references: [id], onDelete: SetNull)
 
+  // One meeting per place in a series, so a series is never filled in twice.
+  @@unique([recurrenceParentId, recurrenceStart])
   @@index([projectId])
   @@index([organizerId])
   @@index([companyId])
@@ -1183,8 +1232,6 @@ model Meeting {
   @@index([status])
   @@index([startAt])
   @@index([onlineMeetingId])
-  // One meeting per place in a series, so a series is never filled in twice.
-  @@unique([recurrenceParentId, recurrenceStart])
   @@map("meetings")
 }
 
@@ -1271,20 +1318,20 @@ enum MeetingReminderSendStatus {
 }
 
 model MeetingAttendee {
-  id            String           @id @default(cuid())
+  id            String             @id @default(cuid())
   meetingId     String
   userId        String?
   externalName  String?
   externalEmail String?
-  role          AttendeeRole     @default(REQUIRED)
-  attendance    AttendanceStatus @default(INVITED)
+  role          AttendeeRole       @default(REQUIRED)
+  attendance    AttendanceStatus   @default(INVITED)
   response      InvitationResponse @default(PENDING)
   respondedAt   DateTime?
   /// When this person's own invitation was delivered (null = not invited yet).
   invitedAt     DateTime?
   department    String?
-  createdAt     DateTime         @default(now())
-  meeting       Meeting          @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  createdAt     DateTime           @default(now())
+  meeting       Meeting            @relation(fields: [meetingId], references: [id], onDelete: Cascade)
 
   @@index([meetingId])
   @@index([userId])
@@ -1454,22 +1501,22 @@ model DecisionAttachment {
 }
 
 model MeetingMinutes {
-  id           String        @id @default(cuid())
-  meetingId    String        @unique
-  content      String        @db.Text
-  status       MinutesStatus @default(DRAFT)
-  generatedAt  DateTime      @default(now())
-  approvedById String?
-  approvedAt   DateTime?
-  sentAt       DateTime?
+  id                     String        @id @default(cuid())
+  meetingId              String        @unique
+  content                String        @db.Text
+  status                 MinutesStatus @default(DRAFT)
+  generatedAt            DateTime      @default(now())
+  approvedById           String?
+  approvedAt             DateTime?
+  sentAt                 DateTime?
   /// Approved minutes shown on the project's client page. Cleared whenever the minutes go back to a draft
   /// or the meeting is re-filed under another project.
-  clientVisible Boolean      @default(false)
+  clientVisible          Boolean       @default(false)
   /// The project the minutes were shown to the client of: shown only while the meeting is still that project's.
   clientVisibleProjectId String?
   /// The client copy includes "Risks & open issues" (ticked when the minutes were shown).
-  clientShowRisks Boolean    @default(false)
-  meeting      Meeting       @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  clientShowRisks        Boolean       @default(false)
+  meeting                Meeting       @relation(fields: [meetingId], references: [id], onDelete: Cascade)
 
   @@map("meeting_minutes")
 }
@@ -1482,25 +1529,25 @@ model MeetingMinutes {
 /// opens the page, and only with a code emailed to this address. Removing the row ends their access
 /// (codes and sessions go with it).
 model ClientShare {
-  id           String    @id @default(cuid())
-  projectId    String
-  name         String    @db.VarChar(120)
+  id             String             @id @default(cuid())
+  projectId      String
+  name           String             @db.VarChar(120)
   /// Lower-case, trimmed.
-  email        String    @db.VarChar(254)
+  email          String             @db.VarChar(254)
   /// SHA-256 (hex) of the current link's token; the token itself is only in the email. Resend replaces it.
-  linkHash     String    @unique @db.Char(64)
+  linkHash       String             @unique @db.Char(64)
   /// Who shared it (a staff user id; kept when that person is gone).
-  createdById  String?
-  linkSentAt   DateTime?
-  lastViewedAt DateTime?
+  createdById    String?
+  linkSentAt     DateTime?
+  lastViewedAt   DateTime?
   /// When a lockout (too many wrong codes, too many code requests) was last written to the audit log:
   /// at most once an hour per client.
   lockoutNotedAt DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  project      Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  codes        ClientAccessCode[]
-  sessions     ClientSession[]
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  project        Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  codes          ClientAccessCode[]
+  sessions       ClientSession[]
 
   @@unique([projectId, email])
   @@map("client_shares")
@@ -1525,12 +1572,12 @@ model ClientAccessCode {
 /// A device signed in to a client page (30 days): SHA-256 (hex) of the token in its cookie. It opens
 /// only that client's page of that one project, never anything else.
 model ClientSession {
-  id         String      @id @default(cuid())
-  shareId    String
-  tokenHash  String      @unique @db.Char(64)
-  expiresAt  DateTime
-  createdAt  DateTime    @default(now())
-  share      ClientShare @relation(fields: [shareId], references: [id], onDelete: Cascade)
+  id        String      @id @default(cuid())
+  shareId   String
+  tokenHash String      @unique @db.Char(64)
+  expiresAt DateTime
+  createdAt DateTime    @default(now())
+  share     ClientShare @relation(fields: [shareId], references: [id], onDelete: Cascade)
 
   @@index([shareId])
   @@map("client_sessions")
@@ -1657,24 +1704,24 @@ model MicoAiChat {
 
 /// A question (role "user") or MICO AI's answer (role "assistant", its tables and sources as JSON).
 model MicoAiMessage {
-  id        String     @id @default(cuid())
+  id        String          @id @default(cuid())
   chatId    String
-  role      String     @db.VarChar(16)
+  role      String          @db.VarChar(16)
   /// The question, or the answer's words: what searching the chats reads.
-  text      String     @db.MediumText
+  text      String          @db.MediumText
   content   Json?
   /// The tool results an answer's tables were copied from (kept for later questions; only they read it).
   results   Json?
   /// PENDING while MICO AI is writing it, then DONE, ERROR or STOPPED.
-  status    String     @default("DONE") @db.VarChar(16)
+  status    String          @default("DONE") @db.VarChar(16)
   /// While PENDING: what MICO AI is doing ("Checking tasks in Rig Inspection…").
-  step      String?    @db.VarChar(200)
+  step      String?         @db.VarChar(200)
   /// 1.22: a question's id from the page that sent it — sent again (a double click, a retry after a
   /// lost answer), it joins the turn already asked instead of asking twice.
-  clientId  String?    @db.VarChar(64)
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
-  chat      MicoAiChat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  clientId  String?         @db.VarChar(64)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+  chat      MicoAiChat      @relation(fields: [chatId], references: [id], onDelete: Cascade)
   proposal  MicoAiProposal?
   aiJobs    AiJob[]
 

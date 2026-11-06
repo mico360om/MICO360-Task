@@ -20,6 +20,7 @@ export function databaseProbes({
   searchEngine,
   timeZone,
   taskMerge,
+  checklists,
 }: {
   prisma: PrismaClient;
   taskSearch: Pick<TaskSearchEngine, 'search'>;
@@ -27,6 +28,8 @@ export function databaseProbes({
   timeZone: string;
   /** 1.23.2 Merge tasks: its transaction, row locks and late-writes look (merge-service selfCheck). */
   taskMerge?: Pick<TaskMergeService, 'selfCheck'>;
+  /** 1.23.3 Nested checklists: the task hold every checklist change takes (SELECT … FOR UPDATE). */
+  checklists?: { selfCheck(taskId: string): Promise<void> };
 }): { name: string; run: () => Promise<unknown> }[] {
   const scope = { projectIds: [NOWHERE] };
   const nowhere: SearchScopeAll = { projectIds: [NOWHERE], meetings: { full: [NOWHERE], fullProjects: [NOWHERE], invitee: [NOWHERE], editable: [NOWHERE], editableProjects: [NOWHERE], editor: NOWHERE } };
@@ -85,5 +88,6 @@ export function databaseProbes({
     },
   });
   if (taskMerge) probes.push({ name: 'merging tasks (locks, late writes, undo)', run: () => taskMerge.selfCheck(NOWHERE) });
+  if (checklists) probes.push({ name: 'checklists (holding a task while it changes)', run: () => checklists.selfCheck(NOWHERE) });
   return probes;
 }

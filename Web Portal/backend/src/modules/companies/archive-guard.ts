@@ -34,6 +34,8 @@ export type ArchiveTarget =
   /** `:commentId`, `:itemId` (a checklist item), `:contactId` (an external contact): a task's. */
   | 'comment'
   | 'checklistItem'
+  /** 1.23.3: `:listId`, one of a task's checklists. */
+  | 'checklistList'
   | 'externalContact'
   /** `:columnId`: a board column. */
   | 'column'
@@ -85,6 +87,14 @@ export const ARCHIVE_REFUSED: Readonly<Record<string, ArchiveTarget>> = {
   'POST /tasks/:id/checklist': 'task',
   'PUT /tasks/:id/checklist/reorder': 'task',
   'PUT /checklist/:itemId': 'checklistItem',
+  // 1.23.3 nested checklists: adding, moving, copying, people and dates, restoring.
+  'POST /tasks/:id/checklist/batch': 'task',
+  'POST /tasks/:id/checklists': 'task',
+  'POST /tasks/:id/checklist/restore': 'task',
+  'POST /checklist/:itemId/duplicate': 'checklistItem',
+  'POST /checklist/:itemId/move': 'checklistItem',
+  'PUT /checklists/:listId': 'checklistList',
+  'POST /checklists/:listId/duplicate': 'checklistList',
   // Meetings in the project: a new one, and changing one — its details, people, agenda, notes,
   // action items and minutes.
   'POST /meetings': 'newMeeting',
@@ -142,6 +152,7 @@ export const ARCHIVE_ALLOWED: Readonly<Record<string, string>> = {
   'DELETE /tasks/:id/tags/:tagId': 'deleting, as today',
   'DELETE /comments/:commentId': 'deleting, as today',
   'DELETE /checklist/:itemId': 'deleting, as today',
+  'DELETE /checklists/:listId': 'deleting, as today',
   'DELETE /attachments/:attachmentId': 'deleting, as today',
   'DELETE /external-contacts/:contactId': 'deleting, as today',
   'POST /tasks/:id/watch': 'following a task is the person’s own, not a change to it',
@@ -206,7 +217,7 @@ export interface ArchiveSubject {
 /** At most this many tasks are looked at in one bulk move (the route itself takes at most 500). */
 export const MAX_GUARDED_TASKS = 1000;
 
-export type ArchiveKind = 'task' | 'comment' | 'checklistItem' | 'externalContact' | 'column' | 'meeting' | 'actionItem' | 'series';
+export type ArchiveKind = 'task' | 'comment' | 'checklistItem' | 'checklistList' | 'externalContact' | 'column' | 'meeting' | 'actionItem' | 'series';
 
 /** The facts the guard reads (Prisma: createPrismaArchiveLookup). */
 export interface ArchiveLookup {
@@ -248,6 +259,8 @@ export function createArchiveGuard(deps: ArchiveGuardDeps) {
         return of('comment', p.commentId);
       case 'checklistItem':
         return of('checklistItem', p.itemId);
+      case 'checklistList':
+        return of('checklistList', p.listId);
       case 'externalContact':
         return of('externalContact', p.contactId);
       case 'column':
@@ -332,6 +345,10 @@ export function createPrismaArchiveLookup(prisma: PrismaClient): ArchiveLookup {
         case 'checklistItem': {
           const i = await prisma.checklistItem.findUnique({ where: { id }, select: { task: { select: { projectId: true } } } });
           return i ? { projectId: i.task.projectId } : null;
+        }
+        case 'checklistList': {
+          const l = await prisma.checklistList.findUnique({ where: { id }, select: { task: { select: { projectId: true } } } });
+          return l ? { projectId: l.task.projectId } : null;
         }
         case 'externalContact': {
           const c = await prisma.taskExternalContact.findUnique({ where: { id }, select: { task: { select: { projectId: true } } } });

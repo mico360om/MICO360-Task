@@ -773,6 +773,25 @@ describe('GET /calendar — the visible range only, with the coming copies of re
     expect(data.tasks.map((t: { id: string }) => t.id)).toEqual([head.id]);
   });
 
+  it('1.23.3: dated checklist items in the range come with the tasks, in the caller’s scope', async () => {
+    const asked: unknown[] = [];
+    const mem = inMemory();
+    const item = { id: 'i1', text: 'Label circuits', done: false, dueDate: '2026-10-12', assigneeId: 'u1', taskId: 't1', taskKey: 'MICO-142', taskTitle: 'Wiring', projectId: 'p1' };
+    const a = await buildApp({
+      authService,
+      tokenService,
+      taskService: createTaskService(mem),
+      projectAccess,
+      checklistDue: async (opts) => {
+        asked.push(opts);
+        return [item];
+      },
+    });
+    const res = await a.inject({ method: 'GET', url: '/api/v1/calendar?from=2026-10-01&to=2026-10-31', headers: { authorization: `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}` } });
+    expect(res.json().data.checklistItems).toEqual([item]);
+    expect(asked).toEqual([{ from: '2026-10-01', to: '2026-10-31', userId: 'u1', ownIds: ['p1'], listIds: ['p1'] }]);
+  });
+
   it('refuses a range that ends before it starts, is too long, or is not a date', async () => {
     const { a } = await build();
     const headers = { authorization: `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}` };
