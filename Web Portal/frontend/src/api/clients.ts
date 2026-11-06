@@ -1,5 +1,6 @@
 import type { ApiClient } from '../lib/api-client';
 import type { ApiUser, UserStatus, WelcomeOutcome } from './users';
+import type { OnboardingStatus } from '../lib/onboarding';
 
 /**
  * 1.23 Client accounts, for administrators: the Clients page and User Management's Role "Client" (one
@@ -52,6 +53,12 @@ export interface ClientAccount {
   locked: boolean;
   lastLoginAt: string | null;
   welcomeSentAt: string | null;
+  /** Onboarding (an older server sends none). */
+  invitedAt?: string | null;
+  activatedAt?: string | null;
+  emailVerifiedAt?: string | null;
+  inviteExpiresAt?: string | null;
+  onboarding?: OnboardingStatus;
   createdAt: string;
   roles: string[];
   projects: ClientProjectAccess[];
@@ -120,6 +127,11 @@ export function clientAsUser(c: ClientAccount): ApiUser {
     locked: c.locked,
     lastLoginAt: c.lastLoginAt,
     welcomeSentAt: c.welcomeSentAt,
+    invitedAt: c.invitedAt ?? null,
+    activatedAt: c.activatedAt ?? null,
+    emailVerifiedAt: c.emailVerifiedAt ?? null,
+    inviteExpiresAt: c.inviteExpiresAt ?? null,
+    ...(c.onboarding ? { onboarding: c.onboarding } : {}),
     companies: [],
     primaryCompanyId: null,
   };

@@ -82,8 +82,9 @@ describe('User Management: last sign-in', () => {
     expect(screen.getByRole('columnheader', { name: 'Last sign-in' })).toBeInTheDocument();
     expect(within(rowOf('ada')).getByText('24 Oct 2026, 09:12')).toBeInTheDocument();
     expect(within(rowOf('bo')).getByText('Never signed in')).toBeInTheDocument();
-    expect(within(rowOf('bo')).getByText('Welcome email sent 24 Oct')).toBeInTheDocument();
-    expect(within(rowOf('ada')).queryByText(/welcome email sent/i)).not.toBeInTheDocument();
+    // Onboarding: the welcome email is the invitation — "Invited 24 Oct".
+    expect(within(rowOf('bo')).getByText('Invited 24 Oct')).toBeInTheDocument();
+    expect(within(rowOf('ada')).queryByText(/^Invited/)).not.toBeInTheDocument();
   });
 
   it('can show only the people who have never signed in', async () => {
@@ -116,31 +117,40 @@ describe('User Management: last sign-in', () => {
   it('a locked account shows a lock drawn as an icon, not an emoji', async () => {
     people = asListed([person('u1', 'ada', { locked: true })]);
     renderPage();
-    const badge = await screen.findByText('Locked');
+    await screen.findByText('ada');
+    const badge = within(rowOf('ada')).getByText('Locked').closest('[data-tone]')!;
     expect(badge.textContent).not.toContain('🔒');
     expect(badge.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
   });
 });
 
-describe('User Management: one person’s welcome email', () => {
+describe('User Management: one person’s invitation (welcome email)', () => {
   it('asks first, with their name, address and what the link does; then sends and says so', async () => {
     answers['/users/u2/welcome-email'] = () => json({ data: { userId: 'u2', username: 'bo', name: 'bo T', email: 'bo@x.co', sent: true } });
     renderPage();
     await screen.findByText('ada');
-    await userEvent.click(screen.getByRole('button', { name: 'Send welcome email to bo' }));
-    const ask = await screen.findByRole('alertdialog', { name: 'Send a welcome email to bo T (bo@x.co)?' });
+    await userEvent.click(screen.getByRole('button', { name: 'Resend invitation to bo' }));
+    const ask = await screen.findByRole('alertdialog', { name: 'Resend the invitation to bo T (bo@x.co)?' });
     expect(within(ask).getByText(SIGN_OUT)).toBeInTheDocument();
+    expect(within(ask).getByText(/valid for 7 days\. An earlier invitation stops working\./)).toBeInTheDocument();
     expect(calls.some((c) => c.method === 'POST')).toBe(false);
     await userEvent.click(within(ask).getByRole('button', { name: 'Send' }));
-    expect(await screen.findByText('Welcome email sent to bo (bo@x.co).')).toBeInTheDocument();
+    expect(await screen.findByText('Invitation resent to bo (bo@x.co).')).toBeInTheDocument();
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
     expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/users/u2/welcome-email'))).toBe(true);
+  });
+
+  it('someone never invited: “Send invitation”', async () => {
+    renderPage();
+    await screen.findByText('ada');
+    await userEvent.click(screen.getByRole('button', { name: 'Send invitation to ed' }));
+    expect(await screen.findByRole('alertdialog', { name: 'Send an invitation to ed T (ed@x.co)?' })).toBeInTheDocument();
   });
 
   it('Cancel sends nothing', async () => {
     renderPage();
     await screen.findByText('ada');
-    await userEvent.click(screen.getByRole('button', { name: 'Send welcome email to bo' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Resend invitation to bo' }));
     await userEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Cancel' }));
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
     expect(calls.some((c) => c.method === 'POST')).toBe(false);
@@ -150,7 +160,7 @@ describe('User Management: one person’s welcome email', () => {
     answers['/users/u2/welcome-email'] = () => json({ error: { code: 'TOO_SOON', message: 'No welcome email was sent: a welcome email was sent to them less than a minute ago.' } }, 429);
     renderPage();
     await screen.findByText('ada');
-    await userEvent.click(screen.getByRole('button', { name: 'Send welcome email to bo' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Resend invitation to bo' }));
     await userEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Send' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('No welcome email was sent: a welcome email was sent to them less than a minute ago.');
   });
@@ -159,7 +169,7 @@ describe('User Management: one person’s welcome email', () => {
     answers['/users/u2/welcome-email'] = () => json({ error: { code: 'SERVER_ERROR', message: 'No welcome email was sent: something went wrong on the server (try again).' } }, 500);
     renderPage();
     await screen.findByText('ada');
-    await userEvent.click(screen.getByRole('button', { name: 'Send welcome email to bo' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Resend invitation to bo' }));
     await userEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Send' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('No welcome email was sent: something went wrong on the server (try again).');
   });
@@ -174,13 +184,13 @@ describe('User Management: one person’s welcome email', () => {
     ]);
     renderPage();
     await screen.findByText('gone');
-    const button = (name: string) => screen.getByRole('button', { name: `Send welcome email to ${name}` });
+    const button = (name: string) => screen.getByRole('button', { name: `Send invitation to ${name}` });
     expect(button('admin')).toBeDisabled();
-    expect(button('admin')).toHaveAttribute('title', 'You can’t send yourself a welcome email');
+    expect(button('admin')).toHaveAttribute('title', 'You can’t send yourself an invitation');
     expect(button('gone')).toBeDisabled();
-    expect(button('gone')).toHaveAttribute('title', 'This account is inactive, so it can’t get a welcome email');
+    expect(button('gone')).toHaveAttribute('title', 'This account is inactive, so it can’t get an invitation');
     expect(button('held')).toBeDisabled();
-    expect(button('held')).toHaveAttribute('title', 'This account is suspended, so it can’t get a welcome email');
+    expect(button('held')).toHaveAttribute('title', 'This account is suspended, so it can’t get an invitation');
     expect(button('noemail')).toBeDisabled();
     expect(button('noemail')).toHaveAttribute('title', 'This account has no email address');
     expect(button('locked')).toBeEnabled();
@@ -189,9 +199,9 @@ describe('User Management: one person’s welcome email', () => {
   it('on a phone the row button is just an envelope, with the same name for screen readers', async () => {
     renderPage();
     await screen.findByText('ada');
-    const button = screen.getByRole('button', { name: 'Send welcome email to bo' });
+    const button = screen.getByRole('button', { name: 'Resend invitation to bo' });
     expect(button.querySelector('svg[aria-hidden="true"]')).toHaveClass('sm:hidden');
-    expect(within(button).getByText('Send welcome email')).toHaveClass('hidden', 'sm:inline');
+    expect(within(button).getByText('Resend invitation')).toHaveClass('hidden', 'sm:inline');
   });
 });
 
@@ -310,8 +320,9 @@ describe('User Management: welcome emails to several people', () => {
     emailEnabled = false;
     renderPage();
     await screen.findByText('ada');
-    expect(await screen.findByText('Email isn’t set up on this server, so welcome emails can’t be sent. An administrator needs to add the email (Mailjet) keys.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Send welcome email to bo' })).toBeDisabled();
+    expect(await screen.findByText(/^Email isn’t set up — verification and invitations by email are off\./)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Resend invitation to bo' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Send password reset to bo' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Select everyone who has never signed in' })).toBeDisabled();
   });
 });

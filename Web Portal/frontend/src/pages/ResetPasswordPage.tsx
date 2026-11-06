@@ -1,8 +1,8 @@
-import { useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { AuthShell, AUTH_SUBMIT_CLASS } from '../components/AuthShell';
 import { apiClient } from '../api/client';
-import { authApi } from '../api/auth';
+import { authApi, type LinkStatus } from '../api/auth';
 import { ApiError } from '../lib/api-client';
 import { FieldLabel, FieldError, fieldClass } from '../components/ui/Field';
 import { isStrongPassword, PASSWORD_RULE_ERROR, PASSWORD_RULE_HINT } from '../lib/passwordPolicy';
@@ -25,6 +25,22 @@ export function ResetPasswordPage() {
   const [done, setDone] = useState(false);
   const passwordRef = useRef<HTMLInputElement>(null);
   const confirmRef = useRef<HTMLInputElement>(null);
+  // Onboarding: what the link is, asked before a password is typed (the form shows meanwhile, and stays
+  // when the server can't say). An expired or replaced invitation names the company to ask.
+  const [link, setLink] = useState<LinkStatus | null>(null);
+  useEffect(() => {
+    if (!token) return;
+    let live = true;
+    authApi(apiClient)
+      .linkStatus(token)
+      .then((s) => {
+        if (live && s && typeof s.state === 'string') setLink(s);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [token]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -75,6 +91,44 @@ export function ResetPasswordPage() {
     return (
       <AuthShell title="Invalid reset link">
         <p className="text-sm text-ink-2">This link is missing its reset token. Request a new one to continue.</p>
+        <Link to="/forgot" className="tap mt-6 inline-block text-sm font-medium text-brand hover:underline">
+          Request a new reset link
+        </Link>
+      </AuthShell>
+    );
+  }
+
+  const signInLink = (
+    <Link to="/login" className="tap mt-6 inline-block text-sm font-medium text-brand hover:underline">
+      Go to sign in
+    </Link>
+  );
+  if (!done && link?.kind === 'welcome' && link.state === 'expired') {
+    return (
+      <AuthShell title="This invitation has expired">
+        <p className="text-sm text-ink-2">
+          This invitation has expired — ask <bdi>{link.company ?? 'your administrator'}</bdi> to send a new one.
+        </p>
+        <p className="mt-2 text-sm text-ink-2">Already set a password? Sign in with it.</p>
+        {signInLink}
+      </AuthShell>
+    );
+  }
+  if (!done && link?.kind === 'welcome' && link.state === 'used') {
+    return (
+      <AuthShell title="Your account is ready">
+        <p className="text-sm text-ink-2">This invitation has already been used. Sign in with your username or email address and your password.</p>
+        <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-2">
+          <Link to="/login" className="tap text-sm font-medium text-brand hover:underline">Go to sign in</Link>
+          <Link to="/forgot" className="tap text-sm font-medium text-brand hover:underline">Forgot your password?</Link>
+        </div>
+      </AuthShell>
+    );
+  }
+  if (!done && link?.kind === 'reset' && link.state !== 'live' && link.state !== 'unknown') {
+    return (
+      <AuthShell title="This link has expired">
+        <p className="text-sm text-ink-2">This reset link has expired or was already used. Reset links work once, for an hour.</p>
         <Link to="/forgot" className="tap mt-6 inline-block text-sm font-medium text-brand hover:underline">
           Request a new reset link
         </Link>

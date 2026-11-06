@@ -112,9 +112,9 @@ describe('who a send goes to, and what it does', () => {
 describe('welcomeBlockedReason — why a row’s "Send welcome email" can’t be used', () => {
   const base = { id: 'u1', status: 'ACTIVE' as const, email: 'a@x.co', locked: false };
   it('your own row, an inactive or suspended account, or no email address', () => {
-    expect(welcomeBlockedReason(base, 'u1')).toBe('You can’t send yourself a welcome email');
-    expect(welcomeBlockedReason({ ...base, status: 'INACTIVE' }, 'me')).toBe('This account is inactive, so it can’t get a welcome email');
-    expect(welcomeBlockedReason({ ...base, status: 'SUSPENDED' }, 'me')).toBe('This account is suspended, so it can’t get a welcome email');
+    expect(welcomeBlockedReason(base, 'u1')).toBe('You can’t send yourself an invitation');
+    expect(welcomeBlockedReason({ ...base, status: 'INACTIVE' }, 'me')).toBe('This account is inactive, so it can’t get an invitation');
+    expect(welcomeBlockedReason({ ...base, status: 'SUSPENDED' }, 'me')).toBe('This account is suspended, so it can’t get an invitation');
     expect(welcomeBlockedReason({ ...base, email: ' ' }, 'me')).toBe('This account has no email address');
   });
 

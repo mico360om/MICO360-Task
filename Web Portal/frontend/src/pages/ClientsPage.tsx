@@ -3,12 +3,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { configApi } from '../api/config';
 import { CLIENTS_KEY, clientAsUser, clientsApi, type ClientAccount } from '../api/clients';
-import { usersApi, type CreatedUser, type UserStatus } from '../api/users';
+import { usersApi, type ApiUser, type CreatedUser, type UserStatus } from '../api/users';
 import { CreateUserModal } from '../components/CreateUserModal';
 import { EditUserModal } from '../components/EditUserModal';
 import { projectCount } from '../components/clients/client-access';
 import { useShortcut } from '../components/shortcuts/ShortcutProvider';
-import { Badge, type BadgeTone } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { EmptyState } from '../components/ui/EmptyState';
@@ -18,7 +17,10 @@ import { ApiError } from '../lib/api-client';
 import { instantDayText } from '../lib/day-words';
 import { useCompanyTimeZone } from '../lib/useCompanyTimeZone';
 import { useMediaQuery } from '../lib/useMediaQuery';
-import { welcomeBlockedReason, welcomeOneConfirmTitle } from '../lib/user-sign-in';
+import { inviteConfirmTitle, invitationLabel, invitationSentText, RESET_LINK_NOTE, welcomeBlockedReason } from '../lib/user-sign-in';
+import { OnboardingStatusCell } from '../components/onboarding/OnboardingCells';
+import { AccountStatusDialog } from '../components/onboarding/AccountStatusDialog';
+import { EMAIL_OFF_BANNER, invitedText, matchesStatusFilter, NO_ONE_WITH_STATUS, ONBOARDING_FILTERS, type StatusFilter } from '../lib/onboarding';
 import { useAuthStore } from '../stores/auth-store';
 
 /** Below 768px (the md width, in em as the layout's widths are): one card per client instead of the table. */
@@ -30,12 +32,6 @@ const PLAIN = `${ACTION} border-line text-ink-2 hover:border-brand/30 hover:bg-g
 /** How many of a client's projects are named in the list before "+2 more". */
 const NAMED = 3;
 const NOT_SET_UP_ID = 'clients-email-not-set-up';
-
-const STATUS: Record<UserStatus, { label: string; tone: BadgeTone }> = {
-  ACTIVE: { label: 'Active', tone: 'success' },
-  INACTIVE: { label: 'Inactive', tone: 'neutral' },
-  SUSPENDED: { label: 'Suspended', tone: 'danger' },
-};
 
 const nameOf = (c: Pick<ClientAccount, 'firstName' | 'lastName' | 'username'>) => `${c.firstName} ${c.lastName}`.trim() || c.username;
 
@@ -71,8 +67,15 @@ export function ClientsPage() {
   const clients = Array.isArray(q.data) ? q.data : [];
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<ClientAccount | null>(null);
+  // A staff account opened from a duplicate warning (Manage account works for both kinds).
+  const [editingUser, setEditingUser] = useState<ApiUser | null>(null);
   const [welcoming, setWelcoming] = useState<ClientAccount | null>(null);
   const [deleting, setDeleting] = useState<ClientAccount | null>(null);
+  // Onboarding: "Send password reset" and a status change, each asked first; the status filter.
+  const [resetting, setResetting] = useState<ClientAccount | null>(null);
+  const [statusChange, setStatusChange] = useState<{ c: ClientAccount; to: UserStatus } | null>(null);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('');
+  const shown = clients.filter((c) => matchesStatusFilter(c, statusFilter));
   const [notice, setNotice] = useState<Notice | null>(null);
   const timeZone = useCompanyTimeZone();
   const phone = useMediaQuery(PHONE_QUERY);
@@ -90,18 +93,25 @@ export function ClientsPage() {
     mutationFn: (c: ClientAccount) => usersApi(apiClient).sendWelcome(c.id),
     onSuccess: (out, c) => {
       setWelcoming(null);
-      setNotice({ text: `Welcome email sent to ${nameOf(c)} (${out.email ?? c.email}).` });
+      setNotice({ text: invitationSentText({ ...c, username: nameOf(c) }, out.email ?? c.email) });
       refresh();
     },
   });
+  const resetMut = useMutation({
+    mutationFn: (c: ClientAccount) => usersApi(apiClient).sendPasswordReset(c.id),
+    onSuccess: (out, c) => {
+      setResetting(null);
+      setNotice({ text: `Password reset link sent to ${nameOf(c)} (${out.email ?? c.email}).` });
+    },
+  });
   const statusMut = useMutation({
-    mutationFn: ({ c, status }: { c: ClientAccount; status: UserStatus }) => usersApi(apiClient).setStatus(c.id, status),
+    mutationFn: ({ c, status, why }: { c: ClientAccount; status: UserStatus; why?: string }) => usersApi(apiClient).setStatus(c.id, status, why),
     onMutate: () => setNotice(null),
     onSuccess: (_r, { c, status }) => {
+      setStatusChange(null);
       setNotice({ text: status === 'ACTIVE' ? `${nameOf(c)} can sign in again.` : `${nameOf(c)} can’t sign in now.` });
       refresh();
     },
-    onError: (err, { c }) => setNotice({ text: problemText(err, `Couldn’t change ${nameOf(c)}’s account. Please try again.`), error: true }),
   });
   const unlockMut = useMutation({
     mutationFn: (c: ClientAccount) => usersApi(apiClient).unlock(c.id),
@@ -120,6 +130,17 @@ export function ClientsPage() {
       refresh();
     },
   });
+
+  // Onboarding: "Open account" from a duplicate warning — that person's Manage account (staff or client).
+  const openAccount = (id: string) => {
+    setCreating(false);
+    const listed = clients.find((c) => c.id === id);
+    if (listed) {
+      setEditing(listed);
+      return;
+    }
+    void usersApi(apiClient).get(id).then((u) => setEditingUser(u), () => setNotice({ text: 'Couldn’t open that account. Try again.', error: true }));
+  };
 
   const nameButton = (c: ClientAccount) => (
     <button type="button" onClick={() => setEditing(c)} aria-label={`Open ${nameOf(c)}`} className={`flex min-w-0 flex-col items-start rounded text-left ${TOUCH}`}>
@@ -146,13 +167,17 @@ export function ClientsPage() {
       </div>
     );
   };
-  const lastSignIn = (c: ClientAccount) => (c.lastLoginAt ? <span className="text-ink">{instantDayText(c.lastLoginAt, timeZone)}</span> : <span className="italic text-ink-2">Never</span>);
-  const status = (c: ClientAccount) => (
-    <span className="inline-flex flex-wrap items-center gap-1.5">
-      <Badge tone={STATUS[c.status].tone}>{STATUS[c.status].label}</Badge>
-      {c.locked ? <Badge tone="warning">Locked</Badge> : null}
-    </span>
-  );
+  const lastSignIn = (c: ClientAccount) => {
+    const invited = invitedText(c, timeZone);
+    return (
+      <>
+        {c.lastLoginAt ? <span className="text-ink">{instantDayText(c.lastLoginAt, timeZone)}</span> : <span className="italic text-ink-2">Never</span>}
+        {invited ? <span className="block text-xs text-ink-2">{invited}</span> : null}
+      </>
+    );
+  };
+  // Onboarding: Invited · 3 days ago / Invite expired / Active / Locked / Deactivated, and email verified or not.
+  const status = (c: ClientAccount) => <OnboardingStatusCell person={c} />;
   const actions = (c: ClientAccount) => {
     const blocked = welcomeBlockedReason(c, meId);
     const busy = statusMut.isPending && statusMut.variables?.c.id === c.id;
@@ -162,12 +187,23 @@ export function ClientsPage() {
           type="button"
           onClick={() => { welcomeMut.reset(); setWelcoming(c); }}
           disabled={!emailEnabled || !!blocked}
-          aria-label={`Send welcome email to ${c.username}`}
+          aria-label={`${invitationLabel(c)} to ${c.username}`}
           aria-describedby={!emailEnabled ? NOT_SET_UP_ID : undefined}
           title={blocked ?? undefined}
           className={PLAIN}
         >
-          Send welcome email
+          {invitationLabel(c)}
+        </button>
+        <button
+          type="button"
+          onClick={() => { resetMut.reset(); setResetting(c); }}
+          disabled={!emailEnabled || c.status !== 'ACTIVE'}
+          aria-label={`Send password reset to ${c.username}`}
+          aria-describedby={!emailEnabled ? NOT_SET_UP_ID : undefined}
+          title={c.status !== 'ACTIVE' ? 'Reactivate the account first' : 'Email them a link to choose a new password (works for an hour)'}
+          className={PLAIN}
+        >
+          Send password reset
         </button>
         {c.locked ? (
           <button type="button" onClick={() => unlockMut.mutate(c)} disabled={unlockMut.isPending} aria-label={`Unlock ${c.username}`} className={`${ACTION} border-warning/40 font-semibold text-warning hover:bg-warning-soft`}>
@@ -175,11 +211,11 @@ export function ClientsPage() {
           </button>
         ) : null}
         {c.status === 'ACTIVE' ? (
-          <button type="button" onClick={() => statusMut.mutate({ c, status: 'INACTIVE' })} disabled={busy} aria-label={`Deactivate ${c.username}`} className={PLAIN}>
+          <button type="button" onClick={() => { statusMut.reset(); setStatusChange({ c, to: 'INACTIVE' }); }} disabled={busy} aria-label={`Deactivate ${c.username}`} className={PLAIN}>
             Deactivate
           </button>
         ) : (
-          <button type="button" onClick={() => statusMut.mutate({ c, status: 'ACTIVE' })} disabled={busy} aria-label={`Reactivate ${c.username}`} className={PLAIN}>
+          <button type="button" onClick={() => { statusMut.reset(); setStatusChange({ c, to: 'ACTIVE' }); }} disabled={busy} aria-label={`Reactivate ${c.username}`} className={PLAIN}>
             Reactivate
           </button>
         )}
@@ -214,8 +250,21 @@ export function ClientsPage() {
 
       {!emailEnabled ? (
         <p id={NOT_SET_UP_ID} className="mb-4 rounded-lg bg-warning-soft px-3 py-2 text-sm text-warning">
-          Email isn’t set up on this server, so welcome emails can’t be sent. An administrator needs to add the email (Mailjet) keys.
+          {EMAIL_OFF_BANNER}
         </p>
+      ) : null}
+
+      {clients.length > 0 ? (
+        <div className="mb-3 flex flex-wrap items-end gap-3">
+          <div className="flex flex-col gap-1">
+            <label htmlFor="clients-status" className="text-xs font-medium text-ink-2">Status</label>
+            <select id="clients-status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as StatusFilter)} className="rounded-lg border border-line bg-surface px-2 py-1.5 text-sm text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/20 [@media(pointer:coarse)]:!min-h-11">
+              {ONBOARDING_FILTERS.map((f) => (
+                <option key={f.value} value={f.value}>{f.label}</option>
+              ))}
+            </select>
+          </div>
+        </div>
       ) : null}
 
       {q.isLoading ? (
@@ -238,9 +287,11 @@ export function ClientsPage() {
             </svg>
           }
         />
+      ) : statusFilter && shown.length === 0 ? (
+        <p className="card p-4 text-ink-2">{NO_ONE_WITH_STATUS[statusFilter]}</p>
       ) : phone ? (
         <ul aria-label="Clients" className="flex flex-col gap-2">
-          {clients.map((c) => (
+          {shown.map((c) => (
             <li key={c.id} className="min-w-0 rounded-xl border border-line bg-surface p-3 shadow-soft">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">{nameButton(c)}</div>
@@ -280,7 +331,7 @@ export function ClientsPage() {
               </tr>
             </thead>
             <tbody>
-              {clients.map((c) => (
+              {shown.map((c) => (
                 <tr key={c.id} className="border-b border-line align-top last:border-0">
                   <td className="p-3">{nameButton(c)}</td>
                   <td className="p-3 text-ink-2">{organisation(c)}</td>
@@ -300,17 +351,42 @@ export function ClientsPage() {
 
       {welcoming ? (
         <ConfirmDialog
-          title={welcomeOneConfirmTitle(nameOf(welcoming), welcoming.email)}
+          title={inviteConfirmTitle(welcoming, nameOf(welcoming))}
           confirmLabel="Send"
           keepLabel="Cancel"
           tone="primary"
           busy={welcomeMut.isPending}
-          error={welcomeMut.isError ? problemText(welcomeMut.error, 'Couldn’t send the welcome email. Try again.') : null}
+          error={welcomeMut.isError ? problemText(welcomeMut.error, 'Couldn’t send the invitation. Try again.') : null}
           onConfirm={() => welcomeMut.mutate(welcoming)}
           onClose={() => setWelcoming(null)}
         >
-          They get their username and a link to set their password (it works for 7 days). Using the link signs them out on their other devices.
+          They get their username and a link to set their password (it works for 7 days; an earlier invitation stops working). Using the link signs them out on their other devices.
         </ConfirmDialog>
+      ) : null}
+      {resetting ? (
+        <ConfirmDialog
+          title={`Send a password reset link to ${nameOf(resetting)} (${resetting.email})?`}
+          confirmLabel="Send"
+          keepLabel="Cancel"
+          tone="primary"
+          busy={resetMut.isPending}
+          error={resetMut.isError ? problemText(resetMut.error, 'Couldn’t send the reset link. Try again.') : null}
+          onConfirm={() => resetMut.mutate(resetting)}
+          onClose={() => setResetting(null)}
+        >
+          {RESET_LINK_NOTE}
+        </ConfirmDialog>
+      ) : null}
+      {statusChange ? (
+        <AccountStatusDialog
+          name={nameOf(statusChange.c)}
+          to={statusChange.to}
+          neverSignedIn={!statusChange.c.lastLoginAt && !statusChange.c.activatedAt}
+          busy={statusMut.isPending}
+          error={statusMut.isError ? problemText(statusMut.error, `Couldn’t change ${nameOf(statusChange.c)}’s account. Please try again.`) : null}
+          onConfirm={(why) => statusMut.mutate({ c: statusChange.c, status: statusChange.to, why })}
+          onClose={() => setStatusChange(null)}
+        />
       ) : null}
       {deleting ? (
         <ConfirmDialog
@@ -325,8 +401,9 @@ export function ClientsPage() {
           They can’t sign in to the Client portal any more. This can’t be undone.
         </ConfirmDialog>
       ) : null}
-      {creating ? <CreateUserModal clientOnly onClose={() => setCreating(false)} onCreated={(result) => setNotice(createdNotice(result))} /> : null}
+      {creating ? <CreateUserModal clientOnly onClose={() => setCreating(false)} onCreated={(result) => setNotice(createdNotice(result))} onOpenAccount={openAccount} /> : null}
       {editing ? <EditUserModal user={clientAsUser(editing)} onClose={() => setEditing(null)} /> : null}
+      {editingUser ? <EditUserModal user={editingUser} onClose={() => setEditingUser(null)} /> : null}
     </div>
   );
 }

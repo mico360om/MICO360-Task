@@ -23,6 +23,8 @@ beforeEach(() => {
   config = { timeZone: 'Asia/Muscat', emailEnabled: true };
   answer = () => json({ data: { id: 'u9' } }, 201);
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+    // Onboarding: the duplicate check while typing finds no one here.
+    if (String(url).endsWith('/users/identity-check')) return json({ data: { email: null, username: null, sameName: [] } });
     if (init?.method === 'POST') {
       posted = JSON.parse(String(init.body));
       return answer();
@@ -69,11 +71,27 @@ describe('CreateUserModal', () => {
     expect(posted).toBeNull();
   });
 
-  it('asks for the missing details when a field is empty', async () => {
+  it('asks for the missing details when a field is empty — under each field, with its rule', async () => {
     renderModal();
     await userEvent.type(screen.getByLabelText(/first name/i), 'Sara');
     await userEvent.click(screen.getByRole('button', { name: /create user/i }));
-    expect(screen.getByRole('alert')).toHaveTextContent('Fill in every field.');
+    expect(screen.getByText('Check the highlighted details.')).toHaveAttribute('role', 'alert');
+    expect(screen.getByText('Enter a last name.')).toBeInTheDocument();
+    expect(screen.getByLabelText(/^last name/i)).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByLabelText(/^last name/i)).toHaveFocus();
+    expect(screen.getByLabelText(/^username/i)).toHaveAccessibleDescription(/Use 3–32 letters or numbers/);
+    expect(posted).toBeNull();
+  });
+
+  it('a username with a space is caught before anything is sent (the server’s own rule)', async () => {
+    renderModal();
+    await userEvent.type(screen.getByLabelText(/first name/i), 'Sara');
+    await userEvent.type(screen.getByLabelText(/last name/i), 'K');
+    await userEvent.type(screen.getByLabelText(/username/i), 'sara k');
+    await userEvent.type(screen.getByLabelText(/^email/i), 'sara@x.test');
+    await userEvent.type(screen.getByLabelText(/temp password/i), 'Welcome123');
+    await userEvent.click(screen.getByRole('button', { name: /create user/i }));
+    expect(screen.getByLabelText(/^username/i)).toHaveAttribute('aria-invalid', 'true');
     expect(posted).toBeNull();
   });
 
@@ -86,11 +104,11 @@ describe('CreateUserModal', () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
-  it('says the email or username is taken when it is', async () => {
-    answer = () => json({ error: { code: 'DUPLICATE_USER', message: 'A user with this email or username already exists.' } }, 409);
+  it('says the email or username is taken when it is, in the server’s words (whose it is)', async () => {
+    answer = () => json({ error: { code: 'DUPLICATE_USER', message: 'This email address is already used by Sara Khan.', details: { field: 'email' } } }, 409);
     renderModal();
     await fill('Welcome123');
-    expect(await screen.findByRole('alert')).toHaveTextContent(/email or username is already in use/i);
+    expect(await screen.findByRole('alert')).toHaveTextContent('This email address is already used by Sara Khan.');
   });
 
   it('does not blame the details when the server itself failed', async () => {
@@ -378,6 +396,8 @@ describe('CreateUserModal: Role "Client" (1.23)', () => {
     await userEvent.type(screen.getByLabelText(/last name/i), 'Saleh');
     await userEvent.type(screen.getByLabelText(/username/i), 'huda');
     await userEvent.type(screen.getByLabelText(/^email/i), 'huda@owner.test');
+    // Onboarding: a client's organisation is required.
+    await userEvent.type(screen.getByLabelText(/^organisation/i), 'Owner Group');
   };
   const addProject = async (name: RegExp) => {
     await userEvent.click(await screen.findByRole('button', { name: 'Add a project' }));
@@ -414,8 +434,7 @@ describe('CreateUserModal: Role "Client" (1.23)', () => {
     const onCreated = vi.fn();
     renderModal(onClose, onCreated);
     await userEvent.selectOptions(screen.getByLabelText('Role'), 'CLIENT');
-    await person();
-    await userEvent.type(screen.getByLabelText(/organisation/i), 'Owner Group');
+    await person(); // with the organisation
     await userEvent.type(screen.getByLabelText(/phone/i), '+968 9000 0000');
     await addProject(/MICO Tower/);
     await tick('MICO Tower', 'Progress, milestones and tasks');
@@ -482,7 +501,7 @@ describe('CreateUserModal: Role "Client" (1.23)', () => {
     await userEvent.selectOptions(screen.getByLabelText('Role'), 'CLIENT');
     await person();
     await create();
-    expect(await screen.findByRole('alert')).toHaveTextContent('That email or username is already in use. Choose a different one.');
+    expect(await screen.findByRole('alert')).toHaveTextContent('A user with this email or username already exists.');
     expect(onClose).not.toHaveBeenCalled();
   });
 

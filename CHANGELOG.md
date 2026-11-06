@@ -14,6 +14,42 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### New features
+- Onboarding for clients and staff: User Management and the Clients page show one status for every
+  account — Invited (with how long ago), Invite expired (invitation links last 7 days), Active, Locked or
+  Deactivated — with a Status filter, "Email verified ✓" or "Not verified", and the last sign-in
+  ("Invited 5 Nov · resent 7 Nov" under it). Each row has Resend invitation (a fresh link; the old one
+  stops working) and Send password reset (a link valid for an hour; their sign-ins stay until they set the
+  new password).
+- Email verification: someone given a temporary password, or whose email address was changed, enters a
+  6-digit code we email them before their first sign-in ("Check your email — enter the code we sent to
+  a•••@oxy.com"; codes last 10 minutes, Resend code). Using an invitation or reset link, or signing in with
+  an emailed code, confirms the address too. Everyone who has already signed in counts as confirmed, so
+  no one is asked after the update. The Android app and the extension say "Confirm your email on the
+  website first" until it is done. Administrators can mark an address as verified by hand, with a reason,
+  when a code can't arrive; the last administrator is never asked for a code. While the server can't send
+  email, nothing is asked and a banner says so.
+- Manage account has a "Sign-in & email" section: the status, email verified or not, Resend invitation,
+  Send password reset and Mark email as verified. Changing someone's email address tells the old address
+  and asks for a code at their next sign-in (their open sessions keep working).
+- New and Manage account warn while you type when an email or username is already used ("This email is
+  already used by Ahmed Al Harthy (client) — Open account") or a client with the same name exists at the
+  same organisation, and show each field's rule: usernames 3–32 letters or numbers and . _ -; phones
+  digits with an optional + and spaces; an organisation is required for a new client.
+- An expired or replaced invitation link now says "This invitation has expired — ask <company> to send a
+  new one" before a password is typed; a used one says the account is ready.
+
+### Improvements
+- Deactivating or reactivating an account first says what happens (signed out everywhere at once), with
+  an optional reason; the reason is in the audit log.
+- The audit log records invitations sent and resent, invitations that expired or were used, email
+  addresses confirmed (and how), email changes, reset links sent and used, and which details changed.
+
+### Security
+- Sign-in codes are 6 digits, stored only as a keyed hash, compared in constant time, single use, and
+  limited (one a minute, five an hour; five wrong codes end a sign-in, ten an hour per account). Codes,
+  tokens and links are never written to a log.
+
 ## [1.23.2] - 2026-11-06
 
 ### New features

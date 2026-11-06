@@ -11,6 +11,8 @@ import { askedTooSoon, forgetCodeStep, NEW_CODE_SENT, recallCodeStep, rememberCo
 import logoW from '../assets/logo-w.png';
 import { HeroField } from '../components/HeroField';
 import { BrandLogo } from '../components/ui/BrandLogo';
+import { EmailCheckStep } from '../features/auth/EmailCheckStep';
+import type { ChallengeResend, SignInChallenge } from '../api/auth';
 
 const api = createApiClient({
   baseUrl: import.meta.env.VITE_API_URL ?? 'http://localhost:4000/api/v1',
@@ -19,6 +21,11 @@ const api = createApiClient({
 
 interface AuthResponse {
   data: Session;
+}
+
+/** Onboarding: a password sign-in answers with a session, or (an unconfirmed email address) the code step. */
+interface SignInResponse {
+  data: Session | { challenge: SignInChallenge };
 }
 
 /** The answer to "email me a code": `sent: false` when the same address asked less than a minute ago. */
@@ -64,6 +71,10 @@ export function LoginPage() {
   const [waitUntil, setWaitUntil] = useState<number | null>(resumed?.resendAt ?? null);
   // Back on a remembered code step, it stays usable while the server hasn't said yet whether email works.
   const otpOn = emailEnabled || (resumed !== null && configQ.data === undefined);
+  // Onboarding: "Check your email" — the code step after the right password (kept in memory only), and
+  // the "Keep me signed in" choice made on the password step.
+  const [challenge, setChallenge] = useState<SignInChallenge | null>(null);
+  const [keepChoice, setKeepChoice] = useState(true);
 
   function fail(e: unknown) {
     setLockedForSeconds(null);
@@ -97,7 +108,13 @@ export function LoginPage() {
     setLoading(true);
     clearMessages();
     try {
-      const res = await api.post<AuthResponse>('/auth/login', { identifier, password });
+      // Onboarding: this page can take the emailed-code step (the app and the extension can't, yet).
+      const res = await api.post<SignInResponse>('/auth/login', { identifier, password, acceptChallenge: true });
+      if ('challenge' in res.data) {
+        setKeepChoice(keepSignedIn);
+        setChallenge(res.data.challenge);
+        return;
+      }
       // Unticked "Keep me signed in" → the session lives only in this window (sessionStorage).
       setSession(res.data, { remember: keepSignedIn });
     } catch (e) {
@@ -147,6 +164,24 @@ export function LoginPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function verifyChallenge(code: string) {
+    if (!challenge) return;
+    const res = await api.post<AuthResponse>('/auth/challenge/verify', { challenge: challenge.token, code });
+    setChallenge(null);
+    setSession(res.data, { remember: keepChoice });
+  }
+
+  async function resendChallenge(): Promise<ChallengeResend> {
+    const res = await api.post<{ data: ChallengeResend }>('/auth/challenge/resend', { challenge: challenge?.token ?? '' });
+    return res.data;
+  }
+
+  function leaveChallenge(reason?: string) {
+    setChallenge(null);
+    clearMessages();
+    if (reason) setError(reason);
   }
 
   return (
@@ -219,6 +254,18 @@ export function LoginPage() {
               <BrandLogo className="h-11" alt="MICO360 Tasks" />
             </div>
 
+            {challenge ? (
+              <>
+                <h1 className="font-display text-[1.7rem] font-extrabold tracking-tight text-ink">Check your email</h1>
+                <p className="mt-1 text-sm text-ink-2">
+                  Enter the 6-digit code we sent to <bdi className="font-semibold text-ink">{challenge.sentTo}</bdi> to confirm it’s your email address.
+                </p>
+                <div className="mt-6">
+                  <EmailCheckStep key={challenge.token} challenge={challenge} onVerify={verifyChallenge} onResend={resendChallenge} onBack={leaveChallenge} />
+                </div>
+              </>
+            ) : (
+            <>
             <h1 className="font-display text-[1.7rem] font-extrabold tracking-tight text-ink">Welcome back</h1>
             <p className="mt-1 text-sm text-ink-2">Sign in to continue to MICO360 Tasks.</p>
 
@@ -240,6 +287,8 @@ export function LoginPage() {
                 canResetByEmail={!emailOff}
               />
             </div>
+            </>
+            )}
 
             <p className="mt-6 border-t border-line pt-5 text-center text-[13px] text-ink-2">
               Staff accounts are created by your administrator — need access?{' '}

@@ -60,11 +60,15 @@ describe('UsersPage (admin management)', () => {
     expect(within(cell).getByText('Omar A').tagName).toBe('BDI');
   });
 
-  it('changes a user’s status via the API', async () => {
+  it('changes a user’s status via the API, after saying what happens (onboarding: with an optional reason)', async () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('omar')).toBeInTheDocument());
     await userEvent.selectOptions(screen.getByLabelText(/status for omar/i), 'SUSPENDED');
-    await waitFor(() => expect(calls.some((c) => c.url.endsWith('/users/u9/status') && c.body?.status === 'SUSPENDED')).toBe(true));
+    const ask = await screen.findByRole('alertdialog', { name: 'Suspend Omar A?' });
+    expect(calls.some((c) => c.url.endsWith('/users/u9/status'))).toBe(false);
+    await userEvent.type(within(ask).getByLabelText(/^Reason/), 'On leave');
+    await userEvent.click(within(ask).getByRole('button', { name: 'Suspend' }));
+    await waitFor(() => expect(calls.some((c) => c.url.endsWith('/users/u9/status') && c.body?.status === 'SUSPENDED' && c.body?.reason === 'On leave')).toBe(true));
   });
 
   it('keeps whose row it is in view while the table scrolls sideways on a phone, tablet or small laptop, and says it scrolls', async () => {
@@ -132,8 +136,7 @@ describe('UsersPage (admin management)', () => {
       return json({ data: [{ id: 'u9', email: 'omar@x.co', username: 'omar', firstName: 'Omar', lastName: 'A', status: 'ACTIVE', roles: ['EMPLOYEE'], locked: true }] });
     }));
     renderPage();
-    await waitFor(() => expect(screen.getByText(/locked$/i)).toBeInTheDocument());
-    await userEvent.click(screen.getByRole('button', { name: /unlock omar/i }));
+    await userEvent.click(await screen.findByRole('button', { name: /unlock omar/i }));
     await waitFor(() => expect(calls.some((c) => c.url.endsWith('/users/u9/unlock') && c.method === 'POST')).toBe(true));
     expect(await screen.findByText(/omar can sign in again/i)).toBeInTheDocument();
   });
@@ -167,6 +170,7 @@ describe('UsersPage (admin management)', () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('omar')).toBeInTheDocument());
     await userEvent.selectOptions(screen.getByLabelText(/status for omar/i), 'INACTIVE');
+    await userEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Deactivate' }));
     expect(await screen.findByRole('alert')).toHaveTextContent(/last active administrator/i);
   });
 
@@ -242,12 +246,13 @@ describe('UsersPage on a phone (below 768px): one card per person', () => {
     expect(omar).toHaveTextContent('Omar A@omar');
     expect(omar).toHaveTextContent('omar@x.co');
     expect(omar).toHaveTextContent('EMPLOYEE');
-    expect(omar).toHaveTextContent('ACTIVE');
+    // Onboarding: one status for everyone, and whether the email is verified.
+    expect(omar).toHaveTextContent('Active');
+    expect(omar).toHaveTextContent('Not verified');
     expect(omar).toHaveTextContent('24 Oct 2026');
     const sara = cards[1]!;
     expect(sara).toHaveTextContent('EMPLOYEE, MANAGER');
-    expect(sara).toHaveTextContent('SUSPENDED');
-    expect(sara).toHaveTextContent('Locked');
+    expect(sara).toHaveTextContent('Deactivated');
     expect(sara).toHaveTextContent('Never signed in');
   });
 
@@ -258,7 +263,8 @@ describe('UsersPage on a phone (below 768px): one card per person', () => {
     const [omar, sara] = within(list).getAllByRole('listitem');
     expect(within(omar!).getByRole('checkbox', { name: 'Select omar' })).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: 'Select everyone shown' })).toBeInTheDocument();
-    expect(within(omar!).getByRole('button', { name: 'Send welcome email to omar' })).toHaveTextContent('Send welcome email');
+    expect(within(omar!).getByRole('button', { name: 'Send invitation to omar' })).toHaveTextContent('Send invitation');
+    expect(within(omar!).getByRole('button', { name: 'Send password reset to omar' })).toHaveTextContent('Send password reset');
     expect(within(omar!).getByRole('button', { name: 'Edit omar' })).toBeInTheDocument();
     expect(within(omar!).queryByRole('button', { name: /unlock/i })).toBeNull();
 
@@ -266,6 +272,7 @@ describe('UsersPage on a phone (below 768px): one card per person', () => {
     await waitFor(() => expect(calls.some((c) => c.url.endsWith('/users/u8/unlock') && c.method === 'POST')).toBe(true));
 
     await userEvent.selectOptions(within(omar!).getByRole('combobox', { name: 'Status for omar' }), 'INACTIVE');
+    await userEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Deactivate' }));
     await waitFor(() => expect(calls.some((c) => c.url.endsWith('/users/u9/status') && c.body?.status === 'INACTIVE')).toBe(true));
 
     await userEvent.click(within(omar!).getByRole('checkbox', { name: 'Select omar' }));
