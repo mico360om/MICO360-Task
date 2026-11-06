@@ -32,7 +32,7 @@ export function HealthBadge({ rag, reasons, projectName, className = '' }: { rag
         aria-label={projectName ? `${summary}. ${projectName}` : summary}
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
-        className={`inline-flex flex-none items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-bold transition-[filter] hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 [@media(pointer:coarse)]:min-h-11 ${look.chip} ${className}`}
+        className={`inline-flex flex-none items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-bold transition-[filter] hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 [@media(pointer:coarse)]:!min-h-11 ${look.chip} ${className}`}
       >
         <span aria-hidden="true" className={`h-2 w-2 rounded-full ${look.dot}`} />
         {RAG_WORD[rag]}
