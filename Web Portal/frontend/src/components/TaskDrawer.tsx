@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import type { ApiTask, Priority, RecurrenceRule } from '../api/tasks';
 import { PriorityBadge } from './ui/PriorityBadge';
@@ -443,7 +443,11 @@ export function TaskDrawer({
   const phone = useMediaQuery(PHONE_QUERY);
   const former = mergedFromKeys(task).former;
   // The checklists: the panel's own changes, then everything else the container offers.
-  const checklistItems = checklist.map((i) => ({ id: i.id, listId: i.listId ?? '', parentId: i.parentId ?? null, text: i.text, done: i.done, assignee: i.assignee ?? null, dueDate: i.dueDate ?? null }));
+  // Only a new list from the server is new items (a tick waiting for the server stays while the panel redraws).
+  const checklistItems = useMemo(
+    () => checklist.map((i) => ({ id: i.id, listId: i.listId ?? '', parentId: i.parentId ?? null, text: i.text, done: i.done, assignee: i.assignee ?? null, dueDate: i.dueDate ?? null })),
+    [checklist],
+  );
   const listActions: ChecklistActions = {
     toggle: onToggleChecklistItem,
     addItem: onAddChecklistItem ? (at, text) => onAddChecklistItem(text, at) : undefined,

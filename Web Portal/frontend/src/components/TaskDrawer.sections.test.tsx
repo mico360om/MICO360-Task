@@ -288,6 +288,14 @@ describe('TaskDrawer checklist', () => {
     expect(screen.getByText('2/2 completed')).toBeInTheDocument();
   });
 
+  it('a tick waiting for the server stays while the panel redraws for something else (1.23.3)', async () => {
+    const onToggleChecklistItem = vi.fn(() => new Promise<void>(() => {}));
+    const { rerender } = render(<TaskDrawer task={task} checklist={items} comments={[]} onToggleChecklistItem={onToggleChecklistItem} onClose={vi.fn()} />);
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Send it' }));
+    rerender(<TaskDrawer task={task} checklist={items} comments={[]} activity={[{ id: 'a1', action: 'CREATED', actorName: 'Ada', createdAt: new Date().toISOString() }]} onToggleChecklistItem={onToggleChecklistItem} onClose={vi.fn()} />);
+    expect(screen.getByRole('checkbox', { name: 'Send it' })).toBeChecked();
+  });
+
   it('puts the tick back and says why when it could not be saved', async () => {
     const onToggleChecklistItem = vi.fn().mockRejectedValue(new Error('You don’t have permission to do that.'));
     render(<TaskDrawer task={task} checklist={items} comments={[]} onToggleChecklistItem={onToggleChecklistItem} onClose={vi.fn()} />);
