@@ -75,7 +75,7 @@ describe('CreateUserModal', () => {
     renderModal();
     await userEvent.type(screen.getByLabelText(/first name/i), 'Sara');
     await userEvent.click(screen.getByRole('button', { name: /create user/i }));
-    expect(screen.getByText('Check the highlighted details.')).toHaveAttribute('role', 'alert');
+    expect(screen.getByText('Fill in every field.')).toHaveAttribute('role', 'alert');
     expect(screen.getByText('Enter a last name.')).toBeInTheDocument();
     expect(screen.getByLabelText(/^last name/i)).toHaveAttribute('aria-invalid', 'true');
     expect(screen.getByLabelText(/^last name/i)).toHaveFocus();

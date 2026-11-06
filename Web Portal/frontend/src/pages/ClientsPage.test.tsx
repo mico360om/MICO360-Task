@@ -145,7 +145,7 @@ describe('ClientsPage', () => {
     await screen.findByRole('button', { name: 'Open Mona Y' });
     const send = within(rowOf('Mona Y')).getByRole('button', { name: 'Send invitation to many' });
     expect(send).toBeDisabled();
-    expect(send).toHaveAttribute('title', 'This account is inactive, so it can’t get an invitation');
+    expect(send).toHaveAttribute('title', 'This account is inactive, so it can’t get a welcome email');
     expect(within(rowOf('Mona Y')).getByRole('button', { name: 'Send password reset to many' })).toBeDisabled();
   });
 

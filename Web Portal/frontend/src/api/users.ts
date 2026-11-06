@@ -83,8 +83,6 @@ export interface WelcomeOutcome {
   reason?: WelcomeRefusal;
   /** "the account is suspended": finishes "Not sent: …". */
   why?: string;
-  /** Onboarding: they had been invited before (this one replaced that link). */
-  resent?: boolean;
 }
 
 /** Onboarding: an administrator's "Send password reset" (a link valid 1 hour). */

@@ -549,10 +549,14 @@ describe.skipIf(!existsSync(resolve(web, 'pages/UsersPage.tsx')) || !existsSync(
   it('Users page and new-user form', () => {
     // The website writes the limit as {MAX_WELCOME_BATCH} inside its sentence.
     const asWritten = (t: string) => t.replace('up to 100 welcome', 'up to {MAX_WELCOME_BATCH} welcome');
-    for (const t of [...Object.values(WELCOME_TEXT), ...Object.values(NEW_USER_TEXT).map((x) => x.trim()), NEVER_EMPTY, USERS_SUBTITLE, ...SIGN_IN_SORTS.map((s) => s.label), 'Never signed in', 'Last sign-in', 'account is ready']) {
+    // Onboarding (website only): a row's "Send welcome email" became "Send invitation" / "Resend invitation",
+    // its notice "Invitation sent to …", and the email-off banner says verification and invitations are off.
+    // The app keeps its words until its own update, so those three aren't looked for on the website.
+    const websiteOnly: string[] = [WELCOME_TEXT.send, WELCOME_TEXT.emailOff];
+    for (const t of [...Object.values(WELCOME_TEXT).filter((x) => !websiteOnly.includes(x)), ...Object.values(NEW_USER_TEXT).map((x) => x.trim()), NEVER_EMPTY, USERS_SUBTITLE, ...SIGN_IN_SORTS.map((s) => s.label), 'Never signed in', 'Last sign-in', 'account is ready']) {
       expect(w, t).toContain(asWritten(t));
     }
-    for (const t of ['Enter a temporary password, or turn on “Send a welcome email” so they can set their own.', 'Email isn’t set up on this server, so a welcome email can’t be sent. Give them a temporary password.', 'Email isn’t set up on this server, so the welcome email can’t be sent and the account wasn’t created. Give them a temporary password.', 'it couldn’t be sent', 'Welcome email sent to ${u.username} (${out.email ?? u.email}).', "text: `${x.username ?? x.name ?? 'Someone'}: ${x.why ?? 'not sent'}`", 'error: r.sent === 0 && r.notSent > 0']) {
+    for (const t of ['Enter a temporary password, or turn on “Send a welcome email” so they can set their own.', 'Email isn’t set up on this server, so a welcome email can’t be sent. Give them a temporary password.', 'Email isn’t set up on this server, so the welcome email can’t be sent and the account wasn’t created. Give them a temporary password.', 'it couldn’t be sent', "text: `${x.username ?? x.name ?? 'Someone'}: ${x.why ?? 'not sent'}`", 'error: r.sent === 0 && r.notSent > 0']) {
       expect(w, t).toContain(t);
     }
   });

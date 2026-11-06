@@ -186,11 +186,11 @@ describe('User Management: one person’s invitation (welcome email)', () => {
     await screen.findByText('gone');
     const button = (name: string) => screen.getByRole('button', { name: `Send invitation to ${name}` });
     expect(button('admin')).toBeDisabled();
-    expect(button('admin')).toHaveAttribute('title', 'You can’t send yourself an invitation');
+    expect(button('admin')).toHaveAttribute('title', 'You can’t send yourself a welcome email');
     expect(button('gone')).toBeDisabled();
-    expect(button('gone')).toHaveAttribute('title', 'This account is inactive, so it can’t get an invitation');
+    expect(button('gone')).toHaveAttribute('title', 'This account is inactive, so it can’t get a welcome email');
     expect(button('held')).toBeDisabled();
-    expect(button('held')).toHaveAttribute('title', 'This account is suspended, so it can’t get an invitation');
+    expect(button('held')).toHaveAttribute('title', 'This account is suspended, so it can’t get a welcome email');
     expect(button('noemail')).toBeDisabled();
     expect(button('noemail')).toHaveAttribute('title', 'This account has no email address');
     expect(button('locked')).toBeEnabled();

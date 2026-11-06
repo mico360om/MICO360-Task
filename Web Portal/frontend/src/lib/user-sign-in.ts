@@ -87,9 +87,9 @@ export function welcomeCandidates<T extends SignInPerson>(people: T[], now: Date
 
 /** Why a row's "Resend invitation" can't be used (shown as its tooltip), or null. A locked account can. */
 export function welcomeBlockedReason(person: { id: string; status: SignInPerson['status']; email: string; locked?: boolean }, meId: string | undefined): string | null {
-  if (person.id === meId) return 'You can’t send yourself an invitation';
-  if (person.status === 'INACTIVE') return 'This account is inactive, so it can’t get an invitation';
-  if (person.status === 'SUSPENDED') return 'This account is suspended, so it can’t get an invitation';
+  if (person.id === meId) return 'You can’t send yourself a welcome email';
+  if (person.status === 'INACTIVE') return 'This account is inactive, so it can’t get a welcome email';
+  if (person.status === 'SUSPENDED') return 'This account is suspended, so it can’t get a welcome email';
   if (!person.email.trim()) return 'This account has no email address';
   return null;
 }

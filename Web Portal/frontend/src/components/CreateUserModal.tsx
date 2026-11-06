@@ -158,7 +158,8 @@ export function CreateUserModal({ onClose, onCreated, clientOnly = false, onOpen
     setFieldErrors(problems);
     const first = (['firstName', 'lastName', 'username', 'email', 'organisation', 'phone'] as FieldName[]).find((k) => problems[k]);
     if (first) {
-      setError('Check the highlighted details.');
+      const missing = !firstName.trim() || !lastName.trim() || !username.trim() || !email.trim() || (isClient && !organisation.trim());
+      setError(missing ? 'Fill in every field.' : 'Check the highlighted details.');
       document.getElementById(`nu-${first === 'firstName' ? 'first' : first === 'lastName' ? 'last' : first}`)?.focus();
       return;
     }
