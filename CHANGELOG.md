@@ -14,6 +14,9 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### Improvements
+- Notifications page: uses the full width of the screen, like My Tasks and the other lists.
+
 ### New features
 - Smarter Dashboard (1.23.4): "My Priorities Today" at the top of the Dashboard tells you what needs you
   first, in one list, most urgent first, each row saying why — "Overdue 2 days", "Waiting for your
