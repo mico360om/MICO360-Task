@@ -200,11 +200,13 @@ async function main() {
 
       // Checklist on every 2nd task
       if (t % 2 === 0) {
+        // 1.23.3: items live in a checklist with a title.
+        const list = await prisma.checklistList.create({ data: { taskId: task.id, title: 'Checklist', position: 0, createdById: task.createdById } });
         await prisma.checklistItem.createMany({
           data: [
-            { taskId: task.id, text: 'Gather requirements', done: true, position: 0 },
-            { taskId: task.id, text: 'Implement', done: isDone, position: 1 },
-            { taskId: task.id, text: 'Review & sign-off', done: isDone, position: 2 },
+            { taskId: task.id, listId: list.id, text: 'Gather requirements', done: true, position: 0 },
+            { taskId: task.id, listId: list.id, text: 'Implement', done: isDone, position: 1 },
+            { taskId: task.id, listId: list.id, text: 'Review & sign-off', done: isDone, position: 2 },
           ],
         });
       }
