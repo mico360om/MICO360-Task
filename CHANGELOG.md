@@ -14,6 +14,23 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### New features
+- Kanban Board: Month view. Beside Board | Table, choose **Day** (the board's day, exactly as before) or
+  **Month**, on the Kanban Board page (one project or All projects) and on a project's Board tab. Month
+  shows a month's tasks: every month from a task's start date to its due date (only a due date: that
+  month; only a start date: from then on while it's open), finished tasks in the month they were
+  finished, and open tasks overdue from an earlier month also in this month, marked "Overdue · from
+  Oct". Tasks without dates are left out — "No date (12)" adds them. ‹ and › step a month, the month and
+  year lists jump anywhere, "This month" comes back; the month is in the address (…?month=2026-11) so a
+  link opens it, and the board remembers Day or Month and the month for you on this device (the Kanban
+  Board page and project Board tabs each their own). Cards show their dates in the month ("5–20 Nov",
+  "Due 18 Nov", "From 5 Nov", "Done 3 Nov"); column counts are the month's. Dragging cards, changing
+  status, approvals, New task, the filters, live updates and read-only archived projects work as before,
+  and dragging never changes dates. A new task that falls in another month — or a task finished while
+  you look at an earlier month — says so ("Saved — it's in Dec") with a link to that month. Repeating
+  tasks show once their next copy is made (the Calendar shows the copies to come). Months follow the
+  company time zone.
+
 ## [1.23.2] - 2026-11-06
 
 ### New features

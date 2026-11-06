@@ -41,6 +41,10 @@ import { READ_ONLY_NOTICE, type ProjectReadOnly } from '../../lib/project-archiv
 import { TaskTable } from '../data-table/TaskTable';
 import { VIEW_ICONS, ViewSwitch } from '../data-table/ViewSwitch';
 import { useViewChoice } from '../data-table/hooks';
+import { MonthBar, PERIODS } from './MonthBar';
+import { useBoardPeriod } from './useBoardPeriod';
+import { nearestMonth, type MonthClock } from '../../lib/board-month';
+import { countCards, currentMonth, emptyMonthText, hideCards, monthCards, monthTitle, monthWord, undatedKeys, withMonthDates } from '../../lib/month-view';
 
 /** The board's columns and cards — and (1.23.0, for its Table view) the project's columns and tasks as the server sent them. */
 type BoardData = { columns: KanbanColumnData[]; idByKey: Record<string, string>; apiColumns?: ApiColumn[]; tasks?: ApiTask[] };
@@ -132,6 +136,20 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const todayKey = companyTodayKey(timeZone);
   const boardDate = selectedDate ?? todayKey;
+  // Month view: Day (the board's day, as above) or Month — start, due and completion dates only (lib/board-month).
+  const thisMonth = currentMonth(timeZone);
+  const { period, month, choosePeriod, chooseMonth } = useBoardPeriod(viewPlace, thisMonth);
+  const isMonth = period === 'month';
+  const monthClock = useMemo<MonthClock>(() => ({ timeZone, today: todayKey }), [timeZone, todayKey]);
+  const [showUndated, setShowUndated] = useState(false);
+  // A task saved or moved out of the month shown: where it went, and a way there.
+  const [elsewhere, setElsewhere] = useState<{ text: string; month: string; from: string } | null>(null);
+  const boardKey = isMonth ? ['board', projectId, 'month', month] : ['board', projectId, boardDate];
+  /** In the month view, a task that left the month says where it is now ("Saved — it’s in Dec."). */
+  const tellWhere = (t: ApiTask | undefined, said: (word: string) => string) => {
+    const there = isMonth && t ? nearestMonth(t, month, monthClock) : null;
+    if (there) setElsewhere({ text: said(monthWord(there, month)), month: there, from: month });
+  };
 
   // Auto carry-forward: when an admin opens today's board, run the sweep once so any still-open tasks
   // from previous days appear immediately (the server also sweeps on start-up + hourly for everyone).
@@ -189,12 +207,12 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
   }
 
   const boardQ = useQuery({
-    queryKey: ['board', projectId, boardDate],
+    queryKey: boardKey,
     enabled: Boolean(projectId) && !isAll,
     queryFn: async () => {
       const [columns, tasks] = await Promise.all([
         columnsApi(apiClient).list(projectId as string),
-        tasksApi(apiClient).list(projectId, boardDate),
+        isMonth ? tasksApi(apiClient).listMonth(projectId, month) : tasksApi(apiClient).list(projectId, boardDate),
       ]);
       return { columns: composeBoard(columns, tasks), idByKey: Object.fromEntries(tasks.map((t) => [t.key, t.id])), apiColumns: columns, tasks };
     },
@@ -212,12 +230,13 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
     onSuccess: (moved, vars) => {
       const waits = approvalNotice(vars.toColumnId, moved);
       if (waits) setNotice(waits);
+      tellWhere(moved, (word) => `Moved — it’s in ${word} now.`);
     },
     // Optimistically move the card so it lands instantly (at the drop position) instead of snapping
     // back to its origin column until the refetch returns; roll back and surface an error if it fails.
     onMutate: async ({ taskKey, toColumnId, toIndex }) => {
       setMoveError(false);
-      const key = ['board', projectId, boardDate];
+      const key = boardKey;
       await qc.cancelQueries({ queryKey: key });
       const prev = qc.getQueryData<BoardData>(key);
       if (prev) {
@@ -247,7 +266,7 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
     mutationFn: ({ columnId, orderedIds }: { columnId: string; orderedIds: string[]; orderedKeys: string[] }) =>
       tasksApi(apiClient).reorder(columnId, orderedIds),
     onMutate: async ({ columnId, orderedKeys }) => {
-      const key = ['board', projectId, boardDate];
+      const key = boardKey;
       await qc.cancelQueries({ queryKey: key });
       const prev = qc.getQueryData<BoardData>(key);
       if (prev) qc.setQueryData<BoardData>(key, { ...prev, columns: reorderColumnInBoard(prev.columns, columnId, orderedKeys) });
@@ -261,11 +280,11 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
   });
 
   // ── All projects: every project's tasks for the day, under the six statuses ──
-  const allKey = ['board', ALL_PROJECTS, boardDate];
+  const allKey = isMonth ? ['board', ALL_PROJECTS, 'month', month] : ['board', ALL_PROJECTS, boardDate];
   const allQ = useQuery({
     queryKey: allKey,
     enabled: isAll,
-    queryFn: () => tasksApi(apiClient).list(undefined, boardDate),
+    queryFn: () => (isMonth ? tasksApi(apiClient).listMonth(undefined, month) : tasksApi(apiClient).list(undefined, boardDate)),
   });
   const allColumns = useMemo(
     () => (isAll ? composeAllProjectsBoard(allQ.data ?? [], projects, { hidden: hiddenProjects }) : []),
@@ -278,6 +297,7 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
     onSuccess: (moved, vars) => {
       const waits = approvalNotice(vars.toColumnId, moved);
       if (waits) setNotice(waits);
+      tellWhere(moved, (word) => `Moved — it’s in ${word} now.`);
     },
     onMutate: async ({ taskKey, toColumnId, status }) => {
       setMoveError(false);
@@ -364,11 +384,23 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
 
   // Filter by external company: only the cards with a contact from it (in memory; the choices are the board's own).
   const [company, setCompany] = useState('');
-  const fullColumns = isAll ? allColumns : boardQ.data?.columns ?? [];
-  const companies = useMemo(() => boardCompanies(fullColumns), [fullColumns]);
+  // Month view: each card shows its dates in the month; the ones without dates wait behind "No date (12)".
+  const rawTasks = isAll ? allQ.data : boardQ.data?.tasks;
+  const cardsOfMonth = useMemo(() => (isMonth ? monthCards(rawTasks ?? [], month, monthClock) : null), [isMonth, rawTasks, month, monthClock]);
+  const noDate = useMemo(() => (cardsOfMonth ? undatedKeys(cardsOfMonth) : new Set<string>()), [cardsOfMonth]);
+  const fullColumns = useMemo(() => {
+    const columns = isAll ? allColumns : boardQ.data?.columns ?? [];
+    return cardsOfMonth ? withMonthDates(columns, cardsOfMonth) : columns;
+  }, [isAll, allColumns, boardQ.data, cardsOfMonth]);
+  // Cards without dates left off: a drop lands among the whole column, and a column's order isn't set from what is shown.
+  const hidingUndated = isMonth && !showUndated && countCards(fullColumns, noDate) > 0;
+  const periodColumns = useMemo(() => (isMonth && !showUndated ? hideCards(fullColumns, noDate) : fullColumns), [isMonth, showUndated, fullColumns, noDate]);
+  const companies = useMemo(() => boardCompanies(periodColumns), [periodColumns]);
   // The chosen company stays a choice on a day without it, so it can be seen (and cleared).
   const companyChoices = company && !companies.includes(company) ? [company, ...companies] : companies;
-  const boardColumns = useMemo(() => filterBoardByCompany(fullColumns, company), [fullColumns, company]);
+  const boardColumns = useMemo(() => filterBoardByCompany(periodColumns, company), [periodColumns, company]);
+  // "No date (12)": the cards it would add (the company filter applies to them too).
+  const undatedCount = isMonth ? countCards(filterBoardByCompany(fullColumns, company), noDate) : 0;
   const idByKey = useMemo(
     () => (isAll ? Object.fromEntries((allQ.data ?? []).map((t) => [t.key, t.id])) : boardQ.data?.idByKey ?? {}),
     [isAll, allQ.data, boardQ.data],
@@ -438,8 +470,8 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
     const data = boardQ.data;
     const id = data?.idByKey[taskKey];
     if (!data || !id) return;
-    // Filtered by company, the drop position is among the shown cards: place it in the whole column.
-    const at = company ? fullColumnIndex(data.columns, boardColumns, toColumnId, toIndex, taskKey) : toIndex;
+    // Filtered by company (or cards without dates left off), the drop position is among the shown cards: place it in the whole column.
+    const at = company || hidingUndated ? fullColumnIndex(data.columns, boardColumns, toColumnId, toIndex, taskKey) : toIndex;
     const after = moveTaskInBoard(data.columns, taskKey, toColumnId, at);
     const orderedIds = (after.find((c) => c.id === toColumnId)?.tasks ?? [])
       .map((t) => data.idByKey[t.key])
@@ -456,7 +488,7 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
   const error = (list?.failed ?? false) || (isAll ? allQ.isError : boardQ.isError);
   // A day with nothing on it says so once, above the columns (each column only says "No tasks").
   // (Not on a read-only board: its notice says why nothing can be added.)
-  const emptyDay = !locked && !loading && !error && Boolean(projectId) && fullColumns.length > 0 && fullColumns.every((c) => c.tasks.length === 0);
+  const emptyDay = !locked && !loading && !error && Boolean(projectId) && periodColumns.length > 0 && periodColumns.every((c) => c.tasks.length === 0);
   // The company filter leaves no card on a board that has some.
   const noneFromCompany = !emptyDay && Boolean(company) && boardColumns.length > 0 && boardColumns.every((c) => c.tasks.length === 0);
 
@@ -502,6 +534,18 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
         </div>
       ) : projectId ? (
         <div className="mb-4 flex flex-wrap items-center gap-2">
+          <ViewSwitch label="Show the board for" value={period} onChange={choosePeriod} options={PERIODS} density={false} />
+          {isMonth ? (
+            <MonthBar
+              month={month}
+              thisMonth={thisMonth}
+              onChange={chooseMonth}
+              undated={undatedCount}
+              showUndated={showUndated}
+              onShowUndated={setShowUndated}
+            />
+          ) : (
+          <>
           <div className="inline-flex items-center rounded-xl border border-line bg-surface p-0.5 [@media(pointer:coarse)]:p-0">
             <button
               onClick={() => setSelectedDate(shiftKey(boardDate, -1))}
@@ -537,6 +581,8 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
               Jump to today
             </button>
           ) : null}
+          </>
+          )}
           <ViewSwitch label="Show the board as" value={view} onChange={setView} options={VIEWS} />
           {companies.length > 0 || company ? (
             <div className="w-48" title={company || EXTERNAL_CONTACT_WORDS.anyCompany}>
@@ -601,6 +647,19 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
         </p>
       ) : null}
 
+      {/* Said in the month it happened in (another month, or Day, leaves it behind). */}
+      {elsewhere && isMonth && elsewhere.from === month ? (
+        <p role="status" className="mb-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink-2">
+          <span>{elsewhere.text}</span>
+          <span className="flex flex-none items-center gap-3">
+            <button type="button" onClick={() => { chooseMonth(elsewhere.month); setElsewhere(null); }} className={`text-xs font-semibold text-brand underline ${TOUCH_TALL}`}>
+              Show {monthTitle(elsewhere.month)}
+            </button>
+            <button type="button" onClick={() => setElsewhere(null)} className={`text-xs font-semibold underline ${TOUCH_TALL}`}>Dismiss</button>
+          </span>
+        </p>
+      ) : null}
+
       {loading ? (
         <BoardSkeleton fit={fit} />
       ) : error ? (
@@ -616,7 +675,7 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
         {emptyDay ? (
           <p role="status" className="mb-3 flex flex-none items-start gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-sm text-ink-2">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="mt-0.5 flex-none text-ink-3"><rect x="3" y="4" width="18" height="17" rx="2" /><path d="M3 9h18M8 2v4M16 2v4" /></svg>
-            <span>{emptyDayText(boardDate, todayKey)}</span>
+            <span>{isMonth ? emptyMonthText(month, thisMonth) : emptyDayText(boardDate, todayKey)}</span>
           </p>
         ) : null}
         {noneFromCompany ? (
@@ -631,7 +690,11 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
           // The day's cards as rows, column by column (the board's order), the company filter applied.
           <TaskTable
             page={viewPlace}
-            label={isAll ? `All projects on ${formatKeyLabel(boardDate)}` : `${project?.name ?? 'Board'} on ${formatKeyLabel(boardDate)}`}
+            label={
+              isMonth
+                ? `${isAll ? 'All projects' : project?.name ?? 'Board'} in ${monthTitle(month)}`
+                : isAll ? `All projects on ${formatKeyLabel(boardDate)}` : `${project?.name ?? 'Board'} on ${formatKeyLabel(boardDate)}`
+            }
             tasks={tableTasks}
             projects={isAll ? shownProjects : projects}
             columns={isAll ? undefined : boardQ.data?.apiColumns}
@@ -651,7 +714,7 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
           onMove={locked ? undefined : onMove}
           // On All projects a status mixes projects: cards keep their order (due date, then priority).
           // Filtered by company, some cards are hidden: a column's order can't be set from what is shown.
-          onReorder={isAll || company || locked ? undefined : onReorder}
+          onReorder={isAll || company || hidingUndated || locked ? undefined : onReorder}
           onAddTask={locked ? undefined : (columnId) => openAddTask(columnId)}
           cardMenu={locked ? undefined : cardMenu}
           onTaskClick={(key) => {
@@ -696,7 +759,9 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
         // On All projects the project is chosen in the form.
         <TaskFormDialog
           {...(isAll ? { defaultColumnCategory: newTaskStatus } : { projectId, defaultColumnId: newTaskColumn })}
-          boardDate={boardDate}
+          // Month view: today's defaults (it keeps no board day).
+          boardDate={isMonth ? undefined : boardDate}
+          onCreated={(t) => tellWhere(t, (word) => `Saved — it’s in ${word}.`)}
           onClose={() => setAddingTask(false)}
           onQueued={() => setNotice('You’re offline — the task was saved and will sync when you reconnect.')}
         />
