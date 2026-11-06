@@ -71,8 +71,8 @@ export interface SavedSearchList {
 
 export interface SavedSearchDeps {
   prisma: Pick<PrismaClient, 'savedSearch' | 'savedSearchPin' | 'project' | '$transaction'>;
-  /** The projects a person's lists show (with no pick); null = every one (an administrator). */
-  accessibleProjectIds: (userId: string, roles: string[]) => Promise<string[] | null>;
+  /** The projects a person's lists show (with a pick, that company's); null = every one (an administrator). */
+  accessibleProjectIds: (userId: string, roles: string[], pick?: string | null) => Promise<string[] | null>;
   /** Of these projects, those the person runs (may share a search with). */
   manageableProjectIds: (userId: string, roles: string[], projectIds: string[]) => Promise<Set<string>>;
 }
@@ -104,7 +104,7 @@ export function createSavedSearches(deps: SavedSearchDeps) {
   async function teamProjects(viewer: SearchViewer): Promise<string[]> {
     const [team, allowed] = await Promise.all([
       prisma.project.findMany({ where: { deletedAt: null, OR: [{ ownerId: viewer.id }, { managerId: viewer.id }, { members: { some: { userId: viewer.id } } }] }, select: { id: true } }),
-      deps.accessibleProjectIds(viewer.id, viewer.roles),
+      deps.accessibleProjectIds(viewer.id, viewer.roles, null),
     ]);
     const ok = allowed ? new Set(allowed) : null;
     return team.map((p) => p.id).filter((id) => !ok || ok.has(id));
@@ -225,9 +225,9 @@ export function createSavedSearches(deps: SavedSearchDeps) {
     return list(viewer);
   }
 
-  /** The projects the person may share a search with (those they run), by name. */
-  async function shareOptions(viewer: SearchViewer): Promise<{ id: string; code: string; name: string }[]> {
-    const allowed = await deps.accessibleProjectIds(viewer.id, viewer.roles);
+  /** The projects the person may share a search with (those they run; with a pick, that company's), by name. */
+  async function shareOptions(viewer: SearchViewer, pick: string | null = null): Promise<{ id: string; code: string; name: string }[]> {
+    const allowed = await deps.accessibleProjectIds(viewer.id, viewer.roles, pick);
     const candidates = await prisma.project.findMany({ where: { deletedAt: null, ...(allowed ? { id: { in: allowed } } : {}) }, select: { id: true, code: true, name: true }, orderBy: { name: 'asc' } });
     const runs = await deps.manageableProjectIds(viewer.id, viewer.roles, candidates.map((p) => p.id));
     return candidates.filter((p) => runs.has(p.id));

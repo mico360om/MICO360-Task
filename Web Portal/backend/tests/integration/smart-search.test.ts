@@ -92,7 +92,7 @@ beforeAll(async () => {
       searchEverything: { engine, scope, reader: createReaderContext({ prisma, timeZone: TZ, weekStart: async () => 0 }), timeZone: TZ },
       savedSearches: createSavedSearches({
         prisma,
-        accessibleProjectIds: (u, r) => base.projectAccess!.accessibleProjectIds(u, r, null),
+        accessibleProjectIds: (u, r, pick) => base.projectAccess!.accessibleProjectIds(u, r, pick ?? null),
         manageableProjectIds: (u, r, ids) => base.projectAuthz!.manageableProjectIds(u, r, ids),
       }),
     };
@@ -166,6 +166,58 @@ describe('checklist items: their own person and due date, their task’s access'
     // The task result says where: "Checklist ‘Electrical’: ZZITEM Label circuits".
     const task = ana.data.find((h) => h.kind === 'task')!;
     expect(task.matches.map((m) => m.label)).toContain('Checklist ‘Electrical’');
+  });
+});
+
+describe('review I2: an item or contact moved to another task (a merge, its undo) follows its task at once', () => {
+  it('found only by those who may open the task it is on now — even before it is indexed again', async () => {
+    // Moved to TB1 (PB, which ana can't open) without telling the index.
+    await prisma.checklistItem.update({ where: { id: made.itemA }, data: { taskId: w.tasks.TB1, listId: null } });
+    await prisma.taskExternalContact.update({ where: { id: made.contactA }, data: { taskId: w.tasks.TB1 } });
+    try {
+      for (const text of ['ZZITEM Label', 'ZZCONTACT Khalid']) {
+        const ana = await searchAll(w.as.ana, q(text));
+        expect(ana.data.filter((h) => h.kind !== 'task').map((h) => h.id), text).toEqual([]);
+        expect((ana.counts.checklist ?? 0) + (ana.counts.contact ?? 0), text).toBe(0);
+        expect(JSON.stringify(ana), text).not.toContain('TB1');
+      }
+      // ben (PB) finds them, on TB1.
+      const ben = await searchAll(w.as.ben, q('ZZITEM Label', '&type=checklist'));
+      const whole = ben.data.filter((h) => !h.match);
+      expect(whole.map((h) => h.id)).toEqual([made.itemA]);
+      expect(whole[0]!.key).toContain('TB1');
+    } finally {
+      await prisma.checklistItem.update({ where: { id: made.itemA }, data: { taskId: w.tasks.TA1, listId: made.list } });
+      await prisma.taskExternalContact.update({ where: { id: made.contactA }, data: { taskId: w.tasks.TA1 } });
+    }
+  });
+});
+
+describe('review M8: a task change re-reads only the checklist items and contacts that changed', () => {
+  it('unchanged: not written again; changed: written', async () => {
+    const at = async () => (await prisma.searchIndex.findUniqueOrThrow({ where: { kind_recordId: { kind: 'checklist', recordId: made.itemB } } })).indexedAt.getTime();
+    const before = await at();
+    await new Promise((r) => setTimeout(r, 20));
+    await index.taskPartsChanged(w.tasks.TB1);
+    expect(await at()).toBe(before);
+    await prisma.checklistItem.update({ where: { id: made.itemB }, data: { text: 'ZZITEM beta valves and gaskets' } });
+    await index.taskPartsChanged(w.tasks.TB1);
+    expect(await at()).toBeGreaterThan(before);
+    await prisma.checklistItem.update({ where: { id: made.itemB }, data: { text: 'ZZITEM beta valves' } });
+    await index.taskPartsChanged(w.tasks.TB1);
+  });
+});
+
+describe('review I1: the new list routes follow the picked company (the company matrix)', () => {
+  it('a company the person isn’t in, picked: refused before anything else is read', async () => {
+    for (const url of ['/search/saved/counts', '/search/saved/counts?ids=x', '/search/saved/share-options']) {
+      const res = await api.getRaw(w.as.ana, url, { 'x-company-id': w.companies.B });
+      expect(res.statusCode, url).toBe(403);
+    }
+    // Their own company picked: the projects they run there.
+    const cat = await api.getRaw(w.as.cat, '/search/saved/share-options', { 'x-company-id': w.companies.B });
+    expect(cat.statusCode).toBe(200);
+    expect((cat.json() as { data: unknown[] }).data).toEqual([]); // cat runs PA (company A) only
   });
 });
 

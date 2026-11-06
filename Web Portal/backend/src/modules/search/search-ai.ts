@@ -26,7 +26,7 @@ export const AI_SEARCH_BUDGET_MS = 20_000;
 const MAX_CANDIDATES = 30;
 const MAX_BEST = 5;
 
-export interface AiSearchFilters extends Pick<SearchAllInput, 'due' | 'priorities' | 'approval' | 'assigneeIds' | 'unassigned' | 'creatorIds' | 'organizerIds'> {
+export interface AiSearchFilters extends Pick<SearchAllInput, 'due' | 'priorities' | 'approval' | 'assigneeIds' | 'unassigned' | 'creatorIds' | 'organizerIds' | 'taskStatuses'> {
   kinds?: SearchKind[];
   projectId?: string;
   done?: boolean;
@@ -90,6 +90,7 @@ const dayOf = (v: unknown): string | null => (typeof v === 'string' && /^\d{4}-\
 function readerFilters(f: AiSearchFilters): Partial<AiSearchFilters> {
   const out: Partial<AiSearchFilters> = {};
   if (f.due) out.due = f.due;
+  if (f.taskStatuses?.length) out.taskStatuses = f.taskStatuses;
   if (f.priorities?.length) out.priorities = f.priorities;
   if (f.approval) out.approval = true;
   if (f.assigneeIds?.length) out.assigneeIds = f.assigneeIds;

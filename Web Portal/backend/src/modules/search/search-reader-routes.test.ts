@@ -113,7 +113,8 @@ describe('GET /search/all — the reader', () => {
     const { app, calls } = await makeApp();
     const body = (await app.inject({ method: 'GET', url: `/api/v1/search/all?q=${encodeURIComponent('MICO tasks due today')}&type=meeting&projectId=p-other`, headers: await auth() })).json();
     expect(body.understood.chips.map((c: { label: string }) => c.label)).toEqual(['Due today']);
-    expect(body.understood.kinds).toBeUndefined();
+    // Review M5: what the kind chip read stays known (the page's "All" then takes it off).
+    expect(body.understood.kinds).toEqual(['task']);
     expect(calls[0]).toMatchObject({ kinds: ['meeting'], projectId: 'p-other', due: { from: new Date('2026-11-07T00:00:00Z'), before: new Date('2026-11-08T00:00:00Z') } });
   });
 

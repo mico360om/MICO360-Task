@@ -308,16 +308,19 @@ export function createSearchEngine({
     // A client organisation: named on at least one project the person may see (live, unless archived ones are asked for).
     const clientOf = (projectId?: string) =>
       Prisma.sql`EXISTS (SELECT 1 FROM projects p WHERE p.deletedAt IS NULL AND LOWER(TRIM(p.clientName)) = si.recordId AND ${inList(Prisma.sql`p.id`, projectIds)} AND ${live}${projectId ? Prisma.sql` AND p.id = ${projectId}` : Prisma.empty})`;
+    // A file, checklist item or contact is checked against the task it is on NOW (review I2: a merge or its
+    // undo moves them between tasks before the index catches up), and must still exist (not a ghost row).
     const onTask = Prisma.sql`ft.deletedAt IS NULL AND p.deletedAt IS NULL AND ${inList(Prisma.sql`ft.projectId`, projectIds)} AND ${live}`;
     const visible = Prisma.sql`(
       (si.kind IN ('project', 'inspection') AND p.deletedAt IS NULL AND ${inList(Prisma.sql`si.projectId`, projectIds)} AND ${live})
-      OR (si.kind IN ('file', 'contact') AND ${onTask})
-      OR (si.kind = 'checklist' AND ci.deletedAt IS NULL AND (cl.id IS NULL OR cl.deletedAt IS NULL) AND ${onTask})
+      OR (si.kind = 'file' AND fa.id IS NOT NULL AND ${onTask})
+      OR (si.kind = 'contact' AND ec.id IS NOT NULL AND ${onTask})
+      OR (si.kind = 'checklist' AND ci.id IS NOT NULL AND ci.deletedAt IS NULL AND (cl.id IS NULL OR cl.deletedAt IS NULL) AND ${onTask})
       OR (si.kind = 'meeting' AND m.deletedAt IS NULL AND ${seen})
       OR (si.kind = 'note' AND m.deletedAt IS NULL AND ${full})
       OR (si.kind = 'minutes' AND m.deletedAt IS NULL AND ((si.status = 'APPROVED' AND ${seen}) OR (si.status <> 'APPROVED' AND ${full} AND ${editable})))
       OR (si.kind = 'client' AND ${clientOf(input.projectId)})
-      OR (si.kind = 'account' AND cu.deletedAt IS NULL))`;
+      OR (si.kind = 'account' AND cu.id IS NOT NULL AND cu.deletedAt IS NULL))`;
     const noWords = pass.groups.length === 0;
     const words = pass.min >= pass.groups.length ? allOf(txt, pass.groups) : Prisma.sql`${howMany(txt, pass.groups)} >= ${pass.min}`;
     const where: Prisma.Sql[] = [Prisma.sql`si.kind IN (${Prisma.join(wanted)})`, visible];
@@ -385,12 +388,13 @@ export function createSearchEngine({
     return Prisma.sql`SELECT (CASE WHEN si.kind IN ('client', 'account') THEN 'contact' ELSE si.kind END) AS kind,
         (CASE WHEN si.kind IN ('client', 'account', 'contact') THEN CONCAT(si.kind, ':', si.recordId) ELSE si.recordId END) AS id, ${score} AS score, ${ranked} AS at
       FROM search_index si
-      LEFT JOIN tasks ft ON ft.id = si.taskId
-      LEFT JOIN kanban_columns fc ON fc.id = ft.columnId
-      LEFT JOIN meetings m ON m.id = si.meetingId
       LEFT JOIN task_checklists ci ON si.kind = 'checklist' AND ci.id = si.recordId
       LEFT JOIN task_checklist_lists cl ON cl.id = ci.listId
       LEFT JOIN task_external_contacts ec ON si.kind = 'contact' AND ec.id = si.recordId
+      LEFT JOIN task_attachments fa ON si.kind = 'file' AND fa.id = si.recordId
+      LEFT JOIN tasks ft ON ft.id = COALESCE(ci.taskId, ec.taskId, fa.taskId, si.taskId)
+      LEFT JOIN kanban_columns fc ON fc.id = ft.columnId
+      LEFT JOIN meetings m ON m.id = si.meetingId
       LEFT JOIN users cu ON si.kind = 'account' AND cu.id = si.recordId
       LEFT JOIN projects p ON p.id = (CASE WHEN si.kind IN ('file', 'checklist', 'contact') THEN ft.projectId WHEN si.meetingId IS NOT NULL THEN m.projectId ELSE si.projectId END)
       WHERE ${Prisma.join(where, ' AND ')}`;
@@ -422,16 +426,18 @@ export function createSearchEngine({
    * rule, LIVE_PROJECT_SQL) and what is the person's own (their tasks, projects and meetings — for the
    * ranking's "own a little first"; a very busy person's is asked row by row instead).
    */
-  async function withArchived(input: SearchAllInput): Promise<SearchAllInput> {
+  async function withArchived(input: SearchAllInput, { ranked = true }: { ranked?: boolean } = {}): Promise<SearchAllInput> {
     if (input.deletedIds) return input;
     const MINE_CAP = 5000;
+    // The person's own items only rank results: a count (1.23.6, review M7) never reads them.
+    const none = Promise.resolve([] as { id: string }[]);
     const [projects, tasks, ownProjects, meetings] = await Promise.all([
       prisma.$queryRaw<{ id: string; deleted: number | bigint; live: number | bigint }[]>`SELECT p.id AS id, (p.deletedAt IS NOT NULL) AS deleted, ${LIVE_PROJECT_SQL} AS live FROM projects p WHERE p.deletedAt IS NOT NULL OR NOT ${LIVE_PROJECT_SQL}`,
-      prisma.$queryRaw<{ id: string }[]>`SELECT taskId AS id FROM task_assignees WHERE userId = ${input.viewerId} LIMIT ${MINE_CAP + 1}`,
-      prisma.$queryRaw<{ id: string }[]>`SELECT p.id AS id FROM projects p WHERE p.ownerId = ${input.viewerId} OR p.managerId = ${input.viewerId} OR EXISTS (SELECT 1 FROM project_members pm WHERE pm.projectId = p.id AND pm.userId = ${input.viewerId}) LIMIT ${MINE_CAP + 1}`,
-      prisma.$queryRaw<{ id: string }[]>`SELECT m.id AS id FROM meetings m WHERE m.organizerId = ${input.viewerId} OR EXISTS (SELECT 1 FROM meeting_attendees ma WHERE ma.meetingId = m.id AND ma.userId = ${input.viewerId}) LIMIT ${MINE_CAP + 1}`,
+      ranked ? prisma.$queryRaw<{ id: string }[]>`SELECT taskId AS id FROM task_assignees WHERE userId = ${input.viewerId} LIMIT ${MINE_CAP + 1}` : none,
+      ranked ? prisma.$queryRaw<{ id: string }[]>`SELECT p.id AS id FROM projects p WHERE p.ownerId = ${input.viewerId} OR p.managerId = ${input.viewerId} OR EXISTS (SELECT 1 FROM project_members pm WHERE pm.projectId = p.id AND pm.userId = ${input.viewerId}) LIMIT ${MINE_CAP + 1}` : none,
+      ranked ? prisma.$queryRaw<{ id: string }[]>`SELECT m.id AS id FROM meetings m WHERE m.organizerId = ${input.viewerId} OR EXISTS (SELECT 1 FROM meeting_attendees ma WHERE ma.meetingId = m.id AND ma.userId = ${input.viewerId}) LIMIT ${MINE_CAP + 1}` : none,
     ]);
-    const busy = tasks.length > MINE_CAP || ownProjects.length > MINE_CAP || meetings.length > MINE_CAP;
+    const busy = !ranked || tasks.length > MINE_CAP || ownProjects.length > MINE_CAP || meetings.length > MINE_CAP;
     return {
       ...input,
       deletedIds: projects.filter((p) => Number(p.deleted)).map((p) => p.id),
@@ -660,7 +666,7 @@ export function createSearchEngine({
   async function count(given: SearchAllInput): Promise<{ total: number; capped: boolean }> {
     const { terms, whole } = parseTaskQuery(given.q);
     if (terms.length === 0 && !given.browse) return { total: 0, capped: false };
-    const input = await withArchived(given);
+    const input = await withArchived(given, { ranked: false });
     const byKind = await counts(exactPass(terms, whole, input.q), input);
     const total = Object.values(byKind).reduce((a, b) => a + b, 0);
     return { total: Math.min(total, COUNT_CAP), capped: total > COUNT_CAP };

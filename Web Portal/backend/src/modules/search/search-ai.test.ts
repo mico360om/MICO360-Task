@@ -42,6 +42,12 @@ function deps(replies: string[], over: Partial<AiSearchDeps> = {}): AiSearchDeps
 const ask = (d: AiSearchDeps, q = 'electrical work this week on Rig') => createAiSearch(d).ask({ q, viewer: { id: 'u1', roles: [] }, scope, filters: {} });
 
 describe('AI search', () => {
+  it('1.23.6 (review M4): the reader’s chips — a task status among them — hold for the AI’s candidates', async () => {
+    const d = deps([JSON.stringify({ keywords: ['valves'] }), JSON.stringify({ answer: 'One.', best: ['R1'] })]);
+    await createAiSearch(d).ask({ q: 'blocked tasks about valves', viewer: { id: 'u1', roles: [] }, scope, filters: { kinds: ['task'], taskStatuses: ['BLOCKED'], priorities: ['HIGH'], due: { open: true, before: new Date('2026-11-04T00:00:00Z') } } });
+    expect(d.engineCalls[0]).toMatchObject({ kinds: ['task'], taskStatuses: ['BLOCKED'], priorities: ['HIGH'], due: { open: true } });
+  });
+
   it('turns the question into words and filters, gathers what the person may see, and answers with the best of them', async () => {
     const d = deps([
       JSON.stringify({ keywords: ['electrical'], synonyms: ['wiring', 'cable'], kinds: ['task'], status: 'open', dateFrom: '2026-11-01', dateTo: '2026-11-07', project: 'RIG', mine: false }),

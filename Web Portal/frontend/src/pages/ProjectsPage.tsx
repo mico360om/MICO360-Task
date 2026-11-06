@@ -196,7 +196,7 @@ export function ProjectsPage() {
   }
 
   function clearFilters() {
-    update({ q: '', owner: '', mine: false });
+    update({ q: '', owner: '', mine: false, client: '' });
     searchRef.current?.focus();
   }
 

@@ -92,6 +92,9 @@ const TABLE: [string, Want][] = [
   ['since 2026-10-01', { chips: ['Since 1 Oct'], words: '', filters: { from: '2026-10-01' } }],
   ['since 15 Dec', { chips: ['Since 15 Dec 2025'], words: '', filters: { from: '2025-12-15' } }],
   ['since monday', { chips: ['Since 2 Nov'], words: '', filters: { from: '2026-11-02' } }],
+  // A weekday is the coming one (on or after today), except after since / after / from (ruling 6).
+  ['due friday', { chips: ['Due 13 Nov'], words: '', filters: { due: { from: '2026-11-13', to: '2026-11-13' } } }],
+  ['meetings on saturday', { chips: ['Meetings', 'On 7 Nov'], words: '', filters: { from: '2026-11-07', to: '2026-11-07' } }],
   ['before 15 Nov', { chips: ['Before 15 Nov'], words: '', filters: { to: '2026-11-14' } }],
   ['between 1 Nov and 15 Nov', { chips: ['1 Nov – 15 Nov'], words: '', filters: { from: '2026-11-01', to: '2026-11-15' } }],
   ['meetings last week', { chips: ['Meetings', 'Last week'], words: '', filters: { kinds: ['meeting'], from: '2026-10-25', to: '2026-10-31' } }],

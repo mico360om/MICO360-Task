@@ -363,6 +363,15 @@ describe('ProjectsPage', () => {
     expect(screen.getByRole('searchbox', { name: 'Search projects' })).toHaveFocus();
   });
 
+  it('1.23.6: a client found by search — its projects only, with a chip to take it off; Clear filters takes it off too', async () => {
+    renderPage('/projects?client=No%20Such%20Client');
+    expect(await screen.findByText('No projects match')).toBeInTheDocument();
+    expect(screen.getByText('No Such Client')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
+    expect(cardNames()).toHaveLength(5);
+    expect(where()).toBe('/projects');
+  });
+
   it('says when a tab has nothing in it', async () => {
     overview = LIST.filter((p) => p.status !== 'ARCHIVED');
     renderPage('/projects?status=archived');

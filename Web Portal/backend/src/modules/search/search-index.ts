@@ -385,7 +385,26 @@ export function createSearchIndex({
       if (names.length) await refresh('client', names);
     });
 
-  /** 1.23.6: a task's checklist items or external contacts changed: they are read again. Never throws. */
+  /**
+   * Re-index only the items whose fingerprint differs from their row's (or that have no row, an older
+   * version, or are gone) — review M8: a task changes often, its checklist and contacts seldom.
+   */
+  async function refreshChanged(kind: IndexKind, ids: string[]): Promise<number> {
+    let written = 0;
+    for (const chunk of chunks([...new Set(ids)], CHUNK)) {
+      const [live, rows] = await Promise.all([readStamps(kind, chunk), prisma.searchIndex.findMany({ where: { kind, recordId: { in: chunk } }, select: { recordId: true, stamp: true, version: true } })]);
+      const had = new Map(rows.map((r) => [r.recordId, r]));
+      const stale = chunk.filter((id) => {
+        const stamp = live.get(id);
+        const row = had.get(id);
+        return stamp === undefined ? !!row : !row || row.stamp !== stamp || row.version !== SEARCH_DOC_VERSION;
+      });
+      written += await refresh(kind, stale);
+    }
+    return written;
+  }
+
+  /** 1.23.6: a task changed: its checklist items and external contacts whose text, person or date changed are read again. Never throws. */
   function taskPartsChanged(taskId: string): Promise<void> {
     return queued(`parts:${taskId}`, async () => {
       for (const [kind, rows] of [
@@ -393,7 +412,7 @@ export function createSearchIndex({
         ['contact', await prisma.taskExternalContact.findMany({ where: { taskId }, select: { id: true } })],
       ] as const) {
         const indexed = (await prisma.searchIndex.findMany({ where: { kind, taskId }, select: { recordId: true } })).map((r) => r.recordId);
-        await refresh(kind, [...new Set([...rows.map((r) => r.id), ...indexed])]);
+        await refreshChanged(kind, [...rows.map((r) => r.id), ...indexed]);
       }
     });
   }

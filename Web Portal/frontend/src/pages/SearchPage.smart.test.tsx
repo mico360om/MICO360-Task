@@ -126,6 +126,23 @@ describe('Search page — what the reader understood', () => {
     await waitFor(() => expect(lastAsked(s)).toMatchObject({ off: 'kind' }));
   });
 
+  it('review M12: “Include archived projects” alone is no search (as before)', async () => {
+    const s = serve();
+    open('/search?q=&archived=true');
+    expect(await screen.findByText(/Type 2 or more letters/)).toBeInTheDocument();
+    expect(s.asked).toEqual([]);
+  });
+
+  it('review M11: a filter changed while a task is open keeps its marked checklist item or contact', async () => {
+    serve();
+    open('/search?q=pump&task=t1&contact=c1');
+    await screen.findByText('Fix the pump');
+    await userEvent.click(within(screen.getByRole('group', { name: 'Done or open' })).getByRole('button', { name: 'Open' }));
+    await waitFor(() => expect(where()).toContain('done=false'));
+    expect(where()).toContain('task=t1');
+    expect(where()).toContain('contact=c1');
+  });
+
   it('filters without words search too', async () => {
     const s = serve();
     open('/search?q=&type=task&person=me');

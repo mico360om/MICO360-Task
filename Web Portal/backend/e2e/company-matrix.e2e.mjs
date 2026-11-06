@@ -75,6 +75,8 @@ const QUERY = {
   '/management/items': '?metric=late-tasks',
   '/search': '?q=ZZ',
   '/search/tasks': '?q=ZZ',
+  // 1.23.6: a saved search's count (an id no one has: nothing to count, the pick still checked first).
+  '/search/saved/counts': '?ids=x',
   '/chat/search': '?q=ZZ',
   '/reports/timeseries': `?from=${shift(-60)}&to=${today}`,
 };

@@ -180,15 +180,17 @@ export async function registerSearchRoutes(app: FastifyInstance, deps: SearchRou
       admin && deps.myProjectsOnly ? deps.myProjectsOnly(viewer) : Promise.resolve(false),
     ]);
     const everything = deps.everything;
+    // The search everything scope, worked out once for this request (review M9).
+    let everyScope: Promise<SearchScopeAll> | null = null;
+    const scopeOf = () => (everyScope ??= everything!.scope.forViewer(viewer, pick));
     // 1.23.6: what the reader understood, and how many items that finds ("Tasks · Overdue · MICO · Assigned to me → 7").
-    const understood = everything?.reader && everything.engine.count ? understoodRow(everything, viewer, pick, q).catch(() => undefined) : Promise.resolve(undefined);
+    const understood = everything?.reader && everything.engine.count ? understoodRow(everything, viewer, pick, q, scopeOf).catch(() => undefined) : Promise.resolve(undefined);
     // 1.23: the top bar also shows the best few notes, minutes, files and inspections (never holding it up on a failure).
     const [found, more, row] = await Promise.all([
       // 1.23.1: the task search failing leaves the rest (`tasksUnavailable`, recorded once).
       searchService.search(q, { allowedProjectIds, userId: viewer.id, pick, admin: admin && !mineOnly, people, companyIds }, { onTasksFailed: partFailed(req, 'tasks') }),
       everything && parseTaskQuery(q).terms.length
-        ? everything.scope
-            .forViewer(viewer, pick)
+        ? scopeOf()
             // Whole matches only: no spelling or some-words pass (security review) — they'd be dropped below anyway.
             .then((scope) => everything.engine.search({ q, scope, viewerId: viewer.id, kinds: ['note', 'minutes', 'file', 'inspection'], limit: GLOBAL_MORE_LIMIT, exactOnly: true }))
             // Only what holds every word (review M10): close and partial matches are for the results page, where they say so.
@@ -217,7 +219,8 @@ export async function registerSearchRoutes(app: FastifyInstance, deps: SearchRou
     const viewerOf = (req: FastifyRequest) => ({ id: req.user!.id, roles: req.user!.roles ?? [] });
     const idParam = z.object({ id: z.string().min(1).max(64) });
     app.get('/search/saved', own, async (req) => ({ data: await saved.list(viewerOf(req)) }));
-    app.get('/search/saved/share-options', own, async (req) => ({ data: await saved.shareOptions(viewerOf(req)) }));
+    // Review I1: the picked company (checked first — a company the person isn't in is refused) narrows it.
+    app.get('/search/saved/share-options', own, async (req) => ({ data: await saved.shareOptions(viewerOf(req), await pickOf(req)) }));
     app.post('/search/saved', own, async (req, reply) => {
       const created = await saved.create(viewerOf(req), savedSearchBody.parse(req.body ?? {}));
       reply.code(201);
@@ -245,11 +248,11 @@ export async function registerSearchRoutes(app: FastifyInstance, deps: SearchRou
     });
 
     const kept = new Map<string, { at: number; value: { total: number; capped: boolean } }>();
-    const countOf = async (viewer: SearchViewer, pick: string | null, s: SavedSearchView): Promise<{ total: number; capped: boolean }> => {
+    const countOf = async (viewer: SearchViewer, pick: string | null, s: SavedSearchView, scopeOf: () => Promise<SearchScopeAll>): Promise<{ total: number; capped: boolean }> => {
       const key = `${viewer.id}|${pick ?? ''}|${s.id}|${s.updatedAt}`;
       const hit = kept.get(key);
       if (hit && Date.now() - hit.at < SAVED_COUNT_TTL_MS) return hit.value;
-      const scope = await everything.scope.forViewer(viewer, pick);
+      const scope = await scopeOf();
       const f = s.filters;
       const read = await readFor(everything, viewer, pick, scope, s.q, f.off ?? [], f.plain ?? false);
       const input = engineInput(everything.timeZone, read?.ctx ?? null, viewer.id, { q: s.q, ...(f.type ? { type: [f.type] } : {}), projectId: f.projectId, ...(f.status ? { status: [f.status] } : {}), done: f.done, person: f.person, from: f.from, to: f.to, archived: f.archived }, read);
@@ -267,21 +270,27 @@ export async function registerSearchRoutes(app: FastifyInstance, deps: SearchRou
     });
     /** Counts of these saved searches (the side menu's pinned ones): one the person may not use is left out. */
     app.get('/search/saved/counts', searchRoute, async (req) => {
+      // Review I1: the pick first (a company the person isn't in is refused before anything else).
+      const pick = await pickOf(req);
       const { ids } = idsQuery.parse(req.query);
       const viewer = viewerOf(req);
-      const pick = await pickOf(req);
       const out: Record<string, { total: number; capped: boolean }> = {};
+      // Review M7: the person's searches read once, and their scope once, for every id asked.
+      const list = await saved.list(viewer);
+      const usable = new Map([...list.mine, ...list.shared].map((s) => [s.id, s]));
+      let scope: Promise<SearchScopeAll> | null = null;
+      const scopeOf = () => (scope ??= everything.scope.forViewer(viewer, pick));
       for (const id of ids) {
-        const s = await saved.usable(viewer, id).catch(() => null);
-        if (s) out[id] = await countOf(viewer, pick, s);
+        const s = usable.get(id);
+        if (s) out[id] = await countOf(viewer, pick, s, scopeOf);
       }
       return { data: out };
     });
   }
 
-  async function understoodRow(everything: SearchEverythingDeps, viewer: SearchViewer, pick: string | null, q: string): Promise<(Understood & { total: number; capped: boolean }) | undefined> {
+  async function understoodRow(everything: SearchEverythingDeps, viewer: SearchViewer, pick: string | null, q: string, scopeOf: () => Promise<SearchScopeAll>): Promise<(Understood & { total: number; capped: boolean }) | undefined> {
     if (!q.trim()) return undefined;
-    const scope = await everything.scope.forViewer(viewer, pick);
+    const scope = await scopeOf();
     const read = await readFor(everything, viewer, pick, scope, q, [], false);
     if (!read || read.understood.chips.length === 0) return undefined;
     const input = engineInput(everything.timeZone, read.ctx, viewer.id, { q }, read);
@@ -472,8 +481,8 @@ export function engineInput(timeZone: string, ctx: ReaderContext | null, viewerI
       ...(p.person ? (['mine'] as const) : []),
       ...(p.from || p.to ? (['when'] as const) : []),
     ]);
+    // (What the kind chip read stays in `kinds`, review M5: the page's "All" then takes it off.)
     reading.understood.chips = reading.understood.chips.filter((c) => !overridden.has(c.key));
-    if (overridden.has('kind')) delete reading.understood.kinds;
   }
   const from = p.from || p.to ? p.from : f.from;
   const to = p.from || p.to ? p.to : f.to;

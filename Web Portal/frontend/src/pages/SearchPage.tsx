@@ -68,7 +68,8 @@ export function SearchPage({ debounceMs = 300 }: { debounceMs?: number }) {
     setParams(
       (prev) => {
         const next = new URLSearchParams(everythingAddress({ ...everythingFilters(prev), ai: undefined, ...patch }));
-        for (const keep of ['task', 'file']) {
+        // (1.23.6, review M11: and a marked checklist item or contact.)
+        for (const keep of ['task', 'file', 'item', 'contact']) {
           const v = prev.get(keep);
           if (v) next.set(keep, v);
         }
@@ -106,8 +107,8 @@ export function SearchPage({ debounceMs = 300 }: { debounceMs?: number }) {
   };
 
   const words = filters.q.trim();
-  // 1.23.6: filters alone search too (the server lists every item they hold).
-  const searching = words.length >= MIN_LETTERS || hasEverythingFilters(filters);
+  // 1.23.6: filters alone search too (the server lists every item they hold) — not "Include archived" alone.
+  const searching = words.length >= MIN_LETTERS || hasEverythingFilters({ ...filters, archived: undefined });
   const { ai: _asked, ...ask } = filters;
   void _asked;
   const results = useInfiniteQuery({

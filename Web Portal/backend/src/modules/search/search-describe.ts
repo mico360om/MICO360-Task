@@ -320,6 +320,16 @@ export async function describeIndexed(prisma: PrismaClient, items: { kind: Exclu
       ],
     );
   }
+  // 1.23.6 (review M3): a checklist item, contact or client account the index has but the database no
+  // longer does is re-indexed (it leaves the index).
+  const missing = (kind: IndexKind, asked: string[], found: { id: string }[]) => {
+    const have = new Set(found.map((r) => r.id));
+    for (const id of asked) if (!have.has(id)) ctx.onStale(kind, id);
+  };
+  missing('checklist', ids('checklist'), items1236);
+  missing('contact', sub('contact'), contacts);
+  if (ctx.clientAccounts) missing('account', sub('account'), accounts);
+
   // 1.23.6: checklist items, each in its task (gone with its task or its checklist).
   for (const i of items1236) {
     if (i.task.deletedAt || i.list?.deletedAt) {

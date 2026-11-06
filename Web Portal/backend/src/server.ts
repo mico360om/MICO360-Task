@@ -2127,7 +2127,7 @@ async function main(): Promise<void> {
     // 1.23.6: saved searches — a person's own and those shared with their teams; shared only with a project they run.
     savedSearches: createSavedSearches({
       prisma,
-      accessibleProjectIds: (userId, roles) => projectAccess.accessibleProjectIds(userId, roles, null),
+      accessibleProjectIds: (userId, roles, pick) => projectAccess.accessibleProjectIds(userId, roles, pick ?? null),
       manageableProjectIds: (userId, roles, ids) => projectAuthz.manageableProjectIds(userId, roles, ids),
     }),
     meetingService,

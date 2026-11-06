@@ -43,7 +43,7 @@ async function makeApp() {
   const scope: SearchScopeAll = { projectIds: ['p-mico'], meetings: { full: [], invitee: [], editable: [] } };
   const context: ReaderContext = { today: '2026-11-07', weekStart: 0, projects: [{ id: 'p-mico', code: 'MICO', name: 'MICO360' }], people: [] };
   const service = {
-    async list() { return { mine: [], shared: [saved()], pinned: ['s1'] }; },
+    async list() { return { mine: [], shared: [saved(), saved({ id: 's2', q: '', filters: { type: 'meeting', person: 'me' } })], pinned: ['s1'] }; },
     async usable(_v: unknown, id: string) {
       if (id === 's1') return saved();
       if (id === 's2') return saved({ id: 's2', q: '', filters: { type: 'meeting', person: 'me' } });
@@ -79,6 +79,16 @@ describe('saved searches — the routes', () => {
     const { app } = await makeApp();
     for (const [method, url] of [['GET', '/api/v1/search/saved'], ['POST', '/api/v1/search/saved'], ['GET', '/api/v1/search/saved/counts?ids=s1'], ['PUT', '/api/v1/search/saved/s1/pin']] as const) {
       expect((await app.inject({ method, url, headers: { cookie: 'mico_client_session=x' } })).statusCode, url).toBe(401);
+    }
+  });
+
+  it('review M13: a client account (a CLIENT bearer token) is refused every saved-search route (403)', async () => {
+    const { app } = await makeApp();
+    const client = { authorization: `Bearer ${(await tokenService.issueTokens({ id: 'c1', roles: ['CLIENT'] })).accessToken}` };
+    for (const [method, url] of [['GET', '/api/v1/search/saved'], ['POST', '/api/v1/search/saved'], ['PATCH', '/api/v1/search/saved/s1'], ['DELETE', '/api/v1/search/saved/s1'], ['PUT', '/api/v1/search/saved/s1/pin'], ['PUT', '/api/v1/search/saved/s1/share'], ['GET', '/api/v1/search/saved/counts?ids=s1'], ['GET', '/api/v1/search/saved/share-options']] as const) {
+      const res = await app.inject({ method, url, headers: client, ...(method === 'GET' || method === 'DELETE' ? {} : { payload: {} }) });
+      expect(res.statusCode, url).toBe(403);
+      expect(res.json().error.code, url).toBe('CLIENT_NOT_ALLOWED');
     }
   });
 
