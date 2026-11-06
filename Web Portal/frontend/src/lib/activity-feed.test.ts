@@ -128,7 +128,7 @@ describe('buildTimeline: checklist, comments, files and blockers', () => {
   const one = (action: string, meta?: Record<string, unknown>) => buildTimeline([e('a1', action, 'Omar Ahmed', 1, meta)])[0];
   it('names the step, the file or the blocker', () => {
     expect(one('CHECKLIST_ADDED', { text: 'Draft report' })).toMatchObject({ kind: 'checklist', text: 'added the step “Draft report”' });
-    expect(one('CHECKLIST_DONE', { text: 'Draft report' })).toMatchObject({ kind: 'checklist', text: 'ticked off “Draft report”' });
+    expect(one('CHECKLIST_DONE', { text: 'Draft report' })).toMatchObject({ kind: 'checklist', text: 'ticked “Draft report”' });
     expect(one('CHECKLIST_REOPENED', { text: 'Draft report' })!.text).toBe('unticked “Draft report”');
     expect(one('CHECKLIST_REMOVED', { text: 'Draft report' })!.text).toBe('removed the step “Draft report”');
     expect(one('CHECKLIST_RENAMED', { from: 'Draft', to: 'Draft report' })!.text).toBe('renamed the step “Draft” to “Draft report”');
@@ -161,7 +161,64 @@ describe('buildTimeline: checklist, comments, files and blockers', () => {
       e('a2', 'CHECKLIST_ADDED', 'Omar Ahmed', 2, { text: 'Two' }),
       e('a1', 'CHECKLIST_ADDED', 'Omar Ahmed', 3, { text: 'One' }),
     ]);
-    expect(items.map((i) => i.text)).toEqual(['ticked off “One”', 'added 2 steps: “One” and “Two”']);
+    expect(items.map((i) => i.text)).toEqual(['ticked “One”', 'added 2 steps: “One” and “Two”']);
+  });
+});
+
+describe('buildTimeline: nested checklists (1.23.3)', () => {
+  const one = (action: string, meta?: Record<string, unknown>) => buildTimeline([e('a1', action, 'Khurram', 1, meta)])[0]!;
+  it('says what happened to an item, in plain words', () => {
+    expect(one('CHECKLIST_ADDED', { itemId: 'i1', text: 'Label circuits', listTitle: 'Electrical' })).toMatchObject({ kind: 'checklist', text: 'added “Label circuits” to Electrical' });
+    expect(one('CHECKLIST_ADDED', { itemId: 'i1', text: 'Label circuits', listTitle: 'Electrical', parentText: 'Wiring' }).text).toBe('added “Label circuits” under “Wiring” in Electrical');
+    expect(one('CHECKLIST_ADDED', { count: 3, texts: ['A', 'B', 'C'], listTitle: 'Electrical' }).text).toBe('added 3 items to Electrical: “A”, “B” and “C”');
+    expect(one('CHECKLIST_ADDED', { count: 7, texts: ['A', 'B', 'C', 'D', 'E'], listTitle: 'Electrical', parentText: 'Wiring' }).text).toBe('added 7 items under “Wiring” in Electrical: “A”, “B”, “C” and 4 more');
+    expect(one('CHECKLIST_DONE', { itemId: 'i1', text: 'Label circuits' }).text).toBe('ticked “Label circuits”');
+    expect(one('CHECKLIST_ASSIGNED', { itemId: 'i1', text: 'Label circuits', assigneeId: 'u2', assignee: 'Omar Ahmed' }).text).toBe('assigned “Label circuits” to Omar Ahmed');
+    expect(one('CHECKLIST_UNASSIGNED', { itemId: 'i1', text: 'Label circuits', assigneeId: 'u2', assignee: 'Omar Ahmed' }).text).toBe('took Omar Ahmed off “Label circuits”');
+    expect(one('CHECKLIST_DUE', { itemId: 'i1', text: 'Label circuits', from: null, to: '2026-11-03' }).text).toBe('set “Label circuits” due on 3 Nov 2026');
+    expect(one('CHECKLIST_DUE', { itemId: 'i1', text: 'Label circuits', from: '2026-11-03', to: '2026-11-05' }).text).toBe('moved the due date of “Label circuits” from 3 Nov 2026 to 5 Nov 2026');
+    expect(one('CHECKLIST_DUE', { itemId: 'i1', text: 'Label circuits', from: '2026-11-03', to: null }).text).toBe('removed the due date of “Label circuits”');
+    expect(one('CHECKLIST_MOVED', { itemId: 'i1', text: 'Label circuits', how: 'indent' }).text).toBe('indented “Label circuits”');
+    expect(one('CHECKLIST_MOVED', { itemId: 'i1', text: 'Label circuits', how: 'outdent' }).text).toBe('outdented “Label circuits”');
+    expect(one('CHECKLIST_MOVED', { itemId: 'i1', text: 'Label circuits', how: 'up' }).text).toBe('moved “Label circuits” up');
+    expect(one('CHECKLIST_MOVED', { itemId: 'i1', text: 'Label circuits', how: 'down' }).text).toBe('moved “Label circuits” down');
+    expect(one('CHECKLIST_MOVED', { itemId: 'i1', text: 'Label circuits', how: 'move' }).text).toBe('moved “Label circuits”');
+    expect(one('CHECKLIST_DUPLICATED', { itemId: 'i1', text: 'Wiring', count: 3 }).text).toBe('duplicated “Wiring” and its 2 sub-items');
+    expect(one('CHECKLIST_DUPLICATED', { itemId: 'i1', text: 'Lights', count: 1 }).text).toBe('duplicated “Lights”');
+    expect(one('CHECKLIST_REMOVED', { itemId: 'i1', text: 'Wiring', count: 4, batchId: 'b1' })).toMatchObject({ text: 'deleted “Wiring” and its 3 sub-items', batchId: 'b1' });
+    expect(one('CHECKLIST_REMOVED', { itemId: 'i1', text: 'Lights', count: 1, batchId: 'b2' }).text).toBe('deleted “Lights”');
+    expect(one('CHECKLIST_RESTORED', { text: 'Wiring', count: 2, batchId: 'b1' }).text).toBe('restored “Wiring” and its 1 sub-item');
+  });
+  it('says what happened to a whole checklist', () => {
+    expect(one('CHECKLIST_LIST_ADDED', { listId: 'l1', title: 'Electrical' })).toMatchObject({ kind: 'checklist', text: 'added the checklist “Electrical”' });
+    expect(one('CHECKLIST_LIST_RENAMED', { listId: 'l1', from: 'Checklist', to: 'Electrical' }).text).toBe('renamed the checklist “Checklist” to “Electrical”');
+    expect(one('CHECKLIST_LIST_DUPLICATED', { listId: 'l2', title: 'Electrical', count: 8 }).text).toBe('duplicated the checklist “Electrical” (8 items)');
+    expect(one('CHECKLIST_LIST_REMOVED', { listId: 'l1', title: 'Electrical', count: 8, batchId: 'b3' })).toMatchObject({ text: 'deleted the checklist “Electrical” (8 items)', batchId: 'b3' });
+    expect(one('CHECKLIST_LIST_REMOVED', { listId: 'l1', title: 'Spare', count: 0, batchId: 'b4' }).text).toBe('deleted the checklist “Spare”');
+  });
+  it('groups single adds by one person to one checklist within a couple of minutes', () => {
+    const adds = [
+      e('x3', 'CHECKLIST_ADDED', 'Khurram', 1, { text: 'C', listTitle: 'Electrical' }),
+      e('x2', 'CHECKLIST_ADDED', 'Khurram', 2, { text: 'B', listTitle: 'Electrical' }),
+      e('x1', 'CHECKLIST_ADDED', 'Khurram', 3, { count: 2, texts: ['A1', 'A2'], listTitle: 'Electrical' }),
+    ];
+    expect(buildTimeline(adds)).toEqual([expect.objectContaining({ text: 'added 4 items to Electrical: “A1”, “A2”, “B” and “C”', count: 3 })]);
+    // Ten minutes apart: two lines.
+    const apart = [e('y2', 'CHECKLIST_ADDED', 'Khurram', 1, { text: 'B', listTitle: 'Electrical' }), e('y1', 'CHECKLIST_ADDED', 'Khurram', 11, { text: 'A', listTitle: 'Electrical' })];
+    expect(buildTimeline(apart).map((i) => i.text)).toEqual(['added “B” to Electrical', 'added “A” to Electrical']);
+    // Another checklist: its own line.
+    const lists = [e('z2', 'CHECKLIST_ADDED', 'Khurram', 1, { text: 'Pipes', listTitle: 'Plumbing' }), e('z1', 'CHECKLIST_ADDED', 'Khurram', 1, { text: 'A', listTitle: 'Electrical' })];
+    expect(buildTimeline(lists).map((i) => i.text)).toEqual(['added “Pipes” to Plumbing', 'added “A” to Electrical']);
+  });
+  it('never folds deletes together, so each can be restored on its own', () => {
+    const deletes = [
+      e('d2', 'CHECKLIST_REMOVED', 'Khurram', 1, { text: 'B', count: 1, batchId: 'b2' }),
+      e('d1', 'CHECKLIST_REMOVED', 'Khurram', 1, { text: 'A', count: 1, batchId: 'b1' }),
+    ];
+    expect(buildTimeline(deletes).map((i) => [i.text, i.batchId])).toEqual([
+      ['deleted “B”', 'b2'],
+      ['deleted “A”', 'b1'],
+    ]);
   });
 });
 
