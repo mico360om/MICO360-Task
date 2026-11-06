@@ -1,15 +1,17 @@
 import { Fragment, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { projectOrderState } from '../../lib/project-steps';
-import type { ProjectOverview, ProjectStatus } from '../../api/projects';
+import type { ProjectOverview, ProjectOverviewWithHealth, ProjectStatus } from '../../api/projects';
 import { ProjectAvatar } from '../ProjectAvatar';
 import { Avatar } from '../ui/Avatar';
 import { ActionMenu, type ActionMenuItem } from '../meeting/ActionMenu';
 import { ProjectStatusMenu } from './ProjectStatusMenu';
 import { nextDueLabel, progressOf, targetLabel, updatedLabel } from '../../lib/project-list';
+import { HealthBadge } from './HealthBadge';
 
 export interface ProjectCardProps {
-  project: ProjectOverview;
+  /** 1.23.5: with its health when the server sends it. */
+  project: ProjectOverviewWithHealth;
   /** Today's 'YYYY-MM-DD' in the company time zone. */
   today: string;
   now: Date;
@@ -50,7 +52,12 @@ function Figure({ label, children, late }: { label: string; children: ReactNode;
  */
 export function ProjectCard({ project: p, today, now, timeZone, onChangeStatus, onEdit, onArchive, order }: ProjectCardProps) {
   const navigate = useNavigate();
-  const progress = progressOf(p.stats);
+  // 1.23.5: completion in the project's own mode (by weight when it counts by weight; the count as before otherwise).
+  const byWeight = p.health?.completion.mode === 'WEIGHT' && p.stats.total > 0;
+  const counted = progressOf(p.stats);
+  const progress = byWeight ? { pct: p.health!.completion.pct, text: `${p.health!.completion.pct}% by weight · ${counted.text.replace(/^\d+% done · /, '')}` } : counted;
+  const risk = p.health?.topRisk ?? null;
+  const accountable = p.health?.accountable ?? null;
   const target = targetLabel(p, today, timeZone);
   const next = nextDueLabel(p.stats.nextDue, today);
   const meta: ReactNode[] = [
@@ -94,6 +101,11 @@ export function ProjectCard({ project: p, today, now, timeZone, onChangeStatus, 
             <span className="relative z-10 flex">
               <ProjectStatusMenu project={p} onChange={onChangeStatus ? (s) => onChangeStatus(p, s) : undefined} />
             </span>
+            {p.health ? (
+              <span className="relative z-10 flex">
+                <HealthBadge rag={p.health.rag} reasons={p.health.reasons} projectName={p.name} />
+              </span>
+            ) : null}
             <p data-testid="project-meta" className="min-w-0 text-xs leading-relaxed text-ink-2">
               {meta.map((part, i) => (
                 <Fragment key={i}>
@@ -126,6 +138,15 @@ export function ProjectCard({ project: p, today, now, timeZone, onChangeStatus, 
           </span>
           <span>{updatedLabel(p.stats.lastActivityAt, now, timeZone)}</span>
         </p>
+        {/* 1.23.5: the worst automatic risk, in one line (the project page lists them all). */}
+        {risk ? (
+          <p data-testid="project-risk" title={risk.title} className={`mt-1.5 flex min-w-0 items-center gap-1.5 text-xs font-medium ${risk.level === 'RED' ? 'text-danger' : 'text-warning'}`}>
+            <RiskIcon />
+            <span className="sr-only">Top risk: </span>
+            <bdi className="min-w-0 truncate">{risk.title}</bdi>
+            {p.health!.riskCount > 1 ? <span className="flex-none text-ink-2">+{p.health!.riskCount - 1}</span> : null}
+          </p>
+        ) : null}
       </div>
 
       <dl className="grid grid-cols-3 divide-x divide-line border-y border-line rtl:divide-x-reverse">
@@ -154,8 +175,16 @@ export function ProjectCard({ project: p, today, now, timeZone, onChangeStatus, 
             </span>
           </span>
         ) : null}
-        <span data-testid="project-owner" className="min-w-0 truncate">
-          {p.owner ? (
+        <span data-testid="project-owner" className="flex min-w-0 items-center gap-1.5 truncate">
+          {accountable ? (
+            // 1.23.5: who is accountable — its manager (named, else on its team), else its owner.
+            <>
+              <Avatar name={accountable.name} src={accountable.avatarUrl} size="sm" />
+              <span className="min-w-0 truncate">
+                {accountable.role === 'MANAGER' ? 'Manager' : 'Owner'} · <bdi className="font-medium text-ink">{accountable.name}</bdi>
+              </span>
+            </>
+          ) : p.owner ? (
             <>
               Owner · <bdi className="font-medium text-ink">{p.owner.name}</bdi>
             </>
@@ -168,5 +197,14 @@ export function ProjectCard({ project: p, today, now, timeZone, onChangeStatus, 
         </span>
       </div>
     </article>
+  );
+}
+
+function RiskIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="flex-none">
+      <path d="M12 9v4M12 17h.01" />
+      <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
+    </svg>
   );
 }

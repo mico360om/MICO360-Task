@@ -556,3 +556,35 @@ describe('ProjectFormDialog: a big form (1.22)', () => {
     expect(screen.getByLabelText(/description/i).compareDocumentPosition(screen.getByRole('button', { name: 'Status' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
+
+describe('ProjectFormDialog — 1.23.5 count completion by', () => {
+  it('a new project counts by number unless Weight is chosen; its four defaults (4/3/2/1) are sent only when changed', async () => {
+    const { onSaved } = renderForm();
+    const dialog = screen.getByRole('dialog', { name: 'New project' });
+    const group = within(dialog).getByRole('radiogroup', { name: 'Count completion by' });
+    expect(within(group).getByRole('radio', { name: 'Number of tasks' })).toBeChecked();
+    expect(within(dialog).queryByRole('group', { name: 'Default weight by priority' })).toBeNull();
+    await userEvent.click(within(group).getByRole('radio', { name: 'Weight' }));
+    const defaults = within(dialog).getByRole('group', { name: 'Default weight by priority' });
+    expect(within(defaults).getByRole('button', { name: 'Default weight for urgent priority' })).toHaveTextContent('4 points');
+    await userEvent.click(within(defaults).getByRole('button', { name: 'Default weight for urgent priority' }));
+    await userEvent.click(await screen.findByRole('option', { name: '8 points' }));
+    await userEvent.type(within(dialog).getByLabelText(/^name/i), 'Rig Inspection Portal');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Create project' }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    const body = posts(/\/projects$/)[0]!.body as Record<string, unknown>;
+    expect(body).toMatchObject({ completionMode: 'WEIGHT', weightUrgent: 8 });
+    expect(body).not.toHaveProperty('weightHigh');
+  });
+
+  it('an existing project: starts from its own setting and sends only what changed', async () => {
+    const { onSaved } = renderForm({ project: { ...existing, completionMode: 'WEIGHT', weightUrgent: 6, weightHigh: 3, weightNormal: 2, weightLow: 1 } });
+    const dialog = screen.getByRole('dialog', { name: 'Edit project' });
+    expect(within(dialog).getByRole('radio', { name: 'Weight' })).toBeChecked();
+    expect(within(dialog).getByRole('button', { name: 'Default weight for urgent priority' })).toHaveTextContent('6 points');
+    await userEvent.click(within(dialog).getByRole('radio', { name: 'Number of tasks' }));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(requests.find((r) => r.method === 'PUT')!.body).toEqual({ completionMode: 'COUNT' });
+  });
+});

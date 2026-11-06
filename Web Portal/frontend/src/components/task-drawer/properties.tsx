@@ -7,6 +7,7 @@ import { Avatar } from '../ui/Avatar';
 import { PriorityBadge } from '../ui/PriorityBadge';
 import { ComboPicker } from './combo-picker';
 import { SaveIndicator, failureMessage, useSaveState } from './save-state';
+import { weightChoices } from '../../lib/project-health';
 
 export interface DrawerAssignee {
   id: string;
@@ -18,7 +19,7 @@ export interface DrawerStatusColumn {
   name: string;
   category: string;
 }
-export type FieldPatch = { title?: string; description?: string; priority?: Priority; dueDate?: string | null };
+export type FieldPatch = { title?: string; description?: string; priority?: Priority; dueDate?: string | null; weight?: number | null };
 
 const PRIORITIES: Priority[] = ['LOW', 'NORMAL', 'HIGH', 'URGENT'];
 const PRIORITY_LABEL: Record<Priority, string> = { LOW: 'Low', NORMAL: 'Normal', HIGH: 'High', URGENT: 'Urgent' };
@@ -239,6 +240,45 @@ function PriorityField({
   );
 }
 
+/**
+ * 1.23.5: how much the task counts in its project's completion (projects counting by weight): its own
+ * 1–10 points, or the project's default for its priority ("Default (3)").
+ */
+function WeightField({ weight, defaultWeight, onSave }: { weight: number | null; defaultWeight: number; onSave?: (weight: number | null) => Promise<void> | void }) {
+  const save = useSaveState();
+  const id = useId();
+  const stored = weight === null ? '' : String(weight);
+  const [value, setValue] = useState(stored);
+  useEffect(() => setValue(stored), [stored]);
+  const choices = weightChoices(defaultWeight);
+  if (!onSave) {
+    return (
+      <Row label="Weight">
+        <div className="flex h-9 items-center text-sm text-ink">{choices.find((c) => c.value === stored)?.label ?? stored}</div>
+      </Row>
+    );
+  }
+  async function apply(next: string) {
+    setValue(next);
+    if (!(await save.run(() => onSave?.(next ? Number(next) : null)))) setValue(stored);
+  }
+  return (
+    <Row label="Weight" labelFor={id}>
+      <div className="relative min-w-0">
+        <select id={id} aria-label="Weight" value={value} disabled={save.busy} onChange={(e) => void apply(e.target.value)} className={`${selectClass} !ps-3`}>
+          {choices.map((c) => (
+            <option key={c.value} value={c.value}>
+              {c.label}
+            </option>
+          ))}
+        </select>
+        <Chevron />
+      </div>
+      <SaveIndicator state={save.state} />
+    </Row>
+  );
+}
+
 function DueDateField({ task, timeZone, onSave }: { task: ApiTask; timeZone: string; onSave?: (dueDate: string | null) => Promise<void> | void }) {
   const save = useSaveState();
   const id = useId();
@@ -416,6 +456,7 @@ export function PropertiesPanel({
   inSeries,
   scope,
   onScope,
+  weightDefaults,
 }: {
   task: ApiTask;
   timeZone: string;
@@ -431,6 +472,8 @@ export function PropertiesPanel({
   inSeries: boolean;
   scope: 'one' | 'series';
   onScope: (scope: 'one' | 'series') => void;
+  /** 1.23.5: its project counts completion by weight — its defaults by priority (absent: no Weight field). */
+  weightDefaults?: Record<Priority, number> | null;
 }) {
   return (
     <section aria-labelledby="task-props-heading" className="rounded-2xl border border-line bg-surface p-3 sm:p-4">
@@ -454,6 +497,7 @@ export function PropertiesPanel({
       <div className="divide-y divide-line/60">
         <StatusField task={task} columns={statusColumns} onChange={onChangeStatus} />
         <PriorityField priority={task.priority} onSave={onSaveField ? (priority) => onSaveField({ priority }) : undefined} onSuggest={onSaveField ? onSuggestPriority : undefined} />
+        {weightDefaults ? <WeightField weight={task.weight ?? null} defaultWeight={weightDefaults[task.priority]} onSave={onSaveField ? (weight) => onSaveField({ weight }) : undefined} /> : null}
         <DueDateField task={task} timeZone={timeZone} onSave={onSaveField ? (dueDate) => onSaveField({ dueDate }) : undefined} />
         {onSetRecurrence ? <RepeatField task={task} timeZone={timeZone} onSet={onSetRecurrence} /> : null}
         {assignees ? <AssigneesField assignees={assignees} assignable={assignableUsers} onAssign={onAssignUser} onUnassign={onUnassignUser} /> : null}

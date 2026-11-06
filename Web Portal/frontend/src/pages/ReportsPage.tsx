@@ -487,7 +487,10 @@ export function ReportsPage() {
                       <td className="p-3 text-right tabular-nums text-success">{r.completed}</td>
                       <td className="p-3 text-right tabular-nums">{r.total - r.completed}</td>
                       <td className="p-3 text-right tabular-nums text-danger">{r.overdue}</td>
-                      <td className="p-3"><PctBar pct={r.completionPct} /></td>
+                      <td className="p-3">
+                        <PctBar pct={r.completionPct} />
+                        {r.completionBy === 'WEIGHT' ? <span className="mt-0.5 block text-[11px] text-ink-2">by weight</span> : null}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

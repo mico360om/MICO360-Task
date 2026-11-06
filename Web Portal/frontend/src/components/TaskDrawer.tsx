@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import type { ApiTask, Priority, RecurrenceRule } from '../api/tasks';
 import { PriorityBadge } from './ui/PriorityBadge';
+import { countsByWeight, projectWeights } from '../lib/project-health';
 import { ClientEyeIcon, MilestoneIcon } from './TaskCard';
 import { InspectionChip } from './inspections/inspection-ui';
 import { Toggle } from './ui/Toggle';
@@ -111,8 +112,8 @@ export interface TaskDrawerProps {
   onExport?: (format: 'xlsx' | 'pdf') => Promise<void>;
   /** Open the full edit form (every field at once). */
   onEdit?: () => void;
-  /** The task's project, named in the header. */
-  project?: ProjectLook & { id: string };
+  /** The task's project, named in the header (1.23.5: with how it counts completion, for the Weight field). */
+  project?: ProjectLook & { id: string; completionMode?: 'COUNT' | 'WEIGHT'; weightUrgent?: number; weightHigh?: number; weightNormal?: number; weightLow?: number };
   /** Move the task to another project (in “More actions”). */
   onMoveToProject?: () => void;
   /** Why it can't be moved now: the item is shown, unavailable, saying so. */
@@ -627,6 +628,7 @@ export function TaskDrawer({
               inSeries={inSeries}
               scope={scope}
               onScope={setScope}
+              weightDefaults={countsByWeight(project) ? projectWeights(project) : null}
             />
             {/* Apart from the assignees above: the people outside the company responsible for it. */}
             {externalContacts}

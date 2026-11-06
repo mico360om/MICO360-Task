@@ -27,6 +27,7 @@ import { SearchableSelect } from '../ui/SearchableSelect';
 import { ProjectAvatar } from '../ProjectAvatar';
 import { projectOption } from '../project-option';
 import { priorityOptions } from '../priority-option';
+import { countsByWeight, projectWeights, weightChoices } from '../../lib/project-health';
 import { RecurrenceEditor, REPEAT_FREQUENCIES, REPEAT_LABEL, withFrequency } from '../RecurrenceEditor';
 import { AssigneeSelect, type PersonOption } from './AssigneeSelect';
 import { DescribeTask } from './DescribeTask';
@@ -194,6 +195,9 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
     set(patch);
   };
   const [placeChosen, setPlaceChosen] = useState(false);
+  // 1.23.5: its weight (shown for projects counting by weight) — '' = the project's default for its priority.
+  const [weight, setWeight] = useState(() => (task?.weight != null ? String(task.weight) : ''));
+  const [savedWeight, setSavedWeight] = useState(weight);
   const [scope, setScope] = useState<'one' | 'series'>('one');
   const [titleError, setTitleError] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
@@ -217,7 +221,8 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
     files.length > 0 ||
     contactOpen ||
     JSON.stringify({ ...draft, projectId: '', columnId: '' }) !== JSON.stringify({ ...saved, projectId: '', columnId: '' }) ||
-    draft.columnId !== saved.columnId;
+    draft.columnId !== saved.columnId ||
+    weight !== savedWeight;
   const finish = (task: ApiTask) => {
     // 1.22.3: "Task MICO-143 created", with Open — the app shell shows it, wherever the form was opened.
     showTaskNotice(taskCreatedNotice(task));
@@ -432,6 +437,8 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
       columnId: draft.columnId,
       title: draft.title.trim(),
       priority: draft.priority,
+      // 1.23.5: only for a project counting by weight; none = its default for the priority.
+      ...(countsByWeight(project) && weight ? { weight: Number(weight) } : {}),
       ...(draft.description.trim() ? { description: draft.description.trim() } : {}),
       ...(draft.dueDate ? { dueDate: draft.dueDate } : {}),
       ...(draft.rule ? { recurrenceRule: draft.rule } : {}),
@@ -518,6 +525,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
       if (draft.priority !== done.priority) fields.priority = draft.priority;
       if (draft.dueDate !== done.dueDate) fields.dueDate = draft.dueDate || null;
       if (draft.milestone !== done.milestone) fields.isMilestone = draft.milestone;
+      if (weight !== savedWeight) fields.weight = weight ? Number(weight) : null;
       if (draft.approval !== done.approval) fields.needsApproval = draft.approval;
       // The tick and a new status in one request, so the server judges them together (an approver
       // unticking a waiting task and moving it elsewhere moves it — it isn't completed first).
@@ -533,6 +541,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
         latest = await tasksApi(apiClient).update(t.id, { ...fields, ...(version.current != null ? { expectedVersion: version.current } : {}), ...(series ? { scope: 'series' } : {}) });
         version.current = latest.version ?? version.current;
         keep({ title: draft.title, description: draft.description, priority: draft.priority, dueDate: draft.dueDate, milestone: draft.milestone, approval: draft.approval, formId: draft.formId, place: draft.formId ? draft.place : '', ...(moveWithTick ? { columnId: draft.columnId } : {}), ...(ruleChanged && !series ? { rule: draft.rule } : {}) });
+        if (fields.weight !== undefined) setSavedWeight(weight);
       }
       // The repeat rule lives on the series' newest copy only: it is never sent "for the whole series".
       if (ruleChanged && series) {
@@ -753,6 +762,13 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
         <Label>Priority</Label>
         <SearchableSelect size="lg" ariaLabel="Priority" options={priorityOptions()} value={draft.priority} onChange={(v) => set({ priority: v as Priority })} />
       </div>
+      {countsByWeight(project) ? (
+        // 1.23.5: this project counts its completion by weight — how much this task counts.
+        <div className="min-w-0">
+          <Label optional>Weight</Label>
+          <SearchableSelect size="lg" ariaLabel="Weight" options={weightChoices(projectWeights(project)[draft.priority])} value={weight} onChange={setWeight} />
+        </div>
+      ) : null}
       <div className="min-w-0">
         <Label htmlFor={ids.due} optional>Due date</Label>
         <input

@@ -154,8 +154,11 @@ describe('the Activity days (5c)', () => {
  * colours and filters. Read from its source; skipped when the website's code isn't next to the app.
  */
 const webPage = resolve(__dirname, '../../../Web Portal/frontend/src/pages/ActivityPage.tsx');
+// 1.23.5: the page's verbs, colours and line details live in lib/activity-lines.ts (the project page's
+// Recent activity words its lines the same way); read together with the page.
+const webLines = resolve(__dirname, '../../../Web Portal/frontend/src/lib/activity-lines.ts');
 describe.skipIf(!existsSync(webPage))('the same as the website', () => {
-  const src = existsSync(webPage) ? readFileSync(webPage, 'utf8') : '';
+  const src = [webPage, webLines].filter((f) => existsSync(f)).map((f) => readFileSync(f, 'utf8')).join(' ');
   /** A `const NAME… = <literal>;` from the page, evaluated (plain object and array literals only). */
   const literal = (name: string): unknown => {
     const m = new RegExp(`const ${name}(?::[^=]+)? = ([\\[{][\\s\\S]*?[\\]}]);`).exec(src);

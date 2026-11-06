@@ -372,7 +372,8 @@ describe.skipIf(!existsSync(webDashboard) || !existsSync(webParts))('the same as
   it('shows one completion figure under Work done, as the website’s Overview (components/project-dashboard/OverviewTab.tsx)', () => {
     const overview = readFileSync(resolve(webParts, '../OverviewTab.tsx'), 'utf8');
     expect(overview).toContain('`${stats.completed} of ${stats.total} tasks · ${stats.pct}% done`');
-    expect(overview).toContain('<ProgressBar value={p.statsReady ? stats.pct : 0} label="Work done"');
+    // 1.23.5: the website's bar follows a project's own completion (by weight when it counts so); the app shows the count.
+    expect(overview).toContain('<ProgressBar value={p.statsReady ? (p.completion?.pct ?? stats.pct) : 0} label="Work done"');
     const s = taskStats(sample, TODAY, 'UTC');
     expect(workDoneText(s, true)).toBe(`${s.completed} of ${s.total} tasks · ${s.pct}% done`);
   });

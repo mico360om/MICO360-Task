@@ -67,6 +67,8 @@ export interface ApiTask {
   version?: number;
   /** A milestone: a key date or deliverable of its project (older servers leave it out). */
   isMilestone?: boolean;
+  /** 1.23.5: its weight in its project's completion (1–10 points); null = the project's default for its priority. */
+  weight?: number | null;
   /** Shown on the project's client page and in the Client portal (its title, status and due date). */
   clientVisible?: boolean;
   /** 1.23: its description is shown to the client too ("Also show its description"; only while shown). */
@@ -137,6 +139,8 @@ export interface NewTaskInput {
   boardDate?: string;
   /** A key date or deliverable of the project. */
   isMilestone?: boolean;
+  /** 1.23.5: 1–10 points (projects counting by weight); null/left out = the project's default for its priority. */
+  weight?: number | null;
   /**
    * People to assign, applied in the same request as the create. Omit to let the server apply the
    * project's default (its owner); an explicit list — even [] — is used as-is.

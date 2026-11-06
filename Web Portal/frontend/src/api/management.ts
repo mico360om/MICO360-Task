@@ -13,7 +13,21 @@ export interface ManagementFilters {
 }
 
 export interface RagReason {
-  code: 'MILESTONE_LATE' | 'MANY_LATE' | 'LATE_TASKS' | 'MANY_MISSING_CHECKS' | 'MISSING_CHECKS' | 'NO_ACTIVITY' | 'ON_TRACK';
+  code:
+    | 'MILESTONE_LATE'
+    | 'MANY_LATE'
+    | 'LATE_TASKS'
+    | 'MANY_MISSING_CHECKS'
+    | 'MISSING_CHECKS'
+    | 'NO_ACTIVITY'
+    | 'ON_TRACK'
+    // 1.23.5 Project overview & health.
+    | 'FAR_BEHIND'
+    | 'BEHIND'
+    | 'MANY_BLOCKED'
+    | 'BLOCKED'
+    | 'MILESTONE_AT_RISK'
+    | 'WORKLOAD';
   level: Rag;
   text: string;
 }
@@ -47,6 +61,9 @@ export interface HealthRow extends OptionProject {
   rag: Rag;
   reasons: RagReason[];
 }
+
+/** 1.23.5: how a row's completion is counted (an older server sends none: by number). Website only. */
+export type HealthRowWeighed = HealthRow & { completionBy?: 'COUNT' | 'WEIGHT' };
 
 export interface PersonRow {
   id: string;
