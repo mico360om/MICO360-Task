@@ -28,7 +28,7 @@ import { FirstStepsActions, FirstStepsIcon, useNoProjectsYet } from '../componen
 import { ApprovalsCard } from '../components/approvals/ApprovalsCard';
 import { useApprovals } from '../components/approvals/ToApproveSection';
 import { PrioritiesWidget } from '../components/dashboard/PrioritiesWidget';
-import { CustomizePanel, type LayoutTarget } from '../components/dashboard/CustomizePanel';
+import { CustomizeIcon, CustomizePanel, type LayoutTarget } from '../components/dashboard/CustomizePanel';
 import { dashboardApi, LAYOUT_DEFAULTS_KEY, MY_LAYOUT_KEY, type DashboardLayout, type LayoutGroup, type WidgetId, type WidgetSize } from '../api/dashboard';
 import { builtInLayout, CUSTOMIZE_WORDS, layoutOrDefault, previewFor } from '../lib/dashboard-layout';
 import { ApprovalChip } from '../components/approvals/ApprovalChip';
@@ -405,11 +405,7 @@ export function DashboardPage() {
                 disabled={!!editing}
                 className={`${BAND_LINK} gap-1.5 border border-white/30 bg-white/10 text-white backdrop-blur hover:bg-white/20 disabled:opacity-70`}
               >
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <rect x="3" y="3" width="7.5" height="7.5" rx="1.5" />
-                  <rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5" />
-                  <rect x="3" y="13.5" width="18" height="7.5" rx="1.5" />
-                </svg>
+                <CustomizeIcon />
                 {CUSTOMIZE_WORDS.open}
               </button>
             </div>
