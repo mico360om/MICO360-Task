@@ -14,6 +14,31 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### New features
+- Nested checklists: a task can have several checklists, each with its own title (for example
+  "Electrical" and "Plumbing"), and any item can have sub-items, as many levels deep as you need. In the
+  task panel the checklists show "Checklists 8/12 completed" overall and "5/8" with a bar on each; the
+  counts are of the real to-do items (the ones without sub-items), so nothing is counted twice. Rename,
+  duplicate (a copy with its sub-items, ticks cleared) or delete a checklist, and collapse or expand all
+  of it, from its ⋯ menu; "Add checklist" adds another.
+- Checklist items: tick them off, change their words in place, and from an item's ⋯ menu add a
+  sub-item, give it to someone on the task's team (their face shows on the item, and they are told),
+  set a due date ("3 Nov"), duplicate it, indent or outdent it, or move it up or down. With the
+  keyboard, Enter starts the next item at the same level and Tab / Shift+Tab indent / outdent the item
+  you are writing. A parent ticks itself when all its sub-items are done; ticking it by hand while
+  sub-items are open says "2 sub-items still open" and changes nothing. A parent shows "1/3" even when
+  collapsed, and what you collapse is remembered for you on that device.
+- Nothing is lost by a misclick: deleting an item with sub-items, or a whole checklist, asks first, and
+  every delete has Undo. Deleted items can be restored for 30 days with Restore in the task's history,
+  which now says in plain words who added, ticked, renamed, assigned, dated, moved, duplicated, deleted
+  or restored which item ("Khurram ticked “Label circuits”", "added 3 items to Electrical").
+- My Tasks has "Checklist items for me": the open checklist items given to you on other tasks, with the
+  task number, checklist, due date (late in red) and a tick box; click one to open its task at that
+  item. The Calendar shows dated items on their day ("☐ Label circuits · MICO-142") — yours across all
+  projects, and all of a project's on that project's calendar — and they open the task at the item too.
+- The New task form, task templates and project templates use the same checklist editor, so a
+  template keeps its checklists' titles and nesting, and a new task starts with them.
+
 ### Improvements
 - Error log: a slow request says where the time went — the server, the database or the network (for
   example "server 9.9 s · in the database 9.7 s", or "server 0.1 s · the rest was the network"). Every
