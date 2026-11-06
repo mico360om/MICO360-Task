@@ -53,7 +53,10 @@ describe.skipIf(!hasWeb('frontend/src/lib/project-list.ts'))('Review Focus 5: th
     const web = (await import(/* @vite-ignore */ webPath('frontend/src/lib/project-list.ts'))) as Record<string, (...a: unknown[]) => unknown> & { STATUS_TABS: unknown; PROJECT_SORTS: unknown; DEFAULT_LIST_STATE: unknown };
     expect(STATUS_TABS).toEqual(web.STATUS_TABS);
     expect(PROJECT_SORTS).toEqual(web.PROJECT_SORTS);
-    expect(DEFAULT_LIST_STATE).toEqual(web.DEFAULT_LIST_STATE);
+    // 1.23.6: the website's Projects page also takes a client from a search result (`client`); the app has no such link.
+    const { client: _client, ...webDefaults } = web.DEFAULT_LIST_STATE as Record<string, unknown>;
+    void _client;
+    expect(DEFAULT_LIST_STATE).toEqual(webDefaults);
     for (const state of STATES) {
       expect(ids(filterProjects(LIST, state)), JSON.stringify(state)).toEqual(ids(web.filterProjects!(LIST, state) as ProjectOverview[]));
       expect(tabCounts(filterProjects(LIST, state))).toEqual(web.tabCounts!(web.filterProjects!(LIST, state)));
