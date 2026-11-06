@@ -250,6 +250,10 @@ import { chooseTransport } from './modules/email/outbox-transport';
 import { createEmailWebhookService } from './modules/email/email-webhook-service';
 import { createPrismaEmailEventStore, createPrismaEmailLogStore, createPrismaSuppressionChecker } from './modules/email/prisma-email-event-store';
 import { createRealtime } from './realtime/realtime';
+import { createPrioritiesService } from './modules/dashboard/priorities-service';
+import { createActionItemPrioritySource, createApprovalPrioritySource, createPrismaTaskPrioritySource } from './modules/dashboard/prisma-priority-sources';
+import { CHECKLIST_ITEMS_STUB } from './modules/dashboard/priority-sources';
+import { createPrismaDashboardLayoutStore } from './modules/dashboard/dashboard-layout-store';
 import { createLogger } from './lib/logger';
 import { createErrorReporter } from './lib/error-reporter';
 import { withErrorLog } from './lib/error-log-logger';
@@ -885,9 +889,29 @@ async function main(): Promise<void> {
     timeZone: companyTz,
     canEditMeeting,
     topicMeetingOf: async (agendaItemId) => (await topicLookup.findById(agendaItemId))?.meetingId ?? null,
-    onChanged: (meetingId) => { if (meetingId) broadcastMeetingChange(meetingId, 'meeting:action-items'); },
+    onChanged: (meetingId) => {
+      dashboardPriorities.changed(); // 1.23.4: everyone's "My Priorities Today" is read again
+      if (meetingId) broadcastMeetingChange(meetingId, 'meeting:action-items');
+    },
   });
   const resolveMeetingProjectId = async (meetingId: string) => (await meetingRepository.accessCore(meetingId))?.projectId ?? null;
+  // 1.23.4 Smarter Dashboard — "My Priorities Today": own open tasks (My Tasks' scope), the team rows of
+  // the projects the person runs (the list scope), approvals (the To approve list's), action items (My
+  // Action Items'), and — once 1.23.3 is merged — checklist items (CHECKLIST_ITEMS_STUB until then).
+  const dashboardPriorities = createPrioritiesService({
+    sources: [
+      createPrismaTaskPrioritySource(prisma, {
+        ownProjectIds: (v, pick) => projectAccess.ownProjectIds(v.id, v.roles, pick),
+        listProjectIds: (v, pick) => projectAccess.accessibleProjectIds(v.id, v.roles, pick),
+        openableProjectIds: (v) => projectAccess.accessibleProjectIds(v.id, v.roles),
+      }),
+      createApprovalPrioritySource({ prisma, approvals: approvalSource, listProjectIds: (v, pick) => projectAccess.accessibleProjectIds(v.id, v.roles, pick) }),
+      createActionItemPrioritySource({ prisma, actionItems: actionItemService, canOpenMeeting: async (v, meetingId) => (await meetingAccess.viewOf(v.id, v.roles, meetingId)) !== null }),
+      CHECKLIST_ITEMS_STUB,
+    ],
+    timeZone: companyTz,
+    isManager: (v) => approvalSource.canApproveAny(v),
+  });
 
   const noteTaskService = createNoteTaskService({
     noteService,
@@ -1977,13 +2001,22 @@ async function main(): Promise<void> {
       const f = await prisma.inspectionForm.findUnique({ where: { id }, select: { id: true, title: true, deletedAt: true } });
       return f ? { id: f.id, title: f.title, deleted: f.deletedAt !== null } : null;
     },
-    userPreferences: createPrismaPreferences(prisma),
+    // 1.23.4: a person's own setting change ("Show my projects only") — their priorities are read again.
+    userPreferences: (() => {
+      const prefs = createPrismaPreferences(prisma);
+      return { ...prefs, set: async (userId: string, patch: Parameters<typeof prefs.set>[1]) => { const saved = await prefs.set(userId, patch); dashboardPriorities.changedFor(userId); return saved; } };
+    })(),
     recordTaskActivity,
     userState: userStateLookup,
     clientAccounts,
     portal,
     clientMinutes: clientMeetingRules.minutes,
-    onTaskEvent: (projectId, event, payload) => broadcast(projectId, event, payload),
+    onTaskEvent: (projectId, event, payload) => {
+      dashboardPriorities.changed(); // 1.23.4: a task changed — everyone's "My Priorities Today" is read again
+      broadcast(projectId, event, payload);
+    },
+    dashboardPriorities,
+    dashboardLayouts: createPrismaDashboardLayoutStore(prisma),
     onChatUserEvent: (userId, event, payload) => broadcastToUser(userId, event, payload),
     chatService,
     logger,

@@ -130,6 +130,9 @@ import type { CompanyTime } from './modules/companies/company-time';
 import { registerErrorLogRoutes } from './modules/error-log/error-log-routes';
 import type { ErrorLogService } from './modules/error-log/error-log-service';
 import type { DatabaseCheckResult } from './modules/error-log/database-check';
+import { registerDashboardRoutes } from './modules/dashboard/dashboard-routes';
+import type { PrioritiesService } from './modules/dashboard/priorities-service';
+import type { DashboardLayoutStore } from './modules/dashboard/dashboard-layout-store';
 
 export interface AppDeps extends AuthRouteDeps {
   /** Each person's own date settings (week start, time zone) — GET/PUT /users/me/preferences. */
@@ -144,6 +147,10 @@ export interface AppDeps extends AuthRouteDeps {
   approvalSource?: ApprovalSource;
   /** A task's approval as its details show it to one person. */
   taskApprovalDetails?: (viewer: ApprovalViewer, task: TaskRecord) => Promise<TaskApprovalDetails>;
+  /** 1.23.4 Smarter Dashboard: "My Priorities Today" (GET /dashboard/priorities). */
+  dashboardPriorities?: Pick<PrioritiesService, 'get'>;
+  /** 1.23.4 Smarter Dashboard: each person's widget arrangement and the administrators' two defaults. */
+  dashboardLayouts?: DashboardLayoutStore;
   /** Write a line to a task's activity timeline — checklist, comment, file and blocker changes. */
   recordTaskActivity?: RecordTaskActivity;
   corsOrigins?: string[] | boolean | CorsOriginMatcher;
@@ -766,6 +773,19 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           logger: deps.logger,
           accessibleProjectIds, // companies: the To approve list follows the pick
           pickOf,
+        });
+      }
+      if (deps.dashboardPriorities || deps.dashboardLayouts) {
+        // 1.23.4 Smarter Dashboard: staff only (client sessions are refused by the guard's route table).
+        const approvals = deps.approvalSource;
+        await registerDashboardRoutes(api, {
+          guard,
+          priorities: deps.dashboardPriorities,
+          layouts: deps.dashboardLayouts,
+          canApprove: approvals ? (viewer) => approvals.canApproveAny(viewer) : undefined,
+          pickOf, // companies: the priorities follow the pick
+          audit: deps.auditService,
+          logger: deps.logger,
         });
       }
       if (deps.taskMoveService) {

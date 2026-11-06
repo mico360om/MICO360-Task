@@ -53,6 +53,9 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   'DELETE /users/me/avatar': 'own',
   'GET /users/me/preferences': 'own',
   'PUT /users/me/preferences': 'own',
+  // 1.23.4 Smarter Dashboard: the person's own widget arrangement.
+  'GET /users/me/dashboard-layout': 'own',
+  'PUT /users/me/dashboard-layout': 'own',
   'GET /device-tokens': 'own',
   'POST /device-tokens': 'own',
   'DELETE /device-tokens/:token': 'own',
@@ -109,6 +112,9 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   'DELETE /backups/google': 'admin',
   'GET /system-settings': 'admin',
   'PUT /system-settings/:key': 'admin',
+  // 1.23.4 Smarter Dashboard: the two default arrangements (administrators', everyone else's).
+  'GET /settings/dashboard-default': 'admin',
+  'PUT /settings/dashboard-default': 'admin',
   'GET /admin/daily-emails': 'admin',
   'GET /admin/daily-emails/overview': 'admin',
   'GET /admin/daily-emails/preview': 'admin',
@@ -274,6 +280,8 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   'GET /projects/overview': 'list',
   'GET /tasks': 'list',
   'GET /tasks/mine': 'list',
+  // 1.23.4 Smarter Dashboard: "My Priorities Today" — the person's own work and the projects they run, in the pick.
+  'GET /dashboard/priorities': 'list',
   'GET /calendar': 'list',
   'GET /tasks/approvals': 'list',
   // 1.22: also the Activity calendar's two questions on the same route — `?from=&to=` (changes per
