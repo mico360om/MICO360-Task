@@ -49,10 +49,26 @@ describe('arrange', () => {
 
   it('leaves out deleted lists and items, and puts an item whose parent is gone at the top of its list', () => {
     const lists = [list('L1'), list('L9', 1, { deletedAt: at })];
-    const items = [item('a', null, 0), item('gone', null, 1, { deletedAt: at }), item('lost', 'nowhere', 2), item('x', null, 0, { listId: 'L9' })];
+    const items = [item('a', null, 0), item('gone', null, 1, { deletedAt: at }), item('lost', 'nowhere', 2), item('x', null, 0, { listId: 'L9', deletedAt: at })];
     const view = arrange(lists, items);
     expect(view.lists.map((l) => l.id)).toEqual(['L1']);
     expect(view.items.map((i) => `${i.id}:${i.depth}:${i.parentId}`)).toEqual(['a:0:null', 'lost:0:null']);
+  });
+
+  it('never loses a live item: one left in a deleted checklist reads as in the first live one', () => {
+    const view = arrange([list('L1'), list('L9', 1, { deletedAt: at })], [item('a', null, 0), item('x', null, 1, { listId: 'L9' })]);
+    expect(view.items.map((i) => `${i.id}:${i.listId}`)).toEqual(['a:L1', 'x:L1']);
+  });
+});
+
+describe('arrange — items in no checklist (data from before 1.23.3)', () => {
+  it('reads them as in the first checklist, or in a "Checklist" of their own when there is none', () => {
+    const orphan = (id: string, position: number) => item(id, null, position, { listId: null });
+    const alone = arrange([], [orphan('b', 1), orphan('a', 0)]);
+    expect(alone.lists.map((l) => [l.title, l.total])).toEqual([['Checklist', 2]]);
+    expect(alone.items.map((i) => [i.id, i.listId])).toEqual([['a', alone.lists[0]!.id], ['b', alone.lists[0]!.id]]);
+    const withList = arrange([list('L1')], [item('x', null, 0), orphan('y', 1), item('z', null, 0, { listId: 'gone' })]);
+    expect(withList.lists.map((l) => [l.id, l.total])).toEqual([['L1', 3]]);
   });
 });
 

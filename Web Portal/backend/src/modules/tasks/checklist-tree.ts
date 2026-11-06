@@ -130,8 +130,34 @@ function liveTree(lists: readonly ListRow[], items: readonly ItemRow[]) {
   return { live, byId, children, parentOf: (id: string) => effectiveParent.get(id) ?? null };
 }
 
+/** The id of the stand-in checklist for items in none when a task has no live checklist (never stored). */
+export const STAND_IN_LIST_ID = '~checklist';
+
+/**
+ * Items in no live checklist of their task (data from before 1.23.3, or rows written another way) read
+ * as at the top of the task's first checklist — or of a "Checklist" of their own when it has none (a
+ * stand-in, never stored; the task panel stores one when it first opens the task).
+ */
+function withHome(lists: readonly ListRow[], items: readonly ItemRow[]): { lists: readonly ListRow[]; items: readonly ItemRow[] } {
+  const live = liveLists(lists);
+  const ids = new Set(live.map((l) => l.id));
+  const lost = items.filter((i) => isLive(i) && (!i.listId || !ids.has(i.listId)));
+  if (!lost.length) return { lists, items };
+  let home = live[0];
+  const out = [...lists];
+  if (!home) {
+    const first = lost[0]!;
+    home = { id: STAND_IN_LIST_ID, taskId: first.taskId, title: DEFAULT_LIST_TITLE, position: 0, createdById: null, createdAt: first.createdAt, updatedAt: first.updatedAt, deletedAt: null, deletedById: null, deletedBatchId: null };
+    out.push(home);
+  }
+  const homeId = home.id;
+  const lostIds = new Set(lost.map((i) => i.id));
+  return { lists: out, items: items.map((i) => (lostIds.has(i.id) ? { ...i, listId: homeId } : i)) };
+}
+
 /** Lists, items in order and every count, from a task's rows (deleted ones left out). */
-export function arrange(lists: readonly ListRow[], items: readonly ItemRow[]): Arranged {
+export function arrange(allLists: readonly ListRow[], allItems: readonly ItemRow[]): Arranged {
+  const { lists, items } = withHome(allLists, allItems);
   const ordered = liveLists(lists);
   const { children } = liveTree(lists, items);
   const out: ArrangedItem[] = [];

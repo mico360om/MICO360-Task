@@ -38,8 +38,19 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   projects, and all of a project's on that project's calendar — and they open the task at the item too.
 - The New task form, task templates and project templates use the same checklist editor, so a
   template keeps its checklists' titles and nesting, and a new task starts with them.
+- Checklist items given to someone with a due date get the usual "due soon" and "overdue" reminders (to
+  that person; an item given to no one reminds the task's people), at the same times as task reminders
+  and never twice a day. Items of a finished task, or one waiting for approval, send none.
 
 ### Improvements
+- Existing tasks keep their checklist, now titled "Checklist", with every item in its order; task cards
+  still show "8/12". A repeating task's next copy brings its checklists back with the ticks cleared, each
+  item's person kept and its due date moved on as far as the task's.
+- Merging tasks moves each merged task's checklists whole, titled "From MICO-14 · Electrical"; Undo
+  moves them back. Search finds a task by its checklists' titles as well as their items, and the task's
+  PDF and spreadsheet list each checklist with its count ("Electrical · 5/8") and sub-items indented.
+- The Android app and the Chrome extension keep working as they are: they see every checklist item in
+  one list and can tick items without sub-items (ticking a parent there says which sub-items are open).
 - Error log: a slow request says where the time went — the server, the database or the network (for
   example "server 9.9 s · in the database 9.7 s", or "server 0.1 s · the rest was the network"). Every
   answer from the server now carries its own time and its time in the database; the row shows the last
