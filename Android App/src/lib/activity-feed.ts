@@ -43,10 +43,14 @@ export interface TimelineItem {
   createdAt?: string;
   /** How many raw entries this line stands for. */
   count: number;
+  /** 1.23.3: a deleted checklist item or checklist — its Restore (while it can still be restored). */
+  batchId?: string;
 }
 
 /** Entries by one person this close together (or closer) read as one action. */
 const MERGE_WINDOW_MS = 30 * 60_000;
+/** 1.23.3: checklist items added one by one to one checklist read as one line within a couple of minutes. */
+const ADD_WINDOW_MS = 2 * 60_000;
 
 const KIND_OF: Record<string, TimelineKind> = {
   CREATED: 'created',
@@ -71,6 +75,17 @@ const KIND_OF: Record<string, TimelineKind> = {
   CHECKLIST_RENAMED: 'checklist',
   CHECKLIST_REMOVED: 'checklist',
   CHECKLIST_REORDERED: 'checklist',
+  // 1.23.3 nested checklists: people, dates, moves, copies, restores and whole checklists.
+  CHECKLIST_ASSIGNED: 'checklist',
+  CHECKLIST_UNASSIGNED: 'checklist',
+  CHECKLIST_DUE: 'checklist',
+  CHECKLIST_MOVED: 'checklist',
+  CHECKLIST_DUPLICATED: 'checklist',
+  CHECKLIST_RESTORED: 'checklist',
+  CHECKLIST_LIST_ADDED: 'checklist',
+  CHECKLIST_LIST_RENAMED: 'checklist',
+  CHECKLIST_LIST_DUPLICATED: 'checklist',
+  CHECKLIST_LIST_REMOVED: 'checklist',
   COMMENTED: 'comment',
   ATTACHED: 'file',
   ATTACHMENT_REMOVED: 'file',
@@ -101,9 +116,33 @@ function runKey(entry: FeedEntry): string | null {
   const kind = KIND_OF[entry.action] ?? 'other';
   if (isMove(kind)) return 'move';
   if (kind === 'assigned' || kind === 'unassigned' || kind === 'updated') return kind;
-  if (kind === 'checklist' || kind === 'comment' || kind === 'file' || kind === 'blocker' || kind === 'external') return entry.action;
+  if (kind === 'checklist') return checklistRunKey(entry);
+  if (kind === 'comment' || kind === 'file' || kind === 'blocker' || kind === 'external') return entry.action;
   return null;
 }
+/**
+ * Checklist runs (1.23.3): items added to one checklist; ticks; unticks; renames; old reorders and
+ * old deletes. A delete that can be restored, and every other new kind, is a line of its own.
+ */
+function checklistRunKey(entry: FeedEntry): string | null {
+  switch (entry.action) {
+    case 'CHECKLIST_ADDED': {
+      const list = str(entry.meta?.listTitle);
+      return list ? `CHECKLIST_ADDED|${list}` : entry.action;
+    }
+    case 'CHECKLIST_REMOVED':
+      return str(entry.meta?.batchId) ? null : entry.action;
+    case 'CHECKLIST_DONE':
+    case 'CHECKLIST_REOPENED':
+    case 'CHECKLIST_RENAMED':
+    case 'CHECKLIST_REORDERED':
+      return entry.action;
+    default:
+      return null;
+  }
+}
+/** How close together two of a person's entries must be to read as one line. */
+const windowOf = (entry: FeedEntry) => (entry.action === 'CHECKLIST_ADDED' && str(entry.meta?.listTitle) ? ADD_WINDOW_MS : MERGE_WINDOW_MS);
 /** Made through MICO AI (the person confirmed it there). */
 const viaMicoAi = (entry: FeedEntry) => entry.meta?.via === 'mico-ai';
 
@@ -122,6 +161,12 @@ function listText(parts: string[]): string {
   if (parts.length <= 1) return parts[0] ?? '';
   return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
 }
+/** Some of `total` names when only a few are known: "“A”, “B”, “C” and 4 more". */
+function someOfTotal(names: string[], total: number, shown = 3): string {
+  return names.length === total && total <= shown + 1 ? listText(names) : `${names.slice(0, shown).join(', ')} and ${total - Math.min(shown, names.length)} more`;
+}
+const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 /** A few names, then "and N more": "“A”, “B”, “C” and 2 more". */
 function someOf(names: string[], shown = 3): string {
   return names.length <= shown + 1 ? listText(names) : `${names.slice(0, shown).join(', ')} and ${names.length - shown} more`;
@@ -319,27 +364,8 @@ function lineOf(kind: TimelineKind, entries: FeedEntry[]): TimelineItem | null {
       if (phrases.length === 0) return changesOf(newest).length === 0 && entries.length === 1 ? { ...base, text: 'updated this task' } : null;
       return { ...base, text: listText(phrases) };
     }
-    case 'checklist': {
-      const n = entries.length;
-      const steps = chronological.map((e) => quote(str(e.meta?.text) ?? 'a step'));
-      switch (newest.action) {
-        case 'CHECKLIST_ADDED':
-          return { ...base, text: n === 1 ? `added the step ${steps[0]}` : `added ${n} steps: ${someOf(steps)}` };
-        case 'CHECKLIST_DONE':
-          return { ...base, text: n === 1 ? `ticked off ${steps[0]}` : `ticked off ${n} steps: ${someOf(steps)}` };
-        case 'CHECKLIST_REOPENED':
-          return { ...base, text: n === 1 ? `unticked ${steps[0]}` : `unticked ${n} steps: ${someOf(steps)}` };
-        case 'CHECKLIST_REMOVED':
-          return { ...base, text: n === 1 ? `removed the step ${steps[0]}` : `removed ${n} steps: ${someOf(steps)}` };
-        case 'CHECKLIST_REORDERED':
-          return { ...base, text: 'reordered the checklist' };
-        default:
-          return {
-            ...base,
-            text: listText(chronological.map((e) => `renamed the step ${quote(str(e.meta?.from) ?? '')} to ${quote(str(e.meta?.to) ?? '')}`)),
-          };
-      }
-    }
+    case 'checklist':
+      return { ...base, ...checklistLine(entries, chronological) };
     case 'comment':
       return { ...base, text: entries.length === 1 ? 'commented' : `left ${entries.length} comments` };
     case 'file': {
@@ -392,6 +418,84 @@ function lineOf(kind: TimelineKind, entries: FeedEntry[]): TimelineItem | null {
   }
 }
 
+/** A checklist line's words (and, for a delete that may be restored, its batch). */
+function checklistLine(entries: FeedEntry[], chronological: FeedEntry[]): { text: string; batchId?: string } {
+  const newest = entries[0]!;
+  const n = entries.length;
+  const m = newest.meta ?? {};
+  const named = (e: FeedEntry) => quote(str(e.meta?.text) ?? 'a step');
+  const steps = chronological.map(named);
+  const it = named(newest);
+  const withSubItems = (count: number | null) => (count !== null && count > 1 ? ` and its ${plural(count - 1, 'sub-item')}` : '');
+  switch (newest.action) {
+    case 'CHECKLIST_ADDED': {
+      const list = str(m.listTitle);
+      if (!list) return { text: n === 1 ? `added the step ${steps[0]}` : `added ${n} steps: ${someOf(steps)}` };
+      // A batch names up to five; single adds name themselves.
+      const texts = chronological.flatMap((e) => (num(e.meta?.count) !== null && Array.isArray(e.meta?.texts) ? (e.meta!.texts as unknown[]).map(str) : [str(e.meta?.text)])).filter((t): t is string => Boolean(t));
+      const total = chronological.reduce((a, e) => a + (num(e.meta?.count) ?? 1), 0);
+      const parent = n === 1 ? str(m.parentText) : null;
+      const where = parent ? `under ${quote(parent)} in ${list}` : `to ${list}`;
+      if (total === 1 && texts.length === 1) return { text: `added ${quote(texts[0]!)} ${where}` };
+      return { text: `added ${total} items ${where}: ${someOfTotal(texts.map(quote), total)}` };
+    }
+    case 'CHECKLIST_DONE':
+      return { text: n === 1 ? `ticked ${steps[0]}` : `ticked ${n} items: ${someOf(steps)}` };
+    case 'CHECKLIST_REOPENED':
+      return { text: n === 1 ? `unticked ${steps[0]}` : `unticked ${n} items: ${someOf(steps)}` };
+    case 'CHECKLIST_REMOVED': {
+      const batchId = str(m.batchId);
+      if (batchId) return { text: `deleted ${it}${withSubItems(num(m.count))}`, batchId };
+      return { text: n === 1 ? `removed the step ${steps[0]}` : `removed ${n} steps: ${someOf(steps)}` };
+    }
+    case 'CHECKLIST_RESTORED':
+      return { text: `restored ${it}${withSubItems(num(m.count))}` };
+    case 'CHECKLIST_REORDERED':
+      return { text: 'reordered the checklist' };
+    case 'CHECKLIST_ASSIGNED':
+      return { text: str(m.assignee) ? `assigned ${it} to ${str(m.assignee)}` : `assigned ${it}` };
+    case 'CHECKLIST_UNASSIGNED':
+      return { text: str(m.assignee) ? `took ${str(m.assignee)} off ${it}` : `took the person off ${it}` };
+    case 'CHECKLIST_DUE': {
+      const from = str(m.from);
+      const to = str(m.to);
+      if (!from && to) return { text: `set ${it} due on ${dayText(to)}` };
+      if (from && !to) return { text: `removed the due date of ${it}` };
+      return { text: `moved the due date of ${it} from ${dayText(from)} to ${dayText(to)}` };
+    }
+    case 'CHECKLIST_MOVED':
+      switch (str(m.how)) {
+        case 'indent':
+          return { text: `indented ${it}` };
+        case 'outdent':
+          return { text: `outdented ${it}` };
+        case 'up':
+          return { text: `moved ${it} up` };
+        case 'down':
+          return { text: `moved ${it} down` };
+        default:
+          return { text: `moved ${it}` };
+      }
+    case 'CHECKLIST_DUPLICATED':
+      return { text: `duplicated ${it}${withSubItems(num(m.count))}` };
+    case 'CHECKLIST_LIST_ADDED':
+      return { text: `added the checklist ${quote(str(m.title) ?? 'Checklist')}` };
+    case 'CHECKLIST_LIST_RENAMED':
+      return { text: `renamed the checklist ${quote(str(m.from) ?? '')} to ${quote(str(m.to) ?? '')}` };
+    case 'CHECKLIST_LIST_DUPLICATED': {
+      const count = num(m.count);
+      return { text: `duplicated the checklist ${quote(str(m.title) ?? 'Checklist')}${count ? ` (${plural(count, 'item')})` : ''}` };
+    }
+    case 'CHECKLIST_LIST_REMOVED': {
+      const count = num(m.count);
+      const batchId = str(m.batchId);
+      return { text: `deleted the checklist ${quote(str(m.title) ?? 'Checklist')}${count ? ` (${plural(count, 'item')})` : ''}`, ...(batchId ? { batchId } : {}) };
+    }
+    default:
+      return { text: listText(chronological.map((e) => `renamed the step ${quote(str(e.meta?.from) ?? '')} to ${quote(str(e.meta?.to) ?? '')}`)) };
+  }
+}
+
 const timeOf = (e: FeedEntry) => (e.createdAt ? new Date(e.createdAt).getTime() : NaN);
 
 /** Readable timeline lines from activity rows given newest first. */
@@ -401,7 +505,7 @@ export function buildTimeline(entries: FeedEntry[]): TimelineItem[] {
     const kind = KIND_OF[entry.action] ?? 'other';
     const last = groups[groups.length - 1];
     const oldest = last?.entries[last.entries.length - 1];
-    const close = oldest ? Math.abs(timeOf(oldest) - timeOf(entry)) <= MERGE_WINDOW_MS : false;
+    const close = oldest ? Math.abs(timeOf(oldest) - timeOf(entry)) <= windowOf(entry) : false;
     const key = mergeKey(entry);
     if (last && oldest && close && oldest.actorName === entry.actorName && key !== null && key === mergeKey(oldest)) {
       last.entries.push(entry);
