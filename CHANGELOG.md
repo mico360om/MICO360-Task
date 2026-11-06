@@ -14,6 +14,34 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### New features
+- Smarter Dashboard (1.23.4): "My Priorities Today" at the top of the Dashboard tells you what needs you
+  first, in one list, most urgent first, each row saying why — "Overdue 2 days", "Waiting for your
+  approval", "Blocks 3 tasks", "Due today", "Urgent", "Blocked by RIG-4" or "Blocked (status)", "Due in 2
+  days" (other reasons as small tags beside it). It holds your own open tasks that are late, due today,
+  urgent, holding up other tasks, blocked or due in the next 3 days; the tasks waiting for your approval;
+  your meeting action items due within 3 days; and — if you run projects or are an administrator — the
+  tasks there with no one assigned, in a Blocked column, or 3 or more days late ("Overdue 4 days · Omar").
+  It follows the company you picked (and, for administrators, "Show my projects only"). Chips filter it:
+  All, Overdue, Today, Approvals, Blocked, Upcoming and Team (for the people who run projects). The first
+  10 show, then "Show all (23)". Quick actions on each row: Complete (a task that needs approval goes to
+  wait for a project manager), Reschedule (Today, Tomorrow, Next week or Pick a date; a start date after
+  the new day moves with it; a repeating task moves only this occurrence), Assign (someone on the project
+  team) and Open; Approve and Send back for approvals; Mark done, Reschedule and Open meeting for action
+  items. Each change shows at once — for others too — with Undo where it can be undone. Nothing is offered
+  that you couldn't do before, and nothing about tasks you can't open is shown or counted.
+- Customize dashboard (1.23.4): show or hide each widget, drag it into your own order (or use Move up and
+  Move down from the keyboard) and make it Small or Wide — saved to your account, on every computer. On a
+  phone every widget takes the full width, in your order. "Reset to default" goes back to the default.
+  Administrators arrange two defaults — for administrators and for everyone else — that everyone who never
+  customized follows; each change of a default is in the audit log. The widgets keep who sees them today:
+  the two charts for administrators, Approvals for the people who can approve. New widgets in later
+  releases appear in everyone's Dashboard at the default's place.
+
+### Bug fixes
+- My Tasks and board tables: the "Overdue" filter judged lateness by the computer's clock instead of the
+  table's own day, so it could disagree with the rest of the table for a moment around midnight.
+
 ## [1.23.2] - 2026-11-06
 
 ### New features

@@ -174,7 +174,8 @@ function CalendarPopover({ anchor, onClose, children }: { anchor: RefObject<HTML
   );
 }
 
-function DayCalendar({ value, today, weekStart, onPick, clearLabel }: { value: string; today: string; weekStart: WeekStart; onPick: (day: string | null) => void; clearLabel?: string }) {
+/** The month calendar on its own (1.23.4: inside the Dashboard's Reschedule menu, which is a popover itself). */
+export function DayCalendar({ value, today, weekStart, onPick, clearLabel }: { value: string; today: string; weekStart: WeekStart; onPick: (day: string | null) => void; clearLabel?: string }) {
   const start = value || today;
   const [focus, setFocus] = useState(start);
   const [month, setMonth] = useState(start.slice(0, 7));
