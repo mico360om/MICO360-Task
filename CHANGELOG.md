@@ -37,8 +37,10 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   task without its own weight counts its priority's default (Urgent 4, High 3, Normal 2, Low 1, changeable
   per project). The task form, the task panel and the Table view (a Weight column you can change in place)
   show the weight for such projects. Their completion then counts by weight on the cards, the project page
-  ("62% by weight · 70% by count"), the Management page and its PDF, Reports, the Dashboard's completion
-  chart, the Client portal and the client page. Nothing changes until a project switches.
+  ("62% by weight · 70% by count"), the Timeline, the Management page and its PDF, Reports, the Dashboard's
+  completion chart, the Client portal and the client page (never 100% until every task is done). Nothing
+  changes until a project switches. Next actions also list your own checklist items there that are late or
+  due within 3 days.
 - Kanban Board: Month view. Beside Board | Table, choose **Day** (the board's day, exactly as before) or
   **Month**, on the Kanban Board page (one project or All projects) and on a project's Board tab. Month
   shows a month's tasks: every month from a task's start date to its due date (only a due date: that
