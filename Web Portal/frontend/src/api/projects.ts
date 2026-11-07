@@ -1,4 +1,5 @@
 import type { ApiClient } from '../lib/api-client';
+import type { Rag, RagReason } from './management';
 import type { Priority } from './tasks';
 
 export type ProjectStatus = 'PLANNING' | 'ACTIVE' | 'ON_HOLD' | 'COMPLETED' | 'ARCHIVED';
@@ -30,6 +31,13 @@ export interface ApiProject {
   defaultDueToday?: boolean;
   /** "New tasks in this project need approval": the New task form starts ticked. Missing (older server) = off. */
   newTasksNeedApproval?: boolean;
+  /** 1.23.5: "Count completion by": the number of tasks (COUNT) or their weight. Missing (older server) = COUNT. */
+  completionMode?: CompletionMode;
+  /** 1.23.5: a task's weight by priority when it has none of its own (1–10). Missing (older server) = 4/3/2/1. */
+  weightUrgent?: number;
+  weightHigh?: number;
+  weightNormal?: number;
+  weightLow?: number;
   /**
    * You may change it — its details, picture, status, owner and team: you are an admin, or its
    * owner, its named manager or a manager on its team (the server decides). Missing from an older server.
@@ -94,6 +102,32 @@ export interface ProjectOverview
   canManage?: boolean;
 }
 
+/**
+ * 1.23.5: a Projects page card's project with its health (absent when the server couldn't work it out, or
+ * an older server). The website reads it; the Android app's copy of ProjectOverview doesn't.
+ */
+export type ProjectOverviewWithHealth = ProjectOverview & { health?: ProjectCardHealth };
+
+export type CompletionMode = 'COUNT' | 'WEIGHT';
+
+/** A project's completion: in its own mode (`pct`), and both ways. */
+export interface ProjectCompletion {
+  mode: CompletionMode;
+  pct: number;
+  countPct: number;
+  weightPct: number;
+}
+
+/** 1.23.5: a Projects page card's health — the one rule's mark and reasons, completion, the worst risk, who is accountable. */
+export interface ProjectCardHealth {
+  rag: Rag;
+  reasons: RagReason[];
+  completion: ProjectCompletion;
+  topRisk: { code: string; level: 'RED' | 'AMBER'; title: string } | null;
+  riskCount: number;
+  accountable: (ProjectPerson & { role: 'MANAGER' | 'OWNER' }) | null;
+}
+
 export interface NewProjectInput {
   code: string;
   name: string;
@@ -112,6 +146,12 @@ export interface NewProjectInput {
   defaultDueToday?: boolean;
   /** Left out: off for a new project (unchanged on an update). */
   newTasksNeedApproval?: boolean;
+  /** 1.23.5: left out = by number of tasks for a new project (unchanged on an update); defaults 1–10. */
+  completionMode?: CompletionMode;
+  weightUrgent?: number;
+  weightHigh?: number;
+  weightNormal?: number;
+  weightLow?: number;
   /** New projects only: people put on its team at once (the creator and the owner join it anyway). */
   memberIds?: string[];
   /**

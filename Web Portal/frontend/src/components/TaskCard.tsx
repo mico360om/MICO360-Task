@@ -43,6 +43,8 @@ export interface TaskCardTask {
   project?: { name: string; code: string; color?: string | null; icon?: string | null; imageUrl?: string | null };
   /** Its external contacts in short ("External: Ahmed Al Said (OXY) and 2 more"); null or absent for none. */
   external?: ExternalContactSummary | null;
+  /** The board's month view: its dates in the month ("5–20 Nov", "Overdue · from Oct"), shown instead of the due date. */
+  dateLine?: { text: string; overdue: boolean; title?: string };
 }
 
 export interface TaskCardProps {
@@ -110,7 +112,10 @@ export function TaskCard({ task, onClick, timeZone = DEFAULT_TIME_ZONE, interact
   // for approval (its badge says so instead: owner, 30 Oct).
   const overdue = !task.done && !task.awaitingApproval && isOverdue(task.dueDate, timeZone);
   const dueText = formatDueDay(task.dueDate, timeZone) || 'No due date';
-  const hasDue = Boolean(task.dueDate);
+  // The month view gives its own line (a span, "From 5 Nov", "No date"), shown even without a due date.
+  const line = task.dateLine;
+  const hasDue = Boolean(line) || Boolean(task.dueDate);
+  const dateLate = line ? line.overdue : overdue;
   const c = task.counts;
   const shownAssignees = task.assignees.slice(0, 3);
   const extra = task.assignees.length - shownAssignees.length;
@@ -192,12 +197,22 @@ export function TaskCard({ task, onClick, timeZone = DEFAULT_TIME_ZONE, interact
           {task.inspection ? <InspectionChip /> : null}
           {hasDue ? (
             <span
-              className={`inline-flex items-center gap-1 rounded px-1 text-[11px] ${overdue ? 'bg-danger-soft font-semibold text-danger' : 'text-ink-2'}`}
+              data-testid="card-date"
+              title={line?.title}
+              className={`inline-flex items-center gap-1 rounded px-1 text-[11px] ${dateLate ? 'bg-danger-soft font-semibold text-danger' : 'text-ink-2'}`}
             >
               <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" />
               </svg>
-              {overdue ? `Overdue · ${dueText}` : dueText}
+              {line ? (
+                // The month view's line; a carried card's due day is read out too (on hover it's the title).
+                <>
+                  {line.text}
+                  {line.title ? <span className="sr-only"> ({line.title})</span> : null}
+                </>
+              ) : (
+                <>{overdue ? `Overdue · ${dueText}` : dueText}</>
+              )}
             </span>
           ) : null}
           {c && c.checklistTotal > 0 ? (

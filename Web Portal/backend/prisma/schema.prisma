@@ -43,6 +43,12 @@ enum Priority {
   URGENT
 }
 
+/// 1.23.5: how a project's completion is counted.
+enum CompletionMode {
+  COUNT
+  WEIGHT
+}
+
 enum ColumnCategory {
   BACKLOG
   TODO
@@ -293,6 +299,13 @@ model Project {
   defaultDueToday Boolean   @default(false)
   /// "New tasks in this project need approval": a task created in it without saying gets the tick.
   newTasksNeedApproval Boolean @default(false)
+  /// 1.23.5: how its completion is counted — the number of tasks (COUNT, as before) or their weight.
+  completionMode CompletionMode @default(COUNT)
+  /// 1.23.5: a task's weight when it has none of its own, by its priority (1–10 points each).
+  weightUrgent Int @default(4)
+  weightHigh   Int @default(3)
+  weightNormal Int @default(2)
+  weightLow    Int @default(1)
   createdById String
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
@@ -375,6 +388,8 @@ model Task {
   estimatedHours Float?
   actualHours    Float?
   progress       Int       @default(0)
+  /// 1.23.5: its weight in its project's completion (1–10 points); null = the project's default for its priority.
+  weight         Int?
   /// A milestone: a key date or deliverable of its project (shown on the project dashboard).
   isMilestone    Boolean   @default(false)
   /// Shown on its project's client page (title, status and due date only). Off unless someone who runs

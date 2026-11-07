@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { milestoneCell } from './management-pdf';
+import { doneCell, milestoneCell } from './management-pdf';
+
+// 1.23.5: the Done column says when a project counts completion by weight.
+describe('Management PDF: the Done cell', () => {
+  it('"62%", or "62% by weight"', () => {
+    expect(doneCell({ completionPct: 62, completionBy: 'COUNT' })).toBe('62%');
+    expect(doneCell({ completionPct: 62, completionBy: 'WEIGHT' })).toBe('62% by weight');
+  });
+});
 
 // 1.22.3: the Management PDF names a project's next milestone by its number too, as the page does.
 describe('Management PDF: the next milestone cell', () => {

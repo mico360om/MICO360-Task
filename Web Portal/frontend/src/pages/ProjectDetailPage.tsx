@@ -34,6 +34,7 @@ import { useCurrentProject } from '../components/CurrentProject';
 import { ProjectCompanies } from '../components/company/ProjectCompanies';
 import { ShortcutHint, useShortcut, useShortcutHint } from '../components/shortcuts/ShortcutProvider';
 import { OverviewTab } from '../components/project-dashboard/OverviewTab';
+import { projectCompletion } from '../lib/project-health';
 import { TasksTab, type TaskFilter, type TaskGroup } from '../components/project-dashboard/TasksTab';
 import { MeetingsTab } from '../components/project-dashboard/MeetingsTab';
 import { BoardTab } from '../components/project-dashboard/BoardTab';
@@ -119,6 +120,10 @@ export function ProjectDetailPage() {
       void qc.invalidateQueries({ queryKey: ['columns', id] });
       // Due checks and schedules are tasks too.
       void qc.invalidateQueries({ queryKey: ['project-inspections', id] });
+    }
+    // 1.23.5: the Overview's health, Next actions and Recent activity follow any change in the project.
+    if (any('tasks', 'meetings', 'inspections', 'all')) {
+      for (const root of ['project-health', 'project-next-actions', 'project-activity']) void qc.invalidateQueries({ queryKey: [root, id] });
     }
     if (any('meetings', 'all')) void qc.invalidateQueries({ queryKey: ['meetings', 'project', id] });
     if (any('inspections', 'all')) void qc.invalidateQueries({ queryKey: ['project-inspections', id] });
@@ -230,6 +235,8 @@ export function ProjectDetailPage() {
     [tasksQ.data, columnById],
   );
   const stats = useMemo(() => taskStats(tasks, today, timeZone), [tasks, today, timeZone]);
+  // 1.23.5: completion in the project's own mode (by weight when it counts by weight), both ways.
+  const completion = projectCompletion(tasks, project);
 
   // Tasks grouped by their status column (in board order), plus any orphaned tasks.
   const groups = useMemo<TaskGroup[]>(() => {
@@ -382,11 +389,11 @@ export function ProjectDetailPage() {
         <StatTile label="Completed" value={statsReady ? stats.completed : '—'} tone="success" className={TILE_SPAN[1]} />
         <StatTile label="Ongoing" value={statsReady ? stats.ongoing : '—'} tone="info" className={TILE_SPAN[2]} />
         <StatTile label="Overdue" value={statsReady ? stats.overdue : '—'} tone="danger" className={TILE_SPAN[3]} />
-        <StatTile label="Completion" value={statsReady ? `${stats.pct}%` : '—'} tone="brand" className={TILE_SPAN[4]} />
+        <StatTile label="Completion" value={statsReady ? `${completion.pct}%` : '—'} hint={statsReady && completion.mode === 'WEIGHT' ? `by weight · ${completion.countPct}% by count` : ''} tone="brand" className={TILE_SPAN[4]} />
       </div>
       {/* The completion tile as a bar (its track drawn in the line colour: on the page ground it was invisible). */}
       <div className="mt-3 h-2 overflow-hidden rounded-full bg-line" aria-hidden="true">
-        <div className="h-full rounded-full bg-brand transition-all duration-500" style={{ width: `${stats.pct}%` }} />
+        <div className="h-full rounded-full bg-brand transition-all duration-500" style={{ width: `${completion.pct}%` }} />
       </div>
 
       {/* Tabs */}
@@ -445,6 +452,7 @@ export function ProjectDetailPage() {
               onShow={show}
               onNewMeeting={canSchedule ? () => setNewMeeting(true) : undefined}
               onSummarize={summarizeProject}
+              completion={completion}
             />
           )
         ) : null}

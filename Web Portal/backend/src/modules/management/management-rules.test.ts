@@ -68,6 +68,65 @@ describe('projectRag: red / amber / green with the reasons in words', () => {
     for (const status of ['PLANNING', 'ON_HOLD', 'COMPLETED', 'ARCHIVED'] as const) expect(rag({ status, lastActivityAt: idle }).rag).toBe('GREEN');
   });
 
+  // 1.23.5 Project overview & health: progress against time, blocked work, milestones at risk, workload.
+  it('progress against time: 20+ points behind the time used is amber, 40+ red, in the project’s own completion', () => {
+    expect(rag({ progress: { donePct: 62, timeUsedPct: 85 } })).toMatchObject({ rag: 'AMBER', reasons: [{ code: 'BEHIND', level: 'AMBER', text: '62% done, 85% of the time used' }] });
+    expect(rag({ progress: { donePct: 40, timeUsedPct: 80 } })).toMatchObject({ rag: 'RED', reasons: [{ code: 'FAR_BEHIND', level: 'RED', text: '40% done, 80% of the time used' }] });
+    expect(rag({ progress: { donePct: 66, timeUsedPct: 85 } }).rag).toBe('GREEN');
+    expect(rag({ progress: { donePct: 90, timeUsedPct: 50 } }).rag).toBe('GREEN');
+    expect(rag({ progress: null }).rag).toBe('GREEN');
+  });
+
+  it('blocked over 7 days: one is amber, five or more red', () => {
+    expect(rag({ blockedLong: 1 })).toMatchObject({ rag: 'AMBER', reasons: [{ code: 'BLOCKED', level: 'AMBER', text: '1 task blocked for over 7 days' }] });
+    expect(rag({ blockedLong: 4 }).reasons[0]).toMatchObject({ code: 'BLOCKED', text: '4 tasks blocked for over 7 days' });
+    expect(rag({ blockedLong: 5 })).toMatchObject({ rag: 'RED', reasons: [{ code: 'MANY_BLOCKED', level: 'RED', text: '5 tasks blocked for over 7 days' }] });
+    expect(rag({ blockedLong: 0 }).rag).toBe('GREEN');
+  });
+
+  it('a milestone at risk is amber (one named, several counted)', () => {
+    expect(rag({ milestonesAtRisk: [{ title: 'Handover', daysLeft: 3, open: 4, total: 6 }] })).toMatchObject({
+      rag: 'AMBER',
+      reasons: [{ code: 'MILESTONE_AT_RISK', level: 'AMBER', text: 'Milestone “Handover” is at risk: 4 of 6 linked tasks open, due in 3 days' }],
+    });
+    expect(rag({ milestonesAtRisk: [{ title: 'A', daysLeft: 0, open: 1, total: 1 }] }).reasons[0]!.text).toBe('Milestone “A” is at risk: 1 of 1 linked task open, due today');
+    expect(rag({ milestonesAtRisk: [{ title: 'A', daysLeft: 1, open: 1, total: 2 }] }).reasons[0]!.text).toBe('Milestone “A” is at risk: 1 of 2 linked tasks open, due tomorrow');
+    expect(rag({ milestonesAtRisk: [{ title: 'A', daysLeft: 1, open: 1, total: 1 }, { title: 'B', daysLeft: 5, open: 3, total: 4 }] }).reasons[0]!.text).toBe('2 milestones are at risk');
+  });
+
+  it('workload: one person holding too much of the open work is amber', () => {
+    expect(rag({ workload: { name: 'Omar Ahmed', count: 9, openTotal: 15, pct: 60 } })).toMatchObject({
+      rag: 'AMBER',
+      reasons: [{ code: 'WORKLOAD', level: 'AMBER', text: 'Omar Ahmed holds 9 of 15 open tasks (60%)' }],
+    });
+    expect(rag({ workload: null }).rag).toBe('GREEN');
+  });
+
+  it('every reason, worst first: the red ones, then the amber ones, each in the rule’s order', () => {
+    const r = rag({
+      open: 20,
+      late: 2,
+      lateMilestones: [{ title: 'Handover', daysLate: 2 }],
+      progress: { donePct: 30, timeUsedPct: 75 },
+      blockedLong: 2,
+      milestonesAtRisk: [{ title: 'Design', daysLeft: 2, open: 2, total: 3 }],
+      workload: { name: 'Sara', count: 9, openTotal: 20, pct: 45 },
+      missingChecks: 1,
+      lastActivityAt: new Date('2026-09-01T05:00:00.000Z'),
+    });
+    expect(r.rag).toBe('RED');
+    expect(r.reasons.map((x) => [x.code, x.level])).toEqual([
+      ['MILESTONE_LATE', 'RED'],
+      ['FAR_BEHIND', 'RED'],
+      ['LATE_TASKS', 'AMBER'],
+      ['BLOCKED', 'AMBER'],
+      ['MILESTONE_AT_RISK', 'AMBER'],
+      ['WORKLOAD', 'AMBER'],
+      ['MISSING_CHECKS', 'AMBER'],
+      ['NO_ACTIVITY', 'AMBER'],
+    ]);
+  });
+
   it('lists every reason that applies, the red ones first', () => {
     const r = rag({ open: 20, late: 2, missingChecks: 4, lateMilestones: [{ title: 'Handover', daysLate: 2 }], lastActivityAt: new Date('2026-09-01T05:00:00.000Z') });
     expect(r.rag).toBe('RED');

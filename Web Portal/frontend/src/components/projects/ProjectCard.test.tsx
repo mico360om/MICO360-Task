@@ -3,13 +3,13 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { ProjectCard, type ProjectCardProps } from './ProjectCard';
-import type { ProjectOverview, ProjectStats } from '../../api/projects';
+import type { ProjectOverviewWithHealth, ProjectStats } from '../../api/projects';
 
 const NOW = new Date('2026-10-23T10:00:00Z'); // Friday, 14:00 in Muscat
 const TODAY = '2026-10-23';
 const person = (id: string, name: string) => ({ id, name, avatarUrl: null });
 
-function project(extra: Partial<Omit<ProjectOverview, 'stats'>> & { stats?: Partial<ProjectStats> } = {}): ProjectOverview {
+function project(extra: Partial<Omit<ProjectOverviewWithHealth, 'stats'>> & { stats?: Partial<ProjectStats> } = {}): ProjectOverviewWithHealth {
   const { stats, ...rest } = extra;
   return {
     id: 'p1',
@@ -178,5 +178,51 @@ describe('ProjectCard', () => {
     const link = screen.getByRole('link', { name: 'Rig Inspection Portal' });
     expect(within(link).queryAllByRole('button')).toHaveLength(0);
     expect(link.closest('button')).toBeNull();
+  });
+});
+
+describe('ProjectCard — 1.23.5 health', () => {
+  const health = {
+    rag: 'RED' as const,
+    reasons: [
+      { code: 'MILESTONE_LATE' as const, level: 'RED' as const, text: 'Milestone “Handover” is 3 days late' },
+      { code: 'BLOCKED' as const, level: 'AMBER' as const, text: '1 task blocked for over 7 days' },
+    ],
+    completion: { mode: 'WEIGHT' as const, pct: 71, countPct: 63, weightPct: 71 },
+    topRisk: { code: 'MILESTONE_LATE', level: 'RED' as const, title: 'Milestone “Handover” is 3 days late' },
+    riskCount: 3,
+    accountable: { id: 'u2', name: 'Omar Said', avatarUrl: null, role: 'MANAGER' as const },
+  };
+
+  it('a badge — dot and word — whose reasons show on hover, on a tap and to screen readers', async () => {
+    renderCard({ project: project({ health }) });
+    const badge = screen.getByRole('button', { name: /^Health: Red — Milestone “Handover” is 3 days late; 1 task blocked for over 7 days/ });
+    expect(badge).toHaveTextContent('Red');
+    expect(badge).toHaveAttribute('title', 'Health: Red — Milestone “Handover” is 3 days late; 1 task blocked for over 7 days');
+    await userEvent.click(badge);
+    const panel = screen.getByRole('dialog', { name: 'Health · Red' });
+    expect(within(panel).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['Milestone “Handover” is 3 days late', '1 task blocked for over 7 days']);
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('completion by weight when the project counts so, the worst risk in one line, and who is accountable', () => {
+    renderCard({ project: project({ health }) });
+    expect(screen.getByTestId('project-progress')).toHaveTextContent('71% by weight · 25 of 40 tasks');
+    expect(screen.getByTestId('project-risk')).toHaveTextContent('Top risk: Milestone “Handover” is 3 days late+2');
+    expect(screen.getByTestId('project-owner')).toHaveTextContent('Manager · Omar Said');
+  });
+
+  it('a project counting by number keeps its count; no risk, no line; the owner when no one manages it', () => {
+    renderCard({ project: project({ health: { ...health, rag: 'GREEN', reasons: [{ code: 'ON_TRACK', level: 'GREEN', text: 'On track' }], completion: { mode: 'COUNT', pct: 63, countPct: 63, weightPct: 70 }, topRisk: null, riskCount: 0, accountable: { id: 'u1', name: 'Sara Ahmed', avatarUrl: null, role: 'OWNER' } } }) });
+    expect(screen.getByTestId('project-progress')).toHaveTextContent('63% done · 25 of 40 tasks');
+    expect(screen.queryByTestId('project-risk')).toBeNull();
+    expect(screen.getByTestId('project-owner')).toHaveTextContent('Owner · Sara Ahmed');
+    expect(screen.getByRole('button', { name: /^Health: Green — On track/ })).toBeInTheDocument();
+  });
+
+  it('without health (an older server, or it couldn’t be worked out): no badge, as before', () => {
+    renderCard();
+    expect(document.querySelector('[data-health-badge]')).toBeNull();
   });
 });

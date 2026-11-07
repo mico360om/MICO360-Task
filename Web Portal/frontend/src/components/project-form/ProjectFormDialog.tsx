@@ -5,6 +5,8 @@ import { projectsApi, projectStatusLabel, type ApiProject, type NewProjectInput,
 import { usersApi } from '../../api/users';
 import { systemSettingsApi, type ApiSetting } from '../../api/system-settings';
 import type { Priority } from '../../api/tasks';
+import type { CompletionMode } from '../../api/projects';
+import { WEIGHT_DEFAULTS } from '../../lib/project-health';
 import { ApiError } from '../../lib/api-client';
 import { useAuthStore } from '../../stores/auth-store';
 import { codeProblem, suggestCode } from '../../lib/project-icons';
@@ -53,7 +55,22 @@ interface Draft {
   carryForward: boolean;
   defaultDueToday: boolean;
   newTasksNeedApproval: boolean;
+  /** 1.23.5: "Count completion by", and a task's weight by priority when it has none of its own. */
+  completionMode: CompletionMode;
+  weightUrgent: number;
+  weightHigh: number;
+  weightNormal: number;
+  weightLow: number;
 }
+
+/** 1.23.5: the four defaults by priority, in the form's order. */
+const WEIGHT_FIELDS = [
+  { key: 'weightUrgent', label: 'Urgent' },
+  { key: 'weightHigh', label: 'High' },
+  { key: 'weightNormal', label: 'Normal' },
+  { key: 'weightLow', label: 'Low' },
+] as const;
+const WEIGHT_OPTIONS = Array.from({ length: 10 }, (_, i) => ({ value: String(i + 1), label: `${i + 1} ${i ? 'points' : 'point'}` }));
 
 /** A project's draft; a new one is owned by the person creating it unless they pick someone else. */
 const draftOf = (p?: ApiProject | null, newOwner = ''): Draft => ({
@@ -71,6 +88,11 @@ const draftOf = (p?: ApiProject | null, newOwner = ''): Draft => ({
   carryForward: p?.carryForward ?? true,
   defaultDueToday: p?.defaultDueToday ?? false,
   newTasksNeedApproval: p?.newTasksNeedApproval ?? false,
+  completionMode: p?.completionMode ?? 'COUNT',
+  weightUrgent: p?.weightUrgent ?? WEIGHT_DEFAULTS.URGENT,
+  weightHigh: p?.weightHigh ?? WEIGHT_DEFAULTS.HIGH,
+  weightNormal: p?.weightNormal ?? WEIGHT_DEFAULTS.NORMAL,
+  weightLow: p?.weightLow ?? WEIGHT_DEFAULTS.LOW,
 });
 
 /** Off for the whole company? Read as the server reads it (an old stored "false" is off too). */
@@ -94,6 +116,8 @@ function changes(before: Draft, after: Draft): Partial<NewProjectInput> {
   if (after.carryForward !== before.carryForward) patch.carryForward = after.carryForward;
   if (after.defaultDueToday !== before.defaultDueToday) patch.defaultDueToday = after.defaultDueToday;
   if (after.newTasksNeedApproval !== before.newTasksNeedApproval) patch.newTasksNeedApproval = after.newTasksNeedApproval;
+  if (after.completionMode !== before.completionMode) patch.completionMode = after.completionMode;
+  for (const { key } of WEIGHT_FIELDS) if (after[key] !== before[key]) patch[key] = after[key];
   return patch;
 }
 
@@ -187,7 +211,7 @@ export function ProjectFormDialog({ project, onClose, onSaved, templateId }: { p
   useEffect(() => {
     if (banner) bannerRef.current?.scrollIntoView?.({ block: 'nearest' });
   }, [banner]);
-  const ids = { title: useId(), name: useId(), code: useId(), codeNote: useId(), client: useId(), clients: useId(), number: useId(), numberNote: useId(), desc: useId(), owner: useId(), handover: useId(), team: useId(), teamNote: useId(), carryHelp: useId(), carryOff: useId(), dueHelp: useId(), approvalHelp: useId() };
+  const ids = { title: useId(), name: useId(), code: useId(), codeNote: useId(), client: useId(), clients: useId(), number: useId(), numberNote: useId(), desc: useId(), owner: useId(), handover: useId(), team: useId(), teamNote: useId(), carryHelp: useId(), carryOff: useId(), dueHelp: useId(), approvalHelp: useId(), completionHelp: useId() };
 
   const dirty = image.kind !== 'keep' || teamIds.length > 0 || companiesChanged || JSON.stringify(template) !== openedWith.current || JSON.stringify(draft) !== JSON.stringify(initial);
   const requestClose = () => {
@@ -368,6 +392,9 @@ export function ProjectFormDialog({ project, onClose, onSaved, templateId }: { p
             ...(draft.carryForward ? {} : { carryForward: false }),
             ...(draft.defaultDueToday ? { defaultDueToday: true } : {}),
             ...(draft.newTasksNeedApproval ? { newTasksNeedApproval: true } : {}),
+            // 1.23.5: by weight, and any default changed from 4/3/2/1.
+            ...(draft.completionMode === 'WEIGHT' ? { completionMode: 'WEIGHT' as const } : {}),
+            ...Object.fromEntries(WEIGHT_FIELDS.filter(({ key }) => draft[key] !== draftOf()[key]).map(({ key }) => [key, draft[key]])),
           };
           // From a template: the project, its board, its tasks and its team in one request.
           created = template
@@ -704,6 +731,36 @@ export function ProjectFormDialog({ project, onClose, onSaved, templateId }: { p
           describedBy={ids.approvalHelp}
         />
       </div>
+      {/* 1.23.5: how its completion is counted — the number of tasks, or their weight (defaults by priority). */}
+      <fieldset className="border-t border-line py-2.5" aria-describedby={ids.completionHelp}>
+        <legend className="float-left w-full text-sm font-medium text-ink">Count completion by</legend>
+        <p id={ids.completionHelp} className="clear-left text-xs text-ink-2">
+          By weight, a task counts its points (1–10) instead of one each — give milestones and big jobs more. A task without its own weight counts its priority’s default.
+        </p>
+        <div className="mt-2 inline-flex rounded-lg border border-line p-0.5" role="radiogroup" aria-label="Count completion by">
+          {(['COUNT', 'WEIGHT'] as const).map((mode) => (
+            <label
+              key={mode}
+              className={`inline-flex cursor-pointer items-center rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus-within:ring-2 focus-within:ring-brand/40 ${TOUCH_TALL} ${
+                draft.completionMode === mode ? 'bg-brand text-white' : 'text-ink-2 hover:text-ink'
+              }`}
+            >
+              <input type="radio" name={ids.completionHelp} value={mode} checked={draft.completionMode === mode} onChange={() => set({ completionMode: mode })} className="sr-only" />
+              {mode === 'COUNT' ? 'Number of tasks' : 'Weight'}
+            </label>
+          ))}
+        </div>
+        {draft.completionMode === 'WEIGHT' ? (
+          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4" role="group" aria-label="Default weight by priority">
+            {WEIGHT_FIELDS.map(({ key, label }) => (
+              <div key={key} className="min-w-0">
+                <div className="mb-1 text-xs font-medium text-ink-2">{label}</div>
+                <SearchableSelect ariaLabel={`Default weight for ${label.toLowerCase()} priority`} options={WEIGHT_OPTIONS} value={String(draft[key])} onChange={(v) => set({ [key]: Number(v) } as Partial<Draft>)} />
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </fieldset>
     </fieldset>
   );
 

@@ -82,6 +82,55 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   limited (one a minute, five an hour; five wrong codes end a sign-in, ten an hour per account). Codes,
   tokens and links are never written to a log.
 
+## [1.23.5] - 2026-11-07
+
+### New features
+- Project health (1.23.5): every project now has one health mark — Red, Amber or Green, with a dot —
+  worked out by one fixed rule that the Projects page, the project page and the Management page (and its
+  PDF and weekly email) all share, its reasons always shown. Besides late tasks, late milestones, missing
+  checks and a quiet project (as before), it now also looks at progress against time ("62% done, 85% of
+  the time used": 20+ points behind is Amber, 40+ Red), tasks blocked for over 7 days (a Blocked column, or
+  waiting on a task that is itself late — planned sequences don't count; 5 or more is Red), milestones at
+  risk (due within 7 days with half or more of the work they wait on still open) and one person holding
+  40% or more of the open work (8+ tasks; teams of two or fewer don't count).
+- Projects page cards show the health mark (its reasons on hover or a tap), the worst risk in one line,
+  and who is accountable — the project's manager (else its owner) — with their face.
+- The project page's Overview tab has five new cards: Health (the mark with every reason, and completion),
+  Risks (spotted automatically, each with a short explanation and who is accountable: a milestone's
+  people, the project manager, the people a blocked or late task is assigned to, or the owner of a quiet
+  project — first 5, then "Show all"), Next actions (the project's next things to do — late, blocked, due
+  within 7 days, or dated with no one assigned — in the Dashboard's order, with its Complete, Reschedule,
+  Assign and Open buttons; first 7, then "Show all"), Recent activity (the last 10 changes) and
+  Accountable owners (the owner, the managers and each open milestone's people).
+- Completion by weight: in a project's Edit form, "Count completion by: Number of tasks | Weight". By
+  weight, each task counts its points (1–10) instead of one each — give milestones and big jobs more; a
+  task without its own weight counts its priority's default (Urgent 4, High 3, Normal 2, Low 1, changeable
+  per project). The task form, the task panel and the Table view (a Weight column you can change in place)
+  show the weight for such projects. Their completion then counts by weight on the cards, the project page
+  ("62% by weight · 70% by count"), the Timeline, the Management page and its PDF, Reports, the Dashboard's
+  completion chart, the Client portal and the client page (never 100% until every task is done). Nothing
+  changes until a project switches. Next actions also list your own checklist items there that are late or
+  due within 3 days.
+- Kanban Board: Month view. Beside Board | Table, choose **Day** (the board's day, exactly as before) or
+  **Month**, on the Kanban Board page (one project or All projects) and on a project's Board tab. Month
+  shows a month's tasks: every month from a task's start date to its due date (only a due date: that
+  month; only a start date: from then on while it's open), finished tasks in the month they were
+  finished, and open tasks overdue from an earlier month also in this month, marked "Overdue · from
+  Oct". Tasks without dates are left out — "No date (12)" adds them. ‹ and › step a month, the month and
+  year lists jump anywhere, "This month" comes back; the month is in the address (…?month=2026-11) so a
+  link opens it, and the board remembers Day or Month and the month for you on this device (the Kanban
+  Board page and project Board tabs each their own). Cards show their dates in the month ("5–20 Nov",
+  "Due 18 Nov", "From 5 Nov", "Done 3 Nov"); column counts are the month's. Dragging cards, changing
+  status, approvals, New task, the filters, live updates and read-only archived projects work as before,
+  and dragging never changes dates. A new task that falls in another month — or a task finished while
+  you look at an earlier month — says so ("Saved — it's in Dec") with a link to that month. Repeating
+  tasks show once their next copy is made (the Calendar shows the copies to come). Months follow the
+  company time zone.
+
+### Improvements
+- On a phone, the view switches (Board | Table, List | Table, Day | Month) are full-size touch targets:
+  44 px wide as well as tall.
+
 ## [1.23.4] - 2026-11-07
 
 ### New features

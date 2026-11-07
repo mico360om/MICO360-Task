@@ -1,4 +1,5 @@
 import type { PrismaClient } from '@prisma/client';
+import { createCompletionCounts } from '../project-health/completion-counts';
 import { normalizeFinalMinutes, type FinalMinutesContent } from '../meetings/final-minutes';
 import type { ClientMinutesSource, ClientProjectSource, ClientTaskSource } from './client-view-payload';
 import { nameVariants, type PersonName } from './client-minutes-content';
@@ -102,14 +103,8 @@ export function createPrismaClientViewSource(prisma: PrismaClient): ClientViewSo
       // companies: archived by its own status or by all its companies.
       return { ...look, archived: archivedOf({ status: p.status, companies }), gone: deletedAt !== null };
     },
-    async counts(projectId) {
-      const live = { projectId, deletedAt: null };
-      const [total, done] = await Promise.all([
-        prisma.task.count({ where: live }),
-        prisma.task.count({ where: { ...live, OR: [{ completedAt: { not: null } }, { column: { category: 'DONE' } }] } }),
-      ]);
-      return { total, done };
-    },
+    // 1.23.5: in the project's own mode (by weight when it counts by weight).
+    counts: createCompletionCounts(prisma),
     async items(projectId) {
       const rows = await prisma.task.findMany({
         where: { projectId, deletedAt: null, clientVisible: true },

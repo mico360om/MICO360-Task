@@ -1047,3 +1047,47 @@ describe('New task form: two columns from 1024px (1.22)', () => {
     expect(screen.getByLabelText(/^description/i).compareDocumentPosition(screen.getByRole('button', { name: 'Priority' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
+
+describe('1.23.5 the task’s weight (projects counting completion by weight)', () => {
+  const weighed = () => (override = (u) => (u.endsWith('/projects') ? json({ data: PROJECTS.map((p) => (p.id === 'p1' ? { ...p, completionMode: 'WEIGHT', weightNormal: 2, weightHigh: 5 } : p)) }) : undefined));
+
+  it('a new task in such a project: the Weight field, its default named by the priority; the points chosen are sent', async () => {
+    weighed();
+    renderDialog({ projectId: 'p1' });
+    await ready();
+    expect(screen.getByRole('button', { name: 'Weight' })).toHaveTextContent('Default (2)');
+    await pick('Priority', 'High');
+    expect(screen.getByRole('button', { name: 'Weight' })).toHaveTextContent('Default (5)');
+    await pick('Weight', '8 points');
+    await userEvent.type(screen.getByLabelText(/^task title/i), 'Pour slab');
+    await userEvent.click(screen.getByRole('button', { name: 'Create task' }));
+    await waitFor(() => expect(posts()).toHaveLength(1));
+    expect(posts()[0]!.body).toMatchObject({ title: 'Pour slab', priority: 'HIGH', weight: 8 });
+  });
+
+  it('left on the default: no weight is sent (the project’s default for its priority counts)', async () => {
+    weighed();
+    renderDialog({ projectId: 'p1' });
+    await ready();
+    await userEvent.type(screen.getByLabelText(/^task title/i), 'Plain');
+    await userEvent.click(screen.getByRole('button', { name: 'Create task' }));
+    await waitFor(() => expect(posts()).toHaveLength(1));
+    expect(posts()[0]!.body).not.toHaveProperty('weight');
+  });
+
+  it('a project counting by number shows no Weight field', async () => {
+    renderDialog({ projectId: 'p1' });
+    await ready();
+    expect(screen.queryByRole('button', { name: 'Weight' })).toBeNull();
+  });
+
+  it('editing: a changed weight is saved, back to the default as none', async () => {
+    weighed();
+    renderDialog({ task: { ...TASK, weight: 3 } });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Weight' })).toHaveTextContent('3 points'));
+    await pick('Weight', 'Default (2)');
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(calls.find((c) => c.method === 'PUT')).toBeTruthy());
+    expect(calls.find((c) => c.method === 'PUT')!.body).toEqual({ weight: null, expectedVersion: 7 });
+  });
+});

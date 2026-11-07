@@ -7,6 +7,8 @@ export interface ProjectPerformanceRow {
   completed: number;
   overdue: number;
   completionPct: number;
+  /** 1.23.5: how the project counts its completion (an older server sends none: by number). */
+  completionBy?: 'COUNT' | 'WEIGHT';
 }
 
 export interface UserWorkloadRow {

@@ -1,4 +1,5 @@
 import type { Prisma, PrismaClient } from '@prisma/client';
+import { healthReads } from '../project-health/prisma-health-source';
 import { TIMELINE_TASK_LIMIT, type TimelineMilestoneRow, type TimelinePerson, type TimelineRows, type TimelineSource, type TimelineTaskRow } from './timeline';
 
 const personFields = { id: true, firstName: true, lastName: true, username: true, avatarUrl: true } as const;
@@ -37,6 +38,8 @@ export function createPrismaTimelineSource(prisma: PrismaClient): TimelineSource
       const inProjects = { deletedAt: null, projectId: { in: projectIds } };
       const milestone = { ...inProjects, isMilestone: true };
       const meeting = { projectId: { in: projectIds }, deletedAt: null, status: { not: 'CANCELLED' as const } };
+      // 1.23.5: the weights (the project health's own read: MariaDB-safe, in the start-up check).
+      const weightRows = await healthReads(prisma).figures(projectIds);
       const [totals, openByDue, waitingByDue, shown, firstDue, soon, counts, meetings, thisWeek, owners] = await Promise.all([
         // Every live task, with the dates a project without its own takes from them (done tasks too).
         prisma.task.groupBy({ by: ['projectId'], where: inProjects, _count: { _all: true }, _min: { startDate: true, dueDate: true }, _max: { dueDate: true } }),
@@ -69,6 +72,7 @@ export function createPrismaTimelineSource(prisma: PrismaClient): TimelineSource
       ]);
       return {
         totals: totals.map((t) => ({ projectId: t.projectId, total: t._count._all })),
+        weights: weightRows.map((f) => ({ projectId: f.projectId, weightTotal: Number(f.weightTotal ?? 0), weightDone: Number(f.weightDone ?? 0) })),
         taskDates: totals.map((t) => ({ projectId: t.projectId, minStart: t._min.startDate ?? null, minDue: t._min.dueDate ?? null, maxDue: t._max.dueDate ?? null })),
         openByDue: openByDue.map((g) => ({ projectId: g.projectId, dueDate: g.dueDate, count: g._count._all })),
         waitingByDue: waitingByDue.map((g) => ({ projectId: g.projectId, dueDate: g.dueDate, count: g._count._all })),

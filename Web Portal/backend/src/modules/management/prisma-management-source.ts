@@ -93,6 +93,16 @@ export function createPrismaManagementSource(prisma: PrismaClient, timeZone: str
       return rows.map(({ companies, ...p }) => ({ ...p, status: (archivedOf({ status: p.status, companies }) ? 'ARCHIVED' : p.status) as ProjectStatus }));
     },
 
+    async projectsByIds(ids) {
+      if (ids.length === 0) return [];
+      const rows = await prisma.project.findMany({
+        where: { id: { in: ids }, deletedAt: null },
+        select: { id: true, code: true, name: true, status: true, color: true, icon: true, imageUrl: true, ownerId: true, managerId: true, updatedAt: true, companies: ARCHIVE_SELECT.companies },
+        orderBy: { name: 'asc' },
+      });
+      return rows.map(({ companies, ...p }) => ({ ...p, status: (archivedOf({ status: p.status, companies }) ? 'ARCHIVED' : p.status) as ProjectStatus }));
+    },
+
     async runCount(userId) {
       return prisma.project.count({ where: { deletedAt: null, ...managedVisibleWhere(userId) } });
     },

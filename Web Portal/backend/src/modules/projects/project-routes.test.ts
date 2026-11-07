@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { buildApp } from '../../app';
+import { buildApp, type AppDeps } from '../../app';
 import { createProjectService } from './project-service';
 import { createTokenService } from '../auth/token-service';
 import { createAuthService } from '../auth/auth-service';
@@ -48,6 +48,11 @@ function inMemoryRepo(): ProjectRepository {
         // Stored as given: the service fills in what a new project starts with.
         carryForward: data.carryForward as boolean,
         defaultDueToday: data.defaultDueToday as boolean,
+        completionMode: data.completionMode ?? 'COUNT',
+        weightUrgent: data.weightUrgent ?? 4,
+        weightHigh: data.weightHigh ?? 3,
+        weightNormal: data.weightNormal ?? 2,
+        weightLow: data.weightLow ?? 1,
         createdById: data.createdById,
         createdAt: now,
         updatedAt: now,
@@ -108,8 +113,33 @@ async function makeApp() {
     },
     async list() { return auditRecords; },
   } as unknown as AuditService;
-  return buildApp({ authService, tokenService, projectService, taskService, auditService, projectOverview: overviewSource, appConfig: { timeZone: 'Asia/Muscat', productName: 'MICO360 Tasks', companyName: 'MICO360' } });
+  return buildApp({
+    authService,
+    tokenService,
+    projectService,
+    taskService,
+    auditService,
+    projectOverview: overviewSource,
+    projectHealth: healthStub,
+    appConfig: { timeZone: 'Asia/Muscat', productName: 'MICO360 Tasks', companyName: 'MICO360' },
+  });
 }
+
+// 1.23.5: the cards' health (a stub: what it was asked, what it answers, whether it fails).
+let healthAsked: string[][] = [];
+let healthChanged: (string | null | undefined)[] = [];
+let healthFails = false;
+const CARD = { rag: 'AMBER', reasons: [{ code: 'BLOCKED', level: 'AMBER', text: '1 task blocked for over 7 days' }], completion: { mode: 'WEIGHT', pct: 62, countPct: 70, weightPct: 62 }, topRisk: null, riskCount: 0, accountable: null };
+const healthStub = {
+  async cards(ids: string[]) {
+    healthAsked.push(ids);
+    if (healthFails) throw new Error('database down');
+    return new Map(ids.slice(0, 1).map((id) => [id, CARD]));
+  },
+  async detail() { return null; },
+  async nextActions() { return null; },
+  changed(id?: string | null) { healthChanged.push(id); },
+} as unknown as NonNullable<AppDeps['projectHealth']>;
 
 async function createProject(): Promise<string> {
   const res = await app.inject({
@@ -134,6 +164,9 @@ beforeEach(async () => {
   auditRecords = [];
   overviewCalls = [];
   overviewRows = { totals: [], openByDue: [], members: [], owners: [] };
+  healthAsked = [];
+  healthChanged = [];
+  healthFails = false;
   app = await makeApp();
 });
 
@@ -318,6 +351,26 @@ describe('Project task settings (carry-forward, due today)', () => {
     expect(off.json().data).toMatchObject({ name: 'Kept', carryForward: false, defaultDueToday: true });
   });
 
+  it('1.23.5: counts completion by the number of tasks unless told to count by weight; defaults Urgent 4, High 3, Normal 2, Low 1', async () => {
+    const plain = await post({ code: 'CNT', name: 'Count' });
+    expect(plain.json().data).toMatchObject({ completionMode: 'COUNT', weightUrgent: 4, weightHigh: 3, weightNormal: 2, weightLow: 1 });
+    const id = plain.json().data.id;
+    const weighed = await put(id, { completionMode: 'WEIGHT', weightUrgent: 10, weightLow: 1 });
+    expect(weighed.statusCode).toBe(200);
+    expect(weighed.json().data).toMatchObject({ completionMode: 'WEIGHT', weightUrgent: 10, weightHigh: 3, weightNormal: 2, weightLow: 1 });
+    // An update without them (the Android app) keeps them.
+    expect((await put(id, { name: 'Renamed' })).json().data).toMatchObject({ completionMode: 'WEIGHT', weightUrgent: 10 });
+    const made = await post({ code: 'WGT', name: 'Weighed', completionMode: 'WEIGHT', weightHigh: 5 });
+    expect(made.json().data).toMatchObject({ completionMode: 'WEIGHT', weightHigh: 5 });
+  });
+
+  it('1.23.5: refuses a mode other than COUNT or WEIGHT, and defaults outside 1–10', async () => {
+    const id = (await post({ code: 'RNG', name: 'Range' })).json().data.id;
+    expect((await put(id, { completionMode: 'HOURS' })).statusCode).toBe(400);
+    for (const bad of [0, 11, 1.5, '4', null]) expect((await put(id, { weightNormal: bad })).statusCode).toBe(400);
+    expect((await post({ code: 'RNG2', name: 'Range 2', weightUrgent: 12 })).statusCode).toBe(400);
+  });
+
   it('accepts only true or false', async () => {
     const id = (await post({ code: 'BOOL', name: 'Bool' })).json().data.id;
     expect((await put(id, { carryForward: 'no' })).statusCode).toBe(400);
@@ -382,6 +435,33 @@ describe('Projects overview (GET /projects/overview)', () => {
     expect(res.json().data.map((p: { code: string; mine: boolean }) => [p.code, p.mine])).toEqual([['MINE', true]]);
     expect(overviewCalls).toHaveLength(1);
     expect(overviewCalls[0]!.projectIds).toHaveLength(1);
+  });
+
+  it('1.23.5: each card carries its health, worked out in one batch for the projects shown', async () => {
+    const a = (await app.inject({ method: 'POST', url: '/api/v1/projects', headers: await admin(), payload: { code: 'HLT', name: 'Health' } })).json().data.id;
+    const b = (await app.inject({ method: 'POST', url: '/api/v1/projects', headers: await admin(), payload: { code: 'NOH', name: 'No health' } })).json().data.id;
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/overview', headers: await admin() });
+    expect(healthAsked).toEqual([expect.arrayContaining([a, b])]);
+    const byId = Object.fromEntries(res.json().data.map((p: { id: string }) => [p.id, p]));
+    const first = healthAsked[0]![0]!;
+    expect(byId[first].health).toEqual(CARD);
+    expect(byId[first === a ? b : a]).not.toHaveProperty('health');
+  });
+
+  it('1.23.5: when health can’t be worked out the cards come without it, never without their projects', async () => {
+    await app.inject({ method: 'POST', url: '/api/v1/projects', headers: await admin(), payload: { code: 'DWN', name: 'Down' } });
+    healthFails = true;
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/overview', headers: await admin() });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data).toHaveLength(1);
+    expect(res.json().data[0]).not.toHaveProperty('health');
+  });
+
+  it('1.23.5: editing or archiving a project reads its health again', async () => {
+    const id = (await app.inject({ method: 'POST', url: '/api/v1/projects', headers: await admin(), payload: { code: 'EDT', name: 'Edit' } })).json().data.id;
+    await app.inject({ method: 'PUT', url: `/api/v1/projects/${id}`, headers: await admin(), payload: { completionMode: 'WEIGHT' } });
+    await app.inject({ method: 'POST', url: `/api/v1/projects/${id}/archive`, headers: await admin() });
+    expect(healthChanged).toEqual([id, id]);
   });
 
   it('refuses a request without a sign-in (401)', async () => {

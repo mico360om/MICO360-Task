@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import type { HealthRow, ItemQuery, RagReason } from '../../api/management';
+import type { HealthRow, HealthRowWeighed, ItemQuery, RagReason } from '../../api/management';
 import { ProjectAvatar } from '../ProjectAvatar';
 import { EmptyState } from '../ui/EmptyState';
 import { STATUS_LABEL, idleText, milestoneText } from '../../lib/management';
@@ -82,13 +82,15 @@ function Reasons({ row, onOpen }: { row: HealthRow; onOpen: OpenList }) {
   );
 }
 
-function DoneBar({ pct }: { pct: number }) {
+function DoneBar({ pct, byWeight = false }: { pct: number; byWeight?: boolean }) {
   return (
-    <span className="flex items-center gap-2">
+    <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
       <span className="w-9 text-end tabular-nums text-ink">{pct}%</span>
       <span aria-hidden="true" className="h-1.5 w-14 overflow-hidden rounded-full bg-ground">
         <span className="block h-full rounded-full bg-success" style={{ width: `${pct}%` }} />
       </span>
+      {/* 1.23.5: a project counting its completion by weight says so. */}
+      {byWeight ? <span className="w-full text-[11px] text-ink-2">by weight</span> : null}
     </span>
   );
 }
@@ -202,7 +204,7 @@ export function HealthSection({
                   <tr key={r.id} className="border-b border-line align-top last:border-0">
                     <td className="px-2 py-2.5"><RagMark rag={r.rag} /></td>
                     <td className="max-w-[16rem] px-2 py-2">{name(r)}</td>
-                    <td className="px-2 py-2.5"><DoneBar pct={r.completionPct} /></td>
+                    <td className="px-2 py-2.5"><DoneBar pct={r.completionPct} byWeight={(r as HealthRowWeighed).completionBy === 'WEIGHT'} /></td>
                     <td className="px-2 py-1.5 text-center">{late(r)}</td>
                     <td className="max-w-[12rem] px-2 py-2"><Milestone row={r} onOpen={onOpen} onOpenTask={onOpenTask} /></td>
                     <td className="px-2 py-1.5 text-center">{missing(r)}</td>
@@ -224,7 +226,7 @@ export function HealthSection({
                 <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
                   <div>
                     <dt className="text-xs text-ink-3">Done</dt>
-                    <dd><DoneBar pct={r.completionPct} /></dd>
+                    <dd><DoneBar pct={r.completionPct} byWeight={(r as HealthRowWeighed).completionBy === 'WEIGHT'} /></dd>
                   </div>
                   <div>
                     <dt className="text-xs text-ink-3">Last activity</dt>

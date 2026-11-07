@@ -887,3 +887,23 @@ describe('TaskDrawer — clients (1.23)', () => {
     expect(screen.getByRole('checkbox', { name: 'Also show its description' })).not.toBeChecked();
   });
 });
+
+describe('TaskDrawer — 1.23.5 weight', () => {
+  const weighed = { id: 'p1', name: 'Rig', color: '#8B1E1E', icon: null, imageUrl: null, completionMode: 'WEIGHT' as const, weightUrgent: 4, weightHigh: 3, weightNormal: 2, weightLow: 1 };
+
+  it('a project counting by weight shows the Weight field; a change is saved, the default as none', async () => {
+    const onSaveEdit = vi.fn(async () => {});
+    render(<TaskDrawer task={{ ...task, priority: 'HIGH', weight: null }} project={weighed} checklist={[]} comments={[]} onSaveEdit={onSaveEdit} onClose={vi.fn()} />);
+    const field = screen.getByRole('combobox', { name: 'Weight' });
+    expect(field).toHaveDisplayValue('Default (3)');
+    await userEvent.selectOptions(field, '7');
+    expect(onSaveEdit).toHaveBeenLastCalledWith({ weight: 7 }, undefined);
+    await userEvent.selectOptions(field, '');
+    expect(onSaveEdit).toHaveBeenLastCalledWith({ weight: null }, undefined);
+  });
+
+  it('a project counting by number shows none', () => {
+    render(<TaskDrawer task={task} project={{ ...weighed, completionMode: 'COUNT' }} checklist={[]} comments={[]} onSaveEdit={vi.fn()} onClose={vi.fn()} />);
+    expect(screen.queryByRole('combobox', { name: 'Weight' })).toBeNull();
+  });
+});

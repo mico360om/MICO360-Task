@@ -52,6 +52,7 @@ function inMemory(stores: { tags?: TagRepository; links?: Set<string>; dueToday?
         actualHours: null,
         progress: data.progress ?? 0,
         isMilestone: data.isMilestone ?? false,
+        weight: data.weight ?? null,
         createdById: data.createdById,
         completedAt: data.completedAt ?? null,
         boardDate: data.boardDate ?? null,
@@ -239,6 +240,26 @@ describe('Task routes', () => {
     expect(off.json().data.isMilestone).toBe(false);
     const bad = await app.inject({ method: 'PUT', url: `/api/v1/tasks/${id}`, headers, payload: { isMilestone: 'yes' } });
     expect(bad.statusCode).toBe(400);
+  });
+
+  it('1.23.5: a task’s weight is 1–10 points, or none (the project’s default for its priority)', async () => {
+    const headers = { authorization: `Bearer ${await token(['EMPLOYEE'])}` };
+    const made = await app.inject({ method: 'POST', url: '/api/v1/tasks', headers, payload: { title: 'Pour slab', projectId: 'p1', columnId: 'c1', weight: 8 } });
+    expect(made.statusCode).toBe(201);
+    expect(made.json().data.weight).toBe(8);
+    const id = made.json().data.id;
+    const cleared = await app.inject({ method: 'PUT', url: `/api/v1/tasks/${id}`, headers, payload: { weight: null } });
+    expect(cleared.statusCode).toBe(200);
+    expect(cleared.json().data.weight).toBeNull();
+    const set = await app.inject({ method: 'PUT', url: `/api/v1/tasks/${id}`, headers, payload: { weight: 10 } });
+    expect(set.json().data.weight).toBe(10);
+    // The live database doesn't refuse odd values: the server does.
+    for (const weight of [0, 11, 2.5, -1, '3']) {
+      expect((await app.inject({ method: 'PUT', url: `/api/v1/tasks/${id}`, headers, payload: { weight } })).statusCode).toBe(400);
+      expect((await app.inject({ method: 'POST', url: '/api/v1/tasks', headers, payload: { title: 'X', projectId: 'p1', columnId: 'c1', weight } })).statusCode).toBe(400);
+    }
+    const plain = await app.inject({ method: 'POST', url: '/api/v1/tasks', headers, payload: { title: 'No weight', projectId: 'p1', columnId: 'c1' } });
+    expect(plain.json().data.weight).toBeNull();
   });
 
   it('creates and edits a recurring task with a custom schedule ("the last Friday", made on schedule)', async () => {

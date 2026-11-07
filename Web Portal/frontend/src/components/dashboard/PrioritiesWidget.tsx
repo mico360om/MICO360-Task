@@ -50,6 +50,40 @@ const ACTION_MAIN = `${ACTION_SHAPE} border-brand bg-brand text-white hover:bg-b
 const POPOVER = 'rounded-xl border border-line bg-surface shadow-lift';
 const MENU_ITEM = `flex w-full items-center justify-between gap-4 rounded-lg px-3 py-2 text-start text-sm text-ink hover:bg-ground focus-visible:bg-ground ${TOUCH_TALL}`;
 
+/**
+ * 1.23.5: the list a widget shows — the Dashboard's My Priorities Today (the default), or a project's Next
+ * actions (its Overview tab) — with the same rows, reasons and quick actions.
+ */
+export interface PriorityListConfig {
+  queryKey: readonly unknown[];
+  /** `fresh`: right after the person's own change. */
+  fetch: (fresh: boolean) => Promise<PrioritiesAnswer>;
+  title: string;
+  /** The heading's id (the section is named by it). */
+  headingId: string;
+  /** What an empty list says. */
+  empty: string;
+  /** What a failed load names ("your priorities"). */
+  what: string;
+  /** How many rows show before "Show all" (default 10). */
+  first?: number;
+  /** The filter chips (default: shown). */
+  chips?: boolean;
+  /** Listen for live changes itself (default); false when its page already does (a project's Next actions). */
+  live?: boolean;
+  testId?: string;
+}
+
+const DASHBOARD_LIST: PriorityListConfig = {
+  queryKey: PRIORITIES_KEY,
+  fetch: (fresh) => dashboardApi(apiClient).priorities(fresh),
+  title: PRIORITIES_TITLE,
+  headingId: 'dash-priorities-heading',
+  empty: PRIORITIES_EMPTY,
+  what: 'your priorities',
+  testId: 'priorities-widget',
+};
+
 interface Notice {
   text: string;
   undo?: () => Promise<string>;
@@ -63,15 +97,17 @@ interface Notice {
  * with filter chips and the quick actions the person may do (the server's own rules decide each one).
  * Every action updates the list at once (and for others live), with Undo where it can be undone.
  */
-export function PrioritiesWidget({ onOpenTask }: { onOpenTask: (taskId: string, list?: string[], at?: { item?: string }) => void }) {
+export function PrioritiesWidget({ onOpenTask, list }: { onOpenTask: (taskId: string, list?: string[], at?: { item?: string }) => void; list?: PriorityListConfig }) {
+  const cfg = list ?? DASHBOARD_LIST;
+  const first = cfg.first ?? SHOWN_FIRST;
   const qc = useQueryClient();
   const fresh = useRef(false);
   const q = useQuery({
-    queryKey: PRIORITIES_KEY,
+    queryKey: cfg.queryKey,
     queryFn: () => {
       const f = fresh.current;
       fresh.current = false;
-      return dashboardApi(apiClient).priorities(f);
+      return cfg.fetch(f);
     },
     staleTime: 15_000,
     refetchInterval: 60_000,
@@ -95,10 +131,10 @@ export function PrioritiesWidget({ onOpenTask }: { onOpenTask: (taskId: string, 
   const refresh = useCallback(
     async (own: boolean) => {
       if (own) fresh.current = true;
-      await qc.invalidateQueries({ queryKey: PRIORITIES_KEY });
+      await qc.invalidateQueries({ queryKey: cfg.queryKey });
       setGone(new Set());
     },
-    [qc],
+    [qc, cfg.queryKey],
   );
   /** After the person's own change: every task view, this list among them (read fresh). */
   const refreshAll = useCallback(async () => {
@@ -113,11 +149,13 @@ export function PrioritiesWidget({ onOpenTask }: { onOpenTask: (taskId: string, 
     live.current = setTimeout(() => void refresh(false), 600);
   }, [refresh]);
   useEffect(() => () => void (live.current && clearTimeout(live.current)), []);
-  usePrioritiesRealtime(data?.watch, soon);
-  useNotificationRealtime(soon);
+  // 1.23.5: a list whose page already listens (a project's Next actions) opens no sockets of its own.
+  const listens = cfg.live !== false;
+  usePrioritiesRealtime(listens ? data?.watch : undefined, soon);
+  useNotificationRealtime(soon, undefined, listens);
 
   const rows = useMemo(() => (data?.items ?? []).filter((r) => !gone.has(r.id)), [data, gone]);
-  const shown = rowsFor(rows, chip, showAll);
+  const shown = rowsFor(rows, chip, true).slice(0, showAll ? undefined : first);
   const inChip = chip === 'all' ? rows.length : rows.filter((r) => r.chips.includes(chip)).length;
   const counts = data?.counts;
   const taskIds = shown.map((r) => r.task?.id ?? r.checklistItem?.task.id).filter((id): id is string => !!id);
@@ -299,13 +337,13 @@ export function PrioritiesWidget({ onOpenTask }: { onOpenTask: (taskId: string, 
 
   const total = data?.total ?? 0;
   return (
-    <section className="card p-5" aria-labelledby="dash-priorities-heading" data-testid="priorities-widget">
+    <section className="card p-5" aria-labelledby={cfg.headingId} data-testid={cfg.testId}>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h2 id="dash-priorities-heading" className="font-display text-base font-semibold text-ink">
-          {PRIORITIES_TITLE}
+        <h2 id={cfg.headingId} className="font-display text-base font-semibold text-ink">
+          {cfg.title}
           {data ? <span className="ms-2 rounded-full bg-brand/10 px-2 py-0.5 text-xs font-semibold text-brand">{total}</span> : null}
         </h2>
-        {data && total > 0 ? (
+        {data && total > 0 && cfg.chips !== false ? (
           <div role="group" aria-label="Show priorities by reason" className="flex flex-wrap gap-1.5">
             {chipsShown(data.manager).map((c) => {
               const count = counts?.[c] ?? 0;
@@ -331,20 +369,20 @@ export function PrioritiesWidget({ onOpenTask }: { onOpenTask: (taskId: string, 
       </div>
 
       {q.isLoading ? (
-        <div role="status" aria-label="Loading your priorities" className="flex flex-col gap-2">
+        <div role="status" aria-label={`Loading ${cfg.what}`} className="flex flex-col gap-2">
           {Array.from({ length: 4 }, (_, i) => (
             <div key={i} className="skeleton h-14 rounded-lg" />
           ))}
         </div>
       ) : q.isError || !data ? (
         // An outage must never read as "nothing urgent".
-        <LoadError what="your priorities" onRetry={() => void q.refetch()} className="py-4 text-center" />
+        <LoadError what={cfg.what} onRetry={() => void q.refetch()} className="py-4 text-center" />
       ) : rows.length === 0 ? (
         <p className="flex items-center justify-center gap-2 py-6 text-center text-sm text-ink-2">
           <span aria-hidden="true" className="text-success">
             <CheckIcon />
           </span>
-          {PRIORITIES_EMPTY}
+          {cfg.empty}
         </p>
       ) : shown.length === 0 ? (
         <p className="py-4 text-center text-sm text-ink-2">{PRIORITIES_CHIP_EMPTY}</p>
@@ -377,7 +415,7 @@ export function PrioritiesWidget({ onOpenTask }: { onOpenTask: (taskId: string, 
         </ul>
       )}
 
-      {data && inChip > SHOWN_FIRST ? (
+      {data && inChip > first ? (
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
           <button type="button" onClick={() => setShowAll((s) => !s)} className={`text-sm font-semibold text-brand hover:underline ${TOUCH_TALL}`} aria-expanded={showAll}>
             {showAll ? 'Show fewer' : `Show all (${chip === 'all' ? total : inChip})`}

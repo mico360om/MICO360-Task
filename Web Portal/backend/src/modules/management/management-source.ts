@@ -131,6 +131,8 @@ export interface ManagementSource {
    * their own active companies).
    */
   projects(runBy: string | null, pick?: string | null, opts?: { teamOf?: string }): Promise<MgmtProject[]>;
+  /** 1.23.5: these live projects (not deleted) by id, whoever runs them — the caller decided who may see them. */
+  projectsByIds(ids: string[]): Promise<MgmtProject[]>;
   /** Live projects this person runs (owner, named manager, MANAGER member), counted. */
   runCount(userId: string): Promise<number>;
   /** These people's names and faces (deleted people are left out). */

@@ -1,4 +1,4 @@
-import type { ProjectOverview, ProjectStats, ProjectStatus } from '../api/projects';
+import type { ProjectOverview, ProjectOverviewWithHealth, ProjectStats, ProjectStatus } from '../api/projects';
 import { dueDayKey, shiftDayKey, zonedDayKey } from './due-date';
 
 /**
@@ -148,7 +148,9 @@ const compareNames = (a: string, b: string) => collator.compare(a, b);
 const byName = (a: ProjectOverview, b: ProjectOverview) => compareNames(a.name, b.name);
 /** Ascending, with the missing ones last. */
 const keyOrder = (a: string | null, b: string | null) => (a === b ? 0 : a === null ? 1 : b === null ? -1 : a < b ? -1 : 1);
-const doneShare = (s: ProjectStats) => (s.total ? s.done / s.total : Infinity);
+/** Done share in the project's own mode: 1.23.5 — by weight when it counts by weight (its card's figure). */
+const doneShare = (p: ProjectOverviewWithHealth) =>
+  !p.stats.total ? Infinity : p.health?.completion.mode === 'WEIGHT' ? p.health.completion.pct / 100 : p.stats.done / p.stats.total;
 const targetGroup = (p: ProjectOverview, tz: string) => (targetKey(p, tz) === null ? 2 : finished(p.status) ? 1 : 0);
 
 const SORTERS: Record<ProjectSort, (today: string, timeZone: string) => (a: ProjectOverview, b: ProjectOverview) => number> = {
@@ -162,8 +164,8 @@ const SORTERS: Record<ProjectSort, (today: string, timeZone: string) => (a: Proj
   // Open projects with a target, nearest first; then finished ones (Completed, Archived); then those without one.
   target: (_today, tz) => (a, b) => targetGroup(a, tz) - targetGroup(b, tz) || keyOrder(targetKey(a, tz), targetKey(b, tz)) || byName(a, b),
   progress: () => (a, b) => {
-    const x = doneShare(a.stats);
-    const y = doneShare(b.stats);
+    const x = doneShare(a);
+    const y = doneShare(b);
     return (x === y ? 0 : x < y ? -1 : 1) || byName(a, b);
   },
 };

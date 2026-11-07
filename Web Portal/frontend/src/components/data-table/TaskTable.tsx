@@ -35,6 +35,7 @@ import { InspectionChip } from '../inspections/inspection-ui';
 import { ClientEyeIcon } from '../TaskCard';
 import { FlagIcon } from '../project-dashboard/parts';
 import { TOUCH_SQUARE, TOUCH_TALL } from '../../lib/touch';
+import { weightColumns } from './weight-column';
 
 export interface TaskTableProps {
   /** Which page's table (what it remembers for the person: sort, filters, columns). */
@@ -338,6 +339,13 @@ export function TaskTable({
           <PriorityBadge priority={t.priority} />
         ),
     },
+    // 1.23.5: Weight, for projects counting completion by weight (weight-column.tsx).
+    ...weightColumns({
+      tasks,
+      projectOf: (t) => projectById.get(t.projectId),
+      editable,
+      onSave: (t, weight) => save(t, { weight }, async () => ({ weight: (await api.update(t.id, { weight })).weight ?? null })),
+    }),
     {
       id: 'due',
       label: 'Due date',

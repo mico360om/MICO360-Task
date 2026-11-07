@@ -1,3 +1,4 @@
+import { completionOf } from '../project-health/completion';
 import { buildTimeSeries, type TimeSeriesResult } from './report-timeseries';
 import type { WeekStart } from '../planning/timeline';
 import { completedOnTime, dueDayKey } from '../../lib/due-date';
@@ -22,6 +23,10 @@ export interface ReportTask {
   approvalRequestedAt?: Date | null;
   /** 1.23.1: the numbers of the tasks merged into it (merged tasks themselves are never rows). */
   mergedFrom?: string[];
+  /** 1.23.5: the weight it counts with (its own, else its project's default for its priority)… */
+  weight?: number;
+  /** …and whether its project counts completion by weight. */
+  byWeight?: boolean;
 }
 
 export interface ReportUser {
@@ -93,7 +98,10 @@ export interface ProjectPerformance {
   total: number;
   completed: number;
   overdue: number;
+  /** The project's completion, in its own mode (1.23.5: by weight when it counts by weight). */
   completionPct: number;
+  /** 1.23.5: how it is counted (absent: by number). */
+  completionBy?: 'COUNT' | 'WEIGHT';
 }
 
 export function projectPerformance(tasks: ReportTask[], timeZone: string = defaultCompanyTimeZone(), now: Date = new Date()): ProjectPerformance[] {
@@ -107,13 +115,17 @@ export function projectPerformance(tasks: ReportTask[], timeZone: string = defau
     const total = ts.length;
     const completed = ts.filter(isDone).length;
     const overdue = ts.filter((t) => isOverdueOpen(t, timeZone, now)).length;
+    const byWeight = ts[0]!.byWeight === true;
+    const weightOf = (list: ReportTask[]) => list.reduce((n, t) => n + (t.weight ?? 1), 0);
+    const figures = { total, done: completed, weightTotal: weightOf(ts), weightDone: weightOf(ts.filter(isDone)) };
     return {
       projectId,
       projectName: ts[0]!.projectName,
       total,
       completed,
       overdue,
-      completionPct: total ? Math.round((completed / total) * 100) : 0,
+      completionPct: completionOf(figures, byWeight ? 'WEIGHT' : 'COUNT').pct,
+      completionBy: byWeight ? 'WEIGHT' : 'COUNT',
     };
   });
 }

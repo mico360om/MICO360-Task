@@ -96,6 +96,8 @@ export function createPrismaRecurrencePort(prisma: PrismaClient, opts: PrismaRec
                 columnId: firstColumn?.id ?? source.columnId,
                 priority: source.priority,
                 isMilestone: source.isMilestone,
+                // 1.23.5: the next copy weighs what this one did.
+                weight: source.weight,
                 // Shown to the project's client: the series' next copy is too (it stays in the same project).
                 clientVisible: source.clientVisible,
                 // The next copy still comes from the same meeting.

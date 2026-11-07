@@ -32,6 +32,10 @@ export const TASK_QUERY_ROOTS = [
   'approvals',
   // 1.23.4: the Dashboard's My Priorities Today.
   'dashboard-priorities',
+  // 1.23.5: a project's health, Next actions and Recent activity (its Overview tab).
+  'project-health',
+  'project-next-actions',
+  'project-activity',
   // 1.23.3: My Tasks' "Checklist items for me" (a finished task's items leave it).
   'my-checklist-items',
 ] as const;

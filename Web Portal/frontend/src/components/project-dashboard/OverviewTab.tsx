@@ -14,6 +14,8 @@ import { TOUCH_TALL } from '../../lib/touch';
 import { EmptyNote, FlagIcon, LinkButton, ProgressBar, RepeatIcon, SectionCard, dayText, relativeDays } from './parts';
 import type { TaskFilter, TaskGroup } from './TasksTab';
 import { TaskKey } from '../TaskKey';
+import type { ProjectCompletion } from '../../api/projects';
+import { HealthCard, NextActionsCard, OwnersCard, RecentActivityCard, RisksCard } from './HealthCards';
 
 const PROJECT_STATUS_TONE: Record<string, BadgeTone> = { PLANNING: 'info', ACTIVE: 'success', ON_HOLD: 'warning', COMPLETED: 'brand', ARCHIVED: 'neutral' };
 const words = (s: string) => s.charAt(0) + s.slice(1).toLowerCase().replace('_', ' ');
@@ -66,6 +68,8 @@ export interface OverviewProps {
   onShow: (tab: 'tasks' | 'meetings' | 'team', filter?: TaskFilter) => void;
   onNewMeeting?: () => void;
   onSummarize: () => Promise<string>;
+  /** 1.23.5: the project's completion in its own mode, both ways (from its tasks, live). */
+  completion?: ProjectCompletion;
 }
 
 /**
@@ -111,10 +115,17 @@ export function OverviewTab(p: OverviewProps) {
             <div>
               <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-x-2 text-sm">
                 <span className="whitespace-nowrap font-semibold text-ink">Work done</span>
-                {/* The project's one completion figure (the Completion tile, the client page, Management): tasks finished. */}
-                <span className="tabular-nums text-ink-2">{p.statsReady ? `${stats.completed} of ${stats.total} tasks · ${stats.pct}% done` : '…'}</span>
+                {/* The project's one completion figure (the Completion tile, the client page, Management): in its own
+                    mode — by weight (1.23.5) with the count beside it, else tasks finished. */}
+                <span className="tabular-nums text-ink-2">
+                  {p.statsReady
+                    ? p.completion?.mode === 'WEIGHT'
+                      ? `${stats.completed} of ${stats.total} tasks · ${p.completion.weightPct}% by weight · ${p.completion.countPct}% by count`
+                      : `${stats.completed} of ${stats.total} tasks · ${stats.pct}% done`
+                    : '…'}
+                </span>
               </div>
-              <ProgressBar value={p.statsReady ? stats.pct : 0} label="Work done" tone="success" />
+              <ProgressBar value={p.statsReady ? (p.completion?.pct ?? stats.pct) : 0} label="Work done" tone="success" />
             </div>
             <div>
               <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-x-2 text-sm">
@@ -139,6 +150,13 @@ export function OverviewTab(p: OverviewProps) {
             <button type="button" onClick={() => p.onShow('meetings')} className={`rounded-lg border border-line px-3 py-1.5 text-sm font-medium text-ink hover:bg-ground ${TOUCH_TALL}`}>Meetings</button>
           </div>
         </SectionCard>
+
+        {/* 1.23.5: health with every reason, and the automatic risks with who is accountable. */}
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,20rem),1fr))] items-start gap-4">
+          <HealthCard projectId={project.id} completion={p.statsReady ? (p.completion ?? null) : null} />
+          <RisksCard projectId={project.id} onOpenTask={p.onOpenTask} />
+        </div>
+        <NextActionsCard projectId={project.id} onOpenTask={p.onOpenTask} />
 
         {/* Each card is as tall as its own list: an empty one doesn't stretch beside a long one. */}
         <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,20rem),1fr))] items-start gap-4">
@@ -204,6 +222,7 @@ export function OverviewTab(p: OverviewProps) {
       </div>
 
       <div className="min-w-0 space-y-4">
+        <OwnersCard projectId={project.id} onOpenTask={p.onOpenTask} />
         <SectionCard id="pd-team" title="Team" action={<LinkButton onClick={() => p.onShow('team')}>Manage team</LinkButton>}>
           <p className="text-xs font-semibold uppercase tracking-wide text-ink-3">Project manager</p>
           {managers.length ? (
@@ -275,6 +294,8 @@ export function OverviewTab(p: OverviewProps) {
           ) : null}
           {p.onNewMeeting ? <Button size="sm" variant="secondary" className={`mt-3 w-full ${TOUCH_TALL}`} onClick={p.onNewMeeting}>+ New meeting</Button> : null}
         </SectionCard>
+
+        <RecentActivityCard projectId={project.id} onOpenTask={p.onOpenTask} />
 
         <SectionCard id="pd-status" title="Tasks by status">
           {!p.statsReady ? (

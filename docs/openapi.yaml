@@ -439,11 +439,20 @@ paths:
 
   /tasks:
     get:
-      summary: List tasks (optionally filtered by projectId/columnId)
+      summary: >-
+        List tasks (optionally filtered by projectId/columnId). The Kanban board asks for one board day
+        (boardDate) or, in its month view, one month (month=YYYY-MM, never both: 400): the tasks that show
+        in that month — from the start date's month to the due date's (a due date alone: its month; a
+        start alone: onward while open), finished ones in the month they were completed, open overdue
+        ones also in the current month — with meta { month, undated } (how many open tasks have no
+        dates); undated=true lists those too. Months follow the company time zone.
       parameters:
         - { name: projectId, in: query, schema: { type: string } }
         - { name: columnId, in: query, schema: { type: string } }
-      responses: { '200': { description: OK } }
+        - { name: boardDate, in: query, schema: { type: string, format: date } }
+        - { name: month, in: query, schema: { type: string, pattern: '^[12][0-9]{3}-(0[1-9]|1[0-2])$' } }
+        - { name: undated, in: query, schema: { type: boolean } }
+      responses: { '200': { description: 'OK — { data: [task], meta? }' } }
     post:
       summary: >-
         Create a task. needsApproval left out: the project's "New tasks in this project need approval"

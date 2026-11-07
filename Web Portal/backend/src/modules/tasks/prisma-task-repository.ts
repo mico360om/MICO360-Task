@@ -9,6 +9,7 @@ import {
   type UpdateTaskData,
 } from './task-repository';
 import type { RecurrenceRule } from './recurrence';
+import type { MonthWindow } from './month-list';
 import type { CarryForwardRepo } from './carry-forward-service';
 import type { CarryLogEntry } from './board-date';
 import { paletteColorFor } from './tag-repository';
@@ -58,6 +59,7 @@ function toRecord(t: EnrichedTask): TaskRecord {
     actualHours: t.actualHours,
     progress: t.progress,
     isMilestone: t.isMilestone ?? false,
+    weight: t.weight ?? null,
     clientVisible: t.clientVisible ?? false,
     // 1.23: its description shows in the Client portal too; a client's sign-off of this finish.
     clientShowDescription: t.clientShowDescription ?? false,
@@ -97,6 +99,26 @@ function toRecord(t: EnrichedTask): TaskRecord {
 
 /** Live tasks only: not deleted, and not in a deleted project. */
 export const liveTaskWhere = { deletedAt: null, project: { is: { deletedAt: null } } } satisfies Prisma.TaskWhereInput;
+
+/**
+ * Month view (month-list.ts): the tasks that may show in a month's window — completed in it (a Done
+ * task with no completion time: changed in it), open and running into it (started before its end, due
+ * after its start or not at all), open and due in it, open and overdue before it (the current month
+ * only), and open ones with no dates (the "No date" chip). Wider than the rule; never narrower.
+ */
+export function monthWindowWhere(w: MonthWindow): Prisma.TaskWhereInput {
+  const open: Prisma.TaskWhereInput = { completedAt: null, column: { is: { category: { not: 'DONE' } } } };
+  return {
+    OR: [
+      { completedAt: { gte: w.from, lt: w.to } },
+      { completedAt: null, column: { is: { category: 'DONE' } }, updatedAt: { gte: w.from, lt: w.to } },
+      { ...open, startDate: { lt: w.to }, OR: [{ dueDate: null }, { dueDate: { gte: w.from } }] },
+      { ...open, dueDate: { gte: w.from, lt: w.to } },
+      ...(w.carry ? [{ ...open, dueDate: { lt: w.to } }] : []),
+      { ...open, startDate: null, dueDate: null },
+    ],
+  };
+}
 
 /** True for a unique-constraint violation on the task key (a concurrent create took it). */
 export function isTaskKeyConflict(err: unknown): boolean {
@@ -146,7 +168,7 @@ export function isRecurrenceCopyConflict(err: unknown): boolean {
 // Every scalar except the carry-forward history, which can grow long and is left out of lists.
 const listScalars = {
   id: true, key: true, title: true, description: true, projectId: true, columnId: true, position: true,
-  priority: true, startDate: true, dueDate: true, estimatedHours: true, actualHours: true, progress: true, isMilestone: true,
+  priority: true, startDate: true, dueDate: true, estimatedHours: true, actualHours: true, progress: true, isMilestone: true, weight: true,
   clientVisible: true, createdById: true, completedAt: true, boardDate: true, recurrenceRule: true, recurrenceParentId: true, recurrenceSourceId: true,
   meetingId: true, inspectionFormId: true, inspectionPlace: true, version: true, createdAt: true, updatedAt: true, deletedAt: true,
   needsApproval: true, approvalRequestedAt: true, approvalRequestedById: true, approvedAt: true, approvedById: true,
@@ -189,6 +211,7 @@ export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository
             estimatedHours: data.estimatedHours ?? undefined,
             progress: data.progress ?? undefined,
             isMilestone: data.isMilestone ?? undefined,
+            weight: data.weight ?? undefined,
             completedAt: data.completedAt ?? undefined,
             boardDate: data.boardDate ?? undefined,
             recurrenceRule: (data.recurrenceRule ?? undefined) as unknown as Prisma.InputJsonValue | undefined,
@@ -263,6 +286,7 @@ export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository
       if (filter.dueAfter) and.push({ dueDate: { gte: filter.dueAfter } });
       if (filter.recurring) and.push({ recurrenceRule: { not: Prisma.DbNull } });
       if (filter.awaitingApproval) and.push({ approvalRequestedAt: { not: null } });
+      if (filter.month) and.push(monthWindowWhere(filter.month));
       const ts = await prisma.task.findMany({
         where: { ...liveTaskWhere, AND: and },
         // Enrich list rows for card display: assignees + lightweight aggregate counts. `_count`

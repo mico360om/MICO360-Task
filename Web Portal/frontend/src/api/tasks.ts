@@ -68,6 +68,8 @@ export interface ApiTask {
   version?: number;
   /** A milestone: a key date or deliverable of its project (older servers leave it out). */
   isMilestone?: boolean;
+  /** 1.23.5: its weight in its project's completion (1–10 points); null = the project's default for its priority. */
+  weight?: number | null;
   /** Shown on the project's client page and in the Client portal (its title, status and due date). */
   clientVisible?: boolean;
   /** 1.23: its description is shown to the client too ("Also show its description"; only while shown). */
@@ -138,6 +140,8 @@ export interface NewTaskInput {
   boardDate?: string;
   /** A key date or deliverable of the project. */
   isMilestone?: boolean;
+  /** 1.23.5: 1–10 points (projects counting by weight); null/left out = the project's default for its priority. */
+  weight?: number | null;
   /**
    * People to assign, applied in the same request as the create. Omit to let the server apply the
    * project's default (its owner); an explicit list — even [] — is used as-is.
@@ -262,6 +266,15 @@ export function tasksApi(client: ApiClient) {
       if (boardDate) qs.set('boardDate', boardDate);
       const suffix = qs.toString();
       return client.get<{ data: ApiTask[] }>(suffix ? `/tasks?${suffix}` : '/tasks').then((r) => r.data);
+    },
+    /**
+     * The board's month view: the tasks that show in `month` (YYYY-MM) — one project's, or every one the
+     * person can see — and those without dates (the "No date" chip; lib/board-month tells them apart).
+     */
+    listMonth: (projectId: string | undefined, month: string) => {
+      const qs = new URLSearchParams({ month, undated: 'true' });
+      if (projectId) qs.set('projectId', projectId);
+      return client.get<{ data: ApiTask[] }>(`/tasks?${qs.toString()}`).then((r) => r.data);
     },
     mine: () => client.get<{ data: ApiTask[] }>('/tasks/mine').then((r) => r.data),
     get: (id: string) => client.get<{ data: ApiTask }>(`/tasks/${id}`).then((r) => r.data),

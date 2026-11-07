@@ -318,3 +318,28 @@ describe('TaskTable', () => {
     expect(screen.queryByRole('button', { name: /more/ })).toBeNull();
   });
 });
+
+describe('TaskTable — 1.23.5 Weight', () => {
+  const WEIGHED = { ...PROJECT, completionMode: 'WEIGHT', weightNormal: 2, weightHigh: 3, weightLow: 1, weightUrgent: 4 } as unknown as ApiProject;
+
+  it('a project counting by weight: a Weight column, each row’s own or its priority’s default, changed in place', async () => {
+    const user = userEvent.setup();
+    show({ projects: [WEIGHED], tasks: [task({ weight: 7 }), TASKS[1]!, TASKS[2]!] });
+    expect(screen.getAllByRole('columnheader').map((h) => h.textContent?.trim())).toEqual(['No.', 'Title', 'Assignees', 'Priority', 'Weight', 'Due date', 'Status', 'Open']);
+    expect(within(row('MICO-2')).getByRole('button', { name: 'Weight of MICO-2: default, 3' })).toHaveTextContent('Default (3)');
+    await user.click(within(row('MICO-1')).getByRole('button', { name: 'Weight of MICO-1: 7' }));
+    await user.click(await screen.findByRole('option', { name: '9 points' }));
+    await waitFor(() => expect(calls.find((c) => c.method === 'PUT')?.body).toEqual({ weight: 9 }));
+    expect(within(row('MICO-1')).getByRole('button', { name: 'Weight of MICO-1: 9' })).toBeInTheDocument();
+  });
+
+  it('no project counting by weight: no Weight column', () => {
+    show();
+    expect(screen.queryByRole('columnheader', { name: 'Weight' })).toBeNull();
+  });
+
+  it('a read-only table shows the weight as words, the default marked', () => {
+    show({ projects: [WEIGHED], tasks: [TASKS[0]!], readOnly: { reason: 'archived' } as never });
+    expect(within(row('MICO-1')).getByText('(default)')).toBeInTheDocument();
+  });
+});

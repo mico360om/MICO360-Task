@@ -28,6 +28,9 @@ import {
   type TrendWeek,
 } from './management-rules';
 import type { FinishedInspection, ManagementSource, MgmtPerson, MgmtProject, TaskLine } from './management-source';
+import type { HealthExtras } from '../project-health/health-extras';
+import type { HealthExtrasLoader } from '../project-health/health-extras-loader';
+import type { CompletionMode } from '../project-health/completion';
 
 export interface ManagementViewer {
   id: string;
@@ -66,6 +69,11 @@ export interface ManagementServiceDeps {
    * PDF then show the projects they own, manage or are on the team of; the weekly email doesn't change.
    */
   myProjectsOnly?: (viewer: ManagementViewer) => Promise<boolean>;
+  /**
+   * 1.23.5 Project overview & health: each project's weighted completion and the new health facts
+   * (progress against time, blocked work, milestones at risk, workload). Absent: the rule as before.
+   */
+  healthExtras?: HealthExtrasLoader;
 }
 
 export type ManagementScope = 'ALL' | 'RUN';
@@ -86,7 +94,10 @@ export interface HealthRow extends OptionProject {
   done: number;
   open: number;
   late: number;
+  /** The project's completion figure, in its own mode (1.23.5: by weight when it counts by weight). */
   completionPct: number;
+  /** 1.23.5: how it is counted. */
+  completionBy: CompletionMode;
   /** The earliest milestone not reached (a late one first); daysLeft < 0 when past its day — late, unless it is waiting for approval. */
   nextMilestone: { id: string; key: string; title: string; due: string | null; daysLeft: number | null; waiting: boolean } | null;
   lateMilestones: number;
@@ -336,7 +347,7 @@ export function createManagementService(deps: ManagementServiceDeps) {
   }
 
   /** The weeks and working days are the reader's company's (companies: asked with the reader). */
-  async function contextOf(weeks: number, viewer: ManagementViewer, pick: string | null = null) {
+  async function contextOf(weeks: number, viewer?: ManagementViewer, pick: string | null = null) {
     const at = now();
     const [weekStart, hours, limit] = await Promise.all([settings.companyWeekStart(viewer, pick), settings.workingHours(viewer, pick), settings.dailyLimit()]);
     const today = todayKey(tz, at);
@@ -356,12 +367,13 @@ export function createManagementService(deps: ManagementServiceDeps) {
   /** Each project's figures, mark and reasons, worst first; with the checks they were made from. */
   async function healthOf(projects: MgmtProject[], ctx: Context, done?: Pick<TrendWeek, 'from' | 'to'>) {
     const ids = projects.map((p) => p.id);
-    const [figures, milestones, checks, followUps, owners] = await Promise.all([
+    const [figures, milestones, checks, followUps, owners, extras] = await Promise.all([
       source.taskFigures(ids, ctx.today),
       source.openMilestones(ids),
       source.checks(ids, checkWindow(ctx, done)),
       source.openFollowUps(ids),
       source.people(unique(projects.map((p) => p.ownerId))),
+      deps.healthExtras && ids.length ? deps.healthExtras(ids, { now: ctx.at }) : Promise.resolve(new Map<string, HealthExtras>()),
     ]);
     const fig = new Map(figures.map((f) => [f.projectId, f]));
     const follow = new Map(followUps.map((f) => [f.projectId, f.count]));
@@ -379,8 +391,18 @@ export function createManagementService(deps: ManagementServiceDeps) {
         const next = marks[0] ?? null;
         const lastActivityAt = f.lastTaskUpdate && f.lastTaskUpdate > p.updatedAt ? f.lastTaskUpdate : p.updatedAt;
         const c = summary.byProject.get(p.id) ?? emptyCounts();
+        const x = extras.get(p.id);
         const { rag, reasons } = projectRag(
-          { status: p.status, open: f.open, late: f.late, lateMilestones: lateMarks.map((x) => ({ title: x.m.title, daysLate: -x.daysLeft! })), missingChecks: c.missing, lastActivityAt },
+          {
+            status: p.status,
+            open: f.open,
+            late: f.late,
+            lateMilestones: lateMarks.map((x) => ({ title: x.m.title, daysLate: -x.daysLeft! })),
+            missingChecks: c.missing,
+            lastActivityAt,
+            // 1.23.5: progress against time, blocked work, milestones at risk, workload.
+            ...(x?.ragFacts ?? {}),
+          },
           { now: ctx.at, timeZone: tz },
         );
         const owner = p.ownerId ? ownerOf.get(p.ownerId) : undefined;
@@ -391,7 +413,8 @@ export function createManagementService(deps: ManagementServiceDeps) {
           done: f.done,
           open: f.open,
           late: f.late,
-          completionPct: completionPct(f.done, f.total),
+          completionPct: x ? x.completion.pct : completionPct(f.done, f.total),
+          completionBy: x?.completion.mode ?? 'COUNT',
           nextMilestone: next ? { id: next.m.id, key: next.m.key, title: next.m.title, due: next.day, daysLeft: next.daysLeft, waiting: !!next.m.waiting } : null,
           lateMilestones: lateMarks.length,
           lastActivityAt: lastActivityAt.toISOString(),
@@ -405,7 +428,21 @@ export function createManagementService(deps: ManagementServiceDeps) {
         };
       })
       .sort(healthOrder);
-    return { rows, checks, summary };
+    return { rows, checks, summary, extras };
+  }
+
+  /**
+   * 1.23.5: these projects' health by the one rule (the Projects page cards, the project page), with the
+   * extras it was worked out from. Any live project by id — whoever asks has already been shown it. The
+   * missing checks are judged over the page's default period, in the site's week.
+   */
+  async function healthFor(projectIds: string[]): Promise<{ rows: HealthRow[]; extras: Map<string, HealthExtras> }> {
+    if (projectIds.length === 0) return { rows: [], extras: new Map() };
+    const projects = await source.projectsByIds(projectIds);
+    if (projects.length === 0) return { rows: [], extras: new Map() };
+    const ctx = await contextOf(DEFAULT_FILTERS.weeks);
+    const { rows, extras } = await healthOf(projects, ctx);
+    return { rows, extras };
   }
 
   /** Who is over the Workload page's daily limit on a working day of the current company week, in these projects. */
@@ -823,7 +860,7 @@ export function createManagementService(deps: ManagementServiceDeps) {
     };
   }
 
-  return { access, overview, items, digest };
+  return { access, overview, items, digest, healthFor };
 }
 
 export type ManagementService = ReturnType<typeof createManagementService>;

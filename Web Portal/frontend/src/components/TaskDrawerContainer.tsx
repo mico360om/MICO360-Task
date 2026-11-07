@@ -298,7 +298,7 @@ function TaskDrawerPanel({ taskId, onClose, stepper, mergeNotice, focusItemId }:
   // Inline edits are awaited by the drawer, which shows "Saving… / Saved" or the server's reason.
   const editM = useMutation({
     mutationFn: (input: {
-      patch: { title?: string; description?: string; priority?: Priority; dueDate?: string | null };
+      patch: { title?: string; description?: string; priority?: Priority; dueDate?: string | null; weight?: number | null };
       scope?: 'series';
     }) => tasksApi(apiClient).update(taskId, { ...input.patch, ...(input.scope ? { scope: input.scope } : {}) }),
     onSuccess: refreshTaskViews,
@@ -538,7 +538,23 @@ function TaskDrawerPanel({ taskId, onClose, stepper, mergeNotice, focusItemId }:
               downloadBlob(fileNameOf(blob) ?? `${t.key}-${fileSlug(t.title)}.${format}`, blob);
             }}
             onEdit={() => setEditing(true)}
-            project={project ? { id: project.id, name: project.name, color: project.color, icon: project.icon, imageUrl: project.imageUrl } : undefined}
+            project={
+              project
+                ? {
+                    id: project.id,
+                    name: project.name,
+                    color: project.color,
+                    icon: project.icon,
+                    imageUrl: project.imageUrl,
+                    // 1.23.5: the Weight field shows for a project counting by weight.
+                    completionMode: project.completionMode,
+                    weightUrgent: project.weightUrgent,
+                    weightHigh: project.weightHigh,
+                    weightNormal: project.weightNormal,
+                    weightLow: project.weightLow,
+                  }
+                : undefined
+            }
             onMoveToProject={canMove ? () => setMoving(true) : undefined}
             moveUnavailable={canMove?.reason}
             // Save as template: whoever runs the project (the server checks too).

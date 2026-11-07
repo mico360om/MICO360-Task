@@ -1,4 +1,5 @@
 import type { Prisma, PrismaClient } from '@prisma/client';
+import { createCompletionCounts } from '../project-health/completion-counts';
 import { ConflictError, ForbiddenError, HttpError, NotFoundError } from '../../lib/http-errors';
 import { ARCHIVE_SELECT, archivedOf } from '../companies/project-archive';
 import { readMinutesContent, peopleNames } from '../client-view/client-view-source';
@@ -212,14 +213,8 @@ export function createPortalService(deps: PortalDeps) {
     return { client, grant, project };
   }
 
-  const counts = async (projectId: string) => {
-    const live = { projectId, deletedAt: null };
-    const [total, done] = await Promise.all([
-      prisma.task.count({ where: live }),
-      prisma.task.count({ where: { ...live, OR: [{ completedAt: { not: null } }, { column: { category: 'DONE' } }] } }),
-    ]);
-    return { total, done };
-  };
+  // 1.23.5: the project's completion in its own mode (by weight when it counts by weight).
+  const counts = createCompletionCounts(prisma);
 
   const record = async (entry: Omit<CreateAuditData, 'module'>) => {
     try {
