@@ -243,7 +243,7 @@ import { createPrismaOtpUserLookup } from './modules/auth/prisma-otp-user-lookup
 import { createPasswordResetService } from './modules/auth/password-reset-service';
 import { createPrismaPasswordResetStore } from './modules/auth/prisma-password-reset-store';
 import { createPrismaResetUserRepo } from './modules/auth/prisma-reset-user-repo';
-import { hashPassword } from './lib/password';
+import { hashPassword, verifyPassword } from './lib/password';
 import { createEmailService } from './modules/email/email-service';
 import { createMeetingNotifyService } from './modules/meetings/meeting-notify-service';
 import { createMeetingReminderService } from './modules/meetings/meeting-reminder-service';
@@ -273,6 +273,7 @@ import { createPrismaSignInChallengeStore, endEveryCode } from './modules/auth/p
 import { createEmailVerification, createPrismaVerificationRepo } from './modules/auth/email-verification';
 import { createOnboardingEvents, type OnboardingEvents } from './modules/users/onboarding-events';
 import { createInvitationSweep, createPrismaExpiredInvitationStore } from './modules/users/invitation-sweep';
+import { createFirstPassword, createPrismaFirstPasswordRepo } from './modules/auth/first-password';
 import { createPrismaIdentityLookup } from './modules/users/identity-check';
 
 async function main(): Promise<void> {
@@ -1807,6 +1808,10 @@ async function main(): Promise<void> {
     logger,
     emailOptions: documentBrands.email.person, // companies: the person's primary company
   });
+  // 1.23.6: the "Choose your own password" step after a temporary password: its tickets are signed with
+  // a key of their own, derived from the server's secret.
+  const firstPasswordKey = Buffer.from(hkdfSync('sha256', env.SECRETS_ENCRYPTION_KEY || env.JWT_ACCESS_SECRET, 'mico360-first-password', 'first-password', 32)).toString('hex');
+  const firstPassword = createFirstPassword({ repo: createPrismaFirstPasswordRepo(prisma), key: firstPasswordKey, hashPassword, verifyPassword });
   const emailVerification = createEmailVerification({
     repo: createPrismaVerificationRepo(prisma),
     mailConfigured: () => emailService.isConfigured(),
@@ -1893,6 +1898,8 @@ async function main(): Promise<void> {
     downloads: () => emailDownloadLinks({ appUrl: env.APP_URL, androidAppUrl: env.ANDROID_APP_URL, webRoot: webRootDir, downloadsDir }),
     logger,
     emailOptions: documentBrands.email.person, // companies: the person's primary company
+    // 1.23.6: System Settings → Accounts, "Invitation links last" (7 days unless changed).
+    defaultDays: () => settingsService.invitationDays(),
   });
 
   // ── Nightly backups (docs/BACKUPS.md) ──────────────────────────────────────
@@ -2157,6 +2164,8 @@ async function main(): Promise<void> {
     // and the forms' duplicate check.
     signInChallenges,
     emailVerification,
+    firstPassword,
+    invitationDays: () => settingsService.invitationDays(),
     adminPasswordReset: passwordResetService,
     identityLookup: createPrismaIdentityLookup(prisma),
     projectService,

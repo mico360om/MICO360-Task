@@ -33,6 +33,8 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   'POST /auth/password/forgot': 'public',
   'POST /auth/password/reset': 'public',
   'POST /auth/password/link-status': 'public',
+  // 1.23.6: "Choose your own password" after a temporary one (the sign-in's step ticket finishes it).
+  'POST /auth/password/first-change': 'public',
   'POST /auth/biometric-credential': 'public',
   'POST /auth/biometric-credential/revoke': 'public',
   'POST /auth/biometric-sign-in': 'public',
@@ -94,6 +96,8 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   'POST /users/:id/password': 'admin',
   'POST /users/:id/unlock': 'admin',
   'POST /users/:id/welcome-email': 'admin',
+  // 1.23.6: Cancel invitation.
+  'POST /users/:id/invitation/cancel': 'admin',
   'POST /users/welcome-emails': 'admin',
   // Onboarding: "Send password reset", "Mark email as verified", the forms' duplicate check.
   'POST /users/:id/password-reset-email': 'admin',

@@ -1,7 +1,9 @@
 import type { PrismaClient, Prisma } from '@prisma/client';
 import { ValidationError } from '../../lib/http-errors';
 import { isLocked } from '../../lib/lockout';
-import type { CreateUserData, UserListFilter, UserRepository, UserSummary } from './user-repository';
+import { randomBytes } from 'node:crypto';
+import { hashPassword } from '../../lib/password';
+import type { CreateUserData, TemporaryPasswordMark, UserListFilter, UserRepository, UserSummary } from './user-repository';
 import { liveInvitation, onboardingStatus } from './onboarding-status';
 
 // companies: each person comes with their companies (the admin views show them).
@@ -10,6 +12,8 @@ const withRoles = {
   roles: { include: { role: true } },
   companies: { select: { company: { select: { id: true, name: true, code: true } } } },
   loginOtps: liveInvitation(new Date(0)),
+  // 1.23.6: who set a temporary password (their name only).
+  temporaryPasswordSetBy: { select: { id: true, firstName: true, lastName: true, username: true } },
 } as const;
 /** The include, with "still works" judged now. */
 const include = () => ({ ...withRoles, loginOtps: liveInvitation(new Date()) });
@@ -40,7 +44,25 @@ function toSummary(u: UserWithRoles): UserSummary {
     activatedAt: u.activatedAt,
     emailVerifiedAt: u.emailVerifiedAt,
     inviteExpiresAt,
-    onboarding: onboardingStatus({ status: u.status, locked, activatedAt: u.activatedAt, lastLoginAt: u.lastLoginAt, invitedAt: u.invitedAt, welcomeSentAt: u.welcomeSentAt, inviteExpiresAt }),
+    onboarding: onboardingStatus({
+      status: u.status,
+      locked,
+      activatedAt: u.activatedAt,
+      lastLoginAt: u.lastLoginAt,
+      invitedAt: u.invitedAt,
+      welcomeSentAt: u.welcomeSentAt,
+      inviteExpiresAt,
+      mustChangePassword: u.mustChangePassword,
+      temporaryPasswordExpiresAt: u.temporaryPasswordExpiresAt,
+      invitationCancelledAt: u.invitationCancelledAt,
+    }),
+    mustChangePassword: u.mustChangePassword,
+    temporaryPasswordSetAt: u.temporaryPasswordSetAt,
+    temporaryPasswordSetBy: u.temporaryPasswordSetBy
+      ? { id: u.temporaryPasswordSetBy.id, name: `${u.temporaryPasswordSetBy.firstName} ${u.temporaryPasswordSetBy.lastName}`.trim() || u.temporaryPasswordSetBy.username }
+      : null,
+    temporaryPasswordExpiresAt: u.temporaryPasswordExpiresAt,
+    invitationCancelledAt: u.invitationCancelledAt,
     roles: u.roles.map((r) => r.role.name),
     locked,
     lockedUntil: locked ? u.lockedUntil : null,
@@ -48,6 +70,11 @@ function toSummary(u: UserWithRoles): UserSummary {
     primaryCompanyId: u.primaryCompanyId,
     myProjectsOnly: u.myProjectsOnly,
   };
+}
+
+/** 1.23.6: the temporary-password columns for a mark (none: all cleared). */
+function temporaryFields(t: TemporaryPasswordMark | undefined) {
+  return { mustChangePassword: !!t, temporaryPasswordSetAt: t?.at ?? null, temporaryPasswordSetById: t?.setById ?? null, temporaryPasswordExpiresAt: t?.expiresAt ?? null };
 }
 
 const MAX_IDENTITY_LENGTH = 191; // VARCHAR(191) on MySQL
@@ -83,6 +110,7 @@ export function createPrismaUserRepository(prisma: PrismaClient): UserRepository
           // companies: their companies and primary company, as User Management's rules chose them.
           ...(data.companyIds?.length ? { companies: { create: [...new Set(data.companyIds)].map((companyId) => ({ companyId })) } } : {}),
           primaryCompanyId: data.primaryCompanyId ?? null,
+          ...temporaryFields(data.temporary),
         },
         include: include(),
       });
@@ -126,10 +154,14 @@ export function createPrismaUserRepository(prisma: PrismaClient): UserRepository
       const u = await prisma.user.update({ where: { id }, data: { avatarUrl }, include: include() });
       return toSummary(u);
     },
-    async setPassword(id, passwordHash) {
+    async setPassword(id, passwordHash, temporary) {
       const now = new Date();
       await prisma.$transaction([
-        prisma.user.update({ where: { id }, data: { passwordHash, failedLoginAttempts: 0, lockedUntil: null } }),
+        prisma.user.update({
+          where: { id },
+          // 1.23.6: a temporary password ends a cancelled invitation; the person's own clears the mark.
+          data: { passwordHash, failedLoginAttempts: 0, lockedUntil: null, ...temporaryFields(temporary), ...(temporary ? { invitationCancelledAt: null } : {}) },
+        }),
         // Earlier reset and welcome links must not be able to change the password again.
         prisma.loginOtp.updateMany({ where: { userId: id, purpose: { in: ['PASSWORD_RESET', 'WELCOME'] }, consumedAt: null }, data: { consumedAt: now } }),
       ]);
@@ -138,9 +170,21 @@ export function createPrismaUserRepository(prisma: PrismaClient): UserRepository
       await prisma.loginOtp.updateMany({ where: { userId: id, purpose: { in: ['PASSWORD_RESET', 'WELCOME'] }, consumedAt: null }, data: { consumedAt: new Date() } });
     },
     async markWelcomeSent(id, at) {
-      await prisma.user.updateMany({ where: { id }, data: { welcomeSentAt: at } });
+      await prisma.user.updateMany({ where: { id }, data: { welcomeSentAt: at, invitationCancelledAt: null } });
       // Onboarding: the first invitation's time stays ("Invited 5 Nov · resent 7 Nov").
       await prisma.user.updateMany({ where: { id, invitedAt: null }, data: { invitedAt: at } });
+      // 1.23.6: one way in or the other — an unused temporary password stops working with a new invitation.
+      if ((await prisma.user.count({ where: { id, mustChangePassword: true } })) > 0) {
+        const unusable = await hashPassword(randomBytes(32).toString('base64url'));
+        await prisma.user.updateMany({ where: { id, mustChangePassword: true }, data: { passwordHash: unusable, ...temporaryFields(undefined) } });
+      }
+    },
+    async cancelInvitation(id, at, unusableHash) {
+      await prisma.$transaction([
+        prisma.loginOtp.updateMany({ where: { userId: id, purpose: { in: ['PASSWORD_RESET', 'WELCOME'] }, consumedAt: null }, data: { consumedAt: at } }),
+        prisma.user.updateMany({ where: { id, mustChangePassword: true }, data: { passwordHash: unusableHash, ...temporaryFields(undefined) } }),
+        prisma.user.update({ where: { id }, data: { invitationCancelledAt: at } }),
+      ]);
     },
     async getPasswordHash(id) {
       const u = await prisma.user.findFirst({ where: { id, deletedAt: null }, select: { passwordHash: true } });

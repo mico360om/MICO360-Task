@@ -5,7 +5,7 @@ import { hashPassword, verifyPassword } from '../../lib/password';
 import { isStrongPassword } from '../../lib/password-policy';
 import { WeakPasswordError } from '../auth/errors';
 import { assertRoleSet, assertSameKind, isClientRoles } from '../clients/client-kind';
-import type { NewUser, UpdateUserData, UserListFilter, UserRepository, UserStatus, UserSummary } from './user-repository';
+import type { NewUser, TemporaryPasswordMark, UpdateUserData, UserListFilter, UserRepository, UserStatus, UserSummary } from './user-repository';
 import { MY_PROJECTS_ONLY_REFUSED } from './user-preferences';
 
 export interface SessionTokens {
@@ -142,6 +142,8 @@ export function createUserService({ users, revokeSessions, onSessionsRevoked, is
       departmentId: input.departmentId,
       roleNames,
       ...(input.companyIds !== undefined ? { companyIds: input.companyIds, primaryCompanyId: input.primaryCompanyId ?? null } : {}),
+      // 1.23.6: a password given now is a temporary one (only with a password: none means a link).
+      ...(input.temporary && input.password !== undefined ? { temporary: input.temporary } : {}),
     });
   }
 
@@ -214,11 +216,25 @@ export function createUserService({ users, revokeSessions, onSessionsRevoked, is
   }
 
   /** Admin-only: overwrite a user's password (also lifts any lockout) and end their sessions. */
-  async function adminResetPassword(id: string, newPassword: string): Promise<void> {
+  async function adminResetPassword(id: string, newPassword: string, temporary?: TemporaryPasswordMark): Promise<void> {
     if (!isStrongPassword(newPassword)) throw new WeakPasswordError();
     await getUser(id);
-    await users.setPassword(id, await hashPassword(newPassword));
+    await users.setPassword(id, await hashPassword(newPassword), temporary);
     await revokeAccess(id);
+  }
+
+  /**
+   * 1.23.6 "Cancel invitation": for someone who has never signed in. Their links stop, an unused
+   * temporary password stops, and no way in works (link, Forgot password, emailed code) until a new
+   * invitation or a temporary password.
+   */
+  async function cancelInvitation(id: string, at: Date = new Date()): Promise<UserSummary> {
+    const user = await getUser(id);
+    if (user.activatedAt || user.lastLoginAt) throw new ConflictError('They have signed in already, so there is no invitation to cancel. Deactivate the account instead.');
+    if (user.invitationCancelledAt) return user;
+    await users.cancelInvitation(id, at, await hashPassword(randomBytes(32).toString('base64url')));
+    await revokeAccess(id);
+    return getUser(id);
   }
 
   /**
@@ -273,7 +289,7 @@ export function createUserService({ users, revokeSessions, onSessionsRevoked, is
     return users.setAvatar(id, avatarUrl);
   }
 
-  return { createUser, listUsers, getUser, updateUser, setUserStatus, deleteUser, unlockUser, setAvatar, adminResetPassword, changeOwnPassword };
+  return { createUser, listUsers, getUser, updateUser, setUserStatus, deleteUser, unlockUser, setAvatar, adminResetPassword, changeOwnPassword, cancelInvitation };
 }
 
 export type UserService = ReturnType<typeof createUserService>;

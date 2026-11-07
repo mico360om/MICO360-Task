@@ -8,7 +8,7 @@ import type { WelcomeEmailParams } from '../email/email-templates';
 
 const DAY = 24 * 3600 * 1000;
 
-function harness(opts: { configured?: boolean; blocked?: string[]; fail?: (email: string) => boolean; suppressAtSend?: string[]; concurrency?: number } = {}) {
+function harness(opts: { configured?: boolean; blocked?: string[]; fail?: (email: string) => boolean; suppressAtSend?: string[]; concurrency?: number; defaultDays?: number } = {}) {
   let clock = new Date('2026-10-25T06:00:00.000Z').getTime();
   const mem = createMemoryUserRepository();
   const tokens = createMemoryWelcomeTokenStore();
@@ -52,6 +52,7 @@ function harness(opts: { configured?: boolean; blocked?: string[]; fail?: (email
       },
     },
     ...(opts.concurrency ? { concurrency: opts.concurrency } : {}),
+    ...(opts.defaultDays ? { defaultDays: async () => opts.defaultDays! } : {}),
     appUrl: 'https://task.mico360.test/',
     downloads: () => ({ androidAppUrl: 'https://task.mico360.test/downloads/MICO360-Tasks.apk', extensionUrl: null }),
     logger: { warn: (msg, ctx) => void warnings.push({ msg, ctx }) },
@@ -316,5 +317,64 @@ describe('WelcomeService — client accounts', () => {
     expect(out.sent).toBe(true);
     expect(h.sent[0]!.params).toMatchObject({ firstName: 'Cliff', username: 'cliff', androidAppUrl: null, extensionUrl: null, client: true });
     expect(h.sent[0]!.params.setPasswordLink).toMatch(/\/reset\?token=.+&welcome=1$/);
+  });
+});
+
+// 1.23.6 addendum: the link's lifetime (System Settings, or chosen for one invitation), at most five sends
+// a day, and one way in or the other.
+describe('WelcomeService — lifetime, daily limit, one way in', () => {
+  it('a link lasts the setting’s days (7 unless changed); one invitation can choose 1, 3, 7 or 14; the email and the answer say when it ends', async () => {
+    const h = harness({ defaultDays: 3 });
+    const sara = await h.add('sara');
+    const out = await h.service.send(sara.id);
+    expect(h.sent[0]!.params.expiresInDays).toBe(3);
+    expect(h.tokens.live(sara.id)[0]!.expiresAt.getTime() - h.now().getTime()).toBe(3 * DAY);
+    expect(out.expiresAt).toBe(new Date(h.now().getTime() + 3 * DAY).toISOString());
+    h.advance(2 * 60_000);
+    const longer = await h.service.send(sara.id, { days: 14 });
+    expect(h.sent[1]!.params.expiresInDays).toBe(14);
+    expect(h.tokens.live(sara.id)[0]!.expiresAt.getTime() - h.now().getTime()).toBe(14 * DAY);
+    expect(longer.expiresAt).toBe(new Date(h.now().getTime() + 14 * DAY).toISOString());
+    // No setting given: 7 days, as before.
+    const plain = harness();
+    const omar = await plain.add('omar');
+    await plain.service.send(omar.id, { days: 1 });
+    expect(plain.tokens.live(omar.id)[0]!.expiresAt.getTime() - plain.now().getTime()).toBe(DAY);
+  });
+
+  it('at most 5 sends to one person in any 24 hours: the 6th says so (no email, no link); a day later it goes again', async () => {
+    const h = harness();
+    const sara = await h.add('sara');
+    const omar = await h.add('omar');
+    for (let i = 0; i < 5; i++) {
+      expect((await h.service.send(sara.id)).sent).toBe(true);
+      h.advance(2 * 60_000);
+    }
+    const sixth = await h.service.send(sara.id);
+    expect(sixth).toMatchObject({ sent: false, reason: 'DAILY_LIMIT', why: 'it has gone to them 5 times in the last 24 hours (try again tomorrow)' });
+    expect(h.sent).toHaveLength(5);
+    expect(h.tokens.rows.filter((r) => r.userId === sara.id)).toHaveLength(5);
+    // Someone else is not held up; in bulk too each person is counted alone.
+    expect((await h.service.sendMany([sara.id, omar.id])).map((r) => r.reason ?? 'sent')).toEqual(['DAILY_LIMIT', 'sent']);
+    h.advance(DAY);
+    expect((await h.service.send(sara.id)).sent).toBe(true);
+  });
+
+  it('a new invitation stops an unused temporary password and ends a cancel (one way in or the other)', async () => {
+    const h = harness();
+    const sara = await h.add('sara');
+    const mark = { at: h.now(), setById: null, expiresAt: new Date(h.now().getTime() + 7 * DAY) };
+    await h.mem.repo.setPassword(sara.id, 'temp-hash', mark);
+    expect((await h.mem.repo.findById(sara.id))?.mustChangePassword).toBe(true);
+    await h.service.send(sara.id);
+    const after = await h.mem.repo.findById(sara.id);
+    expect(after?.mustChangePassword).toBe(false);
+    expect(after?.temporaryPasswordExpiresAt).toBeNull();
+    expect(h.mem.hashOf(sara.id)).not.toBe('temp-hash');
+    await h.mem.repo.cancelInvitation(sara.id, h.now(), 'void');
+    expect((await h.mem.repo.findById(sara.id))?.invitationCancelledAt).not.toBeNull();
+    h.advance(2 * 60_000);
+    await h.service.send(sara.id);
+    expect((await h.mem.repo.findById(sara.id))?.invitationCancelledAt).toBeNull();
   });
 });

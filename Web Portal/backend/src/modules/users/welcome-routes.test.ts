@@ -210,11 +210,12 @@ describe('POST /users with "Send a welcome email"', () => {
     expect(audited[0]!.newValue).toEqual({ email: 'sara@x.co', username: 'sara', roleNames: ['EMPLOYEE'], welcomeEmail: true });
   });
 
-  it('with a temporary password as well: that password works, and the email goes', async () => {
+  it('with a temporary password as well: refused since 1.23.6 (one way in), nothing made, nothing sent', async () => {
     const res = await create({ ...newUser, sendWelcome: true });
-    expect(res.statusCode).toBe(201);
-    expect(await verifyPassword('Password1!', mem.hashOf(res.json().data.id)!)).toBe(true);
-    expect(sent).toHaveLength(1);
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe('ONE_WAY_IN');
+    expect(await mem.repo.list()).toEqual([]);
+    expect(sent).toEqual([]);
   });
 
   it('without it, today’s rule stays: a temporary password is required (and no email goes)', async () => {
@@ -229,13 +230,15 @@ describe('POST /users with "Send a welcome email"', () => {
   });
 
   it('a weak temporary password is still refused', async () => {
-    expect((await create({ ...newUser, password: 'abc', sendWelcome: true })).json().error.code).toBe('WEAK_PASSWORD');
+    expect((await create({ ...newUser, password: 'abc' })).json().error.code).toBe('WEAK_PASSWORD');
     expect(sent).toEqual([]);
   });
 
   it('the account is made even when the welcome email can’t go, and says why', async () => {
     app = await makeApp({ blocked: ['sara@x.co'] });
-    const res = await create({ ...newUser, sendWelcome: true });
+    const { password, ...noPassword } = newUser;
+    void password;
+    const res = await create({ ...noPassword, sendWelcome: true });
     expect(res.statusCode).toBe(201);
     expect(res.json().meta.welcome).toMatchObject({ sent: false, reason: 'EMAIL_BLOCKED' });
     expect(audited.map((a) => a.action)).toEqual(['user.create']);
@@ -245,7 +248,9 @@ describe('POST /users with "Send a welcome email"', () => {
 describe('A server error during a send never loses the account, the results or the audit entries', () => {
   it('POST /users: the account is made and the answer is 201 with a failed welcome result, never a 500', async () => {
     app = await makeApp({ welcomeThrows: true });
-    const res = await create({ ...newUser, sendWelcome: true });
+    const { password, ...noPassword } = newUser;
+    void password;
+    const res = await create({ ...noPassword, sendWelcome: true });
     expect(res.statusCode).toBe(201);
     expect(res.json().meta.welcome).toMatchObject({ userId: res.json().data.id, username: 'sara', sent: false, reason: 'SERVER_ERROR', why: 'something went wrong on the server (try again)' });
     expect((await mem.repo.list()).map((u) => u.username)).toEqual(['sara']);

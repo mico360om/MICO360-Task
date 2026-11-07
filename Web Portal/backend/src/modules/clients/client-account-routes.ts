@@ -5,6 +5,7 @@ import { NotFoundError } from '../../lib/http-errors';
 import { WELCOME_REFUSAL_WHY, WelcomeEmailUnavailableError, type WelcomeOutcome, type WelcomeService } from '../users/welcome-service';
 import type { ClientAccounts } from './client-accounts';
 import { grantsSchema } from './client-grants';
+import { checkOneWayIn, temporaryPasswordFor, wayInFields } from '../users/way-in';
 
 /**
  * 1.23 Client accounts for administrators: the Clients page and User Management's Role "Client" use
@@ -18,6 +19,8 @@ export interface ClientAccountRouteDeps {
   /** May they see the project at all (else 404). */
   canViewProject: (userId: string, roles: string[], projectId: string) => Promise<boolean>;
   audit?: { record(entry: { userId: string | null; ip: string | null; module: string; action: string; entityId: string | null; newValue?: unknown }): Promise<unknown> };
+  /** 1.23.6: System Settings → Accounts, "Invitation links last" (days; unused temporary passwords too). */
+  invitationDays?: () => Promise<number>;
 }
 
 const name = z.string().trim().min(1).max(191);
@@ -28,14 +31,14 @@ const createSchema = z
     lastName: name,
     username: name,
     email: z.string().trim().email().max(191),
-    password: z.string().max(200).optional(),
-    sendWelcome: z.boolean().optional(),
+    // 1.23.6: one way in — an invitation link or a temporary password (made here, or typed), never both.
+    ...wayInFields,
     organisation: optionalText(160),
     phone: optionalText(40),
     projects: grantsSchema.optional(),
   })
   .superRefine((b, ctx) => {
-    if (!b.sendWelcome && !b.password) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['password'], message: 'Required' });
+    if (!b.sendWelcome && !b.password && !b.generatePassword) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['password'], message: 'Required' });
   });
 const updateSchema = z.object({
   firstName: name.optional(),
@@ -62,14 +65,30 @@ export async function registerClientAccountRoutes(app: FastifyInstance, deps: Cl
   });
 
   app.post('/clients', adminOnly, async (req, reply) => {
-    const { sendWelcome, ...body } = createSchema.parse(req.body ?? {});
+    const { sendWelcome, password, generatePassword, inviteDays, ...body } = createSchema.parse(req.body ?? {});
+    checkOneWayIn({ sendWelcome, password, generatePassword });
     // Asked for a welcome email that can't be sent: say so before making an account no one can use.
     if (sendWelcome && !deps.welcome?.isConfigured()) throw new WelcomeEmailUnavailableError();
-    let created = await accounts.create(body, actor(req));
+    // 1.23.6: a temporary password (made here, or typed) is changed at the first sign-in and ends unused.
+    const temporary = await temporaryPasswordFor({ password, generatePassword, inviteDays }, { setById: req.user!.id, setting: deps.invitationDays });
+    let created = await accounts.create({ ...body, ...(temporary ? { password: temporary.password, temporary: temporary.mark } : {}) }, actor(req));
+    if (temporary) {
+      await deps.audit?.record({
+        userId: req.user!.id,
+        ip: req.ip ?? null,
+        module: 'users',
+        action: 'user.password.temporary_set',
+        entityId: created.id,
+        newValue: { generated: temporary.generated, expiresAt: temporary.mark.expiresAt.toISOString() },
+      });
+      // A password made here goes back once, in this answer only (never stored, logged or emailed).
+      return reply.status(201).send({ data: created, ...(temporary.generated ? { meta: { temporaryPassword: temporary.password } } : {}) });
+    }
     if (!sendWelcome || !deps.welcome) return reply.status(201).send({ data: created });
     let welcome: WelcomeOutcome;
     try {
       welcome = await deps.welcome.send(created.id, {
+        ...(inviteDays ? { days: inviteDays } : {}),
         onSent: async (out) => {
           await deps.audit?.record({ userId: req.user!.id, ip: req.ip ?? null, module: 'users', action: 'user.welcome_email', entityId: out.userId, newValue: { to: out.email, username: out.username, bulk: false, resent: out.resent === true } });
         },

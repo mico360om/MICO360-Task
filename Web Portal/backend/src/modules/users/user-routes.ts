@@ -18,32 +18,36 @@ import { fieldProblem } from './user-service';
 import { checkIdentity, type IdentityLookup } from './identity-check';
 import type { AdminResetOutcome, AdminResetRefusal } from '../auth/password-reset-service';
 import type { EmailVerification } from '../auth/email-verification';
+import { checkOneWayIn, temporaryPasswordFor, wayInFields } from './way-in';
+import { TEMPORARY_PASSWORD_STYLES } from '../../lib/temporary-password';
+import { invitationDaysSchema } from '../settings/settings-service';
 
 // Password strength (8+ chars, a letter and a digit) is enforced by the service for every endpoint.
 const password = z.string().min(1).max(200);
 const name = z.string().trim().min(1).max(191);
-// With "Send a welcome email" the temporary password is optional (the person sets theirs with the
-// link); without it, a temporary password is required, as before.
+// 1.23.6: one way in — an invitation link (sendWelcome) or a temporary password (generated here, or
+// typed by the Android app / the API: always temporary), never both; with neither, a password is required.
 const createSchema = z
   .object({
     email: z.string().trim().email().max(191),
     username: name,
-    password: z.string().max(200).optional(),
+    ...wayInFields,
     firstName: name,
     lastName: name,
     departmentId: z.string().optional(),
     roleNames: z.array(z.string()).min(1).optional(),
-    sendWelcome: z.boolean().optional(),
     // companies: their companies ([0] is the primary company unless one is named).
     companyIds: z.array(idString).max(50).optional(),
     primaryCompanyId: idString.nullable().optional(),
   })
   .superRefine((b, ctx) => {
-    if (!b.sendWelcome && !b.password) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['password'], message: 'Required' });
+    if (!b.sendWelcome && !b.password && !b.generatePassword) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['password'], message: 'Required' });
   });
 /** Welcome emails to several people: at most this many a send. */
 const MAX_WELCOME_BATCH = 100;
-const welcomeBatchSchema = z.object({ userIds: z.array(z.string().min(1).max(64)).min(1).max(MAX_WELCOME_BATCH) });
+// 1.23.6: `days` — this invitation's link lifetime (1, 3, 7 or 14; absent: System Settings').
+const welcomeBatchSchema = z.object({ userIds: z.array(z.string().min(1).max(64)).min(1).max(MAX_WELCOME_BATCH), days: invitationDaysSchema.optional() });
+const welcomeOneSchema = z.object({ days: invitationDaysSchema.optional() });
 /** One bulk send per administrator this often. */
 const WELCOME_BATCH_GAP_MS = 60_000;
 
@@ -56,6 +60,7 @@ const REFUSAL_STATUS: Record<WelcomeRefusal, number> = {
   NO_EMAIL: 409,
   EMAIL_BLOCKED: 409,
   TOO_SOON: 429,
+  DAILY_LIMIT: 429,
   DELIVERY_FAILED: 502,
   SERVER_ERROR: 500,
 };
@@ -105,7 +110,11 @@ const RESET_REFUSAL_STATUS: Record<AdminResetRefusal, number> = {
   TOO_SOON: 429,
   DELIVERY_FAILED: 502,
 };
-const adminPasswordSchema = z.object({ password });
+// 1.23.6: a typed temporary password (the Android app, the API) or one made here (`generate`, the
+// website), never both; `days`: how long it works unused (absent: System Settings').
+const adminPasswordSchema = z
+  .object({ password: password.optional(), generate: z.enum(TEMPORARY_PASSWORD_STYLES).optional(), days: invitationDaysSchema.optional() })
+  .refine((b) => !!b.password !== !!b.generate, { message: 'Give a password or ask for one to be made (not both).', path: ['password'] });
 const changePasswordSchema = z.object({ currentPassword: z.string().min(1).max(200), newPassword: password });
 
 export interface UserRouteDeps {
@@ -137,6 +146,8 @@ export interface UserRouteDeps {
   adminPasswordReset?: { isConfigured(): boolean; sendForAdministrator(userId: string): Promise<AdminResetOutcome> };
   /** Onboarding: "Mark email as verified" by hand. */
   verification?: EmailVerification;
+  /** 1.23.6: System Settings → Accounts, "Invitation links last" (days; unused temporary passwords too). */
+  invitationDays?: () => Promise<number>;
 }
 
 export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDeps): Promise<void> {
@@ -236,7 +247,9 @@ export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDe
   };
 
   app.post('/users', adminOnly, async (req, reply) => {
-    const { sendWelcome, password, companyIds, primaryCompanyId, ...body } = createSchema.parse(req.body);
+    const { sendWelcome, password, generatePassword, inviteDays, companyIds, primaryCompanyId, ...body } = createSchema.parse(req.body);
+    // 1.23.6: one way in, from every caller.
+    checkOneWayIn({ sendWelcome, password, generatePassword });
     // 1.23: a client account is made with the client form (POST /clients: its projects and their access).
     if ((body.roleNames ?? []).includes(CLIENT_ROLE)) throw new HttpError('Create client accounts with the client form (Role: Client).', 'USE_CLIENT_FORM', 400);
     // Onboarding: the detail rules the form shows (the server never trusts the form).
@@ -252,14 +265,21 @@ export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDe
       const ids = await deps.membership.defaultsFor({ companyIds, isAdmin }, deps.pickOf ? await deps.pickOf(req) : null);
       companies = { companyIds: ids, primaryCompanyId: deps.membership.primaryFor(ids, primaryCompanyId) };
     }
-    let created = await userService.createUser({ ...body, ...(password ? { password } : {}), ...(companies ?? {}) });
+    // 1.23.6: a temporary password (made here, or typed) is changed at the first sign-in and ends unused.
+    const temporary = await temporaryPasswordFor({ password, generatePassword, inviteDays }, { setById: req.user!.id, setting: deps.invitationDays });
+    let created = await userService.createUser({ ...body, ...(temporary ? { password: temporary.password, temporary: temporary.mark } : {}), ...(companies ?? {}) });
     // Never log the password — only non-secret identifying fields.
     await logAudit(req, 'user.create', created.id, { email: body.email, username: body.username, roleNames: created.roles, ...(companies ?? {}), ...(sendWelcome !== undefined ? { welcomeEmail: sendWelcome } : {}) });
+    if (temporary) {
+      await logAudit(req, 'user.password.temporary_set', created.id, { generated: temporary.generated, expiresAt: temporary.mark.expiresAt.toISOString() });
+      // A password made here goes back once, in this answer only (never stored, logged or emailed).
+      return reply.status(201).send({ data: created, ...(temporary.generated ? { meta: { temporaryPassword: temporary.password } } : {}) });
+    }
     if (!sendWelcome || !deps.welcome) return reply.status(201).send({ data: created });
     // The account stands whatever happens to the email: the answer is always 201 and says whether it went.
     let welcome: WelcomeOutcome;
     try {
-      welcome = await deps.welcome.send(created.id, { onSent: auditWelcome(req, false) });
+      welcome = await deps.welcome.send(created.id, { onSent: auditWelcome(req, false), ...(inviteDays ? { days: inviteDays } : {}) });
     } catch {
       welcome = {
         userId: created.id,
@@ -282,7 +302,7 @@ export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDe
     // "Send welcome emails": the chosen people (or everyone who has never signed in, chosen on the
     // page), each told apart in the answer. One send a minute per administrator, 100 people at most (it runs inside one request).
     app.post('/users/welcome-emails', adminOnly, async (req, reply) => {
-      const { userIds } = welcomeBatchSchema.parse(req.body);
+      const { userIds, days } = welcomeBatchSchema.parse(req.body);
       if (!welcome.isConfigured()) throw new WelcomeEmailUnavailableError();
       const adminId = req.user!.id;
       const at = Date.now();
@@ -290,7 +310,7 @@ export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDe
         return reply.status(429).send({ error: { code: 'TOO_SOON', message: 'Welcome emails were just sent. Wait a minute before sending more.' } });
       }
       lastBatch.set(adminId, at);
-      const results = await welcome.sendMany(userIds, { onSent: auditWelcome(req, true) });
+      const results = await welcome.sendMany(userIds, { onSent: auditWelcome(req, true), ...(days ? { days } : {}) });
       const sent = results.filter((r) => r.sent).length;
       return { data: { sent, notSent: results.length - sent, results } };
     });
@@ -298,7 +318,8 @@ export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDe
     // "Send welcome email" for one person.
     app.post('/users/:id/welcome-email', adminOnly, async (req, reply) => {
       const { id } = req.params as { id: string };
-      const out = await welcome.send(id, { onSent: auditWelcome(req, false) });
+      const { days } = welcomeOneSchema.parse(req.body ?? {});
+      const out = await welcome.send(id, { onSent: auditWelcome(req, false), ...(days ? { days } : {}) });
       if (!out.sent) {
         const reason = out.reason ?? 'SERVER_ERROR';
         return reply.status(REFUSAL_STATUS[reason]).send({ error: { code: reason, message: `No welcome email was sent: ${out.why ?? WELCOME_REFUSAL_WHY[reason]}.` } });
@@ -342,12 +363,29 @@ export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDe
 
   // Admin-only: reset a user's password to a new value (never logs the password itself).
   // Also lifts any lockout and ends the user's sessions.
+  // 1.23.6: always a temporary password — changed at the first sign-in, ends unused after the lifetime;
+  // the invitation link stops (one way in). One made here (`generate`) goes back once, in this answer.
   app.post('/users/:id/password', adminOnly, async (req, reply) => {
     const { id } = req.params as { id: string };
-    const { password } = adminPasswordSchema.parse(req.body);
-    await userService.adminResetPassword(id, password);
-    await logAudit(req, 'user.password.reset', id);
-    return reply.status(204).send();
+    const { password: typed, generate, days } = adminPasswordSchema.parse(req.body ?? {});
+    if (id === req.user!.id) throw new HttpError('Change your own password in Settings → Security.', 'NOT_YOUR_OWN', 403);
+    const temporary = (await temporaryPasswordFor({ password: typed, generatePassword: generate, inviteDays: days }, { setById: req.user!.id, setting: deps.invitationDays }))!;
+    await userService.adminResetPassword(id, temporary.password, temporary.mark);
+    await logAudit(req, 'user.password.reset', id, { temporary: true, generated: temporary.generated, expiresAt: temporary.mark.expiresAt.toISOString() });
+    if (!temporary.generated) return reply.status(204).send();
+    return { data: { temporaryPassword: temporary.password, expiresAt: temporary.mark.expiresAt.toISOString() } };
+  });
+
+  // 1.23.6 "Cancel invitation": for someone who has never signed in. Their link (and any unused temporary
+  // password) stops; no way in works (link, Forgot password, emailed code) until a new invitation or a
+  // temporary password.
+  app.post('/users/:id/invitation/cancel', adminOnly, async (req) => {
+    const { id } = req.params as { id: string };
+    if (id === req.user!.id) throw new HttpError('You can’t cancel your own invitation.', 'NOT_YOUR_OWN', 403);
+    const before = await userService.getUser(id);
+    const updated = await userService.cancelInvitation(id);
+    if (!before.invitationCancelledAt) await logAudit(req, 'user.invitation.cancelled', id, { email: before.email, username: before.username });
+    return { data: updated };
   });
 
   // Admin-only: lift a lockout from too many failed sign-in attempts.

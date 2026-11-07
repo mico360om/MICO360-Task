@@ -9,7 +9,7 @@ export function createPrismaWelcomeTokenStore(prisma: PrismaClient): WelcomeToke
   return {
     async create(data) {
       const row = await prisma.loginOtp.create({
-        data: { userId: data.userId, codeHash: data.tokenHash, expiresAt: data.expiresAt, attempts: 0, purpose: 'WELCOME' },
+        data: { userId: data.userId, codeHash: data.tokenHash, expiresAt: data.expiresAt, attempts: 0, purpose: 'WELCOME', ...(data.createdAt ? { createdAt: data.createdAt } : {}) },
         select: { id: true },
       });
       return row.id;
@@ -19,6 +19,9 @@ export function createPrismaWelcomeTokenStore(prisma: PrismaClient): WelcomeToke
         where: { userId, purpose: 'WELCOME', consumedAt: null, id: { not: keepId } },
         data: { consumedAt: new Date() },
       });
+    },
+    async countSince(userId, since) {
+      return prisma.loginOtp.count({ where: { userId, purpose: 'WELCOME', createdAt: { gt: since } } });
     },
     async discard(id) {
       await prisma.loginOtp.updateMany({ where: { id, consumedAt: null }, data: { consumedAt: new Date() } });

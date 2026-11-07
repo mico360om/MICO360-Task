@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import Fastify from 'fastify';
 import { ZodError } from 'zod';
-import { createSettingsService, DEFAULT_DAILY_LIMIT, DEFAULT_MEETING_REMINDERS, DEFAULT_WORKING_HOURS } from './settings-service';
+import { createSettingsService, DEFAULT_DAILY_LIMIT, DEFAULT_INVITATION_DAYS, DEFAULT_MEETING_REMINDERS, DEFAULT_WORKING_HOURS, INVITATION_DAY_CHOICES } from './settings-service';
 import { registerSettingsRoutes } from './settings-routes';
 import { createAuthGuard } from '../auth/auth-guard';
 import { createTokenService } from '../auth/token-service';
@@ -283,5 +283,20 @@ describe('SettingsService: meeting reminders (System Settings → Meeting remind
   it('a broken stored value falls back to the defaults (reminders keep going)', async () => {
     const svc = createSettingsService({ settings: inMemory({ 'meetings.reminders': { enabled: 'off', times: 'x' } }) });
     expect(await svc.meetingReminders()).toEqual(DEFAULT_MEETING_REMINDERS);
+  });
+});
+
+describe('SettingsService: how long invitation links last (1.23.6, System Settings → Accounts)', () => {
+  it('7 days until an administrator picks 1, 3 or 14; other values are refused; junk reads as 7', async () => {
+    const svc = createSettingsService({ settings: inMemory() });
+    expect(await svc.invitationDays()).toBe(DEFAULT_INVITATION_DAYS);
+    expect(DEFAULT_INVITATION_DAYS).toBe(7);
+    expect(INVITATION_DAY_CHOICES).toEqual([1, 3, 7, 14]);
+    for (const days of [1, 3, 14, 7]) {
+      await svc.set('accounts.invitationDays', days);
+      expect(await svc.invitationDays()).toBe(days);
+    }
+    for (const bad of [0, 2, 5, 30, '7', null]) await expect(svc.set('accounts.invitationDays', bad)).rejects.toBeInstanceOf(HttpError);
+    expect(await createSettingsService({ settings: inMemory({ 'accounts.invitationDays': 'week' }) }).invitationDays()).toBe(7);
   });
 });

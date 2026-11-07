@@ -8,7 +8,9 @@ import { isClientRoles } from '../clients/client-kind';
 /** Where welcome links are kept: hashed, single use, with their own expiry (7 days). */
 export interface WelcomeTokenStore {
   /** Store a new link. It doesn't end the earlier ones yet: the email may still fail. Returns its id. */
-  create(data: { userId: string; tokenHash: string; expiresAt: Date }): Promise<string>;
+  create(data: { userId: string; tokenHash: string; expiresAt: Date; createdAt?: Date }): Promise<string>;
+  /** 1.23.6: how many links were made for the person since then (each send makes one). */
+  countSince?(userId: string, since: Date): Promise<number>;
   /** The new link's email went: the person's earlier unused welcome links stop working. */
   replaceEarlier(userId: string, keepId: string): Promise<void>;
   /** The email couldn't be sent: this link never works (the earlier one, if any, still does). */
@@ -32,10 +34,14 @@ export type WelcomeRefusal =
   | 'NO_EMAIL'
   | 'EMAIL_BLOCKED'
   | 'TOO_SOON'
+  | 'DAILY_LIMIT'
   | 'DELIVERY_FAILED'
   | 'SERVER_ERROR';
 
 /** Each reason as a clause that finishes "Not sent: …" (the website builds its sentences from these). */
+/** 1.23.6: at most this many invitations to one person in any 24 hours (each one is in the audit log). */
+export const WELCOME_DAILY_LIMIT = 5;
+
 export const WELCOME_REFUSAL_WHY: Record<WelcomeRefusal, string> = {
   NOT_FOUND: 'the account no longer exists',
   ACCOUNT_INACTIVE: 'the account is inactive',
@@ -44,6 +50,7 @@ export const WELCOME_REFUSAL_WHY: Record<WelcomeRefusal, string> = {
   NO_EMAIL: 'the account has no email address',
   EMAIL_BLOCKED: 'emails to this address are blocked (it bounced or was marked as spam)',
   TOO_SOON: 'a welcome email was sent to them less than a minute ago',
+  DAILY_LIMIT: `it has gone to them ${WELCOME_DAILY_LIMIT} times in the last 24 hours (try again tomorrow)`,
   DELIVERY_FAILED: 'the email couldn’t be delivered (try again later)',
   SERVER_ERROR: 'something went wrong on the server (try again)',
 };
@@ -54,6 +61,8 @@ export interface WelcomeSendOptions {
    * is complete even if the rest of a batch never finishes. Its errors are logged, never thrown.
    */
   onSent?: (outcome: WelcomeOutcome) => void | Promise<void>;
+  /** 1.23.6: this invitation's link lasts these days (1, 3, 7 or 14); absent: System Settings' (7). */
+  days?: number;
 }
 
 /** What happened for one person. Never carries the link. */
@@ -66,6 +75,8 @@ export interface WelcomeOutcome {
   sent: boolean;
   /** When it went (ISO), for a sent email. */
   sentAt?: string;
+  /** 1.23.6: when its link stops working (ISO), for a sent email. */
+  expiresAt?: string;
   /** Onboarding: they had been invited before (this one replaced that link). */
   resent?: boolean;
   reason?: WelcomeRefusal;
@@ -82,6 +93,8 @@ export interface WelcomeServiceDeps {
   downloads?: () => { androidAppUrl: string | null; extensionUrl: string | null };
   /** How long a welcome link works. Default 7 days. */
   ttlSeconds?: number;
+  /** 1.23.6: System Settings → Accounts, "Invitation links last" (days); wins over ttlSeconds. */
+  defaultDays?: () => Promise<number>;
   /** One welcome email per person this often, so a double click never sends two. Default a minute. */
   resendGapMs?: number;
   /** People emailed at once by sendMany. Default 4. */
@@ -104,6 +117,9 @@ export class WelcomeEmailUnavailableError extends HttpError {
 }
 
 const WEEK_SECONDS = 7 * 24 * 3600;
+const DAY_MS = 24 * 3600 * 1000;
+/** The lifetimes an invitation may have (System Settings and the forms offer these). */
+const INVITATION_DAYS = new Set([1, 3, 7, 14]);
 const displayName = (u: UserSummary) => `${u.firstName} ${u.lastName}`.trim() || u.username;
 
 /**
@@ -145,6 +161,16 @@ export function createWelcomeService(deps: WelcomeServiceDeps) {
     return null;
   }
 
+  /** The link's life: the days asked for this invitation, else System Settings' (else ttlSeconds, 7 days). */
+  async function lifetimeSeconds(days: number | undefined): Promise<number> {
+    if (days !== undefined && INVITATION_DAYS.has(days)) return days * 86_400;
+    if (deps.defaultDays) {
+      const d = await deps.defaultDays().catch(() => undefined);
+      if (d !== undefined && INVITATION_DAYS.has(d)) return d * 86_400;
+    }
+    return ttlSeconds;
+  }
+
   /** Log a problem that doesn't change the answer (only the error's words: never a link). */
   const warn = (msg: string, userId: string, err: unknown) =>
     deps.logger?.warn(msg, { userId, error: err instanceof Error ? err.message : String(err) });
@@ -155,8 +181,14 @@ export function createWelcomeService(deps: WelcomeServiceDeps) {
     const email = user.email.trim();
     if (await deps.mailer.isBlocked(email)) return refused(user.id, user, 'EMAIL_BLOCKED');
 
+    // 1.23.6: at most five a day to one person (each send made a link, kept until it ends).
+    if (deps.tokens.countSince && (await deps.tokens.countSince(user.id, new Date(at.getTime() - DAY_MS))) >= WELCOME_DAILY_LIMIT) {
+      return refused(user.id, user, 'DAILY_LIMIT');
+    }
+    const lifeSeconds = await lifetimeSeconds(opts.days);
+    const expiresAt = new Date(at.getTime() + lifeSeconds * 1000);
     const { token, tokenHash } = generateResetToken();
-    const linkId = await deps.tokens.create({ userId: user.id, tokenHash, expiresAt: new Date(at.getTime() + ttlSeconds * 1000) });
+    const linkId = await deps.tokens.create({ userId: user.id, tokenHash, expiresAt, createdAt: at });
     const discard = async () => {
       try {
         await deps.tokens.discard(linkId);
@@ -173,7 +205,7 @@ export function createWelcomeService(deps: WelcomeServiceDeps) {
         firstName: user.firstName,
         username: user.username,
         setPasswordLink: `${appUrl}/reset?token=${token}&welcome=1`,
-        expiresInDays: Math.round(ttlSeconds / 86_400),
+        expiresInDays: Math.round(lifeSeconds / 86_400),
         androidAppUrl: apps.androidAppUrl,
         extensionUrl: apps.extensionUrl,
         ...(client ? { client: true } : {}),
@@ -195,7 +227,16 @@ export function createWelcomeService(deps: WelcomeServiceDeps) {
     // The email has gone: from here on it counts as sent, whatever the bookkeeping does. Calling it
     // "not sent" would invite a second email a minute later that replaces this link.
     const resent = !!(user.invitedAt ?? user.welcomeSentAt);
-    const sent: WelcomeOutcome = { userId: user.id, username: user.username, name: displayName(user), email, sent: true, sentAt: at.toISOString(), ...(resent ? { resent } : {}) };
+    const sent: WelcomeOutcome = {
+      userId: user.id,
+      username: user.username,
+      name: displayName(user),
+      email,
+      sent: true,
+      sentAt: at.toISOString(),
+      expiresAt: expiresAt.toISOString(),
+      ...(resent ? { resent } : {}),
+    };
     try {
       await deps.tokens.replaceEarlier(user.id, linkId);
     } catch (err) {

@@ -2,6 +2,7 @@ import type { Prisma, PrismaClient } from '@prisma/client';
 import { NotFoundError, ValidationError } from '../../lib/http-errors';
 import type { CreateAuditData } from '../audit/audit-repository';
 import type { UserService } from '../users/user-service';
+import type { TemporaryPasswordMark } from '../users/user-repository';
 import { ARCHIVE_SELECT, archivedOf } from '../companies/project-archive';
 import { CLIENT_ONLY_WHERE, CLIENT_ROLE } from './client-kind';
 import { GRANT_WORDS, grantOf, grantRows, grantWords, type ClientGrant, type GrantRow } from './client-grants';
@@ -41,8 +42,14 @@ export interface ClientAccountView {
   activatedAt: Date | null;
   emailVerifiedAt: Date | null;
   inviteExpiresAt: Date | null;
-  /** Onboarding: Invited / Invite expired / Active / Locked / Deactivated. */
+  /** Onboarding: Invited / Invite expired / Active / Locked / Deactivated (1.23.6: and cancelled / temp expired). */
   onboarding: OnboardingStatus;
+  /** 1.23.6: a temporary password still to be changed; when and by whom it was set (never the value). */
+  mustChangePassword: boolean;
+  temporaryPasswordSetAt: Date | null;
+  temporaryPasswordSetBy: { id: string; name: string } | null;
+  temporaryPasswordExpiresAt: Date | null;
+  invitationCancelledAt: Date | null;
   createdAt: Date;
   roles: string[];
   projects: ClientProjectAccess[];
@@ -54,6 +61,8 @@ export interface NewClientInput {
   username: string;
   email: string;
   password?: string;
+  /** 1.23.6: the password is a temporary one (changed at the first sign-in). */
+  temporary?: TemporaryPasswordMark;
   organisation?: string | null;
   phone?: string | null;
   projects?: ClientGrant[];
@@ -92,6 +101,11 @@ const accountSelect = {
   invitedAt: true,
   activatedAt: true,
   emailVerifiedAt: true,
+  mustChangePassword: true,
+  temporaryPasswordSetAt: true,
+  temporaryPasswordExpiresAt: true,
+  invitationCancelledAt: true,
+  temporaryPasswordSetBy: { select: { id: true, firstName: true, lastName: true, username: true } },
   loginOtps: liveInvitation(new Date(0)),
   createdAt: true,
   roles: { select: { role: { select: { name: true } } } },
@@ -141,7 +155,28 @@ export function createClientAccounts(deps: ClientAccountsDeps) {
       activatedAt: u.activatedAt ?? null,
       emailVerifiedAt: u.emailVerifiedAt ?? null,
       inviteExpiresAt,
-      onboarding: onboardingStatus({ status: u.status, locked, activatedAt: u.activatedAt, lastLoginAt: u.lastLoginAt, invitedAt: u.invitedAt, welcomeSentAt: u.welcomeSentAt, inviteExpiresAt }),
+      onboarding: onboardingStatus(
+        {
+          status: u.status,
+          locked,
+          activatedAt: u.activatedAt,
+          lastLoginAt: u.lastLoginAt,
+          invitedAt: u.invitedAt,
+          welcomeSentAt: u.welcomeSentAt,
+          inviteExpiresAt,
+          mustChangePassword: u.mustChangePassword,
+          temporaryPasswordExpiresAt: u.temporaryPasswordExpiresAt,
+          invitationCancelledAt: u.invitationCancelledAt,
+        },
+        now(),
+      ),
+      mustChangePassword: u.mustChangePassword,
+      temporaryPasswordSetAt: u.temporaryPasswordSetAt,
+      temporaryPasswordSetBy: u.temporaryPasswordSetBy
+        ? { id: u.temporaryPasswordSetBy.id, name: `${u.temporaryPasswordSetBy.firstName} ${u.temporaryPasswordSetBy.lastName}`.trim() || u.temporaryPasswordSetBy.username }
+        : null,
+      temporaryPasswordExpiresAt: u.temporaryPasswordExpiresAt,
+      invitationCancelledAt: u.invitationCancelledAt,
       createdAt: u.createdAt,
       roles: u.roles.map((r) => r.role.name),
       projects: u.clientGrants
@@ -230,6 +265,7 @@ export function createClientAccounts(deps: ClientAccountsDeps) {
         firstName: input.firstName,
         lastName: input.lastName,
         ...(input.password ? { password: input.password } : {}),
+        ...(input.password && input.temporary ? { temporary: input.temporary } : {}),
         roleNames: [CLIENT_ROLE],
       });
       await prisma.user.update({ where: { id: user.id }, data: { organisation: blank(input.organisation), phone: blank(input.phone) } });

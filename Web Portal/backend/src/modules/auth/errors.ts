@@ -125,3 +125,34 @@ export class CodeNotSentError extends AuthError {
     super('We couldn’t email your code just now. Please try again in a minute.', 'CODE_NOT_SENT', 502);
   }
 }
+
+/**
+ * 1.23.6: the password was a temporary one, and this caller (the Android app, the extension, an older
+ * page) can't take the "choose your own password" step — the website can.
+ */
+export class PasswordChangeRequiredError extends AuthError {
+  constructor() {
+    super('Set your own password on the website first: sign in there with the temporary password and choose your own, then sign in here with it.', 'PASSWORD_CHANGE_REQUIRED', 403);
+  }
+}
+
+/** 1.23.6: an unused temporary password past its lifetime (said only after the right password). */
+export class TemporaryPasswordExpiredError extends AuthError {
+  constructor() {
+    super('This temporary password has expired. Ask your administrator for a new one.', 'TEMPORARY_PASSWORD_EXPIRED', 403);
+  }
+}
+
+/** 1.23.6: the "choose your own password" step ran out (15 minutes), was used, or isn't this account's. */
+export class PasswordChangeExpiredError extends AuthError {
+  constructor() {
+    super('This step has expired. Sign in again with your temporary password.', 'PASSWORD_CHANGE_EXPIRED', 400);
+  }
+}
+
+/** 1.23.6: the new password is the temporary one again. */
+export class SameAsTemporaryPasswordError extends AuthError {
+  constructor() {
+    super('Choose a new password — not the temporary one.', 'SAME_AS_TEMPORARY', 400);
+  }
+}

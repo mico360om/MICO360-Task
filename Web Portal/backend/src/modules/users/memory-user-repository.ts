@@ -1,4 +1,4 @@
-import type { CreateUserData, UserRepository, UserSummary } from './user-repository';
+import type { CreateUserData, TemporaryPasswordMark, UserRepository, UserSummary } from './user-repository';
 import type { MembershipStore } from '../companies/company-membership';
 
 interface Row {
@@ -19,6 +19,14 @@ interface MemoryCompany {
   status: 'ACTIVE' | 'ARCHIVED';
   createdAt: number;
 }
+
+/** 1.23.6: the temporary-password fields for a mark (none: all cleared). */
+const tempFields = (t: TemporaryPasswordMark | undefined) => ({
+  mustChangePassword: !!t,
+  temporaryPasswordSetAt: t?.at ?? null,
+  temporaryPasswordSetBy: t?.setById ? { id: t.setById, name: t.setById } : null,
+  temporaryPasswordExpiresAt: t?.expiresAt ?? null,
+});
 
 /** In-memory user repository with the same rules as the Prisma one (tests / dev). */
 export function createMemoryUserRepository() {
@@ -67,6 +75,7 @@ export function createMemoryUserRepository() {
         inviteExpiresAt: null,
         roles: data.roleNames,
         myProjectsOnly: false,
+        ...tempFields(data.temporary),
       };
       if ([...rows.values()].some((r) => same(r.user.email, data.email) || same(r.user.username, data.username))) {
         throw new Error('unique constraint'); // like the database, deleted rows still hold their identity
@@ -106,16 +115,24 @@ export function createMemoryUserRepository() {
       r.user = { ...r.user, avatarUrl };
       return summary(r);
     },
-    async setPassword(id, passwordHash) {
+    async setPassword(id, passwordHash, temporary) {
       const r = row(id);
       Object.assign(r, { passwordHash, failedLoginAttempts: 0, lockedUntil: null });
+      r.user = { ...r.user, ...tempFields(temporary), ...(temporary ? { invitationCancelledAt: null } : {}) };
     },
     async endPasswordLinks(id) {
       linksEnded.set(id, (linksEnded.get(id) ?? 0) + 1);
     },
     async markWelcomeSent(id, at) {
       const r = row(id);
-      r.user = { ...r.user, welcomeSentAt: at, invitedAt: r.user.invitedAt ?? at };
+      if (r.user.mustChangePassword) r.passwordHash = `void-${seq++}`;
+      r.user = { ...r.user, welcomeSentAt: at, invitedAt: r.user.invitedAt ?? at, invitationCancelledAt: null, ...(r.user.mustChangePassword ? tempFields(undefined) : {}) };
+    },
+    async cancelInvitation(id, at, unusableHash) {
+      const r = row(id);
+      linksEnded.set(id, (linksEnded.get(id) ?? 0) + 1);
+      if (r.user.mustChangePassword) r.passwordHash = unusableHash;
+      r.user = { ...r.user, invitationCancelledAt: at, ...(r.user.mustChangePassword ? tempFields(undefined) : {}) };
     },
     async getPasswordHash(id) {
       const r = rows.get(id);

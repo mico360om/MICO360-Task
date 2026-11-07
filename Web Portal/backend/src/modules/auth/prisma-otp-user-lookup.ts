@@ -5,7 +5,8 @@ export function createPrismaOtpUserLookup(prisma: PrismaClient): OtpUserLookup {
   return {
     async findActiveByIdentifier(identifier) {
       const u = await prisma.user.findFirst({
-        where: { OR: [{ email: identifier }, { username: identifier }], status: 'ACTIVE', deletedAt: null },
+        // 1.23.6: a cancelled invitation gets no emailed code (the same answer as an unknown account).
+        where: { OR: [{ email: identifier }, { username: identifier }], status: 'ACTIVE', deletedAt: null, invitationCancelledAt: null },
         include: { roles: { include: { role: true } } },
       });
       return u

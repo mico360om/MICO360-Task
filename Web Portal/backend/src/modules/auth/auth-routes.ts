@@ -6,6 +6,7 @@ import type { OtpService } from './otp-service';
 import type { PasswordResetService } from './password-reset-service';
 import type { SignInChallenges } from './sign-in-challenge';
 import type { EmailVerification } from './email-verification';
+import type { FirstPassword } from './first-password';
 import { EmailNotVerifiedError, SignInExpiredError } from './errors';
 
 export interface AuthRouteDeps {
@@ -19,6 +20,13 @@ export interface AuthRouteDeps {
    */
   signInChallenges?: SignInChallenges;
   emailVerification?: EmailVerification;
+  /**
+   * 1.23.6: a temporary password signs in only as far as "Choose your own password" (the website says it
+   * can take that step with `acceptPasswordChange`; other callers are told to use the website first).
+   */
+  firstPassword?: FirstPassword;
+  /** 1.23.6: "changed at first sign-in" goes to the audit log (never a password). */
+  auditService?: { record(entry: { userId: string | null; ip: string | null; module: string; action: string; entityId: string | null; newValue?: unknown }): Promise<unknown> };
 }
 
 const identifier = z.string().trim().min(1).max(191);
@@ -27,12 +35,15 @@ const loginSchema = z.object({
   password: z.string().min(1).max(200),
   // Onboarding: the website can take the emailed-code step (the app and the extension can't, yet).
   acceptChallenge: z.boolean().optional(),
+  // 1.23.6: and the "Choose your own password" step after a temporary password.
+  acceptPasswordChange: z.boolean().optional(),
 });
 const challengeToken = z.string().trim().min(1).max(200);
-const challengeVerifySchema = z.object({ challenge: challengeToken, code: z.string().trim().min(1).max(20) });
+const challengeVerifySchema = z.object({ challenge: challengeToken, code: z.string().trim().min(1).max(20), acceptPasswordChange: z.boolean().optional() });
 const challengeResendSchema = z.object({ challenge: challengeToken });
 const otpRequestSchema = z.object({ identifier });
-const otpVerifySchema = z.object({ identifier, code: z.string().trim().min(1).max(20) });
+const otpVerifySchema = z.object({ identifier, code: z.string().trim().min(1).max(20), acceptPasswordChange: z.boolean().optional() });
+const firstChangeSchema = z.object({ ticket: z.string().min(1).max(600), password: z.string().min(1).max(200) });
 const forgotSchema = z.object({ identifier });
 const resetSchema = z.object({ token: z.string().min(1).max(200), password: z.string().min(1).max(200) });
 const linkStatusSchema = z.object({ token: z.string().min(1).max(200) });
@@ -44,10 +55,15 @@ const SESSION_EXPIRED = { code: 'INVALID_REFRESH_TOKEN', message: 'Session expir
 export async function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): Promise<void> {
   const challenges = deps.signInChallenges;
   const verification = deps.emailVerification;
+  const firstPassword = deps.firstPassword;
+  /** 1.23.6: a temporary password still to change: the step (website) or the plain refusal; null: go on. */
+  const passwordStep = async (userId: string, website: boolean | undefined) => (firstPassword ? firstPassword.gate(userId, website === true) : null);
 
   app.post('/auth/login', async (req, reply) => {
-    const { identifier, password, acceptChallenge } = loginSchema.parse(req.body);
+    const { identifier, password, acceptChallenge, acceptPasswordChange } = loginSchema.parse(req.body);
     const user = await deps.authService.login(identifier, password);
+    // 1.23.6: an unused temporary password past its lifetime stops (said only after the right password).
+    await firstPassword?.refuseExpired(user.id);
     // Onboarding: the right password, but the address isn't confirmed yet (and email works): the code
     // step first. Said only now, after the password, like an inactive account.
     if (verification && (await verification.needsCode(user.id))) {
@@ -55,6 +71,8 @@ export async function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDe
       const challenge = await challenges.start({ id: user.id, email: user.email }, 'VERIFY_EMAIL');
       return reply.send({ data: { challenge } });
     }
+    const changePassword = await passwordStep(user.id, acceptPasswordChange);
+    if (changePassword) return reply.send({ data: { changePassword } });
     const tokens = await deps.tokenService.issueTokens(user);
     await deps.authService.recordSignIn(user.id);
     return reply.send({ data: { user: toPublicUser(user), ...tokens } });
@@ -64,7 +82,7 @@ export async function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDe
     // The code from the email: the session (the same answer as a password sign-in). A VERIFY_EMAIL
     // challenge confirms the address it went to — only while the account still has that address.
     app.post('/auth/challenge/verify', async (req, reply) => {
-      const { challenge, code } = challengeVerifySchema.parse(req.body);
+      const { challenge, code, acceptPasswordChange } = challengeVerifySchema.parse(req.body);
       const done = await challenges.verify(challenge, code);
       const user = await deps.authService.getUserForSession(done.userId);
       if (done.kind === 'VERIFY_EMAIL') {
@@ -72,6 +90,8 @@ export async function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDe
         const outcome = await verification?.confirm(user.id, 'code', { email: done.sentTo, actorId: user.id, ip: req.ip ?? null });
         if (outcome === 'address-changed' || outcome === 'not-found') throw new SignInExpiredError();
       }
+      const changePassword = await passwordStep(user.id, acceptPasswordChange);
+      if (changePassword) return reply.send({ data: { changePassword } });
       const tokens = await deps.tokenService.issueTokens(user);
       await deps.authService.recordSignIn(user.id);
       return reply.send({ data: { user: toPublicUser(user), ...tokens } });
@@ -141,6 +161,8 @@ export async function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDe
       });
     }
     const user = await deps.authService.getUserForSession(owner.userId);
+    // 1.23.6: the app can't take the "choose your own password" step (it is told to use the website).
+    await passwordStep(user.id, false);
     const tokens = await deps.tokenService.issueTokens(user);
     await deps.authService.recordSignIn(user.id);
     return reply.send({ data: { user: toPublicUser(user), ...tokens } });
@@ -163,14 +185,32 @@ export async function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDe
     });
 
     app.post('/auth/otp/verify', async (req, reply) => {
-      const { identifier, code } = otpVerifySchema.parse(req.body);
+      const { identifier, code, acceptPasswordChange } = otpVerifySchema.parse(req.body);
       const user = await otp.verifyLoginOtp(identifier, code);
       // Onboarding: a code that reached the mailbox proves it — the email-code sign-in (here and on the
       // app) confirms the address. Bookkeeping: a failure never fails the sign-in.
       await verification?.confirm(user.id, 'sign-in code', { email: user.email, actorId: user.id, ip: req.ip ?? null }).catch(() => undefined);
+      const changePassword = await passwordStep(user.id, acceptPasswordChange);
+      if (changePassword) return reply.send({ data: { changePassword } });
       const tokens = await deps.tokenService.issueTokens(user);
       await deps.authService.recordSignIn(user.id);
       // Same user shape as password sign-in (username + avatar for the header straight away).
+      return reply.send({ data: { user: toPublicUser(user), ...tokens } });
+    });
+  }
+
+  // 1.23.6 "Choose your own password" after a temporary one: the step ticket from a sign-in and the new
+  // password (the rules; not the temporary one). Then the session, as a sign-in gives.
+  if (firstPassword) {
+    app.post('/auth/password/first-change', async (req, reply) => {
+      const { ticket, password } = firstChangeSchema.parse(req.body);
+      const userId = await firstPassword.change(ticket, password);
+      const user = await deps.authService.getUserForSession(userId);
+      await deps.auditService
+        ?.record({ userId, ip: req.ip ?? null, module: 'users', action: 'user.password.changed_first_sign_in', entityId: userId })
+        .catch(() => undefined);
+      const tokens = await deps.tokenService.issueTokens(user);
+      await deps.authService.recordSignIn(user.id);
       return reply.send({ data: { user: toPublicUser(user), ...tokens } });
     });
   }

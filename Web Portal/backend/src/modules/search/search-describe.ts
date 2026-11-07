@@ -93,7 +93,15 @@ export interface DescribeContext {
 }
 
 /** Onboarding's status words, as User Management and the Clients page show them. */
-const ONBOARDING_LABEL: Record<OnboardingStatus, string> = { INVITED: 'Invited', INVITE_EXPIRED: 'Invite expired', ACTIVE: 'Active', LOCKED: 'Locked', DEACTIVATED: 'Deactivated' };
+const ONBOARDING_LABEL: Record<OnboardingStatus, string> = {
+  INVITED: 'Invited',
+  INVITE_EXPIRED: 'Invite expired',
+  INVITE_CANCELLED: 'Invitation cancelled',
+  TEMP_EXPIRED: 'Temporary password expired',
+  ACTIVE: 'Active',
+  LOCKED: 'Locked',
+  DEACTIVATED: 'Deactivated',
+};
 /** "Clients & contacts" results: their index kind and record, from the result id ("client:acme"). */
 const CONTACT_PREFIXES = ['client', 'account', 'contact'] as const;
 
@@ -152,7 +160,7 @@ export async function describeIndexed(prisma: PrismaClient, items: { kind: Exclu
       ? prisma.user.findMany({
           where: { id: { in: sub('account') }, deletedAt: null, roles: { some: { role: { name: 'CLIENT' } } } },
           // Onboarding: what its status and "email verified" are read from.
-          select: { id: true, firstName: true, lastName: true, username: true, email: true, organisation: true, phone: true, status: true, lockedUntil: true, activatedAt: true, lastLoginAt: true, invitedAt: true, welcomeSentAt: true, emailVerifiedAt: true, loginOtps: liveInvitation(new Date()) },
+          select: { id: true, firstName: true, lastName: true, username: true, email: true, organisation: true, phone: true, status: true, lockedUntil: true, activatedAt: true, lastLoginAt: true, invitedAt: true, welcomeSentAt: true, emailVerifiedAt: true, mustChangePassword: true, temporaryPasswordExpiresAt: true, invitationCancelledAt: true, loginOtps: liveInvitation(new Date()) },
         })
       : [],
   ]);
@@ -417,6 +425,9 @@ export async function describeIndexed(prisma: PrismaClient, items: { kind: Exclu
       invitedAt: u.invitedAt,
       welcomeSentAt: u.welcomeSentAt,
       inviteExpiresAt: u.loginOtps[0]?.expiresAt ?? null,
+      mustChangePassword: u.mustChangePassword,
+      temporaryPasswordExpiresAt: u.temporaryPasswordExpiresAt,
+      invitationCancelledAt: u.invitationCancelledAt,
     });
     keep(
       'account',

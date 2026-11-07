@@ -50,6 +50,12 @@ export const DEFAULT_MEETING_REMINDERS: MeetingReminderSettings = {
   ],
 };
 
+/** 1.23.6: how long an invitation link (and an unused temporary password) lasts, in days. */
+export const INVITATION_DAY_CHOICES = [1, 3, 7, 14] as const;
+export type InvitationDays = (typeof INVITATION_DAY_CHOICES)[number];
+export const DEFAULT_INVITATION_DAYS: InvitationDays = 7;
+export const invitationDaysSchema = z.union([z.literal(1), z.literal(3), z.literal(7), z.literal(14)]);
+
 const meetingReminderTime = z
   .object({ minutes: z.number().int().min(MEETING_REMINDER_MIN_MINUTES).max(MEETING_REMINDER_MAX_MINUTES), email: z.boolean() })
   .strict();
@@ -78,6 +84,8 @@ export const SETTING_SCHEMAS = {
   'weeklySummary.enabled': z.boolean(),
   // 1.22.4: browsers send their errors, blocked files and slow pages to the Error log (on by default).
   'errorLog.collectBrowserErrors': z.boolean(),
+  // 1.23.6 System Settings → Accounts: "Invitation links last: 1 · 3 · 7 · 14 days" (unused temporary passwords too).
+  'accounts.invitationDays': invitationDaysSchema,
   // Automatic meeting reminders: on/off and when (each also by email or not); one of each time, longest first.
   'meetings.reminders': z
     .object({ enabled: z.boolean(), times: z.array(meetingReminderTime).min(1).max(MEETING_REMINDER_MAX_TIMES) })
@@ -174,6 +182,11 @@ export function createSettingsService({ settings }: SettingsServiceDeps) {
   }
 
   /** The company week start and the weekly summary switch in one read (the public /config shows both). */
+  async function invitationDays(): Promise<InvitationDays> {
+    const parsed = SETTING_SCHEMAS['accounts.invitationDays'].safeParse(await get('accounts.invitationDays'));
+    return parsed.success ? parsed.data : DEFAULT_INVITATION_DAYS;
+  }
+
   async function companySettings(): Promise<{ weekStart: 0 | 1 | 6; weeklySummaryEnabled: boolean }> {
     const all = await settings.getAll();
     const raw = (key: SettingKey) => all.find((s) => s.key === key)?.value;
@@ -182,7 +195,7 @@ export function createSettingsService({ settings }: SettingsServiceDeps) {
     return { weekStart: week.success ? week.data : DEFAULT_COMPANY_WEEK_START, weeklySummaryEnabled: on.success ? on.data : true };
   }
 
-  return { getAll, get, set, getCarryForward, workingHours, dailyLimit, companyWeekStart, weeklySummaryEnabled, companySettings, meetingReminders, collectBrowserErrors };
+  return { getAll, get, set, getCarryForward, workingHours, dailyLimit, companyWeekStart, weeklySummaryEnabled, companySettings, meetingReminders, collectBrowserErrors, invitationDays };
 }
 
 export type SettingsService = ReturnType<typeof createSettingsService>;

@@ -27,6 +27,16 @@ export interface UserSummary {
   inviteExpiresAt?: Date | null;
   /** Onboarding: Invited / Invite expired / Active / Locked / Deactivated (modules/users/onboarding-status). */
   onboarding?: OnboardingStatus;
+  /**
+   * 1.23.6: a temporary password still to be changed at the first sign-in; when and by whom it was set
+   * (never the value) and when it stops working unused. Admin views only.
+   */
+  mustChangePassword?: boolean;
+  temporaryPasswordSetAt?: Date | null;
+  temporaryPasswordSetBy?: { id: string; name: string } | null;
+  temporaryPasswordExpiresAt?: Date | null;
+  /** 1.23.6: when an administrator cancelled the invitation (null: not cancelled). Admin views only. */
+  invitationCancelledAt?: Date | null;
   roles: string[];
   /** True while a password lockout is in force; it lifts by itself at `lockedUntil`. */
   locked?: boolean;
@@ -41,6 +51,16 @@ export interface UserSummary {
   myProjectsOnly?: boolean;
 }
 
+/**
+ * 1.23.6: a temporary password (an administrator gave it): changed at the first sign-in, stops working
+ * unused at `expiresAt`. Who set it and when are kept, never the value.
+ */
+export interface TemporaryPasswordMark {
+  at: Date;
+  setById: string | null;
+  expiresAt: Date;
+}
+
 export interface NewUser {
   email: string;
   username: string;
@@ -53,6 +73,8 @@ export interface NewUser {
   /** companies: the companies they join and their primary company (User Management's rules decide them). */
   companyIds?: string[];
   primaryCompanyId?: string | null;
+  /** 1.23.6: `password` is a temporary one (always, from User Management and the client form). */
+  temporary?: TemporaryPasswordMark;
 }
 
 export interface CreateUserData {
@@ -66,6 +88,8 @@ export interface CreateUserData {
   /** companies: written with the person, in the same write. */
   companyIds?: string[];
   primaryCompanyId?: string | null;
+  /** 1.23.6: the password is a temporary one. */
+  temporary?: TemporaryPasswordMark;
 }
 
 /** companies: people in one company, or (`'none'`) people in no company. */
@@ -98,16 +122,26 @@ export interface UserRepository {
   setAvatar(id: string, avatarUrl: string | null): Promise<UserSummary>;
   /**
    * Overwrite the stored password hash (admin reset or self change). Also clears any lockout and
-   * invalidates every outstanding password-reset link for the user.
+   * invalidates every outstanding password-reset link for the user. 1.23.6: with `temporary` it is a
+   * temporary password (changed at the first sign-in; a cancelled invitation ends); without, the
+   * person's own (any temporary-password mark is cleared).
    */
-  setPassword(id: string, passwordHash: string): Promise<void>;
+  setPassword(id: string, passwordHash: string, temporary?: TemporaryPasswordMark): Promise<void>;
   /**
    * End the person's unused set-password links (welcome and password-reset): their email changed or
    * the account stopped, so a link already sent must not set a password.
    */
   endPasswordLinks(id: string): Promise<void>;
-  /** Remember when an administrator last sent the person a welcome email. */
+  /**
+   * Remember when an administrator last sent the person a welcome email. 1.23.6: a new invitation ends a
+   * cancel, and an unused temporary password stops (one way in or the other, never both).
+   */
   markWelcomeSent(id: string, at: Date): Promise<void>;
+  /**
+   * 1.23.6 "Cancel invitation": their unused links end, an unused temporary password stops working
+   * (`unusableHash` replaces it) and the cancel is kept, until a new invitation or temporary password.
+   */
+  cancelInvitation(id: string, at: Date, unusableHash: string): Promise<void>;
   /** Read the stored password hash for verification; null if the user is gone. */
   getPasswordHash(id: string): Promise<string | null>;
   /** Soft delete. Frees the email and username so they can be used for a new account. */

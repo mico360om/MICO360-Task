@@ -108,6 +108,18 @@ model User {
   invitedAt           DateTime?
   activatedAt         DateTime?
   emailVerifiedAt     DateTime?
+  // 1.23.6 Invitation & temporary password security. A temporary password (one an administrator gave them)
+  // must be changed at the first sign-in; only a new temporary password sets the flag (nobody else is ever
+  // forced). Unused, it stops working at temporaryPasswordExpiresAt. Who set it and when are kept — never
+  // the value. invitationCancelledAt: the invitation was cancelled — no way in (link, Forgot password,
+  // emailed code) until a new invitation or a temporary password.
+  mustChangePassword         Boolean   @default(false)
+  temporaryPasswordSetAt     DateTime?
+  temporaryPasswordSetById   String?
+  temporaryPasswordSetBy     User?     @relation("TemporaryPasswordSetBy", fields: [temporaryPasswordSetById], references: [id], onDelete: SetNull)
+  temporaryPasswordsSet      User[]    @relation("TemporaryPasswordSetBy")
+  temporaryPasswordExpiresAt DateTime?
+  invitationCancelledAt      DateTime?
   departmentId        String?
   // Lockout (M2 / T2.11)
   failedLoginAttempts Int        @default(0)
@@ -181,6 +193,7 @@ model User {
   @@index([status])
   @@index([departmentId])
   @@index([primaryCompanyId])
+  @@index([temporaryPasswordSetById])
   @@map("users")
 }
 

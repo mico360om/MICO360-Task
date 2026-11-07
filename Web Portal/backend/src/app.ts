@@ -235,6 +235,8 @@ export interface AppDeps extends AuthRouteDeps {
   userService?: UserService;
   /** Welcome emails from User Management (a "Set your password" link); administrators only. */
   welcomeService?: WelcomeService;
+  /** 1.23.6: System Settings → Accounts, "Invitation links last" (days; unused temporary passwords too). */
+  invitationDays?: () => Promise<number>;
   /** Onboarding: the New / Manage account forms' duplicate check while typing. */
   identityLookup?: import('./modules/users/identity-check').IdentityLookup;
   /** Onboarding: an administrator's "Send password reset" (a link valid 1 hour). */
@@ -952,6 +954,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           identityLookup: deps.identityLookup,
           adminPasswordReset: deps.adminPasswordReset,
           verification: deps.emailVerification,
+          invitationDays: deps.invitationDays,
           // companies: people's companies, and the picked company as a new person's default.
           membership: deps.companyMembership,
           pickOf,
@@ -1145,6 +1148,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           welcome: deps.welcomeService,
           canViewProject: canViewProject ?? (async (_u, roles) => roles.includes('ADMIN')),
           audit: deps.auditService,
+          invitationDays: deps.invitationDays,
         });
       }
       if (deps.portal) await registerPortalRoutes(api, { service: deps.portal, guard, pdfsPerMinute: deps.portalPdfsPerMinute });

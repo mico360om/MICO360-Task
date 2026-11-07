@@ -133,5 +133,19 @@ export function databaseProbes({
       await prisma.user.findFirst({ where: { id: NOWHERE }, select: { emailVerifiedAt: true, invitedAt: true, activatedAt: true, loginOtps: { where: { purpose: 'WELCOME', consumedAt: null, expiresAt: { gt: since } }, select: { expiresAt: true }, take: 1 } } });
     },
   });
+  // 1.23.6: temporary passwords and cancelled invitations (the forced change reads these at every sign-in;
+  // the daily send limit counts invitation links).
+  probes.push({
+    name: 'temporary passwords and cancelled invitations',
+    run: async () => {
+      const since = new Date(0);
+      await prisma.user.findFirst({
+        where: { id: NOWHERE, OR: [{ mustChangePassword: true }, { invitationCancelledAt: { not: null } }] },
+        select: { mustChangePassword: true, temporaryPasswordSetAt: true, temporaryPasswordExpiresAt: true, invitationCancelledAt: true, temporaryPasswordSetBy: { select: { firstName: true, lastName: true, username: true } } },
+      });
+      await prisma.user.updateMany({ where: { id: NOWHERE, mustChangePassword: true, passwordHash: NOWHERE }, data: { mustChangePassword: false, temporaryPasswordSetById: null } });
+      await prisma.loginOtp.count({ where: { userId: NOWHERE, purpose: 'WELCOME', createdAt: { gt: since } } });
+    },
+  });
   return probes;
 }
