@@ -86,7 +86,7 @@ describe('TaskDrawer', () => {
     // comment shows who + when
     expect(screen.getByText('Omar Ahmed')).toBeInTheDocument();
     expect(screen.getByText(/just now|ago/)).toBeInTheDocument();
-    expect(screen.getByText(/50%/)).toBeInTheDocument(); // 1 of 2 checklist items done
+    expect(screen.getByText('1/2 completed')).toBeInTheDocument(); // 1 of 2 checklist items done
   });
 
   it('deletes a task, offering a series option for recurring tasks', async () => {
@@ -168,7 +168,7 @@ describe('TaskDrawer', () => {
     render(<TaskDrawer task={task} checklist={[]} comments={[]} onAddChecklistItem={onAddChecklistItem} onClose={vi.fn()} />);
     await userEvent.type(screen.getByPlaceholderText(/add an item/i), 'New step');
     await userEvent.click(screen.getByRole('button', { name: /add item/i }));
-    expect(onAddChecklistItem).toHaveBeenCalledWith('New step');
+    expect(onAddChecklistItem).toHaveBeenCalledWith('New step', { listId: '', parentId: null, afterId: null });
   });
 
   it('does not offer AI suggestions when onSuggestChecklist is absent', () => {
@@ -385,7 +385,9 @@ describe('TaskDrawer', () => {
         onClose={vi.fn()}
       />,
     );
-    await userEvent.click(screen.getByRole('button', { name: 'Remove “Send it” from the checklist' }));
+    // 1.23.3: from the item's menu.
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for “Send it”' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Delete' }));
     expect(onRemove).toHaveBeenCalledWith('i2');
   });
 

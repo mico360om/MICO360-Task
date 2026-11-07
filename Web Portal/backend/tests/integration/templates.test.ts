@@ -1,3 +1,4 @@
+import { checklistTreeOf as tree, flatTexts } from '../../src/modules/tasks/checklist-tree';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { createPrismaTemplateRepository } from '../../src/modules/templates/prisma-template-repository';
@@ -68,9 +69,9 @@ const input = (over: Partial<ProjectTemplateInput> = {}): ProjectTemplateInput =
   ],
   roles: [{ key: 'insp', name: 'Inspector' }, { key: 'lead', name: 'Site lead' }],
   tasks: [
-    { title: 'Kick-off', description: null, priority: 'HIGH', dueOffsetDays: 0, roleKey: 'lead', checklist: ['Agenda', 'Attendees'] },
-    { title: 'Inspect', description: 'Walk the site', priority: 'NORMAL', dueOffsetDays: 5, roleKey: 'insp', checklist: [] },
-    { title: 'Report', description: null, priority: 'LOW', dueOffsetDays: null, roleKey: null, checklist: ['Draft'] },
+    { title: 'Kick-off', description: null, priority: 'HIGH', dueOffsetDays: 0, roleKey: 'lead', checklists: tree(['Agenda', 'Attendees']) },
+    { title: 'Inspect', description: 'Walk the site', priority: 'NORMAL', dueOffsetDays: 5, roleKey: 'insp', checklists: tree([]) },
+    { title: 'Report', description: null, priority: 'LOW', dueOffsetDays: null, roleKey: null, checklists: tree(['Draft']) },
   ],
   ...over,
 });
@@ -103,7 +104,7 @@ describe('Templates (integration)', () => {
     const insp = t.roles.find((r) => r.name === 'Inspector')!.id;
     const after = await repo.updateProjectTemplate(
       t.id,
-      input({ name: 'Renamed', roles: [{ key: insp, name: 'Senior inspector' }, { key: 'new', name: 'Driver' }], tasks: [{ title: 'Only', description: null, priority: 'URGENT', dueOffsetDays: 2, roleKey: insp, checklist: [] }, { title: 'Drive', description: null, priority: 'LOW', dueOffsetDays: 1, roleKey: 'new', checklist: [] }] }),
+      input({ name: 'Renamed', roles: [{ key: insp, name: 'Senior inspector' }, { key: 'new', name: 'Driver' }], tasks: [{ title: 'Only', description: null, priority: 'URGENT', dueOffsetDays: 2, roleKey: insp, checklists: tree([]) }, { title: 'Drive', description: null, priority: 'LOW', dueOffsetDays: 1, roleKey: 'new', checklists: tree([]) }] }),
       id.owner,
     );
     expect(after!.roles.map((r) => [r.name, r.id === insp])).toEqual([['Senior inspector', true], ['Driver', false]]);
@@ -214,7 +215,7 @@ describe('Templates (integration)', () => {
       priority: 'NORMAL' as const,
       dueOffsetDays: i % 120,
       roleKey: i % 2 ? 'insp' : null,
-      checklist: Array.from({ length: 10 }, (_, j) => `Check ${j + 1} of step ${i + 1}`),
+      checklists: tree(Array.from({ length: 10 }, (_, j) => `Check ${j + 1} of step ${i + 1}`)),
     }));
     const t = await saved({ tasks });
     expect(t.taskCount).toBe(500);
@@ -232,7 +233,7 @@ describe('Templates (integration)', () => {
   });
 
   it('a 200-task template becomes a project fast', async () => {
-    const tasks = Array.from({ length: 200 }, (_, i) => ({ title: `Task ${i + 1}`, description: `Step ${i + 1}`, priority: 'NORMAL' as const, dueOffsetDays: i % 60, roleKey: i % 2 ? 'insp' : null, checklist: ['One', 'Two', 'Three', 'Four', 'Five'] }));
+    const tasks = Array.from({ length: 200 }, (_, i) => ({ title: `Task ${i + 1}`, description: `Step ${i + 1}`, priority: 'NORMAL' as const, dueOffsetDays: i % 60, roleKey: i % 2 ? 'insp' : null, checklists: tree(['One', 'Two', 'Three', 'Four', 'Five']) }));
     const t = await saved({ tasks });
     const roles = Object.fromEntries(t.roles.map((r) => [r.name, r.id]));
     const prep = await service.prepareProject(t.id, { startKey: '2026-11-01', fillers: { [roles.Inspector!]: id.sara }, defaultDueToday: false });
@@ -275,11 +276,11 @@ describe('Templates (integration)', () => {
     await prisma.checklistItem.create({ data: { taskId: other.id, text: 'First', position: 0 } });
     const snap = await repo.projectSnapshot(p.id);
     expect(snap!.columns.map((c) => c.name)).toEqual(['To Do', 'Done']);
-    expect(snap!.tasks.map((x) => [x.title, x.dueDate?.toISOString().slice(0, 10) ?? null, x.assigneeIds, x.checklist])).toEqual([
+    expect(snap!.tasks.map((x) => [x.title, x.dueDate?.toISOString().slice(0, 10) ?? null, x.assigneeIds, flatTexts(x.checklists)])).toEqual([
       ['Weekly check', '2026-11-03', [], []],
       ['Report', null, [id.sara, id.omar], ['First', 'Second']],
     ]);
-    expect(await repo.taskSnapshot(other.id)).toMatchObject({ projectId: p.id, title: 'Report', description: 'Write it', priority: 'HIGH', checklist: ['First', 'Second'] });
+    expect(await repo.taskSnapshot(other.id)).toMatchObject({ projectId: p.id, title: 'Report', description: 'Write it', priority: 'HIGH', checklists: tree(['First', 'Second']) });
     expect(await repo.projectSnapshot('no-such-project')).toBeNull();
   });
 
@@ -287,15 +288,15 @@ describe('Templates (integration)', () => {
     const { createPrismaTaskRepository } = await import('../../src/modules/tasks/prisma-task-repository');
     const p = await prisma.project.create({ data: { code: 'TPLA', name: 'Tasks', createdById: id.creator } });
     const col = await prisma.kanbanColumn.create({ data: { projectId: p.id, name: 'To Do', category: 'TODO', position: 0 } });
-    const t = await createPrismaTaskRepository(prisma).create({ key: 'TPLA-1', title: 'Site check', projectId: p.id, columnId: col.id, createdById: id.creator, checklist: ['Gate', 'Fence'] });
+    const t = await createPrismaTaskRepository(prisma).create({ key: 'TPLA-1', title: 'Site check', projectId: p.id, columnId: col.id, createdById: id.creator, checklists: tree(['Gate', 'Fence']) });
     const items = await prisma.checklistItem.findMany({ where: { taskId: t.id }, orderBy: { position: 'asc' } });
     expect(items.map((i) => [i.text, i.position, i.done])).toEqual([['Gate', 0, false], ['Fence', 1, false]]);
   });
 
   it('task templates: create, change, list and delete', async () => {
-    const t = await repo.createTaskTemplate({ name: 'Site check', title: 'Check the site', description: null, priority: 'HIGH', checklist: ['Gate'] }, id.creator);
-    const changed = await repo.updateTaskTemplate(t.id, { name: 'Site check', title: 'Check the whole site', description: 'All of it', priority: 'LOW', checklist: ['Gate', 'Fence'] }, id.owner);
-    expect(changed).toMatchObject({ title: 'Check the whole site', description: 'All of it', priority: 'LOW', checklist: ['Gate', 'Fence'], createdById: id.creator });
+    const t = await repo.createTaskTemplate({ name: 'Site check', title: 'Check the site', description: null, priority: 'HIGH', checklists: tree(['Gate']) }, id.creator);
+    const changed = await repo.updateTaskTemplate(t.id, { name: 'Site check', title: 'Check the whole site', description: 'All of it', priority: 'LOW', checklists: tree(['Gate', 'Fence']) }, id.owner);
+    expect(changed).toMatchObject({ title: 'Check the whole site', description: 'All of it', priority: 'LOW', checklists: tree(['Gate', 'Fence']), createdById: id.creator });
     expect((await repo.listTaskTemplates()).some((x) => x.id === t.id)).toBe(true);
     expect(await repo.deleteTaskTemplate(t.id)).toBe(true);
     expect(await repo.findTaskTemplate(t.id)).toBeNull();

@@ -1,3 +1,4 @@
+import { checklistTreeOf as tree, flatTexts } from '../tasks/checklist-tree';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { buildApp } from '../../app';
 import { createTokenService } from '../auth/token-service';
@@ -62,10 +63,10 @@ async function makeApp() {
       {
         id: 'p-rig', name: 'Rig 7', startDate: day('2026-11-01'), createdAt: new Date('2026-10-20T08:00:00Z'),
         columns: [{ name: 'To Do', category: 'TODO', color: '#3A6EA5' }, { name: 'Done', category: 'DONE', color: '#2E7D53' }],
-        tasks: [{ id: 't1', title: 'Kick-off', description: 'Meet on site', priority: 'HIGH', dueDate: day('2026-11-03'), assigneeIds: ['sara'], checklist: ['Agenda'] }],
+        tasks: [{ id: 't1', title: 'Kick-off', description: 'Meet on site', priority: 'HIGH', dueDate: day('2026-11-03'), assigneeIds: ['sara'], checklists: tree(['Agenda']) }],
       },
     ],
-    tasks: [{ id: 't1', projectId: 'p-rig', title: 'Kick-off', description: 'Bring the plans', priority: 'HIGH', checklist: ['Agenda'] }],
+    tasks: [{ id: 't1', projectId: 'p-rig', title: 'Kick-off', description: 'Bring the plans', priority: 'HIGH', checklists: tree(['Agenda']) }],
   });
   const people = { activeIds: async (ids: string[]) => ids.filter((id) => ACTIVE.has(id)) };
   const templateService = createTemplateService({
@@ -263,7 +264,7 @@ describe('Template routes: making a project from a template', () => {
     // The creator runs it; the team they picked and the role fillers join it.
     expect(data.members).toEqual([{ userId: 'outsider', role: 'MANAGER' }, { userId: 'sara', role: 'MEMBER' }, { userId: 'omar', role: 'MEMBER' }]);
     expect(data.startWith!.columns.map((c) => c.name)).toEqual(['To Do', 'Done']);
-    expect(data.startWith!.tasks.map((x) => [x.title, x.dueDate?.toISOString().slice(0, 10) ?? null, x.assigneeIds, x.checklist])).toEqual([
+    expect(data.startWith!.tasks.map((x) => [x.title, x.dueDate?.toISOString().slice(0, 10) ?? null, x.assigneeIds, flatTexts(x.checklists)])).toEqual([
       ['Kick-off', '2026-11-01', ['omar'], ['Agenda']],
       ['Inspect', '2026-11-08', ['omar'], ['Valves', 'Pumps']],
       ['Report', null, null, []],

@@ -84,6 +84,8 @@ export interface ErrorLogRepository {
   countsByKind(since: Date, status: 'OPEN' | 'FIXED'): Promise<Partial<Record<ErrorKind, number>>>;
   /** Each group's most common page (or job) among its kept events. */
   topPages(groupIds: string[]): Promise<Map<string, string>>;
+  /** 1.23.3: each group's newest kept event's value and stack (a slow request's row shows its timing). */
+  newest(groupIds: string[]): Promise<Map<string, Pick<ErrorEventRow, 'value' | 'stack'>>>;
   get(id: string): Promise<ErrorGroupRow | null>;
   /** A group's kept events, newest first. */
   events(groupId: string): Promise<ErrorEventRow[]>;
@@ -191,6 +193,16 @@ export function createMemoryErrorLogRepository(): ErrorLogRepository & { groups:
         for (const e of eventRows) if (e.groupId === id && (e.page ?? e.job)) tally.set((e.page ?? e.job)!, (tally.get((e.page ?? e.job)!) ?? 0) + e.count);
         const best = [...tally].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))[0];
         if (best) out.set(id, best[0]);
+      }
+      return out;
+    },
+    async newest(ids) {
+      const out = new Map<string, Pick<ErrorEventRow, 'value' | 'stack'>>();
+      const at = new Map<string, number>();
+      for (const e of eventRows) {
+        if (!ids.includes(e.groupId) || e.at.getTime() < (at.get(e.groupId) ?? -Infinity)) continue;
+        at.set(e.groupId, e.at.getTime());
+        out.set(e.groupId, { value: e.value, stack: e.stack });
       }
       return out;
     },

@@ -72,7 +72,53 @@ export function planReminders(tasks: ReminderTask[], opts: PlanRemindersOptions 
   return out;
 }
 
+/** A planned reminder; `dedupeId` (a checklist item's) replaces the task in its de-duplication key. */
+export type PlannedReminder = CreateNotificationData & { dedupeId?: string };
+
 /** A stable key for de-duplicating a reminder within a period (e.g. per day). */
-export function reminderKey(n: CreateNotificationData, period: string): string {
-  return `${n.type}:${n.entityId}:${n.userId}:${period}`;
+export function reminderKey(n: PlannedReminder, period: string): string {
+  return `${n.type}:${n.dedupeId ?? n.entityId}:${n.userId}:${period}`;
+}
+
+/** An open dated checklist item of an open task (1.23.3), with its task's assignees. */
+export interface ReminderChecklistItem {
+  id: string;
+  text: string;
+  dueDate: Date;
+  assigneeId: string | null;
+  taskId: string;
+  taskKey: string;
+  /** Who an unassigned item reminds: the task's assignees (already only people who may see it). */
+  taskAssigneeIds: string[];
+}
+
+/**
+ * 1.23.3 (design call 4): due-soon and overdue reminders for checklist items — same timing as a task's
+ * (each person's lead time, the company's days). An item given to someone reminds that person only; an
+ * unassigned one reminds the task's assignees. The notice opens the task ("MICO-142 · Label circuits")
+ * and keeps the task reminders' types, so people's settings for them apply; it is de-duplicated by item,
+ * person and day (`dedupeId`), never with the task's own reminder. Callers pass only items of open tasks
+ * not waiting for approval.
+ */
+export function planChecklistReminders(items: ReminderChecklistItem[], opts: PlanRemindersOptions = {}): PlannedReminder[] {
+  const now = opts.now ?? new Date();
+  const timeZone = opts.timeZone ?? defaultCompanyTimeZone();
+  const defaultDays = leadDays(opts.defaultSoonWindowMs ?? DEFAULT_SOON_WINDOW_MS);
+  const out: PlannedReminder[] = [];
+  for (const item of items) {
+    const days = daysUntilDue(item.dueDate, timeZone, now);
+    if (days === null) continue;
+    const body = taskNoticeBody({ key: item.taskKey, title: item.text }) ?? item.text;
+    const people = item.assigneeId ? [item.assigneeId] : [...new Set(item.taskAssigneeIds)];
+    for (const userId of people) {
+      const base = { userId, body, entityType: 'task', entityId: item.taskId, dedupeId: `item:${item.id}` };
+      if (days < 0) {
+        out.push({ ...base, type: 'TASK_OVERDUE', title: 'A checklist item is overdue' });
+        continue;
+      }
+      const leadMin = opts.leadMinutesFor?.(userId);
+      if (days <= (leadMin != null ? leadDays(leadMin * 60_000) : defaultDays)) out.push({ ...base, type: 'TASK_DUE_SOON', title: 'A checklist item is due soon' });
+    }
+  }
+  return out;
 }

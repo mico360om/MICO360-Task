@@ -106,6 +106,14 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe('page width (owner, 6 Nov: "Increase the width of page")', () => {
+  it('uses the full content width like the other list pages, not a narrow centred column', async () => {
+    const { container } = renderPage();
+    await screen.findByRole('heading', { name: 'Notifications' });
+    expect(container.innerHTML).not.toMatch(/max-w-4xl/);
+  });
+});
+
 describe('tabs and type chips', () => {
   it('All and “Unread (2)”; the Unread tab asks the server for unread ones only', async () => {
     renderPage();

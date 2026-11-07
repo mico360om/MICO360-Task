@@ -39,6 +39,8 @@ describe('describeMatches — where a task matched, for the results', () => {
     const labels = (q: string[]) => describeMatches(task(), q, { timeZone: tz }).matches.map((m) => [m.field, m.label]);
     expect(labels(['site before'])).toEqual([['description', 'Description']]);
     expect(labels(['photograph'])).toEqual([['checklist', 'Checklist item']]);
+    // 1.23.3: a checklist's own title.
+    expect(describeMatches(task({ lists: [{ title: 'Electrical panel' }] }), ['electrical'], { timeZone: tz }).matches.map((m) => [m.field, m.label])).toEqual([['checklist', 'Checklist']]);
     expect(labels(['bilal.a'])).toEqual([['assignee', 'Assigned to']]);
     expect(labels(['site lead'])).toEqual([['contact', 'External contact']]);
     expect(labels(['safety'])).toEqual([['tag', 'Tag']]);

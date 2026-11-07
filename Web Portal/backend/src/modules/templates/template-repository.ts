@@ -1,3 +1,4 @@
+import type { ChecklistTree } from '../tasks/checklist-tree';
 import type { Priority } from '../tasks/task-repository';
 
 export type ColumnCategory = 'BACKLOG' | 'TODO' | 'IN_PROGRESS' | 'BLOCKED' | 'REVIEW' | 'DONE';
@@ -25,8 +26,10 @@ export interface ProjectTemplateTaskRecord {
   dueOffsetDays: number | null;
   /** The role whose person does it; null = the project's usual default (its owner). */
   roleId: string | null;
-  /** Its checklist items' text, in order. */
+  /** Its checklist items' text, in order (every level: what older apps read). */
   checklist: string[];
+  /** 1.23.3: its checklists with titles and nesting (a template before 1.23.3: one "Checklist"). */
+  checklists: ChecklistTree;
 }
 
 /** A project template as the Templates page lists it. */
@@ -65,7 +68,8 @@ export interface ProjectTemplateInput {
     priority: Priority;
     dueOffsetDays: number | null;
     roleKey: string | null;
-    checklist: string[];
+    /** 1.23.3: titles and nesting (never people or dates). */
+    checklists: ChecklistTree;
   }[];
 }
 
@@ -77,7 +81,10 @@ export interface TaskTemplateRecord {
   title: string;
   description: string | null;
   priority: Priority;
+  /** Every item's text, in order (what older apps read). */
   checklist: string[];
+  /** 1.23.3: its checklists with titles and nesting. */
+  checklists: ChecklistTree;
   createdById: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -88,7 +95,8 @@ export interface TaskTemplateInput {
   title: string;
   description: string | null;
   priority: Priority;
-  checklist: string[];
+  /** 1.23.3: titles and nesting (never people or dates). */
+  checklists: ChecklistTree;
 }
 
 /** What saving a project as a template reads of it. */
@@ -108,7 +116,8 @@ export interface ProjectSnapshot {
     dueDate: Date | null;
     /** Who is on it, in the order they were assigned. */
     assigneeIds: string[];
-    checklist: string[];
+    /** 1.23.3: its live checklists (titles and nesting). */
+    checklists: ChecklistTree;
   }[];
 }
 
@@ -119,7 +128,8 @@ export interface TaskSnapshot {
   title: string;
   description: string | null;
   priority: Priority;
-  checklist: string[];
+  /** 1.23.3: its live checklists (titles and nesting). */
+  checklists: ChecklistTree;
 }
 
 export interface TemplateRepository {

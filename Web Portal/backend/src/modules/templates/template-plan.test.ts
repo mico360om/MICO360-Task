@@ -1,3 +1,4 @@
+import { checklistTreeOf as tree, flatTexts } from '../tasks/checklist-tree';
 import { describe, it, expect } from 'vitest';
 import { dueDayFor, offsetBetween, planTemplateTasks, startColumnIndex, weekdayOf } from './template-plan';
 
@@ -92,9 +93,9 @@ describe('planning a template’s tasks for a start day', () => {
   const template = {
     roles: [{ id: 'r-insp', name: 'Inspector' }, { id: 'r-lead', name: 'Site lead' }],
     tasks: [
-      { title: 'Kick-off', description: null, priority: 'HIGH' as const, dueOffsetDays: 0, roleId: 'r-lead', checklist: ['Agenda', 'Attendees'] },
-      { title: 'Inspect', description: 'Walk the site', priority: 'NORMAL' as const, dueOffsetDays: 5, roleId: 'r-insp', checklist: [] },
-      { title: 'Report', description: null, priority: 'LOW' as const, dueOffsetDays: null, roleId: null, checklist: [] },
+      { title: 'Kick-off', description: null, priority: 'HIGH' as const, dueOffsetDays: 0, roleId: 'r-lead', checklists: tree(['Agenda', 'Attendees']) },
+      { title: 'Inspect', description: 'Walk the site', priority: 'NORMAL' as const, dueOffsetDays: 5, roleId: 'r-insp', checklists: tree([]) },
+      { title: 'Report', description: null, priority: 'LOW' as const, dueOffsetDays: null, roleId: null, checklists: tree([]) },
     ],
   };
 
@@ -105,7 +106,8 @@ describe('planning a template’s tasks for a start day', () => {
       ['Inspect', '2026-11-08', '2026-11-06', 'u-omar', 'Inspector'],
       ['Report', null, null, null, null],
     ]);
-    expect(plan[0]).toMatchObject({ priority: 'HIGH', checklist: ['Agenda', 'Attendees'], description: null });
+    expect(plan[0]).toMatchObject({ priority: 'HIGH', description: null });
+    expect(flatTexts(plan[0]!.checklists)).toEqual(['Agenda', 'Attendees']);
   });
 
   it('one person can fill several roles', () => {
@@ -114,7 +116,7 @@ describe('planning a template’s tasks for a start day', () => {
   });
 
   it('plans 500 tasks quickly', () => {
-    const many = { roles: [], tasks: Array.from({ length: 500 }, (_, i) => ({ title: `T${i}`, description: null, priority: 'NORMAL' as const, dueOffsetDays: i, roleId: null, checklist: ['a', 'b'] })) };
+    const many = { roles: [], tasks: Array.from({ length: 500 }, (_, i) => ({ title: `T${i}`, description: null, priority: 'NORMAL' as const, dueOffsetDays: i, roleId: null, checklists: tree(['a', 'b']) })) };
     const t0 = performance.now();
     const plan = planTemplateTasks(many, { startKey: '2026-11-01', workingDays: SUN_THU, fillers: {} });
     expect(plan).toHaveLength(500);

@@ -11,6 +11,8 @@ import { createPrismaAssigneeRepository, createPrismaTaskLookup } from '../../sr
 import { createAuditService } from '../../src/modules/audit/audit-service';
 import { createPrismaAuditRepository } from '../../src/modules/audit/prisma-audit-repository';
 import { createPrismaDashboardLayoutStore, DEFAULTS_KEY } from '../../src/modules/dashboard/dashboard-layout-store';
+import { createChecklistService } from '../../src/modules/tasks/checklist-service';
+import { createPrismaChecklistStore } from '../../src/modules/tasks/prisma-checklist-store';
 import type { PrioritiesAnswer, PrioritiesService } from '../../src/modules/dashboard/priorities-service';
 import type { Viewer } from '../../src/modules/companies/company-access';
 
@@ -85,6 +87,8 @@ beforeAll(async () => {
         },
       }),
       assigneeService: createAssigneeService({ repo: createPrismaAssigneeRepository(prisma), taskLookup: createPrismaTaskLookup(prisma) }),
+      // 1.23.3 checklists, as on the server (Tick and Reschedule go through PUT /checklist/:itemId).
+      checklistService: createChecklistService({ store: createPrismaChecklistStore(prisma), taskLookup: createPrismaTaskLookup(prisma) }),
       dashboardPriorities: priorities,
       dashboardLayouts: createPrismaDashboardLayoutStore(prisma),
       auditService: createAuditService({ audit: createPrismaAuditRepository(prisma) }),
@@ -275,6 +279,40 @@ describe('action items: Mark done and Reschedule, with Undo', () => {
 
   it('someone else who can’t open its meeting is refused', async () => {
     expect((await send('PATCH', w.as.ben, `/action-items/${w.actionItems.MA_ana}`, { status: 'COMPLETED' })).status).toBe(403);
+  });
+});
+
+describe('checklist items (1.23.3): Tick and Reschedule, with Undo', () => {
+  it('Tick takes a late item off (the checklist event clears the list), Undo brings it back; a parent refuses a tick; Reschedule moves its reason', async () => {
+    const host = await task('CLHOST', w.projects.PA, { assignees: [w.people.cat] });
+    const cl = await prisma.checklistList.create({ data: { taskId: host, title: 'Steps', position: 0 } });
+    const leaf = (await prisma.checklistItem.create({ data: { taskId: host, listId: cl.id, text: 'Torque the bolts', position: 0, assigneeId: w.people.ana, dueDate: due(-1) } })).id;
+    const parent = (await prisma.checklistItem.create({ data: { taskId: host, listId: cl.id, text: 'Pressure test', position: 1, assigneeId: w.people.ana, dueDate: due(0) } })).id;
+    await prisma.checklistItem.create({ data: { taskId: host, listId: cl.id, parentId: parent, text: 'Fill the line', position: 0, dueDate: due(5) } });
+    priorities.changed();
+    const ofItem = (a: PrioritiesAnswer, id: string) => a.items.find((r) => r.checklistItem?.id === id);
+    try {
+      expect(ofItem(await cached(w.as.ana), leaf)).toMatchObject({ reason: { code: 'overdue', days: 1 }, checklistItem: { can: { tick: true } } });
+      expect(ofItem(await cached(w.as.ana), parent)).toMatchObject({ reason: { code: 'due-today' }, checklistItem: { can: { tick: false } } });
+      expect((await send('PUT', w.as.ana, `/checklist/${leaf}`, { done: true })).status).toBe(200);
+      expect(ofItem(await cached(w.as.ana), leaf)).toBeUndefined();
+      expect((await send('PUT', w.as.ana, `/checklist/${leaf}`, { done: false })).status).toBe(200);
+      expect(ofItem(await cached(w.as.ana), leaf)).toBeDefined();
+      // A parent follows its sub-items: its tick is refused.
+      const refused = await send('PUT', w.as.ana, `/checklist/${parent}`, { done: true });
+      expect(refused.status).toBe(400);
+      expect(refused.body.error!.code).toBe('CHECKLIST_PARENT');
+      // Reschedule (its real due-date field) and Undo.
+      expect((await send('PUT', w.as.ana, `/checklist/${leaf}`, { dueDate: shiftDayKey(today, 2) })).status).toBe(200);
+      expect(ofItem(await cached(w.as.ana), leaf)!.reason).toEqual({ code: 'due-soon', days: 2 });
+      expect((await send('PUT', w.as.ana, `/checklist/${leaf}`, { dueDate: shiftDayKey(today, -1) })).status).toBe(200);
+      expect(ofItem(await cached(w.as.ana), leaf)!.reason).toEqual({ code: 'overdue', days: 1 });
+      // Someone who can't open the task can't tick it.
+      expect((await send('PUT', w.as.ben, `/checklist/${leaf}`, { done: true })).status).toBeGreaterThanOrEqual(403);
+    } finally {
+      await prisma.checklistItem.deleteMany({ where: { taskId: host } });
+      await prisma.checklistList.deleteMany({ where: { taskId: host } });
+    }
   });
 });
 

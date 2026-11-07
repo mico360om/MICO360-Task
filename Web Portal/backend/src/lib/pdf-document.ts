@@ -782,11 +782,13 @@ export class PdfDocument {
    * A checklist item: a drawn box (filled with a white tick when done) and the item's words with a
    * hanging indent, wrapped in full. A right-to-left item has its box on the right. Done items are muted.
    */
-  checkItem(content: string, done: boolean, options: { size?: number; direction?: TextDirection } = {}): this {
+  checkItem(content: string, done: boolean, options: { size?: number; direction?: TextDirection; indent?: number } = {}): this {
     const size = options.size ?? 10;
     const box = Math.round(size * 0.95 * 10) / 10;
+    // 1.23.3: a sub-item sits further in (from the right for a right-to-left item).
+    const indent = Math.max(0, Math.min(options.indent ?? 0, this.contentWidth / 3));
     const gutter = box + 7;
-    const width = this.contentWidth - gutter;
+    const width = this.contentWidth - gutter - indent;
     const lines = layoutText(content, { size, maxWidth: width, direction: options.direction });
     const rtl = lines[0]?.rtl ?? false;
     lines.forEach((ln, i) => {
@@ -794,7 +796,7 @@ export class PdfDocument {
       this.ensure(lb.height);
       const baseline = this.y + lb.ascent;
       if (i === 0) {
-        const bx = rtl ? this.pageWidth - this.margin - box : this.margin;
+        const bx = rtl ? this.pageWidth - this.margin - indent - box : this.margin + indent;
         const by = baseline - size * 0.78;
         if (done) {
           this.doc.save().roundedRect(bx, by, box, box, 2).fill(toHex(SUCCESS)).restore();
@@ -812,7 +814,7 @@ export class PdfDocument {
           this.doc.save().lineWidth(0.9).roundedRect(bx + 0.45, by + 0.45, box - 0.9, box - 0.9, 2).stroke(toHex(this.pal.muted)).restore();
         }
       }
-      this.placeLine(ln, rtl ? this.margin : this.margin + gutter, width, baseline, size, done ? this.pal.muted : this.pal.ink, 'start');
+      this.placeLine(ln, rtl ? this.margin : this.margin + indent + gutter, width, baseline, size, done ? this.pal.muted : this.pal.ink, 'start');
       this.y += lb.height;
     });
     this.y += 2;

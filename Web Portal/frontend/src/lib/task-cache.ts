@@ -36,6 +36,8 @@ export const TASK_QUERY_ROOTS = [
   'project-health',
   'project-next-actions',
   'project-activity',
+  // 1.23.3: My Tasks' "Checklist items for me" (a finished task's items leave it).
+  'my-checklist-items',
 ] as const;
 
 /** Views under another root that count tasks: the Projects page's card figures (open, overdue, next due…) and the Timeline's. */

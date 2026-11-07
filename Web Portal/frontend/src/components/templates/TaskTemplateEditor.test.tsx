@@ -45,17 +45,58 @@ describe('Task template editor', () => {
     const { onClose, dialog } = renderEditor();
     await userEvent.type(within(dialog).getByLabelText(/^Template name/), 'Site check');
     await userEvent.type(within(dialog).getByLabelText(/^Task title/), 'Check the site');
-    await userEvent.type(within(dialog).getByRole('textbox', { name: 'Add a checklist item' }), 'Gate{Enter}Fence');
+    await userEvent.type(within(dialog).getByRole('textbox', { name: 'Add an item to “Checklist”' }), 'Gate{Enter}Fence');
     await userEvent.click(within(dialog).getByRole('button', { name: 'Create template' }));
     await waitFor(() => expect(onClose).toHaveBeenCalled());
-    expect(requests.find((r) => r.method === 'POST')!.body).toMatchObject({ name: 'Site check', title: 'Check the site', checklist: ['Gate', 'Fence'] });
+    // 1.23.3: the checklists with titles and nesting, and the old flat list beside them.
+    expect(requests.find((r) => r.method === 'POST')!.body).toMatchObject({
+      name: 'Site check',
+      title: 'Check the site',
+      checklist: ['Gate', 'Fence'],
+      checklists: [{ title: 'Checklist', items: [{ text: 'Gate' }, { text: 'Fence' }] }],
+    });
   });
 
   it('closing with only half-typed checklist text asks first', async () => {
     const { onClose, dialog } = renderEditor();
-    await userEvent.type(within(dialog).getByRole('textbox', { name: 'Add a checklist item' }), 'Gate');
+    await userEvent.type(within(dialog).getByRole('textbox', { name: 'Add an item to “Checklist”' }), 'Gate');
     await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
     expect(screen.getByRole('alertdialog', { name: 'Discard your changes?' })).toBeInTheDocument();
     expect(onClose).not.toHaveBeenCalled();
+  });
+});
+
+describe('Task template editor: nested checklists (1.23.3)', () => {
+  it('shows a template’s checklists with their titles and nesting, and saves them as they are', async () => {
+    const template = {
+      id: 'tk3',
+      name: 'Fit-out',
+      title: 'Fit-out check',
+      description: null,
+      priority: 'NORMAL' as const,
+      checklist: ['Wiring', 'Label circuits', 'Pipes'],
+      checklists: [
+        { title: 'Electrical', items: [{ text: 'Wiring', children: [{ text: 'Label circuits' }] }] },
+        { title: 'Plumbing', items: [{ text: 'Pipes' }] },
+      ],
+      createdById: 'a',
+      createdByName: 'A',
+      canManage: true,
+      createdAt: '',
+      updatedAt: '',
+    };
+    const onClose = vi.fn();
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <TaskTemplateEditor template={template} onClose={onClose} />
+      </QueryClientProvider>,
+    );
+    const dialog = screen.getByRole('dialog', { name: 'Edit task template' });
+    expect(within(dialog).getAllByTestId('checklist-card')).toHaveLength(2);
+    const label = within(dialog).getAllByTestId('checklist-item').find((li) => li.querySelector(':scope > [data-row]')?.textContent?.includes('Label circuits'))!;
+    expect(label).toHaveAttribute('data-depth', '1');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Save template' }));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(requests.find((r) => r.method === 'PUT')!.body).toMatchObject({ checklists: template.checklists, checklist: ['Wiring', 'Label circuits', 'Pipes'] });
   });
 });

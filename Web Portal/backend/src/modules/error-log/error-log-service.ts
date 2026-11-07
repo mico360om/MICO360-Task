@@ -36,6 +36,31 @@ export function addressKey(ip: string | null | undefined): string {
 /** Cut a value to its column's size. */
 const clip = (v: string | null | undefined, n: number): string | null => (v ? v.slice(0, n) : null);
 
+/**
+ * 1.23.3 — where a slow request's time went: the whole time the page waited (its value), the server's own
+ * time and the part of that in the database (null: not said), from the answer's Server-Timing.
+ */
+export interface SlowTiming {
+  totalMs: number | null;
+  serverMs: number;
+  dbMs: number | null;
+}
+
+/**
+ * A slow request has no stack: its occurrence keeps the server's and the database's times there, as
+ * the Server-Timing it came from ("Server-Timing: app;dur=9912.3, db;dur=9700.1") — no new column.
+ */
+const TIMING = /^Server-Timing: app;dur=(\d+(?:\.\d+)?)(?:, db;dur=(\d+(?:\.\d+)?))?$/;
+const tenth = (ms: number) => Math.round(ms * 10) / 10;
+function timingText(r: Pick<ClientReport, 'serverMs' | 'dbMs'>): string | null {
+  if (r.serverMs == null) return null;
+  return `Server-Timing: app;dur=${tenth(r.serverMs)}${r.dbMs == null ? '' : `, db;dur=${tenth(r.dbMs)}`}`;
+}
+function slowTiming(e: Pick<ErrorEventRow, 'kind' | 'value' | 'stack'>): SlowTiming | null {
+  const m = e.kind === 'SLOW' ? TIMING.exec(e.stack ?? '') : null;
+  return m ? { totalMs: e.value, serverMs: Number(m[1]), dbMs: m[2] === undefined ? null : Number(m[2]) } : null;
+}
+
 export interface ErrorLogServiceDeps {
   repo: ErrorLogRepository;
   maps: MapStore;
@@ -209,6 +234,8 @@ export function createErrorLogService(deps: ErrorLogServiceDeps) {
         count = 0;
       }
     }
+    // 1.23.3: a slow request keeps where its time went in its (otherwise empty) stack.
+    if (r.kind === 'SLOW' && r.detail === 'api') stack = timingText(r);
     const event: NewEvent = {
       at: now(),
       kind: r.kind,
@@ -361,11 +388,17 @@ export function createErrorLogService(deps: ErrorLogServiceDeps) {
       deps.repo.countsByKind(since, status),
     ]);
     const shown = rows.slice(0, limit);
-    const pages = await deps.repo.topPages(shown.map((g) => g.id));
+    // 1.23.3: a slow row shows where its latest request's time went.
+    const slowIds = shown.filter((g) => g.kind === 'SLOW').map((g) => g.id);
+    const [pages, newest] = await Promise.all([deps.repo.topPages(shown.map((g) => g.id)), slowIds.length ? deps.repo.newest(slowIds) : Promise.resolve(new Map<string, Pick<ErrorEventRow, 'value' | 'stack'>>())]);
     const last = shown[shown.length - 1];
     const n = (k: ErrorKind) => byKind[k] ?? 0;
+    const timingOf = (g: ErrorGroupRow): SlowTiming | null => {
+      const e = newest.get(g.id);
+      return e ? slowTiming({ kind: g.kind, value: e.value, stack: e.stack }) : null;
+    };
     return {
-      groups: shown.map((g) => toItem(g, pages.get(g.id) ?? null)),
+      groups: shown.map((g) => ({ ...toItem(g, pages.get(g.id) ?? null), timing: timingOf(g) })),
       next: rows.length > limit && last ? `${last.lastSeenAt.toISOString()}|${last.id}` : null,
       counts: { all: n('ERROR') + n('NETWORK') + n('BLOCKED') + n('SLOW') + n('SERVER'), errors: n('ERROR') + n('NETWORK'), blocked: n('BLOCKED'), slow: n('SLOW'), server: n('SERVER') },
     };
@@ -386,7 +419,9 @@ export function createErrorLogService(deps: ErrorLogServiceDeps) {
         kind: e.kind,
         detail: e.detail,
         message: e.message,
-        stack: e.stack,
+        // 1.23.3: a slow request's stack holds its timing, shown in words (timing), never as a stack.
+        stack: e.kind === 'SLOW' ? null : e.stack,
+        timing: slowTiming(e),
         page: e.page,
         job: e.job,
         // A server error's resource is its database diagnosis (1.22.5): the page says "Database said: …".

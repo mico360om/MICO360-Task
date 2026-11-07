@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { WEIGHT_MAX, WEIGHT_MIN } from '../project-health/completion';
+import { checklistTreeSchema } from './checklist-tree-schema';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { TaskService } from './task-service';
 import type { CarryForwardService } from './carry-forward-service';
@@ -96,6 +97,8 @@ const createSchema = z.object({
   assigneeIds: z.array(idString).max(100).optional(),
   /** Its checklist's items, in order (a task template fills them in), written with the task. */
   checklist: z.array(requiredText).max(100).optional(),
+  /** 1.23.3: its checklists with titles and nesting (the New task form, templates); wins over `checklist`. */
+  checklists: checklistTreeSchema.optional(),
   /** Its external contacts, in order, written with the task (checked by the shared rules; at most 20). */
   externalContacts: z.array(externalContactSchema).max(100).optional(),
   /** The inspection form it is carried out with (a scheduled check, or a one-off task with a form). */
@@ -191,6 +194,8 @@ export interface TaskRouteDeps {
   taskApproval?: (viewer: ApprovalViewer, task: TaskRecord) => Promise<TaskApprovalDetails>;
   /** 1.23.1: the tasks merged into this one (additive `mergedFrom`; its "Merged from" panel opens from them). */
   mergedFrom?: (taskId: string) => Promise<{ id: string; key: string; mergeId: string }[]>;
+  /** 1.23.3: dated checklist items for the calendar, in the caller's scope (see prisma-checklist-queries). */
+  checklistDue?: (opts: { from: string; to: string; userId: string; ownIds: string[] | null; listIds: string[] | null }) => Promise<unknown[]>;
 }
 
 export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDeps): Promise<void> {
@@ -298,7 +303,9 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
       series.push(head);
       for (const date of days) occurrences.push({ taskId: head.id, seriesId, date });
     }
-    return { data: { from, to, timeZone: tz, tasks, occurrences, series } };
+    // 1.23.3: dated checklist items, on their day (the website shows mine, or a viewed project's).
+    const checklistItems = deps.checklistDue ? await deps.checklistDue({ from, to, userId: me, ownIds, listIds: allowedIds }) : [];
+    return { data: { from, to, timeZone: tz, tasks, occurrences, series, checklistItems } };
   });
 
   // Tasks assigned to the current user (My Tasks) — only in projects they can still see. 1.22 (owner,

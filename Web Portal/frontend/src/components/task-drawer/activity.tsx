@@ -25,11 +25,42 @@ const DOT: Record<TimelineKind, string> = {
   other: 'bg-ink-3',
 };
 
-/** A compact timeline of what happened to the task, newest first, repetitive runs collapsed. */
-/** `fromKeys` (1.23.1): history lines that came with a task merged into this one, by id — labelled "from MICO-14". */
-export function ActivityTimeline({ activity, fromKeys }: { activity: DrawerActivity[]; fromKeys?: Record<string, string> }) {
+/** "Restore “Wiring” and its 3 sub-items", "Restore the checklist “Plumbing”" — from the line's own words. */
+const restoreName = (text: string) => `Restore ${text.replace(/^deleted /, '').replace(/ \(\d+ items?\)$/, '')}`;
+
+/**
+ * A compact timeline of what happened to the task, newest first, repetitive runs collapsed.
+ * `fromKeys` (1.23.1): history lines that came with a task merged into this one, by id — labelled "from MICO-14".
+ * `restorable` + `onRestore` (1.23.3): a deleted checklist item or checklist has Restore while it can
+ * still be restored (30 days).
+ */
+export function ActivityTimeline({
+  activity,
+  fromKeys,
+  restorable,
+  onRestore,
+}: {
+  activity: DrawerActivity[];
+  fromKeys?: Record<string, string>;
+  restorable?: ReadonlySet<string>;
+  onRestore?: (batchId: string) => Promise<void> | void;
+}) {
   const items = useMemo(() => buildTimeline(activity), [activity]);
   const [shown, setShown] = useState(FIRST);
+  const [restoring, setRestoring] = useState<string | null>(null);
+  const [problem, setProblem] = useState<{ batchId: string; text: string } | null>(null);
+  async function restore(batchId: string) {
+    if (!onRestore || restoring) return;
+    setRestoring(batchId);
+    setProblem(null);
+    try {
+      await onRestore(batchId);
+    } catch (err) {
+      setProblem({ batchId, text: err instanceof Error && err.message ? err.message : 'Couldn’t restore it. Please try again.' });
+    } finally {
+      setRestoring(null);
+    }
+  }
   if (items.length === 0) return null;
   const visible = items.slice(0, shown);
   return (
@@ -69,6 +100,22 @@ export function ActivityTimeline({ activity, fromKeys }: { activity: DrawerActiv
               <span className="ms-1.5 whitespace-nowrap text-[11px] text-ink-3">
                 · from <span dir="ltr" translate="no" className="font-mono">{fromKeys[item.id]}</span>
               </span>
+            ) : null}
+            {item.batchId && onRestore && restorable?.has(item.batchId) ? (
+              <button
+                type="button"
+                onClick={() => void restore(item.batchId!)}
+                disabled={restoring !== null}
+                aria-label={restoreName(item.text)}
+                className="ms-2 inline-flex h-7 items-center rounded-md border border-line px-2 align-middle text-[11px] font-semibold text-brand transition-colors hover:border-brand disabled:opacity-50 [@media(pointer:coarse)]:h-11"
+              >
+                {restoring === item.batchId ? 'Restoring…' : 'Restore'}
+              </button>
+            ) : null}
+            {problem && problem.batchId === item.batchId ? (
+              <p role="alert" className="mt-1 text-xs font-medium text-danger">
+                {problem.text}
+              </p>
             ) : null}
           </li>
         ))}

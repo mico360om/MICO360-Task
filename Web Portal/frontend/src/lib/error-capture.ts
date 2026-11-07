@@ -1,6 +1,7 @@
 import { isExtensionSource } from './error-redact';
 import { isAiRequest } from './ai-requests';
 import type { ErrorReport, ErrorReporter } from './error-reporter';
+import type { RequestDone } from './api-client';
 
 /** When a page counts as slow (1.22.4, the Error log's Slow). */
 export const SLOW = {
@@ -34,17 +35,48 @@ export function isLeaving(): boolean {
   return leaving;
 }
 
+/** A Server-Timing duration: a plain number of milliseconds (at most 1e9, what the server takes). */
+const DURATION = /^\d+(\.\d+)?$/;
+
+/**
+ * 1.23.3 — the server's own time on a request and its time in the database, from the answer's
+ * Server-Timing header (`app;dur=9912.3, db;dur=9700.1`; a proxy may add metrics of its own). Null
+ * without the server's time.
+ */
+export function serverTimingOf(header: string | null | undefined): { serverMs: number; dbMs: number | null } | null {
+  const durations = new Map<string, number>();
+  for (const metric of String(header ?? '').split(',')) {
+    const [name = '', ...params] = metric.split(';').map((p) => p.trim());
+    const key = name.toLowerCase();
+    if ((key !== 'app' && key !== 'db') || durations.has(key)) continue;
+    const dur = params.map((p) => /^dur\s*=\s*"?([^"]*)"?$/i.exec(p)?.[1]?.trim()).find((v) => v !== undefined);
+    const ms = dur && DURATION.test(dur) ? Number(dur) : NaN;
+    if (Number.isFinite(ms) && ms <= 1e9) durations.set(key, ms);
+  }
+  const serverMs = durations.get('app');
+  return serverMs === undefined ? null : { serverMs, dbMs: durations.get('db') ?? null };
+}
+
 /**
  * What the API client tells about one request: a request that never reached the server while the
  * device says it is online (blocked on the way: a firewall, a proxy, an antivirus) is a network
- * problem; one that took over 10 s is slow (one that waits on the AI: over a minute). The server logs
- * its own errors, so an answer is not one.
+ * problem; one that took over 10 s is slow (one that waits on the AI: over a minute) — 1.23.3: with
+ * the server's time and its time in the database when the answer said them. The server logs its own
+ * errors, so an answer is not one.
  */
-export function requestReport(info: { method: string; path: string; status: number; ms: number }, ctx: { online: boolean; leaving: boolean }): ErrorReport | null {
+export function requestReport(info: RequestDone, ctx: { online: boolean; leaving: boolean }): ErrorReport | null {
   if (info.path.startsWith('/client-errors')) return null;
   const resource = `${info.method.toUpperCase()} /api/v1${info.path}`;
   if (info.status === 0) return ctx.online && !ctx.leaving ? { kind: 'NETWORK', detail: 'api', resource } : null;
-  if (info.ms > (isAiRequest(info.method, info.path) ? SLOW.aiApiMs : SLOW.apiMs)) return { kind: 'SLOW', detail: 'api', value: Math.round(info.ms), resource };
+  if (info.ms > (isAiRequest(info.method, info.path) ? SLOW.aiApiMs : SLOW.apiMs)) {
+    const timing = serverTimingOf(info.serverTiming);
+    const report: ErrorReport = { kind: 'SLOW', detail: 'api', value: Math.round(info.ms), resource };
+    if (timing) {
+      report.serverMs = timing.serverMs;
+      if (timing.dbMs !== null) report.dbMs = timing.dbMs;
+    }
+    return report;
+  }
   return null;
 }
 

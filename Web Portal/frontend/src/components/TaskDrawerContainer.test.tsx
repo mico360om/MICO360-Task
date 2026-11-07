@@ -339,33 +339,102 @@ describe('TaskDrawerContainer', () => {
     await screen.findByRole('group', { name: 'Suggested steps' });
     const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
     const added = () =>
-      fetchMock.mock.calls.filter((c) => (c[1] as RequestInit | undefined)?.method === 'POST' && String(c[0]).endsWith('/tasks/t1/checklist'));
+      fetchMock.mock.calls.filter((c) => (c[1] as RequestInit | undefined)?.method === 'POST' && String(c[0]).endsWith('/tasks/t1/checklist/batch'));
     expect(added()).toHaveLength(0);
     await userEvent.click(screen.getByRole('button', { name: 'Add 2 steps' }));
-    await waitFor(() => expect(added()).toHaveLength(2));
-    expect(added().map((c) => JSON.parse(String((c[1] as RequestInit).body)).text)).toEqual(['Collect figures', 'Draft report']);
+    // 1.23.3: in one go (one "added 2 items" history line), into the first checklist.
+    await waitFor(() => expect(added()).toHaveLength(1));
+    expect(JSON.parse(String((added()[0]![1] as RequestInit).body))).toEqual({ texts: ['Collect figures', 'Draft report'] });
   });
+});
 
-  it('saves a new checklist order through the reorder endpoint', async () => {
+describe('TaskDrawerContainer: nested checklists (1.23.3)', () => {
+  const LISTS = [
+    { id: 'L1', taskId: 't1', title: 'Electrical', position: 0, done: 1, total: 2 },
+    { id: 'L2', taskId: 't1', title: 'Plumbing', position: 1, done: 0, total: 1 },
+  ];
+  const ITEMS = [
+    { id: 'a', taskId: 't1', listId: 'L1', parentId: null, depth: 0, text: 'Wiring', done: false, position: 0, childCount: 2, subDone: 1, subTotal: 2 },
+    { id: 'a1', taskId: 't1', listId: 'L1', parentId: 'a', depth: 1, text: 'Label circuits', done: true, position: 0, assigneeId: 'u2', assignee: { id: 'u2', name: 'Omar A' }, dueDate: '2026-11-03' },
+    { id: 'a2', taskId: 't1', listId: 'L1', parentId: 'a', depth: 1, text: 'Test breakers', done: false, position: 1 },
+    { id: 'c', taskId: 't1', listId: 'L2', parentId: null, depth: 0, text: 'Pipes', done: false, position: 0 },
+  ];
+  type Call = { url: string; method: string; body: Record<string, unknown> | null };
+  let calls: Call[];
+  beforeEach(() => {
+    calls = [];
     const base = globalThis.fetch as unknown as (url: string, init?: RequestInit) => Promise<Response>;
-    const fetchMock = vi.fn(async (url: string, init?: RequestInit) =>
-      String(url).endsWith('/tasks/t1/checklist') && (init?.method ?? 'GET') === 'GET'
-        ? json({ data: { items: [{ id: 'i1', taskId: 't1', text: 'First', done: false, position: 0 }, { id: 'i2', taskId: 't1', text: 'Second', done: false, position: 1 }], progress: 0 } })
-        : base(url, init),
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const u = String(url);
+        const method = init?.method ?? 'GET';
+        const body = typeof init?.body === 'string' ? (JSON.parse(init.body) as Record<string, unknown>) : null;
+        calls.push({ url: u, method, body });
+        if (u.endsWith('/tasks/t1/checklist') && method === 'GET') return json({ data: { items: ITEMS, lists: LISTS, progress: 33, done: 1, total: 3 } });
+        if (u.endsWith('/tasks/t1/checklist/deleted')) return json({ data: [{ batchId: 'b-old', kind: 'item', title: 'Old step', count: 1, deletedAt: '', deletedBy: null, until: '' }] });
+        if (u.endsWith('/tasks/t1/activity'))
+          return json({ data: [{ id: 'h1', taskId: 't1', projectId: 'p1', userId: 'u2', action: 'CHECKLIST_REMOVED', createdAt: new Date().toISOString(), actor: { id: 'u2', name: 'Omar A' }, meta: { itemId: 'x', text: 'Old step', count: 1, batchId: 'b-old' } }] });
+        if (u.endsWith('/checklist/a2') && method === 'DELETE') return json({ data: { batchId: 'b-new', count: 1, taskId: 't1' } });
+        if (u.endsWith('/tasks/t1/checklist/restore')) return json({ data: { restored: 1, taskId: 't1' } });
+        if (/\/checklist\/[a-z0-9]+\/move$/.test(u)) return json({ data: ITEMS[2] });
+        if (u.endsWith('/tasks/t1/checklist') && method === 'POST') return json({ data: { ...ITEMS[3], id: 'n1', text: String(body?.text) } }, 201);
+        if (/\/checklist\/[a-z0-9]+$/.test(u) && method === 'PUT') return json({ data: ITEMS[2] });
+        return base(url, init);
+      }),
     );
-    vi.stubGlobal('fetch', fetchMock);
+  });
+  const open = (props: { focusItemId?: string } = {}) => {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
       <QueryClientProvider client={qc}>
-        <TaskDrawerContainer taskId="t1" onClose={() => {}} />
+        <TaskDrawerContainer taskId="t1" onClose={() => {}} {...props} />
       </QueryClientProvider>,
     );
-    (await screen.findByRole('button', { name: 'Reorder “First”' })).focus();
-    await userEvent.keyboard('{ArrowDown}');
-    await waitFor(() => {
-      const put = fetchMock.mock.calls.find((c) => String(c[0]).endsWith('/tasks/t1/checklist/reorder'));
-      expect(put && JSON.parse(String((put[1] as RequestInit).body))).toEqual({ orderedIds: ['i2', 'i1'] });
-    });
+  };
+  const sent = (method: string, path: string) => calls.filter((c) => c.method === method && c.url.endsWith(path));
+
+  it('shows each checklist with its items nested, and saves a tick, a move and a sub-item through the new routes', async () => {
+    open();
+    expect(await screen.findByText('1/3 completed')).toBeInTheDocument();
+    expect(screen.getAllByTestId('checklist-card').map((c) => c.getAttribute('data-list-id'))).toEqual(['L1', 'L2']);
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Test breakers' }));
+    await waitFor(() => expect(sent('PUT', '/checklist/a2')[0]?.body).toEqual({ done: true }));
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for “Test breakers”' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Move up' }));
+    await waitFor(() => expect(sent('POST', '/checklist/a2/move')[0]?.body).toEqual({ action: 'up' }));
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for “Pipes”' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Add sub-item' }));
+    await userEvent.type(screen.getByRole('textbox', { name: 'New sub-item of “Pipes”' }), 'Drains{Enter}');
+    await waitFor(() => expect(sent('POST', '/tasks/t1/checklist')[0]?.body).toEqual({ text: 'Drains', listId: 'L2', parentId: 'c' }));
+  });
+
+  it('assigns an item and sets its due date', async () => {
+    open();
+    await screen.findByText('1/3 completed');
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for “Pipes”' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Assign…' }));
+    await userEvent.type(screen.getByRole('combobox', { name: 'Who is “Pipes” for?' }), 'omar{Enter}');
+    await waitFor(() => expect(sent('PUT', '/checklist/c')[0]?.body).toEqual({ assigneeId: 'u2' }));
+  });
+
+  it('a delete has Undo (restoring its batch), and the history offers Restore while it can be restored', async () => {
+    open();
+    await screen.findByText('1/3 completed');
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for “Test breakers”' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Delete' }));
+    await waitFor(() => expect(sent('DELETE', '/checklist/a2')).toHaveLength(1));
+    await userEvent.click(within(await screen.findByTestId('checklist-undo')).getByRole('button', { name: 'Undo' }));
+    await waitFor(() => expect(sent('POST', '/tasks/t1/checklist/restore')[0]?.body).toEqual({ batchId: 'b-new' }));
+    const timeline = await screen.findByRole('list', { name: 'Activity' });
+    await userEvent.click(within(timeline).getByRole('button', { name: 'Restore “Old step”' }));
+    await waitFor(() => expect(sent('POST', '/tasks/t1/checklist/restore').map((c) => c.body)).toContainEqual({ batchId: 'b-old' }));
+  });
+
+  it('opened at an item (…&item=): it is brought into view and marked', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    open({ focusItemId: 'a2' });
+    await waitFor(() => expect(screen.getAllByTestId('checklist-item').find((li) => li.getAttribute('data-item-id') === 'a2')).toHaveAttribute('data-found', 'true'));
   });
 });
 
@@ -629,5 +698,97 @@ describe('TaskDrawerContainer — clients (1.23)', () => {
       expect(put).toMatchObject({ method: 'PUT', body: { visible: true, showDescription: true } });
     });
     await waitFor(() => expect(screen.getByRole('checkbox', { name: 'Also show its description' })).toBeChecked());
+  });
+});
+
+describe('TaskDrawerContainer: writing a first checklist with the keyboard (1.23.3 review)', () => {
+  type Item = { id: string; taskId: string; listId: string; parentId: string | null; depth: number; text: string; done: boolean; position: number };
+  let lists: { id: string; taskId: string; title: string; position: number; done: number; total: number }[];
+  let items: Item[];
+  let posts: Record<string, unknown>[];
+  let release: (() => void) | null;
+  let slowGet = false;
+  let releaseGet: (() => void) | null = null;
+  beforeEach(() => {
+    lists = [];
+    items = [];
+    posts = [];
+    release = null;
+    slowGet = false;
+    releaseGet = null;
+    const base = globalThis.fetch as unknown as (url: string, init?: RequestInit) => Promise<Response>;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const u = String(url);
+        const method = init?.method ?? 'GET';
+        if (u.endsWith('/tasks/t1/checklist') && method === 'GET') {
+          // Reading the checklist again after an add can be slow too.
+          if (slowGet && posts.length > 1) {
+            slowGet = false;
+            await new Promise<void>((r) => (releaseGet = r));
+          }
+          return json({ data: { items, lists, progress: 0, done: 0, total: items.length } });
+        }
+        if (u.endsWith('/tasks/t1/checklist/deleted')) return json({ data: [] });
+        if (u.endsWith('/tasks/t1/checklist') && method === 'POST') {
+          const body = JSON.parse(String(init?.body)) as { text: string; parentId?: string };
+          posts.push(body);
+          // The first add waits (a slow connection); the server makes the task's first "Checklist" with it.
+          if (posts.length === 1) await new Promise<void>((r) => (release = r));
+          if (!lists.length) lists = [{ id: 'L1', taskId: 't1', title: 'Checklist', position: 0, done: 0, total: 0 }];
+          const made: Item = { id: `n${posts.length}`, taskId: 't1', listId: 'L1', parentId: body.parentId ?? null, depth: body.parentId ? 1 : 0, text: body.text, done: false, position: items.length };
+          items = [...items, made];
+          return json({ data: made }, 201);
+        }
+        return base(url, init);
+      }),
+    );
+  });
+
+  it('“Buy wire”, Enter, then “Buy tape” at once: nothing typed is lost, focus stays in the box, Enter adds it too', async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <TaskDrawerContainer taskId="t1" onClose={() => {}} />
+      </QueryClientProvider>,
+    );
+    const box = await screen.findByRole('textbox', { name: 'Add an item to “Checklist”' });
+    await userEvent.type(box, 'Buy wire{Enter}');
+    await waitFor(() => expect(release).not.toBeNull());
+    // Still saving the first: keep typing.
+    await userEvent.keyboard('Buy tape');
+    release!();
+    await waitFor(() => expect(screen.getAllByTestId('checklist-item').map((li) => li.getAttribute('data-item-id'))).toEqual(['n1']));
+    const after = screen.getByRole('textbox', { name: 'Add an item to “Checklist”' });
+    expect(after).toHaveValue('Buy tape');
+    expect(after).toHaveFocus();
+    await userEvent.keyboard('{Enter}');
+    await waitFor(() => expect(posts).toEqual([{ text: 'Buy wire' }, { text: 'Buy tape', listId: 'L1' }]));
+    await waitFor(() => expect(screen.getAllByTestId('checklist-item')).toHaveLength(2));
+    expect(screen.getByRole('textbox', { name: 'Add an item to “Checklist”' })).toHaveFocus();
+  });
+
+  it('Enter in a new sub-item adds it, and typing goes on right after it once it is there', async () => {
+    lists = [{ id: 'L1', taskId: 't1', title: 'Checklist', position: 0, done: 0, total: 1 }];
+    items = [{ id: 'w', taskId: 't1', listId: 'L1', parentId: null, depth: 0, text: 'Wiring', done: false, position: 0 }];
+    posts = [{ text: 'skip the slow first add' }];
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <TaskDrawerContainer taskId="t1" onClose={() => {}} />
+      </QueryClientProvider>,
+    );
+    await userEvent.click(await screen.findByRole('button', { name: 'More actions for “Wiring”' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Add sub-item' }));
+    slowGet = true;
+    await userEvent.type(screen.getByRole('textbox', { name: 'New sub-item of “Wiring”' }), 'Label circuits{Enter}');
+    await waitFor(() => expect(releaseGet).not.toBeNull());
+    // The checklist is still being read again: keep typing the next one.
+    await userEvent.keyboard('Test breakers');
+    releaseGet!();
+    const next = await screen.findByRole('textbox', { name: 'New item after “Label circuits”' });
+    expect(next).toHaveFocus();
+    expect(next).toHaveValue('Test breakers');
   });
 });

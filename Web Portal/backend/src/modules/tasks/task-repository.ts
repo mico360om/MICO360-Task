@@ -1,3 +1,4 @@
+import type { ChecklistTree } from './checklist-tree';
 import type { RecurrenceRule } from './recurrence';
 import type { CarryLogEntry } from './board-date';
 import type { ProjectTaskSettings } from '../projects/project-task-settings';
@@ -119,8 +120,10 @@ export interface CreateTaskData {
   tagNames?: string[];
   /** Users to assign in the same write as the task (already validated). */
   assigneeIds?: string[];
-  /** Checklist items' text, in order, written in the same write as the task. */
+  /** Checklist items' text, in order, written in the same write as the task (one "Checklist"). */
   checklist?: string[];
+  /** 1.23.3: its checklists with titles and nesting (wins over `checklist`), written with the task. */
+  checklists?: ChecklistTree;
   /** External contacts (already checked), in order, written in the same write as the task. */
   externalContacts?: ExternalContactFields[];
 }

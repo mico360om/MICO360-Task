@@ -27,13 +27,14 @@ const STAMP_BATCH = 1000;
 /**
  * A fingerprint of everything a task is indexed under, for task `t` (MySQL and MariaDB alike): its
  * key/title/description, and for each list a count plus a checksum of what identifies its items —
- * comments (id and last edit; deleted ones left out), checklist texts, assignees with their names,
+ * comments (id and last edit; deleted ones left out), live checklist texts and titles (1.23.3), assignees with their names,
  * external contacts (id and last change), tags with their names, file names and former keys.
  */
 export const stampSql = Prisma.sql`CONCAT_WS('|',
   CRC32(CONCAT(t.\`key\`, '/', t.title, '/', COALESCE(t.description, ''))),
   (SELECT CONCAT(COUNT(*), ':', COALESCE(SUM(CRC32(CONCAT(c.id, '/', COALESCE(c.editedAt, c.createdAt)))), 0)) FROM task_comments c WHERE c.taskId = t.id AND c.deletedAt IS NULL),
-  (SELECT CONCAT(COUNT(*), ':', COALESCE(SUM(CRC32(CONCAT(i.id, '/', i.text))), 0)) FROM task_checklists i WHERE i.taskId = t.id),
+  (SELECT CONCAT(COUNT(*), ':', COALESCE(SUM(CRC32(CONCAT(i.id, '/', i.text))), 0)) FROM task_checklists i WHERE i.taskId = t.id AND i.deletedAt IS NULL),
+  (SELECT CONCAT(COUNT(*), ':', COALESCE(SUM(CRC32(CONCAT(l.id, '/', l.title))), 0)) FROM task_checklist_lists l WHERE l.taskId = t.id AND l.deletedAt IS NULL),
   (SELECT CONCAT(COUNT(*), ':', COALESCE(SUM(CRC32(CONCAT(a.userId, '/', u.firstName, '/', u.lastName, '/', u.username))), 0)) FROM task_assignees a JOIN users u ON u.id = a.userId WHERE a.taskId = t.id),
   (SELECT CONCAT(COUNT(*), ':', COALESCE(SUM(CRC32(CONCAT(x.id, '/', x.updatedAt))), 0)) FROM task_external_contacts x WHERE x.taskId = t.id),
   (SELECT CONCAT(COUNT(*), ':', COALESCE(SUM(CRC32(CONCAT(g.id, '/', g.name))), 0)) FROM task_tags tt JOIN tags g ON g.id = tt.tagId WHERE tt.taskId = t.id),
@@ -58,7 +59,8 @@ export async function loadTaskSearchLive(prisma: PrismaClient, ids: string[]): P
       description: true,
       keyAliases: { select: { key: true }, orderBy: { createdAt: 'asc' } },
       comments: { where: { deletedAt: null }, orderBy: { createdAt: 'desc' }, select: { id: true, parentId: true, body: true, createdAt: true, user: person } },
-      checklist: { orderBy: { position: 'asc' }, select: { text: true, done: true } },
+      checklist: { where: { deletedAt: null }, orderBy: { position: 'asc' }, select: { text: true, done: true } },
+      checklistLists: { where: { deletedAt: null }, orderBy: { position: 'asc' }, select: { title: true } },
       assignees: { orderBy: { assignedAt: 'asc' }, select: { user: person } },
       externalContacts: { orderBy: { position: 'asc' }, select: { name: true, company: true, designation: true, email: true, phone: true, remarks: true } },
       tags: { select: { tag: { select: { name: true } } } },
@@ -75,6 +77,7 @@ export async function loadTaskSearchLive(prisma: PrismaClient, ids: string[]): P
         description: t.description,
         comments: t.comments.map((c) => ({ id: c.id, parentId: c.parentId, body: c.body, createdAt: c.createdAt, author: c.user ?? null })),
         checklist: t.checklist,
+        lists: t.checklistLists,
         assignees: t.assignees.map((a) => a.user),
         contacts: t.externalContacts,
         tags: t.tags.map((x) => x.tag).sort((a, b) => a.name.localeCompare(b.name)),

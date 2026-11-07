@@ -1,3 +1,5 @@
+import { checklistTreeOf, type ChecklistTree } from '../tasks/checklist-tree';
+import { checklistTreeSchema } from '../tasks/checklist-tree-schema';
 import { z } from 'zod';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { AuthGuard } from '../auth/auth-guard';
@@ -14,6 +16,10 @@ const categoryEnum = z.enum(['BACKLOG', 'TODO', 'IN_PROGRESS', 'BLOCKED', 'REVIE
 /** Empty text is no text. */
 const optionalText = longText.nullable().optional().transform((s) => (s && s.trim() ? s.trim() : null));
 const checklistSchema = z.array(requiredText).max(TEMPLATE_LIMITS.checklistItems).default([]);
+/** 1.23.3: the checklists with titles and nesting; when sent, they win over the older flat `checklist`. */
+const checklistsField = { checklist: checklistSchema, checklists: checklistTreeSchema.optional() };
+/** The tree a body means: its `checklists`, else its flat `checklist` as one "Checklist". */
+const treeOfBody = (b: { checklist: string[]; checklists?: ChecklistTree }): ChecklistTree => b.checklists ?? checklistTreeOf(b.checklist);
 
 const projectTemplateSchema = z.object({
   name: requiredText,
@@ -28,14 +34,14 @@ const projectTemplateSchema = z.object({
         priority: priorityEnum.default('NORMAL'),
         dueOffsetDays: z.number().int().min(TEMPLATE_LIMITS.minOffset).max(TEMPLATE_LIMITS.maxOffset).nullable().default(null),
         roleKey: idString.nullable().default(null),
-        checklist: checklistSchema,
+        ...checklistsField,
       }),
     )
     .max(TEMPLATE_LIMITS.tasks)
     .default([]),
 });
 
-const taskTemplateSchema = z.object({ name: requiredText, title: requiredText, description: optionalText, priority: priorityEnum.default('NORMAL'), checklist: checklistSchema });
+const taskTemplateSchema = z.object({ name: requiredText, title: requiredText, description: optionalText, priority: priorityEnum.default('NORMAL'), ...checklistsField });
 
 const fromProjectSchema = z.object({
   name: requiredText,
@@ -87,8 +93,11 @@ export async function registerTemplateRoutes(app: FastifyInstance, deps: Templat
   const record = (req: FastifyRequest, action: string, entityId: string | null, values: { oldValue?: unknown; newValue?: unknown }, module = 'templates') =>
     deps.audit?.record({ userId: req.user?.id ?? null, ip: req.ip ?? null, module, action, entityId, ...values });
   const param = (req: FastifyRequest, name: string) => idString.parse((req.params as Record<string, string>)[name]);
-  const projectInput = (body: z.infer<typeof projectTemplateSchema>): ProjectTemplateInput => body;
-  const taskInput = (body: z.infer<typeof taskTemplateSchema>): TaskTemplateInput => body;
+  const projectInput = ({ tasks, ...body }: z.infer<typeof projectTemplateSchema>): ProjectTemplateInput => ({
+    ...body,
+    tasks: tasks.map(({ checklist, checklists, ...t }) => ({ ...t, checklists: treeOfBody({ checklist, checklists }) })),
+  });
+  const taskInput = ({ checklist, checklists, ...body }: z.infer<typeof taskTemplateSchema>): TaskTemplateInput => ({ ...body, checklists: treeOfBody({ checklist, checklists }) });
   const auth = { preHandler: guard.authenticate };
   // A large body is only read for someone signed in: the check runs before the body is parsed.
   const big = { onRequest: guard.authenticate, bodyLimit: TEMPLATE_BODY_LIMIT };

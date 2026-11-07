@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { ApiTask } from '../api/tasks';
 import { EMPTY_TABLE_FILTERS, ME, NO_PERSON } from './data-table';
 import { filterTaskRows, myTasksSort, myTasksSortLabel, myTasksSortValue, taskRowEditable, taskSortValue, type TaskTableContext } from './task-table';
@@ -61,6 +61,19 @@ describe('filterTaskRows', () => {
     expect(ids(filterTaskRows(tasks, { ...EMPTY_TABLE_FILTERS, due: 'today' }, ctx))).toEqual(['b']);
     expect(ids(filterTaskRows(tasks, { ...EMPTY_TABLE_FILTERS, due: 'week' }, ctx))).toEqual(['a', 'b', 'd']);
     expect(ids(filterTaskRows(tasks, { ...EMPTY_TABLE_FILTERS, due: 'none' }, ctx))).toEqual(['c']);
+  });
+  it('decides "overdue" by the table’s own today, never the computer’s clock (1.23.3)', () => {
+    vi.useFakeTimers();
+    try {
+      // Long after every due day: only what is late on the table's today counts.
+      vi.setSystemTime(new Date('2027-03-01T12:00:00Z'));
+      expect(ids(filterTaskRows(tasks, { ...EMPTY_TABLE_FILTERS, due: 'overdue' }, ctx))).toEqual(['a']);
+      // Long before them: still the same.
+      vi.setSystemTime(new Date('2025-01-01T12:00:00Z'));
+      expect(ids(filterTaskRows(tasks, { ...EMPTY_TABLE_FILTERS, due: 'overdue' }, ctx))).toEqual(['a']);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

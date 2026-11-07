@@ -62,3 +62,15 @@ describe('dispatchReminders', () => {
     expect(count).toBe(1);
   });
 });
+
+describe('dispatchReminders — checklist items (1.23.3)', () => {
+  it('keys an item reminder by the item, and never hands the key to the notice itself', async () => {
+    const store = makeStore();
+    const sent: CreateNotificationData[] = [];
+    const n = { ...overdue('t1', 'u1'), dedupeId: 'item:i1' };
+    await dispatchReminders([n, { ...overdue('t1', 'u1'), dedupeId: 'item:i2' }, overdue('t1', 'u1')], { period: 'd', store, notify: async (x) => void sent.push(x) });
+    expect(sent).toHaveLength(3);
+    expect(sent[0]).not.toHaveProperty('dedupeId');
+    expect([...store.keys].sort()).toEqual(['TASK_OVERDUE:item:i1:u1:d', 'TASK_OVERDUE:item:i2:u1:d', 'TASK_OVERDUE:t1:u1:d']);
+  });
+});

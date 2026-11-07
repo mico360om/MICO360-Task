@@ -135,6 +135,9 @@ export const ADDS_TO_TASK: ReadonlySet<string> = new Set([
   'POST /tasks/:id/comments',
   'POST /tasks/:id/attachments',
   'POST /tasks/:id/checklist',
+  // 1.23.3: several items at once, and a new checklist.
+  'POST /tasks/:id/checklist/batch',
+  'POST /tasks/:id/checklists',
   'POST /tasks/:id/watch',
   'POST /tasks/:id/external-contacts',
 ]);

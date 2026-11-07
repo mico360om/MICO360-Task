@@ -167,6 +167,11 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   'GET /tasks/:id/checklist': 'object',
   'POST /tasks/:id/checklist': 'object',
   'PUT /tasks/:id/checklist/reorder': 'object',
+  // 1.23.3 nested checklists (staff only; the task's own view rule).
+  'POST /tasks/:id/checklist/batch': 'object',
+  'GET /tasks/:id/checklist/deleted': 'object',
+  'POST /tasks/:id/checklist/restore': 'object',
+  'POST /tasks/:id/checklists': 'object',
   'GET /tasks/:id/comments': 'object',
   'POST /tasks/:id/comments': 'object',
   'GET /tasks/:id/dependencies': 'object',
@@ -194,6 +199,11 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   'DELETE /comments/:commentId': 'object',
   'PUT /checklist/:itemId': 'object',
   'DELETE /checklist/:itemId': 'object',
+  'POST /checklist/:itemId/duplicate': 'object',
+  'POST /checklist/:itemId/move': 'object',
+  'PUT /checklists/:listId': 'object',
+  'POST /checklists/:listId/duplicate': 'object',
+  'DELETE /checklists/:listId': 'object',
   'GET /attachments/:attachmentId/preview': 'object',
   'DELETE /attachments/:attachmentId': 'object',
   'PUT /external-contacts/:contactId': 'object',
@@ -291,6 +301,8 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   'GET /notifications/unread-count': 'list',
   'GET /meetings': 'list',
   'GET /me/action-items': 'list',
+  // 1.23.3: My Tasks → "Checklist items for me" (follows the pick, like My Tasks).
+  'GET /me/checklist-items': 'list',
   'GET /timeline': 'list',
   // MC1 Task 17: one named project's tasks, checked by getVisibleProject (the object rule) — `object`.
   'GET /timeline/projects/:id/tasks': 'object',

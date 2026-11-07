@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { createApiClient, ApiError } from './api-client';
+import { createApiClient, ApiError, type RequestDone } from './api-client';
 import { fileNameOf } from './download';
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -488,6 +488,58 @@ describe('onRequestDone', () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ data: { ok: true } })));
     const api = createApiClient({ baseUrl: 'http://api.test', getToken: () => null, onRequestDone: () => { throw new Error('reporter broke'); } });
     await expect(api.get('/x')).resolves.toEqual({ data: { ok: true } });
+  });
+
+  // 1.23.3: and the answer's Server-Timing (the server's time and its time in the database), when it says it.
+  it('tells the answer’s Server-Timing when there is one', async () => {
+    const seen: RequestDone[] = [];
+    let timing: string | null = 'app;dur=9912.3, db;dur=9700.1';
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 200, headers: timing ? { 'server-timing': timing } : {} })));
+    const api = createApiClient({ baseUrl: 'http://api.test', getToken: () => null, onRequestDone: (i) => seen.push(i) });
+    await api.get('/tasks');
+    timing = null;
+    await api.get('/tasks');
+    expect(seen[0]).toMatchObject({ path: '/tasks', status: 200, serverTiming: 'app;dur=9912.3, db;dur=9700.1' });
+    expect(seen[1]).not.toHaveProperty('serverTiming');
+  });
+
+  it('an answer whose headers can’t be read is told without it, and the request is as before', async () => {
+    const seen: RequestDone[] = [];
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, text: async () => '{"data":1}' }) as unknown as Response));
+    const api = createApiClient({ baseUrl: 'http://api.test', getToken: () => null, onRequestDone: (i) => seen.push(i) });
+    await expect(api.get('/x')).resolves.toEqual({ data: 1 });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).not.toHaveProperty('serverTiming');
+  });
+
+  it('an upload with progress tells it too', async () => {
+    const sent: { onload: (() => void) | null; status: number; responseText: string; getResponseHeader: (n: string) => string | null }[] = [];
+    vi.stubGlobal(
+      'XMLHttpRequest',
+      class {
+        upload = { onprogress: null };
+        onload: (() => void) | null = null;
+        onerror: (() => void) | null = null;
+        status = 0;
+        responseText = '';
+        open() {}
+        setRequestHeader() {}
+        getResponseHeader(name: string) {
+          return name.toLowerCase() === 'server-timing' ? 'app;dur=12000, db;dur=11000' : null;
+        }
+        send() {
+          sent.push(this);
+        }
+      },
+    );
+    const seen: RequestDone[] = [];
+    const api = createApiClient({ baseUrl: 'http://api.test', getToken: () => null, onRequestDone: (i) => seen.push(i) });
+    const done = api.upload('/tasks/t1/attachments', new FormData(), { onProgress: () => undefined });
+    sent[0]!.status = 201;
+    sent[0]!.responseText = '{}';
+    sent[0]!.onload?.();
+    await done;
+    expect(seen[0]).toMatchObject({ method: 'POST', status: 201, serverTiming: 'app;dur=12000, db;dur=11000' });
   });
 });
 

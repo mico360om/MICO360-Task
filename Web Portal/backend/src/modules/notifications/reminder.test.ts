@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { planReminders, reminderKey } from './reminder';
+import { planReminders, planChecklistReminders, reminderKey } from './reminder';
 
 const now = new Date('2026-09-08T12:00:00.000Z');
 const inOneHour = new Date('2026-09-08T13:00:00.000Z');
@@ -99,5 +99,29 @@ describe('planReminders: tasks waiting for approval (owner, 30 Oct)', () => {
   it('sent back (no longer waiting): the reminders start again', () => {
     const out = planReminders([{ id: 'late', title: 'Report', dueDate: yesterday, columnCategory: 'IN_PROGRESS', approvalRequestedAt: null, assigneeIds: ['u1'] }], { now });
     expect(out).toEqual([expect.objectContaining({ type: 'TASK_OVERDUE', entityId: 'late', userId: 'u1' })]);
+  });
+});
+
+describe('planChecklistReminders (1.23.3, design call 4)', () => {
+  const item = (id: string, dueDate: Date, assigneeId: string | null, taskAssigneeIds: string[] = ['a1', 'a2']) => ({
+    id, text: `Item ${id}`, dueDate, assigneeId, taskId: 't1', taskKey: 'MICO-142', taskTitle: 'Wiring', taskAssigneeIds,
+  });
+  it('an assigned dated item reminds its assignee only; an unassigned one reminds the task’s assignees', () => {
+    const out = planChecklistReminders([item('i1', yesterday, 'u9'), item('i2', inOneHour, null)], { now });
+    expect(out.map((n) => [n.userId, n.type, n.title, n.body, n.entityType, n.entityId, n.dedupeId])).toEqual([
+      ['u9', 'TASK_OVERDUE', 'A checklist item is overdue', 'MICO-142 · Item i1', 'task', 't1', 'item:i1'],
+      ['a1', 'TASK_DUE_SOON', 'A checklist item is due soon', 'MICO-142 · Item i2', 'task', 't1', 'item:i2'],
+      ['a2', 'TASK_DUE_SOON', 'A checklist item is due soon', 'MICO-142 · Item i2', 'task', 't1', 'item:i2'],
+    ]);
+  });
+  it('follows each person’s lead time and leaves far-off items alone', () => {
+    expect(planChecklistReminders([item('i3', inThreeDays, 'u9')], { now })).toEqual([]);
+    expect(planChecklistReminders([item('i3', inThreeDays, 'u9')], { now, leadMinutesFor: () => 4 * 24 * 60 })).toHaveLength(1);
+  });
+  it('de-duplicates by item, person and day — never with the task’s own reminder', () => {
+    const [n] = planChecklistReminders([item('i1', yesterday, 'u9')], { now });
+    const task = planReminders([{ id: 't1', title: 'Wiring', dueDate: yesterday, assigneeIds: ['u9'] }], { now })[0]!;
+    expect(reminderKey(n!, '2026-09-08')).toBe('TASK_OVERDUE:item:i1:u9:2026-09-08');
+    expect(reminderKey(task, '2026-09-08')).not.toBe(reminderKey(n!, '2026-09-08'));
   });
 });

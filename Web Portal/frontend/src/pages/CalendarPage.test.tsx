@@ -29,6 +29,7 @@ let prefs: { timeZone: string | null; weekStart: number | null };
 let requests: { url: string; method: string; body?: unknown }[];
 let override: (u: string, method: string, body: unknown) => Response | undefined;
 let meetingRows: Array<Record<string, unknown>>;
+let checklistItems: Array<{ id: string; text: string; done: boolean; dueDate: string; assigneeId: string | null; taskId: string; taskKey: string; taskTitle: string; projectId: string }>;
 
 const meeting = (over: Record<string, unknown>) => ({
   id: 'mt1', title: 'Weekly sync', description: null, category: null, status: 'SCHEDULED', projectId: 'p1', organizerId: 'me',
@@ -49,6 +50,7 @@ beforeEach(() => {
   occurrences = [];
   series = [];
   meetingRows = [];
+  checklistItems = [];
   tasks = [
     task({}),
     task({ id: 't2', key: 'MICO-2', title: 'Late invoice', dueDate: '2026-10-05T00:00:00.000Z', priority: 'HIGH' }),
@@ -72,7 +74,18 @@ beforeEach(() => {
       const q = new URL(u, "http://test.local").searchParams;
       const from = q.get('from')!;
       const to = q.get('to')!;
-      return json({ data: { from, to, timeZone: 'Asia/Muscat', tasks: tasks.filter((t) => dueDay(t) >= from && dueDay(t) <= to), occurrences: occurrences.filter((o) => o.date >= from && o.date <= to), series } });
+      return json({
+        data: {
+          from,
+          to,
+          timeZone: 'Asia/Muscat',
+          tasks: tasks.filter((t) => dueDay(t) >= from && dueDay(t) <= to),
+          occurrences: occurrences.filter((o) => o.date >= from && o.date <= to),
+          series,
+          // 1.23.3: dated checklist items (an older server sends none).
+          ...(checklistItems.length ? { checklistItems: checklistItems.filter((i) => i.dueDate >= from && i.dueDate <= to) } : {}),
+        },
+      });
     }
     if (/\/meetings\?/.test(u)) {
       const q = new URL(u, 'http://test.local').searchParams;
@@ -435,6 +448,60 @@ describe('CalendarPage — meetings', () => {
     renderPage('/calendar?q=vendor');
     expect(await screen.findByRole('link', { name: /Vendor call/ })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /Weekly sync/ })).not.toBeInTheDocument();
+  });
+});
+
+describe('CalendarPage — checklist items (1.23.3)', () => {
+  const ci = (over: Partial<(typeof checklistItems)[number]>) => ({ id: 'i1', text: 'Label circuits', done: false, dueDate: '2026-10-14', assigneeId: 'me', taskId: 't1', taskKey: 'MICO-1', taskTitle: 'Prepare report', projectId: 'p1', ...over });
+  beforeEach(() => {
+    checklistItems = [
+      ci({}),
+      ci({ id: 'i2', text: 'Test breakers', done: true, dueDate: '2026-10-15' }),
+      ci({ id: 'i3', text: 'Omar’s step', assigneeId: 'u2', dueDate: '2026-10-14' }),
+    ];
+  });
+
+  it('shows my items on their due day as a small chip (☑ and struck through when done); clicking opens the task at the item', async () => {
+    renderPage();
+    const mineChip = await screen.findByRole('button', { name: 'Checklist item “Label circuits” on MICO-1' });
+    expect(within(day('2026-10-14')).getByRole('button', { name: 'Checklist item “Label circuits” on MICO-1' })).toHaveTextContent('☐');
+    const done = within(day('2026-10-15')).getByRole('button', { name: 'Checklist item “Test breakers” on MICO-1, done' });
+    expect(done).toHaveTextContent('☑');
+    expect(within(done).getByText('Test breakers')).toHaveClass('line-through');
+    // Someone else's item: not on my calendar across every project.
+    expect(screen.queryByRole('button', { name: /Omar’s step/ })).toBeNull();
+    // The day says what it holds.
+    expect(within(day('2026-10-14')).getByRole('button', { name: /Wed 14 Oct, 1 task, 1 checklist item/ })).toBeInTheDocument();
+    await userEvent.click(mineChip);
+    expect(screen.getByTestId('where')).toHaveTextContent('task=t1&item=i1');
+  });
+
+  it('a project’s calendar shows every dated item of that project', async () => {
+    renderPage('/calendar?project=p1');
+    expect(await screen.findByRole('button', { name: /Checklist item “Omar’s step”/ })).toBeInTheDocument();
+  });
+
+  it('shows them in the week and the agenda, and in a day’s list', async () => {
+    renderPage('/calendar?view=week&date=2026-10-14');
+    expect(await screen.findByRole('button', { name: 'Checklist item “Label circuits” on MICO-1' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Agenda' }));
+    expect(await screen.findByRole('button', { name: 'Checklist item “Test breakers” on MICO-1, done' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Month' }));
+    await userEvent.click(await within(day('2026-10-14')).findByRole('button', { name: /Wed 14 Oct/ }));
+    const list = await screen.findByRole('dialog', { name: /Wed 14 Oct/ });
+    expect(within(list).getByRole('button', { name: 'Checklist item “Label circuits” on MICO-1' })).toBeInTheDocument();
+  });
+
+  it('on a phone, the chosen day’s list has them too', async () => {
+    const mm = vi.fn((q: string) => ({ matches: q.includes('max-width'), media: q, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {}, onchange: null, dispatchEvent: () => false }));
+    vi.stubGlobal('matchMedia', mm);
+    Object.defineProperty(window, 'matchMedia', { value: mm, configurable: true, writable: true });
+    renderPage();
+    await screen.findByRole('region', { name: /Sat 10 Oct/ });
+    await userEvent.click(within(day('2026-10-14')).getByRole('button', { name: /Wed 14 Oct, 1 task, 1 checklist item/ }));
+    const chosen = await screen.findByRole('region', { name: /Wed 14 Oct/ });
+    expect(within(chosen).getByRole('button', { name: 'Checklist item “Label circuits” on MICO-1' })).toBeInTheDocument();
+    await act(async () => {});
   });
 });
 

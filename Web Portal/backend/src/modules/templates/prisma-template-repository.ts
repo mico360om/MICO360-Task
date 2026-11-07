@@ -1,3 +1,4 @@
+import { checklistTreeOf, flatTexts, treeFromRows, type ChecklistTree, type ItemRow, type ListRow } from '../tasks/checklist-tree';
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { newRowId } from '../../lib/row-id';
 import { inChunks } from '../../lib/chunks';
@@ -30,9 +31,18 @@ function columnsOf(value: Prisma.JsonValue): TemplateColumn[] {
   });
 }
 
-function checklistOf(value: Prisma.JsonValue): string[] {
-  return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
+/** 1.23.3: a stored checklist — the tree (titles, nesting), or a list of texts from before (one "Checklist"). */
+function checklistsOf(value: Prisma.JsonValue): { checklist: string[]; checklists: ChecklistTree } {
+  const checklists = checklistTreeOf(value);
+  return { checklist: flatTexts(checklists), checklists };
 }
+
+/** A task's live checklists as a tree (templates keep titles and nesting, never people or dates). */
+const liveChecklists = {
+  checklistLists: { where: { deletedAt: null } },
+  checklist: { where: { deletedAt: null } },
+} as const;
+const treeOfTask = (t: { checklistLists: unknown[]; checklist: unknown[] }) => treeFromRows(t.checklistLists as ListRow[], t.checklist as ItemRow[]);
 
 const withContents = {
   roles: { orderBy: { position: 'asc' as const }, select: { id: true, name: true } },
@@ -56,7 +66,7 @@ function toProjectTemplate(t: StoredTemplate): ProjectTemplateRecord {
       priority: x.priority as Priority,
       dueOffsetDays: x.dueOffsetDays,
       roleId: x.roleId,
-      checklist: checklistOf(x.checklist),
+      ...checklistsOf(x.checklist),
     })),
     columnCount: columns.length,
     roleCount: t.roles.length,
@@ -68,7 +78,7 @@ function toProjectTemplate(t: StoredTemplate): ProjectTemplateRecord {
 }
 
 function toTaskTemplate(t: { id: string; name: string; title: string; description: string | null; priority: string; checklist: Prisma.JsonValue; createdById: string | null; createdAt: Date; updatedAt: Date }): TaskTemplateRecord {
-  return { id: t.id, name: t.name, title: t.title, description: t.description, priority: t.priority as Priority, checklist: checklistOf(t.checklist), createdById: t.createdById, createdAt: t.createdAt, updatedAt: t.updatedAt };
+  return { id: t.id, name: t.name, title: t.title, description: t.description, priority: t.priority as Priority, ...checklistsOf(t.checklist), createdById: t.createdById, createdAt: t.createdAt, updatedAt: t.updatedAt };
 }
 
 /**
@@ -102,7 +112,7 @@ async function writeContents(tx: Tx, templateId: string, input: ProjectTemplateI
       priority: t.priority,
       dueOffsetDays: t.dueOffsetDays,
       roleId: t.roleKey ? roleIds.get(t.roleKey) ?? null : null,
-      checklist: t.checklist as Prisma.InputJsonValue,
+      checklist: t.checklists as unknown as Prisma.InputJsonValue,
     })),
     (data) => tx.projectTemplateTask.createMany({ data }),
   );
@@ -174,14 +184,14 @@ export function createPrismaTemplateRepository(prisma: PrismaClient): TemplateRe
     async createTaskTemplate(input, actorId) {
       return toTaskTemplate(
         await prisma.taskTemplate.create({
-          data: { name: input.name, title: input.title, description: input.description, priority: input.priority, checklist: input.checklist, createdById: actorId, updatedById: actorId },
+          data: { name: input.name, title: input.title, description: input.description, priority: input.priority, checklist: input.checklists as unknown as Prisma.InputJsonValue, createdById: actorId, updatedById: actorId },
         }),
       );
     },
     async updateTaskTemplate(id, input, actorId) {
       const { count } = await prisma.taskTemplate.updateMany({
         where: { id },
-        data: { name: input.name, title: input.title, description: input.description, priority: input.priority, checklist: input.checklist, updatedById: actorId },
+        data: { name: input.name, title: input.title, description: input.description, priority: input.priority, checklist: input.checklists as unknown as Prisma.InputJsonValue, updatedById: actorId },
       });
       if (count === 0) return null;
       return toTaskTemplate(await prisma.taskTemplate.findUniqueOrThrow({ where: { id } }));
@@ -214,7 +224,7 @@ export function createPrismaTemplateRepository(prisma: PrismaClient): TemplateRe
           createdAt: true,
           recurrenceParentId: true,
           assignees: { orderBy: { assignedAt: 'asc' }, select: { userId: true } },
-          checklist: { orderBy: [{ position: 'asc' }, { createdAt: 'asc' }], select: { text: true } },
+          ...liveChecklists,
         },
       });
       // In the order they were added (their key numbers); a repeating series once, as its first live copy.
@@ -232,7 +242,7 @@ export function createPrismaTemplateRepository(prisma: PrismaClient): TemplateRe
           priority: t.priority as Priority,
           dueDate: t.dueDate,
           assigneeIds: t.assignees.map((a) => a.userId),
-          checklist: t.checklist.map((c) => c.text),
+          checklists: treeOfTask(t),
         });
       }
       return {
@@ -247,9 +257,9 @@ export function createPrismaTemplateRepository(prisma: PrismaClient): TemplateRe
     async taskSnapshot(taskId) {
       const t = await prisma.task.findFirst({
         where: { id: taskId, ...liveTaskWhere },
-        select: { id: true, projectId: true, title: true, description: true, priority: true, checklist: { orderBy: [{ position: 'asc' }, { createdAt: 'asc' }], select: { text: true } } },
+        select: { id: true, projectId: true, title: true, description: true, priority: true, ...liveChecklists },
       });
-      return t ? { id: t.id, projectId: t.projectId, title: t.title, description: t.description, priority: t.priority as Priority, checklist: t.checklist.map((c) => c.text) } : null;
+      return t ? { id: t.id, projectId: t.projectId, title: t.title, description: t.description, priority: t.priority as Priority, checklists: treeOfTask(t) } : null;
     },
   };
 }

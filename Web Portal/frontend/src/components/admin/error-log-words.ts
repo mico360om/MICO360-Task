@@ -1,5 +1,5 @@
 import type { BadgeTone } from '../ui/Badge';
-import type { ErrorGroup, ErrorKind, ErrorKindFilter, ErrorOccurrence, ErrorRange } from '../../api/error-log';
+import type { ErrorGroup, ErrorKind, ErrorKindFilter, ErrorOccurrence, ErrorRange, SlowTiming } from '../../api/error-log';
 
 /** Each row's kind as its badge says it. */
 export const KIND_WORDS: Record<ErrorKind, { label: string; tone: BadgeTone }> = {
@@ -81,6 +81,28 @@ export function browserText(e: Pick<ErrorOccurrence, 'browser' | 'system'>): str
 /** Where: the page (a route pattern), the request, or the job's name. */
 export function placeText(e: Pick<ErrorOccurrence, 'page' | 'job'>): string {
   return e.job ?? e.page ?? '';
+}
+
+/** Seconds to a tenth, like the Error log's own titles ("took 10.2 s"); a sliver is "under 0.1 s". */
+const secondsText = (ms: number) => (ms < 50 ? 'under 0.1 s' : `${(ms / 1000).toFixed(1)} s`);
+
+/**
+ * 1.23.3 — where a slow request's time went, from its Server-Timing: "server 9.9 s · in the database
+ * 9.7 s", or "server 0.1 s · the rest was the network". The database's part is said when the server's
+ * part matters (a second or more); the network when the server's part is under half of the whole wait.
+ */
+export function slowTimingText(t: SlowTiming | null | undefined): string {
+  if (!t) return '';
+  const parts = [`server ${secondsText(t.serverMs)}`];
+  if (t.dbMs !== null && (t.serverMs >= 1000 || t.dbMs >= 1000)) parts.push(`in the database ${secondsText(t.dbMs)}`);
+  if (t.totalMs !== null && t.serverMs < t.totalMs / 2) parts.push('the rest was the network');
+  return parts.join(' · ');
+}
+
+/** A slow request's row: where the last time's wait went ("Last time 10.2 s: server 9.9 s · …"). */
+export function lastTimeText(t: SlowTiming | null | undefined): string {
+  if (!t) return '';
+  return `Last time${t.totalMs !== null ? ` ${secondsText(t.totalMs)}` : ''}: ${slowTimingText(t)}`;
 }
 
 /** A database error's diagnosis (1.22.5), as an occurrence shows it. */

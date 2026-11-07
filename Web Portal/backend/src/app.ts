@@ -9,6 +9,7 @@ import { HttpError, NotFoundError } from './lib/http-errors';
 import type { Logger } from './lib/logger';
 import { DATABASE_BUSY_MESSAGE, databaseConnectionCode } from './lib/db-connection';
 import { registerIdempotency, type IdempotencyStore } from './lib/idempotency';
+import { registerRequestTiming } from './lib/request-timing';
 import { registerEmailWebhookRoutes } from './modules/email/email-webhook-routes';
 import type { EmailWebhookService } from './modules/email/email-webhook-service';
 import { registerAuthRoutes, type AuthRouteDeps } from './modules/auth/auth-routes';
@@ -206,6 +207,14 @@ export interface AppDeps extends AuthRouteDeps {
   watcherService?: WatcherService;
   tagService?: TagService;
   checklistService?: ChecklistService;
+  /** 1.23.3: tell someone they were given a checklist item (bell, and email/push by their settings). */
+  onChecklistItemAssigned?: (n: { taskId: string; itemId: string; text: string; assigneeId: string; actorId: string }) => Promise<void>;
+  /** 1.23.3 My Tasks → "Checklist items for me": open items given to a person, in these projects. */
+  checklistMine?: (userId: string, projectIds: string[] | null) => Promise<import('./modules/tasks/checklist-routes').MyChecklistItem[]>;
+  /** 1.23.3: dated checklist items for the calendar, in the caller's scope. */
+  checklistDue?: (opts: { from: string; to: string; userId: string; ownIds: string[] | null; listIds: string[] | null }) => Promise<unknown[]>;
+  /** People's names by id (checklist: who deleted something, who an item was taken from). */
+  namesOfUsers?: (userIds: string[]) => Promise<Map<string, string>>;
   /** External contacts on tasks: the people outside the company responsible for a task. */
   externalContactService?: ExternalContactService;
   commentService?: CommentService;
@@ -427,6 +436,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   // fastify 5. We log via deps.logger (structured JSON) instead.
   // Fastify accepts a hop count at runtime, but its typings only list boolean | string | string[].
   const app = Fastify({ logger: false, trustProxy: (deps.trustProxy ?? false) as boolean | string | string[] });
+  // 1.23.3: each API answer says the server's time and its time in the database (Server-Timing), first of all.
+  registerRequestTiming(app);
 
   // The verified user of a request (HMAC check only — no database), used to key rate limits
   // and idempotency records per user instead of per IP (a whole office can share one IP).
@@ -451,7 +462,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     credentials: true,
     methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'],
     // 1.22.4: X-Collect-Browser-Errors tells a page on another origin (development) that the Error log is off.
-    exposedHeaders: ['Content-Disposition', 'X-Collect-Browser-Errors'],
+    // 1.23.3: Server-Timing — where a slow request's time went (the website sends it with its report).
+    exposedHeaders: ['Content-Disposition', 'X-Collect-Browser-Errors', 'Server-Timing'],
   });
   // Must be added before the rate-limit plugin so its per-route config is in place when the
   // plugin's own onRoute hook reads it.
@@ -777,6 +789,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           taskApproval: deps.taskApprovalDetails,
           // 1.23.1: the tasks merged into a task (its "Merged from" panel opens from them).
           mergedFrom: deps.taskMergeService ? (id) => deps.taskMergeService!.mergedInto(id) : undefined,
+          checklistDue: deps.checklistDue,
           projectOwnerOf: deps.projectService
             ? async (projectId) => (await deps.projectService!.getProject(projectId)).ownerId
             : undefined,
@@ -857,6 +870,11 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
             : undefined,
           canViewTask,
           recordActivity: deps.recordTaskActivity,
+          onItemAssigned: deps.onChecklistItemAssigned,
+          namesOf: deps.namesOfUsers,
+          myItems: deps.checklistMine,
+          ownProjectIds,
+          pickOf,
         });
       }
       if (deps.externalContactService) {

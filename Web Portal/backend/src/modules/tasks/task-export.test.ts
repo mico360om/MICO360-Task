@@ -100,7 +100,7 @@ describe('describeActivity (the website’s activity wording)', () => {
 
   it('names the checklist step, the file and the comment', () => {
     expect(describeActivity('CHECKLIST_ADDED', { text: 'Order the parts' })).toBe('Added the step “Order the parts”');
-    expect(describeActivity('CHECKLIST_DONE', { text: 'Order the parts' })).toBe('Ticked off “Order the parts”');
+    expect(describeActivity('CHECKLIST_DONE', { text: 'Order the parts' })).toBe('Ticked “Order the parts”');
     expect(describeActivity('CHECKLIST_REOPENED', { text: 'Order the parts' })).toBe('Unticked “Order the parts”');
     expect(describeActivity('CHECKLIST_RENAMED', { from: 'Order parts', to: 'Order the parts' })).toBe('Renamed the step “Order parts” to “Order the parts”');
     expect(describeActivity('CHECKLIST_REMOVED', { text: 'Order the parts' })).toBe('Removed the step “Order the parts”');
@@ -323,6 +323,41 @@ describe('taskPdf: description and checklist', () => {
   });
 });
 
+describe('1.23.3 nested checklists in the export', () => {
+  const INDENT = String.fromCharCode(0xa0).repeat(4);
+  const nested = [
+    { text: 'Panel', done: false, depth: 0, list: 'Electrical', leaf: false },
+    { text: 'Label circuits', done: true, depth: 1, list: 'Electrical', leaf: true },
+    { text: 'Test RCD', done: false, depth: 1, list: 'Electrical', leaf: true },
+    { text: 'Paint', done: true, depth: 0, list: 'Fit-out', leaf: true },
+  ];
+  it('the sheet names each checklist with its count and indents sub-items', () => {
+    const sheet = taskSheets(task({ checklist: nested }), ctx).find((s) => s.name === 'Checklist')!;
+    expect(sheet.columns.map((c) => c.header)).toEqual(['Checklist', 'Done', 'Item']);
+    expect(sheet.rows).toEqual([
+      ['Electrical · 1/2', '', 'Panel'],
+      ['Electrical · 1/2', 'Done', `${INDENT}Label circuits`],
+      ['Electrical · 1/2', '', `${INDENT}Test RCD`],
+      ['Fit-out · 1/1', 'Done', 'Paint'],
+    ]);
+  });
+  it('two checklists with the same title stay apart, each with its own count', () => {
+    const twins = [
+      { text: 'A', done: true, depth: 0, list: 'Checklist', listId: 'L1', leaf: true },
+      { text: 'B', done: false, depth: 0, list: 'Checklist', listId: 'L2', leaf: true },
+    ];
+    const sheet = taskSheets(task({ checklist: twins }), ctx).find((s) => s.name === 'Checklist')!;
+    expect(sheet.rows.map((r) => r[0])).toEqual(['Checklist · 1/1', 'Checklist · 0/1']);
+  });
+  it('the PDF counts the real to-do items, titles each checklist with its count and indents sub-items', () => {
+    const lines = linesOf(taskPdf(task({ checklist: nested }), ctx));
+    const at = (s: string) => lines.find((l) => l.text === s)!;
+    expect(lines.map((l) => l.text)).toEqual(expect.arrayContaining(['2 of 3 done', 'Electrical · 1/2', 'Fit-out · 1/1']));
+    expect(at('Label circuits').x).toBeGreaterThan(at('Panel').x + 10);
+    expect(at('Paint').x).toBe(at('Panel').x);
+  });
+});
+
 describe('taskPdf: comments', () => {
   const at = (h: number) => new Date(Date.UTC(2026, 8, 29, h));
   const comments = [
@@ -439,7 +474,7 @@ describe('taskPdf: dependencies and activity', () => {
       { at: at(3), who: 'Aisha Khan', action: 'ATTACHED', meta: { filename: 'sales-sep.xlsx' } },
     ];
     const text = textOf(taskPdf(task({ activity }), ctx));
-    const lines = ['Attached sales-sep.xlsx', 'Changed priority from Normal to High', 'Ticked off “Write the summary”', 'Ticked off “Collect figures”'];
+    const lines = ['Attached sales-sep.xlsx', 'Changed priority from Normal to High', 'Ticked “Write the summary”', 'Ticked “Collect figures”'];
     for (const line of lines) expect(text, line).toContain(line);
     expect(lines.map((l) => text.indexOf(l))).toEqual(lines.map((l) => text.indexOf(l)).sort((a, b) => a - b)); // newest first
   });

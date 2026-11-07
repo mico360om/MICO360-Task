@@ -15,6 +15,12 @@ const source = (over: Partial<TaskSearchSource> = {}): TaskSearchSource => ({
   ...over,
 });
 
+describe('buildSearchDocument — 1.23.3 checklist titles', () => {
+  it('finds a task by the title of one of its checklists', () => {
+    expect(buildSearchDocument(source({ lists: [{ title: 'Electrical Panel' }] })).doc.split('\n')).toContain('electrical panel');
+  });
+});
+
 describe('buildSearchDocument — one normalised text per task', () => {
   it('puts the keys and the title in the head, one key per line', () => {
     expect(buildSearchDocument(source()).head).toBe('\nops-17\nrig-4\ncheck the scaffold');

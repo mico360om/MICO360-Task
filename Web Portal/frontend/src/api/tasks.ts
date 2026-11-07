@@ -1,4 +1,5 @@
 import type { ApiClient } from '../lib/api-client';
+import type { ChecklistTree } from '../lib/checklist-tree';
 import type { RecurrenceRule } from '../lib/recurrence';
 import type { ExternalContactDraft, ExternalContactSummary } from '../lib/external-contacts';
 import type { ApiExternalContact } from './external-contacts';
@@ -146,8 +147,10 @@ export interface NewTaskInput {
    * project's default (its owner); an explicit list — even [] — is used as-is.
    */
   assigneeIds?: string[];
-  /** Its checklist's items, in order (e.g. from a task template), created with the task. */
+  /** Its checklist's items, in order (e.g. from a task template), created with the task (older form). */
   checklist?: string[];
+  /** 1.23.3: its checklists with titles and nesting, created with the task (wins over `checklist`). */
+  checklists?: ChecklistTree;
   /** Its external contacts (people outside the company responsible for it), in order, created with the task. */
   externalContacts?: ExternalContactDraft[];
   /** The inspection form it is carried out with, and where (a check). */

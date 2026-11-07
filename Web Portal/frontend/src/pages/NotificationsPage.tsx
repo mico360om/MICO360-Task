@@ -252,9 +252,9 @@ export function NotificationsPage({ undoMs = 5000 }: { undoMs?: number }) {
   const empty = emptyInbox(filter);
 
   return (
-    // A readable width on a wide screen, centred (as Activity and About): across 1,600px a
-    // notification's time sat a whole screen away from its words.
-    <div className={`mx-auto max-w-4xl ${selectedIds.length > 0 ? 'pb-28 sm:pb-20' : ''}`}>
+    // 1.23.4 (owner, 6 Nov: "Increase the width of page"): the full content width, like My Tasks
+    // and the other list pages; the time and actions stay at each row's end, as in a mail inbox.
+    <div className={selectedIds.length > 0 ? 'pb-28 sm:pb-20' : undefined}>
       <PageHeader
         eyebrow="Workspace"
         title="Notifications"

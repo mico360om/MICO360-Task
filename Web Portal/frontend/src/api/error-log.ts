@@ -5,6 +5,16 @@ export type ErrorKind = 'ERROR' | 'NETWORK' | 'BLOCKED' | 'SLOW' | 'SERVER';
 export type ErrorKindFilter = 'all' | 'errors' | 'blocked' | 'slow' | 'server';
 export type ErrorRange = 'today' | '7d' | '30d';
 
+/**
+ * 1.23.3: where a slow request's time went — the whole time the page waited, the server's own time and
+ * its time in the database (null: not said), from the answer's Server-Timing.
+ */
+export interface SlowTiming {
+  totalMs: number | null;
+  serverMs: number;
+  dbMs: number | null;
+}
+
 export interface ErrorGroup {
   id: string;
   kind: ErrorKind;
@@ -21,6 +31,8 @@ export interface ErrorGroup {
   fixedAt: string | null;
   fixedInVersion: string | null;
   reopenedAt: string | null;
+  /** 1.23.3, a slow request's row: its latest occurrence's timing (null: it had none; absent from an older server). */
+  timing?: SlowTiming | null;
 }
 
 export interface ErrorOccurrence {
@@ -35,6 +47,8 @@ export interface ErrorOccurrence {
   resource: string | null;
   /** A server error's database diagnosis (1.22.5): Prisma's code, the database's code and its message, values masked. */
   database?: string | null;
+  /** 1.23.3, a slow request: where its time went (null: not said; absent from an older server). */
+  timing?: SlowTiming | null;
   value: number | null;
   count: number;
   version: string | null;

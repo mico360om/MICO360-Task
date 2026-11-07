@@ -140,6 +140,8 @@ async function holdings(taskId: string) {
     comments: ids(await prisma.comment.findMany({ where: { taskId }, select: { id: true } })),
     attachments: ids(await prisma.attachment.findMany({ where: { taskId }, select: { id: true } })),
     checklist: (await prisma.checklistItem.findMany({ where: { taskId }, select: { id: true, position: true, text: true, done: true }, orderBy: { id: 'asc' } })),
+    // 1.23.3: its checklists, with their own titles and places (Undo gives them back as they were).
+    lists: (await prisma.checklistList.findMany({ where: { taskId }, select: { id: true, title: true, position: true }, orderBy: { id: 'asc' } })),
     activity: ids(await prisma.activity.findMany({ where: { taskId, action: { notIn: ['TASKS_MERGED', 'MERGED_INTO', 'MERGE_UNDONE'] } }, select: { id: true } })),
     assignees: (await prisma.taskAssignee.findMany({ where: { taskId }, select: { userId: true } })).map((a) => a.userId).sort(),
     watchers: (await prisma.taskWatcher.findMany({ where: { taskId }, select: { userId: true } })).map((a) => a.userId).sort(),
@@ -166,8 +168,10 @@ async function fullTask(title: string, extra: Partial<Parameters<typeof taskServ
   await prisma.comment.create({ data: { taskId: t.id, userId: manager.id, body: `${title}: first comment`, createdAt: new Date(Date.UTC(2026, 9, 2, n)) } });
   const parent = await prisma.comment.create({ data: { taskId: t.id, userId: mateId, body: `${title}: a question` } });
   await prisma.comment.create({ data: { taskId: t.id, userId: manager.id, body: 'An answer', parentId: parent.id } });
-  await prisma.checklistItem.create({ data: { taskId: t.id, text: `${title}: step`, position: 0 } });
-  await prisma.checklistItem.create({ data: { taskId: t.id, text: 'Fire exits', done: true, position: 1 } });
+  // 1.23.3: items live in a checklist (a site's own items were put in one titled "Checklist").
+  const list = await prisma.checklistList.create({ data: { taskId: t.id, title: 'Checklist', position: 0 } });
+  await prisma.checklistItem.create({ data: { taskId: t.id, listId: list.id, text: `${title}: step`, position: 0 } });
+  await prisma.checklistItem.create({ data: { taskId: t.id, listId: list.id, text: 'Fire exits', done: true, position: 1 } });
   await prisma.activity.create({ data: { taskId: t.id, projectId: t.projectId, userId: manager.id, action: 'CREATED', meta: { title } } });
   const storageKey = `${t.id}.pdf`;
   files.set(storageKey, Buffer.from('the same report'));
@@ -204,8 +208,9 @@ describe('Merging tasks (integration)', () => {
     expect(preview.mainTaskId).toBe(main.id); // the oldest
     expect(preview.canMerge).toBe(true);
     expect(preview.differences.map((d) => d.field)).toEqual(['title', 'priority']);
-    expect(preview.duplicates).toMatchObject({ checklist: 1, files: 1, contacts: 1, assignees: 1, watchers: 1, tags: 1 });
-    expect(preview.duplicatesText).toBe('1 checklist item, 1 file, 1 contact, 1 person, 1 watcher and 1 tag appear in more than one task — kept once.');
+    // 1.23.3: a checklist moves whole, so none of its items is a duplicate kept once.
+    expect(preview.duplicates).toMatchObject({ checklist: 0, files: 1, contacts: 1, assignees: 1, watchers: 1, tags: 1 });
+    expect(preview.duplicatesText).toBe('1 file, 1 contact, 1 person, 1 watcher and 1 tag appear in more than one task — kept once.');
     expect(preview.tasks.find((t) => t.id === other.id)!.counts).toMatchObject({ comments: 3, checklist: 2, files: 2, contacts: 2, tags: 2, blockers: 1, actionItems: 1, inspections: 1, assignees: 2, watchers: 1 });
 
     const result = await merges.merge(manager, { taskIds: [main.id, other.id], mainTaskId: main.id, choices: { priority: other.id } });
@@ -220,8 +225,10 @@ describe('Merging tasks (integration)', () => {
     expect(m.attachments).toHaveLength(3); // its two + the other's own picture; the same report kept once
     expect(o.attachments).toHaveLength(1);
     expect(m.checklist.map((c) => c.text)).toEqual(expect.arrayContaining(['Inspect pump: step', 'Fire exits', 'Pump check: step']));
-    expect(m.checklist).toHaveLength(3);
-    expect(o.checklist.map((c) => c.text)).toEqual(['Fire exits']);
+    expect(m.checklist).toHaveLength(4);
+    expect(o.checklist).toEqual([]);
+    // 1.23.3 (design): the other task's checklist moved whole, after the main task's, titled by where it came from.
+    expect((await prisma.checklistList.findMany({ where: { taskId: main.id }, orderBy: { position: 'asc' } })).map((l) => l.title)).toEqual(['Checklist', `From ${other.key} · Checklist`]);
     expect(m.actionItems).toHaveLength(2);
     expect(m.notifications).toHaveLength(2);
     expect(m.inspections).toHaveLength(2);
@@ -251,13 +258,13 @@ describe('Merging tasks (integration)', () => {
     expect(panel.merges[0]!.tasks.map((t) => t.key)).toEqual([other.key]);
     expect(panel.merges[0]!.canUndo).toBe(true);
     expect(Object.keys(panel.labels.comments)).toHaveLength(3);
-    expect(Object.values(panel.labels.checklist)).toEqual([other.key]);
+    expect(Object.values(panel.labels.checklist)).toEqual([other.key, other.key]);
     expect(Object.keys(panel.labels.activity)).toHaveLength(1);
     // An old link: the merged task's id stands for the main task.
     expect(await merges.resolveMerged(other.id)).toMatchObject({ mainTaskId: main.id, key: other.key, mergedByName: 'Aisha Khan' });
     expect(await merges.resolveMerged(main.id)).toBeNull();
     const record = await merges.mergedRecord(result.mergeId, other.id);
-    expect(record).toMatchObject({ key: other.key, title: 'Pump check', main: { id: main.id, key: main.key }, keptOnce: { checklist: 1, files: 1, contacts: 1 } });
+    expect(record).toMatchObject({ key: other.key, title: 'Pump check', main: { id: main.id, key: main.key }, keptOnce: { checklist: 0, files: 1, contacts: 1 } });
   });
 
   it('data integrity: every table’s rows are the same before, after the merge and after Undo (apart from the merge’s own rows)', async () => {
@@ -453,6 +460,21 @@ describe('Merging tasks (integration)', () => {
     expect((await holdings(main.id)).blockedBy).toEqual([x.id]);
     // The dropped loop stays on the merged record (back on Undo), never shown as live.
     expect(await prisma.taskDependency.count({ where: { taskId: x.id, dependsOnTaskId: other.id } })).toBe(1);
+  });
+
+  it('1.23.3: Undo gives an item back to its task even when it was moved into the main task’s own checklist since', async () => {
+    const main = await fullTask('Keeper', {}, 1);
+    const other = await fullTask('Mover', {}, 2);
+    const r = await merges.merge(manager, { taskIds: [main.id, other.id], mainTaskId: main.id });
+    const own = await prisma.checklistList.findFirstOrThrow({ where: { taskId: main.id, title: 'Checklist' } });
+    const moved = await prisma.checklistItem.findFirstOrThrow({ where: { taskId: main.id, text: 'Mover: step' } });
+    await prisma.checklistItem.update({ where: { id: moved.id }, data: { listId: own.id } });
+    await merges.undo(manager, r.mergeId);
+    const back = await prisma.checklistItem.findUniqueOrThrow({ where: { id: moved.id } });
+    expect(back.taskId).toBe(other.id);
+    // Not left pointing at the main task's checklist: back in its own task's first one.
+    const mine = await prisma.checklistList.findFirstOrThrow({ where: { taskId: other.id, deletedAt: null } });
+    expect(back.listId).toBe(mine.id);
   });
 
   it('Undo gives back what is still there, lists what was deleted since, and keeps later additions on the main task', async () => {

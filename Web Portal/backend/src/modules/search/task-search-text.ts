@@ -34,8 +34,10 @@ export interface TaskSearchSource {
   description: string | null;
   /** Comments and replies that are not deleted. */
   comments: { body: string }[];
-  /** Checklist items (a task's "subtasks"). */
+  /** Checklist items (a task's "subtasks"), live ones only. */
   checklist: { text: string }[];
+  /** 1.23.3: its checklists' titles (live ones). */
+  lists?: { title: string }[];
   assignees: { firstName: string; lastName: string; username: string }[];
   contacts: SearchContact[];
   tags: { name: string }[];
@@ -60,6 +62,7 @@ export function buildSearchDocument(src: TaskSearchSource): SearchDocument {
   const items: (string | null | undefined)[] = [
     src.description,
     ...src.comments.map((c) => c.body),
+    ...(src.lists ?? []).map((l) => l.title),
     ...src.checklist.map((i) => i.text),
     ...src.assignees.flatMap((a) => [personName(a), a.username]),
     ...src.contacts.flatMap((c) => [c.name, c.company, c.designation, c.email, c.phone, c.remarks]),

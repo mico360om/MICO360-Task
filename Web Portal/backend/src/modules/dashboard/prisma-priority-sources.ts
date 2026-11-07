@@ -4,6 +4,7 @@ import { LIVE_PROJECT_WHERE } from '../companies/company-access';
 import { managedVisibleWhere } from '../projects/project-managers';
 import type { ApprovalSource } from '../tasks/task-approval-routes';
 import type { ActionItemService } from '../meetings/action-item-service';
+import type { MyChecklistItem } from '../tasks/checklist-routes';
 import { TEAM_OVERDUE_DAYS, UPCOMING_DAYS, type Priority } from './priorities';
 import type { PersonName, PrioritySource, PriorityViewer, ProjectBadge, SourcedCandidate, TaskRowData } from './priority-sources';
 
@@ -348,6 +349,55 @@ export function createActionItemPrioritySource(deps: {
         });
       }
       return out;
+    },
+  };
+}
+
+/**
+ * 1.23.3 checklist items: the open items given to the person (My Tasks' "Checklist items for me" — its scope,
+ * the pick, never "Show my projects only"; a finished task, or one waiting for approval, has none) that are
+ * overdue or due within 3 days, and not in an archived project. A parent is listed by its own date but can't
+ * be ticked (it follows its sub-items); every item can be rescheduled (PUT /checklist/:itemId { dueDate }).
+ */
+export function createChecklistPrioritySource(deps: {
+  prisma: PrismaClient;
+  /** "Checklist items for me" (prisma-checklist-queries.ts mine). */
+  mine: (userId: string, projectIds: string[] | null) => Promise<MyChecklistItem[]>;
+  ownProjectIds: (viewer: PriorityViewer, pick: string | null) => Promise<string[] | null>;
+}): PrioritySource {
+  const reads = priorityReads(deps.prisma);
+  return {
+    name: 'checklist-items',
+    async collect({ viewer, pick, today }) {
+      const last = shiftDayKey(today, UPCOMING_DAYS);
+      const items = (await deps.mine(viewer.id, await deps.ownProjectIds(viewer, pick))).filter((i) => !i.done && i.dueDate !== null && i.dueDate <= last);
+      if (items.length === 0) return [];
+      const live = await reads.liveProjectIds([...new Set(items.map((i) => i.projectId))]);
+      return items
+        .filter((i) => live.has(i.projectId))
+        .map((i): SourcedCandidate => {
+          const at = dayStart(i.dueDate!);
+          return {
+            kind: 'checklist-item',
+            id: i.id,
+            key: null,
+            priority: 'NORMAL',
+            dueDate: at,
+            // Only the ranking's last tie-breaker: this read has no creation time of its own.
+            createdAt: at,
+            row: {
+              checklistItem: {
+                id: i.id,
+                text: i.text,
+                dueDate: i.dueDate,
+                listTitle: i.listTitle,
+                task: { id: i.taskId, key: i.taskKey, title: i.taskTitle, projectId: i.projectId },
+                can: { tick: !i.isParent, reschedule: true },
+              },
+            },
+            watch: [i.projectId],
+          };
+        });
     },
   };
 }

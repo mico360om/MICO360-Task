@@ -269,4 +269,19 @@ describe('the error reporter', () => {
       expect.objectContaining({ kind: 'SLOW', detail: 'api', value: 12400, resource: 'GET /api/v1/projects/:id' }),
     ]);
   });
+
+  // 1.23.3: a slow request sends where its time went (the server's time and its time in the database).
+  it('a slow request sends the server’s time and its time in the database; nonsense is left out', async () => {
+    const r = createErrorReporter(w.world);
+    r.report({ kind: 'SLOW', detail: 'api', value: 10_200, resource: 'GET /api/v1/tasks', serverMs: 9912.3456, dbMs: 9700.1 });
+    r.report({ kind: 'SLOW', detail: 'api', value: 11_000, resource: 'GET /api/v1/projects', serverMs: 80 });
+    r.report({ kind: 'SLOW', detail: 'api', value: 12_000, resource: 'GET /api/v1/chat', serverMs: -1, dbMs: Number.NaN });
+    await w.advance(10_000);
+    const [tasks, projects, chat] = w.sent[0]!.body.reports as Record<string, unknown>[];
+    expect(tasks).toMatchObject({ serverMs: 9912.346, dbMs: 9700.1 });
+    expect(projects).toMatchObject({ serverMs: 80 });
+    expect(projects).not.toHaveProperty('dbMs');
+    expect(chat).not.toHaveProperty('serverMs');
+    expect(chat).not.toHaveProperty('dbMs');
+  });
 });

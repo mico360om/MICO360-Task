@@ -8,17 +8,21 @@ import { useTaskSteps } from './task-steps';
  * the link can be shared. The page's other address settings are kept.
  *
  * `list` (1.22): the tasks it was opened among, in the order shown, so the panel's Previous / Next
- * step through them; without one the panel shows no steps.
+ * step through them; without one the panel shows no steps. `at.item` (1.23.3): open it at one of its
+ * checklist items.
  */
-export function useOpenTask(): (taskId: string, list?: string[]) => void {
+export function useOpenTask(): (taskId: string, list?: string[], at?: { item?: string }) => void {
   const [, setParams] = useSearchParams();
   const { pathname } = useLocation();
   return useCallback(
-    (taskId: string, list?: string[]) => {
+    (taskId: string, list?: string[], at?: { item?: string }) => {
       useTaskSteps.getState().open(list ?? null, pathname);
       setParams((prev) => {
         const next = new URLSearchParams(prev);
         next.set('task', taskId);
+        // 1.23.3: at one of its checklist items (the panel opens its parents and marks it).
+        if (at?.item) next.set('item', at.item);
+        else next.delete('item');
         return next;
       });
     },

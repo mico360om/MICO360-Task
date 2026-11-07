@@ -4,6 +4,7 @@ import { useDismiss } from '../../lib/useDismiss';
 import type { Priority } from '../../api/tasks';
 import type { CalItem, CalStatus } from '../../lib/calendar-model';
 import type { CalMeeting } from '../../lib/calendar-meetings';
+import type { CalendarChecklistItem } from '../../lib/calendar-checklist';
 import { WaitingIcon } from '../approvals/ApprovalChip';
 import { isWaitingForApproval } from '../../lib/approvals';
 import { TaskKey } from '../TaskKey';
@@ -260,6 +261,40 @@ export function TaskChip({
       {item.kind === 'task' && item.recurring ? (
         <span className="mt-px opacity-70" title="Repeats">{STATUS_META.projected.icon}</span>
       ) : null}
+    </button>
+  );
+}
+
+/** The words a screen reader hears for a checklist item on the calendar (1.23.3). */
+export function checklistChipName(item: CalendarChecklistItem, late = false): string {
+  return `Checklist item “${item.text}” on ${item.taskKey}${item.done ? ', done' : late ? ', overdue' : ''}`;
+}
+
+/**
+ * A checklist item due on a day (1.23.3): a small chip "☐ Label circuits · MICO-142" (☑ and struck
+ * through once done; red words when late). It opens the task at the item. In the month grid the
+ * number shows only where a day is wide enough (2xl); its name and tooltip always carry it.
+ */
+export function ChecklistChip({ item, onOpen, late = false, lines = 2 }: { item: CalendarChecklistItem; onOpen: (item: CalendarChecklistItem) => void; late?: boolean; lines?: 1 | 2 }) {
+  return (
+    <button
+      type="button"
+      data-item={`cl:${item.id}`}
+      data-testid="calendar-checklist-item"
+      onClick={() => onOpen(item)}
+      aria-label={checklistChipName(item, late)}
+      title={`${item.text} · ${item.taskKey}`}
+      className={`flex w-full min-w-0 items-center gap-1 rounded-md border border-dashed px-1.5 text-start text-[11px] leading-4 transition-colors hover:border-brand/60 hover:bg-brand/[0.04] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brand py-[2px] [@media(pointer:coarse)]:py-[5px] ${late ? 'border-danger/45 text-danger' : 'border-line text-ink-2'}`}
+    >
+      <span aria-hidden="true" className="flex-none text-[12px] leading-none">
+        {item.done ? '☑' : '☐'}
+      </span>
+      <span dir="auto" className={`min-w-0 truncate font-medium ${item.done ? 'text-ink-3 line-through' : ''}`}>
+        {item.text}
+      </span>
+      <span aria-hidden="true" dir="ltr" translate="no" className={`flex-none font-mono text-[10px] text-ink-3 ${lines === 1 ? 'hidden 2xl:inline' : ''}`}>
+        · {item.taskKey}
+      </span>
     </button>
   );
 }

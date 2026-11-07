@@ -66,11 +66,13 @@ export interface PriorityActionItem {
   can: { done: boolean; reschedule: boolean };
 }
 
-/** 1.23.3: a checklist item assigned to the person, on its task. */
+/** 1.23.3: a checklist item given to the person, on its task (a parent can't be ticked: it follows its sub-items). */
 export interface PriorityChecklistItem {
   id: string;
   text: string;
   dueDate: string | null;
+  /** The checklist it is on. */
+  listTitle?: string;
   task: { id: string; key: string; title: string; projectId: string };
   can: { tick: boolean; reschedule: boolean };
 }
@@ -150,7 +152,7 @@ export function dashboardApi(client: ApiClient) {
     saveDefault: (group: LayoutGroup, layout: DashboardLayout | null) => client.put<{ data: DefaultsAnswer }>('/settings/dashboard-default', { group, layout }).then((r) => r.data),
     /** 1.23.3 checklist items: tick or untick one (PUT /checklist/:itemId, as the task panel does). */
     tickChecklistItem: (itemId: string, done: boolean) => client.put<{ data: unknown }>(`/checklist/${itemId}`, { done }).then((r) => r.data),
-    /** 1.23.3 checklist items: a new due day (the 1.23.3 merge confirms the field's name). */
+    /** 1.23.3 checklist items: a new due day (the item's own `dueDate`, 'YYYY-MM-DD'; null clears it). */
     rescheduleChecklistItem: (itemId: string, dueDate: string | null) => client.put<{ data: unknown }>(`/checklist/${itemId}`, { dueDate }).then((r) => r.data),
     /** A task's new due day (PUT /tasks/:id — the server's rules as for any edit). */
     reschedule: (taskId: string, patch: ReschedulePatch) => client.put<{ data: ApiTask }>(`/tasks/${taskId}`, patch).then((r) => r.data),

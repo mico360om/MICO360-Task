@@ -12,6 +12,7 @@ function Probe() {
       <output data-testid="where">{loc.pathname + loc.search}</output>
       <button onClick={() => openTask('t2', ['t1', 't2', 't3'])}>from the list</button>
       <button onClick={() => openTask('t9')}>from nowhere</button>
+      <button onClick={() => openTask('t4', undefined, { item: 'i7' })}>at an item</button>
     </>
   );
 }
@@ -40,5 +41,18 @@ describe('useOpenTask', () => {
     act(() => screen.getByText('from nowhere').click());
     expect(useTaskSteps.getState().ids).toBeNull();
     expect(screen.getByTestId('where')).toHaveTextContent('task=t9');
+  });
+
+  it('1.23.3: opens a task at a checklist item (…&item=), and a plain open drops an item left from before', () => {
+    render(
+      <MemoryRouter initialEntries={['/my-tasks']}>
+        <Probe />
+      </MemoryRouter>,
+    );
+    act(() => screen.getByText('at an item').click());
+    expect(screen.getByTestId('where')).toHaveTextContent('/my-tasks?task=t4&item=i7');
+    act(() => screen.getByText('from nowhere').click());
+    expect(screen.getByTestId('where')).toHaveTextContent('/my-tasks?task=t9');
+    expect(screen.getByTestId('where')).not.toHaveTextContent('item=');
   });
 });

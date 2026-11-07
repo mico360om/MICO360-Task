@@ -11,12 +11,12 @@ export const WATCH_LIMIT = 100;
 const CACHE_MAX = 2000;
 
 /**
- * Review I3: does a live event sent to a project's room change someone's priorities? Task, meeting,
+ * Review I3: does a live event sent to a project's room change someone's priorities? Task, checklist, meeting,
  * project and inspection events do; chat (messages, receipts, reactions) and presence don't — they must
  * not clear everyone's cache on every message.
  */
 export function changesPriorities(event: string): boolean {
-  return /^(task|meeting|project|inspection):/.test(event);
+  return /^(task|checklist|meeting|project|inspection):/.test(event);
 }
 
 export interface PriorityRow extends PriorityRowData {
