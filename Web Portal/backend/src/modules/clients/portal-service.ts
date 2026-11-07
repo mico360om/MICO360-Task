@@ -423,6 +423,20 @@ export function createPortalService(deps: PortalDeps) {
     });
   }
 
+  /** Of these meetings of the project, the ones the client may see (the same rule as meetingsFor, ids only). */
+  async function visibleMeetingIds(clientId: string, projectId: string, ids: string[]): Promise<Set<string>> {
+    const rows = await prisma.meeting.findMany({
+      where: {
+        id: { in: ids },
+        projectId,
+        deletedAt: null,
+        OR: [{ status: { not: 'DRAFT' }, attendees: { some: { userId: clientId, invitedAt: { not: null } } } }, { minutes: { is: shownMinutesWhere(projectId) } }],
+      },
+      select: { id: true },
+    });
+    return new Set(rows.map((r) => r.id));
+  }
+
   /** One meeting the client may see in this project (404). */
   async function meetingFor(clientId: string, projectId: string, meetingId: unknown): Promise<PortalMeetingSource> {
     if (typeof meetingId !== 'string' || !meetingId) throw notFound();
@@ -456,14 +470,19 @@ export function createPortalService(deps: PortalDeps) {
     const fileIds = [...new Set(rows.flatMap((r) => (r.attachmentId ? [r.attachmentId] : [])))];
     const files = fileIds.length ? await prisma.attachment.findMany({ where: { id: { in: fileIds } }, select: { id: true, taskId: true, clientVisible: true, fromClient: true, uploadedById: true } }) : [];
     const seeFile = new Map(files.map((f) => [f.id, clientMaySeeFile(f, viewer.client.id) ? f.taskId : null]));
+    // The meetings they may see among the notices' (ids only: the bell is read every minute — review minor 4).
     const meetingsOf = new Map<string, Set<string>>();
     for (const p of projectIds) {
-      if (!grants.get(p)!.grant.meetings || !rows.some((r) => r.projectId === p && r.meetingId)) continue;
-      meetingsOf.set(p, new Set((await meetingsFor(viewer.client.id, p)).map((m) => m.id)));
+      const asked = [...new Set(rows.filter((r) => r.projectId === p && r.meetingId).map((r) => r.meetingId!))];
+      if (!grants.get(p)!.grant.meetings || asked.length === 0) continue;
+      meetingsOf.set(p, await visibleMeetingIds(viewer.client.id, p, asked));
     }
     const visible = rows.filter((r) => {
       const g = grants.get(r.projectId)?.grant;
       if (!g) return false;
+      // What the kind needs on the grant now (a reply goes with Comment, a sign-off with Sign off — minor 7).
+      if (r.kind === 'REPLY' && !actionsOf(g).comment) return false;
+      if (r.kind === 'SIGN_OFF' && !actionsOf(g).signOff) return false;
       if (r.taskId) {
         if (!g.progress || !shownTasks.has(`${r.projectId}|${r.taskId}`)) return false;
         if (r.attachmentId && seeFile.get(r.attachmentId) !== r.taskId) return false;

@@ -68,8 +68,18 @@ describe('Preview as client', () => {
     const s = setup(['ADMIN']);
     await s.ready;
     await s.app.inject({ method: 'POST', url: '/clients/preview/me', payload: body });
-    await s.app.inject({ method: 'POST', url: '/clients/preview/projects/p1', payload: body });
-    expect(s.audited).toEqual([expect.objectContaining({ module: 'clients', action: 'client.preview', entityId: 'c1', newValue: { clientId: 'c1', unsaved: true, projects: [{ projectId: 'p1', access: expect.arrayContaining(['Viewer', 'View tasks']) }] } })]);
+    expect(s.audited).toEqual([expect.objectContaining({ module: 'clients', action: 'client.preview', entityId: 'c1', newValue: { view: 'home', clientId: 'c1', unsaved: true, projects: [{ projectId: 'p1', access: expect.arrayContaining(['Viewer', 'View tasks']) }] } })]);
+  });
+
+  it('every read of a saved client’s preview is audited too (review minor 5); a new client’s only at home', async () => {
+    const s = setup(['ADMIN']);
+    await s.ready;
+    await s.app.inject({ method: 'POST', url: '/clients/preview/projects/p1/tasks/t1', payload: body });
+    await s.app.inject({ method: 'POST', url: '/clients/preview/notifications', payload: { clientId: 'c1' } });
+    expect(s.audited.map((a) => [(a.newValue as { view: string }).view, (a.newValue as { projectId?: string }).projectId ?? null])).toEqual([['task', 'p1'], ['notifications', null]]);
+    const unsaved = { projects: [{ projectId: 'p1', role: 'VIEWER' }] };
+    await s.app.inject({ method: 'POST', url: '/clients/preview/projects/p1', payload: unsaved });
+    expect(s.audited).toHaveLength(2);
   });
 
   it('is for administrators only', async () => {

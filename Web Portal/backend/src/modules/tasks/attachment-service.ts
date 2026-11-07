@@ -1,7 +1,7 @@
 import { officePreview, type OfficePreview } from '../../lib/office-preview';
 import { ForbiddenError, NotFoundError, ValidationError } from '../../lib/http-errors';
 import { sniffMime, SNIFFABLE } from '../../lib/magic-mime';
-import { fileContentMismatchMessage, fileTooLargeMessage, fileTypeNotAllowedMessage } from '../../lib/upload-safety';
+import { fileContentMismatchMessage, fileTooLargeMessage, fileTypeNotAllowedMessage, safeUploadName } from '../../lib/upload-safety';
 import type {
   AttachmentRecord,
   AttachmentRepository,
@@ -66,17 +66,27 @@ export function createAttachmentService({
         throw new ValidationError('This task has reached its attachment storage limit.');
       }
     }
-    const { storageKey, url, sizeBytes } = await storage.save({ ...file, content });
-    const created = await repo.create({
-      taskId,
-      uploadedById,
-      filename: file.filename,
-      mimeType: file.mimeType,
-      sizeBytes,
-      storageKey,
-      url,
-      ...(opts.fromClient ? { fromClient: true } : {}),
-    });
+    // 1.23.7 (security review): the name as kept — no hidden characters, it fits its column, and a client's
+    // file ends in the extension of the type it was checked as.
+    const filename = safeUploadName(file.filename, file.mimeType, { client: opts.fromClient === true });
+    const { storageKey, url, sizeBytes } = await storage.save({ ...file, filename, content });
+    let created: AttachmentRecord;
+    try {
+      created = await repo.create({
+        taskId,
+        uploadedById,
+        filename,
+        mimeType: file.mimeType,
+        sizeBytes,
+        storageKey,
+        url,
+        ...(opts.fromClient ? { fromClient: true } : {}),
+      });
+    } catch (err) {
+      // The row couldn't be saved: its bytes don't stay on disk uncounted.
+      await storage.remove(storageKey).catch(() => undefined);
+      throw err;
+    }
     await onChanged?.(taskId);
     return created;
   }

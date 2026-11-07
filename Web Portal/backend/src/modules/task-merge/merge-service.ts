@@ -1357,7 +1357,12 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
 
     // Rows: each back to its own task, as it is now — only those still on the main task.
     await backTo('comment', (from, rowIds) => tx.comment.updateMany({ where: { id: { in: rowIds }, taskId: main.id }, data: { taskId: from } }));
-    await backTo('attachment', (from, rowIds) => tx.attachment.updateMany({ where: { id: { in: rowIds }, taskId: main.id }, data: { taskId: from } }));
+    // 1.23.7 (security review): a file going back to a task of another project loses "Show to client" (a tick
+    // given on the main task was for that project's clients).
+    const mainProject = (await tx.task.findUnique({ where: { id: main.id }, select: { projectId: true } }))?.projectId ?? null;
+    await backTo('attachment', (from, rowIds) =>
+      tx.attachment.updateMany({ where: { id: { in: rowIds }, taskId: main.id }, data: { taskId: from, ...(byId.get(from)?.projectId === mainProject ? {} : { clientVisible: false }) } }),
+    );
     await backTo('inspection', (from, rowIds) => tx.inspection.updateMany({ where: { id: { in: rowIds }, taskId: main.id }, data: { taskId: from } }));
     await backTo('actionItem', (from, rowIds) => tx.actionItem.updateMany({ where: { id: { in: rowIds }, taskId: main.id }, data: { taskId: from } }));
     await backTo('meetingNote', (from, rowIds) => tx.meetingNote.updateMany({ where: { id: { in: rowIds }, taskId: main.id }, data: { taskId: from } }));

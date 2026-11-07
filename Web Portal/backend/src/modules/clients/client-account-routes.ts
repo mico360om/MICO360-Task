@@ -130,31 +130,44 @@ export async function registerClientAccountRoutes(app: FastifyInstance, deps: Cl
   // client and never touches their sessions.
   if (deps.portal) {
     const portal = deps.portal;
-    const view = async (req: FastifyRequest) => {
-      const spec = previewBody.parse(req.body ?? {}) as PreviewSpec;
-      return { spec, viewer: await portal.previewViewer(spec) };
-    };
-    const params = (req: FastifyRequest) => req.params as { projectId: string; taskId: string; meetingId: string };
-    const marked = (data: unknown) => ({ data, meta: { preview: true } });
-    app.post('/clients/preview/me', adminOnly, async (req) => {
-      const { spec, viewer } = await view(req);
-      const data = await portal.home(viewer);
-      await deps.audit?.record({
-        userId: req.user!.id,
-        ip: req.ip ?? null,
-        module: 'clients',
-        action: 'client.preview',
-        entityId: spec.clientId ?? null,
-        newValue: { clientId: spec.clientId ?? null, unsaved: Boolean(spec.projects), ...(spec.projects ? { projects: grantRows(spec.projects).map((r) => ({ projectId: r.projectId, access: grantWords(r) })) } : {}) },
-      });
-      return marked(data);
-    });
-    app.post('/clients/preview/projects/:projectId', adminOnly, async (req) => marked(await portal.project((await view(req)).viewer, params(req).projectId)));
-    app.post('/clients/preview/projects/:projectId/tasks/:taskId', adminOnly, async (req) => marked(await portal.task((await view(req)).viewer, params(req).projectId, params(req).taskId)));
-    app.post('/clients/preview/projects/:projectId/meetings', adminOnly, async (req) => marked(await portal.meetings((await view(req)).viewer, params(req).projectId)));
-    app.post('/clients/preview/projects/:projectId/meetings/:meetingId', adminOnly, async (req) => marked(await portal.meeting((await view(req)).viewer, params(req).projectId, params(req).meetingId)));
-    app.post('/clients/preview/notifications', adminOnly, async (req) => marked(await portal.notices((await view(req)).viewer)));
-    app.post('/clients/preview/settings', adminOnly, async (req) => marked(await portal.settings((await view(req)).viewer)));
+    const params = (req: FastifyRequest) => req.params as { projectId?: string; taskId?: string; meetingId?: string };
+    /**
+     * One preview read: its viewer, then the read, then (review minor 5) an audit line — at its home always,
+     * and at every page of a saved client's preview (it reads their own comments, uploads and bell).
+     */
+    const preview =
+      (view: string, read: (viewer: Awaited<ReturnType<typeof portal.previewViewer>>, p: ReturnType<typeof params>) => Promise<unknown>) =>
+      async (req: FastifyRequest) => {
+        const spec = previewBody.parse(req.body ?? {}) as PreviewSpec;
+        const p = params(req);
+        const data = await read(await portal.previewViewer(spec), p);
+        if (view === 'home' || spec.clientId) {
+          await deps.audit?.record({
+            userId: req.user!.id,
+            ip: req.ip ?? null,
+            module: 'clients',
+            action: 'client.preview',
+            entityId: spec.clientId ?? null,
+            newValue: {
+              view,
+              clientId: spec.clientId ?? null,
+              ...(p.projectId ? { projectId: p.projectId } : {}),
+              ...(p.taskId ? { taskId: p.taskId } : {}),
+              ...(p.meetingId ? { meetingId: p.meetingId } : {}),
+              ...(view === 'home' ? { unsaved: Boolean(spec.projects) } : {}),
+              ...(view === 'home' && spec.projects ? { projects: grantRows(spec.projects).map((r) => ({ projectId: r.projectId, access: grantWords(r) })) } : {}),
+            },
+          });
+        }
+        return { data, meta: { preview: true } };
+      };
+    app.post('/clients/preview/me', adminOnly, preview('home', (v) => portal.home(v)));
+    app.post('/clients/preview/projects/:projectId', adminOnly, preview('project', (v, p) => portal.project(v, p.projectId)));
+    app.post('/clients/preview/projects/:projectId/tasks/:taskId', adminOnly, preview('task', (v, p) => portal.task(v, p.projectId, p.taskId)));
+    app.post('/clients/preview/projects/:projectId/meetings', adminOnly, preview('meetings', (v, p) => portal.meetings(v, p.projectId)));
+    app.post('/clients/preview/projects/:projectId/meetings/:meetingId', adminOnly, preview('meeting', (v, p) => portal.meeting(v, p.projectId, p.meetingId)));
+    app.post('/clients/preview/notifications', adminOnly, preview('notifications', (v) => portal.notices(v)));
+    app.post('/clients/preview/settings', adminOnly, preview('settings', (v) => portal.settings(v)));
   }
 
   // "Clients with access" on a project's page: anyone who can see the project reads it; only

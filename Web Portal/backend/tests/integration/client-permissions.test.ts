@@ -165,6 +165,14 @@ describe('uploads and files', () => {
     expect(await prisma.attachment.count({ where: { taskId: w.tasks.S1 } })).toBe(1);
   });
 
+  it('a client’s file can’t pretend to be a program or another type (security review): it ends in its checked type', async () => {
+    const r = await upload(w.as.c1, w.projects.P1, w.tasks.S1, `invoice${String.fromCharCode(0x202e)}fdp.exe`, 'text/plain', 'not a program');
+    expect(r.status).toBe(201);
+    const kept = await prisma.attachment.findFirstOrThrow({ where: { taskId: w.tasks.S1, fromClient: true }, orderBy: { createdAt: 'desc' } });
+    expect(kept.filename).toBe('invoicefdp.exe.txt');
+    await prisma.attachment.delete({ where: { id: kept.id } });
+  });
+
   it('only shared tasks of their own project take uploads (404 otherwise)', async () => {
     expect((await upload(w.as.c1, w.projects.P1, w.tasks.H1)).status).toBe(404);
     expect((await upload(w.as.c1, w.projects.P1, w.tasks.S2)).status).toBe(404);
@@ -288,6 +296,11 @@ describe('notifications: the bell, emails and switches', () => {
     expect((await bell(w.as.c1)).items.some((n) => n.taskId === w.tasks.S1)).toBe(false);
     await a.put(w.as.omar, `/tasks/${w.tasks.S1}/client-visible`, { visible: true });
     expect((await bell(w.as.c1)).items.some((n) => n.id === replyNotice)).toBe(true);
+    // A notice needs what its kind needs: a reply goes with Comment (review minor 7).
+    await setGrant(w.people.c1, w.projects.P1, { ...ALL, canComment: false, role: 'CUSTOM' });
+    expect((await bell(w.as.c1)).items.some((n) => n.kind === 'reply')).toBe(false);
+    await setGrant(w.people.c1, w.projects.P1, { ...ALL, role: 'APPROVER' });
+    expect((await bell(w.as.c1)).items.some((n) => n.id === replyNotice)).toBe(true);
     // A project taken away takes its notices with it.
     await setGrant(w.people.c1, w.projects.P1, { ...ALL, progress: false, role: 'CUSTOM' });
     expect((await bell(w.as.c1)).items.some((n) => n.taskId !== null)).toBe(false);
@@ -341,8 +354,11 @@ describe('Preview as client', () => {
     // A project not in the matrix is not there.
     expect((await a.post(w.as.admin, `/clients/preview/projects/${w.projects.P2}`, spec)).status).toBe(404);
     expect(await snapshot()).toEqual(before);
-    expect(a.audited.slice(audits).map((e) => e.action)).toEqual(['client.preview']);
-    expect(a.audited.at(-1)).toMatchObject({ module: 'clients', userId: w.people.admin, entityId: w.people.c1, newValue: { clientId: w.people.c1, unsaved: true } });
+    // Its only writes are audit lines: the home, and each page of a saved client's preview.
+    const lines = a.audited.slice(audits);
+    expect(new Set(lines.map((e) => e.action))).toEqual(new Set(['client.preview']));
+    expect(lines.map((e) => (e.newValue as { view: string }).view)).toEqual(['home', 'task', 'task', 'project', 'meetings', 'meeting', 'notifications', 'settings']); // the refused P2 page read nothing
+    expect(lines[0]).toMatchObject({ module: 'clients', userId: w.people.admin, entityId: w.people.c1, newValue: { view: 'home', clientId: w.people.c1, unsaved: true } });
   });
 
   it('a client not saved yet: their typed name, the shared tasks, nothing of anyone else’s', async () => {

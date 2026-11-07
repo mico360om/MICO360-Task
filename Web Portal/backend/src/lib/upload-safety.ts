@@ -34,6 +34,54 @@ export function extensionForMime(mimeType: string): string {
   return EXTENSION_BY_MIME[mimeType.toLowerCase().split(';')[0]!.trim()] ?? '.bin';
 }
 
+/** 1.23.7: the extensions a file's name may end in for each checked type (a JPEG may say .jpeg too). */
+const EXTENSIONS_FOR_MIME: Record<string, string[]> = { 'image/jpeg': ['.jpg', '.jpeg'] };
+/** The longest name kept (the column holds 191 characters). */
+export const MAX_UPLOAD_NAME = 180;
+
+/** Control characters, and the invisible ones that turn text around or hide it ("invoice‮fdp.exe"). */
+const hidden = (code: number) =>
+  code < 0x20 ||
+  code === 0x7f ||
+  code === 0x061c ||
+  code === 0x180e ||
+  (code >= 0x200b && code <= 0x200f) ||
+  (code >= 0x202a && code <= 0x202e) ||
+  (code >= 0x2060 && code <= 0x2064) ||
+  (code >= 0x2066 && code <= 0x2069) ||
+  code === 0xfeff;
+
+/**
+ * 1.23.7 (security review) An uploaded file's name as kept and shown: without control or direction characters
+ * (so it can't pretend to end in .pdf), without path separators, at most 180 characters with its extension
+ * kept. For a client's upload (`client`), the name must end in the extension of the type the file was checked
+ * as, else that extension is added — "invoice.exe" sent as text/plain is kept as "invoice.exe.txt", so it is
+ * never saved on anyone's computer as a program.
+ */
+export function safeUploadName(name: string, mimeType: string, opts: { client?: boolean } = {}): string {
+  const typeExt = extensionForMime(mimeType);
+  let clean = [...String(name ?? '')]
+    .filter((c) => !hidden(c.codePointAt(0)!))
+    .join('')
+    .replace(/[\\/]/g, '_')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!clean) clean = 'file';
+  if (opts.client) {
+    const allowed = EXTENSIONS_FOR_MIME[mimeType.toLowerCase().split(';')[0]!.trim()] ?? [typeExt];
+    if (!allowed.includes(extname(clean).toLowerCase())) clean = `${clean}${typeExt}`;
+  } else if (clean === 'file') {
+    clean = `file${typeExt}`;
+  }
+  const chars = [...clean];
+  if (chars.length <= MAX_UPLOAD_NAME) return clean;
+  // Too long: the start of the name, then its extension (a short one; a long "extension" is just text).
+  const ext = extname(clean);
+  const extChars = ext && ext.length < 20 ? [...ext] : [];
+  const base = chars.slice(0, chars.length - extChars.length);
+  return [...base.slice(0, MAX_UPLOAD_NAME - extChars.length), ...extChars].join('');
+}
+
 /** Response headers for a stored upload, based on its on-disk name. */
 export function uploadResponseHeaders(filePath: string): Record<string, string> {
   const headers: Record<string, string> = {
