@@ -115,7 +115,7 @@ describe('one way in: an invitation link or a temporary password, never both', (
     const later = (await app.inject({ method: 'GET', url: `/api/v1/users/${data.id}`, headers: admin })).body;
     expect(later).not.toContain(meta.temporaryPassword);
     expect((await app.inject({ method: 'GET', url: '/api/v1/users', headers: admin })).body).not.toContain(meta.temporaryPassword);
-    expect(audited.map((a) => a.action)).toEqual(['user.create', 'user.password.temporary_set']);
+    expect(audited.map((a) => a.action)).toEqual(['user.create', 'user.password.temporary']);
     expect(audited[1]).toMatchObject({ userId: 'admin-1', entityId: data.id, newValue: { generated: true, expiresAt: data.temporaryPasswordExpiresAt } });
     expect(JSON.stringify(audited)).not.toContain(meta.temporaryPassword);
   });
@@ -133,7 +133,7 @@ describe('one way in: an invitation link or a temporary password, never both', (
     expect(meta).toBeUndefined();
     expect(data.mustChangePassword).toBe(true);
     expect(Date.parse(data.temporaryPasswordExpiresAt) - Date.parse(data.temporaryPasswordSetAt)).toBe(3 * DAY);
-    expect(audited[1]).toMatchObject({ action: 'user.password.temporary_set', newValue: { generated: false } });
+    expect(audited[1]).toMatchObject({ action: 'user.password.temporary', newValue: { generated: false } });
     expect(res.body).not.toContain('Password1!');
   });
 

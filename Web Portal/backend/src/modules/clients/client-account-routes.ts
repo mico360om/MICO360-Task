@@ -77,7 +77,7 @@ export async function registerClientAccountRoutes(app: FastifyInstance, deps: Cl
         userId: req.user!.id,
         ip: req.ip ?? null,
         module: 'users',
-        action: 'user.password.temporary_set',
+        action: 'user.password.temporary',
         entityId: created.id,
         newValue: { generated: temporary.generated, expiresAt: temporary.mark.expiresAt.toISOString() },
       });

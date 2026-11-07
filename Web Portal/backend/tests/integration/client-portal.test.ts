@@ -387,7 +387,7 @@ describe('administrators: client accounts', () => {
     expect(await prisma.companyMember.count({ where: { userId: id } })).toBe(0);
     expect(a.audited.filter((e) => e.action === 'client.create' && e.entityId === id)).toEqual([expect.objectContaining({ module: 'clients' })]);
     // 1.23.6: a password typed for a client is a temporary one (changed at the first sign-in), audited without its value.
-    expect(a.audited.at(-1)).toMatchObject({ module: 'users', action: 'user.password.temporary_set', entityId: id });
+    expect(a.audited.at(-1)).toMatchObject({ module: 'users', action: 'user.password.temporary', entityId: id });
     expect(created.data.mustChangePassword).toBe(true);
     expect(JSON.stringify(a.audited)).not.toContain('Password1!');
 

@@ -196,7 +196,7 @@ describe('POST /auth/login with a temporary password', () => {
     expect(done.statusCode).toBe(200);
     expect(done.json().data).toMatchObject({ user: { id: 'ann', username: 'ann' }, accessToken: expect.any(String), refreshToken: expect.any(String) });
     expect(signIns).toEqual(['ann']);
-    expect(audit).toContainEqual(expect.objectContaining({ module: 'users', action: 'user.password.changed_first_sign_in', entityId: 'ann', userId: 'ann' }));
+    expect(audit).toContainEqual(expect.objectContaining({ module: 'users', action: 'user.password.first_change', entityId: 'ann', userId: 'ann' }));
     expect(JSON.stringify(audit)).not.toContain('MyOwnPass99');
     expect((await post(app, '/auth/password/first-change', { ticket, password: 'Another77Pass' })).json().error.code).toBe('PASSWORD_CHANGE_EXPIRED');
     expect((await post(app, '/auth/login', { identifier: 'ann', password: 'Kite-Mango-Fern-Ripple-472', ...WEBSITE })).statusCode).toBe(401);

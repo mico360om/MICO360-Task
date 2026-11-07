@@ -214,7 +214,7 @@ export async function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDe
       const userId = await firstPassword.change(ticket, password);
       const user = await deps.authService.getUserForSession(userId);
       await deps.auditService
-        ?.record({ userId, ip: req.ip ?? null, module: 'users', action: 'user.password.changed_first_sign_in', entityId: userId })
+        ?.record({ userId, ip: req.ip ?? null, module: 'users', action: 'user.password.first_change', entityId: userId })
         .catch(() => undefined);
       const tokens = await deps.tokenService.issueTokens(user);
       await deps.authService.recordSignIn(user.id);

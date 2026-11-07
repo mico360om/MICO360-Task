@@ -273,7 +273,7 @@ export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDe
     // Never log the password — only non-secret identifying fields.
     await logAudit(req, 'user.create', created.id, { email: body.email, username: body.username, roleNames: created.roles, ...(companies ?? {}), ...(sendWelcome !== undefined ? { welcomeEmail: sendWelcome } : {}) });
     if (temporary) {
-      await logAudit(req, 'user.password.temporary_set', created.id, { generated: temporary.generated, expiresAt: temporary.mark.expiresAt.toISOString() });
+      await logAudit(req, 'user.password.temporary', created.id, { generated: temporary.generated, expiresAt: temporary.mark.expiresAt.toISOString() });
       // A password made here goes back once, in this answer only (never stored, logged or emailed).
       return reply.status(201).send({ data: created, ...(temporary.generated ? { meta: { temporaryPassword: temporary.password } } : {}) });
     }
