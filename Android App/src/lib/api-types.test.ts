@@ -41,7 +41,10 @@ describe.skipIf(!hasWeb(...PAIRS.map(([f]) => f)))('the app’s copies of the we
       const web = readWeb(file);
       for (const n of names) {
         expect(fieldsOf(web, n).length, `${n} in ${file}`).toBeGreaterThan(0);
-        expect(fieldsOf(app, n), n).toEqual(fieldsOf(web, n));
+        // 1.23.6 (website only): a sent invitation also says when its link ends; the app keeps its copy
+        // until its own update.
+        const websiteOnly = n === 'WelcomeOutcome' ? ['expiresAt'] : [];
+        expect(fieldsOf(app, n), n).toEqual(fieldsOf(web, n).filter((f) => !websiteOnly.includes(f)));
       }
     }
   });

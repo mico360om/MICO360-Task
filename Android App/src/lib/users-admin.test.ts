@@ -35,7 +35,6 @@ import {
   offersNewUser,
   StatusAfterSaveError,
   NEVER_EMPTY,
-  NEW_USER_TEXT,
   SIGN_IN_SORTS,
   USERS_SUBTITLE,
   WELCOME_TEXT,
@@ -374,7 +373,9 @@ describe.skipIf(!existsSync(resolve(web, 'pages/UsersPage.tsx')))('in the websit
     expect(edit).toContain("'Give the account at least one role.'");
     expect(edit).toContain("'Couldn’t save. Check the details (email/username may already be in use).'");
     expect(edit).toContain('Profile saved, but the status couldn’t be changed.');
-    expect(edit).toContain(`'${RESET_DONE}'`);
+    // 1.23.6 (website only): the website makes temporary passwords (none typed), so its "Password reset."
+    // notice is gone; the app keeps its typed reset and its words until its own update.
+    expect(RESET_DONE).toBe('Password reset. Share the new password with the user securely.');
     expect(page).toContain("'Couldn’t change the account status.'");
     expect(page).toContain('can sign in again.');
     expect(page).toContain("'Couldn’t delete. Try again.'");
@@ -553,10 +554,13 @@ describe.skipIf(!existsSync(resolve(web, 'pages/UsersPage.tsx')) || !existsSync(
     // its notice "Invitation sent to …", and the email-off banner says verification and invitations are off.
     // The app keeps its words until its own update, so those three aren't looked for on the website.
     const websiteOnly: string[] = [WELCOME_TEXT.send, WELCOME_TEXT.emailOff];
-    for (const t of [...Object.values(WELCOME_TEXT).filter((x) => !websiteOnly.includes(x)), ...Object.values(NEW_USER_TEXT).map((x) => x.trim()), NEVER_EMPTY, USERS_SUBTITLE, ...SIGN_IN_SORTS.map((s) => s.label), 'Never signed in', 'Last sign-in', 'account is ready']) {
+    // 1.23.6 (website only): the new-user form asks "How will they get in?" (an invitation link or a
+    // temporary password made for them — never both, no password box), so the app's "Send a welcome email"
+    // switch and "Temp password (optional)" words aren't on the website any more; the app keeps them.
+    for (const t of [...Object.values(WELCOME_TEXT).filter((x) => !websiteOnly.includes(x)), NEVER_EMPTY, USERS_SUBTITLE, ...SIGN_IN_SORTS.map((s) => s.label), 'Never signed in', 'Last sign-in', 'account is ready']) {
       expect(w, t).toContain(asWritten(t));
     }
-    for (const t of ['Enter a temporary password, or turn on “Send a welcome email” so they can set their own.', 'Email isn’t set up on this server, so a welcome email can’t be sent. Give them a temporary password.', 'Email isn’t set up on this server, so the welcome email can’t be sent and the account wasn’t created. Give them a temporary password.', 'it couldn’t be sent', "text: `${x.username ?? x.name ?? 'Someone'}: ${x.why ?? 'not sent'}`", 'error: r.sent === 0 && r.notSent > 0']) {
+    for (const t of ['it couldn’t be sent', "text: `${x.username ?? x.name ?? 'Someone'}: ${x.why ?? 'not sent'}`", 'error: r.sent === 0 && r.notSent > 0']) {
       expect(w, t).toContain(t);
     }
   });
