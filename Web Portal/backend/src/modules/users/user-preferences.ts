@@ -23,10 +23,25 @@ export interface UserPreferences {
    * website's lists, tables and boards denser. Phones and touch screens always stay comfortable.
    */
   density: Density;
+  /**
+   * 1.23.8: the website's side menu folded to its icons on a desktop screen (false = open, the default).
+   * Tablets always show the icons; phones keep the ☰ menu.
+   */
+  sidebarCollapsed: boolean;
+  /** 1.23.8: how wide the Kanban board's columns are for this person (Normal by default). */
+  boardColumnWidth: BoardColumnWidth;
 }
 
-export const DENSITIES = ['comfortable', 'compact'] as const;
+/**
+ * Row modes: comfortable (today's look), compact (1.23.0: denser, desktop only) and detailed (1.23.8: more
+ * on each card and row — the description's first line, checklist count, tags, project, everyone on it —
+ * and titles never cut; phones too).
+ */
+export const DENSITIES = ['comfortable', 'compact', 'detailed'] as const;
 export type Density = (typeof DENSITIES)[number];
+
+export const BOARD_COLUMN_WIDTHS = ['narrow', 'normal', 'wide'] as const;
+export type BoardColumnWidth = (typeof BOARD_COLUMN_WIDTHS)[number];
 
 /** Said to someone who isn't an administrator asking to turn "Show my projects only" on. */
 export const MY_PROJECTS_ONLY_REFUSED = 'Only administrators have this setting.';
@@ -36,7 +51,7 @@ export interface PreferencesRepository {
   set(userId: string, patch: Partial<UserPreferences>): Promise<UserPreferences>;
 }
 
-const NONE: UserPreferences = { timeZone: null, weekStart: null, myProjectsOnly: false, density: 'comfortable' };
+const NONE: UserPreferences = { timeZone: null, weekStart: null, myProjectsOnly: false, density: 'comfortable', sidebarCollapsed: false, boardColumnWidth: 'normal' };
 
 /** True when the runtime knows `tz` as an IANA time zone. */
 function isTimeZone(tz: string): boolean {
@@ -54,6 +69,8 @@ const patchSchema = z
     weekStart: z.union([z.literal(0), z.literal(1), z.literal(6)]).nullable().optional(),
     myProjectsOnly: z.boolean().optional(),
     density: z.enum(DENSITIES).optional(),
+    sidebarCollapsed: z.boolean().optional(),
+    boardColumnWidth: z.enum(BOARD_COLUMN_WIDTHS).optional(),
   })
   .strict();
 
@@ -72,23 +89,29 @@ export function createMemoryPreferences(): PreferencesRepository {
 }
 
 export function createPrismaPreferences(prisma: PrismaClient): PreferencesRepository {
-  const toPrefs = (u: { preferredTimeZone: string | null; weekStart: number | null; myProjectsOnly: boolean; density: string } | null): UserPreferences => ({
+  type Row = { preferredTimeZone: string | null; weekStart: number | null; myProjectsOnly: boolean; density: string; sidebarCollapsed: boolean; boardColumnWidth: string };
+  // An unexpected stored word reads as the default.
+  const toPrefs = (u: Row | null): UserPreferences => ({
     timeZone: u?.preferredTimeZone ?? null,
     weekStart: u?.weekStart === 0 || u?.weekStart === 1 || u?.weekStart === 6 ? u.weekStart : null,
     myProjectsOnly: u?.myProjectsOnly === true,
-    density: u?.density === 'compact' ? 'compact' : 'comfortable',
+    density: (DENSITIES as readonly string[]).includes(u?.density ?? '') ? (u!.density as Density) : 'comfortable',
+    sidebarCollapsed: u?.sidebarCollapsed === true,
+    boardColumnWidth: (BOARD_COLUMN_WIDTHS as readonly string[]).includes(u?.boardColumnWidth ?? '') ? (u!.boardColumnWidth as BoardColumnWidth) : 'normal',
   });
-  const select = { preferredTimeZone: true, weekStart: true, myProjectsOnly: true, density: true } as const;
+  const select = { preferredTimeZone: true, weekStart: true, myProjectsOnly: true, density: true, sidebarCollapsed: true, boardColumnWidth: true } as const;
   return {
     async get(userId) {
       return toPrefs(await prisma.user.findUnique({ where: { id: userId }, select }));
     },
     async set(userId, patch) {
-      const data: { preferredTimeZone?: string | null; weekStart?: number | null; myProjectsOnly?: boolean; density?: Density } = {};
+      const data: { preferredTimeZone?: string | null; weekStart?: number | null; myProjectsOnly?: boolean; density?: Density; sidebarCollapsed?: boolean; boardColumnWidth?: BoardColumnWidth } = {};
       if (patch.timeZone !== undefined) data.preferredTimeZone = patch.timeZone;
       if (patch.weekStart !== undefined) data.weekStart = patch.weekStart;
       if (patch.myProjectsOnly !== undefined) data.myProjectsOnly = patch.myProjectsOnly;
       if (patch.density !== undefined) data.density = patch.density;
+      if (patch.sidebarCollapsed !== undefined) data.sidebarCollapsed = patch.sidebarCollapsed;
+      if (patch.boardColumnWidth !== undefined) data.boardColumnWidth = patch.boardColumnWidth;
       return toPrefs(await prisma.user.update({ where: { id: userId }, data, select }));
     },
   };
@@ -96,7 +119,8 @@ export function createPrismaPreferences(prisma: PrismaClient): PreferencesReposi
 
 /**
  * GET / PUT /users/me/preferences — each person's own; a PUT changes only what it names. Turning on
- * "Show my projects only" is an administrator's alone (anyone may send it off); the density is anyone's.
+ * "Show my projects only" is an administrator's alone (anyone may send it off); the row mode, the collapsed
+ * menu and the board column width (1.23.8) are anyone's.
  */
 export async function registerPreferenceRoutes(app: FastifyInstance, deps: { repo: PreferencesRepository; guard: AuthGuard }): Promise<void> {
   const { repo, guard } = deps;

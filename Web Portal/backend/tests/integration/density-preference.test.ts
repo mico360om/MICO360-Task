@@ -28,7 +28,7 @@ afterAll(async () => {
 describe('Compact / comfortable rows (users.density)', () => {
   it('everyone starts comfortable — the look nothing changes for until they pick compact', async () => {
     const ada = await person('ada');
-    expect(await prefs.get(ada.id)).toEqual({ timeZone: null, weekStart: null, myProjectsOnly: false, density: 'comfortable' });
+    expect(await prefs.get(ada.id)).toEqual({ timeZone: null, weekStart: null, myProjectsOnly: false, density: 'comfortable', sidebarCollapsed: false, boardColumnWidth: 'normal' });
     expect((await prisma.user.findUnique({ where: { id: ada.id }, select: { density: true } }))?.density).toBe('comfortable');
   });
 
@@ -36,7 +36,7 @@ describe('Compact / comfortable rows (users.density)', () => {
     const ada = await person('ada');
     const bo = await person('bo');
     await prefs.set(ada.id, { weekStart: 1, timeZone: 'Asia/Muscat' });
-    expect(await prefs.set(ada.id, { density: 'compact' })).toEqual({ timeZone: 'Asia/Muscat', weekStart: 1, myProjectsOnly: false, density: 'compact' });
+    expect(await prefs.set(ada.id, { density: 'compact' })).toEqual({ timeZone: 'Asia/Muscat', weekStart: 1, myProjectsOnly: false, density: 'compact', sidebarCollapsed: false, boardColumnWidth: 'normal' });
     expect((await prefs.get(ada.id)).density).toBe('compact');
     expect((await prefs.get(bo.id)).density).toBe('comfortable');
     // Saving another setting later leaves it; back to comfortable.
