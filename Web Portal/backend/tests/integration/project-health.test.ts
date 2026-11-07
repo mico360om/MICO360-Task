@@ -10,6 +10,9 @@ import { createPrismaHealthSource, healthProbe } from '../../src/modules/project
 import { createHealthExtrasLoader } from '../../src/modules/project-health/health-extras-loader';
 import { createCompletionCounts } from '../../src/modules/project-health/completion-counts';
 import type { Viewer } from '../../src/modules/companies/company-access';
+import { projectChecklistItems } from '../../src/modules/project-health/checklist-next-actions';
+import { createChecklistPrioritySource } from '../../src/modules/dashboard/prisma-priority-sources';
+import { createPrismaChecklistQueries } from '../../src/modules/tasks/prisma-checklist-queries';
 
 // Requires a running MySQL (TEST_DATABASE_URL) with migrations applied.
 // 1.23.5 Project overview & health on a real database: weighted completion (both modes, the project's
@@ -106,6 +109,10 @@ beforeAll(async () => {
       health: (ids) => base.management!.service.healthFor(ids),
       people: (ids) => source.people(ids),
       doneColumns: (projectId) => prisma.kanbanColumn.findMany({ where: { projectId, category: 'DONE' }, select: { id: true, enabled: true }, orderBy: [{ position: 'asc' }, { id: 'asc' }] }),
+      // As server.ts wires it: the Dashboard's checklist source, scoped to the project.
+      checklistItems: projectChecklistItems((projectId) =>
+        createChecklistPrioritySource({ prisma, mine: (u, p) => createPrismaChecklistQueries(prisma).mine(u, p), ownProjectIds: async () => [projectId] }),
+      ),
       timeZone: TZ,
     });
     return { projectHealth: health };
@@ -319,6 +326,18 @@ describe('Next actions: order and permissions', () => {
     // The 1.23.4 quick actions: a task waiting on an open blocker offers Open and Reschedule only.
     expect(a.items.find((i) => i.task!.id === T.n1)!.task!.can).toEqual({ complete: true, reschedule: true, assign: true, approve: false });
     expect(a.items.find((i) => i.task!.id === T.n8)!.task!.can).toEqual({ complete: false, reschedule: true, assign: false, approve: false });
+  });
+
+  it('1.23.3 checklist items: the person’s own assigned items of the project, overdue or due within 3 days', async () => {
+    const list = await prisma.checklistList.create({ data: { taskId: T.n4!, title: 'Checklist' } });
+    const mine = await prisma.checklistItem.create({ data: { taskId: T.n4!, listId: list.id, text: 'Torque the bolts', assigneeId: w.people.ana, dueDate: due(-1) } });
+    await prisma.checklistItem.create({ data: { taskId: T.n4!, listId: list.id, text: 'Later', assigneeId: w.people.ana, dueDate: due(10), position: 1 } });
+    const asAna = (await app.get(w.as.ana, `/projects/${P}/next-actions?fresh=1`)) as NextActionsAnswer;
+    const row = asAna.items.find((i) => i.id === `checklist-item:${mine.id}`);
+    expect(row).toMatchObject({ kind: 'checklist-item', reason: { code: 'overdue', days: 1 }, checklistItem: { text: 'Torque the bolts', task: { id: T.n4 } } });
+    expect(asAna.items.filter((i) => i.kind === 'checklist-item')).toHaveLength(1);
+    const asCat = (await app.get(w.as.cat, `/projects/${P}/next-actions?fresh=1`)) as NextActionsAnswer;
+    expect(asCat.items.some((i) => i.kind === 'checklist-item')).toBe(false);
   });
 
   it('only people who may see the project (404 otherwise); nothing may be done once it is archived', async () => {

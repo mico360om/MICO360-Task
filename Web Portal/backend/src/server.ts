@@ -107,7 +107,8 @@ import { createDailyEmailService } from './modules/daily-emails/daily-email-serv
 import { createPrismaDailyEmailCheckStore, createPrismaDailyEmailRepository } from './modules/daily-emails/prisma-daily-email-repository';
 import { createPrismaDailyEmailSources } from './modules/daily-emails/prisma-daily-email-sources';
 import { createManagementFromPrisma, createWeeklySummaryFromPrisma } from './modules/management/management-wiring';
-import { createProjectHealthService, NEXT_ACTION_ITEMS_STUB, type ProjectHealthService } from './modules/project-health/health-service';
+import { createProjectHealthService, type ProjectHealthService } from './modules/project-health/health-service';
+import { projectChecklistItems } from './modules/project-health/checklist-next-actions';
 import { createPrismaHealthSource } from './modules/project-health/prisma-health-source';
 import { createMentionNotifier } from './modules/tasks/mention-notifier';
 import { planEscalations } from './modules/notifications/escalation';
@@ -1735,14 +1736,17 @@ async function main(): Promise<void> {
   const managementService = createManagementFromPrisma(prisma, { settings: managementSettings, timeZone: companyTz }); // companies: the reader's week
   // 1.23.5 Project overview & health: the cards, the project page's Overview and its Next actions — the
   // Management page's one rule, kept per project for 60 s and read again after any change there (below).
-  // Checklist items join Next actions once 1.23.3 is merged (NEXT_ACTION_ITEMS_STUB until then).
+  // 1.23.3 checklist items join Next actions: the person's own items of the project, from the Dashboard's
+  // checklist source scoped to that project (design call 4).
   const healthPeople = createPrismaHealthSource(prisma);
   projectHealth = createProjectHealthService({
     health: (ids) => managementService.healthFor(ids),
     people: (ids) => healthPeople.people(ids),
     doneColumns: (projectId) =>
       prisma.kanbanColumn.findMany({ where: { projectId, category: 'DONE' }, select: { id: true, enabled: true }, orderBy: [{ position: 'asc' }, { id: 'asc' }] }),
-    checklistItems: NEXT_ACTION_ITEMS_STUB,
+    checklistItems: projectChecklistItems((projectId) =>
+      createChecklistPrioritySource({ prisma, mine: (u, p) => checklistQueries.mine(u, p), ownProjectIds: async () => [projectId] }),
+    ),
     timeZone: companyTz,
   });
   const weeklySummaryService = createWeeklySummaryFromPrisma(prisma, {

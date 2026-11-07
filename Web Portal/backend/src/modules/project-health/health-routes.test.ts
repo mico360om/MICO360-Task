@@ -74,9 +74,9 @@ describe('GET /projects/:id/next-actions', () => {
     const { app, as, health } = await setup();
     const res = await app.inject({ method: 'GET', url: '/api/v1/projects/p1/next-actions', headers: await as('u1') });
     expect(res.json().data).toEqual(ACTIONS);
-    expect(health.nextActions).toHaveBeenLastCalledWith('p1', { fresh: false });
+    expect(health.nextActions).toHaveBeenLastCalledWith('p1', { fresh: false, viewer: { id: 'u1', roles: ['EMPLOYEE'] } });
     await app.inject({ method: 'GET', url: '/api/v1/projects/p1/next-actions?fresh=1', headers: await as('u1') });
-    expect(health.nextActions).toHaveBeenLastCalledWith('p1', { fresh: true });
+    expect(health.nextActions).toHaveBeenLastCalledWith('p1', { fresh: true, viewer: { id: 'u1', roles: ['EMPLOYEE'] } });
     expect((await app.inject({ method: 'GET', url: '/api/v1/projects/p1/next-actions', headers: await as('u2') })).statusCode).toBe(404);
   });
 });

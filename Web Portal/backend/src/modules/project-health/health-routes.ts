@@ -45,7 +45,8 @@ export async function registerHealthRoutes(app: FastifyInstance, deps: HealthRou
   app.get('/projects/:id/next-actions', { preHandler: guard.authenticate }, async (req) => {
     const id = await visibleProject(req);
     const fresh = (req.query as Record<string, unknown> | undefined)?.fresh === '1';
-    const answer = await deps.health.nextActions(id, { fresh });
+    // 1.23.3: the person's own checklist items of the project join its Next actions.
+    const answer = await deps.health.nextActions(id, { fresh, viewer: viewer(req) });
     if (!answer) throw new NotFoundError('Project not found.');
     return { data: answer };
   });

@@ -67,12 +67,12 @@ export interface NextActionsAnswer {
 }
 
 /**
- * 1.23.3 checklist items in Next actions (design call 4): assigned items of the project's tasks, overdue or
- * due soon — they never change the health colour or the late counts. NEXT_ACTION_ITEMS_STUB until 1.23.3 is
- * merged; the real one returns `checklist-item` candidates with `row.checklistItem` (as the Dashboard's).
+ * 1.23.3 checklist items in Next actions (design call 4): the person's own assigned items of the project's
+ * tasks, overdue or due soon (the Dashboard's checklist source, scoped to the project) — they never change
+ * the health colour or the late counts. `checklist-item` candidates with `row.checklistItem`.
  */
 export interface NextActionItemSource {
-  collect(projectId: string, ctx: { today: string; timeZone: string }): Promise<(ItemActionCandidate & { row: PriorityRowData })[]>;
+  collect(projectId: string, ctx: { today: string; timeZone: string }, viewer: { id: string; roles: string[] } | null): Promise<(ItemActionCandidate & { row: PriorityRowData })[]>;
 }
 export const NEXT_ACTION_ITEMS_STUB: NextActionItemSource = {
   async collect() {
@@ -198,13 +198,13 @@ export function createProjectHealthService(deps: ProjectHealthDeps) {
      * The project's Next actions, in the 1.23.4 order, as Dashboard rows (with its quick actions). Nothing
      * may be done on an archived or completed project (only Open). `fresh`: after the person's own change.
      */
-    async nextActions(projectId: string, opts: { fresh?: boolean } = {}): Promise<NextActionsAnswer | null> {
+    async nextActions(projectId: string, opts: { fresh?: boolean; viewer?: { id: string; roles: string[] } } = {}): Promise<NextActionsAnswer | null> {
       const e = (await entries([projectId], opts.fresh)).get(projectId);
       if (!e || !e.extras) return null;
       const x = e.extras;
       const today = todayKey(deps.timeZone, now());
       const ctx = { today, timeZone: deps.timeZone };
-      const [done, items] = await Promise.all([deps.doneColumns(projectId), (deps.checklistItems ?? NEXT_ACTION_ITEMS_STUB).collect(projectId, ctx)]);
+      const [done, items] = await Promise.all([deps.doneColumns(projectId), (deps.checklistItems ?? NEXT_ACTION_ITEMS_STUB).collect(projectId, ctx, opts.viewer ?? null)]);
       const doneColumnId = (done.find((c) => c.enabled) ?? done[0])?.id ?? null;
       const readOnly = x.project.archived || x.project.status === 'ARCHIVED' || x.project.status === 'COMPLETED';
       const p = x.project;

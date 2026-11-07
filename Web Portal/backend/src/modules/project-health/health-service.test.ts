@@ -61,7 +61,7 @@ const PEOPLE: Person[] = [
 const row = (id: string, over: Partial<HealthRow> = {}): HealthRow =>
   ({ id, rag: 'AMBER', reasons: [{ code: 'LATE_TASKS', level: 'AMBER', text: '1 late task' }], completionPct: 50, completionBy: 'COUNT', ...over }) as HealthRow;
 
-function setup(projects: Record<string, Partial<ExtrasInput>>) {
+function setup(projects: Record<string, Partial<ExtrasInput>>, checklistItems?: Parameters<typeof createProjectHealthService>[0]['checklistItems']) {
   let clock = NOW.getTime();
   const asked: string[][] = [];
   let hold: Promise<void> | null = null;
@@ -79,6 +79,7 @@ function setup(projects: Record<string, Partial<ExtrasInput>>) {
     },
     people: async (ids) => PEOPLE.filter((p) => ids.includes(p.id)),
     doneColumns: async () => [{ id: 'done-off', enabled: false }, { id: 'done', enabled: true }],
+    ...(checklistItems ? { checklistItems } : {}),
     timeZone: TZ,
     now: () => new Date(clock),
   });
@@ -197,5 +198,30 @@ describe('Next actions', () => {
     await svc.nextActions('p1');
     await svc.nextActions('p1', { fresh: true });
     expect(asked).toEqual([['p1'], ['p1']]);
+  });
+});
+
+describe('Next actions — 1.23.3 checklist items (design call 4)', () => {
+  it('the person’s own assigned items of the project, ranked by their date with the tasks; nothing to tick on a completed project', async () => {
+    const asked: unknown[] = [];
+    const item = (status: 'ACTIVE' | 'COMPLETED') => setup(
+      { p1: { tasks: [task({ dueDate: day('2026-11-18') })], project: project({ status }) } },
+      {
+        async collect(projectId, ctx, viewer) {
+          asked.push([projectId, ctx.today, viewer]);
+          return [{ kind: 'checklist-item', id: 'c1', key: null, priority: 'NORMAL', dueDate: day('2026-11-15'), createdAt: day('2026-11-15'), row: { checklistItem: { id: 'c1', text: 'Torque the bolts', dueDate: '2026-11-15', listTitle: 'Checklist', task: { id: 't9', key: 'RIG-9', title: 'Frame', projectId: 'p1' }, can: { tick: true, reschedule: true } } } }];
+        },
+      },
+    );
+    const { svc } = item('ACTIVE');
+    const a = (await svc.nextActions('p1', { viewer: { id: 'sara', roles: ['EMPLOYEE'] } }))!;
+    expect(asked).toEqual([['p1', '2026-11-20', { id: 'sara', roles: ['EMPLOYEE'] }]]);
+    expect(a.items.map((i) => [i.id, i.reason])).toEqual([
+      ['checklist-item:c1', { code: 'overdue', days: 5 }],
+      [expect.stringMatching(/^task:/), { code: 'overdue', days: 2 }],
+    ]);
+    expect(a.items[0]!.checklistItem!.can).toEqual({ tick: true, reschedule: true });
+    const done = (await item('COMPLETED').svc.nextActions('p1', { viewer: { id: 'sara', roles: [] } }))!;
+    expect(done.items[0]!.checklistItem!.can).toEqual({ tick: false, reschedule: false });
   });
 });
