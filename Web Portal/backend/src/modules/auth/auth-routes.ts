@@ -57,13 +57,15 @@ export async function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDe
   const verification = deps.emailVerification;
   const firstPassword = deps.firstPassword;
   /** 1.23.6: a temporary password still to change: the step (website) or the plain refusal; null: go on. */
-  const passwordStep = async (userId: string, website: boolean | undefined) => (firstPassword ? firstPassword.gate(userId, website === true) : null);
+  const passwordStep = async (userId: string, website: boolean | undefined, opts: { viaEmailCode?: boolean } = {}) =>
+    firstPassword ? firstPassword.gate(userId, website === true, opts) : null;
 
   app.post('/auth/login', async (req, reply) => {
     const { identifier, password, acceptChallenge, acceptPasswordChange } = loginSchema.parse(req.body);
     const user = await deps.authService.login(identifier, password);
-    // 1.23.6: an unused temporary password past its lifetime stops (said only after the right password).
-    await firstPassword?.refuseExpired(user.id);
+    // 1.23.6: a cancelled invitation signs nobody in (the same answer as a wrong password); an unused
+    // temporary password past its lifetime stops (said only after the right password).
+    await firstPassword?.refuseUnusable(user.id);
     // Onboarding: the right password, but the address isn't confirmed yet (and email works): the code
     // step first. Said only now, after the password, like an inactive account.
     if (verification && (await verification.needsCode(user.id))) {
@@ -190,7 +192,8 @@ export async function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDe
       // Onboarding: a code that reached the mailbox proves it — the email-code sign-in (here and on the
       // app) confirms the address. Bookkeeping: a failure never fails the sign-in.
       await verification?.confirm(user.id, 'sign-in code', { email: user.email, actorId: user.id, ip: req.ip ?? null }).catch(() => undefined);
-      const changePassword = await passwordStep(user.id, acceptPasswordChange);
+      // The mailbox is proven (as with Forgot password): the step is given even past the lifetime.
+      const changePassword = await passwordStep(user.id, acceptPasswordChange, { viaEmailCode: true });
       if (changePassword) return reply.send({ data: { changePassword } });
       const tokens = await deps.tokenService.issueTokens(user);
       await deps.authService.recordSignIn(user.id);

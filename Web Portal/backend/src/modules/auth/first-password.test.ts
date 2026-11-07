@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createFirstPassword, type FirstPasswordRepo, type FirstPasswordState } from './first-password';
-import { PasswordChangeExpiredError, PasswordChangeRequiredError, SameAsTemporaryPasswordError, TemporaryPasswordExpiredError, WeakPasswordError } from './errors';
+import { InvalidCredentialsError, PasswordChangeExpiredError, PasswordChangeRequiredError, SameAsTemporaryPasswordError, TemporaryPasswordExpiredError, WeakPasswordError } from './errors';
 
 const MIN = 60_000;
 const DAY = 24 * 60 * MIN;
@@ -12,7 +12,7 @@ const verifyPassword = async (p: string, h: string) => h === `h:${p}`;
 
 function harness(start: Partial<FirstPasswordState> = {}) {
   let clock = START;
-  const state: FirstPasswordState = { mustChange: true, expiresAt: new Date(clock + 7 * DAY), passwordHash: 'h:Kite-Mango-Fern-Ripple-472', tokenVersion: 3, active: true, ...start };
+  const state: FirstPasswordState = { mustChange: true, expiresAt: new Date(clock + 7 * DAY), passwordHash: 'h:Kite-Mango-Fern-Ripple-472', tokenVersion: 3, active: true, cancelled: false, ...start };
   const completed: { userId: string; newHash: string }[] = [];
   const repo: FirstPasswordRepo = {
     async state(userId) {
@@ -32,7 +32,7 @@ function harness(start: Partial<FirstPasswordState> = {}) {
 describe('the forced change at the first sign-in after a temporary password', () => {
   it('nothing to do for anyone without a temporary password (no existing account is ever forced)', async () => {
     const h = harness({ mustChange: false, expiresAt: null });
-    await h.fp.refuseExpired('u1');
+    await h.fp.refuseUnusable('u1');
     expect(await h.fp.gate('u1', true)).toBeNull();
     expect(await h.fp.gate('u1', false)).toBeNull();
     expect(await h.fp.gate('nobody', false)).toBeNull();
@@ -52,9 +52,9 @@ describe('the forced change at the first sign-in after a temporary password', ()
 
   it('an unused temporary password past its lifetime stops working', async () => {
     const h = harness();
-    await h.fp.refuseExpired('u1');
+    await h.fp.refuseUnusable('u1');
     h.advance(7 * DAY);
-    await expect(h.fp.refuseExpired('u1')).rejects.toBeInstanceOf(TemporaryPasswordExpiredError);
+    await expect(h.fp.refuseUnusable('u1')).rejects.toBeInstanceOf(TemporaryPasswordExpiredError);
   });
 
   it('the change: the password rules, not the temporary one, then the mark is gone and the ticket is spent', async () => {
@@ -101,5 +101,22 @@ describe('the forced change at the first sign-in after a temporary password', ()
     const { ticket } = (await h.fp.gate('u1', true))!;
     h.state.active = false;
     await expect(h.fp.change(ticket, 'MyOwnPass99')).rejects.toBeInstanceOf(PasswordChangeExpiredError);
+  });
+
+  // Security review (1.23.6) findings 1 and 2.
+  it('a cancelled invitation: the password signs nobody in (the same answer as a wrong one)', async () => {
+    const h = harness({ cancelled: true, mustChange: false, expiresAt: null });
+    await expect(h.fp.refuseUnusable('u1')).rejects.toBeInstanceOf(InvalidCredentialsError);
+  });
+
+  it('the lifetime is checked again when the step is given after a password sign-in and when it is used', async () => {
+    const h = harness({ expiresAt: new Date(START + 10 * MIN) });
+    const { ticket } = (await h.fp.gate('u1', true))!;
+    h.advance(11 * MIN);
+    await expect(h.fp.change(ticket, 'MyOwnPass99')).rejects.toBeInstanceOf(TemporaryPasswordExpiredError);
+    await expect(h.fp.gate('u1', true)).rejects.toBeInstanceOf(TemporaryPasswordExpiredError);
+    // After an emailed sign-in code (the mailbox is proven) the step is still given, and works.
+    const viaCode = (await h.fp.gate('u1', true, { viaEmailCode: true }))!;
+    expect(await h.fp.change(viaCode.ticket, 'MyOwnPass99')).toBe('u1');
   });
 });

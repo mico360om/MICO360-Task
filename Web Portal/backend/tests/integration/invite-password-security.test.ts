@@ -146,6 +146,8 @@ describe('Cancel invitation on the database: every way in stops', () => {
     expect(await reset.findActiveByIdentifier(`sara${DOMAIN}`)).toBeNull();
     expect(await reset.findActiveByIdentifier('ipw-sara')).toBeNull();
     expect(await reset.isActive(sara.id)).toBe(false);
+    // An administrator's "Send password reset" is refused with the reason (security review finding 6).
+    expect(await reset.findById!(sara.id)).toMatchObject({ invitationCancelled: true, mustChangePassword: false });
     expect(await createPrismaOtpUserLookup(prisma).findActiveByIdentifier(`sara${DOMAIN}`)).toBeNull();
     // Someone who has signed in can't be cancelled.
     const omar = await person('omar', { lastLoginAt: new Date() });
@@ -161,6 +163,26 @@ describe('Cancel invitation on the database: every way in stops', () => {
   });
 });
 
+describe('Cancel invitation: security review findings 1 and 4', () => {
+  it('an account made before 1.23.6 with a typed password (never marked temporary): the password stops too', async () => {
+    const legacy = await person('legacy', { invitedAt: new Date(), welcomeSentAt: new Date() });
+    const service = createUserService({ users: createUserMgmt(prisma) });
+    await service.cancelInvitation(legacy.id);
+    expect(await verifyPassword('Own-Password-1', (await row(legacy.id)).passwordHash)).toBe(false);
+  });
+
+  it('never marks an account that has become theirs in the meantime (the write checks it again)', async () => {
+    const sara = await person('sara', { invitedAt: new Date() });
+    const users = createUserMgmt(prisma);
+    // Signed in between the service's check and the write.
+    await prisma.user.update({ where: { id: sara.id }, data: { lastLoginAt: new Date() } });
+    expect(await users.cancelInvitation(sara.id, new Date(), await hashPassword('x-unusable-1'))).toBe(false);
+    const r = await row(sara.id);
+    expect(r.invitationCancelledAt).toBeNull();
+    expect(await verifyPassword('Own-Password-1', r.passwordHash)).toBe(true);
+  });
+});
+
 describe('The forced change on the database', () => {
   it('a sign-in with the temporary password gives the step; the change clears the mark, ends older sessions and links, makes the account theirs', async () => {
     const sara = await person('sara');
@@ -170,7 +192,7 @@ describe('The forced change on the database', () => {
     const auth = createAuthService({ users: createAuthUsers(prisma), maxAttempts: 5 });
     expect((await auth.login('ipw-sara', 'Temp-Pass-11')).id).toBe(sara.id);
     const fp = createFirstPassword({ repo: createPrismaFirstPasswordRepo(prisma), key: 'db-key', hashPassword, verifyPassword });
-    await fp.refuseExpired(sara.id);
+    await fp.refuseUnusable(sara.id);
     const step = (await fp.gate(sara.id, true))!;
     const before = await row(sara.id);
     expect(await fp.change(step.ticket, 'My-Own-Pass-33')).toBe(sara.id);

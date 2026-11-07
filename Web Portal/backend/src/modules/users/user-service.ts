@@ -232,7 +232,8 @@ export function createUserService({ users, revokeSessions, onSessionsRevoked, is
     const user = await getUser(id);
     if (user.activatedAt || user.lastLoginAt) throw new ConflictError('They have signed in already, so there is no invitation to cancel. Deactivate the account instead.');
     if (user.invitationCancelledAt) return user;
-    await users.cancelInvitation(id, at, await hashPassword(randomBytes(32).toString('base64url')));
+    const done = await users.cancelInvitation(id, at, await hashPassword(randomBytes(32).toString('base64url')));
+    if (!done) throw new ConflictError('They have signed in already, so there is no invitation to cancel. Deactivate the account instead.');
     await revokeAccess(id);
     return getUser(id);
   }
@@ -289,7 +290,15 @@ export function createUserService({ users, revokeSessions, onSessionsRevoked, is
     return users.setAvatar(id, avatarUrl);
   }
 
-  return { createUser, listUsers, getUser, updateUser, setUserStatus, deleteUser, unlockUser, setAvatar, adminResetPassword, changeOwnPassword, cancelInvitation };
+  /**
+   * 1.23.6: one way in — before an invitation goes, an unused temporary password stops, with every
+   * sign-in half-way through it (the emailed-code step, the "Choose your own password" step).
+   */
+  async function endTemporaryPassword(id: string): Promise<void> {
+    if (await users.endTemporaryPassword(id, await hashPassword(randomBytes(32).toString('base64url')))) await revokeAccess(id);
+  }
+
+  return { createUser, listUsers, getUser, updateUser, setUserStatus, deleteUser, unlockUser, setAvatar, adminResetPassword, changeOwnPassword, cancelInvitation, endTemporaryPassword };
 }
 
 export type UserService = ReturnType<typeof createUserService>;

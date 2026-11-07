@@ -8,7 +8,7 @@ import type { WelcomeEmailParams } from '../email/email-templates';
 
 const DAY = 24 * 3600 * 1000;
 
-function harness(opts: { configured?: boolean; blocked?: string[]; fail?: (email: string) => boolean; suppressAtSend?: string[]; concurrency?: number; defaultDays?: number } = {}) {
+function harness(opts: { configured?: boolean; blocked?: string[]; fail?: (email: string) => boolean; suppressAtSend?: string[]; concurrency?: number; defaultDays?: number; endTemporary?: (id: string) => Promise<void> } = {}) {
   let clock = new Date('2026-10-25T06:00:00.000Z').getTime();
   const mem = createMemoryUserRepository();
   const tokens = createMemoryWelcomeTokenStore();
@@ -53,6 +53,7 @@ function harness(opts: { configured?: boolean; blocked?: string[]; fail?: (email
     },
     ...(opts.concurrency ? { concurrency: opts.concurrency } : {}),
     ...(opts.defaultDays ? { defaultDays: async () => opts.defaultDays! } : {}),
+    ...(opts.endTemporary ? { endTemporaryPassword: opts.endTemporary } : {}),
     appUrl: 'https://task.mico360.test/',
     downloads: () => ({ androidAppUrl: 'https://task.mico360.test/downloads/MICO360-Tasks.apk', extensionUrl: null }),
     logger: { warn: (msg, ctx) => void warnings.push({ msg, ctx }) },
@@ -376,5 +377,25 @@ describe('WelcomeService — lifetime, daily limit, one way in', () => {
     h.advance(2 * 60_000);
     await h.service.send(sara.id);
     expect((await h.mem.repo.findById(sara.id))?.invitationCancelledAt).toBeNull();
+  });
+
+  // Security review finding 5: the temporary password stops BEFORE the invitation goes, and if that
+  // can't be done no invitation goes (never both ways in at once).
+  it('an unused temporary password is ended before the email goes; if it can’t be, nothing is sent', async () => {
+    const order: string[] = [];
+    const h = harness({ endTemporary: async (id) => void order.push(`end ${id}`) });
+    const sara = await h.add('sara');
+    await h.mem.repo.setPassword(sara.id, 'temp-hash', { at: h.now(), setById: null, expiresAt: new Date(h.now().getTime() + DAY) });
+    const omar = await h.add('omar');
+    h.events.length = 0;
+    await h.service.send(sara.id);
+    await h.service.send(omar.id);
+    expect(order).toEqual([`end ${sara.id}`]);
+    const broken = harness({ endTemporary: async () => Promise.reject(new Error('database away')) });
+    const lina = await broken.add('lina');
+    await broken.mem.repo.setPassword(lina.id, 'temp-hash', { at: broken.now(), setById: null, expiresAt: new Date(broken.now().getTime() + DAY) });
+    expect(await broken.service.send(lina.id)).toMatchObject({ sent: false, reason: 'SERVER_ERROR' });
+    expect(broken.sent).toEqual([]);
+    expect(broken.tokens.rows).toEqual([]);
   });
 });

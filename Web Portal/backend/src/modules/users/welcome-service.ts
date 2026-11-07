@@ -95,6 +95,11 @@ export interface WelcomeServiceDeps {
   ttlSeconds?: number;
   /** 1.23.6: System Settings → Accounts, "Invitation links last" (days); wins over ttlSeconds. */
   defaultDays?: () => Promise<number>;
+  /**
+   * 1.23.6: one way in — an unused temporary password stops (and any sign-in half-way through with it)
+   * before an invitation goes. If that fails, no invitation goes.
+   */
+  endTemporaryPassword?: (userId: string) => Promise<void>;
   /** One welcome email per person this often, so a double click never sends two. Default a minute. */
   resendGapMs?: number;
   /** People emailed at once by sendMany. Default 4. */
@@ -184,6 +189,14 @@ export function createWelcomeService(deps: WelcomeServiceDeps) {
     // 1.23.6: at most five a day to one person (each send made a link, kept until it ends).
     if (deps.tokens.countSince && (await deps.tokens.countSince(user.id, new Date(at.getTime() - DAY_MS))) >= WELCOME_DAILY_LIMIT) {
       return refused(user.id, user, 'DAILY_LIMIT');
+    }
+    if (user.mustChangePassword && deps.endTemporaryPassword) {
+      try {
+        await deps.endTemporaryPassword(user.id);
+      } catch (err) {
+        warn('could not end a temporary password before an invitation', user.id, err);
+        return refused(user.id, user, 'SERVER_ERROR');
+      }
     }
     const lifeSeconds = await lifetimeSeconds(opts.days);
     const expiresAt = new Date(at.getTime() + lifeSeconds * 1000);

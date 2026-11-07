@@ -12,7 +12,7 @@ export interface ResetUser {
 export interface ResetUserRepo {
   findActiveByIdentifier(identifier: string): Promise<ResetUser | null>;
   /** Onboarding: a non-deleted person by id, with their status (an administrator's "Send password reset"). */
-  findById?(userId: string): Promise<{ id: string; email: string; status: 'ACTIVE' | 'INACTIVE' | 'SUSPENDED' } | null>;
+  findById?(userId: string): Promise<{ id: string; email: string; status: 'ACTIVE' | 'INACTIVE' | 'SUSPENDED'; invitationCancelled?: boolean; mustChangePassword?: boolean } | null>;
   /** Onboarding: has the account become theirs (signed in, or set a password with a link)? */
   isActivated?(userId: string): Promise<boolean>;
   /**
@@ -90,13 +90,15 @@ export interface LinkStatus {
 }
 
 /** Why an administrator's "Send password reset" didn't go. */
-export type AdminResetRefusal = 'NOT_FOUND' | 'ACCOUNT_INACTIVE' | 'ACCOUNT_SUSPENDED' | 'NO_EMAIL' | 'TOO_SOON' | 'DELIVERY_FAILED';
+export type AdminResetRefusal = 'NOT_FOUND' | 'ACCOUNT_INACTIVE' | 'ACCOUNT_SUSPENDED' | 'NO_EMAIL' | 'INVITATION_CANCELLED' | 'TEMPORARY_PASSWORD' | 'TOO_SOON' | 'DELIVERY_FAILED';
 
 export const ADMIN_RESET_REFUSAL_WHY: Record<AdminResetRefusal, string> = {
   NOT_FOUND: 'the account no longer exists',
   ACCOUNT_INACTIVE: 'the account is inactive (reactivate it first)',
   ACCOUNT_SUSPENDED: 'the account is suspended (reactivate it first)',
   NO_EMAIL: 'the account has no email address',
+  INVITATION_CANCELLED: 'the invitation was cancelled (send a new invitation or set a temporary password)',
+  TEMPORARY_PASSWORD: 'they have a temporary password to change at their first sign-in (send an invitation instead; it replaces the temporary password)',
   TOO_SOON: 'a reset link was sent to them less than a minute ago',
   DELIVERY_FAILED: 'the email couldn’t be delivered (try again later)',
 };
@@ -229,6 +231,9 @@ export function createPasswordResetService(deps: PasswordResetServiceDeps) {
     if (!user) return refuse('NOT_FOUND');
     if (user.status === 'INACTIVE') return refuse('ACCOUNT_INACTIVE', user.email);
     if (user.status === 'SUSPENDED') return refuse('ACCOUNT_SUSPENDED', user.email);
+    // 1.23.6: one way in — never a reset link beside a cancelled invitation or a temporary password.
+    if (user.invitationCancelled) return refuse('INVITATION_CANCELLED', user.email);
+    if (user.mustChangePassword) return refuse('TEMPORARY_PASSWORD', user.email);
     const email = user.email.trim();
     if (!email || !email.includes('@')) return refuse('NO_EMAIL', user.email);
     if (issuing.has(userId)) return refuse('TOO_SOON', email);

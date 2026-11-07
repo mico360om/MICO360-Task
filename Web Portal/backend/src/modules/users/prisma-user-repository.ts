@@ -179,12 +179,22 @@ export function createPrismaUserRepository(prisma: PrismaClient): UserRepository
         await prisma.user.updateMany({ where: { id, mustChangePassword: true }, data: { passwordHash: unusable, ...temporaryFields(undefined) } });
       }
     },
+    async endTemporaryPassword(id, unusableHash) {
+      const { count } = await prisma.user.updateMany({ where: { id, mustChangePassword: true }, data: { passwordHash: unusableHash, ...temporaryFields(undefined) } });
+      return count === 1;
+    },
     async cancelInvitation(id, at, unusableHash) {
-      await prisma.$transaction([
-        prisma.loginOtp.updateMany({ where: { userId: id, purpose: { in: ['PASSWORD_RESET', 'WELCOME'] }, consumedAt: null }, data: { consumedAt: at } }),
-        prisma.user.updateMany({ where: { id, mustChangePassword: true }, data: { passwordHash: unusableHash, ...temporaryFields(undefined) } }),
-        prisma.user.update({ where: { id }, data: { invitationCancelledAt: at } }),
-      ]);
+      // Only while the account has never become theirs (checked again in the write itself): every password
+      // it has — a temporary one, or one typed before 1.23.6 — stops, and every link ends.
+      return prisma.$transaction(async (tx) => {
+        const { count } = await tx.user.updateMany({
+          where: { id, deletedAt: null, activatedAt: null, lastLoginAt: null },
+          data: { invitationCancelledAt: at, passwordHash: unusableHash, ...temporaryFields(undefined) },
+        });
+        if (count !== 1) return false;
+        await tx.loginOtp.updateMany({ where: { userId: id, purpose: { in: ['PASSWORD_RESET', 'WELCOME'] }, consumedAt: null }, data: { consumedAt: at } });
+        return true;
+      });
     },
     async getPasswordHash(id) {
       const u = await prisma.user.findFirst({ where: { id, deletedAt: null }, select: { passwordHash: true } });

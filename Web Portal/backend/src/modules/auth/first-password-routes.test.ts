@@ -17,7 +17,7 @@ import type { AuthUser, AuthUserRepository } from './user-repository';
  * password" — the website (acceptPasswordChange) gets the step, the Android app and the extension are
  * told to use the website first; an unused one past its lifetime stops; nobody else is ever asked.
  */
-type Person = AuthUser & { emailVerifiedAt: Date | null; activatedAt: Date | null; mustChange: boolean; expiresAt: Date | null; tokenVersion: number };
+type Person = AuthUser & { emailVerifiedAt: Date | null; activatedAt: Date | null; mustChange: boolean; expiresAt: Date | null; tokenVersion: number; cancelled?: boolean };
 let people: Map<string, Person>;
 let mails: { to: string; code: string }[];
 let audit: { action: string; entityId?: string | null; newValue?: unknown; userId?: string | null; module?: string }[];
@@ -115,7 +115,7 @@ async function makeApp() {
     repo: {
       async state(id) {
         const p = people.get(id);
-        return p ? { mustChange: p.mustChange, expiresAt: p.expiresAt, passwordHash: p.passwordHash, tokenVersion: p.tokenVersion, active: p.status === 'ACTIVE' } : null;
+        return p ? { mustChange: p.mustChange, expiresAt: p.expiresAt, passwordHash: p.passwordHash, tokenVersion: p.tokenVersion, active: p.status === 'ACTIVE', cancelled: p.cancelled === true } : null;
       },
       async complete(id, expected, newHash, at) {
         const p = people.get(id);
@@ -250,6 +250,20 @@ describe('POST /auth/login with a temporary password', () => {
     const web = await post(app, '/auth/otp/verify', { identifier: 'bea', code: mails.at(-1)!.code, acceptPasswordChange: true });
     expect(web.statusCode).toBe(200);
     expect(web.json().data.changePassword.ticket).toEqual(expect.any(String));
+    expect(signIns).toEqual([]);
+  });
+
+  // Security review finding 1: a cancelled invitation blocks a password that was never marked temporary
+  // (an account made before 1.23.6 with a typed password) — the same answer as a wrong password.
+  it('a cancelled invitation: even the right password signs nobody in, and no code step starts', async () => {
+    person('ann', { passwordHash: ownHash, mustChange: false, expiresAt: null, cancelled: true, emailVerifiedAt: null });
+    const app = await makeApp();
+    for (const extra of [WEBSITE, {}]) {
+      const res = await post(app, '/auth/login', { identifier: 'ann', password: 'LongTimeOwn55', ...extra });
+      expect(res.statusCode).toBe(401);
+      expect(res.json().error.code).toBe('INVALID_CREDENTIALS');
+    }
+    expect(mails).toEqual([]);
     expect(signIns).toEqual([]);
   });
 });

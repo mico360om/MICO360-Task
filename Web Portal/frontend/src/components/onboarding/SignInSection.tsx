@@ -52,6 +52,12 @@ export function SignInSection({ user }: { user: ApiUser }) {
   const cancelled = !!user.invitationCancelledAt;
   // Cancel invitation: someone who hasn't signed in yet and has a way in waiting (a link or a temporary password).
   const canCancel = neverSignedIn && !cancelled && (invited || !!user.mustChangePassword);
+  // One way in: no reset link beside a cancelled invitation or a temporary password still to change.
+  const resetBlocked = cancelled
+    ? 'The invitation is cancelled, so no reset link can be sent.'
+    : user.mustChangePassword
+      ? 'They have a temporary password to change at their first sign-in, so no reset link can be sent. An invitation replaces it.'
+      : null;
   const refresh = () => {
     void qc.invalidateQueries({ queryKey: ['users'] });
     void qc.invalidateQueries({ queryKey: CLIENTS_KEY });
@@ -132,7 +138,7 @@ export function SignInSection({ user }: { user: ApiUser }) {
         <Button type="button" variant="secondary" size="sm" onClick={() => inviteMut.mutate()} disabled={!emailEnabled || deactivated || self || busy} loading={inviteMut.isPending} aria-describedby={offEmail} className="[@media(pointer:coarse)]:!min-h-11">
           {invited ? 'Resend invitation' : 'Send invitation'}
         </Button>
-        <Button type="button" variant="secondary" size="sm" onClick={() => resetMut.mutate()} disabled={!emailEnabled || deactivated || busy} loading={resetMut.isPending} aria-describedby={offEmail} className="[@media(pointer:coarse)]:!min-h-11">
+        <Button type="button" variant="secondary" size="sm" onClick={() => resetMut.mutate()} disabled={!emailEnabled || deactivated || busy || !!resetBlocked} loading={resetMut.isPending} aria-describedby={resetBlocked ? `${id}-reset-blocked` : offEmail} className="[@media(pointer:coarse)]:!min-h-11">
           Send password reset
         </Button>
         {canCancel && !self && !deactivated ? (
@@ -147,6 +153,11 @@ export function SignInSection({ user }: { user: ApiUser }) {
         ) : null}
       </div>
       {deactivated ? <p className="text-xs text-ink-2">The account is deactivated: reactivate it before sending anything.</p> : null}
+      {resetBlocked && !deactivated ? (
+        <p id={`${id}-reset-blocked`} className="text-xs text-ink-2">
+          {resetBlocked}
+        </p>
+      ) : null}
       {cancelled && neverSignedIn && !deactivated ? (
         <p className="text-xs text-ink-2">The invitation is cancelled: no way in works until you send a new invitation or set a temporary password.</p>
       ) : null}

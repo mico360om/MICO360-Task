@@ -13,8 +13,8 @@ export function createPrismaResetUserRepo(prisma: PrismaClient): ResetUserRepo {
       return u ? { id: u.id, email: u.email } : null;
     },
     async findById(userId) {
-      const u = await prisma.user.findFirst({ where: { id: userId, deletedAt: null }, select: { id: true, email: true, status: true } });
-      return u ? { id: u.id, email: u.email, status: u.status } : null;
+      const u = await prisma.user.findFirst({ where: { id: userId, deletedAt: null }, select: { id: true, email: true, status: true, invitationCancelledAt: true, mustChangePassword: true } });
+      return u ? { id: u.id, email: u.email, status: u.status, invitationCancelled: u.invitationCancelledAt !== null, mustChangePassword: u.mustChangePassword } : null;
     },
     async isActivated(userId) {
       return (await prisma.user.count({ where: { id: userId, deletedAt: null, OR: [{ activatedAt: { not: null } }, { lastLoginAt: { not: null } }] } })) === 1;

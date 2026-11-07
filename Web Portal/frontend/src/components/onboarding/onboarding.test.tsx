@@ -191,5 +191,8 @@ describe('Manage account: Sign-in & email (1.23.6)', () => {
     );
     expect(screen.getByText(/^A temporary password was set on 7 Nov( 2026)? by Khurram\./)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Cancel invitation' })).toBeInTheDocument();
+    // One way in: no reset link beside a temporary password (security review finding 6).
+    expect(screen.getByRole('button', { name: 'Send password reset' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Send password reset' })).toHaveAccessibleDescription(/temporary password to change at their first sign-in/);
   });
 });

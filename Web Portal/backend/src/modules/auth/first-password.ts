@@ -1,7 +1,7 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
 import { isStrongPassword } from '../../lib/password-policy';
-import { PasswordChangeExpiredError, PasswordChangeRequiredError, SameAsTemporaryPasswordError, TemporaryPasswordExpiredError, WeakPasswordError } from './errors';
+import { InvalidCredentialsError, PasswordChangeExpiredError, PasswordChangeRequiredError, SameAsTemporaryPasswordError, TemporaryPasswordExpiredError, WeakPasswordError } from './errors';
 
 /**
  * 1.23.6: the forced change after a temporary password. A temporary password (an administrator gave it)
@@ -17,6 +17,8 @@ export interface FirstPasswordState {
   tokenVersion: number;
   /** ACTIVE and not deleted. */
   active: boolean;
+  /** An administrator cancelled the invitation: no way in at all until a new invitation or temporary password. */
+  cancelled: boolean;
 }
 
 export interface FirstPasswordRepo {
@@ -49,26 +51,33 @@ export function createFirstPassword(deps: FirstPasswordDeps) {
 
   const expired = (s: FirstPasswordState) => s.mustChange && !!s.expiresAt && s.expiresAt.getTime() <= now().getTime();
 
-  /** After the right password: an unused temporary password past its lifetime stops here. */
-  async function refuseExpired(userId: string): Promise<void> {
+  /**
+   * After the right password: a cancelled invitation signs nobody in (the same answer as a wrong password),
+   * and an unused temporary password past its lifetime stops here.
+   */
+  async function refuseUnusable(userId: string): Promise<void> {
     const s = await deps.repo.state(userId);
+    if (s?.cancelled) throw new InvalidCredentialsError();
     if (s && expired(s)) throw new TemporaryPasswordExpiredError();
   }
 
   /**
    * Before a session: null when there is nothing to change; the step for the website; a refusal with
-   * plain words for anyone else.
+   * plain words for anyone else. After a password sign-in the lifetime is checked again (the emailed-code
+   * step may have taken a while); after an emailed sign-in code (the mailbox is proven, as with Forgot
+   * password) the step is given even past it.
    */
-  async function gate(userId: string, website: boolean): Promise<{ ticket: string; expiresAt: string } | null> {
+  async function gate(userId: string, website: boolean, opts: { viaEmailCode?: boolean } = {}): Promise<{ ticket: string; expiresAt: string } | null> {
     const s = await deps.repo.state(userId);
     if (!s || !s.mustChange) return null;
+    if (!opts.viaEmailCode && expired(s)) throw new TemporaryPasswordExpiredError();
     if (!website) throw new PasswordChangeRequiredError();
     const exp = now().getTime() + ttl;
-    const body = Buffer.from(JSON.stringify({ u: userId, e: exp, f: fingerprint(s) })).toString('base64url');
+    const body = Buffer.from(JSON.stringify({ u: userId, e: exp, f: fingerprint(s), m: opts.viaEmailCode ? 'c' : 'p' })).toString('base64url');
     return { ticket: `${body}.${sign(body)}`, expiresAt: new Date(exp).toISOString() };
   }
 
-  function read(ticket: string): { userId: string; fp: string } | null {
+  function read(ticket: string): { userId: string; fp: string; viaEmailCode: boolean } | null {
     if (typeof ticket !== 'string') return null;
     const [body, sig, extra] = ticket.split('.');
     if (!body || !sig || extra !== undefined) return null;
@@ -76,9 +85,9 @@ export function createFirstPassword(deps: FirstPasswordDeps) {
     const got = Buffer.from(sig);
     if (want.length !== got.length || !timingSafeEqual(want, got)) return null;
     try {
-      const p = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as { u?: unknown; e?: unknown; f?: unknown };
+      const p = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as { u?: unknown; e?: unknown; f?: unknown; m?: unknown };
       if (typeof p.u !== 'string' || typeof p.f !== 'string' || typeof p.e !== 'number' || p.e < now().getTime()) return null;
-      return { userId: p.u, fp: p.f };
+      return { userId: p.u, fp: p.f, viaEmailCode: p.m === 'c' };
     } catch {
       return null;
     }
@@ -89,7 +98,9 @@ export function createFirstPassword(deps: FirstPasswordDeps) {
     const t = read(ticket);
     if (!t) throw new PasswordChangeExpiredError();
     const s = await deps.repo.state(t.userId);
-    if (!s || !s.active || !s.mustChange || fingerprint(s) !== t.fp) throw new PasswordChangeExpiredError();
+    if (!s || !s.active || s.cancelled || !s.mustChange || fingerprint(s) !== t.fp) throw new PasswordChangeExpiredError();
+    // A step from a password sign-in: the temporary password must still be in its lifetime now.
+    if (!t.viaEmailCode && expired(s)) throw new TemporaryPasswordExpiredError();
     if (!isStrongPassword(password)) throw new WeakPasswordError();
     if (await deps.verifyPassword(password, s.passwordHash)) throw new SameAsTemporaryPasswordError();
     const done = await deps.repo.complete(t.userId, s.passwordHash, await deps.hashPassword(password), now());
@@ -97,7 +108,7 @@ export function createFirstPassword(deps: FirstPasswordDeps) {
     return t.userId;
   }
 
-  return { refuseExpired, gate, change };
+  return { refuseUnusable, gate, change };
 }
 
 export type FirstPassword = ReturnType<typeof createFirstPassword>;
@@ -107,10 +118,17 @@ export function createPrismaFirstPasswordRepo(prisma: PrismaClient): FirstPasswo
     async state(userId) {
       const u = await prisma.user.findUnique({
         where: { id: userId },
-        select: { mustChangePassword: true, temporaryPasswordExpiresAt: true, passwordHash: true, tokenVersion: true, status: true, deletedAt: true },
+        select: { mustChangePassword: true, temporaryPasswordExpiresAt: true, passwordHash: true, tokenVersion: true, status: true, deletedAt: true, invitationCancelledAt: true },
       });
       if (!u) return null;
-      return { mustChange: u.mustChangePassword, expiresAt: u.temporaryPasswordExpiresAt, passwordHash: u.passwordHash, tokenVersion: u.tokenVersion, active: u.status === 'ACTIVE' && u.deletedAt === null };
+      return {
+        mustChange: u.mustChangePassword,
+        expiresAt: u.temporaryPasswordExpiresAt,
+        passwordHash: u.passwordHash,
+        tokenVersion: u.tokenVersion,
+        active: u.status === 'ACTIVE' && u.deletedAt === null,
+        cancelled: u.invitationCancelledAt !== null,
+      };
     },
     async complete(userId, expectedHash, newHash, at) {
       const { count } = await prisma.user.updateMany({

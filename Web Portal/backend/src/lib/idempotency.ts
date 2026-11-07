@@ -162,6 +162,10 @@ export function registerIdempotency(app: FastifyInstance, { store, userIdOf }: I
       await store.release(idem.userId, idem.key);
     } else if (payload === undefined || payload === null || payload === '') {
       await store.complete(idem.userId, idem.key, status, '');
+    } else if (typeof payload === 'string' && contentType.includes('json') && payload.includes('"temporaryPassword"')) {
+      // 1.23.6: a temporary password made on the server goes back once and is never stored anywhere —
+      // not here either. A retry runs the request again.
+      await store.release(idem.userId, idem.key);
     } else if (typeof payload === 'string' && contentType.includes('json')) {
       await store.complete(idem.userId, idem.key, status, payload);
     } else {

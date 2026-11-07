@@ -128,11 +128,20 @@ export function createMemoryUserRepository() {
       if (r.user.mustChangePassword) r.passwordHash = `void-${seq++}`;
       r.user = { ...r.user, welcomeSentAt: at, invitedAt: r.user.invitedAt ?? at, invitationCancelledAt: null, ...(r.user.mustChangePassword ? tempFields(undefined) : {}) };
     },
+    async endTemporaryPassword(id, unusableHash) {
+      const r = row(id);
+      if (!r.user.mustChangePassword) return false;
+      r.passwordHash = unusableHash;
+      r.user = { ...r.user, ...tempFields(undefined) };
+      return true;
+    },
     async cancelInvitation(id, at, unusableHash) {
       const r = row(id);
+      if (r.user.activatedAt || r.user.lastLoginAt) return false;
       linksEnded.set(id, (linksEnded.get(id) ?? 0) + 1);
-      if (r.user.mustChangePassword) r.passwordHash = unusableHash;
-      r.user = { ...r.user, invitationCancelledAt: at, ...(r.user.mustChangePassword ? tempFields(undefined) : {}) };
+      r.passwordHash = unusableHash;
+      r.user = { ...r.user, invitationCancelledAt: at, ...tempFields(undefined) };
+      return true;
     },
     async getPasswordHash(id) {
       const r = rows.get(id);

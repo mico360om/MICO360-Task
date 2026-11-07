@@ -1900,6 +1900,8 @@ async function main(): Promise<void> {
     emailOptions: documentBrands.email.person, // companies: the person's primary company
     // 1.23.6: System Settings → Accounts, "Invitation links last" (7 days unless changed).
     defaultDays: () => settingsService.invitationDays(),
+    // 1.23.6: one way in — an unused temporary password stops before an invitation goes.
+    endTemporaryPassword: (userId) => userService.endTemporaryPassword(userId),
   });
 
   // ── Nightly backups (docs/BACKUPS.md) ──────────────────────────────────────

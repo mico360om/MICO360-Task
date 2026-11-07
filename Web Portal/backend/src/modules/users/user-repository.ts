@@ -138,10 +138,13 @@ export interface UserRepository {
    */
   markWelcomeSent(id: string, at: Date): Promise<void>;
   /**
-   * 1.23.6 "Cancel invitation": their unused links end, an unused temporary password stops working
-   * (`unusableHash` replaces it) and the cancel is kept, until a new invitation or temporary password.
+   * 1.23.6 "Cancel invitation": only while the account has never become theirs (false otherwise). Their
+   * unused links end, every password they have stops working (`unusableHash` replaces it) and the cancel
+   * is kept, until a new invitation or temporary password.
    */
-  cancelInvitation(id: string, at: Date, unusableHash: string): Promise<void>;
+  cancelInvitation(id: string, at: Date, unusableHash: string): Promise<boolean>;
+  /** 1.23.6: an unused temporary password stops working (`unusableHash` replaces it); false: there was none. */
+  endTemporaryPassword(id: string, unusableHash: string): Promise<boolean>;
   /** Read the stored password hash for verification; null if the user is gone. */
   getPasswordHash(id: string): Promise<string | null>;
   /** Soft delete. Frees the email and username so they can be used for a new account. */

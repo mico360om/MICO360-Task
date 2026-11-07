@@ -13,6 +13,9 @@ async function makeApp() {
     throw new Error('boom');
   });
   app.post('/empty', async (_req, reply) => reply.status(204).send());
+  // 1.23.6: an answer carrying a one-time secret (a temporary password made on the server).
+  let secrets = 0;
+  app.post('/secret', async (_req, reply) => reply.status(201).send({ data: { id: `s-${++secrets}` }, meta: { temporaryPassword: `Kite-Mango-Fern-Ripple-${secrets}` } }));
   return { app, store, count: () => created };
 }
 
@@ -78,5 +81,16 @@ describe('Idempotency-Key', () => {
     const { app } = await makeApp();
     const res = await post(app, '/items', { 'x-user': 'u1', 'idempotency-key': 'x'.repeat(200) });
     expect(res.statusCode).toBe(400);
+  });
+
+  it('1.23.6: an answer holding a temporary password is never stored (a retry runs again; nothing to replay)', async () => {
+    const { app, store } = await makeApp();
+    const h = { 'x-user': 'u1', 'idempotency-key': 'k-secret' };
+    const first = await post(app, '/secret', h);
+    expect(first.statusCode).toBe(201);
+    expect(await store.find('u1', 'k-secret')).toBeNull();
+    const retry = await post(app, '/secret', h);
+    expect(retry.headers['idempotent-replay']).toBeUndefined();
+    expect(retry.json().meta.temporaryPassword).not.toBe(first.json().meta.temporaryPassword);
   });
 });

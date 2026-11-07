@@ -10,7 +10,7 @@ import { generateResetToken, hashResetToken } from '../../lib/reset-token';
 type Row = ResetRecord & { purpose: 'PASSWORD_RESET' | 'WELCOME'; createdAt: Date };
 let clock: number;
 let rows: Row[];
-let people: Map<string, { id: string; email: string; status: 'ACTIVE' | 'INACTIVE' | 'SUSPENDED'; activated: boolean }>;
+let people: Map<string, { id: string; email: string; status: 'ACTIVE' | 'INACTIVE' | 'SUSPENDED'; activated: boolean; cancelled?: boolean; temporary?: boolean }>;
 let mails: { to: string; link: string; opts?: Record<string, unknown> }[];
 let used: { userId: string; purpose: string }[];
 let failSend: boolean;
@@ -56,7 +56,7 @@ function users(): ResetUserRepo {
     async setPasswordAndUnlock() {},
     async findById(id) {
       const p = people.get(id);
-      return p ? { id: p.id, email: p.email, status: p.status } : null;
+      return p ? { id: p.id, email: p.email, status: p.status, invitationCancelled: p.cancelled === true, mustChangePassword: p.temporary === true } : null;
     },
     async isActivated(id) {
       return people.get(id)?.activated ?? false;
@@ -193,5 +193,16 @@ describe('Send password reset (an administrator, for any active account)', () =>
     const svc = make();
     expect(await svc.sendForAdministrator('emp')).toMatchObject({ sent: false, reason: 'DELIVERY_FAILED' });
     expect(rows.every((r) => r.consumedAt !== null)).toBe(true);
+  });
+
+  // Security review finding 6: never a reset link beside a cancelled invitation or a temporary password.
+  it('refused for a cancelled invitation and for a temporary password still to change, with plain reasons', async () => {
+    people.set('cxl', { id: 'cxl', email: 'cxl@x.co', status: 'ACTIVE', activated: false, cancelled: true });
+    people.set('tmp', { id: 'tmp', email: 'tmp@x.co', status: 'ACTIVE', activated: false, temporary: true });
+    const svc = make();
+    expect(await svc.sendForAdministrator('cxl')).toMatchObject({ sent: false, reason: 'INVITATION_CANCELLED', why: 'the invitation was cancelled (send a new invitation or set a temporary password)' });
+    expect(await svc.sendForAdministrator('tmp')).toMatchObject({ sent: false, reason: 'TEMPORARY_PASSWORD', why: 'they have a temporary password to change at their first sign-in (send an invitation instead; it replaces the temporary password)' });
+    expect(mails).toEqual([]);
+    expect(rows).toEqual([]);
   });
 });
