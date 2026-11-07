@@ -6,7 +6,6 @@ import { createMemoryWelcomeTokenStore } from './memory-welcome-store';
 import { createWelcomeService } from './welcome-service';
 import { createTokenService } from '../auth/token-service';
 import { createAuthService } from '../auth/auth-service';
-import { verifyPassword } from '../../lib/password';
 import type { AuditService } from '../audit/audit-service';
 import type { WelcomeEmailParams } from '../email/email-templates';
 
