@@ -108,7 +108,12 @@ export function createFirstPassword(deps: FirstPasswordDeps) {
     return t.userId;
   }
 
-  return { refuseUnusable, gate, change };
+  /** A cancelled invitation: no session may go on (a refresh is refused). */
+  async function cancelled(userId: string): Promise<boolean> {
+    return (await deps.repo.state(userId))?.cancelled === true;
+  }
+
+  return { refuseUnusable, gate, change, cancelled };
 }
 
 export type FirstPassword = ReturnType<typeof createFirstPassword>;

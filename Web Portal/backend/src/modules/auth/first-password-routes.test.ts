@@ -266,4 +266,16 @@ describe('POST /auth/login with a temporary password', () => {
     expect(mails).toEqual([]);
     expect(signIns).toEqual([]);
   });
+
+  // Security re-review leftover: a session that slipped in just before Cancel invitation ends at its
+  // first refresh.
+  it('a cancelled invitation: a refresh gives no new session', async () => {
+    person('omar', { passwordHash: ownHash, mustChange: false, expiresAt: null });
+    const app = await makeApp();
+    const signedIn = (await post(app, '/auth/login', { identifier: 'omar', password: 'LongTimeOwn55' })).json().data;
+    people.get('omar')!.cancelled = true;
+    const res = await post(app, '/auth/refresh', { refreshToken: signedIn.refreshToken });
+    expect(res.statusCode).toBe(401);
+    expect(res.json().error.code).toBe('INVALID_REFRESH_TOKEN');
+  });
 });
