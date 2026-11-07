@@ -253,6 +253,9 @@ import { chooseTransport } from './modules/email/outbox-transport';
 import { createEmailWebhookService } from './modules/email/email-webhook-service';
 import { createPrismaEmailEventStore, createPrismaEmailLogStore, createPrismaSuppressionChecker } from './modules/email/prisma-email-event-store';
 import { createRealtime } from './realtime/realtime';
+import { changesPriorities, createPrioritiesService } from './modules/dashboard/priorities-service';
+import { createActionItemPrioritySource, createApprovalPrioritySource, createChecklistPrioritySource, createPrismaTaskPrioritySource } from './modules/dashboard/prisma-priority-sources';
+import { createPrismaDashboardLayoutStore } from './modules/dashboard/dashboard-layout-store';
 import { createLogger } from './lib/logger';
 import { createErrorReporter } from './lib/error-reporter';
 import { withErrorLog } from './lib/error-log-logger';
@@ -903,9 +906,32 @@ async function main(): Promise<void> {
     timeZone: companyTz,
     canEditMeeting,
     topicMeetingOf: async (agendaItemId) => (await topicLookup.findById(agendaItemId))?.meetingId ?? null,
-    onChanged: (meetingId) => { if (meetingId) broadcastMeetingChange(meetingId, 'meeting:action-items'); },
+    onChanged: (meetingId) => {
+      dashboardPriorities.changed(); // 1.23.4: everyone's "My Priorities Today" is read again
+      if (meetingId) broadcastMeetingChange(meetingId, 'meeting:action-items');
+    },
   });
   const resolveMeetingProjectId = async (meetingId: string) => (await meetingRepository.accessCore(meetingId))?.projectId ?? null;
+  // 1.23.4 Smarter Dashboard — "My Priorities Today": own open tasks (My Tasks' scope), the team rows of
+  // the projects the person runs (the list scope), approvals (the To approve list's), action items (My
+  // Action Items'), and (1.23.3) the checklist items given to them (My Tasks' "Checklist items for me").
+  const dashboardPriorities = createPrioritiesService({
+    sources: [
+      createPrismaTaskPrioritySource(prisma, {
+        ownProjectIds: (v, pick) => projectAccess.ownProjectIds(v.id, v.roles, pick),
+        listProjectIds: (v, pick) => projectAccess.accessibleProjectIds(v.id, v.roles, pick),
+        openableProjectIds: (v) => projectAccess.accessibleProjectIds(v.id, v.roles),
+      }),
+      createApprovalPrioritySource({ prisma, approvals: approvalSource, listProjectIds: (v, pick) => projectAccess.accessibleProjectIds(v.id, v.roles, pick) }),
+      createActionItemPrioritySource({ prisma, actionItems: actionItemService, canOpenMeeting: async (v, meetingId) => (await meetingAccess.viewOf(v.id, v.roles, meetingId)) !== null }),
+      // 1.23.3: open checklist items given to the person, overdue or due within 3 days (My Tasks' scope).
+      createChecklistPrioritySource({ prisma, mine: (u, p) => checklistQueries.mine(u, p), ownProjectIds: (v, pick) => projectAccess.ownProjectIds(v.id, v.roles, pick) }),
+    ],
+    timeZone: companyTz,
+    isManager: (v) => approvalSource.canApproveAny(v),
+    // An administrator's "Show my projects only" (an administrator may set it for them too): part of the key.
+    scopeKeyOf: async (v) => (isAdminRoles(v.roles) && (await myProjectsOnly(v.id)) ? 'mine' : ''),
+  });
 
   const noteTaskService = createNoteTaskService({
     noteService,
@@ -922,6 +948,8 @@ async function main(): Promise<void> {
   // Timeline lines from the task's checklist, comment, file and blocker routes: filed under the
   // task's project (so project feeds see them), a blocker named by its key and title.
   const recordTaskActivity: RecordTaskActivity = async ({ taskId, userId, action, meta }) => {
+    // 1.23.4 review I3: a blocker added or removed (its routes send no live event) changes priorities.
+    if (action === 'BLOCKER_ADDED' || action === 'BLOCKER_REMOVED') dashboardPriorities.changed();
     const task = await prisma.task.findUnique({ where: { id: taskId }, select: { projectId: true } });
     let details = meta ?? {};
     if (typeof details.dependsOnTaskId === 'string') {
@@ -2014,13 +2042,19 @@ async function main(): Promise<void> {
       const f = await prisma.inspectionForm.findUnique({ where: { id }, select: { id: true, title: true, deletedAt: true } });
       return f ? { id: f.id, title: f.title, deleted: f.deletedAt !== null } : null;
     },
-    userPreferences: createPrismaPreferences(prisma),
+    // 1.23.4: a person's own setting change ("Show my projects only") — their priorities are read again.
+    userPreferences: (() => {
+      const prefs = createPrismaPreferences(prisma);
+      return { ...prefs, set: async (userId: string, patch: Parameters<typeof prefs.set>[1]) => { const saved = await prefs.set(userId, patch); dashboardPriorities.changedFor(userId); return saved; } };
+    })(),
     recordTaskActivity,
     userState: userStateLookup,
     clientAccounts,
     portal,
     clientMinutes: clientMeetingRules.minutes,
     onTaskEvent: (projectId, event, payload) => broadcast(projectId, event, payload),
+    dashboardPriorities,
+    dashboardLayouts: createPrismaDashboardLayoutStore(prisma),
     onChatUserEvent: (userId, event, payload) => broadcastToUser(userId, event, payload),
     chatService,
     logger,
@@ -2317,7 +2351,12 @@ async function main(): Promise<void> {
       void prisma.user.update({ where: { id: userId }, data: { lastActiveAt: new Date() } }).catch(() => {});
     },
   });
-  broadcast = realtime.broadcast;
+  // 1.23.4 (review I3): every task, meeting, project or inspection event — from the routes, MICO AI,
+  // inspections, the repeat sweeps — means everyone's "My Priorities Today" is read again; chat isn't.
+  broadcast = (projectId, event, payload) => {
+    if (changesPriorities(event)) dashboardPriorities.changed();
+    realtime.broadcast(projectId, event, payload);
+  };
   broadcastToUser = realtime.broadcastToUser;
   broadcastToAudience = realtime.broadcastToAudience;
   // A new notification reaches its person's open pages (the bell refreshes; a meeting reminder pops up).
@@ -2329,6 +2368,7 @@ async function main(): Promise<void> {
   // its chat channel (SEC-07).
   onSessionsRevoked = (userId) => realtime.disconnectUser(userId);
   onMemberRemoved = async (projectId, userId) => {
+    dashboardPriorities.changedFor(userId); // 1.23.4: nothing of the project stays on their priorities
     realtime.leaveProject(userId, projectId);
     await chatService.removeProjectParticipant(projectId, userId).catch((err) => logger.error('chat participant cleanup failed', { err, projectId, userId }));
   };
@@ -2338,6 +2378,7 @@ async function main(): Promise<void> {
   // The companies service (people's companies, archive / unarchive) and the project companies rules
   // (a project's companies changed) call it through these hooks.
   const refreshCompanyAccess = (userIds: string[], projectIds: string[] = []): void => {
+    dashboardPriorities.changed(); // 1.23.4: whose projects these are changed — priorities are read again
     if (userIds.length) void realtime.refreshAccess(userIds).catch((err) => logger.error('realtime: refreshing company access failed', { err, userIds }));
     for (const projectId of projectIds) void realtime.refreshProjectAudience(projectId).catch((err) => logger.error('realtime: refreshing a project’s audience failed', { err, projectId }));
   };

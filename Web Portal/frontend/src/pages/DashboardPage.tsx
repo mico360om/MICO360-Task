@@ -1,6 +1,6 @@
 import { dayText, instantDayText } from '../lib/day-words';
-import { useMemo, useState, type ReactNode } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { apiClient } from '../api/client';
 import { projectsApi } from '../api/projects';
@@ -26,6 +26,11 @@ import { STATUS_META, STATUS_ORDER } from '../lib/taskStatus';
 import { Icon } from '../components/meeting/kit';
 import { FirstStepsActions, FirstStepsIcon, useNoProjectsYet } from '../components/FirstSteps';
 import { ApprovalsCard } from '../components/approvals/ApprovalsCard';
+import { useApprovals } from '../components/approvals/ToApproveSection';
+import { PrioritiesWidget } from '../components/dashboard/PrioritiesWidget';
+import { CustomizeIcon, CustomizePanel, type LayoutTarget } from '../components/dashboard/CustomizePanel';
+import { dashboardApi, LAYOUT_DEFAULTS_KEY, MY_LAYOUT_KEY, type DashboardLayout, type LayoutGroup, type WidgetId, type WidgetSize } from '../api/dashboard';
+import { builtInLayout, CUSTOMIZE_WORDS, layoutOrDefault, previewFor, sameLayout } from '../lib/dashboard-layout';
 import { ApprovalChip } from '../components/approvals/ApprovalChip';
 import { isWaitingForApproval } from '../lib/approvals';
 import { myDueCounts } from '../lib/dashboard-tiles';
@@ -99,6 +104,7 @@ function dueMeta(due: string, timeZone: string): { label: string; overdue: boole
 export function DashboardPage() {
   const user = useAuthStore((s) => s.user);
   const isAdmin = useAuthStore((s) => s.isAdmin());
+  const qc = useQueryClient();
   const [projectFilter, setProjectFilter] = useState('');
   // Tasks open in the app shell's task panel, through ?task= in the address (reload, Back, a shared link).
   const openTask = useOpenTask();
@@ -110,6 +116,84 @@ export function DashboardPage() {
   const activityQ = useQuery({ queryKey: ['activity'], queryFn: () => activityApi(apiClient).recent() });
   const statusQ = useQuery({ queryKey: ['report-status'], queryFn: () => reportsApi(apiClient).status(), enabled: isAdmin });
   const perfQ = useQuery({ queryKey: ['report-projects'], queryFn: () => reportsApi(apiClient).projectPerformance(), enabled: isAdmin });
+  // 1.23.4: whether the person can approve (the Approvals widget is theirs only) — the card's own query.
+  const approvalsQ = useApprovals();
+
+  // 1.23.4 Smarter Dashboard: the person's arrangement of the widgets (their own, else their group's default).
+  const layoutQ = useQuery({ queryKey: MY_LAYOUT_KEY, queryFn: () => dashboardApi(apiClient).myLayout(), staleTime: 60_000 });
+  // Only the widgets the person may see (the server's list; while it can't be read, today's visibility).
+  const allowed = (w: { id: WidgetId }) => (Array.isArray(layoutQ.data?.widgets) ? layoutQ.data.widgets.includes(w.id) : w.id === 'status-chart' || w.id === 'completion' ? isAdmin : true);
+  const savedRaw = layoutOrDefault(layoutQ.data?.layout, isAdmin);
+  const saved = { widgets: savedRaw.widgets.filter(allowed) };
+  const [editing, setEditing] = useState<{ target: LayoutTarget; draft: DashboardLayout; reset: boolean } | null>(null);
+  const [said, setSaid] = useState('');
+  const [editError, setEditError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const defaultsQ = useQuery({ queryKey: LAYOUT_DEFAULTS_KEY, queryFn: () => dashboardApi(apiClient).defaults(), enabled: isAdmin && !!editing && editing.target !== 'mine' });
+  const defaultOf = (group: LayoutGroup) => layoutOrDefault(defaultsQ.data?.[group] ?? builtInLayout(group === 'admins'), group === 'admins');
+  // While an administrator arranges a default that hasn't loaded yet, its draft waits for it.
+  const waitingForDefault = !!editing && editing.target !== 'mine' && editing.draft.widgets.length === 0;
+  useEffect(() => {
+    if (!editing || editing.target === 'mine' || editing.draft.widgets.length > 0) return;
+    if (defaultsQ.data) setEditing({ ...editing, draft: defaultOf(editing.target) });
+    else if (defaultsQ.isError) setEditing({ ...editing, draft: builtInLayout(editing.target === 'admins') });
+  }, [defaultsQ.data, defaultsQ.isError, editing]);
+  const layout = editing ? previewFor(editing.draft, editing.target === 'everyone' ? 'everyone' : 'admins') : saved;
+
+  // Focus goes back to "Customize dashboard" when the panel closes (it had moved into the panel).
+  const customizeButton = useRef<HTMLButtonElement>(null);
+  const [backToButton, setBackToButton] = useState(false);
+  useEffect(() => {
+    if (editing || !backToButton) return;
+    customizeButton.current?.focus();
+    setBackToButton(false);
+  }, [editing, backToButton]);
+  const closeEditing = () => {
+    setEditing(null);
+    setBackToButton(true);
+  };
+
+  const startEditing = () => {
+    setEditError(null);
+    setSaid('');
+    setEditing({ target: 'mine', draft: saved, reset: false });
+  };
+  const chooseTarget = (target: LayoutTarget) => {
+    setEditError(null);
+    setEditing({ target, draft: target === 'mine' ? saved : defaultsQ.data ? defaultOf(target) : { widgets: [] }, reset: false });
+    setSaid(`Arranging: ${CUSTOMIZE_WORDS[target]}.`);
+  };
+  const resetDraft = () => {
+    if (!editing) return;
+    const draft = editing.target === 'mine' ? layoutOrDefault(layoutQ.data?.defaultLayout ?? builtInLayout(isAdmin), isAdmin) : builtInLayout(editing.target === 'admins');
+    setEditing({ ...editing, draft, reset: true });
+    setSaid(`${CUSTOMIZE_WORDS.resetDone} ${editing.target === 'mine' ? CUSTOMIZE_WORDS.done : CUSTOMIZE_WORDS.saveDefault} keeps it.`);
+  };
+  async function finishEditing() {
+    if (!editing) return;
+    setSaving(true);
+    setEditError(null);
+    try {
+      const api = dashboardApi(apiClient);
+      if (editing.target === 'mine') {
+        // Someone following the default who changed nothing keeps following it (future defaults reach them).
+        const unchanged = !layoutQ.data?.customized && sameLayout(editing.draft, { widgets: layoutOrDefault(layoutQ.data?.defaultLayout, isAdmin).widgets.filter(allowed) });
+        const answer = await api.saveMyLayout(editing.reset || unchanged ? null : editing.draft);
+        qc.setQueryData(MY_LAYOUT_KEY, answer);
+        setSaid(CUSTOMIZE_WORDS.saved);
+      } else {
+        const answer = await api.saveDefault(editing.target, editing.reset ? null : editing.draft);
+        qc.setQueryData(LAYOUT_DEFAULTS_KEY, answer);
+        await qc.invalidateQueries({ queryKey: MY_LAYOUT_KEY });
+        setSaid(CUSTOMIZE_WORDS.savedDefault(editing.target));
+      }
+      closeEditing();
+    } catch {
+      setEditError(CUSTOMIZE_WORDS.saveFailed);
+    } finally {
+      setSaving(false);
+    }
+  }
 
   const perf = perfQ.data ?? [];
   const totals = perf.reduce(
@@ -152,9 +236,158 @@ export function DashboardPage() {
   // "Friday 30 October", in the company zone.
   const today = instantDayText(new Date(), timeZone, { weekday: 'long', month: 'long', year: false });
 
+  /** Whether a widget can show for this person now (today's visibility: the charts are an administrator's, Approvals an approver's). */
+  const canShow = (id: WidgetId): boolean => {
+    if (id === 'status-chart' || id === 'completion') return isAdmin;
+    if (id === 'approvals') return !!approvalsQ.data?.canApprove;
+    return true;
+  };
+
+  /** One widget, Small or Wide. */
+  function widget(id: WidgetId, size: WidgetSize): ReactNode {
+    switch (id) {
+      case 'priorities':
+        return <PrioritiesWidget onOpenTask={openTask} />;
+      case 'stats':
+        // Each links to the relevant page: an administrator's are the company's totals, everyone else's
+        // their own overdue work and what is due this week. Two to a row on a phone (and when Small).
+        return (
+          <div data-testid="stat-tiles" data-count={4} className={`grid grid-cols-2 gap-3 ${size === 'wide' ? 'lg:grid-cols-4' : ''}`}>
+            <Reveal delay={1} className="h-full"><Link to="/my-tasks" className={TILE_LINK}><StatTile label="My tasks" value={myTasksQ.data?.length ?? '—'} tone="brand" icon={<StatIcon>{icon.tasks}</StatIcon>} hint="Assigned to you" /></Link></Reveal>
+            <Reveal delay={2} className="h-full"><Link to="/projects" className={TILE_LINK}><StatTile label="Projects" value={projectsQ.data?.length ?? '—'} tone="info" icon={<StatIcon>{icon.folder}</StatIcon>} hint="Active workspaces" /></Link></Reveal>
+            {isAdmin ? <Reveal delay={3} className="h-full"><Link to="/reports" className={TILE_LINK}><StatTile label="All tasks" value={perfQ.data ? totals.total : '—'} tone="success" icon={<StatIcon>{icon.layers}</StatIcon>} hint={perfQ.data ? `${totals.completed} completed` : undefined} /></Link></Reveal> : null}
+            {isAdmin ? <Reveal delay={4} className="h-full"><Link to="/reports" className={TILE_LINK}><StatTile label="Overdue" value={perfQ.data ? totals.overdue : '—'} tone="danger" icon={<StatIcon>{icon.alert}</StatIcon>} hint={perfQ.data ? (totals.total ? `${Math.round((totals.overdue / totals.total) * 100)}% of tasks` : 'No tasks yet') : undefined} /></Link></Reveal> : null}
+            {!isAdmin ? <Reveal delay={3} className="h-full"><Link to="/my-tasks" className={TILE_LINK}><StatTile label="Overdue" value={myTasksQ.data ? mine.overdue : '—'} tone="danger" icon={<StatIcon>{icon.alert}</StatIcon>} hint={myTasksQ.data ? (mine.overdue ? 'Past their due day' : 'Nothing late') : undefined} /></Link></Reveal> : null}
+            {!isAdmin ? <Reveal delay={4} className="h-full"><Link to="/my-tasks" className={TILE_LINK}><StatTile label="Due this week" value={myTasksQ.data ? mine.dueThisWeek : '—'} tone="warning" icon={<StatIcon>{icon.week}</StatIcon>} hint={myTasksQ.data ? weekHint : undefined} /></Link></Reveal> : null}
+          </div>
+        );
+      case 'status-chart':
+        return (
+          <Reveal>
+            <section className="card p-5">
+              <h2 className="eyebrow mb-3">Tasks by status</h2>
+              {statusQ.isLoading ? (
+                <div className="skeleton h-40 rounded-lg" aria-label="Loading the status chart" />
+              ) : statusQ.isError ? (
+                <LoadError what="the status chart" onRetry={() => void statusQ.refetch()} />
+              ) : (
+                <BarChart data={statusData} ariaLabel="Tasks by status" />
+              )}
+            </section>
+          </Reveal>
+        );
+      case 'completion':
+        return (
+          <Reveal delay={1}>
+            <section className="card p-5">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <h2 className="eyebrow">Project completion</h2>
+                <div className="w-44">
+                  <SearchableSelect
+                    ariaLabel="Filter by project"
+                    value={projectFilter}
+                    onChange={(v) => setProjectFilter(v)}
+                    options={[{ value: '', label: 'All projects' }, ...perf.map((p) => namedProjectOption(p.projectId, p.projectName, Array.isArray(projectsQ.data) ? projectsQ.data : null))]}
+                  />
+                </div>
+              </div>
+              {/* An outage must not read as "no data yet". */}
+              {perfQ.isLoading ? (
+                <div className="skeleton h-40 rounded-lg" aria-label="Loading project completion" />
+              ) : perfQ.isError ? (
+                <LoadError what="project completion" onRetry={() => void perfQ.refetch()} />
+              ) : (
+                <BarChart data={perfData} unit="%" max={100} ariaLabel="Project completion" />
+              )}
+            </section>
+          </Reveal>
+        );
+      case 'open-tasks':
+        return (
+          <Reveal>
+            <section className="card p-5">
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="eyebrow">Your open tasks</h2>
+                <Link to="/my-tasks" className="tap text-xs font-semibold text-brand hover:underline">View all</Link>
+              </div>
+              {myTasksQ.isLoading ? (
+                <RowsSkeleton label="Loading your tasks" rows={6} stacked={size === 'small'} />
+              ) : myTasksQ.isError ? (
+                <LoadError what="your tasks" onRetry={() => void myTasksQ.refetch()} className="py-4 text-center" />
+              ) : openTasks.length === 0 ? (
+                <EmptyState bare title="Nothing open assigned to you" description="Open tasks assigned to you will appear here." />
+              ) : (
+                <ul className="flex flex-col">
+                  {openTasks.slice(0, 8).map((t) => (
+                    <TaskRow key={t.id} task={t} timeZone={timeZone} onOpen={() => openTask(t.id)} stacked={size === 'small'} />
+                  ))}
+                </ul>
+              )}
+            </section>
+          </Reveal>
+        );
+      case 'approvals':
+        // For the people who can approve tasks (they run a project, or are an admin).
+        return <ApprovalsCard onOpenTask={openTask} />;
+      case 'due-soon':
+        return (
+          <Reveal delay={1}>
+            <section className="card p-5">
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="eyebrow">Due soon</h2>
+                <Link to="/calendar" className="tap text-xs font-semibold text-brand hover:underline">Calendar</Link>
+              </div>
+              {allTasksQ.isLoading ? (
+                <RowsSkeleton label="Loading due tasks" rows={6} stacked={size === 'small'} />
+              ) : allTasksQ.isError ? (
+                // An outage must never read as "all clear".
+                <LoadError what="due tasks" onRetry={() => void allTasksQ.refetch()} className="py-4 text-center" />
+              ) : dueSoon.length === 0 ? (
+                <p className="flex items-center justify-center gap-1.5 py-4 text-center text-sm text-ink-2"><span className="text-success">{Icon.checkCircle}</span>Nothing due — you’re all clear.</p>
+              ) : (
+                <ul className="flex flex-col">
+                  {dueSoon.map((t) => (
+                    <TaskRow key={t.id} task={t} timeZone={timeZone} onOpen={() => openTask(t.id)} showDue stacked={size === 'small'} />
+                  ))}
+                </ul>
+              )}
+            </section>
+          </Reveal>
+        );
+      case 'activity':
+        return (
+          <Reveal delay={2}>
+            <section className="card p-5">
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="eyebrow">Recent activity</h2>
+                <Link to="/activity" className="tap text-xs font-semibold text-brand hover:underline">View all</Link>
+              </div>
+              {activityQ.isError ? (
+                <LoadError what="recent activity" onRetry={() => void activityQ.refetch()} className="py-4 text-center" />
+              ) : activityQ.isLoading ? (
+                <RowsSkeleton label="Loading recent activity" rows={6} activity />
+              ) : recent.length === 0 ? (
+                <p className="py-4 text-center text-sm text-ink-2">No activity yet — new, moved and finished tasks show up here.</p>
+              ) : (
+                <ul className="flex flex-col gap-3">
+                  {recent.map((a) => (
+                    <ActivityRow key={a.id} a={a} onOpenTask={openTask} />
+                  ))}
+                </ul>
+              )}
+            </section>
+          </Reveal>
+        );
+    }
+  }
+
+  // The widgets in the person's order, the hidden ones and those they can't see left out; on day one only
+  // the tiles, then the first steps.
+  const visible = layout.widgets.filter((w) => !w.hidden && canShow(w.id) && (!firstDay || w.id === 'stats'));
+
   return (
     <div className="flex flex-col gap-6">
-      {/* Welcome: one compact band — the greeting on the left, the two ways in on the right. */}
+      {/* Welcome: one compact band — the greeting on the left, the ways in on the right. */}
       <div className="relative overflow-hidden rounded-2xl bg-brand-gradient px-5 py-4 text-white shadow-brand animate-fade-in-up sm:px-6">
         <div className="pointer-events-none absolute -right-10 -top-16 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
         <div className="pointer-events-none absolute -bottom-16 right-24 h-32 w-32 rounded-full bg-black/10 blur-2xl" />
@@ -179,21 +412,61 @@ export function DashboardPage() {
               <Link to="/my-tasks" className={`${BAND_LINK} border border-white/30 bg-white/10 text-white backdrop-blur hover:bg-white/20`}>
                 View my tasks
               </Link>
+              <button
+                ref={customizeButton}
+                type="button"
+                onClick={startEditing}
+                aria-expanded={!!editing}
+                aria-controls="customize-dashboard"
+                // Not while the arrangement is unread: Done would save the built-in default over theirs.
+                disabled={!!editing || !layoutQ.isSuccess}
+                className={`${BAND_LINK} gap-1.5 border border-white/30 bg-white/10 text-white backdrop-blur hover:bg-white/20 disabled:opacity-70`}
+              >
+                <CustomizeIcon />
+                {CUSTOMIZE_WORDS.open}
+              </button>
             </div>
           )}
         </div>
       </div>
 
-      {/* Stat tiles — each links to the relevant page. Four in a row on a wide screen: an administrator's
-          are the company's totals, everyone else's their own overdue work and what is due this week.
-          Two to a row on a phone: one per row took a screenful for four numbers. */}
-      <div data-testid="stat-tiles" data-count={4} className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Reveal delay={1} className="h-full"><Link to="/my-tasks" className={TILE_LINK}><StatTile label="My tasks" value={myTasksQ.data?.length ?? '—'} tone="brand" icon={<StatIcon>{icon.tasks}</StatIcon>} hint="Assigned to you" /></Link></Reveal>
-        <Reveal delay={2} className="h-full"><Link to="/projects" className={TILE_LINK}><StatTile label="Projects" value={projectsQ.data?.length ?? '—'} tone="info" icon={<StatIcon>{icon.folder}</StatIcon>} hint="Active workspaces" /></Link></Reveal>
-        {isAdmin ? <Reveal delay={3} className="h-full"><Link to="/reports" className={TILE_LINK}><StatTile label="All tasks" value={perfQ.data ? totals.total : '—'} tone="success" icon={<StatIcon>{icon.layers}</StatIcon>} hint={perfQ.data ? `${totals.completed} completed` : undefined} /></Link></Reveal> : null}
-        {isAdmin ? <Reveal delay={4} className="h-full"><Link to="/reports" className={TILE_LINK}><StatTile label="Overdue" value={perfQ.data ? totals.overdue : '—'} tone="danger" icon={<StatIcon>{icon.alert}</StatIcon>} hint={perfQ.data ? (totals.total ? `${Math.round((totals.overdue / totals.total) * 100)}% of tasks` : 'No tasks yet') : undefined} /></Link></Reveal> : null}
-        {!isAdmin ? <Reveal delay={3} className="h-full"><Link to="/my-tasks" className={TILE_LINK}><StatTile label="Overdue" value={myTasksQ.data ? mine.overdue : '—'} tone="danger" icon={<StatIcon>{icon.alert}</StatIcon>} hint={myTasksQ.data ? (mine.overdue ? 'Past their due day' : 'Nothing late') : undefined} /></Link></Reveal> : null}
-        {!isAdmin ? <Reveal delay={4} className="h-full"><Link to="/my-tasks" className={TILE_LINK}><StatTile label="Due this week" value={myTasksQ.data ? mine.dueThisWeek : '—'} tone="warning" icon={<StatIcon>{icon.week}</StatIcon>} hint={myTasksQ.data ? weekHint : undefined} /></Link></Reveal> : null}
+      {editing ? (
+        <div id="customize-dashboard">
+          <CustomizePanel
+            isAdmin={isAdmin}
+            target={editing.target}
+            onTarget={chooseTarget}
+            draft={editing.target === 'everyone' ? previewFor(editing.draft, 'everyone') : editing.draft}
+            onChange={(draft, text) => {
+              setEditing({ ...editing, draft, reset: false });
+              setSaid(text);
+            }}
+            status={said}
+            error={editError}
+            saving={saving}
+            loading={waitingForDefault}
+            onReset={resetDraft}
+            onCancel={() => {
+              closeEditing();
+              setEditError(null);
+              setSaid('');
+            }}
+            onDone={() => void finishEditing()}
+          />
+        </div>
+      ) : (
+        <p role="status" aria-live="polite" className="sr-only">
+          {said}
+        </p>
+      )}
+
+      {/* The widgets: two columns on a wide screen (Small = one, Wide = both), one on a phone. */}
+      <div className="grid items-start gap-4 lg:grid-cols-2" data-testid="dashboard-widgets">
+        {visible.map((w) => (
+          <div key={w.id} data-widget={w.id} data-size={w.size} className={`min-w-0 ${w.size === 'wide' ? 'lg:col-span-2' : ''}`}>
+            {widget(w.id, w.size)}
+          </div>
+        ))}
       </div>
 
       {firstDay ? (
@@ -211,124 +484,7 @@ export function DashboardPage() {
             action={<FirstStepsActions />}
           />
         </Reveal>
-      ) : (
-      /* Main content: charts / open tasks (left) + due soon & activity (right rail) */
-      <div className="grid gap-4 lg:grid-cols-3">
-        <div className="flex flex-col gap-4 lg:col-span-2">
-          {isAdmin ? (
-            <>
-              <Reveal>
-                <section className="card p-5">
-                  <h2 className="eyebrow mb-3">Tasks by status</h2>
-                  {statusQ.isLoading ? (
-                    <div className="skeleton h-40 rounded-lg" aria-label="Loading the status chart" />
-                  ) : statusQ.isError ? (
-                    <LoadError what="the status chart" onRetry={() => void statusQ.refetch()} />
-                  ) : (
-                    <BarChart data={statusData} ariaLabel="Tasks by status" />
-                  )}
-                </section>
-              </Reveal>
-              <Reveal delay={1}>
-                <section className="card p-5">
-                  <div className="mb-3 flex items-center justify-between gap-2">
-                    <h2 className="eyebrow">Project completion</h2>
-                    <div className="w-44">
-                      <SearchableSelect
-                        ariaLabel="Filter by project"
-                        value={projectFilter}
-                        onChange={(v) => setProjectFilter(v)}
-                        options={[{ value: '', label: 'All projects' }, ...perf.map((p) => namedProjectOption(p.projectId, p.projectName, Array.isArray(projectsQ.data) ? projectsQ.data : null))]}
-                      />
-                    </div>
-                  </div>
-                  {/* An outage must not read as "no data yet". */}
-                  {perfQ.isLoading ? (
-                    <div className="skeleton h-40 rounded-lg" aria-label="Loading project completion" />
-                  ) : perfQ.isError ? (
-                    <LoadError what="project completion" onRetry={() => void perfQ.refetch()} />
-                  ) : (
-                    <BarChart data={perfData} unit="%" max={100} ariaLabel="Project completion" />
-                  )}
-                </section>
-              </Reveal>
-            </>
-          ) : (
-            <Reveal>
-              <section className="card p-5">
-                <div className="mb-3 flex items-center justify-between">
-                  <h2 className="eyebrow">Your open tasks</h2>
-                  <Link to="/my-tasks" className="tap text-xs font-semibold text-brand hover:underline">View all</Link>
-                </div>
-                {myTasksQ.isLoading ? (
-                  <RowsSkeleton label="Loading your tasks" rows={6} />
-                ) : myTasksQ.isError ? (
-                  <LoadError what="your tasks" onRetry={() => void myTasksQ.refetch()} className="py-4 text-center" />
-                ) : openTasks.length === 0 ? (
-                  <EmptyState bare title="Nothing open assigned to you" description="Open tasks assigned to you will appear here." />
-                ) : (
-                  <ul className="flex flex-col">
-                    {openTasks.slice(0, 8).map((t) => (
-                      <TaskRow key={t.id} task={t} timeZone={timeZone} onOpen={() => openTask(t.id)} />
-                    ))}
-                  </ul>
-                )}
-              </section>
-            </Reveal>
-          )}
-        </div>
-
-        {/* Right rail */}
-        <div className="flex flex-col gap-4">
-          {/* For the people who can approve tasks (they run a project, or are an admin). */}
-          <ApprovalsCard onOpenTask={openTask} />
-          <Reveal delay={1}>
-            <section className="card p-5">
-              <div className="mb-3 flex items-center justify-between">
-                <h2 className="eyebrow">Due soon</h2>
-                <Link to="/calendar" className="tap text-xs font-semibold text-brand hover:underline">Calendar</Link>
-              </div>
-              {allTasksQ.isLoading ? (
-                <RowsSkeleton label="Loading due tasks" rows={6} stacked />
-              ) : allTasksQ.isError ? (
-                // An outage must never read as "all clear".
-                <LoadError what="due tasks" onRetry={() => void allTasksQ.refetch()} className="py-4 text-center" />
-              ) : dueSoon.length === 0 ? (
-                <p className="flex items-center justify-center gap-1.5 py-4 text-center text-sm text-ink-2"><span className="text-success">{Icon.checkCircle}</span>Nothing due — you’re all clear.</p>
-              ) : (
-                <ul className="flex flex-col">
-                  {dueSoon.map((t) => (
-                    <TaskRow key={t.id} task={t} timeZone={timeZone} onOpen={() => openTask(t.id)} showDue stacked />
-                  ))}
-                </ul>
-              )}
-            </section>
-          </Reveal>
-
-          <Reveal delay={2}>
-            <section className="card p-5">
-              <div className="mb-3 flex items-center justify-between">
-                <h2 className="eyebrow">Recent activity</h2>
-                <Link to="/activity" className="tap text-xs font-semibold text-brand hover:underline">View all</Link>
-              </div>
-              {activityQ.isError ? (
-                <LoadError what="recent activity" onRetry={() => void activityQ.refetch()} className="py-4 text-center" />
-              ) : activityQ.isLoading ? (
-                <RowsSkeleton label="Loading recent activity" rows={6} activity />
-              ) : recent.length === 0 ? (
-                <p className="py-4 text-center text-sm text-ink-2">No activity yet — new, moved and finished tasks show up here.</p>
-              ) : (
-                <ul className="flex flex-col gap-3">
-                  {recent.map((a) => (
-                    <ActivityRow key={a.id} a={a} onOpenTask={openTask} />
-                  ))}
-                </ul>
-              )}
-            </section>
-          </Reveal>
-        </div>
-      </div>
-      )}
+      ) : null}
     </div>
   );
 }

@@ -117,6 +117,9 @@ model User {
   // Compact / comfortable rows (1.23.0, anyone's own): 'comfortable' (today's look) | 'compact' — the
   // website's lists, tables and boards denser. Phones and touch screens always stay comfortable.
   density             String     @default("comfortable") @db.VarChar(16)
+  // 1.23.4 Smarter Dashboard: the person's own widget arrangement ({ widgets: [{ id, hidden, size }] });
+  // null = they follow their group's default (administrators' or everyone else's, set by an administrator).
+  dashboardLayout     Json?
   // Per-user notification preferences, e.g. { "muted": ["TASK_COMMENT"] } (null = all enabled).
   notificationPrefs   Json?
   createdAt           DateTime   @default(now())

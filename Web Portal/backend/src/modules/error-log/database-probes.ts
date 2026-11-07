@@ -4,6 +4,7 @@ import type { SearchEngine } from '../search/search-engine';
 import type { SearchScopeAll } from '../search/search-scope';
 import { createPrismaManagementSource } from '../management/prisma-management-source';
 import type { TaskMergeService } from '../task-merge/merge-service';
+import { priorityProbe } from '../dashboard/prisma-priority-sources';
 
 /** An id no row has: every probe below looks only there (nothing found, nothing written). */
 export const NOWHERE = '~database-check~';
@@ -114,6 +115,8 @@ export function databaseProbes({
     },
   });
   if (taskMerge) probes.push({ name: 'merging tasks (locks, late writes, undo)', run: () => taskMerge.selfCheck(NOWHERE) });
+  // 1.23.4 Smarter Dashboard: every statement "My Priorities Today" sends (its own tasks, team rows, dependencies, Done columns, approvals' and action items' projects, meetings).
+  probes.push({ name: 'the Dashboard priorities', run: () => priorityProbe(prisma, NOWHERE, timeZone) });
   if (checklists) probes.push({ name: 'checklists (holding a task while it changes)', run: () => checklists.selfCheck(NOWHERE) });
   return probes;
 }
