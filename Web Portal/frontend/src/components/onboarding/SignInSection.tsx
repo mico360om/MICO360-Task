@@ -138,7 +138,7 @@ export function SignInSection({ user }: { user: ApiUser }) {
         <Button type="button" variant="secondary" size="sm" onClick={() => inviteMut.mutate()} disabled={!emailEnabled || deactivated || self || busy} loading={inviteMut.isPending} aria-describedby={offEmail} className="[@media(pointer:coarse)]:!min-h-11">
           {invited ? 'Resend invitation' : 'Send invitation'}
         </Button>
-        <Button type="button" variant="secondary" size="sm" onClick={() => resetMut.mutate()} disabled={!emailEnabled || deactivated || busy || !!resetBlocked} loading={resetMut.isPending} aria-describedby={resetBlocked ? `${id}-reset-blocked` : offEmail} className="[@media(pointer:coarse)]:!min-h-11">
+        <Button type="button" variant="secondary" size="sm" onClick={() => resetMut.mutate()} disabled={!emailEnabled || deactivated || busy || !!resetBlocked} loading={resetMut.isPending} aria-describedby={cancelled ? `${id}-cancelled` : resetBlocked ? `${id}-reset-blocked` : offEmail} className="[@media(pointer:coarse)]:!min-h-11">
           Send password reset
         </Button>
         {canCancel && !self && !deactivated ? (
@@ -153,13 +153,13 @@ export function SignInSection({ user }: { user: ApiUser }) {
         ) : null}
       </div>
       {deactivated ? <p className="text-xs text-ink-2">The account is deactivated: reactivate it before sending anything.</p> : null}
-      {resetBlocked && !deactivated ? (
+      {resetBlocked && !cancelled && !deactivated ? (
         <p id={`${id}-reset-blocked`} className="text-xs text-ink-2">
           {resetBlocked}
         </p>
       ) : null}
-      {cancelled && neverSignedIn && !deactivated ? (
-        <p className="text-xs text-ink-2">The invitation is cancelled: no way in works until you send a new invitation or set a temporary password.</p>
+      {cancelled && !deactivated ? (
+        <p id={`${id}-cancelled`} className="text-xs text-ink-2">The invitation is cancelled: no way in works until you send a new invitation or set a temporary password.</p>
       ) : null}
       {verifying ? (
         <div className="flex flex-col gap-1.5 rounded-lg border border-line p-3">

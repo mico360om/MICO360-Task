@@ -773,7 +773,7 @@ export function UsersPage() {
         />
       ) : null}
       {creating ? <CreateUserModal onClose={() => setCreating(false)} onCreated={(result) => setNotice(createdNotice(result))} onOpenAccount={openAccount} /> : null}
-      {editing ? <EditUserModal user={editing} onClose={() => setEditing(null)} /> : null}
+      {editing ? <EditUserModal user={users.find((u) => u.id === editing.id) ?? editing} onClose={() => setEditing(null)} /> : null}
       {bulk ? (
         <BulkCompanyDialog
           mode={bulk}
