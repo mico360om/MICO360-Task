@@ -385,7 +385,11 @@ describe('administrators: client accounts', () => {
     expect(created.data.projects).toEqual([expect.objectContaining({ projectId: w.projects.P1, modules: { progress: true, meetings: false }, actions: { comment: true, signOff: false, respond: false, download: false } })]);
     const id = created.data.id;
     expect(await prisma.companyMember.count({ where: { userId: id } })).toBe(0);
-    expect(a.audited.at(-1)).toMatchObject({ module: 'clients', action: 'client.create', entityId: id });
+    expect(a.audited.filter((e) => e.action === 'client.create' && e.entityId === id)).toEqual([expect.objectContaining({ module: 'clients' })]);
+    // 1.23.6: a password typed for a client is a temporary one (changed at the first sign-in), audited without its value.
+    expect(a.audited.at(-1)).toMatchObject({ module: 'users', action: 'user.password.temporary_set', entityId: id });
+    expect(created.data.mustChangePassword).toBe(true);
+    expect(JSON.stringify(a.audited)).not.toContain('Password1!');
 
     expect((await a.post(w.as.admin, '/clients', { firstName: 'X', lastName: 'Y', username: `x_${w.tag}`, email: `x.${w.tag}@cw.test`, password: 'Password1!', projects: [{ projectId: w.projects.P1 }] })).status).toBe(400); // no module
     expect((await a.post(w.as.admin, '/clients', { firstName: 'X', lastName: 'Y', username: `x_${w.tag}`, email: `x.${w.tag}@cw.test`, password: 'Password1!', projects: [{ projectId: 'nope', modules: { progress: true } }] })).status).toBe(400);
