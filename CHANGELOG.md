@@ -80,6 +80,27 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - Cancel invitation in Manage account, for someone who hasn't signed in yet: the link (or an unused
   temporary password) stops, and no way in works — no link, Forgot password or emailed code — until a
   new invitation or a temporary password ("Invitation cancelled").
+- Client Portal permissions: in New client, Manage account and on the Clients page, "Project access" is
+  now a permission matrix you always see — one row per project with a Role (Viewer, Contributor, Approver
+  or Custom) and eight tick boxes: View tasks, View meetings & minutes, Download reports, Receive
+  notifications, Comment, Upload documents, Reply to invites and Sign off. Viewer sees and downloads;
+  Contributor also comments, uploads and replies to invitations; Approver also signs off finished tasks.
+  Picking a role ticks its set; changing a tick makes the row Custom. "Same for all projects" gives every
+  project one role. On a phone each project is a card with the same ticks. Existing clients keep exactly
+  what they had (shown as Custom), with notifications on.
+- Preview as client: a button in the matrix (and on each row of the Clients page) opens the Client portal
+  exactly as that client would see it — with the ticks still on screen, before you save or send the
+  invitation. Every button is shown but switched off ("Preview — nothing you do here is saved or sent");
+  it never signs in as the client.
+- Clients can upload documents to tasks shared with them (with Upload documents). The team sees the file
+  on the task marked "From client" and is told, as for a client's comment. A new "Show to client" tick on
+  any task file (for whoever runs the project) shows it to every client of the project who can view tasks;
+  a client always sees their own uploads. Files are only in the Client portal, never on the share-link page.
+- A bell in the Client portal and Notification settings: clients are told (on the bell and by email) of a
+  reply to their comment, a task ready for their sign-off, a new document shared with them and approved
+  minutes sent to them, and choose which ones they want; meeting invitations always come. When a client
+  has turned minutes off, the minutes email's report and its Sent log say "Not sent" and why.
+- "Clients with access" on a project shows each client's role.
 
 ### Improvements
 - Deactivating or reactivating an account first says what happens (signed out everywhere at once), with
@@ -102,6 +123,12 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   five invitations to one person in 24 hours. Temporary passwords set, changed at first sign-in,
   invitations cancelled and the link lifetime changed are in the audit log (never a password). No
   existing account is asked to change its password.
+- Client Portal permissions are checked on every request (deny by default): a file is opened only
+  through the portal with View tasks (never its stored address), uploads follow the same size, type and
+  content checks as the team's, a client's file name can't hide what it is and always ends in the type it
+  was checked as, and notices go only to clients who may see what they are about. Preview as client is
+  for administrators, only reads, and is in the audit log. A file moved, or merged, into another project
+  (or back again with Undo) is no longer shown to the other project's clients.
 
 ## [1.23.5] - 2026-11-07
 
