@@ -4,7 +4,8 @@ import type { AuthGuard } from '../auth/auth-guard';
 import { NotFoundError } from '../../lib/http-errors';
 import { WELCOME_REFUSAL_WHY, WelcomeEmailUnavailableError, type WelcomeOutcome, type WelcomeService } from '../users/welcome-service';
 import type { ClientAccounts } from './client-accounts';
-import { grantsSchema } from './client-grants';
+import { grantRows, grantWords, grantsSchema } from './client-grants';
+import type { PortalService, PreviewSpec } from './portal-service';
 import { checkOneWayIn, temporaryPasswordFor, wayInFields } from '../users/way-in';
 
 /**
@@ -21,7 +22,24 @@ export interface ClientAccountRouteDeps {
   audit?: { record(entry: { userId: string | null; ip: string | null; module: string; action: string; entityId: string | null; newValue?: unknown }): Promise<unknown> };
   /** 1.23.6: System Settings → Accounts, "Invitation links last" (days; unused temporary passwords too). */
   invitationDays?: () => Promise<number>;
+  /** 1.23.7 Preview as client: the portal's reads (enables POST /clients/preview/…). */
+  portal?: Pick<PortalService, 'previewViewer' | 'home' | 'project' | 'task' | 'meetings' | 'meeting' | 'notices' | 'settings'>;
 }
+
+/**
+ * 1.23.7 Preview as client: whose portal (a saved client, or none yet) and the matrix still on screen
+ * (absent: their saved access). The typed name and organisation of a client not saved yet head the page.
+ */
+const previewBody = z
+  .object({
+    clientId: z.string().trim().min(1).max(64).nullable().optional(),
+    firstName: z.string().trim().max(191).optional(),
+    lastName: z.string().trim().max(191).optional(),
+    organisation: z.string().trim().max(160).nullable().optional(),
+    email: z.string().trim().max(191).optional(),
+    projects: grantsSchema.optional(),
+  })
+  .strict();
 
 const name = z.string().trim().min(1).max(191);
 const optionalText = (max: number) => z.string().trim().max(max).nullable().optional();
@@ -105,6 +123,39 @@ export async function registerClientAccountRoutes(app: FastifyInstance, deps: Cl
     const patch = updateSchema.parse(req.body ?? {});
     return { data: await accounts.update(id, patch, actor(req)) };
   });
+
+  // 1.23.7 Preview as client (administrators): the Client portal exactly as this client would see it, with
+  // the matrix still on screen — before the invitation goes. Every answer is the portal's own read (nothing
+  // here writes or sends), marked a preview; opening one (its home) is audited. It never signs in as the
+  // client and never touches their sessions.
+  if (deps.portal) {
+    const portal = deps.portal;
+    const view = async (req: FastifyRequest) => {
+      const spec = previewBody.parse(req.body ?? {}) as PreviewSpec;
+      return { spec, viewer: await portal.previewViewer(spec) };
+    };
+    const params = (req: FastifyRequest) => req.params as { projectId: string; taskId: string; meetingId: string };
+    const marked = (data: unknown) => ({ data, meta: { preview: true } });
+    app.post('/clients/preview/me', adminOnly, async (req) => {
+      const { spec, viewer } = await view(req);
+      const data = await portal.home(viewer);
+      await deps.audit?.record({
+        userId: req.user!.id,
+        ip: req.ip ?? null,
+        module: 'clients',
+        action: 'client.preview',
+        entityId: spec.clientId ?? null,
+        newValue: { clientId: spec.clientId ?? null, unsaved: Boolean(spec.projects), ...(spec.projects ? { projects: grantRows(spec.projects).map((r) => ({ projectId: r.projectId, access: grantWords(r) })) } : {}) },
+      });
+      return marked(data);
+    });
+    app.post('/clients/preview/projects/:projectId', adminOnly, async (req) => marked(await portal.project((await view(req)).viewer, params(req).projectId)));
+    app.post('/clients/preview/projects/:projectId/tasks/:taskId', adminOnly, async (req) => marked(await portal.task((await view(req)).viewer, params(req).projectId, params(req).taskId)));
+    app.post('/clients/preview/projects/:projectId/meetings', adminOnly, async (req) => marked(await portal.meetings((await view(req)).viewer, params(req).projectId)));
+    app.post('/clients/preview/projects/:projectId/meetings/:meetingId', adminOnly, async (req) => marked(await portal.meeting((await view(req)).viewer, params(req).projectId, params(req).meetingId)));
+    app.post('/clients/preview/notifications', adminOnly, async (req) => marked(await portal.notices((await view(req)).viewer)));
+    app.post('/clients/preview/settings', adminOnly, async (req) => marked(await portal.settings((await view(req)).viewer)));
+  }
 
   // "Clients with access" on a project's page: anyone who can see the project reads it; only
   // administrators change it (on the Clients page or in User Management).

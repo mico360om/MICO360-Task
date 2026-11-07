@@ -133,6 +133,8 @@ export function createPrismaTaskMoveRepository(prisma: PrismaClient): TaskMoveRe
             if (!now || now.projectId !== w.from.projectId || now.key !== w.from.key) throw new TaskMovedConflictError(w.taskId);
             throw new TaskChangedConflictError(w.taskId);
           }
+          // 1.23.7: so does "Show to client" on its files (the new project's clients don't inherit them).
+          await tx.attachment.updateMany({ where: { taskId: w.taskId, clientVisible: true }, data: { clientVisible: false } });
           if (w.addToTeam.length > 0) {
             await tx.projectMember.createMany({ data: w.addToTeam.map((userId) => ({ projectId: w.to.projectId, userId })), skipDuplicates: true });
           }

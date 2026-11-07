@@ -16,6 +16,8 @@ export interface MinutesSendAddress {
 export interface MinutesSendResult {
   email: string;
   ok: boolean;
+  /** 1.23.7: nothing was sent to them on purpose (a client's minutes are off); `error` says why. */
+  notSent?: boolean;
   error?: string;
 }
 

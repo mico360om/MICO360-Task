@@ -54,7 +54,7 @@ describe('database check on a database the migrations built', () => {
     const probes = databaseProbes({ prisma, taskSearch, searchEngine, searchIndex: createSearchIndex({ prisma }), timeZone: 'Asia/Muscat', checklists: createPrismaChecklistStore(prisma) });
     expect(probes.map((p) => p.name)).toContain('checklists (holding a task while it changes)');
     // 1.23.6: the reader's filters, the new kinds, a saved search's count, every kind of the search index.
-    expect(probes.map((p) => p.name)).toEqual(expect.arrayContaining(['a saved search’s count', 'search results: clients, accounts, contacts and checklist items', 'the search index (every kind’s heal and fingerprint)', 'temporary passwords and cancelled invitations']));
+    expect(probes.map((p) => p.name)).toEqual(expect.arrayContaining(['a saved search’s count', 'search results: clients, accounts, contacts and checklist items', 'the search index (every kind’s heal and fingerprint)', 'temporary passwords and cancelled invitations', 'client permissions (roles, uploads, the portal bell)']));
     const check = createDatabaseCheck({ ...prismaDatabaseReads(prisma), probes, record: (p) => void recorded.push(p.text) });
     const r = await check.run();
     expect(r.problems).toEqual([]);

@@ -12,6 +12,8 @@ function toRecord(a: Attachment): AttachmentRecord {
     storageKey: a.storageKey,
     url: a.url,
     createdAt: a.createdAt,
+    fromClient: a.fromClient,
+    clientVisible: a.clientVisible,
   };
 }
 
@@ -30,6 +32,9 @@ export function createPrismaAttachmentRepository(prisma: PrismaClient): Attachme
     },
     async delete(id) {
       await prisma.attachment.delete({ where: { id } });
+    },
+    async setClientVisible(id, visible) {
+      return toRecord(await prisma.attachment.update({ where: { id }, data: { clientVisible: visible } }));
     },
   };
 }

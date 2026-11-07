@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { z } from 'zod';
 import type { AttachmentService } from './attachment-service';
 import type { AuthGuard } from '../auth/auth-guard';
 import { noteActivity, type RecordTaskActivity } from '../activity/task-activity';
@@ -14,7 +15,15 @@ export interface AttachmentRouteDeps {
   canViewTask?: (userId: string, roles: string[], taskId: string) => Promise<boolean>;
   /** Write a line to the task's activity timeline (who did what). */
   recordActivity?: RecordTaskActivity;
+  /** 1.23.7: may this person show a task's files to clients (who runs its project, an administrator)? Enables the route. */
+  canManageTask?: (userId: string, roles: string[], taskId: string) => Promise<boolean>;
+  /** 1.23.7: a file was just shown to clients (their notice). */
+  onShownToClient?: (attachmentId: string) => void | Promise<void>;
+  audit?: { record(entry: { userId: string | null; ip: string | null; module: string; action: string; entityId: string | null; newValue?: unknown }): Promise<unknown> };
 }
+
+/** 1.23.7: who may tick "Show to client" on a file — as for a task's own tick. */
+export const FILE_SHOW_REFUSED = 'Only the project manager or an administrator can show a file to clients.';
 
 export async function registerAttachmentRoutes(app: FastifyInstance, deps: AttachmentRouteDeps): Promise<void> {
   const { attachmentService, guard } = deps;
@@ -57,6 +66,25 @@ export async function registerAttachmentRoutes(app: FastifyInstance, deps: Attac
       throw err;
     }
   });
+
+  // 1.23.7 "Show to client" on a task's file: clients of the project who may view tasks see it in the Client
+  // portal (never on the share-link page). Who runs the project, or an administrator, as for the task's tick.
+  if (deps.canManageTask) {
+    const canManageTask = deps.canManageTask;
+    const visibleBody = z.object({ visible: z.boolean() }).strict();
+    app.put('/tasks/:id/attachments/:attachmentId/client-visible', { preHandler: guard.authenticate }, async (req, reply) => {
+      const { id, attachmentId } = req.params as { id: string; attachmentId: string };
+      if (!(await canView(req, id))) return reply.status(403).send(denied);
+      const { visible } = visibleBody.parse(req.body ?? {});
+      if (!(await canManageTask(req.user!.id, req.user!.roles ?? [], id))) return reply.status(403).send({ error: { code: 'FORBIDDEN', message: FILE_SHOW_REFUSED } });
+      const { before, record } = await attachmentService.setClientVisible(id, attachmentId, visible);
+      if (before !== visible) {
+        await deps.audit?.record({ userId: req.user!.id, ip: req.ip ?? null, module: 'client-view', action: visible ? 'client-view.file.shown' : 'client-view.file.hidden', entityId: attachmentId, newValue: { taskId: id, filename: record.filename } });
+        if (visible) await Promise.resolve(deps.onShownToClient?.(attachmentId)).catch(() => undefined);
+      }
+      return { data: record };
+    });
+  }
 
   app.delete('/attachments/:attachmentId', { preHandler: guard.authenticate }, async (req, reply) => {
     const { attachmentId } = req.params as { attachmentId: string };

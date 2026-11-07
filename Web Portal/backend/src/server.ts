@@ -12,6 +12,7 @@ import { STAFF_ONLY_WHERE, createIsClient } from './modules/clients/client-kind'
 import { createClientAccounts } from './modules/clients/client-accounts';
 import { createPortalService } from './modules/clients/portal-service';
 import { createClientMeetingRules } from './modules/clients/client-meeting-rules';
+import { createClientNotices, type ClientNotices } from './modules/clients/client-notices';
 import { createPrismaWelcomeTokenStore } from './modules/users/prisma-welcome-store';
 import { createHostedApkVersion } from './lib/apk-version';
 import { loadReleaseFile } from './modules/about/build-info';
@@ -581,6 +582,8 @@ async function main(): Promise<void> {
   let onComment: (taskId: string, authorId: string, commentId: string) => Promise<void> = async () => {};
   // 1.23: a reply marked "Visible to client" emails the client whose comment it answers (late-bound: email is made below).
   let onClientReply: (reply: import('./modules/tasks/comment-repository').CommentRecord) => Promise<void> = async () => {};
+  // 1.23.7: client accounts' notices — the portal bell and their emails (late-bound: email is made below).
+  let clientNotices: ClientNotices | null = null;
 
   const commentService = createCommentService({
     repo: createPrismaCommentRepository(prisma),
@@ -1070,6 +1073,8 @@ async function main(): Promise<void> {
     },
     // Approval turned off on one waiting copy: the series' next copy still needs approval.
     keepApprovalOnCopy: (copyId) => prisma.task.update({ where: { id: copyId }, data: { needsApproval: true } }),
+    // 1.23.7: a shared task finished (or approved): clients who may sign it off are told (bell + email).
+    clientReady: async (taskId) => clientNotices?.signOffReady(taskId),
     notify: (n) => notificationService.notify(n),
     record: (entry) => activityService.record(entry),
     onError: (err, taskId) => logger.error('action items could not follow their task', { err, taskId }),
@@ -1567,6 +1572,11 @@ async function main(): Promise<void> {
   const clientMeetingRules = createClientMeetingRules(prisma, { clientMinutesPdf: (projectId, meetingId) => clientAccessService.projectMinutesPdf(projectId, meetingId) });
   const meetingNotifyService = createMeetingNotifyService({
     reach: (meetingId, userId) => clientMeetingRules.reach(meetingId, userId),
+    // 1.23.7: a client invited for the first time sees it on their portal bell too (the email always goes).
+    onInvited: async (meetingId, attendeeIds) => {
+      const rows = await prisma.meetingAttendee.findMany({ where: { id: { in: attendeeIds }, userId: { not: null } }, select: { userId: true } });
+      await clientNotices?.invited(meetingId, rows.flatMap((r) => (r.userId ? [r.userId] : [])));
+    },
     meetings: meetingRepository,
     attendees: {
       listByMeeting: (id) => attendeeService.listAttendees(id),
@@ -2095,37 +2105,24 @@ async function main(): Promise<void> {
     completeActionItem: (itemId) => actionItemService.setStatus(itemId, 'COMPLETED'),
     minutesPdf: (projectId, meetingId) => clientAccessService.projectMinutesPdf(projectId, meetingId),
     taskListPdf: (input) => clientAccessService.projectTaskListPdf(input.projectId, input),
+    // 1.23.7: a client's upload (the staff uploads' rules), a file's bytes for a download, their switches.
+    uploadFile: (taskId, clientId, file) => attachmentService.upload(taskId, clientId, file, { fromClient: true }),
+    readFile: (storageKey) => (attachmentStorage.read ? attachmentStorage.read(storageKey) : Promise.reject(new Error('no read'))),
+    noticeSettings: { settingsOf: (userId) => clientNotices!.settingsOf(userId), setSettings: (userId, patch) => clientNotices!.setSettings(userId, patch) },
     logger,
   });
-  // A team reply marked "Visible to client": an email to the client whose comment it answers — only while
-  // they are an active client with the Comment action on this project and the task is still shown to them.
-  onClientReply = async (reply) => {
-    try {
-      if (!emailService.isConfigured() || !reply.parentId) return;
-      const parent = await prisma.comment.findFirst({ where: { id: reply.parentId, fromClient: true, deletedAt: null }, select: { userId: true } });
-      const task = await prisma.task.findFirst({ where: { id: reply.taskId, deletedAt: null, clientVisible: true }, select: { key: true, title: true, projectId: true, project: { select: { name: true } } } });
-      if (!parent || !task) return;
-      const client = await prisma.user.findFirst({
-        where: { id: parent.userId, deletedAt: null, status: 'ACTIVE', roles: { some: { role: { name: 'CLIENT' } } }, clientGrants: { some: { projectId: task.projectId, progress: true, canComment: true } } },
-        select: { email: true, firstName: true, username: true },
-      });
-      if (!client?.email) return;
-      await emailService.sendClientReply(
-        client.email,
-        {
-          clientName: client.firstName || client.username,
-          projectName: task.project.name,
-          taskKey: task.key,
-          taskTitle: task.title,
-          reply: reply.body,
-          link: `${env.APP_URL.replace(/\/+$/, '')}/portal/projects/${task.projectId}/tasks/${reply.taskId}`,
-        },
-        await documentBrands.email.project(task.projectId).catch(() => undefined),
-      );
-    } catch (err) {
-      logger.error('client reply email failed', { err, commentId: reply.id });
-    }
-  };
+  // 1.23.7 Client notifications (the portal bell and emails): a team reply marked "Visible to client", a task
+  // ready for sign-off, a document shown to them, approved minutes sent to them, an invitation — each only
+  // while they may see it, with "Receive notifications" on their grant and their own switch for the kind.
+  const notices = createClientNotices({
+    prisma,
+    appUrl: env.APP_URL,
+    email: emailService,
+    emailOptions: (projectId) => documentBrands.email.project(projectId),
+    logger,
+  });
+  clientNotices = notices;
+  onClientReply = (reply) => notices.taskReply(reply);
 
   const app = await buildApp({
     about: { release },
@@ -2147,7 +2144,14 @@ async function main(): Promise<void> {
     userState: userStateLookup,
     clientAccounts,
     portal,
-    clientMinutes: clientMeetingRules.minutes,
+    clientMinutes: {
+      ...clientMeetingRules.minutes,
+      // 1.23.7: approved minutes are a kind a client may switch off; the ones who got theirs see it on the bell.
+      notSent: (meetingId, userId) => notices.minutesNotSent(meetingId, userId),
+      sent: (meetingId, userId) => notices.minutesSent(meetingId, userId),
+    },
+    // 1.23.7: a file shown to clients tells them (bell + email).
+    onFileShownToClient: (attachmentId) => notices.documentShown(attachmentId),
     onTaskEvent: (projectId, event, payload) => broadcast(projectId, event, payload),
     dashboardPriorities,
     dashboardLayouts: createPrismaDashboardLayoutStore(prisma),
@@ -2364,7 +2368,14 @@ async function main(): Promise<void> {
     authRateLimitMax: env.AUTH_RATE_LIMIT_MAX,
     idempotencyStore: createPrismaIdempotencyStore(prisma),
     dataExporter: createPrismaDataExporter(prisma),
-    clientView: { service: clientAccessService, secureCookies: env.NODE_ENV === 'production', tasks: clientFlags.tasks, minutes: clientFlags.minutes },
+    clientView: {
+      service: clientAccessService,
+      secureCookies: env.NODE_ENV === 'production',
+      tasks: clientFlags.tasks,
+      minutes: clientFlags.minutes,
+      // 1.23.7: a finished task just shown to clients may be waiting for their sign-off.
+      onTaskShown: (taskId) => notices.signOffReady(taskId),
+    },
     // Project and task templates: due dates skip the company's days off (the meeting hours' working days).
     templateService: createTemplateService({
       repo: createPrismaTemplateRepository(prisma),

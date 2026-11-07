@@ -16,7 +16,7 @@ import { draftFromNotes, minutesFacts, normalizeFinalMinutes, type FinalMinutesC
 import type { FinalMinutesRecord, FinalMinutesRepository } from './final-minutes-repository';
 import type { PdfBrand } from '../companies/company-branding';
 import type { AuditService } from '../audit/audit-service';
-import { MAX_MINUTES_ADDRESSES, type MinutesCopy, type MinutesSendOptions, type RecipientResult } from './meeting-notify-service';
+import { MAX_MINUTES_ADDRESSES, type MinutesCopy, type MinutesNotSent, type MinutesSendOptions, type RecipientResult } from './meeting-notify-service';
 import type { MinutesSendAddress, MinutesSendRepository } from './minutes-send-repository';
 import type { InviteTarget, MeetingInvitees } from './meeting-invitees';
 import type { FinalMinutesAi } from './final-minutes-ai';
@@ -141,7 +141,17 @@ export interface MinutesRouteDeps {
    * approved minutes are shown to clients there; then `pdf` is their client copy, in an email of its
    * own. Otherwise they get nothing.
    */
-  clientMinutes?: { mayHave(meetingId: string, userId: string): Promise<boolean>; pdf(meetingId: string, userId: string): Promise<Buffer | null> };
+  clientMinutes?: {
+    mayHave(meetingId: string, userId: string): Promise<boolean>;
+    pdf(meetingId: string, userId: string): Promise<Buffer | null>;
+    /**
+     * 1.23.7: approved minutes are a notification kind — why a client who may have them gets none (they
+     * switched minutes off, or "Receive notifications" is off on their grant), else null.
+     */
+    notSent?(meetingId: string, userId: string): Promise<string | null>;
+    /** 1.23.7: their client copy went: its line on the portal bell. */
+    sent?(meetingId: string, userId: string): Promise<void>;
+  };
   /**
    * 1.23 Meeting series: the meeting's series and the open action items of its earlier meetings, as
    * `who` sees them (`ownOnly`: an invitee's own copy — only their own items). Absent: no series facts.
@@ -420,9 +430,11 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
     // (no live notes, no one else's action items, no task keys), and only once the minutes are final;
     // nothing before. The team (and guests by email) get the shared PDF, as before.
     const attachmentFor = copyOf
-      ? async (userId: string): Promise<Buffer | null | undefined> => {
+      ? async (userId: string): Promise<Buffer | null | undefined | MinutesNotSent> => {
           const copy = await copyOf(userId);
           if (copy === 'shared') return undefined;
+          // 1.23.7: a client whose minutes are off: nothing, and the report and the log say why.
+          if (copy === 'off') return { notSent: (await deps.clientMinutes?.notSent?.(id, userId)) ?? 'not sent' };
           if (copy !== 'own') return null;
           // 1.23: a client's own copy is the client copy of the shown minutes (never the team's PDF).
           if (deps.rolesOf && isClientRoles(await deps.rolesOf(userId))) return deps.clientMinutes ? deps.clientMinutes.pdf(id, userId) : null;
@@ -437,6 +449,13 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
     };
     const result = Object.keys(opts).length ? await deps.notify.sendMinutes(id, pdf, opts) : await deps.notify.sendMinutes(id, pdf);
     await keepSend(req, id, final, result);
+    // 1.23.7: a client who got their copy sees it on their portal bell too.
+    if (deps.clientMinutes?.sent && deps.rolesOf) {
+      for (const r of result.recipients ?? []) {
+        if (!r.ok || r.copy !== 'own' || !r.userId) continue;
+        if (isClientRoles(await deps.rolesOf(r.userId).catch(() => []))) await deps.clientMinutes.sent(id, r.userId).catch(() => undefined);
+      }
+    }
     return { data: result };
   });
 
@@ -449,8 +468,12 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
     if (!viewOfMeeting && !deps.rolesOf) return undefined;
     return async (userId) => {
       const roles = deps.rolesOf ? await deps.rolesOf(userId) : [];
-      // 1.23 (security review): a client gets only the client copy of minutes shown to them, else nothing.
-      if (isClientRoles(roles)) return deps.clientMinutes && (await deps.clientMinutes.mayHave(meetingId, userId)) ? 'own' : 'none';
+      // 1.23 (security review): a client gets only the client copy of minutes shown to them, else nothing;
+      // 1.23.7: and only while their minutes notifications are on ('off' says why not).
+      if (isClientRoles(roles)) {
+        if (!deps.clientMinutes || !(await deps.clientMinutes.mayHave(meetingId, userId))) return 'none';
+        return (await deps.clientMinutes.notSent?.(meetingId, userId)) ? 'off' : 'own';
+      }
       if (!viewOfMeeting) return 'shared';
       const view = await viewOfMeeting(userId, roles, meetingId);
       if (view === 'full') return 'shared';
@@ -481,7 +504,7 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
         final,
         to,
         cc,
-        results: people.map((r) => ({ email: r.email, ok: r.ok, ...(r.error ? { error: r.error } : {}) })),
+        results: people.map((r) => ({ email: r.email, ok: r.ok, ...(r.notSent ? { notSent: true } : {}), ...(r.error ? { error: r.error } : {}) })),
       });
     } catch {
       // The email went out; only its line in the log is missing.

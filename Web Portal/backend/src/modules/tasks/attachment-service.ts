@@ -39,7 +39,8 @@ export function createAttachmentService({
     if (!(await taskLookup.exists(taskId))) throw new NotFoundError('Task not found.');
   }
 
-  async function upload(taskId: string, uploadedById: string, file: UploadedFile): Promise<AttachmentRecord> {
+  /** `fromClient`: 1.23.7, a client's upload from the Client portal (same rules as everyone's). */
+  async function upload(taskId: string, uploadedById: string, file: UploadedFile, opts: { fromClient?: boolean } = {}): Promise<AttachmentRecord> {
     await ensureTask(taskId);
     if (file.content.length === 0) throw new ValidationError('File is empty.');
     if (file.content.length > maxSizeBytes) {
@@ -74,9 +75,20 @@ export function createAttachmentService({
       sizeBytes,
       storageKey,
       url,
+      ...(opts.fromClient ? { fromClient: true } : {}),
     });
     await onChanged?.(taskId);
     return created;
+  }
+
+  /** 1.23.7 "Show to client" on one of a task's files (NotFound when it isn't that task's). */
+  async function setClientVisible(taskId: string, id: string, visible: boolean): Promise<{ before: boolean; record: AttachmentRecord }> {
+    const rec = await repo.findById(id);
+    if (!rec || rec.taskId !== taskId) throw new NotFoundError('Attachment not found.');
+    if (!repo.setClientVisible) throw new ValidationError('Files can’t be shown to clients here.');
+    const before = rec.clientVisible === true;
+    const record = before === visible ? rec : await repo.setClientVisible(id, visible);
+    return { before, record };
   }
 
   async function list(taskId: string): Promise<AttachmentRecord[]> {
@@ -113,7 +125,7 @@ export function createAttachmentService({
     return officePreview(await storage.read(rec.storageKey), rec.filename);
   }
 
-  return { upload, list, remove, get, preview };
+  return { upload, list, remove, get, preview, setClientVisible };
 }
 
 export type AttachmentService = ReturnType<typeof createAttachmentService>;

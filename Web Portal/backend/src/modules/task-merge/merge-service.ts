@@ -952,8 +952,13 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
         })),
       (rowIds) => tx.notification.updateMany({ where: { id: { in: rowIds } }, data: { entityId: main.id, projectId } }),
     );
+    // 1.23.7: "Show to client" on a file belongs to its project's Client portal — a file leaving its project
+    // (the main task moving, or a file coming from another project's task) loses the tick, as a moved task does.
+    if (projectChanges) await tx.attachment.updateMany({ where: { taskId: main.id, clientVisible: true }, data: { clientVisible: false } });
     for (const f of plan.files) item('attachment', f.id, f.fromTaskId);
     if (plan.files.length) await tx.attachment.updateMany({ where: { id: { in: plan.files.map((f) => f.id) } }, data: { taskId: main.id } });
+    const leaving = plan.files.filter((f) => others.find((t) => t.id === f.fromTaskId)?.projectId !== projectId).map((f) => f.id);
+    if (leaving.length) await tx.attachment.updateMany({ where: { id: { in: leaving }, clientVisible: true }, data: { clientVisible: false } });
     for (const l of plan.lists) {
       item('checklistList', l.id, l.fromTaskId, { position: l.position, title: l.title });
       await tx.checklistList.update({ where: { id: l.id }, data: { taskId: main.id, position: l.newPosition, title: l.newTitle } });
@@ -1077,7 +1082,7 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
     return prisma.$transaction(async (tx) => {
       const [head] = await tx.$queryRaw<{ mainTaskId: string; undoneAt: Date | null }[]>`SELECT mainTaskId, undoneAt FROM task_merges WHERE id = ${mergeId} FOR UPDATE`;
       if (!head || head.undoneAt) return 0;
-      const merged = await tx.task.findMany({ where: { mergeId, mergedIntoId: head.mainTaskId }, select: { id: true } });
+      const merged = await tx.task.findMany({ where: { mergeId, mergedIntoId: head.mainTaskId }, select: { id: true, projectId: true } });
       if (merged.length === 0) return 0;
       await tx.$queryRaw`SELECT id FROM tasks WHERE id IN (${Prisma.join([head.mainTaskId, ...merged.map((t) => t.id)])}) FOR UPDATE`;
       const main = await tx.task.findUnique({ where: { id: head.mainTaskId }, select: { id: true, projectId: true } });
@@ -1096,6 +1101,10 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
         const files = (await tx.attachment.findMany({ where: { taskId: t }, select: { id: true } })).filter((f) => !isKept('keepAttachment', f.id, t));
         for (const f of files) item('attachment', f.id, t);
         if (files.length) await tx.attachment.updateMany({ where: { id: { in: files.map((f) => f.id) } }, data: { taskId: main.id } });
+        // 1.23.7: a file from another project's task loses "Show to client" (see the merge above).
+        if (files.length && merged.find((m) => m.id === t)?.projectId !== main.projectId) {
+          await tx.attachment.updateMany({ where: { id: { in: files.map((f) => f.id) }, clientVisible: true }, data: { clientVisible: false } });
+        }
         // 1.23.3: a checklist made late moves whole, as at the merge; a late item keeps its checklist (moved
         // now or at the merge), and one in none is given the main task's first by the checklist service.
         const lateKey = (await tx.task.findUnique({ where: { id: t }, select: { key: true } }))?.key ?? '';

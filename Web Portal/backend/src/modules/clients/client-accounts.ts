@@ -5,7 +5,7 @@ import type { UserService } from '../users/user-service';
 import type { TemporaryPasswordMark } from '../users/user-repository';
 import { ARCHIVE_SELECT, archivedOf } from '../companies/project-archive';
 import { CLIENT_ONLY_WHERE, CLIENT_ROLE } from './client-kind';
-import { GRANT_WORDS, grantOf, grantRows, grantWords, type ClientGrant, type GrantRow } from './client-grants';
+import { GRANT_COLUMNS, GRANT_WORDS, grantOf, grantRow, grantRows, grantWords, roleOf, type ClientGrant, type ClientRoleName, type GrantRow } from './client-grants';
 import { accountProblems, organisationProblem, phoneProblem } from '../../lib/account-rules';
 import { fieldProblem } from '../users/user-service';
 import { liveInvitation, onboardingStatus, type OnboardingStatus } from '../users/onboarding-status';
@@ -111,13 +111,7 @@ const accountSelect = {
   roles: { select: { role: { select: { name: true } } } },
   clientGrants: {
     select: {
-      projectId: true,
-      progress: true,
-      meetings: true,
-      canComment: true,
-      canSignOff: true,
-      canRespond: true,
-      canDownload: true,
+      ...GRANT_COLUMNS,
       project: { select: { code: true, name: true, deletedAt: true, mainCompany: { select: { name: true } }, ...ARCHIVE_SELECT } },
     },
   },
@@ -225,7 +219,7 @@ export function createClientAccounts(deps: ClientAccountsDeps) {
   };
   const grantsForLog = (projects: ClientProjectAccess[] | GrantRow[]) =>
     projects.map((p) => {
-      const r = 'modules' in p ? { projectId: p.projectId, progress: p.modules.progress, meetings: p.modules.meetings, canComment: p.actions.comment, canSignOff: p.actions.signOff, canRespond: p.actions.respond, canDownload: p.actions.download } : p;
+      const r = 'modules' in p ? grantRow(p) : p;
       return { projectId: r.projectId, access: grantWords(r) };
     });
 
@@ -326,24 +320,18 @@ export function createClientAccounts(deps: ClientAccountsDeps) {
      * "Clients with access" on a project's page: who may open it in the Client portal and what each may
      * do. Only active client accounts; their email and organisation, never anything of the portal itself.
      */
-    async forProject(projectId: string): Promise<{ id: string; name: string; organisation: string | null; email: string; status: string; access: string[]; modules: ClientGrant['modules']; actions: ClientGrant['actions'] }[]> {
+    async forProject(projectId: string): Promise<{ id: string; name: string; organisation: string | null; email: string; status: string; role: ClientRoleName; access: string[]; modules: ClientGrant['modules']; actions: ClientGrant['actions'] }[]> {
       const rows = await prisma.clientProjectGrant.findMany({
         where: { projectId, user: { deletedAt: null, ...CLIENT_ONLY_WHERE } },
         select: {
-          projectId: true,
-          progress: true,
-          meetings: true,
-          canComment: true,
-          canSignOff: true,
-          canRespond: true,
-          canDownload: true,
+          ...GRANT_COLUMNS,
           user: { select: { id: true, firstName: true, lastName: true, email: true, organisation: true, status: true } },
         },
       });
       return rows
         .map((r) => {
           const g = grantOf(r);
-          return { id: r.user.id, name: `${r.user.firstName} ${r.user.lastName}`.trim(), organisation: r.user.organisation ?? null, email: r.user.email, status: r.user.status, access: grantWords(r), modules: g.modules, actions: g.actions };
+          return { id: r.user.id, name: `${r.user.firstName} ${r.user.lastName}`.trim(), organisation: r.user.organisation ?? null, email: r.user.email, status: r.user.status, role: roleOf(r), access: grantWords(r), modules: g.modules, actions: g.actions };
         })
         .sort((a, b) => a.name.localeCompare(b.name));
     },

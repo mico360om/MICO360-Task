@@ -257,6 +257,48 @@ describe('Minutes email route', () => {
     expect([await copyOf('u1'), await copyOf('c-no'), await copyOf('c-ok')]).toEqual(['shared', 'none', 'own']);
   });
 
+  // 1.23.7: approved minutes are a notification kind a client may switch off (and "Receive notifications"
+  // on their grant): then no copy goes — the preview, the send report and the log say why — and a client
+  // who got their copy gets its line on the portal bell.
+  it('a client whose minutes are off gets no copy (copy "off", with why); one who got theirs is told on the bell', async () => {
+    const notify = notifyFake();
+    notify.sendMinutes.mockImplementation(async () => ({
+      sent: 1,
+      failed: 0,
+      recipients: [
+        { name: 'C Ok', email: 'ok@c.test', kind: 'member', ok: true, line: 'to', copy: 'own', userId: 'c-ok' },
+        { name: 'C Off', email: 'off@c.test', kind: 'member', ok: false, notSent: true, error: 'not sent — the client turned these off', line: 'to', copy: 'own', userId: 'c-off' },
+      ],
+      skipped: [],
+    }) as never);
+    const clientPdf = Buffer.from('%PDF-client-copy');
+    const told: string[] = [];
+    const sends = { create: vi.fn(async () => ({})), listByMeeting: async () => [], suggestions: async () => [] };
+    const app = await makeApp({}, undefined, notify, {
+      userState: async (u: string) => ({ tokenVersion: 0, active: true, roles: u.startsWith('c-') ? ['CLIENT'] : ['EMPLOYEE'] }),
+      minutesSendRepository: sends,
+      clientMinutes: {
+        mayHave: async () => true,
+        pdf: async () => clientPdf,
+        notSent: async (_m: string, u: string) => (u === 'c-off' ? 'not sent — the client turned these off' : null),
+        sent: async (_m: string, u: string) => void told.push(u),
+      },
+    });
+    const auth = `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}`;
+    const id = (await app.inject({ method: 'POST', url: '/api/v1/meetings', headers: { authorization: auth }, payload: { title: 'Board sync', startAt: '2026-10-01T09:00:00Z' } })).json().data.id;
+    const r = await app.inject({ method: 'POST', url: `/api/v1/meetings/${id}/minutes/send`, headers: { authorization: auth } });
+    expect(r.statusCode).toBe(200);
+    const { attachmentFor } = (notify.sendMinutes.mock.calls[0] as unknown as [string, Buffer, { attachmentFor: (u: string) => Promise<unknown> }])[2];
+    expect(await attachmentFor('c-off')).toEqual({ notSent: 'not sent — the client turned these off' });
+    expect(await attachmentFor('c-ok')).toEqual(clientPdf);
+    expect(told).toEqual(['c-ok']);
+    // The log keeps the reason beside the address.
+    expect(sends.create).toHaveBeenCalledWith(expect.objectContaining({ results: expect.arrayContaining([{ email: 'off@c.test', ok: false, notSent: true, error: 'not sent — the client turned these off' }]) }));
+    await app.inject({ method: 'GET', url: `/api/v1/meetings/${id}/minutes/preview`, headers: { authorization: auth } });
+    const { copyOf } = (notify.previewMinutes.mock.calls[0] as unknown as [string, { copyOf: (u: string) => Promise<string> }])[1];
+    expect([await copyOf('c-ok'), await copyOf('c-off')]).toEqual(['own', 'off']);
+  });
+
   it('without the companies rules a client still never gets the shared minutes', async () => {
     const notify = notifyFake();
     const app = await makeApp({}, undefined, notify, { userState: async (u: string) => ({ tokenVersion: 0, active: true, roles: u.startsWith('c-') ? ['CLIENT'] : ['EMPLOYEE'] }) });

@@ -26,6 +26,10 @@ export interface PortalActions {
   signOff: boolean;
   respond: boolean;
   download: boolean;
+  /** 1.23.7: upload documents to shared tasks (with View tasks). */
+  upload: boolean;
+  /** 1.23.7: notices about this project reach them (the portal bell and emails). */
+  notify: boolean;
 }
 
 export const modulesOf = (g: GrantRow): PortalModules => ({ progress: g.progress === true, meetings: g.meetings === true });
@@ -34,6 +38,8 @@ export const actionsOf = (g: GrantRow): PortalActions => ({
   signOff: g.progress === true && g.canSignOff === true,
   respond: g.meetings === true && g.canRespond === true,
   download: (g.progress === true || g.meetings === true) && g.canDownload === true,
+  upload: g.progress === true && g.canUpload === true,
+  notify: (g.progress === true || g.meetings === true) && g.canNotify === true,
 });
 
 export interface PortalProjectSource {
@@ -240,20 +246,77 @@ export function portalComments(rows: readonly PortalCommentSource[], clientId: s
     }));
 }
 
+// ── Files (1.23.7) ───────────────────────────────────────────────────────────
+
+export interface PortalFileSource {
+  id: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  createdAt: Date;
+  uploadedById: string;
+  fromClient: boolean;
+  clientVisible: boolean;
+}
+
+export interface PortalFile {
+  id: string;
+  name: string;
+  /** Its type ('application/pdf'). */
+  type: string;
+  sizeBytes: number;
+  addedAt: string;
+  /** 'you': their own upload; 'team': a file the team shows to clients (never who uploaded it). */
+  from: 'you' | 'team';
+}
+
+/** Is this file one a client may see: shown to clients ("Show to client"), or their own upload. */
+export const clientMaySeeFile = (f: Pick<PortalFileSource, 'clientVisible' | 'fromClient' | 'uploadedById'>, clientId: string): boolean =>
+  f.clientVisible === true || (f.fromClient === true && f.uploadedById === clientId);
+
+/**
+ * A shared task's files as a client sees them: the ones the team shows to clients and their own uploads —
+ * never a staff file that isn't shown, or another client's upload the team hasn't shown. Never where it is
+ * stored (it is downloaded through the portal) or who uploaded it.
+ */
+export function portalFiles(rows: readonly PortalFileSource[], clientId: string): PortalFile[] {
+  return rows
+    .filter((f) => clientMaySeeFile(f, clientId))
+    .map((f) => ({
+      id: String(f.id),
+      name: String(f.filename),
+      type: String(f.mimeType),
+      sizeBytes: Number(f.sizeBytes),
+      addedAt: f.createdAt.toISOString(),
+      from: f.fromClient === true && f.uploadedById === clientId ? ('you' as const) : ('team' as const),
+    }));
+}
+
 export interface PortalTaskView {
   task: PortalTaskItem & { description: string | null };
   /** Null without the Comment action (the thread isn't shown). */
   comments: PortalComment[] | null;
-  can: { comment: boolean; signOff: boolean };
+  /** 1.23.7: the files shown to clients and their own uploads. */
+  files: PortalFile[];
+  can: { comment: boolean; signOff: boolean; upload: boolean };
 }
 
-export function portalTaskView(t: PortalTaskSource, grant: GrantRow, comments: readonly PortalCommentSource[] | null, clientId: string, timeZone: string, now: Date): PortalTaskView {
+export function portalTaskView(
+  t: PortalTaskSource,
+  grant: GrantRow,
+  comments: readonly PortalCommentSource[] | null,
+  clientId: string,
+  timeZone: string,
+  now: Date,
+  files: readonly PortalFileSource[] = [],
+): PortalTaskView {
   const item = portalTask(t, timeZone, now);
   const actions = actionsOf(grant);
   return {
     task: { ...item, description: item.hasDescription ? String(t.description) : null },
     comments: actions.comment && comments ? portalComments(comments, clientId) : null,
-    can: { comment: actions.comment, signOff: actions.signOff && item.awaitingSignOff },
+    files: portalFiles(files, clientId),
+    can: { comment: actions.comment, signOff: actions.signOff && item.awaitingSignOff, upload: actions.upload },
   };
 }
 

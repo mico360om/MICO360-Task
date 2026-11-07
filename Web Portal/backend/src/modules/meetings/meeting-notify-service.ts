@@ -31,7 +31,12 @@ export interface MeetingMailer {
 export type MinutesAddressee = { userId: string } | { email: string };
 
 /** Which copy of the minutes a person gets: the shared email, their own (another company), later (once final) or none. */
-export type MinutesCopy = 'shared' | 'own' | 'later' | 'none';
+export type MinutesCopy = 'shared' | 'own' | 'later' | 'none' | 'off';
+
+/** 1.23.7: a client who gets no minutes because these notifications are off, and the words saying why. */
+export interface MinutesNotSent {
+  notSent: string;
+}
 
 /** The most addresses one minutes send may go to (Mailjet takes 50 per email). */
 export const MAX_MINUTES_ADDRESSES = 50;
@@ -71,6 +76,8 @@ export interface MeetingNotifyDeps {
    * invitations, updates, cancellations and the minutes' default lines. Absent: everyone may.
    */
   reach?: (meetingId: string, userId: string) => Promise<boolean>;
+  /** 1.23.7: attendees invited for the first time (their invitation was delivered): a client's portal bell. */
+  onInvited?: (meetingId: string, attendeeIds: string[]) => void | Promise<void>;
 }
 
 /** Per-recipient outcome of a send: how many emails were delivered and how many failed. */
@@ -102,6 +109,8 @@ export interface RecipientResult {
   copy?: 'shared' | 'own';
   /** The minutes: their account, when they have one. */
   userId?: string;
+  /** 1.23.7: nothing was sent to them on purpose (a client's minutes are off); `error` says why. */
+  notSent?: boolean;
 }
 
 /** An explicit send's outcome: totals, each recipient's result, and who had no address. */
@@ -147,7 +156,7 @@ export interface MinutesSendOptions {
    * Companies: a user's own copy — a Buffer is theirs (sent in an email of their own), null sends
    * them nothing, undefined the shared email. Addresses that aren't anyone's always get the shared email.
    */
-  attachmentFor?: (userId: string) => Promise<Buffer | null | undefined>;
+  attachmentFor?: (userId: string) => Promise<Buffer | null | undefined | MinutesNotSent>;
   /**
    * 1.22 review: may the sender see this account's name — a colleague (they share a company)? Asked
    * of a typed address that is someone's account but not one of the meeting's people. No: it is shown
@@ -632,6 +641,10 @@ export function createMeetingNotifyService(deps: MeetingNotifyDeps): MeetingNoti
           await meetings.markInvitesSent(m.id, at);
           await attendees.markInvited?.(reached.flatMap((x) => x.attendeeIds), at);
         }
+        // 1.23.7: people invited for the first time (not an update of an invitation they already have).
+        const firstTime = new Set(targets.filter((t) => !t.alreadyInvited).map((t) => t.email.toLowerCase()));
+        const newly = reached.filter((x) => firstTime.has(x.email.toLowerCase())).flatMap((x) => x.attendeeIds);
+        if (newly.length && deps.onInvited) await Promise.resolve(deps.onInvited(m.id, newly)).catch(() => undefined);
       }
       return report({ sent: r.sent, failed: r.failed, results: r.results.map(resultOf) }, opts?.onlyNew ? [] : missingEmail);
     },
@@ -722,6 +735,8 @@ export function createMeetingNotifyService(deps: MeetingNotifyDeps): MeetingNoti
       // their own, or none yet — never the shared PDF, and the shared email doesn't list them.
       const own = new Map<string, Buffer>();
       const going: typeof chosen = [];
+      // 1.23.7: clients whose minutes are off — listed in the report and the log as not sent, with why.
+      const notSent: Array<(typeof chosen)[number] & { why: string }> = [];
       for (const r of chosen) {
         const account = r.userId ?? r.accountId;
         const theirs = account && opts?.attachmentFor ? await opts.attachmentFor(account) : undefined;
@@ -729,8 +744,15 @@ export function createMeetingNotifyService(deps: MeetingNotifyDeps): MeetingNoti
           skipped.push({ name: r.name, reason: 'can’t get these minutes yet' });
           continue;
         }
+        if (theirs && !Buffer.isBuffer(theirs)) {
+          notSent.push({ ...r, why: theirs.notSent });
+          continue;
+        }
         if (theirs) own.set(r.email.toLowerCase(), theirs);
         going.push(r);
+      }
+      if (going.length === 0 && notSent.length > 0) {
+        return { sent: 0, failed: 0, recipients: notSent.map((r) => ({ name: r.name, email: r.email, kind: r.kind, ok: false, notSent: true, error: r.why, line: r.line, copy: 'own' as const, ...(r.userId ? { userId: r.userId } : {}) })), skipped };
       }
 
       const params = { ...(await emailParams(m, organizer)), project: await projectLook(m) };
@@ -789,7 +811,8 @@ export function createMeetingNotifyService(deps: MeetingNotifyDeps): MeetingNoti
       if (sent === 0 && failed > 0 && notConfigured === failed) {
         throw new HttpError('Email sending is not configured, so nothing was sent.', 'EMAIL_NOT_CONFIGURED', 503);
       }
-      return { sent, failed, recipients: going.map((r) => outcome.get(r.email.toLowerCase())!), skipped };
+      const held = notSent.map((r): RecipientResult => ({ name: r.name, email: r.email, kind: r.kind, ok: false, notSent: true, error: r.why, line: r.line, copy: 'own', ...(r.userId ? { userId: r.userId } : {}) }));
+      return { sent, failed, recipients: [...going.map((r) => outcome.get(r.email.toLowerCase())!), ...held], skipped };
     },
 
     async previewMinutes(meetingId, opts) {

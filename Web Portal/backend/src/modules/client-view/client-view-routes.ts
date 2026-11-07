@@ -56,6 +56,8 @@ export interface ClientViewRouteDeps {
   audit?: AuditService;
   /** Tells open boards a task changed. */
   broadcast?: (projectId: string, event: string, payload: unknown) => void;
+  /** 1.23.7: a task was just shown to clients (a finished one may be waiting for their sign-off). */
+  onTaskShown?: (taskId: string) => void | Promise<void>;
   /** Tells open meeting pages the minutes changed. */
   onMinutesChanged?: (meetingId: string) => void;
   /** Per IP address, a minute: code requests (default 5) and code tries (default 10); minutes PDFs per signed-in device (default 10). */
@@ -209,6 +211,7 @@ export async function registerClientViewRoutes(app: FastifyInstance, deps: Clien
       if (before !== visible) {
         await noteActivity(deps.recordActivity, { taskId: id, userId: user.id, action: 'UPDATED', meta: { changes: [{ field: 'clientVisible', from: before, to: visible }] } });
         await audit(req, visible ? 'client-view.task.shown' : 'client-view.task.hidden', id, { projectId });
+        if (visible) await Promise.resolve(deps.onTaskShown?.(id)).catch(() => undefined);
       }
       // 1.23: its description in the Client portal (a tick of its own, only while the task is shown).
       const afterDescription = task.clientShowDescription === true;

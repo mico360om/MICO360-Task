@@ -198,6 +198,8 @@ export interface AppDeps extends AuthRouteDeps {
   /** Object-level view authorization (T2.7). When present, task/column/member/comment reads are gated to accessible projects. */
   projectAccess?: ProjectAccess;
   taskService?: TaskService;
+  /** 1.23.7: a task's file was shown to clients ("Show to client"): their notices. */
+  onFileShownToClient?: (attachmentId: string) => void | Promise<void>;
   /** Moving tasks to another project (move-targets, move-preview, move-to-project). */
   taskMoveService?: TaskMoveService;
   /** 1.23.1 Merge tasks: the merge dialog, the merge, a main task's "Merged from" panel and Undo. */
@@ -246,7 +248,7 @@ export interface AppDeps extends AuthRouteDeps {
   /** 1.23 The Client portal's reads and actions (client accounts only). */
   portal?: PortalService;
   /** 1.23: the client copy of shown minutes for a client the minutes are emailed to (else they get nothing). */
-  clientMinutes?: { mayHave(meetingId: string, userId: string): Promise<boolean>; pdf(meetingId: string, userId: string): Promise<Buffer | null> };
+  clientMinutes?: import('./modules/meetings/minutes-routes').MinutesRouteDeps['clientMinutes'];
   /** PDFs a client may download a minute from the portal (default 10). */
   portalPdfsPerMinute?: number;
   notificationService?: NotificationService;
@@ -358,7 +360,7 @@ export interface AppDeps extends AuthRouteDeps {
    * Client view: the read-only page a client follows one project on (/client/…, no staff sign-in),
    * and the staff routes that share a project and mark its items "Show to client".
    */
-  clientView?: Pick<ClientViewRouteDeps, 'service' | 'secureCookies' | 'tasks' | 'minutes' | 'rateLimits'>;
+  clientView?: Pick<ClientViewRouteDeps, 'service' | 'secureCookies' | 'tasks' | 'minutes' | 'rateLimits' | 'onTaskShown'>;
   /** Project and task templates (the Templates page, “Start from a template”, “Save as template”). */
   templateService?: TemplateService;
   /** Inspection checklists: forms, a project's inspections, answers, signing, follow-up tasks, reports. */
@@ -614,7 +616,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       await registerAuthRoutes(api, deps);
       if (deps.about) await registerAboutRoutes(api, { release: deps.about.release, guard });
       // Register multipart ONCE for the whole API (task/chat attachments + avatar/project images use req.file()).
-      if (deps.attachmentService || deps.chatService || deps.chatAttachmentStorage || deps.companyService /* companies: logos */) {
+      if (deps.attachmentService || deps.chatService || deps.chatAttachmentStorage || deps.companyService /* companies: logos */ || deps.portal /* 1.23.7: client uploads */) {
         await api.register(multipart, { limits: { fileSize: deps.attachmentMaxSizeBytes ?? 10 * 1024 * 1024, files: 1 } });
       }
       // Per-project authorization (T2.7). Defaults to admin-only when no manager lookup is wired.
@@ -931,6 +933,17 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           maxSizeBytes: deps.attachmentMaxSizeBytes ?? 10 * 1024 * 1024,
           canViewTask,
           recordActivity: deps.recordTaskActivity,
+          // 1.23.7 "Show to client" on a file: who runs the task's project (or an administrator), as for the task.
+          ...(deps.taskService
+            ? {
+                canManageTask: async (u: string, r: string[], taskId: string) => {
+                  const t = await deps.taskService!.getTask(taskId).catch(() => null);
+                  return t ? projectAuthz.canManageProject(u, r, t.projectId) : false;
+                },
+              }
+            : {}),
+          onShownToClient: deps.onFileShownToClient,
+          audit: deps.auditService,
         });
       }
       if (deps.dependencyService) {
@@ -1149,6 +1162,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           canViewProject: canViewProject ?? (async (_u, roles) => roles.includes('ADMIN')),
           audit: deps.auditService,
           invitationDays: deps.invitationDays,
+          // 1.23.7 Preview as client: the portal's own reads, for administrators.
+          ...(deps.portal ? { portal: deps.portal } : {}),
         });
       }
       if (deps.portal) await registerPortalRoutes(api, { service: deps.portal, guard, pdfsPerMinute: deps.portalPdfsPerMinute });
