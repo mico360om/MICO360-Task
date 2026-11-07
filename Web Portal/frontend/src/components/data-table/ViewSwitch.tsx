@@ -53,7 +53,7 @@ export function ViewSwitch<V extends string>({
               aria-label={`${o.label} view`}
               title={`${o.label} view`}
               onClick={() => onChange(o.value)}
-              className={`inline-flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-lg px-2 text-xs font-semibold transition-colors [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:min-w-11 ${on ? 'bg-brand text-white shadow-sm' : 'text-ink-2 hover:bg-ground hover:text-ink'}`}
+              className={`inline-flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-lg px-2 text-xs font-semibold transition-colors [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:!min-w-11 ${on ? 'bg-brand text-white shadow-sm' : 'text-ink-2 hover:bg-ground hover:text-ink'}`}
             >
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 {o.icon}

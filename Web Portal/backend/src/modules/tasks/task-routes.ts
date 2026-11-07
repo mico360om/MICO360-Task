@@ -18,6 +18,8 @@ import { checkNewTaskContacts } from './external-contact-service';
 import { externalContactSchema } from './external-contact-routes';
 import { DELETE_NOT_ALLOWED, DELETE_NOT_ALLOWED_CODE, DELETE_SERIES_NOT_ALLOWED, mayDeleteSeries, mayDeleteTask } from './task-delete-rule';
 import { NO_PICK, type PickOf } from '../companies/company-pick';
+import { isMonthKey } from './board-month';
+import { inMonth, monthWindow } from './month-list';
 
 const priorityEnum = z.enum(['LOW', 'NORMAL', 'HIGH', 'URGENT']);
 
@@ -42,6 +44,10 @@ const listQuerySchema = z.object({
   /** Only tasks with an external contact from this company (case and extra spaces aside). */
   externalCompany: z.string().max(120).optional(),
   boardDate: calendarDay.optional(),
+  /** Month view (YYYY-MM): only the tasks that show in that month (board-month.ts); meta says how many have no dates. */
+  month: z.string().refine(isMonthKey, { message: 'Expected a month (YYYY-MM).' }).optional(),
+  /** Month view: the tasks without dates too (the board's "No date" chip). */
+  undated: queryBoolean.optional(),
   sort: z.enum(SORT_FIELDS).optional(),
   order: z.enum(['asc', 'desc']).optional(),
   /** Optional paging over the filtered, sorted list. */
@@ -226,6 +232,7 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
 
   app.get('/tasks', { preHandler: guard.authenticate }, async (req, reply) => {
     const params = listQuerySchema.parse(req.query);
+    if (params.month && params.boardDate) return reply.status(400).send({ error: { code: 'VALIDATION', message: 'Ask for a day or a month, not both.' } });
     // Object-level scope: a non-admin only ever sees tasks in projects they belong to. One named
     // project (its board, opened by its link) is checked by its own rule; the plain list follows
     // the picked company too (companies).
@@ -244,6 +251,8 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
       order: params.order,
       timeZone: taskService.timeZone,
     };
+    // Month view: the database narrows to the month's window, the month rule decides (board-month.ts).
+    const monthClock = params.month ? { timeZone: taskService.timeZone, today: todayKey(taskService.timeZone) } : null;
     // Scope and the simple filters run in the database; keyword (Arabic-aware) and overdue
     // (company calendar day) run in memory on the already-narrowed rows.
     const tasks = await taskService.listTasks({
@@ -257,13 +266,17 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
       tagIds: criteria.tagIds,
       dueBefore: criteria.dueBefore,
       dueAfter: criteria.dueAfter,
+      ...(params.month && monthClock ? { month: monthWindow(params.month, monthClock) } : {}),
     });
     const scoped = allowedIds ? tasks.filter((t) => allowedIds.includes(t.projectId)) : tasks;
-    const data = filterAndSortTasks(scoped, criteria);
-    if (params.limit === undefined && params.offset === undefined) return { data };
+    const filtered = filterAndSortTasks(scoped, criteria);
+    const month = params.month && monthClock ? inMonth(filtered, params.month, monthClock, params.undated === true) : null;
+    const data = month ? month.rows : filtered;
+    const monthMeta = month ? { month: params.month, undated: month.undated } : null;
+    if (params.limit === undefined && params.offset === undefined) return monthMeta ? { data, meta: monthMeta } : { data };
     const offset = params.offset ?? 0;
     const limit = params.limit ?? data.length;
-    return { data: data.slice(offset, offset + limit), meta: { total: data.length, offset, limit } };
+    return { data: data.slice(offset, offset + limit), meta: { total: data.length, offset, limit, ...monthMeta } };
   });
 
   // The calendar: tasks due in one visible range (projects the caller can see), plus the days the

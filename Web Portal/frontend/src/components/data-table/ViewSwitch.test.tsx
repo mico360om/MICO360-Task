@@ -21,6 +21,15 @@ describe('ViewSwitch', () => {
     expect(screen.getByRole('button', { name: 'Compact rows' })).toHaveAttribute('aria-pressed', 'false');
   });
 
+  it('each choice is a 44 px target on a touch screen, wide as well as tall (the base 2rem button rule is outranked)', () => {
+    renderIt(false);
+    for (const name of ['List view', 'Table view']) {
+      const cls = screen.getByRole('button', { name }).className;
+      expect(cls).toContain('[@media(pointer:coarse)]:h-11');
+      expect(cls).toContain('[@media(pointer:coarse)]:!min-w-11');
+    }
+  });
+
   it('can leave it out', () => {
     renderIt(false);
     expect(screen.queryByRole('button', { name: 'Compact rows' })).toBeNull();
