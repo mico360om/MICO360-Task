@@ -5,6 +5,7 @@ import type { CalendarChecklistItem } from '../../lib/calendar-checklist';
 import { monthOf, monthWeeks, weekDays, weekdayLabels, type WeekStart } from '../../lib/calendar';
 import { ChecklistChip, MeetingChip, STATUS_META, TaskChip, dayLabel } from './calendar-ui';
 import { chipSlots, isTouchScreen } from '../../lib/calendar-fit';
+import { OVERDUE_CLASS, statusClass } from '../../lib/colour-classes';
 
 /** Overdue tasks listed before "Show all" in the agenda. */
 const OVERDUE_PREVIEW = 8;
@@ -243,7 +244,7 @@ export function MobileMonth({ cursor, p, label, renderDayList }: { cursor: strin
                         <span key={m.key} className={`h-1.5 w-1.5 rotate-45 rounded-[1px] ${isChosen ? 'bg-white' : 'bg-brand'}`} />
                       ))}
                       {items.slice(0, Math.max(0, 3 - meetings.length)).map((i) => (
-                        <span key={i.key} className={`h-1.5 w-1.5 rounded-full ${isChosen ? 'bg-white' : STATUS_META[i.status].dot}`} />
+                        <span key={i.key} className={`h-1.5 w-1.5 rounded-full ${isChosen ? 'bg-white' : i.status === 'overdue' || i.kind === 'projected' ? STATUS_META[i.status].dot : statusClass(i.task.columnCategory).dot}`} />
                       ))}
                       {steps.slice(0, Math.max(0, 3 - meetings.length - items.length)).map((s) => (
                         <span key={`cl:${s.id}`} className={`h-1.5 w-1.5 rounded-[1px] border ${isChosen ? 'border-white' : 'border-ink-2'}`} />
@@ -355,11 +356,11 @@ export function AgendaView({
   return (
     <div className="flex flex-col gap-4">
       {overdue.length > 0 ? (
-        <section aria-label={`Overdue (${overdue.length})`} className="rounded-xl border border-danger/30 bg-danger-soft/40 p-3">
-          <h3 className="mb-2 text-sm font-bold text-danger">Overdue · {overdue.length}</h3>
+        <section aria-label={`Overdue (${overdue.length})`} className={`rounded-xl border ${OVERDUE_CLASS.edge}/30 ${OVERDUE_CLASS.soft}/40 p-3`}>
+          <h3 className={`mb-2 text-sm font-bold ${OVERDUE_CLASS.text}`}>Overdue · {overdue.length}</h3>
           <ul className="grid gap-1.5 sm:grid-cols-2">{overdueShown.map(chip)}</ul>
           {overdue.length > OVERDUE_PREVIEW ? (
-            <button type="button" onClick={() => setAllOverdue((v) => !v)} aria-expanded={allOverdue} className="mt-2 text-xs font-semibold text-danger underline-offset-2 hover:underline [@media(pointer:coarse)]:!min-h-11">
+            <button type="button" onClick={() => setAllOverdue((v) => !v)} aria-expanded={allOverdue} className={`mt-2 text-xs font-semibold ${OVERDUE_CLASS.text} underline-offset-2 hover:underline [@media(pointer:coarse)]:!min-h-11`}>
               {allOverdue ? 'Show fewer' : `Show all ${overdue.length} overdue tasks`}
             </button>
           ) : null}

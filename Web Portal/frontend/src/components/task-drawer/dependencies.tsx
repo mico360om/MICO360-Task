@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { statusMeta } from '../../lib/taskStatus';
 import { pickTasks } from '../../lib/task-picker-numbers';
 import { ComboPicker } from './combo-picker';
 import { failureMessage } from './save-state';
 import { TaskKey } from '../TaskKey';
+import { StatusPill } from '../ui/StatusPill';
 
 export interface DrawerTaskRef {
   id: string;
@@ -22,10 +22,7 @@ export interface DrawerDependencies {
 function Status({ t }: { t: DrawerTaskRef }) {
   if (!t.statusName) return null;
   return (
-    <span className="inline-flex flex-none items-center gap-1 rounded-md bg-ground px-1.5 py-0.5 text-[11px] font-medium text-ink-2">
-      <span aria-hidden="true" className="h-2 w-2 rounded-full" style={{ background: statusMeta(t.statusCategory).color }} />
-      {t.statusName}
-    </span>
+    <StatusPill category={t.statusCategory} label={t.statusName} className="flex-none" />
   );
 }
 

@@ -15,8 +15,8 @@ import { useRowEdits, useTableMemory } from './hooks';
 import { EMPTY_TABLE_FILTERS, ME, NO_PERSON, sortRows, tableFiltersActive, type SortState } from '../../lib/data-table';
 import { filterTaskRows, taskRowEditable, taskSortValue, type TaskStatus, type TaskTableContext } from '../../lib/task-table';
 import { statusMeta, STATUS_ORDER } from '../../lib/taskStatus';
-import { dueDayKey, todayKey } from '../../lib/due-date';
-import { formatDueDay, isTaskLate } from '../../lib/due-display';
+import { dueDayKey, shiftDayKey, todayKey } from '../../lib/due-date';
+import { formatDueDay, isTaskDone, isTaskLate } from '../../lib/due-display';
 import { dayText } from '../../lib/day-words';
 import { weekDays } from '../../lib/calendar';
 import { useCompanyTimeZone } from '../../lib/company-clock';
@@ -36,6 +36,7 @@ import { ClientEyeIcon } from '../TaskCard';
 import { FlagIcon } from '../project-dashboard/parts';
 import { TOUCH_SQUARE, TOUCH_TALL } from '../../lib/touch';
 import { weightColumns } from './weight-column';
+import { PRIORITY_CLASS, dueTone, statusColour } from '../../lib/colour-classes';
 
 export interface TaskTableProps {
   /** Which page's table (what it remembers for the person: sort, filters, columns). */
@@ -75,12 +76,12 @@ export interface TaskTableProps {
 
 const PRIORITIES: Priority[] = ['URGENT', 'HIGH', 'NORMAL', 'LOW'];
 const PRIORITY_LABEL: Record<Priority, string> = { URGENT: 'Urgent', HIGH: 'High', NORMAL: 'Normal', LOW: 'Low' };
-/** The priority pill's own colours (ui/PriorityBadge), for its chip. */
+/** The priority pill's own colours (ui/PriorityBadge, the 1.23.8 scheme), for its chip. */
 const PRIORITY_CHIP: Record<Priority, string> = {
-  LOW: 'bg-ground text-ink-2',
-  NORMAL: 'bg-ground text-ink',
-  HIGH: 'bg-warning-soft text-warning',
-  URGENT: 'bg-danger-soft text-danger',
+  LOW: PRIORITY_CLASS.LOW.chip,
+  NORMAL: PRIORITY_CLASS.NORMAL.chip,
+  HIGH: PRIORITY_CLASS.HIGH.chip,
+  URGENT: PRIORITY_CLASS.URGENT.chip,
 };
 const dot = (color: string) => <span className="h-2 w-2 rounded-full" style={{ background: color }} />;
 
@@ -168,7 +169,7 @@ export function TaskTable({
     () => [
       { value: '', label: 'Any status' },
       ...(columns
-        ? [...columns].sort((a, b) => a.position - b.position).filter((c) => c.enabled !== false).map((c) => ({ value: c.id, label: c.name, icon: dot(c.color) }))
+        ? [...columns].sort((a, b) => a.position - b.position).filter((c) => c.enabled !== false).map((c) => ({ value: c.id, label: c.name, icon: dot(statusColour(c.category)) }))
         : STATUS_ORDER.map((s) => ({ value: s, label: statusMeta(s).label, icon: dot(statusMeta(s).color) }))),
     ],
     [columns],
@@ -361,7 +362,8 @@ export function TaskTable({
       cell: (t) => {
         const status = ctx.statusOf(t);
         const col = columnOf(t);
-        const color = col?.color ?? statusMeta(col?.category ?? t.columnCategory).color;
+        // 1.23.8 one colour scheme: the column's kind decides the colour, whatever the column was given.
+        const color = statusColour(col?.category ?? t.columnCategory);
         const list = columnsByProject.get(t.projectId);
         if (!editable(t) || !list) {
           return (
@@ -382,7 +384,7 @@ export function TaskTable({
               const to = choices.find((c) => c.id === v);
               if (to && v !== t.columnId) setStatus(t, to);
             }}
-            options={choices.map((c) => ({ value: c.id, label: c.name, icon: dot(c.color) }))}
+            options={choices.map((c) => ({ value: c.id, label: c.name, icon: dot(statusColour(c.category)) }))}
             chipClassName="bg-ground text-ink-2"
           />
         );
@@ -521,7 +523,8 @@ function DueCell({ task, timeZone, today, weekStart, editable, onPick }: { task:
   const late = isTaskLate(task, timeZone);
   const words = day ? dayText(day, { year: day.slice(0, 4) !== today.slice(0, 4) }) : 'No due date';
   const text = late ? `Overdue · ${words}` : words;
-  const tone = late ? 'font-semibold text-danger' : day === today ? 'font-semibold text-warning' : day ? 'text-ink' : 'text-ink-3';
+  const soon = !late && !!day && !isTaskDone(task) && (day === today || day === shiftDayKey(today, 1));
+  const tone = dueTone({ late, soon }, day ? 'text-ink' : 'text-ink-3');
   if (!editable) return <span className={`text-xs ${tone}`}>{text}</span>;
   return (
     <DayPickerButton

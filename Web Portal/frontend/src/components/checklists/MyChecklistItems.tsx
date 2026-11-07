@@ -10,6 +10,7 @@ import { useOpenTask } from '../../lib/useOpenTask';
 import { failureMessage } from '../task-drawer/save-state';
 import { TaskKey } from '../TaskKey';
 import { DENSE_TEXT } from '../../lib/density-tokens';
+import { dueTone } from '../../lib/colour-classes';
 
 /** The query behind My Tasks' "Checklist items for me" (refreshed with every task view). */
 export const MY_CHECKLIST_KEY = ['my-checklist-items'] as const;
@@ -108,7 +109,7 @@ export function MyChecklistItems() {
                 </span>
               </button>
               {item.isParent ? <span className="flex-none rounded-md bg-ground px-1.5 py-0.5 text-xs font-medium text-ink-2">{`${plural(item.openSubItems, 'sub-item')} still open`}</span> : null}
-              {due ? <span className={`flex-none text-xs tabular-nums ${late ? 'font-semibold text-danger' : 'text-ink-2'}`}>{late ? `Overdue · ${due}` : due}</span> : null}
+              {due ? <span className={`flex-none text-xs tabular-nums ${dueTone({ late })}`}>{late ? `Overdue · ${due}` : due}</span> : null}
               {problem?.id === item.id ? (
                 <p role="alert" className="basis-full text-xs font-medium text-danger">
                   {problem.text}

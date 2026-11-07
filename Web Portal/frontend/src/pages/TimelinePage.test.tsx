@@ -398,7 +398,7 @@ describe('TimelinePage', () => {
     expect(login.querySelector('svg[data-icon="overdue"]')).not.toBeNull();
     expect(items[0]).toHaveTextContent('SA');
     expect(items[0]!.querySelector('[data-tone]')).toHaveAttribute('data-tone', 'overdue');
-    expect(items[0]!.querySelector('[data-tone]')).toHaveClass('bg-danger');
+    expect(items[0]!.querySelector('[data-tone]')).toHaveClass('bg-overdue'); // 1.23.8: the scheme's overdue red
     expect(within(items[1]!).getByRole('button', { name: 'MOB-12 Push alerts, due 22 Oct, done' }).querySelector('svg[data-icon="done"]')).not.toBeNull();
     expect(items[1]!.querySelector('[data-tone]')).toHaveAttribute('data-tone', 'done');
     expect(items[1]!.querySelector('[data-tone]')).toHaveClass('bg-ink-3/60');

@@ -11,20 +11,22 @@ import { fieldClass } from '../ui/Field';
 import { SearchableSelect } from '../ui/SearchableSelect';
 import { ConfirmRemoveButton, Icon, LoadError, Section, SectionError, ShrunkSection, TaskNumber, peopleOptions, userName } from './kit';
 import { meetingFailure } from './meeting-actions';
-import { actionStatusTone, isActionItemOverdue } from '../../lib/meetingFormat';
+import { actionStatusClass, isActionItemOverdue } from '../../lib/meetingFormat';
 import { dueDayKey, todayKey } from '../../lib/due-date';
 import { dayText } from '../../lib/day-words';
 import { useDateSettings } from '../../lib/useDatePrefs';
 import { TOUCH_TALL } from '../../lib/touch';
 import type { WeekStart } from '../../lib/calendar';
-import { badgeToneClass, type BadgeTone } from '../ui/Badge';
+import { PRIORITY_CLASS } from '../../lib/colour-classes';
 import { DayPickerButton } from '../ui/DateTimeField';
 import { DENSE_TEXT } from '../../lib/density-tokens';
+import { OVERDUE_CLASS } from '../../lib/colour-classes';
 
 const STATUSES: ActionItemStatus[] = ['OPEN', 'IN_PROGRESS', 'PENDING', 'COMPLETED', 'CANCELLED'];
 const PRIORITIES: Priority[] = ['LOW', 'NORMAL', 'HIGH', 'URGENT'];
 const PRIORITY_LABEL: Record<Priority, string> = { LOW: 'Low', NORMAL: 'Normal', HIGH: 'High', URGENT: 'Urgent' };
-const PRIORITY_TONE: Record<Priority, BadgeTone> = { LOW: 'neutral', NORMAL: 'info', HIGH: 'warning', URGENT: 'danger' };
+// 1.23.8: an action item's priority in the one colour scheme (Urgent red · High orange · Normal blue-grey · Low grey).
+const PRIORITY_TONE: Record<Priority, string> = { LOW: PRIORITY_CLASS.LOW.chip, NORMAL: PRIORITY_CLASS.NORMAL.chip, HIGH: PRIORITY_CLASS.HIGH.chip, URGENT: PRIORITY_CLASS.URGENT.chip };
 /** A row's other chips (the due date, From a note, the task): the select chips' look. */
 const CHIP = 'inline-flex min-h-7 max-w-full items-center gap-1 rounded-full px-2.5 text-xs font-medium compact:min-h-6';
 
@@ -293,7 +295,7 @@ function ActionItemRow({
           placeholder="No due date"
           clearLabel="No due date"
           onPick={(next) => onChange({ dueDate: next ? `${next}T00:00:00.000Z` : null })}
-          className={`${CHIP} ${overdue ? 'bg-danger-soft font-semibold text-danger' : day ? 'bg-ground text-ink' : 'bg-ground text-ink-3'}`}
+          className={`${CHIP} ${overdue ? `${OVERDUE_CLASS.chip} font-semibold` : day ? 'bg-ground text-ink' : 'bg-ground text-ink-3'}`}
         >
           {day ? dayText(day) : 'No due date'}
           {overdue ? <span> · overdue</span> : null}
@@ -304,7 +306,7 @@ function ActionItemRow({
           options={PRIORITIES.map((p) => ({ value: p, label: PRIORITY_LABEL[p] }))}
           value={item.priority}
           onChange={(v) => onChange({ priority: v as Priority })}
-          chipClassName={badgeToneClass(PRIORITY_TONE[item.priority])}
+          chipClassName={PRIORITY_TONE[item.priority]}
         />
         <SearchableSelect
           size="chip"
@@ -312,7 +314,7 @@ function ActionItemRow({
           options={STATUSES.map((s) => ({ value: s, label: ACTION_STATUS_LABELS[s] }))}
           value={item.status}
           onChange={(v) => onChange({ status: v as ActionItemStatus })}
-          chipClassName={badgeToneClass(actionStatusTone(item.status))}
+          chipClassName={actionStatusClass(item.status)}
         />
         {topic ? (
           <span className={`${CHIP} bg-ground text-ink-2`} title="Agenda topic">

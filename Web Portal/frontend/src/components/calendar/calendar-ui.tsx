@@ -8,6 +8,7 @@ import type { CalendarChecklistItem } from '../../lib/calendar-checklist';
 import { WaitingIcon } from '../approvals/ApprovalChip';
 import { isWaitingForApproval } from '../../lib/approvals';
 import { TaskKey } from '../TaskKey';
+import { OVERDUE_CLASS, STATUS_CLASS, statusClass } from '../../lib/colour-classes';
 
 /**
  * 'Sat 10 Oct' for a 'YYYY-MM-DD' day (formatted as that day, whatever the device's zone): the
@@ -47,37 +48,41 @@ function Svg({ children, size = 14 }: { children: ReactNode; size?: number }) {
   );
 }
 
-/** Each status: words, an icon and colours — never colour alone. Red is for overdue only. */
+/**
+ * Each status: words, an icon and colours — never colour alone. 1.23.8 one colour scheme: the chip's edge is
+ * its project's colour and a small dot is its status's (its column kind, lib/colour-classes); overdue is the
+ * one red chip (red words and edges); the rest are plain cards, their icon in their status's colour.
+ */
 export const STATUS_META: Record<CalStatus, { label: string; icon: ReactNode; chip: string; dot: string }> = {
   overdue: {
     label: 'Overdue',
     icon: <Svg><circle cx="12" cy="12" r="9" /><path d="M12 7v6M12 16.5h.01" /></Svg>,
-    chip: 'border-danger/45 bg-danger-soft text-danger',
-    dot: 'bg-danger',
+    chip: `${OVERDUE_CLASS.edge}/60 ${OVERDUE_CLASS.chip}`,
+    dot: OVERDUE_CLASS.dot,
   },
   blocked: {
     label: 'Blocked',
     icon: <Svg><circle cx="12" cy="12" r="9" /><path d="m5.6 5.6 12.8 12.8" /></Svg>,
-    chip: 'border-warning/55 bg-warning-soft text-ink [&_svg]:text-warning',
-    dot: 'bg-warning',
+    chip: 'border-line bg-surface text-ink [&_svg]:text-status-blocked',
+    dot: STATUS_CLASS.BLOCKED.dot,
   },
   'in-progress': {
     label: 'In progress',
     icon: <Svg><circle cx="12" cy="12" r="9" /><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" /></Svg>,
-    chip: 'border-info/40 bg-info-soft text-ink [&_svg]:text-info',
-    dot: 'bg-info',
+    chip: 'border-line bg-surface text-ink [&_svg]:text-status-progress',
+    dot: STATUS_CLASS.IN_PROGRESS.dot,
   },
   todo: {
     label: 'To do',
     icon: <Svg><circle cx="12" cy="12" r="9" /></Svg>,
     chip: 'border-line bg-surface text-ink [&_svg]:text-ink-2',
-    dot: 'bg-ink-3',
+    dot: STATUS_CLASS.TODO.dot,
   },
   done: {
     label: 'Done',
     icon: <Svg><circle cx="12" cy="12" r="9" /><path d="m8 12.5 2.5 2.5L16 9.5" /></Svg>,
-    chip: 'border-success/35 bg-success-soft/60 text-ink-2 [&_svg]:text-success',
-    dot: 'bg-success',
+    chip: 'border-line bg-surface/60 text-ink-2 [&_svg]:text-status-done',
+    dot: STATUS_CLASS.DONE.dot,
   },
   projected: {
     label: 'Repeats (not created yet)',
@@ -136,12 +141,21 @@ export function LegendButton({ timeNote }: { timeNote: string }) {
               <span>Waiting for approval</span>
             </li>
           </ul>
-          <p className="mt-2.5 text-[11px] leading-snug text-ink-2">The coloured edge is the project’s colour.</p>
+          <p className="mt-2.5 text-[11px] leading-snug text-ink-2">The coloured edge is the project’s colour; the small dot is the task’s status.</p>
           <p className="mt-1 border-t border-line pt-2 text-xs text-ink-2">{timeNote}</p>
         </div>
       ) : null}
     </div>
   );
+}
+
+/**
+ * 1.23.8 A task's status as a small dot in its column kind's colour (lib/colour-classes) — a repeat not
+ * created yet has a hollow one. Its words are in the chip's name.
+ */
+function StatusDot({ item, className = '' }: { item: CalItem; className?: string }) {
+  if (item.kind === 'projected') return <span data-status-dot aria-hidden="true" className={`inline-block h-1.5 w-1.5 flex-none rounded-full border border-dashed border-ink-2 ${className}`} />;
+  return <span data-status-dot aria-hidden="true" className={`inline-block h-1.5 w-1.5 flex-none rounded-full ${statusClass(item.task.columnCategory).dot} ${className}`} />;
 }
 
 /** The words a screen reader hears for a meeting on the calendar. */
@@ -241,11 +255,14 @@ export function TaskChip({
       <span className="min-w-0 flex-1">
         {lines === 1 ? (
           <span className="flex min-w-0 items-center gap-1">
+            {/* 1.23.8: its status's dot (its column kind) — the edge stays its project's colour. */}
+            <StatusDot item={item} />
             {number ? <TaskKey value={number} dense className="hidden 2xl:inline-block" /> : null}
             <span dir="auto" className="block min-w-0 truncate font-medium">{item.task.title}</span>
           </span>
         ) : (
           <span className="line-clamp-2 font-medium [overflow-wrap:anywhere]">
+            <StatusDot item={item} className="me-1 align-middle" />
             {number ? <TaskKey value={number} dense className="me-1" /> : null}
             <span dir="auto">{item.task.title}</span>
           </span>

@@ -214,3 +214,24 @@ describe('Project template editor', () => {
     expect(draftProblems({ ...draft, tasks: draft.tasks.slice(0, 50) })).toEqual([]);
   });
 });
+
+describe('one colour scheme (1.23.8): a template’s columns wear their stage’s colour', () => {
+  it('no colour picker; each column shows its stage’s colour, and is saved with it', async () => {
+    const { onClose } = renderEditor('pt1');
+    const dialog = await screen.findByRole('dialog', { name: /Edit project template/ });
+    await within(dialog).findByDisplayValue('Rig inspection');
+    expect(dialog.querySelector('input[type="color"]')).toBeNull();
+    const board = within(dialog).getByRole('group', { name: 'Board columns' });
+    expect(within(board).getByRole('img', { name: 'Column 1: To Do colour' })).toHaveClass('bg-status-todo');
+    // A column moved to another stage takes that stage's colour.
+    await userEvent.selectOptions(within(board).getByRole('combobox', { name: 'Column 1 stage' }), 'IN_PROGRESS');
+    expect(within(board).getByRole('img', { name: 'Column 1: In Progress colour' })).toHaveClass('bg-status-progress');
+    await userEvent.click(within(dialog).getByRole('button', { name: /Save/ }));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    const put = requests.find((r) => r.method === 'PUT')!;
+    expect((put.body as { columns: unknown[] }).columns).toEqual([
+      { name: 'To Do', category: 'IN_PROGRESS', color: '#2F6DB5' },
+      { name: 'Done', category: 'DONE', color: '#2E7D53' },
+    ]);
+  });
+});

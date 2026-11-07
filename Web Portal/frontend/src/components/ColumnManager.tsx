@@ -17,14 +17,14 @@ import {
 } from '@dnd-kit/sortable';
 import { FieldLabel, FieldError, fieldClass } from './ui/Field';
 import { statusMeta, STATUS_ORDER } from '../lib/taskStatus';
+import { statusClass } from '../lib/colour-classes';
 import type { ApiColumn, ColumnCategory } from '../api/columns';
 
 export interface ColumnManagerProps {
   columns: ApiColumn[];
   onAdd: (name: string) => void;
   onRename: (id: string, name: string) => void;
-  onSetColor: (id: string, color: string) => void;
-  /** Change which Kanban status this column maps to (optional). */
+  /** Change which Kanban status this column maps to (optional). Its colour follows (1.23.8). */
   onSetCategory?: (id: string, category: ColumnCategory) => void;
   onToggleEnabled: (id: string, enabled: boolean) => void;
   onDelete: (id: string) => void;
@@ -33,12 +33,15 @@ export interface ColumnManagerProps {
   onReorder?: (orderedIds: string[]) => void;
 }
 
-/** Admin column management: add / rename / recolour / remap status / show-hide / reorder / delete (T7.5). */
+/**
+ * Admin column management: add / rename / remap status / show-hide / reorder / delete (T7.5). 1.23.8: no
+ * colour picker — one colour scheme (owner, 7 Nov): a column wears its status kind's colour, so every board
+ * looks the same.
+ */
 export function ColumnManager({
   columns,
   onAdd,
   onRename,
-  onSetColor,
   onSetCategory,
   onToggleEnabled,
   onDelete,
@@ -88,7 +91,6 @@ export function ColumnManager({
                 last={i === ordered.length - 1}
                 confirming={confirmingId === c.id}
                 onRename={onRename}
-                onSetColor={onSetColor}
                 onSetCategory={onSetCategory}
                 onToggleEnabled={onToggleEnabled}
                 onMove={onMove}
@@ -146,7 +148,7 @@ export function ColumnManager({
           </button>
         </div>
         <FieldError id="new-column-error">{nameError}</FieldError>
-        <p className="mt-1.5 text-xs text-ink-3">New columns start as a “To Do” stage — set its mapped status after adding.</p>
+        <p className="mt-1.5 text-xs text-ink-3">New columns start as a “To Do” stage — set its mapped status after adding. A column’s colour follows its status.</p>
       </form>
     </div>
   );
@@ -158,7 +160,6 @@ interface ColumnRowProps {
   last: boolean;
   confirming: boolean;
   onRename: (id: string, name: string) => void;
-  onSetColor: (id: string, color: string) => void;
   onSetCategory?: (id: string, category: ColumnCategory) => void;
   onToggleEnabled: (id: string, enabled: boolean) => void;
   onMove: (id: string, direction: 'up' | 'down') => void;
@@ -167,7 +168,7 @@ interface ColumnRowProps {
   onConfirmDelete: () => void;
 }
 
-function ColumnRow({ col, first, last, confirming, onRename, onSetColor, onSetCategory, onToggleEnabled, onMove, onAskDelete, onCancelDelete, onConfirmDelete }: ColumnRowProps) {
+function ColumnRow({ col, first, last, confirming, onRename, onSetCategory, onToggleEnabled, onMove, onAskDelete, onCancelDelete, onConfirmDelete }: ColumnRowProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: col.id });
   const style: React.CSSProperties = {
     transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
@@ -194,10 +195,8 @@ function ColumnRow({ col, first, last, confirming, onRename, onSetColor, onSetCa
         <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><circle cx="9" cy="6" r="1.6" /><circle cx="15" cy="6" r="1.6" /><circle cx="9" cy="12" r="1.6" /><circle cx="15" cy="12" r="1.6" /><circle cx="9" cy="18" r="1.6" /><circle cx="15" cy="18" r="1.6" /></svg>
       </button>
 
-      {/* Colour swatch */}
-      <label className="relative h-7 w-7 flex-none cursor-pointer overflow-hidden rounded-lg border border-line shadow-soft" style={{ background: col.color }} title={`Colour ${col.name}`}>
-        <input type="color" aria-label={`Colour ${col.name}`} value={col.color} onChange={(e) => onSetColor(col.id, e.target.value)} className="absolute inset-0 cursor-pointer opacity-0" />
-      </label>
+      {/* Its colour: its status kind's (1.23.8 one scheme), named for screen readers. */}
+      <span role="img" aria-label={`${col.name}: ${meta.label} colour`} title={`${meta.label} colour`} className={`h-7 w-7 flex-none rounded-lg border border-line shadow-soft ${statusClass(col.category).dot}`} />
 
       {/* Name */}
       <input
@@ -220,7 +219,7 @@ function ColumnRow({ col, first, last, confirming, onRename, onSetColor, onSetCa
         </select>
       ) : (
         <span className="inline-flex w-full flex-none items-center gap-1.5 rounded-md bg-ground px-2 py-1 text-xs font-medium text-ink-2 lg:w-36">
-          <span className="h-2 w-2 rounded-full" style={{ background: meta.color }} aria-hidden />
+          <span className={`h-2 w-2 rounded-full ${statusClass(col.category).dot}`} aria-hidden />
           {meta.label}
         </span>
       )}

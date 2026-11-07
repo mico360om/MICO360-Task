@@ -123,3 +123,14 @@ describe('meeting list day and times', () => {
     expect(formatClockTime('2026-10-01T09:14:00.000Z', tz)).toBe('13:14');
   });
 });
+
+describe('action item statuses in the one colour scheme (1.23.8)', () => {
+  it('read like task statuses: Open slate, In progress blue, Pending purple (waiting on someone), Completed green, Cancelled grey', async () => {
+    const { actionStatusClass } = await import('./meetingFormat');
+    expect(actionStatusClass('OPEN')).toBe('bg-status-todo-soft text-status-todo');
+    expect(actionStatusClass('IN_PROGRESS')).toBe('bg-status-progress-soft text-status-progress');
+    expect(actionStatusClass('PENDING')).toBe('bg-status-review-soft text-status-review');
+    expect(actionStatusClass('COMPLETED')).toBe('bg-status-done-soft text-status-done');
+    expect(actionStatusClass('CANCELLED')).toBe('bg-ground text-ink-2');
+  });
+});

@@ -35,9 +35,10 @@ import { ProjectAvatar } from '../ProjectAvatar';
 import { AnchoredPopover } from '../ui/AnchoredPopover';
 import { DayCalendar } from '../ui/DateTimeField';
 import { LoadError } from '../ui/LoadError';
-import { badgeToneClass, type BadgeTone } from '../ui/Badge';
+import { badgeToneClass } from '../ui/Badge';
 import { SendBackDialog } from '../approvals/SendBackDialog';
 import { MergedToast } from '../task-merge/MergedToast';
+import { DUE_SOON_CLASS, OVERDUE_CLASS, PRIORITY_CLASS, STATUS_CLASS } from '../../lib/colour-classes';
 
 const messageOf = (e: unknown, fallback: string) => (e instanceof Error && e.message ? e.message : fallback);
 /** A quick action's button: small, finger-sized on a touch screen. */
@@ -470,7 +471,15 @@ function CheckIcon() {
   );
 }
 
-const TONE: Record<ReturnType<typeof reasonTone>, BadgeTone> = { danger: 'danger', warning: 'warning', info: 'info', neutral: 'neutral' };
+const TONE: Record<ReturnType<typeof reasonTone>, string> = {
+  overdue: OVERDUE_CLASS.chip,
+  blocked: STATUS_CLASS.BLOCKED.chip,
+  soon: DUE_SOON_CLASS.chip,
+  urgent: PRIORITY_CLASS.URGENT.chip,
+  approval: badgeToneClass('warning'),
+  info: badgeToneClass('info'),
+  neutral: badgeToneClass('neutral'),
+};
 
 interface ItemProps {
   row: PriorityRow;
@@ -506,7 +515,7 @@ function PriorityItem({ row, today, weekStart, busy, locked, problem, onOpenTask
     <li className="flex flex-col gap-2 py-3 first:pt-0 last:pb-0 md:flex-row md:items-center md:gap-4" data-priority-row={row.id} data-kind={row.kind}>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-semibold ${badgeToneClass(TONE[reasonTone(row.reason)])}`}>{first}</span>
+          <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-semibold ${TONE[reasonTone(row.reason)]}`}>{first}</span>
           {rest.map((tag) => (
             <span key={tag} className="inline-flex items-center rounded-md bg-ground px-2 py-0.5 text-[11px] font-medium text-ink-2">
               {tag}

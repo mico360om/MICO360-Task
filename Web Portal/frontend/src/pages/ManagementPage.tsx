@@ -127,7 +127,7 @@ export function ManagementPage() {
   }
 
   const t = data?.tiles;
-  const tile = (o: { label: string; value: number | string; hint?: string; tone?: 'brand' | 'success' | 'warning' | 'info' | 'danger'; query?: ItemQuery; count: number; action: string }) => (
+  const tile = (o: { label: string; value: number | string; hint?: string; tone?: 'brand' | 'success' | 'warning' | 'info' | 'danger' | 'overdue' | 'late'; query?: ItemQuery; count: number; action: string }) => (
     <StatTile
       label={o.label}
       value={o.value}
@@ -177,8 +177,8 @@ export function ManagementPage() {
           {q.isError ? <LoadError what="the latest figures" onRetry={() => void q.refetch()} /> : null}
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             {tile({ label: 'Projects', value: t.projects, hint: `${t.red} red · ${t.amber} amber · ${t.green} green`, tone: 'brand', query: { metric: 'projects' }, count: t.projects, action: `${plural(t.projects, 'project')}` })}
-            {tile({ label: 'In red', value: t.red, hint: 'Need attention now', tone: 'danger', query: { metric: 'projects', rag: 'RED' }, count: t.red, action: `${plural(t.red, 'project')} in red` })}
-            {tile({ label: 'Late tasks', value: t.lateTasks, hint: 'Open and past their due day', tone: 'danger', query: { metric: 'late-tasks' }, count: t.lateTasks, action: `${plural(t.lateTasks, 'late task')} in ${scopeWords}` })}
+            {tile({ label: 'In red', value: t.red, hint: 'Need attention now', tone: 'late', query: { metric: 'projects', rag: 'RED' }, count: t.red, action: `${plural(t.red, 'project')} in red` })}
+            {tile({ label: 'Late tasks', value: t.lateTasks, hint: 'Open and past their due day', tone: 'overdue', query: { metric: 'late-tasks' }, count: t.lateTasks, action: `${plural(t.lateTasks, 'late task')} in ${scopeWords}` })}
             {tile({ label: 'Missing checks', value: t.missingChecks, hint: 'Inspections not done on time', tone: 'warning', query: { metric: 'missing-checks' }, count: t.missingChecks, action: `${plural(t.missingChecks, 'missing check')}` })}
             {tile({ label: 'Checks done', value: `${t.checksDone} of ${t.checksDue}`, hint: t.checksDoneLate ? `${t.checksDoneLate} done late` : 'In the period', tone: 'success', query: { metric: 'checks-due' }, count: t.checksDue, action: `${t.checksDone} of ${plural(t.checksDue, 'check')} done` })}
             {/* A percentage, not a list: shown, not a button. */}

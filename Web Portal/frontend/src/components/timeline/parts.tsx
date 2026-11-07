@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import type { ProjectHealth } from '../../api/planning';
 import { HEALTH_LABEL, initialsOf } from '../../lib/timeline';
+import { HEALTH_CLASS } from '../../lib/colour-classes';
 
 /** The chart's left column and the weeks, the same in every row. */
 export const ROW = 'grid grid-cols-[16rem_minmax(0,1fr)] xl:grid-cols-[18rem_minmax(0,1fr)]';
@@ -43,10 +44,11 @@ export const ICONS = {
   ),
 };
 
+// 1.23.8: health's own colours in the one scheme (on track · at risk · late), shared with the health badges.
 const PILL: Record<ProjectHealth, { tone: string; icon: ReactNode | null }> = {
-  'on-track': { tone: 'bg-success-soft text-success', icon: ICONS.check },
-  'at-risk': { tone: 'bg-warning-soft text-warning', icon: ICONS.warning },
-  late: { tone: 'bg-danger-soft text-danger', icon: ICONS.clock },
+  'on-track': { tone: HEALTH_CLASS.ON_TRACK.chip, icon: ICONS.check },
+  'at-risk': { tone: HEALTH_CLASS.AT_RISK.chip, icon: ICONS.warning },
+  late: { tone: HEALTH_CLASS.LATE.chip, icon: ICONS.clock },
   'no-target': { tone: 'bg-ground text-ink-2', icon: null },
 };
 
@@ -61,12 +63,15 @@ export function HealthPill({ health, className = '' }: { health: ProjectHealth; 
   );
 }
 
-/** The bar's colours for each status: the track and the done part. */
+/**
+ * The bar's colours for each health: the track and the done part — 1.23.8 the scheme's health tokens (on track
+ * green · at risk amber · late red, as the health badges); a project with no target date is neutral grey.
+ */
 export const BAR_TONE: Record<ProjectHealth, { track: string; fill: string }> = {
-  'on-track': { track: 'bg-info-soft ring-1 ring-inset ring-info/50', fill: 'bg-info' },
-  'at-risk': { track: 'bg-warning-soft ring-[1.5px] ring-inset ring-warning', fill: 'bg-warning' },
-  late: { track: 'bg-danger-soft ring-[1.5px] ring-inset ring-danger', fill: 'bg-danger' },
-  'no-target': { track: 'bg-info-soft ring-1 ring-inset ring-info/40', fill: 'bg-info' },
+  'on-track': { track: `${HEALTH_CLASS.ON_TRACK.soft} ring-1 ring-inset ${HEALTH_CLASS.ON_TRACK.ring}/50`, fill: HEALTH_CLASS.ON_TRACK.dot },
+  'at-risk': { track: `${HEALTH_CLASS.AT_RISK.soft} ring-[1.5px] ring-inset ${HEALTH_CLASS.AT_RISK.ring}`, fill: HEALTH_CLASS.AT_RISK.dot },
+  late: { track: `${HEALTH_CLASS.LATE.soft} ring-[1.5px] ring-inset ${HEALTH_CLASS.LATE.ring}`, fill: HEALTH_CLASS.LATE.dot },
+  'no-target': { track: 'bg-ground ring-1 ring-inset ring-line', fill: 'bg-ink-3' },
 };
 
 /** Busy-week steps, quiet to busiest. */

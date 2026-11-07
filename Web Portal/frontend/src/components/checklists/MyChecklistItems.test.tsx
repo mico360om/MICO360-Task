@@ -77,7 +77,7 @@ describe('My Tasks: Checklist items for me (1.23.3)', () => {
     const first = row('Label circuits');
     expect(within(first).getByText('MICO-142')).toBeInTheDocument();
     expect(first).toHaveTextContent('Electrical');
-    expect(within(first).getByText('Overdue · 3 Jan 2020')).toHaveClass('text-danger');
+    expect(within(first).getByText('Overdue · 3 Jan 2020')).toHaveClass('text-overdue'); // 1.23.8: the scheme's overdue red
     expect(within(row('Wiring')).getByText('1 Feb 2099')).toBeInTheDocument();
     expect(within(section).getAllByTestId('my-checklist-item')).toHaveLength(3);
   });

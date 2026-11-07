@@ -45,6 +45,7 @@ import { configApi } from '../api/config';
 import { ProjectInspectionsTab } from '../components/inspections/ProjectInspectionsTab';
 import { TOUCH_SQUARE, TOUCH_TALL } from '../lib/touch';
 import { isProjectArchived, projectReadOnly } from '../lib/project-archive';
+import { statusColour } from '../lib/colour-classes';
 
 type Tab = 'overview' | 'board' | 'tasks' | 'meetings' | 'inspections' | 'team';
 const TABS: Array<{ v: Tab; label: string }> = [
@@ -241,7 +242,8 @@ export function ProjectDetailPage() {
   // Tasks grouped by their status column (in board order), plus any orphaned tasks.
   const groups = useMemo<TaskGroup[]>(() => {
     const known = new Set(columns.map((c) => c.id));
-    const base: TaskGroup[] = columns.map((c) => ({ id: c.id, name: c.name, color: c.color, tasks: tasks.filter((t) => t.columnId === c.id) }));
+    // 1.23.8 one colour scheme: a column's colour is its status kind's.
+    const base: TaskGroup[] = columns.map((c) => ({ id: c.id, name: c.name, color: statusColour(c.category), tasks: tasks.filter((t) => t.columnId === c.id) }));
     const orphans = tasks.filter((t) => !known.has(t.columnId));
     if (orphans.length) base.push({ id: '__orphan', name: 'Uncategorized', color: 'rgb(var(--c-ink-3))', tasks: orphans });
     return base;
@@ -386,9 +388,9 @@ export function ProjectDetailPage() {
       <div className={TILE_GRID}>
         {/* "—" until the tasks arrive: a zero would read as "this project has no tasks". */}
         <StatTile label="Total tasks" value={statsReady ? stats.total : '—'} hint={statsReady && stats.pending ? `${stats.pending} not started` : ''} className={TILE_SPAN[0]} />
-        <StatTile label="Completed" value={statsReady ? stats.completed : '—'} tone="success" className={TILE_SPAN[1]} />
+        <StatTile label="Completed" value={statsReady ? stats.completed : '—'} tone="done" className={TILE_SPAN[1]} />
         <StatTile label="Ongoing" value={statsReady ? stats.ongoing : '—'} tone="info" className={TILE_SPAN[2]} />
-        <StatTile label="Overdue" value={statsReady ? stats.overdue : '—'} tone="danger" className={TILE_SPAN[3]} />
+        <StatTile label="Overdue" value={statsReady ? stats.overdue : '—'} tone="overdue" className={TILE_SPAN[3]} />
         <StatTile label="Completion" value={statsReady ? `${completion.pct}%` : '—'} hint={statsReady && completion.mode === 'WEIGHT' ? `by weight · ${completion.countPct}% by count` : ''} tone="brand" className={TILE_SPAN[4]} />
       </div>
       {/* The completion tile as a bar (its track drawn in the line colour: on the page ground it was invisible). */}

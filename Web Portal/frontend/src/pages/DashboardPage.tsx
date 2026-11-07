@@ -35,18 +35,10 @@ import { ApprovalChip } from '../components/approvals/ApprovalChip';
 import { isWaitingForApproval } from '../lib/approvals';
 import { myDueCounts } from '../lib/dashboard-tiles';
 import { useCompanyWeekStart } from '../lib/useDatePrefs';
+import { OVERDUE_CLASS, healthColour, statusColour } from '../lib/colour-classes';
 
-// Category colours reference the shared design tokens (rgb(var(--…))) so the
-// charts adapt to light/dark theme instead of being pinned to light-mode hex.
-const CATEGORY_COLOR: Record<string, string> = {
-  BACKLOG: 'rgb(var(--c-cat-backlog))', TODO: 'rgb(var(--c-cat-todo))',
-  IN_PROGRESS: 'rgb(var(--c-cat-progress))', BLOCKED: 'rgb(var(--c-cat-blocked))',
-  REVIEW: 'rgb(var(--c-cat-review))', DONE: 'rgb(var(--c-cat-done))',
-};
-
-/** Traffic-light colour for a completion percentage, so the bar reads its health at a glance. */
-const completionColor = (pct: number): string =>
-  pct >= 67 ? 'rgb(var(--c-success))' : pct >= 34 ? 'rgb(var(--c-warning))' : 'rgb(var(--c-danger))';
+/** Traffic-light colour for a completion percentage, so the bar reads its health at a glance (1.23.8: the health colours). */
+const completionColor = (pct: number): string => healthColour(pct >= 67 ? 'ON_TRACK' : pct >= 34 ? 'AT_RISK' : 'LATE');
 
 /** The welcome band's two links: a white focus ring (the brand-red one vanished on the band), finger-sized on touch. */
 const BAND_LINK =
@@ -205,7 +197,7 @@ export function DashboardPage() {
   const statusData = Object.entries(statusQ.data ?? {})
     .sort(([a], [b]) => statusRank(a) - statusRank(b))
     .map(([category, count]) => ({
-      label: STATUS_META[category]?.label ?? category, value: count, color: CATEGORY_COLOR[category] ?? 'rgb(var(--c-brand))',
+      label: STATUS_META[category]?.label ?? category, value: count, color: statusColour(category),
     }));
   const perfFiltered = projectFilter ? perf.filter((p) => p.projectId === projectFilter) : perf;
   const perfData = perfFiltered.map((p) => ({ label: p.projectName, value: p.completionPct, color: completionColor(p.completionPct) }));
@@ -256,9 +248,9 @@ export function DashboardPage() {
             <Reveal delay={1} className="h-full"><Link to="/my-tasks" className={TILE_LINK}><StatTile label="My tasks" value={myTasksQ.data?.length ?? '—'} tone="brand" icon={<StatIcon>{icon.tasks}</StatIcon>} hint="Assigned to you" /></Link></Reveal>
             <Reveal delay={2} className="h-full"><Link to="/projects" className={TILE_LINK}><StatTile label="Projects" value={projectsQ.data?.length ?? '—'} tone="info" icon={<StatIcon>{icon.folder}</StatIcon>} hint="Active workspaces" /></Link></Reveal>
             {isAdmin ? <Reveal delay={3} className="h-full"><Link to="/reports" className={TILE_LINK}><StatTile label="All tasks" value={perfQ.data ? totals.total : '—'} tone="success" icon={<StatIcon>{icon.layers}</StatIcon>} hint={perfQ.data ? `${totals.completed} completed` : undefined} /></Link></Reveal> : null}
-            {isAdmin ? <Reveal delay={4} className="h-full"><Link to="/reports" className={TILE_LINK}><StatTile label="Overdue" value={perfQ.data ? totals.overdue : '—'} tone="danger" icon={<StatIcon>{icon.alert}</StatIcon>} hint={perfQ.data ? (totals.total ? `${Math.round((totals.overdue / totals.total) * 100)}% of tasks` : 'No tasks yet') : undefined} /></Link></Reveal> : null}
-            {!isAdmin ? <Reveal delay={3} className="h-full"><Link to="/my-tasks" className={TILE_LINK}><StatTile label="Overdue" value={myTasksQ.data ? mine.overdue : '—'} tone="danger" icon={<StatIcon>{icon.alert}</StatIcon>} hint={myTasksQ.data ? (mine.overdue ? 'Past their due day' : 'Nothing late') : undefined} /></Link></Reveal> : null}
-            {!isAdmin ? <Reveal delay={4} className="h-full"><Link to="/my-tasks" className={TILE_LINK}><StatTile label="Due this week" value={myTasksQ.data ? mine.dueThisWeek : '—'} tone="warning" icon={<StatIcon>{icon.week}</StatIcon>} hint={myTasksQ.data ? weekHint : undefined} /></Link></Reveal> : null}
+            {isAdmin ? <Reveal delay={4} className="h-full"><Link to="/reports" className={TILE_LINK}><StatTile label="Overdue" value={perfQ.data ? totals.overdue : '—'} tone="overdue" icon={<StatIcon>{icon.alert}</StatIcon>} hint={perfQ.data ? (totals.total ? `${Math.round((totals.overdue / totals.total) * 100)}% of tasks` : 'No tasks yet') : undefined} /></Link></Reveal> : null}
+            {!isAdmin ? <Reveal delay={3} className="h-full"><Link to="/my-tasks" className={TILE_LINK}><StatTile label="Overdue" value={myTasksQ.data ? mine.overdue : '—'} tone="overdue" icon={<StatIcon>{icon.alert}</StatIcon>} hint={myTasksQ.data ? (mine.overdue ? 'Past their due day' : 'Nothing late') : undefined} /></Link></Reveal> : null}
+            {!isAdmin ? <Reveal delay={4} className="h-full"><Link to="/my-tasks" className={TILE_LINK}><StatTile label="Due this week" value={myTasksQ.data ? mine.dueThisWeek : '—'} tone="soon" icon={<StatIcon>{icon.week}</StatIcon>} hint={myTasksQ.data ? weekHint : undefined} /></Link></Reveal> : null}
           </div>
         );
       case 'status-chart':
@@ -510,7 +502,7 @@ function TaskRow({ task, onOpen, showDue, timeZone, stacked }: { task: ApiTask; 
         {waitingLate ? (
           <span className="ms-auto flex flex-none"><ApprovalChip /></span>
         ) : due ? (
-          <span className={`ms-auto whitespace-nowrap text-xs font-medium ${due.overdue ? 'text-danger' : 'text-ink-2'}`}>{due.label}</span>
+          <span className={`ms-auto whitespace-nowrap text-xs font-medium ${due.overdue ? OVERDUE_CLASS.text : 'text-ink-2'}`}>{due.label}</span>
         ) : (
           <span className="ms-auto flex flex-none"><PriorityBadge priority={task.priority} /></span>
         )}

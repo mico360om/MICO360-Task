@@ -1,11 +1,13 @@
 import type { ReactNode } from 'react';
 import type { ItemQuery, Rag } from '../../api/management';
 import { RAG_WORD } from '../../lib/management';
+import { HEALTH_CLASS, OVERDUE_CLASS } from '../../lib/colour-classes';
 
 const RAG_LOOK: Record<Rag, { chip: string; dot: string }> = {
-  RED: { chip: 'bg-danger-soft text-danger', dot: 'bg-danger' },
-  AMBER: { chip: 'bg-warning-soft text-warning', dot: 'bg-warning' },
-  GREEN: { chip: 'bg-success-soft text-success', dot: 'bg-success' },
+  // 1.23.8: health's own colours in the one scheme, as the project cards' badges and the Timeline's bars.
+  RED: { chip: HEALTH_CLASS.LATE.chip, dot: HEALTH_CLASS.LATE.dot },
+  AMBER: { chip: HEALTH_CLASS.AT_RISK.chip, dot: HEALTH_CLASS.AT_RISK.dot },
+  GREEN: { chip: HEALTH_CLASS.ON_TRACK.chip, dot: HEALTH_CLASS.ON_TRACK.dot },
 };
 
 /** A project's mark as a word with a dot ("Red"): never colour alone. */
@@ -20,8 +22,9 @@ export function RagMark({ rag, className = '' }: { rag: Rag; className?: string 
 }
 
 export type OpenList = (q: ItemQuery, opener: HTMLElement) => void;
-type Tone = 'danger' | 'warning' | 'neutral';
-const NUMBER_TONE: Record<Tone, string> = { danger: 'text-danger', warning: 'text-warning', neutral: 'text-ink' };
+type Tone = 'danger' | 'warning' | 'neutral' | 'overdue';
+// 1.23.8: `overdue` (late tasks) is the one colour scheme's red.
+const NUMBER_TONE: Record<Tone, string> = { danger: 'text-danger', warning: 'text-warning', neutral: 'text-ink', overdue: OVERDUE_CLASS.text };
 
 /**
  * A number that opens the list behind it (a side sheet). Zero has nothing behind it: plain text.

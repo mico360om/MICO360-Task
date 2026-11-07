@@ -10,7 +10,7 @@ import { NumberButton, Section, plural, type OpenList } from './parts';
  * projects shown here. Every number opens its own list.
  */
 export function PeopleSection({ people, week, limit, onOpen }: { people: PersonRow[]; week: string; limit: number; onOpen: OpenList }) {
-  const late = (p: PersonRow) => <NumberButton value={p.lateTasks} label={`${p.name}: ${plural(p.lateTasks, 'late task')}`} query={{ metric: 'late-tasks', personId: p.id }} onOpen={onOpen} tone="danger" />;
+  const late = (p: PersonRow) => <NumberButton value={p.lateTasks} label={`${p.name}: ${plural(p.lateTasks, 'late task')}`} query={{ metric: 'late-tasks', personId: p.id }} onOpen={onOpen} tone="overdue" />;
   const over = (p: PersonRow) => (
     <NumberButton value={p.overloadedDays.length} label={`${p.name}: ${plural(p.overloadedDays.length, 'day')} over the limit this week`} query={{ metric: 'person-overloaded', personId: p.id }} onOpen={onOpen} tone="danger" />
   );

@@ -14,6 +14,8 @@ import {
 } from '../../api/templates';
 import { ApiError } from '../../lib/api-client';
 import { STATUS_META, STATUS_ORDER } from '../../lib/taskStatus';
+import { statusTones } from '../../lib/colour-scheme';
+import { statusClass } from '../../lib/colour-classes';
 import { stayOnEnter } from '../../lib/enter-key';
 import { useDialog } from '../../hooks/useDialog';
 import { ModalPortal } from '../ui/ModalPortal';
@@ -30,13 +32,16 @@ import { dialogLayer, dialogPanel } from '../ui/dialog-size';
 /** What the server keeps (see the backend's TEMPLATE_LIMITS). */
 export const LIMITS = { columns: 20, roles: 30, tasks: 500, roleName: 80, title: 191, description: 20_000, minOffset: -365, maxOffset: 3650, checklistTotal: 5000 };
 
+/** A stage's colour as stored with a template's column: the one scheme's (1.23.8; the website shows the stage's colour whatever is stored). */
+const stageColour = (category: ColumnCategory): string => statusTones(category).light.fill;
+
 /** The board a new project gets when nothing else is chosen (the backend's DEFAULT_COLUMNS). */
 export const DEFAULT_BOARD: TemplateColumn[] = [
-  { name: 'Backlog', category: 'BACKLOG', color: '#948985' },
-  { name: 'To Do', category: 'TODO', color: '#3A6EA5' },
-  { name: 'In Progress', category: 'IN_PROGRESS', color: '#B87611' },
-  { name: 'Review', category: 'REVIEW', color: '#7A5AA8' },
-  { name: 'Done', category: 'DONE', color: '#2E7D53' },
+  { name: 'Backlog', category: 'BACKLOG', color: stageColour('BACKLOG') },
+  { name: 'To Do', category: 'TODO', color: stageColour('TODO') },
+  { name: 'In Progress', category: 'IN_PROGRESS', color: stageColour('IN_PROGRESS') },
+  { name: 'Review', category: 'REVIEW', color: stageColour('REVIEW') },
+  { name: 'Done', category: 'DONE', color: stageColour('DONE') },
 ];
 
 interface DraftTask {
@@ -115,7 +120,7 @@ function toInput(d: Draft): ProjectTemplateInput {
   return {
     name: d.name.trim(),
     description: d.description.trim() || null,
-    columns: d.columns.map((c) => ({ name: c.name.trim(), category: c.category, color: c.color })),
+    columns: d.columns.map((c) => ({ name: c.name.trim(), category: c.category, color: stageColour(c.category) })),
     roles: d.roles.map((r) => ({ key: r.key, name: r.name.trim() })),
     tasks: d.tasks.map((t) => ({
       title: t.title.trim(),
@@ -338,9 +343,8 @@ export function ProjectTemplateEditor({ templateId, onClose, onSaved }: { templa
                     <ol className="flex flex-col gap-2">
                       {draft.columns.map((c, i) => (
                         <li key={c.key} className="flex flex-wrap items-center gap-2 rounded-xl border border-line p-2 sm:flex-nowrap">
-                          <label className="relative h-8 w-8 flex-none cursor-pointer overflow-hidden rounded-lg border border-line" style={{ background: c.color }} title="Colour">
-                            <input type="color" aria-label={`Column ${i + 1} colour`} value={/^#[0-9a-f]{6}$/i.test(c.color) ? c.color : '#948985'} onChange={(e) => setColumn(c.key, { color: e.target.value })} className="absolute inset-0 cursor-pointer opacity-0" />
-                          </label>
+                          {/* 1.23.8 one colour scheme: its stage's colour (no picker). */}
+                          <span role="img" aria-label={`Column ${i + 1}: ${STATUS_META[c.category]!.label} colour`} title={`${STATUS_META[c.category]!.label} colour`} className={`h-8 w-8 flex-none rounded-lg border border-line ${statusClass(c.category).dot}`} />
                           <input aria-label={`Column ${i + 1} name`} value={c.name} onChange={(e) => setColumn(c.key, { name: e.target.value })} onKeyDown={stayOnEnter} dir="auto" maxLength={LIMITS.title} className={`${field} min-w-0 flex-1 basis-40`} />
                           <select aria-label={`Column ${i + 1} stage`} value={c.category} onChange={(e) => setColumn(c.key, { category: e.target.value as ColumnCategory })} className={`${field} w-auto flex-none basis-36`}>
                             {STATUS_ORDER.map((cat) => <option key={cat} value={cat}>{STATUS_META[cat]!.label}</option>)}
@@ -354,7 +358,7 @@ export function ProjectTemplateEditor({ templateId, onClose, onSaved }: { templa
                       ))}
                     </ol>
                     {draft.columns.length < LIMITS.columns ? (
-                      <button type="button" onClick={() => set({ columns: [...draft.columns, { key: newKey('col'), name: '', category: 'TODO', color: '#3A6EA5' }] })} className="mt-2 inline-flex !min-h-[40px] items-center gap-1.5 rounded-xl px-3 text-sm font-semibold text-brand hover:bg-brand/10">
+                      <button type="button" onClick={() => set({ columns: [...draft.columns, { key: newKey('col'), name: '', category: 'TODO', color: stageColour('TODO') }] })} className="mt-2 inline-flex !min-h-[40px] items-center gap-1.5 rounded-xl px-3 text-sm font-semibold text-brand hover:bg-brand/10">
                         {TemplateGlyph.plus}Add a column
                       </button>
                     ) : null}

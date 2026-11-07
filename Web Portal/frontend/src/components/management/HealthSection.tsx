@@ -6,6 +6,7 @@ import { EmptyState } from '../ui/EmptyState';
 import { STATUS_LABEL, idleText, milestoneText } from '../../lib/management';
 import { ListButton, NumberButton, RagMark, Section, plural, type OpenList } from './parts';
 import { TaskKey } from '../TaskKey';
+import { healthClass } from '../../lib/colour-classes';
 
 type Sort = 'worst' | 'name' | 'late' | 'done';
 const SORTS: { value: Sort; label: string }[] = [
@@ -64,7 +65,8 @@ function Reasons({ row, onOpen }: { row: HealthRow; onOpen: OpenList }) {
   return (
     <ul className="space-y-0.5 text-xs">
       {row.reasons.map((r) => {
-        const tone = r.level === 'RED' ? 'text-danger' : r.level === 'AMBER' ? 'text-warning' : 'text-ink-2';
+        // 1.23.8: the reasons in the health colours (Red late, Amber at risk), as the health badges.
+        const tone = healthClass(r.level)?.text && r.level !== 'GREEN' ? healthClass(r.level)!.text : 'text-ink-2';
         const query = reasonList(r.code, row.id);
         return (
           <li key={r.code + r.text} className={tone}>
@@ -123,7 +125,7 @@ export function HealthSection({
   const [sort, setSort] = useState<Sort>('worst');
   const shown = useMemo(() => sortRows(rows, sort), [rows, sort]);
   const late = (r: HealthRow) => (
-    <NumberButton value={r.late} label={`${plural(r.late, 'late task')} in ${r.name}`} query={{ metric: 'late-tasks', projectId: r.id }} onOpen={onOpen} tone="danger" />
+    <NumberButton value={r.late} label={`${plural(r.late, 'late task')} in ${r.name}`} query={{ metric: 'late-tasks', projectId: r.id }} onOpen={onOpen} tone="overdue" />
   );
   const missing = (r: HealthRow) => (
     <NumberButton value={r.missingChecks} label={`${plural(r.missingChecks, 'missing check')} in ${r.name}`} query={{ metric: 'missing-checks', projectId: r.id }} onOpen={onOpen} tone="danger" />

@@ -9,7 +9,7 @@ import { MinutesCell, TitleCell } from '../data-table/cells';
 import { useRowEdits, useTableMemory } from '../data-table/hooks';
 import { ME, NO_PERSON, OPEN_ONLY, tableFiltersActive, EMPTY_TABLE_FILTERS } from '../../lib/data-table';
 import { ACTION_STATUSES, actionItemSortValue, filterActionItems, groupActionItems, itemTopic } from '../../lib/meeting-table';
-import { actionStatusTone, isActionItemOverdue } from '../../lib/meetingFormat';
+import { actionStatusClass, isActionItemOverdue } from '../../lib/meetingFormat';
 import { dueDayKey, todayKey } from '../../lib/due-date';
 import { dayText } from '../../lib/day-words';
 import { useDateSettings } from '../../lib/useDatePrefs';
@@ -17,7 +17,8 @@ import { useOpenTask } from '../../lib/useOpenTask';
 import { useAuthStore } from '../../stores/auth-store';
 import { SearchableSelect } from '../ui/SearchableSelect';
 import { DayPickerButton } from '../ui/DateTimeField';
-import { badgeToneClass, type BadgeTone } from '../ui/Badge';
+import { badgeToneClass } from '../ui/Badge';
+import { PRIORITY_CLASS } from '../../lib/colour-classes';
 import { TaskKey } from '../TaskKey';
 import { DENSE_TEXT } from '../../lib/density-tokens';
 import { LoadError, Section, peopleOptions, userName } from './kit';
@@ -72,7 +73,8 @@ export interface MeetingTableProps {
 
 const PRIORITIES: Priority[] = ['LOW', 'NORMAL', 'HIGH', 'URGENT'];
 const PRIORITY_LABEL: Record<Priority, string> = { LOW: 'Low', NORMAL: 'Normal', HIGH: 'High', URGENT: 'Urgent' };
-const PRIORITY_TONE: Record<Priority, BadgeTone> = { LOW: 'neutral', NORMAL: 'info', HIGH: 'warning', URGENT: 'danger' };
+// 1.23.8: an action item's priority in the one colour scheme (Urgent red · High orange · Normal blue-grey · Low grey).
+const PRIORITY_TONE: Record<Priority, string> = { LOW: PRIORITY_CLASS.LOW.chip, NORMAL: PRIORITY_CLASS.NORMAL.chip, HIGH: PRIORITY_CLASS.HIGH.chip, URGENT: PRIORITY_CLASS.URGENT.chip };
 const CHIP = 'inline-flex min-h-7 max-w-full items-center gap-1 rounded-full px-2.5 text-xs font-medium compact:min-h-6';
 const COVERED = [
   { value: 'yes', label: 'Covered ✓' },
@@ -296,10 +298,10 @@ export function MeetingTable({ meetingId, directory, canEdit, pollMs, timeZone, 
             value={i.priority}
             onChange={(v) => v !== i.priority && saveItem(i, { priority: v as Priority }, { priority: v as Priority })}
             options={PRIORITIES.map((p) => ({ value: p, label: PRIORITY_LABEL[p] }))}
-            chipClassName={badgeToneClass(PRIORITY_TONE[i.priority])}
+            chipClassName={PRIORITY_TONE[i.priority]}
           />
         ) : (
-          <span className={`${CHIP} ${badgeToneClass(PRIORITY_TONE[i.priority])}`}>{PRIORITY_LABEL[i.priority]}</span>
+          <span className={`${CHIP} ${PRIORITY_TONE[i.priority]}`}>{PRIORITY_LABEL[i.priority]}</span>
         ),
     },
     {
@@ -345,10 +347,10 @@ export function MeetingTable({ meetingId, directory, canEdit, pollMs, timeZone, 
             value={i.status}
             onChange={(v) => v !== i.status && saveItem(i, { status: v as ActionItemStatus }, { status: v as ActionItemStatus })}
             options={ACTION_STATUSES.map((s) => ({ value: s, label: ACTION_STATUS_LABELS[s] }))}
-            chipClassName={badgeToneClass(actionStatusTone(i.status))}
+            chipClassName={actionStatusClass(i.status)}
           />
         ) : (
-          <span className={`${CHIP} ${badgeToneClass(actionStatusTone(i.status))}`}>{ACTION_STATUS_LABELS[i.status]}</span>
+          <span className={`${CHIP} ${actionStatusClass(i.status)}`}>{ACTION_STATUS_LABELS[i.status]}</span>
         ),
     },
     {

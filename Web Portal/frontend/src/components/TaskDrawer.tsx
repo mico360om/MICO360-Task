@@ -8,7 +8,6 @@ import { InspectionChip } from './inspections/inspection-ui';
 import { Toggle } from './ui/Toggle';
 import { ProjectAvatar, type ProjectLook } from './ProjectAvatar';
 import { recurrenceSummary } from '../lib/recurrence-summary';
-import { statusMeta } from '../lib/taskStatus';
 import { formatDueDay, isTaskLate } from '../lib/due-display';
 import { DEFAULT_TIME_ZONE } from '../lib/company-clock';
 import { formatMeetingDay } from '../lib/meetingFormat';
@@ -31,6 +30,8 @@ import { ConfirmDialog } from './ui/ConfirmDialog';
 import type { StepDirection, TaskStepper } from '../lib/task-steps';
 import { TaskKey } from './TaskKey';
 import { mergedFromKeys } from '../lib/task-merge';
+import { StatusPill as SchemeStatusPill } from './ui/StatusPill';
+import { OVERDUE_CLASS } from '../lib/colour-classes';
 
 /** A carried-forward day ('YYYY-MM-DD') in words — "20 Oct 2026" — as the rest of the panel writes days. */
 const carriedDay = (key: string) => dayText(key) || key;
@@ -192,19 +193,9 @@ const Chevron = ({ dir }: { dir: StepDirection }) => (
 
 const NO_PEOPLE: MentionPerson[] = [];
 
+/** The header's status: tinted in its status's colour (1.23.8 one colour scheme, components/ui/StatusPill). */
 function StatusPill({ category }: { category?: string | null }) {
-  const m = statusMeta(category);
-  // Tinted with the status's own colour (dark text kept for contrast), so status reads at a glance.
-  return (
-    <span
-      data-testid="status-pill"
-      className="inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs font-semibold text-ink"
-      style={{ background: `color-mix(in srgb, ${m.color} 16%, transparent)`, borderColor: `color-mix(in srgb, ${m.color} 40%, transparent)` }}
-    >
-      <span className="h-2 w-2 rounded-full" style={{ background: m.color }} aria-hidden />
-      {m.label}
-    </span>
-  );
+  return <SchemeStatusPill category={category} testId="status-pill" className="!px-2 !text-xs" />;
 }
 
 const CalendarIcon = () => (
@@ -509,7 +500,7 @@ export function TaskDrawer({
               </span>
             ) : null}
             {dueText ? (
-              <span className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium ${overdue ? 'bg-danger-soft text-danger' : 'text-ink-2'}`}>
+              <span className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium ${overdue ? OVERDUE_CLASS.chip : 'text-ink-2'}`}>
                 <CalendarIcon />
                 {overdue ? <span>Overdue ·</span> : <span className="sr-only">Due</span>}
                 <time dateTime={task.dueDate ?? undefined}>{dueText}</time>

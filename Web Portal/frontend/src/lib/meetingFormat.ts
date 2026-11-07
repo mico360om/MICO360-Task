@@ -2,6 +2,27 @@ import type { BadgeTone } from '../components/ui/Badge';
 import type { MeetingStatus, AttendanceStatus, MeetingNoteType, ActionItemStatus } from '../api/meetings';
 import { dueDayKey, isOverdue } from './due-date';
 import { clockText, dayKeyIn, dayText } from './day-words';
+import { STATUS_CLASS } from './colour-classes';
+
+/**
+ * 1.23.8 An action item's status in the one colour scheme, read like a task's: Open (To do slate), In progress
+ * (blue), Pending (Review purple: waiting on someone), Completed (Done green); Cancelled plain grey.
+ */
+export function actionStatusClass(status: ActionItemStatus): string {
+  switch (status) {
+    case 'COMPLETED':
+      return STATUS_CLASS.DONE.chip;
+    case 'IN_PROGRESS':
+      return STATUS_CLASS.IN_PROGRESS.chip;
+    case 'PENDING':
+      return STATUS_CLASS.REVIEW.chip;
+    case 'CANCELLED':
+      return 'bg-ground text-ink-2';
+    case 'OPEN':
+    default:
+      return STATUS_CLASS.TODO.chip;
+  }
+}
 
 export function actionStatusTone(status: ActionItemStatus): BadgeTone {
   switch (status) {

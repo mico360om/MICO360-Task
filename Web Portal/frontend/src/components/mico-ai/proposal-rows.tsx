@@ -19,6 +19,7 @@ import { projectOption } from '../project-option';
 import { useSourceTarget } from './AnswerParts';
 import { isProjectArchived } from '../../lib/project-archive';
 import { TaskKey } from '../TaskKey';
+import { statusColour } from '../../lib/colour-classes';
 
 /**
  * One change on MICO AI's card: what it will do (a new task's details; a task change as
@@ -369,7 +370,7 @@ function UpdateEditor({ item, onEdit }: { item: UpdateTaskChange; onEdit: EditFn
         <Labelled label="Status">
           <SearchableSelect
             ariaLabel="Status"
-            options={columns.map((c) => ({ value: c.id, label: c.name, icon: <span className="h-2.5 w-2.5 rounded-full" style={{ background: c.color }} /> }))}
+            options={columns.map((c) => ({ value: c.id, label: c.name, icon: <span className="h-2.5 w-2.5 rounded-full" style={{ background: statusColour(c.category) }} /> }))}
             value={f.columnId}
             placeholder={columnsQ.isLoading ? 'Loading…' : 'Pick a status'}
             onChange={(v) => onEdit({ columnId: v }, { column: columns.find((c) => c.id === v)?.name ?? '' })}

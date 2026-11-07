@@ -1,5 +1,20 @@
 import plugin from 'tailwindcss/plugin';
 
+// 1.23.8 One colour scheme (src/lib/colour-scheme.ts, CSS variables in index.css): each token as a fill
+// (bg-/border-/ring-/fill- utilities, e.g. `bg-status-progress`) with its soft tint (`bg-status-progress-soft`),
+// and as words (`text-status-progress` reads the token's text tone, 4.5:1). Components use
+// src/lib/colour-classes.ts rather than writing these themselves.
+const scheme = (text) => {
+  const tone = (name) => ({ DEFAULT: `rgb(var(--c-${name}${text ? '-text' : ''}) / <alpha-value>)`, soft: `rgb(var(--c-${name}-soft) / <alpha-value>)` });
+  return {
+    status: { backlog: tone('status-backlog'), todo: tone('status-todo'), progress: tone('status-progress'), blocked: tone('status-blocked'), review: tone('status-review'), done: tone('status-done') },
+    prio: { urgent: tone('prio-urgent'), high: tone('prio-high'), normal: tone('prio-normal'), low: tone('prio-low') },
+    overdue: tone('overdue'),
+    soon: tone('soon'),
+    health: { ok: tone('health-ok'), risk: tone('health-risk'), late: tone('health-late') },
+  };
+};
+
 /** @type {import('tailwindcss').Config} */
 export default {
   content: ['./index.html', './src/**/*.{ts,tsx}'],
@@ -38,15 +53,7 @@ export default {
         // What a dialog, sheet or panel lays over the page behind it: the same dark wash in light and
         // dark mode (a tint of ink would be a light-grey wash in dark mode, where ink is near-white).
         scrim: 'rgb(0 0 0 / 0.5)',
-        // Kanban / status categories
-        cat: {
-          backlog: 'rgb(var(--c-cat-backlog) / <alpha-value>)',
-          todo: 'rgb(var(--c-cat-todo) / <alpha-value>)',
-          progress: 'rgb(var(--c-cat-progress) / <alpha-value>)',
-          blocked: 'rgb(var(--c-cat-blocked) / <alpha-value>)',
-          review: 'rgb(var(--c-cat-review) / <alpha-value>)',
-          done: 'rgb(var(--c-cat-done) / <alpha-value>)',
-        },
+        ...scheme(false),
       },
       // As text, the brand and status colours use their "text tone" so small labels reach 4.5:1 on white,
       // on the page ground and on their own soft tint; bg-/border-/ring- utilities keep the fill colour.
@@ -61,6 +68,7 @@ export default {
         success: { DEFAULT: 'rgb(var(--c-success-text) / <alpha-value>)', soft: 'rgb(var(--c-success-soft) / <alpha-value>)' },
         warning: { DEFAULT: 'rgb(var(--c-warning-text) / <alpha-value>)', soft: 'rgb(var(--c-warning-soft) / <alpha-value>)' },
         info: { DEFAULT: 'rgb(var(--c-info-text) / <alpha-value>)', soft: 'rgb(var(--c-info-soft) / <alpha-value>)' },
+        ...scheme(true),
       },
       // A row's text in compact (lib/density.ts): one step under text-sm, on a tighter line.
       fontSize: { row: ['13px', '18px'] },
@@ -124,6 +132,12 @@ export default {
     // these rules match nothing. (COMPACT_MEDIA in lib/density.ts is the same media.)
     plugin(({ addVariant }) => {
       addVariant('compact', '@media (min-width: 48em) and (pointer: fine) { :root[data-density="compact"] & }');
+      // `detailed:` — Detailed rows (1.23.8, lib/density.ts): with <html data-density="detailed">, on every
+      // screen (it shows more and never shrinks a target, so phones and touch screens get it too).
+      addVariant('detailed', ':root[data-density="detailed"] &');
+      // `rail:` — the side menu as its 64px icon rail (components/Sidebar): on a tablet (768–1023px) always,
+      // and from 1024px when the person folded it (1.23.8, <html data-sidebar="collapsed">, lib/appearance.ts).
+      addVariant('rail', ['@media (min-width: 48em) { @media not all and (min-width: 64em) { & } }', '@media (min-width: 64em) { :root[data-sidebar="collapsed"] & }']);
     }),
   ],
 };

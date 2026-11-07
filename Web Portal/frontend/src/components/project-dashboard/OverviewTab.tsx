@@ -16,14 +16,16 @@ import type { TaskFilter, TaskGroup } from './TasksTab';
 import { TaskKey } from '../TaskKey';
 import type { ProjectCompletion } from '../../api/projects';
 import { HealthCard, NextActionsCard, OwnersCard, RecentActivityCard, RisksCard } from './HealthCards';
+import { OVERDUE_CLASS, STATUS_CLASS, dueTone } from '../../lib/colour-classes';
 
 const PROJECT_STATUS_TONE: Record<string, BadgeTone> = { PLANNING: 'info', ACTIVE: 'success', ON_HOLD: 'warning', COMPLETED: 'brand', ARCHIVED: 'neutral' };
 const words = (s: string) => s.charAt(0) + s.slice(1).toLowerCase().replace('_', ' ');
 
+// 1.23.8 one colour scheme: done green, overdue red; waiting for approval keeps the approvals' amber.
 const MILESTONE_LOOK: Record<MilestoneState, string> = {
-  done: 'text-success',
+  done: STATUS_CLASS.DONE.text,
   waiting: 'text-warning',
-  overdue: 'text-danger',
+  overdue: OVERDUE_CLASS.text,
   upcoming: 'text-brand',
   undated: 'text-ink-3',
 };
@@ -125,12 +127,12 @@ export function OverviewTab(p: OverviewProps) {
                     : '…'}
                 </span>
               </div>
-              <ProgressBar value={p.statsReady ? (p.completion?.pct ?? stats.pct) : 0} label="Work done" tone="success" />
+              <ProgressBar value={p.statsReady ? (p.completion?.pct ?? stats.pct) : 0} label="Work done" tone="done" />
             </div>
             <div>
               <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-x-2 text-sm">
                 <span className="whitespace-nowrap font-semibold text-ink">Time</span>
-                <span className={`tabular-nums ${timeline?.state === 'late' ? 'font-semibold text-danger' : 'text-ink-2'}`}>
+                <span className={`tabular-nums ${dueTone({ late: timeline?.state === 'late' })}`}>
                   {!timeline
                     ? 'Set a start and target date'
                     : timeline.state === 'not-started'
@@ -140,7 +142,7 @@ export function OverviewTab(p: OverviewProps) {
                         : `${timeline.daysLeft} ${timeline.daysLeft === 1 ? 'day' : 'days'} left · ends ${dayText(timeline.end)}`}
                 </span>
               </div>
-              <ProgressBar value={timeline?.elapsedPct ?? 0} label="Time gone" tone={timeline?.state === 'late' ? 'danger' : 'brand'} />
+              <ProgressBar value={timeline?.elapsedPct ?? 0} label="Time gone" tone={timeline?.state === 'late' ? 'overdue' : 'brand'} />
             </div>
           </div>
 
@@ -178,7 +180,7 @@ export function OverviewTab(p: OverviewProps) {
                           <bdi>{m.task.title}</bdi>
                         </button>
                       </span>
-                      <span className={`text-xs ${m.state === 'overdue' ? 'font-semibold text-danger' : 'text-ink-2'}`}>
+                      <span className={`text-xs ${dueTone({ late: m.state === 'overdue' })}`}>
                         {m.due ? `${dayText(m.due)} · ` : ''}{milestoneNote(m.state, m.daysLeft)}
                       </span>
                     </span>
@@ -251,7 +253,7 @@ export function OverviewTab(p: OverviewProps) {
                   <li key={w.id} className="flex items-center gap-2 text-sm">
                     <span className="min-w-0 flex-1 truncate text-ink"><bdi>{w.name}</bdi></span>
                     <span className="tabular-nums text-ink-2">{w.open} open</span>
-                    {w.overdue ? <span className="tabular-nums font-semibold text-danger">{w.overdue} late</span> : null}
+                    {w.overdue ? <span className={`tabular-nums font-semibold ${OVERDUE_CLASS.text}`}>{w.overdue} late</span> : null}
                   </li>
                 ))}
               </ul>

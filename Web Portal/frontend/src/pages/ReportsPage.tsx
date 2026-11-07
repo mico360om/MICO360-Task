@@ -15,6 +15,8 @@ import { dayText } from '../lib/day-words';
 import { todayKey as companyTodayKey, shiftDayKey } from '../lib/due-date';
 import { useCompanyTimeZone } from '../lib/useCompanyTimeZone';
 import { namedProjectOption } from '../components/project-option';
+import { OVERDUE_CLASS, OVERDUE_COLOUR, STATUS_CLASS, statusColour } from '../lib/colour-classes';
+import { STATUS_META } from '../lib/taskStatus';
 
 // ── Date-range helpers: 'YYYY-MM-DD' day keys, where "today" is the company's today ──
 const DAY_MS = 86_400_000;
@@ -35,16 +37,9 @@ const RANGE_PRESETS: { label: string; days: number }[] = [
   { label: '90d', days: 90 },
 ];
 
-// Status colours reference the shared design tokens so they match the Kanban board
-// and the Dashboard chart (theme-aware, on-brand — not raw Tailwind hues).
-const CATEGORY: Record<string, { label: string; color: string }> = {
-  BACKLOG: { label: 'Backlog', color: 'rgb(var(--c-cat-backlog))' },
-  TODO: { label: 'To Do', color: 'rgb(var(--c-cat-todo))' },
-  IN_PROGRESS: { label: 'In Progress', color: 'rgb(var(--c-cat-progress))' },
-  BLOCKED: { label: 'Blocked', color: 'rgb(var(--c-cat-blocked))' },
-  REVIEW: { label: 'Review', color: 'rgb(var(--c-cat-review))' },
-  DONE: { label: 'Done', color: 'rgb(var(--c-cat-done))' },
-};
+// 1.23.8: the status colours are the one colour scheme's (lib/taskStatus / lib/colour-classes), as on the
+// Kanban board and the Dashboard chart (theme-aware, the same in the PDF).
+const CATEGORY: Record<string, { label: string; color: string }> = STATUS_META;
 
 const EXPORT_REPORTS: { value: ReportKind; label: string; file: string }[] = [
   { value: 'export', label: 'Full report (all sections)', file: 'tasks-report' },
@@ -64,6 +59,9 @@ const MINI_TONE: Record<string, string> = {
   success: 'text-success',
   info: 'text-info',
   danger: 'text-danger',
+  /** 1.23.8: the scheme's overdue red and Done green. */
+  overdue: OVERDUE_CLASS.text,
+  done: STATUS_CLASS.DONE.text,
 };
 function MiniStat({ label, value, tone = 'brand' }: { label: string; value: string | number; tone?: keyof typeof MINI_TONE }) {
   return (
@@ -252,10 +250,10 @@ export function ReportsPage() {
   const completedCum = cumulative(points.map((p) => p.completed));
   const createdCum = cumulative(points.map((p) => p.created));
   const completionSeries = [
-    { name: 'Completed', color: 'rgb(var(--c-cat-done))', values: completedCum, area: true },
+    { name: 'Completed', color: statusColour('DONE'), values: completedCum, area: true },
     { name: 'Created', color: 'rgb(var(--c-ink-3))', values: createdCum },
   ];
-  const overdueSeries = [{ name: 'Overdue', color: 'rgb(var(--c-danger))', values: points.map((p) => p.overdue), area: true }];
+  const overdueSeries = [{ name: 'Overdue', color: OVERDUE_COLOUR, values: points.map((p) => p.overdue), area: true }];
   const burndownSeries = [
     { name: 'Remaining', color: 'rgb(var(--c-brand))', values: points.map((p) => p.remaining), area: true },
     { name: 'Ideal', color: 'rgb(var(--c-ink-3))', values: points.map((p) => p.ideal), dashed: true },
@@ -336,8 +334,8 @@ export function ReportsPage() {
           {/* Summary tiles: two to a row on a phone, four on a wide screen (as on Management). */}
           <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
             <StatTile label="Total tasks" value={totals.total} tone="brand" hint={`${rows.length} project${rows.length === 1 ? '' : 's'}`} />
-            <StatTile label="Completed" value={totals.completed} tone="success" hint={`${completionPct}% completion`} />
-            <StatTile label="Overdue" value={totals.overdue} tone="danger" hint={totals.total ? `${Math.round((totals.overdue / totals.total) * 100)}% of tasks` : '—'} />
+            <StatTile label="Completed" value={totals.completed} tone="done" hint={`${completionPct}% completion`} />
+            <StatTile label="Overdue" value={totals.overdue} tone="overdue" hint={totals.total ? `${Math.round((totals.overdue / totals.total) * 100)}% of tasks` : '—'} />
             {/* A rate needs something to rate: "—" until a task with a due date is done, not a 0% that reads as a failure. */}
             <StatTile label="On-time rate" value={rated ? `${completion.onTimeRate}%` : '—'} tone="info" hint={rated ? `${completion.onTime} on time · ${completion.late} late` : completion ? 'Nothing delivered yet' : undefined} />
           </div>
@@ -429,10 +427,10 @@ export function ReportsPage() {
               <>
                 {/* Window stats */}
                 <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                  <MiniStat label="Completed in range" value={totalCompletedInRange} tone="success" />
+                  <MiniStat label="Completed in range" value={totalCompletedInRange} tone="done" />
                   <MiniStat label="New tasks in range" value={totalCreatedInRange} tone="info" />
                   <MiniStat label="Velocity" value={`${velocityPerWeek}/wk`} tone="brand" />
-                  <MiniStat label="Overdue now" value={latestOverdue} tone="danger" />
+                  <MiniStat label="Overdue now" value={latestOverdue} tone="overdue" />
                 </div>
 
                 {/* Charts */}
@@ -484,9 +482,9 @@ export function ReportsPage() {
                     <tr key={r.projectId} className="border-b border-line last:border-0">
                       <td dir="auto" className="p-3 text-start font-medium text-ink">{r.projectName}</td>
                       <td className="p-3 text-right tabular-nums">{r.total}</td>
-                      <td className="p-3 text-right tabular-nums text-success">{r.completed}</td>
+                      <td className={`p-3 text-right tabular-nums ${STATUS_CLASS.DONE.text}`}>{r.completed}</td>
                       <td className="p-3 text-right tabular-nums">{r.total - r.completed}</td>
-                      <td className="p-3 text-right tabular-nums text-danger">{r.overdue}</td>
+                      <td className={`p-3 text-right tabular-nums ${OVERDUE_CLASS.text}`}>{r.overdue}</td>
                       <td className="p-3">
                         <PctBar pct={r.completionPct} />
                         {r.completionBy === 'WEIGHT' ? <span className="mt-0.5 block text-[11px] text-ink-2">by weight</span> : null}
@@ -528,8 +526,8 @@ export function ReportsPage() {
                     <tr key={w.userId} className="border-b border-line last:border-0">
                       <td dir="auto" className="p-3 text-start font-medium text-ink">{memberName(w)}</td>
                       <td className="p-3 text-right tabular-nums">{w.assigned}</td>
-                      <td className="p-3 text-right tabular-nums text-success">{w.completed}</td>
-                      <td className="p-3 text-right tabular-nums text-danger">{w.overdue}</td>
+                      <td className={`p-3 text-right tabular-nums ${STATUS_CLASS.DONE.text}`}>{w.completed}</td>
+                      <td className={`p-3 text-right tabular-nums ${OVERDUE_CLASS.text}`}>{w.overdue}</td>
                       <td className="p-3"><PctBar pct={w.assigned ? Math.round((w.completed / w.assigned) * 100) : 0} /></td>
                     </tr>
                   ))}

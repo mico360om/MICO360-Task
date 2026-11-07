@@ -42,6 +42,7 @@ import {
 } from '../lib/timeline';
 import { TOUCH_TALL } from '../lib/touch';
 import { WaitingIcon } from '../components/approvals/ApprovalChip';
+import { HEALTH_CLASS } from '../lib/colour-classes';
 
 const iconButton = 'grid h-9 w-9 flex-none place-items-center rounded-xl border border-line bg-surface text-ink-2 transition-colors hover:border-brand hover:text-brand [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11';
 const SELECT_BOX =
@@ -117,7 +118,7 @@ function PhoneList({
               <span className="text-xs font-bold tabular-nums text-ink">{p.progress}%</span>
             </span>
             <span className="mt-2 block truncate text-xs text-ink-2">{milestoneLine(p, today)}</span>
-            <span className={`block text-xs ${p.health === 'late' ? 'font-semibold text-danger' : 'text-ink-2'}`}>{targetLine(p, today)}</span>
+            <span className={`block text-xs ${p.health === 'late' ? `font-semibold ${HEALTH_CLASS.LATE.text}` : 'text-ink-2'}`}>{targetLine(p, today)}</span>
           </Link>
           <div className="px-2 pb-1.5">
             <ExpandButton name={p.name} expanded={expanded.has(p.id)} onToggle={() => onExpand(p.id)} className={`min-h-[2rem] px-1.5 text-xs font-bold ${TOUCH_TALL}`}>
@@ -280,8 +281,8 @@ export function TimelinePage() {
           tablet (no empty slot), all five in a row on a wide screen. */}
       <section aria-label="Summary" className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-6 xl:grid-cols-5">
         <Card icon={ICONS.list} tone="bg-info-soft text-info" value={ready ? summary.open : '–'} label="Open projects" className="sm:col-span-2 xl:col-span-1" />
-        <Card icon={ICONS.clock} tone="bg-danger-soft text-danger" value={ready ? summary.late : '–'} label="Late · target passed" pressed={state.show === 'late'} onToggle={() => toggle('late')} ring="ring-danger" className="sm:col-span-2 xl:col-span-1" />
-        <Card icon={ICONS.warning} tone="bg-warning-soft text-warning" value={ready ? summary.atRisk : '–'} label="At risk" pressed={state.show === 'at-risk'} onToggle={() => toggle('at-risk')} ring="ring-warning" className="sm:col-span-2 xl:col-span-1" />
+        <Card icon={ICONS.clock} tone={HEALTH_CLASS.LATE.chip} value={ready ? summary.late : '–'} label="Late · target passed" pressed={state.show === 'late'} onToggle={() => toggle('late')} ring={HEALTH_CLASS.LATE.ring} className="sm:col-span-2 xl:col-span-1" />
+        <Card icon={ICONS.warning} tone={HEALTH_CLASS.AT_RISK.chip} value={ready ? summary.atRisk : '–'} label="At risk" pressed={state.show === 'at-risk'} onToggle={() => toggle('at-risk')} ring={HEALTH_CLASS.AT_RISK.ring} className="sm:col-span-2 xl:col-span-1" />
         <Card icon={ICONS.diamond} tone="bg-ground text-ink" value={ready ? summary.milestonesSoon : '–'} label="Milestones in 30 days" className="sm:col-span-3 xl:col-span-1" />
         <Card icon={ICONS.meeting} tone="bg-meeting/15 text-meeting" value={ready ? summary.meetingsThisWeek : '–'} label="Meetings this week" className="col-span-2 sm:col-span-3 xl:col-span-1" />
       </section>

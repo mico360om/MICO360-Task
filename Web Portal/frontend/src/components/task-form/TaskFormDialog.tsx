@@ -50,6 +50,7 @@ import { externalContactsApi } from '../../api/external-contacts';
 import { isProjectArchived } from '../../lib/project-archive';
 import { TaskKey } from '../TaskKey';
 import { showTaskNotice, taskCreatedNotice } from '../../lib/task-notice';
+import { statusColour } from '../../lib/colour-classes';
 
 export interface TaskFormDialogProps {
   onClose: () => void;
@@ -626,7 +627,8 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
     }
   }
 
-  const columnOptions = columns.map((c) => ({ value: c.id, label: c.name, icon: <span className="h-2.5 w-2.5 rounded-full" style={{ background: c.color }} /> }));
+  // 1.23.8 one colour scheme: a column's colour is its status kind's.
+  const columnOptions = columns.map((c) => ({ value: c.id, label: c.name, icon: <span className="h-2.5 w-2.5 rounded-full" style={{ background: statusColour(c.category) }} /> }));
   const repeatOptions = [{ value: 'NONE', label: 'Does not repeat' }, ...REPEAT_FREQUENCIES.map((f) => ({ value: f, label: REPEAT_LABEL[f] }))];
   const heading = editing ? 'Edit task' : 'New task';
 

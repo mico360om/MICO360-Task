@@ -10,7 +10,7 @@ const columns: ApiColumn[] = [
 ];
 
 function setup(overrides = {}) {
-  const handlers = { onAdd: vi.fn(), onRename: vi.fn(), onSetColor: vi.fn(), onToggleEnabled: vi.fn(), onDelete: vi.fn(), onMove: vi.fn(), ...overrides };
+  const handlers = { onAdd: vi.fn(), onRename: vi.fn(), onToggleEnabled: vi.fn(), onDelete: vi.fn(), onMove: vi.fn(), ...overrides };
   render(<ColumnManager columns={columns} {...handlers} />);
   return handlers;
 }
@@ -69,5 +69,21 @@ describe('ColumnManager', () => {
     setup({ onSetCategory });
     await userEvent.selectOptions(screen.getByLabelText(/status of Backlog/i), 'TODO');
     expect(onSetCategory).toHaveBeenCalledWith('c1', 'TODO');
+  });
+});
+
+describe('one colour scheme (1.23.8): a column wears its status kind’s colour', () => {
+  it('has no colour picker; its mark is the kind’s colour (whatever it was once given), named', () => {
+    setup();
+    expect(screen.queryByLabelText(/^Colour /)).toBeNull();
+    expect(document.querySelector('input[type="color"]')).toBeNull();
+    const backlog = screen.getByRole('img', { name: 'Backlog: Backlog colour' });
+    expect(backlog).toHaveClass('bg-status-backlog');
+    expect(screen.getByRole('img', { name: 'Done: Done colour' })).toHaveClass('bg-status-done');
+  });
+
+  it('says the colour follows the status', () => {
+    setup();
+    expect(screen.getByText(/A column’s colour follows its status./)).toBeInTheDocument();
   });
 });

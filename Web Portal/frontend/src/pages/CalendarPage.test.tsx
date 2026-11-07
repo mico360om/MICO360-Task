@@ -229,13 +229,13 @@ describe('CalendarPage — how tasks look', () => {
     renderPage();
     const late = await chip(/Late invoice/);
     expect(late).toHaveAccessibleName(/overdue/i);
-    expect(late.className).toMatch(/danger/);
+    expect(late.className).toMatch(/overdue/); // 1.23.8: the scheme's overdue red
     const blocked = await chip(/Waiting for the vendor contract/);
     expect(blocked).toHaveAccessibleName(/blocked/i);
-    expect(blocked.className).not.toMatch(/danger/);
+    expect(blocked.className).not.toMatch(/overdue/);
     const done = await chip(/Shipped inspection/);
     expect(done).toHaveAccessibleName(/done/i);
-    expect(done.className).not.toMatch(/danger|line-through/);
+    expect(done.className).not.toMatch(/overdue|line-through/);
     // A legend explains them: one click away, so it doesn't take a row of the screen.
     expect(screen.queryByRole('list', { name: 'Legend' })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Legend' }));

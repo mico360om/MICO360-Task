@@ -31,6 +31,7 @@ import {
   weekLabel,
   type CellTone,
 } from '../lib/workload';
+import { OVERDUE_CLASS } from '../lib/colour-classes';
 
 const isDay = (v: string | null): v is string => !!v && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(`${v}T00:00:00Z`));
 const iconButton = 'grid h-9 w-9 flex-none place-items-center rounded-xl border border-line bg-surface text-ink-2 transition-colors hover:border-brand hover:text-brand [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11';
@@ -305,7 +306,7 @@ export function WorkloadPage() {
                             </span>
                           </span>
                         </th>
-                        <td className={`border-b border-line-2 px-1 text-center text-sm font-bold tabular-nums ${p.overdue ? 'text-danger' : 'text-ink-3'}`}>{p.overdue}</td>
+                        <td className={`border-b border-line-2 px-1 text-center text-sm font-bold tabular-nums ${p.overdue ? OVERDUE_CLASS.text : 'text-ink-3'}`}>{p.overdue}</td>
                         {p.days.map((c) => {
                           const tone = cellTone(c);
                           const isOpen = open?.personId === p.id && open.date === c.date;

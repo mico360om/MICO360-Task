@@ -11,6 +11,7 @@ import { ProjectAvatar, type ProjectLook } from '../ProjectAvatar';
 import { ApprovalChip } from '../approvals/ApprovalChip';
 import { isWaitingForApproval } from '../../lib/approvals';
 import { TaskKey } from '../TaskKey';
+import { OVERDUE_CLASS } from '../../lib/colour-classes';
 
 /** The line under a task in a day's list: who has it (its number is the chip before the title, 1.22.3); a repeat not created yet says so. */
 const dayMeta = (item: CalItem): string | undefined =>
@@ -241,7 +242,7 @@ export function TaskPreview({
           <Row label="Due">
             <span>{fullDayLabel(item.date)}</span>
             {time ? <span> at {time}</span> : null}
-            <span className={`ms-2 text-xs ${item.status === 'overdue' ? 'font-semibold text-danger' : 'text-ink-2'}`}>({relative(item.date, today)})</span>
+            <span className={`ms-2 text-xs ${item.status === 'overdue' ? `font-semibold ${OVERDUE_CLASS.text}` : 'text-ink-2'}`}>({relative(item.date, today)})</span>
           </Row>
           <Row label="Project">
             <span className="inline-flex items-center gap-2">

@@ -27,10 +27,10 @@ describe('TaskDrawer', () => {
     const { rerender } = render(<TaskDrawer task={{ ...task, columnCategory: 'DONE' }} checklist={[]} comments={[]} onClose={vi.fn()} />);
     const pill = () => within(screen.getByTestId('task-header')).getByTestId('status-pill');
     expect(pill()).toHaveTextContent('Done');
-    expect(pill().getAttribute('style')).toContain('--c-cat-done');
+    expect(pill()).toHaveClass('bg-status-done-soft', 'text-status-done'); // 1.23.8 one colour scheme
     rerender(<TaskDrawer task={{ ...task, columnCategory: 'BLOCKED' }} checklist={[]} comments={[]} onClose={vi.fn()} />);
     expect(pill()).toHaveTextContent('Blocked');
-    expect(pill().getAttribute('style')).toContain('--c-cat-blocked');
+    expect(pill()).toHaveClass('bg-status-blocked-soft', 'text-status-blocked');
   });
 
   it('offers Show to client to whoever runs the project; marks a task shown to the client', async () => {

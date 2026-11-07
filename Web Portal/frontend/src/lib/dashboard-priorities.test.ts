@@ -122,3 +122,21 @@ describe('Reschedule: Today · Tomorrow · Next week · Pick a date', () => {
     expect(plan.undo(4)).toEqual({ dueDate: null, expectedVersion: 4 });
   });
 });
+
+describe('reasonTone in the one colour scheme (1.23.8)', () => {
+  it('late reasons are overdue red, blocked ones the Blocked red, due today amber, urgent the Urgent red; approvals stay amber', async () => {
+    const { reasonTone } = await import('./dashboard-priorities');
+    const r = (code: string) => reasonTone({ code } as never);
+    expect(r('overdue')).toBe('overdue');
+    expect(r('team-overdue')).toBe('overdue');
+    expect(r('blocked-by')).toBe('blocked');
+    expect(r('blocked-status')).toBe('blocked');
+    expect(r('team-blocked')).toBe('blocked');
+    expect(r('due-today')).toBe('soon');
+    expect(r('urgent')).toBe('urgent');
+    expect(r('approval')).toBe('approval');
+    expect(r('blocking')).toBe('info');
+    expect(r('unassigned')).toBe('info');
+    expect(r('due-soon')).toBe('neutral');
+  });
+});

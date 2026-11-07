@@ -8,6 +8,7 @@ import { ActionMenu, type ActionMenuItem } from '../meeting/ActionMenu';
 import { ProjectStatusMenu } from './ProjectStatusMenu';
 import { nextDueLabel, progressOf, targetLabel, updatedLabel } from '../../lib/project-list';
 import { HealthBadge } from './HealthBadge';
+import { HEALTH_CLASS, healthClass } from '../../lib/colour-classes';
 
 export interface ProjectCardProps {
   /** 1.23.5: with its health when the server sends it. */
@@ -140,7 +141,7 @@ export function ProjectCard({ project: p, today, now, timeZone, onChangeStatus, 
         </p>
         {/* 1.23.5: the worst automatic risk, in one line (the project page lists them all). */}
         {risk ? (
-          <p data-testid="project-risk" title={risk.title} className={`mt-1.5 flex min-w-0 items-center gap-1.5 text-xs font-medium ${risk.level === 'RED' ? 'text-danger' : 'text-warning'}`}>
+          <p data-testid="project-risk" title={risk.title} className={`mt-1.5 flex min-w-0 items-center gap-1.5 text-xs font-medium ${healthClass(risk.level)?.text ?? HEALTH_CLASS.AT_RISK.text}`}>
             <RiskIcon />
             <span className="sr-only">Top risk: </span>
             <bdi className="min-w-0 truncate">{risk.title}</bdi>

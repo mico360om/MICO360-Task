@@ -15,6 +15,7 @@ import { carriedTableGroups } from './series/carried-groups';
 import { MeetingTable, useMeetingTableAvailable } from './MeetingTable';
 import { VIEW_ICONS, ViewSwitch } from '../data-table/ViewSwitch';
 import { useViewChoice } from '../data-table/hooks';
+import { OVERDUE_CLASS } from '../../lib/colour-classes';
 
 const AGENDA_VIEWS = [
   { value: 'list' as const, label: 'List', icon: VIEW_ICONS.list },
@@ -95,7 +96,7 @@ export function InviteeView({
                 </p>
                 <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-ink-3">
                   {item.dueDate ? (
-                    <span className={overdue ? 'font-medium text-danger' : ''}>
+                    <span className={overdue ? `font-medium ${OVERDUE_CLASS.text}` : ''}>
                       Due {formatDueDate(item.dueDate, timeZone)}
                       {overdue ? ' — overdue' : ''}
                     </span>

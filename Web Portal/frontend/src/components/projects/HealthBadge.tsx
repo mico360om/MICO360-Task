@@ -3,11 +3,13 @@ import type { Rag, RagReason } from '../../api/management';
 import { RAG_WORD } from '../../lib/management';
 import { healthSummary } from '../../lib/project-health';
 import { AnchoredPopover } from '../ui/AnchoredPopover';
+import { HEALTH_CLASS } from '../../lib/colour-classes';
 
+// 1.23.8: health's own colours in the one scheme (on track · at risk · late), shared with the Timeline's bars.
 const LOOK: Record<Rag, { chip: string; dot: string; text: string }> = {
-  RED: { chip: 'bg-danger-soft text-danger', dot: 'bg-danger', text: 'text-danger' },
-  AMBER: { chip: 'bg-warning-soft text-warning', dot: 'bg-warning', text: 'text-warning' },
-  GREEN: { chip: 'bg-success-soft text-success', dot: 'bg-success', text: 'text-success' },
+  RED: HEALTH_CLASS.LATE,
+  AMBER: HEALTH_CLASS.AT_RISK,
+  GREEN: HEALTH_CLASS.ON_TRACK,
 };
 
 /**

@@ -15,6 +15,7 @@ import { TaskKey, TaskKeyButton } from '../TaskKey';
 import { HealthBadge } from '../projects/HealthBadge';
 import { PrioritiesWidget } from '../dashboard/PrioritiesWidget';
 import { EmptyNote, LinkButton, ProgressBar, SectionCard, dayText } from './parts';
+import { HEALTH_CLASS, healthClass } from '../../lib/colour-classes';
 
 /** The Overview's Risks card shows this many, then "Show all". */
 export const RISKS_SHOWN = 5;
@@ -65,8 +66,8 @@ export function HealthCard({ projectId, completion }: { projectId: string; compl
         <>
           <ul className="flex flex-col gap-1.5" aria-label="Why">
             {detail.reasons.map((r) => (
-              <li key={r.code + r.text} className={`flex items-start gap-2 text-sm ${r.level === 'RED' ? 'font-medium text-danger' : r.level === 'AMBER' ? 'text-warning' : 'text-success'}`}>
-                <span aria-hidden="true" className={`mt-1.5 h-2 w-2 flex-none rounded-full ${r.level === 'RED' ? 'bg-danger' : r.level === 'AMBER' ? 'bg-warning' : 'bg-success'}`} />
+              <li key={r.code + r.text} className={`flex items-start gap-2 text-sm ${r.level === 'RED' ? 'font-medium ' : ''}${(healthClass(r.level) ?? HEALTH_CLASS.ON_TRACK).text}`}>
+                <span aria-hidden="true" className={`mt-1.5 h-2 w-2 flex-none rounded-full ${(healthClass(r.level) ?? HEALTH_CLASS.ON_TRACK).dot}`} />
                 <bdi>{r.text}</bdi>
               </li>
             ))}

@@ -9,6 +9,7 @@ import { meetingRepeatText } from '../../lib/meeting-repeat';
 import { zonedDayKey } from '../../lib/due-date';
 import { EmptyNote, RepeatIcon, SectionCard, dayText } from './parts';
 import { TOUCH_TALL } from '../../lib/touch';
+import { OVERDUE_CLASS } from '../../lib/colour-classes';
 
 type Filter = MeetingPhase | 'all';
 const FILTERS: Array<{ v: Filter; label: string }> = [
@@ -233,7 +234,7 @@ export function MeetingsTab({
                     <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-2">
                       <span>{x.assignee ? <bdi>{x.assignee.name}</bdi> : 'Unassigned'}</span>
                       {x.dueDate ? (
-                        <span className={x.overdue ? 'font-semibold text-danger' : ''}>{x.overdue ? 'Overdue · ' : 'Due '}{dayText(x.dueDate.slice(0, 10))}</span>
+                        <span className={x.overdue ? `font-semibold ${OVERDUE_CLASS.text}` : ''}>{x.overdue ? 'Overdue · ' : 'Due '}{dayText(x.dueDate.slice(0, 10))}</span>
                       ) : null}
                       {x.status !== 'OPEN' ? <span className="text-ink-3">{ACTION_STATUS_LABELS[x.status]}</span> : null}
                       {x.meetingId ? <Link to={`/meetings/${x.meetingId}`} className="text-ink-3 hover:text-brand">· <bdi>{x.meetingTitle ?? 'Meeting'}</bdi></Link> : null}

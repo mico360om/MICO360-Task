@@ -95,7 +95,7 @@ describe('Meeting page: action items, one line each', () => {
     expect(await rowOf('Today item')).not.toHaveTextContent(/overdue/i);
     const late = within(await rowOf('Yesterday item')).getByRole('button', { name: /^Due date for/ });
     expect(late).toHaveTextContent(/overdue/i);
-    expect(late.className).toMatch(/text-danger/);
+    expect(late.className).toMatch(/text-overdue/); // 1.23.8: the scheme's overdue red
   });
 
   it('done items are struck through and quieter; "From a note" and the task key chip are kept', async () => {

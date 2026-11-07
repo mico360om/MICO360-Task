@@ -1,13 +1,15 @@
 import type { Priority } from '../api/tasks';
 import type { SelectOption } from './ui/SearchableSelect';
+import { PRIORITY_CLASS } from '../lib/colour-classes';
 
 export const PRIORITIES: Priority[] = ['LOW', 'NORMAL', 'HIGH', 'URGENT'];
 
+// 1.23.8: the bars wear the priority's colour from the one scheme (lib/colour-classes).
 const META: Record<Priority, { label: string; bars: number; tone: string }> = {
-  LOW: { label: 'Low', bars: 1, tone: 'text-ink-3' },
-  NORMAL: { label: 'Normal', bars: 2, tone: 'text-info' },
-  HIGH: { label: 'High', bars: 3, tone: 'text-warning' },
-  URGENT: { label: 'Urgent', bars: 4, tone: 'text-danger' },
+  LOW: { label: 'Low', bars: 1, tone: PRIORITY_CLASS.LOW.text },
+  NORMAL: { label: 'Normal', bars: 2, tone: PRIORITY_CLASS.NORMAL.text },
+  HIGH: { label: 'High', bars: 3, tone: PRIORITY_CLASS.HIGH.text },
+  URGENT: { label: 'Urgent', bars: 4, tone: PRIORITY_CLASS.URGENT.text },
 };
 
 export const priorityLabel = (p: Priority) => META[p].label;

@@ -73,10 +73,18 @@ export function tagsOf(row: PriorityRow): string[] {
   return [row.reason, ...row.also].map((r) => reasonText(r, row.task?.assignees));
 }
 
-/** How a reason looks: late and blocked in red, approvals and today in amber, the rest quiet. */
-export function reasonTone(r: PriorityReason): 'danger' | 'warning' | 'info' | 'neutral' {
-  if (r.code === 'overdue' || r.code === 'team-overdue' || r.code === 'blocked-by' || r.code === 'blocked-status' || r.code === 'team-blocked') return 'danger';
-  if (r.code === 'approval' || r.code === 'due-today' || r.code === 'urgent') return 'warning';
+/**
+ * How a reason looks, in the one colour scheme (1.23.8): late in the overdue red, blocked in the Blocked red,
+ * due today in the due-soon amber, urgent in the Urgent red; waiting approvals keep the approvals' amber; the
+ * rest quiet. (components/dashboard/PrioritiesWidget turns these into classes.)
+ */
+export type ReasonTone = 'overdue' | 'blocked' | 'soon' | 'urgent' | 'approval' | 'info' | 'neutral';
+export function reasonTone(r: PriorityReason): ReasonTone {
+  if (r.code === 'overdue' || r.code === 'team-overdue') return 'overdue';
+  if (r.code === 'blocked-by' || r.code === 'blocked-status' || r.code === 'team-blocked') return 'blocked';
+  if (r.code === 'due-today') return 'soon';
+  if (r.code === 'urgent') return 'urgent';
+  if (r.code === 'approval') return 'approval';
   if (r.code === 'blocking' || r.code === 'unassigned') return 'info';
   return 'neutral';
 }

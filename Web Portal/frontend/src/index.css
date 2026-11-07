@@ -174,12 +174,23 @@
   --c-success-text: 44 120 80;
   --c-warning-text: 154 99 14;
   --c-info-text: 58 110 165;
-  --c-cat-backlog: 148 137 133;
-  --c-cat-todo: 154 145 141;
-  --c-cat-progress: 184 118 17;
-  --c-cat-blocked: 203 70 50;
-  --c-cat-review: 58 110 165;
-  --c-cat-done: 46 125 83;
+  /* 1.23.8 One colour scheme (lib/colour-scheme.ts — a test keeps these in step): statuses, priorities,
+     overdue, due soon and project health. `-text` is the colour as words (4.5:1), `-soft` a tint. */
+  --c-status-backlog: 143 133 128; --c-status-backlog-text: 107 98 93; --c-status-backlog-soft: 244 243 242;
+  --c-status-todo: 91 108 130; --c-status-todo-text: 79 95 116; --c-status-todo-soft: 239 240 243;
+  --c-status-progress: 47 109 181; --c-status-progress-text: 43 100 166; --c-status-progress-soft: 234 240 248;
+  --c-status-blocked: 203 70 50; --c-status-blocked-text: 184 62 43; --c-status-blocked-soft: 251 237 234;
+  --c-status-review: 124 86 180; --c-status-review-text: 110 75 164; --c-status-review-soft: 242 238 248;
+  --c-status-done: 46 125 83; --c-status-done-text: 42 116 77; --c-status-done-soft: 233 244 238;
+  --c-prio-urgent: 203 70 50; --c-prio-urgent-text: 184 62 43; --c-prio-urgent-soft: 251 237 234;
+  --c-prio-high: 208 99 26; --c-prio-high-text: 168 76 16; --c-prio-high-soft: 250 239 232;
+  --c-prio-normal: 98 116 138; --c-prio-normal-text: 83 100 122; --c-prio-normal-soft: 239 241 243;
+  --c-prio-low: 143 133 128; --c-prio-low-text: 107 98 93; --c-prio-low-soft: 244 243 242;
+  --c-overdue: 203 70 50; --c-overdue-text: 184 62 43; --c-overdue-soft: 251 237 234;
+  --c-soon: 184 118 17; --c-soon-text: 143 91 11; --c-soon-soft: 251 241 225;
+  --c-health-ok: 46 125 83; --c-health-ok-text: 42 116 77; --c-health-ok-soft: 233 244 238;
+  --c-health-risk: 184 118 17; --c-health-risk-text: 143 91 11; --c-health-risk-soft: 251 241 225;
+  --c-health-late: 203 70 50; --c-health-late-text: 184 62 43; --c-health-late-soft: 251 237 234;
   --c-meeting: 122 90 168; /* meetings on the timeline (#7A5AA8) */
 }
 
@@ -214,12 +225,23 @@
     --c-success-text: 74 176 122;
     --c-warning-text: 220 158 66;
     --c-info-text: 108 160 214;
-    --c-cat-backlog: 168 157 152;
-    --c-cat-todo: 172 163 158;
-    --c-cat-progress: 214 152 60;
-    --c-cat-blocked: 226 100 82;
-    --c-cat-review: 104 156 210;
-    --c-cat-done: 70 172 118;
+    /* 1.23.8 One colour scheme (lib/colour-scheme.ts — a test keeps these in step): statuses, priorities,
+       overdue, due soon and project health. `-text` is the colour as words (4.5:1), `-soft` a tint. */
+    --c-status-backlog: 160 149 143; --c-status-backlog-text: 184 174 168; --c-status-backlog-soft: 61 55 52;
+    --c-status-todo: 141 157 179; --c-status-todo-text: 167 181 200; --c-status-todo-soft: 57 56 59;
+    --c-status-progress: 91 155 224; --c-status-progress-text: 130 180 234; --c-status-progress-soft: 47 56 68;
+    --c-status-blocked: 224 100 79; --c-status-blocked-text: 238 140 121; --c-status-blocked-soft: 74 45 39;
+    --c-status-review: 164 133 216; --c-status-review-text: 190 166 232; --c-status-review-soft: 62 51 66;
+    --c-status-done: 74 176 122; --c-status-done-text: 99 196 144; --c-status-done-soft: 44 60 48;
+    --c-prio-urgent: 224 100 79; --c-prio-urgent-text: 238 140 121; --c-prio-urgent-soft: 74 45 39;
+    --c-prio-high: 232 135 63; --c-prio-high-text: 240 162 106; --c-prio-high-soft: 75 52 36;
+    --c-prio-normal: 142 159 181; --c-prio-normal-text: 169 183 202; --c-prio-normal-soft: 57 57 59;
+    --c-prio-low: 160 149 143; --c-prio-low-text: 184 174 168; --c-prio-low-soft: 61 55 52;
+    --c-overdue: 224 100 79; --c-overdue-text: 238 140 121; --c-overdue-soft: 74 45 39;
+    --c-soon: 220 158 66; --c-soon-text: 230 178 102; --c-soon-soft: 73 56 36;
+    --c-health-ok: 74 176 122; --c-health-ok-text: 99 196 144; --c-health-ok-soft: 44 60 48;
+    --c-health-risk: 220 158 66; --c-health-risk-text: 230 178 102; --c-health-risk-soft: 73 56 36;
+    --c-health-late: 224 100 79; --c-health-late-text: 238 140 121; --c-health-late-soft: 74 45 39;
     --c-meeting: 178 150 222;
   }
 }
@@ -251,12 +273,23 @@
   --c-success-text: 74 176 122;
   --c-warning-text: 220 158 66;
   --c-info-text: 108 160 214;
-  --c-cat-backlog: 168 157 152;
-  --c-cat-todo: 172 163 158;
-  --c-cat-progress: 214 152 60;
-  --c-cat-blocked: 226 100 82;
-  --c-cat-review: 104 156 210;
-  --c-cat-done: 70 172 118;
+  /* 1.23.8 One colour scheme (lib/colour-scheme.ts — a test keeps these in step): statuses, priorities,
+     overdue, due soon and project health. `-text` is the colour as words (4.5:1), `-soft` a tint. */
+  --c-status-backlog: 160 149 143; --c-status-backlog-text: 184 174 168; --c-status-backlog-soft: 61 55 52;
+  --c-status-todo: 141 157 179; --c-status-todo-text: 167 181 200; --c-status-todo-soft: 57 56 59;
+  --c-status-progress: 91 155 224; --c-status-progress-text: 130 180 234; --c-status-progress-soft: 47 56 68;
+  --c-status-blocked: 224 100 79; --c-status-blocked-text: 238 140 121; --c-status-blocked-soft: 74 45 39;
+  --c-status-review: 164 133 216; --c-status-review-text: 190 166 232; --c-status-review-soft: 62 51 66;
+  --c-status-done: 74 176 122; --c-status-done-text: 99 196 144; --c-status-done-soft: 44 60 48;
+  --c-prio-urgent: 224 100 79; --c-prio-urgent-text: 238 140 121; --c-prio-urgent-soft: 74 45 39;
+  --c-prio-high: 232 135 63; --c-prio-high-text: 240 162 106; --c-prio-high-soft: 75 52 36;
+  --c-prio-normal: 142 159 181; --c-prio-normal-text: 169 183 202; --c-prio-normal-soft: 57 57 59;
+  --c-prio-low: 160 149 143; --c-prio-low-text: 184 174 168; --c-prio-low-soft: 61 55 52;
+  --c-overdue: 224 100 79; --c-overdue-text: 238 140 121; --c-overdue-soft: 74 45 39;
+  --c-soon: 220 158 66; --c-soon-text: 230 178 102; --c-soon-soft: 73 56 36;
+  --c-health-ok: 74 176 122; --c-health-ok-text: 99 196 144; --c-health-ok-soft: 44 60 48;
+  --c-health-risk: 220 158 66; --c-health-risk-text: 230 178 102; --c-health-risk-soft: 73 56 36;
+  --c-health-late: 224 100 79; --c-health-late-text: 238 140 121; --c-health-late-soft: 74 45 39;
   --c-meeting: 178 150 222;
 }
 
@@ -572,6 +605,18 @@
     -webkit-backdrop-filter: saturate(1.4) blur(12px);
     backdrop-filter: saturate(1.4) blur(12px);
   }
+}
+
+/* 1.23.8 Board column width (each person's own, lib/appearance.ts): the least a column is wide — columns
+   still share any room left over, so a board with few columns fills the window whatever the choice. */
+:root {
+  --board-col: 15rem;
+}
+:root[data-board-width='narrow'] {
+  --board-col: 13rem;
+}
+:root[data-board-width='wide'] {
+  --board-col: 19.5rem;
 }
 
 @supports (height: 100dvh) {

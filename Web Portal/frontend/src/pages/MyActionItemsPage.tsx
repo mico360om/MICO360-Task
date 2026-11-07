@@ -14,6 +14,7 @@ import { TOUCH_TALL } from '../lib/touch';
 import { TaskKeyButton } from '../components/TaskKey';
 import { useOpenTask } from '../lib/useOpenTask';
 import { DENSE_TEXT } from '../lib/density-tokens';
+import { OVERDUE_CLASS } from '../lib/colour-classes';
 
 /**
  * A row: one column on a phone (the words, where it came from, the status picker under them); the
@@ -84,7 +85,7 @@ export function MyActionItemsPage() {
       ) : null}
 
       {overdue > 0 ? (
-        <div className="mb-4 rounded-lg bg-danger-soft px-3 py-2 text-sm font-medium text-danger">
+        <div className={`mb-4 rounded-lg px-3 py-2 text-sm font-medium ${OVERDUE_CLASS.chip}`}>
           {overdue} action item{overdue === 1 ? '' : 's'} overdue.
         </div>
       ) : null}
@@ -171,7 +172,7 @@ function ActionRow({
         ) : (
           <span className="text-ink-3 lg:text-sm">Not from a meeting</span>
         )}
-        <span className={`whitespace-nowrap lg:text-sm ${overdue ? 'font-medium text-danger' : item.dueDate ? 'text-ink-2' : 'text-ink-3'}`}>
+        <span className={`whitespace-nowrap lg:text-sm ${overdue ? `font-medium ${OVERDUE_CLASS.text}` : item.dueDate ? 'text-ink-2' : 'text-ink-3'}`}>
           {item.dueDate ? `Due ${formatDueDate(item.dueDate, timeZone)}${overdue ? ' · overdue' : ''}` : 'No due date'}
         </span>
       </div>

@@ -8,6 +8,7 @@ import { PriorityBadge } from '../ui/PriorityBadge';
 import { ComboPicker } from './combo-picker';
 import { SaveIndicator, failureMessage, useSaveState } from './save-state';
 import { weightChoices } from '../../lib/project-health';
+import { OVERDUE_CLASS } from '../../lib/colour-classes';
 
 export interface DrawerAssignee {
   id: string;
@@ -295,9 +296,9 @@ function DueDateField({ task, timeZone, onSave }: { task: ApiTask; timeZone: str
   if (!onSave) {
     return (
       <Row label="Due date">
-        <span className={`inline-flex h-9 items-center gap-2 text-sm ${overdue ? 'font-semibold text-danger' : 'text-ink'}`}>
+        <span className={`inline-flex h-9 items-center gap-2 text-sm ${overdue ? `font-semibold ${OVERDUE_CLASS.text}` : 'text-ink'}`}>
           {formatDueDay(task.dueDate, timeZone) || 'No due date'}
-          {overdue ? <span className="rounded-md bg-danger-soft px-1.5 py-0.5 text-[11px] font-semibold text-danger">Overdue</span> : null}
+          {overdue ? <span className={`rounded-md px-1.5 py-0.5 text-[11px] font-semibold ${OVERDUE_CLASS.chip}`}>Overdue</span> : null}
         </span>
       </Row>
     );
@@ -314,7 +315,7 @@ function DueDateField({ task, timeZone, onSave }: { task: ApiTask; timeZone: str
           value={value}
           disabled={save.busy}
           onChange={(e) => void apply(e.target.value)}
-          className={`h-10 min-w-0 flex-1 rounded-lg border bg-surface px-3 text-sm outline-none transition-colors focus:ring-2 sm:h-9 [@media(pointer:coarse)]:h-11 ${overdue ? 'border-danger font-semibold text-danger focus:ring-danger/20' : 'border-line text-ink hover:border-ink-3 focus:border-brand focus:ring-brand/20'}`}
+          className={`h-10 min-w-0 flex-1 rounded-lg border bg-surface px-3 text-sm outline-none transition-colors focus:ring-2 sm:h-9 [@media(pointer:coarse)]:h-11 ${overdue ? `${OVERDUE_CLASS.edge} font-semibold ${OVERDUE_CLASS.text} focus:ring-overdue/20` : 'border-line text-ink hover:border-ink-3 focus:border-brand focus:ring-brand/20'}`}
         />
         {value ? (
           <button
@@ -332,7 +333,7 @@ function DueDateField({ task, timeZone, onSave }: { task: ApiTask; timeZone: str
         ) : null}
       </div>
       {overdue ? (
-        <p id={`${id}-overdue`} className="mt-1 inline-flex items-center gap-1 rounded-md bg-danger-soft px-1.5 py-0.5 text-[11px] font-semibold text-danger">
+        <p id={`${id}-overdue`} className={`mt-1 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-semibold ${OVERDUE_CLASS.chip}`}>
           Overdue
         </p>
       ) : null}

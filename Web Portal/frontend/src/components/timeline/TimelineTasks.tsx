@@ -7,6 +7,7 @@ import { phoneTaskLine, shortDay, taskLabel, taskShape } from '../../lib/timelin
 import { Glyph, ICONS, Initials, ROW } from './parts';
 import { WaitingIcon } from '../approvals/ApprovalChip';
 import { TaskKey } from '../TaskKey';
+import { OVERDUE_CLASS, STATUS_CLASS, dueTone } from '../../lib/colour-classes';
 
 /**
  * One project's task lane for the shown weeks, read when its row is opened, and again as tasks or
@@ -42,8 +43,8 @@ function footerParts(projectId: string, data: TimelineTasksData): ReactNode[] {
 
 type Tone = 'overdue' | 'done' | 'open';
 const toneOf = (t: TimelineTask): Tone => (t.done ? 'done' : t.overdue ? 'overdue' : 'open');
-/** A task's colour: red when overdue, grey once done, else the timeline's blue. */
-const TONE: Record<Tone, string> = { overdue: 'bg-danger', done: 'bg-ink-3/60', open: 'bg-info' };
+/** A task's colour: the scheme's overdue red, grey once done, else the timeline's blue. */
+const TONE: Record<Tone, string> = { overdue: OVERDUE_CLASS.dot, done: 'bg-ink-3/60', open: 'bg-info' };
 
 function TaskMark({ t, range, today }: { t: TimelineTask; range: { from: string; to: string }; today: string }) {
   const shape = taskShape(t, range);
@@ -70,7 +71,7 @@ function TaskMark({ t, range, today }: { t: TimelineTask; range: { from: string;
     <span
       aria-hidden="true"
       data-tone={toneOf(t)}
-      className={`absolute top-1/2 -translate-y-1/2 whitespace-nowrap text-[11px] font-semibold ${shape.kind === 'before' ? 'start-1.5' : 'end-1.5'} ${t.overdue ? 'text-danger' : 'text-ink-2'}`}
+      className={`absolute top-1/2 -translate-y-1/2 whitespace-nowrap text-[11px] font-semibold ${shape.kind === 'before' ? 'start-1.5' : 'end-1.5'} ${t.overdue ? OVERDUE_CLASS.text : 'text-ink-2'}`}
     >
       {shape.kind === 'before' ? `◂ ${words}${t.overdue ? ' · overdue' : ''}` : `${words} ▸`}
     </span>
@@ -131,10 +132,10 @@ export function ChartTaskRows({
                   type="button"
                   onClick={() => onOpenTask(t.id)}
                   aria-label={taskLabel(t, today)}
-                  className={`flex min-w-0 flex-1 items-center gap-1.5 text-start text-[12.5px] after:absolute after:inset-0 after:z-10 after:content-[''] group-hover:underline ${t.done ? 'text-ink-3' : t.overdue ? 'font-semibold text-danger' : 'text-ink'}`}
+                  className={`flex min-w-0 flex-1 items-center gap-1.5 text-start text-[12.5px] after:absolute after:inset-0 after:z-10 after:content-[''] group-hover:underline ${t.done ? 'text-ink-3' : t.overdue ? `font-semibold ${OVERDUE_CLASS.text}` : 'text-ink'}`}
                 >
                   <TaskKey value={t.key} dense />
-                  {t.done ? <Glyph size={13} className="text-success" data-icon="done">{ICONS.check}</Glyph> : null}
+                  {t.done ? <Glyph size={13} className={STATUS_CLASS.DONE.text} data-icon="done">{ICONS.check}</Glyph> : null}
                   {t.overdue ? <Glyph size={13} data-icon="overdue">{ICONS.warning}</Glyph> : null}
                   {t.isMilestone ? <Glyph size={12} data-icon="milestone">{ICONS.diamond}</Glyph> : null}
                   {/* Waiting for approval: an hourglass (its words are in the row's name, and on hover). */}
@@ -190,7 +191,7 @@ export function PhoneTaskList({ projectId, name, range, today, onOpenTask }: { p
                     <TaskKey value={t.key} />
                     <span className="ms-1.5">{t.title}</span>
                   </span>
-                  <span className={`block text-xs ${t.overdue ? 'font-semibold text-danger' : 'text-ink-2'}`}>{phoneTaskLine(t, today)}</span>
+                  <span className={`block text-xs ${dueTone({ late: t.overdue })}`}>{phoneTaskLine(t, today)}</span>
                 </span>
                 <Initials people={t.assignees} announce />
               </button>

@@ -27,6 +27,7 @@ import {
   type ChecklistMove,
 } from '../../lib/checklist-tree';
 import { ActionsMenu, AssignStrip, ChevronIcon, DueStrip, ICON_BUTTON, ProgressBar, SuggestionReview, type MenuEntry } from './checklist-parts';
+import { OVERDUE_CLASS } from '../../lib/colour-classes';
 
 /** What a delete answers when it can be undone (the batch to restore). */
 export interface ChecklistRemovedBatch {
@@ -959,12 +960,12 @@ function ItemFacts({ node, late, countId }: { node: CLNode; late: boolean; count
             type="button"
             onClick={() => c.setStrip({ id: it.id, kind: 'due' })}
             aria-label={`Due ${due}${late ? ', overdue' : ''} — change the due date`}
-            className={`inline-flex h-7 items-center rounded-md px-1.5 text-xs font-medium tabular-nums transition-colors hover:bg-surface [@media(pointer:coarse)]:h-11 ${late ? 'bg-danger-soft font-semibold text-danger' : 'bg-ground text-ink-2'}`}
+            className={`inline-flex h-7 items-center rounded-md px-1.5 text-xs font-medium tabular-nums transition-colors hover:bg-surface [@media(pointer:coarse)]:h-11 ${late ? `${OVERDUE_CLASS.chip} font-semibold` : 'bg-ground text-ink-2'}`}
           >
             {due}
           </button>
         ) : (
-          <span className={`inline-flex h-6 items-center rounded-md px-1.5 text-xs font-medium tabular-nums ${late ? 'bg-danger-soft font-semibold text-danger' : 'bg-ground text-ink-2'}`}>
+          <span className={`inline-flex h-6 items-center rounded-md px-1.5 text-xs font-medium tabular-nums ${late ? `${OVERDUE_CLASS.chip} font-semibold` : 'bg-ground text-ink-2'}`}>
             <span className="sr-only">Due </span>
             {due}
             {late ? <span className="sr-only">, overdue</span> : null}

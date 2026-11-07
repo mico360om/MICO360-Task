@@ -2,14 +2,14 @@ import { Link } from 'react-router-dom';
 import { ACTION_STATUS_LABELS, type ActionItemStatus } from '../../../api/meetings';
 import type { CarriedItem } from '../../../api/meeting-series';
 import { SearchableSelect } from '../../ui/SearchableSelect';
-import { badgeToneClass } from '../../ui/Badge';
-import { actionStatusTone } from '../../../lib/meetingFormat';
+import { actionStatusClass } from '../../../lib/meetingFormat';
 import { dueDayKey } from '../../../lib/due-date';
 import { dayText } from '../../../lib/day-words';
 import { seriesDay } from '../../../lib/meeting-series';
 import { TOUCH_TALL } from '../../../lib/touch';
 import { Icon, TaskNumber } from '../kit';
 import { DENSE_TEXT } from '../../../lib/density-tokens';
+import { OVERDUE_CLASS } from '../../../lib/colour-classes';
 
 const STATUSES: ActionItemStatus[] = ['OPEN', 'IN_PROGRESS', 'PENDING', 'COMPLETED', 'CANCELLED'];
 const CHIP = 'inline-flex min-h-7 max-w-full items-center gap-1 rounded-full px-2.5 text-xs font-medium';
@@ -57,7 +57,7 @@ export function CarriedItems({
                 <span className="sr-only">Owner: </span>
                 <bdi className="truncate">{item.assigneeName ?? 'Unassigned'}</bdi>
               </span>
-              <span className={`${CHIP} ${item.overdue ? 'bg-danger-soft font-semibold text-danger' : day ? 'bg-ground text-ink' : 'bg-ground text-ink-3'}`}>
+              <span className={`${CHIP} ${item.overdue ? `${OVERDUE_CLASS.chip} font-semibold` : day ? 'bg-ground text-ink' : 'bg-ground text-ink-3'}`}>
                 {day ? <>Due {dayText(day)}</> : 'No due date'}
                 {item.overdue ? <span> · overdue</span> : null}
               </span>
@@ -69,10 +69,10 @@ export function CarriedItems({
                   value={item.status}
                   disabled={busy}
                   onChange={(v) => onStatus(item, v as ActionItemStatus)}
-                  chipClassName={badgeToneClass(actionStatusTone(item.status))}
+                  chipClassName={actionStatusClass(item.status)}
                 />
               ) : (
-                <span className={`${CHIP} ${badgeToneClass(actionStatusTone(item.status))}`}>{ACTION_STATUS_LABELS[item.status]}</span>
+                <span className={`${CHIP} ${actionStatusClass(item.status)}`}>{ACTION_STATUS_LABELS[item.status]}</span>
               )}
               {item.taskId ? (
                 <Link to={`?task=${encodeURIComponent(item.taskId)}`} className={`group inline-flex min-h-7 items-center gap-1 rounded-md px-1 text-xs font-medium text-ink-2 hover:text-brand ${TOUCH_TALL}`}>

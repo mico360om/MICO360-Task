@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { DUE_SOON_CLASS, OVERDUE_CLASS } from '../../lib/colour-classes';
 
 /** Each notification type's icon and its name (said to screen readers before the title). */
 interface KindLook {
@@ -16,9 +17,9 @@ const LOOKS: Record<string, KindLook> = {
   MENTION: { id: 'mention', name: 'Mention', tone: 'text-brand bg-brand/10', paths: <><circle cx="12" cy="12" r="4" /><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8" /></> },
   CHAT_MENTION: { id: 'mention', name: 'Mention in chat', tone: 'text-brand bg-brand/10', paths: <><circle cx="12" cy="12" r="4" /><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8" /></> },
   TASK_ASSIGNED: { id: 'assigned', name: 'Assigned to you', tone: 'text-info bg-info-soft', paths: <><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M19 8v6M22 11h-6" /></> },
-  TASK_DUE_SOON: { id: 'due', name: 'Due soon', tone: 'text-warning bg-warning-soft', paths: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></> },
-  TASK_OVERDUE: { id: 'overdue', name: 'Overdue', tone: 'text-danger bg-danger-soft', paths: <><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" /><path d="M12 9v4M12 17h.01" /></> },
-  TASK_ESCALATION: { id: 'overdue', name: 'Escalation', tone: 'text-danger bg-danger-soft', paths: <><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" /><path d="M12 9v4M12 17h.01" /></> },
+  TASK_DUE_SOON: { id: 'due', name: 'Due soon', tone: DUE_SOON_CLASS.chip, paths: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></> },
+  TASK_OVERDUE: { id: 'overdue', name: 'Overdue', tone: OVERDUE_CLASS.chip, paths: <><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" /><path d="M12 9v4M12 17h.01" /></> },
+  TASK_ESCALATION: { id: 'overdue', name: 'Escalation', tone: OVERDUE_CLASS.chip, paths: <><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" /><path d="M12 9v4M12 17h.01" /></> },
   TASK_COMMENT: { id: 'comment', name: 'Comment', tone: 'text-info bg-info-soft', paths: <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /> },
   TASK_APPROVAL: { id: 'approval', name: 'Approval', tone: 'text-success bg-success-soft', paths: <><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><path d="m9 12 2 2 4-4" /></> },
   // 1.23: a client accepted a task or sent it back in the Client portal (with the approvals).

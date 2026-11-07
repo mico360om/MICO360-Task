@@ -1,7 +1,9 @@
 import type { ReactNode } from 'react';
 import { useEffect, useRef, useState } from 'react';
+import { DUE_SOON_CLASS, HEALTH_CLASS, OVERDUE_CLASS, STATUS_CLASS } from '../lib/colour-classes';
 
-type Tone = 'brand' | 'success' | 'warning' | 'info' | 'danger';
+/** 1.23.8: `overdue` and `soon` are the one colour scheme's (lib/colour-classes) — a count of late or due-soon work. */
+type Tone = 'brand' | 'success' | 'warning' | 'info' | 'danger' | 'overdue' | 'soon' | 'done' | 'late';
 
 export interface StatTileProps {
   label: string;
@@ -21,6 +23,11 @@ const TONE: Record<Tone, { bubble: string; text: string }> = {
   warning: { bubble: 'bg-warning-soft text-warning', text: 'text-warning' },
   info: { bubble: 'bg-info-soft text-info', text: 'text-info' },
   danger: { bubble: 'bg-danger-soft text-danger', text: 'text-danger' },
+  overdue: { bubble: OVERDUE_CLASS.chip, text: OVERDUE_CLASS.text },
+  soon: { bubble: DUE_SOON_CLASS.chip, text: DUE_SOON_CLASS.text },
+  done: { bubble: STATUS_CLASS.DONE.chip, text: STATUS_CLASS.DONE.text },
+  /** A project's health: late (the Management page's "In red"). */
+  late: { bubble: HEALTH_CLASS.LATE.chip, text: HEALTH_CLASS.LATE.text },
 };
 
 /** Counts a number up from 0 on mount; passes strings ("—") straight through. */
