@@ -54,6 +54,10 @@ import { TaskTable } from '../components/data-table/TaskTable';
 import { useTableMemory } from '../components/data-table/hooks';
 import { sortRows, type SortValue } from '../lib/data-table';
 import { myTasksSort, myTasksSortLabel, myTasksSortValue } from '../lib/task-table';
+import { StatusPill as SchemeStatusPill } from '../components/ui/StatusPill';
+import { OVERDUE_CLASS, STATUS_CLASS, dueTone } from '../lib/colour-classes';
+import { useDensity } from '../lib/density';
+import { DescriptionLine, PeopleLine, TagChips } from '../components/DetailLines';
 
 const CheckIcon = (
   <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -87,6 +91,8 @@ interface Enriched {
   done: boolean;
   overdue: boolean;
   dueToday: boolean;
+  /** 1.23.8: due tomorrow (amber with today, in words). */
+  dueTomorrow: boolean;
   dueKey: string | null;
   /** The due date's calendar day, formatted (e.g. "Sep 30"). */
   dueLabel: string;
@@ -149,8 +155,9 @@ export function MyTasksPage() {
       // Never overdue while it waits for approval: its badge says so instead (owner, 30 Oct).
       const overdue = !!dueKey && dueKey < tKey && !done && !task.approvalRequestedAt;
       const dueToday = !!dueKey && dueKey === tKey;
+      const dueTomorrow = !!dueKey && dueKey === shiftDayKey(tKey, 1);
       const dueLabel = formatDueDay(task.dueDate, timeZone, { month: 'short', day: 'numeric' });
-      return { task, cat, done, overdue, dueToday, dueKey, dueLabel, projectName: projectById.get(task.projectId)?.name ?? null, project: projectById.get(task.projectId) ?? null };
+      return { task, cat, done, overdue, dueToday, dueTomorrow, dueKey, dueLabel, projectName: projectById.get(task.projectId)?.name ?? null, project: projectById.get(task.projectId) ?? null };
     });
   }, [tasks, projectById, timeZone]);
 
@@ -382,8 +389,8 @@ export function MyTasksPage() {
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <Chip active={!filtersActive} onClick={clearFilters} label="All" value={counts.total} />
           <Chip active={status === OPEN_STATUS} onClick={() => setStatus(status === OPEN_STATUS ? '' : OPEN_STATUS)} label="Open" value={counts.open} tone="info" />
-          <Chip active={due === 'overdue'} onClick={() => setDue(due === 'overdue' ? '' : 'overdue')} label="Overdue" value={counts.overdue} tone="danger" />
-          <Chip active={status === 'DONE'} onClick={() => setStatus(status === 'DONE' ? '' : 'DONE')} label="Completed" value={counts.done} tone="success" />
+          <Chip active={due === 'overdue'} onClick={() => setDue(due === 'overdue' ? '' : 'overdue')} label="Overdue" value={counts.overdue} tone="overdue" />
+          <Chip active={status === 'DONE'} onClick={() => setStatus(status === 'DONE' ? '' : 'DONE')} label="Completed" value={counts.done} tone="done" />
         </div>
       ) : null}
 
@@ -580,8 +587,9 @@ export function MyTasksPage() {
   );
 }
 
-function Chip({ label, value, onClick, active, tone = 'neutral', plain = false }: { label: string; value: number; onClick: () => void; active?: boolean; tone?: 'neutral' | 'info' | 'danger' | 'success'; plain?: boolean }) {
-  const dot = { neutral: 'bg-ink-3', info: 'bg-info', danger: 'bg-danger', success: 'bg-success' }[tone];
+function Chip({ label, value, onClick, active, tone = 'neutral', plain = false }: { label: string; value: number; onClick: () => void; active?: boolean; tone?: 'neutral' | 'info' | 'overdue' | 'done'; plain?: boolean }) {
+  // 1.23.8: Overdue and Completed wear the scheme's overdue red and Done green.
+  const dot = { neutral: 'bg-ink-3', info: 'bg-info', overdue: OVERDUE_CLASS.dot, done: STATUS_CLASS.DONE.dot }[tone];
   return (
     <button
       onClick={onClick}
@@ -612,29 +620,25 @@ function ViewButton({ active, onClick, label, children }: { active: boolean; onC
   );
 }
 
+/** Its status in the one colour scheme (1.23.8, components/ui/StatusPill). */
 function StatusPill({ category }: { category: string }) {
-  const m = statusMeta(category);
-  return (
-    <span className="inline-flex items-center gap-1 rounded-md bg-ground px-1.5 py-0.5 text-[11px] font-medium text-ink-2">
-      <span className="h-1.5 w-1.5 rounded-full" style={{ background: m.color }} aria-hidden />
-      {m.label}
-    </span>
-  );
+  return <SchemeStatusPill category={category} />;
 }
 
 function DueLabel({ e, className = '' }: { e: Enriched; className?: string }) {
   if (!e.task.dueDate) return <span className={`text-ink-3 ${className}`}>No due date</span>;
-  const text = e.overdue ? `Overdue · ${e.dueLabel}` : e.dueToday ? 'Due today' : e.dueLabel;
-  const tone = e.overdue ? 'font-semibold text-danger' : e.dueToday ? 'font-semibold text-warning' : 'text-ink-2';
+  const soon = !e.done && !e.task.approvalRequestedAt && (e.dueToday || e.dueTomorrow);
+  const text = e.overdue ? `Overdue · ${e.dueLabel}` : e.dueToday ? 'Due today' : soon ? `Due tomorrow · ${e.dueLabel}` : e.dueLabel;
+  const tone = dueTone({ late: e.overdue, soon });
   return <span className={`${tone} ${className}`}>{text}</span>;
 }
 
-function Assignees({ list }: { list: { id: string; name: string }[] }) {
+function Assignees({ list, all = false }: { list: { id: string; name: string }[]; /** Detailed: every face (their names are on the line below). */ all?: boolean }) {
   if (!list.length) return null;
-  const shown = list.slice(0, 3);
+  const shown = all ? list : list.slice(0, 3);
   const extra = list.length - shown.length;
   return (
-    <div className={`flex flex-none -space-x-1.5 ${DENSE_STACK}`}>
+    <div className={`flex flex-none -space-x-1.5 ${all ? 'flex-wrap justify-end' : ''} ${DENSE_STACK}`}>
       {shown.map((a) => <Avatar key={a.id} name={a.name} size="sm" dense />)}
       {extra > 0 ? <span className={`grid h-6 w-6 place-items-center rounded-full border border-line bg-ground text-[10px] font-semibold text-ink-2 ${DENSE_FACE}`}>+{extra}</span> : null}
     </div>
@@ -655,13 +659,15 @@ function SelectBox({ taskKey, checked, onChange }: { taskKey: string; checked: b
 
 function MyTaskCard({ e, onOpen, selected, onToggleSelect }: { e: Enriched; onOpen: () => void; selected?: boolean; onToggleSelect?: () => void }) {
   const t = e.task;
+  // Detailed (1.23.8, lib/density): the whole title, the description's first line, tags and everyone on it.
+  const detailed = useDensity() === 'detailed';
   return (
     // The title button opens the task; its ::after covers the card, so a click anywhere works, while
     // the select checkbox sits above it as a separate control (never one control inside another).
     <div
       data-task-key={t.key}
       // Compact rows (1.23.0, lib/density): a third less padding and room inside, the title a step smaller.
-      className={`card card-hover group relative flex flex-col gap-2.5 p-3.5 compact:gap-1.5 compact:p-2.5 focus-within:border-brand/40 ${selected ? 'ring-2 ring-brand/50' : ''} ${e.overdue ? 'border-l-2 border-l-danger' : ''}`}
+      className={`card card-hover group relative flex flex-col gap-2.5 p-3.5 compact:gap-1.5 compact:p-2.5 focus-within:border-brand/40 ${selected ? 'ring-2 ring-brand/50' : ''} ${e.overdue ? 'border-l-2 border-l-overdue' : ''}`}
     >
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
@@ -685,11 +691,13 @@ function MyTaskCard({ e, onOpen, selected, onToggleSelect }: { e: Enriched; onOp
         type="button"
         onClick={onOpen}
         dir="auto"
-        className={`line-clamp-2 cursor-pointer text-start text-sm font-medium leading-snug text-ink outline-none transition-colors ${DENSE_TEXT} after:absolute after:inset-0 after:rounded-2xl after:content-[''] focus-visible:after:ring-2 focus-visible:after:ring-brand/60 group-hover:text-brand ${e.done ? 'line-through opacity-70' : ''}`}
+        className={`${detailed ? 'break-words' : 'line-clamp-2'} cursor-pointer text-start text-sm font-medium leading-snug text-ink outline-none transition-colors ${DENSE_TEXT} after:absolute after:inset-0 after:rounded-2xl after:content-[''] focus-visible:after:ring-2 focus-visible:after:ring-brand/60 group-hover:text-brand ${e.done ? 'line-through opacity-70' : ''}`}
       >
         {t.title}
       </button>
+      {detailed ? <DescriptionLine description={t.description} className="-mt-1" /> : null}
       <ExternalContactsLine summary={t.externalSummary} />
+      {detailed ? <TagChips tags={t.tags} /> : null}
 
       <div className="mt-auto flex flex-col gap-2 pt-1 compact:gap-1.5 compact:pt-0">
         <div className="flex items-center gap-1.5 text-[11px]">
@@ -701,8 +709,9 @@ function MyTaskCard({ e, onOpen, selected, onToggleSelect }: { e: Enriched; onOp
             <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-ground"><div className="h-full rounded-full bg-brand-sheen transition-[width] duration-500" style={{ width: `${t.progress}%` }} /></div>
             <span className="w-9 flex-none text-right text-[11px] tabular-nums text-ink-3">{t.progress}%</span>
           </div>
-          <Assignees list={t.assignees ?? []} />
+          <Assignees list={t.assignees ?? []} all={detailed} />
         </div>
+        {detailed && (t.assignees?.length ?? 0) > 1 ? <PeopleLine people={t.assignees} /> : null}
       </div>
     </div>
   );
@@ -711,11 +720,13 @@ function MyTaskCard({ e, onOpen, selected, onToggleSelect }: { e: Enriched; onOp
 function MyTaskRow({ e, onOpen, selected, onToggleSelect }: { e: Enriched; onOpen: () => void; selected?: boolean; onToggleSelect?: () => void }) {
   const t = e.task;
   const m = statusMeta(e.cat);
+  // Detailed (1.23.8): the title wraps, and the description's first line, tags and everyone on it go under it.
+  const detailed = useDensity() === 'detailed';
   return (
     <div
       data-task-key={t.key}
       // Compact rows (1.23.0, lib/density): a third less padding, the title a step smaller.
-      className={`relative flex items-center gap-3 px-4 py-2.5 transition-colors compact:py-1.5 hover:bg-ground/60 ${selected ? 'bg-brand/5' : ''} ${e.overdue ? 'border-l-2 border-l-danger' : 'border-l-2 border-l-transparent'}`}
+      className={`relative flex items-center gap-3 px-4 py-2.5 transition-colors compact:py-1.5 hover:bg-ground/60 ${selected ? 'bg-brand/5' : ''} ${e.overdue ? 'border-l-2 border-l-overdue' : 'border-l-2 border-l-transparent'}`}
     >
       {onToggleSelect ? <SelectBox taskKey={t.key} checked={!!selected} onChange={onToggleSelect} /> : null}
       {/* The status: a named dot (its word on the phone line below, and in a column on a wide screen). */}
@@ -729,8 +740,8 @@ function MyTaskRow({ e, onOpen, selected, onToggleSelect }: { e: Enriched; onOpe
           type="button"
           onClick={onOpen}
           dir="auto"
-          title={t.title}
-          className={`min-w-0 flex-1 basis-0 cursor-pointer truncate text-start text-sm font-medium text-ink outline-none ${DENSE_TEXT} after:absolute after:inset-0 after:content-[''] focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-brand/60 ${e.done ? 'line-through opacity-70' : ''}`}
+          title={detailed ? undefined : t.title}
+          className={`min-w-0 flex-1 basis-0 cursor-pointer ${detailed ? 'break-words' : 'truncate'} text-start text-sm font-medium text-ink outline-none ${DENSE_TEXT} after:absolute after:inset-0 after:content-[''] focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-brand/60 ${e.done ? 'line-through opacity-70' : ''}`}
         >
           {t.title}
         </button>
@@ -744,7 +755,10 @@ function MyTaskRow({ e, onOpen, selected, onToggleSelect }: { e: Enriched; onOpe
             <InspectionChip />
           </span>
         ) : null}
+        {detailed ? <DescriptionLine description={t.description} className="basis-full" /> : null}
         <ExternalContactsLine summary={t.externalSummary} className="basis-full" />
+        {detailed ? <TagChips tags={t.tags} className="mt-1 basis-full" /> : null}
+        {detailed && (t.assignees?.length ?? 0) > 0 ? <PeopleLine people={t.assignees} className="mt-1 basis-full" /> : null}
         {/* Phones have no room for the columns: the same facts go on a second line. */}
         <div data-phone-meta className="mt-1 flex basis-full flex-wrap items-center gap-x-2 gap-y-1 sm:hidden">
           <TaskKey value={t.key} />

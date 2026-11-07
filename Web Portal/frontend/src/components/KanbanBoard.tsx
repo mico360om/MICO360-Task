@@ -144,7 +144,7 @@ export function KanbanBoard({ columns, onTaskClick, onMove, onReorder, timeZone,
       {createPortal(
         <DragOverlay dropAnimation={null}>
           {activeTask ? (
-            <div className="w-64 rotate-2 cursor-grabbing shadow-lift">
+            <div className="w-[min(var(--board-col,15rem),85vw)] rotate-2 cursor-grabbing shadow-lift">
               <TaskCard task={activeTask} timeZone={timeZone} interactive={false} />
             </div>
           ) : null}

@@ -21,6 +21,7 @@ import { KanbanBoard } from '../KanbanBoard';
 import { useMediaQuery } from '../../lib/useMediaQuery';
 import { useFrameOffset } from '../../lib/useFrameOffset';
 import { ColumnManager } from '../ColumnManager';
+import { ColumnWidthButton } from './ColumnWidthButton';
 import { TaskFormDialog } from '../task-form/TaskFormDialog';
 import { Button } from '../ui/Button';
 import { SearchableSelect } from '../ui/SearchableSelect';
@@ -601,6 +602,8 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
           </>
           )}
           <ViewSwitch label="Show the board as" value={view} onChange={setView} options={VIEWS} />
+          {/* 1.23.8: how wide the columns are, the person's own (board view only). */}
+          {view === 'board' ? <ColumnWidthButton /> : null}
           {companies.length > 0 || company ? (
             <div className="w-48" title={company || EXTERNAL_CONTACT_WORDS.anyCompany}>
               <SearchableSelect
@@ -626,7 +629,6 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
             columns={columnsQ.data ?? []}
             onAdd={(name) => void columnAction(() => columnsApi(apiClient).add(projectId, { name }))}
             onRename={(id, name) => void columnAction(() => columnsApi(apiClient).update(id, { name }))}
-            onSetColor={(id, color) => void columnAction(() => columnsApi(apiClient).update(id, { color }))}
             onSetCategory={(id, category) => void columnAction(() => columnsApi(apiClient).update(id, { category }))}
             onToggleEnabled={(id, enabled) => void columnAction(() => columnsApi(apiClient).update(id, { enabled }))}
             onDelete={(id) => void columnAction(() => columnsApi(apiClient).remove(id))}
@@ -799,7 +801,7 @@ function BoardSkeleton({ fit }: { fit: boolean }) {
   return (
     <div role="status" aria-label="Loading the board" className={`flex gap-3 overflow-hidden pb-3 ${fit ? 'min-h-0 flex-1' : 'h-[calc(100dvh-12rem)] min-h-[20rem]'}`}>
       {[3, 2, 2, 1].map((cards, i) => (
-        <div key={i} className="flex min-w-[15rem] flex-1 basis-0 flex-col gap-2.5 rounded-2xl border border-line bg-surface/70 p-2.5" aria-hidden="true">
+        <div key={i} className="flex min-w-[var(--board-col,15rem)] flex-1 basis-0 flex-col gap-2.5 rounded-2xl border border-line bg-surface/70 p-2.5" aria-hidden="true">
           <span className="skeleton block h-5 w-28" />
           {Array.from({ length: cards }).map((_, j) => (
             <span key={j} className="skeleton block h-24 rounded-xl" />

@@ -6,7 +6,7 @@ import type { ReactNode } from 'react';
 import { useAuthStore } from '../stores/auth-store';
 import { clearUserStorage, readUserValue } from './user-storage';
 import { DatePreferences } from '../components/DatePreferences';
-import { DENSITY_PREF, initDensity, useDensity, useDensityStore, useDensitySync, useSetDensity } from './density';
+import { DENSITY_PREF, initDensity, isDensity, useDensity, useDensityStore, useDensitySync, useSetDensity } from './density';
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 let prefs: Record<string, unknown>;
@@ -221,5 +221,37 @@ describe('Compact / comfortable rows — on <html> and on the account (1.23.0)',
     expect(html()).toBe('compact');
     expect((qc.getQueryData(['date-prefs']) as { density: string }).density).toBe('compact');
     expect((qc.getQueryData(['date-prefs']) as { weekStart: number | null }).weekStart).toBe(null);
+  });
+});
+
+describe('Detailed rows (1.23.8)', () => {
+  it('is the third mode: on <html>, saved on the account and remembered on this device', async () => {
+    signIn('me');
+    initDensity();
+    render(<Shell />, { wrapper });
+    const { result } = renderHook(() => ({ set: useSetDensity(), d: useDensity() }), { wrapper });
+    await waitFor(() => expect(qc.getQueryData(['date-prefs'])).toBeTruthy());
+    act(() => result.current.set.change('detailed'));
+    expect(html()).toBe('detailed');
+    expect(result.current.d).toBe('detailed');
+    await waitFor(() => expect(done()).toEqual([{ density: 'detailed' }]));
+    expect(readUserValue('me', DENSITY_PREF)).toBe('detailed');
+  });
+
+  it('before the first paint a signed-in person gets their Detailed from this device', () => {
+    localStorage.setItem(`mico360.u.me.${DENSITY_PREF}`, 'detailed');
+    signIn('me');
+    initDensity();
+    expect(html()).toBe('detailed');
+  });
+
+  it('the account’s detailed arrives and wins; an unknown word stays comfortable', async () => {
+    prefs.density = 'detailed';
+    signIn('me');
+    initDensity();
+    render(<Shell />, { wrapper });
+    await waitFor(() => expect(html()).toBe('detailed'));
+    expect(isDensity('detailed')).toBe(true);
+    expect(isDensity('spacious')).toBe(false);
   });
 });

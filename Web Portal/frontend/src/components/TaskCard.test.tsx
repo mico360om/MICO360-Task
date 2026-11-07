@@ -90,7 +90,8 @@ describe('TaskCard', () => {
     vi.setSystemTime(new Date('2026-09-30T10:00:00Z')); // 14:00 in Muscat, on the due day
     render(<TaskCard task={{ ...task, dueDate: '2026-09-30T00:00:00.000Z' }} timeZone="Asia/Muscat" />);
     expect(screen.queryByText(/overdue/i)).not.toBeInTheDocument();
-    expect(screen.getByText('30 Sep 2026')).toBeInTheDocument();
+    // 1.23.8: due today says so (amber).
+    expect(screen.getByTestId('card-date')).toHaveTextContent('Due today · 30 Sep 2026');
   });
 
   it('becomes overdue the next company day', () => {

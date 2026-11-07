@@ -9,6 +9,7 @@ import { RUNNING_BUILD } from '../lib/release';
 import { BrandLogo } from './ui/BrandLogo';
 import { Logo } from './ui/Logo';
 import { useMediaQuery } from '../lib/useMediaQuery';
+import { useSetAppearance, useSidebarCollapsed } from '../lib/appearance';
 
 interface NavItem {
   label: string;
@@ -243,22 +244,23 @@ function NavIcon({ children }: { children: ReactNode }) {
 }
 
 // One crisp signal for the active route: a filled brand pill. No extra bar/shadow stack.
-// `rail`: on a tablet (768–1023px) the menu is a 64px rail — the icon centred, its words kept for
-// screen readers (sr-only) and shown beside it as a tooltip (RailTooltip).
+// `rail`: on a tablet (768–1023px), and on a desktop when the person folded it (1.23.8), the menu is a
+// 64px rail — the icon centred, its words kept for screen readers (sr-only) and shown beside it as a
+// tooltip (RailTooltip). The `rail:` variant (tailwind.config.js) is both cases.
 const linkClass =
   (rail: boolean) =>
   ({ isActive }: { isActive: boolean }) =>
     [
       'group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-150 [@media(pointer:coarse)]:min-h-11',
-      rail ? 'md:max-lg:justify-center md:max-lg:gap-0 md:max-lg:px-0' : '',
+      rail ? 'rail:justify-center rail:gap-0 rail:px-0' : '',
       isActive ? 'bg-brand-gradient text-white shadow-sm' : 'text-ink-2 hover:bg-ground hover:text-ink',
     ].join(' ');
 
 /** A link's words: beside the icon, or (on the rail) for screen readers only. */
-const labelClass = (rail: boolean) => (rail ? 'truncate md:max-lg:sr-only' : 'truncate');
+const labelClass = (rail: boolean) => (rail ? 'truncate rail:sr-only' : 'truncate');
 
 function SectionLabel({ children, rail }: { children: ReactNode; rail: boolean }) {
-  return <div className={`px-3 pb-1 pt-4 text-[11px] font-semibold uppercase tracking-wider text-ink-3 ${rail ? 'md:max-lg:sr-only' : ''}`}>{children}</div>;
+  return <div className={`px-3 pb-1 pt-4 text-[11px] font-semibold uppercase tracking-wider text-ink-3 ${rail ? 'rail:sr-only' : ''}`}>{children}</div>;
 }
 
 /**
@@ -286,7 +288,7 @@ function NavGroup({ label, items, onNavigate, chatUnread = 0, rail, first = fals
   return (
     <>
       {/* On the rail the group names give way to a thin line between the groups. */}
-      {rail && !first ? <div data-rail-divider aria-hidden="true" className="mx-1.5 my-2 hidden border-t border-line md:max-lg:block" /> : null}
+      {rail && !first ? <div data-rail-divider aria-hidden="true" className="mx-1.5 my-2 hidden border-t border-line rail:block" /> : null}
       <SectionLabel rail={rail}>{label}</SectionLabel>
       <div className="flex flex-col gap-0.5">
         {items.map((item) =>
@@ -326,7 +328,7 @@ function SavedNav({ onNavigate, rail }: { onNavigate?: () => void; rail: boolean
   const here = pathname === '/search' ? everythingFilters(new URLSearchParams(search)) : null;
   return (
     <>
-      {rail ? <div data-rail-divider aria-hidden="true" className="mx-1.5 my-2 hidden border-t border-line md:max-lg:block" /> : null}
+      {rail ? <div data-rail-divider aria-hidden="true" className="mx-1.5 my-2 hidden border-t border-line rail:block" /> : null}
       <SectionLabel rail={rail}>Saved</SectionLabel>
       <div className="flex flex-col gap-0.5" data-saved-nav>
         {pinned.map((s) => {
@@ -349,7 +351,7 @@ function SavedNav({ onNavigate, rail }: { onNavigate?: () => void; rail: boolean
                 {s.name}
               </span>
               {count ? (
-                <span aria-hidden="true" className={`flex-none rounded-full px-1.5 py-0.5 text-[11px] font-semibold tabular-nums ${active ? 'bg-white/20 text-white' : 'bg-ground text-ink-2'} ${rail ? 'md:max-lg:hidden' : ''}`}>
+                <span aria-hidden="true" className={`flex-none rounded-full px-1.5 py-0.5 text-[11px] font-semibold tabular-nums ${active ? 'bg-white/20 text-white' : 'bg-ground text-ink-2'} ${rail ? 'rail:hidden' : ''}`}>
                   {count}
                 </span>
               ) : null}
@@ -361,8 +363,17 @@ function SavedNav({ onNavigate, rail }: { onNavigate?: () => void; rail: boolean
   );
 }
 
-/** The window width at which the menu is the slim rail (the `md:max-lg:` classes). */
+/** The window width at which the menu is always the slim rail (a tablet), and from which it can be folded. */
 const RAIL_WIDTHS = '(min-width: 48em) and (max-width: 63.99em)';
+const DESKTOP = '(min-width: 64em)';
+
+/** True while the menu beside the page is the icon rail: a tablet, or a desktop with the menu folded. */
+function useOnRail(): boolean {
+  const tablet = useMediaQuery(RAIL_WIDTHS);
+  const desktop = useMediaQuery(DESKTOP);
+  const folded = useSidebarCollapsed();
+  return tablet || (desktop && folded);
+}
 
 /**
  * The name of the rail link under the pointer or the keyboard focus, beside its icon. One floating
@@ -371,7 +382,7 @@ const RAIL_WIDTHS = '(min-width: 48em) and (max-width: 63.99em)';
  * the pointer can move onto it without losing it.
  */
 function RailTooltip({ root }: { root: RefObject<HTMLElement> }) {
-  const onRail = useMediaQuery(RAIL_WIDTHS);
+  const onRail = useOnRail();
   const [tip, setTip] = useState<{ label: string; top: number; left: number } | null>(null);
   const tipRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -435,17 +446,43 @@ function RailTooltip({ root }: { root: RefObject<HTMLElement> }) {
 }
 
 /**
- * The menu beside the page: from 1024px the full 240px menu; on a tablet (768–1023px) a 64px rail
- * of icons, each with its name for screen readers and as a tooltip; on a phone it folds away behind
- * the ☰ button (MobileMenu in AppShell).
+ * 1.23.8 "Collapse the menu" («) / "Expand the menu" (») at the foot of the desktop menu: folds it to the
+ * icon rail and back, saved on the person's account. Desktop only — a tablet always has the rail. On the
+ * rail it names itself beside it like the links (data-rail-label).
+ */
+function FoldButton() {
+  const folded = useSidebarCollapsed();
+  const { change } = useSetAppearance();
+  const label = folded ? 'Expand the menu' : 'Collapse the menu';
+  return (
+    <button
+      type="button"
+      onClick={() => change({ sidebarCollapsed: !folded })}
+      aria-expanded={!folded}
+      aria-controls="main-menu"
+      data-rail-label={label}
+      className={`${linkClass(true)({ isActive: false })} hidden w-full lg:flex`}
+    >
+      <NavIcon>{folded ? <path d="M6 7l5 5-5 5M13 7l5 5-5 5" /> : <path d="M18 7l-5 5 5 5M11 7l-5 5 5 5" />}</NavIcon>
+      <span className={labelClass(true)}>{label}</span>
+    </button>
+  );
+}
+
+/**
+ * The menu beside the page: from 1024px the full 240px menu, which the person may fold to the icon rail
+ * (1.23.8, the « button, saved on their account); on a tablet (768–1023px) always a 64px rail of icons,
+ * each with its name for screen readers and as a tooltip; on a phone it folds away behind the ☰ button
+ * (MobileMenu in AppShell).
  */
 export function Sidebar({ isAdmin, chatUnread = 0, canLead = false }: SidebarProps) {
   const nav = useRef<HTMLElement>(null);
   return (
     <nav
       ref={nav}
+      id="main-menu"
       aria-label="Main"
-      className="sticky top-0 hidden h-screen w-16 flex-none flex-col border-r border-line bg-surface/95 md:flex lg:w-60 supports-[height:100dvh]:h-dvh"
+      className="sticky top-0 hidden h-screen w-16 flex-none flex-col border-r border-line bg-surface/95 transition-[width] duration-200 md:flex lg:w-60 rail:w-16 supports-[height:100dvh]:h-dvh"
     >
       <SidebarBody isAdmin={isAdmin} chatUnread={chatUnread} canLead={canLead} rail />
       <RailTooltip root={nav} />
@@ -481,13 +518,13 @@ export function SidebarBody({ isAdmin, onNavigate, chatUnread = 0, canLead = fal
     <>
       {/* As tall as the top bar (h-14), so their bottom lines meet as one. The logo: one per theme,
           lazy — the hidden one is never downloaded. */}
-      <div className={`flex h-14 flex-none items-center border-b border-line px-5 ${rail ? 'md:max-lg:justify-center md:max-lg:px-0' : ''}`}>
-        <span data-rail-wordmark className={`flex ${rail ? 'md:max-lg:hidden' : ''}`}>
+      <div className={`flex h-14 flex-none items-center border-b border-line px-5 ${rail ? 'rail:justify-center rail:px-0' : ''}`}>
+        <span data-rail-wordmark className={`flex ${rail ? 'rail:hidden' : ''}`}>
           <BrandLogo lazy className="h-9" />
         </span>
         {/* The rail is too narrow for the wordmark: the app's tile mark instead. */}
         {rail ? (
-          <span data-rail-mark className="hidden md:max-lg:block">
+          <span data-rail-mark className="hidden rail:block">
             <Logo size={34} title="MICO360 Tasks" />
           </span>
         ) : null}
@@ -495,20 +532,21 @@ export function SidebarBody({ isAdmin, onNavigate, chatUnread = 0, canLead = fal
 
       {/* The rail hides its scrollbar (it would take a sixth of 64px); the edge shadows still say
           there is more, and the current page's link is scrolled into view (above). */}
-      <div ref={list} className={`scroll-shadows flex-1 overflow-y-auto px-3 py-3 ${rail ? 'md:max-lg:px-2.5 md:max-lg:[scrollbar-width:none] md:max-lg:[&::-webkit-scrollbar]:hidden' : ''}`}>
+      <div ref={list} className={`scroll-shadows flex-1 overflow-y-auto px-3 py-3 ${rail ? 'rail:px-2.5 rail:[scrollbar-width:none] rail:[&::-webkit-scrollbar]:hidden' : ''}`}>
         <NavGroup label="Workspace" items={WORKSPACE.filter((i) => (isAdmin || !i.adminOnly) && (isAdmin || canLead || !i.leadsOnly))} onNavigate={onNavigate} rail={rail} first />
         {withData ? <SavedNav onNavigate={onNavigate} rail={rail} /> : null}
         <NavGroup label="Communication" items={COMMUNICATION} onNavigate={onNavigate} chatUnread={chatUnread} rail={rail} />
         {isAdmin ? <NavGroup label="Admin" items={ADMIN} onNavigate={onNavigate} rail={rail} /> : null}
       </div>
 
-      <div className={`border-t border-line px-3 py-2 ${rail ? 'md:max-lg:px-2.5' : ''}`}>
+      <div className={`border-t border-line px-3 py-2 ${rail ? 'rail:px-2.5' : ''}`}>
         <NavLink to="/settings" className={linkClass(rail)} onClick={onNavigate} data-rail-label="Settings">
           <NavIcon>{I.settings}</NavIcon>
           <span className={labelClass(rail)}>Settings</span>
         </NavLink>
-        <div className={`px-3 pt-2 text-[11px] text-ink-3 ${rail ? 'md:max-lg:px-0 md:max-lg:text-center' : ''}`}>
-          <span data-rail-version-brand className={rail ? 'md:max-lg:hidden' : ''}>
+        {rail && withData ? <FoldButton /> : null}
+        <div className={`px-3 pt-2 text-[11px] text-ink-3 ${rail ? 'rail:px-0 rail:text-center' : ''}`}>
+          <span data-rail-version-brand className={rail ? 'rail:hidden' : ''}>
             <span className="gradient-text font-semibold">MICO360</span> ·{' '}
           </span>
           v{RUNNING_BUILD.version}

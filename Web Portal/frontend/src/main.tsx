@@ -6,6 +6,8 @@ import { App } from './App';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { initTheme } from './lib/theme';
 import { initDensity } from './lib/density';
+import { initAppearance } from './lib/appearance';
+import { installTruncationTips } from './lib/truncation-tips';
 import { createAppQueryClient } from './lib/query-client';
 import { bindQueryCacheToSession } from './lib/session-lifecycle';
 import { bindQueryCacheToCompanyPick } from './lib/company-scope';
@@ -27,7 +29,9 @@ installPreloadRecovery();
 startUpdateWatcher();
 
 initTheme(); // apply the persisted light/dark/system choice before first paint
-initDensity(); // and the person's compact / comfortable rows (their last on this device; the account's follows)
+initDensity(); // and the person's rows — compact, comfortable or detailed (their last on this device; the account's follows)
+initAppearance(); // 1.23.8: their folded menu and board column width, the same way
+installTruncationTips(); // 1.23.8: any cut-short text shows its whole words on hover, keyboard focus and a long press
 installKeyboardAwareness(); // keep the field being typed in (and its buttons) above a phone keyboard
 
 const queryClient = createAppQueryClient();

@@ -22,6 +22,21 @@ describe('composeBoard', () => {
     expect(board[1]!.tasks[0]!.key).toBe('MICO-2');
   });
 
+  it('1.23.8: every column and card wears its status kind’s colour (one scheme), whatever colour the column was given', () => {
+    const board = composeBoard([{ ...columns[0]!, color: '#FF00FF' }, columns[1]!], tasks);
+    expect(board[0]!.color).toBe('rgb(var(--c-status-todo))');
+    expect(board[0]!.tasks[0]!.accentColor).toBe('rgb(var(--c-status-todo))');
+    expect(board[1]!.color).toBe('rgb(var(--c-status-done))');
+    // A column of no known kind reads as To do (as the boards always have).
+    expect(composeBoard([{ ...columns[0]!, category: 'ODD' as never }], tasks)[0]!.color).toBe('rgb(var(--c-status-todo))');
+  });
+
+  it('1.23.8: a card carries its description and tags (Detailed cards show them)', () => {
+    const board = composeBoard(columns, [{ ...tasks[0]!, description: 'First line. Second', tags: [{ id: 'g', name: 'Client', color: '#123456' }] }, tasks[1]!]);
+    expect(board[0]!.tasks[0]!.description).toBe('First line. Second');
+    expect(board[0]!.tasks[0]!.tags).toEqual([{ id: 'g', name: 'Client', color: '#123456' }]);
+  });
+
   it('marks tasks in a DONE column (or completed) as done, so they are never shown overdue', () => {
     const board = composeBoard(columns, tasks);
     expect(board[1]!.tasks[0]!.done).toBe(true); // MICO-2 sits in "Done"
@@ -156,7 +171,7 @@ describe('the All projects board', () => {
     const board = composeAllProjectsBoard([], projects);
     expect(board.map((c) => c.name)).toEqual(['Backlog', 'To Do', 'In Progress', 'Blocked', 'Review', 'Done']);
     expect(board.map((c) => statusOfBoardColumn(c.id))).toEqual(['BACKLOG', 'TODO', 'IN_PROGRESS', 'BLOCKED', 'REVIEW', 'DONE']);
-    expect(board[2]!.color).toBe('rgb(var(--c-cat-progress))');
+    expect(board[2]!.color).toBe('rgb(var(--c-status-progress))');
   });
 
   it('puts each task under its status, with its project on the card', () => {

@@ -89,10 +89,15 @@ export function composeBoard(columns: ApiColumn[], tasks: ApiTask[]): KanbanColu
     // "Visible" switched off in Manage columns: the column (and the cards in it) is not on the board.
     .filter((col) => col.enabled !== false)
     .sort((a, b) => a.position - b.position)
-    .map((col) => ({
+    .map((col) => {
+      // 1.23.8: one colour scheme (owner, 7 Nov) — a column wears its status kind's colour, so every board
+      // looks the same; the colour a column was once given is no longer used. (STATUS_META is the scheme's;
+      // the Android drift tests load this file with an empty STATUS_META, hence the optional reads.)
+      const colour = (STATUS_META[col.category] ?? STATUS_META.TODO)?.color ?? '';
+      return {
       id: col.id,
       name: col.name,
-      color: col.color,
+      color: colour,
       tasks: tasks
         .filter((t) => t.columnId === col.id)
         .sort((a, b) => a.position - b.position)
@@ -104,7 +109,7 @@ export function composeBoard(columns: ApiColumn[], tasks: ApiTask[]): KanbanColu
           progress: t.progress,
           assignees: t.assignees ?? [],
           counts: t.counts,
-          accentColor: col.color,
+          accentColor: colour,
           blocked: col.category === 'BLOCKED',
           recurring: Boolean(t.recurrenceRule),
           milestone: !!t.isMilestone,
@@ -115,8 +120,11 @@ export function composeBoard(columns: ApiColumn[], tasks: ApiTask[]): KanbanColu
           // A finished task (DONE column, or completed) is never shown as overdue.
           done: col.category === 'DONE' || !!t.completedAt,
           external: t.externalSummary ?? null,
+          description: t.description,
+          tags: t.tags,
         })),
-    }));
+      };
+    });
 }
 
 // ── The All projects board: every project's tasks under the six shared statuses ──
@@ -181,6 +189,8 @@ export function composeAllProjectsBoard(tasks: ApiTask[], projects: ApiProject[]
           awaitingApproval: !!t.approvalRequestedAt,
           done: status === 'DONE' || !!t.completedAt,
           external: t.externalSummary ?? null,
+          description: t.description,
+          tags: t.tags,
           project: { name: p.name, code: p.code, color: p.color, icon: p.icon ?? null, imageUrl: p.imageUrl },
         };
       }),

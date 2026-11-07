@@ -6,8 +6,12 @@ export interface DatePreferences {
   weekStart: 0 | 1 | 6 | null;
   /** "Show my projects only" (1.22, an administrator's own; off by default) — lib/useMyProjectsOnly.ts. */
   myProjectsOnly?: boolean;
-  /** Compact / comfortable rows (1.23.0, anyone's own; comfortable by default) — lib/density.ts. */
-  density?: 'comfortable' | 'compact';
+  /** Rows: comfortable (default), compact (1.23.0) or detailed (1.23.8), anyone's own — lib/density.ts. */
+  density?: 'comfortable' | 'compact' | 'detailed';
+  /** 1.23.8: the side menu folded to its icons on a desktop screen (open by default) — lib/appearance.ts. */
+  sidebarCollapsed?: boolean;
+  /** 1.23.8: the board's column width for this person (normal by default) — lib/appearance.ts. */
+  boardColumnWidth?: 'narrow' | 'normal' | 'wide';
 }
 
 /**

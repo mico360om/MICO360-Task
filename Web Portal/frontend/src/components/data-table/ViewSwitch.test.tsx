@@ -15,10 +15,10 @@ const renderIt = (density?: boolean) =>
   );
 
 describe('ViewSwitch', () => {
-  it('has the quick “Compact rows” button beside it (1.23.0): every table and list with a view switch', () => {
+  it('has the quick “Rows” button beside it (1.23.0; three modes 1.23.8): every table and list with a view switch', () => {
     renderIt();
     expect(screen.getByRole('group', { name: 'Show tasks as' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Compact rows' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('button', { name: 'Rows: Comfortable' })).toHaveAttribute('aria-haspopup', 'menu');
   });
 
   it('each choice is a 44 px target on a touch screen, wide as well as tall (the base 2rem button rule is outranked)', () => {
@@ -32,6 +32,6 @@ describe('ViewSwitch', () => {
 
   it('can leave it out', () => {
     renderIt(false);
-    expect(screen.queryByRole('button', { name: 'Compact rows' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Rows/ })).toBeNull();
   });
 });

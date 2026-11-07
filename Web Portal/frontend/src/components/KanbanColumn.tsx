@@ -78,7 +78,7 @@ export function KanbanColumn({ column, onTaskClick, onAddTask, timeZone, cardMen
     <section
       ref={setNodeRef}
       aria-label={column.name}
-      className={`flex min-w-[15rem] flex-1 basis-0 flex-col gap-2 overflow-hidden rounded-2xl border bg-surface/70 p-2.5 transition-all duration-200 ${fit ? 'min-h-0' : ''} ${
+      className={`flex min-w-[var(--board-col,15rem)] flex-1 basis-0 flex-col gap-2 overflow-hidden rounded-2xl border bg-surface/70 p-2.5 transition-all duration-200 ${fit ? 'min-h-0' : ''} ${
         isOver ? 'border-brand/40 bg-brand/5 shadow-card ring-2 ring-brand/30' : 'border-line'
       }`}
     >

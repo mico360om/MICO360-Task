@@ -1,7 +1,11 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { Sidebar, SidebarBody } from './Sidebar';
+import { useAppearanceStore } from '../lib/appearance';
+import { useAuthStore } from '../stores/auth-store';
 
 /** Pretend the window is a tablet (the slim rail shows) or not. */
 function tablet(isTablet: boolean) {
@@ -17,26 +21,29 @@ function renderSidebar(path = '/dashboard', chatUnread = 0) {
   );
 }
 const tip = () => document.querySelector('[data-rail-tooltip]');
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  useAppearanceStore.getState().set({ sidebarCollapsed: false, boardColumnWidth: 'normal' });
+});
 
-describe('the menu as a slim rail on a tablet (768–1023px)', () => {
+describe('the menu as a slim rail on a tablet (768–1023px), or folded on a desktop (rail: variant)', () => {
   it('is a 64px rail on a tablet and the full menu from 1024px', () => {
     renderSidebar();
     const nav = screen.getByRole('navigation', { name: 'Main' });
-    expect(nav).toHaveClass('md:flex', 'w-16', 'lg:w-60');
+    expect(nav).toHaveClass('md:flex', 'w-16', 'lg:w-60', 'rail:w-16');
   });
 
   it('keeps every link’s name for screen readers while its words are hidden beside the icon', () => {
     renderSidebar();
     const projects = screen.getByRole('link', { name: 'Projects' });
-    expect(within(projects).getByText('Projects')).toHaveClass('md:max-lg:sr-only');
-    expect(projects).toHaveClass('md:max-lg:justify-center');
-    expect(screen.getByRole('link', { name: 'Settings' })).toHaveClass('md:max-lg:justify-center');
+    expect(within(projects).getByText('Projects')).toHaveClass('rail:sr-only');
+    expect(projects).toHaveClass('rail:justify-center');
+    expect(screen.getByRole('link', { name: 'Settings' })).toHaveClass('rail:justify-center');
   });
 
   it('hides the group labels visually (a thin line separates the groups instead)', () => {
     renderSidebar();
-    expect(screen.getByText('Communication')).toHaveClass('md:max-lg:sr-only');
+    expect(screen.getByText('Communication')).toHaveClass('rail:sr-only');
     expect(document.querySelectorAll('[data-rail-divider]').length).toBe(2);
   });
 
@@ -52,9 +59,9 @@ describe('the menu as a slim rail on a tablet (768–1023px)', () => {
 
   it('shows the small app mark instead of the wide logo, and only the version number at the bottom', () => {
     renderSidebar();
-    expect(document.querySelector('[data-rail-mark]')).toHaveClass('hidden', 'md:max-lg:block');
-    expect(document.querySelector('[data-rail-wordmark]')).toHaveClass('md:max-lg:hidden');
-    expect(document.querySelector('[data-rail-version-brand]')).toHaveClass('md:max-lg:hidden');
+    expect(document.querySelector('[data-rail-mark]')).toHaveClass('hidden', 'rail:block');
+    expect(document.querySelector('[data-rail-wordmark]')).toHaveClass('rail:hidden');
+    expect(document.querySelector('[data-rail-version-brand]')).toHaveClass('rail:hidden');
   });
 
   describe('the name beside an icon (a tooltip)', () => {
@@ -115,8 +122,90 @@ describe('the menu as a slim rail on a tablet (768–1023px)', () => {
       </MemoryRouter>,
     );
     const nav = screen.getByRole('navigation', { name: 'Phone menu' });
-    expect(within(nav).getByText('Projects')).not.toHaveClass('md:max-lg:sr-only');
+    expect(within(nav).getByText('Projects')).not.toHaveClass('rail:sr-only');
     expect(nav.querySelectorAll('[data-rail-divider]')).toHaveLength(0);
     expect(nav.querySelector('[data-rail-mark]')).toBeNull();
+  });
+});
+
+describe('folding the menu on a desktop (1.23.8)', () => {
+  const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+  let saved: unknown[];
+  beforeEach(() => {
+    saved = [];
+    useAuthStore.getState().setSession({ user: { id: 'me', email: 'me@x', username: 'me', roles: ['EMPLOYEE'] }, accessToken: 'at', refreshToken: 'rt' });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string, init?: RequestInit) => {
+        if (String(input).endsWith('/users/me/preferences') && init?.method === 'PUT') {
+          const body = JSON.parse(String(init.body));
+          saved.push(body);
+          return json({ data: { timeZone: null, weekStart: null, myProjectsOnly: false, density: 'comfortable', sidebarCollapsed: false, boardColumnWidth: 'normal', ...body } });
+        }
+        if (String(input).endsWith('/users/me/preferences')) return json({ data: { timeZone: null, weekStart: null, myProjectsOnly: false, density: 'comfortable', sidebarCollapsed: false, boardColumnWidth: 'normal' } });
+        return json({ data: [] });
+      }),
+    );
+  });
+  afterEach(() => useAuthStore.setState({ user: null, accessToken: null, refreshToken: null, isAuthenticated: false }));
+  /** A desktop window (1024px or more), not a tablet. */
+  function desktop() {
+    if (typeof window.PointerEvent === 'undefined') vi.stubGlobal('PointerEvent', MouseEvent);
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: /min-width: 64em/.test(query) && !/max-width/.test(query), media: query, addEventListener: () => {}, removeEventListener: () => {} }) as unknown as MediaQueryList);
+  }
+  const renderWithData = () =>
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}>
+        <MemoryRouter initialEntries={['/dashboard']}>
+          <Sidebar isAdmin canLead />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+  it('a « button folds it to the icons — desktop only (a tablet is always the rail, a phone has ☰)', async () => {
+    desktop();
+    renderWithData();
+    const fold = screen.getByRole('button', { name: 'Collapse the menu' });
+    expect(fold).toHaveAttribute('aria-expanded', 'true');
+    expect(fold).toHaveClass('hidden', 'lg:flex');
+    await userEvent.setup().click(fold);
+    expect(document.documentElement.getAttribute('data-sidebar')).toBe('collapsed');
+    const unfold = screen.getByRole('button', { name: 'Expand the menu' });
+    expect(unfold).toHaveAttribute('aria-expanded', 'false');
+    await waitFor(() => expect(saved).toEqual([{ sidebarCollapsed: true }]));
+    await userEvent.setup().click(unfold);
+    expect(document.documentElement.getAttribute('data-sidebar')).toBe('open');
+    await waitFor(() => expect(saved).toEqual([{ sidebarCollapsed: true }, { sidebarCollapsed: false }]));
+  });
+
+  it('folded, each icon names itself beside it (a tooltip), on hover and keyboard focus', () => {
+    desktop();
+    act(() => useAppearanceStore.getState().set({ sidebarCollapsed: true }));
+    renderWithData();
+    fireEvent.focusIn(screen.getByRole('link', { name: 'Projects' }));
+    expect(tip()).toHaveTextContent('Projects');
+    fireEvent.pointerOver(screen.getByRole('link', { name: 'Calendar' }));
+    expect(tip()).toHaveTextContent('Calendar');
+    // The fold button names itself too.
+    fireEvent.focusIn(screen.getByRole('button', { name: 'Expand the menu' }));
+    expect(tip()).toHaveTextContent('Expand the menu');
+  });
+
+  it('open on a desktop: no tooltips (the names are on screen)', () => {
+    desktop();
+    renderWithData();
+    fireEvent.focusIn(screen.getByRole('link', { name: 'Projects' }));
+    expect(tip()).toBeNull();
+  });
+
+  it('the phone menu has no fold button', () => {
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter initialEntries={['/dashboard']}>
+          <nav aria-label="Phone menu"><SidebarBody isAdmin canLead /></nav>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    expect(within(screen.getByRole('navigation', { name: 'Phone menu' })).queryByRole('button', { name: /the menu/ })).toBeNull();
   });
 });

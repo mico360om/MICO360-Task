@@ -23,7 +23,7 @@ export const VIEW_ICONS: Record<'list' | 'table' | 'board', ReactNode> = {
  * "List | Table", "Board | Table" (1.23.0): one choice of how a page shows its items — each a button
  * that says which it is and whether it is the one shown (aria-pressed). From a small tablet the words
  * are shown beside the icons; on a phone, the icons (with their names). Beside it, the quick
- * "Compact rows" button (1.23.0, components/DensityButton; only where compact can apply).
+ * "Rows" button (1.23.0, components/DensityButton: Compact · Comfortable · Detailed).
  */
 export function ViewSwitch<V extends string>({
   value,
@@ -37,7 +37,7 @@ export function ViewSwitch<V extends string>({
   options: { value: V; label: string; icon: ReactNode }[];
   /** The group's name ("Show tasks as"). */
   label: string;
-  /** The quick "Compact rows" button beside it (default on). */
+  /** The quick "Rows" button beside it (default on). */
   density?: boolean;
 }) {
   return (

@@ -21,6 +21,10 @@ import { READ_ONLY_NOTICE, type ProjectReadOnly } from '../../lib/project-archiv
 import { TaskTable } from '../data-table/TaskTable';
 import { VIEW_ICONS, ViewSwitch } from '../data-table/ViewSwitch';
 import { useViewChoice } from '../data-table/hooks';
+import { OVERDUE_CLASS, STATUS_CLASS, dueTone } from '../../lib/colour-classes';
+import { StatusPill } from '../ui/StatusPill';
+import { useDensity } from '../../lib/density';
+import { DescriptionLine, PeopleLine, TagChips } from '../DetailLines';
 
 export type TaskFilter = 'all' | TaskPhase | 'milestones';
 
@@ -40,8 +44,10 @@ export interface TaskGroup {
   tasks: ApiTask[];
 }
 
-function TaskRow({ task, statusName, statusColor, phase, dueText, onOpen }: { task: ApiTask; statusName: string; statusColor: string; phase: TaskPhase; dueText: string; onOpen: () => void }) {
+function TaskRow({ task, statusName, phase, dueText, onOpen }: { task: ApiTask; statusName: string; phase: TaskPhase; dueText: string; onOpen: () => void }) {
   const assignees = task.assignees ?? [];
+  // Detailed (1.23.8, lib/density): the title wraps; its description's first line, tags and everyone on it.
+  const detailed = useDensity() === 'detailed';
   const overdue = phase === 'overdue';
   const progress = phase === 'completed' ? 100 : Math.max(0, Math.min(100, task.progress ?? 0));
   return (
@@ -53,20 +59,20 @@ function TaskRow({ task, statusName, statusColor, phase, dueText, onOpen }: { ta
         {task.isMilestone ? <span className="text-brand" role="img" aria-label="Milestone" title="Milestone"><FlagIcon /></span> : null}
         {task.clientVisible ? <span className="text-info" role="img" aria-label="Visible to client" title="Visible to client"><ClientEyeIcon size={13} /></span> : null}
         <span className="flex min-w-0 flex-1 flex-col">
-          <span dir="auto" className={`min-w-0 truncate text-start text-sm font-medium ${DENSE_TEXT} ${phase === 'completed' ? 'text-ink-2' : 'text-ink'}`}>{task.title}</span>
+          <span dir="auto" className={`min-w-0 ${detailed ? 'break-words' : 'truncate'} text-start text-sm font-medium ${DENSE_TEXT} ${phase === 'completed' ? 'text-ink-2' : 'text-ink'}`}>{task.title}</span>
+          {detailed ? <DescriptionLine description={task.description} /> : null}
           <ExternalContactsLine summary={task.externalSummary} />
+          {detailed ? <TagChips tags={task.tags} className="mt-0.5" /> : null}
+          {detailed && assignees.length > 0 ? <PeopleLine people={assignees} className="mt-0.5" /> : null}
         </span>
       </span>
       <span className="flex flex-wrap items-center gap-2 ps-[4.5rem] sm:flex-nowrap sm:ps-0">
-        <span className="inline-flex items-center gap-1.5 rounded-md bg-ground px-2 py-0.5 text-xs font-medium text-ink-2">
-          <span className="h-2 w-2 rounded-full" style={{ background: statusColor }} aria-hidden />
-          {statusName}
-        </span>
+        <StatusPill category={task.columnCategory} label={statusName} />
         {task.approvalRequestedAt ? <ApprovalChip /> : null}
         <PriorityBadge priority={task.priority} />
         <span className="flex w-20 items-center gap-1.5" title={`${progress}% done`}>
           <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-ground" aria-hidden="true">
-            <span className={`block h-full rounded-full ${phase === 'completed' ? 'bg-success' : 'bg-brand'}`} style={{ width: `${progress}%` }} />
+            <span className={`block h-full rounded-full ${phase === 'completed' ? STATUS_CLASS.DONE.dot : 'bg-brand'}`} style={{ width: `${progress}%` }} />
           </span>
           <span className="w-8 text-end text-[11px] tabular-nums text-ink-2">{progress}%</span>
         </span>
@@ -79,7 +85,7 @@ function TaskRow({ task, statusName, statusColor, phase, dueText, onOpen }: { ta
           <span className="text-xs text-ink-3">Unassigned</span>
         )}
         {/* Wide enough for "Overdue · Oct 27, 2026" on one line, so every row is the same height. */}
-        <span className={`w-24 flex-none text-xs tabular-nums sm:text-end lg:w-40 lg:whitespace-nowrap ${overdue ? 'font-semibold text-danger' : 'text-ink-2'}`}>
+        <span className={`w-24 flex-none text-xs tabular-nums sm:text-end lg:w-40 lg:whitespace-nowrap ${dueTone({ late: overdue })}`}>
           {overdue ? 'Overdue · ' : ''}{dueText || 'No due date'}
         </span>
       </span>
@@ -165,7 +171,7 @@ export function TasksTab({
               type="button"
               aria-pressed={filter === f.v}
               onClick={() => onFilter(f.v)}
-              className={`whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-colors ${TOUCH_TALL} [@media(pointer:coarse)]:!min-w-11 ${filter === f.v ? 'bg-surface text-ink shadow-soft' : 'text-ink-2 hover:text-ink'} ${f.v === 'overdue' && counts.overdue ? 'text-danger' : ''}`}
+              className={`whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-colors ${TOUCH_TALL} [@media(pointer:coarse)]:!min-w-11 ${filter === f.v ? 'bg-surface text-ink shadow-soft' : 'text-ink-2 hover:text-ink'} ${f.v === 'overdue' && counts.overdue ? OVERDUE_CLASS.text : ''}`}
             >
               {f.label} <span className="tabular-nums text-ink-3">{counts[f.v]}</span>
             </button>
@@ -213,7 +219,7 @@ export function TasksTab({
             </div>
             <div className="card divide-y divide-line overflow-hidden">
               {g.tasks.map((t) => (
-                <TaskRow key={t.id} task={t} statusName={g.name} statusColor={g.color} phase={taskPhase(t, today, timeZone)} dueText={formatDueDay(t.dueDate, timeZone)} onOpen={() => onOpen(t.id)} />
+                <TaskRow key={t.id} task={t} statusName={g.name} phase={taskPhase(t, today, timeZone)} dueText={formatDueDay(t.dueDate, timeZone)} onOpen={() => onOpen(t.id)} />
               ))}
             </div>
           </section>

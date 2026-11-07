@@ -2,7 +2,7 @@ import type { HTMLAttributes } from 'react';
 import { Avatar } from './ui/Avatar';
 import { ProjectAvatar } from './ProjectAvatar';
 import { PriorityBadge, type Priority } from './ui/PriorityBadge';
-import { isOverdue } from '../lib/due-date';
+import { daysUntilDue, isOverdue } from '../lib/due-date';
 import { formatDueDay } from '../lib/due-display';
 import { instantDayText } from '../lib/day-words';
 import { DEFAULT_TIME_ZONE } from '../lib/company-clock';
@@ -12,6 +12,9 @@ import type { ExternalContactSummary } from '../lib/external-contacts';
 import { ExternalContactsLine } from './ExternalContactsLine';
 import { TaskKey } from './TaskKey';
 import { DENSE_FACE, DENSE_STACK, DENSE_TEXT } from '../lib/density-tokens';
+import { useDensity } from '../lib/density';
+import { DUE_SOON_CLASS, OVERDUE_CLASS, STATUS_CLASS } from '../lib/colour-classes';
+import { DescriptionLine, PeopleLine, TagChips, type TagLike } from './DetailLines';
 
 export interface TaskCardTask {
   key: string;
@@ -21,7 +24,10 @@ export interface TaskCardTask {
   progress: number;
   assignees: { id: string; name: string }[];
   counts?: { comments: number; attachments: number; checklistDone: number; checklistTotal: number };
-  /** The card's column colour — drawn as a left status stripe so cards read as belonging to their stage. */
+  /**
+   * Its status's colour (1.23.8: the column's kind in the one scheme, lib/colour-classes) — drawn as a left
+   * stripe so cards read as belonging to their stage.
+   */
   accentColor?: string;
   /** True when the task sits in a BLOCKED-category column, for an at-a-glance "Blocked" flag. */
   blocked?: boolean;
@@ -45,6 +51,9 @@ export interface TaskCardTask {
   external?: ExternalContactSummary | null;
   /** The board's month view: its dates in the month ("5–20 Nov", "Overdue · from Oct"), shown instead of the due date. */
   dateLine?: { text: string; overdue: boolean; title?: string };
+  /** 1.23.8 Detailed cards: its description (the first line shows) and its tags. */
+  description?: string | null;
+  tags?: TagLike[];
 }
 
 export interface TaskCardProps {
@@ -112,20 +121,22 @@ export function TaskCard({ task, onClick, timeZone = DEFAULT_TIME_ZONE, interact
   // for approval (its badge says so instead: owner, 30 Oct).
   const overdue = !task.done && !task.awaitingApproval && isOverdue(task.dueDate, timeZone);
   const dueText = formatDueDay(task.dueDate, timeZone) || 'No due date';
+  // 1.23.8: due today or tomorrow (not finished, not waiting): amber, in words too.
+  const daysLeft = task.done || task.awaitingApproval ? null : daysUntilDue(task.dueDate, timeZone);
+  const soon = daysLeft === 0 ? 'Due today' : daysLeft === 1 ? 'Due tomorrow' : null;
+  // Detailed (1.23.8, lib/density): the whole title, the description's first line, the tags and everyone on it.
+  const detailed = useDensity() === 'detailed';
   // The month view gives its own line (a span, "From 5 Nov", "No date"), shown even without a due date.
   const line = task.dateLine;
   const hasDue = Boolean(line) || Boolean(task.dueDate);
   const dateLate = line ? line.overdue : overdue;
   const c = task.counts;
-  const shownAssignees = task.assignees.slice(0, 3);
+  const shownAssignees = detailed ? task.assignees : task.assignees.slice(0, 3);
   const extra = task.assignees.length - shownAssignees.length;
 
-  // One base card; overdue and blocked add an unmistakable ring so they pop within a column.
-  const stateCls = overdue
-    ? 'border-line ring-1 ring-danger/50 hover:border-danger/50'
-    : task.blocked
-      ? 'border-line ring-1 ring-warning/50 hover:border-warning/50'
-      : 'border-line hover:border-brand/40';
+  // One base card; an overdue one gets a red edge on top of its status stripe (owner, 7 Nov). A blocked
+  // one needs nothing more: its stripe is the Blocked red and its chip says so.
+  const stateCls = overdue ? `${OVERDUE_CLASS.edge} ring-1 ${OVERDUE_CLASS.ring}/60` : 'border-line hover:border-brand/40';
 
   return (
     <div
@@ -145,8 +156,8 @@ export function TaskCard({ task, onClick, timeZone = DEFAULT_TIME_ZONE, interact
       // Compact rows (1.23.0, lib/density): a third less padding and room inside, the title a step smaller.
       className={`group relative flex cursor-pointer flex-col gap-2 overflow-hidden rounded-xl border bg-surface p-3 pl-3.5 text-left shadow-soft compact:gap-1.5 compact:p-2 compact:pl-2.5 outline-none transition-all duration-200 ease-emphasized hover:-translate-y-0.5 hover:shadow-card ${stateCls}`}
     >
-      {/* Status stripe in the column colour, so a card always reads as belonging to its stage. */}
-      <span className="absolute inset-y-0 left-0 w-1" style={{ background: task.accentColor ?? 'transparent' }} aria-hidden="true" />
+      {/* Status stripe in its status's colour, so a card always reads as belonging to its stage. */}
+      <span data-card-stripe className="absolute inset-y-0 left-0 w-1" style={{ background: task.accentColor ?? 'transparent' }} aria-hidden="true" />
 
       {task.project ? (
         <span data-testid="card-project" className={`flex min-w-0 items-center gap-1.5 text-[11px] font-medium text-ink-2 ${menuSpace ? 'pr-7 [@media(pointer:coarse)]:pr-11' : ''}`}>
@@ -161,7 +172,7 @@ export function TaskCard({ task, onClick, timeZone = DEFAULT_TIME_ZONE, interact
         <TaskKey value={task.key} dense="compact" />
         <div className="flex flex-none items-center gap-1.5">
           {task.blocked ? (
-            <span className="inline-flex items-center gap-1 rounded bg-danger-soft px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-danger">
+            <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wide ${STATUS_CLASS.BLOCKED.chip}`}>
               <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M6 6l12 12" /></svg>
               Blocked
             </span>
@@ -186,8 +197,10 @@ export function TaskCard({ task, onClick, timeZone = DEFAULT_TIME_ZONE, interact
         </div>
       </div>
 
-      <div dir="auto" className={`line-clamp-2 text-start text-sm font-medium leading-snug text-ink transition-colors group-hover:text-brand ${DENSE_TEXT}`}>{task.title}</div>
+      <div dir="auto" className={`${detailed ? 'break-words' : 'line-clamp-2'} text-start text-sm font-medium leading-snug text-ink transition-colors group-hover:text-brand ${DENSE_TEXT}`}>{task.title}</div>
+      {detailed ? <DescriptionLine description={task.description} className="-mt-1" /> : null}
       <ExternalContactsLine summary={task.external} />
+      {detailed ? <TagChips tags={task.tags} /> : null}
 
       {/* A check's chip leads the line of facts (it wraps there; beside the key, with the priority and
           the flags, it overlapped them in a narrow column and broke the key in two). */}
@@ -199,7 +212,7 @@ export function TaskCard({ task, onClick, timeZone = DEFAULT_TIME_ZONE, interact
             <span
               data-testid="card-date"
               title={line?.title}
-              className={`inline-flex items-center gap-1 rounded px-1 text-[11px] ${dateLate ? 'bg-danger-soft font-semibold text-danger' : 'text-ink-2'}`}
+              className={`inline-flex items-center gap-1 rounded px-1 text-[11px] ${dateLate ? `${OVERDUE_CLASS.chip} font-semibold` : soon && !line ? `${DUE_SOON_CLASS.text} font-semibold` : 'text-ink-2'}`}
             >
               <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" />
@@ -211,7 +224,10 @@ export function TaskCard({ task, onClick, timeZone = DEFAULT_TIME_ZONE, interact
                   {line.title ? <span className="sr-only"> ({line.title})</span> : null}
                 </>
               ) : (
-                <>{overdue ? `Overdue · ${dueText}` : dueText}</>
+                <>
+                  {soon && !overdue ? `${soon} · ` : null}
+                  {overdue ? `Overdue · ${dueText}` : dueText}
+                </>
               )}
             </span>
           ) : null}
@@ -245,7 +261,7 @@ export function TaskCard({ task, onClick, timeZone = DEFAULT_TIME_ZONE, interact
             {task.assignees.length === 1 ? (
               <span dir="auto" className="max-w-[6rem] truncate text-[11px] text-ink-2">{task.assignees[0]!.name}</span>
             ) : null}
-            <div className={`flex -space-x-1.5 ${DENSE_STACK}`}>
+            <div className={`flex ${detailed ? 'flex-wrap justify-end gap-y-0.5' : ''} -space-x-1.5 ${DENSE_STACK}`}>
               {shownAssignees.map((a) => (
                 <Avatar key={a.id} name={a.name} size="sm" dense />
               ))}
@@ -258,6 +274,7 @@ export function TaskCard({ task, onClick, timeZone = DEFAULT_TIME_ZONE, interact
           </div>
         ) : null}
       </div>
+      {detailed && task.assignees.length > 1 ? <PeopleLine people={task.assignees} /> : null}
     </div>
   );
 }

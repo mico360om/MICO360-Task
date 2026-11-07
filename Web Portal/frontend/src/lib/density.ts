@@ -9,9 +9,14 @@ import { readUserValue, writeUserValue } from './user-storage';
 import { DENSITY_PREF } from './density-tokens';
 
 /**
- * Compact / comfortable rows (1.23.0). Each person's own choice (Settings → Appearance, and the quick
- * "Compact rows" button on tables and lists), saved on their account so it follows them to every
- * computer. Comfortable is today's look, for everyone until they pick Compact.
+ * Rows: Compact · Comfortable · Detailed (1.23.0; Detailed 1.23.8). Each person's own choice (Settings →
+ * Appearance, and the quick "Rows" button on tables and lists), saved on their account so it follows them
+ * to every computer. Comfortable is today's look, for everyone until they pick another.
+ *
+ * Detailed (1.23.8) adds to each card and row the description's first line, the checklist count, the tags,
+ * the project and everyone on it, and never cuts a title (it wraps). It adds information and never shrinks
+ * a target, so it applies on phones and touch screens too (`detailed:` variant: the attribute alone); the
+ * pieces that show more read `useDensity() === 'detailed'`.
  *
  * One mechanism: `<html data-density="comfortable|compact">`, and the Tailwind variant `compact:`
  * (tailwind.config.js), which applies only with that attribute AND from the md width (768px) with a
@@ -30,12 +35,12 @@ import { DENSITY_PREF } from './density-tokens';
  * Never: cut text, horizontal page scroll, or a smaller target on a touch screen.
  */
 
-export type Density = 'comfortable' | 'compact';
+export type Density = 'comfortable' | 'compact' | 'detailed';
 
 export { COMPACT_MEDIA, DENSE_FACE, DENSE_STACK, DENSE_TEXT, DENSITY_PREF } from './density-tokens';
 
 export function isDensity(v: unknown): v is Density {
-  return v === 'comfortable' || v === 'compact';
+  return v === 'comfortable' || v === 'compact' || v === 'detailed';
 }
 
 /** Stamp the choice on the page (always a concrete word, so the CSS and the tests can read it). */
@@ -49,12 +54,13 @@ export function applyDensity(d: Density): void {
 
 /** This person's last choice on this device (comfortable when there is none, or nobody is signed in). */
 export function storedDensity(userId: string | null | undefined): Density {
-  return readUserValue(userId, DENSITY_PREF) === 'compact' ? 'compact' : 'comfortable';
+  const v = readUserValue(userId, DENSITY_PREF);
+  return v === 'compact' || v === 'detailed' ? v : 'comfortable';
 }
 
 /** Remember it on this device for the next page load (comfortable leaves nothing behind). */
 export function rememberDensity(userId: string | null | undefined, d: Density): void {
-  writeUserValue(userId, DENSITY_PREF, d === 'compact' ? 'compact' : null);
+  writeUserValue(userId, DENSITY_PREF, d === 'comfortable' ? null : d);
 }
 
 interface DensityState {

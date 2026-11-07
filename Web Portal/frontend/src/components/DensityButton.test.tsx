@@ -68,81 +68,110 @@ const renderBoth = () =>
     </QueryClientProvider>,
   );
 
-describe('the quick “Compact rows” button (tables and lists)', () => {
-  it('is a named toggle, off while comfortable, with its tooltip', async () => {
+describe('the quick “Rows” button (tables and lists, 1.23.8)', () => {
+  const toolbar = () => within(screen.getByTestId('toolbar'));
+  it('names the rows in force and opens a menu of the three', async () => {
     screenIs('computer');
     renderBoth();
-    const button = within(screen.getByTestId('toolbar')).getByRole('button', { name: 'Compact rows' });
-    expect(button).toHaveAttribute('aria-pressed', 'false');
-    expect(button).toHaveAttribute('title', DENSITY_WORDS.quickOff);
+    const button = toolbar().getByRole('button', { name: 'Rows: Comfortable' });
+    expect(button).toHaveAttribute('aria-haspopup', 'menu');
+    await userEvent.setup().click(button);
+    const menu = screen.getByRole('menu', { name: DENSITY_WORDS.label });
+    const items = within(menu).getAllByRole('menuitemradio');
+    expect(items.map((i) => i.textContent)).toEqual(['Compact', 'Comfortable', 'Detailed']);
+    expect(within(menu).getByRole('menuitemradio', { name: 'Comfortable' })).toHaveAttribute('aria-checked', 'true');
+    // The chosen one has the focus (the arrow keys move from there).
+    expect(document.activeElement).toBe(within(menu).getByRole('menuitemradio', { name: 'Comfortable' }));
   });
 
-  it('turns compact on and off, saved on the account, and Settings says the same', async () => {
+  it('picks Compact or Detailed: shown at once, saved on the account, and Settings says the same', async () => {
     screenIs('computer');
     renderBoth();
     const user = userEvent.setup();
-    const button = within(screen.getByTestId('toolbar')).getByRole('button', { name: 'Compact rows' });
     const group = screen.getByRole('group', { name: DENSITY_WORDS.label });
-    await waitFor(() => expect(saved).toEqual([]));
-    await user.click(button);
+    await user.click(toolbar().getByRole('button', { name: 'Rows: Comfortable' }));
+    await user.click(screen.getByRole('menuitemradio', { name: 'Detailed' }));
+    expect(html()).toBe('detailed');
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(toolbar().getByRole('button', { name: 'Rows: Detailed' })).toBeInTheDocument();
+    expect(within(group).getByRole('button', { name: 'Detailed' })).toHaveAttribute('aria-pressed', 'true');
+    await waitFor(() => expect(saved).toEqual([{ density: 'detailed' }]));
+    await user.click(toolbar().getByRole('button', { name: 'Rows: Detailed' }));
+    await user.click(screen.getByRole('menuitemradio', { name: 'Compact' }));
     expect(html()).toBe('compact');
-    expect(button).toHaveAttribute('aria-pressed', 'true');
-    expect(button).toHaveAttribute('title', DENSITY_WORDS.quickOn);
-    expect(within(group).getByRole('button', { name: 'Compact' })).toHaveAttribute('aria-pressed', 'true');
-    expect(within(group).getByRole('button', { name: 'Comfortable' })).toHaveAttribute('aria-pressed', 'false');
-    await waitFor(() => expect(saved).toEqual([{ density: 'compact' }]));
+    await waitFor(() => expect(saved).toEqual([{ density: 'detailed' }, { density: 'compact' }]));
     // …and Settings back to comfortable: the button follows.
     await user.click(within(group).getByRole('button', { name: 'Comfortable' }));
-    expect(html()).toBe('comfortable');
-    expect(button).toHaveAttribute('aria-pressed', 'false');
-    await waitFor(() => expect(saved).toEqual([{ density: 'compact' }, { density: 'comfortable' }]));
+    expect(toolbar().getByRole('button', { name: 'Rows: Comfortable' })).toBeInTheDocument();
+  });
+
+  it('the keyboard: arrows move, Escape closes back to the button', async () => {
+    screenIs('computer');
+    renderBoth();
+    const user = userEvent.setup();
+    const button = toolbar().getByRole('button', { name: 'Rows: Comfortable' });
+    await user.click(button);
+    await user.keyboard('{ArrowDown}');
+    expect(document.activeElement).toBe(screen.getByRole('menuitemradio', { name: 'Detailed' }));
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(document.activeElement).toBe(button);
+    expect(saved).toEqual([]);
   });
 
   it('a refused save says so beside the button, and the rows stay as they were', async () => {
     screenIs('computer');
     renderBoth();
     failSave = true;
-    const button = within(screen.getByTestId('toolbar')).getByRole('button', { name: 'Compact rows' });
-    await userEvent.setup().click(button);
-    const alert = await within(screen.getByTestId('toolbar')).findByRole('alert');
+    const user = userEvent.setup();
+    await user.click(toolbar().getByRole('button', { name: 'Rows: Comfortable' }));
+    await user.click(screen.getByRole('menuitemradio', { name: 'Compact' }));
+    const alert = await toolbar().findByRole('alert');
     expect(alert).toHaveTextContent(DENSITY_WORDS.failed);
     // Under the button, out of the toolbar's flow: a toolbar that doesn't wrap never widens the page.
     expect(alert).toHaveClass('absolute', 'whitespace-nowrap');
     expect(html()).toBe('comfortable');
-    expect(button).toHaveAttribute('aria-pressed', 'false');
   });
 
-  it('is not shown where compact can’t apply (phones and touch screens keep 44px rows): it waits in Settings', () => {
-    screenIs('computer');
+  it('is on phones and touch screens too (Detailed applies there); Compact says it is for computers', async () => {
+    screenIs('phone');
     renderBoth();
-    const button = within(screen.getByTestId('toolbar')).getByRole('button', { name: 'Compact rows' });
-    // Hidden by CSS on a phone or a touch screen (jsdom draws no media): the classes say so.
-    expect(button.closest('[data-density-button]')?.className).toMatch(/max-md:hidden/);
-    expect(button.closest('[data-density-button]')?.className).toMatch(/\[@media\(pointer:coarse\)\]:hidden/);
+    const button = toolbar().getByRole('button', { name: 'Rows: Comfortable' });
+    expect(button.closest('[data-density-button]')?.className ?? '').not.toMatch(/hidden/);
+    await userEvent.setup().click(button);
+    expect(screen.getByRole('menuitemradio', { name: /Compact/ })).toHaveTextContent(DENSITY_WORDS.computersOnly);
+  });
+
+  it('on a phone, a person who chose Compact sees what applies there: Comfortable rows, Compact still ticked', async () => {
+    screenIs('phone');
+    prefs.density = 'compact';
+    renderBoth();
+    await waitFor(() => expect(toolbar().getByRole('button', { name: 'Rows: Compact (comfortable on this screen)' })).toBeInTheDocument());
   });
 });
 
-describe('Settings → Appearance: Comfortable | Compact', () => {
+describe('Settings → Appearance: Compact | Comfortable | Detailed', () => {
   it('sits next to Theme with its plain hint; comfortable at first', async () => {
     screenIs('computer');
     renderBoth();
     const group = screen.getByRole('group', { name: DENSITY_WORDS.label });
+    expect(within(group).getAllByRole('button').map((b) => b.textContent)).toEqual(['Compact', 'Comfortable', 'Detailed']);
     expect(within(group).getByRole('button', { name: 'Comfortable' })).toHaveAttribute('aria-pressed', 'true');
     expect(within(group).getByRole('button', { name: 'Compact' })).toHaveAttribute('aria-pressed', 'false');
     expect(screen.getByText(DENSITY_WORDS.hint)).toBeInTheDocument();
     expect(screen.queryByText(DENSITY_WORDS.phones)).toBeNull();
   });
 
-  it('the account’s compact shows as chosen once it arrives', async () => {
+  it('the account’s compact or detailed shows as chosen once it arrives', async () => {
     screenIs('computer');
-    prefs.density = 'compact';
+    prefs.density = 'detailed';
     renderBoth();
     const group = screen.getByRole('group', { name: DENSITY_WORDS.label });
-    await waitFor(() => expect(within(group).getByRole('button', { name: 'Compact' })).toHaveAttribute('aria-pressed', 'true'));
-    expect(html()).toBe('compact');
+    await waitFor(() => expect(within(group).getByRole('button', { name: 'Detailed' })).toHaveAttribute('aria-pressed', 'true'));
+    expect(html()).toBe('detailed');
   });
 
-  it('on a phone or touch screen it is still there, and says phones keep comfortable spacing', async () => {
+  it('on a phone or touch screen it is still there, and says compact becomes comfortable there', async () => {
     screenIs('phone');
     renderBoth();
     expect(screen.getByRole('group', { name: DENSITY_WORDS.label })).toBeInTheDocument();
@@ -153,7 +182,7 @@ describe('Settings → Appearance: Comfortable | Compact', () => {
     screenIs('computer');
     renderBoth();
     failSave = true;
-    await userEvent.setup().click(within(screen.getByRole('group', { name: DENSITY_WORDS.label })).getByRole('button', { name: 'Compact' }));
+    await userEvent.setup().click(within(screen.getByRole('group', { name: DENSITY_WORDS.label })).getByRole('button', { name: 'Detailed' }));
     const alerts = await screen.findAllByRole('alert');
     expect(alerts.map((a) => a.textContent)).toContain(DENSITY_WORDS.failed);
     expect(html()).toBe('comfortable');
