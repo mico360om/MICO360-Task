@@ -40,7 +40,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   task at the item. "Clients & contacts" finds the clients named on your projects ("Client of 3
   projects", counting only projects you can see; it opens the Projects page filtered to that client),
   external contacts on tasks you can open (the task opens with the contact shown) and, for
-  administrators, client portal accounts (opened in User Management). A task found by a checklist item
+  administrators, client portal accounts with their status (Invited, Invite expired, Active, Locked or
+  Deactivated) and whether their email is verified (opened in User Management). A task found by a checklist item
   now says which checklist: "Checklist ‘Electrical’: Label circuits".
 - Onboarding for clients and staff: User Management and the Clients page show one status for every
   account — Invited (with how long ago), Invite expired (invitation links last 7 days), Active, Locked or
