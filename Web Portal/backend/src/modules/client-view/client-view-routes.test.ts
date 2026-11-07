@@ -541,7 +541,7 @@ describe('a client session can’t reach any staff route', () => {
       get: (t, p) =>
         p in t
           ? (t as unknown as Record<string | symbol, unknown>)[p]
-          : typeof p === 'string' && /Service$|Source$|Store$|Repository$|Access$|Authz$|Notices$|Overview$|^about$|Lookup$|^clientView$/.test(p)
+          : typeof p === 'string' && /Service$|Source$|Store$|Repository$|Access$|Authz$|Notices$|Overview$|^about$|Lookup$|^clientView$|^signInChallenges$|^emailVerification$|^adminPasswordReset$/.test(p)
             ? stub
             : undefined,
     });
@@ -556,6 +556,9 @@ describe('a client session can’t reach any staff route', () => {
       'POST /api/v1/auth/login', 'POST /api/v1/auth/logout', 'POST /api/v1/auth/refresh',
       'POST /api/v1/auth/biometric-credential', 'POST /api/v1/auth/biometric-credential/revoke', 'POST /api/v1/auth/biometric-sign-in',
       'POST /api/v1/auth/otp/request', 'POST /api/v1/auth/otp/verify', 'POST /api/v1/auth/password/forgot', 'POST /api/v1/auth/password/reset',
+      // Onboarding: the emailed-code step of a sign-in (a challenge token and a code in the body) and what a
+      // set-password link is (its token in the body).
+      'POST /api/v1/auth/challenge/verify', 'POST /api/v1/auth/challenge/resend', 'POST /api/v1/auth/password/link-status',
     ];
     const names = routes.map((r) => `${r.method} ${r.url}`);
     expect(PUBLIC.filter((p) => !names.includes(p))).toEqual([]);

@@ -73,6 +73,9 @@ async function main() {
   const departments = await Promise.all(deptNames.map((name) => prisma.department.create({ data: { name } })));
 
   const passwordHash = await hashPassword(DEV_PASSWORD);
+  // Onboarding: the demo people's addresses count as confirmed (they are test fixtures), so a test server
+  // that saves its email to a folder never asks them for a sign-in code. New accounts made on it still are.
+  const emailVerifiedAt = new Date();
 
   // Admin
   const admin = await prisma.user.create({
@@ -80,6 +83,7 @@ async function main() {
       email: 'admin@mico360.test',
       username: 'admin',
       passwordHash,
+      emailVerifiedAt,
       firstName: 'Aisha',
       lastName: 'Khan',
       status: UserStatus.ACTIVE,
@@ -99,6 +103,7 @@ async function main() {
         email: `${fn.toLowerCase()}@mico360.test`,
         username: fn.toLowerCase(),
         passwordHash,
+        emailVerifiedAt,
         firstName: fn,
         lastName: 'Ahmed',
         status: i === 9 ? UserStatus.INACTIVE : UserStatus.ACTIVE,

@@ -119,3 +119,19 @@ describe('1.23 integration: the other lanes’ routes and client accounts', () =
   });
 });
 
+describe('Onboarding: sign-in, verification and password routes a client needs, and the admin ones it never may call', () => {
+  it('the sign-in, code and password routes are public (no session is looked at), so a client gets through them', () => {
+    for (const k of ['POST /auth/login', 'POST /auth/challenge/verify', 'POST /auth/challenge/resend', 'POST /auth/otp/request', 'POST /auth/otp/verify', 'POST /auth/password/forgot', 'POST /auth/password/reset', 'POST /auth/password/link-status']) {
+      expect(clientRouteClass(k), k).toBe('public');
+    }
+    // A client changes their own password signed in (a reviewed `both` row).
+    expect(clientMayCall('POST /users/me/password')).toBe(true);
+  });
+
+  it('the onboarding administrator routes are staff (administrators) only: a client session is refused', () => {
+    for (const k of ['POST /users/:id/password-reset-email', 'POST /users/:id/email-verified', 'POST /users/identity-check', 'PATCH /users/:id/status', 'POST /users/:id/welcome-email']) {
+      expect(clientRouteClass(k), k).toBe('staff');
+      expect(clientMayCall(k), k).toBe(false);
+    }
+  });
+});

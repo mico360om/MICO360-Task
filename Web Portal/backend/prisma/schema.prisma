@@ -95,6 +95,13 @@ model User {
   lastLoginAt         DateTime?
   // When an administrator last sent this person a welcome email (its link is in login_otps, WELCOME).
   welcomeSentAt       DateTime?
+  // Onboarding (next release after 1.23.2): when their first invitation (welcome email) went; when the
+  // account became theirs (first sign-in, or a password they set with an emailed link); when they proved
+  // the mailbox is theirs (an invitation or reset link used, an emailed code entered, or an administrator
+  // by hand). Null emailVerifiedAt: not verified — they enter an emailed code at their next sign-in.
+  invitedAt           DateTime?
+  activatedAt         DateTime?
+  emailVerifiedAt     DateTime?
   departmentId        String?
   // Lockout (M2 / T2.11)
   failedLoginAttempts Int        @default(0)
@@ -162,6 +169,8 @@ model User {
   /// 1.23.6: the searches this person saved, and the saved searches they pinned to the side menu.
   savedSearches    SavedSearch[]    @relation("SavedSearchOwner")
   savedSearchPins  SavedSearchPin[] @relation("SavedSearchPinner")
+  /// Sign-in challenges (password → emailed code → session): confirming the email address today.
+  signInChallenges SignInChallenge[]
 
   @@index([status])
   @@index([departmentId])
@@ -1050,6 +1059,28 @@ model LoginOtp {
 
   @@index([userId])
   @@map("login_otps")
+}
+
+/// One sign-in challenge: the password was right, and a 6-digit code emailed to `sentTo` finishes the sign-in.
+/// Only hashes are kept (the token's SHA-256, the code's keyed HMAC). `kind` VERIFY_EMAIL confirms the address;
+/// two-step sign-in will add its own kind. A code lives 10 minutes from its send, a challenge 30 at most.
+model SignInChallenge {
+  id         String    @id @default(cuid())
+  userId     String
+  kind       String    @db.VarChar(32)
+  tokenHash  String    @unique @db.VarChar(64)
+  codeHash   String    @db.VarChar(64)
+  sentTo     String    @db.VarChar(191)
+  attempts   Int       @default(0)
+  sends      Int       @default(1)
+  lastSentAt DateTime
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("sign_in_challenges")
 }
 
 model DeviceToken {

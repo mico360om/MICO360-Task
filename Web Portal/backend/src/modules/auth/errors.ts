@@ -79,3 +79,49 @@ export class EmailUnavailableError extends AuthError {
     super('Email sign-in isn’t available right now. Sign in with your password or contact an administrator.', 'EMAIL_NOT_CONFIGURED', 503);
   }
 }
+
+/**
+ * Onboarding: the right password, but the account's email address isn't confirmed yet and this sign-in
+ * can't take the emailed-code step (the Android app, the extension, an older page). Said only after the
+ * password was right, like ACCOUNT_INACTIVE.
+ */
+export class EmailNotVerifiedError extends AuthError {
+  constructor() {
+    super('Confirm your email on the website first: sign in there and enter the 6-digit code we email you.', 'EMAIL_NOT_VERIFIED', 403);
+  }
+}
+
+/** A sign-in challenge that is used, ended or past its time: start again with the password. */
+export class SignInExpiredError extends AuthError {
+  constructor() {
+    super('This sign-in has expired. Sign in again to get a new code.', 'SIGN_IN_EXPIRED', 401);
+  }
+}
+
+/** The code typed doesn't match the newest one emailed for this sign-in. */
+export class WrongCodeError extends AuthError {
+  constructor() {
+    super('That code isn’t right. Check the newest email we sent and try again.', 'WRONG_CODE', 401);
+  }
+}
+
+/** Too many wrong codes (for this sign-in, or for the account within the hour). */
+export class TooManyWrongCodesError extends AuthError {
+  constructor(message = 'Too many wrong codes. Sign in again to get a new code.') {
+    super(message, 'TOO_MANY_WRONG_CODES', 429);
+  }
+}
+
+/** The account was sent its hourly allowance of codes. */
+export class TooManyCodesError extends AuthError {
+  constructor() {
+    super('We’ve sent several codes in the last hour. Check your inbox and spam folder, or try again later.', 'TOO_MANY_CODES', 429);
+  }
+}
+
+/** The code email couldn't be handed to the mail provider. */
+export class CodeNotSentError extends AuthError {
+  constructor() {
+    super('We couldn’t email your code just now. Please try again in a minute.', 'CODE_NOT_SENT', 502);
+  }
+}

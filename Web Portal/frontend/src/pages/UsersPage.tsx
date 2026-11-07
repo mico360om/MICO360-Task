@@ -24,10 +24,9 @@ import {
   welcomeBlockedReason,
   welcomeCandidates,
   welcomeConfirmTitle,
-  welcomeOneConfirmTitle,
-  welcomeSentText,
   type SignInSort,
 } from '../lib/user-sign-in';
+import { inviteConfirmTitle, invitationLabel, invitationSentText, RESET_LINK_NOTE } from '../lib/user-sign-in';
 import { useAuthStore } from '../stores/auth-store';
 import { useShortcut } from '../components/shortcuts/ShortcutProvider';
 import { useNewFromAddress } from '../lib/useNewFromAddress';
@@ -36,12 +35,9 @@ import { BulkCompanyDialog } from '../components/company/BulkCompanyDialog';
 import { peopleChangeText, useCompanyChoices } from '../components/company/company-admin';
 import { useMyCompanies } from '../hooks/useMyCompanies';
 import { DENSE_TEXT } from '../lib/density-tokens';
-
-const STATUS_TONE: Record<UserStatus, string> = {
-  ACTIVE: 'bg-success-soft text-success',
-  INACTIVE: 'bg-ground text-ink-2',
-  SUSPENDED: 'bg-danger-soft text-danger',
-};
+import { OnboardingStatusCell } from '../components/onboarding/OnboardingCells';
+import { AccountStatusDialog } from '../components/onboarding/AccountStatusDialog';
+import { EMAIL_OFF_BANNER, invitedText, matchesStatusFilter, NO_ONE_WITH_STATUS, ONBOARDING_FILTERS, type StatusFilter } from '../lib/onboarding';
 
 /** The server's reason for a rejected change (e.g. "the last administrator can't be removed"), else our fallback. */
 function reason(err: unknown, fallback: string): string {
@@ -49,7 +45,7 @@ function reason(err: unknown, fallback: string): string {
   return fallback;
 }
 
-/** The server's words for a welcome email it didn't send (refused, too soon, email not set up, not delivered). */
+/** The server's words for a welcome email (invitation) or reset link it didn't send (refused, too soon, email not set up, not delivered). */
 const WELCOME_CODES = new Set(['NOT_FOUND', 'ACCOUNT_INACTIVE', 'ACCOUNT_SUSPENDED', 'ACCOUNT_LOCKED', 'NO_EMAIL', 'EMAIL_BLOCKED', 'TOO_SOON', 'DELIVERY_FAILED', 'SERVER_ERROR', 'EMAIL_NOT_CONFIGURED']);
 function welcomeFailure(err: unknown): string {
   if (err instanceof ApiError && WELCOME_CODES.has(err.code ?? '') && err.message) return err.message;
@@ -115,15 +111,15 @@ const CLIENTS_NO_COMPANY = 'Clients don’t belong to companies';
 const clientsLeftOut = (n: number) => `${n} ${n === 1 ? 'client' : 'clients'} left out: clients don’t belong to companies.`;
 const fullName = (u: ApiUser) => `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim() || u.username;
 
-/** A padlock, drawn (an emoji looks different on every system). */
-const LockIcon = () => (
-  <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="-mt-px">
-    <rect x="4.5" y="10.5" width="15" height="10" rx="2" />
-    <path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" />
+/** A key: the row's "Send password reset" below sm, where the words would widen the row. */
+const KeyIcon = () => (
+  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="sm:hidden">
+    <circle cx="8" cy="15" r="4" />
+    <path d="m10.8 12.2 9.2-9.2M17 6l3 3M14.5 8.5l2 2" />
   </svg>
 );
 
-/** An envelope: the row's "Send welcome email" on a phone, where the words would widen the row. */
+/** An envelope: the row's "Resend invitation" on a phone, where the words would widen the row. */
 const EnvelopeIcon = () => (
   <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="sm:hidden">
     <rect x="3" y="5" width="18" height="14" rx="2" />
@@ -222,7 +218,9 @@ export function UsersPage() {
   const [show, setShow] = useState<'all' | 'never'>('all');
   const [sort, setSort] = useState<SignInSort>('newest');
   const [roleFilter, setRoleFilter] = useState<RoleFilter>('');
-  const withRole = roleFilter ? users.filter((u) => u.roles.includes(roleFilter)) : users;
+  // Onboarding: the status filter (Invited / Invite expired / Active / Locked / Deactivated).
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('');
+  const withRole = (roleFilter ? users.filter((u) => u.roles.includes(roleFilter)) : users).filter((u) => matchesStatusFilter(u, statusFilter));
   const shown = sortBySignIn(show === 'never' ? withRole.filter((u) => !u.lastLoginAt) : withRole, sort);
 
   // People picked for "Send welcome emails" (kept in the list's own order when sent).
@@ -232,6 +230,9 @@ export function UsersPage() {
   // selection is changed by hand.
   const [leftOut, setLeftOut] = useState<number | null>(null);
   const [confirmingOne, setConfirmingOne] = useState<ApiUser | null>(null);
+  // Onboarding: "Send password reset" and a status change, each asked first.
+  const [resetting, setResetting] = useState<ApiUser | null>(null);
+  const [statusChange, setStatusChange] = useState<{ user: ApiUser; to: UserStatus } | null>(null);
   const chosen = users.filter((u) => selected.has(u.id));
   // Company changes are for staff: the clients ticked are left out (and said so).
   const chosenStaff = chosen.filter((u) => !isClientRoles(u.roles));
@@ -271,8 +272,15 @@ export function UsersPage() {
     mutationFn: (u: ApiUser) => usersApi(apiClient).sendWelcome(u.id),
     onSuccess: (out, u) => {
       setConfirmingOne(null);
-      setNotice({ text: `Welcome email sent to ${u.username} (${out.email ?? u.email}).` });
+      setNotice({ text: invitationSentText(u, out.email ?? u.email) });
       void qc.invalidateQueries({ queryKey: ['users'] });
+    },
+  });
+  const resetMut = useMutation({
+    mutationFn: (u: ApiUser) => usersApi(apiClient).sendPasswordReset(u.id),
+    onSuccess: (out, u) => {
+      setResetting(null);
+      setNotice({ text: `Password reset link sent to ${u.username} (${out.email ?? u.email}).` });
     },
   });
   const welcomeBatchMut = useMutation({
@@ -290,9 +298,13 @@ export function UsersPage() {
   });
 
   const statusMut = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: UserStatus }) => usersApi(apiClient).setStatus(id, status),
-    onSuccess: () => { setNotice(null); void qc.invalidateQueries({ queryKey: ['users'] }); },
-    onError: (err) => setNotice({ text: reason(err, 'Couldn’t change the account status.'), error: true }),
+    mutationFn: ({ id, status, why }: { id: string; status: UserStatus; why?: string }) => usersApi(apiClient).setStatus(id, status, why),
+    onSuccess: (_r, { status }) => {
+      const u = statusChange?.user;
+      setStatusChange(null);
+      setNotice(u ? { text: status === 'ACTIVE' ? `${u.username} can sign in again.` : `${u.username} can’t sign in now.` } : null);
+      void qc.invalidateQueries({ queryKey: ['users'] });
+    },
   });
   const deleteMut = useMutation({
     mutationFn: (id: string) => usersApi(apiClient).remove(id),
@@ -309,6 +321,17 @@ export function UsersPage() {
     },
     onError: (err, u) => setNotice({ text: reason(err, `Couldn’t unlock ${u.username}.`), error: true }),
   });
+
+  // Onboarding: "Open account" from a duplicate warning — that person's Manage account.
+  const openAccount = (id: string) => {
+    setCreating(false);
+    const listed = users.find((u) => u.id === id);
+    if (listed) {
+      setEditing(listed);
+      return;
+    }
+    void usersApi(apiClient).get(id).then(setEditing, () => setNotice({ text: 'Couldn’t open that account. Try again.', error: true }));
+  };
 
   // One person's parts, shared by the table's row and (below 768px) their card.
   const tickBox = (u: ApiUser) => (
@@ -337,23 +360,17 @@ export function UsersPage() {
       </span>
     );
   };
-  const statusBadges = (u: ApiUser) => (
-    <div className="flex flex-wrap items-center gap-1.5">
-      <span className={`rounded-md px-2 py-0.5 text-xs font-semibold ${STATUS_TONE[u.status]}`}>{u.status}</span>
-      {u.locked ? (
-        <span className="inline-flex items-center gap-1 rounded-md bg-warning-soft px-2 py-0.5 text-xs font-semibold text-warning" title="Locked after too many failed sign-in attempts">
-          <LockIcon />
-          Locked
-        </span>
-      ) : null}
-    </div>
-  );
-  const lastSignIn = (u: ApiUser) => (
-    <>
-      <span className={u.lastLoginAt ? 'text-ink' : 'italic'}>{signInText(u.lastLoginAt, timeZone)}</span>
-      {u.welcomeSentAt ? <span className="block text-xs text-ink-2">{welcomeSentText(u.welcomeSentAt, timeZone)}</span> : null}
-    </>
-  );
+  // Onboarding: Invited · 3 days ago / Invite expired / Active / Locked / Deactivated, and email verified or not.
+  const statusBadges = (u: ApiUser) => <OnboardingStatusCell person={u} />;
+  const lastSignIn = (u: ApiUser) => {
+    const invited = invitedText(u, timeZone);
+    return (
+      <>
+        <span className={u.lastLoginAt ? 'text-ink' : 'italic'}>{signInText(u.lastLoginAt, timeZone)}</span>
+        {invited ? <span className="block text-xs text-ink-2">{invited}</span> : null}
+      </>
+    );
+  };
   /** Welcome email, Unlock, Edit, Status and Delete. `card`: on a phone's card (words, finger-sized). */
   const actionsFor = (u: ApiUser, card = false) => {
     const isSelf = u.id === meId;
@@ -364,15 +381,30 @@ export function UsersPage() {
         <button
           onClick={() => { welcomeOneMut.reset(); setConfirmingOne(u); }}
           disabled={!emailEnabled || !!welcomeBlocked}
-          aria-label={`Send welcome email to ${u.username}`}
+          aria-label={`${invitationLabel(u)} to ${u.username}`}
           aria-describedby={!emailEnabled ? NOT_SET_UP_ID : undefined}
           title={welcomeBlocked ?? undefined}
           className={`inline-flex items-center whitespace-nowrap rounded-lg border border-line px-2 py-1 text-xs font-medium text-ink-2 transition-colors hover:border-brand/30 hover:bg-ground hover:text-ink disabled:opacity-50${touch}`}
         >
-          {card ? <span>Send welcome email</span> : (
+          {card ? <span>{invitationLabel(u)}</span> : (
             <>
               <EnvelopeIcon />
-              <span className="hidden sm:inline">Send welcome email</span>
+              <span className="hidden sm:inline">{invitationLabel(u)}</span>
+            </>
+          )}
+        </button>
+        <button
+          onClick={() => { resetMut.reset(); setResetting(u); }}
+          disabled={!emailEnabled || u.status !== 'ACTIVE'}
+          aria-label={`Send password reset to ${u.username}`}
+          aria-describedby={!emailEnabled ? NOT_SET_UP_ID : undefined}
+          title={u.status !== 'ACTIVE' ? 'Reactivate the account first' : 'Email them a link to choose a new password (works for an hour)'}
+          className={`inline-flex items-center whitespace-nowrap rounded-lg border border-line px-2 py-1 text-xs font-medium text-ink-2 transition-colors hover:border-brand/30 hover:bg-ground hover:text-ink disabled:opacity-50${touch}`}
+        >
+          {card ? <span>Send password reset</span> : (
+            <>
+              <KeyIcon />
+              <span className="hidden sm:inline">Password reset</span>
             </>
           )}
         </button>
@@ -398,7 +430,7 @@ export function UsersPage() {
           value={u.status}
           disabled={isSelf || statusMut.isPending}
           title={isSelf ? 'You can’t change your own status' : undefined}
-          onChange={(e) => statusMut.mutate({ id: u.id, status: e.target.value as UserStatus })}
+          onChange={(e) => { statusMut.reset(); setStatusChange({ user: u, to: e.target.value as UserStatus }); }}
           className={`rounded-lg border border-line bg-surface px-2 py-1 text-xs text-ink outline-none transition-colors focus:border-brand focus:ring-2 focus:ring-brand/20 disabled:opacity-50${touch}`}
         >
           <option value="ACTIVE">Active</option>
@@ -474,7 +506,7 @@ export function UsersPage() {
 
       {!emailEnabled ? (
         <p id={NOT_SET_UP_ID} className="mb-4 rounded-lg bg-warning-soft px-3 py-2 text-sm text-warning">
-          Email isn’t set up on this server, so welcome emails can’t be sent. An administrator needs to add the email (Mailjet) keys.
+          {EMAIL_OFF_BANNER}
         </p>
       ) : null}
 
@@ -512,6 +544,14 @@ export function UsersPage() {
             </select>
           </div>
         ) : null}
+        <div className="flex flex-col gap-1">
+          <label htmlFor="users-status" className="text-xs font-medium text-ink-2">Status</label>
+          <select id="users-status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as StatusFilter)} className="rounded-lg border border-line bg-surface px-2 py-1.5 text-sm text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
+            {ONBOARDING_FILTERS.map((f) => (
+              <option key={f.value} value={f.value}>{f.label}</option>
+            ))}
+          </select>
+        </div>
         <div className="flex flex-col gap-1">
           <label htmlFor="users-role" className="text-xs font-medium text-ink-2">Role</label>
           <select id="users-role" value={roleFilter} onChange={(e) => setRoleFilter(e.target.value as RoleFilter)} className="rounded-lg border border-line bg-surface px-2 py-1.5 text-sm text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
@@ -577,6 +617,8 @@ export function UsersPage() {
           </p>
         ) : roleFilter && withRole.length === 0 ? (
           <p className="p-4 text-ink-2">{NO_ONE_WITH_ROLE[roleFilter]}</p>
+        ) : statusFilter && withRole.length === 0 ? (
+          <p className="p-4 text-ink-2">{NO_ONE_WITH_STATUS[statusFilter]}</p>
         ) : show === 'never' && shown.length === 0 ? (
           <p className="p-4 text-ink-2">Everyone has signed in at least once.</p>
         ) : companyFilter && shown.length === 0 ? (
@@ -690,7 +732,7 @@ export function UsersPage() {
       ) : null}
       {confirmingOne ? (
         <ConfirmDialog
-          title={welcomeOneConfirmTitle(fullName(confirmingOne), confirmingOne.email)}
+          title={inviteConfirmTitle(confirmingOne, fullName(confirmingOne))}
           confirmLabel="Send"
           keepLabel="Cancel"
           tone="primary"
@@ -699,10 +741,36 @@ export function UsersPage() {
           onConfirm={() => welcomeOneMut.mutate(confirmingOne)}
           onClose={() => setConfirmingOne(null)}
         >
-          {SIGN_OUT_NOTE}
+          <p>A welcome email with their username and a link to set their password, valid for 7 days. An earlier invitation stops working.</p>
+          <p className="mt-2">{SIGN_OUT_NOTE}</p>
         </ConfirmDialog>
       ) : null}
-      {creating ? <CreateUserModal onClose={() => setCreating(false)} onCreated={(result) => setNotice(createdNotice(result))} /> : null}
+      {resetting ? (
+        <ConfirmDialog
+          title={`Send a password reset link to ${fullName(resetting)} (${resetting.email})?`}
+          confirmLabel="Send"
+          keepLabel="Cancel"
+          tone="primary"
+          busy={resetMut.isPending}
+          error={resetMut.isError ? welcomeFailure(resetMut.error) : null}
+          onConfirm={() => resetMut.mutate(resetting)}
+          onClose={() => setResetting(null)}
+        >
+          {RESET_LINK_NOTE}
+        </ConfirmDialog>
+      ) : null}
+      {statusChange ? (
+        <AccountStatusDialog
+          name={fullName(statusChange.user)}
+          to={statusChange.to}
+          neverSignedIn={!statusChange.user.lastLoginAt && !statusChange.user.activatedAt}
+          busy={statusMut.isPending}
+          error={statusMut.isError ? reason(statusMut.error, 'Couldn’t change the account status.') : null}
+          onConfirm={(why) => statusMut.mutate({ id: statusChange.user.id, status: statusChange.to, why })}
+          onClose={() => setStatusChange(null)}
+        />
+      ) : null}
+      {creating ? <CreateUserModal onClose={() => setCreating(false)} onCreated={(result) => setNotice(createdNotice(result))} onOpenAccount={openAccount} /> : null}
       {editing ? <EditUserModal user={editing} onClose={() => setEditing(null)} /> : null}
       {bulk ? (
         <BulkCompanyDialog

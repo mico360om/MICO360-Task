@@ -71,7 +71,7 @@ export async function registerClientAccountRoutes(app: FastifyInstance, deps: Cl
     try {
       welcome = await deps.welcome.send(created.id, {
         onSent: async (out) => {
-          await deps.audit?.record({ userId: req.user!.id, ip: req.ip ?? null, module: 'users', action: 'user.welcome_email', entityId: out.userId, newValue: { to: out.email, username: out.username, bulk: false } });
+          await deps.audit?.record({ userId: req.user!.id, ip: req.ip ?? null, module: 'users', action: 'user.welcome_email', entityId: out.userId, newValue: { to: out.email, username: out.username, bulk: false, resent: out.resent === true } });
         },
       });
     } catch {

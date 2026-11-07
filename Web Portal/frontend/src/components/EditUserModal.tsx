@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode, type Ref } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
-import { CLIENTS_KEY, clientKey, clientsApi, isClientRoles, type ClientAccount } from '../api/clients';
+import { CLIENTS_KEY, clientAsUser, clientKey, clientsApi, isClientRoles, type ClientAccount } from '../api/clients';
 import { usersApi, type ApiUser, type UserStatus } from '../api/users';
 import { ApiError } from '../lib/api-client';
 import { isStrongPassword, PASSWORD_RULE_ERROR, PASSWORD_RULE_HINT } from '../lib/passwordPolicy';
@@ -21,6 +21,11 @@ import { resetCompanyScopedQueries } from '../lib/company-scope';
 import type { DatePreferences } from '../api/preferences';
 import { ClientAccessEditor } from './clients/ClientAccessEditor';
 import { grantsChanged, grantsOf, noModuleText, rowsFromAccount, rowsWithoutModule, type AccessRow } from './clients/client-access';
+import { SignInSection } from './onboarding/SignInSection';
+import { EmailTaken, UsernameTaken, useIdentityCheck } from './onboarding/identity';
+import { statusChangeWords } from './onboarding/AccountStatusDialog';
+import { EMAIL_CHANGE_NOTE } from '../lib/onboarding';
+import { emailProblem, organisationProblem, phoneProblem, RULE_WORDS, sameEmail, usernameProblem } from '../lib/account-rules';
 
 export interface EditUserModalProps {
   user: ApiUser;
@@ -128,8 +133,18 @@ interface NameValues {
   email: string;
 }
 
-/** Profile: first and last name, username, email (and, for a client, `more`: organisation and phone). */
-function ProfileFields({ values, onChange, firstRef, more }: { values: NameValues; onChange: (patch: Partial<NameValues>) => void; firstRef?: Ref<HTMLInputElement>; more?: ReactNode }) {
+/**
+ * Profile: first and last name, username, email (and, for a client, `more`: organisation and phone).
+ * Onboarding: the username rule under its box, a duplicate warning while typing (someone else's email or
+ * username), and what an email change means for signing in.
+ */
+function ProfileFields({ values, onChange, firstRef, more, saved, userId, client = false }: { values: NameValues; onChange: (patch: Partial<NameValues>) => void; firstRef?: Ref<HTMLInputElement>; more?: ReactNode; saved: NameValues; userId: string; client?: boolean }) {
+  const emailChanged = !!values.email.trim() && !sameEmail(values.email, saved.email);
+  const usernameChanged = values.username.trim() !== saved.username;
+  const found = useIdentityCheck({ ...(emailChanged ? { email: values.email } : {}), ...(usernameChanged ? { username: values.username } : {}), excludeId: userId, client });
+  const usernameRule = usernameChanged && values.username.trim() ? usernameProblem(values.username) : null;
+  const emailRule = emailChanged ? emailProblem(values.email) : null;
+  const describe = (...ids: (string | false | null | undefined)[]) => ids.filter(Boolean).join(' ') || undefined;
   return (
     <fieldset className="flex flex-col gap-3">
       <legend className={SECTION}>Profile</legend>
@@ -145,11 +160,17 @@ function ProfileFields({ values, onChange, firstRef, more }: { values: NameValue
       </div>
       <div className="flex flex-col gap-1.5">
         <FieldLabel htmlFor="eu-username" required>Username</FieldLabel>
-        <input id="eu-username" value={values.username} onChange={(e) => onChange({ username: e.target.value })} className={fieldClass(false)} />
+        <input id="eu-username" value={values.username} onChange={(e) => onChange({ username: e.target.value })} autoComplete="off" spellCheck={false} maxLength={191} aria-invalid={usernameRule || found?.username ? true : undefined} aria-describedby={describe('eu-username-hint', usernameRule && 'eu-username-error', found?.username && 'eu-username-taken')} className={fieldClass(!!usernameRule || !!found?.username)} />
+        <p id="eu-username-hint" className="text-xs text-ink-2">{RULE_WORDS.username}</p>
+        {usernameRule ? <p id="eu-username-error" className="text-xs text-danger">{usernameRule}</p> : null}
+        <UsernameTaken id="eu-username-taken" match={found?.username ?? null} />
       </div>
       <div className="flex flex-col gap-1.5">
         <FieldLabel htmlFor="eu-email" required>Email</FieldLabel>
-        <input id="eu-email" type="email" value={values.email} onChange={(e) => onChange({ email: e.target.value })} className={fieldClass(false)} />
+        <input id="eu-email" type="email" value={values.email} onChange={(e) => onChange({ email: e.target.value })} autoComplete="off" spellCheck={false} maxLength={191} aria-invalid={emailRule || found?.email ? true : undefined} aria-describedby={describe(emailRule && 'eu-email-error', found?.email && 'eu-email-taken', emailChanged && 'eu-email-note')} className={fieldClass(!!emailRule || !!found?.email)} />
+        {emailRule ? <p id="eu-email-error" className="text-xs text-danger">{emailRule}</p> : null}
+        <EmailTaken id="eu-email-taken" match={found?.email ?? null} />
+        {emailChanged && !emailRule && !found?.email ? <p id="eu-email-note" className="rounded-lg bg-info-soft px-3 py-2 text-xs text-info">{EMAIL_CHANGE_NOTE}</p> : null}
       </div>
       {more}
     </fieldset>
@@ -199,8 +220,8 @@ function usePasswordReset(userId: string, invalidate: () => void) {
 
   const section = (
     <section aria-labelledby="eu-reset-title" className="flex flex-col gap-1.5 border-t border-line pt-4">
-      <p id="eu-reset-title" className={SECTION}>Reset password</p>
-      <p className="text-xs text-ink-2">Set a new password for this user. They can change it after signing in. Resetting also unlocks a locked account.</p>
+      <p id="eu-reset-title" className={SECTION}>Set a temporary password</p>
+      <p className="text-xs text-ink-2">Give them a new password yourself and share it securely; they can change it after signing in. It also unlocks a locked account. (Send password reset above emails them a link instead.)</p>
       {pwNotice ? (
         <p id="eu-newpw-notice" role={pwNotice.error ? 'alert' : 'status'} className={`rounded-lg px-3 py-2 text-sm ${pwNotice.error ? 'bg-danger-soft text-danger' : 'bg-success-soft text-success'}`}>
           {pwNotice.text}
@@ -239,16 +260,32 @@ function usePasswordReset(userId: string, invalidate: () => void) {
   return { section, form, holdsSave };
 }
 
-/** Account status: Active, Inactive or Suspended. */
-function StatusField({ value, onChange }: { value: UserStatus; onChange: (s: UserStatus) => void }) {
+/**
+ * Account status: Active, Inactive or Suspended. Onboarding: a change says what Save will do, and takes an
+ * optional reason (kept in the audit log with it).
+ */
+function StatusField({ value, onChange, saved, reason, onReason, name, neverSignedIn }: { value: UserStatus; onChange: (s: UserStatus) => void; saved: UserStatus; reason: string; onReason: (r: string) => void; name: string; neverSignedIn: boolean }) {
+  const changed = value !== saved;
+  const words = changed ? statusChangeWords(name, value, { neverSignedIn }) : null;
   return (
     <div className="flex flex-col gap-1.5">
       <FieldLabel htmlFor="eu-status">Account status</FieldLabel>
-      <select id="eu-status" value={value} onChange={(e) => onChange(e.target.value as UserStatus)} className={fieldClass(false, 'disabled:opacity-60')}>
+      <select id="eu-status" value={value} onChange={(e) => onChange(e.target.value as UserStatus)} aria-describedby={words ? 'eu-status-note' : undefined} className={fieldClass(false, 'disabled:opacity-60')}>
         <option value="ACTIVE">Active</option>
         <option value="INACTIVE">Inactive</option>
         <option value="SUSPENDED">Suspended</option>
       </select>
+      {words ? (
+        <>
+          <p id="eu-status-note" className={`rounded-lg px-3 py-2 text-xs ${value === 'ACTIVE' ? 'bg-info-soft text-info' : 'bg-warning-soft text-warning'}`}>
+            On save: {words.body.join(' ')}
+          </p>
+          <label htmlFor="eu-status-reason" className="text-sm font-medium text-ink">
+            Reason<span className="font-normal text-ink-2"> (optional, kept in the audit log)</span>
+          </label>
+          <textarea id="eu-status-reason" rows={2} maxLength={300} value={reason} onChange={(e) => onReason(e.target.value.slice(0, 300))} className={fieldClass(false)} />
+        </>
+      ) : null}
     </div>
   );
 }
@@ -260,8 +297,10 @@ function StaffAccountDialog({ user, onClose }: EditUserModalProps) {
   const isSelf = user.id === meId;
   const [names, setNames] = useState<NameValues>({ firstName: user.firstName, lastName: user.lastName, username: user.username, email: user.email });
   const [status, setStatus] = useState<UserStatus>(user.status);
+  const [statusReason, setStatusReason] = useState('');
   const [roles, setRoles] = useState<Set<string>>(new Set(user.roles));
   const [error, setError] = useState<string | null>(null);
+  const savedNames: NameValues = { firstName: user.firstName, lastName: user.lastName, username: user.username, email: user.email };
 
   // Their companies and primary company (with two or more companies on the site, or on their record).
   // Sent only when changed: a name change never touches them.
@@ -298,7 +337,7 @@ function StaffAccountDialog({ user, onClose }: EditUserModalProps) {
       });
       if (!isSelf && status !== user.status) {
         try {
-          await usersApi(apiClient).setStatus(user.id, status);
+          await usersApi(apiClient).setStatus(user.id, status, statusReason);
         } catch (err) {
           throw new StatusChangeError(err);
         }
@@ -343,6 +382,12 @@ function StaffAccountDialog({ user, onClose }: EditUserModalProps) {
       setError('First name, last name, username and email are all required.');
       return;
     }
+    // Onboarding: the rules bite on what changes (an older username still saves).
+    const nameProblem = (names.username.trim() !== user.username && usernameProblem(names.username)) || (!sameEmail(names.email, user.email) && emailProblem(names.email));
+    if (nameProblem) {
+      setError(nameProblem);
+      return;
+    }
     if (!isSelf && roles.size === 0) {
       setError('Give the account at least one role.');
       return;
@@ -350,7 +395,8 @@ function StaffAccountDialog({ user, onClose }: EditUserModalProps) {
     saveMut.mutate();
   }
 
-  const profileFields = <ProfileFields values={names} onChange={(p) => setNames((v) => ({ ...v, ...p }))} />;
+  const profileFields = <ProfileFields values={names} onChange={(p) => setNames((v) => ({ ...v, ...p }))} saved={savedNames} userId={user.id} />;
+  const signIn = <SignInSection user={user} />;
   const companiesField = companyChoices.show ? (
     <CompanyChecklist
       companies={companyChoices.companies}
@@ -370,7 +416,7 @@ function StaffAccountDialog({ user, onClose }: EditUserModalProps) {
           You can’t change your own roles or account status. Ask another administrator if they need to change.
         </p>
       ) : null}
-      <StatusField value={status} onChange={setStatus} />
+      <StatusField value={status} onChange={setStatus} saved={user.status} reason={statusReason} onReason={setStatusReason} name={`${user.firstName} ${user.lastName}`.trim() || user.username} neverSignedIn={!user.lastLoginAt && !user.activatedAt} />
       <div className="flex flex-col gap-2">
         <span className="text-sm font-medium text-ink">Roles &amp; permissions</span>
         {ROLE_OPTIONS.map((r) => (
@@ -408,9 +454,9 @@ function StaffAccountDialog({ user, onClose }: EditUserModalProps) {
         <div className="keyboard-flow-body flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
           {error ? <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{error}</p> : null}
           <AccountColumns
-            left={<>{profileFields}{password.section}</>}
+            left={<>{profileFields}{signIn}{password.section}</>}
             right={<>{companiesField}{accessFields}{projectsField}</>}
-            single={<>{profileFields}{companiesField}{accessFields}{projectsField}{password.section}</>}
+            single={<>{profileFields}{companiesField}{accessFields}{projectsField}{signIn}{password.section}</>}
           />
         </div>
         <DialogFooter onClose={onClose} saving={saveMut.isPending} />
@@ -448,6 +494,8 @@ function ClientAccountForm({ client, onClose }: { client: ClientAccount; onClose
   const [organisation, setOrganisation] = useState(client.organisation ?? '');
   const [phone, setPhone] = useState(client.phone ?? '');
   const [status, setStatus] = useState<UserStatus>(client.status);
+  const [statusReason, setStatusReason] = useState('');
+  const savedNames: NameValues = { firstName: client.firstName, lastName: client.lastName, username: client.username, email: client.email };
   const saved = rowsFromAccount(client.projects);
   const [access, setAccess] = useState<AccessRow[]>(saved);
   // After a save attempt: a project with no module is marked in the editor.
@@ -477,7 +525,7 @@ function ClientAccountForm({ client, onClose }: { client: ClientAccount; onClose
       });
       if (status !== client.status) {
         try {
-          await usersApi(apiClient).setStatus(client.id, status);
+          await usersApi(apiClient).setStatus(client.id, status, statusReason);
         } catch (err) {
           throw new StatusChangeError(err);
         }
@@ -505,6 +553,16 @@ function ClientAccountForm({ client, onClose }: { client: ClientAccount; onClose
       setError('First name, last name, username and email are all required.');
       return;
     }
+    // Onboarding: the rules bite on what changes (an older phone still saves; a set organisation stays set).
+    const detailProblem =
+      (names.username.trim() !== client.username && usernameProblem(names.username)) ||
+      (!sameEmail(names.email, client.email) && emailProblem(names.email)) ||
+      ((phone.trim() || null) !== client.phone && phoneProblem(phone)) ||
+      ((organisation.trim() || null) !== client.organisation && organisationProblem(organisation, client.organisation !== null));
+    if (detailProblem) {
+      setError(detailProblem);
+      return;
+    }
     setAccessChecked(true);
     const missing = rowsWithoutModule(access);
     if (missing.length > 0) {
@@ -518,20 +576,25 @@ function ClientAccountForm({ client, onClose }: { client: ClientAccount; onClose
     <ProfileFields
       values={names}
       onChange={(p) => setNames((v) => ({ ...v, ...p }))}
+      saved={savedNames}
+      userId={client.id}
+      client
       firstRef={firstRef}
       more={
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="flex flex-col gap-1.5">
-            <FieldLabel htmlFor="eu-organisation">
-              Organisation<span className="font-normal text-ink-2"> (optional)</span>
+            <FieldLabel htmlFor="eu-organisation" required={client.organisation !== null}>
+              Organisation{client.organisation === null ? <span className="font-normal text-ink-2"> (optional)</span> : null}
             </FieldLabel>
-            <input id="eu-organisation" dir="auto" value={organisation} onChange={(e) => setOrganisation(e.target.value)} maxLength={160} autoComplete="organization" className={fieldClass(false)} />
+            <input id="eu-organisation" dir="auto" value={organisation} onChange={(e) => setOrganisation(e.target.value)} maxLength={160} autoComplete="organization" aria-describedby="eu-organisation-hint" className={fieldClass(false)} />
+            <p id="eu-organisation-hint" className="text-xs text-ink-2">{RULE_WORDS.organisation}</p>
           </div>
           <div className="flex flex-col gap-1.5">
             <FieldLabel htmlFor="eu-phone">
               Phone<span className="font-normal text-ink-2"> (optional)</span>
             </FieldLabel>
-            <input id="eu-phone" type="tel" dir="ltr" value={phone} onChange={(e) => setPhone(e.target.value)} maxLength={40} autoComplete="tel" className={fieldClass(false)} />
+            <input id="eu-phone" type="tel" dir="ltr" value={phone} onChange={(e) => setPhone(e.target.value)} maxLength={40} autoComplete="tel" aria-describedby="eu-phone-hint" className={fieldClass(false)} />
+            <p id="eu-phone-hint" className="text-xs text-ink-2">{RULE_WORDS.phone}</p>
           </div>
         </div>
       }
@@ -544,9 +607,10 @@ function ClientAccountForm({ client, onClose }: { client: ClientAccount; onClose
       <p className="rounded-lg bg-ground px-3 py-2 text-xs text-ink-2">
         Client account: they sign in to the Client portal only. To make them staff, make a new account.
       </p>
-      <StatusField value={status} onChange={setStatus} />
+      <StatusField value={status} onChange={setStatus} saved={client.status} reason={statusReason} onReason={setStatusReason} name={`${client.firstName} ${client.lastName}`.trim() || client.username} neverSignedIn={!client.lastLoginAt && !client.activatedAt} />
     </fieldset>
   );
+  const signIn = <SignInSection user={clientAsUser(client)} />;
 
   return (
     <>
@@ -554,9 +618,9 @@ function ClientAccountForm({ client, onClose }: { client: ClientAccount; onClose
         <div className="keyboard-flow-body flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
           {error ? <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{error}</p> : null}
           <AccountColumns
-            left={<>{profileFields}{password.section}</>}
+            left={<>{profileFields}{signIn}{password.section}</>}
             right={<>{accessField}{accountFields}</>}
-            single={<>{profileFields}{accessField}{accountFields}{password.section}</>}
+            single={<>{profileFields}{accessField}{accountFields}{signIn}{password.section}</>}
           />
         </div>
         <DialogFooter onClose={onClose} saving={saveMut.isPending} />

@@ -1,3 +1,5 @@
+import type { OnboardingStatus } from './onboarding-status';
+
 export type UserStatus = 'ACTIVE' | 'INACTIVE' | 'SUSPENDED';
 
 export interface UserSummary {
@@ -15,6 +17,16 @@ export interface UserSummary {
   lastLoginAt?: Date | null;
   /** When an administrator last sent them a welcome email; null: never. Admin views only. */
   welcomeSentAt?: Date | null;
+  /** Onboarding: their first invitation (welcome email); null: never invited. Admin views only. */
+  invitedAt?: Date | null;
+  /** Onboarding: when the account became theirs (first sign-in, or a password set with a link). */
+  activatedAt?: Date | null;
+  /** Onboarding: when their email address was confirmed; null: not verified. Admin views only. */
+  emailVerifiedAt?: Date | null;
+  /** Onboarding: their newest invitation link that still works stops then; null: none works. */
+  inviteExpiresAt?: Date | null;
+  /** Onboarding: Invited / Invite expired / Active / Locked / Deactivated (modules/users/onboarding-status). */
+  onboarding?: OnboardingStatus;
   roles: string[];
   /** True while a password lockout is in force; it lifts by itself at `lockedUntil`. */
   locked?: boolean;
@@ -71,6 +83,8 @@ export interface UpdateUserData {
   roleNames?: string[];
   /** 1.22.3: "Show my projects only", set from User Management (administrators' only). */
   myProjectsOnly?: boolean;
+  /** Onboarding: null when the email changes (they confirm the new one at their next sign-in). */
+  emailVerifiedAt?: Date | null;
 }
 
 export interface UserRepository {

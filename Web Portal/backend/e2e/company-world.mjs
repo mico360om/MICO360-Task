@@ -82,8 +82,8 @@ export async function seedCompanyWorld(base = process.env.E2E_BASE ?? 'http://lo
 
   // People. ben and bob start in Alpha too (ana chats with ben and invites bob to MA while they share
   // it), and leave Alpha before the end — as people who move between companies do.
-  const person = async (name, last, companyIds, primaryCompanyId) =>
-    (
+  const person = async (name, last, companyIds, primaryCompanyId) => {
+    const id = (
       await A0.post('/users', {
         email: `${name}.${tag}@world.test`,
         username: `${name}_${tag}`,
@@ -95,6 +95,12 @@ export async function seedCompanyWorld(base = process.env.E2E_BASE ?? 'http://lo
         ...(primaryCompanyId ? { primaryCompanyId } : {}),
       })
     ).id;
+    // Onboarding: a temporary-password account confirms its email with a code at its first sign-in when
+    // the server can send email (a test server saves it to a folder). These are test people: the
+    // administrator vouches for them (a server from before onboarding answers 404, which is fine).
+    await c.call(admin, 'POST', `/users/${id}/email-verified`, { reason: 'e2e test person' });
+    return id;
+  };
   const people = {
     ana: await person('ana', `Alpha ${tag}`, [companies.A]),
     amy: await person('amy', 'Alphaonly', [companies.A]),

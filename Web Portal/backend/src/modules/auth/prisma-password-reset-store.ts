@@ -24,7 +24,12 @@ export function createPrismaPasswordResetStore(prisma: PrismaClient): PasswordRe
         where: { codeHash: tokenHash, purpose: SET_PASSWORD_PURPOSES, consumedAt: null },
         orderBy: { createdAt: 'desc' },
       });
-      return r ? { id: r.id, userId: r.userId, tokenHash: r.codeHash, expiresAt: r.expiresAt, consumedAt: r.consumedAt } : null;
+      return r ? { id: r.id, userId: r.userId, tokenHash: r.codeHash, expiresAt: r.expiresAt, consumedAt: r.consumedAt, purpose: r.purpose === 'WELCOME' ? 'WELCOME' : 'PASSWORD_RESET' } : null;
+    },
+    // Onboarding: a link's page asks what it is (live, expired, used) — used or not.
+    async findAnyByHash(tokenHash) {
+      const r = await prisma.loginOtp.findFirst({ where: { codeHash: tokenHash, purpose: SET_PASSWORD_PURPOSES }, orderBy: { createdAt: 'desc' } });
+      return r ? { id: r.id, userId: r.userId, tokenHash: r.codeHash, expiresAt: r.expiresAt, consumedAt: r.consumedAt, purpose: r.purpose === 'WELCOME' ? 'WELCOME' : 'PASSWORD_RESET' } : null;
     },
     async countIssuedSince(userId, since) {
       return prisma.loginOtp.count({ where: { userId, purpose: 'PASSWORD_RESET', createdAt: { gte: since } } });

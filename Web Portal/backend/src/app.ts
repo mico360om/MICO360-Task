@@ -228,6 +228,10 @@ export interface AppDeps extends AuthRouteDeps {
   userService?: UserService;
   /** Welcome emails from User Management (a "Set your password" link); administrators only. */
   welcomeService?: WelcomeService;
+  /** Onboarding: the New / Manage account forms' duplicate check while typing. */
+  identityLookup?: import('./modules/users/identity-check').IdentityLookup;
+  /** Onboarding: an administrator's "Send password reset" (a link valid 1 hour). */
+  adminPasswordReset?: { isConfigured(): boolean; sendForAdministrator(userId: string): Promise<import('./modules/auth/password-reset-service').AdminResetOutcome> };
   /** 1.23 Client accounts (administrators) and "Clients with access" on a project. */
   clientAccounts?: ClientAccounts;
   /** 1.23 The Client portal's reads and actions (client accounts only). */
@@ -403,7 +407,7 @@ function isRateLimitExempt(url: string): boolean {
  * Sign-in and recovery endpoints get a stricter per-IP limit (brute force / email flooding), the
  * fingerprint routes too (they take a key or a refresh token instead of a session).
  */
-const SENSITIVE_AUTH_ROUTES = ['/api/v1/auth/login', '/api/v1/auth/otp/', '/api/v1/auth/password/', '/api/v1/auth/biometric-'];
+const SENSITIVE_AUTH_ROUTES = ['/api/v1/auth/login', '/api/v1/auth/otp/', '/api/v1/auth/password/', '/api/v1/auth/biometric-', '/api/v1/auth/challenge/'];
 
 /** Map Prisma errors that come from bad input or races to clear 4xx responses. */
 function prismaErrorResponse(err: unknown): { status: number; code: string; message: string } | null {
@@ -924,6 +928,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           exportData: deps.dataExporter,
           timeZone: deps.appConfig?.timeZone,
           welcome: deps.welcomeService,
+          // Onboarding: the duplicate check, "Send password reset", "Mark email as verified".
+          identityLookup: deps.identityLookup,
+          adminPasswordReset: deps.adminPasswordReset,
+          verification: deps.emailVerification,
           // companies: people's companies, and the picked company as a new person's default.
           membership: deps.companyMembership,
           pickOf,

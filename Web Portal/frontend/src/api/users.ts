@@ -1,5 +1,6 @@
 import type { ApiClient } from '../lib/api-client';
 import type { CompanyPeopleChange } from './companies';
+import type { OnboardingStatus } from '../lib/onboarding';
 
 export type UserStatus = 'ACTIVE' | 'INACTIVE' | 'SUSPENDED';
 
@@ -18,6 +19,16 @@ export interface ApiUser {
   lastLoginAt?: string | null;
   /** When an administrator last sent them a welcome email; null: never. Admin list only. */
   welcomeSentAt?: string | null;
+  /** Onboarding: their first invitation; null: never invited. Admin list only. */
+  invitedAt?: string | null;
+  /** Onboarding: when the account became theirs (first sign-in, or a password set with a link). */
+  activatedAt?: string | null;
+  /** Onboarding: when their email address was confirmed; null: not verified. */
+  emailVerifiedAt?: string | null;
+  /** Onboarding: their newest invitation link that still works stops then; null: none works. */
+  inviteExpiresAt?: string | null;
+  /** Onboarding: Invited / Invite expired / Active / Locked / Deactivated (an older server sends none). */
+  onboarding?: OnboardingStatus;
   /** Their companies, A–Z (an older server sends none). */
   companies?: UserCompany[];
   /** Their primary company: their emails' logo and name. */
@@ -72,6 +83,41 @@ export interface WelcomeOutcome {
   reason?: WelcomeRefusal;
   /** "the account is suspended": finishes "Not sent: …". */
   why?: string;
+}
+
+/** Onboarding: an administrator's "Send password reset" (a link valid 1 hour). */
+export interface PasswordResetSent {
+  userId: string;
+  email: string | null;
+  sent: boolean;
+  sentAt?: string;
+}
+
+/** Onboarding: an account an email, username or name already belongs to (the forms' duplicate check). */
+export interface IdentityMatch {
+  id: string;
+  name: string;
+  username: string;
+  kind: 'client' | 'staff';
+  organisation: string | null;
+  status: UserStatus;
+}
+
+export interface IdentityQuery {
+  email?: string;
+  username?: string;
+  firstName?: string;
+  lastName?: string;
+  organisation?: string | null;
+  client?: boolean;
+  /** The account being edited (never a clash with itself). */
+  excludeId?: string;
+}
+
+export interface IdentityAnswer {
+  email: IdentityMatch | null;
+  username: IdentityMatch | null;
+  sameName: IdentityMatch[];
 }
 
 export interface WelcomeBatchResult {
@@ -147,7 +193,17 @@ export function usersApi(client: ApiClient) {
     /** Admin-only: welcome emails for several people (up to 100); each one says whether it went. */
     sendWelcomes: (userIds: string[]) => client.post<{ data: WelcomeBatchResult }>('/users/welcome-emails', { userIds }).then((r) => r.data),
     update: (id: string, patch: UserPatch) => client.put<{ data: ApiUser }>(`/users/${id}`, patch).then((r) => r.data),
-    setStatus: (id: string, status: UserStatus) => client.patch<{ data: ApiUser }>(`/users/${id}/status`, { status }).then((r) => r.data),
+    /** Onboarding: a deactivation (or reactivation) may say why — audited with it. */
+    setStatus: (id: string, status: UserStatus, reason?: string) =>
+      client.patch<{ data: ApiUser }>(`/users/${id}/status`, { status, ...(reason?.trim() ? { reason: reason.trim() } : {}) }).then((r) => r.data),
+    /** Admin-only: one person, as the list has them. */
+    get: (id: string) => client.get<{ data: ApiUser }>(`/users/${encodeURIComponent(id)}`).then((r) => r.data),
+    /** Onboarding: email them a reset link valid 1 hour (refusals are errors with the reason). */
+    sendPasswordReset: (id: string) => client.post<{ data: PasswordResetSent }>(`/users/${encodeURIComponent(id)}/password-reset-email`).then((r) => r.data),
+    /** Onboarding: confirm their email address by hand (a code can't reach them), with why. */
+    markEmailVerified: (id: string, reason: string) => client.post<{ data: ApiUser }>(`/users/${encodeURIComponent(id)}/email-verified`, { reason }).then((r) => r.data),
+    /** Onboarding: who already has this email, username or name (the forms ask while typing). */
+    identityCheck: (q: IdentityQuery) => client.post<{ data: IdentityAnswer }>('/users/identity-check', q).then((r) => r.data),
     remove: (id: string) => client.del<void>(`/users/${id}`),
     /** Admin-only: clear a sign-in lock left by too many failed password attempts (audited server-side). */
     unlock: (id: string) => client.post<{ data?: ApiUser }>(`/users/${id}/unlock`),

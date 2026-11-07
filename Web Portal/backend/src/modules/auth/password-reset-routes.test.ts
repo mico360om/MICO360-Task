@@ -99,3 +99,20 @@ describe('Password reset routes', () => {
     expect(res.json().error.code).toBe('INVALID_RESET_TOKEN');
   });
 });
+
+describe('Onboarding: what a set-password link is (POST /auth/password/link-status)', () => {
+  it('a live link says live; an unknown one unknown — the token goes in the body, never the address', async () => {
+    await forgot('ada@x.com');
+    const token = new URL(emails[0]!.link).searchParams.get('token')!;
+    const live = await app.inject({ method: 'POST', url: '/api/v1/auth/password/link-status', payload: { token } });
+    expect(live.statusCode).toBe(200);
+    expect(live.json().data).toEqual({ kind: null, state: 'unknown', company: null }); // this store can't look up used links
+    const unknown = await app.inject({ method: 'POST', url: '/api/v1/auth/password/link-status', payload: { token: 'nope' } });
+    expect(unknown.json().data.state).toBe('unknown');
+  });
+
+  it('lengths are checked (400)', async () => {
+    expect((await app.inject({ method: 'POST', url: '/api/v1/auth/password/link-status', payload: { token: '' } })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'POST', url: '/api/v1/auth/password/link-status', payload: { token: 'x'.repeat(201) } })).statusCode).toBe(400);
+  });
+});

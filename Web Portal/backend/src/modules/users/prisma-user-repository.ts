@@ -2,12 +2,17 @@ import type { PrismaClient, Prisma } from '@prisma/client';
 import { ValidationError } from '../../lib/http-errors';
 import { isLocked } from '../../lib/lockout';
 import type { CreateUserData, UserListFilter, UserRepository, UserSummary } from './user-repository';
+import { liveInvitation, onboardingStatus } from './onboarding-status';
 
 // companies: each person comes with their companies (the admin views show them).
+// Onboarding: and their newest invitation link that still works (its expiry only).
 const withRoles = {
   roles: { include: { role: true } },
   companies: { select: { company: { select: { id: true, name: true, code: true } } } },
+  loginOtps: liveInvitation(new Date(0)),
 } as const;
+/** The include, with "still works" judged now. */
+const include = () => ({ ...withRoles, loginOtps: liveInvitation(new Date()) });
 type UserWithRoles = Prisma.UserGetPayload<{ include: typeof withRoles }>;
 
 /** companies: `GET /users?companyId=<id>|none`. */
@@ -17,6 +22,8 @@ function companyFilter(filter: UserListFilter | undefined): Prisma.UserWhereInpu
 }
 
 function toSummary(u: UserWithRoles): UserSummary {
+  const locked = isLocked(u.lockedUntil);
+  const inviteExpiresAt = u.loginOtps[0]?.expiresAt ?? null;
   return {
     id: u.id,
     email: u.email,
@@ -29,9 +36,14 @@ function toSummary(u: UserWithRoles): UserSummary {
     lastActiveAt: u.lastActiveAt,
     lastLoginAt: u.lastLoginAt,
     welcomeSentAt: u.welcomeSentAt,
+    invitedAt: u.invitedAt,
+    activatedAt: u.activatedAt,
+    emailVerifiedAt: u.emailVerifiedAt,
+    inviteExpiresAt,
+    onboarding: onboardingStatus({ status: u.status, locked, activatedAt: u.activatedAt, lastLoginAt: u.lastLoginAt, invitedAt: u.invitedAt, welcomeSentAt: u.welcomeSentAt, inviteExpiresAt }),
     roles: u.roles.map((r) => r.role.name),
-    locked: isLocked(u.lockedUntil),
-    lockedUntil: isLocked(u.lockedUntil) ? u.lockedUntil : null,
+    locked,
+    lockedUntil: locked ? u.lockedUntil : null,
     companies: u.companies.map((m) => m.company).sort((a, b) => a.name.localeCompare(b.name)),
     primaryCompanyId: u.primaryCompanyId,
     myProjectsOnly: u.myProjectsOnly,
@@ -72,23 +84,23 @@ export function createPrismaUserRepository(prisma: PrismaClient): UserRepository
           ...(data.companyIds?.length ? { companies: { create: [...new Set(data.companyIds)].map((companyId) => ({ companyId })) } } : {}),
           primaryCompanyId: data.primaryCompanyId ?? null,
         },
-        include: withRoles,
+        include: include(),
       });
       return toSummary(u);
     },
     async findById(id) {
-      const u = await prisma.user.findFirst({ where: { id, deletedAt: null }, include: withRoles });
+      const u = await prisma.user.findFirst({ where: { id, deletedAt: null }, include: include() });
       return u ? toSummary(u) : null;
     },
     async findByEmailOrUsername(email, username) {
       const u = await prisma.user.findFirst({
         where: { OR: [{ email }, { username }], deletedAt: null },
-        include: withRoles,
+        include: include(),
       });
       return u ? toSummary(u) : null;
     },
     async list(filter) {
-      const us = await prisma.user.findMany({ where: { deletedAt: null, ...companyFilter(filter) }, include: withRoles, orderBy: { createdAt: 'desc' } });
+      const us = await prisma.user.findMany({ where: { deletedAt: null, ...companyFilter(filter) }, include: include(), orderBy: { createdAt: 'desc' } });
       return us.map(toSummary);
     },
     async update(id, patch) {
@@ -102,16 +114,16 @@ export function createPrismaUserRepository(prisma: PrismaClient): UserRepository
       const u = await prisma.user.update({
         where: { id },
         data: { ...scalar, ...(roles ? { roles } : {}) },
-        include: withRoles,
+        include: include(),
       });
       return toSummary(u);
     },
     async setStatus(id, status) {
-      const u = await prisma.user.update({ where: { id }, data: { status }, include: withRoles });
+      const u = await prisma.user.update({ where: { id }, data: { status }, include: include() });
       return toSummary(u);
     },
     async setAvatar(id, avatarUrl) {
-      const u = await prisma.user.update({ where: { id }, data: { avatarUrl }, include: withRoles });
+      const u = await prisma.user.update({ where: { id }, data: { avatarUrl }, include: include() });
       return toSummary(u);
     },
     async setPassword(id, passwordHash) {
@@ -127,6 +139,8 @@ export function createPrismaUserRepository(prisma: PrismaClient): UserRepository
     },
     async markWelcomeSent(id, at) {
       await prisma.user.updateMany({ where: { id }, data: { welcomeSentAt: at } });
+      // Onboarding: the first invitation's time stays ("Invited 5 Nov · resent 7 Nov").
+      await prisma.user.updateMany({ where: { id, invitedAt: null }, data: { invitedAt: at } });
     },
     async getPasswordHash(id) {
       const u = await prisma.user.findFirst({ where: { id, deletedAt: null }, select: { passwordHash: true } });
@@ -146,7 +160,7 @@ export function createPrismaUserRepository(prisma: PrismaClient): UserRepository
       return u.tokenVersion;
     },
     async unlock(id) {
-      const u = await prisma.user.update({ where: { id }, data: { failedLoginAttempts: 0, lockedUntil: null }, include: withRoles });
+      const u = await prisma.user.update({ where: { id }, data: { failedLoginAttempts: 0, lockedUntil: null }, include: include() });
       return toSummary(u);
     },
     async countActiveAdmins(excludeId) {

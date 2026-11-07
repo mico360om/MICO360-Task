@@ -68,7 +68,9 @@ describe('ClientsPage', () => {
     expect(within(karimRow).getByText('Locked')).toBeInTheDocument();
     // Four projects: three named, then how many more.
     expect(within(rowOf('Mona Y')).getByText('+1 more')).toBeInTheDocument();
-    expect(within(rowOf('Mona Y')).getByText('Inactive')).toBeInTheDocument();
+    // Onboarding: one status for staff and clients, and whether the email is verified.
+    expect(within(rowOf('Mona Y')).getByText('Deactivated')).toBeInTheDocument();
+    expect(within(row).getByText('Not verified')).toBeInTheDocument();
   });
 
   it('with no clients, an empty state offers New client', async () => {
@@ -87,6 +89,7 @@ describe('ClientsPage', () => {
     await userEvent.type(within(dialog).getByLabelText(/last name/i), 'Q');
     await userEvent.type(within(dialog).getByLabelText(/^username/i), 'lina');
     await userEvent.type(within(dialog).getByLabelText(/^email/i), 'lina@owner.test');
+    await userEvent.type(within(dialog).getByLabelText(/^organisation/i), 'Owner Group');
     await userEvent.click(within(dialog).getByRole('button', { name: 'Add a project' }));
     await userEvent.click(await screen.findByRole('option', { name: /Finance Office/ }));
     await userEvent.click(within(within(dialog).getByRole('group', { name: 'Finance Office' })).getByRole('checkbox', { name: 'Progress, milestones and tasks' }));
@@ -107,32 +110,60 @@ describe('ClientsPage', () => {
     expect((server.lastBody('PUT', '/clients/c-huda') as { projects: unknown[] }).projects[0]).toMatchObject({ projectId: 'p-mico', actions: { comment: true } });
   });
 
-  it('sends the welcome email again, after asking', async () => {
+  it('sends the invitation (welcome email), after asking', async () => {
     const server = renderPage();
     await screen.findByRole('button', { name: 'Open Huda Saleh' });
-    await userEvent.click(within(rowOf('Huda Saleh')).getByRole('button', { name: 'Send welcome email to huda' }));
-    const ask = screen.getByRole('alertdialog', { name: 'Send a welcome email to Huda Saleh (huda@client.test)?' });
+    await userEvent.click(within(rowOf('Huda Saleh')).getByRole('button', { name: 'Send invitation to huda' }));
+    const ask = screen.getByRole('alertdialog', { name: 'Send an invitation to Huda Saleh (huda@client.test)?' });
     await userEvent.click(within(ask).getByRole('button', { name: 'Send' }));
     await waitFor(() => expect(server.requests('POST', '/users/c-huda/welcome-email')).toHaveLength(1));
-    expect(await screen.findByRole('status')).toHaveTextContent('Welcome email sent to Huda Saleh (huda@client.test).');
+    expect(await screen.findByRole('status')).toHaveTextContent('Invitation sent to Huda Saleh (huda@client.test).');
+  });
+
+  it('sends a password reset link, after saying what it does', async () => {
+    const server = renderPage();
+    await screen.findByRole('button', { name: 'Open Huda Saleh' });
+    await userEvent.click(within(rowOf('Huda Saleh')).getByRole('button', { name: 'Send password reset to huda' }));
+    const ask = screen.getByRole('alertdialog', { name: 'Send a password reset link to Huda Saleh (huda@client.test)?' });
+    expect(ask).toHaveTextContent('The link works once, for an hour.');
+    await userEvent.click(within(ask).getByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(server.requests('POST', '/users/c-huda/password-reset-email')).toHaveLength(1));
+  });
+
+  it('filters by status', async () => {
+    renderPage();
+    await screen.findByRole('button', { name: 'Open Huda Saleh' });
+    await userEvent.selectOptions(screen.getByLabelText('Status'), 'Deactivated');
+    expect(screen.queryByRole('button', { name: 'Open Huda Saleh' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Open Mona Y' })).toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByLabelText('Status'), 'Invited');
+    expect(screen.getByText('No one has an invitation waiting.')).toBeInTheDocument();
   });
 
   it('an inactive client can’t be sent one, and says why', async () => {
     renderPage();
     await screen.findByRole('button', { name: 'Open Mona Y' });
-    const send = within(rowOf('Mona Y')).getByRole('button', { name: 'Send welcome email to many' });
+    const send = within(rowOf('Mona Y')).getByRole('button', { name: 'Send invitation to many' });
     expect(send).toBeDisabled();
     expect(send).toHaveAttribute('title', 'This account is inactive, so it can’t get a welcome email');
+    expect(within(rowOf('Mona Y')).getByRole('button', { name: 'Send password reset to many' })).toBeDisabled();
   });
 
   it('deactivates and reactivates a client', async () => {
     const server = renderPage();
     await screen.findByRole('button', { name: 'Open Huda Saleh' });
     await userEvent.click(within(rowOf('Huda Saleh')).getByRole('button', { name: 'Deactivate huda' }));
-    await waitFor(() => expect(server.lastBody('PATCH', '/users/c-huda/status')).toEqual({ status: 'INACTIVE' }));
+    // Onboarding: asked first, saying what happens, with an optional reason.
+    const ask = screen.getByRole('alertdialog', { name: 'Deactivate Huda Saleh?' });
+    expect(ask).toHaveTextContent('They’re signed out everywhere at once');
+    expect(server.requests('PATCH', '/users/c-huda/status')).toHaveLength(0);
+    await userEvent.type(within(ask).getByLabelText(/^Reason/), 'Contract ended');
+    await userEvent.click(within(ask).getByRole('button', { name: 'Deactivate' }));
+    await waitFor(() => expect(server.lastBody('PATCH', '/users/c-huda/status')).toEqual({ status: 'INACTIVE', reason: 'Contract ended' }));
     expect(await screen.findByRole('status')).toHaveTextContent('Huda Saleh can’t sign in now.');
-    await waitFor(() => expect(within(rowOf('Huda Saleh')).getByText('Inactive')).toBeInTheDocument());
+    await waitFor(() => expect(within(rowOf('Huda Saleh')).getByText('Deactivated')).toBeInTheDocument());
     await userEvent.click(within(rowOf('Huda Saleh')).getByRole('button', { name: 'Reactivate huda' }));
+    await userEvent.click(within(screen.getByRole('alertdialog', { name: 'Reactivate Huda Saleh?' })).getByRole('button', { name: 'Reactivate' }));
     await waitFor(() => expect(server.lastBody('PATCH', '/users/c-huda/status')).toEqual({ status: 'ACTIVE' }));
     await waitFor(() => expect(within(rowOf('Huda Saleh')).getByText('Active')).toBeInTheDocument());
   });

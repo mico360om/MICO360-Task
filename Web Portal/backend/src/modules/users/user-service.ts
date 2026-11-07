@@ -1,9 +1,10 @@
 import { randomBytes } from 'node:crypto';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../lib/http-errors';
+import { emailProblem, nameProblem, sameEmail, usernameProblem } from '../../lib/account-rules';
 import { hashPassword, verifyPassword } from '../../lib/password';
 import { isStrongPassword } from '../../lib/password-policy';
 import { WeakPasswordError } from '../auth/errors';
-import { assertRoleSet, assertSameKind } from '../clients/client-kind';
+import { assertRoleSet, assertSameKind, isClientRoles } from '../clients/client-kind';
 import type { NewUser, UpdateUserData, UserListFilter, UserRepository, UserStatus, UserSummary } from './user-repository';
 import { MY_PROJECTS_ONLY_REFUSED } from './user-preferences';
 
@@ -31,6 +32,30 @@ export interface UserServiceDeps {
   onRenamed?: (userId: string) => void | Promise<void>;
   /** 1.23: after an account is made inactive, suspended or deleted: forget what it connected (Microsoft Teams). */
   onDeactivated?: (userId: string) => Promise<void>;
+  /**
+   * Onboarding: an account's email address changed (not just its case). It is set back to not verified
+   * already; this tells the old address and records it. Its errors are swallowed: the change stands.
+   */
+  onEmailChanged?: (userId: string, from: string, to: string, actor: { id: string; ip: string | null } | null) => Promise<void>;
+}
+
+/** Onboarding: a duplicate is refused naming the field (and, for an email, whose it is) — 409 DUPLICATE_USER. */
+export class DuplicateAccountError extends ConflictError {
+  constructor(field: 'email' | 'username', holder: UserSummary) {
+    const name = `${holder.firstName} ${holder.lastName}`.trim() || holder.username;
+    const client = isClientRoles(holder.roles);
+    super(field === 'email' ? `This email address is already used by ${name}${client ? ' (client)' : ''}.` : 'This username is taken.', 'DUPLICATE_USER', {
+      field,
+      userId: holder.id,
+      name,
+      kind: client ? 'client' : 'staff',
+    });
+  }
+}
+
+/** Onboarding: a detail that breaks its rule — 400 VALIDATION naming the field (and in fieldErrors). */
+export function fieldProblem(field: string, message: string): ValidationError {
+  return new ValidationError(message, { field, fieldErrors: { [field]: [message] } });
 }
 
 const ADMIN = 'ADMIN';
@@ -42,7 +67,15 @@ const sameRoles = (a: string[], b: string[]) => a.length === b.length && a.every
 /** How long after a self-service password change the old live sockets are closed (see revokeAccess). */
 const OWN_CHANGE_SOCKET_GRACE_MS = 5000;
 
-export function createUserService({ users, revokeSessions, onSessionsRevoked, issueSession, forgetDevices, onDeleted, onRenamed, onDeactivated }: UserServiceDeps) {
+export function createUserService({ users, revokeSessions, onSessionsRevoked, issueSession, forgetDevices, onDeleted, onRenamed, onDeactivated, onEmailChanged }: UserServiceDeps) {
+  /** Refuse an email or username someone else holds (case and spaces don't matter), naming the field. */
+  async function assertFree(email: string, username: string, selfId?: string): Promise<void> {
+    const clash = await users.findByEmailOrUsername(email.trim(), username.trim());
+    if (!clash || clash.id === selfId) return;
+    if (sameEmail(clash.email, email)) throw new DuplicateAccountError('email', clash);
+    throw new DuplicateAccountError('username', clash);
+  }
+
   /** Never leave the system without an administrator who can sign in. */
   async function ensureAnotherActiveAdmin(id: string): Promise<void> {
     if ((await users.countActiveAdmins(id)) === 0) {
@@ -95,8 +128,7 @@ export function createUserService({ users, revokeSessions, onSessionsRevoked, is
   async function createUser(input: NewUser): Promise<UserSummary> {
     if (input.password !== undefined && !isStrongPassword(input.password)) throw new WeakPasswordError();
     const roleNames = requireRoles(input.roleNames ?? DEFAULT_ROLES);
-    const existing = await users.findByEmailOrUsername(input.email, input.username);
-    if (existing) throw new ConflictError('A user with this email or username already exists.', 'DUPLICATE_USER');
+    await assertFree(input.email, input.username);
     await users.releaseDeletedIdentity(input.email, input.username);
     // No password given (a welcome email lets them set one): a real hash of a secret no one knows, so
     // no password signs in, and a try takes the usual time.
@@ -123,7 +155,7 @@ export function createUserService({ users, revokeSessions, onSessionsRevoked, is
     return user;
   }
 
-  async function updateUser(id: string, patch: UpdateUserData): Promise<UserSummary> {
+  async function updateUser(id: string, patch: UpdateUserData, actor: { id: string; ip: string | null } | null = null): Promise<UserSummary> {
     const current = await getUser(id);
     const next: UpdateUserData = { ...patch };
     if (patch.roleNames !== undefined) {
@@ -142,16 +174,39 @@ export function createUserService({ users, revokeSessions, onSessionsRevoked, is
     if (patch.email !== undefined || patch.username !== undefined) {
       const email = patch.email ?? current.email;
       const username = patch.username ?? current.username;
-      const clash = await users.findByEmailOrUsername(email, username);
-      if (clash && clash.id !== id) {
-        throw new ConflictError('A user with this email or username already exists.', 'DUPLICATE_USER');
-      }
+      await assertFree(email, username, id);
       await users.releaseDeletedIdentity(email, username);
     }
+    // Onboarding: the detail rules bite on what changes only (an older username or name still saves).
+    const emailChanged = patch.email !== undefined && !sameEmail(patch.email, current.email);
+    if (emailChanged) {
+      const problem = emailProblem(patch.email!);
+      if (problem) throw fieldProblem('email', problem);
+    }
+    if (patch.username !== undefined && patch.username.trim() !== current.username) {
+      const problem = usernameProblem(patch.username);
+      if (problem) throw fieldProblem('username', problem);
+    }
+    for (const k of ['firstName', 'lastName'] as const) {
+      if (patch[k] !== undefined && patch[k]!.trim() !== current[k]) {
+        const problem = nameProblem(patch[k]!, k);
+        if (problem) throw fieldProblem(k, problem);
+      }
+    }
+    // Onboarding: a new address isn't verified: they confirm it with a code at their next sign-in (their
+    // open sessions, the app and the extension keep working until then).
+    if (emailChanged) next.emailVerifiedAt = null;
     const updated = await users.update(id, next);
     // A link already sent to the old address (a welcome or reset email) must not set this account's
     // password: a mistyped address could belong to someone else.
-    if (patch.email !== undefined && patch.email.trim().toLowerCase() !== current.email.trim().toLowerCase()) await users.endPasswordLinks(id);
+    if (emailChanged) {
+      await users.endPasswordLinks(id);
+      try {
+        await onEmailChanged?.(id, current.email, updated.email, actor);
+      } catch {
+        // Telling the old address is best effort: the change stands.
+      }
+    }
     // Roles are embedded in access tokens: a real change ends the user's current sessions.
     if (next.roleNames !== undefined && !sameRoles(current.roles, updated.roles)) await revokeAccess(id);
     if (updated.firstName !== current.firstName || updated.lastName !== current.lastName || updated.username !== current.username) await onRenamed?.(id);

@@ -5,7 +5,7 @@ import { configApi } from '../api/config';
 import { usersApi, type CreatedUser } from '../api/users';
 import { CLIENTS_KEY, clientAsUser, clientsApi } from '../api/clients';
 import { Button } from './ui/Button';
-import { FieldLabel, fieldClass } from './ui/Field';
+import { FieldError, FieldLabel, fieldClass } from './ui/Field';
 import { useDialog } from '../hooks/useDialog';
 import { ApiError } from '../lib/api-client';
 import { isStrongPassword, PASSWORD_RULE_ERROR, PASSWORD_RULE_HINT } from '../lib/passwordPolicy';
@@ -16,6 +16,8 @@ import { useCompanyChoices } from './company/company-admin';
 import { useCompanyStore } from '../stores/company-store';
 import { ClientAccessEditor } from './clients/ClientAccessEditor';
 import { grantsOf, noModuleText, rowsWithoutModule, type AccessRow } from './clients/client-access';
+import { accountProblems, RULE_WORDS, type AccountDetails } from '../lib/account-rules';
+import { EmailTaken, SameNameWarning, UsernameTaken, useIdentityCheck } from './onboarding/identity';
 
 export interface CreateUserModalProps {
   onClose: () => void;
@@ -23,7 +25,11 @@ export interface CreateUserModalProps {
   onCreated?: (result: CreatedUser) => void;
   /** "New client" (the Clients page): a client account, no role to choose. */
   clientOnly?: boolean;
+  /** Onboarding: "Open account" on a duplicate warning (the page opens that person's Manage account). */
+  onOpenAccount?: (id: string) => void;
 }
+
+type FieldName = keyof AccountDetails;
 
 type Role = 'EMPLOYEE' | 'ADMIN' | 'CLIENT';
 
@@ -34,6 +40,8 @@ function createFailure(e: unknown): string {
     if (e.code === 'EMAIL_NOT_CONFIGURED') {
       return 'Email isn’t set up on this server, so the welcome email can’t be sent and the account wasn’t created. Give them a temporary password.';
     }
+    // Onboarding: the server names the field and whose it is ("This email address is already used by …").
+    if (e.code === 'DUPLICATE_USER' && e.message && !/^Request failed/.test(e.message)) return e.message;
     if (e.code === 'DUPLICATE_USER' || e.status === 409) return 'That email or username is already in use. Choose a different one.';
     const fields = (e.details as { fieldErrors?: Record<string, string[] | undefined> } | undefined)?.fieldErrors ?? {};
     if (fields.email?.length) return 'Enter a valid email address, like name@company.com.';
@@ -63,7 +71,7 @@ const FIELD_NAMES: Record<string, string> = {
  * and in place of companies the projects they may open in the Client portal, with what they may see
  * and do in each (the one editor the Clients page and Manage account use too).
  */
-export function CreateUserModal({ onClose, onCreated, clientOnly = false }: CreateUserModalProps) {
+export function CreateUserModal({ onClose, onCreated, clientOnly = false, onOpenAccount }: CreateUserModalProps) {
   const qc = useQueryClient();
   const dialogRef = useDialog(onClose);
   const [firstName, setFirstName] = useState('');
@@ -79,6 +87,8 @@ export function CreateUserModal({ onClose, onCreated, clientOnly = false }: Crea
   // After a save attempt: a project with no module is marked in the editor.
   const [accessChecked, setAccessChecked] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Onboarding: each field's own problem (its rule), said under it after a save attempt.
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<FieldName, string>>>({});
   const firstRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
   // "Send a welcome email": on unless email isn't set up on this server (then it can't be turned on).
@@ -94,6 +104,11 @@ export function CreateUserModal({ onClose, onCreated, clientOnly = false }: Crea
   const [chosenPrimary, setChosenPrimary] = useState<string | null>(null);
   const companyIds = tickedIds ?? (pick && companyChoices.companies.some((c) => c.id === pick && c.status === 'ACTIVE') ? [pick] : []);
   const primaryCompanyId = chosenPrimary && companyIds.includes(chosenPrimary) ? chosenPrimary : (companyIds[0] ?? null);
+
+  // Onboarding: who already has this email, username or name (asked once the typing pauses).
+  const found = useIdentityCheck({ email, username, firstName, lastName, organisation, client: isClient });
+  const clearField = (k: FieldName) => setFieldErrors((prev) => (prev[k] ? { ...prev, [k]: undefined } : prev));
+  const describe = (k: FieldName, ...more: (string | false | null | undefined)[]) => [`nu-${k}-hint`, fieldErrors[k] ? `nu-${k}-error` : null, ...more].filter(Boolean).join(' ');
 
   const createMut = useMutation({
     mutationFn: (): Promise<CreatedUser> =>
@@ -138,9 +153,18 @@ export function CreateUserModal({ onClose, onCreated, clientOnly = false }: Crea
   function submit(e: FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!firstName.trim() || !lastName.trim() || !username.trim() || !email.trim()) {
-      setError('Fill in every field.');
-      firstRef.current?.focus();
+    // Onboarding: the same rules as the server, said under each field.
+    const problems = accountProblems({ firstName, lastName, email, username, ...(isClient ? { phone, organisation } : {}) }, { client: isClient });
+    setFieldErrors(problems);
+    const first = (['firstName', 'lastName', 'username', 'email', 'organisation', 'phone'] as FieldName[]).find((k) => problems[k]);
+    if (first) {
+      const missing = !firstName.trim() || !lastName.trim() || !username.trim() || !email.trim() || (isClient && !organisation.trim());
+      setError(missing ? 'Fill in every field.' : 'Check the highlighted details.');
+      document.getElementById(`nu-${first === 'firstName' ? 'first' : first === 'lastName' ? 'last' : first}`)?.focus();
+      return;
+    }
+    if (found?.email || found?.username) {
+      setError(found.email ? 'That email address is already used by another account.' : 'That username is taken. Choose another.');
       return;
     }
     // An employee needs a company (administrators see every company anyway). The server's words.
@@ -188,34 +212,45 @@ export function CreateUserModal({ onClose, onCreated, clientOnly = false }: Crea
       <div className="grid grid-cols-2 gap-3">
         <div className="flex flex-col gap-1.5">
           <FieldLabel htmlFor="nu-first" required>First name</FieldLabel>
-          <input id="nu-first" ref={firstRef} dir="auto" value={firstName} onChange={(e) => setFirstName(e.target.value)} className={fieldClass(false)} />
+          <input id="nu-first" ref={firstRef} dir="auto" value={firstName} onChange={(e) => { setFirstName(e.target.value); clearField('firstName'); }} aria-required="true" aria-invalid={fieldErrors.firstName ? true : undefined} aria-describedby={fieldErrors.firstName ? 'nu-firstName-error' : undefined} maxLength={191} className={fieldClass(!!fieldErrors.firstName)} />
+          <FieldError id="nu-firstName-error">{fieldErrors.firstName}</FieldError>
         </div>
         <div className="flex flex-col gap-1.5">
           <FieldLabel htmlFor="nu-last" required>Last name</FieldLabel>
-          <input id="nu-last" dir="auto" value={lastName} onChange={(e) => setLastName(e.target.value)} className={fieldClass(false)} />
+          <input id="nu-last" dir="auto" value={lastName} onChange={(e) => { setLastName(e.target.value); clearField('lastName'); }} aria-required="true" aria-invalid={fieldErrors.lastName ? true : undefined} aria-describedby={fieldErrors.lastName ? 'nu-lastName-error' : undefined} maxLength={191} className={fieldClass(!!fieldErrors.lastName)} />
+          <FieldError id="nu-lastName-error">{fieldErrors.lastName}</FieldError>
         </div>
       </div>
+      <SameNameWarning matches={found?.sameName ?? []} onOpen={onOpenAccount} />
       <div className="flex flex-col gap-1.5">
         <FieldLabel htmlFor="nu-username" required>Username</FieldLabel>
-        <input id="nu-username" value={username} onChange={(e) => setUsername(e.target.value)} className={fieldClass(false)} />
+        <input id="nu-username" value={username} onChange={(e) => { setUsername(e.target.value); clearField('username'); }} autoComplete="off" spellCheck={false} aria-required="true" aria-invalid={fieldErrors.username || found?.username ? true : undefined} aria-describedby={describe('username', found?.username && 'nu-username-taken')} maxLength={32} className={fieldClass(!!fieldErrors.username || !!found?.username)} />
+        <p id="nu-username-hint" className="text-xs text-ink-2">{RULE_WORDS.username}</p>
+        <FieldError id="nu-username-error">{fieldErrors.username}</FieldError>
+        <UsernameTaken id="nu-username-taken" match={found?.username ?? null} onOpen={onOpenAccount} />
       </div>
       <div className="flex flex-col gap-1.5">
         <FieldLabel htmlFor="nu-email" required>Email</FieldLabel>
-        <input id="nu-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={fieldClass(false)} />
+        <input id="nu-email" type="email" value={email} onChange={(e) => { setEmail(e.target.value); clearField('email'); }} autoComplete="off" spellCheck={false} aria-required="true" aria-invalid={fieldErrors.email || found?.email ? true : undefined} aria-describedby={describe('email', found?.email && 'nu-email-taken')} maxLength={191} className={fieldClass(!!fieldErrors.email || !!found?.email)} />
+        <p id="nu-email-hint" className="text-xs text-ink-2">{RULE_WORDS.email}</p>
+        <FieldError id="nu-email-error">{fieldErrors.email}</FieldError>
+        <EmailTaken id="nu-email-taken" match={found?.email ?? null} onOpen={onOpenAccount} />
       </div>
       {isClient ? (
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="flex flex-col gap-1.5">
-            <FieldLabel htmlFor="nu-organisation">
-              Organisation<span className="font-normal text-ink-2"> (optional)</span>
-            </FieldLabel>
-            <input id="nu-organisation" dir="auto" value={organisation} onChange={(e) => setOrganisation(e.target.value)} maxLength={160} autoComplete="organization" className={fieldClass(false)} />
+            <FieldLabel htmlFor="nu-organisation" required>Organisation</FieldLabel>
+            <input id="nu-organisation" dir="auto" value={organisation} onChange={(e) => { setOrganisation(e.target.value); clearField('organisation'); }} maxLength={160} autoComplete="organization" aria-required="true" aria-invalid={fieldErrors.organisation ? true : undefined} aria-describedby={describe('organisation')} className={fieldClass(!!fieldErrors.organisation)} />
+            <p id="nu-organisation-hint" className="text-xs text-ink-2">{RULE_WORDS.organisation}</p>
+            <FieldError id="nu-organisation-error">{fieldErrors.organisation}</FieldError>
           </div>
           <div className="flex flex-col gap-1.5">
             <FieldLabel htmlFor="nu-phone">
               Phone<span className="font-normal text-ink-2"> (optional)</span>
             </FieldLabel>
-            <input id="nu-phone" type="tel" dir="ltr" value={phone} onChange={(e) => setPhone(e.target.value)} maxLength={40} autoComplete="tel" className={fieldClass(false)} />
+            <input id="nu-phone" type="tel" dir="ltr" value={phone} onChange={(e) => { setPhone(e.target.value); clearField('phone'); }} maxLength={40} autoComplete="tel" aria-invalid={fieldErrors.phone ? true : undefined} aria-describedby={describe('phone')} className={fieldClass(!!fieldErrors.phone)} />
+            <p id="nu-phone-hint" className="text-xs text-ink-2">{RULE_WORDS.phone}</p>
+            <FieldError id="nu-phone-error">{fieldErrors.phone}</FieldError>
           </div>
         </div>
       ) : null}

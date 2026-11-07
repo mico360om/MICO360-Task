@@ -258,6 +258,27 @@ describe('clients & contacts: each kind and its access', () => {
     expect(itemsB.data.map((h) => h.id)).toEqual([made.itemB]);
   });
 
+  it('1.23.6 + onboarding: a client account’s result shows its onboarding status and whether its email is verified', async () => {
+    const otp = await prisma.loginOtp.create({ data: { userId: made.account, codeHash: 'x', purpose: 'WELCOME', expiresAt: new Date(Date.now() + 7 * 86_400_000) } });
+    await prisma.user.update({ where: { id: made.account }, data: { invitedAt: new Date(), welcomeSentAt: new Date(), emailVerifiedAt: null } });
+    try {
+      const invited = (await searchAll(w.as.admin, q('ZZORG', '&type=contact'))).data[0]!;
+      expect(invited.status).toMatchObject({ label: 'Invited', category: 'INVITED', done: false });
+      expect(invited.context).toBe(`Client account · ZZORG Owner Group ${w.tag.toUpperCase()} · Email not verified`);
+      await prisma.loginOtp.update({ where: { id: otp.id }, data: { consumedAt: new Date() } });
+      expect((await searchAll(w.as.admin, q('ZZORG', '&type=contact'))).data[0]!.status?.label).toBe('Invite expired');
+      await prisma.user.update({ where: { id: made.account }, data: { activatedAt: new Date(), emailVerifiedAt: new Date() } });
+      const active = (await searchAll(w.as.admin, q('ZZORG', '&type=contact'))).data[0]!;
+      expect(active.status?.label).toBe('Active');
+      expect(active.context).toBe(`Client account · ZZORG Owner Group ${w.tag.toUpperCase()} · Email verified`);
+      await prisma.user.update({ where: { id: made.account }, data: { status: 'INACTIVE' } });
+      expect((await searchAll(w.as.admin, q('ZZORG', '&type=contact'))).data[0]!.status?.label).toBe('Deactivated');
+    } finally {
+      await prisma.user.update({ where: { id: made.account }, data: { status: 'ACTIVE', invitedAt: null, welcomeSentAt: null, activatedAt: null } });
+      await prisma.loginOtp.deleteMany({ where: { userId: made.account } });
+    }
+  });
+
   it('a client portal account: administrators only', async () => {
     const admin = await searchAll(w.as.admin, q('ZZORG', '&type=contact'));
     expect(keys(admin)).toEqual([`contact:account:${made.account}`]);

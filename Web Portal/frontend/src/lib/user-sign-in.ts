@@ -85,7 +85,7 @@ export function welcomeCandidates<T extends SignInPerson>(people: T[], now: Date
   return { pick: never.filter((p) => !recent(p)), leftOut: never.filter(recent).length };
 }
 
-/** Why a row's "Send welcome email" can't be used (shown as its tooltip), or null. A locked account can. */
+/** Why a row's "Resend invitation" can't be used (shown as its tooltip), or null. A locked account can. */
 export function welcomeBlockedReason(person: { id: string; status: SignInPerson['status']; email: string; locked?: boolean }, meId: string | undefined): string | null {
   if (person.id === meId) return 'You can’t send yourself a welcome email';
   if (person.status === 'INACTIVE') return 'This account is inactive, so it can’t get a welcome email';
@@ -112,3 +112,31 @@ export function sortBySignIn<T extends SignInPerson>(people: T[], sort: SignInSo
     })
     .map((x) => x.p);
 }
+
+// ── Onboarding: the welcome email is the invitation ─────────────────────────────────────────────
+
+interface InvitedPerson {
+  email: string;
+  username: string;
+  invitedAt?: string | null;
+  welcomeSentAt?: string | null;
+}
+const wasInvited = (p: InvitedPerson) => !!(p.invitedAt ?? p.welcomeSentAt);
+
+/** A row's invitation button: "Resend invitation" once one went, else "Send invitation". */
+export function invitationLabel(p: InvitedPerson): 'Resend invitation' | 'Send invitation' {
+  return wasInvited(p) ? 'Resend invitation' : 'Send invitation';
+}
+
+/** Its question: "Resend the invitation to Sara K (sara@x.co)?" */
+export function inviteConfirmTitle(p: InvitedPerson, name: string): string {
+  return wasInvited(p) ? `Resend the invitation to ${name} (${p.email})?` : `Send an invitation to ${name} (${p.email})?`;
+}
+
+/** …and its answer: "Invitation resent to sara (sara@x.co)." */
+export function invitationSentText(p: InvitedPerson, email: string): string {
+  return `Invitation ${wasInvited(p) ? 'resent' : 'sent'} to ${p.username} (${email}).`;
+}
+
+/** An administrator's "Send password reset": what the link does. */
+export const RESET_LINK_NOTE = 'The link works once, for an hour. Their current password and sign-ins keep working until they set a new one; then every other sign-in ends.';

@@ -261,7 +261,7 @@ describe('“Show my projects only” from User Management → Manage account (1
   it('is saved with the rest of the form, and audited like other user changes', async () => {
     const { id } = await make(['ADMIN']);
     expect((await put(id, { firstName: 'Sarah', myProjectsOnly: true })).statusCode).toBe(200);
-    expect(auditedValues.filter((a) => a.action === 'user.update')).toEqual([{ action: 'user.update', entityId: id, newValue: { firstName: 'Sarah', myProjectsOnly: true } }]);
+    expect(auditedValues.filter((a) => a.action === 'user.update')).toEqual([{ action: 'user.update', entityId: id, newValue: { firstName: 'Sarah', myProjectsOnly: true, changed: ['firstName', 'myProjectsOnly'] } }]);
   });
 
   it('a change that doesn’t name it leaves it as it was', async () => {
@@ -515,9 +515,9 @@ describe('People’s companies (User Management)', () => {
     const { app: a } = await companiesApp(TWO);
     const made = (await a.inject({ method: 'POST', url: '/api/v1/users', headers: await adminHeaders(), payload: { ...newEmployee, companyIds: ['A', 'B'], primaryCompanyId: 'B' } })).json().data;
     expect(made).toMatchObject({ companies: [{ id: 'A' }, { id: 'B' }], primaryCompanyId: 'B' });
-    const wrong = await a.inject({ method: 'POST', url: '/api/v1/users', headers: await adminHeaders(), payload: { ...newEmployee, email: 'z@x.co', username: 'z', companyIds: ['A'], primaryCompanyId: 'B' } });
+    const wrong = await a.inject({ method: 'POST', url: '/api/v1/users', headers: await adminHeaders(), payload: { ...newEmployee, email: 'z@x.co', username: 'zed', companyIds: ['A'], primaryCompanyId: 'B' } });
     expect(wrong.json().error.message).toBe('The primary company must be one of this person’s companies.');
-    const admin = (await a.inject({ method: 'POST', url: '/api/v1/users', headers: await adminHeaders(), payload: { ...newEmployee, email: 'ad@x.co', username: 'ad', roleNames: ['ADMIN'] } })).json().data;
+    const admin = (await a.inject({ method: 'POST', url: '/api/v1/users', headers: await adminHeaders(), payload: { ...newEmployee, email: 'ad@x.co', username: 'adm', roleNames: ['ADMIN'] } })).json().data;
     expect(admin).toMatchObject({ companies: [], primaryCompanyId: null }); // administrators may have none
   });
 

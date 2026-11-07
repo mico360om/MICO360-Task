@@ -51,6 +51,8 @@ export function createPrismaUserRepository(prisma: PrismaClient): AuthUserReposi
     },
     async recordSignIn(userId, at) {
       await prisma.user.updateMany({ where: { id: userId }, data: { lastLoginAt: at } });
+      // Onboarding: their first sign-in makes the account theirs ("Active" in the lists).
+      await prisma.user.updateMany({ where: { id: userId, activatedAt: null }, data: { activatedAt: at } });
     },
   };
 }

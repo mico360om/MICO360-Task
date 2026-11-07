@@ -3,6 +3,7 @@ import { formatDay, wallClock } from '../../lib/export-format';
 import { noteText } from '../../lib/rich-text';
 import { ARCHIVE_SELECT, archivedOf } from '../companies/project-archive';
 import { checklistNames } from './search-docs';
+import { liveInvitation, onboardingStatus, type OnboardingStatus } from '../users/onboarding-status';
 import { readMinutesContent } from './search-index';
 import { displayText, findRanges, snippetAround, type TextRange } from './task-search-text';
 import { checklistItemLabel, personLabel } from './task-search-matches';
@@ -91,7 +92,8 @@ export interface DescribeContext {
   clientProjects?: (names: string[]) => Promise<Map<string, { count: number; shown: string; projectId: string | null }>>;
 }
 
-const ACCOUNT_STATUS: Record<string, string> = { ACTIVE: 'Active', INACTIVE: 'Inactive', SUSPENDED: 'Suspended', LOCKED: 'Locked' };
+/** Onboarding's status words, as User Management and the Clients page show them. */
+const ONBOARDING_LABEL: Record<OnboardingStatus, string> = { INVITED: 'Invited', INVITE_EXPIRED: 'Invite expired', ACTIVE: 'Active', LOCKED: 'Locked', DEACTIVATED: 'Deactivated' };
 /** "Clients & contacts" results: their index kind and record, from the result id ("client:acme"). */
 const CONTACT_PREFIXES = ['client', 'account', 'contact'] as const;
 
@@ -147,7 +149,11 @@ export async function describeIndexed(prisma: PrismaClient, items: { kind: Exclu
       : [],
     sub('client').length && ctx.clientProjects ? ctx.clientProjects(sub('client')) : new Map<string, { count: number; shown: string; projectId: string | null }>(),
     sub('account').length && ctx.clientAccounts
-      ? prisma.user.findMany({ where: { id: { in: sub('account') }, deletedAt: null, roles: { some: { role: { name: 'CLIENT' } } } }, select: { id: true, firstName: true, lastName: true, username: true, email: true, organisation: true, phone: true, status: true } })
+      ? prisma.user.findMany({
+          where: { id: { in: sub('account') }, deletedAt: null, roles: { some: { role: { name: 'CLIENT' } } } },
+          // Onboarding: what its status and "email verified" are read from.
+          select: { id: true, firstName: true, lastName: true, username: true, email: true, organisation: true, phone: true, status: true, lockedUntil: true, activatedAt: true, lastLoginAt: true, invitedAt: true, welcomeSentAt: true, emailVerifiedAt: true, loginOtps: liveInvitation(new Date()) },
+        })
       : [],
   ]);
   const [projects, meetings, notes, minutes, files, inspections] = await Promise.all([
@@ -401,16 +407,25 @@ export async function describeIndexed(prisma: PrismaClient, items: { kind: Exclu
     );
   }
 
-  // 1.23.6: client portal accounts (administrators only).
+  // 1.23.6: client portal accounts (administrators only), with onboarding's status and whether the email is verified.
   for (const u of accounts) {
+    const onboarding = onboardingStatus({
+      status: u.status,
+      locked: !!u.lockedUntil && u.lockedUntil.getTime() > Date.now(),
+      activatedAt: u.activatedAt,
+      lastLoginAt: u.lastLoginAt,
+      invitedAt: u.invitedAt,
+      welcomeSentAt: u.welcomeSentAt,
+      inviteExpiresAt: u.loginOtps[0]?.expiresAt ?? null,
+    });
     keep(
       'account',
       u.id,
       {
         sub: 'account',
-        context: u.organisation ? `Client account · ${u.organisation}` : 'Client account',
+        context: ['Client account', u.organisation, u.emailVerifiedAt ? 'Email verified' : 'Email not verified'].filter(Boolean).join(' · '),
         project: null,
-        status: { label: ACCOUNT_STATUS[u.status] ?? u.status, category: u.status, done: false },
+        status: { label: ONBOARDING_LABEL[onboarding], category: onboarding, done: false },
         date: null,
         people: null,
         target: { type: 'account', userId: u.id },

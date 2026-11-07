@@ -66,6 +66,8 @@ export interface WelcomeOutcome {
   sent: boolean;
   /** When it went (ISO), for a sent email. */
   sentAt?: string;
+  /** Onboarding: they had been invited before (this one replaced that link). */
+  resent?: boolean;
   reason?: WelcomeRefusal;
   why?: string;
 }
@@ -192,7 +194,8 @@ export function createWelcomeService(deps: WelcomeServiceDeps) {
 
     // The email has gone: from here on it counts as sent, whatever the bookkeeping does. Calling it
     // "not sent" would invite a second email a minute later that replaces this link.
-    const sent: WelcomeOutcome = { userId: user.id, username: user.username, name: displayName(user), email, sent: true, sentAt: at.toISOString() };
+    const resent = !!(user.invitedAt ?? user.welcomeSentAt);
+    const sent: WelcomeOutcome = { userId: user.id, username: user.username, name: displayName(user), email, sent: true, sentAt: at.toISOString(), ...(resent ? { resent } : {}) };
     try {
       await deps.tokens.replaceEarlier(user.id, linkId);
     } catch (err) {
