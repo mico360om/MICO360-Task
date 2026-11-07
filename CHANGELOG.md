@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.23.5] - 2026-11-07
+
 ### New features
 - Project health (1.23.5): every project now has one health mark — Red, Amber or Green, with a dot —
   worked out by one fixed rule that the Projects page, the project page and the Management page (and its
