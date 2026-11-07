@@ -1,14 +1,14 @@
-import { useRef, useState, type FormEvent } from 'react';
+import { useId, useRef, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { configApi } from '../api/config';
-import { usersApi, type CreatedUser } from '../api/users';
+import { usersApi, type CreatedUser, type TemporaryPasswordStyle } from '../api/users';
 import { CLIENTS_KEY, clientAsUser, clientsApi } from '../api/clients';
 import { Button } from './ui/Button';
 import { FieldError, FieldLabel, fieldClass } from './ui/Field';
 import { useDialog } from '../hooks/useDialog';
 import { ApiError } from '../lib/api-client';
-import { isStrongPassword, PASSWORD_RULE_ERROR, PASSWORD_RULE_HINT } from '../lib/passwordPolicy';
+import { PASSWORD_RULE_ERROR } from '../lib/passwordPolicy';
 import { ModalPortal } from './ui/ModalPortal';
 import { dialogLayer, dialogPanel, useTwoColumns } from './ui/dialog-size';
 import { CompanyChecklist } from './company/CompanyChecklist';
@@ -18,6 +18,8 @@ import { ClientAccessEditor } from './clients/ClientAccessEditor';
 import { grantsOf, noModuleText, rowsWithoutModule, type AccessRow } from './clients/client-access';
 import { accountProblems, RULE_WORDS, type AccountDetails } from '../lib/account-rules';
 import { EmailTaken, SameNameWarning, UsernameTaken, useIdentityCheck } from './onboarding/identity';
+import { LifetimeSelect, StyleChoice, TemporaryPasswordReveal, useInvitationDays } from './onboarding/way-in';
+import { useCompanyTimeZone } from '../lib/useCompanyTimeZone';
 
 export interface CreateUserModalProps {
   onClose: () => void;
@@ -37,8 +39,9 @@ type Role = 'EMPLOYEE' | 'ADMIN' | 'CLIENT';
 function createFailure(e: unknown): string {
   if (e instanceof ApiError) {
     if (e.code === 'WEAK_PASSWORD') return PASSWORD_RULE_ERROR;
+    if (e.code === 'ONE_WAY_IN') return 'Choose one way in: an invitation link or a temporary password — not both.';
     if (e.code === 'EMAIL_NOT_CONFIGURED') {
-      return 'Email isn’t set up on this server, so the welcome email can’t be sent and the account wasn’t created. Give them a temporary password.';
+      return 'Email isn’t set up on this server, so the invitation can’t be sent and the account wasn’t created. Give them a temporary password instead.';
     }
     // Onboarding: the server names the field and whose it is ("This email address is already used by …").
     if (e.code === 'DUPLICATE_USER' && e.message && !/^Request failed/.test(e.message)) return e.message;
@@ -73,12 +76,12 @@ const FIELD_NAMES: Record<string, string> = {
  */
 export function CreateUserModal({ onClose, onCreated, clientOnly = false, onOpenAccount }: CreateUserModalProps) {
   const qc = useQueryClient();
-  const dialogRef = useDialog(onClose);
+  // Closing after a temporary password was shown still reports the new account (finish).
+  const dialogRef = useDialog(() => finishRef.current());
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [role, setRole] = useState<Role>(clientOnly ? 'CLIENT' : 'EMPLOYEE');
   const isClient = role === 'CLIENT';
   const [organisation, setOrganisation] = useState('');
@@ -90,12 +93,31 @@ export function CreateUserModal({ onClose, onCreated, clientOnly = false, onOpen
   // Onboarding: each field's own problem (its rule), said under it after a save attempt.
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<FieldName, string>>>({});
   const firstRef = useRef<HTMLInputElement>(null);
-  const passwordRef = useRef<HTMLInputElement>(null);
-  // "Send a welcome email": on unless email isn't set up on this server (then it can't be turned on).
+  // 1.23.6 "How will they get in?" — one way: an invitation link (the default) or a temporary password
+  // made on the server, shown once. The link can't be chosen when email isn't set up on this server.
   const configQ = useQuery({ queryKey: ['app-config'], queryFn: () => configApi(apiClient).get(), staleTime: Infinity, refetchOnWindowFocus: false });
   const emailEnabled = (configQ.data as { emailEnabled?: unknown } | undefined)?.emailEnabled !== false;
-  const [welcomeChoice, setWelcomeChoice] = useState(true);
-  const sendWelcome = emailEnabled && welcomeChoice;
+  const [wayChoice, setWayChoice] = useState<'link' | 'temporary'>('link');
+  const way = emailEnabled ? wayChoice : 'temporary';
+  const sendWelcome = way === 'link';
+  const [style, setStyle] = useState<TemporaryPasswordStyle>('words');
+  const settingDays = useInvitationDays();
+  const [chosenDays, setChosenDays] = useState<number | null>(null);
+  const days = chosenDays ?? settingDays;
+  const timeZone = useCompanyTimeZone();
+  const wayId = useId();
+  // The made password, shown once after Create (Copy, New one); Done closes and reports the new account.
+  const [issued, setIssued] = useState<{ result: CreatedUser; password: string; expiresAt: string | null } | null>(null);
+  function finish() {
+    if (issued) {
+      const { temporaryPassword: _shownOnce, ...result } = issued.result;
+      void _shownOnce;
+      onCreated?.(result);
+    }
+    onClose();
+  }
+  const finishRef = useRef(finish);
+  finishRef.current = finish;
   // Their companies, once the site has two or more: the picked one ticked to start with (the server's
   // own default). With one company there is no field, and the server gives them that company.
   const companyChoices = useCompanyChoices();
@@ -110,6 +132,15 @@ export function CreateUserModal({ onClose, onCreated, clientOnly = false, onOpen
   const clearField = (k: FieldName) => setFieldErrors((prev) => (prev[k] ? { ...prev, [k]: undefined } : prev));
   const describe = (k: FieldName, ...more: (string | false | null | undefined)[]) => [`nu-${k}-hint`, fieldErrors[k] ? `nu-${k}-error` : null, ...more].filter(Boolean).join(' ');
 
+  // One way in, sent as the server takes it.
+  const wayIn = sendWelcome ? { sendWelcome: true, inviteDays: days } : { generatePassword: style, inviteDays: days };
+  // "New one": a fresh temporary password replaces the one just shown (the old one stops working).
+  const renewMut = useMutation({
+    mutationFn: (id: string) => usersApi(apiClient).makeTemporaryPassword(id, style, days),
+    onSuccess: (made) => setIssued((prev) => (prev ? { ...prev, password: made.temporaryPassword, expiresAt: made.expiresAt } : prev)),
+    onError: () => setError('Couldn’t make a new password. The one shown still works.'),
+  });
+
   const createMut = useMutation({
     mutationFn: (): Promise<CreatedUser> =>
       isClient
@@ -121,25 +152,28 @@ export function CreateUserModal({ onClose, onCreated, clientOnly = false, onOpen
               email,
               organisation: organisation.trim() || null,
               phone: phone.trim() || null,
-              ...(password ? { password } : {}),
-              sendWelcome,
+              ...wayIn,
               projects: grantsOf(access),
             })
-            .then((r) => ({ user: clientAsUser(r.client), welcome: r.welcome }))
+            .then((r) => ({ user: clientAsUser(r.client), welcome: r.welcome, ...(r.temporaryPassword ? { temporaryPassword: r.temporaryPassword } : {}) }))
         : usersApi(apiClient).create({
         firstName,
         lastName,
         username,
         email,
-        ...(password ? { password } : {}),
         roleNames: [role],
-        sendWelcome,
+        ...wayIn,
         ...(companyChoices.show ? { companyIds, primaryCompanyId } : {}),
       }),
     onSuccess: (result) => {
       qc.invalidateQueries({ queryKey: ['users'] });
       qc.invalidateQueries({ queryKey: ['directory'] });
       if (isClient) qc.invalidateQueries({ queryKey: CLIENTS_KEY });
+      // A temporary password: shown here once, then Done.
+      if (result.temporaryPassword) {
+        setIssued({ result, password: result.temporaryPassword, expiresAt: result.user.temporaryPasswordExpiresAt ?? null });
+        return;
+      }
       onCreated?.(result);
       onClose();
     },
@@ -170,22 +204,6 @@ export function CreateUserModal({ onClose, onCreated, clientOnly = false, onOpen
     // An employee needs a company (administrators see every company anyway). The server's words.
     if (!isClient && companyChoices.show && role === 'EMPLOYEE' && companyIds.length === 0) {
       setError('Choose at least one company.');
-      return;
-    }
-    // With a welcome email they set their own password; without one, a temporary password is needed.
-    if (!password && !sendWelcome) {
-      // Only point at the option when it can be turned on.
-      setError(
-        emailEnabled
-          ? 'Enter a temporary password, or turn on “Send a welcome email” so they can set their own.'
-          : 'Email isn’t set up on this server, so a welcome email can’t be sent. Give them a temporary password.',
-      );
-      passwordRef.current?.focus();
-      return;
-    }
-    // Same rule as the server (8+ characters with a letter and a number), so it never rejects what we accept.
-    if (password && !isStrongPassword(password)) {
-      setError(PASSWORD_RULE_ERROR);
       return;
     }
     // A client's projects each need a module (the server's rule), said before anything is sent.
@@ -254,46 +272,59 @@ export function CreateUserModal({ onClose, onCreated, clientOnly = false, onOpen
           </div>
         </div>
       ) : null}
-      <div className="flex items-start gap-2.5 rounded-lg border border-line bg-ground/60 px-3 py-2.5">
-        <input
-          id="nu-welcome"
-          type="checkbox"
-          checked={sendWelcome}
-          disabled={!emailEnabled}
-          onChange={(e) => setWelcomeChoice(e.target.checked)}
-          aria-describedby="nu-welcome-hint"
-          className="mt-0.5 h-4 w-4 flex-none accent-brand disabled:opacity-50"
-        />
-        <div className="flex min-w-0 flex-col gap-0.5">
-          <label htmlFor="nu-welcome" className={`tap text-sm font-medium ${emailEnabled ? 'text-ink' : 'text-ink-2'}`}>Send a welcome email</label>
-          <p id="nu-welcome-hint" className="text-xs text-ink-2">
-            {emailEnabled
-              ? 'They get their username and a link to set their own password (it works for 7 days).'
-              : 'Email isn’t set up on this server, so a welcome email can’t be sent. Give them a temporary password instead.'}
-          </p>
-        </div>
-      </div>
-      {/* Side by side from sm up; on a phone the password (with its hints) and the role take a row each. */}
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="flex flex-col gap-1.5">
-          <FieldLabel htmlFor="nu-password" required={!sendWelcome}>
-            Temp password{sendWelcome ? <span className="font-normal text-ink-2"> (optional)</span> : null}
-          </FieldLabel>
+      <fieldset className="flex flex-col gap-2 rounded-lg border border-line bg-ground/60 px-3 py-3" aria-describedby={`${wayId}-why`}>
+        <legend className="px-1 text-sm font-semibold text-ink">How will they get in?</legend>
+        <p id={`${wayId}-why`} className="sr-only">One way only: an invitation link or a temporary password.</p>
+        <div className="flex items-start gap-2.5">
           <input
-            id="nu-password"
-            ref={passwordRef}
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className={fieldClass(false)}
-            autoComplete="new-password"
-            aria-required={!sendWelcome}
-            aria-describedby={sendWelcome ? 'nu-password-hint nu-password-optional' : 'nu-password-hint'}
+            id="nu-way-link"
+            type="radio"
+            name="nu-way"
+            checked={way === 'link'}
+            disabled={!emailEnabled}
+            onChange={() => setWayChoice('link')}
+            aria-describedby="nu-way-link-hint"
+            className="mt-1 h-4 w-4 flex-none accent-brand disabled:opacity-50"
           />
-          <p id="nu-password-hint" className="text-xs text-ink-2">{PASSWORD_RULE_HINT}</p>
-          {sendWelcome ? <p id="nu-password-optional" className="text-xs text-ink-2">Or leave it empty: they choose their own with the link.</p> : null}
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <label htmlFor="nu-way-link" className={`tap text-sm font-medium ${emailEnabled ? 'cursor-pointer text-ink' : 'cursor-not-allowed text-ink-2'}`}>
+              Email an invitation link{emailEnabled ? ' (recommended)' : ''}
+            </label>
+            <p id="nu-way-link-hint" className="text-xs text-ink-2">
+              {emailEnabled ? 'They get their username and a one-time link to set their own password.' : 'Email isn’t set up on this server, so no invitation can be sent.'}
+            </p>
+          </div>
         </div>
-        {clientOnly ? null : (
+        <div className="flex items-start gap-2.5">
+          <input
+            id="nu-way-temporary"
+            type="radio"
+            name="nu-way"
+            checked={way === 'temporary'}
+            onChange={() => setWayChoice('temporary')}
+            aria-describedby="nu-way-temporary-hint"
+            className="mt-1 h-4 w-4 flex-none accent-brand"
+          />
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <label htmlFor="nu-way-temporary" className="tap cursor-pointer text-sm font-medium text-ink">
+              Give them a temporary password yourself
+            </label>
+            <p id="nu-way-temporary-hint" className="text-xs text-ink-2">
+              We make a strong one; you see it once, to give them yourself (never by email). They choose their own at their first sign-in.
+            </p>
+          </div>
+        </div>
+        <div className="mt-1 grid gap-3 border-t border-line pt-3 sm:grid-cols-2">
+          {way === 'temporary' ? <StyleChoice name="nu-style" value={style} onChange={setStyle} /> : null}
+          <div className="flex flex-col gap-1.5">
+            <FieldLabel htmlFor="nu-days">{way === 'link' ? 'The link works for' : 'Unused, it stops working after'}</FieldLabel>
+            <LifetimeSelect id="nu-days" value={days} onChange={setChosenDays} />
+          </div>
+        </div>
+      </fieldset>
+      {/* On a phone the role takes the whole row. */}
+      {clientOnly ? null : (
+        <div className="grid gap-3 sm:grid-cols-2">
           <div className="flex flex-col gap-1.5">
             <FieldLabel htmlFor="nu-role">Role</FieldLabel>
             <select
@@ -312,8 +343,8 @@ export function CreateUserModal({ onClose, onCreated, clientOnly = false, onOpen
             </select>
             {isClient ? <p id="nu-role-hint" className="text-xs text-ink-2">Someone outside the company: they sign in to the Client portal and see only the projects you give them.</p> : null}
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </>
   );
   const accessField = isClient ? <ClientAccessEditor value={access} onChange={setAccess} idPrefix="nu-access" showErrors={accessChecked} /> : null;
@@ -331,9 +362,39 @@ export function CreateUserModal({ onClose, onCreated, clientOnly = false, onOpen
   return (
     <ModalPortal>
       <div className={dialogLayer(size)}>
-        <div className="absolute inset-0 bg-scrim animate-fade-in" onClick={onClose} aria-hidden="true" />
+        <div className="absolute inset-0 bg-scrim animate-fade-in" onClick={finish} aria-hidden="true" />
         <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={title} className={`keyboard-flow-cramped card relative flex ${dialogPanel(size)} animate-scale-in flex-col overflow-hidden`}>
-          {/* The fields scroll; the buttons stay in view — above a phone's keyboard, too. */}
+          {issued ? (
+            // 1.23.6: the made temporary password, once (Copy, New one); Done closes.
+            <div className="flex min-h-0 flex-1 flex-col">
+              <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4 sm:p-6">
+                <h2 className="mb-1 font-display text-xl font-bold text-ink">{isClient ? 'Client created' : 'User created'}</h2>
+                {error ? (
+                  <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
+                    {error}
+                  </p>
+                ) : null}
+                <TemporaryPasswordReveal
+                  idPrefix="nu-temp"
+                  password={issued.password}
+                  personName={`${issued.result.user.firstName} ${issued.result.user.lastName}`.trim() || issued.result.user.username}
+                  expiresAt={issued.expiresAt}
+                  timeZone={timeZone}
+                  onNewOne={() => {
+                    setError(null);
+                    renewMut.mutate(issued.result.user.id);
+                  }}
+                  renewing={renewMut.isPending}
+                />
+              </div>
+              <div className="flex flex-none items-center gap-2 border-t border-line px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 sm:justify-end sm:px-6">
+                <Button type="button" onClick={finish} className="!min-h-[44px] flex-1 sm:min-w-[9.5rem] sm:flex-none">
+                  Done
+                </Button>
+              </div>
+            </div>
+          ) : (
+          /* The fields scroll; the buttons stay in view — above a phone's keyboard, too. */
           <form onSubmit={submit} className="keyboard-flow-body flex min-h-0 flex-1 flex-col">
             <div className="keyboard-flow-body flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4 sm:p-6">
               <h2 className="mb-1 font-display text-xl font-bold text-ink">{title}</h2>
@@ -363,6 +424,7 @@ export function CreateUserModal({ onClose, onCreated, clientOnly = false, onOpen
               </Button>
             </div>
           </form>
+          )}
         </div>
       </div>
     </ModalPortal>

@@ -139,7 +139,8 @@ describe('EditUserModal: a big form (1.22)', () => {
     const profile = dialog.querySelector<HTMLElement>('[data-form-column="profile"]')!;
     const access = dialog.querySelector<HTMLElement>('[data-form-column="access"]')!;
     expect(profile.parentElement!.className).toMatch(/grid-cols-/);
-    for (const field of [/first name/i, /username/i, /^email/i, /new password/i]) expect(profile).toContainElement(screen.getByLabelText(field));
+    for (const field of [/first name/i, /username/i, /^email/i]) expect(profile).toContainElement(screen.getByLabelText(field));
+    expect(profile).toContainElement(screen.getByRole('button', { name: 'Make a temporary password' }));
     expect(access).toContainElement(companies);
     expect(access).toContainElement(screen.getByLabelText('Account status'));
     expect(access).toContainElement(screen.getByLabelText('Administrator'));
@@ -156,75 +157,47 @@ describe('EditUserModal: a big form (1.22)', () => {
     open(sam);
     const companies = await screen.findByRole('group', { name: 'Companies' });
     expect(screen.getByRole('dialog', { name: 'Edit sam' }).querySelector('[data-form-column]')).toBeNull();
-    const order = [screen.getByLabelText(/^email/i), companies, screen.getByLabelText('Account status'), screen.getByLabelText(/new password/i)];
+    const order = [screen.getByLabelText(/^email/i), companies, screen.getByLabelText('Account status'), screen.getByRole('button', { name: 'Make a temporary password' })];
     for (let i = 1; i < order.length; i++) expect(order[i - 1]!.compareDocumentPosition(order[i]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('Enter in New password resets it (not the profile)', async () => {
+  it('Make a temporary password never saves the profile', async () => {
     const server = companyServer({ companies: [alpha, beta] });
     open(sam);
     await screen.findByRole('group', { name: 'Companies' });
-    await userEvent.type(screen.getByLabelText(/new password/i), 'Newpass123{Enter}');
+    await userEvent.click(screen.getByRole('button', { name: 'Make a temporary password' }));
     await waitFor(() => expect(server.requests('POST', '/users/u-sam/password')).toHaveLength(1));
     expect(server.requests('PUT', '/users/u-sam')).toHaveLength(0);
   });
 });
 
-// 1.22 review I2: a typed new password is never silently lost by Save changes.
-describe('EditUserModal: Reset password is its own form (1.22 review)', () => {
-  for (const width of [1280, 800]) {
-    it(`${width}px: Reset password has its own form and Reset button, outside the profile form`, async () => {
-      windowWidth(width);
-      companyServer({ companies: [alpha, beta] });
-      open(sam);
-      await screen.findByRole('group', { name: 'Companies' });
-      const box = screen.getByLabelText(/new password/i) as HTMLInputElement;
-      const profileForm = (screen.getByLabelText(/first name/i) as HTMLInputElement).form;
-      expect(profileForm).not.toBeNull();
-      expect(box.form).not.toBeNull();
-      expect(box.form).not.toBe(profileForm);
-      expect(profileForm!.contains(box.form)).toBe(false);
-      const reset = screen.getByRole('button', { name: /^reset$/i }) as HTMLButtonElement;
-      expect(reset.type).toBe('submit');
-      expect(reset.form).toBe(box.form);
-      expect((screen.getByRole('button', { name: /save changes/i }) as HTMLButtonElement).form).toBe(profileForm);
-      expect(box).toHaveAttribute('autocomplete', 'new-password');
-    });
-
-    it(`${width}px: Save changes with a new password typed but not reset keeps the dialog open and says so on the field`, async () => {
-      windowWidth(width);
-      const server = companyServer({ companies: [alpha, beta] });
-      open(sam);
-      await screen.findByRole('group', { name: 'Companies' });
-      const box = screen.getByLabelText(/new password/i);
-      await userEvent.type(box, 'Newpass123');
-      await save();
-      expect(await screen.findByText(/press reset to set it, or clear this box/i)).toBeInTheDocument();
-      expect(box).toHaveAccessibleDescription(/press reset to set it, or clear this box/i);
-      expect(box).toHaveFocus();
-      expect(onClose).not.toHaveBeenCalled();
-      expect(server.requests('PUT', '/users/u-sam')).toHaveLength(0);
-      expect(server.requests('POST', '/users/u-sam/password')).toHaveLength(0);
-      // Reset sets it; then Save changes saves the profile and closes.
-      await userEvent.click(screen.getByRole('button', { name: /^reset$/i }));
-      await waitFor(() => expect(server.requests('POST', '/users/u-sam/password')).toHaveLength(1));
-      await save();
-      await waitFor(() => expect(onClose).toHaveBeenCalled());
-      expect(server.requests('PUT', '/users/u-sam')).toHaveLength(1);
-    });
-  }
-
-  it('a cleared box no longer holds Save changes back', async () => {
+// 1.23.6: a temporary password is made on the server (never typed here), shown once with Copy and New one.
+describe('EditUserModal: Set a temporary password (1.23.6)', () => {
+  it('no password box: the kind and lifetime, then the password once — Copy, New one; Save changes is never held back', async () => {
     const server = companyServer({ companies: [alpha, beta] });
     open(sam);
     await screen.findByRole('group', { name: 'Companies' });
-    await userEvent.type(screen.getByLabelText(/new password/i), 'Newpass123');
-    await save();
-    await screen.findByText(/press reset to set it, or clear this box/i);
-    await userEvent.clear(screen.getByLabelText(/new password/i));
+    expect(document.querySelector('input[type="password"]')).toBeNull();
+    expect(screen.getByLabelText('Unused, it stops working after')).toHaveValue('7');
+    await userEvent.click(screen.getByRole('radio', { name: '16 characters' }));
+    await userEvent.selectOptions(screen.getByLabelText('Unused, it stops working after'), '3');
+    await userEvent.click(screen.getByRole('button', { name: 'Make a temporary password' }));
+    expect(await screen.findByLabelText('Temporary password')).toHaveTextContent('Hk7mPq2RtW9xZb4N');
+    expect(server.lastBody('POST', '/users/u-sam/password')).toEqual({ generate: 'characters', days: 3 });
+    expect(screen.getByRole('button', { name: 'Copy' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'New one' }));
+    await waitFor(() => expect(server.requests('POST', '/users/u-sam/password')).toHaveLength(2));
     await save();
     await waitFor(() => expect(onClose).toHaveBeenCalled());
-    expect(server.requests('PUT', '/users/u-sam')).toHaveLength(1);
+  });
+
+  it('your own account: change it in Settings instead', async () => {
+    useAuthStore.getState().setSession({ user: { id: 'u-sam', email: 'sam@x.test', username: 'sam', roles: ['ADMIN'] }, accessToken: 'at', refreshToken: 'rt' });
+    companyServer({ companies: [alpha, beta] });
+    open(sam);
+    await screen.findByRole('group', { name: 'Companies' });
+    expect(screen.queryByRole('button', { name: 'Make a temporary password' })).toBeNull();
+    expect(screen.getByText('Change your own password in Settings → Security.')).toBeInTheDocument();
   });
 });
 
@@ -257,9 +230,9 @@ describe('EditUserModal: a client account (1.23)', () => {
     expect(screen.queryByLabelText('Administrator')).toBeNull();
     expect(screen.queryByLabelText('Employee')).toBeNull();
     expect(screen.getByText(/^Client account:/)).toBeInTheDocument();
-    // The account actions that work for clients stay: status and Reset password.
+    // The account actions that work for clients stay: status and Set a temporary password.
     expect(screen.getByLabelText('Account status')).toHaveValue('ACTIVE');
-    expect(screen.getByLabelText(/new password/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Make a temporary password' })).toBeInTheDocument();
   });
 
   it('a tick and the organisation changed: PUT /clients/:id with exactly their projects (the archived one kept), never PUT /users', async () => {
@@ -349,7 +322,7 @@ describe('EditUserModal: a client account (1.23)', () => {
     const left = dialog.querySelector<HTMLElement>('[data-form-column="profile"]')!;
     const right = dialog.querySelector<HTMLElement>('[data-form-column="access"]')!;
     expect(left).toContainElement(screen.getByLabelText(/organisation/i));
-    expect(left).toContainElement(screen.getByLabelText(/new password/i));
+    expect(left).toContainElement(screen.getByRole('button', { name: 'Make a temporary password' }));
     expect(right).toContainElement(screen.getByRole('group', { name: 'Project access' }));
     expect(right).toContainElement(screen.getByLabelText('Account status'));
   });

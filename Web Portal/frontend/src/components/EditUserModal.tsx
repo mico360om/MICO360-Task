@@ -1,10 +1,9 @@
-import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode, type Ref } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type ReactNode, type Ref } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { CLIENTS_KEY, clientAsUser, clientKey, clientsApi, isClientRoles, type ClientAccount } from '../api/clients';
-import { usersApi, type ApiUser, type UserStatus } from '../api/users';
+import { usersApi, type ApiUser, type TemporaryPasswordStyle, type UserStatus } from '../api/users';
 import { ApiError } from '../lib/api-client';
-import { isStrongPassword, PASSWORD_RULE_ERROR, PASSWORD_RULE_HINT } from '../lib/passwordPolicy';
 import { useAuthStore } from '../stores/auth-store';
 import { Button } from './ui/Button';
 import { FieldLabel, fieldClass } from './ui/Field';
@@ -22,6 +21,8 @@ import type { DatePreferences } from '../api/preferences';
 import { ClientAccessEditor } from './clients/ClientAccessEditor';
 import { grantsChanged, grantsOf, noModuleText, rowsFromAccount, rowsWithoutModule, type AccessRow } from './clients/client-access';
 import { SignInSection } from './onboarding/SignInSection';
+import { LifetimeSelect, StyleChoice, TemporaryPasswordReveal, useInvitationDays } from './onboarding/way-in';
+import { useCompanyTimeZone } from '../lib/useCompanyTimeZone';
 import { EmailTaken, UsernameTaken, useIdentityCheck } from './onboarding/identity';
 import { statusChangeWords } from './onboarding/AccountStatusDialog';
 import { EMAIL_CHANGE_NOTE } from '../lib/onboarding';
@@ -33,7 +34,6 @@ export interface EditUserModalProps {
 }
 
 /** Said on the New password box when Save changes is pressed with a password typed but not reset. */
-const UNAPPLIED_PASSWORD = 'This new password isn’t set yet. Press Reset to set it, or clear this box.';
 
 const ROLE_OPTIONS: { value: string; label: string; hint: string }[] = [
   { value: 'ADMIN', label: 'Administrator', hint: 'Full access — manage users, settings and every project.' },
@@ -180,83 +180,77 @@ function ProfileFields({ values, onChange, firstRef, more, saved, userId, client
 const missingName = (v: NameValues) => !v.firstName.trim() || !v.lastName.trim() || !v.username.trim() || !v.email.trim();
 
 /**
- * Reset password, as its own form (1.22 review): its box and Reset button belong to the reset form
- * (the `form` attribute — that form sits after the profile's, so both layouts keep their places).
- * Enter in the box or Reset resets the password and never saves the profile. `holdsSave()`: a new
- * password typed but not reset is never dropped by Save changes — it says so on the box instead.
+ * 1.23.6 "Set a temporary password": made on the server (never typed here), shown once with Copy and
+ * "New one", given to the person by the administrator themselves (never by email). It ends any invitation
+ * link (one way in), unlocks a locked account, and must be changed at the person's first sign-in; unused,
+ * it stops working after the lifetime. Your own account: change it in Settings instead.
  */
-function usePasswordReset(userId: string, invalidate: () => void) {
-  const [newPassword, setNewPassword] = useState('');
+function usePasswordReset(person: { id: string; firstName: string; lastName: string; username: string }, invalidate: () => void, isSelf = false) {
+  const [style, setStyle] = useState<TemporaryPasswordStyle>('words');
+  const settingDays = useInvitationDays();
+  const [chosenDays, setChosenDays] = useState<number | null>(null);
+  const days = chosenDays ?? settingDays;
+  const [made, setMade] = useState<{ password: string; expiresAt: string } | null>(null);
   const [pwNotice, setPwNotice] = useState<{ text: string; error?: boolean } | null>(null);
-  const newPwRef = useRef<HTMLInputElement>(null);
-  const resetFormId = `${useId()}-reset`;
+  const timeZone = useCompanyTimeZone();
 
-  const resetPwMut = useMutation({
-    mutationFn: () => usersApi(apiClient).resetPassword(userId, newPassword),
-    onSuccess: () => {
-      setNewPassword('');
-      setPwNotice({ text: 'Password reset. Share the new password with the user securely.' });
-      invalidate(); // a reset also clears a sign-in lock
+  const makeMut = useMutation({
+    mutationFn: () => usersApi(apiClient).makeTemporaryPassword(person.id, style, days),
+    onMutate: () => setPwNotice(null),
+    onSuccess: (m) => {
+      setMade({ password: m.temporaryPassword, expiresAt: m.expiresAt });
+      invalidate(); // a temporary password also clears a sign-in lock and ends the invitation link
     },
-    onError: (err) => setPwNotice({ text: reason(err, `Couldn’t reset the password. ${PASSWORD_RULE_ERROR}`), error: true }),
+    onError: (err) => setPwNotice({ text: reason(err, 'Couldn’t make a temporary password. Try again.'), error: true }),
   });
 
-  function resetPassword(e?: FormEvent) {
-    e?.preventDefault();
-    setPwNotice(null);
-    if (!isStrongPassword(newPassword)) {
-      setPwNotice({ text: PASSWORD_RULE_ERROR, error: true });
-      return;
-    }
-    resetPwMut.mutate();
-  }
-
-  function holdsSave(): boolean {
-    if (newPassword === '') return false;
-    setPwNotice({ text: UNAPPLIED_PASSWORD, error: true });
-    newPwRef.current?.focus();
-    return true;
-  }
-
   const section = (
-    <section aria-labelledby="eu-reset-title" className="flex flex-col gap-1.5 border-t border-line pt-4">
+    <section aria-labelledby="eu-reset-title" className="flex flex-col gap-2 border-t border-line pt-4">
       <p id="eu-reset-title" className={SECTION}>Set a temporary password</p>
-      <p className="text-xs text-ink-2">Give them a new password yourself and share it securely; they can change it after signing in. It also unlocks a locked account. (Send password reset above emails them a link instead.)</p>
-      {pwNotice ? (
-        <p id="eu-newpw-notice" role={pwNotice.error ? 'alert' : 'status'} className={`rounded-lg px-3 py-2 text-sm ${pwNotice.error ? 'bg-danger-soft text-danger' : 'bg-success-soft text-success'}`}>
-          {pwNotice.text}
-        </p>
-      ) : null}
-      <div className="flex items-end gap-2">
-        <div className="flex flex-1 flex-col gap-1.5">
-          <FieldLabel htmlFor="eu-newpw">New password</FieldLabel>
-          <input
-            ref={newPwRef}
-            id="eu-newpw"
-            form={resetFormId}
-            type="password"
-            value={newPassword}
-            onChange={(e) => { setNewPassword(e.target.value); setPwNotice(null); }}
-            onKeyDown={(e) => {
-              if (e.key !== 'Enter') return;
-              e.preventDefault();
-              if (newPassword && !resetPwMut.isPending) resetPassword();
-            }}
-            autoComplete="new-password"
-            aria-describedby={pwNotice ? 'eu-newpw-notice eu-newpw-hint' : 'eu-newpw-hint'}
-            aria-invalid={pwNotice?.error ? true : undefined}
-            className={fieldClass(false)}
-          />
-        </div>
-        <Button type="submit" form={resetFormId} variant="secondary" disabled={!newPassword || resetPwMut.isPending} loading={resetPwMut.isPending} className="[@media(pointer:coarse)]:!min-h-11">
-          Reset
-        </Button>
-      </div>
-      <p id="eu-newpw-hint" className="text-xs text-ink-2">{PASSWORD_RULE_HINT}</p>
+      {isSelf ? (
+        <p className="text-xs text-ink-2">Change your own password in Settings → Security.</p>
+      ) : (
+        <>
+          <p className="text-xs text-ink-2">
+            We make a strong password for you to give them yourself — never by email. It ends any invitation link, unlocks a locked account, and they choose their own
+            at their first sign-in. (Send password reset above emails them a link instead.)
+          </p>
+          {pwNotice ? (
+            <p role={pwNotice.error ? 'alert' : 'status'} className={`rounded-lg px-3 py-2 text-sm ${pwNotice.error ? 'bg-danger-soft text-danger' : 'bg-success-soft text-success'}`}>
+              {pwNotice.text}
+            </p>
+          ) : null}
+          {made ? (
+            <TemporaryPasswordReveal
+              idPrefix="eu-temp"
+              password={made.password}
+              personName={`${person.firstName} ${person.lastName}`.trim() || person.username}
+              expiresAt={made.expiresAt}
+              timeZone={timeZone}
+              onNewOne={() => makeMut.mutate()}
+              renewing={makeMut.isPending}
+            />
+          ) : (
+            <div className="flex flex-col gap-3 rounded-lg border border-line p-3">
+              <StyleChoice name="eu-style" value={style} onChange={setStyle} disabled={makeMut.isPending} />
+              <div className="flex flex-wrap items-end gap-3">
+                <div className="flex min-w-[10rem] flex-1 flex-col gap-1.5">
+                  <FieldLabel htmlFor="eu-days">Unused, it stops working after</FieldLabel>
+                  <LifetimeSelect id="eu-days" value={days} onChange={setChosenDays} disabled={makeMut.isPending} />
+                </div>
+                <Button type="button" variant="secondary" onClick={() => makeMut.mutate()} loading={makeMut.isPending} className="[@media(pointer:coarse)]:!min-h-11">
+                  Make a temporary password
+                </Button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
     </section>
   );
-  // Reset password's own form: its box and Reset button point here with `form`.
-  const form = <form id={resetFormId} onSubmit={resetPassword} hidden />;
+  // Nothing typed here any more: Save never has a password to hold back.
+  const holdsSave = (): boolean => false;
+  const form = null;
   return { section, form, holdsSave };
 }
 
@@ -321,7 +315,7 @@ function StaffAccountDialog({ user, onClose }: EditUserModalProps) {
   const mineChanged = adminInForm && mine !== savedMine;
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['users'] });
-  const password = usePasswordReset(user.id, invalidate);
+  const password = usePasswordReset(user, invalidate, isSelf);
 
   const saveMut = useMutation({
     mutationFn: async () => {
@@ -509,7 +503,7 @@ function ClientAccountForm({ client, onClose }: { client: ClientAccount; onClose
     void qc.invalidateQueries({ queryKey: ['users'] });
     void qc.invalidateQueries({ queryKey: CLIENTS_KEY });
   };
-  const password = usePasswordReset(client.id, invalidate);
+  const password = usePasswordReset(client, invalidate);
 
   const saveMut = useMutation({
     mutationFn: async () => {

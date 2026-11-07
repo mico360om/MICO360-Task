@@ -97,8 +97,7 @@ describe('UsersPage (admin management)', () => {
     await userEvent.type(screen.getByLabelText(/first name/i), 'Nadia');
     await userEvent.type(screen.getByLabelText(/last name/i), 'Ahmed');
     await userEvent.type(screen.getByLabelText(/username/i), 'nadia');
-    await userEvent.type(screen.getByLabelText(/^email/i), 'nadia@x.co');
-    await userEvent.type(screen.getByLabelText(/temp password/i), 'Secret123');
+    await userEvent.type(screen.getByRole('textbox', { name: /^email/i }), 'nadia@x.co');
     await userEvent.click(screen.getByRole('button', { name: /create user/i }));
     await waitFor(() =>
       expect(calls.some((c) => c.url.endsWith('/users') && c.method === 'POST' && c.body?.username === 'nadia')).toBe(true),
@@ -174,28 +173,14 @@ describe('UsersPage (admin management)', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(/last active administrator/i);
   });
 
-  it('applies the shared password rule when an admin resets a password (SEC-12)', async () => {
+  // 1.23.6: an administrator never types a password for someone: one is made on the server, shown once.
+  it('makes a temporary password from the edit modal (never typed): POST /users/:id/password with what to make', async () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('omar')).toBeInTheDocument());
     await userEvent.click(screen.getAllByRole('button', { name: /^edit /i })[0]!);
-    expect(screen.getByText(/at least 8 characters, with a letter and a number/i)).toBeInTheDocument();
-    await userEvent.type(await screen.findByLabelText(/new password/i), 'abc123');
-    await userEvent.click(screen.getByRole('button', { name: /^reset$/i }));
-    expect(await screen.findByRole('alert')).toHaveTextContent(/at least 8 characters/i);
-    expect(calls.some((c) => c.url.endsWith('/users/u9/password'))).toBe(false);
-  });
-
-  it('resets a user’s password from the edit modal', async () => {
-    renderPage();
-    await waitFor(() => expect(screen.getByText('omar')).toBeInTheDocument());
-    await userEvent.click(screen.getAllByRole('button', { name: /^edit /i })[0]!);
-    await userEvent.type(await screen.findByLabelText(/new password/i), 'FreshPass1!');
-    await userEvent.click(screen.getByRole('button', { name: /^reset$/i }));
-    await waitFor(() =>
-      expect(
-        calls.some((c) => c.url.endsWith('/users/u9/password') && c.method === 'POST' && c.body?.password === 'FreshPass1!'),
-      ).toBe(true),
-    );
+    expect(document.querySelector('input[type="password"]')).toBeNull();
+    await userEvent.click(await screen.findByRole('button', { name: 'Make a temporary password' }));
+    await waitFor(() => expect(calls.some((c) => c.url.endsWith('/users/u9/password') && c.method === 'POST' && c.body?.generate === 'words' && c.body?.days === 7)).toBe(true));
   });
 });
 

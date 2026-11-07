@@ -12,6 +12,7 @@ import { MeetingHoursSettings, workingHoursText } from '../components/admin/Meet
 import { MeetingReminderSettings } from '../components/admin/MeetingReminderSettings';
 import { isMeetingReminders, reminderSummary } from '../components/admin/meeting-reminder-words';
 import { BackupSettings } from '../components/admin/BackupSettings';
+import { AccountSettings } from '../components/admin/AccountSettings';
 import { ErrorLogSettings } from '../components/admin/ErrorLogSettings';
 
 const CARRY_STATUSES: { value: string; label: string }[] = [
@@ -57,6 +58,7 @@ const KNOWN_SETTINGS: { key: string; label: string; format: (v: unknown) => stri
     },
   },
   { key: 'meetings.reminders', label: 'Meeting reminders', format: (v) => (isMeetingReminders(v) ? reminderSummary(v) : null) },
+  { key: 'accounts.invitationDays', label: 'Invitation links last', format: (v) => (typeof v === 'number' && [1, 3, 7, 14].includes(v) ? (v === 1 ? '1 day' : `${v} days`) : null) },
   { key: 'errorLog.collectBrowserErrors', label: 'Collect browser errors', format: (v) => (typeof v === 'boolean' ? (v ? 'On' : 'Off') : null) },
 ];
 /** The company week (the Management page's weeks and the weekly summary's day). */
@@ -241,6 +243,9 @@ export function SystemSettingsPage() {
             <p className="mt-2 text-xs text-ink-2">The Management page’s weeks and the weekly summary’s day follow it.</p>
           </fieldset>
         </section>
+
+        {/* 1.23.6: how long invitation links (and unused temporary passwords) last. */}
+        <AccountSettings />
 
         {/* The working hours meeting free times are suggested in. */}
         <MeetingHoursSettings />

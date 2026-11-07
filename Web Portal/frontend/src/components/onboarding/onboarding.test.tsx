@@ -78,7 +78,7 @@ describe('Manage account: Sign-in & email', () => {
     answers['/password-reset-email'] = () => json({ data: { userId: 'u1', email: 'sara@x.co', sent: true } });
     wrap(<SignInSection user={sara({ onboarding: 'INVITED', invitedAt: '2026-11-05T06:00:00Z', welcomeSentAt: '2026-11-05T06:00:00Z' })} />);
     await userEvent.click(screen.getByRole('button', { name: 'Resend invitation' }));
-    expect(await screen.findByRole('status')).toHaveTextContent('Invitation resent to sara@x.co. The link works for 7 days; any earlier one stops working.');
+    expect(await screen.findByRole('status')).toHaveTextContent('Invitation resent to sara@x.co. The link works for 7 days; any earlier one (and an unused temporary password) stops working.');
     await userEvent.click(screen.getByRole('button', { name: 'Send password reset' }));
     expect(await screen.findByText(/Password reset link sent to sara@x\.co\. It works for an hour/)).toBeInTheDocument();
     expect(calls.filter((c) => c.method === 'POST').map((c) => c.url.replace(/^.*\/api\/v1/, ''))).toEqual(['/users/u1/welcome-email', '/users/u1/password-reset-email']);
@@ -151,5 +151,45 @@ describe('Duplicate warnings while typing', () => {
     wrap(<Probe email="ahmed@" username="ah" />);
     await new Promise((r) => setTimeout(r, 600));
     expect(calls.some((c) => c.url.endsWith('/users/identity-check'))).toBe(false);
+  });
+});
+
+// 1.23.6 addendum: the invitation's lifetime, Cancel invitation, and the temporary password line.
+describe('Manage account: Sign-in & email (1.23.6)', () => {
+  it('a lifetime for this invitation goes with the send', async () => {
+    answers['/welcome-email'] = () => json({ data: { userId: 'u1', email: 'sara@x.co', sent: true } });
+    wrap(<SignInSection user={sara({ onboarding: 'INVITED', invitedAt: '2026-11-05T06:00:00Z', welcomeSentAt: '2026-11-05T06:00:00Z' })} />);
+    await userEvent.selectOptions(screen.getByLabelText('Invitation link works for'), '3');
+    await userEvent.click(screen.getByRole('button', { name: 'Resend invitation' }));
+    expect(await screen.findByRole('status')).toHaveTextContent('The link works for 3 days');
+    expect(calls.find((c) => c.url.endsWith('/welcome-email'))!.body).toEqual({ days: 3 });
+  });
+
+  it('Cancel invitation for someone who never signed in: says what it does', async () => {
+    answers['/invitation/cancel'] = () => json({ data: sara({ onboarding: 'INVITE_CANCELLED', invitationCancelledAt: '2026-11-07T08:00:00Z' }) });
+    wrap(<SignInSection user={sara({ onboarding: 'INVITED', invitedAt: '2026-11-05T06:00:00Z', welcomeSentAt: '2026-11-05T06:00:00Z' })} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel invitation' }));
+    expect(await screen.findByRole('status')).toHaveTextContent('Invitation cancelled. They can’t get in — no link, Forgot password or emailed code — until you send a new invitation or set a temporary password.');
+    expect(calls.filter((c) => c.method === 'POST').map((c) => c.url.replace(/^.*\/api\/v1/, ''))).toEqual(['/users/u1/invitation/cancel']);
+  });
+
+  it('no Cancel invitation once they have signed in, or after it was cancelled (which is said)', () => {
+    const { unmount } = wrap(<SignInSection user={sara({ lastLoginAt: '2026-11-01T06:00:00Z', invitedAt: '2026-10-30T06:00:00Z' })} />);
+    expect(screen.queryByRole('button', { name: 'Cancel invitation' })).toBeNull();
+    unmount();
+    wrap(<SignInSection user={sara({ onboarding: 'INVITE_CANCELLED', invitedAt: '2026-11-05T06:00:00Z', invitationCancelledAt: '2026-11-06T06:00:00Z' })} />);
+    expect(screen.queryByRole('button', { name: 'Cancel invitation' })).toBeNull();
+    expect(screen.getByText('The invitation is cancelled: no way in works until you send a new invitation or set a temporary password.')).toBeInTheDocument();
+    expect(screen.getByText('Invitation cancelled')).toBeInTheDocument();
+  });
+
+  it('“A temporary password was set on … by …” — never the password', () => {
+    wrap(
+      <SignInSection
+        user={sara({ mustChangePassword: true, temporaryPasswordSetAt: '2026-11-07T06:00:00Z', temporaryPasswordSetBy: { id: 'me', name: 'Khurram' }, temporaryPasswordExpiresAt: '2099-11-14T06:00:00Z' })}
+      />,
+    );
+    expect(screen.getByText(/^A temporary password was set on 7 Nov( 2026)? by Khurram\./)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Cancel invitation' })).toBeInTheDocument();
   });
 });

@@ -44,6 +44,8 @@ function problemText(err: unknown, fallback: string): string {
 /** What the page says once a new client account is made (as User Management says it). */
 function createdNotice({ user, welcome }: CreatedUser): Notice {
   const whose = user.username ? `${user.username}’s account is ready` : 'The account is ready';
+  // 1.23.6: a temporary password (shown once in the form): they choose their own at the first sign-in.
+  if (user.mustChangePassword) return { text: `${whose}. They choose their own password at their first sign-in.` };
   if (!welcome) return { text: `${whose}.` };
   if (welcome.sent) return { text: `${whose}. Welcome email sent to ${welcome.email ?? user.email}.` };
   return { text: `${whose}, but the welcome email wasn’t sent: ${welcome.why ?? 'it couldn’t be sent'}.`, error: true };

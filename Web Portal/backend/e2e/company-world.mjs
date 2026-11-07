@@ -87,7 +87,8 @@ export async function seedCompanyWorld(base = process.env.E2E_BASE ?? 'http://lo
       await A0.post('/users', {
         email: `${name}.${tag}@world.test`,
         username: `${name}_${tag}`,
-        password: PASSWORD,
+        // 1.23.6: a password typed here is a temporary one (changed at the first sign-in, below).
+        password: temporary,
         firstName: name.charAt(0).toUpperCase() + name.slice(1),
         lastName: last,
         roleNames: ['EMPLOYEE'],
@@ -99,8 +100,16 @@ export async function seedCompanyWorld(base = process.env.E2E_BASE ?? 'http://lo
     // the server can send email (a test server saves it to a folder). These are test people: the
     // administrator vouches for them (a server from before onboarding answers 404, which is fine).
     await c.call(admin, 'POST', `/users/${id}/email-verified`, { reason: 'e2e test person' });
+    // 1.23.6: the first sign-in with a temporary password asks for their own (the website's step), so
+    // each test person chooses the shared test password. An older server signs straight in: then the
+    // administrator sets the test password instead.
+    const first = await c.call(null, 'POST', '/auth/login', { identifier: `${name}.${tag}@world.test`, password: temporary, acceptChallenge: true, acceptPasswordChange: true });
+    const step = first.json?.data?.changePassword;
+    if (step) await c.ok(c.call(null, 'POST', '/auth/password/first-change', { ticket: step.ticket, password: PASSWORD }), `${name}: own password`);
+    else await c.ok(c.call(admin, 'POST', `/users/${id}/password`, { password: PASSWORD }), `${name}: password`);
     return id;
   };
+  const temporary = `Temp-${tag}-7k`;
   const people = {
     ana: await person('ana', `Alpha ${tag}`, [companies.A]),
     amy: await person('amy', 'Alphaonly', [companies.A]),

@@ -174,7 +174,7 @@ describe('LoginPage', () => {
       await userEvent.type(screen.getByLabelText(/one-time code/i), '482913');
       await userEvent.click(screen.getByRole('button', { name: /verify & sign in/i }));
       await waitFor(() => expect(useAuthStore.getState().isAuthenticated).toBe(true));
-      expect(sent).toContainEqual({ url: expect.stringContaining('/auth/otp/verify'), body: { identifier: 'ada@mico360.test', code: '482913' } });
+      expect(sent).toContainEqual({ url: expect.stringContaining('/auth/otp/verify'), body: { identifier: 'ada@mico360.test', code: '482913', acceptPasswordChange: true } });
     });
 
     it('says why a wrong code was refused and keeps the code step open', async () => {
@@ -216,7 +216,7 @@ describe('LoginPage', () => {
       await userEvent.type(code, '482913');
       await userEvent.click(screen.getByRole('button', { name: /verify & sign in/i }));
       await waitFor(() => expect(useAuthStore.getState().isAuthenticated).toBe(true));
-      expect(sent).toContainEqual({ url: expect.stringContaining('/auth/otp/verify'), body: { identifier: 'ada@mico360.test', code: '482913' } });
+      expect(sent).toContainEqual({ url: expect.stringContaining('/auth/otp/verify'), body: { identifier: 'ada@mico360.test', code: '482913', acceptPasswordChange: true } });
       // Signed in: the step is forgotten.
       expect(stored(sessionStorage)).not.toContain('ada@mico360.test');
     });

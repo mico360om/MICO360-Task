@@ -12,6 +12,7 @@ import logoW from '../assets/logo-w.png';
 import { HeroField } from '../components/HeroField';
 import { BrandLogo } from '../components/ui/BrandLogo';
 import { EmailCheckStep } from '../features/auth/EmailCheckStep';
+import { ChoosePasswordStep } from '../features/auth/ChoosePasswordStep';
 import type { ChallengeResend, SignInChallenge } from '../api/auth';
 
 const api = createApiClient({
@@ -23,9 +24,22 @@ interface AuthResponse {
   data: Session;
 }
 
-/** Onboarding: a password sign-in answers with a session, or (an unconfirmed email address) the code step. */
+/** 1.23.6: a temporary password signs in only as far as "Choose your own password" (a step ticket). */
+interface PasswordStep {
+  ticket: string;
+  expiresAt: string;
+}
+
+/**
+ * Onboarding: a password sign-in answers with a session, or (an unconfirmed email address) the code step,
+ * or (1.23.6, a temporary password) the "Choose your own password" step.
+ */
 interface SignInResponse {
-  data: Session | { challenge: SignInChallenge };
+  data: Session | { challenge: SignInChallenge } | { changePassword: PasswordStep };
+}
+/** The code steps answer with a session or (a temporary password) the "Choose your own password" step. */
+interface StepResponse {
+  data: Session | { changePassword: PasswordStep };
 }
 
 /** The answer to "email me a code": `sent: false` when the same address asked less than a minute ago. */
@@ -75,6 +89,8 @@ export function LoginPage() {
   // the "Keep me signed in" choice made on the password step.
   const [challenge, setChallenge] = useState<SignInChallenge | null>(null);
   const [keepChoice, setKeepChoice] = useState(true);
+  // 1.23.6: "Choose your own password" after a temporary one (the step ticket, in memory only).
+  const [passwordStep, setPasswordStep] = useState<PasswordStep | null>(null);
 
   function fail(e: unknown) {
     setLockedForSeconds(null);
@@ -108,11 +124,17 @@ export function LoginPage() {
     setLoading(true);
     clearMessages();
     try {
-      // Onboarding: this page can take the emailed-code step (the app and the extension can't, yet).
-      const res = await api.post<SignInResponse>('/auth/login', { identifier, password, acceptChallenge: true });
+      // Onboarding: this page can take the emailed-code step and (1.23.6) the "Choose your own password"
+      // step after a temporary password (the app and the extension can't, yet).
+      const res = await api.post<SignInResponse>('/auth/login', { identifier, password, acceptChallenge: true, acceptPasswordChange: true });
       if ('challenge' in res.data) {
         setKeepChoice(keepSignedIn);
         setChallenge(res.data.challenge);
+        return;
+      }
+      if ('changePassword' in res.data) {
+        setKeepChoice(keepSignedIn);
+        setPasswordStep(res.data.changePassword);
         return;
       }
       // Unticked "Keep me signed in" → the session lives only in this window (sessionStorage).
@@ -156,8 +178,13 @@ export function LoginPage() {
     setError(null);
     setErrorCode(null);
     try {
-      const res = await api.post<AuthResponse>('/auth/otp/verify', { identifier, code });
+      const res = await api.post<StepResponse>('/auth/otp/verify', { identifier, code, acceptPasswordChange: true });
       forgetCodeStep();
+      if ('changePassword' in res.data) {
+        setKeepChoice(keepSignedIn);
+        setPasswordStep(res.data.changePassword);
+        return;
+      }
       setSession(res.data, { remember: keepSignedIn });
     } catch (e) {
       fail(e);
@@ -168,9 +195,27 @@ export function LoginPage() {
 
   async function verifyChallenge(code: string) {
     if (!challenge) return;
-    const res = await api.post<AuthResponse>('/auth/challenge/verify', { challenge: challenge.token, code });
+    const res = await api.post<StepResponse>('/auth/challenge/verify', { challenge: challenge.token, code, acceptPasswordChange: true });
     setChallenge(null);
+    if ('changePassword' in res.data) {
+      setPasswordStep(res.data.changePassword);
+      return;
+    }
     setSession(res.data, { remember: keepChoice });
+  }
+
+  /** 1.23.6: their own password in place of the temporary one; then the session. */
+  async function choosePassword(password: string) {
+    if (!passwordStep) return;
+    const res = await api.post<AuthResponse>('/auth/password/first-change', { ticket: passwordStep.ticket, password });
+    setPasswordStep(null);
+    setSession(res.data, { remember: keepChoice });
+  }
+
+  function leavePasswordStep(reason?: string) {
+    setPasswordStep(null);
+    clearMessages();
+    if (reason) setError(reason);
   }
 
   async function resendChallenge(): Promise<ChallengeResend> {
@@ -254,7 +299,17 @@ export function LoginPage() {
               <BrandLogo className="h-11" alt="MICO360 Tasks" />
             </div>
 
-            {challenge ? (
+            {passwordStep ? (
+              <>
+                <h1 className="font-display text-[1.7rem] font-extrabold tracking-tight text-ink">Choose your own password</h1>
+                <p className="mt-1 text-sm text-ink-2">
+                  You signed in with a temporary password. Choose your own now — you’ll use it from here on, on the website, the app and the extension.
+                </p>
+                <div className="mt-6">
+                  <ChoosePasswordStep key={passwordStep.ticket} onSubmit={choosePassword} onBack={leavePasswordStep} />
+                </div>
+              </>
+            ) : challenge ? (
               <>
                 <h1 className="font-display text-[1.7rem] font-extrabold tracking-tight text-ink">Check your email</h1>
                 <p className="mt-1 text-sm text-ink-2">

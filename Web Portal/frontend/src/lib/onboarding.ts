@@ -4,7 +4,7 @@ import type { BadgeTone } from '../components/ui/Badge';
  * Onboarding: one status for staff and clients (the server works it out — users/onboarding-status.ts —
  * and sends it as `onboarding`), and the words User Management, the Clients page and Manage account use.
  */
-export type OnboardingStatus = 'INVITED' | 'INVITE_EXPIRED' | 'ACTIVE' | 'LOCKED' | 'DEACTIVATED';
+export type OnboardingStatus = 'INVITED' | 'INVITE_EXPIRED' | 'INVITE_CANCELLED' | 'TEMP_EXPIRED' | 'ACTIVE' | 'LOCKED' | 'DEACTIVATED';
 
 export interface OnboardingPerson {
   status: 'ACTIVE' | 'INACTIVE' | 'SUSPENDED';
@@ -40,6 +40,10 @@ export function onboardingBadge(p: Pick<OnboardingPerson, 'onboarding' | 'invite
     }
     case 'INVITE_EXPIRED':
       return { label: 'Invite expired', tone: 'warning' };
+    case 'INVITE_CANCELLED':
+      return { label: 'Invitation cancelled', tone: 'neutral' };
+    case 'TEMP_EXPIRED':
+      return { label: 'Temporary password expired', tone: 'warning' };
     case 'LOCKED':
       return { label: 'Locked', tone: 'warning' };
     case 'DEACTIVATED':
@@ -71,6 +75,29 @@ export function invitedText(p: Pick<OnboardingPerson, 'invitedAt' | 'welcomeSent
   return `Invited ${firstDay} · resent ${dayIn(last, timeZone, now)}`;
 }
 
+/**
+ * 1.23.6: "A temporary password was set on 7 Nov by Khurram. It works until 14 Nov; …" — never the
+ * password itself. Null once they chose their own (or none was set).
+ */
+export function temporaryPasswordText(
+  p: { mustChangePassword?: boolean; temporaryPasswordSetAt?: string | null; temporaryPasswordSetBy?: { id?: string; name: string } | null; temporaryPasswordExpiresAt?: string | null },
+  timeZone: string,
+  now: Date = new Date(),
+): string | null {
+  if (!p.mustChangePassword || !p.temporaryPasswordSetAt) return null;
+  const by = p.temporaryPasswordSetBy?.name ? ` by ${p.temporaryPasswordSetBy.name}` : '';
+  const set = `A temporary password was set on ${dayIn(p.temporaryPasswordSetAt, timeZone, now)}${by}.`;
+  const ends = p.temporaryPasswordExpiresAt;
+  if (!ends) return `${set} They choose their own at their first sign-in.`;
+  if (Date.parse(ends) <= now.getTime()) return `${set} It expired on ${dayIn(ends, timeZone, now)} unused — set a new one or send an invitation.`;
+  return `${set} It works until ${dayIn(ends, timeZone, now)}; they choose their own at their first sign-in.`;
+}
+
+/** 1.23.6: how long an invitation link (or an unused temporary password) may last. */
+export const INVITATION_DAY_CHOICES = [1, 3, 7, 14] as const;
+export const DEFAULT_INVITATION_DAYS = 7;
+export const lifetimeText = (days: number) => (days === 1 ? '1 day' : `${days} days`);
+
 /** "Email verified ✓" / "Not verified". */
 export function verifiedText(p: Pick<OnboardingPerson, 'emailVerifiedAt'>): { text: string; verified: boolean } {
   return p.emailVerifiedAt ? { text: 'Email verified ✓', verified: true } : { text: 'Not verified', verified: false };
@@ -81,6 +108,8 @@ export const ONBOARDING_FILTERS: { value: StatusFilter; label: string }[] = [
   { value: '', label: 'All statuses' },
   { value: 'INVITED', label: 'Invited' },
   { value: 'INVITE_EXPIRED', label: 'Invite expired' },
+  { value: 'INVITE_CANCELLED', label: 'Invitation cancelled' },
+  { value: 'TEMP_EXPIRED', label: 'Temporary password expired' },
   { value: 'ACTIVE', label: 'Active' },
   { value: 'LOCKED', label: 'Locked' },
   { value: 'DEACTIVATED', label: 'Deactivated' },
@@ -94,6 +123,8 @@ export function matchesStatusFilter(p: Pick<OnboardingPerson, 'status' | 'locked
 export const NO_ONE_WITH_STATUS: Record<OnboardingStatus, string> = {
   INVITED: 'No one has an invitation waiting.',
   INVITE_EXPIRED: 'No invitation has expired.',
+  INVITE_CANCELLED: 'No invitation is cancelled.',
+  TEMP_EXPIRED: 'No temporary password has expired.',
   ACTIVE: 'No one is active.',
   LOCKED: 'No account is locked.',
   DEACTIVATED: 'No account is deactivated.',

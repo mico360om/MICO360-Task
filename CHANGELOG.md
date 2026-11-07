@@ -66,6 +66,20 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   digits with an optional + and spaces; an organisation is required for a new client.
 - An expired or replaced invitation link now says "This invitation has expired — ask <company> to send a
   new one" before a password is typed; a used one says the account is ready.
+- New user and New client ask "How will they get in?" — one way only: Email an invitation link (the
+  default; not offered while email isn't set up) or Give them a temporary password yourself. A temporary
+  password is made for you (four everyday words and a number, like Kite-Mango-Ripple-Fern-472, or 16
+  characters) and shown once with Copy and New one, for you to give them yourself, never by email; after
+  that only "A temporary password was set on 7 Nov by Khurram" shows. At their first sign-in they choose
+  their own password (the password rules apply, and it can't be the temporary one) before any page or
+  the Client portal. The Android app and the extension say "Set your own password on the website first".
+  Manage account makes a temporary password the same way (no password box any more).
+- Invitation links last 7 days unless System Settings → Accounts says 1, 3 or 14, and each invitation
+  can pick its own. An unused temporary password stops working after the same time ("Temporary password
+  expired").
+- Cancel invitation in Manage account, for someone who hasn't signed in yet: the link (or an unused
+  temporary password) stops, and no way in works — no link, Forgot password or emailed code — until a
+  new invitation or a temporary password ("Invitation cancelled").
 
 ### Improvements
 - Deactivating or reactivating an account first says what happens (signed out everywhere at once), with
@@ -81,6 +95,13 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - Sign-in codes are 6 digits, stored only as a keyed hash, compared in constant time, single use, and
   limited (one a minute, five an hour; five wrong codes end a sign-in, ten an hour per account). Codes,
   tokens and links are never written to a log.
+- An invitation link or a temporary password, never both: the server refuses both together from every
+  caller, and a password typed through the Android app or the API is always treated as temporary (changed
+  at the first sign-in, ends unused). Temporary passwords come from the server's cryptographic generator
+  (at least 60 bits), are stored only hashed, never logged or emailed, and are returned once. At most
+  five invitations to one person in 24 hours. Temporary passwords set, changed at first sign-in,
+  invitations cancelled and the link lifetime changed are in the audit log (never a password). No
+  existing account is asked to change its password.
 
 ## [1.23.5] - 2026-11-07
 

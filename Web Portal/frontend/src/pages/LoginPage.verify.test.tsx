@@ -94,7 +94,7 @@ describe('Sign-in: “Check your email” (a code before the first session)', ()
     await userEvent.type(await screen.findByLabelText(/^6-digit code/), '042917');
     await userEvent.click(screen.getByRole('button', { name: 'Confirm and sign in' }));
     await waitFor(() => expect(useAuthStore.getState().isAuthenticated).toBe(true));
-    expect(sent.find((s) => s.url.endsWith('/auth/challenge/verify'))!.body).toEqual({ challenge: 'secret-challenge-token', code: '042917' });
+    expect(sent.find((s) => s.url.endsWith('/auth/challenge/verify'))!.body).toEqual({ challenge: 'secret-challenge-token', code: '042917', acceptPasswordChange: true });
     expect(sessionStorage.getItem('mico360.refreshToken')).toBe('rt');
     expect(localStorage.getItem('mico360.refreshToken')).toBeNull();
     const stored = JSON.stringify({ ...localStorage }) + JSON.stringify({ ...sessionStorage }) + window.location.href;

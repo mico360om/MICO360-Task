@@ -48,27 +48,23 @@ function renderModal(onClose = vi.fn(), onCreated = vi.fn()) {
   return onClose;
 }
 
-async function fill(password: string) {
+async function fill() {
   await userEvent.type(screen.getByLabelText(/first name/i), 'Sara');
   await userEvent.type(screen.getByLabelText(/last name/i), 'K');
   await userEvent.type(screen.getByLabelText(/username/i), 'sara');
-  await userEvent.type(screen.getByLabelText(/^email/i), 'sara@x.test');
-  if (password) await userEvent.type(screen.getByLabelText(/temp password/i), password);
+  await userEvent.type(screen.getByRole('textbox', { name: /^email/i }), 'sara@x.test');
   await userEvent.click(screen.getByRole('button', { name: /create user/i }));
 }
+const linkChoice = () => screen.findByRole('radio', { name: /email an invitation link/i });
+const temporaryChoice = () => screen.getByRole('radio', { name: 'Give them a temporary password yourself' });
 
 describe('CreateUserModal', () => {
-  it('shows the shared password rule under the temp-password field', () => {
+  it('1.23.6: no password box — one way in, an invitation link (the default) or a temporary password made for them', async () => {
     renderModal();
-    expect(screen.getByText('At least 8 characters, with a letter and a number.')).toBeInTheDocument();
-  });
-
-  it('rejects a weak password with the shared rule (no request sent)', async () => {
-    renderModal();
-    await fill('abcdef'); // 6 chars, no digit — the old rule accepted this
-    // Every field IS filled in: name the real problem only.
-    expect(screen.getByRole('alert')).toHaveTextContent(/^Use at least 8 characters, including a letter and a number.$/);
-    expect(posted).toBeNull();
+    expect(await linkChoice()).toBeChecked();
+    expect(temporaryChoice()).not.toBeChecked();
+    expect(screen.getByRole('group', { name: 'How will they get in?' })).toBeInTheDocument();
+    expect(document.querySelector('input[type="password"]')).toBeNull();
   });
 
   it('asks for the missing details when a field is empty — under each field, with its rule', async () => {
@@ -88,8 +84,7 @@ describe('CreateUserModal', () => {
     await userEvent.type(screen.getByLabelText(/first name/i), 'Sara');
     await userEvent.type(screen.getByLabelText(/last name/i), 'K');
     await userEvent.type(screen.getByLabelText(/username/i), 'sara k');
-    await userEvent.type(screen.getByLabelText(/^email/i), 'sara@x.test');
-    await userEvent.type(screen.getByLabelText(/temp password/i), 'Welcome123');
+    await userEvent.type(screen.getByRole('textbox', { name: /^email/i }), 'sara@x.test');
     await userEvent.click(screen.getByRole('button', { name: /create user/i }));
     expect(screen.getByLabelText(/^username/i)).toHaveAttribute('aria-invalid', 'true');
     expect(posted).toBeNull();
@@ -98,7 +93,7 @@ describe('CreateUserModal', () => {
   it('says the email is not valid when the server refuses it — not that it is "already in use"', async () => {
     answer = () => json({ error: { code: 'VALIDATION', message: 'Invalid input.', details: { formErrors: [], fieldErrors: { email: ['Invalid email'] } } } }, 400);
     const onClose = renderModal();
-    await fill('Welcome123');
+    await fill();
     expect(await screen.findByRole('alert')).toHaveTextContent(/enter a valid email address/i);
     expect(screen.getByRole('alert')).not.toHaveTextContent(/in use/i);
     expect(onClose).not.toHaveBeenCalled();
@@ -107,114 +102,134 @@ describe('CreateUserModal', () => {
   it('says the email or username is taken when it is, in the server’s words (whose it is)', async () => {
     answer = () => json({ error: { code: 'DUPLICATE_USER', message: 'This email address is already used by Sara Khan.', details: { field: 'email' } } }, 409);
     renderModal();
-    await fill('Welcome123');
+    await fill();
     expect(await screen.findByRole('alert')).toHaveTextContent('This email address is already used by Sara Khan.');
   });
 
   it('does not blame the details when the server itself failed', async () => {
     answer = () => json({ error: { code: 'INTERNAL', message: 'Something went wrong' } }, 500);
     renderModal();
-    await fill('Welcome123');
+    await fill();
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent(/couldn’t create the account/i);
     expect(alert).not.toHaveTextContent(/in use/i);
   });
 
-  it('creates the user with a strong password', async () => {
+  it('creates the user with an invitation link by default (System Settings’ 7 days)', async () => {
     const onClose = renderModal();
-    await fill('Welcome123');
-    await waitFor(() => expect(posted).toMatchObject({ username: 'sara', password: 'Welcome123' }));
+    await linkChoice();
+    await fill();
+    await waitFor(() => expect(posted).toMatchObject({ username: 'sara', sendWelcome: true, inviteDays: 7 }));
+    expect(posted).not.toHaveProperty('password');
     await waitFor(() => expect(onClose).toHaveBeenCalled());
   });
 });
 
-describe('CreateUserModal — "Send a welcome email"', () => {
-  it('is on by default, and the temporary password is then optional', async () => {
+describe('CreateUserModal — "How will they get in?" (1.23.6)', () => {
+  it('the invitation link is the default; it sends the link with its lifetime and nothing else', async () => {
     renderModal();
-    const box = await screen.findByRole('checkbox', { name: 'Send a welcome email' });
-    expect(box).toBeChecked();
-    expect(screen.getByText('They get their username and a link to set their own password (it works for 7 days).')).toBeInTheDocument();
-    expect(screen.getByLabelText(/temp password/i)).not.toBeRequired();
-    expect(screen.getByText('(optional)')).toBeInTheDocument();
-    await fill('');
-    await waitFor(() => expect(posted).toEqual({ firstName: 'Sara', lastName: 'K', username: 'sara', email: 'sara@x.test', roleNames: ['EMPLOYEE'], sendWelcome: true }));
+    expect(await linkChoice()).toBeChecked();
+    expect(screen.getByText('They get their username and a one-time link to set their own password.')).toBeInTheDocument();
+    expect(screen.getByLabelText('The link works for')).toHaveValue('7');
+    await fill();
+    await waitFor(() => expect(posted).toEqual({ firstName: 'Sara', lastName: 'K', username: 'sara', email: 'sara@x.test', roleNames: ['EMPLOYEE'], sendWelcome: true, inviteDays: 7 }));
   });
 
-  it('gives the welcome choice a finger-sized target, and on a phone the password and role a row each', async () => {
+  it('a lifetime for this one invitation: 1, 3, 7 or 14 days', async () => {
     renderModal();
-    await screen.findByRole('checkbox', { name: 'Send a welcome email' });
-    expect(screen.getByText('Send a welcome email').className).toMatch(/(^|\s)tap(\s|$)/);
-    const row = screen.getByLabelText(/temp password/i).closest('.grid')!;
-    expect(row).toContainElement(screen.getByLabelText('Role'));
+    await linkChoice();
+    const days = screen.getByLabelText('The link works for');
+    expect(within(days).getAllByRole('option').map((o) => o.textContent)).toEqual(['1 day', '3 days', '7 days', '14 days']);
+    await userEvent.selectOptions(days, '14');
+    await fill();
+    await waitFor(() => expect(posted).toMatchObject({ sendWelcome: true, inviteDays: 14 }));
+  });
+
+  it('the choices are finger-sized and named; on a phone the role takes its own row', async () => {
+    renderModal();
+    await linkChoice();
+    expect(screen.getByText('Email an invitation link (recommended)').className).toMatch(/(^|\s)tap(\s|$)/);
+    expect(screen.getByText('Give them a temporary password yourself').className).toMatch(/(^|\s)tap(\s|$)/);
+    const row = screen.getByLabelText('Role').closest('.grid')!;
     expect(row.className).not.toMatch(/(^|\s)grid-cols-2(\s|$)/);
     expect(row.className).toMatch(/sm:grid-cols-2/);
   });
 
-  it('a password given with it still has to meet the rule, and is sent along', async () => {
-    renderModal();
-    await screen.findByRole('checkbox', { name: 'Send a welcome email' });
-    await fill('abcdef');
-    expect(screen.getByRole('alert')).toHaveTextContent('Use at least 8 characters, including a letter and a number.');
-    expect(posted).toBeNull();
-    await userEvent.clear(screen.getByLabelText(/temp password/i));
-    await userEvent.type(screen.getByLabelText(/temp password/i), 'Welcome123');
-    await userEvent.click(screen.getByRole('button', { name: /create user/i }));
-    await waitFor(() => expect(posted).toMatchObject({ password: 'Welcome123', sendWelcome: true }));
+  it('a temporary password: made on the server (words or 16 characters), shown once with Copy and New one; Done tells the page — never the password', async () => {
+    answer = () => json({ data: { id: 'u9', username: 'sara', firstName: 'Sara', lastName: 'K', mustChangePassword: true, temporaryPasswordExpiresAt: '2026-11-14T06:00:00.000Z' }, meta: { temporaryPassword: 'Kite-Mango-Fern-Ripple-472' } }, 201);
+    const onClose = vi.fn();
+    const onCreated = vi.fn();
+    renderModal(onClose, onCreated);
+    await linkChoice();
+    await userEvent.click(temporaryChoice());
+    expect(screen.getByLabelText('Unused, it stops working after')).toHaveValue('7');
+    await userEvent.click(screen.getByRole('radio', { name: '16 characters' }));
+    await userEvent.click(screen.getByRole('radio', { name: 'Four words and a number' }));
+    await fill();
+    await waitFor(() => expect(posted).toEqual({ firstName: 'Sara', lastName: 'K', username: 'sara', email: 'sara@x.test', roleNames: ['EMPLOYEE'], generatePassword: 'words', inviteDays: 7 }));
+    const shown = await screen.findByLabelText('Temporary password');
+    expect(shown).toHaveTextContent('Kite-Mango-Fern-Ripple-472');
+    expect(screen.getByText(/Give it to them yourself — not by email\. It works until 14 Nov/)).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    await userEvent.click(screen.getByRole('button', { name: 'Copy' }));
+    expect(writeText).toHaveBeenCalledWith('Kite-Mango-Fern-Ripple-472');
+    expect(await screen.findByText('Copied.')).toBeInTheDocument();
+    answer = () => json({ data: { temporaryPassword: 'Opal-Rain-Cedar-Bolt-118', expiresAt: '2026-11-14T06:05:00.000Z' } });
+    await userEvent.click(screen.getByRole('button', { name: 'New one' }));
+    await waitFor(() => expect(screen.getByLabelText('Temporary password')).toHaveTextContent('Opal-Rain-Cedar-Bolt-118'));
+    expect(posted).toEqual({ generate: 'words', days: 7 });
+    await userEvent.click(screen.getByRole('button', { name: 'Done' }));
+    expect(onClose).toHaveBeenCalled();
+    const told = onCreated.mock.calls[0]![0] as Record<string, unknown>;
+    expect(told).toMatchObject({ user: { id: 'u9', mustChangePassword: true } });
+    expect(JSON.stringify(told)).not.toContain('Kite');
   });
 
-  it('turned off, today’s rule stays: a temporary password is required', async () => {
-    renderModal();
-    await userEvent.click(await screen.findByRole('checkbox', { name: 'Send a welcome email' }));
-    expect(screen.getByLabelText(/temp password/i)).toBeRequired();
-    await fill('');
-    expect(screen.getByRole('alert')).toHaveTextContent('Enter a temporary password, or turn on “Send a welcome email” so they can set their own.');
-    expect(posted).toBeNull();
-    await userEvent.type(screen.getByLabelText(/temp password/i), 'Welcome123');
-    await userEvent.click(screen.getByRole('button', { name: /create user/i }));
-    await waitFor(() => expect(posted).toMatchObject({ password: 'Welcome123', sendWelcome: false }));
-  });
-
-  it('when email isn’t set up, it is off, can’t be turned on, and says why', async () => {
+  it('when email isn’t set up: the link can’t be chosen and says why; the temporary password is chosen', async () => {
     config = { timeZone: 'Asia/Muscat', emailEnabled: false };
     renderModal();
-    const box = await screen.findByRole('checkbox', { name: 'Send a welcome email' });
-    await waitFor(() => expect(box).toBeDisabled());
-    expect(box).not.toBeChecked();
-    expect(screen.getByText('Email isn’t set up on this server, so a welcome email can’t be sent. Give them a temporary password instead.')).toBeInTheDocument();
-    expect(screen.getByLabelText(/temp password/i)).toBeRequired();
+    const link = await linkChoice();
+    await waitFor(() => expect(link).toBeDisabled());
+    expect(link).not.toBeChecked();
+    expect(temporaryChoice()).toBeChecked();
+    expect(screen.getByText('Email isn’t set up on this server, so no invitation can be sent.')).toBeInTheDocument();
+    await fill();
+    await waitFor(() => expect(posted).toMatchObject({ generatePassword: 'words', inviteDays: 7 }));
+    expect(posted).not.toHaveProperty('sendWelcome');
   });
 
-  it('when email isn’t set up and no password is given, the advice doesn’t point at the option it can’t use', async () => {
-    config = { timeZone: 'Asia/Muscat', emailEnabled: false };
-    renderModal();
-    await waitFor(() => expect(screen.getByRole('checkbox', { name: 'Send a welcome email' })).toBeDisabled());
-    await fill('');
-    expect(screen.getByRole('alert')).toHaveTextContent(/^Email isn’t set up on this server, so a welcome email can’t be sent\. Give them a temporary password\.$/);
-    expect(posted).toBeNull();
-  });
-
-  it('tells the page whether the welcome email went', async () => {
+  it('tells the page whether the invitation went', async () => {
     answer = () => json({ data: { id: 'u9', username: 'sara' }, meta: { welcome: { userId: 'u9', username: 'sara', email: 'sara@x.test', sent: true } } }, 201);
     const onCreated = vi.fn();
     renderModal(vi.fn(), onCreated);
-    await screen.findByRole('checkbox', { name: 'Send a welcome email' });
-    await fill('');
+    await linkChoice();
+    await fill();
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith({ user: { id: 'u9', username: 'sara' }, welcome: { userId: 'u9', username: 'sara', email: 'sara@x.test', sent: true } }));
   });
 
-  it('says plainly when the server can’t send it because email isn’t set up, and the option then shows as unavailable', async () => {
+  it('says plainly when the server can’t send it because email isn’t set up, and the link then shows as unavailable', async () => {
     answer = () => {
       config = { timeZone: 'Asia/Muscat', emailEnabled: false }; // what the server says when the page asks again
       return json({ error: { code: 'EMAIL_NOT_CONFIGURED', message: 'Email isn’t set up on this server yet, so no welcome email can be sent. An administrator needs to add the email (Mailjet) keys.' } }, 503);
     };
     const onClose = renderModal();
-    await screen.findByRole('checkbox', { name: 'Send a welcome email' });
-    await fill('');
+    await linkChoice();
+    await fill();
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      /^Email isn’t set up on this server, so the welcome email can’t be sent and the account wasn’t created\. Give them a temporary password\.$/,
+      /^Email isn’t set up on this server, so the invitation can’t be sent and the account wasn’t created\. Give them a temporary password instead\.$/,
     );
-    await waitFor(() => expect(screen.getByRole('checkbox', { name: 'Send a welcome email' })).toBeDisabled());
+    await waitFor(() => expect(screen.getByRole('radio', { name: /email an invitation link/i })).toBeDisabled());
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('“both ways” refused by the server is said in plain words', async () => {
+    answer = () => json({ error: { code: 'ONE_WAY_IN', message: 'x' } }, 400);
+    renderModal();
+    await linkChoice();
+    await fill();
+    expect(await screen.findByRole('alert')).toHaveTextContent('Choose one way in: an invitation link or a temporary password — not both.');
   });
 });
 
@@ -234,7 +249,7 @@ describe('CreateUserModal: companies', () => {
     await userEvent.type(screen.getByLabelText(/first name/i), 'Sara');
     await userEvent.type(screen.getByLabelText(/last name/i), 'K');
     await userEvent.type(screen.getByLabelText(/username/i), 'sara');
-    await userEvent.type(screen.getByLabelText(/^email/i), 'sara@x.test');
+    await userEvent.type(screen.getByRole('textbox', { name: /^email/i }), 'sara@x.test');
   };
   const create = () => userEvent.click(screen.getByRole('button', { name: /create user/i }));
 
@@ -242,7 +257,7 @@ describe('CreateUserModal: companies', () => {
     const server = companyServer({ companies: [alpha] });
     renderModal();
     await waitFor(() => expect(server.gets('/me/companies')).toHaveLength(1));
-    await screen.findByRole('checkbox', { name: 'Send a welcome email' });
+    await linkChoice();
     expect(screen.queryByText('Companies')).toBeNull();
     expect(screen.queryByRole('combobox', { name: 'Primary company' })).toBeNull();
     await basics();
@@ -296,7 +311,6 @@ describe('CreateUserModal: companies', () => {
     renderModal();
     await screen.findByRole('checkbox', { name: 'Alpha Co' });
     await basics();
-    await userEvent.type(screen.getByLabelText(/temp password/i), 'Secret123');
     await create();
     expect(screen.getByRole('alert')).toHaveTextContent('Choose at least one company.');
     expect(server.requests('POST', '/users')).toHaveLength(0);
@@ -312,7 +326,6 @@ describe('CreateUserModal: companies', () => {
     renderModal();
     await userEvent.click(await screen.findByRole('checkbox', { name: 'Alpha Co' }));
     await basics();
-    await userEvent.type(screen.getByLabelText(/temp password/i), 'Secret123');
     await create();
     expect(await screen.findByRole('alert')).toHaveTextContent('Company not found.');
   });
@@ -357,7 +370,9 @@ describe('CreateUserModal: a big form (1.22)', () => {
     const person = dialog.querySelector<HTMLElement>('[data-form-column="person"]')!;
     const access = dialog.querySelector<HTMLElement>('[data-form-column="companies"]')!;
     expect(person.parentElement!.className).toMatch(/grid-cols-/);
-    for (const field of [/first name/i, /last name/i, /username/i, /^email/i, /temp password/i]) expect(person).toContainElement(screen.getByLabelText(field));
+    for (const field of [/first name/i, /last name/i, /username/i]) expect(person).toContainElement(screen.getByLabelText(field));
+    expect(person).toContainElement(screen.getByRole('textbox', { name: /^email/i }));
+    expect(person).toContainElement(screen.getByRole('group', { name: 'How will they get in?' }));
     expect(person).toContainElement(screen.getByLabelText('Role'));
     expect(access).toContainElement(companies);
     await userEvent.click(screen.getByRole('checkbox', { name: 'Beta Co' }));
@@ -395,7 +410,7 @@ describe('CreateUserModal: Role "Client" (1.23)', () => {
     await userEvent.type(screen.getByLabelText(/first name/i), 'Huda');
     await userEvent.type(screen.getByLabelText(/last name/i), 'Saleh');
     await userEvent.type(screen.getByLabelText(/username/i), 'huda');
-    await userEvent.type(screen.getByLabelText(/^email/i), 'huda@owner.test');
+    await userEvent.type(screen.getByRole('textbox', { name: /^email/i }), 'huda@owner.test');
     // Onboarding: a client's organisation is required.
     await userEvent.type(screen.getByLabelText(/^organisation/i), 'Owner Group');
   };
@@ -422,9 +437,8 @@ describe('CreateUserModal: Role "Client" (1.23)', () => {
     expect(screen.getByLabelText(/phone/i)).toHaveAttribute('type', 'tel');
     expect(screen.getByRole('group', { name: 'Project access' })).toBeInTheDocument();
     expect(screen.queryByRole('group', { name: 'Companies' })).toBeNull();
-    // The welcome email is the same as for staff: on, and the temporary password optional.
-    expect(await screen.findByRole('checkbox', { name: 'Send a welcome email' })).toBeChecked();
-    expect(screen.getByLabelText(/temp password/i)).not.toBeRequired();
+    // One way in, as for staff: the invitation link by default.
+    expect(await screen.findByRole('radio', { name: /email an invitation link/i })).toBeChecked();
     expect(screen.getByRole('button', { name: /create client/i })).toBeInTheDocument();
   });
 
@@ -455,6 +469,7 @@ describe('CreateUserModal: Role "Client" (1.23)', () => {
       organisation: 'Owner Group',
       phone: '+968 9000 0000',
       sendWelcome: true,
+      inviteDays: 7,
       projects: [
         { projectId: 'p-mico', modules: { progress: true, meetings: false }, actions: { comment: true, signOff: true, respond: false, download: false } },
         { projectId: 'p-rig', modules: { progress: false, meetings: true }, actions: { comment: false, signOff: false, respond: true, download: true } },
@@ -479,18 +494,17 @@ describe('CreateUserModal: Role "Client" (1.23)', () => {
     expect(server.requests('POST', '/clients')).toHaveLength(0);
   });
 
-  it('without a welcome email a temporary password is needed, as for staff, and it is sent along', async () => {
+  it('a temporary password, as for staff: made on the server, shown once (POST /clients)', async () => {
     const server = clientServer();
     renderModal();
     await userEvent.selectOptions(screen.getByLabelText('Role'), 'CLIENT');
-    await userEvent.click(await screen.findByRole('checkbox', { name: 'Send a welcome email' }));
+    await userEvent.click(await screen.findByRole('radio', { name: 'Give them a temporary password yourself' }));
+    await userEvent.click(screen.getByRole('radio', { name: '16 characters' }));
     await person();
     await create();
-    expect(screen.getByRole('alert')).toHaveTextContent('Enter a temporary password, or turn on “Send a welcome email” so they can set their own.');
-    await userEvent.type(screen.getByLabelText(/temp password/i), 'Client123');
-    await create();
     await waitFor(() => expect(server.requests('POST', '/clients')).toHaveLength(1));
-    expect(server.lastBody('POST', '/clients')).toMatchObject({ password: 'Client123', sendWelcome: false, projects: [] });
+    expect(server.lastBody('POST', '/clients')).toMatchObject({ generatePassword: 'characters', inviteDays: 7, projects: [] });
+    expect(server.lastBody('POST', '/clients')).not.toHaveProperty('sendWelcome');
   });
 
   it('shows the server’s words when it refuses (a username already in use)', async () => {

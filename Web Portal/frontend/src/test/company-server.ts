@@ -134,6 +134,10 @@ export function companyServer(world: CompanyServerWorld = {}) {
       const u = users.find((x) => x.id === m![1]) ?? apiUser({ id: m[1]!, username: m[1]! });
       return json({ data: { ...u, ...(b as Partial<ApiUser>) } });
     }
+    // 1.23.6: Set a temporary password — made on the server, shown once.
+    if (/^\/users\/[^/]+\/password$/.test(route) && method === 'POST' && b.generate) {
+      return json({ data: { temporaryPassword: b.generate === 'characters' ? 'Hk7mPq2RtW9xZb4N' : 'Opal-Rain-Cedar-Bolt-118', expiresAt: '2026-11-14T06:00:00.000Z' } });
+    }
     if (route === '/users/companies' && method === 'POST') return json({ data: { changed: ((b.userIds as string[]) ?? []).length, refused: [] } });
     if (method === 'GET') return json({ data: [] });
     return json({ data: {} });

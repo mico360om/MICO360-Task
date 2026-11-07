@@ -29,6 +29,16 @@ export interface ApiUser {
   inviteExpiresAt?: string | null;
   /** Onboarding: Invited / Invite expired / Active / Locked / Deactivated (an older server sends none). */
   onboarding?: OnboardingStatus;
+  /**
+   * 1.23.6: a temporary password still to be changed at the first sign-in; when and by whom it was set
+   * (never the value) and when it stops working unused. Admin views only.
+   */
+  mustChangePassword?: boolean;
+  temporaryPasswordSetAt?: string | null;
+  temporaryPasswordSetBy?: { id: string; name: string } | null;
+  temporaryPasswordExpiresAt?: string | null;
+  /** 1.23.6: when an administrator cancelled the invitation (null: not cancelled). */
+  invitationCancelledAt?: string | null;
   /** Their companies, A–Z (an older server sends none). */
   companies?: UserCompany[];
   /** Their primary company: their emails' logo and name. */
@@ -44,16 +54,26 @@ export interface UserCompany {
   code: string;
 }
 
-export interface NewUserInput {
+/** 1.23.6: a temporary password made on the server: four words and a number, or 16 characters. */
+export type TemporaryPasswordStyle = 'words' | 'characters';
+
+/**
+ * 1.23.6: how a new person gets in — one way, never both: an invitation link (`sendWelcome`) or a
+ * temporary password made on the server (`generatePassword`, shown once). `inviteDays`: how long
+ * either lasts (1, 3, 7 or 14; absent: System Settings').
+ */
+export interface WayInInput {
+  sendWelcome?: boolean;
+  generatePassword?: TemporaryPasswordStyle;
+  inviteDays?: number;
+}
+
+export interface NewUserInput extends WayInInput {
   email: string;
   username: string;
-  /** Optional with `sendWelcome` (they set their own with the email's link); required without it. */
-  password?: string;
   firstName: string;
   lastName: string;
   roleNames?: string[];
-  /** Email them their username and a one-time "Set your password" link (7 days). */
-  sendWelcome?: boolean;
   /** Their companies (absent: the picked company, else the site's only one). */
   companyIds?: string[];
   /** One of `companyIds` (absent: the first). */
@@ -69,6 +89,7 @@ export type WelcomeRefusal =
   | 'NO_EMAIL'
   | 'EMAIL_BLOCKED'
   | 'TOO_SOON'
+  | 'DAILY_LIMIT'
   | 'DELIVERY_FAILED'
   | 'SERVER_ERROR';
 
@@ -80,9 +101,17 @@ export interface WelcomeOutcome {
   email: string | null;
   sent: boolean;
   sentAt?: string;
+  /** 1.23.6: when the link stops working. */
+  expiresAt?: string;
   reason?: WelcomeRefusal;
   /** "the account is suspended": finishes "Not sent: …". */
   why?: string;
+}
+
+/** 1.23.6: a temporary password made on the server (shown once) and when it stops working unused. */
+export interface TemporaryPasswordMade {
+  temporaryPassword: string;
+  expiresAt: string;
 }
 
 /** Onboarding: an administrator's "Send password reset" (a link valid 1 hour). */
@@ -130,6 +159,8 @@ export interface WelcomeBatchResult {
 export interface CreatedUser {
   user: ApiUser;
   welcome: WelcomeOutcome | null;
+  /** 1.23.6: a temporary password made on the server — in this answer only (show it once). */
+  temporaryPassword?: string;
 }
 
 export interface UserPatch {
@@ -187,9 +218,16 @@ export function usersApi(client: ApiClient) {
     /** "Download my data": everything the system holds about the signed-in person (JSON file). */
     exportMine: () => client.getBlob('/users/me/export'),
     create: (input: NewUserInput): Promise<CreatedUser> =>
-      client.post<{ data: ApiUser; meta?: { welcome?: WelcomeOutcome } }>('/users', input).then((r) => ({ user: r.data, welcome: r.meta?.welcome ?? null })),
-    /** Admin-only: email one person a welcome (username + "Set your password" link). Refusals are errors with the reason. */
-    sendWelcome: (id: string) => client.post<{ data: WelcomeOutcome }>(`/users/${id}/welcome-email`).then((r) => r.data),
+      client
+        .post<{ data: ApiUser; meta?: { welcome?: WelcomeOutcome; temporaryPassword?: string } }>('/users', input)
+        .then((r) => ({ user: r.data, welcome: r.meta?.welcome ?? null, ...(r.meta?.temporaryPassword ? { temporaryPassword: r.meta.temporaryPassword } : {}) })),
+    /** Admin-only: email one person a welcome (username + "Set your password" link). Refusals are errors with the reason. 1.23.6: `days` — this link's lifetime. */
+    sendWelcome: (id: string, days?: number) => client.post<{ data: WelcomeOutcome }>(`/users/${id}/welcome-email`, days ? { days } : {}).then((r) => r.data),
+    /** 1.23.6 "Cancel invitation": the link (and any unused temporary password) stops; no way in until a new one. */
+    cancelInvitation: (id: string) => client.post<{ data: ApiUser }>(`/users/${encodeURIComponent(id)}/invitation/cancel`).then((r) => r.data),
+    /** 1.23.6: a temporary password made on the server, shown once (they must change it at the first sign-in). */
+    makeTemporaryPassword: (id: string, style: TemporaryPasswordStyle, days?: number) =>
+      client.post<{ data: TemporaryPasswordMade }>(`/users/${encodeURIComponent(id)}/password`, { generate: style, ...(days ? { days } : {}) }).then((r) => r.data),
     /** Admin-only: welcome emails for several people (up to 100); each one says whether it went. */
     sendWelcomes: (userIds: string[]) => client.post<{ data: WelcomeBatchResult }>('/users/welcome-emails', { userIds }).then((r) => r.data),
     update: (id: string, patch: UserPatch) => client.put<{ data: ApiUser }>(`/users/${id}`, patch).then((r) => r.data),

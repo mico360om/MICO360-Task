@@ -88,7 +88,7 @@ describe('ClientsPage', () => {
     await userEvent.type(within(dialog).getByLabelText(/first name/i), 'Lina');
     await userEvent.type(within(dialog).getByLabelText(/last name/i), 'Q');
     await userEvent.type(within(dialog).getByLabelText(/^username/i), 'lina');
-    await userEvent.type(within(dialog).getByLabelText(/^email/i), 'lina@owner.test');
+    await userEvent.type(within(dialog).getByRole('textbox', { name: /^email/i }), 'lina@owner.test');
     await userEvent.type(within(dialog).getByLabelText(/^organisation/i), 'Owner Group');
     await userEvent.click(within(dialog).getByRole('button', { name: 'Add a project' }));
     await userEvent.click(await screen.findByRole('option', { name: /Finance Office/ }));

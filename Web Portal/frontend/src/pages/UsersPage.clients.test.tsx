@@ -98,7 +98,7 @@ describe('UsersPage: client accounts (1.23)', () => {
     await userEvent.type(screen.getByLabelText(/first name/i), 'Lina');
     await userEvent.type(screen.getByLabelText(/last name/i), 'Q');
     await userEvent.type(screen.getByLabelText(/^username/i), 'lina');
-    await userEvent.type(screen.getByLabelText(/^email/i), 'lina@owner.test');
+    await userEvent.type(screen.getByRole('textbox', { name: /^email/i }), 'lina@owner.test');
     await userEvent.type(screen.getByLabelText(/^organisation/i), 'Owner Group'); // required for a client
     await userEvent.click(screen.getByRole('button', { name: /create client/i }));
     await waitFor(() => expect(server.requests('POST', '/clients')).toHaveLength(1));

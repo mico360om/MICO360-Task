@@ -1,5 +1,5 @@
 import type { ApiClient } from '../lib/api-client';
-import type { ApiUser, UserStatus, WelcomeOutcome } from './users';
+import type { ApiUser, UserStatus, WayInInput, WelcomeOutcome } from './users';
 import type { OnboardingStatus } from '../lib/onboarding';
 
 /**
@@ -59,6 +59,12 @@ export interface ClientAccount {
   emailVerifiedAt?: string | null;
   inviteExpiresAt?: string | null;
   onboarding?: OnboardingStatus;
+  /** 1.23.6 (an older server sends none). */
+  mustChangePassword?: boolean;
+  temporaryPasswordSetAt?: string | null;
+  temporaryPasswordSetBy?: { id: string; name: string } | null;
+  temporaryPasswordExpiresAt?: string | null;
+  invitationCancelledAt?: string | null;
   createdAt: string;
   roles: string[];
   projects: ClientProjectAccess[];
@@ -72,17 +78,13 @@ export interface ClientProjectOption {
   company: string | null;
 }
 
-export interface NewClientInput {
+export interface NewClientInput extends WayInInput {
   firstName: string;
   lastName: string;
   username: string;
   email: string;
   organisation?: string | null;
   phone?: string | null;
-  /** Email them their username and a one-time "Set your password" link (7 days). */
-  sendWelcome?: boolean;
-  /** Required unless `sendWelcome`. */
-  password?: string;
   projects?: ClientGrant[];
 }
 
@@ -101,6 +103,8 @@ export interface ClientPatch {
 export interface CreatedClient {
   client: ClientAccount;
   welcome: WelcomeOutcome | null;
+  /** 1.23.6: a temporary password made on the server — in this answer only (show it once). */
+  temporaryPassword?: string;
 }
 
 /** GET /clients: every client account. */
@@ -132,6 +136,11 @@ export function clientAsUser(c: ClientAccount): ApiUser {
     emailVerifiedAt: c.emailVerifiedAt ?? null,
     inviteExpiresAt: c.inviteExpiresAt ?? null,
     ...(c.onboarding ? { onboarding: c.onboarding } : {}),
+    mustChangePassword: c.mustChangePassword ?? false,
+    temporaryPasswordSetAt: c.temporaryPasswordSetAt ?? null,
+    temporaryPasswordSetBy: c.temporaryPasswordSetBy ?? null,
+    temporaryPasswordExpiresAt: c.temporaryPasswordExpiresAt ?? null,
+    invitationCancelledAt: c.invitationCancelledAt ?? null,
     companies: [],
     primaryCompanyId: null,
   };
@@ -144,8 +153,8 @@ export function clientsApi(client: ApiClient) {
     projectOptions: () => client.get<{ data: ClientProjectOption[] }>('/clients/project-options').then((r) => r.data),
     create: (input: NewClientInput): Promise<CreatedClient> =>
       client
-        .post<{ data: ClientAccount; meta?: { welcome?: WelcomeOutcome } }>('/clients', input)
-        .then((r) => ({ client: r.data, welcome: r.meta?.welcome ?? null })),
+        .post<{ data: ClientAccount; meta?: { welcome?: WelcomeOutcome; temporaryPassword?: string } }>('/clients', input)
+        .then((r) => ({ client: r.data, welcome: r.meta?.welcome ?? null, ...(r.meta?.temporaryPassword ? { temporaryPassword: r.meta.temporaryPassword } : {}) })),
     update: (id: string, patch: ClientPatch) => client.put<{ data: ClientAccount }>(`/clients/${encodeURIComponent(id)}`, patch).then((r) => r.data),
   };
 }

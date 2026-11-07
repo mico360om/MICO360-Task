@@ -333,7 +333,7 @@ describe('User Management: adding a user with a welcome email', () => {
     await userEvent.type(screen.getByLabelText(/first name/i), 'Sara');
     await userEvent.type(screen.getByLabelText(/last name/i), 'K');
     await userEvent.type(screen.getByLabelText(/username/i), 'sara');
-    await userEvent.type(screen.getByLabelText(/^email/i), 'sara@x.co');
+    await userEvent.type(screen.getByRole('textbox', { name: /^email/i }), 'sara@x.co');
     await userEvent.click(screen.getByRole('button', { name: /create user/i }));
   }
 
