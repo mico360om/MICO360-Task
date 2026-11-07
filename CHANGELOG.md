@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.23.6] - 2026-11-07
+
 ### New features
 - Search understands plain English. Type "Show overdue MICO tasks assigned to me" and the Search page
   shows "Understood as: Tasks · Overdue · MICO · Assigned to me" and lists exactly those. It reads kinds
