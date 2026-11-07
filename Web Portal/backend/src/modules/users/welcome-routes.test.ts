@@ -209,12 +209,11 @@ describe('POST /users with "Send a welcome email"', () => {
     expect(audited[0]!.newValue).toEqual({ email: 'sara@x.co', username: 'sara', roleNames: ['EMPLOYEE'], welcomeEmail: true });
   });
 
-  it('with a temporary password as well: refused since 1.23.6 (one way in), nothing made, nothing sent', async () => {
+  it('with a typed password as well (the Android app’s default): the invitation goes and the password is ignored (1.23.6)', async () => {
     const res = await create({ ...newUser, sendWelcome: true });
-    expect(res.statusCode).toBe(400);
-    expect(res.json().error.code).toBe('ONE_WAY_IN');
-    expect(await mem.repo.list()).toEqual([]);
-    expect(sent).toEqual([]);
+    expect(res.statusCode).toBe(201);
+    expect(res.json().meta).toMatchObject({ ignoredPassword: true, welcome: { sent: true } });
+    expect(sent).toHaveLength(1);
   });
 
   it('without it, today’s rule stays: a temporary password is required (and no email goes)', async () => {

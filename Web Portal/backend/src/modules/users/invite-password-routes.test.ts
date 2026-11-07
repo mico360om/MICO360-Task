@@ -89,11 +89,28 @@ beforeEach(async () => {
 });
 
 describe('one way in: an invitation link or a temporary password, never both', () => {
-  it('both together are refused from every caller (the website, the Android app, the API) — nothing is made, nothing goes', async () => {
+  // Coordinator ruling (7 Nov): the live Android app sends "welcome email on" with a typed password by
+  // default — the server uses the invitation link (the safer way) and ignores the typed password.
+  it('an invitation and a typed password (the Android app’s default): exactly an invitation — the password is ignored, said and audited', async () => {
+    const res = await create({ ...newUser, sendWelcome: true, password: 'Typed-Pass-11' });
+    expect(res.statusCode).toBe(201);
+    const { data, meta } = res.json();
+    expect(meta).toMatchObject({ ignoredPassword: true, message: 'We sent an invitation link; the typed password wasn’t used (one way in).', welcome: { sent: true } });
+    expect(meta.temporaryPassword).toBeUndefined();
+    expect(data).toMatchObject({ mustChangePassword: false, temporaryPasswordSetAt: null });
+    expect(await verifyPassword('Typed-Pass-11', mem.hashOf(data.id)!)).toBe(false);
+    expect(sent).toHaveLength(1);
+    expect(audited.map((a) => a.action)).toEqual(['user.create', 'user.password.ignored', 'user.welcome_email']);
+    expect(audited[1]).toMatchObject({ userId: 'admin-1', entityId: data.id, newValue: { note: 'temporary password ignored — invitation sent instead' } });
+    expect(JSON.stringify(audited)).not.toContain('Typed-Pass-11');
+    expect(res.body).not.toContain('Typed-Pass-11');
+  });
+
+  it('a password made here with anything else can’t be resolved that way: refused (ONE_WAY_IN), nothing made, nothing goes', async () => {
     for (const body of [
-      { ...newUser, sendWelcome: true, password: 'Password1!' },
       { ...newUser, sendWelcome: true, generatePassword: 'words' },
       { ...newUser, password: 'Password1!', generatePassword: 'characters' },
+      { ...newUser, sendWelcome: true, password: 'Password1!', generatePassword: 'words' },
     ]) {
       const res = await create(body);
       expect(res.statusCode).toBe(400);
