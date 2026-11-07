@@ -8,6 +8,22 @@ import { useCompanyStore } from '../stores/company-store';
 import { apiCompany, companyServer } from '../test/company-server';
 import { windowWidth } from '../test/window-width';
 import { clientServer } from './clients/test-server';
+import type { ClientPreviewDialogProps } from './portal/ClientPreviewDialog';
+
+// 1.23.7 The portal lane builds the real preview: here, only what it is asked to show.
+const preview = vi.hoisted(() => ({ spec: null as unknown }));
+vi.mock('./portal/ClientPreviewDialog', () => ({
+  ClientPreviewDialog: ({ spec, onClose }: ClientPreviewDialogProps) => {
+    preview.spec = spec;
+    return (
+      <div role="dialog" aria-label="Preview as client">
+        <button type="button" onClick={onClose}>
+          Close preview
+        </button>
+      </div>
+    );
+  },
+}));
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -418,8 +434,11 @@ describe('CreateUserModal: Role "Client" (1.23)', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Add a project' }));
     await userEvent.click(await screen.findByRole('option', { name }));
   };
-  const tick = (project: string, box: string) => userEvent.click(within(screen.getByRole('group', { name: project })).getByRole('checkbox', { name: box }));
+  /** 1.23.7 A tick in the permission matrix, by permission and project ("Comment — MICO Tower"). */
+  const tick = (project: string, box: string) => userEvent.click(screen.getByRole('checkbox', { name: `${box} — ${project}` }));
+  const pickRole = (project: string, role: string) => userEvent.selectOptions(screen.getByRole('combobox', { name: `Role — ${project}` }), role);
   const create = () => userEvent.click(screen.getByRole('button', { name: /create/i }));
+  const NO_ACTIONS = { comment: false, signOff: false, respond: false, download: false, upload: false, notify: false };
 
   it('offers Employee, Administrator and Client', async () => {
     clientServer();
@@ -442,7 +461,7 @@ describe('CreateUserModal: Role "Client" (1.23)', () => {
     expect(screen.getByRole('button', { name: /create client/i })).toBeInTheDocument();
   });
 
-  it('creates the client with POST /clients (never /users): two projects with their own ticks, and says whether the welcome went', async () => {
+  it('creates the client with POST /clients (never /users): two projects, each with its role and ticks, and says whether the welcome went', async () => {
     const server = clientServer();
     const onClose = vi.fn();
     const onCreated = vi.fn();
@@ -451,13 +470,11 @@ describe('CreateUserModal: Role "Client" (1.23)', () => {
     await person(); // with the organisation
     await userEvent.type(screen.getByLabelText(/phone/i), '+968 9000 0000');
     await addProject(/MICO Tower/);
-    await tick('MICO Tower', 'Progress, milestones and tasks');
-    await tick('MICO Tower', 'Comment on tasks');
-    await tick('MICO Tower', 'Sign off finished tasks');
+    await pickRole('MICO Tower', 'APPROVER');
     await addProject(/Rig Refit/);
-    await tick('Rig Refit', 'Meetings and minutes');
-    await tick('Rig Refit', 'Reply to meeting invites (and their own action items)');
-    await tick('Rig Refit', 'Download PDFs');
+    // Starts as Viewer; a tick changed makes it Custom.
+    await tick('Rig Refit', 'View tasks');
+    await tick('Rig Refit', 'Reply to invites');
     await create();
     await waitFor(() => expect(server.requests('POST', '/clients')).toHaveLength(1));
     expect(server.requests('POST', '/users')).toHaveLength(0);
@@ -471,8 +488,8 @@ describe('CreateUserModal: Role "Client" (1.23)', () => {
       sendWelcome: true,
       inviteDays: 7,
       projects: [
-        { projectId: 'p-mico', modules: { progress: true, meetings: false }, actions: { comment: true, signOff: true, respond: false, download: false } },
-        { projectId: 'p-rig', modules: { progress: false, meetings: true }, actions: { comment: false, signOff: false, respond: true, download: true } },
+        { projectId: 'p-mico', role: 'APPROVER', modules: { progress: true, meetings: true }, actions: { comment: true, signOff: true, respond: true, download: true, upload: true, notify: true } },
+        { projectId: 'p-rig', role: 'CUSTOM', modules: { progress: false, meetings: true }, actions: { ...NO_ACTIONS, respond: true, download: true, notify: true } },
       ],
     });
     await waitFor(() => expect(onClose).toHaveBeenCalled());
@@ -481,16 +498,40 @@ describe('CreateUserModal: Role "Client" (1.23)', () => {
     expect(result.welcome).toMatchObject({ sent: true, email: 'huda@owner.test' });
   });
 
-  it('a project with no module ticked is said inline, and nothing is sent', async () => {
+  it('a Custom project with neither view is said inline and on Create (the server’s words), and nothing is sent', async () => {
     const server = clientServer();
     renderModal();
     await userEvent.selectOptions(screen.getByLabelText('Role'), 'CLIENT');
     await person();
     await addProject(/Finance Office/);
-    expect(within(screen.getByRole('group', { name: 'Finance Office' })).getByText('Tick at least one module.')).toBeInTheDocument();
+    await tick('Finance Office', 'View tasks');
+    await tick('Finance Office', 'View meetings & minutes');
+    expect(within(screen.getByRole('group', { name: 'Finance Office' })).getByText('Tick at least one of View tasks or View meetings & minutes.')).toBeInTheDocument();
     await create();
-    expect(screen.getByRole('alert')).toHaveTextContent('Tick at least one module for Finance Office: Progress, milestones and tasks, or Meetings and minutes.');
-    expect(within(screen.getByRole('group', { name: 'Finance Office' })).getByRole('checkbox', { name: 'Progress, milestones and tasks' })).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByRole('alert')).toHaveTextContent('Tick at least one of View tasks or View meetings & minutes for Finance Office.');
+    expect(screen.getByRole('checkbox', { name: 'View tasks — Finance Office' })).toHaveAttribute('aria-invalid', 'true');
+    expect(server.requests('POST', '/clients')).toHaveLength(0);
+  });
+
+  it('1.23.7 Preview as client: the details typed so far and the matrix on screen, before the account exists — nothing is created', async () => {
+    const server = clientServer();
+    renderModal();
+    await userEvent.selectOptions(screen.getByLabelText('Role'), 'CLIENT');
+    const button = screen.getByRole('button', { name: 'Preview as client' });
+    expect(button).toBeDisabled();
+    await person();
+    await addProject(/MICO Tower/);
+    await userEvent.click(button);
+    expect(screen.getByRole('dialog', { name: 'Preview as client' })).toBeInTheDocument();
+    expect(preview.spec).toEqual({
+      firstName: 'Huda',
+      lastName: 'Saleh',
+      organisation: 'Owner Group',
+      email: 'huda@owner.test',
+      projects: [{ projectId: 'p-mico', role: 'VIEWER', modules: { progress: true, meetings: true }, actions: { ...NO_ACTIONS, download: true, notify: true } }],
+    });
+    await userEvent.click(screen.getByRole('button', { name: 'Close preview' }));
+    expect(screen.getByRole('dialog', { name: 'New user' })).toBeInTheDocument();
     expect(server.requests('POST', '/clients')).toHaveLength(0);
   });
 
@@ -519,18 +560,28 @@ describe('CreateUserModal: Role "Client" (1.23)', () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
-  it('from 1024px: two columns, the person on the left and their project access on the right', async () => {
+  it('from 1024px: the person and their role on the left, how they get in on the right, and the permission matrix across the whole form below', async () => {
     windowWidth(1280);
     clientServer();
     renderModal();
-    await userEvent.selectOptions(screen.getByLabelText('Role'), 'CLIENT');
+    const role = screen.getByLabelText('Role');
+    role.focus();
+    await userEvent.selectOptions(role, 'CLIENT');
     const dialog = screen.getByRole('dialog', { name: 'New user' });
     expect(dialog.className).toMatch(/lg:max-w-\[60rem\]/);
     const left = dialog.querySelector<HTMLElement>('[data-form-column="person"]')!;
-    const right = dialog.querySelector<HTMLElement>('[data-form-column="access"]')!;
+    const right = dialog.querySelector<HTMLElement>('[data-form-column="way-in"]')!;
+    const below = dialog.querySelector<HTMLElement>('[data-form-row="access"]')!;
+    expect(left.parentElement!.className).toMatch(/grid-cols-/);
     expect(left).toContainElement(screen.getByLabelText(/organisation/i));
     expect(left).toContainElement(screen.getByLabelText('Role'));
-    expect(right).toContainElement(screen.getByRole('group', { name: 'Project access' }));
+    expect(right).toContainElement(screen.getByRole('group', { name: 'How will they get in?' }));
+    expect(left.parentElement!.contains(below)).toBe(false);
+    expect(below).toContainElement(screen.getByRole('group', { name: 'Project access' }));
+    expect(below).toContainElement(screen.getByRole('table', { name: 'Permissions for each project' }));
+    // Choosing Client keeps the Role box where it was (the keyboard stays on it).
+    expect(screen.getByLabelText('Role')).toBe(role);
+    expect(role).toHaveFocus();
   });
 
   it('on a phone: one column, project access under the person', async () => {
@@ -555,9 +606,8 @@ describe('CreateUserModal: Role "Client" (1.23)', () => {
     expect(screen.queryByLabelText('Role')).toBeNull();
     await person();
     await addProject(/MICO Tower/);
-    await tick('MICO Tower', 'Meetings and minutes');
     await userEvent.click(screen.getByRole('button', { name: /create client/i }));
     await waitFor(() => expect(server.requests('POST', '/clients')).toHaveLength(1));
-    expect(server.lastBody('POST', '/clients')).toMatchObject({ username: 'huda', projects: [{ projectId: 'p-mico', modules: { progress: false, meetings: true } }] });
+    expect(server.lastBody('POST', '/clients')).toMatchObject({ username: 'huda', projects: [{ projectId: 'p-mico', role: 'VIEWER', modules: { progress: true, meetings: true } }] });
   });
 });

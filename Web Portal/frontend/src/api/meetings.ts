@@ -378,7 +378,7 @@ export interface InvitePreview {
  * Which copy of the minutes one of the meeting's people gets: the shared email, their own email
  * (invited from another company), later (theirs once the minutes are final) or none (no access).
  */
-export type MinutesCopy = 'shared' | 'own' | 'later' | 'none';
+export type MinutesCopy = 'shared' | 'own' | 'later' | 'none' | 'off';
 
 export interface MinutesPreview {
   subject: string;
@@ -403,6 +403,8 @@ export interface MinutesSentAddress {
   /** The shared email, or their own (someone from another company). */
   copy: 'shared' | 'own';
   ok: boolean;
+  /** 1.23.7: nothing was sent to them on purpose (a client's minutes are off); `error` says why. */
+  notSent?: boolean;
   error?: string;
 }
 
@@ -420,7 +422,7 @@ export interface MinutesSend {
 export interface SendReport {
   sent: number;
   failed?: number;
-  recipients?: { name: string; email: string; kind: RecipientKind; ok: boolean; error?: string; line?: 'to' | 'cc'; copy?: 'shared' | 'own' }[];
+  recipients?: { name: string; email: string; kind: RecipientKind; ok: boolean; error?: string; line?: 'to' | 'cc'; copy?: 'shared' | 'own'; notSent?: boolean }[];
   skipped?: { name: string; reason: string }[];
 }
 

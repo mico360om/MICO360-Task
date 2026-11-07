@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState, type DragEvent } from 'react';
+import { useEffect, useId, useRef, useState, type DragEvent } from 'react';
 import { downloadNameFor } from '../../lib/download';
 import { fileKind, type FileKind } from '../../lib/file-kind';
 import { useDialog } from '../../hooks/useDialog';
 import { ModalPortal } from '../ui/ModalPortal';
+import { Badge } from '../ui/Badge';
+import { ClientEyeIcon } from '../TaskCard';
 import { failureMessage } from './save-state';
 import { pastedFiles } from '../../lib/clipboard-files';
 import { detectPlatform, isTypingTarget } from '../../lib/shortcuts';
@@ -20,7 +22,14 @@ export interface DrawerAttachment {
   mimeType?: string;
   /** May the viewer delete it (they uploaded it, or they're an admin)? Defaults to yes. */
   canDelete?: boolean;
+  /** 1.23.7: a client uploaded it in the Client portal (marked "From client"). */
+  fromClient?: boolean;
+  /** 1.23.7: "Show to client" — the project's clients who may view tasks see it in the portal. */
+  clientVisible?: boolean;
 }
+
+/** 1.23.7: show a file to the project's clients (or not); rejects with the reason to show. */
+export type SetFileClientVisible = (attachmentId: string, visible: boolean) => Promise<void> | void;
 
 /** API origin (without the /api/v1 prefix) — attachment files are served from the root. */
 const API_ORIGIN = (import.meta.env.VITE_API_URL ?? 'http://localhost:4000/api/v1').replace(/\/api\/v1\/?$/, '');
@@ -216,10 +225,51 @@ interface Upload {
   error?: string;
 }
 
-function AttachmentRow({ a, onDelete, onPreview }: { a: DrawerAttachment; onDelete?: (id: string) => Promise<void> | void; onPreview?: LoadOfficePreview }) {
+function AttachmentRow({
+  a,
+  onDelete,
+  onPreview,
+  onSetClientVisible,
+  clientHintId,
+}: {
+  a: DrawerAttachment;
+  onDelete?: (id: string) => Promise<void> | void;
+  onPreview?: LoadOfficePreview;
+  /** Offered to whoever may show things to clients (who runs the project, or an admin). */
+  onSetClientVisible?: SetFileClientVisible;
+  /** The section's one hint on where clients see a shown file, read with each tick. */
+  clientHintId?: string;
+}) {
   const [confirming, setConfirming] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [previewing, setPreviewing] = useState(false);
+  // "Show to client": the tick shows what was ticked while it saves, until the file says so too (back
+  // as it was if the save fails; after a moment, whatever the file says).
+  const [ticking, setTicking] = useState<boolean | null>(null);
+  const [sharing, setSharing] = useState(false);
+  const shown = a.clientVisible === true;
+  useEffect(() => {
+    if (ticking === null || sharing) return;
+    if (ticking === shown) {
+      setTicking(null);
+      return;
+    }
+    const t = setTimeout(() => setTicking(null), 1000);
+    return () => clearTimeout(t);
+  }, [ticking, sharing, shown]);
+  const share = async (visible: boolean) => {
+    setTicking(visible);
+    setSharing(true);
+    setProblem(null);
+    try {
+      await onSetClientVisible?.(a.id, visible);
+    } catch (err) {
+      setTicking(null);
+      setProblem(failureMessage(err, 'Couldn’t change who sees the file.'));
+    } finally {
+      setSharing(false);
+    }
+  };
   const kind = fileKind(a.mimeType ?? '', a.filename);
   const mode = previewMode(kind, a.filename, (a.mimeType ?? '').toLowerCase(), Boolean(onPreview));
   const href = `${API_ORIGIN}${a.url}`;
@@ -245,7 +295,22 @@ function AttachmentRow({ a, onDelete, onPreview }: { a: DrawerAttachment; onDele
           <a href={href} download={downloadNameFor(a.filename)} target="_blank" rel="noreferrer" dir="auto" title={a.filename} className="block truncate text-sm font-medium text-ink hover:text-brand hover:underline">
             {a.filename}
           </a>
-          <span className="text-xs text-ink-3">{formatSize(a.sizeBytes)}</span>
+          <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+            <span className="text-xs text-ink-3">{formatSize(a.sizeBytes)}</span>
+            {/* 1.23.7: a client's file is marked as a client's comment is. */}
+            {a.fromClient ? (
+              <span title="Uploaded by a client in the Client portal">
+                <Badge tone="info">From client</Badge>
+              </span>
+            ) : null}
+            {/* Who can't change it just sees that a file is shown. */}
+            {!onSetClientVisible && shown ? (
+              <span className="inline-flex items-center gap-1 rounded-md bg-info-soft px-1.5 py-0.5 text-[11px] font-semibold text-info" title="Clients see this file in the Client portal">
+                <ClientEyeIcon size={11} />
+                Shown to client
+              </span>
+            ) : null}
+          </span>
         </div>
         {mode ? (
           <button
@@ -275,6 +340,27 @@ function AttachmentRow({ a, onDelete, onPreview }: { a: DrawerAttachment; onDele
           </button>
         ) : null}
       </div>
+      {onSetClientVisible ? (
+        // Lined up under the file's name; the file's name is read with the tick.
+        <div className="ps-[3.125rem]">
+          <label className="inline-flex min-h-8 cursor-pointer items-center gap-2 rounded-md pe-1 text-xs font-medium text-ink-2 hover:text-ink [@media(pointer:coarse)]:!min-h-11">
+            <input
+              type="checkbox"
+              checked={ticking ?? shown}
+              disabled={sharing}
+              // The visible words first, then which file (several files, one tick each).
+              aria-label={`Show to client: ${a.filename}`}
+              aria-describedby={clientHintId}
+              onChange={(e) => void share(e.target.checked)}
+              className="h-4 w-4 flex-none accent-[rgb(var(--c-brand))]"
+            />
+            <span className={(ticking ?? shown) ? 'text-info' : 'text-ink-3'}>
+              <ClientEyeIcon size={13} />
+            </span>
+            Show to client
+          </label>
+        </div>
+      ) : null}
       {confirming ? (
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className="text-ink-2">Delete this file?</span>
@@ -308,19 +394,30 @@ function AttachmentRow({ a, onDelete, onPreview }: { a: DrawerAttachment; onDele
   );
 }
 
-/** Files on the task: drop or browse to upload (with progress), preview, download, delete. */
+/**
+ * Files on the task: drop or browse to upload (with progress), preview, download, delete. 1.23.7: a
+ * client's file is marked "From client"; whoever may show things to clients ticks "Show to client"
+ * on any file, the others see which files are shown.
+ */
 export function AttachmentsSection({
   attachments,
   onUpload,
   onDelete,
   onPreview,
+  onSetClientVisible,
+  taskShownToClient,
 }: {
   attachments: DrawerAttachment[];
   onUpload?: (file: File, onProgress?: (fraction: number) => void) => Promise<unknown> | void;
   onDelete?: (id: string) => Promise<void> | void;
   /** Loads Word / Excel / PowerPoint previews; without it those files only download. */
   onPreview?: LoadOfficePreview;
+  /** 1.23.7: "Show to client" on each file — only for whoever may show things to clients. */
+  onSetClientVisible?: SetFileClientVisible;
+  /** The task itself is shown to clients (its files reach them only then). */
+  taskShownToClient?: boolean;
 }) {
+  const clientHintId = useId();
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [dragging, setDragging] = useState(false);
   const depth = useRef(0);
@@ -404,11 +501,19 @@ export function AttachmentsSection({
         {attachments.length > 0 ? (
           <ul className="flex flex-col gap-1.5">
             {attachments.map((a) => (
-              <AttachmentRow key={a.id} a={a} onDelete={onDelete} onPreview={onPreview} />
+              <AttachmentRow key={a.id} a={a} onDelete={onDelete} onPreview={onPreview} onSetClientVisible={onSetClientVisible} clientHintId={onSetClientVisible ? clientHintId : undefined} />
             ))}
           </ul>
         ) : !onUpload ? (
           <p className="text-sm text-ink-3">No attachments.</p>
+        ) : null}
+        {/* One hint for every file's "Show to client" tick (each tick is described by it). */}
+        {attachments.length > 0 && onSetClientVisible ? (
+          <p id={clientHintId} className="text-xs leading-relaxed text-ink-2">
+            Show to client: clients see the file in the Client portal only, and only while this task is shown to clients.
+            {attachments.some((a) => a.fromClient) ? ' A client always sees their own files.' : ''}
+            {taskShownToClient === false ? ' This task isn’t shown to clients now.' : ''}
+          </p>
         ) : null}
         {uploads.map((u) => (
           <div key={u.key} className="rounded-lg border border-line bg-surface p-2 text-xs">

@@ -1,6 +1,5 @@
 import { useId, useState, type FormEvent } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { portal } from '../../api/portal';
 import { useAuthStore } from '../../stores/auth-store';
 import { ApiError } from '../../lib/api-client';
 import { isStrongPassword, PASSWORD_RULE_ERROR, PASSWORD_RULE_HINT } from '../../lib/passwordPolicy';
@@ -9,6 +8,7 @@ import { ModalPortal } from '../ui/ModalPortal';
 import { Button } from '../ui/Button';
 import { FieldLabel, fieldClass } from '../ui/Field';
 import { dialogLayer, dialogPanel } from '../ui/dialog-size';
+import { usePortalApi } from './portal-context';
 import { TOUCH } from './portal-ui';
 
 /**
@@ -23,8 +23,9 @@ export function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  const api = usePortalApi();
   const mut = useMutation({
-    mutationFn: () => portal.changePassword(current, next),
+    mutationFn: () => api.changePassword(current, next),
     onSuccess: (fresh) => {
       setCurrent('');
       setNext('');

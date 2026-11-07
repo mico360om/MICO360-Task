@@ -32,8 +32,10 @@ const COPY_NOTE: Partial<Record<MinutesCopy, string>> = {
   own: 'Their own email (another company)',
   later: 'Gets the minutes once they’re final',
   none: 'Can’t open this meeting',
+  // 1.23.7: a client who turned minutes notifications off (or the team did, for this project).
+  off: 'Not sent — notifications for minutes are off for this client',
 };
-const canGet = (copy: MinutesCopy | undefined) => copy !== 'later' && copy !== 'none';
+const canGet = (copy: MinutesCopy | undefined) => copy !== 'later' && copy !== 'none' && copy !== 'off';
 
 /** To and Cc of an earlier send, to start from (Send again). */
 export type MinutesPrefill = Pick<MinutesSend, 'to' | 'cc'>;
@@ -103,7 +105,7 @@ export function MinutesEmailDialog({ meeting, onClose, prefill }: { meeting: Mee
     if (toKeys.has(key)) return 'That’s already on To.';
     const mine = a.kind === 'address' ? roster.find((r) => r.email.toLowerCase() === a.email.toLowerCase()) : undefined;
     if (mine) {
-      if (!canGet(mine.copy)) return `${mine.name} can’t get these minutes.`;
+      if (!canGet(mine.copy)) return mine.copy === 'off' ? `Notifications for minutes are off for ${mine.name}.` : `${mine.name} can’t get these minutes.`;
       // One of the meeting's people: tick them rather than adding them twice.
       setLeft((s) => new Set([...s].filter((e) => e !== mine.email.toLowerCase())));
     } else setAddedTo((list) => [...list, a]);

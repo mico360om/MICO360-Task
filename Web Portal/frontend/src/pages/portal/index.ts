@@ -10,3 +10,7 @@ export { PortalTaskPage } from './PortalTaskPage';
 export { PortalMeetingsTab } from './PortalMeetingsTab';
 export { PortalMeetingPage } from './PortalMeetingPage';
 export { PortalMeetingLink } from './PortalMeetingLink';
+// 1.23.7 The bell's page, the notification switches, and the pages as Preview as client shows them.
+export { PortalNotificationsPage } from './PortalNotificationsPage';
+export { PortalSettingsPage } from './PortalSettingsPage';
+export { PortalPreviewRoutes } from './PortalPreviewRoutes';

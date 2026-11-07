@@ -220,12 +220,14 @@ export function CreateUserModal({ onClose, onCreated, clientOnly = false, onOpen
 
   // Big form (1.22): with companies to choose, 960px and two columns from 1024px — the person on the
   // left, their companies on the right. A one-company site has no companies: a normal form, one column.
-  // A client (1.23): the same big form, their project access on the right.
+  // A client (1.23): the same big form — 1.23.7: the person and role on the left, how they get in on the
+  // right, and their permission matrix (a table: one row per project) across the whole form below.
   const companiesShown = companyChoices.show && !isClient;
   const size = companiesShown || isClient ? 'wide' : 'form';
   const twoColumns = useTwoColumns() && (companiesShown || isClient);
   const title = clientOnly ? 'New client' : 'New user';
-  const personFields = (
+  // The person: their name, username and email (a client's organisation and phone).
+  const identityFields = (
     <>
       <div className="grid grid-cols-2 gap-3">
         <div className="flex flex-col gap-1.5">
@@ -272,82 +274,93 @@ export function CreateUserModal({ onClose, onCreated, clientOnly = false, onOpen
           </div>
         </div>
       ) : null}
-      <fieldset className="flex flex-col gap-2 rounded-lg border border-line bg-ground/60 px-3 py-3" aria-describedby={`${wayId}-why`}>
-        <legend className="px-1 text-sm font-semibold text-ink">How will they get in?</legend>
-        <p id={`${wayId}-why`} className="sr-only">One way only: an invitation link or a temporary password.</p>
-        <div className="flex items-start gap-2.5">
-          <input
-            id="nu-way-link"
-            type="radio"
-            name="nu-way"
-            checked={way === 'link'}
-            disabled={!emailEnabled}
-            onChange={() => setWayChoice('link')}
-            aria-describedby="nu-way-link-hint"
-            className="mt-1 h-4 w-4 flex-none accent-brand disabled:opacity-50"
-          />
-          <div className="flex min-w-0 flex-col gap-0.5">
-            <label htmlFor="nu-way-link" className={`tap text-sm font-medium ${emailEnabled ? 'cursor-pointer text-ink' : 'cursor-not-allowed text-ink-2'}`}>
-              Email an invitation link{emailEnabled ? ' (recommended)' : ''}
-            </label>
-            <p id="nu-way-link-hint" className="text-xs text-ink-2">
-              {emailEnabled ? 'They get their username and a one-time link to set their own password.' : 'Email isn’t set up on this server, so no invitation can be sent.'}
-            </p>
-          </div>
-        </div>
-        <div className="flex items-start gap-2.5">
-          <input
-            id="nu-way-temporary"
-            type="radio"
-            name="nu-way"
-            checked={way === 'temporary'}
-            onChange={() => setWayChoice('temporary')}
-            aria-describedby="nu-way-temporary-hint"
-            className="mt-1 h-4 w-4 flex-none accent-brand"
-          />
-          <div className="flex min-w-0 flex-col gap-0.5">
-            <label htmlFor="nu-way-temporary" className="tap cursor-pointer text-sm font-medium text-ink">
-              Give them a temporary password yourself
-            </label>
-            <p id="nu-way-temporary-hint" className="text-xs text-ink-2">
-              We make a strong one; you see it once, to give them yourself (never by email). They choose their own at their first sign-in.
-            </p>
-          </div>
-        </div>
-        <div className="mt-1 grid gap-3 border-t border-line pt-3 sm:grid-cols-2">
-          {way === 'temporary' ? <StyleChoice name="nu-style" value={style} onChange={setStyle} /> : null}
-          <div className="flex flex-col gap-1.5">
-            <FieldLabel htmlFor="nu-days">{way === 'link' ? 'The link works for' : 'Unused, it stops working after'}</FieldLabel>
-            <LifetimeSelect id="nu-days" value={days} onChange={setChosenDays} />
-          </div>
-        </div>
-      </fieldset>
-      {/* On a phone the role takes the whole row. */}
-      {clientOnly ? null : (
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="flex flex-col gap-1.5">
-            <FieldLabel htmlFor="nu-role">Role</FieldLabel>
-            <select
-              id="nu-role"
-              value={role}
-              onChange={(e) => {
-                setRole(e.target.value as Role);
-                setError(null);
-              }}
-              aria-describedby={isClient ? 'nu-role-hint' : undefined}
-              className={fieldClass(false)}
-            >
-              <option value="EMPLOYEE">Employee</option>
-              <option value="ADMIN">Administrator</option>
-              <option value="CLIENT">Client</option>
-            </select>
-            {isClient ? <p id="nu-role-hint" className="text-xs text-ink-2">Someone outside the company: they sign in to the Client portal and see only the projects you give them.</p> : null}
-          </div>
-        </div>
-      )}
     </>
   );
-  const accessField = isClient ? <ClientAccessEditor value={access} onChange={setAccess} idPrefix="nu-access" showErrors={accessChecked} /> : null;
+  const wayFields = (
+    <fieldset className="flex flex-col gap-2 rounded-lg border border-line bg-ground/60 px-3 py-3" aria-describedby={`${wayId}-why`}>
+      <legend className="px-1 text-sm font-semibold text-ink">How will they get in?</legend>
+      <p id={`${wayId}-why`} className="sr-only">One way only: an invitation link or a temporary password.</p>
+      <div className="flex items-start gap-2.5">
+        <input
+          id="nu-way-link"
+          type="radio"
+          name="nu-way"
+          checked={way === 'link'}
+          disabled={!emailEnabled}
+          onChange={() => setWayChoice('link')}
+          aria-describedby="nu-way-link-hint"
+          className="mt-1 h-4 w-4 flex-none accent-brand disabled:opacity-50"
+        />
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <label htmlFor="nu-way-link" className={`tap text-sm font-medium ${emailEnabled ? 'cursor-pointer text-ink' : 'cursor-not-allowed text-ink-2'}`}>
+            Email an invitation link{emailEnabled ? ' (recommended)' : ''}
+          </label>
+          <p id="nu-way-link-hint" className="text-xs text-ink-2">
+            {emailEnabled ? 'They get their username and a one-time link to set their own password.' : 'Email isn’t set up on this server, so no invitation can be sent.'}
+          </p>
+        </div>
+      </div>
+      <div className="flex items-start gap-2.5">
+        <input
+          id="nu-way-temporary"
+          type="radio"
+          name="nu-way"
+          checked={way === 'temporary'}
+          onChange={() => setWayChoice('temporary')}
+          aria-describedby="nu-way-temporary-hint"
+          className="mt-1 h-4 w-4 flex-none accent-brand"
+        />
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <label htmlFor="nu-way-temporary" className="tap cursor-pointer text-sm font-medium text-ink">
+            Give them a temporary password yourself
+          </label>
+          <p id="nu-way-temporary-hint" className="text-xs text-ink-2">
+            We make a strong one; you see it once, to give them yourself (never by email). They choose their own at their first sign-in.
+          </p>
+        </div>
+      </div>
+      <div className="mt-1 grid gap-3 border-t border-line pt-3 sm:grid-cols-2">
+        {way === 'temporary' ? <StyleChoice name="nu-style" value={style} onChange={setStyle} /> : null}
+        <div className="flex flex-col gap-1.5">
+          <FieldLabel htmlFor="nu-days">{way === 'link' ? 'The link works for' : 'Unused, it stops working after'}</FieldLabel>
+          <LifetimeSelect id="nu-days" value={days} onChange={setChosenDays} />
+        </div>
+      </div>
+    </fieldset>
+  );
+  // On a phone the role takes the whole row.
+  const roleField = clientOnly ? null : (
+    <div className="grid gap-3 sm:grid-cols-2">
+      <div className="flex flex-col gap-1.5">
+        <FieldLabel htmlFor="nu-role">Role</FieldLabel>
+        <select
+          id="nu-role"
+          value={role}
+          onChange={(e) => {
+            setRole(e.target.value as Role);
+            setError(null);
+          }}
+          aria-describedby={isClient ? 'nu-role-hint' : undefined}
+          className={fieldClass(false)}
+        >
+          <option value="EMPLOYEE">Employee</option>
+          <option value="ADMIN">Administrator</option>
+          <option value="CLIENT">Client</option>
+        </select>
+        {isClient ? <p id="nu-role-hint" className="text-xs text-ink-2">Someone outside the company: they sign in to the Client portal and see only the projects you give them.</p> : null}
+      </div>
+    </div>
+  );
+  // 1.23.7 The permission matrix, with "Preview as client" for the details typed so far (no account yet).
+  const accessField = isClient ? (
+    <ClientAccessEditor
+      value={access}
+      onChange={setAccess}
+      idPrefix="nu-access"
+      showErrors={accessChecked}
+      preview={{ firstName: firstName.trim(), lastName: lastName.trim(), organisation: organisation.trim() || null, email: email.trim() }}
+    />
+  ) : null;
   const companiesField = companiesShown ? (
     <CompanyChecklist
       companies={companyChoices.companies}
@@ -403,17 +416,29 @@ export function CreateUserModal({ onClose, onCreated, clientOnly = false, onOpen
                   {error}
                 </p>
               ) : null}
-              {twoColumns ? (
-                <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-start gap-6">
-                  <div data-form-column="person" className="flex min-w-0 flex-col gap-3">{personFields}</div>
-                  <div data-form-column={isClient ? 'access' : 'companies'} className="flex min-w-0 flex-col gap-3">{isClient ? accessField : companiesField}</div>
+              {/* The same boxes in every layout, so choosing a Role never rebuilds the Role box (the keyboard stays on it). */}
+              <div className={twoColumns ? 'grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-start gap-6' : 'flex min-w-0 flex-col gap-3'}>
+                <div {...(twoColumns ? { 'data-form-column': 'person' } : {})} className="flex min-w-0 flex-col gap-3">
+                  {identityFields}
+                  {/* A client's way in moves to the right: their permission matrix takes the whole width below. */}
+                  {twoColumns && isClient ? null : wayFields}
+                  {roleField}
                 </div>
-              ) : (
-                <>
-                  {personFields}
-                  {isClient ? accessField : companiesField}
-                </>
-              )}
+                {twoColumns ? (
+                  <div data-form-column={isClient ? 'way-in' : 'companies'} className="flex min-w-0 flex-col gap-3">
+                    {isClient ? wayFields : companiesField}
+                  </div>
+                ) : isClient ? (
+                  accessField
+                ) : (
+                  companiesField
+                )}
+              </div>
+              {twoColumns && isClient ? (
+                <div data-form-row="access" className="min-w-0 border-t border-line pt-4">
+                  {accessField}
+                </div>
+              ) : null}
             </div>
             <div className="flex flex-none items-center gap-2 border-t border-line px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 sm:justify-end sm:px-6">
               <button type="button" title="Cancel (Esc)" aria-keyshortcuts="Escape" onClick={onClose} className="!min-h-[44px] flex-1 rounded-xl border border-line px-4 text-sm font-semibold text-ink transition-colors hover:bg-ground disabled:opacity-50 sm:flex-none">

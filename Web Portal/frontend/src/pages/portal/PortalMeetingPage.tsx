@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { isNotShared, portal, portalProblem, type PortalMeetingView, type PortalResponse } from '../../api/portal';
+import { isNotShared, portalProblem, type PortalMeetingView, type PortalResponse } from '../../api/portal';
 import { Button } from '../../components/ui/Button';
+import { usePortalApi, usePreviewOff } from '../../components/portal/portal-context';
 import { meetingChanged, usePortalMeeting } from '../../components/portal/portal-queries';
-import { BackLink, Chip, day, LoadFailed, Loading, MinutesBody, NotShared, OWN_LINES, RESPONSE_TONE, RESPONSE_WORDS, Section, StatusBadge, TOUCH } from '../../components/portal/portal-ui';
+import { BackLink, Chip, day, LoadFailed, Loading, MinutesBody, NotShared, OWN_LINES, RESPONSE_TONE, RESPONSE_WORDS, Section, StatusBadge, TOUCH, usePortalPageName } from '../../components/portal/portal-ui';
 import { downloadBlob, fileNameOf } from '../../lib/download';
-import { usePageName } from '../../lib/page-meta';
 import { NeedsModule, usePortalProjectContext } from './PortalProjectLayout';
 import { meetingWhen } from './PortalMeetingsTab';
 
@@ -27,7 +27,7 @@ function MeetingPage() {
   const { projectId } = usePortalProjectContext();
   const { meetingId = '' } = useParams();
   const q = usePortalMeeting(projectId, meetingId);
-  usePageName(q.data?.meeting.title ?? null);
+  usePortalPageName(q.data?.meeting.title ?? null);
   const back = `/portal/projects/${encodeURIComponent(projectId)}/meetings`;
   return (
     <div className="flex flex-col gap-4">
@@ -55,13 +55,15 @@ const webLink = (url: string | null) => (url && /^https?:\/\//i.test(url.trim())
 function MeetingBody({ projectId, view }: { projectId: string; view: PortalMeetingView }) {
   const { meeting: m, agenda, minutes, actionItems, can } = view;
   const qc = useQueryClient();
+  const api = usePortalApi();
+  const off = usePreviewOff();
   const [problem, setProblem] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [downloadProblem, setDownloadProblem] = useState<string | null>(null);
 
   const respond = useMutation({
-    mutationFn: (answer: Exclude<PortalResponse, 'PENDING'>) => portal.respond(projectId, m.id, answer),
+    mutationFn: (answer: Exclude<PortalResponse, 'PENDING'>) => api.respond(projectId, m.id, answer),
     onSuccess: (fresh) => {
       meetingChanged(qc, projectId, fresh);
       setNotice(fresh.meeting.response ? `Your answer is saved: ${RESPONSE_WORDS[fresh.meeting.response]}.` : 'Your answer is saved.');
@@ -69,7 +71,7 @@ function MeetingBody({ projectId, view }: { projectId: string; view: PortalMeeti
     onError: (err) => setProblem(portalProblem(err, 'Couldn’t save your answer.')),
   });
   const markDone = useMutation({
-    mutationFn: (itemId: string) => portal.markDone(projectId, itemId),
+    mutationFn: (itemId: string) => api.markDone(projectId, itemId),
     onSuccess: (fresh) => {
       meetingChanged(qc, projectId, fresh);
       setNotice('Marked done. The project team can see it.');
@@ -80,7 +82,7 @@ function MeetingBody({ projectId, view }: { projectId: string; view: PortalMeeti
     setDownloading(true);
     setDownloadProblem(null);
     try {
-      const blob = await portal.minutesPdf(projectId, m.id);
+      const blob = await api.minutesPdf(projectId, m.id);
       downloadBlob(fileNameOf(blob) ?? `minutes-${m.date}.pdf`, blob);
     } catch (err) {
       setDownloadProblem(portalProblem(err, 'Couldn’t download the minutes.'));
@@ -162,7 +164,9 @@ function MeetingBody({ projectId, view }: { projectId: string; view: PortalMeeti
                   type="button"
                   variant={chosen ? 'primary' : 'secondary'}
                   aria-pressed={chosen}
-                  className={TOUCH}
+                  className={`${TOUCH} ${off.className}`}
+                  disabled={off.disabled}
+                  title={off.title}
                   loading={respond.isPending && respond.variables === a.value}
                   onClick={() => {
                     setProblem(null);
@@ -196,7 +200,9 @@ function MeetingBody({ projectId, view }: { projectId: string; view: PortalMeeti
                     type="button"
                     variant="secondary"
                     size="sm"
-                    className={`${TOUCH} self-start sm:self-center`}
+                    className={`${TOUCH} self-start sm:self-center ${off.className}`}
+                    disabled={off.disabled}
+                    title={off.title}
                     loading={markDone.isPending && markDone.variables === a.id}
                     aria-label={`Mark done: ${a.description}`}
                     onClick={() => {
@@ -219,7 +225,16 @@ function MeetingBody({ projectId, view }: { projectId: string; view: PortalMeeti
           title="Minutes"
           aside={
             can.downloadMinutes ? (
-              <Button type="button" variant="secondary" size="sm" className={TOUCH} loading={downloading} onClick={() => void download()}>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                className={`${TOUCH} ${off.className}`}
+                disabled={off.disabled}
+                title={off.title}
+                loading={downloading}
+                onClick={() => void download()}
+              >
                 Download minutes (PDF)
               </Button>
             ) : null

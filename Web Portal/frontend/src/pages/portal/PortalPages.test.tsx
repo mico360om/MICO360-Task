@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, within, waitFor } from '@testing-library/react';
@@ -6,7 +8,10 @@ import userEvent from '@testing-library/user-event';
 import { App } from '../../App';
 import { useAuthStore } from '../../stores/auth-store';
 import { ApiError } from '../../lib/api-client';
-import { card, home, meetingItem, meetingView, projectView, taskView } from './portal-fixtures';
+import { card, home, meetingItem, meetingView, notice, notices, noticeSettings, portalFile, projectView, taskView } from './portal-fixtures';
+import { PREVIEW_ONLY, type PortalApi } from '../../api/portal';
+import { PortalApiProvider } from '../../components/portal/portal-context';
+import { PortalPreviewRoutes } from './PortalPreviewRoutes';
 
 /** The portal's API, replaced: each test says what the server answers. */
 const api = vi.hoisted(() => ({
@@ -24,6 +29,13 @@ const api = vi.hoisted(() => ({
   markDone: vi.fn(),
   whereIs: vi.fn(),
   changePassword: vi.fn(),
+  upload: vi.fn(),
+  file: vi.fn(),
+  notices: vi.fn(),
+  readNotice: vi.fn(),
+  readAllNotices: vi.fn(),
+  settings: vi.fn(),
+  setSettings: vi.fn(),
 }));
 vi.mock('../../api/portal', async (importOriginal) => ({ ...(await importOriginal<typeof import('../../api/portal')>()), portal: api }));
 
@@ -68,6 +80,8 @@ beforeEach(() => {
   api.task.mockResolvedValue(taskView());
   api.meetings.mockResolvedValue([meetingItem(), meetingItem({ id: 'm2', title: 'Kick-off', date: '2026-10-01', startAt: '2026-10-01T05:00:00.000Z', endAt: null, status: 'Held', invited: false, response: null, hasMinutes: true })]);
   api.meeting.mockResolvedValue(meetingView());
+  api.notices.mockResolvedValue(notices());
+  api.settings.mockResolvedValue(noticeSettings());
   // Anything else the page asks the server (it must ask nothing else) is recorded.
   calls = [];
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
@@ -395,6 +409,373 @@ describe('Client portal: meetings', () => {
     api.meeting.mockRejectedValue(notShared());
     renderAt('/portal/projects/p1/meetings/secret');
     expect(await screen.findByRole('heading', { name: 'This isn’t shared with you.' })).toBeInTheDocument();
+  });
+});
+
+/** Downloads are caught: the names the page saved files under. */
+function catchDownloads() {
+  const saved: string[] = [];
+  Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:x'), revokeObjectURL: vi.fn() });
+  const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+    saved.push(this.download);
+  });
+  return { saved, restore: () => click.mockRestore() };
+}
+
+describe('1.23.7 Client portal: files on a task', () => {
+  const twoFiles = () => [
+    portalFile(),
+    portalFile({ id: 'f2', name: 'Snag photos.zip', type: 'application/zip', sizeBytes: 2048, addedAt: '2026-11-05T06:00:00.000Z', from: 'you' }),
+  ];
+
+  it('lists the files — name, size, day, who added them — and Download saves under the server’s name', async () => {
+    api.task.mockResolvedValue(taskView({ files: twoFiles(), can: { comment: true, signOff: true, upload: false } }));
+    api.file.mockResolvedValue(new File(['%PDF'], 'Site plan (server).pdf', { type: 'application/pdf' }));
+    const downloads = catchDownloads();
+    renderAt('/portal/projects/p1/tasks/t2');
+    const section = await screen.findByRole('region', { name: 'Files' });
+    const items = within(section).getAllByRole('listitem');
+    expect(items).toHaveLength(2);
+    expect(within(items[0]!).getByText('Site plan.pdf')).toBeInTheDocument();
+    expect(within(items[0]!).getByText(/1\.2 MB/)).toBeInTheDocument();
+    expect(within(items[0]!).getByText(/3 Nov 2026/)).toBeInTheDocument();
+    expect(within(items[0]!).getByText(/Shared by the project team/)).toBeInTheDocument();
+    expect(within(items[1]!).getByText(/2 KB/)).toBeInTheDocument();
+    expect(within(items[1]!).getByText(/Uploaded by you/)).toBeInTheDocument();
+    // Without the Upload action: no upload box.
+    expect(within(section).queryByLabelText('Upload a document')).toBeNull();
+    await userEvent.click(within(items[0]!).getByRole('button', { name: 'Download Site plan.pdf' }));
+    await waitFor(() => expect(downloads.saved).toEqual(['Site plan (server).pdf']));
+    expect(api.file).toHaveBeenCalledWith('p1', 't2', 'f1');
+    downloads.restore();
+  });
+
+  it('a failed download says so in plain words', async () => {
+    api.task.mockResolvedValue(taskView({ files: twoFiles() }));
+    api.file.mockRejectedValue(notShared());
+    renderAt('/portal/projects/p1/tasks/t2');
+    const section = await screen.findByRole('region', { name: 'Files' });
+    await userEvent.click(within(section).getByRole('button', { name: 'Download Snag photos.zip' }));
+    expect(await within(section).findByRole('alert')).toHaveTextContent('This isn’t shared with you.');
+  });
+
+  it('with Upload: a document goes up with its progress shown, the list shows it, and the client is told who sees it', async () => {
+    api.task.mockResolvedValue(taskView({ files: [], can: { comment: true, signOff: true, upload: true } }));
+    const after = taskView({ files: [portalFile({ id: 'f9', name: 'Snag list.pdf', from: 'you' })], can: { comment: true, signOff: true, upload: true } });
+    let release: () => void = () => {};
+    api.upload.mockImplementation((_p: string, _t: string, _f: File, onProgress?: (n: number) => void) => {
+      onProgress?.(0.4);
+      return new Promise((resolve) => {
+        release = () => resolve(after);
+      });
+    });
+    renderAt('/portal/projects/p1/tasks/t2');
+    const section = await screen.findByRole('region', { name: 'Files' });
+    expect(within(section).getByText('No documents yet.')).toBeInTheDocument();
+    expect(section).toHaveTextContent(/The project team sees what you upload\. Other clients on this project see it only if the team shares it with them\./);
+    const doc = new File(['hello'], 'Snag list.pdf', { type: 'application/pdf' });
+    await userEvent.upload(within(section).getByLabelText('Upload a document'), doc);
+    expect(await within(section).findByRole('progressbar', { name: 'Uploading Snag list.pdf' })).toHaveAttribute('aria-valuenow', '40');
+    expect(within(section).getByLabelText('Upload a document')).toBeDisabled();
+    release();
+    expect(await within(section).findByText('Uploaded by you', { exact: false })).toBeInTheDocument();
+    expect(within(section).getByRole('status')).toHaveTextContent('Uploaded Snag list.pdf. The project team can see it.');
+    expect(within(section).queryByRole('progressbar')).toBeNull();
+    expect(api.upload).toHaveBeenCalledWith('p1', 't2', doc, expect.any(Function));
+  });
+
+  it('a refused upload says the server’s words (400), and plain words for 403, 404 and 429', async () => {
+    api.task.mockResolvedValue(taskView({ files: [], can: { comment: true, signOff: true, upload: true } }));
+    api.upload
+      .mockRejectedValueOnce(new ApiError(400, 'VALIDATION', 'This type of file can’t be uploaded.'))
+      .mockRejectedValueOnce(new ApiError(403, 'FORBIDDEN', 'Request failed (403)'))
+      .mockRejectedValueOnce(notShared())
+      .mockRejectedValueOnce(new ApiError(429, 'RATE_LIMITED', 'Request failed (429)'));
+    renderAt('/portal/projects/p1/tasks/t2');
+    const input = await screen.findByLabelText('Upload a document');
+    const doc = () => new File(['x'], 'run.exe', { type: 'application/octet-stream' });
+    await userEvent.upload(input, doc());
+    expect(await screen.findByRole('alert')).toHaveTextContent('This type of file can’t be uploaded.');
+    await userEvent.upload(input, doc());
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('You can’t do that on this project.'));
+    await userEvent.upload(input, doc());
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('This isn’t shared with you.'));
+    await userEvent.upload(input, doc());
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Too many uploads at once. Wait a minute and try again.'));
+    expect(api.upload).toHaveBeenCalledTimes(4);
+  });
+
+  it('a file over 10 MB is stopped before it is sent', async () => {
+    api.task.mockResolvedValue(taskView({ files: [], can: { comment: true, signOff: true, upload: true } }));
+    renderAt('/portal/projects/p1/tasks/t2');
+    const big = new File(['x'], 'site video.mov', { type: 'video/quicktime' });
+    Object.defineProperty(big, 'size', { value: 11 * 1024 * 1024 });
+    await userEvent.upload(await screen.findByLabelText('Upload a document'), big);
+    expect(await screen.findByRole('alert')).toHaveTextContent('site video.mov is bigger than 10 MB. Choose a smaller file.');
+    expect(api.upload).not.toHaveBeenCalled();
+  });
+
+  it('no Files section with no files and no Upload action (nor from an older server)', async () => {
+    api.task.mockResolvedValue(taskView({ files: [], can: { comment: true, signOff: true, upload: false } }));
+    const first = renderAt('/portal/projects/p1/tasks/t2');
+    expect(await screen.findByRole('heading', { level: 2, name: 'Paint the walls' })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Files' })).toBeNull();
+    first.unmount();
+    api.task.mockResolvedValue(taskView());
+    renderAt('/portal/projects/p1/tasks/t2');
+    expect(await screen.findByRole('heading', { level: 2, name: 'Paint the walls' })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Files' })).toBeNull();
+  });
+});
+
+describe('1.23.7 Client portal: the bell and Notifications', () => {
+  const three = () => [
+    notice(),
+    notice({ id: 'n2', kind: 'minutes', title: 'Minutes approved: Site walk-through', taskId: null, meetingId: 'm1', read: true, createdAt: '2026-11-03T06:00:00.000Z' }),
+    notice({ id: 'n3', kind: 'document', title: 'New document on MICO-12', body: 'Site plan.pdf', project: { id: 'p2', name: 'Rig survey' }, taskId: 't9', createdAt: '2026-11-02T06:00:00.000Z' }),
+  ];
+
+  it('the bell in the header says how many are unread, and opens Notifications', async () => {
+    api.notices.mockResolvedValue(notices(three()));
+    renderAt('/portal');
+    const bell = await screen.findByRole('link', { name: 'Notifications, 2 unread' });
+    expect(within(bell).getByText('2')).toBeInTheDocument();
+    await userEvent.click(bell);
+    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('/portal/notifications'));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Notifications' })).toBeInTheDocument();
+  });
+
+  it('with nothing unread the bell has no count', async () => {
+    api.notices.mockResolvedValue(notices([notice({ read: true })]));
+    renderAt('/portal');
+    await waitFor(() => expect(api.notices).toHaveBeenCalled());
+    const bell = await screen.findByRole('link', { name: 'Notifications' });
+    expect(bell).toHaveAttribute('href', '/portal/notifications');
+    expect(bell).not.toHaveTextContent(/\d/);
+  });
+
+  it('lists each notice — title, project, when, unread — linked to its item; opening one marks it read', async () => {
+    api.notices.mockResolvedValue(notices(three()));
+    api.readNotice.mockResolvedValue({ unread: 1 });
+    renderAt('/portal/notifications');
+    const list = await screen.findByRole('list', { name: 'Notifications' });
+    const links = within(list).getAllByRole('link');
+    expect(links.map((l) => l.getAttribute('href'))).toEqual(['/portal/projects/p1/tasks/t2', '/portal/projects/p1/meetings/m1', '/portal/projects/p2/tasks/t9']);
+    expect(links[0]).toHaveTextContent('The project team replied to your comment');
+    expect(links[0]).toHaveTextContent('Office fit-out');
+    expect(links[0]).toHaveTextContent('4 Nov 2026, 10:30');
+    expect(links[0]).toHaveTextContent('Unread');
+    expect(links[1]).not.toHaveTextContent('Unread');
+    expect(links[2]).toHaveTextContent('Site plan.pdf');
+    expect(links[2]).toHaveTextContent('Rig survey');
+    await userEvent.click(links[0]!);
+    await waitFor(() => expect(api.readNotice).toHaveBeenCalledWith('n1'));
+    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('/portal/projects/p1/tasks/t2'));
+    expect(await screen.findByRole('link', { name: 'Notifications, 1 unread' })).toBeInTheDocument();
+  });
+
+  it('opening one already read asks nothing', async () => {
+    api.notices.mockResolvedValue(notices(three()));
+    renderAt('/portal/notifications');
+    await userEvent.click(await screen.findByRole('link', { name: /Minutes approved/ }));
+    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('/portal/projects/p1/meetings/m1'));
+    expect(api.readNotice).not.toHaveBeenCalled();
+  });
+
+  it('Mark all as read', async () => {
+    api.notices.mockResolvedValue(notices(three()));
+    api.readAllNotices.mockResolvedValue({ unread: 0 });
+    renderAt('/portal/notifications');
+    await userEvent.click(await screen.findByRole('button', { name: 'Mark all as read' }));
+    await waitFor(() => expect(api.readAllNotices).toHaveBeenCalled());
+    expect(await screen.findByRole('link', { name: 'Notifications' })).toBeInTheDocument();
+    expect(screen.getByRole('list', { name: 'Notifications' })).not.toHaveTextContent('Unread');
+    expect(screen.getByRole('status')).toHaveTextContent('All notifications are marked as read.');
+    expect(screen.queryByRole('button', { name: 'Mark all as read' })).toBeNull();
+  });
+
+  it('with none yet it says so, and links to the settings', async () => {
+    renderAt('/portal/notifications');
+    expect(await screen.findByText('No notifications yet.')).toBeInTheDocument();
+    expect(within(screen.getByRole('main')).getByRole('link', { name: 'Notification settings' })).toHaveAttribute('href', '/portal/settings');
+    expect(screen.queryByRole('button', { name: 'Mark all as read' })).toBeNull();
+  });
+});
+
+describe('1.23.7 Client portal: notification settings', () => {
+  it('four switches, invitations always sent, and the projects whose notices the team turned off', async () => {
+    api.settings.mockResolvedValue(
+      noticeSettings({ document: false }, [
+        { id: 'p1', name: 'Office fit-out', notify: true },
+        { id: 'p2', name: 'Rig survey', notify: false },
+      ]),
+    );
+    renderAt('/portal/settings');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Notification settings' })).toBeInTheDocument();
+    expect(await screen.findByRole('switch', { name: 'Replies to your comments' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('switch', { name: 'Tasks ready for your sign-off' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('switch', { name: 'Approved meeting minutes' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('switch', { name: 'New documents shared with you' })).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getAllByRole('switch')).toHaveLength(4);
+    expect(screen.getByText('Meeting invitations')).toBeInTheDocument();
+    expect(screen.getByText('Always sent')).toBeInTheDocument();
+    expect(screen.getByText(/The project team has turned notifications off for/)).toHaveTextContent('The project team has turned notifications off for: Rig survey.');
+  });
+
+  it('no line about projects when the team lets every project’s notices through', async () => {
+    renderAt('/portal/settings');
+    expect(await screen.findByRole('switch', { name: 'Replies to your comments' })).toBeInTheDocument();
+    expect(screen.queryByText(/turned notifications off/)).toBeNull();
+  });
+
+  it('a switch saves at once, and says so', async () => {
+    api.setSettings.mockResolvedValue(noticeSettings({ reply: false }));
+    renderAt('/portal/settings');
+    const sw = await screen.findByRole('switch', { name: 'Replies to your comments' });
+    await userEvent.click(sw);
+    await waitFor(() => expect(api.setSettings).toHaveBeenCalledWith({ reply: false }));
+    expect(await screen.findByRole('status')).toHaveTextContent('Saved. Replies to your comments: off.');
+    expect(screen.getByRole('switch', { name: 'Replies to your comments' })).toHaveAttribute('aria-checked', 'false');
+  });
+
+  it('a failed save says so, and the switch goes back', async () => {
+    api.setSettings.mockRejectedValue(new TypeError('offline'));
+    renderAt('/portal/settings');
+    await userEvent.click(await screen.findByRole('switch', { name: 'Approved meeting minutes' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Couldn’t save your choice. Check your connection and try again.');
+    expect(screen.getByRole('switch', { name: 'Approved meeting minutes' })).toHaveAttribute('aria-checked', 'true');
+  });
+});
+
+/** Another API for the portal's pages (as Preview as client gives them): every read answered, every write recorded. */
+function otherApi() {
+  return {
+    me: vi.fn(async () => home()),
+    project: vi.fn(async () => projectView()),
+    task: vi.fn(async () => taskView({ files: [portalFile()], can: { comment: true, signOff: true, upload: true } })),
+    meetings: vi.fn(async () => [meetingItem()]),
+    meeting: vi.fn(async () => meetingView()),
+    notices: vi.fn(async () => notices([notice()])),
+    settings: vi.fn(async () => noticeSettings()),
+    comment: vi.fn(),
+    accept: vi.fn(),
+    sendBack: vi.fn(),
+    taskListPdf: vi.fn(),
+    respond: vi.fn(),
+    minutesPdf: vi.fn(),
+    markDone: vi.fn(),
+    whereIs: vi.fn(),
+    changePassword: vi.fn(),
+    upload: vi.fn(),
+    file: vi.fn(),
+    readNotice: vi.fn(),
+    readAllNotices: vi.fn(),
+    setSettings: vi.fn(),
+  };
+}
+type OtherApi = ReturnType<typeof otherApi>;
+const WRITES = ['comment', 'accept', 'sendBack', 'taskListPdf', 'respond', 'minutesPdf', 'markDone', 'whereIs', 'changePassword', 'upload', 'file', 'readNotice', 'readAllNotices', 'setSettings'] as const;
+
+/** The portal's pages as Preview as client shows them: through the given API, read-only. */
+function renderPreview(path: string, given: OtherApi, preview = true) {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={qc}>
+      <PortalApiProvider api={given as unknown as PortalApi} preview={preview}>
+        <MemoryRouter initialEntries={[path]}>
+          <PortalPreviewRoutes />
+          <Where />
+        </MemoryRouter>
+      </PortalApiProvider>
+    </QueryClientProvider>,
+  );
+}
+
+/** Shown, but switched off, with a hint that it's a preview. */
+function off(el: HTMLElement) {
+  expect(el).toBeDisabled();
+  expect(el).toHaveAttribute('title', expect.stringMatching(/^Preview/));
+}
+
+describe('1.23.7 Client portal: Preview as client', () => {
+  it('every read goes through the API the pages are given, never the client’s own', async () => {
+    const other = otherApi();
+    const task = renderPreview('/portal/projects/p1/tasks/t2', other, false);
+    expect(await screen.findByRole('heading', { level: 2, name: 'Paint the walls' })).toBeInTheDocument();
+    task.unmount();
+    const meeting = renderPreview('/portal/projects/p1/meetings/m1', other, false);
+    expect(await screen.findByRole('heading', { level: 2, name: 'Site walk-through' })).toBeInTheDocument();
+    meeting.unmount();
+    const list = renderPreview('/portal/projects/p1/meetings', other, false);
+    expect(await screen.findByRole('link', { name: /Site walk-through/ })).toBeInTheDocument();
+    list.unmount();
+    renderPreview('/portal/settings', other, false);
+    expect(await screen.findByRole('switch', { name: 'Replies to your comments' })).toBeInTheDocument();
+    for (const read of ['me', 'project', 'task', 'meetings', 'meeting', 'notices', 'settings'] as const) expect(other[read], read).toHaveBeenCalled();
+    for (const fn of Object.values(api)) expect(fn).not.toHaveBeenCalled();
+  });
+
+  it('a banner says it is a preview; on a task every action is shown but switched off', async () => {
+    const other = otherApi();
+    renderPreview('/portal/projects/p1/tasks/t2', other);
+    expect(await screen.findByText(PREVIEW_ONLY)).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: 'Paint the walls' })).toBeInTheDocument();
+    off(screen.getByRole('button', { name: 'Accept' }));
+    off(screen.getByRole('button', { name: 'Send back' }));
+    off(screen.getByLabelText('Add a comment'));
+    off(screen.getByRole('button', { name: 'Send comment' }));
+    expect(screen.getByLabelText('Upload a document')).toBeDisabled();
+    off(screen.getByRole('button', { name: 'Download Site plan.pdf' }));
+    off(screen.getByRole('button', { name: 'Change password' }));
+    off(screen.getByRole('button', { name: 'Sign out' }));
+    // The privacy notice is words, not a way out of the preview.
+    expect(screen.queryByRole('link', { name: 'Privacy notice' })).toBeNull();
+    expect(screen.getByText('Privacy notice')).toBeInTheDocument();
+    // Pressing them does nothing.
+    await userEvent.click(screen.getByRole('button', { name: 'Accept' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Change password' }));
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    for (const w of WRITES) expect(other[w], w).not.toHaveBeenCalled();
+  });
+
+  it('on a meeting and the task list: answers, Mark done and the PDFs are switched off', async () => {
+    const other = otherApi();
+    const meeting = renderPreview('/portal/projects/p1/meetings/m1', other);
+    expect(await screen.findByRole('heading', { level: 2, name: 'Site walk-through' })).toBeInTheDocument();
+    const answers = screen.getByRole('group', { name: 'Your answer' });
+    for (const name of ['Accept', 'Maybe', 'Decline']) off(within(answers).getByRole('button', { name }));
+    off(screen.getByRole('button', { name: 'Mark done: Send the carpet samples' }));
+    off(screen.getByRole('button', { name: 'Download minutes (PDF)' }));
+    meeting.unmount();
+    renderPreview('/portal/projects/p1/progress', other);
+    off(await screen.findByRole('button', { name: 'Download task list (PDF)' }));
+    for (const w of WRITES) expect(other[w], w).not.toHaveBeenCalled();
+  });
+
+  it('notifications and settings are read, but marking read and the switches are off', async () => {
+    const other = otherApi();
+    const page = renderPreview('/portal/notifications', other);
+    off(await screen.findByRole('button', { name: 'Mark all as read' }));
+    await userEvent.click(screen.getByRole('link', { name: /The project team replied/ }));
+    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('/portal/projects/p1/tasks/t2'));
+    page.unmount();
+    renderPreview('/portal/settings', other);
+    const switches = await screen.findAllByRole('switch');
+    expect(switches).toHaveLength(4);
+    for (const s of switches) expect(s).toBeDisabled();
+    await userEvent.click(switches[0]!);
+    for (const w of WRITES) expect(other[w], w).not.toHaveBeenCalled();
+  });
+
+  it('the preview has every portal page a client has (but the invitation-link redirect)', () => {
+    const read = (f: string) => readFileSync(join(__dirname, f), 'utf8');
+    const app = read('../../App.tsx');
+    const block = app.slice(app.indexOf('<Route element={<ClientRoute />}>'), app.indexOf('<Route element={<StaffRoute />}>'));
+    const paths = (text: string) => [...text.matchAll(/path="([^"]+)"/g)].map((m) => m[1]!);
+    const preview = paths(read('PortalPreviewRoutes.tsx'));
+    expect(paths(block).length).toBeGreaterThan(8);
+    expect(paths(block).filter((p) => !preview.includes(p) && p !== '/portal/meetings/:meetingId' && p !== '/portal/*')).toEqual([]);
   });
 });
 

@@ -7,6 +7,22 @@ import { ClientsPage } from './ClientsPage';
 import { useAuthStore } from '../stores/auth-store';
 import { windowWidth } from '../test/window-width';
 import { FIN, MICO, RIG, access, apiClientAccount, clientServer, type ClientServerWorld } from '../components/clients/test-server';
+import type { ClientPreviewDialogProps } from '../components/portal/ClientPreviewDialog';
+
+// 1.23.7 The portal lane builds the real preview: here, only what it is asked to show.
+const preview = vi.hoisted(() => ({ spec: null as unknown }));
+vi.mock('../components/portal/ClientPreviewDialog', () => ({
+  ClientPreviewDialog: ({ spec, onClose }: ClientPreviewDialogProps) => {
+    preview.spec = spec;
+    return (
+      <div role="dialog" aria-label="Preview as client">
+        <button type="button" onClick={onClose}>
+          Close preview
+        </button>
+      </div>
+    );
+  },
+}));
 
 const huda = apiClientAccount({
   id: 'c-huda',
@@ -92,9 +108,13 @@ describe('ClientsPage', () => {
     await userEvent.type(within(dialog).getByLabelText(/^organisation/i), 'Owner Group');
     await userEvent.click(within(dialog).getByRole('button', { name: 'Add a project' }));
     await userEvent.click(await screen.findByRole('option', { name: /Finance Office/ }));
-    await userEvent.click(within(within(dialog).getByRole('group', { name: 'Finance Office' })).getByRole('checkbox', { name: 'Progress, milestones and tasks' }));
+    // 1.23.7: a project added starts as Viewer; Contributor picked for it.
+    await userEvent.selectOptions(within(dialog).getByRole('combobox', { name: 'Role — Finance Office' }), 'CONTRIBUTOR');
     await userEvent.click(within(dialog).getByRole('button', { name: /create client/i }));
     await waitFor(() => expect(server.requests('POST', '/clients')).toHaveLength(1));
+    expect((server.lastBody('POST', '/clients') as { projects: unknown[] }).projects).toEqual([
+      { projectId: 'p-fin', role: 'CONTRIBUTOR', modules: { progress: true, meetings: true }, actions: { comment: true, signOff: false, respond: true, download: true, upload: true, notify: true } },
+    ]);
     expect(await screen.findByRole('status')).toHaveTextContent('lina’s account is ready. Welcome email sent to lina@owner.test.');
     expect(await screen.findByRole('button', { name: 'Open Lina Q' })).toBeInTheDocument();
   });
@@ -104,10 +124,24 @@ describe('ClientsPage', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Open Huda Saleh' }));
     const dialog = await screen.findByRole('dialog', { name: 'Edit huda' });
     const mico = await within(dialog).findByRole('group', { name: 'MICO Tower' });
-    await userEvent.click(within(mico).getByRole('checkbox', { name: 'Comment on tasks' }));
+    await userEvent.click(within(mico).getByRole('checkbox', { name: 'Comment — MICO Tower' }));
     await userEvent.click(within(dialog).getByRole('button', { name: /save changes/i }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-    expect((server.lastBody('PUT', '/clients/c-huda') as { projects: unknown[] }).projects[0]).toMatchObject({ projectId: 'p-mico', actions: { comment: true } });
+    expect((server.lastBody('PUT', '/clients/c-huda') as { projects: unknown[] }).projects[0]).toMatchObject({ projectId: 'p-mico', role: 'CUSTOM', actions: { comment: true } });
+  });
+
+  it('1.23.7 Preview as client on a row: the portal with their saved access (only their id is sent)', async () => {
+    const server = renderPage();
+    await screen.findByRole('button', { name: 'Open Huda Saleh' });
+    const button = within(rowOf('Huda Saleh')).getByRole('button', { name: 'Preview as client — huda' });
+    expect(button).toHaveTextContent('Preview as client');
+    await userEvent.click(button);
+    expect(screen.getByRole('dialog', { name: 'Preview as client' })).toBeInTheDocument();
+    expect(preview.spec).toEqual({ clientId: 'c-huda' });
+    await userEvent.click(screen.getByRole('button', { name: 'Close preview' }));
+    expect(screen.queryByRole('dialog', { name: 'Preview as client' })).toBeNull();
+    // Nothing changed or sent by looking.
+    expect(server.sent.filter((r) => r.method !== 'GET')).toEqual([]);
   });
 
   it('sends the invitation (welcome email), after asking', async () => {

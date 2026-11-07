@@ -179,10 +179,12 @@ export interface ProjectClient {
   email: string;
   /** ACTIVE, INACTIVE or SUSPENDED. */
   status: string;
-  /** What they may do, in plain words ("Progress, milestones and tasks", "Comment on tasks"…). */
+  /** 1.23.7: their role on this project (an older server sends none). */
+  role?: import('./clients').ClientRole;
+  /** What they may do, in plain words (1.23.7: the role first, then "View tasks", "Comment"…). */
   access: string[];
   modules: { progress: boolean; meetings: boolean };
-  actions: { comment: boolean; signOff: boolean; respond: boolean; download: boolean };
+  actions: { comment: boolean; signOff: boolean; respond: boolean; download: boolean; upload?: boolean; notify?: boolean };
 }
 
 /** The project's clients, and whether the asker may change them (administrators, on the Clients page). */

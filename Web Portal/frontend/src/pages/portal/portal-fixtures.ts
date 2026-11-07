@@ -1,4 +1,16 @@
-import type { PortalHome, PortalMeetingItem, PortalMeetingView, PortalProjectCard, PortalProjectView, PortalTaskItem, PortalTaskView } from '../../api/portal';
+import type {
+  PortalFile,
+  PortalHome,
+  PortalMeetingItem,
+  PortalMeetingView,
+  PortalNotice,
+  PortalNotices,
+  PortalNoticeSettings,
+  PortalProjectCard,
+  PortalProjectView,
+  PortalTaskItem,
+  PortalTaskView,
+} from '../../api/portal';
 
 /** Test data in the server's shapes (backend/src/modules/clients/portal-payload.ts). */
 
@@ -95,4 +107,37 @@ export const meetingView = (over: Partial<PortalMeetingView> = {}, meeting: Part
   ],
   can: { respond: true, markDone: true, downloadMinutes: true },
   ...over,
+});
+
+/** 1.23.7 A file on a shared task. */
+export const portalFile = (over: Partial<PortalFile> = {}): PortalFile => ({
+  id: 'f1',
+  name: 'Site plan.pdf',
+  type: 'application/pdf',
+  sizeBytes: 1_258_291,
+  addedAt: '2026-11-03T06:00:00.000Z',
+  from: 'team',
+  ...over,
+});
+
+/** 1.23.7 One notice on the bell. */
+export const notice = (over: Partial<PortalNotice> = {}): PortalNotice => ({
+  id: 'n1',
+  kind: 'reply',
+  title: 'The project team replied to your comment',
+  body: null,
+  project: { id: 'p1', name: 'Office fit-out' },
+  taskId: 't2',
+  meetingId: null,
+  read: false,
+  createdAt: '2026-11-04T06:30:00.000Z',
+  ...over,
+});
+
+export const notices = (items: PortalNotice[] = []): PortalNotices => ({ items, unread: items.filter((n) => !n.read).length });
+
+/** 1.23.7 The client's notification switches. */
+export const noticeSettings = (over: Partial<PortalNoticeSettings['settings']> = {}, projects: PortalNoticeSettings['projects'] = [{ id: 'p1', name: 'Office fit-out', notify: true }]): PortalNoticeSettings => ({
+  settings: { reply: true, signOff: true, minutes: true, document: true, ...over },
+  projects,
 });

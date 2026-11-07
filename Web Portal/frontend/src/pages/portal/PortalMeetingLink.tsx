@@ -1,7 +1,6 @@
 import { Navigate, useParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { isNotShared, portal } from '../../api/portal';
-import { portalKeys } from '../../components/portal/portal-queries';
+import { isNotShared } from '../../api/portal';
+import { usePortalWhereIs } from '../../components/portal/portal-queries';
 import { LoadFailed, Loading, NotShared } from '../../components/portal/portal-ui';
 
 /**
@@ -11,7 +10,7 @@ import { LoadFailed, Loading, NotShared } from '../../components/portal/portal-u
  */
 export function PortalMeetingLink() {
   const { meetingId = '' } = useParams();
-  const q = useQuery({ queryKey: portalKeys.whereIs(meetingId), queryFn: () => portal.whereIs(meetingId), enabled: Boolean(meetingId) });
+  const q = usePortalWhereIs(meetingId);
   if (q.isPending) return <Loading what="the meeting" />;
   if (q.isError) return isNotShared(q.error) ? <NotShared /> : <LoadFailed what="the meeting" onRetry={() => void q.refetch()} />;
   return <Navigate to={`/portal/projects/${encodeURIComponent(q.data.projectId)}/meetings/${encodeURIComponent(q.data.meetingId)}`} replace />;
