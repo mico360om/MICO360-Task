@@ -31,6 +31,7 @@ export function ViewSwitch<V extends string>({
   options,
   label,
   density = true,
+  words = 'from-sm',
 }: {
   value: V;
   onChange: (v: V) => void;
@@ -39,6 +40,11 @@ export function ViewSwitch<V extends string>({
   label: string;
   /** The quick "Rows" button beside it (default on). */
   density?: boolean;
+  /**
+   * When the words show beside the icons: from a small tablet (default), or `always` — 1.23.8, for a switch
+   * whose icons look alike on a phone (the board's Day | Month).
+   */
+  words?: 'from-sm' | 'always';
 }) {
   return (
     <div className="inline-flex flex-none items-center gap-2">
@@ -58,7 +64,7 @@ export function ViewSwitch<V extends string>({
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 {o.icon}
               </svg>
-              <span aria-hidden="true" className="max-sm:hidden">{o.label}</span>
+              <span aria-hidden="true" className={words === 'always' ? '' : 'max-sm:hidden'}>{o.label}</span>
             </button>
           );
         })}

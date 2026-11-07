@@ -83,3 +83,40 @@ describe('arranging', () => {
     expect(previewFor(admin, 'admins')).toBe(admin);
   });
 });
+
+describe('the responsive grid (1.23.8): widgets side by side, the last ones stretch', () => {
+  it('columns by the room the widgets have: one on a phone, two from 640px, three from 1400px', async () => {
+    const { dashboardColumns } = await import('./dashboard-layout');
+    expect(dashboardColumns(343)).toBe(1);
+    expect(dashboardColumns(639)).toBe(1);
+    expect(dashboardColumns(640)).toBe(2);
+    expect(dashboardColumns(1140)).toBe(2);
+    expect(dashboardColumns(1400)).toBe(3);
+    expect(dashboardColumns(1596)).toBe(3);
+  });
+
+  it('a Wide widget takes the whole row; a Small one a column; the last in a row that isn’t full stretches to fill it', async () => {
+    const { dashboardSpans } = await import('./dashboard-layout');
+    // Two columns: S S | W | S S | S → the last alone stretches.
+    expect(dashboardSpans(['small', 'small', 'wide', 'small', 'small', 'small'], 2)).toEqual([1, 1, 2, 1, 1, 2]);
+    // A Small before a Wide that would leave a hole stretches instead.
+    expect(dashboardSpans(['small', 'wide', 'small'], 2)).toEqual([2, 2, 2]);
+    // Three columns: S S S | S S → the second of the last row takes what's left (2).
+    expect(dashboardSpans(['small', 'small', 'small', 'small', 'small'], 3)).toEqual([1, 1, 1, 1, 2]);
+    expect(dashboardSpans(['wide', 'small', 'wide'], 3)).toEqual([3, 3, 3]);
+    // One column: everything is the whole row.
+    expect(dashboardSpans(['small', 'wide', 'small'], 1)).toEqual([1, 1, 1]);
+    expect(dashboardSpans([], 2)).toEqual([]);
+  });
+});
+
+describe('lists show more rows on a tall screen (1.23.8)', () => {
+  it('the usual number up to a 900px window, then one more for each 56px, at most twice the usual', async () => {
+    const { rowsForHeight } = await import('./dashboard-layout');
+    expect(rowsForHeight(6, 812)).toBe(6);
+    expect(rowsForHeight(6, 900)).toBe(6);
+    expect(rowsForHeight(6, 1080)).toBe(9);
+    expect(rowsForHeight(6, 1440)).toBe(12);
+    expect(rowsForHeight(8, 2160)).toBe(16);
+  });
+});

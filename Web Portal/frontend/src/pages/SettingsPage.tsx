@@ -152,7 +152,7 @@ export function SettingsPage() {
           stretches to the Notifications card's height with an empty half under its details. */}
       <div className="grid items-start gap-4 lg:grid-cols-2">
         {/* Profile */}
-        <section className="card p-5">
+        <section className="card card-pad">
           <h2 className="eyebrow mb-4">Profile</h2>
           <div className="mb-4 flex items-center gap-4">
             {user?.avatarUrl ? (
@@ -256,7 +256,7 @@ export function SettingsPage() {
         <MicrosoftTeamsSettings />
 
         {/* Appearance */}
-        <section className="card p-5 lg:col-span-2">
+        <section className="card card-pad lg:col-span-2">
           <h2 className="eyebrow mb-4">Appearance</h2>
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
@@ -298,7 +298,7 @@ export function SettingsPage() {
         </section>
 
         {/* Security & session */}
-        <section className="card p-5 lg:col-span-2">
+        <section className="card card-pad lg:col-span-2">
           <h2 className="eyebrow mb-4">Security &amp; session</h2>
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>

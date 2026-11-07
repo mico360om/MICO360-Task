@@ -37,6 +37,8 @@ import { FlagIcon } from '../project-dashboard/parts';
 import { TOUCH_SQUARE, TOUCH_TALL } from '../../lib/touch';
 import { weightColumns } from './weight-column';
 import { PRIORITY_CLASS, dueTone, statusColour } from '../../lib/colour-classes';
+import { useDensity } from '../../lib/density';
+import { DescriptionLine, TagChips } from '../DetailLines';
 
 export interface TaskTableProps {
   /** Which page's table (what it remembers for the person: sort, filters, columns). */
@@ -124,6 +126,7 @@ export function TaskTable({
   const sort = pageSort !== undefined ? pageSort : memory.sort;
   const setSort = onSortChange ?? memory.setSort;
   const shown = pageShown ?? memory.shown;
+  const detailed = useDensity() === 'detailed';
   const setShown = onShownChange ?? memory.setShown;
   const remembered = filterBar ? memory.filters : EMPTY_TABLE_FILTERS;
   const [notice, setNotice] = useState<string | null>(null);
@@ -289,6 +292,9 @@ export function TaskTable({
                 {t.inspectionFormId ? <InspectionChip /> : null}
               </span>
             ) : null}
+            {/* Detailed (1.23.8, lib/density): the description's first line and the tags under the title. */}
+            {detailed ? <DescriptionLine description={t.description} /> : null}
+            {detailed && !shown.includes('tags') ? <TagChips tags={t.tags} /> : null}
           </span>
         );
       },

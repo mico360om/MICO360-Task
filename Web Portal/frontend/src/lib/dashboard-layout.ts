@@ -111,3 +111,49 @@ export function previewFor(layout: DashboardLayout, group: LayoutGroup): Dashboa
   if (group === 'admins') return layout;
   return { widgets: layout.widgets.filter((w) => !ADMIN_ONLY_WIDGETS.has(w.id)) };
 }
+
+/**
+ * 1.23.8 The responsive grid: how many columns the widgets get from the room they have (the grid's own width,
+ * so a folded menu gives more): one on a phone, two from 640px, three from 1400px (a big monitor).
+ */
+export function dashboardColumns(width: number): 1 | 2 | 3 {
+  return width >= 1400 ? 3 : width >= 640 ? 2 : 1;
+}
+
+/**
+ * Each widget's span: Wide takes the whole row, Small one column; the last widget of a row that isn't full —
+ * the end of the page, or before a Wide one that starts a new row — stretches to fill it, so the page has no
+ * holes and no widget stops short beside an empty space.
+ */
+export function dashboardSpans(sizes: readonly WidgetSize[], columns: number): number[] {
+  if (columns <= 1) return sizes.map(() => 1);
+  const spans = sizes.map((s) => (s === 'wide' ? columns : 1));
+  let used = 0;
+  let last = -1;
+  const closeRow = () => {
+    if (last >= 0 && used > 0 && used < columns) spans[last]! += columns - used;
+    used = 0;
+    last = -1;
+  };
+  spans.forEach((span, i) => {
+    if (span === columns) {
+      closeRow();
+      return;
+    }
+    if (used + span > columns) closeRow();
+    used += span;
+    last = i;
+    if (used === columns) closeRow();
+  });
+  closeRow();
+  return spans;
+}
+
+/**
+ * Lists on the Dashboard show more rows on a tall screen instead of stopping early: the usual number up to a
+ * 900px window, one more for each 56px above it (a row's height), at most twice the usual.
+ */
+export function rowsForHeight(base: number, windowHeight: number): number {
+  const extra = Math.max(0, Math.floor((windowHeight - 900) / 56));
+  return Math.min(base * 2, base + extra);
+}

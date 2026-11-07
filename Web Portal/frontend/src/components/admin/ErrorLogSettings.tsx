@@ -30,7 +30,7 @@ export function ErrorLogSettings() {
     onError: () => setProblem('Couldn’t save the setting. Please try again.'),
   });
   return (
-    <section className="card p-5" aria-labelledby="error-log-admin-heading">
+    <section className="card card-pad" aria-labelledby="error-log-admin-heading">
       <h2 id="error-log-admin-heading" className="eyebrow mb-1">Error log</h2>
       <p className="mb-4 text-sm text-ink-2">
         Errors in people’s browsers — and pages that were blocked or slow — are sent here with the server’s own errors, so a problem in the field can be traced.

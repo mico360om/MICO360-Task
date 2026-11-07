@@ -338,7 +338,7 @@ export function PrioritiesWidget({ onOpenTask, list }: { onOpenTask: (taskId: st
 
   const total = data?.total ?? 0;
   return (
-    <section className="card p-5" aria-labelledby={cfg.headingId} data-testid={cfg.testId}>
+    <section className="card card-pad" aria-labelledby={cfg.headingId} data-testid={cfg.testId}>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h2 id={cfg.headingId} className="font-display text-base font-semibold text-ink">
           {cfg.title}

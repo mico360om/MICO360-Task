@@ -38,7 +38,7 @@ export function AiSummaryCard({ onSummarize, title = 'AI summary' }: AiSummaryCa
   }
 
   return (
-    <section className="card p-4 sm:p-5">
+    <section className="card card-pad sm:p-5">
       <div className="mb-2 flex items-center gap-2">
         <h2 className="eyebrow flex items-center gap-1.5 text-brand"><Sparkle />{title}</h2>
         <button

@@ -93,7 +93,7 @@ export function MyActionItemsPage() {
       {itemsQ.isLoading ? (
         <div className="grid gap-2">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="card h-16 p-4"><div className="skeleton h-4 w-64" /></div>)}</div>
       ) : itemsQ.isError ? (
-        <div className="card p-5">
+        <div className="card card-pad">
           <p role="alert" className="text-sm text-danger">
             Couldn’t load your action items.{' '}
             <button type="button" onClick={() => void itemsQ.refetch()} className="font-semibold underline">Retry</button>

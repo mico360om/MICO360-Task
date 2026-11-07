@@ -30,7 +30,7 @@ export function AiSettingsPage() {
       {q.isLoading ? (
         <p className="text-ink-2">Loading…</p>
       ) : q.isError ? (
-        <LoadError what="the AI settings" onRetry={() => void q.refetch()} className="card p-5" />
+        <LoadError what="the AI settings" onRetry={() => void q.refetch()} className="card card-pad" />
       ) : config ? (
         <div className="flex flex-col gap-8">
           <ProvidersSection config={config} apply={apply} api={api} />

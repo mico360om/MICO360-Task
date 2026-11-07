@@ -524,3 +524,26 @@ describe('TimelinePage', () => {
     await act(async () => {});
   });
 });
+
+describe('the Timeline fills the window (1.23.8)', () => {
+  it('on a computer the chart grows to the window’s height and scrolls by itself, its weeks staying in view', async () => {
+    renderPage();
+    await screen.findByRole('list', { name: 'Projects' });
+    const page = document.querySelector('[data-timeline-page]')!;
+    expect(page.className).toContain('page-fill');
+    const chart = document.querySelector('[data-timeline-chart]')!;
+    expect(chart.className).toMatch(/\bflex-1\b/);
+    expect(chart.className).toContain('overflow-auto');
+    expect(document.querySelector('[data-timeline-head]')!.className).toContain('sticky');
+    // Under the last project the weeks run on to the bottom (no blank page under a short list).
+    expect(document.querySelector('[data-timeline-fill]')).not.toBeNull();
+  });
+
+  it('the legend shows the health colours (on track green, at risk amber, late red), the same as the bars', async () => {
+    renderPage();
+    const legend = await screen.findByRole('list', { name: 'Legend' });
+    const swatches = [...legend.querySelectorAll('li > span[aria-hidden="true"]')].slice(0, 2).map((s) => s.className);
+    expect(swatches[0]).toContain('bg-health-ok');
+    expect(swatches[1]).toContain('bg-health-risk');
+  });
+});

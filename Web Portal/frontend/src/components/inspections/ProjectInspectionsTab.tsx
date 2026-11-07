@@ -96,7 +96,7 @@ function Row({ x, timeZone }: { x: InspectionListItem; timeZone: string }) {
 function Group({ title, items, timeZone, empty }: { title: string; items: InspectionListItem[]; timeZone: string; empty: string }) {
   const id = useId();
   return (
-    <section role="region" aria-labelledby={id} className="card p-4 sm:p-5">
+    <section role="region" aria-labelledby={id} className="card card-pad sm:p-5">
       <h2 id={id} className="eyebrow mb-3">
         {title} ({items.length})
       </h2>

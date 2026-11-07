@@ -36,6 +36,8 @@ import { isWaitingForApproval } from '../lib/approvals';
 import { myDueCounts } from '../lib/dashboard-tiles';
 import { useCompanyWeekStart } from '../lib/useDatePrefs';
 import { OVERDUE_CLASS, healthColour, statusColour } from '../lib/colour-classes';
+import { dashboardColumns, dashboardSpans, rowsForHeight } from '../lib/dashboard-layout';
+import { useElementWidth, useWindowHeight } from '../lib/useElementWidth';
 
 /** Traffic-light colour for a completion percentage, so the bar reads its health at a glance (1.23.8: the health colours). */
 const completionColor = (pct: number): string => healthColour(pct >= 67 ? 'ON_TRACK' : pct >= 34 ? 'AT_RISK' : 'LATE');
@@ -202,14 +204,17 @@ export function DashboardPage() {
   const perfFiltered = projectFilter ? perf.filter((p) => p.projectId === projectFilter) : perf;
   const perfData = perfFiltered.map((p) => ({ label: p.projectName, value: p.completionPct, color: completionColor(p.completionPct) }));
 
+  // 1.23.8: on a tall screen the lists show more rows instead of stopping early.
+  const windowHeight = useWindowHeight();
+  const gridRef = useRef<HTMLDivElement>(null);
   // Upcoming + overdue work needing attention, earliest first (finished work never counts).
   const dueSoon = useMemo(
     () =>
       [...(allTasksQ.data ?? [])]
         .filter((t) => t.dueDate && !isTaskDone(t))
         .sort((a, b) => (a.dueDate ?? '').localeCompare(b.dueDate ?? '', 'en'))
-        .slice(0, 6),
-    [allTasksQ.data],
+        .slice(0, rowsForHeight(6, windowHeight)),
+    [allTasksQ.data, windowHeight],
   );
   const openTasks = useMemo(() => (myTasksQ.data ?? []).filter((t) => !isTaskDone(t)), [myTasksQ.data]);
   // Everyone else's Overdue and Due this week: their own tasks (already loaded for "Your open tasks"),
@@ -217,7 +222,7 @@ export function DashboardPage() {
   const companyWeekStart = useCompanyWeekStart();
   const mine = useMemo(() => myDueCounts(myTasksQ.data ?? [], { timeZone, weekStart: companyWeekStart }), [myTasksQ.data, timeZone, companyWeekStart]);
   const weekHint = mine.weekEnd === mine.today ? 'Today, the week’s last day' : `Today – ${dayText(mine.weekEnd, { weekday: 'short', year: false })}`;
-  const recent = (activityQ.data ?? []).slice(0, 6);
+  const recent = (activityQ.data ?? []).slice(0, rowsForHeight(6, windowHeight));
   // A company's (or a newcomer's) first day: no project and no task yet, as the server says (never
   // while loading or after a failed load). Empty charts and "nothing due" would say nothing useful:
   // the page welcomes them and points to the first steps instead.
@@ -256,7 +261,7 @@ export function DashboardPage() {
       case 'status-chart':
         return (
           <Reveal>
-            <section className="card p-5">
+            <section className="card card-pad">
               <h2 className="eyebrow mb-3">Tasks by status</h2>
               {statusQ.isLoading ? (
                 <div className="skeleton h-40 rounded-lg" aria-label="Loading the status chart" />
@@ -271,7 +276,7 @@ export function DashboardPage() {
       case 'completion':
         return (
           <Reveal delay={1}>
-            <section className="card p-5">
+            <section className="card card-pad">
               <div className="mb-3 flex items-center justify-between gap-2">
                 <h2 className="eyebrow">Project completion</h2>
                 <div className="w-44">
@@ -297,7 +302,7 @@ export function DashboardPage() {
       case 'open-tasks':
         return (
           <Reveal>
-            <section className="card p-5">
+            <section className="card card-pad">
               <div className="mb-3 flex items-center justify-between">
                 <h2 className="eyebrow">Your open tasks</h2>
                 <Link to="/my-tasks" className="tap text-xs font-semibold text-brand hover:underline">View all</Link>
@@ -310,7 +315,7 @@ export function DashboardPage() {
                 <EmptyState bare title="Nothing open assigned to you" description="Open tasks assigned to you will appear here." />
               ) : (
                 <ul className="flex flex-col">
-                  {openTasks.slice(0, 8).map((t) => (
+                  {openTasks.slice(0, rowsForHeight(8, windowHeight)).map((t) => (
                     <TaskRow key={t.id} task={t} timeZone={timeZone} onOpen={() => openTask(t.id)} stacked={size === 'small'} />
                   ))}
                 </ul>
@@ -324,7 +329,7 @@ export function DashboardPage() {
       case 'due-soon':
         return (
           <Reveal delay={1}>
-            <section className="card p-5">
+            <section className="card card-pad">
               <div className="mb-3 flex items-center justify-between">
                 <h2 className="eyebrow">Due soon</h2>
                 <Link to="/calendar" className="tap text-xs font-semibold text-brand hover:underline">Calendar</Link>
@@ -349,7 +354,7 @@ export function DashboardPage() {
       case 'activity':
         return (
           <Reveal delay={2}>
-            <section className="card p-5">
+            <section className="card card-pad">
               <div className="mb-3 flex items-center justify-between">
                 <h2 className="eyebrow">Recent activity</h2>
                 <Link to="/activity" className="tap text-xs font-semibold text-brand hover:underline">View all</Link>
@@ -376,6 +381,10 @@ export function DashboardPage() {
   // The widgets in the person's order, the hidden ones and those they can't see left out; on day one only
   // the tiles, then the first steps.
   const visible = layout.widgets.filter((w) => !w.hidden && canShow(w.id) && (!firstDay || w.id === 'stats'));
+  // 1.23.8: the grid's columns from the room it has (before it is measured, a guess from the window).
+  const gridWidth = useElementWidth(gridRef);
+  const columns = dashboardColumns(gridWidth ?? (typeof window !== 'undefined' && window.innerWidth >= 1024 ? 1000 : 600));
+  const spans = dashboardSpans(visible.map((w) => w.size), columns);
 
   return (
     <div className="flex flex-col gap-6">
@@ -452,10 +461,18 @@ export function DashboardPage() {
         </p>
       )}
 
-      {/* The widgets: two columns on a wide screen (Small = one, Wide = both), one on a phone. */}
-      <div className="grid items-start gap-4 lg:grid-cols-2" data-testid="dashboard-widgets">
-        {visible.map((w) => (
-          <div key={w.id} data-widget={w.id} data-size={w.size} className={`min-w-0 ${w.size === 'wide' ? 'lg:col-span-2' : ''}`}>
+      {/* 1.23.8 The widgets in a responsive grid (lib/dashboard-layout): one column on a phone, two from 640px of
+          room, three on a big monitor; Wide takes the whole row, Small one column, and the last in a row that
+          isn't full stretches to fill it. Cards in a row end level (index.css .dash-cell). */}
+      <div
+        ref={gridRef}
+        className="grid gap-4"
+        style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
+        data-testid="dashboard-widgets"
+        data-columns={columns}
+      >
+        {visible.map((w, i) => (
+          <div key={w.id} data-widget={w.id} data-size={w.size} data-span={spans[i]} className="dash-cell min-w-0" style={{ gridColumn: `span ${spans[i]} / span ${spans[i]}` }}>
             {widget(w.id, w.size)}
           </div>
         ))}

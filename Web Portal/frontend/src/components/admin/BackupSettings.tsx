@@ -119,7 +119,7 @@ export function BackupSettings({ pollMs = POLL_MS, open = (url: string) => windo
   const tz = data?.nightly.timeZone ?? 'Asia/Muscat';
 
   return (
-    <section id={BACKUPS_ANCHOR} className="card p-5 lg:col-span-2" aria-labelledby="backups-heading">
+    <section id={BACKUPS_ANCHOR} className="card card-pad lg:col-span-2" aria-labelledby="backups-heading">
       <h2 ref={headingRef} tabIndex={-1} id="backups-heading" className="eyebrow mb-1 outline-none">Backups</h2>
       {q.isLoading ? (
         <p className="text-sm text-ink-2">Loading…</p>

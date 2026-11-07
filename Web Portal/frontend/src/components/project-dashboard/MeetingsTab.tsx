@@ -105,7 +105,7 @@ export function MeetingsTab({
 
   if (failed && !data) {
     return (
-      <p role="alert" className="card p-5 text-sm text-danger">
+      <p role="alert" className="card card-pad text-sm text-danger">
         Couldn’t load the project’s meetings. <button type="button" className="font-semibold underline" onClick={onRetry}>Retry</button>
       </p>
     );

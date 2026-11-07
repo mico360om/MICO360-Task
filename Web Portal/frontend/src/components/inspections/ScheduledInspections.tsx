@@ -70,7 +70,7 @@ function FormName({ form }: { form: DueCheck['form'] }) {
 function Section({ title, count, action, children }: { title: string; count: number | null; action?: ReactNode; children: ReactNode }) {
   const id = useId();
   return (
-    <section role="region" aria-labelledby={id} className="card p-4 sm:p-5">
+    <section role="region" aria-labelledby={id} className="card card-pad sm:p-5">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h2 id={id} className="eyebrow">
           {title}

@@ -43,7 +43,7 @@ function Skeleton() {
 /** Someone who had the page and no longer runs a project: said plainly, with the way out. */
 function NoLongerRuns() {
   return (
-    <div role="alert" className="card p-5 text-sm text-ink">
+    <div role="alert" className="card card-pad text-sm text-ink">
       <p className="font-semibold">You no longer run any projects, so the Management page isn’t open to you.</p>
       <p className="mt-1 text-ink-2">It shows the projects you own or manage. An administrator can name you as a project’s manager.</p>
       <Link to="/dashboard" className="tap mt-2 font-semibold text-brand hover:underline [@media(pointer:coarse)]:!min-h-11">Go to the dashboard</Link>

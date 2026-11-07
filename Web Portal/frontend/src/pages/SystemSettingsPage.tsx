@@ -134,7 +134,7 @@ export function SystemSettingsPage() {
 
       <div className="grid gap-4 lg:grid-cols-2">
         {/* Carry-forward */}
-        <section className="card p-5">
+        <section className="card card-pad">
           <h2 className="eyebrow mb-1">Task carry-forward</h2>
           <p className="mb-4 text-sm text-ink-2">
             At the start of each day, still-open tasks left on past days move onto today’s board. Completed tasks stay on their day.
@@ -212,7 +212,7 @@ export function SystemSettingsPage() {
         </section>
 
         {/* The weekly management summary email, and the company week it follows. */}
-        <section className="card p-5" aria-labelledby="weekly-summary-admin-heading">
+        <section className="card card-pad" aria-labelledby="weekly-summary-admin-heading">
           <h2 id="weekly-summary-admin-heading" className="eyebrow mb-1">Weekly management summary</h2>
           <p className="mb-4 text-sm text-ink-2">
             On the first working morning of each week, everyone who can see the Management page gets a short summary of their projects. Each

@@ -91,9 +91,11 @@ export function TimelineChart({ range, today, currentWeek, projects, busy, scale
 
   return (
     // Relative: the screen-reader labels inside (absolutely placed) stay within this scroll box, not the page.
-    <div className="relative overflow-x-auto">
-      <div className="min-w-[52rem]">
-        <div className={`${ROW} border-b border-line bg-surface-2`}>
+    // 1.23.8: as tall as the card it is in (the page fills the window), scrolling by itself both ways; its
+    // months and weeks stay in view, and under the last project the weeks run on to the bottom.
+    <div data-timeline-chart className="relative min-h-0 flex-1 overflow-auto">
+      <div className="flex min-h-full min-w-[52rem] flex-col">
+        <div data-timeline-head className={`${ROW} sticky top-0 z-20 border-b border-line bg-surface-2`}>
           <div className="flex items-end justify-between gap-2 pb-1.5 pe-3 ps-4">
             <span className="pb-0.5 text-[11px] font-bold uppercase tracking-wider text-ink-2">Project</span>
             <button type="button" onClick={onExpandAll} className="min-h-[1.5rem] rounded-md px-1.5 text-xs font-semibold text-ink-2 transition-colors hover:bg-ground hover:text-brand">
@@ -166,6 +168,10 @@ export function TimelineChart({ range, today, currentWeek, projects, busy, scale
             />
           ))}
         </ul>
+        <div data-timeline-fill aria-hidden="true" className={`${ROW} min-h-0 flex-1`}>
+          <div />
+          <div className="relative border-s border-line">{backdrop}</div>
+        </div>
       </div>
     </div>
   );

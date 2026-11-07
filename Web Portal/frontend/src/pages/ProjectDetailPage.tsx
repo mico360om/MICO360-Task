@@ -494,7 +494,7 @@ export function ProjectDetailPage() {
 
         {tab === 'team' ? (
           <>
-          <section className="card p-5">
+          <section className="card card-pad">
             <h2 className="eyebrow mb-3">Team members</h2>
             {project ? (
               <p className="mb-3 flex flex-wrap gap-x-2 text-sm text-ink-2">
@@ -577,7 +577,7 @@ const TILE_TONE: Record<string, string> = {
 function StatTile({ label, value, tone = 'default', hint, className = '' }: { label: string; value: string | number; tone?: keyof typeof TILE_TONE; hint?: string; className?: string }) {
   return (
     // A tile; on a phone, a cell of the strip (no card of its own, the number over its label).
-    <div title={hint || undefined} className={`card p-4 max-sm:rounded-none max-sm:border-0 max-sm:bg-transparent max-sm:px-1 max-sm:py-2.5 max-sm:text-center max-sm:shadow-none ${className}`}>
+    <div title={hint || undefined} className={`card card-pad max-sm:rounded-none max-sm:border-0 max-sm:bg-transparent max-sm:px-1 max-sm:py-2.5 max-sm:text-center max-sm:shadow-none ${className}`}>
       <p className={`font-display text-2xl font-bold tabular-nums max-sm:text-lg max-sm:leading-tight ${TILE_TONE[tone]}`}>{value}</p>
       <p className="mt-0.5 text-xs font-medium text-ink-2 max-sm:text-[11px] max-sm:leading-tight">{label}</p>
       {/* An empty hint still keeps its line, so the tiles don't grow when the numbers arrive. */}

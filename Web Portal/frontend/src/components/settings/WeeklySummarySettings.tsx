@@ -38,7 +38,7 @@ export function WeeklySummarySettings() {
   });
   if (!allowed) return null;
   return (
-    <section className="card p-5 lg:col-span-2" aria-labelledby="weekly-summary-heading">
+    <section className="card card-pad lg:col-span-2" aria-labelledby="weekly-summary-heading">
       <h2 id="weekly-summary-heading" className="eyebrow mb-1">Weekly management summary</h2>
       <p className="mb-4 text-sm text-ink-2">
         A short email on the first working morning of each week, at your daily email time: which projects are red or amber and why, late

@@ -20,7 +20,7 @@ export function ApprovalsCard({ onOpenTask }: { onOpenTask: (taskId: string) => 
   const tasks = q.data.tasks;
   return (
     <Reveal>
-      <section className="card p-5" aria-labelledby="dash-approvals-heading" data-testid="approvals-card">
+      <section className="card card-pad" aria-labelledby="dash-approvals-heading" data-testid="approvals-card">
         <div className="mb-3 flex items-center justify-between gap-2">
           <h2 id="dash-approvals-heading" className="eyebrow">
             Waiting for your approval ({tasks.length})

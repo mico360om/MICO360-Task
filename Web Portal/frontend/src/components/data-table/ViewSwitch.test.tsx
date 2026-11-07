@@ -35,3 +35,32 @@ describe('ViewSwitch', () => {
     expect(screen.queryByRole('button', { name: /^Rows/ })).toBeNull();
   });
 });
+
+describe('words on a phone too (1.23.8, the month view’s minor 7)', () => {
+  it('a switch whose icons look alike (Day | Month) keeps its words on a phone', () => {
+    render(
+      <ViewSwitch
+        label="Show the board for"
+        value="day"
+        onChange={() => {}}
+        density={false}
+        words="always"
+        options={[
+          { value: 'day', label: 'Day', icon: <path d="M3 3h1" /> },
+          { value: 'month', label: 'Month', icon: <path d="M3 3h2" /> },
+        ]}
+      />,
+    );
+    for (const name of ['Day view', 'Month view']) {
+      const word = screen.getByRole('button', { name }).querySelector('span');
+      expect(word?.className ?? '').not.toContain('max-sm:hidden');
+    }
+  });
+
+  it('the board’s Day | Month uses it', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { resolve } = await import('node:path');
+    const board = readFileSync(resolve(__dirname, '../board/Board.tsx'), 'utf8');
+    expect(board).toMatch(/options=\{PERIODS\}\s*density=\{false\}\s*words="always"/);
+  });
+});

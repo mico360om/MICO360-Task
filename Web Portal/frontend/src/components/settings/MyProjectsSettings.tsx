@@ -22,7 +22,7 @@ export function MyProjectsSettings() {
   const save = useSetMyProjectsOnly();
   if (!admin) return null;
   return (
-    <section className="card p-5 lg:col-span-2" aria-labelledby="my-projects-heading">
+    <section className="card card-pad lg:col-span-2" aria-labelledby="my-projects-heading">
       <h2 id="my-projects-heading" className="eyebrow mb-4">{MY_PROJECTS_WORDS.heading}</h2>
       {save.isError ? <p role="alert" className="mb-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{MY_PROJECTS_WORDS.failed}</p> : null}
       <div className="flex items-center justify-between gap-4">

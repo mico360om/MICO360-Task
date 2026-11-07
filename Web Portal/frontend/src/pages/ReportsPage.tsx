@@ -342,11 +342,11 @@ export function ReportsPage() {
 
           {/* Status breakdown + completion timeliness */}
           <div className="grid gap-4 lg:grid-cols-2">
-            <section className="card p-5">
+            <section className="card card-pad">
               <h2 className="eyebrow mb-3">Tasks by status</h2>
               <BarChart data={statusBars} ariaLabel="Tasks by status" />
             </section>
-            <section className="card p-5">
+            <section className="card card-pad">
               <h2 className="eyebrow mb-4">On-time delivery</h2>
               {completionQ.isError && !completion ? (
                 <p role="alert" className="text-sm text-danger">
@@ -377,7 +377,7 @@ export function ReportsPage() {
           </div>
 
           {/* Trends, burndown & velocity — the time dimension */}
-          <section className="card p-5">
+          <section className="card card-pad">
             <div className="flex flex-wrap items-center gap-3">
               <div>
                 <h2 className="eyebrow">Trends &amp; burndown</h2>

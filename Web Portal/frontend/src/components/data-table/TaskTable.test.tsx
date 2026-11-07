@@ -343,3 +343,22 @@ describe('TaskTable — 1.23.5 Weight', () => {
     expect(within(row('MICO-1')).getByText('(default)')).toBeInTheDocument();
   });
 });
+
+describe('Detailed rows in the Table view (1.23.8)', () => {
+  it('detailed: the description’s first line and the tags go under the title (comfortable: neither)', async () => {
+    const { useDensityStore } = await import('../../lib/density');
+    const { act } = await import('@testing-library/react');
+    const rich = task({ id: 't9', key: 'MICO-9', title: 'Check the scaffold', description: 'Ask Omar for the tag.\nThen sign.', tags: [{ id: 'g', name: 'Safety', color: '#8B1E1E' }] });
+    const view = show({ tasks: [rich] });
+    expect(within(row('MICO-9')).queryByTestId('card-description')).toBeNull();
+    view.unmount();
+    act(() => useDensityStore.getState().set('detailed'));
+    try {
+      show({ tasks: [rich] });
+      expect(within(row('MICO-9')).getByTestId('card-description')).toHaveTextContent('Ask Omar for the tag.');
+      expect(within(row('MICO-9')).getByTestId('card-tags')).toHaveTextContent('Safety');
+    } finally {
+      act(() => useDensityStore.getState().set('comfortable'));
+    }
+  });
+});

@@ -66,7 +66,7 @@ export function MeetingHoursSettings() {
   };
 
   return (
-    <section className="card p-5" aria-labelledby="meeting-hours-heading">
+    <section className="card card-pad" aria-labelledby="meeting-hours-heading">
       <h2 id="meeting-hours-heading" className="eyebrow mb-1">Meeting hours</h2>
       <p className="mb-4 text-sm text-ink-2">The working days and times (company time) that Schedule meeting suggests free times in.</p>
       {problem ? <p role="alert" className="mb-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{problem}</p> : null}

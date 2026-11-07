@@ -89,7 +89,7 @@ export function MeetingReminderSettings() {
   };
 
   return (
-    <section className="card p-5" aria-labelledby="meeting-reminders-heading">
+    <section className="card card-pad" aria-labelledby="meeting-reminders-heading">
       <h2 id="meeting-reminders-heading" className="eyebrow mb-1">Meeting reminders</h2>
       <p id="meeting-reminders-help" className="mb-4 text-sm text-ink-2">
         Before each scheduled meeting, the organizer and everyone invited who hasn’t declined get a reminder on the website, the Android app and the

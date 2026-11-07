@@ -76,8 +76,11 @@ describe('the widgets in the person’s arrangement', () => {
     mine = answerOf({ widgets: [{ id: 'activity', hidden: false, size: 'small' }, { id: 'priorities', hidden: false, size: 'wide' }, { id: 'stats', hidden: true, size: 'wide' }, { id: 'open-tasks', hidden: false, size: 'small' }, { id: 'due-soon', hidden: false, size: 'small' }] }, { customized: true });
     show();
     await waitFor(() => expect(order()).toEqual(['activity', 'priorities', 'open-tasks', 'due-soon']));
-    expect(document.querySelector('[data-widget="priorities"]')!.className).toContain('lg:col-span-2');
-    expect(document.querySelector('[data-widget="activity"]')!.className).not.toContain('lg:col-span-2');
+    // 1.23.8 responsive grid (two columns here): Wide takes the row; a Small one alone before it stretches to fill its row.
+    expect(document.querySelector('[data-widget="priorities"]')!.getAttribute('data-span')).toBe('2');
+    expect(document.querySelector('[data-widget="activity"]')!.getAttribute('data-span')).toBe('2');
+    expect(document.querySelector('[data-widget="open-tasks"]')!.getAttribute('data-span')).toBe('1');
+    expect(document.querySelector('[data-widget="due-soon"]')!.getAttribute('data-span')).toBe('1');
     expect(screen.queryByTestId('stat-tiles')).toBeNull();
   });
 

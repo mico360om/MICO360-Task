@@ -270,9 +270,9 @@ export function ClientsPage() {
       ) : null}
 
       {q.isLoading ? (
-        <p className="card p-4 text-ink-2" role="status">Loading…</p>
+        <p className="card card-pad text-ink-2" role="status">Loading…</p>
       ) : q.isError ? (
-        <div className="card p-4">
+        <div className="card card-pad">
           <LoadError what="the clients" onRetry={() => void q.refetch()} />
         </div>
       ) : clients.length === 0 ? (
@@ -290,7 +290,7 @@ export function ClientsPage() {
           }
         />
       ) : statusFilter && shown.length === 0 ? (
-        <p className="card p-4 text-ink-2">{NO_ONE_WITH_STATUS[statusFilter]}</p>
+        <p className="card card-pad text-ink-2">{NO_ONE_WITH_STATUS[statusFilter]}</p>
       ) : phone ? (
         <ul aria-label="Clients" className="flex flex-col gap-2">
           {shown.map((c) => (

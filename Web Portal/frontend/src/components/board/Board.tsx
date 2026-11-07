@@ -552,6 +552,7 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
             }}
             options={PERIODS}
             density={false}
+            words="always"
           />
           {isMonth ? (
             <MonthBar

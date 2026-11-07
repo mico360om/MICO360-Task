@@ -26,7 +26,7 @@ export function AccountSettings() {
     onError: () => setProblem('Couldn’t save the setting. Please try again.'),
   });
   return (
-    <section className="card p-5" aria-labelledby="accounts-admin-heading">
+    <section className="card card-pad" aria-labelledby="accounts-admin-heading">
       <h2 id="accounts-admin-heading" className="eyebrow mb-1">Accounts</h2>
       <p className="mb-4 text-sm text-ink-2">
         New people get in with an emailed invitation link, or a temporary password you give them yourself (never by email) that they change at their first sign-in.

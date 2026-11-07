@@ -1,9 +1,9 @@
-import { useMemo, useRef, useState, type ReactNode } from 'react';
+import { useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
 import { apiClient } from '../api/client';
 import { planningApi, timelineKey, type TimelineProject } from '../api/planning';
-import { PageTitle } from '../components/ui/PageHeader';
+import { PageHeader } from '../components/ui/PageHeader';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Button } from '../components/ui/Button';
 import { LoadError } from '../components/ui/LoadError';
@@ -43,6 +43,7 @@ import {
 import { TOUCH_TALL } from '../lib/touch';
 import { WaitingIcon } from '../components/approvals/ApprovalChip';
 import { HEALTH_CLASS } from '../lib/colour-classes';
+import { useFrameOffset } from '../lib/useFrameOffset';
 
 const iconButton = 'grid h-9 w-9 flex-none place-items-center rounded-xl border border-line bg-surface text-ink-2 transition-colors hover:border-brand hover:text-brand [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11';
 const SELECT_BOX =
@@ -136,9 +137,10 @@ function Legend({ labels }: { labels: string[] }) {
   const sw = 'inline-block h-2.5 w-5 flex-none rounded-sm';
   return (
     <ul aria-label="Legend" className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-line bg-surface-2 px-4 py-2.5 text-xs text-ink-2">
-      <li className="inline-flex items-center gap-1.5"><span aria-hidden="true" className={`${sw} bg-info`} /><Glyph size={12} className="text-success">{ICONS.check}</Glyph>On track</li>
-      <li className="inline-flex items-center gap-1.5"><span aria-hidden="true" className={`${sw} bg-warning`} /><Glyph size={12} className="text-warning">{ICONS.warning}</Glyph>At risk — less done than time used</li>
-      <li className="inline-flex items-center gap-1.5"><span aria-hidden="true" className={`${sw} hatch-late`} /><Glyph size={12} className="text-danger">{ICONS.clock}</Glyph>Late — hatched part is past the target</li>
+      {/* 1.23.8: health's own colours (the bars' and the health badges'). */}
+      <li className="inline-flex items-center gap-1.5"><span aria-hidden="true" className={`${sw} ${HEALTH_CLASS.ON_TRACK.dot}`} /><Glyph size={12} className={HEALTH_CLASS.ON_TRACK.text}>{ICONS.check}</Glyph>On track</li>
+      <li className="inline-flex items-center gap-1.5"><span aria-hidden="true" className={`${sw} ${HEALTH_CLASS.AT_RISK.dot}`} /><Glyph size={12} className={HEALTH_CLASS.AT_RISK.text}>{ICONS.warning}</Glyph>At risk — less done than time used</li>
+      <li className="inline-flex items-center gap-1.5"><span aria-hidden="true" className={`${sw} hatch-late`} /><Glyph size={12} className={HEALTH_CLASS.LATE.text}>{ICONS.clock}</Glyph>Late — hatched part is past the target</li>
       <li className="inline-flex items-center gap-1.5"><span aria-hidden="true" className="inline-block h-2 w-2 rotate-45 bg-surface ring-2 ring-ink" />Milestone (filled once reached)</li>
       <li className="inline-flex items-center gap-1.5"><span aria-hidden="true" className="inline-block h-2 w-2 rounded-[2px] bg-meeting" />Meeting</li>
       <li className="inline-flex items-center gap-1.5"><span aria-hidden="true" className="inline-block h-2.5 w-5 rounded-sm border-[1.5px] border-dashed border-ink-2/70" />Dates from its tasks</li>
@@ -227,12 +229,25 @@ export function TimelinePage() {
   };
   const loading = query.isLoading;
   const ready = !!data && !query.isError;
+  // 1.23.8: on a computer the page is the window's height and the chart takes what is left, scrolling by
+  // itself (more rows on a tall screen, no blank page under a short list). A phone lists the projects.
+  const pageRef = useRef<HTMLDivElement>(null);
+  const fill = !phone;
+  const pageTop = useFrameOffset(pageRef, fill);
 
   return (
-    <div>
-      <div className="relative z-20 mb-4 flex flex-wrap items-center gap-x-4 gap-y-2 animate-fade-in-up">
-        <PageTitle eyebrow="Workspace" title="Timeline" className="flex-[1_1_12rem]" />
-        <div className="flex max-w-full flex-wrap items-center gap-2">
+    <div
+      ref={pageRef}
+      data-timeline-page
+      className={fill ? 'page-fill flex flex-col' : undefined}
+      style={fill && pageTop !== null ? ({ '--page-top': `${pageTop}px` } as CSSProperties) : undefined}
+    >
+      {/* 1.23.8: the one page header (components/ui/PageHeader), as on every list page. */}
+      <PageHeader
+        eyebrow="Workspace"
+        title="Timeline"
+        actions={
+        <>
           <div role="group" aria-label="Show" className="inline-flex rounded-xl border border-line bg-surface p-0.5">
             {TIMELINE_VIEWS.map((v) => (
               <button
@@ -274,8 +289,9 @@ export function TimelinePage() {
               ))}
             </select>
           </div>
-        </div>
-      </div>
+        </>
+        }
+      />
 
       {/* Two to a row on a phone (the fifth across both), three then two wider ones from a small
           tablet (no empty slot), all five in a row on a wide screen. */}
@@ -293,7 +309,7 @@ export function TimelinePage() {
       </p>
 
       {loading ? (
-        <div className="card p-4" aria-busy="true" role="status" aria-label="Loading the timeline">
+        <div className="card card-pad" aria-busy="true" role="status" aria-label="Loading the timeline">
           {Array.from({ length: 5 }).map((_, i) => (
             <div key={i} className="flex items-center gap-3 py-3">
               <div className="skeleton h-8 w-8 flex-none rounded-lg" />
@@ -322,7 +338,7 @@ export function TimelinePage() {
       ) : phone ? (
         <PhoneList projects={shown} today={today} range={{ from: data.from, to: data.to }} expanded={expanded} onExpand={expand} onOpenTask={openTask} />
       ) : (
-        <div className="card overflow-hidden">
+        <div className="card flex min-h-[20rem] flex-1 flex-col overflow-hidden">
           <TimelineChart
             range={{ from: data.from, to: data.to, weeks: data.weeks }}
             today={today}

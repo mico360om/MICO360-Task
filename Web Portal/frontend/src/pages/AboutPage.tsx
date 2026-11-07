@@ -128,7 +128,7 @@ export function AboutPage() {
         <ol className="flex flex-col gap-4">
           {releases.map((r) => (
             <li key={r.version}>
-              <article aria-labelledby={`release-${r.version}`} className="card p-5">
+              <article aria-labelledby={`release-${r.version}`} className="card card-pad">
                 <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                   <h3 id={`release-${r.version}`} className="font-display text-lg font-bold text-ink">
                     v{r.version}
