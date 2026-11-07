@@ -39,6 +39,8 @@ export interface TimelineWindow {
 export interface TimelineRows {
   /** Every live task per project. */
   totals: { projectId: string; total: number }[];
+  /** 1.23.5: every live task's weight added up, in all and finished (a project counting by weight). */
+  weights?: { projectId: string; weightTotal: number; weightDone: number }[];
   /** Open (not done) tasks per project and due date (null: no due date), counted. */
   openByDue: { projectId: string; dueDate: Date | null; count: number }[];
   /** Of those, the ones waiting for approval: open, but never overdue while they wait. */
@@ -299,6 +301,7 @@ export function buildTimeline(
   const currentWeek = weekOf(today, weekStart);
   const soonEnd = shiftDayKey(today, MILESTONE_HORIZON_DAYS);
   const totals = new Map(rows.totals.map((t) => [t.projectId, t.total]));
+  const weights = new Map((rows.weights ?? []).map((w) => [w.projectId, w]));
   const owners = new Map(rows.owners.map((o) => [o.id, o]));
 
   const open = new Map<string, { open: number; overdue: number; weeks: number[] }>();
@@ -358,7 +361,9 @@ export function buildTimeline(
       const total = totals.get(p.id) ?? 0;
       const o = open.get(p.id) ?? { open: 0, overdue: 0, weeks: range.weeks.map(() => 0) };
       const done = Math.max(0, total - o.open);
-      const progress = progressPct(total, done);
+      // 1.23.5: a project counting by weight shows its completion by weight (99% until all is done).
+      const weighed = p.completionMode === 'WEIGHT' ? weights.get(p.id) : undefined;
+      const progress = weighed ? progressPct(weighed.weightTotal, weighed.weightDone) : progressPct(total, done);
       // The project's own dates win, field by field; missing ones come from its tasks.
       const dates = taskDates.get(p.id);
       const ownStart = dueDayKey(p.startDate, timeZone);

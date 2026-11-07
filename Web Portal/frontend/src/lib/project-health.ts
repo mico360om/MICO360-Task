@@ -69,7 +69,8 @@ export function projectCompletion(
       weightDone += w;
     }
   }
-  const share = (part: number, whole: number) => (whole > 0 ? Math.round((part / whole) * 100) : 0);
+  // Rounded, but 100% only once all of it is finished (as the Projects page shows it).
+  const share = (part: number, whole: number) => (whole <= 0 ? 0 : part >= whole ? 100 : Math.min(99, Math.round((part / whole) * 100)));
   const countPct = share(done, tasks.length);
   const weightPct = share(weightDone, weightTotal);
   const mode = countsByWeight(project) ? 'WEIGHT' : 'COUNT';

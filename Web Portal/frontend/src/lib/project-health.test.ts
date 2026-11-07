@@ -55,3 +55,10 @@ describe('a project’s completion from its tasks (the project page, live)', () 
     expect(projectCompletion([], { completionMode: 'WEIGHT' })).toEqual({ mode: 'WEIGHT', pct: 0, countPct: 0, weightPct: 0 });
   });
 });
+
+describe('completion never reads 100% before everything is done', () => {
+  it('a big task left open keeps it at 99%', () => {
+    const t = (done: boolean, weight: number) => ({ columnCategory: done ? 'DONE' : 'TODO', completedAt: null, priority: 'NORMAL' as const, weight });
+    expect(projectCompletion([...Array.from({ length: 199 }, () => t(true, 10)), t(false, 1)], { completionMode: 'WEIGHT' })).toEqual({ mode: 'WEIGHT', pct: 99, countPct: 99, weightPct: 99 });
+  });
+});

@@ -46,7 +46,12 @@ export interface Completion {
   weightPct: number;
 }
 
-const share = (part: number, whole: number) => (whole > 0 ? Math.round((Math.min(whole, Math.max(0, part)) / whole) * 100) : 0);
+/** Rounded, but 100% only once all of it is finished (as the Projects page and the Timeline show progress). */
+const share = (part: number, whole: number) => {
+  if (whole <= 0) return 0;
+  if (part >= whole) return 100;
+  return Math.min(99, Math.round((Math.max(0, part) / whole) * 100));
+};
 
 export function completionOf(f: CompletionFigures, mode: CompletionMode): Completion {
   const countPct = share(f.done, f.total);

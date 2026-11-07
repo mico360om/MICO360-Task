@@ -109,7 +109,8 @@ describe('Risks', () => {
     expect(items[0]).toHaveTextContent('Serious risk: Milestone “Handover” is 3 days late');
     expect(items[0]).toHaveTextContent(/Accountable.*Omar Ahmed/);
     expect(items[1]).toHaveTextContent('Risk: Risk 2Why 2');
-    await userEvent.click(within(items[1]!).getByRole('button', { name: /RIG-2/ }));
+    // Each task's button names the task (review, re-graded): "Open RIG-2: Task 2".
+    await userEvent.click(within(items[1]!).getByRole('button', { name: 'Open RIG-2: Task 2' }));
     expect(opened).toEqual(['t2']);
     await userEvent.click(within(card).getByRole('button', { name: 'Show all (6)' }));
     expect(within(card).getAllByRole('listitem')).toHaveLength(6);

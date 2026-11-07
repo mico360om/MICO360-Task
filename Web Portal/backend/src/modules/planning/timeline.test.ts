@@ -404,3 +404,17 @@ describe('buildTimelineTasks (a project’s task lane)', () => {
     expect(t).toMatchObject({ start: null, due: '2026-10-25' });
   });
 });
+
+describe('buildTimeline — 1.23.5 a project counting by weight', () => {
+  it('its bar is its completion by weight (99% until all is done); a project counting by number keeps the count', () => {
+    const rows: TimelineRows = {
+      ...empty,
+      totals: [{ projectId: 'mob', total: 4 }, { projectId: 'rig', total: 4 }],
+      openByDue: [{ projectId: 'mob', dueDate: null, count: 3 }, { projectId: 'rig', dueDate: null, count: 3 }],
+      weights: [{ projectId: 'mob', weightTotal: 20, weightDone: 17 }, { projectId: 'rig', weightTotal: 20, weightDone: 17 }],
+    };
+    const [mob, rig] = buildTimeline([project('mob', { completionMode: 'WEIGHT' }), project('rig')], rows, opts).projects;
+    expect(mob!.progress).toBe(85);
+    expect(rig!.progress).toBe(25);
+  });
+});

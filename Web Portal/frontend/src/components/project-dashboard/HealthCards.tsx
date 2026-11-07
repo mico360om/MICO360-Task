@@ -99,7 +99,7 @@ function RiskItem({ r, onOpenTask }: { r: ProjectRisk; onOpenTask: (taskId: stri
       {r.tasks.length ? (
         <p className="mt-1.5 flex flex-wrap gap-1">
           {r.tasks.slice(0, 4).map((t) => (
-            <TaskKeyButton key={t.id} value={t.key} onClick={() => onOpenTask(t.id)} />
+            <TaskKeyButton key={t.id} value={t.key} title={t.title} onClick={() => onOpenTask(t.id)} />
           ))}
           {r.tasks.length > 4 ? <span className="text-xs text-ink-3">+{r.tasks.length - 4} more</span> : null}
         </p>
@@ -133,7 +133,7 @@ export function RisksCard({ projectId, onOpenTask }: { projectId: string; onOpen
       ) : (
         <ul className="flex flex-col gap-2.5">
           {shown.map((r) => (
-            <RiskItem key={r.code + r.title} r={r} onOpenTask={onOpenTask} />
+            <RiskItem key={`${r.code}:${r.tasks.map((t) => t.id).join(',')}:${r.title}`} r={r} onOpenTask={onOpenTask} />
           ))}
         </ul>
       )}

@@ -45,3 +45,10 @@ describe('completion (1.23.5)', () => {
     expect(completionOf({ total: 2, done: -1, weightTotal: 4, weightDone: -2 }, 'WEIGHT')).toMatchObject({ pct: 0, countPct: 0 });
   });
 });
+
+describe('completion never reads 100% before everything is done (review, re-graded)', () => {
+  it('199 of 200 is 99%, by number and by weight; 100% only once all is finished', () => {
+    expect(completionOf({ total: 200, done: 199, weightTotal: 1000, weightDone: 998 }, 'WEIGHT')).toEqual({ mode: 'WEIGHT', pct: 99, countPct: 99, weightPct: 99 });
+    expect(completionOf({ total: 3, done: 3, weightTotal: 9, weightDone: 9 }, 'WEIGHT')).toMatchObject({ pct: 100, countPct: 100 });
+  });
+});

@@ -219,6 +219,19 @@ describe('sorting', () => {
     expect(names(sortProjects(list, 'progress', TODAY))).toEqual(['Least', 'Half', 'Most', 'Empty']);
   });
 
+  it('1.23.5: by progress in each project’s own mode (a project counting by weight by its weight)', () => {
+    const weighed = (name: string, total: number, done: number, pct: number) =>
+      ({ ...project({ name, stats: { total, done } }), health: { rag: 'GREEN', reasons: [], completion: { mode: 'WEIGHT', pct, countPct: 0, weightPct: pct }, topRisk: null, riskCount: 0, accountable: null } }) as ProjectOverview;
+    const list = [
+      project({ name: 'Half by count', stats: { total: 10, done: 5 } }),
+      // 9 of 10 tasks done, but the big one left: 20% by weight.
+      weighed('Big job left', 10, 9, 20),
+      // 1 of 10 done, the big one: 80% by weight.
+      weighed('Big job done', 10, 1, 80),
+    ];
+    expect(names(sortProjects(list, 'progress', TODAY))).toEqual(['Big job left', 'Half by count', 'Big job done']);
+  });
+
   it('does not reorder the list it is given', () => {
     const list = [project({ name: 'B' }), project({ name: 'A' })];
     sortProjects(list, 'name', TODAY);
