@@ -130,14 +130,15 @@ describe('ClientsPage', () => {
     expect((server.lastBody('PUT', '/clients/c-huda') as { projects: unknown[] }).projects[0]).toMatchObject({ projectId: 'p-mico', role: 'CUSTOM', actions: { comment: true } });
   });
 
-  it('1.23.7 Preview as client on a row: the portal with their saved access (only their id is sent)', async () => {
+  it('1.23.7 Preview as client on a row: the portal with their saved access (their id; their name heads the preview)', async () => {
     const server = renderPage();
     await screen.findByRole('button', { name: 'Open Huda Saleh' });
     const button = within(rowOf('Huda Saleh')).getByRole('button', { name: 'Preview as client — huda' });
     expect(button).toHaveTextContent('Preview as client');
     await userEvent.click(button);
     expect(screen.getByRole('dialog', { name: 'Preview as client' })).toBeInTheDocument();
-    expect(preview.spec).toEqual({ clientId: 'c-huda' });
+    // Saved access (no projects sent); the name and organisation say whose portal it is.
+    expect(preview.spec).toEqual({ clientId: 'c-huda', firstName: 'Huda', lastName: 'Saleh', organisation: 'Owner Group', email: huda.email });
     await userEvent.click(screen.getByRole('button', { name: 'Close preview' }));
     expect(screen.queryByRole('dialog', { name: 'Preview as client' })).toBeNull();
     // Nothing changed or sent by looking.

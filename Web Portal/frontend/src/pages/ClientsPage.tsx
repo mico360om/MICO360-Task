@@ -192,7 +192,7 @@ export function ClientsPage() {
       <>
         <button
           type="button"
-          onClick={() => setPreviewing({ clientId: c.id })}
+          onClick={() => setPreviewing({ clientId: c.id, firstName: c.firstName, lastName: c.lastName, organisation: c.organisation, email: c.email })}
           aria-label={`Preview as client — ${c.username}`}
           title="See the Client portal as they see it (nothing is changed or sent)"
           className={PLAIN}
