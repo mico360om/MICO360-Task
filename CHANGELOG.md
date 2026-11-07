@@ -95,9 +95,11 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - Sign-in codes are 6 digits, stored only as a keyed hash, compared in constant time, single use, and
   limited (one a minute, five an hour; five wrong codes end a sign-in, ten an hour per account). Codes,
   tokens and links are never written to a log.
-- An invitation link or a temporary password, never both: the server refuses both together from every
-  caller, and a password typed through the Android app or the API is always treated as temporary (changed
-  at the first sign-in, ends unused). Temporary passwords come from the server's cryptographic generator
+- An invitation link or a temporary password, never both. An invitation sent with a typed password (the
+  Android app's New user screen does this by default) is exactly an invitation: the typed password is
+  never stored, and the answer and the audit log say it wasn't used. A password made on the server
+  together with anything else is refused. A password typed alone through the Android app or the API is
+  always treated as temporary (changed at the first sign-in, ends unused). Temporary passwords come from the server's cryptographic generator
   (at least 60 bits), are stored only hashed, never logged or emailed, and are returned once. At most
   five invitations to one person in 24 hours. Temporary passwords set, changed at first sign-in,
   invitations cancelled and the link lifetime changed are in the audit log (never a password). No

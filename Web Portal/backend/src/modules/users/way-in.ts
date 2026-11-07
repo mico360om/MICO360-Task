@@ -34,11 +34,26 @@ export class OneWayInError extends HttpError {
   }
 }
 
-/** Both ways at once are refused, from every caller (the website, the Android app, the API). */
-export function checkOneWayIn(b: WayIn): void {
-  const ways = [b.sendWelcome === true, !!b.password, !!b.generatePassword].filter(Boolean).length;
-  if (ways > 1) throw new OneWayInError();
+/**
+ * One way in, from every caller. An invitation with a typed password (the live Android app's New user
+ * screen sends both by default) becomes exactly an invitation — the safer way: the typed password is
+ * ignored (never stored), and the answer and the audit log say so. A password made here together with
+ * anything else can't be resolved that way and is refused (ONE_WAY_IN). The website never sends both.
+ */
+export function resolveWayIn<T extends WayIn>(b: T): T & { ignoredPassword: boolean } {
+  if (b.generatePassword && (b.sendWelcome === true || !!b.password)) throw new OneWayInError();
+  if (b.sendWelcome === true && b.password) return { ...b, password: undefined, ignoredPassword: true };
+  return { ...b, ignoredPassword: false };
 }
+
+/** Said in the answer when a typed password was ignored for an invitation. */
+export function ignoredPasswordMessage(welcome: { sent: boolean; why?: string } | null): string {
+  if (welcome?.sent) return 'We sent an invitation link; the typed password wasn’t used (one way in).';
+  return `The typed password wasn’t used (one way in), and the invitation couldn’t be sent${welcome?.why ? `: ${welcome.why}` : ''}. Resend it, or set a temporary password.`;
+}
+
+/** The audit entry for an ignored typed password (never its value). */
+export const IGNORED_PASSWORD_AUDIT = { action: 'user.password.ignored', newValue: { note: 'temporary password ignored — invitation sent instead' } } as const;
 
 const DAY_MS = 24 * 3600 * 1000;
 

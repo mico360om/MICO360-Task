@@ -5,7 +5,7 @@ import { NotFoundError } from '../../lib/http-errors';
 import { WELCOME_REFUSAL_WHY, WelcomeEmailUnavailableError, type WelcomeOutcome, type WelcomeService } from '../users/welcome-service';
 import type { ClientAccounts } from './client-accounts';
 import { grantsSchema } from './client-grants';
-import { checkOneWayIn, temporaryPasswordFor, wayInFields } from '../users/way-in';
+import { IGNORED_PASSWORD_AUDIT, ignoredPasswordMessage, resolveWayIn, temporaryPasswordFor, wayInFields } from '../users/way-in';
 
 /**
  * 1.23 Client accounts for administrators: the Clients page and User Management's Role "Client" use
@@ -65,8 +65,9 @@ export async function registerClientAccountRoutes(app: FastifyInstance, deps: Cl
   });
 
   app.post('/clients', adminOnly, async (req, reply) => {
-    const { sendWelcome, password, generatePassword, inviteDays, ...body } = createSchema.parse(req.body ?? {});
-    checkOneWayIn({ sendWelcome, password, generatePassword });
+    // 1.23.6: one way in — an invitation with a typed password (the Android app's default) is exactly an
+    // invitation; the typed password is ignored.
+    const { sendWelcome, password, generatePassword, inviteDays, ignoredPassword, ...body } = resolveWayIn(createSchema.parse(req.body ?? {}));
     // Asked for a welcome email that can't be sent: say so before making an account no one can use.
     if (sendWelcome && !deps.welcome?.isConfigured()) throw new WelcomeEmailUnavailableError();
     // 1.23.6: a temporary password (made here, or typed) is changed at the first sign-in and ends unused.
@@ -84,6 +85,9 @@ export async function registerClientAccountRoutes(app: FastifyInstance, deps: Cl
       // A password made here goes back once, in this answer only (never stored, logged or emailed).
       return reply.status(201).send({ data: created, ...(temporary.generated ? { meta: { temporaryPassword: temporary.password } } : {}) });
     }
+    if (ignoredPassword) {
+      await deps.audit?.record({ userId: req.user!.id, ip: req.ip ?? null, module: 'users', action: IGNORED_PASSWORD_AUDIT.action, entityId: created.id, newValue: IGNORED_PASSWORD_AUDIT.newValue });
+    }
     if (!sendWelcome || !deps.welcome) return reply.status(201).send({ data: created });
     let welcome: WelcomeOutcome;
     try {
@@ -97,7 +101,7 @@ export async function registerClientAccountRoutes(app: FastifyInstance, deps: Cl
       welcome = { userId: created.id, username: created.username, name: `${created.firstName} ${created.lastName}`.trim(), email: created.email, sent: false, reason: 'SERVER_ERROR', why: WELCOME_REFUSAL_WHY.SERVER_ERROR };
     }
     if (welcome.sent && welcome.sentAt) created = { ...created, welcomeSentAt: new Date(welcome.sentAt) };
-    return reply.status(201).send({ data: created, meta: { welcome } });
+    return reply.status(201).send({ data: created, meta: { welcome, ...(ignoredPassword ? { ignoredPassword: true, message: ignoredPasswordMessage(welcome) } : {}) } });
   });
 
   app.put('/clients/:id', adminOnly, async (req) => {

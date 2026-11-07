@@ -18,7 +18,7 @@ import { fieldProblem } from './user-service';
 import { checkIdentity, type IdentityLookup } from './identity-check';
 import type { AdminResetOutcome, AdminResetRefusal } from '../auth/password-reset-service';
 import type { EmailVerification } from '../auth/email-verification';
-import { checkOneWayIn, temporaryPasswordFor, wayInFields } from './way-in';
+import { IGNORED_PASSWORD_AUDIT, ignoredPasswordMessage, resolveWayIn, temporaryPasswordFor, wayInFields } from './way-in';
 import { TEMPORARY_PASSWORD_STYLES } from '../../lib/temporary-password';
 import { invitationDaysSchema } from '../settings/settings-service';
 
@@ -249,9 +249,10 @@ export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDe
   };
 
   app.post('/users', adminOnly, async (req, reply) => {
-    const { sendWelcome, password, generatePassword, inviteDays, companyIds, primaryCompanyId, ...body } = createSchema.parse(req.body);
-    // 1.23.6: one way in, from every caller.
-    checkOneWayIn({ sendWelcome, password, generatePassword });
+    const parsed = createSchema.parse(req.body);
+    // 1.23.6: one way in, from every caller — an invitation with a typed password (the Android app's
+    // default) is exactly an invitation; the typed password is ignored.
+    const { sendWelcome, password, generatePassword, inviteDays, ignoredPassword, companyIds, primaryCompanyId, ...body } = resolveWayIn(parsed);
     // 1.23: a client account is made with the client form (POST /clients: its projects and their access).
     if ((body.roleNames ?? []).includes(CLIENT_ROLE)) throw new HttpError('Create client accounts with the client form (Role: Client).', 'USE_CLIENT_FORM', 400);
     // Onboarding: the detail rules the form shows (the server never trusts the form).
@@ -277,6 +278,7 @@ export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDe
       // A password made here goes back once, in this answer only (never stored, logged or emailed).
       return reply.status(201).send({ data: created, ...(temporary.generated ? { meta: { temporaryPassword: temporary.password } } : {}) });
     }
+    if (ignoredPassword) await logAudit(req, IGNORED_PASSWORD_AUDIT.action, created.id, IGNORED_PASSWORD_AUDIT.newValue);
     if (!sendWelcome || !deps.welcome) return reply.status(201).send({ data: created });
     // The account stands whatever happens to the email: the answer is always 201 and says whether it went.
     let welcome: WelcomeOutcome;
@@ -294,7 +296,7 @@ export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDe
       };
     }
     if (welcome.sent && welcome.sentAt) created = { ...created, welcomeSentAt: new Date(welcome.sentAt) };
-    return reply.status(201).send({ data: created, meta: { welcome } });
+    return reply.status(201).send({ data: created, meta: { welcome, ...(ignoredPassword ? { ignoredPassword: true, message: ignoredPasswordMessage(welcome) } : {}) } });
   });
 
   const welcome = deps.welcome;
