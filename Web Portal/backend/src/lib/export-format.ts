@@ -3,6 +3,7 @@
  * PDF files read the same as the apps: day names, company-time clock times, status and priority
  * labels and the status colours.
  */
+import { STATUS_KINDS, STATUS_TONES } from './colour-scheme';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -50,14 +51,8 @@ export const CATEGORY_LABEL: Record<string, string> = {
   REVIEW: 'Review',
   DONE: 'Done',
 };
-export const CATEGORY_COLOR: Record<string, string> = {
-  BACKLOG: '#948985',
-  TODO: '#9A918D',
-  IN_PROGRESS: '#B87611',
-  BLOCKED: '#CB4632',
-  REVIEW: '#3A6EA5',
-  DONE: '#2E7D53',
-};
+/** 1.23.8: the one colour scheme's status colours (lib/colour-scheme.ts, the website's copy), on paper. */
+export const CATEGORY_COLOR: Record<string, string> = Object.fromEntries(STATUS_KINDS.map((k) => [k, STATUS_TONES[k].light.fill]));
 export const categoryLabel = (c: string): string => CATEGORY_LABEL[c] ?? c;
 
 /** The brand colour of the web app (#8B1E1E). */

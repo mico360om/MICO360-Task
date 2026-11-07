@@ -1,5 +1,6 @@
 import type { CompletionMode } from '../project-health/completion';
 import type { ChecklistTree } from '../tasks/checklist-tree';
+import { STATUS_TONES } from '../../lib/colour-scheme';
 export type ProjectStatus = 'PLANNING' | 'ACTIVE' | 'ON_HOLD' | 'COMPLETED' | 'ARCHIVED';
 export type Priority = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
 
@@ -135,13 +136,17 @@ export interface UpdateProjectData {
   weightLow?: number;
 }
 
-/** The board every new project starts with (positions 0..n, in this order). */
+/**
+ * The board every new project starts with (positions 0..n, in this order). 1.23.8: each column's colour is its
+ * status kind's in the one colour scheme (lib/colour-scheme.ts) — the website shows that whatever is stored; the
+ * Android app shows the stored one.
+ */
 export const DEFAULT_COLUMNS = [
-  { name: 'Backlog', category: 'BACKLOG', color: '#948985' },
-  { name: 'To Do', category: 'TODO', color: '#3A6EA5' },
-  { name: 'In Progress', category: 'IN_PROGRESS', color: '#B87611' },
-  { name: 'Review', category: 'REVIEW', color: '#7A5AA8' },
-  { name: 'Done', category: 'DONE', color: '#2E7D53' },
+  { name: 'Backlog', category: 'BACKLOG', color: STATUS_TONES.BACKLOG.light.fill },
+  { name: 'To Do', category: 'TODO', color: STATUS_TONES.TODO.light.fill },
+  { name: 'In Progress', category: 'IN_PROGRESS', color: STATUS_TONES.IN_PROGRESS.light.fill },
+  { name: 'Review', category: 'REVIEW', color: STATUS_TONES.REVIEW.light.fill },
+  { name: 'Done', category: 'DONE', color: STATUS_TONES.DONE.light.fill },
 ] as const;
 
 export interface ProjectRepository {

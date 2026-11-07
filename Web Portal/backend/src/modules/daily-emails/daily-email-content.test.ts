@@ -427,7 +427,7 @@ describe('email-safe HTML (Outlook and Gmail)', () => {
   it('readable in dark mode: the email says it supports it and has dark styles for its own parts', () => {
     const { html } = big();
     expect(html).toContain('<meta name="color-scheme" content="light dark"/>');
-    expect(html).toMatch(/@media \(prefers-color-scheme:dark\)\{[^}]*\.email-stat-danger\{color:#F0A79B!important\}/);
+    expect(html).toMatch(/@media \(prefers-color-scheme:dark\)\{[^}]*\.email-stat-danger\{color:#EE8C79!important\}/); // 1.23.8: the scheme's overdue words in dark
   });
 });
 

@@ -1,5 +1,6 @@
 import { ConflictError } from '../../lib/http-errors';
 import type { ColumnCategory, ColumnRecord, ColumnRepository, UpdateColumnData } from './column-repository';
+import { statusTones } from '../../lib/colour-scheme';
 
 export interface AddColumnInput {
   name: string;
@@ -28,7 +29,9 @@ export function createColumnService({ columns, waitingTasksIn }: ColumnServiceDe
       name: input.name,
       category: input.category ?? 'TODO',
       position: nextPosition,
-      color: input.color,
+      // 1.23.8: one colour scheme — a column added without a colour (the website no longer picks one) gets its
+      // status kind's, so the Android app, which still shows the stored colour, matches the website.
+      color: input.color ?? statusTones(input.category ?? 'TODO').light.fill,
     });
   }
 

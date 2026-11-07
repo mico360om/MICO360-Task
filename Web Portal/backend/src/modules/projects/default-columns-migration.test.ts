@@ -20,7 +20,9 @@ describe('default-columns migration', () => {
       position: Number(m[3]),
       color: m[4],
     }));
-    expect(rows).toEqual(DEFAULT_COLUMNS.map((c, position) => ({ name: c.name, category: c.category, position, color: c.color })));
+    // 1.23.8: new projects' columns take the one colour scheme's colours; this older migration keeps the colours it
+    // wrote then (the website shows a column's status colour whatever is stored).
+    expect(rows.map(({ name, category, position }) => ({ name, category, position }))).toEqual(DEFAULT_COLUMNS.map((c, position) => ({ name: c.name, category: c.category, position })));
     expect(sql).toMatch(/WHERE NOT EXISTS \(SELECT 1 FROM `kanban_columns` c WHERE c\.`projectId` = p\.`id`\)/);
   });
 });

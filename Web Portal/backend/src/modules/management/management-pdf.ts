@@ -11,10 +11,13 @@ import { zonedDayKey } from '../../lib/due-date';
 import type { ProjectStatus, Rag } from './management-rules';
 import { shortDay, type ManagementOverview } from './management-service';
 import type { PdfBrand } from '../companies/company-branding';
+import { HEALTH_TONES, OVERDUE_TONES } from '../../lib/colour-scheme';
 
 const RAG_WORD: Record<Rag, string> = { RED: 'Red', AMBER: 'Amber', GREEN: 'Green' };
-const RAG_COLOR: Record<Rag, RGB> = { RED: [0.72, 0.16, 0.16], AMBER: [0.62, 0.4, 0.04], GREEN: [0.16, 0.45, 0.28] };
-const DANGER: RGB = [0.72, 0.16, 0.16];
+/** 1.23.8: the health and overdue words in the one colour scheme's text tones (lib/colour-scheme.ts), on paper. */
+const rgbOf = (hex: string): RGB => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255) as unknown as RGB;
+const RAG_COLOR: Record<Rag, RGB> = { RED: rgbOf(HEALTH_TONES.LATE.light.text), AMBER: rgbOf(HEALTH_TONES.AT_RISK.light.text), GREEN: rgbOf(HEALTH_TONES.ON_TRACK.light.text) };
+const DANGER: RGB = rgbOf(OVERDUE_TONES.light.text);
 const MUTED: RGB = [0.42, 0.4, 0.38];
 const STATUS_WORD: Record<ProjectStatus, string> = { PLANNING: 'Planning', ACTIVE: 'Active', ON_HOLD: 'On hold', COMPLETED: 'Completed', ARCHIVED: 'Archived' };
 const MONTH = /^(\d{4})-(\d{2})-(\d{2})$/;

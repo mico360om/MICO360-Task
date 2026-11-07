@@ -4,6 +4,7 @@ import type { EmailContent, TemplateOptions } from '../email/email-templates';
 import { completedOnTime, daysUntilDue, dueDayKey, zonedDayKey } from '../../lib/due-date';
 import { formatDay } from '../../lib/export-format';
 import type { DailyEmailPart } from '../notifications/notification-preferences';
+import { OVERDUE_TONES } from '../../lib/colour-scheme';
 
 /** A task's project, as the daily email heads its section. */
 export interface DailyProject {
@@ -184,7 +185,7 @@ const markup = (p: Piece): Block => ({ kind: 'markup', html: p.html, text: p.tex
 /** The email's own styles: tiles side by side on wide screens, three to a row on phones; dark mode. */
 const CSS =
   '@media (max-width:620px){.email-stat{display:inline-block!important;width:33.33%!important;box-sizing:border-box!important}.email-btn{display:block!important;text-align:center!important}.email-sched-time{width:72px!important}}' +
-  '@media (prefers-color-scheme:dark){.email-stat-danger{color:#F0A79B!important}.email-btn{color:#FFFFFF!important}.email-sub{color:#D9CFCB!important}}';
+  `@media (prefers-color-scheme:dark){.email-stat-danger{color:${OVERDUE_TONES.dark.text}!important}.email-btn{color:#FFFFFF!important}.email-sub{color:#D9CFCB!important}}`;
 
 /**
  * The daily email (1.22: one email, replacing the pending-tasks and completed-yesterday emails): the
@@ -430,7 +431,7 @@ function statsPiece(numbers: Array<{ label: string; n: number; danger: boolean }
   const cells = numbers
     .map(
       (x) =>
-        `<td class="email-stat" width="${width}" valign="top" style="padding:4px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td class="email-proj" align="center" style="padding:12px 4px;background:#FAF7F6;border:1px solid ${c.line};border-radius:12px"><div class="${x.danger ? 'email-stat-danger' : 'email-text'}" style="font-size:24px;line-height:1.1;font-weight:800;color:${x.danger ? '#B3261E' : c.ink}">${x.n}</div><div class="email-muted" style="margin-top:4px;font-size:12px;line-height:1.3;color:${c.ink2}">${escapeHtml(x.label)}</div></td></tr></table></td>`,
+        `<td class="email-stat" width="${width}" valign="top" style="padding:4px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td class="email-proj" align="center" style="padding:12px 4px;background:#FAF7F6;border:1px solid ${c.line};border-radius:12px"><div class="${x.danger ? 'email-stat-danger' : 'email-text'}" style="font-size:24px;line-height:1.1;font-weight:800;color:${x.danger ? OVERDUE_TONES.light.text : c.ink}">${x.n}</div><div class="email-muted" style="margin-top:4px;font-size:12px;line-height:1.3;color:${c.ink2}">${escapeHtml(x.label)}</div></td></tr></table></td>`,
     )
     .join('');
   return {

@@ -13,6 +13,7 @@ import type {
   TemplateColumn,
   TemplateRepository,
 } from './template-repository';
+import { statusTones } from '../../lib/colour-scheme';
 
 type Tx = Prisma.TransactionClient;
 
@@ -27,7 +28,7 @@ function columnsOf(value: Prisma.JsonValue): TemplateColumn[] {
     if (!c || typeof c !== 'object' || Array.isArray(c)) return [];
     const { name, category, color } = c as Record<string, unknown>;
     if (typeof name !== 'string' || !CATEGORIES.has(category as ColumnCategory)) return [];
-    return [{ name, category: category as ColumnCategory, color: typeof color === 'string' ? color : '#948985' }];
+    return [{ name, category: category as ColumnCategory, color: typeof color === 'string' ? color : statusTones(category as string).light.fill }];
   });
 }
 
