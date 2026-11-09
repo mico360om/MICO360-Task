@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.23.7] - 2026-11-09
+
 ### New features
 - Client Portal permissions: in New client, Manage account and on the Clients page, "Project access" is
   now a permission matrix you always see — one row per project with a Role (Viewer, Contributor, Approver
