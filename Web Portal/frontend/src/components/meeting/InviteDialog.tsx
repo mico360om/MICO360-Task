@@ -13,29 +13,50 @@ import { dialogLayer, dialogPanel } from '../ui/dialog-size';
 const KIND: Record<Recipient['kind'], string> = { organizer: 'Organizer', member: 'Team', guest: 'Guest' };
 const people = (n: number) => `${n} ${n === 1 ? 'person' : 'people'}`;
 
+/**
+ * 1.23.7: why someone was left out on purpose (a client's minutes notifications are off) — the
+ * server's reason without its own leading "not sent — ".
+ */
+export function notSentReason(error?: string): string {
+  return (error ?? '').replace(/^\s*not sent\s*[—–-]?\s*/i, '').trim();
+}
+
 /** The send's outcome, person by person. */
 export function SendResults({ report, what }: { report: SendReport; what: string }) {
   const total = report.recipients?.length ?? report.sent + (report.failed ?? 0);
-  const failed = report.failed ?? 0;
+  // 1.23.7: someone left out on purpose (their minutes are off) is "not sent", never a failure.
+  const held = report.recipients?.filter((r) => r.notSent).length ?? 0;
+  const failed = held ? report.recipients!.filter((r) => !r.ok && !r.notSent).length : (report.failed ?? 0);
+  const tone = failed ? 'bg-warning-soft text-warning' : held && !report.sent ? 'bg-ground text-ink-2' : 'bg-success-soft text-success';
   return (
     <div className="flex flex-col gap-3">
-      <p role="status" className={`rounded-lg px-3 py-2 text-sm font-medium ${failed ? 'bg-warning-soft text-warning' : 'bg-success-soft text-success'}`}>
+      <p role="status" className={`rounded-lg px-3 py-2 text-sm font-medium ${tone}`}>
         {what} sent to {report.sent} of {total}.{failed ? ` ${failed} couldn’t be delivered.` : ''}
+        {held ? ` ${held} not sent (notifications off).` : ''}
       </p>
       {report.recipients?.length ? (
         // A scrolling list: focusable, so the keyboard can scroll it too.
         <ul tabIndex={0} aria-label="Results, person by person" className="max-h-64 divide-y divide-line overflow-y-auto rounded-lg border border-line text-sm">
-          {report.recipients.map((r) => (
-            <li key={r.email} className="flex items-start gap-2 px-3 py-2">
-              <span aria-hidden="true" className={r.ok ? 'text-success' : 'text-danger'}>{r.ok ? '✓' : '✕'}</span>
-              <span className="min-w-0 flex-1">
-                <bdi title={r.name} className="block truncate font-medium text-ink">{r.name}</bdi>
-                {/* A typed address is its own name: shown once. */}
-                {r.name !== r.email ? <span title={r.email} className="block truncate text-xs text-ink-3">{r.email}</span> : null}
-                {!r.ok ? <span className="block text-xs text-danger">{r.error ?? 'Not delivered.'}</span> : <span className="sr-only">delivered</span>}
-              </span>
-            </li>
-          ))}
+          {report.recipients.map((r) => {
+            const why = r.notSent ? notSentReason(r.error) : '';
+            return (
+              <li key={r.email} className="flex items-start gap-2 px-3 py-2">
+                <span aria-hidden="true" className={r.ok ? 'text-success' : r.notSent ? 'text-ink-3' : 'text-danger'}>{r.ok ? '✓' : r.notSent ? '–' : '✕'}</span>
+                <span className="min-w-0 flex-1">
+                  <bdi title={r.name} className="block truncate font-medium text-ink">{r.name}</bdi>
+                  {/* A typed address is its own name: shown once. */}
+                  {r.name !== r.email ? <span title={r.email} className="block truncate text-xs text-ink-3">{r.email}</span> : null}
+                  {r.ok ? (
+                    <span className="sr-only">delivered</span>
+                  ) : r.notSent ? (
+                    <span className="block text-xs text-ink-2">{why ? `Not sent — ${why}` : 'Not sent'}</span>
+                  ) : (
+                    <span className="block text-xs text-danger">{r.error ?? 'Not delivered.'}</span>
+                  )}
+                </span>
+              </li>
+            );
+          })}
         </ul>
       ) : null}
       {/* One line per reason: no email address, or (the minutes) someone who can't get them yet. */}

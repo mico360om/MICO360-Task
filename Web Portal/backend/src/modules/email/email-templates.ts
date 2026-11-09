@@ -541,6 +541,37 @@ export function clientReplyEmail(params: ClientReplyParams, opts?: TemplateOptio
   return build(title, `The team replied on ${task}.`, title, blocks, opts, undefined, `You’re receiving this email because you commented on a task in your ${product} Client portal.`);
 }
 
+/** 1.23.7 A client's notification email: a task ready for their sign-off, a new document shown to them. */
+export interface ClientNoticeParams {
+  clientName: string;
+  projectName: string;
+  /** "Ready for your sign-off" (also the subject's start). */
+  headline: string;
+  /** One sentence before the item. */
+  lead: string;
+  /** What it is about: "RIG-4 Install pump", a file's name. */
+  item: string;
+  buttonLabel: string;
+  /** The item in the Client portal. */
+  link: string;
+  /** The portal's notification settings (where the client switches a kind off). */
+  settingsLink: string;
+}
+
+/** What a notice is about and a link to it in the Client portal — never who on the team did it. */
+export function clientNoticeEmail(params: ClientNoticeParams, opts?: TemplateOptions): EmailContent {
+  const product = productName(opts);
+  const title = `${params.headline}: ${params.item}`.slice(0, 180);
+  const blocks: Block[] = [
+    { kind: 'text', text: `Hi ${params.clientName}, ${params.lead}` },
+    { kind: 'callout', text: `${params.item} — ${params.projectName}`, tone: 'info' },
+    { kind: 'button', label: params.buttonLabel, href: params.link },
+    linkFallback(params.link),
+    { kind: 'text', text: `You can turn these emails off in your Client portal’s notification settings: ${params.settingsLink}` },
+  ];
+  return build(title, `${params.headline} in ${params.projectName}.`, params.headline, blocks, opts, undefined, `You’re receiving this email because notifications are on for you in your ${product} Client portal.`);
+}
+
 export interface ClientCodeParams {
   code: string;
   projectName: string;

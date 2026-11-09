@@ -103,6 +103,33 @@ describe('the minutes "Sent" log', () => {
     expect(screen.queryByRole('heading', { name: 'Sent' })).not.toBeInTheDocument();
   });
 
+  it('1.23.7: a client held back (their minutes are off) shows “Not sent” with why, in a neutral tone — not counted as failed, nor as sent to', async () => {
+    sends = [
+      {
+        id: 's3',
+        sentAt: '2026-11-07T08:00:00.000Z',
+        sentBy: { id: 'u1', name: 'Sara Ahmed' },
+        final: true,
+        to: [
+          { email: 'aisha@x.co', name: 'Aisha Khan', userId: 'u2', copy: 'shared', ok: true },
+          { email: 'hamad@client.om', name: 'Hamad Al Busaidi', userId: 'c1', copy: 'own', ok: false, notSent: true, error: 'not sent — the client turned these off' },
+        ],
+        cc: [{ email: 'boss@outside.co', name: null, copy: 'shared', ok: false, error: 'The mail server didn’t accept it.' }],
+      },
+    ];
+    renderLog();
+    const log = await screen.findByRole('list', { name: 'Sent' });
+    const entry = within(log).getByRole('listitem', { name: /sent the/i });
+    expect(entry).toHaveAccessibleName('Sara Ahmed sent the final minutes to 2 people');
+    expect(entry).toHaveTextContent('1 failed');
+    expect(within(entry).getByText('1 not sent').className).not.toContain('text-danger');
+    const hamad = within(within(entry).getByRole('list', { name: 'To' })).getAllByRole('listitem')[1]!;
+    expect(hamad).toHaveTextContent(/^Hamad Al Busaidi.*hamad@client\.om.*The client turned these off.*Not sent$/);
+    expect(hamad).not.toHaveTextContent('Failed');
+    expect(hamad).not.toHaveTextContent(/own email/);
+    expect(hamad.querySelector('.text-danger')).toBeNull();
+  });
+
   it('Send again is a 44px target on a touch screen', async () => {
     renderLog();
     const button = (await screen.findAllByRole('button', { name: 'Send again' }))[0]!;

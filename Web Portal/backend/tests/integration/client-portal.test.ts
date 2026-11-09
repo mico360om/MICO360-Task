@@ -362,7 +362,8 @@ describe('the team’s side: pickers, Clients with access, invitations', () => {
     expect(team.status).toBe(200);
     expect(team.data.canChange).toBe(false);
     expect(team.data.clients.map((c: { name: string }) => c.name)).toEqual([`Cleo Two ${w.tag}`, `Cliff One ${w.tag}`]);
-    expect(team.data.clients.find((c: { id: string }) => c.id === w.people.c2).access).toEqual(['Progress, milestones and tasks', 'Comment on tasks']);
+    // 1.23.7: the role first (a grant from before 1.23.7 reads as Custom), then each permission in the matrix's words.
+    expect(team.data.clients.find((c: { id: string }) => c.id === w.people.c2).access).toEqual(['Custom', 'View tasks', 'Comment']);
     expect((await a.get(w.as.admin, `/projects/${w.projects.P1}/clients`)).data.canChange).toBe(true);
     expect((await a.get(w.as.zara, `/projects/${w.projects.P2}/clients`)).status).toBe(404); // not her project
   });
@@ -382,7 +383,7 @@ describe('administrators: client accounts', () => {
     });
     expect(created.status).toBe(201);
     expect(created.data).toMatchObject({ roles: ['CLIENT'], organisation: 'Oman Drilling', phone: '+968 9000 0000' });
-    expect(created.data.projects).toEqual([expect.objectContaining({ projectId: w.projects.P1, modules: { progress: true, meetings: false }, actions: { comment: true, signOff: false, respond: false, download: false } })]);
+    expect(created.data.projects).toEqual([expect.objectContaining({ projectId: w.projects.P1, role: 'CUSTOM', modules: { progress: true, meetings: false }, actions: { comment: true, signOff: false, respond: false, download: false, upload: false, notify: false } })]);
     const id = created.data.id;
     expect(await prisma.companyMember.count({ where: { userId: id } })).toBe(0);
     expect(a.audited.filter((e) => e.action === 'client.create' && e.entityId === id)).toEqual([expect.objectContaining({ module: 'clients' })]);

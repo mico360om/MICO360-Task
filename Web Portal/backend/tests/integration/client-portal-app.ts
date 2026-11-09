@@ -18,6 +18,16 @@ import { createPrismaClientFlags } from '../../src/modules/client-view/prisma-cl
 import { createActivityService } from '../../src/modules/activity/activity-service';
 import { createPrismaActivityRepository } from '../../src/modules/activity/prisma-activity-repository';
 import type { CreateAuditData } from '../../src/modules/audit/audit-repository';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createAttachmentService } from '../../src/modules/tasks/attachment-service';
+import { createPrismaAttachmentRepository } from '../../src/modules/tasks/prisma-attachment-repository';
+import { createLocalDiskStorage } from '../../src/modules/tasks/local-disk-storage';
+import { createPrismaTaskLookup } from '../../src/modules/tasks/prisma-assignee-repository';
+import { createCommentService } from '../../src/modules/tasks/comment-service';
+import { createPrismaCommentRepository } from '../../src/modules/tasks/prisma-comment-repository';
+import { createClientNotices } from '../../src/modules/clients/client-notices';
 
 const TZ = 'Asia/Muscat';
 
@@ -27,7 +37,7 @@ const TZ = 'Asia/Muscat';
  * and the staff's "Show to client" routes, all on the real Prisma sources.
  */
 export async function buildClientPortalApp(prisma: PrismaClient) {
-  const notices: PortalNotice[] = [];
+  const portalNotices: PortalNotice[] = [];
   const audited: CreateAuditData[] = [];
   const broadcasts: { projectId: string; event: string }[] = [];
   const audit = { async record(e: CreateAuditData) { audited.push(e); return {}; } };
@@ -50,6 +60,26 @@ export async function buildClientPortalApp(prisma: PrismaClient) {
     assetUrl: 'https://task.mico360.test',
     timeZone: TZ,
   });
+  // 1.23.7: client notices with a recording mailer, task files on a throwaway folder (the staff uploads' rules).
+  const emails: { to: string; kind: string; subject?: string; link?: string }[] = [];
+  const notices = createClientNotices({
+    prisma,
+    appUrl: 'https://task.mico360.test',
+    email: {
+      isConfigured: () => true,
+      async sendClientReply(to, p) { emails.push({ to, kind: 'client-reply', link: p.link }); },
+      async sendClientNotice(to, kind, p) { emails.push({ to, kind, subject: `${p.headline}: ${p.item}`, link: p.link }); },
+    },
+  });
+  const storage = createLocalDiskStorage({ baseDir: mkdtempSync(join(tmpdir(), 'mico-perm-')), publicPrefix: '/uploads' });
+  const attachmentService = createAttachmentService({
+    repo: createPrismaAttachmentRepository(prisma),
+    storage,
+    taskLookup: createPrismaTaskLookup(prisma),
+    maxSizeBytes: 64 * 1024,
+    allowedMimeTypes: ['text/plain', 'application/pdf', 'image/png'],
+  });
+  const commentService = createCommentService({ repo: createPrismaCommentRepository(prisma), taskLookup: createPrismaTaskLookup(prisma), onClientReply: (reply) => notices.taskReply(reply) });
   const recordTaskActivity = async (e: { taskId: string; userId: string; action: string; meta?: Record<string, unknown> }) => {
     const t = await prisma.task.findUnique({ where: { id: e.taskId }, select: { projectId: true } });
     await activityService.record({ ...e, projectId: t?.projectId ?? null });
@@ -63,7 +93,7 @@ export async function buildClientPortalApp(prisma: PrismaClient) {
       const t = await prisma.task.findUnique({ where: { id: taskId }, select: { assignees: { select: { userId: true } }, project: { select: { ownerId: true } } } });
       return [...new Set([...(t?.assignees.map((a) => a.userId) ?? []), ...(t?.project.ownerId ? [t.project.ownerId] : [])])].filter((id) => id !== actorId);
     },
-    notify: async (n) => void notices.push(n),
+    notify: async (n) => void portalNotices.push(n),
     recordActivity: recordTaskActivity,
     broadcast: (projectId, event) => void broadcasts.push({ projectId, event }),
     audit,
@@ -71,6 +101,9 @@ export async function buildClientPortalApp(prisma: PrismaClient) {
     completeActionItem: (itemId) => actionItemService.setStatus(itemId, 'COMPLETED'),
     minutesPdf: (projectId, meetingId) => clientAccess.projectMinutesPdf(projectId, meetingId),
     taskListPdf: (input) => clientAccess.projectTaskListPdf(input.projectId, input),
+    uploadFile: (taskId, clientId, file) => attachmentService.upload(taskId, clientId, file, { fromClient: true }),
+    readFile: (key) => storage.read!(key),
+    noticeSettings: notices,
   });
   const clientAccounts = createClientAccounts({ prisma, userService, audit });
   const flags = createPrismaClientFlags(prisma, (taskId) => taskService.getTask(taskId));
@@ -82,7 +115,10 @@ export async function buildClientPortalApp(prisma: PrismaClient) {
     activityService,
     recordTaskActivity,
     auditService: audit as never,
-    clientView: { service: clientAccess, secureCookies: false, tasks: flags.tasks, minutes: flags.minutes },
+    clientView: { service: clientAccess, secureCookies: false, tasks: flags.tasks, minutes: flags.minutes, onTaskShown: (taskId) => notices.signOffReady(taskId) },
+    attachmentService,
+    commentService,
+    onFileShownToClient: (id) => notices.documentShown(id),
   });
-  return { ...app, notices, audited, broadcasts, taskService };
+  return { ...app, notices: portalNotices, audited, broadcasts, taskService, clientNotices: notices, emails, attachmentService };
 }

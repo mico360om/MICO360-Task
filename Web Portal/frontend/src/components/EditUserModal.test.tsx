@@ -8,6 +8,22 @@ import { apiCompany, apiUser, companyServer, type ListedUser } from '../test/com
 import { windowWidth } from '../test/window-width';
 import { MICO, access, apiClientAccount, clientServer } from './clients/test-server';
 import { MyProjectsSettings } from './settings/MyProjectsSettings';
+import type { ClientPreviewDialogProps } from './portal/ClientPreviewDialog';
+
+// 1.23.7 The portal lane builds the real preview: here, only what it is asked to show.
+const preview = vi.hoisted(() => ({ spec: null as unknown }));
+vi.mock('./portal/ClientPreviewDialog', () => ({
+  ClientPreviewDialog: ({ spec, onClose: close }: ClientPreviewDialogProps) => {
+    preview.spec = spec;
+    return (
+      <div role="dialog" aria-label="Preview as client">
+        <button type="button" onClick={close}>
+          Close preview
+        </button>
+      </div>
+    );
+  },
+}));
 
 const alpha = apiCompany({ id: 'ca', name: 'Alpha Co', code: 'ALPHA' });
 const beta = apiCompany({ id: 'cb', name: 'Beta Co', code: 'BETA' });
@@ -217,6 +233,10 @@ describe('EditUserModal: a client account (1.23)', () => {
   });
   const listed = apiUser({ id: 'c-huda', username: 'huda', firstName: 'Huda', lastName: 'Saleh', roles: ['CLIENT'], companies: [] });
   const card = (name: string) => screen.getByRole('group', { name });
+  /** 1.23.7 A tick in the permission matrix ("Comment — MICO Tower") and a project's Role. */
+  const box = (name: string) => screen.getByRole('checkbox', { name });
+  const roleOf = (project: string) => screen.getByRole('combobox', { name: `Role — ${project}` });
+  const NO_ACTIONS = { comment: false, signOff: false, respond: false, download: false, upload: false, notify: false };
 
   it('loads the client and shows their details and project access — no companies, no staff roles', async () => {
     const server = clientServer({ clients: [huda] });
@@ -224,7 +244,10 @@ describe('EditUserModal: a client account (1.23)', () => {
     expect(await screen.findByLabelText(/organisation/i)).toHaveValue('Owner Group');
     expect(server.requests('GET', '/clients/c-huda')).toHaveLength(1);
     expect(screen.getByLabelText(/phone/i)).toHaveValue('+968 9000 0000');
-    expect(within(card('MICO Tower')).getByRole('checkbox', { name: 'Comment on tasks' })).toBeChecked();
+    // A grant from before 1.23.7: Custom, with exactly its ticks.
+    expect(roleOf('MICO Tower')).toHaveValue('CUSTOM');
+    expect(box('Comment — MICO Tower')).toBeChecked();
+    expect(box('Upload documents — MICO Tower')).not.toBeChecked();
     expect(within(card('Old Works')).getByText('Archived')).toBeInTheDocument();
     expect(screen.queryByRole('group', { name: 'Companies' })).toBeNull();
     expect(screen.queryByLabelText('Administrator')).toBeNull();
@@ -241,7 +264,7 @@ describe('EditUserModal: a client account (1.23)', () => {
     const org = await screen.findByLabelText(/organisation/i);
     await userEvent.clear(org);
     await userEvent.type(org, 'Owner Holdings');
-    await userEvent.click(within(card('MICO Tower')).getByRole('checkbox', { name: 'Sign off finished tasks' }));
+    await userEvent.click(box('Sign off — MICO Tower'));
     await save();
     await waitFor(() => expect(onClose).toHaveBeenCalled());
     expect(server.requests('PUT', '/users/c-huda')).toHaveLength(0);
@@ -253,10 +276,47 @@ describe('EditUserModal: a client account (1.23)', () => {
       organisation: 'Owner Holdings',
       phone: '+968 9000 0000',
       projects: [
-        { projectId: 'p-mico', modules: { progress: true, meetings: false }, actions: { comment: true, signOff: true, respond: false, download: false } },
-        { projectId: 'p-old', modules: { progress: false, meetings: true }, actions: { comment: false, signOff: false, respond: false, download: false } },
+        { projectId: 'p-mico', role: 'CUSTOM', modules: { progress: true, meetings: false }, actions: { ...NO_ACTIONS, comment: true, signOff: true } },
+        { projectId: 'p-old', role: 'CUSTOM', modules: { progress: false, meetings: true }, actions: NO_ACTIONS },
       ],
     });
+  });
+
+  it('1.23.7: a role picked is saved with its ticks (a role change alone counts as a change)', async () => {
+    const server = clientServer({ clients: [huda] });
+    open(listed);
+    await screen.findByLabelText(/organisation/i);
+    await userEvent.selectOptions(roleOf('MICO Tower'), 'CONTRIBUTOR');
+    await save();
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    const sent = (server.lastBody('PUT', '/clients/c-huda') as { projects: unknown[] }).projects;
+    expect(sent[0]).toEqual({ projectId: 'p-mico', role: 'CONTRIBUTOR', modules: { progress: true, meetings: true }, actions: { ...NO_ACTIONS, comment: true, upload: true, respond: true, download: true, notify: true } });
+    expect(server.clients[0]!.projects[0]).toMatchObject({ role: 'CONTRIBUTOR' });
+  });
+
+  it('1.23.7 Preview as client: their saved account, the details as typed and the matrix on screen — nothing saved', async () => {
+    const server = clientServer({ clients: [huda] });
+    open(listed);
+    const org = await screen.findByLabelText(/organisation/i);
+    await userEvent.clear(org);
+    await userEvent.type(org, 'Owner Holdings');
+    await userEvent.selectOptions(roleOf('Old Works'), 'VIEWER');
+    await userEvent.click(screen.getByRole('button', { name: 'Preview as client' }));
+    expect(screen.getByRole('dialog', { name: 'Preview as client' })).toBeInTheDocument();
+    expect(preview.spec).toEqual({
+      clientId: 'c-huda',
+      firstName: 'Huda',
+      lastName: 'Saleh',
+      organisation: 'Owner Holdings',
+      email: 'huda@client.test',
+      projects: [
+        { projectId: 'p-mico', role: 'CUSTOM', modules: { progress: true, meetings: false }, actions: { ...NO_ACTIONS, comment: true } },
+        { projectId: 'p-old', role: 'VIEWER', modules: { progress: true, meetings: true }, actions: { ...NO_ACTIONS, download: true, notify: true } },
+      ],
+    });
+    await userEvent.click(screen.getByRole('button', { name: 'Close preview' }));
+    expect(server.requests('PUT', '/clients/c-huda')).toHaveLength(0);
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it('access left as it was is not sent (a name change never touches it)', async () => {
@@ -270,15 +330,17 @@ describe('EditUserModal: a client account (1.23)', () => {
     expect(body).not.toHaveProperty('projects');
   });
 
-  it('a new project is added from the same editor, and a project with no module stops the save', async () => {
+  it('a new project is added from the same editor, and a Custom project with neither view stops the save', async () => {
     const server = clientServer({ clients: [huda] });
     open(listed);
     await userEvent.click(await screen.findByRole('button', { name: 'Add a project' }));
     await userEvent.click(await screen.findByRole('option', { name: /Rig Refit/ }));
+    await userEvent.click(box('View tasks — Rig Refit'));
+    await userEvent.click(box('View meetings & minutes — Rig Refit'));
     await save();
-    expect(screen.getByRole('alert')).toHaveTextContent('Tick at least one module for Rig Refit');
+    expect(screen.getByRole('alert')).toHaveTextContent('Tick at least one of View tasks or View meetings & minutes for Rig Refit.');
     expect(server.requests('PUT', '/clients/c-huda')).toHaveLength(0);
-    await userEvent.click(within(card('Rig Refit')).getByRole('checkbox', { name: 'Meetings and minutes' }));
+    await userEvent.click(box('View meetings & minutes — Rig Refit'));
     await save();
     await waitFor(() => expect(onClose).toHaveBeenCalled());
     expect((server.lastBody('PUT', '/clients/c-huda') as { projects: { projectId: string }[] }).projects.map((p) => p.projectId)).toEqual(['p-mico', 'p-old', 'p-rig']);
@@ -313,7 +375,7 @@ describe('EditUserModal: a client account (1.23)', () => {
     expect(screen.getByRole('button', { name: /save changes/i })).toBeDisabled();
   });
 
-  it('two columns from 1024px: details and password on the left, project access and status on the right', async () => {
+  it('from 1024px: details and password on the left, status on the right, and the permission matrix across the whole form below', async () => {
     windowWidth(1280);
     clientServer({ clients: [huda] });
     open(listed);
@@ -321,10 +383,13 @@ describe('EditUserModal: a client account (1.23)', () => {
     const dialog = screen.getByRole('dialog', { name: 'Edit huda' });
     const left = dialog.querySelector<HTMLElement>('[data-form-column="profile"]')!;
     const right = dialog.querySelector<HTMLElement>('[data-form-column="access"]')!;
+    const below = dialog.querySelector<HTMLElement>('[data-form-row="access"]')!;
     expect(left).toContainElement(screen.getByLabelText(/organisation/i));
     expect(left).toContainElement(screen.getByRole('button', { name: 'Make a temporary password' }));
-    expect(right).toContainElement(screen.getByRole('group', { name: 'Project access' }));
     expect(right).toContainElement(screen.getByLabelText('Account status'));
+    expect(left.parentElement!.contains(below)).toBe(false);
+    expect(below).toContainElement(screen.getByRole('group', { name: 'Project access' }));
+    expect(below).toContainElement(screen.getByRole('table', { name: 'Permissions for each project' }));
   });
 });
 

@@ -5,7 +5,7 @@ import { apiClient } from '../api/client';
 import { checklistApi, type ChecklistPlace } from '../api/checklist';
 import type { ChecklistAt } from '../lib/checklist-tree';
 import { commentsApi, type CommentReply } from '../api/comments';
-import { attachmentsApi } from '../api/attachments';
+import { attachmentsApi, type ApiAttachment } from '../api/attachments';
 import { dependenciesApi } from '../api/dependencies';
 import { assigneesApi } from '../api/assignees';
 import { membersApi } from '../api/members';
@@ -499,7 +499,27 @@ function TaskDrawerPanel({ taskId, onClose, stepper, mergeNotice, focusItemId }:
               mimeType: a.mimeType,
               // The server lets the uploader, or an admin, delete a file.
               canDelete: a.uploadedById === myId || isAdmin,
+              // 1.23.7: a client's file, and whether the project's clients see it.
+              fromClient: a.fromClient === true,
+              clientVisible: a.clientVisible === true,
             }))}
+            // 1.23.7 "Show to client" on a file: the same people as the task's own switch (the server checks too).
+            onSetAttachmentClientVisible={
+              runsProject
+                ? async (attachmentId, visible) => {
+                    try {
+                      const updated = await attachmentsApi(apiClient).setClientVisible(taskId, attachmentId, visible);
+                      queryClient.setQueryData<ApiAttachment[]>(['attachments', taskId], (old) =>
+                        Array.isArray(old) ? old.map((a) => (a.id === attachmentId ? { ...a, ...updated, clientVisible: updated?.clientVisible ?? visible } : a)) : old,
+                      );
+                    } catch (e) {
+                      // A refusal says why in the server's words (who may; an archived project).
+                      const said = e instanceof ApiError && e.status === 403 && !/^Request failed/.test(e.message) ? e.message : '';
+                      throw new Error(said || failureText(e, 'Couldn’t change who sees the file.'));
+                    }
+                  }
+                : undefined
+            }
             onUploadFile={(file, onProgress) => attempt(() => uploadM.mutateAsync({ file, onProgress }), 'Couldn’t upload that file.')}
             onPreviewAttachment={(id) => attachmentsApi(apiClient).preview(id)}
             onDeleteAttachment={(id) => attempt(() => deleteM.mutateAsync(id), 'Couldn’t remove the attachment.').then(() => undefined)}

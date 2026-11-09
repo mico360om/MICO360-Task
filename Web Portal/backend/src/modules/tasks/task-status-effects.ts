@@ -21,6 +21,8 @@ export interface StatusEffectsDeps {
   sentBackComment?: (task: TaskRecord, actorId: string, reason: string) => Promise<unknown>;
   /** A next copy made when approval was turned off on a waiting task: it still needs approval (that was for this one only). */
   keepApprovalOnCopy?: (copyId: string) => Promise<unknown>;
+  /** 1.23.7: the task may now wait for a client's sign-off (the client notices check it is shared and not accepted). */
+  clientReady?: (taskId: string) => Promise<unknown>;
   notify: (n: { userId: string; type: string; title: string; body: string | null; entityType: string; entityId: string }) => Promise<unknown>;
   /** Write a line to the task's timeline. */
   record: (entry: { taskId: string; projectId: string; userId: string; action: string; meta: Record<string, unknown> }) => Promise<unknown>;
@@ -99,6 +101,9 @@ export function createStatusChangeEffects(deps: StatusEffectsDeps) {
     if (approval === 'SENT_BACK' && actorId && opts.reason) {
       await Promise.resolve(deps.sentBackComment?.(task, actorId, opts.reason)).catch((err) => deps.onError?.(err, task.id));
     }
+    // 1.23.7: finished (into Done without waiting for approval, or approved there): maybe ready for a client's sign-off.
+    const finished = done && approval !== 'REQUESTED' && approval !== 'SENT_BACK' && (!wasDone || approval === 'APPROVED' || approval === 'SWITCHED_OFF');
+    if (finished && deps.clientReady) await Promise.resolve(deps.clientReady(task.id)).catch((err) => deps.onError?.(err, task.id));
 
     if (opts.notify === false) return;
     const tell = async (userIds: string[], type: string, title: string) => {

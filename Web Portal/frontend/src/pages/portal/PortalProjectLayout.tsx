@@ -4,9 +4,8 @@ import type { PortalModules, PortalProjectView } from '../../api/portal';
 import { isNotShared } from '../../api/portal';
 import { ProjectAvatar } from '../../components/ProjectAvatar';
 import { usePortalProject } from '../../components/portal/portal-queries';
-import { BackLink, CompanyMark, LoadFailed, Loading, NotShared, StatusBadge, TOUCH } from '../../components/portal/portal-ui';
+import { BackLink, CompanyMark, LoadFailed, Loading, NotShared, StatusBadge, TOUCH, usePortalPageName } from '../../components/portal/portal-ui';
 import { dateTimeText } from '../../lib/day-words';
-import { usePageName } from '../../lib/page-meta';
 
 /** What a project page hands its tabs and pages. */
 export interface PortalProjectContext {
@@ -36,7 +35,7 @@ export function PortalProjectLayout() {
   const { projectId = '' } = useParams();
   const q = usePortalProject(projectId);
   const { pathname } = useLocation();
-  usePageName(q.data?.project.name ?? null);
+  usePortalPageName(q.data?.project.name ?? null);
 
   if (q.isPending) return <Loading what="the project" />;
   if (q.isError) return isNotShared(q.error) ? <NotShared /> : <LoadFailed what="the project" onRetry={() => void q.refetch()} />;

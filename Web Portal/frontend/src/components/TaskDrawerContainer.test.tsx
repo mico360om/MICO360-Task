@@ -701,6 +701,95 @@ describe('TaskDrawerContainer — clients (1.23)', () => {
   });
 });
 
+describe('TaskDrawerContainer — files and clients (1.23.7)', () => {
+  type Row = { id: string; taskId: string; uploadedById: string; filename: string; mimeType: string; sizeBytes: number; url: string; createdAt: string; fromClient: boolean; clientVisible: boolean };
+  let files: Row[];
+  let puts: { url: string; body: unknown }[];
+  let refuse: { status: number; code: string; message: string } | null;
+  const withFiles = () => {
+    files = [
+      { id: 'a1', taskId: 't1', uploadedById: 'u1', filename: 'spec.pdf', mimeType: 'application/pdf', sizeBytes: 2048, url: '/uploads/a1.pdf', createdAt: '', fromClient: false, clientVisible: false },
+      { id: 'a2', taskId: 't1', uploadedById: 'client-1', filename: 'site-photo.jpg', mimeType: 'image/jpeg', sizeBytes: 10, url: '/uploads/a2.jpg', createdAt: '', fromClient: true, clientVisible: true },
+    ];
+    puts = [];
+    refuse = null;
+    const base = fetch;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const u = String(url);
+      const put = /\/tasks\/t1\/attachments\/(\w+)\/client-visible$/.exec(u);
+      if (put && init?.method === 'PUT') {
+        const body = JSON.parse(String(init.body)) as { visible: boolean };
+        puts.push({ url: u, body });
+        if (refuse) return json({ error: refuse }, refuse.status);
+        const row = files.find((f) => f.id === put[1])!;
+        row.clientVisible = body.visible;
+        return json({ data: { ...row } });
+      }
+      if (u.endsWith('/tasks/t1/attachments')) return json({ data: files.map((f) => ({ ...f })) });
+      return base(url, init);
+    }));
+  };
+  const open = () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <TaskDrawerContainer taskId="t1" onClose={() => {}} />
+      </QueryClientProvider>,
+    );
+  };
+  const asAdmin = () => useAuthStore.getState().setSession({ user: { id: 'u1', email: 'a@b.c', username: 'ada', roles: ['ADMIN'] }, accessToken: 'at', refreshToken: 'rt' });
+
+  it('marks a client’s file “From client” for the whole team', async () => {
+    withFiles();
+    open();
+    const row = (await screen.findByRole('link', { name: 'site-photo.jpg' })).closest('li')!;
+    expect(within(row).getByText('From client')).toBeInTheDocument();
+  });
+
+  it('whoever runs the project ticks “Show to client” on a file: saved on the server, and it stays ticked', async () => {
+    asAdmin();
+    withFiles();
+    open();
+    const spec = await screen.findByRole('checkbox', { name: 'Show to client: spec.pdf' });
+    expect(screen.getByRole('checkbox', { name: 'Show to client: site-photo.jpg' })).toBeChecked();
+    await userEvent.click(spec);
+    await waitFor(() => expect(puts).toEqual([{ url: expect.stringMatching(/\/tasks\/t1\/attachments\/a1\/client-visible$/), body: { visible: true } }]));
+    await waitFor(() => expect(spec).toBeEnabled());
+    expect(spec).toBeChecked();
+  });
+
+  it('a refusal is told in the server’s words (an archived project), and the tick goes back', async () => {
+    asAdmin();
+    withFiles();
+    open();
+    const spec = await screen.findByRole('checkbox', { name: 'Show to client: spec.pdf' });
+    refuse = { status: 409, code: 'PROJECT_ARCHIVED', message: 'This project is archived — reopen it first.' };
+    await userEvent.click(spec);
+    const row = spec.closest('li')!;
+    expect(await within(row).findByRole('alert')).toHaveTextContent('This project is archived — reopen it first.');
+    expect(spec).not.toBeChecked();
+  });
+
+  it('a 403 says who may do it, in the server’s words (not a generic “no permission”)', async () => {
+    asAdmin();
+    withFiles();
+    open();
+    const spec = await screen.findByRole('checkbox', { name: 'Show to client: spec.pdf' });
+    refuse = { status: 403, code: 'FORBIDDEN', message: 'Only the project manager or an administrator can show a file to clients.' };
+    await userEvent.click(spec);
+    expect(await within(spec.closest('li')!).findByRole('alert')).toHaveTextContent('Only the project manager or an administrator can show a file to clients.');
+  });
+
+  it('a team member who doesn’t run the project gets no ticks: a shown file just says “Shown to client”', async () => {
+    withFiles();
+    open();
+    const row = (await screen.findByRole('link', { name: 'site-photo.jpg' })).closest('li')!;
+    expect(within(row).getByText('Shown to client')).toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: /show to client/i })).not.toBeInTheDocument();
+    expect(within(screen.getByRole('link', { name: 'spec.pdf' }).closest('li')!).queryByText('Shown to client')).not.toBeInTheDocument();
+  });
+});
+
 describe('TaskDrawerContainer: writing a first checklist with the keyboard (1.23.3 review)', () => {
   type Item = { id: string; taskId: string; listId: string; parentId: string | null; depth: number; text: string; done: boolean; position: number };
   let lists: { id: string; taskId: string; title: string; position: number; done: number; total: number }[];

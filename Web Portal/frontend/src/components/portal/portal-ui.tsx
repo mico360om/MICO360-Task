@@ -6,6 +6,8 @@ import { NOT_SHARED, type PortalCompany, type PortalResponse } from '../../api/p
 import { BrandLogo } from '../ui/BrandLogo';
 import { buttonClass } from '../ui/Button';
 import { dayText } from '../../lib/day-words';
+import { usePageName } from '../../lib/page-meta';
+import { usePortalPreview } from './portal-context';
 
 /**
  * 1.23 Pieces the Client portal's pages share, in the look of the client page (ClientViewPage) the
@@ -23,6 +25,21 @@ export const OWN_LINES = '[unicode-bidi:plaintext] text-start';
 
 /** "30 Oct 2026" for a 'YYYY-MM-DD' day ('' for none). */
 export const day = (key: string | null | undefined) => (key ? dayText(key) : '');
+
+/** "1.2 MB", "340 KB", "512 B": a file's size in words. */
+export function sizeWords(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1).replace(/\.0$/, '')} MB`;
+}
+
+/**
+ * 1.23.7 The tab title names the page (a project, a task, a meeting) — never in a Preview as client, which is
+ * shown over an administrator's own page and must leave its title alone.
+ */
+export function usePortalPageName(name: string | null | undefined): void {
+  usePageName(usePortalPreview() ? null : name);
+}
 
 const STATUS_TONE: Record<string, string> = {
   Done: 'bg-success-soft text-success',

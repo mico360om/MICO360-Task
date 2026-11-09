@@ -4,7 +4,7 @@ import type { GrantRow } from './client-grants';
 
 const TZ = 'Asia/Muscat';
 const NOW = new Date('2026-10-30T08:00:00Z');
-const grant = (over: Partial<GrantRow> = {}): GrantRow => ({ projectId: 'p1', progress: true, meetings: false, canComment: false, canSignOff: false, canRespond: false, canDownload: false, ...over });
+const grant = (over: Partial<GrantRow> = {}): GrantRow => ({ projectId: 'p1', role: 'CUSTOM', progress: true, meetings: false, canComment: false, canSignOff: false, canRespond: false, canDownload: false, canUpload: false, canNotify: false, ...over });
 const project = {
   id: 'p1', code: 'RIG', number: 'C-77', name: 'Rig upgrade', clientName: 'Acme', status: 'ACTIVE', color: '#8B1E1E', icon: null, imageUrl: null,
   startDate: new Date('2026-10-01T08:00:00Z'), targetDate: new Date('2026-12-01T08:00:00Z'),
@@ -26,7 +26,7 @@ describe('Client portal answers (allow-list)', () => {
     expect(card).toEqual({
       id: 'p1', code: 'RIG', number: 'C-77', name: 'Rig upgrade', status: 'ACTIVE', statusLabel: 'In progress', color: '#8B1E1E', icon: null, imageUrl: null,
       company: { name: 'Prolens Projects LLC', logoUrl: '/uploads/logo.png' }, percentDone: 25,
-      modules: { progress: true, meetings: false }, actions: { comment: false, signOff: false, respond: false, download: false },
+      modules: { progress: true, meetings: false }, actions: { comment: false, signOff: false, respond: false, download: false, upload: false, notify: false },
     });
     expect(portalCard(project, grant({ progress: false, meetings: true }), { total: 4, done: 1 }).percentDone).toBeNull();
     expect(JSON.stringify(card)).not.toMatch(/INTERNAL|u-omar/);

@@ -1,6 +1,7 @@
 import { ApiError, type ApiClient } from '../lib/api-client';
 import { apiClient } from './client';
 import type { FinalMinutesContent } from './meetings';
+import type { ClientGrant } from './clients';
 
 /**
  * 1.23 The Client portal's API (server: backend/src/modules/clients/portal-routes.ts and
@@ -19,6 +20,10 @@ export interface PortalActions {
   signOff: boolean;
   respond: boolean;
   download: boolean;
+  /** 1.23.7: upload documents to shared tasks. */
+  upload?: boolean;
+  /** 1.23.7: notices about this project reach them. */
+  notify?: boolean;
 }
 
 export interface PortalCompany {
@@ -97,11 +102,58 @@ export interface PortalComment {
   edited: boolean;
 }
 
+/** 1.23.7 A file on a shared task: shown to clients by the team, or the client's own upload. */
+export interface PortalFile {
+  id: string;
+  name: string;
+  /** Its type ('application/pdf'). */
+  type: string;
+  sizeBytes: number;
+  addedAt: string;
+  /** 'you': their own upload; 'team': shared by the project team (never a name). */
+  from: 'you' | 'team';
+}
+
 export interface PortalTaskView {
   task: PortalTaskItem & { description: string | null };
   /** Null without the Comment action: no thread is shown. */
   comments: PortalComment[] | null;
-  can: { comment: boolean; signOff: boolean };
+  /** 1.23.7 (an older server sends none). */
+  files?: PortalFile[];
+  can: { comment: boolean; signOff: boolean; upload?: boolean };
+}
+
+/** 1.23.7 One notice on the portal's bell. */
+export interface PortalNotice {
+  id: string;
+  kind: 'reply' | 'signOff' | 'document' | 'minutes' | 'invitation';
+  title: string;
+  /** A file's name for a document; null otherwise. */
+  body: string | null;
+  project: { id: string; name: string };
+  taskId: string | null;
+  meetingId: string | null;
+  read: boolean;
+  createdAt: string;
+}
+
+export interface PortalNotices {
+  items: PortalNotice[];
+  unread: number;
+}
+
+/** 1.23.7 The kinds of notice a client may switch off (meeting invitations always go). */
+export interface PortalNoticeSwitches {
+  reply: boolean;
+  signOff: boolean;
+  minutes: boolean;
+  document: boolean;
+}
+
+export interface PortalNoticeSettings {
+  settings: PortalNoticeSwitches;
+  /** Their projects, and whether the project team lets notices about each reach them. */
+  projects: { id: string; name: string; notify: boolean }[];
 }
 
 export type PortalResponse = 'PENDING' | 'ACCEPTED' | 'TENTATIVE' | 'DECLINED';
@@ -164,6 +216,21 @@ export function portalApi(client: ApiClient) {
     markDone: (p: string, itemId: string) => client.post<Data<PortalMeetingView>>(`${project(p)}/action-items/${seg(itemId)}/done`).then((r) => r.data),
     /** Where an invitation email's meeting is in the portal. */
     whereIs: (m: string) => client.get<Data<{ projectId: string; meetingId: string }>>(`/portal/meetings/${seg(m)}`).then((r) => r.data),
+    /** 1.23.7 Upload a document to a shared task (Upload); the task as it is now. */
+    upload: (p: string, t: string, file: File, onProgress?: (fraction: number) => void) => {
+      const form = new FormData();
+      form.append('file', file, file.name);
+      return client.upload<Data<PortalTaskView>>(`${task(p, t)}/files`, form, onProgress ? { onProgress } : undefined).then((r) => r.data);
+    },
+    /** 1.23.7 A file of a shared task; a File named by the server. */
+    file: (p: string, t: string, fileId: string) => client.getBlob(`${task(p, t)}/files/${seg(fileId)}`),
+    /** 1.23.7 The bell. */
+    notices: () => client.get<Data<PortalNotices>>('/portal/notifications').then((r) => r.data),
+    readNotice: (id: string) => client.post<Data<{ unread: number }>>(`/portal/notifications/${seg(id)}/read`).then((r) => r.data),
+    readAllNotices: () => client.post<Data<{ unread: number }>>('/portal/notifications/read-all').then((r) => r.data),
+    /** 1.23.7 The client's notification switches. */
+    settings: () => client.get<Data<PortalNoticeSettings>>('/portal/settings/notifications').then((r) => r.data),
+    setSettings: (patch: Partial<PortalNoticeSwitches>) => client.put<Data<PortalNoticeSettings>>('/portal/settings/notifications', patch).then((r) => r.data),
     /** The client's own password: the server signs out every other session and returns this one's fresh pair. */
     changePassword: (currentPassword: string, newPassword: string) =>
       client
@@ -176,6 +243,55 @@ export type PortalApi = ReturnType<typeof portalApi>;
 
 /** The portal's API on the site's client (bearer token, silent refresh). */
 export const portal: PortalApi = portalApi(apiClient);
+
+/**
+ * 1.23.7 Preview as client: whose portal (a saved client, or one not saved yet) and the permission matrix on
+ * screen (absent: their saved access). Server: POST /clients/preview/… (administrators; nothing is written).
+ */
+export interface ClientPreviewSpec {
+  clientId?: string | null;
+  firstName?: string;
+  lastName?: string;
+  organisation?: string | null;
+  email?: string;
+  projects?: ClientGrant[];
+}
+
+/** The words a preview answers any action with (nothing is saved or sent). */
+export const PREVIEW_ONLY = 'Preview — nothing you do here is saved or sent.';
+
+/**
+ * The portal's API for a preview: the same reads, through the administrators' preview routes with the spec;
+ * every write is refused here, before anything leaves the page.
+ */
+export function previewPortalApi(client: ApiClient, spec: ClientPreviewSpec): PortalApi {
+  const read = <T>(path: string) => client.post<Data<T>>(`/clients/preview${path}`, spec).then((r) => r.data);
+  const refuse = (): Promise<never> => Promise.reject(new ApiError(403, 'PREVIEW', PREVIEW_ONLY));
+  const project = (p: string) => `/projects/${seg(p)}`;
+  return {
+    me: () => read<PortalHome>('/me'),
+    project: (p) => read<PortalProjectView>(project(p)),
+    task: (p, t) => read<PortalTaskView>(`${project(p)}/tasks/${seg(t)}`),
+    meetings: (p) => read<PortalMeetingItem[]>(`${project(p)}/meetings`),
+    meeting: (p, m) => read<PortalMeetingView>(`${project(p)}/meetings/${seg(m)}`),
+    notices: () => read<PortalNotices>('/notifications'),
+    settings: () => read<PortalNoticeSettings>('/settings'),
+    comment: refuse,
+    accept: refuse,
+    sendBack: refuse,
+    taskListPdf: refuse,
+    respond: refuse,
+    minutesPdf: refuse,
+    markDone: refuse,
+    whereIs: refuse,
+    changePassword: refuse,
+    upload: refuse,
+    file: refuse,
+    readNotice: refuse,
+    readAllNotices: refuse,
+    setSettings: refuse,
+  };
+}
 
 /** The server's word for anything a client may not see (404). */
 export const NOT_SHARED = 'This isn’t shared with you.';

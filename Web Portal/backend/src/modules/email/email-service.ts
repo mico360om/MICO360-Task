@@ -25,6 +25,7 @@ import {
   clientInvitationEmail,
   clientCodeEmail,
   clientReplyEmail,
+  clientNoticeEmail,
   signInCodeEmail,
   emailChangedEmail,
   type EmailChangedParams,
@@ -33,6 +34,7 @@ import {
   type ClientInvitationParams,
   type ClientCodeParams,
   type ClientReplyParams,
+  type ClientNoticeParams,
   type EmailContent,
   type TemplateOptions,
   type LoginCodeOptions,
@@ -301,6 +303,9 @@ export function createEmailService({ transport, isSuppressed, log, logger }: Ema
     // 1.23 Client portal: a team reply marked "Visible to client" on a client account's comment.
     sendClientReply: (email: string, params: ClientReplyParams, opts?: TemplateOptions): Promise<DeliveryResult> =>
       deliverResult('client-reply', email, clientReplyEmail(params, opts), sender(opts)),
+    // 1.23.7 Client portal notifications: a task ready for their sign-off, a new document shown to them.
+    sendClientNotice: (email: string, kind: 'client-sign-off' | 'client-document', params: ClientNoticeParams, opts?: TemplateOptions): Promise<DeliveryResult> =>
+      deliverResult(kind, email, clientNoticeEmail(params, opts), sender(opts)),
   };
 }
 

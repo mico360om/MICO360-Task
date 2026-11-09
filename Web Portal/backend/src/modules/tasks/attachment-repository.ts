@@ -8,6 +8,10 @@ export interface AttachmentRecord {
   storageKey: string;
   url: string;
   createdAt: Date;
+  /** 1.23.7: uploaded by a client in the Client portal (shown "From client"). */
+  fromClient?: boolean;
+  /** 1.23.7: "Show to client" — clients of the project who may view tasks see it in the portal. */
+  clientVisible?: boolean;
 }
 
 export interface CreateAttachmentData {
@@ -18,6 +22,8 @@ export interface CreateAttachmentData {
   sizeBytes: number;
   storageKey: string;
   url: string;
+  /** 1.23.7: a client's upload from the Client portal. */
+  fromClient?: boolean;
 }
 
 export interface AttachmentRepository {
@@ -25,6 +31,8 @@ export interface AttachmentRepository {
   list(taskId: string): Promise<AttachmentRecord[]>;
   findById(id: string): Promise<AttachmentRecord | null>;
   delete(id: string): Promise<void>;
+  /** 1.23.7: the "Show to client" tick. */
+  setClientVisible?(id: string, visible: boolean): Promise<AttachmentRecord>;
 }
 
 /** An uploaded file's bytes + metadata, as parsed from the request. */

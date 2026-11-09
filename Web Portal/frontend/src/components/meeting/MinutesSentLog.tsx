@@ -7,6 +7,7 @@ import { TOUCH_TALL } from '../../lib/touch';
 import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
 import { LoadError } from './kit';
+import { notSentReason } from './InviteDialog';
 import type { MinutesPrefill } from './MinutesEmailDialog';
 
 /** The query key of a meeting's "Sent" log (sending the minutes asks for it again). */
@@ -60,8 +61,11 @@ export function MinutesSentLog({
 
 function SentEntry({ send, timeZone, canSend, onSendAgain }: { send: MinutesSend; timeZone: string; canSend: boolean; onSendAgain: (prefill: MinutesPrefill) => void }) {
   const lineId = useId();
-  const total = send.to.length + send.cc.length;
-  const failed = [...send.to, ...send.cc].filter((a) => !a.ok).length;
+  const everyone = [...send.to, ...send.cc];
+  // 1.23.7: a client left out on purpose (their minutes are off) is neither sent to nor failed.
+  const held = everyone.filter((a) => a.notSent).length;
+  const total = everyone.length - held;
+  const failed = everyone.filter((a) => !a.ok && !a.notSent).length;
   return (
     <li aria-labelledby={lineId} className="rounded-xl border border-line p-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -73,6 +77,7 @@ function SentEntry({ send, timeZone, canSend, onSendAgain }: { send: MinutesSend
             <time dateTime={send.sentAt}>{dateTimeText(send.sentAt, timeZone)}</time>
             <Badge tone={send.final ? 'success' : 'neutral'}>{send.final ? 'Final' : 'Draft'}</Badge>
             {failed ? <span className="font-medium text-danger">{failed} failed</span> : null}
+            {held ? <span className="font-medium text-ink-2">{held} not sent</span> : null}
           </p>
         </div>
         {canSend ? (
@@ -99,23 +104,34 @@ function SentEntry({ send, timeZone, canSend, onSendAgain }: { send: MinutesSend
   );
 }
 
-/** One line's addresses, each with how it went ("Sent" / "Failed", and why). */
+/** "the client turned these off" → "The client turned these off". */
+const sentence = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+
+/** One line's addresses, each with how it went ("Sent" / "Failed" / "Not sent", and why). */
 function Addresses({ label, list }: { label: string; list: MinutesSentAddress[] }) {
   return (
     <ul aria-label={label} className="flex flex-col divide-y divide-line">
-      {list.map((a) => (
-        <li key={a.email} className="flex items-start justify-between gap-3 py-1">
-          <span className="min-w-0">
-            {a.name ? <bdi className="block truncate text-ink">{a.name}</bdi> : null}
-            <span title={a.email} className={`block truncate ${a.name ? 'text-xs text-ink-3' : 'text-ink'}`} dir="ltr">
-              {a.email}
+      {list.map((a) => {
+        const why = a.notSent ? notSentReason(a.error) : '';
+        return (
+          <li key={a.email} className="flex items-start justify-between gap-3 py-1">
+            <span className="min-w-0">
+              {a.name ? <bdi className="block truncate text-ink">{a.name}</bdi> : null}
+              <span title={a.email} className={`block truncate ${a.name ? 'text-xs text-ink-3' : 'text-ink'}`} dir="ltr">
+                {a.email}
+              </span>
+              {/* Nothing went to someone held back, so no "own email" either. */}
+              {a.copy === 'own' && !a.notSent ? <span className="block text-xs text-ink-2">Their own email (another company)</span> : null}
+              {a.notSent ? (
+                why ? <span className="block text-xs text-ink-2">{sentence(why)}</span> : null
+              ) : !a.ok && a.error ? (
+                <span className="block text-xs text-danger">{a.error}</span>
+              ) : null}
             </span>
-            {a.copy === 'own' ? <span className="block text-xs text-ink-2">Their own email (another company)</span> : null}
-            {!a.ok && a.error ? <span className="block text-xs text-danger">{a.error}</span> : null}
-          </span>
-          <span className={`flex-none text-xs font-semibold ${a.ok ? 'text-success' : 'text-danger'}`}>{a.ok ? 'Sent' : 'Failed'}</span>
-        </li>
-      ))}
+            <span className={`flex-none text-xs font-semibold ${a.ok ? 'text-success' : a.notSent ? 'text-ink-2' : 'text-danger'}`}>{a.ok ? 'Sent' : a.notSent ? 'Not sent' : 'Failed'}</span>
+          </li>
+        );
+      })}
     </ul>
   );
 }

@@ -113,14 +113,24 @@ function DialogFooter({ onClose, saving = false, disabled = false }: { onClose: 
   );
 }
 
-/** The fields and form body: two columns from 1024px (`left` and `right`), else one, in `single` order. */
-function AccountColumns({ left, right, single }: { left: ReactNode; right: ReactNode; single: ReactNode }) {
+/**
+ * The fields and form body: two columns from 1024px (`left` and `right`, then `below` across both), else
+ * one, in `single` order.
+ */
+function AccountColumns({ left, right, below, single }: { left: ReactNode; right: ReactNode; below?: ReactNode; single: ReactNode }) {
   const twoColumns = useTwoColumns();
   return twoColumns ? (
-    <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-start gap-6">
-      <div data-form-column="profile" className="flex min-w-0 flex-col gap-4">{left}</div>
-      <div data-form-column="access" className="flex min-w-0 flex-col gap-4">{right}</div>
-    </div>
+    <>
+      <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-start gap-6">
+        <div data-form-column="profile" className="flex min-w-0 flex-col gap-4">{left}</div>
+        <div data-form-column="access" className="flex min-w-0 flex-col gap-4">{right}</div>
+      </div>
+      {below ? (
+        <div data-form-row="access" className="min-w-0 border-t border-line pt-4">
+          {below}
+        </div>
+      ) : null}
+    </>
   ) : (
     <>{single}</>
   );
@@ -594,7 +604,18 @@ function ClientAccountForm({ client, onClose }: { client: ClientAccount; onClose
       }
     />
   );
-  const accessField = <ClientAccessEditor value={access} onChange={setAccess} idPrefix="eu-access" showErrors={accessChecked} variant="section" />;
+  // 1.23.7 The permission matrix, with "Preview as client": their saved account, the details as typed and the
+  // matrix on screen (nothing is saved first).
+  const accessField = (
+    <ClientAccessEditor
+      value={access}
+      onChange={setAccess}
+      idPrefix="eu-access"
+      showErrors={accessChecked}
+      variant="section"
+      preview={{ clientId: client.id, firstName: names.firstName.trim(), lastName: names.lastName.trim(), organisation: organisation.trim() || null, email: names.email.trim() }}
+    />
+  );
   const accountFields = (
     <fieldset className="flex flex-col gap-3">
       <legend className={SECTION}>Account</legend>
@@ -611,9 +632,11 @@ function ClientAccountForm({ client, onClose }: { client: ClientAccount; onClose
       <form onSubmit={submit} className="keyboard-flow-body flex min-h-0 flex-1 flex-col">
         <div className="keyboard-flow-body flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
           {error ? <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{error}</p> : null}
+          {/* 1.23.7: from 1024px the permission matrix takes the whole width, below the two columns. */}
           <AccountColumns
-            left={<>{profileFields}{signIn}{password.section}</>}
-            right={<>{accessField}{accountFields}</>}
+            left={<>{profileFields}{password.section}</>}
+            right={<>{accountFields}{signIn}</>}
+            below={accessField}
             single={<>{profileFields}{accessField}{accountFields}{signIn}{password.section}</>}
           />
         </div>

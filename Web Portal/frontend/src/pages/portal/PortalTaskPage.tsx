@@ -1,23 +1,28 @@
-import { useId, useState, type FormEvent } from 'react';
+import { useId, useState, type ChangeEvent, type FormEvent } from 'react';
 import { useParams } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { isNotShared, portal, portalProblem, type PortalComment, type PortalTaskView } from '../../api/portal';
-import { Button } from '../../components/ui/Button';
+import { isNotShared, portalProblem, type PortalComment, type PortalFile, type PortalTaskView } from '../../api/portal';
+import { Button, buttonClass } from '../../components/ui/Button';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { PortalSendBackDialog } from '../../components/portal/PortalSendBackDialog';
+import { usePortalApi, usePreviewOff } from '../../components/portal/portal-context';
 import { taskChanged, usePortalTask } from '../../components/portal/portal-queries';
-import { BackLink, Chip, day, KeyChip, LoadFailed, Loading, NotShared, OWN_LINES, Section, StatusBadge, TOUCH } from '../../components/portal/portal-ui';
-import { dateTimeText } from '../../lib/day-words';
-import { usePageName } from '../../lib/page-meta';
+import { BackLink, Chip, day, KeyChip, LoadFailed, Loading, NotShared, OWN_LINES, ProgressBar, Section, sizeWords, StatusBadge, TOUCH, usePortalPageName } from '../../components/portal/portal-ui';
+import { ApiError } from '../../lib/api-client';
+import { dateTimeText, instantDayText } from '../../lib/day-words';
+import { downloadBlob, fileNameOf } from '../../lib/download';
 import { NeedsModule, usePortalProjectContext } from './PortalProjectLayout';
 
 /** The longest comment the server keeps. */
 const COMMENT_MAX = 10_000;
+/** The largest file the server takes (as for the team's own uploads), said up front and checked before sending. */
+const UPLOAD_MAX_MB = 10;
 
 /**
  * 1.23 One shared task in the Client portal: its status, due day and (when shared) description;
  * with the Comment action their comments and the team's replies marked "Visible to client" (as
- * "Project team", never a name); with Sign off, Accept or Send back once it is finished.
+ * "Project team", never a name); with Sign off, Accept or Send back once it is finished. 1.23.7: its
+ * files (shared by the team, or their own uploads) and, with Upload, "Upload a document".
  */
 export function PortalTaskPage() {
   return (
@@ -31,7 +36,7 @@ function TaskPage() {
   const { projectId, view: project } = usePortalProjectContext();
   const { taskId = '' } = useParams();
   const q = usePortalTask(projectId, taskId);
-  usePageName(q.data ? `${q.data.task.key} ${q.data.task.title}` : null);
+  usePortalPageName(q.data ? `${q.data.task.key} ${q.data.task.title}` : null);
   const back = `/portal/projects/${encodeURIComponent(projectId)}/progress`;
 
   return (
@@ -51,12 +56,14 @@ function TaskPage() {
 function TaskBody({ projectId, taskId, view, timeZone }: { projectId: string; taskId: string; view: PortalTaskView; timeZone: string }) {
   const { task, comments, can } = view;
   const qc = useQueryClient();
+  const api = usePortalApi();
+  const off = usePreviewOff();
   const [confirming, setConfirming] = useState<'accept' | 'sendBack' | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   const accept = useMutation({
-    mutationFn: () => portal.accept(projectId, taskId),
+    mutationFn: () => api.accept(projectId, taskId),
     onSuccess: (fresh) => {
       taskChanged(qc, projectId, taskId, fresh);
       setConfirming(null);
@@ -65,7 +72,7 @@ function TaskBody({ projectId, taskId, view, timeZone }: { projectId: string; ta
     onError: (err) => setProblem(portalProblem(err, 'Couldn’t accept the task.')),
   });
   const sendBack = useMutation({
-    mutationFn: (reason: string) => portal.sendBack(projectId, taskId, reason),
+    mutationFn: (reason: string) => api.sendBack(projectId, taskId, reason),
     onSuccess: (fresh) => {
       taskChanged(qc, projectId, taskId, fresh);
       setConfirming(null);
@@ -114,10 +121,10 @@ function TaskBody({ projectId, taskId, view, timeZone }: { projectId: string; ta
           <p className="text-sm text-ink-2">The team has finished this task. Is it done the way you need it?</p>
           {problem && !confirming ? <p role="alert" className="mt-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{problem}</p> : null}
           <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-            <Button type="button" className={TOUCH} onClick={() => open('accept')}>
+            <Button type="button" className={`${TOUCH} ${off.className}`} disabled={off.disabled} title={off.title} onClick={() => open('accept')}>
               Accept
             </Button>
-            <Button type="button" variant="secondary" className={TOUCH} onClick={() => open('sendBack')}>
+            <Button type="button" variant="secondary" className={`${TOUCH} ${off.className}`} disabled={off.disabled} title={off.title} onClick={() => open('sendBack')}>
               Send back
             </Button>
           </div>
@@ -126,9 +133,11 @@ function TaskBody({ projectId, taskId, view, timeZone }: { projectId: string; ta
         <p className="rounded-xl border border-line bg-surface px-4 py-3 text-sm text-ink-2">You accepted this task on {day(task.acceptedOn)}.</p>
       ) : null}
 
+      <Files projectId={projectId} taskId={taskId} files={view.files ?? []} canUpload={Boolean(can.upload)} timeZone={timeZone} />
+
       {comments ? <Comments projectId={projectId} taskId={taskId} comments={comments} canComment={can.comment} timeZone={timeZone} /> : null}
 
-      {confirming === 'accept' ? (
+      {confirming === 'accept' && !off.disabled ? (
         <ConfirmDialog
           title={`Accept ${task.key}?`}
           tone="primary"
@@ -145,7 +154,7 @@ function TaskBody({ projectId, taskId, view, timeZone }: { projectId: string; ta
           You confirm <bdi className="font-medium text-ink">{task.title}</bdi> is done. The project team will see that you accepted it.
         </ConfirmDialog>
       ) : null}
-      {confirming === 'sendBack' ? (
+      {confirming === 'sendBack' && !off.disabled ? (
         <PortalSendBackDialog
           taskKey={task.key}
           taskTitle={task.title}
@@ -159,6 +168,138 @@ function TaskBody({ projectId, taskId, view, timeZone }: { projectId: string; ta
         />
       ) : null}
     </>
+  );
+}
+
+/**
+ * 1.23.7 The task's files: those the project team shows the client and the client's own uploads, each with
+ * Download (View tasks is enough); with Upload, "Upload a document" — the team sees it, other clients of the
+ * project only if the team shares it. No section at all with no files and nothing to upload.
+ */
+function Files({ projectId, taskId, files, canUpload, timeZone }: { projectId: string; taskId: string; files: PortalFile[]; canUpload: boolean; timeZone: string }) {
+  const id = useId();
+  const qc = useQueryClient();
+  const api = usePortalApi();
+  const off = usePreviewOff();
+  const [progress, setProgress] = useState<number | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+  const [fetching, setFetching] = useState<string | null>(null);
+  const [downloadProblem, setDownloadProblem] = useState<string | null>(null);
+
+  const upload = useMutation({
+    mutationFn: (file: File) => api.upload(projectId, taskId, file, setProgress),
+    onMutate: () => setProgress(0),
+    onSuccess: (fresh, file) => {
+      taskChanged(qc, projectId, taskId, fresh);
+      setDone(`Uploaded ${file.name}. The project team can see it.`);
+    },
+    onError: (err) =>
+      setProblem(err instanceof ApiError && err.status === 429 ? 'Too many uploads at once. Wait a minute and try again.' : portalProblem(err, 'Couldn’t upload the document.')),
+    onSettled: () => setProgress(null),
+  });
+
+  const choose = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    // The same file can be picked again (after a refusal).
+    e.target.value = '';
+    if (!file) return;
+    setDone(null);
+    setProblem(null);
+    if (file.size > UPLOAD_MAX_MB * 1024 * 1024) return setProblem(`${file.name} is bigger than ${UPLOAD_MAX_MB} MB. Choose a smaller file.`);
+    upload.mutate(file);
+  };
+
+  const download = async (f: PortalFile) => {
+    setFetching(f.id);
+    setDownloadProblem(null);
+    try {
+      const blob = await api.file(projectId, taskId, f.id);
+      downloadBlob(fileNameOf(blob) ?? f.name, blob);
+    } catch (err) {
+      setDownloadProblem(portalProblem(err, 'Couldn’t download the file.'));
+    } finally {
+      setFetching(null);
+    }
+  };
+
+  if (files.length === 0 && !canUpload) return null;
+  const sending = upload.isPending ? upload.variables : null;
+  const locked = off.disabled || upload.isPending;
+
+  return (
+    <Section title="Files">
+      {downloadProblem ? <p role="alert" className="mb-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{downloadProblem}</p> : null}
+      {files.length === 0 ? (
+        <p className="text-sm text-ink-2">No documents yet.</p>
+      ) : (
+        <ul className="divide-y divide-line">
+          {files.map((f) => (
+            <li key={f.id} className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
+              <span aria-hidden="true" className={`mt-0.5 grid h-9 w-9 flex-none place-items-center rounded-xl ${f.from === 'you' ? 'bg-brand/10 text-brand' : 'bg-ground text-ink-2'}`}>
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <path d="M14 2v6h6" />
+                </svg>
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-ink [overflow-wrap:anywhere]">
+                  <bdi>{f.name}</bdi>
+                </p>
+                <p className="mt-0.5 text-xs text-ink-2">
+                  {sizeWords(f.sizeBytes)} · {instantDayText(f.addedAt, timeZone)} · {f.from === 'you' ? 'Uploaded by you' : 'Shared by the project team'}
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                className={`${TOUCH} flex-none ${off.className}`}
+                disabled={off.disabled}
+                title={off.title}
+                loading={fetching === f.id}
+                aria-label={`Download ${f.name}`}
+                onClick={() => void download(f)}
+              >
+                Download
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {canUpload ? (
+        <div className="mt-4 flex flex-col gap-2 border-t border-line pt-4">
+          <div>
+            {/* A button-like label around the file box: the box itself is for the keyboard and screen readers. */}
+            <label
+              title={off.title}
+              className={buttonClass('secondary', 'md', `${TOUCH} focus-within:ring-2 focus-within:ring-brand/40 ${locked ? 'cursor-not-allowed opacity-60 hover:translate-y-0' : 'cursor-pointer'}`)}
+            >
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <path d="m17 8-5-5-5 5" />
+                <path d="M12 3v12" />
+              </svg>
+              Upload a document
+              <input type="file" className="sr-only" disabled={locked} aria-describedby={`${id}-hint`} onChange={choose} />
+            </label>
+          </div>
+          <p id={`${id}-hint`} className="text-xs text-ink-2">
+            One file at a time, up to {UPLOAD_MAX_MB} MB. The project team sees what you upload. Other clients on this project see it only if the team shares it with them.
+          </p>
+          {sending && progress !== null ? (
+            <div role="status" className="flex flex-col gap-1.5">
+              <p className="text-sm text-ink">
+                Uploading <bdi>{sending.name}</bdi>… {Math.round(progress * 100)}%
+              </p>
+              <ProgressBar percent={progress * 100} label={`Uploading ${sending.name}`} />
+            </div>
+          ) : null}
+          {problem ? <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{problem}</p> : null}
+          {done ? <p role="status" className="text-sm text-success">{done}</p> : null}
+        </div>
+      ) : null}
+    </Section>
   );
 }
 
@@ -176,11 +317,13 @@ function threads(comments: PortalComment[]): { comment: PortalComment; replies: 
 function Comments({ projectId, taskId, comments, canComment, timeZone }: { projectId: string; taskId: string; comments: PortalComment[]; canComment: boolean; timeZone: string }) {
   const id = useId();
   const qc = useQueryClient();
+  const api = usePortalApi();
+  const off = usePreviewOff();
   const [body, setBody] = useState('');
   const [problem, setProblem] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
   const post = useMutation({
-    mutationFn: (text: string) => portal.comment(projectId, taskId, text),
+    mutationFn: (text: string) => api.comment(projectId, taskId, text),
     onSuccess: (fresh) => {
       taskChanged(qc, projectId, taskId, fresh);
       setBody('');
@@ -228,6 +371,8 @@ function Comments({ projectId, taskId, comments, canComment, timeZone }: { proje
             dir="auto"
             rows={3}
             maxLength={COMMENT_MAX}
+            disabled={off.disabled}
+            title={off.title}
             value={body}
             onChange={(e) => {
               setBody(e.target.value);
@@ -236,12 +381,12 @@ function Comments({ projectId, taskId, comments, canComment, timeZone }: { proje
             aria-invalid={problem ? true : undefined}
             aria-describedby={problem ? `${id}-problem` : undefined}
             placeholder="Ask a question or leave a note for the project team"
-            className="w-full rounded-xl border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-3 focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20"
+            className="w-full rounded-xl border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-3 focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20 disabled:cursor-not-allowed disabled:opacity-60"
           />
           {problem ? <p id={`${id}-problem`} role="alert" className="text-sm text-danger">{problem}</p> : null}
           {sent ? <p role="status" className="text-sm text-success">Comment sent to the project team.</p> : null}
           <div>
-            <Button type="submit" className={TOUCH} loading={post.isPending}>
+            <Button type="submit" className={`${TOUCH} ${off.className}`} disabled={off.disabled} title={off.title} loading={post.isPending}>
               Send comment
             </Button>
           </div>

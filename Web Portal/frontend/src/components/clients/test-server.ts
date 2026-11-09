@@ -1,5 +1,5 @@
 import { vi } from 'vitest';
-import type { ClientAccount, ClientGrant, ClientProjectOption, GrantActions, GrantModules } from '../../api/clients';
+import type { ClientAccount, ClientGrant, ClientProjectAccess, ClientProjectOption, ClientRole, GrantActions, GrantModules } from '../../api/clients';
 import type { ApiUser } from '../../api/users';
 import type { ApiCompany } from '../../api/companies';
 
@@ -25,7 +25,15 @@ export const MICO: ClientProjectOption = { id: 'p-mico', code: 'MICO', name: 'MI
 export const RIG: ClientProjectOption = { id: 'p-rig', code: 'RIG', name: 'Rig Refit', company: 'Prolens Projects LLC' };
 export const FIN: ClientProjectOption = { id: 'p-fin', code: 'FIN', name: 'Finance Office', company: null };
 
-const NO_TICKS = { modules: { progress: false, meetings: false }, actions: { comment: false, signOff: false, respond: false, download: false } };
+const NO_TICKS = { modules: { progress: false, meetings: false }, actions: { comment: false, signOff: false, respond: false, download: false, upload: false, notify: false } };
+
+/** 1.23.7 The server's ladder (client-grants.ts CLIENT_ROLE_SETS): a role decides the ticks. */
+const BOTH = { progress: true, meetings: true };
+const ROLE_SETS: Record<Exclude<ClientRole, 'CUSTOM'>, { modules: GrantModules; actions: GrantActions }> = {
+  VIEWER: { modules: BOTH, actions: { ...NO_TICKS.actions, download: true, notify: true } },
+  CONTRIBUTOR: { modules: BOTH, actions: { ...NO_TICKS.actions, download: true, notify: true, comment: true, upload: true, respond: true } },
+  APPROVER: { modules: BOTH, actions: { comment: true, signOff: true, respond: true, download: true, upload: true, notify: true } },
+};
 
 /** A client account as the server sends it. */
 export function apiClientAccount(over: Partial<ClientAccount> & Pick<ClientAccount, 'id' | 'username'>): ClientAccount {
@@ -46,16 +54,22 @@ export function apiClientAccount(over: Partial<ClientAccount> & Pick<ClientAccou
   };
 }
 
-/** One project on a client's account, every tick off unless given. */
-export function access(p: ClientProjectOption, over: { modules?: Partial<GrantModules>; actions?: Partial<GrantActions>; archived?: boolean } = {}) {
+/**
+ * One project on a client's account: Custom with every tick off unless given (as an existing grant after
+ * the 1.23.7 upgrade); a ladder role brings its own ticks, as the server sends them.
+ */
+export function access(p: ClientProjectOption, over: { role?: ClientRole; modules?: Partial<GrantModules>; actions?: Partial<GrantActions>; archived?: boolean } = {}): ClientProjectAccess {
+  const role = over.role ?? 'CUSTOM';
+  const set = role === 'CUSTOM' ? null : ROLE_SETS[role];
   return {
     projectId: p.id,
     code: p.code,
     name: p.name,
     company: p.company,
     archived: over.archived ?? false,
-    modules: { ...NO_TICKS.modules, ...over.modules },
-    actions: { ...NO_TICKS.actions, ...over.actions },
+    role,
+    modules: { ...(set?.modules ?? NO_TICKS.modules), ...over.modules },
+    actions: { ...(set?.actions ?? NO_TICKS.actions), ...over.actions },
   };
 }
 
@@ -93,24 +107,38 @@ export function clientServer(world: ClientServerWorld = {}) {
   const next: { method?: string; path?: RegExp; answer: () => Response }[] = [];
   let made = 0;
 
-  /** The server's own rule: actions without their module are saved off. */
-  const projectsOf = (grants: ClientGrant[]) =>
+  /**
+   * The server's own rules (1.23.7): a ladder role decides the ticks (whatever was sent with it); Custom
+   * (or no role) keeps the ticks sent, an action without its module saved off.
+   */
+  const projectsOf = (grants: ClientGrant[]): ClientProjectAccess[] =>
     grants.map((g) => {
       const o = options.find((x) => x.id === g.projectId) ?? clients.flatMap((c) => c.projects).find((p) => p.projectId === g.projectId);
-      const progress = !!g.modules.progress;
-      const meetings = !!g.modules.meetings;
+      const role: ClientRole = g.role ?? 'CUSTOM';
+      const sent = role === 'CUSTOM' ? g : ROLE_SETS[role];
+      const progress = !!sent.modules.progress;
+      const meetings = !!sent.modules.meetings;
+      const a = sent.actions as Partial<GrantActions>;
       return {
         projectId: g.projectId,
         code: o && 'code' in o ? o.code : g.projectId,
         name: o?.name ?? g.projectId,
         company: o?.company ?? null,
         archived: !!(o && 'archived' in o && o.archived),
+        role,
         modules: { progress, meetings },
-        actions: { comment: progress && !!g.actions.comment, signOff: progress && !!g.actions.signOff, respond: meetings && !!g.actions.respond, download: (progress || meetings) && !!g.actions.download },
+        actions: {
+          comment: progress && !!a.comment,
+          signOff: progress && !!a.signOff,
+          respond: meetings && !!a.respond,
+          download: (progress || meetings) && !!a.download,
+          upload: progress && !!a.upload,
+          notify: (progress || meetings) && !!a.notify,
+        },
       };
     });
-  const noModule = (grants: ClientGrant[] | undefined) => (grants ?? []).some((g) => !g.modules.progress && !g.modules.meetings);
-  const NO_MODULE = json({ error: { code: 'VALIDATION', message: 'Tick at least one module for each project (Progress, milestones and tasks, or Meetings and minutes).' } }, 400);
+  const noModule = (grants: ClientGrant[] | undefined) => (grants ?? []).some((g) => (g.role ?? 'CUSTOM') === 'CUSTOM' && !g.modules.progress && !g.modules.meetings);
+  const NO_MODULE = json({ error: { code: 'VALIDATION', message: 'Tick at least one of View tasks or View meetings & minutes for each project.' } }, 400);
 
   function answer({ method, path, body }: SentRequest): Response {
     const [route = ''] = path.split('?');

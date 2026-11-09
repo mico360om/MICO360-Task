@@ -29,6 +29,30 @@ function world(over: Partial<StatusEffectsDeps> = {}) {
   return { deps, statusChanged: createStatusChangeEffects(deps) };
 }
 
+// 1.23.7: a task reaching Done (not waiting for the team's approval) — or approved there — may be waiting for
+// a client's sign-off: the client notices are asked (they check the task is shared and not accepted yet).
+describe('ready for a client’s sign-off', () => {
+  it('moving into Done, or an approval that finishes it, asks; anything else does not', async () => {
+    const w = world({ clientReady: vi.fn(async () => undefined) });
+    await w.statusChanged(task(), 'doing', 'aisha');
+    expect(w.deps.clientReady).toHaveBeenCalledWith('t1');
+    await w.statusChanged(task(), 'done', 'aisha', { approval: 'APPROVED' });
+    await w.statusChanged(task(), 'done', 'aisha', { approval: 'SWITCHED_OFF' });
+    expect(w.deps.clientReady).toHaveBeenCalledTimes(3);
+    await w.statusChanged(task({ columnId: 'done' }), 'doing', 'aisha', { approval: 'REQUESTED' });
+    await w.statusChanged(task({ columnId: 'doing', completedAt: null }), 'todo', 'aisha');
+    await w.statusChanged(task(), 'done', 'aisha'); // a reorder in Done
+    expect(w.deps.clientReady).toHaveBeenCalledTimes(3);
+  });
+
+  it('even quietly (a move that sends its own notice), and a failure there is only reported', async () => {
+    const w = world({ clientReady: vi.fn(async () => { throw new Error('mail down'); }) });
+    await expect(w.statusChanged(task(), 'doing', 'aisha', { notify: false })).resolves.toBeUndefined();
+    expect(w.deps.clientReady).toHaveBeenCalledTimes(1);
+    expect(w.deps.onError).toHaveBeenCalled();
+  });
+});
+
 describe('What a status change does', () => {
   it('completing a repeating task: its next copy, its action items, a notice to its followers and a timeline line', async () => {
     const w = world();

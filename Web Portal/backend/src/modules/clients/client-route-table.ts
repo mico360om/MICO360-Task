@@ -41,6 +41,14 @@ export const CLIENT_ROUTE_CLASSES: Readonly<Record<string, ClientRouteClass>> = 
   'GET /portal/projects/:projectId/meetings/:meetingId/minutes.pdf': 'client',
   'POST /portal/projects/:projectId/action-items/:itemId/done': 'client',
   'GET /portal/meetings/:meetingId': 'client',
+  // 1.23.7 Granular permissions: uploads and files on shared tasks, the portal's bell and its switches.
+  'POST /portal/projects/:projectId/tasks/:taskId/files': 'client',
+  'GET /portal/projects/:projectId/tasks/:taskId/files/:fileId': 'client',
+  'GET /portal/notifications': 'client',
+  'POST /portal/notifications/:noticeId/read': 'client',
+  'POST /portal/notifications/read-all': 'client',
+  'GET /portal/settings/notifications': 'client',
+  'PUT /portal/settings/notifications': 'client',
 };
 
 const API_PREFIX = '/api/v1';

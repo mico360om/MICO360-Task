@@ -292,6 +292,19 @@ describe('MeetingNotifyService — the minutes email’s To and Cc lines', () =>
     expect(r.recipients.find((x) => x.email === 'omar@beta.test')).toMatchObject({ line: 'cc', copy: 'own', userId: 'u6', name: 'Omar Beta' });
   });
 
+  // 1.23.7: a client who switched approved minutes off (or whose team turned their notifications off) gets
+  // no email; the send report and the log say why, and it counts as neither sent nor failed.
+  it('a client whose minutes are off gets nothing, listed "not sent" with why', async () => {
+    const { svc, email } = makeService({ attendees: roster, users });
+    const r = await svc.sendMinutes('m1', Buffer.from('%PDF full'), {
+      to: [{ email: 'aisha@mico360.test' }, { email: 'Omar@Beta.test' }],
+      attachmentFor: async (userId) => (userId === 'u6' ? { notSent: 'not sent — the client turned these off' } : undefined),
+    });
+    expect(email.sendMeetingMinutes.mock.calls.map((c) => linesOf(c[0]))).toEqual([{ to: ['aisha@mico360.test'], cc: [] }]);
+    expect(r).toMatchObject({ sent: 1, failed: 0 });
+    expect(r.recipients.find((x) => x.email === 'omar@beta.test')).toMatchObject({ ok: false, notSent: true, error: 'not sent — the client turned these off', line: 'to', copy: 'own', userId: 'u6' });
+  });
+
   it('with only people from another company in To, the shared email goes to its Cc line', async () => {
     const { svc, email } = makeService({ attendees: roster });
     await svc.sendMinutes('m1', Buffer.from('%PDF'), {

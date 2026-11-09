@@ -1,7 +1,7 @@
 import { officePreview, type OfficePreview } from '../../lib/office-preview';
 import { ForbiddenError, NotFoundError, ValidationError } from '../../lib/http-errors';
 import { sniffMime, SNIFFABLE } from '../../lib/magic-mime';
-import { fileContentMismatchMessage, fileTooLargeMessage, fileTypeNotAllowedMessage } from '../../lib/upload-safety';
+import { fileContentMismatchMessage, fileTooLargeMessage, fileTypeNotAllowedMessage, safeUploadName } from '../../lib/upload-safety';
 import type {
   AttachmentRecord,
   AttachmentRepository,
@@ -39,7 +39,8 @@ export function createAttachmentService({
     if (!(await taskLookup.exists(taskId))) throw new NotFoundError('Task not found.');
   }
 
-  async function upload(taskId: string, uploadedById: string, file: UploadedFile): Promise<AttachmentRecord> {
+  /** `fromClient`: 1.23.7, a client's upload from the Client portal (same rules as everyone's). */
+  async function upload(taskId: string, uploadedById: string, file: UploadedFile, opts: { fromClient?: boolean } = {}): Promise<AttachmentRecord> {
     await ensureTask(taskId);
     if (file.content.length === 0) throw new ValidationError('File is empty.');
     if (file.content.length > maxSizeBytes) {
@@ -65,18 +66,39 @@ export function createAttachmentService({
         throw new ValidationError('This task has reached its attachment storage limit.');
       }
     }
-    const { storageKey, url, sizeBytes } = await storage.save({ ...file, content });
-    const created = await repo.create({
-      taskId,
-      uploadedById,
-      filename: file.filename,
-      mimeType: file.mimeType,
-      sizeBytes,
-      storageKey,
-      url,
-    });
+    // 1.23.7 (security review): the name as kept — no hidden characters, it fits its column, and a client's
+    // file ends in the extension of the type it was checked as.
+    const filename = safeUploadName(file.filename, file.mimeType, { client: opts.fromClient === true });
+    const { storageKey, url, sizeBytes } = await storage.save({ ...file, filename, content });
+    let created: AttachmentRecord;
+    try {
+      created = await repo.create({
+        taskId,
+        uploadedById,
+        filename,
+        mimeType: file.mimeType,
+        sizeBytes,
+        storageKey,
+        url,
+        ...(opts.fromClient ? { fromClient: true } : {}),
+      });
+    } catch (err) {
+      // The row couldn't be saved: its bytes don't stay on disk uncounted.
+      await storage.remove(storageKey).catch(() => undefined);
+      throw err;
+    }
     await onChanged?.(taskId);
     return created;
+  }
+
+  /** 1.23.7 "Show to client" on one of a task's files (NotFound when it isn't that task's). */
+  async function setClientVisible(taskId: string, id: string, visible: boolean): Promise<{ before: boolean; record: AttachmentRecord }> {
+    const rec = await repo.findById(id);
+    if (!rec || rec.taskId !== taskId) throw new NotFoundError('Attachment not found.');
+    if (!repo.setClientVisible) throw new ValidationError('Files can’t be shown to clients here.');
+    const before = rec.clientVisible === true;
+    const record = before === visible ? rec : await repo.setClientVisible(id, visible);
+    return { before, record };
   }
 
   async function list(taskId: string): Promise<AttachmentRecord[]> {
@@ -113,7 +135,7 @@ export function createAttachmentService({
     return officePreview(await storage.read(rec.storageKey), rec.filename);
   }
 
-  return { upload, list, remove, get, preview };
+  return { upload, list, remove, get, preview, setClientVisible };
 }
 
 export type AttachmentService = ReturnType<typeof createAttachmentService>;

@@ -4,7 +4,8 @@ import type { AuthGuard } from '../auth/auth-guard';
 import { NotFoundError } from '../../lib/http-errors';
 import { WELCOME_REFUSAL_WHY, WelcomeEmailUnavailableError, type WelcomeOutcome, type WelcomeService } from '../users/welcome-service';
 import type { ClientAccounts } from './client-accounts';
-import { grantsSchema } from './client-grants';
+import { grantRows, grantWords, grantsSchema } from './client-grants';
+import type { PortalService, PreviewSpec } from './portal-service';
 import { IGNORED_PASSWORD_AUDIT, ignoredPasswordMessage, resolveWayIn, temporaryPasswordFor, wayInFields } from '../users/way-in';
 
 /**
@@ -21,7 +22,24 @@ export interface ClientAccountRouteDeps {
   audit?: { record(entry: { userId: string | null; ip: string | null; module: string; action: string; entityId: string | null; newValue?: unknown }): Promise<unknown> };
   /** 1.23.6: System Settings → Accounts, "Invitation links last" (days; unused temporary passwords too). */
   invitationDays?: () => Promise<number>;
+  /** 1.23.7 Preview as client: the portal's reads (enables POST /clients/preview/…). */
+  portal?: Pick<PortalService, 'previewViewer' | 'home' | 'project' | 'task' | 'meetings' | 'meeting' | 'notices' | 'settings'>;
 }
+
+/**
+ * 1.23.7 Preview as client: whose portal (a saved client, or none yet) and the matrix still on screen
+ * (absent: their saved access). The typed name and organisation of a client not saved yet head the page.
+ */
+const previewBody = z
+  .object({
+    clientId: z.string().trim().min(1).max(64).nullable().optional(),
+    firstName: z.string().trim().max(191).optional(),
+    lastName: z.string().trim().max(191).optional(),
+    organisation: z.string().trim().max(160).nullable().optional(),
+    email: z.string().trim().max(191).optional(),
+    projects: grantsSchema.optional(),
+  })
+  .strict();
 
 const name = z.string().trim().min(1).max(191);
 const optionalText = (max: number) => z.string().trim().max(max).nullable().optional();
@@ -109,6 +127,52 @@ export async function registerClientAccountRoutes(app: FastifyInstance, deps: Cl
     const patch = updateSchema.parse(req.body ?? {});
     return { data: await accounts.update(id, patch, actor(req)) };
   });
+
+  // 1.23.7 Preview as client (administrators): the Client portal exactly as this client would see it, with
+  // the matrix still on screen — before the invitation goes. Every answer is the portal's own read (nothing
+  // here writes or sends), marked a preview; opening one (its home) is audited. It never signs in as the
+  // client and never touches their sessions.
+  if (deps.portal) {
+    const portal = deps.portal;
+    const params = (req: FastifyRequest) => req.params as { projectId?: string; taskId?: string; meetingId?: string };
+    /**
+     * One preview read: its viewer, then the read, then (review minor 5) an audit line — at its home always,
+     * and at every page of a saved client's preview (it reads their own comments, uploads and bell).
+     */
+    const preview =
+      (view: string, read: (viewer: Awaited<ReturnType<typeof portal.previewViewer>>, p: ReturnType<typeof params>) => Promise<unknown>) =>
+      async (req: FastifyRequest) => {
+        const spec = previewBody.parse(req.body ?? {}) as PreviewSpec;
+        const p = params(req);
+        const data = await read(await portal.previewViewer(spec), p);
+        if (view === 'home' || spec.clientId) {
+          await deps.audit?.record({
+            userId: req.user!.id,
+            ip: req.ip ?? null,
+            module: 'clients',
+            action: 'client.preview',
+            entityId: spec.clientId ?? null,
+            newValue: {
+              view,
+              clientId: spec.clientId ?? null,
+              ...(p.projectId ? { projectId: p.projectId } : {}),
+              ...(p.taskId ? { taskId: p.taskId } : {}),
+              ...(p.meetingId ? { meetingId: p.meetingId } : {}),
+              ...(view === 'home' ? { unsaved: Boolean(spec.projects) } : {}),
+              ...(view === 'home' && spec.projects ? { projects: grantRows(spec.projects).map((r) => ({ projectId: r.projectId, access: grantWords(r) })) } : {}),
+            },
+          });
+        }
+        return { data, meta: { preview: true } };
+      };
+    app.post('/clients/preview/me', adminOnly, preview('home', (v) => portal.home(v)));
+    app.post('/clients/preview/projects/:projectId', adminOnly, preview('project', (v, p) => portal.project(v, p.projectId)));
+    app.post('/clients/preview/projects/:projectId/tasks/:taskId', adminOnly, preview('task', (v, p) => portal.task(v, p.projectId, p.taskId)));
+    app.post('/clients/preview/projects/:projectId/meetings', adminOnly, preview('meetings', (v, p) => portal.meetings(v, p.projectId)));
+    app.post('/clients/preview/projects/:projectId/meetings/:meetingId', adminOnly, preview('meeting', (v, p) => portal.meeting(v, p.projectId, p.meetingId)));
+    app.post('/clients/preview/notifications', adminOnly, preview('notifications', (v) => portal.notices(v)));
+    app.post('/clients/preview/settings', adminOnly, preview('settings', (v) => portal.settings(v)));
+  }
 
   // "Clients with access" on a project's page: anyone who can see the project reads it; only
   // administrators change it (on the Clients page or in User Management).

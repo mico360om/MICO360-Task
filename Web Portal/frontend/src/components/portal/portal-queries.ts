@@ -1,7 +1,11 @@
 import { useQuery, type QueryClient } from '@tanstack/react-query';
-import { portal, type PortalMeetingView, type PortalTaskView } from '../../api/portal';
+import type { PortalMeetingView, PortalNotices, PortalTaskView } from '../../api/portal';
+import { usePortalApi, usePortalPreview } from './portal-context';
 
-/** 1.23 The Client portal's reads, one cache key each (signing out drops them all). */
+/**
+ * 1.23 The Client portal's reads, one cache key each (signing out drops them all). 1.23.7: every read goes
+ * through the page's API (usePortalApi): the client's own, or a Preview as client's (with its own cache).
+ */
 export const portalKeys = {
   all: ['portal'] as const,
   me: ['portal', 'me'] as const,
@@ -10,13 +14,64 @@ export const portalKeys = {
   meetings: (p: string) => ['portal', 'meetings', p] as const,
   meeting: (p: string, m: string) => ['portal', 'meeting', p, m] as const,
   whereIs: (m: string) => ['portal', 'where', m] as const,
+  notices: ['portal', 'notices'] as const,
+  settings: ['portal', 'settings'] as const,
 };
 
-export const usePortalMe = () => useQuery({ queryKey: portalKeys.me, queryFn: () => portal.me() });
-export const usePortalProject = (p: string) => useQuery({ queryKey: portalKeys.project(p), queryFn: () => portal.project(p), enabled: Boolean(p) });
-export const usePortalTask = (p: string, t: string) => useQuery({ queryKey: portalKeys.task(p, t), queryFn: () => portal.task(p, t), enabled: Boolean(p && t) });
-export const usePortalMeetings = (p: string) => useQuery({ queryKey: portalKeys.meetings(p), queryFn: () => portal.meetings(p), enabled: Boolean(p) });
-export const usePortalMeeting = (p: string, m: string) => useQuery({ queryKey: portalKeys.meeting(p, m), queryFn: () => portal.meeting(p, m), enabled: Boolean(p && m) });
+export function usePortalMe() {
+  const api = usePortalApi();
+  return useQuery({ queryKey: portalKeys.me, queryFn: () => api.me() });
+}
+export function usePortalProject(p: string) {
+  const api = usePortalApi();
+  return useQuery({ queryKey: portalKeys.project(p), queryFn: () => api.project(p), enabled: Boolean(p) });
+}
+export function usePortalTask(p: string, t: string) {
+  const api = usePortalApi();
+  return useQuery({ queryKey: portalKeys.task(p, t), queryFn: () => api.task(p, t), enabled: Boolean(p && t) });
+}
+export function usePortalMeetings(p: string) {
+  const api = usePortalApi();
+  return useQuery({ queryKey: portalKeys.meetings(p), queryFn: () => api.meetings(p), enabled: Boolean(p) });
+}
+export function usePortalMeeting(p: string, m: string) {
+  const api = usePortalApi();
+  return useQuery({ queryKey: portalKeys.meeting(p, m), queryFn: () => api.meeting(p, m), enabled: Boolean(p && m) });
+}
+export function usePortalWhereIs(m: string) {
+  const api = usePortalApi();
+  return useQuery({ queryKey: portalKeys.whereIs(m), queryFn: () => api.whereIs(m), enabled: Boolean(m) });
+}
+
+/** How often the bell asks again while the portal is open (and on coming back to the window). */
+export const NOTICES_EVERY_MS = 60_000;
+
+/** 1.23.7 The bell's notices: read gently — once a minute while the tab is shown, and on coming back to it (not in a preview). */
+export function usePortalNotices() {
+  const api = usePortalApi();
+  const preview = usePortalPreview();
+  return useQuery({
+    queryKey: portalKeys.notices,
+    queryFn: () => api.notices(),
+    refetchInterval: preview ? false : NOTICES_EVERY_MS,
+    refetchOnWindowFocus: !preview,
+  });
+}
+
+/** 1.23.7 The client's notification switches. */
+export function usePortalSettings() {
+  const api = usePortalApi();
+  return useQuery({ queryKey: portalKeys.settings, queryFn: () => api.settings() });
+}
+
+/** A notice was opened (`id`), or all were (null): the bell and the list show them read, with the server's unread count once known. */
+export function noticesRead(qc: QueryClient, id: string | null, unread?: number): void {
+  qc.setQueryData<PortalNotices>(portalKeys.notices, (old) => {
+    if (!old) return old;
+    const items = old.items.map((n) => (id === null || n.id === id ? { ...n, read: true } : n));
+    return { items, unread: unread ?? items.filter((n) => !n.read).length };
+  });
+}
 
 /** A task changed (a comment, accepted, sent back): its page shows the answer; the lists and progress read again. */
 export function taskChanged(qc: QueryClient, p: string, t: string, view: PortalTaskView): void {

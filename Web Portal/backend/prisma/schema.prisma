@@ -188,6 +188,9 @@ model User {
   phone            String?         @db.VarChar(40)
   /// A client's projects in the Client portal, each with its ticked modules and actions.
   clientGrants     ClientProjectGrant[]
+  /// 1.23.7: a client account's bell in the Client portal, and which kinds of notice they want.
+  clientNotices        ClientNotice[]
+  clientNoticeSettings ClientNoticeSettings?
   /// 1.23.6: the searches this person saved, and the saved searches they pinned to the side menu.
   savedSearches    SavedSearch[]    @relation("SavedSearchOwner")
   savedSearchPins  SavedSearchPin[] @relation("SavedSearchPinner")
@@ -344,6 +347,8 @@ model Project {
   companies      ProjectCompany[]
   /// 1.23: the client accounts that may open this project in the Client portal.
   clientGrants   ClientProjectGrant[]
+  /// 1.23.7: client accounts' notices about this project (their portal bell).
+  clientNotices  ClientNotice[]
   /// 1.23.6: saved searches shared with this project's team.
   savedSearches  SavedSearch[]
 
@@ -890,6 +895,11 @@ model Attachment {
   uploadedBy User @relation(fields: [uploadedById], references: [id])
   /// 1.23: the text read from it for search (derived).
   searchText SearchFileText?
+  /// 1.23.7: uploaded by a client account in the Client portal (the team sees it marked "From client").
+  fromClient    Boolean @default(false)
+  /// 1.23.7: "Show to client" — every client of the project who may view tasks sees it in the portal
+  /// (a client always sees their own uploads; never on the account-less share-link page).
+  clientVisible Boolean @default(false)
 
   @@index([taskId])
   @@map("task_attachments")
@@ -1695,10 +1705,18 @@ model ClientSession {
 
 /// 1.23 Client accounts: a project a client account may open in the Client portal, with the modules and
 /// actions an administrator ticked (all off until ticked; at least one module). No row: no access.
+/// 1.23.7 A client's role on one project: a ladder of permission sets, or Custom (their own ticks).
+enum ClientRole {
+  VIEWER
+  CONTRIBUTOR
+  APPROVER
+  CUSTOM
+}
+
 model ClientProjectGrant {
   userId      String
   projectId   String
-  /// Modules: "Progress, milestones and tasks", "Meetings and minutes".
+  /// Modules: "Progress, milestones and tasks" (View tasks), "Meetings and minutes".
   progress    Boolean  @default(false)
   meetings    Boolean  @default(false)
   /// Actions: comment on tasks; sign off finished tasks; reply to invites (and their own action items); download PDFs.
@@ -1706,6 +1724,13 @@ model ClientProjectGrant {
   canSignOff  Boolean  @default(false)
   canRespond  Boolean  @default(false)
   canDownload Boolean  @default(false)
+  /// 1.23.7: the role picked in the permission matrix. NULL only on a grant from before 1.23.7 that the
+  /// backfill hasn't reached yet (read as CUSTOM); the backfill makes those CUSTOM with notifications on.
+  role        ClientRole?
+  /// 1.23.7: upload documents to shared tasks (needs View tasks).
+  canUpload   Boolean  @default(false)
+  /// 1.23.7: receive notifications (the portal bell and emails) about this project.
+  canNotify   Boolean  @default(false)
   createdById String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -1715,6 +1740,45 @@ model ClientProjectGrant {
   @@id([userId, projectId])
   @@index([projectId])
   @@map("client_project_grants")
+}
+
+/// 1.23.7 One notice on a client account's portal bell (also emailed when its kind is). Kinds: REPLY (a team
+/// reply to their comment marked "Visible to client"), SIGN_OFF (a shared task is ready for their sign-off),
+/// MINUTES (approved minutes were sent to them), DOCUMENT (a file on a shared task was shown to them),
+/// INVITATION (a meeting invitation — always sent). Each points at what it is about; the bell shows a
+/// notice only while the client may still open that.
+model ClientNotice {
+  id           String    @id @default(cuid())
+  userId       String
+  kind         String    @db.VarChar(32)
+  projectId    String
+  taskId       String?
+  meetingId    String?
+  attachmentId String?
+  title        String    @db.VarChar(191)
+  body         String?   @db.VarChar(500)
+  readAt       DateTime?
+  createdAt    DateTime  @default(now())
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project      Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([projectId])
+  @@map("client_notices")
+}
+
+/// 1.23.7 Which kinds of notice a client wants (their portal settings): every kind is on until they switch
+/// it off. No row = all on. Meeting invitations aren't here: they always go (part of being invited).
+model ClientNoticeSettings {
+  userId    String   @id
+  reply     Boolean  @default(true)
+  signOff   Boolean  @default(true)
+  minutes   Boolean  @default(true)
+  document  Boolean  @default(true)
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("client_notice_settings")
 }
 
 model MeetingTemplate {

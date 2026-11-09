@@ -15,17 +15,32 @@ export interface GrantModules {
   meetings: boolean;
 }
 
-/** The four actions (each needs its module: comment and sign off → progress, respond → meetings, download → either). */
+/**
+ * The actions (each needs its module: comment, upload and sign off → progress; respond → meetings; download and
+ * notify → either).
+ */
 export interface GrantActions {
   comment: boolean;
   signOff: boolean;
   respond: boolean;
   download: boolean;
+  /** 1.23.7: upload documents to shared tasks. */
+  upload: boolean;
+  /** 1.23.7: receive notifications (the portal bell and emails). */
+  notify: boolean;
 }
+
+/**
+ * 1.23.7 A client's role on a project — a ladder (Viewer → Contributor → Approver) or Custom ticks. The server
+ * decides a ladder role's ticks; Custom keeps the ticks sent.
+ */
+export type ClientRole = 'VIEWER' | 'CONTRIBUTOR' | 'APPROVER' | 'CUSTOM';
 
 /** One project a client may open, and what they may see and do there. */
 export interface ClientGrant {
   projectId: string;
+  /** 1.23.7 (an older server sends none: read as Custom). */
+  role?: ClientRole;
   modules: GrantModules;
   actions: GrantActions;
 }

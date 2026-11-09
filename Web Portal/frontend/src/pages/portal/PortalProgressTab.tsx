@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { portal, portalProblem, type PortalTaskItem } from '../../api/portal';
+import { portalProblem, type PortalTaskItem } from '../../api/portal';
 import { Button } from '../../components/ui/Button';
+import { usePortalApi, usePreviewOff } from '../../components/portal/portal-context';
 import { Chip, day, KeyChip, ProgressBar, Section, StatusBadge, TimelineBar, TOUCH } from '../../components/portal/portal-ui';
 import { downloadBlob, fileNameOf } from '../../lib/download';
 import { NeedsModule, usePortalProjectContext } from './PortalProjectLayout';
@@ -20,6 +21,8 @@ function Progress() {
   const progress = view.progress;
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  const api = usePortalApi();
+  const off = usePreviewOff();
   if (!progress) return null;
   const canSignOff = view.actions.signOff;
 
@@ -27,7 +30,7 @@ function Progress() {
     setBusy(true);
     setProblem(null);
     try {
-      const blob = await portal.taskListPdf(projectId);
+      const blob = await api.taskListPdf(projectId);
       downloadBlob(fileNameOf(blob) ?? `${view.project.code}-task-list.pdf`, blob);
     } catch (err) {
       setProblem(portalProblem(err, 'Couldn’t download the task list.'));
@@ -59,7 +62,16 @@ function Progress() {
         title="Tasks"
         aside={
           view.actions.download ? (
-            <Button type="button" variant="secondary" size="sm" className={TOUCH} loading={busy} onClick={() => void download()}>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              className={`${TOUCH} ${off.className}`}
+              disabled={off.disabled}
+              title={off.title}
+              loading={busy}
+              onClick={() => void download()}
+            >
               Download task list (PDF)
             </Button>
           ) : null

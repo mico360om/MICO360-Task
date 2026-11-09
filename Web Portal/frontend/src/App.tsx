@@ -72,6 +72,8 @@ const PortalTaskPage = lazyPage(loadPortal, 'PortalTaskPage');
 const PortalMeetingsTab = lazyPage(loadPortal, 'PortalMeetingsTab');
 const PortalMeetingPage = lazyPage(loadPortal, 'PortalMeetingPage');
 const PortalMeetingLink = lazyPage(loadPortal, 'PortalMeetingLink');
+const PortalNotificationsPage = lazyPage(loadPortal, 'PortalNotificationsPage');
+const PortalSettingsPage = lazyPage(loadPortal, 'PortalSettingsPage');
 
 /** Lightweight fallback while a route chunk loads — no layout shift, respects reduced motion. */
 function RouteFallback() {
@@ -148,6 +150,9 @@ export function App() {
           <Route element={<ClientRoute />}>
             <Route element={<PortalShell />}>
               <Route path="/portal" element={<PortalHomePage />} />
+              {/* 1.23.7 The bell's Notifications and the client's notification switches. */}
+              <Route path="/portal/notifications" element={<PortalNotificationsPage />} />
+              <Route path="/portal/settings" element={<PortalSettingsPage />} />
               {/* An invitation email's meeting (/meetings/<id>, sent here by StaffRoute). */}
               <Route path="/portal/meetings/:meetingId" element={<PortalMeetingLink />} />
               <Route path="/portal/projects/:projectId" element={<PortalProjectLayout />}>

@@ -3,10 +3,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { configApi } from '../api/config';
 import { CLIENTS_KEY, clientAsUser, clientsApi, type ClientAccount } from '../api/clients';
+import type { ClientPreviewSpec } from '../api/portal';
 import { usersApi, type ApiUser, type CreatedUser, type UserStatus } from '../api/users';
 import { CreateUserModal } from '../components/CreateUserModal';
 import { EditUserModal } from '../components/EditUserModal';
 import { projectCount } from '../components/clients/client-access';
+import { ClientPreviewDialog } from '../components/portal/ClientPreviewDialog';
 import { useShortcut } from '../components/shortcuts/ShortcutProvider';
 import { Button } from '../components/ui/Button';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
@@ -61,6 +63,7 @@ interface Notice {
  * sign in to the Client portal — with their organisation, projects and last sign-in. "New client"
  * makes one (the same form as User Management's Role "Client"); a client opens in Manage account
  * (the same project access editor). Send the welcome email again, deactivate or reactivate, delete.
+ * 1.23.7: "Preview as client" shows the Client portal as they see it with their saved access (read-only).
  */
 export function ClientsPage() {
   const qc = useQueryClient();
@@ -76,6 +79,8 @@ export function ClientsPage() {
   // Onboarding: "Send password reset" and a status change, each asked first; the status filter.
   const [resetting, setResetting] = useState<ClientAccount | null>(null);
   const [statusChange, setStatusChange] = useState<{ c: ClientAccount; to: UserStatus } | null>(null);
+  // 1.23.7 Preview as client: their saved access (the spec is kept as it was opened).
+  const [previewing, setPreviewing] = useState<ClientPreviewSpec | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('');
   const shown = clients.filter((c) => matchesStatusFilter(c, statusFilter));
   const [notice, setNotice] = useState<Notice | null>(null);
@@ -185,6 +190,15 @@ export function ClientsPage() {
     const busy = statusMut.isPending && statusMut.variables?.c.id === c.id;
     return (
       <>
+        <button
+          type="button"
+          onClick={() => setPreviewing({ clientId: c.id, firstName: c.firstName, lastName: c.lastName, organisation: c.organisation, email: c.email })}
+          aria-label={`Preview as client — ${c.username}`}
+          title="See the Client portal as they see it (nothing is changed or sent)"
+          className={PLAIN}
+        >
+          Preview as client
+        </button>
         <button
           type="button"
           onClick={() => { welcomeMut.reset(); setWelcoming(c); }}
@@ -406,6 +420,7 @@ export function ClientsPage() {
       {creating ? <CreateUserModal clientOnly onClose={() => setCreating(false)} onCreated={(result) => setNotice(createdNotice(result))} onOpenAccount={openAccount} /> : null}
       {editing ? <EditUserModal user={clientAsUser(editing)} onClose={() => setEditing(null)} /> : null}
       {editingUser ? <EditUserModal user={editingUser} onClose={() => setEditingUser(null)} /> : null}
+      {previewing ? <ClientPreviewDialog spec={previewing} onClose={() => setPreviewing(null)} /> : null}
     </div>
   );
 }

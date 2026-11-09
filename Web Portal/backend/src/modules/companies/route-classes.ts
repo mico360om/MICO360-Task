@@ -429,6 +429,16 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   'GET /clients/project-options': 'admin',
   'GET /clients/:id': 'admin',
   'PUT /clients/:id': 'admin',
+  // 1.23.7 Preview as client: the portal's reads for administrators (nothing written or sent).
+  'POST /clients/preview/me': 'admin',
+  'POST /clients/preview/projects/:projectId': 'admin',
+  'POST /clients/preview/projects/:projectId/tasks/:taskId': 'admin',
+  'POST /clients/preview/projects/:projectId/meetings': 'admin',
+  'POST /clients/preview/projects/:projectId/meetings/:meetingId': 'admin',
+  'POST /clients/preview/notifications': 'admin',
+  'POST /clients/preview/settings': 'admin',
+  // 1.23.7 "Show to client" on a task's file (who runs the task's project; canView + canManageProject).
+  'PUT /tasks/:id/attachments/:attachmentId/client-visible': 'object',
   'GET /projects/:id/clients': 'object',
   // 1.23 The Client portal (client accounts only; their grants decide).
   'GET /portal/me': 'client',
@@ -444,6 +454,14 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   'GET /portal/projects/:projectId/meetings/:meetingId/minutes.pdf': 'client',
   'POST /portal/projects/:projectId/action-items/:itemId/done': 'client',
   'GET /portal/meetings/:meetingId': 'client',
+  // 1.23.7 Granular permissions: uploads and files on shared tasks, the portal's bell and its switches.
+  'POST /portal/projects/:projectId/tasks/:taskId/files': 'client',
+  'GET /portal/projects/:projectId/tasks/:taskId/files/:fileId': 'client',
+  'GET /portal/notifications': 'client',
+  'POST /portal/notifications/:noticeId/read': 'client',
+  'POST /portal/notifications/read-all': 'client',
+  'GET /portal/settings/notifications': 'client',
+  'PUT /portal/settings/notifications': 'client',
   // 1.23 Meeting series: one meeting's series, or one series — each checked by the meeting rule
   // (only the meetings a person may open count; a series they can't see answers 404).
   'GET /meetings/:id/series': 'object',

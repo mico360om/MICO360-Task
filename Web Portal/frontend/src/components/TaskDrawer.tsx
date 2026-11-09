@@ -22,7 +22,7 @@ import type { ChecklistAt, CLList, CLPerson } from '../lib/checklist-tree';
 import { todayKey } from '../lib/due-date';
 import { CommentsSection, type DrawerComment, type ReplyToComment } from './task-drawer/comments';
 import { ActivityTimeline, type DrawerActivity } from './task-drawer/activity';
-import { AttachmentsSection, type DrawerAttachment, type LoadOfficePreview } from './task-drawer/attachments';
+import { AttachmentsSection, type DrawerAttachment, type LoadOfficePreview, type SetFileClientVisible } from './task-drawer/attachments';
 import { DependenciesSection, type DrawerDependencies, type DrawerTaskRef } from './task-drawer/dependencies';
 import { ExportMenu, MoreActionsMenu, WatchButton } from './task-drawer/menus';
 import { ShortcutHint, useShortcut, useShortcutHint } from './shortcuts/ShortcutProvider';
@@ -105,6 +105,8 @@ export interface TaskDrawerProps {
   onDeleteAttachment?: (id: string) => Promise<void> | void;
   /** Loads the text of a Word / Excel / PowerPoint attachment for its in-app preview. */
   onPreviewAttachment?: LoadOfficePreview;
+  /** 1.23.7: "Show to client" on a file — for whoever may show the task to clients (as onSetClientVisible). */
+  onSetAttachmentClientVisible?: SetFileClientVisible;
   dependencies?: DrawerDependencies;
   availableTasks?: DrawerTaskRef[];
   onAddDependency?: (dependsOnTaskId: string) => Promise<void> | void;
@@ -254,7 +256,7 @@ function ClientViewSwitch({
       </div>
       <p id="task-client-hint" className="mt-1 text-xs leading-relaxed text-ink-2">
         Show to client: its title, status and due date appear on the project’s client page and in the Client portal, where clients with access may comment on it or sign it off, if allowed.
-        {' '}Its description only with “Also show its description”. Never people, files or the team’s comments, except replies marked “Visible to client”.
+        {' '}Its description only with “Also show its description”, files only those marked “Show to client”. Never people or the team’s comments, except replies marked “Visible to client”.
       </p>
       {on && onDescription ? (
         <label className="mt-2 flex min-h-9 cursor-pointer items-center gap-2 text-sm text-ink [@media(pointer:coarse)]:min-h-11">
@@ -344,6 +346,7 @@ export function TaskDrawer({
   onUploadFile,
   onDeleteAttachment,
   onPreviewAttachment,
+  onSetAttachmentClientVisible,
   dependencies,
   availableTasks = [],
   onAddDependency,
@@ -455,7 +458,14 @@ export function TaskDrawer({
       ) : null}
       {task.approvalRequestedAt ? null : approval}
       {task.inspectionFormId ? null : inspections}
-      <AttachmentsSection attachments={attachments} onUpload={onUploadFile} onDelete={onDeleteAttachment} onPreview={onPreviewAttachment} />
+      <AttachmentsSection
+        attachments={attachments}
+        onUpload={onUploadFile}
+        onDelete={onDeleteAttachment}
+        onPreview={onPreviewAttachment}
+        onSetClientVisible={onSetAttachmentClientVisible}
+        taskShownToClient={!!task.clientVisible}
+      />
       {dependencies ? (
         <DependenciesSection taskId={task.id} dependencies={dependencies} availableTasks={availableTasks} onAdd={onAddDependency} onRemove={onRemoveDependency} />
       ) : null}

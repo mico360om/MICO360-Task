@@ -16,9 +16,12 @@ const people = [
 ];
 let calls: { url: string; method: string; body?: Record<string, unknown> }[];
 let sendAnswer: () => Response;
+/** The meeting's people the preview names (a test may add someone). */
+let roster: Array<(typeof people)[number]>;
 
 beforeEach(() => {
   calls = [];
+  roster = people;
   sendAnswer = () => json({ data: { sent: 3, failed: 0, recipients: [], skipped: [] } });
   vi.stubGlobal(
     'fetch',
@@ -28,7 +31,7 @@ beforeEach(() => {
       const body = init?.body ? JSON.parse(String(init.body)) : undefined;
       calls.push({ url: u, method, body });
       if (u.endsWith('/minutes/preview')) {
-        return json({ data: { subject: 'Minutes: Weekly review', html: '<p>Ready.</p>', text: '', attachmentName: 'minutes-final-weekly-review.pdf', recipients: people, missingEmail: [], final: true } });
+        return json({ data: { subject: 'Minutes: Weekly review', html: '<p>Ready.</p>', text: '', attachmentName: 'minutes-final-weekly-review.pdf', recipients: roster, missingEmail: [], final: true } });
       }
       if (u.endsWith('/minutes/suggestions')) return json({ data: [{ email: 'client@outside.co', name: null }, { email: 'g@x.co', name: 'Guest One' }] });
       if (u.endsWith('/minutes/send') && method === 'POST') return sendAnswer();
@@ -183,5 +186,61 @@ describe('Email the minutes: To and Cc', () => {
     expect(await within(d).findByText(/sent to 1 of 2/i)).toBeInTheDocument();
     expect(within(d).getByText(/^not sent/i)).toHaveTextContent('Not sent (can’t get these minutes yet): Someone');
     expect(spy).toHaveBeenCalledWith({ queryKey: ['meeting', 'm1', 'minutes-sends'] });
+  });
+});
+
+describe('Email the minutes: a client whose minutes notifications are off (1.23.7)', () => {
+  const hamad = { name: 'Hamad Al Busaidi', email: 'hamad@client.om', kind: 'member', attendeeIds: ['a4'], alreadyInvited: true, userId: 'c1', copy: 'off' };
+  beforeEach(() => {
+    roster = [...people, hamad];
+  });
+
+  it('can’t be ticked, and says why: not sent — notifications for minutes are off for this client', async () => {
+    renderDialog();
+    const d = await dialog();
+    const to = await within(d).findByRole('group', { name: /^to/i });
+    const box = within(to).getByRole('checkbox', { name: /hamad al busaidi/i });
+    expect(box).not.toBeChecked();
+    expect(box).toBeDisabled();
+    expect(within(to).getByText('Not sent — notifications for minutes are off for this client')).toBeInTheDocument();
+    // "All" leaves them out too; they aren't counted or sent to.
+    await userEvent.click(within(d).getByRole('button', { name: 'None' }));
+    await userEvent.click(within(d).getByRole('button', { name: 'All' }));
+    expect(box).not.toBeChecked();
+    expect(to).toHaveAccessibleName('To (3)');
+    await userEvent.click(within(d).getByRole('button', { name: /send to 3 people/i }));
+    await waitFor(() => expect(sentBody()?.to).toEqual([{ email: 'aisha@x.co' }, { email: 'g@x.co' }, { email: 'bob@beta.test' }]));
+  });
+
+  it('their address typed into To is refused, saying why', async () => {
+    renderDialog();
+    const d = await dialog();
+    await within(d).findByRole('group', { name: /^to/i });
+    await userEvent.type(within(d).getByRole('textbox', { name: 'Email address for To' }), 'Hamad@client.om{Enter}');
+    expect(within(d).getByRole('alert')).toHaveTextContent(/notifications for minutes are off for Hamad Al Busaidi/i);
+  });
+
+  it('a send that held someone back shows them as “Not sent” with the reason, not as a failure', async () => {
+    sendAnswer = () =>
+      json({
+        data: {
+          sent: 1,
+          failed: 0,
+          recipients: [
+            { name: 'Aisha Khan', email: 'aisha@x.co', kind: 'organizer', ok: true, line: 'to', copy: 'shared' },
+            { name: 'Hamad Al Busaidi', email: 'hamad@client.om', kind: 'member', ok: false, notSent: true, error: 'not sent — notifications are off for this client on this project', line: 'cc', copy: 'own' },
+          ],
+          skipped: [],
+        },
+      });
+    renderDialog();
+    const d = await dialog();
+    await within(d).findByRole('group', { name: /^to/i });
+    await userEvent.click(within(d).getByRole('button', { name: /^send to/i }));
+    const status = await within(d).findByRole('status');
+    expect(status).toHaveTextContent('Minutes sent to 1 of 2. 1 not sent (notifications off).');
+    const results = within(d).getByRole('list', { name: /results/i });
+    expect(results).toHaveTextContent('Not sent — notifications are off for this client on this project');
+    expect(results.querySelector('.text-danger')).toBeNull();
   });
 });

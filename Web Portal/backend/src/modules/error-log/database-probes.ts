@@ -147,5 +147,19 @@ export function databaseProbes({
       await prisma.loginOtp.count({ where: { userId: NOWHERE, purpose: 'WELCOME', createdAt: { gt: since } } });
     },
   });
+  // 1.23.7 Granular client permissions (no raw SQL: Prisma's own, checked here so a missed migration shows at
+  // start-up, not at a client's first page): roles and the two new permissions, the files' client ticks, the
+  // portal bell (its list, its trim, marking read) and the notification switches.
+  probes.push({
+    name: 'client permissions (roles, uploads, the portal bell)',
+    run: async () => {
+      await prisma.clientProjectGrant.findFirst({ where: { userId: NOWHERE, OR: [{ role: null }, { role: 'CUSTOM' }], canUpload: true, canNotify: true }, select: { role: true, canUpload: true, canNotify: true } });
+      await prisma.attachment.findMany({ where: { taskId: NOWHERE, OR: [{ clientVisible: true }, { fromClient: true, uploadedById: NOWHERE }] }, select: { id: true, fromClient: true, clientVisible: true }, take: 1 });
+      await prisma.clientNotice.findMany({ where: { userId: NOWHERE }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 1 });
+      await prisma.clientNotice.findMany({ where: { userId: NOWHERE }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip: 300, select: { id: true }, take: 100 });
+      await prisma.clientNotice.updateMany({ where: { id: NOWHERE, userId: NOWHERE, readAt: null }, data: { readAt: new Date() } });
+      await prisma.clientNoticeSettings.findUnique({ where: { userId: NOWHERE }, select: { reply: true, signOff: true, minutes: true, document: true } });
+    },
+  });
   return probes;
 }

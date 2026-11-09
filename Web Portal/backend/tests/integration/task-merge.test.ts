@@ -370,6 +370,25 @@ describe('Merging tasks (integration)', () => {
     expect((await holdings(other.id)).fields).toMatchObject({ key: other.key, projectId: ops.id, mergedIntoId: null, deletedAt: null });
   });
 
+  // 1.23.7 (security review): "Show to client" on a file belongs to its project's Client portal. A file that
+  // leaves its project — at the merge, or back again at Undo — never stays shown to the other project's clients.
+  it('a file shown to clients loses the tick when a merge or its Undo takes it to another project', async () => {
+    const main = await newTask('Rig valve');
+    const other = await newTask('Ops valve', { projectId: ops.id, columnId: ops.doing });
+    const file = (taskId: string, name: string) => prisma.attachment.create({ data: { taskId, uploadedById: manager.id, filename: name, mimeType: 'application/pdf', sizeBytes: 5, storageKey: `${name}-${taskId}`, url: `/uploads/${name}-${taskId}`, clientVisible: true } });
+    const own = await file(main.id, 'rig-own.pdf');
+    const moving = await file(other.id, 'ops-file.pdf');
+    const r = await merges.merge(manager, { taskIds: [main.id, other.id], mainTaskId: main.id });
+    const shown = async (id: string) => (await prisma.attachment.findUniqueOrThrow({ where: { id } })).clientVisible;
+    expect(await shown(own.id)).toBe(true); // stayed in its project
+    expect(await shown(moving.id)).toBe(false); // left Operations for Rig
+    // Rig's manager shows it to Rig's clients; Undo takes it back to Operations: not shown there.
+    await prisma.attachment.update({ where: { id: moving.id }, data: { clientVisible: true } });
+    await merges.undo(manager, r.mergeId);
+    expect(await prisma.attachment.findUniqueOrThrow({ where: { id: moving.id } })).toMatchObject({ taskId: other.id, clientVisible: false });
+    expect(await shown(own.id)).toBe(true);
+  });
+
   it('someone from outside can be added to the team instead', async () => {
     const main = await newTask('Ops pump', { projectId: ops.id, columnId: ops.todo });
     const other = await newTask('Rig pump', { assigneeIds: [outsiderId] });

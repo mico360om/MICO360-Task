@@ -75,6 +75,8 @@ export const ARCHIVE_REFUSED: Readonly<Record<string, ArchiveTarget>> = {
   'POST /tasks/:id/approve': 'task',
   'POST /tasks/:id/send-back': 'task',
   'PUT /tasks/:id/client-visible': 'task',
+  // 1.23.7: "Show to client" on one of the task's files.
+  'PUT /tasks/:id/attachments/:attachmentId/client-visible': 'task',
   'POST /tasks/:id/external-contacts': 'task',
   'PUT /external-contacts/:contactId': 'externalContact',
   // Moving a task to another project: out of an archived one, or INTO one.
