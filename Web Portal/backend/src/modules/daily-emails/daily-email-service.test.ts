@@ -851,6 +851,14 @@ describe('daily task emails: "Preview my email"', () => {
     expect(p!.html).toContain('Completed yesterday');
   });
 
+  it('reads only that person\u2019s own tasks, meetings, projects and figures — never anyone else\u2019s', async () => {
+    const s = setup({ people: [person('ada'), person('bo')] });
+    await s.service.previewOwn('bo');
+    const asked = [s.pending, s.completedBetween, s.meetingsBetween, s.managed, s.weekFigures, s.projectFigures].flatMap((fn) => fn.mock.calls.map((c) => c[0]));
+    expect(asked.length).toBeGreaterThan(3);
+    expect(new Set(asked)).toEqual(new Set(['bo']));
+  });
+
   it('nothing in it: empty; not an active person: null', async () => {
     const s = setup({ pending: [], completed: [] });
     expect(await s.service.previewOwn('ada')).toEqual({ subject: null, html: null, text: null, empty: true });

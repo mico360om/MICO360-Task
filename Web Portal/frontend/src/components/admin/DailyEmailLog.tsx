@@ -21,6 +21,7 @@ import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { LoadError } from '../ui/LoadError';
 import { ModalPortal } from '../ui/ModalPortal';
 import { dialogLayer, dialogPanel } from '../ui/dialog-size';
+import { DailyEmailPreviewDialog, touchTarget } from '../settings/DailyEmailPreviewDialog';
 import {
   KIND_LABEL,
   KIND_NAME,
@@ -273,7 +274,7 @@ export function DailyEmailLog({ pollMs = POLL_MS }: { pollMs?: number } = {}) {
         The daily email each person gets every morning. A failed send is tried again after 5, 15 and 45 minutes before it counts as
         failed. Days are each person’s own calendar day; days before the one daily email also show the “Completed yesterday” email.
       </p>
-      {myPreview ? <MyPreviewDialog onClose={() => setMyPreview(false)} /> : null}
+      {myPreview ? <DailyEmailPreviewDialog onClose={() => setMyPreview(false)} load={() => dailyEmailsApi(apiClient).myPreview()} queryKey="daily-email-my-preview" /> : null}
       {data?.emailEnabled === false ? (
         <p id={NOT_SET_UP_ID} className="mb-4 rounded-lg bg-warning-soft px-3 py-2 text-sm text-warning">
           Email isn’t set up on this server, so no daily emails are being sent. Add the email (Mailjet) keys to the server’s settings to start them.
@@ -747,85 +748,6 @@ function OnOff({ on }: { on: boolean }) {
     <span className={`rounded-md px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${on ? 'bg-success-soft text-success' : 'bg-ground text-ink-2'}`}>
       {on ? 'On' : 'Off'}
     </span>
-  );
-}
-
-/** 44 px on a touch screen (`!`: the site's global touch rule gives buttons 32 px and would win otherwise). */
-const touchTarget = '[@media(pointer:coarse)]:!min-h-11';
-
-/**
- * "Preview my email": the signed-in administrator's own daily email as it would be built now (every
- * part when they turned them all off), shown as the email itself in a sandboxed frame — no scripts, no
- * links followed — at a computer's width or a phone's (375 px). Nothing is sent.
- */
-function MyPreviewDialog({ onClose }: { onClose: () => void }) {
-  const dialogRef = useDialog(onClose);
-  const titleId = useId();
-  const noteId = useId();
-  const [width, setWidth] = useState<'computer' | 'phone'>('computer');
-  const q = useQuery({ queryKey: ['daily-email-my-preview'], queryFn: () => dailyEmailsApi(apiClient).myPreview(), staleTime: 0, gcTime: 0 });
-  const choice = (value: 'computer' | 'phone', label: string) => (
-    <button
-      type="button"
-      aria-pressed={width === value}
-      onClick={() => setWidth(value)}
-      className={`rounded-md px-3 py-1 text-sm font-medium transition-colors ${touchTarget} ${width === value ? 'bg-surface text-ink shadow-sm' : 'text-ink-2 hover:text-ink'}`}
-    >
-      {label}
-    </button>
-  );
-  return (
-    <ModalPortal>
-      <div className={dialogLayer('wide')}>
-        <div className="absolute inset-0 bg-scrim animate-fade-in" onClick={onClose} aria-hidden="true" />
-        <div
-          ref={dialogRef}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby={titleId}
-          aria-describedby={noteId}
-          className={`card relative flex ${dialogPanel('wide')} animate-scale-in flex-col overflow-hidden`}
-        >
-          <div className="flex flex-wrap items-start justify-between gap-3 border-b border-line px-5 py-4">
-            <div className="min-w-0">
-              <h2 id={titleId} className="font-display text-lg font-semibold text-ink">Your daily email</h2>
-              <p id={noteId} className="mt-1 text-sm text-ink-2">As it would be sent to you now, from your tasks and day as they are. Nothing is sent; links don’t open here.</p>
-            </div>
-            <div role="group" aria-label="Width" className="flex flex-none gap-1 rounded-lg bg-ground p-1">
-              {choice('computer', 'Computer')}
-              {choice('phone', 'Phone')}
-            </div>
-          </div>
-          {/* The email can be taller than a phone's window: this area scrolls, so keyboard users can reach it. */}
-          <div role="region" aria-label="Email preview" tabIndex={0} className="min-h-0 flex-1 overflow-y-auto bg-ground px-3 py-3 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand sm:px-5">
-            {q.isLoading ? (
-              <p className="text-sm text-ink-2">Building your email…</p>
-            ) : q.isError || !q.data ? (
-              <LoadError what="your email" onRetry={() => void q.refetch()} />
-            ) : q.data.empty || !q.data.html ? (
-              <p className="text-sm text-ink-2">There’s nothing in your daily email right now, so none would be sent.</p>
-            ) : (
-              <>
-                <p className="mb-2 text-sm text-ink">
-                  <span className="text-ink-2">Subject: </span>
-                  <span dir="auto" className="font-medium">{q.data.subject}</span>
-                </p>
-                <iframe
-                  title="Your daily email as it is now"
-                  sandbox=""
-                  srcDoc={q.data.html}
-                  style={width === 'phone' ? { width: '375px' } : undefined}
-                  className="mx-auto block h-[65vh] w-full max-w-full rounded-lg border border-line bg-white"
-                />
-              </>
-            )}
-          </div>
-          <div className="flex justify-end border-t border-line px-5 py-3">
-            <Button variant="secondary" size="sm" onClick={onClose}>Close</Button>
-          </div>
-        </div>
-      </div>
-    </ModalPortal>
   );
 }
 

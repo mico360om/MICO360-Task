@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { AuthGuard } from '../auth/auth-guard';
 import type { AuditService } from '../audit/audit-service';
 import type { DailyEmailService } from './daily-email-service';
@@ -31,6 +31,8 @@ const TEST_GAP_MS = 60_000;
 const SEND_NOW_GAP_MS = 60_000;
 /** One person's email, sent by an administrator: a short gap (for that email) so a double click never sends twice. */
 const PERSON_GAP_MS = 30_000;
+/** "Preview my email": building it reads the database, so a short gap per person (a double click, a held key). */
+const PREVIEW_GAP_MS = 2_000;
 
 /** 1.22: one daily email (the PENDING record); COMPLETED was "Completed yesterday", now part of it. */
 const DAILY: DailyEmailKind[] = ['PENDING'];
@@ -178,17 +180,25 @@ export async function registerDailyEmailRoutes(app: FastifyInstance, deps: Daily
     return { data: shown };
   });
 
-  // "Preview my email" (redesign): the administrator's own daily email as it would be built now — every
-  // part when they turned them all off, as "Send me a test" — with its HTML, for the page to show in a
-  // sandboxed frame. Only ever the signed-in person's own (any other id asked for is ignored); nothing is
-  // sent or recorded, and email needn't be set up.
+  // "Preview my email": the signed-in person's own daily email as it would be built now — every part when
+  // they turned them all off, as "Send me a test" — with its HTML, for the page to show in a sandboxed
+  // frame. Only ever their own: the id comes from the session, and anyone named in the request is ignored.
+  // Nothing is sent or recorded, and email needn't be set up. Two doors: Settings → Daily email (everyone,
+  // owner 10 Nov) and System settings → Daily email (administrators).
   if (deps.service.previewOwn) {
     const previewOwn = deps.service.previewOwn;
-    app.get('/admin/daily-emails/my-preview', adminOnly, async (req, reply) => {
-      const shown = await previewOwn(req.user!.id);
+    const previews = gapKeeper(PREVIEW_GAP_MS);
+    const ownPreview = async (req: FastifyRequest, reply: FastifyReply) => {
+      const userId = req.user!.id;
+      if (!previews.take(userId)) {
+        return reply.status(429).send({ error: { code: 'TOO_SOON', message: 'Your email is being built. Wait a moment and try again.' } });
+      }
+      const shown = await previewOwn(userId);
       if (!shown) return reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Your account isn’t active, so there is no daily email to show.' } });
       reply.header('Cache-Control', 'no-store');
       return { data: shown };
-    });
+    };
+    app.get('/notifications/daily-emails/preview', { preHandler: deps.guard.authenticate }, ownPreview);
+    app.get('/admin/daily-emails/my-preview', adminOnly, ownPreview);
   }
 }

@@ -1,3 +1,4 @@
+import type { DailyEmailMyPreview } from './daily-emails';
 import type { ApiClient, RequestOptions } from '../lib/api-client';
 import type { InboxCounts, NotificationKind } from '../lib/notification-inbox';
 
@@ -120,5 +121,7 @@ export function notificationsApi(client: ApiClient) {
     setPreferences: (prefs: Partial<Omit<NotificationPreferences, 'dailyEmails'>> & { dailyEmails?: DailyEmailPrefs & { knowsAllParts?: true } }) =>
       client.put<{ data: NotificationPreferences }>('/notifications/preferences', prefs).then((r) => r.data),
     sendDailyTest: () => client.post<{ data: DailyEmailTestResult }>('/notifications/daily-emails/test').then((r) => r.data),
+    /** "Preview my email": your own daily email as it would be sent now (the server only ever builds the caller's own). */
+    previewDailyEmail: () => client.get<{ data: DailyEmailMyPreview }>('/notifications/daily-emails/preview').then((r) => r.data),
   };
 }

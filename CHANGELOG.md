@@ -32,8 +32,9 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - Settings → Daily email has a switch for every part, in the email's order. The five new parts are on; if you had
   turned "Your tasks" or "Recently completed" off, the new parts that go with them stay off. The phone app's and
   the extension's switches keep working as before.
-- System settings → Daily email → **Preview my email**: your own email as it would be sent now, at a computer's
-  or a phone's width — it works before email is set up, and sends nothing.
+- **Preview my email**, for everyone in Settings → Daily email (next to "Send me a test") and for administrators
+  in System settings → Daily email: your own email as it would be sent now, at a computer's or a phone's width —
+  only ever your own; it works before email is set up, and sends nothing.
 
 ### Improvements
 - The daily email stays within Gmail's size limit on busy days by trimming the less urgent lists first (overdue

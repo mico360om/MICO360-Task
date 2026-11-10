@@ -8,6 +8,7 @@ import { useDateSettings } from '../../lib/useDatePrefs';
 import { SearchableSelect } from '../ui/SearchableSelect';
 import { timeOptions } from '../ui/DateTimeField';
 import { Toggle } from '../ui/Toggle';
+import { DailyEmailPreviewDialog } from './DailyEmailPreviewDialog';
 
 const DEFAULTS: DailyEmailPrefs = { pending: true, completed: true, time: '06:00', schedule: true, urgent: true, managed: true, glance: true, week: true, priority: true, comingUp: true, projects: true };
 const PREFS_KEY = ['notification-prefs'];
@@ -59,6 +60,8 @@ export function DailyEmailSettings() {
   const emailEnabled = configQ.data?.emailEnabled !== false;
   const [problem, setProblem] = useState<string | null>(null);
   const [testNote, setTestNote] = useState<{ ok: boolean; text: string } | null>(null);
+  // "Preview my email" (owner, 10 Nov): your own email as it is now, here in the browser — before email is set up too.
+  const [previewing, setPreviewing] = useState(false);
 
   const save = useMutation({
     // `knowsAllParts`: this page knows every part, so the server saves them as they are (an older app's
@@ -162,6 +165,13 @@ export function DailyEmailSettings() {
             {test.isPending ? 'Sending…' : 'Send me a test'}
           </button>
         ) : null}
+        <button
+          type="button"
+          onClick={() => setPreviewing(true)}
+          className={`rounded-lg border border-line px-3 py-1.5 text-sm font-medium text-ink transition-colors hover:border-brand/30 hover:bg-ground ${touch}`}
+        >
+          Preview my email
+        </button>
         <a href="#notifications" className={`text-sm ${linkClass}`}>Notification settings</a>
         {testNote ? (
           <p role={testNote.ok ? 'status' : 'alert'} className={`w-full text-sm ${testNote.ok ? 'text-ink-2' : 'text-danger'}`}>
@@ -169,6 +179,9 @@ export function DailyEmailSettings() {
           </p>
         ) : null}
       </div>
+      {previewing ? (
+        <DailyEmailPreviewDialog onClose={() => setPreviewing(false)} load={() => notificationsApi(apiClient).previewDailyEmail()} queryKey="daily-email-own-preview" />
+      ) : null}
     </section>
   );
 }

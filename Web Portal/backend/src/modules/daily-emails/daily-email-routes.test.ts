@@ -434,3 +434,60 @@ describe('Daily task emails: "Preview my email" (System settings → Daily email
     expect((await app.inject({ method: 'GET', url, headers: await admin('nobody') })).statusCode).toBe(404);
   });
 });
+
+describe('Daily email: "Preview my email" for everyone (Settings → Daily email, owner 10 Nov)', () => {
+  const url = '/api/v1/notifications/daily-emails/preview';
+
+  it('needs a sign-in', async () => {
+    const { app, previewOwn } = await makeApp();
+    expect((await app.inject({ method: 'GET', url })).statusCode).toBe(401);
+    expect(previewOwn).not.toHaveBeenCalled();
+  });
+
+  it('anyone signed in gets ONLY their own email — any person named in the query is ignored', async () => {
+    const { app, previewOwn } = await makeApp();
+    for (const asked of ['', '?userId=u-other', '?userId=a1&id=a1&user=a1']) {
+      previewOwn.mockClear();
+      const res = await app.inject({ method: 'GET', url: `${url}${asked}`, headers: await auth(`emp-${asked.length}`) });
+      expect(res.statusCode).toBe(200);
+      expect(previewOwn).toHaveBeenCalledTimes(1);
+      expect(previewOwn).toHaveBeenCalledWith(`emp-${asked.length}`);
+      expect(res.json().data).toEqual({ subject: 'Today: 1 open task — Wed 21 Oct', html: expect.stringContaining('Good morning'), text: 'Good morning', empty: false });
+      expect(res.headers['cache-control']).toBe('no-store');
+    }
+  });
+
+  it('an administrator gets their own too, never the person named', async () => {
+    const { app, previewOwn } = await makeApp();
+    await app.inject({ method: 'GET', url: `${url}?userId=u-ada`, headers: await admin('a9') });
+    expect(previewOwn).toHaveBeenCalledWith('a9');
+    expect(previewOwn).not.toHaveBeenCalledWith('u-ada');
+  });
+
+  it('a client account is refused (staff only), and builds nothing', async () => {
+    const { app, previewOwn } = await makeApp();
+    const res = await app.inject({ method: 'GET', url, headers: await auth('client-1', ['CLIENT']) });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.code).toBe('CLIENT_NOT_ALLOWED');
+    expect(previewOwn).not.toHaveBeenCalled();
+  });
+
+  it('works while email isn\u2019t set up (it sends nothing); nothing in it: empty; not an active person: 404', async () => {
+    const { app } = await makeApp({ configured: false });
+    expect((await app.inject({ method: 'GET', url, headers: await auth('emp-x') })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'GET', url, headers: await auth('idle') })).json().data).toEqual({ subject: null, html: null, text: null, empty: true });
+    expect((await app.inject({ method: 'GET', url, headers: await auth('nobody') })).statusCode).toBe(404);
+  });
+
+  it('a short gap per person (building an email reads the database): a second ask within 2 seconds waits', async () => {
+    const { app, previewOwn } = await makeApp();
+    const headers = await auth('emp-gap');
+    expect((await app.inject({ method: 'GET', url, headers })).statusCode).toBe(200);
+    const again = await app.inject({ method: 'GET', url, headers });
+    expect(again.statusCode).toBe(429);
+    expect(again.json().error.message).toMatch(/moment/);
+    expect(previewOwn).toHaveBeenCalledTimes(1);
+    // Someone else isn't held up.
+    expect((await app.inject({ method: 'GET', url, headers: await auth('emp-other') })).statusCode).toBe(200);
+  });
+});

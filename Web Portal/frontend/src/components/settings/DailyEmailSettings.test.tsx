@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { DailyEmailSettings } from './DailyEmailSettings';
 import { useAuthStore } from '../../stores/auth-store';
@@ -18,12 +18,15 @@ const PARTS = ['Today at a glance', 'This week', 'By priority', 'Overdue and due
 let prefs: Record<string, unknown> = {};
 let emailEnabled = true;
 let testReply: () => Response = () => json({ data: { daily: 'sent', pending: 'sent', completed: 'sent' } });
+const PREVIEW = { subject: 'Today: 1 overdue — Wed 4 Nov', html: '<!DOCTYPE html><html><body><h1>Good morning, Ada</h1></body></html>', text: 'Good morning, Ada', empty: false };
+let previewReply: () => Response = () => json({ data: PREVIEW });
 
 beforeEach(() => {
   calls = [];
   prefs = { muted: ['TASK_COMMENT'], dailyEmails: { ...ALL_ON } };
   emailEnabled = true;
   testReply = () => json({ data: { daily: 'sent', pending: 'sent', completed: 'sent' } });
+  previewReply = () => json({ data: PREVIEW });
   useAuthStore.getState().setSession({ user: { id: 'u1', email: 'a@b.c', username: 'ada', roles: ['EMPLOYEE'] }, accessToken: 'at', refreshToken: 'rt' });
   vi.stubGlobal(
     'fetch',
@@ -34,6 +37,7 @@ beforeEach(() => {
       calls.push({ url: u, method, body });
       if (u.endsWith('/config')) return json({ data: { timeZone: 'Asia/Muscat', productName: 'x', companyName: 'y', serverTime: new Date().toISOString(), emailEnabled } });
       if (u.endsWith('/notifications/daily-emails/test')) return testReply();
+      if (u.includes('/notifications/daily-emails/preview')) return previewReply();
       if (u.endsWith('/notifications/preferences') && method === 'PUT') {
         prefs = { ...prefs, dailyEmails: { ...(prefs.dailyEmails as object), ...(body?.dailyEmails as object) } };
         return json({ data: prefs });
@@ -161,5 +165,47 @@ describe('Settings: the daily email — the redesign’s parts', () => {
     prefs = { muted: [], dailyEmails: { pending: true, completed: true, time: '06:00', schedule: true, urgent: true, managed: true } };
     renderIt();
     expect(await screen.findByRole('switch', { name: 'Your projects' })).toHaveAttribute('aria-checked', 'true');
+  });
+});
+
+describe('Settings: "Preview my email" (everyone, owner 10 Nov)', () => {
+  it('beside "Send me a test": opens your own email as it is now, in a sandboxed frame, at a computer\u2019s or a phone\u2019s width', async () => {
+    renderIt();
+    const button = await screen.findByRole('button', { name: 'Preview my email' });
+    // 44 px on a touch screen, like "Send me a test".
+    expect(button.className).toMatch(/\[@media\(pointer:coarse\)\]:!min-h-11/);
+    await userEvent.click(button);
+    const dialog = await screen.findByRole('dialog', { name: 'Your daily email' });
+    expect(await within(dialog).findByText('Today: 1 overdue — Wed 4 Nov')).toBeInTheDocument();
+    const frame = within(dialog).getByTitle('Your daily email as it is now') as HTMLIFrameElement;
+    expect(frame.getAttribute('sandbox')).toBe('');
+    expect(frame.getAttribute('srcdoc')).toContain('Good morning, Ada');
+    // Only ever your own: the request names no one.
+    const asked = calls.filter((c) => c.url.includes('/notifications/daily-emails/preview'));
+    expect(asked).toHaveLength(1);
+    expect(asked[0]!.url).toMatch(/\/notifications\/daily-emails\/preview$/);
+    expect(asked[0]!.method).toBe('GET');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Phone' }));
+    expect(frame.style.width).toBe('375px');
+    expect(within(dialog).getByRole('region', { name: 'Email preview' })).toHaveAttribute('tabindex', '0');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    // Nothing was sent.
+    expect(calls.filter((c) => c.url.endsWith('/notifications/daily-emails/test'))).toHaveLength(0);
+  });
+
+  it('works before email is set up (it sends nothing)', async () => {
+    emailEnabled = false;
+    renderIt();
+    expect(await screen.findByText(/Email isn\u2019t set up on this server yet/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Send me a test' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Preview my email' })).toBeEnabled();
+  });
+
+  it('nothing in it right now: says so', async () => {
+    previewReply = () => json({ data: { subject: null, html: null, text: null, empty: true } });
+    renderIt();
+    await userEvent.click(await screen.findByRole('button', { name: 'Preview my email' }));
+    expect(await screen.findByText(/There\u2019s nothing in your daily email right now/)).toBeInTheDocument();
   });
 });

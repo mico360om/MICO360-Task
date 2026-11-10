@@ -70,6 +70,7 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   'PUT /notifications/:id/read': 'own',
   'POST /notifications/read-all': 'own',
   'POST /notifications/daily-emails/test': 'own',
+  'GET /notifications/daily-emails/preview': 'own',
   'GET /mico-ai/status': 'own',
   'GET /mico-ai/chats': 'own',
   'POST /mico-ai/chats': 'own',
