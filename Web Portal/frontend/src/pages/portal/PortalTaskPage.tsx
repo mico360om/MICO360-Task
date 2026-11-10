@@ -1,4 +1,4 @@
-import { useId, useState, type ChangeEvent, type FormEvent } from 'react';
+import { useCallback, useId, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { useParams } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { isNotShared, portalProblem, type PortalComment, type PortalFile, type PortalTaskView } from '../../api/portal';
@@ -12,6 +12,10 @@ import { ApiError } from '../../lib/api-client';
 import { dateTimeText, instantDayText } from '../../lib/day-words';
 import { downloadBlob, fileNameOf } from '../../lib/download';
 import { NeedsModule, usePortalProjectContext } from './PortalProjectLayout';
+import { COMMENTS_PAGE, newestFirst, scrolledPast, scrollToListTop, type PendingComment } from '../../lib/comment-feed';
+import { useCommentArrivals } from '../../hooks/useCommentArrivals';
+import { usePendingComments } from '../../hooks/usePendingComments';
+import { NewCommentsButton } from '../../components/comments/NewCommentsButton';
 
 /** The longest comment the server keeps. */
 const COMMENT_MAX = 10_000;
@@ -42,12 +46,13 @@ function TaskPage() {
   return (
     <div className="flex flex-col gap-4">
       <BackLink to={back}>Progress &amp; tasks</BackLink>
-      {q.isPending ? (
-        <Loading what="the task" />
-      ) : q.isError ? (
+      {/* The task is read again every few seconds: a blip while it is on screen keeps what shows; no longer shared says so. */}
+      {q.isError && (isNotShared(q.error) || !q.data) ? (
         isNotShared(q.error) ? <NotShared backTo={back} backLabel="Back to the tasks" /> : <LoadFailed what="the task" onRetry={() => void q.refetch()} />
-      ) : (
+      ) : q.data ? (
         <TaskBody projectId={projectId} taskId={taskId} view={q.data} timeZone={project.timeZone} />
+      ) : (
+        <Loading what="the task" />
       )}
     </div>
   );
@@ -303,17 +308,34 @@ function Files({ projectId, taskId, files, canUpload, timeZone }: { projectId: s
   );
 }
 
-/** Their own comments, each with the team's replies to it (marked "Visible to client") under it. */
-function threads(comments: PortalComment[]): { comment: PortalComment; replies: PortalComment[] }[] {
-  const mine = comments.filter((c) => c.from === 'you');
-  const ids = new Set(mine.map((c) => c.id));
-  const loose = comments.filter((c) => c.from === 'team' && (!c.replyTo || !ids.has(c.replyTo)));
+/**
+ * Their comments in threads, newest first: each of their comments with the replies in it (the team's marked "Visible to
+ * client", and — owner, 10 Nov 2026 — their own) under it, oldest first. Replies whose comment was deleted keep their
+ * thread under "Comment deleted". (The server sends only what they may see.)
+ */
+function threads(comments: PortalComment[]): { comment: PortalComment; replies: PortalComment[]; deleted?: boolean }[] {
+  const tops = comments.filter((c) => !c.replyTo);
+  const ids = new Set(tops.map((c) => c.id));
+  const orphans = new Map<string, PortalComment[]>();
+  for (const c of comments) if (c.replyTo && !ids.has(c.replyTo)) orphans.set(c.replyTo, [...(orphans.get(c.replyTo) ?? []), c]);
+  const at = (c: PortalComment) => Date.parse(c.createdAt) || 0;
+  const oldestFirst = (list: PortalComment[]) => [...list].sort((a, b) => at(a) - at(b));
   return [
-    ...mine.map((c) => ({ comment: c, replies: comments.filter((r) => r.from === 'team' && r.replyTo === c.id) })),
-    ...loose.map((c) => ({ comment: c, replies: [] })),
+    ...tops.map((c) => ({ comment: c, replies: oldestFirst(comments.filter((r) => r.replyTo === c.id)) })),
+    ...[...orphans.entries()].map(([id, replies]) => {
+      const sorted = oldestFirst(replies);
+      return { comment: { id, from: 'team' as const, replyTo: null, body: '', createdAt: sorted[0]!.createdAt, edited: false }, replies: sorted, deleted: true };
+    }),
   ];
 }
 
+const whoOf = (c: PortalComment) => (c.from === 'you' ? 'your comment' : 'the project team');
+
+/**
+ * Owner, 10 Nov 2026: the write box on top (it stays in view while the comments scroll), the newest comment first, 30
+ * at a time; their comment shows at once as they send it ("Not sent — Try again" if it didn't go); the team's replies
+ * arrive by themselves (the task is read again every few seconds), marked "New reply"; every comment has Reply.
+ */
 function Comments({ projectId, taskId, comments, canComment, timeZone }: { projectId: string; taskId: string; comments: PortalComment[]; canComment: boolean; timeZone: string }) {
   const id = useId();
   const qc = useQueryClient();
@@ -322,90 +344,318 @@ function Comments({ projectId, taskId, comments, canComment, timeZone }: { proje
   const [body, setBody] = useState('');
   const [problem, setProblem] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
-  const post = useMutation({
-    mutationFn: (text: string) => api.comment(projectId, taskId, text),
-    onSuccess: (fresh) => {
-      taskChanged(qc, projectId, taskId, fresh);
-      setBody('');
-      setSent(true);
-    },
-    onError: (err) => setProblem(portalProblem(err, 'Couldn’t send your comment.')),
+  const [limit, setLimit] = useState(COMMENTS_PAGE);
+  const sectionRef = useRef<HTMLDivElement>(null);
+  const formRef = useRef<HTMLDivElement>(null);
+  const topRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLOListElement>(null);
+  const boxRef = useRef<HTMLTextAreaElement>(null);
+
+  const byId = new Map(comments.map((c) => [c.id, c]));
+  const arrivals = useCommentArrivals({
+    ids: comments.map((c) => c.id),
+    ready: true,
+    mine: (cid) => byId.get(cid)?.from === 'you',
+    parentOf: (cid) => byId.get(cid)?.replyTo,
+    isAway: () => scrolledPast(topRef.current, formRef.current),
+    nameOf: (cid) => (byId.get(cid)?.from === 'team' ? 'the project team' : undefined),
   });
+  const sending = usePendingComments(
+    comments.map((c) => ({ id: c.id, mine: c.from === 'you', body: c.body })),
+    'Check your connection and try again.',
+  );
+  const send = useCallback(
+    async (text: string) => {
+      try {
+        const fresh = await api.comment(projectId, taskId, text);
+        taskChanged(qc, projectId, taskId, fresh);
+        setSent(true);
+      } catch (err) {
+        throw new Error(portalProblem(err, 'Check your connection and try again.'));
+      }
+    },
+    [api, projectId, taskId, qc],
+  );
   const submit = (e: FormEvent) => {
     e.preventDefault();
     setSent(false);
     const text = body.trim();
     if (!text) return setProblem('Write a comment first.');
     setProblem(null);
-    post.mutate(text);
+    setBody('');
+    sending.send(text, send);
+  };
+  const takeBack = (p: PendingComment) => {
+    sending.drop(p.key);
+    setBody((b) => (b.trim() ? `${b}\n${p.body}` : p.body));
+    boxRef.current?.focus();
+  };
+  const reply = async (to: PortalComment, text: string) => {
+    try {
+      const fresh = await api.comment(projectId, taskId, text, to.id);
+      taskChanged(qc, projectId, taskId, fresh);
+    } catch (err) {
+      throw new Error(portalProblem(err, 'Couldn’t send your reply.'));
+    }
   };
 
+  const shown = comments.filter((c) => !arrivals.held.has(c.id) && !(c.replyTo && arrivals.held.has(c.replyTo)));
+  const all = newestFirst(threads(shown), (c) => c.createdAt);
+  const grown = all.filter((t) => arrivals.arrived.has(t.comment.id)).length;
+  const visible = all.slice(0, limit + grown);
+  const empty = visible.length === 0 && sending.pending.length === 0;
+
   return (
-    <Section title="Comments">
-      <p className="mb-3 text-sm text-ink-2">The project team sees your comments here. Their replies to you appear under them.</p>
-      {comments.length === 0 ? (
-        <p className="text-sm text-ink-2">No comments yet.</p>
-      ) : (
-        <ol className="flex flex-col gap-3">
-          {threads(comments).map(({ comment, replies }) => (
-            <li key={comment.id} className="flex flex-col gap-2">
-              <CommentCard comment={comment} timeZone={timeZone} />
-              {replies.length ? (
-                <ol aria-label="Replies" className="ms-4 flex flex-col gap-2 border-s-2 border-line ps-3 sm:ms-6">
-                  {replies.map((r) => (
-                    <li key={r.id}>
-                      <CommentCard comment={r} timeZone={timeZone} />
-                    </li>
-                  ))}
-                </ol>
-              ) : null}
-            </li>
-          ))}
-        </ol>
-      )}
-      {canComment ? (
-        <form onSubmit={submit} noValidate className="mt-4 flex flex-col gap-2 border-t border-line pt-4">
-          <label htmlFor={`${id}-box`} className="text-sm font-semibold text-ink">Add a comment</label>
-          <textarea
-            id={`${id}-box`}
-            dir="auto"
-            rows={3}
-            maxLength={COMMENT_MAX}
-            disabled={off.disabled}
-            title={off.title}
-            value={body}
-            onChange={(e) => {
-              setBody(e.target.value);
-              setSent(false);
-            }}
-            aria-invalid={problem ? true : undefined}
-            aria-describedby={problem ? `${id}-problem` : undefined}
-            placeholder="Ask a question or leave a note for the project team"
-            className="w-full rounded-xl border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-3 focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20 disabled:cursor-not-allowed disabled:opacity-60"
-          />
-          {problem ? <p id={`${id}-problem`} role="alert" className="text-sm text-danger">{problem}</p> : null}
-          {sent ? <p role="status" className="text-sm text-success">Comment sent to the project team.</p> : null}
-          <div>
-            <Button type="submit" className={`${TOUCH} ${off.className}`} disabled={off.disabled} title={off.title} loading={post.isPending}>
-              Send comment
+    <div ref={sectionRef}>
+      <Section title="Comments">
+        <p className="mb-3 text-sm text-ink-2">The project team sees your comments here. Their replies to you appear under them.</p>
+        {canComment || arrivals.held.size > 0 ? (
+          <div ref={formRef} className="sticky top-0 z-10 -mx-1 bg-surface px-1 pb-3 pt-1">
+            {canComment ? (
+              <form onSubmit={submit} noValidate className="flex flex-col gap-2">
+                <label htmlFor={`${id}-box`} className="text-sm font-semibold text-ink">
+                  Add a comment
+                </label>
+                <textarea
+                  ref={boxRef}
+                  id={`${id}-box`}
+                  dir="auto"
+                  rows={2}
+                  maxLength={COMMENT_MAX}
+                  disabled={off.disabled}
+                  title={off.title}
+                  value={body}
+                  onChange={(e) => {
+                    setBody(e.target.value);
+                    setSent(false);
+                  }}
+                  aria-invalid={problem ? true : undefined}
+                  aria-describedby={problem ? `${id}-problem` : undefined}
+                  placeholder="Ask a question or leave a note for the project team"
+                  className="w-full rounded-xl border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-3 focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20 disabled:cursor-not-allowed disabled:opacity-60"
+                />
+                {problem ? (
+                  <p id={`${id}-problem`} role="alert" className="text-sm text-danger">
+                    {problem}
+                  </p>
+                ) : null}
+                {sent ? (
+                  <p role="status" className="text-sm text-success">
+                    Comment sent to the project team.
+                  </p>
+                ) : null}
+                <div>
+                  <Button type="submit" className={`${TOUCH} ${off.className}`} disabled={off.disabled} title={off.title}>
+                    Send comment
+                  </Button>
+                </div>
+              </form>
+            ) : null}
+            {arrivals.held.size > 0 ? (
+              <div className="pointer-events-none absolute inset-x-0 top-full z-10 mt-1 flex justify-center">
+                <NewCommentsButton
+                  count={arrivals.held.size}
+                  onClick={() => {
+                    arrivals.reveal();
+                    scrollToListTop(sectionRef.current);
+                    listRef.current?.focus({ preventScroll: true });
+                  }}
+                />
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+        <div ref={topRef} aria-hidden="true" />
+        <p aria-live="polite" className="sr-only">
+          {arrivals.announcement}
+        </p>
+        {empty ? (
+          <p className="text-sm text-ink-2">No comments yet.</p>
+        ) : (
+          <ol ref={listRef} tabIndex={-1} aria-label="Comments, newest first" className="flex flex-col gap-3 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-brand/40 focus-visible:ring-offset-2 focus-visible:ring-offset-surface">
+            {sending.pending.map((p) => (
+              <li key={p.key} className="flex flex-col gap-1" data-unsaved={p.status !== 'sent' || undefined}>
+                <div className={`rounded-xl border px-3 py-2.5 ${p.status === 'failed' ? 'border-danger/40 bg-danger-soft/30' : 'border-line bg-ground'}`}>
+                  <p className="flex flex-wrap items-baseline gap-x-2 text-xs text-ink-2">
+                    <span className="font-semibold text-ink">You</span>
+                    {p.status === 'sending' ? <span>Sending…</span> : p.status === 'sent' ? <span>Just now</span> : null}
+                  </p>
+                  <p data-comment-body className={`mt-1 whitespace-pre-line break-words text-sm text-ink ${OWN_LINES}`}>
+                    {p.body}
+                  </p>
+                </div>
+                {p.status === 'failed' ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p role="alert" className="text-sm text-danger">
+                      Not sent — {p.error}
+                    </p>
+                    <Button type="button" variant="secondary" size="sm" className={TOUCH} onClick={() => sending.retry(p.key, send)}>
+                      Try again
+                    </Button>
+                    <Button type="button" variant="ghost" size="sm" className={TOUCH} aria-label="Edit the comment that wasn’t sent" onClick={() => takeBack(p)}>
+                      Edit
+                    </Button>
+                  </div>
+                ) : null}
+              </li>
+            ))}
+            {visible.map((t) => (
+              <Thread
+                key={t.comment.id}
+                thread={t}
+                timeZone={timeZone}
+                canReply={canComment}
+                fresh={arrivals.fresh}
+                newReply={t.replies.some((r) => arrivals.arrived.has(r.id) && r.from === 'team')}
+                onReply={reply}
+              />
+            ))}
+          </ol>
+        )}
+        {all.length > visible.length ? (
+          <div className="mt-3 flex justify-center">
+            <Button type="button" variant="secondary" size="sm" className={TOUCH} onClick={() => setLimit((n) => n + COMMENTS_PAGE)}>
+              Show older comments
             </Button>
           </div>
-        </form>
-      ) : null}
-    </Section>
+        ) : null}
+      </Section>
+    </div>
   );
 }
 
-function CommentCard({ comment: c, timeZone }: { comment: PortalComment; timeZone: string }) {
+/** One of their comments (or "Comment deleted") with its replies, Reply on each, and the reply box when answering. */
+function Thread({
+  thread,
+  timeZone,
+  canReply,
+  fresh,
+  newReply,
+  onReply,
+}: {
+  thread: { comment: PortalComment; replies: PortalComment[]; deleted?: boolean };
+  timeZone: string;
+  canReply: boolean;
+  fresh: Set<string>;
+  newReply: boolean;
+  onReply: (to: PortalComment, body: string) => Promise<void>;
+}) {
+  const off = usePreviewOff();
+  const [answering, setAnswering] = useState<PortalComment | null>(null);
+  const replyButton = (c: PortalComment) =>
+    canReply ? (
+      <button
+        type="button"
+        disabled={off.disabled}
+        title={off.title}
+        onClick={() => setAnswering(c)}
+        aria-label={`Reply to ${whoOf(c)}`}
+        className={`mt-1 inline-flex min-h-9 items-center gap-1 rounded-lg px-2 text-xs font-medium text-ink-2 hover:bg-ground hover:text-ink disabled:cursor-not-allowed disabled:opacity-60 ${TOUCH} ${off.className}`}
+      >
+        Reply
+      </button>
+    ) : null;
+  const { comment, replies, deleted } = thread;
+  return (
+    <li className="flex flex-col gap-2">
+      {deleted ? (
+        <p className="rounded-xl border border-dashed border-line px-3 py-2 text-sm italic text-ink-3">Comment deleted</p>
+      ) : (
+        <div>
+          <CommentCard comment={comment} timeZone={timeZone} fresh={fresh.has(comment.id)} />
+          {replyButton(comment)}
+        </div>
+      )}
+      {newReply ? <span className="self-start rounded-full bg-brand/10 px-2 py-0.5 text-[11px] font-semibold text-brand">New reply</span> : null}
+      {replies.length || answering ? (
+        <div className="ms-4 flex flex-col gap-2 border-s-2 border-line ps-3 sm:ms-6">
+          {replies.length ? (
+            <ol aria-label="Replies" className="flex flex-col gap-2">
+              {replies.map((r) => (
+                <li key={r.id}>
+                  <CommentCard comment={r} timeZone={timeZone} fresh={fresh.has(r.id)} />
+                  {replyButton(r)}
+                </li>
+              ))}
+            </ol>
+          ) : null}
+          {answering ? (
+            <PortalReplyBox
+              key={answering.id}
+              to={whoOf(answering)}
+              onCancel={() => setAnswering(null)}
+              onSend={async (text) => {
+                await onReply(answering, text);
+                setAnswering(null);
+              }}
+            />
+          ) : null}
+        </div>
+      ) : null}
+    </li>
+  );
+}
+
+function PortalReplyBox({ to, onSend, onCancel }: { to: string; onSend: (body: string) => Promise<void>; onCancel: () => void }) {
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const go = async (e: FormEvent) => {
+    e.preventDefault();
+    const words = text.trim();
+    if (!words || busy) return;
+    setBusy(true);
+    setProblem(null);
+    try {
+      await onSend(words);
+    } catch (err) {
+      setProblem(err instanceof Error ? err.message : 'Couldn’t send your reply.');
+      setBusy(false);
+    }
+  };
+  return (
+    <form onSubmit={go} noValidate className="flex flex-col gap-2">
+      <textarea
+        dir="auto"
+        rows={2}
+        autoFocus
+        maxLength={COMMENT_MAX}
+        aria-label={`Reply to ${to}`}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder="Write a reply…"
+        className="w-full rounded-xl border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-3 focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20"
+      />
+      {problem ? (
+        <p role="alert" className="text-sm text-danger">
+          {problem}
+        </p>
+      ) : null}
+      <div className="flex flex-wrap justify-end gap-2">
+        <Button type="button" variant="ghost" size="sm" className={TOUCH} onClick={onCancel} aria-label="Cancel reply">
+          Cancel
+        </Button>
+        <Button type="submit" size="sm" className={TOUCH} disabled={!text.trim()} loading={busy}>
+          Send reply
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+function CommentCard({ comment: c, timeZone, fresh = false }: { comment: PortalComment; timeZone: string; fresh?: boolean }) {
   const mine = c.from === 'you';
   return (
-    <div className={`rounded-xl border px-3 py-2.5 ${mine ? 'border-line bg-ground' : 'border-brand/20 bg-brand/5'}`}>
+    <div
+      data-fresh={fresh || undefined}
+      className={`rounded-xl border px-3 py-2.5 motion-safe:transition-shadow motion-safe:duration-700 ${mine ? 'border-line bg-ground' : 'border-brand/20 bg-brand/5'} ${fresh ? 'ring-2 ring-brand/40 ring-offset-1 ring-offset-surface' : ''}`}
+    >
       <p className="flex flex-wrap items-baseline gap-x-2 text-xs text-ink-2">
         <span className="font-semibold text-ink">{mine ? 'You' : 'Project team'}</span>
         <time dateTime={c.createdAt}>{dateTimeText(c.createdAt, timeZone)}</time>
         {c.edited ? <span>(edited)</span> : null}
       </p>
-      <p className={`mt-1 whitespace-pre-line break-words text-sm text-ink ${OWN_LINES}`}>{c.body}</p>
+      <p data-comment-body className={`mt-1 whitespace-pre-line break-words text-sm text-ink ${OWN_LINES}`}>{c.body}</p>
     </div>
   );
 }

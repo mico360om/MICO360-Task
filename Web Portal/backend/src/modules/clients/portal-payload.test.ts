@@ -89,6 +89,26 @@ describe('Client portal answers (allow-list)', () => {
     expect(portalTaskView(task(), grant(), rows, 'c1', TZ, NOW).comments).toBeNull();
     expect(portalTaskView(task(), grant({ canComment: true }), rows, 'c1', TZ, NOW).comments).toHaveLength(2);
   });
+
+  it('replies (owner, 10 Nov 2026): the client’s own replies sit in their thread; team-only replies never show', () => {
+    let n = 0;
+    const c = (id: string, over: Partial<PortalCommentSource>): PortalCommentSource => ({ id, userId: 'u-staff', parentId: null, body: id, fromClient: false, clientVisible: false, createdAt: new Date(Date.UTC(2026, 9, 30, 1, n++)), editedAt: null, ...over });
+    const rows = [
+      c('mine', { userId: 'c1', fromClient: true }),
+      c('team-shown', { parentId: 'mine', clientVisible: true }),
+      c('team-only', { parentId: 'mine' }),
+      c('my-reply', { userId: 'c1', fromClient: true, parentId: 'mine' }),
+      // Their reply in a thread whose comment was deleted: still theirs, still in that thread.
+      c('my-orphan', { userId: 'c1', fromClient: true, parentId: 'deleted-one' }),
+    ];
+    const seen = portalComments(rows, 'c1');
+    expect(seen.map((x) => [x.id, x.from, x.replyTo])).toEqual([
+      ['mine', 'you', null],
+      ['team-shown', 'team', 'mine'],
+      ['my-reply', 'you', 'mine'],
+      ['my-orphan', 'you', 'deleted-one'],
+    ]);
+  });
 });
 
 describe('Client portal meetings (allow-list)', () => {
