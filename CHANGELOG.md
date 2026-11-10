@@ -14,6 +14,24 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### Bug fixes
+- The Error log no longer counts time a page spent in the background as "slow": a page opened in a
+  background tab, prerendered, restored with the Back button or left on a sleeping computer is no longer
+  "slow to show" (the 986 s and 3386 s rows), and a request that waited in a frozen tab or on a sleeping
+  laptop is no longer a slow request (the bell's "15 times in one visit" at night). A slow click or key
+  press while the page was hidden doesn't count either, and the Error log now says what it was on ("a
+  click on a button"). "Slow to show the page" rows say that their times count only while the page is
+  on screen.
+- Slow requests on the Error log now say where the time went, from the browser's own timing: waiting
+  for a free connection, connecting, waiting for the server to start answering, or downloading the
+  answer — with the server's own time, so a hold-up between the browser and the server (the hosting's
+  front door or the connection) is told apart from a slow server.
+- Update restarts show as handled: while the server stops or starts for an update, the database being
+  briefly unreachable is a calm "Update restart" row ("During an update: the database was briefly
+  unreachable — handled"), no longer a red Server error, and it never brings back a row marked as
+  fixed. A request cut off or held up while the server restarted is listed there too, instead of "A
+  request didn't reach the server (blocked on the way?)" or a slow request.
+
 ## [1.23.11] - 2026-11-10
 
 ### Improvements

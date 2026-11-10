@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { browserText, detailText, isNewSince, lastTimeText, peopleText, personText, placeText, slowTimingText, timesText, topFrameText } from './error-log-words';
+import { browserText, detailText, interactionWords, isNewSince, KIND_FILTERS, KIND_WORDS, lastTimeText, pageTimeNote, partsText, peopleText, personText, placeText, slowTimingText, timesText, topFrameText } from './error-log-words';
 
 // 1.23.3 — where a slow request's time went: the server's own time, the database's part of it when the
 // server's part matters (a second or more), and the network when the server's part is under half the whole.
@@ -63,5 +63,52 @@ describe('Error log words', () => {
     expect(topFrameText({ topFile: null, topLine: null, topFunction: null })).toBe('');
     expect(detailText('chunk')).toMatch(/didn’t load/);
     expect(detailText(null)).toBe('');
+  });
+});
+
+// 1.23.14 — where a slow request's time went, from the browser's own timing: the biggest part said in plain
+// words (the owner's example: "waited 9.8 s before the server started answering; the server itself took …").
+describe('Error log words: where the time went, from the browser (1.23.14)', () => {
+  const t = (over: Record<string, number | null>) => ({ totalMs: 10_550, serverMs: 48, dbMs: 12, queueMs: 0, connectMs: 30, waitMs: 10_400, downloadMs: 120, ...over });
+
+  it('waiting for the first byte while the server itself was quick: the hold-up was on the way', () => {
+    expect(slowTimingText(t({}))).toBe('waited 10.4 s before the server started answering; the server itself took under 0.1 s — the hold-up was between the browser and the server (the hosting’s front door or the connection)');
+    expect(slowTimingText(t({ serverMs: null, dbMs: null }))).toBe('waited 10.4 s before the server started answering (the server didn’t say its own time)');
+  });
+
+  it('the server itself, a slow download, a slow connection, or no free connection', () => {
+    expect(slowTimingText(t({ serverMs: 10_300, dbMs: 9_800 }))).toBe('the server took 10.3 s · in the database 9.8 s');
+    expect(slowTimingText(t({ waitMs: 400, downloadMs: 10_100 }))).toBe('downloading the answer took 10.1 s');
+    expect(slowTimingText(t({ waitMs: 300, connectMs: 10_200 }))).toBe('connecting to the server took 10.2 s (a slow or changing connection)');
+    expect(slowTimingText(t({ waitMs: 300, queueMs: 10_200 }))).toBe('the browser waited 10.2 s before sending it (no free connection)');
+  });
+
+  it('the row: the last time’s whole wait first; the occurrence: each part', () => {
+    expect(lastTimeText(t({ waitMs: 400, downloadMs: 10_100 }))).toBe('Last time 10.6 s: downloading the answer took 10.1 s');
+    expect(partsText(t({}))).toBe('Waiting for a connection under 0.1 s · connecting under 0.1 s · waiting for the first byte 10.4 s · downloading 0.1 s');
+    expect(partsText({ totalMs: 10_200, serverMs: 9900, dbMs: 9700 })).toBe(''); // an older report: no parts
+  });
+});
+
+describe('Error log words: update restarts and page times (1.23.14)', () => {
+  it('an update restart is its own calm kind, with the Server chip', () => {
+    expect(KIND_WORDS.UPDATE).toEqual({ label: 'Update restart', tone: 'neutral' });
+    expect(KIND_FILTERS.find((f) => f.key === 'server')!.hint).toBe('Failed requests and background jobs on the server, and update restarts');
+    expect(peopleText({ people: 0, kind: 'UPDATE' })).toBe('No one in particular');
+    expect(personText({ person: null, kind: 'UPDATE', job: 'daily-task-emails' })).toBe('Background job');
+    expect(detailText('slow')).toBe('Request held up while the server started');
+  });
+
+  it('page-show rows say their times count only while the page is on screen; no other row does', () => {
+    expect(pageTimeNote({ kind: 'SLOW', title: 'Slow to show the page' })).toBe('Counted only while the page is on screen — older entries may include time it spent in the background.');
+    expect(pageTimeNote({ kind: 'SLOW', title: 'Slow page load' })).not.toBe('');
+    expect(pageTimeNote({ kind: 'SLOW', title: 'Slow request: GET /api/v1/tasks' })).toBe('');
+    expect(pageTimeNote({ kind: 'ERROR', title: 'Slow to show the page' })).toBe('');
+  });
+
+  it('a slow click or key press says what it was on', () => {
+    expect(interactionWords({ detail: 'inp', resource: 'a click on a button' })).toBe('On a click on a button');
+    expect(interactionWords({ detail: 'inp', resource: null })).toBe('');
+    expect(interactionWords({ detail: 'api', resource: 'GET /api/v1/tasks' })).toBe('');
   });
 });

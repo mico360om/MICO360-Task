@@ -14,7 +14,7 @@ import { relativeTime } from '../lib/relative-time';
 import { useCompanyTimeZone } from '../lib/useCompanyTimeZone';
 import { TOUCH_SQUARE, TOUCH_TALL } from '../lib/touch';
 import { DatabaseCheckLine } from '../components/admin/DatabaseCheckLine';
-import { KIND_FILTERS, KIND_WORDS, RANGES, browserText, databaseText, detailText, isNewSince, lastTimeText, peopleText, personText, placeText, slowTimingText, timesText, topFrameText } from '../components/admin/error-log-words';
+import { KIND_FILTERS, KIND_WORDS, RANGES, browserText, databaseText, detailText, interactionWords, isNewSince, lastTimeText, pageTimeNote, partsText, peopleText, personText, placeText, slowTimingText, timesText, topFrameText } from '../components/admin/error-log-words';
 
 const segment = (active: boolean) =>
   `rounded-lg px-3 py-1 text-sm font-medium transition-colors ${TOUCH_SQUARE} ${active ? 'bg-brand text-white shadow-brand' : 'text-ink-2 hover:bg-ground hover:text-ink'}`;
@@ -191,8 +191,10 @@ export function ErrorLogPage() {
 }
 
 function ErrorRow({ group: g, open, isNew, timeZone, onToggle, onChanged }: { group: ErrorGroup; open: boolean; isNew: boolean; timeZone: string; onToggle: () => void; onChanged: () => void }) {
-  const words = KIND_WORDS[g.kind];
+  const words = KIND_WORDS[g.kind] ?? KIND_WORDS.ERROR;
   const panelId = `error-row-${g.id}`;
+  // 1.23.14: a page-show row says its times count only while the page is on screen.
+  const note = pageTimeNote(g);
   return (
     <li>
       <button
@@ -213,6 +215,11 @@ function ErrorRow({ group: g, open, isNew, timeZone, onToggle, onChanged }: { gr
         <span dir="auto" className="line-clamp-2 break-words font-medium text-ink">{g.title}</span>
         {/* 1.23.3: a slow request — where the last time's wait went (the server, the database or the network). */}
         {g.timing ? <span className="break-words text-xs text-ink-2">{lastTimeText(g.timing)}</span> : null}
+        {note ? (
+          <span role="note" className="break-words text-xs text-ink-3">
+            {note}
+          </span>
+        ) : null}
         <span className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-ink-2">
           <span>{timesText(g.count)}</span>
           <span>{peopleText(g)}</span>
@@ -221,12 +228,12 @@ function ErrorRow({ group: g, open, isNew, timeZone, onToggle, onChanged }: { gr
           <span>First seen {dateTimeText(g.firstSeenAt, timeZone)}</span>
         </span>
       </button>
-      {open ? <ErrorDetails id={panelId} groupId={g.id} status={g.status} timeZone={timeZone} onChanged={onChanged} /> : null}
+      {open ? <ErrorDetails id={panelId} groupId={g.id} kind={g.kind} status={g.status} timeZone={timeZone} onChanged={onChanged} /> : null}
     </li>
   );
 }
 
-function ErrorDetails({ id, groupId, status, timeZone, onChanged }: { id: string; groupId: string; status: 'OPEN' | 'FIXED'; timeZone: string; onChanged: () => void }) {
+function ErrorDetails({ id, groupId, kind, status, timeZone, onChanged }: { id: string; groupId: string; kind: ErrorGroup['kind']; status: 'OPEN' | 'FIXED'; timeZone: string; onChanged: () => void }) {
   const api = errorLogApi(apiClient);
   const q = useQuery({ queryKey: ['error-log', 'detail', groupId], queryFn: () => api.detail(groupId) });
   const [problem, setProblem] = useState<string | null>(null);
@@ -281,9 +288,12 @@ function ErrorDetails({ id, groupId, status, timeZone, onChanged }: { id: string
               {status === 'FIXED' ? 'Not fixed' : 'Mark as fixed'}
             </Button>
             <span className="text-xs text-ink-2">
-              {status === 'FIXED'
-                ? `Marked fixed${q.data.group.fixedInVersion ? ` in version ${q.data.group.fixedInVersion}` : ''}: it shows again if it happens in a newer version.`
-                : 'It is hidden until it happens again in a newer version.'}
+              {kind === 'UPDATE'
+                ? // 1.23.14: an update restart happens at every update — once marked, it stays down.
+                  'Hidden once marked: later update restarts are still counted under “Marked fixed”.'
+                : status === 'FIXED'
+                  ? `Marked fixed${q.data.group.fixedInVersion ? ` in version ${q.data.group.fixedInVersion}` : ''}: it shows again if it happens in a newer version.`
+                  : 'It is hidden until it happens again in a newer version.'}
             </span>
             {problem ? (
               <span role="alert" className="text-sm text-danger">
@@ -307,7 +317,10 @@ function Occurrence({ e, timeZone }: { e: ErrorOccurrence; timeZone: string }) {
       </span>
       {e.kind !== 'ERROR' && e.kind !== 'SERVER' ? <span dir="auto" className="break-words text-ink-2">{e.message}</span> : null}
       {e.timing ? <span className="break-words text-ink-2">{slowTimingText(e.timing)}</span> : null}
-      {e.resource ? <span className="break-all font-mono text-[11px] text-ink-3">{e.resource}</span> : null}
+      {/* 1.23.14: each part of the request's time, from the browser's own timing. */}
+      {partsText(e.timing) ? <span className="break-words text-ink-3">{partsText(e.timing)}</span> : null}
+      {/* 1.23.14: what a slow click or key press was on, in words. */}
+      {interactionWords(e) ? <span className="break-words text-ink-2">{interactionWords(e)}</span> : e.resource ? <span className="break-all font-mono text-[11px] text-ink-3">{e.resource}</span> : null}
       {e.database ? <span className="break-all font-mono text-[11px] text-ink-3">{databaseText(e)}</span> : null}
       <span className="break-words text-ink-3">{facts.join(' · ')}</span>
     </li>

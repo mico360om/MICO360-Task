@@ -238,6 +238,73 @@ describe('Error log — where a slow request’s time went', () => {
   });
 });
 
+// 1.23.14 — rows that tell the truth about time: an update restart is a calm grey row; a page-show row says
+// its times count only on screen; an occurrence says where its request's time went, part by part.
+describe('Error log — update restarts, page times and where the time went (1.23.14)', () => {
+  const row = (id: string, kind: string, title: string, timing: unknown = null) => ({ ...GROUPS[0], id, kind, title, count: 3, people: kind === 'UPDATE' ? 0 : 1, page: '/board', timing });
+  const ROWS = [
+    row('u1', 'UPDATE', 'During an update: the database was briefly unreachable — handled'),
+    row('l1', 'SLOW', 'Slow to show the page'),
+    row('r1', 'SLOW', 'Slow request: GET /api/v1/notifications/unread-count', { totalMs: 10_550, serverMs: 48, dbMs: 12, queueMs: 0, connectMs: 30, waitMs: 10_400, downloadMs: 120 }),
+    row('i1', 'SLOW', 'Slow to answer a click or key'),
+  ];
+  const ev = (over: Record<string, unknown>) => ({ id: 'x', at: '2026-11-11T00:41:00.000Z', kind: 'SLOW', detail: 'api', message: '', stack: null, page: '/board', job: null, resource: null, value: 10_550, count: 1, version: '1.23.14', browser: 'Chrome 142', system: 'Windows', screen: null, signedIn: true, person: { id: 'u1', name: 'Sara Ali' }, timing: null, ...over });
+  const DETAILS: Record<string, unknown> = {
+    u1: { group: { ...ROWS[0], topFile: null, topLine: null, topFunction: null }, events: [ev({ id: 'a', kind: 'UPDATE', detail: 'request', message: ROWS[0]!.title, page: 'GET /api/v1/conversations', database: "P1001 · Can't reach database server", value: null })] },
+    r1: { group: { ...ROWS[2], topFile: null, topLine: null, topFunction: null }, events: [ev({ id: 'b', message: 'Slow request: GET /api/v1/notifications/unread-count took 10.6 s', resource: 'GET /api/v1/notifications/unread-count', timing: ROWS[2]!.timing })] },
+    i1: { group: { ...ROWS[3], topFile: null, topLine: null, topFunction: null }, events: [ev({ id: 'c', detail: 'inp', message: 'Slow to answer a click or key: 640 ms', resource: 'a click on a button', value: 640 })] },
+  };
+  beforeEach(() => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const u = String(url);
+        if (u.endsWith('/error-log/visit')) return json({ data: { previousVisitAt: null } });
+        const one = /\/error-log\/(\w+)$/.exec(u);
+        if (one && DETAILS[one[1]!]) return json({ data: DETAILS[one[1]!] });
+        if (u.includes('/error-log?')) return json({ data: { groups: ROWS, next: null, counts: { all: 4, errors: 0, blocked: 0, slow: 3, server: 1 } } });
+        if (u.endsWith('/config')) return json({ data: { timeZone: 'Asia/Muscat' } });
+        return json({ data: [] });
+      }),
+    );
+  });
+
+  it('an update restart: a calm “Update restart” badge, no one in particular; it says it stays down once marked', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    const update = (await screen.findByText(ROWS[0]!.title)).closest('li')!;
+    expect(within(update).getByText('Update restart')).toBeInTheDocument();
+    expect(within(update).getByText('No one in particular')).toBeInTheDocument();
+    await user.click(within(update).getByRole('button', { expanded: false }));
+    expect((await within(update).findAllByText(/Database said:/)).length).toBeGreaterThan(0);
+    expect(within(update).getByText('Hidden once marked: later update restarts are still counted under “Marked fixed”.')).toBeInTheDocument();
+  });
+
+  it('a page-show row says its times count only on screen; a request row does not', async () => {
+    renderPage();
+    const lcp = (await screen.findByText('Slow to show the page')).closest('li')!;
+    expect(within(lcp).getByRole('note')).toHaveTextContent('Counted only while the page is on screen');
+    expect(within(screen.getByText(ROWS[2]!.title).closest('li')!).queryByRole('note')).toBeNull();
+  });
+
+  it('a slow request: the row says the hold-up; its occurrence says each part', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    const req = (await screen.findByText(ROWS[2]!.title)).closest('li')!;
+    expect(within(req).getByText(/^Last time 10\.6 s: waited 10\.4 s before the server started answering; the server itself took under 0\.1 s/)).toBeInTheDocument();
+    await user.click(within(req).getByRole('button', { expanded: false }));
+    expect(await within(req).findByText('Waiting for a connection under 0.1 s · connecting under 0.1 s · waiting for the first byte 10.4 s · downloading 0.1 s')).toBeInTheDocument();
+  });
+
+  it('a slow click says what it was on, in words', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    const inp = (await screen.findByText('Slow to answer a click or key')).closest('li')!;
+    await user.click(within(inp).getByRole('button', { expanded: false }));
+    expect(await within(inp).findByText('On a click on a button')).toBeInTheDocument();
+  });
+});
+
 // 1.23.1 — the database self-check: what the live database is (its server, settings) and whether it
 // holds what the app expects. One line above the rows; its problems listed when there are any.
 describe('Error log — the database check', () => {

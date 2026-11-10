@@ -8,6 +8,8 @@ export const KIND_WORDS: Record<ErrorKind, { label: string; tone: BadgeTone }> =
   BLOCKED: { label: 'Blocked', tone: 'warning' },
   SLOW: { label: 'Slow', tone: 'info' },
   SERVER: { label: 'Server', tone: 'brand' },
+  // 1.23.14: an update restart is not an error — a calm, grey badge.
+  UPDATE: { label: 'Update restart', tone: 'neutral' },
 };
 
 /** The filter chips: Errors include network problems (a request or the live connection blocked on the way). */
@@ -16,7 +18,7 @@ export const KIND_FILTERS: { key: ErrorKindFilter; label: string; hint: string }
   { key: 'errors', label: 'Errors', hint: 'Errors in the page, and requests blocked on the way' },
   { key: 'blocked', label: 'Blocked', hint: 'Files and scripts the browser or the security policy stopped' },
   { key: 'slow', label: 'Slow', hint: 'Slow pages, clicks and requests' },
-  { key: 'server', label: 'Server', hint: 'Failed requests and background jobs on the server' },
+  { key: 'server', label: 'Server', hint: 'Failed requests and background jobs on the server, and update restarts' },
 ];
 
 export const RANGES: { key: ErrorRange; label: string }[] = [
@@ -29,7 +31,7 @@ export const timesText = (n: number) => `${n.toLocaleString('en-US')} ${n === 1 
 
 /** People affected; a server job happens to no one. */
 export function peopleText(group: Pick<ErrorGroup, 'people' | 'kind'>): string {
-  if (group.people === 0) return group.kind === 'SERVER' ? 'No one in particular' : 'No one signed in';
+  if (group.people === 0) return group.kind === 'SERVER' || group.kind === 'UPDATE' ? 'No one in particular' : 'No one signed in';
   if (group.people >= 500) return '500+ people';
   return `${group.people} ${group.people === 1 ? 'person' : 'people'}`;
 }
@@ -58,6 +60,7 @@ const DETAIL_WORDS: Record<string, string> = {
   inp: 'Answering a click or key',
   cls: 'Layout jumping',
   request: 'Request on the server',
+  slow: 'Request held up while the server started',
   job: 'Background job',
   background: 'Background step on the server',
 };
@@ -66,7 +69,7 @@ export const detailText = (detail: string | null) => (detail ? (DETAIL_WORDS[det
 /** Who it happened to. */
 export function personText(e: Pick<ErrorOccurrence, 'person' | 'kind' | 'job'>): string {
   if (e.person) return e.person.name ?? 'Someone no longer here';
-  if (e.kind === 'SERVER') return e.job ? 'Background job' : '—';
+  if (e.kind === 'SERVER' || e.kind === 'UPDATE') return e.job ? 'Background job' : '—';
   return 'Not signed in';
 }
 
@@ -93,10 +96,61 @@ const secondsText = (ms: number) => (ms < 50 ? 'under 0.1 s' : `${(ms / 1000).to
  */
 export function slowTimingText(t: SlowTiming | null | undefined): string {
   if (!t) return '';
+  if (t.waitMs !== undefined) return breakdownText(t);
+  if (t.serverMs === null) return '';
   const parts = [`server ${secondsText(t.serverMs)}`];
   if (t.dbMs !== null && (t.serverMs >= 1000 || t.dbMs >= 1000)) parts.push(`in the database ${secondsText(t.dbMs)}`);
   if (t.totalMs !== null && t.serverMs < t.totalMs / 2) parts.push('the rest was the network');
   return parts.join(' · ');
+}
+
+/**
+ * 1.23.14 — where the time went, from the browser's own timing: its biggest part in plain words. Waiting for
+ * the first byte is split by the server's own time: the server's work, or a hold-up on the way (the
+ * hosting's front door or the connection).
+ */
+function breakdownText(t: SlowTiming): string {
+  const queue = t.queueMs ?? 0;
+  const connect = t.connectMs ?? 0;
+  const wait = t.waitMs ?? 0;
+  const download = t.downloadMs ?? 0;
+  const biggest = Math.max(queue, connect, wait, download);
+  if (biggest === wait) {
+    if (t.serverMs === null) return `waited ${secondsText(wait)} before the server started answering (the server didn’t say its own time)`;
+    if (t.serverMs >= wait - t.serverMs) {
+      const db = t.dbMs !== null && (t.serverMs >= 1000 || t.dbMs >= 1000) ? ` · in the database ${secondsText(t.dbMs)}` : '';
+      return `the server took ${secondsText(t.serverMs)}${db}`;
+    }
+    return `waited ${secondsText(wait)} before the server started answering; the server itself took ${secondsText(t.serverMs)} — the hold-up was between the browser and the server (the hosting’s front door or the connection)`;
+  }
+  if (biggest === download) return `downloading the answer took ${secondsText(download)}`;
+  if (biggest === connect) return `connecting to the server took ${secondsText(connect)} (a slow or changing connection)`;
+  return `the browser waited ${secondsText(queue)} before sending it (no free connection)`;
+}
+
+/** 1.23.14 — each part of a request's time, for its occurrence ("Waiting for a connection … · downloading …"); '' for older reports. */
+export function partsText(t: SlowTiming | null | undefined): string {
+  if (!t || t.waitMs === undefined) return '';
+  return [
+    `Waiting for a connection ${secondsText(t.queueMs ?? 0)}`,
+    `connecting ${secondsText(t.connectMs ?? 0)}`,
+    `waiting for the first byte ${secondsText(t.waitMs)}`,
+    `downloading ${secondsText(t.downloadMs ?? 0)}`,
+  ].join(' · ');
+}
+
+/**
+ * 1.23.14 — a page-show row (largest content, page load) says how its times are counted: only while the
+ * page is on screen; the rows kept from before may include time it spent in the background.
+ */
+export function pageTimeNote(g: Pick<ErrorGroup, 'kind' | 'title'>): string {
+  if (g.kind !== 'SLOW' || !/^(Slow to show the page|Slow page load)\b/.test(g.title)) return '';
+  return 'Counted only while the page is on screen — older entries may include time it spent in the background.';
+}
+
+/** 1.23.14 — what a slow click or key press was on ("On a click on a button"); '' for anything else. */
+export function interactionWords(e: Pick<ErrorOccurrence, 'detail' | 'resource'>): string {
+  return e.detail === 'inp' && e.resource ? `On ${e.resource}` : '';
 }
 
 /** A slow request's row: where the last time's wait went ("Last time 10.2 s: server 9.9 s · …"). */
