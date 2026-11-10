@@ -285,6 +285,13 @@ describe('This week', () => {
     expect(week(build({ tasks: [task('A-1')], week: { due: [], completions: [...at('2026-10-27', 2), ...at('2026-11-02', 2)] } }).text)).toContain('2 done vs 2 the week before (the same)');
   });
 
+  it('nothing completed in the last two weeks: a plain line instead of seven empty bars', () => {
+    const e = build({ tasks: [task('A-1')], week: { due: [{ dueDate: day('2026-11-04'), done: false }], completions: [] } });
+    expect(section(e.text, 'This week')).toContain('Nothing completed in the last two weeks');
+    expect(section(e.text, 'This week')).not.toContain('Done each day');
+    expect(e.html).not.toContain('Done each day, last 7 days');
+  });
+
   it('nothing due this week and nothing done in two weeks: no section', () => {
     expect(build({ tasks: [task('A-1')] }).text).not.toContain('== This week');
     // Something done, nothing due: the trend alone.

@@ -895,6 +895,10 @@ describe('System settings → Daily email: "Preview my email" (the redesign)', (
     expect(frame.getAttribute('sandbox')).toBe('');
     expect(frame.getAttribute('srcdoc')).toContain('Good morning, Admin');
     expect(calls.filter((c) => c.url.includes('/admin/daily-emails/my-preview'))).toHaveLength(1);
+    // On a phone the email scrolls in the window: keyboard users can reach and scroll it (axe: scrollable-region-focusable).
+    const area = within(dialog).getByRole('region', { name: 'Email preview' });
+    expect(area).toHaveAttribute('tabindex', '0');
+    expect(area).toContainElement(frame);
     const computer = within(dialog).getByRole('button', { name: 'Computer' });
     const phone = within(dialog).getByRole('button', { name: 'Phone' });
     expect(computer).toHaveAttribute('aria-pressed', 'true');

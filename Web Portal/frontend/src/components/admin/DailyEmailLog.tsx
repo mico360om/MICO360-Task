@@ -796,7 +796,8 @@ function MyPreviewDialog({ onClose }: { onClose: () => void }) {
               {choice('phone', 'Phone')}
             </div>
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto bg-ground px-3 py-3 sm:px-5">
+          {/* The email can be taller than a phone's window: this area scrolls, so keyboard users can reach it. */}
+          <div role="region" aria-label="Email preview" tabIndex={0} className="min-h-0 flex-1 overflow-y-auto bg-ground px-3 py-3 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand sm:px-5">
             {q.isLoading ? (
               <p className="text-sm text-ink-2">Building your email…</p>
             ) : q.isError || !q.data ? (

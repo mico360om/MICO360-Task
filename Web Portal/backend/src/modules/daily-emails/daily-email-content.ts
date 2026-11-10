@@ -655,6 +655,8 @@ function weekAndPriority(week: Piece | null, priority: Piece | null): Piece {
   return { html, text: [week?.text, priority?.text].filter(Boolean).join('\n\n') };
 }
 
+const NONE_DONE = 'Nothing completed in the last two weeks';
+
 function weekPiece(m: Model, c: Brand['colors']): Piece {
   const w = m.week;
   const pct = share(w.done, w.due);
@@ -671,6 +673,8 @@ function weekPiece(m: Model, c: Brand['colors']): Piece {
       return `<td align="center" valign="bottom" width="14%" style="width:14%;padding:0 1px"><div class="email-muted" style="font-size:11px;line-height:14px;color:${c.ink2}">${d.n}</div><table role="presentation" width="16" cellpadding="0" cellspacing="0" style="width:16px;border-collapse:collapse"><tr><td width="16" ${fill}>&nbsp;</td></tr></table><div class="email-muted" style="font-size:11px;line-height:14px;color:${c.ink2}">${d.label}</div></td>`;
     })
     .join('');
+  // Seven empty bars say nothing: a plain line instead.
+  const anyDone = w.lastWeek + w.weekBefore > 0;
   const diff = w.lastWeek - w.weekBefore;
   const arrow = diff > 0 ? '↑' : diff < 0 ? '↓' : '→';
   const word = diff > 0 ? 'more' : diff < 0 ? 'fewer' : 'the same';
@@ -682,13 +686,15 @@ function weekPiece(m: Model, c: Brand['colors']): Piece {
     `<div class="email-muted" style="font-size:12px;line-height:1.4;color:${c.ink2}">Due this week</div>` +
     `<div class="email-text" style="margin:2px 0 6px;font-size:15px;line-height:1.35;font-weight:700;color:${c.ink}">${escapeHtml(dueLine)}</div>` +
     (w.due > 0 ? bar(pct, DONE_TOKEN, DONE, { height: 8 }) : '') +
-    `<div class="email-muted" style="margin-top:12px;font-size:12px;line-height:1.4;color:${c.ink2}">Done each day, last 7 days</div>` +
-    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;margin-top:4px"><tr>${cols}</tr></table>` +
-    `<div class="em-ink-${toneToken}" style="margin-top:6px;font-size:13px;line-height:1.4;font-weight:700;color:${tone.light.text}">${escapeHtml(versus)} ${arrow}</div>`;
+    (anyDone
+      ? `<div class="email-muted" style="margin-top:12px;font-size:12px;line-height:1.4;color:${c.ink2}">Done each day, last 7 days</div>` +
+        `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;margin-top:4px"><tr>${cols}</tr></table>` +
+        `<div class="em-ink-${toneToken}" style="margin-top:6px;font-size:13px;line-height:1.4;font-weight:700;color:${tone.light.text}">${escapeHtml(versus)} ${arrow}</div>`
+      : `<div class="email-muted" style="margin-top:12px;font-size:12px;line-height:1.4;color:${c.ink2}">${NONE_DONE}.</div>`);
   const text = [
     '== This week ==',
     w.due > 0 ? `Due this week: ${dueLine}` : 'Nothing due this week',
-    `Done each day, last 7 days: ${w.trend.map((d) => `${d.label} ${d.n}`).join(' · ')} — ${versus} (${word})`,
+    anyDone ? `Done each day, last 7 days: ${w.trend.map((d) => `${d.label} ${d.n}`).join(' · ')} — ${versus} (${word})` : `${NONE_DONE}.`,
   ].join('\n');
   return { html, text };
 }
