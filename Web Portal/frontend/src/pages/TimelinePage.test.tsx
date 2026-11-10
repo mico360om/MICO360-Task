@@ -558,6 +558,41 @@ describe('the Timeline fills the window (1.23.8)', () => {
     expect(document.querySelector('[data-timeline-fill]')).not.toBeNull();
   });
 
+  /** The chart's card starts `top` px down the (768px) window. */
+  const cardAt = (top: number) => {
+    const realRect = HTMLElement.prototype.getBoundingClientRect;
+    return vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      return this.hasAttribute('data-timeline-card') ? ({ top, bottom: 760, left: 0, right: 900, width: 900, height: 760 - top, x: 0, y: top, toJSON: () => ({}) } as DOMRect) : realRect.call(this);
+    });
+  };
+
+  it('where the summary leaves the chart little room (1024×768: two rows of summary cards), the page scrolls instead of squeezing the chart', async () => {
+    windowIs(true);
+    // 420px down a 768px window: about 300px would be left, two projects' worth.
+    const spy = cardAt(420);
+    try {
+      renderPage();
+      await screen.findByRole('list', { name: 'Projects' });
+      await act(async () => {});
+      expect(document.querySelector('[data-timeline-page]')!.className).not.toContain('page-fill');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('with room for a few projects under the summary (a 1366×768 laptop), the chart still fills the window', async () => {
+    windowIs(true);
+    const spy = cardAt(250);
+    try {
+      renderPage();
+      await screen.findByRole('list', { name: 'Projects' });
+      await act(async () => {});
+      expect(document.querySelector('[data-timeline-page]')!.className).toContain('page-fill');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('the legend shows the health colours (on track green, at risk amber, late red), the same as the bars', async () => {
     renderPage();
     const legend = await screen.findByRole('list', { name: 'Legend' });

@@ -43,7 +43,7 @@ import {
 import { TOUCH_TALL } from '../lib/touch';
 import { WaitingIcon } from '../components/approvals/ApprovalChip';
 import { HEALTH_CLASS } from '../lib/colour-classes';
-import { useFrameOffset } from '../lib/useFrameOffset';
+import { useFrameOffset, useRoomBelow } from '../lib/useFrameOffset';
 
 const iconButton = 'grid h-9 w-9 flex-none place-items-center rounded-xl border border-line bg-surface text-ink-2 transition-colors hover:border-brand hover:text-brand [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11';
 const SELECT_BOX =
@@ -52,6 +52,10 @@ const SELECT = 'h-full min-w-0 cursor-pointer rounded-xl bg-transparent pe-2 tex
 
 /** "4 Oct 2026 – 2 Jan 2027". */
 const period = (from: string, to: string) => `${shortDay(from, '0000')} – ${shortDay(to, '0000')}`;
+/** 1.23.8 The least height the chart's card needs before the page fills the window: its months (about 4.25rem),
+ *  the busy weeks (3.5rem), the key (up to 5.5rem on a narrow screen) and about three projects (4.3rem each). */
+const CHART_ROOM_REM = 26;
+const rootFontPx = () => (typeof document === 'undefined' ? 16 : parseFloat(getComputedStyle(document.documentElement).fontSize) || 16);
 
 function Card({ icon, tone, value, label, pressed, onToggle, ring, className = '' }: { icon: ReactNode; tone: string; value: number | string; label: string; pressed?: boolean; onToggle?: () => void; ring?: string; className?: string }) {
   const inner = (
@@ -235,7 +239,12 @@ export function TimelinePage() {
   // Only where the window is tall enough (640px, as the board): the header, the summary cards and the chart
   // need the room — a phone on its side or a 720px laptop scrolls the page instead.
   const tall = useMediaQuery('(min-height: 40em)');
-  const fill = !phone && tall;
+  // And only where that leaves the chart room for a few projects under the summary (its months, the busy weeks,
+  // the key and about three rows): at 1024×768 the summary cards take two rows and the chart would get two
+  // projects' height, so the page keeps the whole chart and scrolls instead.
+  const cardRef = useRef<HTMLDivElement>(null);
+  const room = useRoomBelow(cardRef, pageRef, !phone && tall && ready && shown.length > 0);
+  const fill = !phone && tall && (room === null || room >= CHART_ROOM_REM * rootFontPx());
   const pageTop = useFrameOffset(pageRef, fill);
 
   return (
@@ -341,7 +350,7 @@ export function TimelinePage() {
       ) : phone ? (
         <PhoneList projects={shown} today={today} range={{ from: data.from, to: data.to }} expanded={expanded} onExpand={expand} onOpenTask={openTask} />
       ) : (
-        <div className="card flex min-h-[20rem] flex-1 flex-col overflow-hidden">
+        <div ref={cardRef} data-timeline-card className="card flex min-h-[20rem] flex-1 flex-col overflow-hidden">
           <TimelineChart
             range={{ from: data.from, to: data.to, weeks: data.weeks }}
             today={today}

@@ -37,7 +37,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ### Improvements
 - The Timeline fills the window: its chart grows to the window's height and scrolls by itself, with the
-  weeks always in view. The Dashboard places its widgets side by side in one, two or three columns by the
+  weeks always in view (where that leaves room for a few projects; on a smaller screen the page scrolls as
+  before). The Dashboard places its widgets side by side in one, two or three columns by the
   room there is, the last of a row stretches, cards in a row end level, and its lists show more rows on a
   tall screen.
 - One spacing for cards and page headers on every page, the Client portal included; Day | Month on the
