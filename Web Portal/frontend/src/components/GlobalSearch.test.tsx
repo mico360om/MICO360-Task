@@ -496,3 +496,17 @@ describe('GlobalSearch — when tasks couldn’t be searched', () => {
     expect(screen.queryByText(/Tasks couldn’t be searched/)).toBeNull();
   });
 });
+
+describe('GlobalSearch — archived tasks (task archive)', () => {
+  it('a found archived task says so; a live one doesn’t', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(json({ data: { tasks: [
+      { id: 't1', key: 'RIG-12', title: 'Old valve check', projectId: 'p1', archived: true, archivedAt: '2026-11-03T05:00:00Z' },
+      { id: 't2', key: 'RIG-13', title: 'New valve check', projectId: 'p1', archived: false },
+    ], projects: [], users: [] } }))));
+    setup(<GlobalSearch debounceMs={0} />);
+    await userEvent.type(screen.getByRole('searchbox', { name: /search/i }), 'valve');
+    const archived = (await screen.findByText('Old valve check')).closest('button')!;
+    expect(archived).toHaveTextContent('Archived');
+    expect(screen.getByText('New valve check').closest('button')!).not.toHaveTextContent('Archived');
+  });
+});

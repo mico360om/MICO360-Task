@@ -57,6 +57,7 @@ const ProfilePage = lazyPage(() => import('./pages/ProfilePage'), 'ProfilePage')
 const MicoAiPage = lazyPage(() => import('./pages/MicoAiPage'), 'MicoAiPage');
 const TemplatesPage = lazyPage(() => import('./pages/TemplatesPage'), 'TemplatesPage');
 const RecycleBinPage = lazyPage(() => import('./pages/RecycleBinPage'), 'RecycleBinPage');
+const ArchivedTasksPage = lazyPage(() => import('./pages/ArchivedTasksPage'), 'ArchivedTasksPage');
 // A client's read-only page for one shared project (no staff sign-in, no app shell).
 const ClientViewPage = lazyPage(() => import('./pages/ClientViewPage'), 'ClientViewPage');
 const AboutPage = lazyPage(() => import('./pages/AboutPage'), 'AboutPage');
@@ -176,6 +177,8 @@ export function App() {
             <Route path="/board" element={<BoardPage />} />
             <Route path="/projects" element={<ProjectsPage />} />
             <Route path="/projects/:id" element={<ProjectDetailPage />} />
+            {/* Task archive: a project's archived tasks (read-only; Unarchive for whoever runs it). */}
+            <Route path="/projects/:id/archived" element={<ArchivedTasksPage />} />
             <Route path="/my-tasks" element={<MyTasksPage />} />
             <Route path="/calendar" element={<CalendarPage />} />
             <Route path="/timeline" element={<TimelinePage />} />

@@ -47,6 +47,9 @@ import { ProjectInspectionsTab } from '../components/inspections/ProjectInspecti
 import { TOUCH_SQUARE, TOUCH_TALL } from '../lib/touch';
 import { isProjectArchived, projectReadOnly } from '../lib/project-archive';
 import { statusColour } from '../lib/colour-classes';
+import { archivedTasksKey } from '../lib/task-archive';
+import { isTaskDone } from '../lib/due-display';
+import { ArchiveIcon } from '../components/task-archive/ArchivedBadge';
 
 type Tab = 'overview' | 'board' | 'tasks' | 'meetings' | 'inspections' | 'team';
 const TABS: Array<{ v: Tab; label: string }> = [
@@ -101,6 +104,8 @@ export function ProjectDetailPage() {
   const projectQ = useQuery({ queryKey: ['project', id], queryFn: () => projectsApi(apiClient).get(id), enabled: !!id });
   const columnsQ = useQuery({ queryKey: ['columns', id], queryFn: () => columnsApi(apiClient).list(id), enabled: !!id });
   const tasksQ = useQuery({ queryKey: ['project-tasks', id], queryFn: () => tasksApi(apiClient).list(id), enabled: !!id });
+  // Task archive: the project's archived tasks — its archived Done ones still count in its figures (owner, 10 Nov).
+  const archivedQ = useQuery({ queryKey: archivedTasksKey(id), queryFn: () => tasksApi(apiClient).listArchived(id), enabled: !!id });
   const membersQ = useQuery({ queryKey: ['members', id], queryFn: () => membersApi(apiClient).list(id), enabled: !!id });
   // Under ['meetings'], so any meeting saved anywhere in the app refreshes it too.
   const meetingsQ = useQuery({ queryKey: ['meetings', 'project', id], queryFn: () => meetingsApi(apiClient).projectOverview(id), enabled: !!id });
@@ -238,9 +243,20 @@ export function ProjectDetailPage() {
     () => (Array.isArray(tasksQ.data) ? tasksQ.data : []).map((t) => ({ ...t, columnCategory: columnById.get(t.columnId)?.category ?? t.columnCategory ?? 'TODO' })),
     [tasksQ.data, columnById],
   );
-  const stats = useMemo(() => taskStats(tasks, today, timeZone), [tasks, today, timeZone]);
+  // Task archive (owner, 10 Nov): an archived Done task still counts as done in the project's figures — the
+  // tiles, Work done and completion (by weight too) — so archiving finished work never lowers a %. An archived
+  // open task leaves them all. The lists (board, tasks, milestones, deadlines) show neither.
+  const figureTasks = useMemo<ApiTask[]>(() => {
+    const listed = new Set(tasks.map((t) => t.id));
+    const doneArchived = (Array.isArray(archivedQ.data) ? archivedQ.data : [])
+      .filter((t) => t.archivedAt && !listed.has(t.id))
+      .map((t) => ({ ...t, columnCategory: columnById.get(t.columnId)?.category ?? t.columnCategory ?? 'TODO' }))
+      .filter((t) => isTaskDone(t));
+    return doneArchived.length ? [...tasks, ...doneArchived] : tasks;
+  }, [tasks, archivedQ.data, columnById]);
+  const stats = useMemo(() => taskStats(figureTasks, today, timeZone), [figureTasks, today, timeZone]);
   // 1.23.5: completion in the project's own mode (by weight when it counts by weight), both ways.
-  const completion = projectCompletion(tasks, project);
+  const completion = projectCompletion(figureTasks, project);
 
   // Tasks grouped by their status column (in board order), plus any orphaned tasks.
   const groups = useMemo<TaskGroup[]>(() => {
@@ -376,6 +392,17 @@ export function ProjectDetailPage() {
             <span className="max-sm:sr-only">Deleted tasks</span>
           </Link>
         ) : null}
+        {project ? (
+          // Task archive: this project's archived tasks — anyone on it may look (read-only); Unarchive for the people who run it.
+          <Link
+            to={`/projects/${encodeURIComponent(project.id)}/archived`}
+            title="This project’s archived tasks (hidden from the board and lists, kept read-only)"
+            className={`inline-flex flex-none items-center justify-center gap-1.5 rounded-xl border border-line bg-surface px-3 py-2 text-sm font-semibold text-ink transition-colors hover:border-brand hover:text-brand ${TOUCH_SQUARE}`}
+          >
+            <ArchiveIcon size={16} />
+            <span className="max-sm:sr-only">Archived tasks</span>
+          </Link>
+        ) : null}
         {canEditProject && project ? (
           <button
             type="button"
@@ -449,6 +476,7 @@ export function ProjectDetailPage() {
             <OverviewTab
               project={project}
               tasks={tasks}
+              figureTasks={figureTasks}
               groups={groups}
               today={today}
               timeZone={timeZone}

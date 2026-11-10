@@ -53,6 +53,8 @@ function Detail({ label, children }: { label: string; children: ReactNode }) {
 export interface OverviewProps {
   project: ApiProject;
   tasks: ApiTask[];
+  /** Task archive: the tasks the figures count — the listed ones and the archived Done ones (Work done). Default: `tasks`. */
+  figureTasks?: ApiTask[];
   groups: TaskGroup[];
   today: string;
   timeZone: string;
@@ -82,6 +84,8 @@ export interface OverviewProps {
 export function OverviewTab(p: OverviewProps) {
   const { project, tasks, today, timeZone } = p;
   const stats = taskStats(tasks, today, timeZone);
+  // Task archive: Work done counts an archived Done task too (the Completion tile's figure).
+  const done = p.figureTasks ? taskStats(p.figureTasks, today, timeZone) : stats;
   const timeline = projectTimeline(project.startDate, project.targetDate, today, timeZone);
   const marks = milestones(tasks, today, timeZone);
   const soon = deadlines(tasks, today, 14, timeZone);
@@ -123,12 +127,12 @@ export function OverviewTab(p: OverviewProps) {
                 <span className="tabular-nums text-ink-2">
                   {p.statsReady
                     ? p.completion?.mode === 'WEIGHT'
-                      ? `${stats.completed} of ${stats.total} tasks · ${p.completion.weightPct}% by weight · ${p.completion.countPct}% by count`
-                      : `${stats.completed} of ${stats.total} tasks · ${stats.pct}% done`
+                      ? `${done.completed} of ${done.total} tasks · ${p.completion.weightPct}% by weight · ${p.completion.countPct}% by count`
+                      : `${done.completed} of ${done.total} tasks · ${done.pct}% done`
                     : '…'}
                 </span>
               </div>
-              <ProgressBar value={p.statsReady ? (p.completion?.pct ?? stats.pct) : 0} label="Work done" tone="done" />
+              <ProgressBar value={p.statsReady ? (p.completion?.pct ?? done.pct) : 0} label="Work done" tone="done" />
             </div>
             <div>
               <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-x-2 text-sm">
