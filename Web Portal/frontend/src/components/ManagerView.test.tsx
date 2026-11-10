@@ -181,6 +181,8 @@ describe('Manager View — an admin page’s address', () => {
     expect(screen.getByRole('heading', { name: MANAGER_VIEW_WORDS.blockedTitle })).toBeInTheDocument();
     expect(screen.getByText(MANAGER_VIEW_WORDS.blockedText)).toBeInTheDocument();
     expect(screen.queryByText('System Settings page')).toBeNull();
+    // 44px on a touch screen (gate browser check: it was 36px).
+    expect(screen.getByRole('button', { name: MANAGER_VIEW_WORDS.turnOff }).className).toContain('[@media(pointer:coarse)]:!min-h-11');
     await userEvent.click(screen.getByRole('button', { name: MANAGER_VIEW_WORDS.turnOff }));
     await waitFor(() => expect(screen.getByText('System Settings page')).toBeInTheDocument());
     expect(puts).toEqual([{ on: false }]);

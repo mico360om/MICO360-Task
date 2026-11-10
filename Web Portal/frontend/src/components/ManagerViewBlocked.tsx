@@ -34,7 +34,7 @@ export function ManagerViewBlocked() {
             setFailed(false);
             turn.mutate(false, { onError: () => setFailed(true) });
           }}
-          className="[@media(pointer:coarse)]:min-h-11"
+          className="[@media(pointer:coarse)]:!min-h-11"
         >
           {turn.isPending ? MANAGER_VIEW_WORDS.turningOff : MANAGER_VIEW_WORDS.turnOff}
         </Button>
