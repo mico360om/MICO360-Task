@@ -65,8 +65,9 @@ const port = createMicoAiActionsPort({
   workingDays: async () => [0, 1, 2, 3, 4],
   isActiveUser: async () => true,
   broadcast: (_p, event) => void broadcasts.push(event),
-  audit: { record: async () => undefined },
+  audit: { record: async (entry: Record<string, unknown>) => void audits.push(entry) },
 });
+const audits: Record<string, unknown>[] = [];
 
 const ids = { owner: '', sara: '', outsider: '', project: '', todo: '', done: '' };
 const as = (userId: string): Viewer => ({ userId, roles: ['EMPLOYEE'] });
@@ -183,6 +184,8 @@ describe('MICO AI’s changes through the app’s services (integration)', () =>
     // with the notices about it, and its number is never given again.
     expect(await prisma.task.findUnique({ where: { id: a.id } })).toBeNull();
     expect(await prisma.notification.count({ where: { entityId: a.id } })).toBe(0);
+    // The audit log keeps the erase (who, which task, why).
+    expect(audits.find((e) => e.action === 'task.erased' && e.entityId === a.id)).toMatchObject({ userId: ids.sara, module: 'tasks', newValue: { taskKey: a.key, title: 'Undo me', reason: 'MICO AI: Undo of a task it had just made' } });
     expect(broadcasts).toContain('task:deleted');
     const after = await make('After the undo');
     expect(Number(after.key.split('-')[1])).toBe(Number(a.key.split('-')[1]) + 1);

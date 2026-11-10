@@ -297,9 +297,18 @@ export function createMicoAiActionsPort(deps: MicoAiActionsPortDeps): MicoAiWrit
           AND (SELECT COUNT(*) FROM task_assignees WHERE taskId = ${taskId} AND userId IN (${Prisma.join(people)})) = ${touch.assigneeIds.length}`;
       if (removed !== 1) return false;
       const t = await prisma.task.findUnique({ where: { id: taskId }, select: { projectId: true } });
-      await createPrismaBinStore(prisma)
+      const gone = await createPrismaBinStore(prisma)
         .erase(taskId)
-        .catch((err: unknown) => deps.logger?.error('MICO AI undo: erasing the task it made failed (left in the Recycle Bin)', { err, taskId }));
+        .catch((err: unknown) => {
+          deps.logger?.error('MICO AI undo: erasing the task it made failed (left in the Recycle Bin)', { err, taskId });
+          return null;
+        });
+      // The audit log keeps the erase, as every erase (who, which task, why).
+      if (gone) {
+        await deps.audit
+          .record({ userId: viewer.userId, ip: null, module: 'tasks', action: 'task.erased', entityId: gone.id, newValue: { taskKey: gone.key, title: gone.title, projectId: gone.projectId, reason: 'MICO AI: Undo of a task it had just made' } })
+          .catch((err: unknown) => deps.logger?.error('MICO AI undo: the audit log line failed', { err, taskId }));
+      }
       if (t) announce(t.projectId, 'task:deleted', { id: taskId });
       return true;
     },
