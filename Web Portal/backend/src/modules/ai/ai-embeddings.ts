@@ -25,6 +25,20 @@ const BLANK_TEXT = '(no text)';
 
 type EmbedOptions = { timeoutMs?: number; allowPrivateHosts?: boolean; signal?: AbortSignal };
 
+/**
+ * MICO360 AI answered with another embedding model than the one named (its guide, §6: a substitute is
+ * reported only by X-Mico-Model-Warning and the answer's `model`). Vectors of different models don't
+ * compare, so they are not kept.
+ */
+export class EmbeddingModelChangedError extends ValidationError {
+  constructor(public readonly answeredBy: string) {
+    super(`MICO360 AI answered with another embedding model (${answeredBy.slice(0, 100)}); its vectors were not kept. Meaning search tries again later.`);
+  }
+}
+
+/** "nomic-embed-text" and "nomic-embed-text:latest" are the same model (the platform may list either). */
+const sameModel = (a: string, b: string): boolean => a.trim().toLowerCase().replace(/:latest$/, '') === b.trim().toLowerCase().replace(/:latest$/, '');
+
 /** At most `max` characters, never ending on the first half of a character pair (an emoji). */
 function cutChars(text: string, max: number): string {
   if (text.length <= max) return text;
@@ -84,7 +98,15 @@ async function embedBatch(model: ChatModel, texts: string[], fetchImpl: typeof f
     signal: opts.signal,
   });
   if (!res.ok) throw new ProviderRefusedError(res.status, await providerErrorDetail(res));
-  const json = (await readProviderJson(res)) as { data?: { index?: number; embedding?: unknown }[]; embeddings?: unknown[] } | null;
+  const json = (await readProviderJson(res)) as { model?: unknown; data?: { index?: number; embedding?: unknown }[]; embeddings?: unknown[] } | null;
+  if (model.provider.preset === 'mico360') {
+    // Another embedding model answered (the named one was unavailable): its vectors can't be compared
+    // with the ones kept, so none are kept — the search sweep tries again later.
+    const answered = typeof json?.model === 'string' ? json.model : null;
+    if (res.headers.get('x-mico-model-warning') || (answered && !sameModel(answered, model.modelKey))) {
+      throw new EmbeddingModelChangedError(answered ?? 'unknown');
+    }
+  }
   let vectors: unknown[];
   if (model.provider.kind === 'ollama') vectors = Array.isArray(json?.embeddings) ? json.embeddings : [];
   else {

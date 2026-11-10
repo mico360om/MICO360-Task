@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { cosine, embedTexts, fromVector, toVector } from './ai-embeddings';
+import { cosine, embedTexts, EmbeddingModelChangedError, fromVector, toVector } from './ai-embeddings';
 import type { ChatModel } from './ai-completion';
 
 const capture = (reply: unknown) => {
@@ -81,6 +81,31 @@ describe('embedTexts', () => {
       expect(calls.flat().every((t) => t.trim().length > 0)).toBe(true);
       expect(calls.flat()[2]).toBe('pump');
       expect(vectors).toHaveLength(3);
+    });
+  });
+
+  // MICO360 AI's guide (§5, §6): when the named embedding model is unavailable another one answers, said only
+  // by the X-Mico-Model-Warning header and the answer's `model`. Its vectors can't be compared with ours.
+  describe('another embedding model answered (MICO360 AI)', () => {
+    const answer = (model: string, headers: Record<string, string> = {}) =>
+      (async () => new Response(JSON.stringify({ object: 'list', model, data: [{ index: 0, embedding: [0.1, 0.2] }] }), { status: 200, headers })) as unknown as typeof fetch;
+    const mico = (modelKey = 'nomic-embed-text:latest'): ChatModel => ({ provider: { kind: 'custom', apiBaseUrl: 'https://ai.mico360.com:5310/v1', apiKey: 'k', preset: 'mico360' }, modelKey });
+
+    it('refuses the vectors when the platform says another model answered', async () => {
+      const warned = answer('bge-m3:latest', { 'x-mico-model-warning': "Requested model 'nomic-embed-text:latest' is unavailable; processing on 'bge-m3:latest' instead." });
+      await expect(embedTexts(mico(), ['pump'], warned)).rejects.toThrow(/another embedding model \(bge-m3:latest\)/);
+      await expect(embedTexts(mico(), ['pump'], answer('bge-m3'))).rejects.toBeInstanceOf(EmbeddingModelChangedError);
+    });
+
+    it('keeps them when the model that answered is the one named (":latest" or not)', async () => {
+      expect(await embedTexts(mico(), ['pump'], answer('nomic-embed-text:latest'))).toEqual([[0.1, 0.2]]);
+      expect(await embedTexts(mico(), ['pump'], answer('nomic-embed-text'))).toEqual([[0.1, 0.2]]);
+      expect(await embedTexts(mico('nomic-embed-text'), ['pump'], answer('nomic-embed-text:latest'))).toEqual([[0.1, 0.2]]);
+    });
+
+    it('leaves other providers as they were', async () => {
+      const other: ChatModel = { provider: { kind: 'custom', apiBaseUrl: 'https://api.example.com/v1', apiKey: 'k', preset: 'custom' }, modelKey: 'embed-v1' };
+      expect(await embedTexts(other, ['pump'], answer('embed-v1-2026-01'))).toEqual([[0.1, 0.2]]);
     });
   });
 
