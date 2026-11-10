@@ -14,8 +14,6 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
-## [1.23.9] - 2026-11-10
-
 ### New features
 - Duplicate a task: "Duplicate…" in the task's ⋯ menu (task panel and board cards) and beside Open in
   every Table view. The New task form opens filled in from it — title, description, project, assignees,
@@ -27,6 +25,31 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   completion, approvals and the repeat are never copied. The copy shows "Duplicated from MSSP-34" and the
   original lists its copies (only the ones you can open), and both histories say so. Duplicating needs
   the internet connection.
+- Tasks for the future: the New and Edit task form has a Start date. A task that starts on a later day
+  waits until then — it is on that day's board, not today's, and the form says "Scheduled for 20 Nov".
+  Until its day it is under "Upcoming" in My Tasks and in the project's task list, and out of today's
+  lists, the Open and Overdue counts, My Priorities and the due-date reminders; the calendar, the Timeline,
+  Workload and the daily email's new "Coming up" part still show it. On its start day it is like any task.
+  The people on it are told when it is assigned ("You were assigned a task — starts 20 Nov") and again the
+  morning it starts ("A task starts today", once). This works for tasks made on the website, the Android
+  app, the Chrome extension, with MICO AI, from meeting notes and from a project template that starts later.
+  Moving a not-started task's start date to a later day moves it to that day; a task already under way
+  stays where it is; moving the start to today puts it back on today's board. Existing tasks aren't moved.
+- Manager View, for administrators: a switch in your account menu (saved on your account) that hides
+  the settings while you look at the work as a manager does. While it is on, a "Manager View" badge shows
+  in the top bar; the Admin menu (User Management, Clients, Companies, AI Management, System Settings,
+  Error Log, Audit Logs) is gone, and opening one of its pages by its address says "Manager View is on —
+  turn it off to open this page" with a Turn off button; a project's settings (its details, picture,
+  columns, team, client links, archive) open only for the projects you run; the dashboard's default for
+  everyone and the Workload daily limit can't be changed. Everything else stays as an administrator's:
+  every project's tasks, boards and meetings, Reports, Management and your own settings. The server keeps
+  to it too — for the website, the Android app and the Chrome extension alike. Turning it off gives
+  everything back at once (no signing out), and it can always be turned off. Each switch is recorded in
+  the audit log.
+
+## [1.23.9] - 2026-11-10
+
+### New features
 - One colour scheme everywhere — boards, lists, tables, the calendar, the Timeline, the Dashboard, the
   Client portal, the PDFs and the daily email: statuses are Backlog grey, To do slate, In progress blue,
   Blocked red, Review purple and Done green; priorities are Urgent red, High orange, Normal blue-grey and
@@ -46,16 +69,6 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   on your account.
 - Words that are cut short — a task, project, person or file name — show in full when you point at them,
   tab to them, or press and hold on a touch screen.
-- Tasks for the future: the New and Edit task form has a Start date. A task that starts on a later day
-  waits until then — it is on that day's board, not today's, and the form says "Scheduled for 20 Nov".
-  Until its day it is under "Upcoming" in My Tasks and in the project's task list, and out of today's
-  lists, the Open and Overdue counts, My Priorities and the due-date reminders; the calendar, the Timeline,
-  Workload and the daily email's new "Coming up" part still show it. On its start day it is like any task.
-  The people on it are told when it is assigned ("You were assigned a task — starts 20 Nov") and again the
-  morning it starts ("A task starts today", once). This works for tasks made on the website, the Android
-  app, the Chrome extension, with MICO AI, from meeting notes and from a project template that starts later.
-  Moving a not-started task's start date to a later day moves it to that day; a task already under way
-  stays where it is; moving the start to today puts it back on today's board. Existing tasks aren't moved.
 
 ### Improvements
 - The Timeline fills the window: its chart grows to the window's height and scrolls by itself, with the
