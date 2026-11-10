@@ -16,7 +16,7 @@ import { paletteColorFor } from './tag-repository';
 import { highestKeyNumberIn } from './task-keys';
 import { summarizeExternalContacts } from './external-contacts';
 import { toExternalContactRecord } from './prisma-external-contact-repository';
-import { companyOfProject, findOrCreateGuest, guestColumns, toTaskGuestRecord } from '../guests/guest-store';
+import { companyOfProject, findOrCreateGuest, guestColumns, guestIdsOnProject, seesWholeList, toTaskGuestRecord } from '../guests/guest-store';
 import { GUEST_LIMITS } from './guest-contacts';
 import { LIVE_PROJECT_WHERE } from '../companies/company-access';
 import { currentAcceptance } from '../clients/sign-off';
@@ -210,6 +210,8 @@ async function writeGuests(
 ): Promise<void> {
   const companyId = await companyOfProject(tx, projectId);
   const taskKey = (await tx.task.findUnique({ where: { id: taskId }, select: { key: true } }))?.key;
+  // 1.24: another company's person on a shared project is matched only among the guests on its tasks.
+  const onlyAmong = contacts.length && !(await seesWholeList(tx, { id: createdById }, companyId)) ? await guestIdsOnProject(tx, projectId) : null;
   type Guest = { name: string; company: string | null; designation: string | null; email: string | null; phone: string | null };
   const byGuest = new Map<string, { guest: Guest; remarks: string[] }>();
   for (const p of picked) {
@@ -219,7 +221,7 @@ async function writeGuests(
     byGuest.set(guest.id, seen);
   }
   for (const c of contacts) {
-    const guest = await findOrCreateGuest(tx, companyId, { name: c.name, company: c.company, designation: c.designation, email: c.email, phone: c.phone }, createdById, { taskKey });
+    const guest = await findOrCreateGuest(tx, companyId, { name: c.name, company: c.company, designation: c.designation, email: c.email, phone: c.phone }, createdById, { taskKey, onlyAmong });
     const seen = byGuest.get(guest.id) ?? { guest, remarks: [] };
     if (c.remarks) seen.remarks.push(c.remarks);
     byGuest.set(guest.id, seen);

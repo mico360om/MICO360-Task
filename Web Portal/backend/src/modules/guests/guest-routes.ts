@@ -65,20 +65,20 @@ export async function registerGuestRoutes(app: FastifyInstance, deps: GuestRoute
     const { projectId } = req.params as { projectId: string };
     if (!(await ask(deps.canViewProject, req, projectId))) return reply.status(403).send(noProject);
     const { q } = listQuery.parse(req.query);
-    return { data: await service.listForProject(projectId, q ?? '') };
+    return { data: await service.listForProject(projectId, q ?? '', undefined, { id: req.user!.id, roles: req.user!.roles ?? [] }) };
   });
 
   app.post('/projects/:projectId/guests/check', { preHandler: guard.authenticate }, async (req, reply) => {
     const { projectId } = req.params as { projectId: string };
     if (!(await ask(deps.canViewProject, req, projectId))) return reply.status(403).send(noProject);
-    return { data: await service.duplicatesFor(projectId, guestSchema.parse(req.body ?? {})) };
+    return { data: await service.duplicatesFor(projectId, guestSchema.parse(req.body ?? {}), { id: req.user!.id, roles: req.user!.roles ?? [] }) };
   });
 
   app.post('/projects/:projectId/guests', { preHandler: guard.authenticate }, async (req, reply) => {
     const { projectId } = req.params as { projectId: string };
     if (!(await ask(deps.canViewProject, req, projectId))) return reply.status(403).send(noProject);
     const { confirmNew, ...draft } = createSchema.parse(req.body ?? {});
-    return reply.status(201).send({ data: await service.createForProject(projectId, draft, req.user!.id, { confirmNew }) });
+    return reply.status(201).send({ data: await service.createForProject(projectId, draft, req.user!.id, { confirmNew, viewer: { id: req.user!.id, roles: req.user!.roles ?? [] } }) });
   });
 
   // ---- a task's guests --------------------------------------------------------------------------------

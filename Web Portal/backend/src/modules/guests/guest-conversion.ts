@@ -1,5 +1,7 @@
 import type { PrismaClient } from '@prisma/client';
-import { guestFullness, guestTextKey, isSameGuest, GUEST_LIMITS, type GuestFields } from '../tasks/guest-contacts';
+import { alignTaskGuests, storedNameKey } from './guest-store';
+import { categoryPlanFor, setTaskCategories, taskCategoryNames } from '../categories/category-store';
+import { guestFullness, isSameGuest, GUEST_LIMITS, type GuestFields } from '../tasks/guest-contacts';
 import { alsoRecorded, clipNotes, companyOfProject, guestColumns } from './guest-store';
 
 export { alsoRecorded };
@@ -18,6 +20,8 @@ export interface ConversionResult {
   rows: number;
   guestsMade: number;
   tasks: string[];
+  /** Rows that couldn't be converted this run (each group is its own write: one bad group stops nothing else). */
+  failed?: { rows: number; message: string };
 }
 
 interface Row {
@@ -49,6 +53,7 @@ export async function convertExternalContacts(prisma: PrismaClient, opts: { batc
   const batch = opts.batch ?? 500;
   const result: ConversionResult = { rows: 0, guestsMade: 0, tasks: [] };
   const touched = new Set<string>();
+  const failed = new Set<string>();
   const companyCache = new Map<string, string>();
   const companyOf = async (projectId: string) => {
     if (!companyCache.has(projectId)) companyCache.set(projectId, await companyOfProject(prisma, projectId));
@@ -56,10 +61,23 @@ export async function convertExternalContacts(prisma: PrismaClient, opts: { batc
   };
   for (let round = 0; round < 10_000; round++) {
     const rows: Row[] = await prisma.taskExternalContact.findMany({
-      where: { guestId: null },
+      where: { guestId: null, ...(failed.size ? { id: { notIn: [...failed] } } : {}) },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       take: batch,
-      select: { id: true, taskId: true, name: true, company: true, designation: true, email: true, phone: true, remarks: true, position: true, createdById: true, createdAt: true, task: { select: { projectId: true, key: true } } },
+      select: {
+        id: true,
+        taskId: true,
+        name: true,
+        company: true,
+        designation: true,
+        email: true,
+        phone: true,
+        remarks: true,
+        position: true,
+        createdById: true,
+        createdAt: true,
+        task: { select: { projectId: true, key: true } },
+      },
     });
     if (rows.length === 0) break;
     const byCompany = new Map<string, Row[]>();
@@ -70,8 +88,11 @@ export async function convertExternalContacts(prisma: PrismaClient, opts: { batc
     for (const [companyId, list] of byCompany) {
       // Only rows of one name can be one person: each name's rows (and the list's guests of that name) apart.
       const byName = new Map<string, Row[]>();
-      for (const r of list) byName.set(guestTextKey(r.name), [...(byName.get(guestTextKey(r.name)) ?? []), r]);
-      const existing = await prisma.guestContact.findMany({ where: { companyId, nameKey: { in: [...byName.keys()] }, mergedIntoId: null }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] });
+      for (const r of list) byName.set(storedNameKey(r.name), [...(byName.get(storedNameKey(r.name)) ?? []), r]);
+      const existing = await prisma.guestContact.findMany({
+        where: { companyId, nameKey: { in: [...byName.keys()] }, mergedIntoId: null },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      });
       for (const [nameKey, named] of byName) {
         const guests = existing.filter((g) => g.nameKey === nameKey);
         // Nodes: the list's guests first, then the rows. Guests are never joined to each other (an admin kept them apart).
@@ -84,29 +105,37 @@ export async function convertExternalContacts(prisma: PrismaClient, opts: { batc
           const onList = set.filter((i) => i < guests.length).map((i) => guests[i]!);
           const target = onList.find((g) => !g.retiredAt) ?? onList[0];
           const fullest = [...its].sort((a, b) => guestFullness(b) - guestFullness(a) || a.createdAt.getTime() - b.createdAt.getTime())[0]!;
-          await prisma.$transaction(async (tx) => {
-            const guest = target ?? (await tx.guestContact.create({ data: { companyId, ...guestColumns(fullest), nameKey, createdById: fullest.createdById, createdAt: fullest.createdAt } }));
-            if (!target) result.guestsMade += 1;
-            const extra = alsoRecorded(guest, its);
-            if (extra && !(guest.notes ?? '').includes(extra)) {
-              await tx.guestContact.update({ where: { id: guest.id }, data: { notes: clipNotes([guest.notes, extra].filter(Boolean).join('\n')) } });
-            }
-            for (const row of its) {
-              const { count } = await tx.taskExternalContact.updateMany({ where: { id: row.id, guestId: null }, data: { guestId: guest.id, ...guestColumns(guest) } });
-              if (count) {
-                result.rows += 1;
-                touched.add(row.taskId);
+          try {
+            await prisma.$transaction(async (tx) => {
+              const guest =
+                target ??
+                (await tx.guestContact.create({ data: { companyId, ...guestColumns(fullest), nameKey, createdById: fullest.createdById, createdAt: fullest.createdAt } }));
+              if (!target) result.guestsMade += 1;
+              const extra = alsoRecorded(guest, its);
+              if (extra && !(guest.notes ?? '').includes(extra)) {
+                await tx.guestContact.update({ where: { id: guest.id }, data: { notes: clipNotes([guest.notes, extra].filter(Boolean).join('\n')) } });
               }
-            }
-            // A task with two rows for this guest keeps its first (both remarks).
-            for (const taskId of new Set(its.map((r) => r.taskId))) {
-              const mine = await tx.taskExternalContact.findMany({ where: { taskId, guestId: guest.id }, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }] });
-              if (mine.length < 2) continue;
-              const remarks = [...new Set(mine.map((m) => m.remarks).filter((x): x is string => Boolean(x)))].join('\n').slice(0, GUEST_LIMITS.note) || null;
-              await tx.taskExternalContact.update({ where: { id: mine[0]!.id }, data: { remarks } });
-              await tx.taskExternalContact.deleteMany({ where: { id: { in: mine.slice(1).map((m) => m.id) } } });
-            }
-          });
+              for (const row of its) {
+                const { count } = await tx.taskExternalContact.updateMany({ where: { id: row.id, guestId: null }, data: { guestId: guest.id, ...guestColumns(guest) } });
+                if (count) {
+                  result.rows += 1;
+                  touched.add(row.taskId);
+                }
+              }
+              // A task with two rows for this guest keeps its first (both remarks).
+              for (const taskId of new Set(its.map((r) => r.taskId))) {
+                const mine = await tx.taskExternalContact.findMany({ where: { taskId, guestId: guest.id }, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }] });
+                if (mine.length < 2) continue;
+                const remarks = [...new Set(mine.map((m) => m.remarks).filter((x): x is string => Boolean(x)))].join('\n').slice(0, GUEST_LIMITS.note) || null;
+                await tx.taskExternalContact.update({ where: { id: mine[0]!.id }, data: { remarks } });
+                await tx.taskExternalContact.deleteMany({ where: { id: { in: mine.slice(1).map((m) => m.id) } } });
+              }
+            });
+          } catch (err) {
+            // This person's rows wait for the next run; the others go on.
+            for (const row of its) failed.add(row.id);
+            result.failed = { rows: failed.size, message: err instanceof Error ? err.message.slice(0, 300) : String(err) };
+          }
         }
       }
     }
@@ -134,7 +163,59 @@ export async function runGuestConversion(
   ensureResponsible: (taskId: string, actorId: string, opts: { auto: boolean }) => Promise<unknown>,
 ): Promise<ConversionResult & { responsible: number }> {
   const result = await convertExternalContacts(prisma);
+  // And any open task left with guests and nobody from the team since (its person left the project's team, a
+  // repeat copy's people couldn't be assigned, a run stopped half-way).
+  const alone = await prisma.task.findMany({
+    where: {
+      deletedAt: null,
+      completedAt: null,
+      project: { is: { deletedAt: null } },
+      column: { is: { category: { not: 'DONE' } } },
+      externalContacts: { some: {} },
+      assignees: { none: {} },
+    },
+    select: { id: true },
+    take: 500,
+  });
   let responsible = 0;
-  for (const taskId of await openTasksAmong(prisma, result.tasks)) if (await ensureResponsible(taskId, '', { auto: true })) responsible += 1;
+  for (const taskId of await openTasksAmong(prisma, [...new Set([...result.tasks, ...alone.map((t) => t.id)])]))
+    if (await ensureResponsible(taskId, '', { auto: true })) responsible += 1;
   return { ...result, responsible };
 }
+
+/**
+ * 1.24 heals, run with the conversion every minute (nothing to do on most runs; plain joins — MariaDB-safe):
+ *  - a task row showing other details than its guest (an older server's edit after a rollback) shows the guest's;
+ *  - a guest of another company than its task's project's (the project's main company changed, an older server
+ *    moved the task) is copied onto the right company's list and linked there;
+ *  - a category of another project than its task's (an older server moved the task) becomes the task's
+ *    project's category of the same name, or is dropped.
+ */
+export async function healGuestsAndCategories(prisma: PrismaClient): Promise<{ rows: number; guestTasks: number; categoryTasks: number }> {
+  const rows = await prisma.$executeRaw`UPDATE task_external_contacts x INNER JOIN guest_contacts g ON g.id = x.guestId
+    SET x.name = g.name, x.company = g.company, x.designation = g.designation, x.email = g.email, x.phone = g.phone
+    WHERE NOT (BINARY x.name <=> BINARY g.name AND BINARY x.company <=> BINARY g.company AND BINARY x.designation <=> BINARY g.designation AND BINARY x.email <=> BINARY g.email AND BINARY x.phone <=> BINARY g.phone)`;
+  const wrongCompany = await prisma.$queryRaw<{ taskId: string }[]>`SELECT DISTINCT x.taskId AS taskId FROM task_external_contacts x
+    INNER JOIN guest_contacts g ON g.id = x.guestId
+    INNER JOIN tasks t ON t.id = x.taskId
+    INNER JOIN projects p ON p.id = t.projectId
+    WHERE t.deletedAt IS NULL AND p.mainCompanyId IS NOT NULL AND g.companyId <> p.mainCompanyId`;
+  if (wrongCompany.length)
+    await alignTaskGuests(
+      prisma,
+      wrongCompany.map((r) => r.taskId),
+      null,
+    );
+  const wrongProject = await prisma.$queryRaw<{ taskId: string; projectId: string }[]>`SELECT DISTINCT tc.taskId AS taskId, t.projectId AS projectId FROM task_categories tc
+    INNER JOIN project_categories pc ON pc.id = tc.categoryId
+    INNER JOIN tasks t ON t.id = tc.taskId
+    WHERE pc.projectId <> t.projectId AND t.mergedIntoId IS NULL`;
+  for (const t of wrongProject) {
+    const plan = await categoryPlanFor(prisma, await taskCategoryNames(prisma, t.taskId), t.projectId);
+    await setTaskCategories(prisma, t.taskId, plan.keep, null);
+  }
+  return { rows: Number(rows), guestTasks: wrongCompany.length, categoryTasks: wrongProject.length };
+}
+
+/** For a log line: the heals' numbers when any is above zero. */
+export const healedSomething = (h: { rows: number; guestTasks: number; categoryTasks: number }): boolean => h.rows + h.guestTasks + h.categoryTasks > 0;

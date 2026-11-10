@@ -13,6 +13,9 @@ import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { Toggle } from '../ui/Toggle';
 
 /** A project's categories (every part of the site reads them under this key). */
+/** The task views whose rows carry categories (refreshed after a change to the list). */
+const TASK_VIEWS = new Set(['task', 'tasks', 'board', 'project-tasks', 'my-tasks', 'calendar', 'search']);
+
 export const categoriesKey = (projectId: string) => ['categories', projectId] as const;
 
 /** Below 768px: the section starts folded, so the rest of the window stays in reach on a phone. */
@@ -104,7 +107,12 @@ export function CategoriesEditor({ projectId }: { projectId: string }) {
   const used = categories.map((c) => c.color);
   const newColor = addColor ?? nextCategoryColor(used);
   // Read again by everyone who shows them: the task form (this key) and the lists (lib/useProjectCategories' own key).
-  const refresh = () => qc.invalidateQueries({ queryKey: key });
+  // The list here, and every task view that shows its chips (boards, lists, tables, the task panel, search).
+  const refresh = () =>
+    Promise.all([
+      qc.invalidateQueries({ queryKey: key }),
+      qc.invalidateQueries({ predicate: (q) => TASK_VIEWS.has(String(q.queryKey[0])) }),
+    ]);
 
   useEffect(() => {
     const p = pendingFocus.current;
@@ -437,8 +445,17 @@ export function CategoriesEditor({ projectId }: { projectId: string }) {
                 <div className="text-sm font-medium text-ink">{CATEGORY_WORDS.require}</div>
                 <p id={ids.requireHint} className="text-xs text-ink-2">{CATEGORY_WORDS.requireHint}</p>
               </div>
-              <Toggle on={data?.requireCategory === true} onChange={() => void toggleRequired()} label={CATEGORY_WORDS.require} describedBy={ids.requireHint} disabled={!manage} />
+              <Toggle
+                on={data?.requireCategory === true}
+                onChange={() => void toggleRequired()}
+                label={CATEGORY_WORDS.require}
+                describedBy={ids.requireHint}
+                disabled={!manage || (data?.requireCategory !== true && !categories.some((c) => !c.retired))}
+              />
             </div>
+            {manage && data?.requireCategory !== true && !categories.some((c) => !c.retired) ? (
+              <p className="text-xs text-ink-2">Add a category first: with none in use, nobody could add a task.</p>
+            ) : null}
             {categories.length === 0 ? (
               <p className="text-sm text-ink-2">{CATEGORY_WORDS.none}</p>
             ) : (

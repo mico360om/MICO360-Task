@@ -1,4 +1,4 @@
-import { categoryNameKey } from '../tasks/task-categories';
+import { storedCategoryKey } from '../categories/category-store';
 import { z } from 'zod';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { SearchService } from './search-service';
@@ -521,7 +521,7 @@ export function engineInput(timeZone: string, ctx: ReaderContext | null, viewerI
     ...(f.creator?.length ? { creatorIds: me(f.creator) } : {}),
     ...(f.organizer?.length ? { organizerIds: me(f.organizer) } : {}),
     // 1.24: "category:Electrical" (by name, in any project the person may see) and the page's own filters.
-    ...(f.categories?.length ? { categoryKeys: [...new Set(f.categories.map(categoryNameKey))] } : {}),
+    ...(f.categories?.length ? { categoryKeys: [...new Set(f.categories.map(storedCategoryKey))] } : {}),
     ...(p.category?.length ? { categoryIds: p.category } : {}),
     ...(p.guest?.length ? { guestIds: p.guest } : {}),
     ...(p.guestCompany?.trim() ? { guestCompany: p.guestCompany.trim() } : {}),

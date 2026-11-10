@@ -1,8 +1,8 @@
 import type { Prisma, PrismaClient, ProjectCategory } from '@prisma/client';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../lib/http-errors';
 import { noteActivity, type RecordTaskActivity } from '../activity/task-activity';
+import { storedCategoryKey } from './category-store';
 import {
-  categoryNameKey,
   checkCategoryName,
   isCategoryColor,
   nextCategoryColor,
@@ -21,7 +21,12 @@ export const CATEGORY_CODES = {
   duplicate: 'CATEGORY_DUPLICATE',
   inUse: 'CATEGORY_IN_USE',
   required: 'CATEGORY_REQUIRED',
+  /** "Every task needs a category" with no category in use: nobody could add a task. */
+  noneActive: 'CATEGORY_NONE_ACTIVE',
 } as const;
+
+/** The project needs a category on every task, so it must keep one in use. */
+const NONE_ACTIVE = 'This project needs a category on every task, so it must keep at least one category in use. Add another first, or turn off “Every task needs a category”.';
 
 export interface CategoryRecord {
   id: string;
@@ -105,7 +110,7 @@ export function createCategoryService(deps: CategoryServiceDeps) {
   }
 
   async function assertUniqueName(db: Db, projectId: string, name: string, exceptId?: string): Promise<void> {
-    const clash = await db.projectCategory.findFirst({ where: { projectId, nameKey: categoryNameKey(name), ...(exceptId ? { id: { not: exceptId } } : {}) }, select: { id: true } });
+    const clash = await db.projectCategory.findFirst({ where: { projectId, nameKey: storedCategoryKey(name), ...(exceptId ? { id: { not: exceptId } } : {}) }, select: { id: true } });
     if (clash) throw new ConflictError(CATEGORY_WORDS.duplicate, CATEGORY_CODES.duplicate);
   }
 
@@ -122,7 +127,7 @@ export function createCategoryService(deps: CategoryServiceDeps) {
         await assertUniqueName(tx, projectId, name);
         const color = input.color ?? nextCategoryColor(existing.map((e) => e.color));
         const position = existing.reduce((top, e) => Math.max(top, e.position + 1), 0);
-        return tx.projectCategory.create({ data: { projectId, name, nameKey: categoryNameKey(name), color, position, createdById: actorId } });
+        return tx.projectCategory.create({ data: { projectId, name, nameKey: storedCategoryKey(name), color, position, createdById: actorId } });
       });
       return toRecord(made, 0);
     } catch (err) {
@@ -139,13 +144,14 @@ export function createCategoryService(deps: CategoryServiceDeps) {
       const name = nameOrRefuse(input.name);
       await assertUniqueName(prisma, before.projectId, name, categoryId);
       data.name = name;
-      data.nameKey = categoryNameKey(name);
+      data.nameKey = storedCategoryKey(name);
     }
     if (input.color !== undefined) {
       if (!isCategoryColor(input.color)) throw new ValidationError('Pick one of the colours.');
       data.color = input.color;
     }
     if (input.retired !== undefined) data.retiredAt = input.retired ? (before.retiredAt ?? new Date()) : null;
+    if (input.retired === true && !before.retiredAt) await assertKeepsOneActive(before.projectId, categoryId);
     try {
       const after = await prisma.projectCategory.update({ where: { id: categoryId }, data });
       if (input.name !== undefined || input.color !== undefined) await touchTasksOf(categoryId);
@@ -181,7 +187,8 @@ export function createCategoryService(deps: CategoryServiceDeps) {
 
   /** Delete a category nobody uses (Recycle Bin tasks count): 409 CATEGORY_IN_USE otherwise — retire it instead. */
   async function remove(categoryId: string): Promise<void> {
-    await categoryOrThrow(categoryId);
+    const c = await categoryOrThrow(categoryId);
+    if (!c.retiredAt) await assertKeepsOneActive(c.projectId, categoryId);
     await prisma.$transaction(async (tx) => {
       const used = await tx.taskCategory.count({ where: { categoryId, task: usingTaskWhere } });
       if (used > 0) throw new ConflictError(CATEGORY_WORDS.inUse, CATEGORY_CODES.inUse);
@@ -190,8 +197,19 @@ export function createCategoryService(deps: CategoryServiceDeps) {
   }
 
   /** "Every task needs a category" on or off. */
+  /** A project that needs a category keeps one in use (retiring or deleting the last one is refused). */
+  async function assertKeepsOneActive(projectId: string, leavingId: string): Promise<void> {
+    const project = await liveProject(projectId);
+    if (!project.requireCategory) return;
+    const others = await prisma.projectCategory.count({ where: { projectId, retiredAt: null, id: { not: leavingId } } });
+    if (others === 0) throw new ConflictError(NONE_ACTIVE, CATEGORY_CODES.noneActive);
+  }
+
   async function setRequired(projectId: string, required: boolean): Promise<{ requireCategory: boolean }> {
     await liveProject(projectId);
+    if (required && (await prisma.projectCategory.count({ where: { projectId, retiredAt: null } })) === 0) {
+      throw new ConflictError('Add a category first: with none in use, nobody could add a task to this project.', CATEGORY_CODES.noneActive);
+    }
     await prisma.project.update({ where: { id: projectId }, data: { requireCategory: required } });
     return { requireCategory: required };
   }

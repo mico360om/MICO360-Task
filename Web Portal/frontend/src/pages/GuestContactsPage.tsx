@@ -107,7 +107,11 @@ export function GuestContactsPage() {
   const [editing, setEditing] = useState<ApiAdminGuest | null>(null);
   const [removing, setRemoving] = useState<ApiAdminGuest | null>(null);
   const [merging, setMerging] = useState(false);
-  const refresh = () => void qc.invalidateQueries({ queryKey: ['guests'] });
+  // The list, and every task view that shows guests (an edit or merge changes what they show).
+  const refresh = () => {
+    void qc.invalidateQueries({ queryKey: ['guests'] });
+    void qc.invalidateQueries({ predicate: (q) => ['task', 'tasks', 'board', 'project-tasks', 'my-tasks', 'calendar', 'search'].includes(String(q.queryKey[0])) });
+  };
 
   const retireMut = useMutation({
     mutationFn: (g: ApiAdminGuest) => (g.retiredAt ? api.unretire(g.id) : api.retire(g.id)),

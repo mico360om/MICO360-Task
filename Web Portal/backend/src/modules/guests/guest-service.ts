@@ -23,11 +23,17 @@ import {
   guestColumns,
   guestCountOf,
   responsiblePersonFor,
+  guestIdsOnProject,
+  seesWholeList,
+  storedNameKey,
   syncGuestRows,
   teamCountOf,
   toGuestRecord,
+  toPickerGuest,
   toTaskGuestRecord,
   type GuestRecord,
+  type GuestViewer,
+  type PickerGuest,
   type TaskGuestRecord,
 } from './guest-store';
 
@@ -56,6 +62,8 @@ export interface GuestServiceDeps {
   recordActivity?: RecordTaskActivity;
   /** After a task's guests changed (search index, open boards). */
   onTaskChanged?: (taskId: string) => void | Promise<void>;
+  /** Someone was put on a task as the person responsible (their "assigned to you" notice); never for the switch to guests. */
+  onAssigned?: (taskId: string, userIds: string[], actorId: string) => void | Promise<void>;
 }
 
 export interface AdminGuestRow extends GuestRecord {
@@ -107,19 +115,26 @@ export function createGuestService(deps: GuestServiceDeps) {
     return t;
   }
 
-  /** The project's guest list for picking: active guests, by the typed words (name, company, email, phone), A to Z. */
-  async function listForProject(projectId: string, q = '', limit = PICK_LIMIT): Promise<GuestRecord[]> {
-    const companyId = await companyOfProject(prisma, projectId);
-    const rows = await prisma.guestContact.findMany({ where: { companyId, retiredAt: null, mergedIntoId: null }, orderBy: [{ name: 'asc' }, { id: 'asc' }] });
-    return rows.filter((g) => matchesQuery(g, q)).slice(0, limit).map(toGuestRecord);
+  /** The part of the project's company list this person may see: all of it, or (another company's person) the guests on this project's tasks. */
+  async function visiblePart(projectId: string, companyId: string, viewer?: GuestViewer | null): Promise<Set<string> | null> {
+    return (await seesWholeList(prisma, viewer, companyId)) ? null : guestIdsOnProject(prisma, projectId);
   }
 
-  /** The New guest form's live check against the project's list: the same person, and same-name others. */
-  async function duplicatesFor(projectId: string, draft: GuestDraft): Promise<{ same: GuestRecord[]; similar: GuestRecord[] }> {
+  /** The project's guest list for picking: active guests, by the typed words (name, company, email, phone), A to Z. */
+  async function listForProject(projectId: string, q = '', limit = PICK_LIMIT, viewer?: GuestViewer | null): Promise<PickerGuest[]> {
     const companyId = await companyOfProject(prisma, projectId);
-    const name = guestTextKey(draft.name);
+    const part = await visiblePart(projectId, companyId, viewer);
+    const rows = await prisma.guestContact.findMany({ where: { companyId, retiredAt: null, mergedIntoId: null }, orderBy: [{ name: 'asc' }, { id: 'asc' }] });
+    return rows.filter((g) => (!part || part.has(g.id)) && matchesQuery(g, q)).slice(0, limit).map(toPickerGuest);
+  }
+
+  /** The New guest form's live check against the project's list (the part the person may see): the same person, and same-name others. */
+  async function duplicatesFor(projectId: string, draft: GuestDraft, viewer?: GuestViewer | null): Promise<{ same: PickerGuest[]; similar: PickerGuest[] }> {
+    const companyId = await companyOfProject(prisma, projectId);
+    const name = storedNameKey(draft.name);
     if (!name) return { same: [], similar: [] };
-    const rows = (await prisma.guestContact.findMany({ where: { companyId, nameKey: name, mergedIntoId: null }, orderBy: [{ createdAt: 'asc' }] })).map(toGuestRecord);
+    const part = await visiblePart(projectId, companyId, viewer);
+    const rows = (await prisma.guestContact.findMany({ where: { companyId, nameKey: name, mergedIntoId: null }, orderBy: [{ createdAt: 'asc' }] })).filter((g) => !part || part.has(g.id)).map(toPickerGuest);
     return guestMatches({ name: draft.name ?? '', company: draft.company, email: draft.email, phone: draft.phone }, rows);
   }
 
@@ -127,15 +142,15 @@ export function createGuestService(deps: GuestServiceDeps) {
    * A new guest on the project's company list. The same person already there is refused (409
    * GUEST_DUPLICATE, with them) unless `confirmNew` — the form asks "… is already on the list — use them?".
    */
-  async function createForProject(projectId: string, draft: GuestDraft, actorId: string, opts: { confirmNew?: boolean } = {}): Promise<GuestRecord> {
+  async function createForProject(projectId: string, draft: GuestDraft, actorId: string, opts: { confirmNew?: boolean; viewer?: GuestViewer | null } = {}): Promise<PickerGuest> {
     const fields = cleanOrRefuse(draft);
     const companyId = await companyOfProject(prisma, projectId);
     if (!opts.confirmNew) {
-      const { same } = await duplicatesFor(projectId, fields);
+      const { same } = await duplicatesFor(projectId, fields, opts.viewer ?? { id: actorId });
       if (same.length) throw new ConflictError(GUEST_WORDS.useExisting(same[0]!.company ? `${same[0]!.name} (${same[0]!.company})` : same[0]!.name), GUEST_CODES.duplicate, { matches: same });
     }
-    const g = await prisma.guestContact.create({ data: { companyId, ...guestColumns(fields), nameKey: guestTextKey(fields.name), createdById: actorId } });
-    return toGuestRecord(g);
+    const g = await prisma.guestContact.create({ data: { companyId, ...guestColumns(fields), nameKey: storedNameKey(fields.name), createdById: actorId } });
+    return toPickerGuest(g);
   }
 
   /**
@@ -227,6 +242,14 @@ export function createGuestService(deps: GuestServiceDeps) {
     if (!person) return null;
     await prisma.taskAssignee.upsert({ where: { taskId_userId: { taskId, userId: person.id } }, update: {}, create: { taskId, userId: person.id } });
     await history(taskId, opts.auto ? person.id : actorId, 'ASSIGNED', { assigneeId: person.id, assignee: person.name, reason: 'guests', ...(opts.auto ? { auto: true } : {}) });
+    // Told like anyone assigned — except by the switch to guests (it would tell people about old tasks all at once).
+    if (!opts.auto) {
+      try {
+        await deps.onAssigned?.(taskId, [person.id], actorId);
+      } catch {
+        /* the assignment stands */
+      }
+    }
     await changed(taskId);
     return person;
   }
@@ -270,7 +293,7 @@ export function createGuestService(deps: GuestServiceDeps) {
     }
     const taskIds = (await prisma.taskExternalContact.findMany({ where: { guestId }, select: { taskId: true }, distinct: ['taskId'] })).map((r) => r.taskId);
     const after = await prisma.$transaction(async (tx) => {
-      const g = await tx.guestContact.update({ where: { id: guestId }, data: { ...guestColumns(fields), nameKey: guestTextKey(fields.name), notes } });
+      const g = await tx.guestContact.update({ where: { id: guestId }, data: { ...guestColumns(fields), nameKey: storedNameKey(fields.name), notes } });
       await syncGuestRows(tx, g);
       return g;
     });

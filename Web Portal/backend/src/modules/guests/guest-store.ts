@@ -73,6 +73,49 @@ export const toTaskGuestRecord = (row: TaskExternalContact & { guest?: { retired
   retired: Boolean(row.guest?.retiredAt),
 });
 
+/** A guest as people picking from the list see it (never admins' notes or who made it). */
+export interface PickerGuest extends GuestFields {
+  id: string;
+  companyId: string;
+  retiredAt: Date | null;
+}
+export const toPickerGuest = (g: GuestFields & { id: string; companyId: string; retiredAt: Date | null }): PickerGuest => ({
+  id: g.id,
+  companyId: g.companyId,
+  name: g.name,
+  company: g.company,
+  designation: g.designation,
+  email: g.email,
+  phone: g.phone,
+  retiredAt: g.retiredAt,
+});
+
+/** A name as stored for the duplicate check: guestTextKey, within its column (an Arabic ligature can grow under NFKD). */
+export const storedNameKey = (name: string | null | undefined): string => guestTextKey(name).slice(0, 191);
+
+/** Someone looking at a project: who they are, to know how much of its company's guest list they may see. */
+export interface GuestViewer {
+  id: string;
+  roles?: string[];
+}
+
+/**
+ * May this person see a company's whole guest list? Admins, and the company's own people. Someone of another
+ * company on a shared project sees only the guests already on that project's tasks (guestIdsOnProject).
+ */
+export async function seesWholeList(db: Db, viewer: GuestViewer | null | undefined, companyId: string): Promise<boolean> {
+  if (!viewer) return true;
+  if ((viewer.roles ?? []).includes('ADMIN')) return true;
+  if (!viewer.roles && (await db.userRole.count({ where: { userId: viewer.id, role: { name: 'ADMIN' } } })) > 0) return true;
+  return (await db.companyMember.count({ where: { companyId, userId: viewer.id } })) > 0;
+}
+
+/** The guests on a project's live tasks. */
+export async function guestIdsOnProject(db: Db, projectId: string): Promise<Set<string>> {
+  const rows = await db.taskExternalContact.findMany({ where: { guestId: { not: null }, task: { projectId, deletedAt: null } }, select: { guestId: true }, distinct: ['guestId'] });
+  return new Set(rows.map((r) => r.guestId!));
+}
+
 /** The details a task row copies from its guest. */
 export const guestColumns = (g: GuestFields) => ({ name: g.name, company: g.company, designation: g.designation, email: g.email, phone: g.phone });
 
@@ -95,11 +138,19 @@ export async function companyOfTask(db: Db, taskId: string): Promise<string | nu
  * The company's guest for these details by the duplicate rule — an active one first, else a retired one
  * (never a merged one) — or a new guest. A guest found is never changed (editing the list is admins').
  */
-export async function findOrCreateGuest(db: Db, companyId: string, fields: GuestFields, createdById: string | null, opts: { taskKey?: string } = {}): Promise<GuestContact> {
-  const candidates = await db.guestContact.findMany({ where: { companyId, nameKey: guestTextKey(fields.name), mergedIntoId: null }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] });
-  const same = candidates.filter((g) => isSameGuest(fields, g));
+export async function findOrCreateGuest(
+  db: Db,
+  companyId: string,
+  fields: GuestFields,
+  createdById: string | null,
+  opts: { taskKey?: string; onlyAmong?: Set<string> | null } = {},
+): Promise<GuestContact> {
+  const candidates = await db.guestContact.findMany({ where: { companyId, nameKey: storedNameKey(fields.name), mergedIntoId: null }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] });
+  // Someone who may see only part of the list (another company's person on a shared project) is matched only
+  // within that part: another guest's stored details never come back to them.
+  const same = candidates.filter((g) => isSameGuest(fields, g) && (!opts.onlyAmong || opts.onlyAmong.has(g.id)));
   const found = same.find((g) => !g.retiredAt) ?? same[0];
-  if (!found) return db.guestContact.create({ data: { companyId, ...guestColumns(fields), nameKey: guestTextKey(fields.name), createdById } });
+  if (!found) return db.guestContact.create({ data: { companyId, ...guestColumns(fields), nameKey: storedNameKey(fields.name), createdById } });
   // Details typed that the guest doesn't show are kept in its notes ("Also recorded: …"), never lost — its
   // shown details stay as they are (an admin tidies the list).
   const extra = opts.taskKey ? alsoRecorded(found, [{ ...fields, task: { key: opts.taskKey } }]) : null;

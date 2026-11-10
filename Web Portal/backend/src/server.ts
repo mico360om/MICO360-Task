@@ -77,7 +77,7 @@ import { createPrismaChecklistQueries } from './modules/tasks/prisma-checklist-q
 import { createExternalContactService } from './modules/tasks/external-contact-service';
 import { createPrismaExternalContactRepository } from './modules/tasks/prisma-external-contact-repository';
 import { createGuestService, type GuestService } from './modules/guests/guest-service';
-import { runGuestConversion } from './modules/guests/guest-conversion';
+import { healGuestsAndCategories, healedSomething, runGuestConversion } from './modules/guests/guest-conversion';
 import { createCategoryService } from './modules/categories/category-service';
 import { createCommentService } from './modules/tasks/comment-service';
 import { createCommentNotifier } from './modules/tasks/comment-notifier';
@@ -995,7 +995,13 @@ async function main(): Promise<void> {
 
   // 1.24 Guests on tasks (each company's reusable list; record only — never a user, never emailed) and task
   // categories (each project's own list). Both change the task's words, so search re-reads the task.
-  const guestService = createGuestService({ prisma, recordActivity: recordTaskActivity, onTaskChanged: (taskId) => taskSearchIndex.taskChanged(taskId) });
+  const guestService = createGuestService({
+    prisma,
+    recordActivity: recordTaskActivity,
+    onTaskChanged: (taskId) => taskSearchIndex.taskChanged(taskId),
+    // The person put on a task to look after its guests is told, as anyone assigned (not by the switch to guests).
+    onAssigned: (taskId, userIds, actorId) => onTaskAssigned(taskId, userIds, actorId),
+  });
   guestServiceRef = guestService;
   const categoryService = createCategoryService({ prisma, recordActivity: recordTaskActivity, onTaskChanged: (taskId) => taskSearchIndex.taskChanged(taskId) });
 
@@ -2563,8 +2569,12 @@ async function main(): Promise<void> {
   const runGuestConversionJob = () =>
     runExclusive(jobLock, 'guest-conversion', SWEEP_LEASE_MS, () => new Date(), async () => {
       const done = await runGuestConversion(prisma, (taskId, actorId, opts) => guestService.ensureResponsible(taskId, actorId, opts));
-      if (done.rows) logger.info('Guests: external contacts linked to guests', { rows: done.rows, guestsMade: done.guestsMade, responsible: done.responsible });
+      if (done.rows || done.responsible) logger.info('Guests: external contacts linked to guests', { rows: done.rows, guestsMade: done.guestsMade, responsible: done.responsible });
+      if (done.failed) logger.warn('Guests: some external contacts could not be linked yet (tried again next minute)', done.failed);
       for (const taskId of done.tasks) await taskSearchIndex.taskChanged(taskId);
+      // Rows and categories an older server left out of step (after a rollback), and the like.
+      const healed = await healGuestsAndCategories(prisma);
+      if (healedSomething(healed)) logger.info('Guests and categories: brought back in step', healed);
     }).catch(sweepFailed('guest-conversion', 'guests from external contacts'));
   jobs.every(60 * 1000, runGuestConversionJob);
 

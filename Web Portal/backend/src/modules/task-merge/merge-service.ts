@@ -35,7 +35,7 @@ import {
 } from './merge-rules';
 import { TEXT_MAX } from '../tasks/checklist-tree';
 import { displayName, joinableOf, loadCounts, loadMergeTasks, teamOf, type Db, type MergeCounts, type MergeTask } from './merge-facts';
-import { alignTaskGuests } from '../guests/guest-store';
+import { alignTaskGuests, companyOfProject, findOrCreateGuest, guestColumns } from '../guests/guest-store';
 import { categoryPlanFor, setTaskCategories, taskCategoryNames } from '../categories/category-store';
 
 /** 1.23.3: a merged task's checklist on the main task: "From MICO-14 · Electrical" (fits the title's 191 characters). */
@@ -970,9 +970,21 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
     }
     for (const c of plan.checklist) item('checklist', c.id, c.fromTaskId, { position: c.position });
     if (plan.checklist.length) await tx.checklistItem.updateMany({ where: { id: { in: plan.checklist.map((c) => c.id) } }, data: { taskId: main.id } });
+    // 1.24: a guest of another company's list is the main task's company's guest with the same details (copied
+    // there when there is none): one the main task has already stays on its merged task (Undo gives it back),
+    // as the same guest does.
+    const mainCompany = await companyOfProject(tx, projectId);
+    const guestsOnMain = new Set((await tx.taskExternalContact.findMany({ where: { taskId: main.id }, select: { guestId: true } })).map((x) => x.guestId).filter((x): x is string => !!x));
     for (const c of plan.contacts) {
-      item('contact', c.id, c.fromTaskId, { position: c.position });
-      await tx.taskExternalContact.update({ where: { id: c.id }, data: { taskId: main.id, position: c.newPosition } });
+      const row = await tx.taskExternalContact.findUnique({ where: { id: c.id }, include: { guest: true } });
+      const guest = row?.guest && row.guest.companyId !== mainCompany ? await findOrCreateGuest(tx, mainCompany, guestColumns(row.guest), actor.id, { taskKey: main.key }) : row?.guest ?? null;
+      if (guest && guestsOnMain.has(guest.id)) {
+        item('keepContact', c.id, c.fromTaskId);
+        continue;
+      }
+      if (guest) guestsOnMain.add(guest.id);
+      item('contact', c.id, c.fromTaskId, { position: c.position, ...(guest && row?.guestId !== guest.id ? { guestId: row?.guestId } : {}) });
+      await tx.taskExternalContact.update({ where: { id: c.id }, data: { taskId: main.id, position: c.newPosition, ...(guest && row?.guestId !== guest.id ? { guestId: guest.id, ...guestColumns(guest) } : {}) } });
     }
     for (const f of plan.fills) {
       item('contactFill', f.contactId, f.fromTaskId, { fill: f.fill });
@@ -1430,8 +1442,11 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
       if (Object.keys(clear).length) await tx.taskExternalContact.update({ where: { id: i.rowId }, data: clear as Prisma.TaskExternalContactUncheckedUpdateInput });
     }
     for (const i of of('contact')) {
-      const position = (i.data as { position?: number } | null)?.position ?? 0;
-      await tx.taskExternalContact.updateMany({ where: { id: i.rowId, taskId: main.id }, data: { taskId: i.fromTaskId, position } });
+      const was = (i.data as { position?: number; guestId?: string | null } | null) ?? {};
+      const position = was.position ?? 0;
+      // 1.24: a row the merge linked to the main task's company's guest goes back to its own guest (while it is there).
+      const own = was.guestId ? await tx.guestContact.findFirst({ where: { id: was.guestId, mergedIntoId: null } }) : null;
+      await tx.taskExternalContact.updateMany({ where: { id: i.rowId, taskId: main.id }, data: { taskId: i.fromTaskId, position, ...(own ? { guestId: own.id, ...guestColumns(own) } : {}) } });
     }
     for (const i of of('dependency')) {
       const side = (i.data as { side?: string } | null)?.side;

@@ -284,6 +284,25 @@ describe('CategoriesEditor (a manager)', () => {
     await waitFor(() => expect(screen.getByRole('switch', { name: CATEGORY_WORDS.require })).toHaveAttribute('aria-checked', 'true'));
   });
 
+  it('1.24 review: with no category in use the switch can’t be turned on, and says why', async () => {
+    world.categories = world.categories.map((c) => ({ ...c, retired: true, retiredAt: '2026-11-01T06:00:00.000Z' }));
+    renderEditor();
+    await names();
+    const sw = screen.getByRole('switch', { name: CATEGORY_WORDS.require });
+    expect(sw).toBeDisabled();
+    expect(screen.getByText('Add a category first: with none in use, nobody could add a task.')).toBeInTheDocument();
+  });
+
+  it('1.24 review: a change to a category refreshes the tasks that show it (boards, lists, the task panel)', async () => {
+    renderEditor();
+    await names();
+    qc.setQueryData(['board', 'p1'], []);
+    qc.setQueryData(['task', 't1'], {});
+    await userEvent.click(within(rowOf('Civil')).getByRole('button', { name: 'Retire Civil' }));
+    await waitFor(() => expect(qc.getQueryState(['board', 'p1'])?.isInvalidated).toBe(true));
+    expect(qc.getQueryState(['task', 't1'])?.isInvalidated).toBe(true);
+  });
+
   it('reads the list again under [categories, projectId] after a change (the task forms read it there)', async () => {
     renderEditor();
     await names();

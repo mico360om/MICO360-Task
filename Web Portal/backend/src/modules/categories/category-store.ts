@@ -3,6 +3,9 @@ import { categoryNameKey } from '../tasks/task-categories';
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
+/** A category name as stored for the one-per-project check: categoryNameKey, within its column. */
+export const storedCategoryKey = (name: string): string => categoryNameKey(name).slice(0, 160);
+
 /** A task's categories by name (its project's order). */
 export async function taskCategoryNames(db: Db, taskId: string): Promise<{ id: string; name: string; projectId: string }[]> {
   const rows = await db.taskCategory.findMany({ where: { taskId }, include: { category: true } });
@@ -20,7 +23,7 @@ export async function categoryPlanFor(db: Db, categories: { id: string; name: st
   const keep: string[] = [];
   const drop: { id: string; name: string }[] = [];
   for (const c of categories) {
-    const match = c.projectId === projectId ? c.id : byKey.get(categoryNameKey(c.name));
+    const match = c.projectId === projectId ? c.id : byKey.get(storedCategoryKey(c.name));
     if (match) {
       if (!keep.includes(match)) keep.push(match);
     } else drop.push({ id: c.id, name: c.name });

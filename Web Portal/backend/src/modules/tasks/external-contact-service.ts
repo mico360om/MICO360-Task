@@ -67,23 +67,26 @@ export function createExternalContactService({ repo, taskLookup, onChanged, ensu
     await ensureTask(taskId);
     const added = await repo.add(taskId, fields, userId, MAX_EXTERNAL_CONTACTS);
     if (!added) throw new ConflictError(TOO_MANY, 'TOO_MANY_EXTERNAL_CONTACTS');
+    if (added.alreadyOnTask) return added;
     await ensureResponsible?.(taskId, userId);
     await onChanged?.(taskId);
     return added;
   }
 
   /** Change the fields sent (one sent empty is cleared), keeping the rest; says what it was before and whether anything changed. */
-  async function update(contactId: string, draft: ExternalContactDraft): Promise<{ before: ExternalContactRecord; after: ExternalContactRecord; changed: boolean }> {
+  async function update(contactId: string, draft: ExternalContactDraft, actorId?: string): Promise<{ before: ExternalContactRecord; after: ExternalContactRecord; changed: boolean }> {
     const before = await get(contactId);
     const merged: ExternalContactDraft = { ...fieldsOf(before) };
     for (const field of FIELDS) if (draft[field] !== undefined) merged[field] = draft[field];
     const fields = cleanOrRefuse(merged);
     const changed = FIELDS.some((f) => fields[f] !== before[f]);
     if (!changed) return { before, after: before, changed };
-    const after = await repo.update(contactId, fields);
+    const after = await repo.update(contactId, fields, actorId);
     if (!after) throw new NotFoundError(GONE);
-    await onChanged?.(after.taskId);
-    return { before, after, changed };
+    // 1.24: the contact is a guest — a change the re-link undid (the same guest, the same remarks) changed nothing.
+    const really = after.id !== before.id || FIELDS.some((f) => after[f] !== before[f]);
+    if (really) await onChanged?.(after.taskId);
+    return { before, after, changed: really };
   }
 
   /** Remove a contact, handing back what it was. */
@@ -99,12 +102,12 @@ export function createExternalContactService({ repo, taskLookup, onChanged, ensu
    * typed — each person once (their most recently saved details), newest first, at most 10. Picking
    * one copies its six fields; nothing is shared between tasks.
    */
-  async function suggest(projectId: string, typed: string): Promise<ExternalContactFields[]> {
+  async function suggest(projectId: string, typed: string, viewer?: { id: string; roles?: string[] } | null): Promise<ExternalContactFields[]> {
     const prefix = typed.trim();
     if (!prefix) return [];
     const seen = new Set<string>();
     const out: ExternalContactFields[] = [];
-    for (const c of await repo.searchProject(projectId, prefix, SUGGESTION_ROWS)) {
+    for (const c of await repo.searchProject(projectId, prefix, SUGGESTION_ROWS, viewer)) {
       const key = personKey(c);
       if (seen.has(key)) continue;
       seen.add(key);

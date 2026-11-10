@@ -401,6 +401,8 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
   const categoriesKnown = !editing || task?.categories !== undefined;
   const catsShown = categoriesKnown && !!projectCats && (catChoices.length > 0 || catsRequired || draft.categoryIds.length > 0);
   const categoryProblem = catsShown && catsRequired && draft.categoryIds.length === 0;
+  /** The categories the last Save read (when it had to read them itself). */
+  const catsAtSave = useRef<typeof projectCats>(null);
   const keptCategories = useMemo(() => (task?.categories ?? []).filter((c) => c.retired).map((c) => c.id), [task?.categories]);
   // A problem put right is forgotten (it is said again only at the next save).
   useEffect(() => {
@@ -485,8 +487,17 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
       setTimeout(() => assignRef.current?.querySelector<HTMLElement>('input[role="combobox"]')?.focus(), 0);
       return;
     }
+    // 1.24: the project's categories not read yet (a quick Save): read them now, so its rule is kept.
+    let cats = projectCats;
+    if (draft.projectId && !cats && categoriesKnown) {
+      cats = await qc
+        .fetchQuery({ queryKey: categoriesKey(draft.projectId), queryFn: () => categoriesApi(apiClient).forProject(draft.projectId) })
+        .then((d) => (d && Array.isArray(d.categories) ? d : null))
+        .catch(() => null);
+    }
+    catsAtSave.current = cats;
     // 1.24: a project that asks every task for a category.
-    if (categoryProblem) {
+    if (categoryProblem || (cats && !projectCats && cats.requireCategory && cats.categories.some((c) => !c.retired) && draft.categoryIds.length === 0)) {
       setCategoryError(true);
       categoriesRef.current?.querySelector<HTMLElement>('button')?.focus();
       return;
@@ -530,7 +541,10 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
       // 1.24: guests from the company's list (a team member is picked too — checked above).
       ...(draft.guests.length ? { guests: draft.guests.map((g) => ({ guestId: g.id })) } : {}),
       // 1.24: sent whenever the project has categories or needs one (sent, they are checked).
-      ...(projectCats && (catChoices.length > 0 || catsRequired) ? { categoryIds: draft.categoryIds } : {}),
+      ...((): { categoryIds?: string[] } => {
+        const cats = catsAtSave.current ?? projectCats;
+        return cats && (cats.categories.length > 0 || cats.requireCategory) ? { categoryIds: draft.categoryIds } : {};
+      })(),
       ...(boardDate ? { boardDate } : {}),
       ...(draft.formId ? { inspectionFormId: draft.formId, inspectionPlace: draft.place.trim() || null } : {}),
     };

@@ -113,6 +113,25 @@ describe('Task form: categories', () => {
     expect(created()!.body?.categoryIds).toEqual(['k1']);
   });
 
+  it('1.24 review: a Save before the categories were read reads them first — the project’s rule still holds', async () => {
+    requireCategory = true;
+    const real = globalThis.fetch as unknown as (url: string, init?: RequestInit) => Promise<Response>;
+    let first = true;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (String(url).endsWith('/projects/p1/categories') && first) {
+        first = false;
+        return json({ error: { code: 'BUSY', message: 'Busy' } }, 503);
+      }
+      return real(url, init);
+    }));
+    renderDialog({ projectId: 'p1' });
+    await ready();
+    await userEvent.type(screen.getByLabelText(/^Task title/), 'Cable trays');
+    await userEvent.click(screen.getByRole('button', { name: 'Create task' }));
+    expect(await screen.findByText(CATEGORY_WORDS.pickOne)).toBeInTheDocument();
+    expect(created()).toBeUndefined();
+  });
+
   it('editing: the task’s categories are picked (a retired one it has stays, marked); an unchanged set isn’t sent', async () => {
     const { onClose } = renderDialog({ task: TASK });
     await ready();

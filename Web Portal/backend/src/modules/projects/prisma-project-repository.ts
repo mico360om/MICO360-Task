@@ -1,4 +1,5 @@
-import { categoryNameKey, isCategoryColor, CATEGORY_NAME_MAX } from '../tasks/task-categories';
+import { isCategoryColor, CATEGORY_NAME_MAX } from '../tasks/task-categories';
+import { storedCategoryKey } from '../categories/category-store';
 import { Prisma, type PrismaClient, type Project } from '@prisma/client';
 import { ConflictError } from '../../lib/http-errors';
 import { DEFAULT_COLUMNS, type CreateProjectData, type PeopleLookup, type ProjectRecord, type ProjectRepository, type UpdateProjectData } from './project-repository';
@@ -111,14 +112,14 @@ export function createPrismaProjectRepository(prisma: PrismaClient): ProjectRepo
               // 1.24: the template's task categories (a name once each; an unknown colour reads as the first).
               const seen = new Set<string>();
               const categories = (start.categories ?? []).filter((c) => {
-                const key = categoryNameKey(c.name);
+                const key = storedCategoryKey(c.name);
                 if (!key || seen.has(key)) return false;
                 seen.add(key);
                 return true;
               });
               if (categories.length) {
                 await tx.projectCategory.createMany({
-                  data: categories.map((c, position) => ({ projectId: p.id, name: c.name.slice(0, CATEGORY_NAME_MAX), nameKey: categoryNameKey(c.name), color: isCategoryColor(c.color) ? c.color : 'teal', position, createdById: p.createdById })),
+                  data: categories.map((c, position) => ({ projectId: p.id, name: c.name.slice(0, CATEGORY_NAME_MAX), nameKey: storedCategoryKey(c.name), color: isCategoryColor(c.color) ? c.color : 'teal', position, createdById: p.createdById })),
                 });
               }
               await writeStartingTasks(tx, { id: p.id, code: p.code, ownerId: p.ownerId, createdById: p.createdById, newTasksNeedApproval: p.newTasksNeedApproval }, column, start);

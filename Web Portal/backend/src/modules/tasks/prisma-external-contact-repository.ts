@@ -1,7 +1,7 @@
 import type { PrismaClient, TaskExternalContact } from '@prisma/client';
 import type { ExternalContactRecord, ExternalContactRepository } from './external-contact-repository';
 import type { ExternalContactFields } from './external-contacts';
-import { companyOfProject, companyOfTask, findOrCreateGuest, guestColumns } from '../guests/guest-store';
+import { companyOfProject, companyOfTask, findOrCreateGuest, guestColumns, guestIdsOnProject, seesWholeList, type Db } from '../guests/guest-store';
 import { DEFAULT_COMPANY } from '../companies/default-company';
 import { GUEST_LIMITS } from './guest-contacts';
 
@@ -25,6 +25,17 @@ const liveTaskWhere = { deletedAt: null, project: { is: { deletedAt: null } } };
 
 /** A contact's own details (the guest's), without the task's remarks. */
 const guestFieldsOf = (f: ExternalContactFields) => ({ name: f.name, company: f.company, designation: f.designation, email: f.email, phone: f.phone });
+
+/**
+ * 1.24: the part of the task's company list this person may be matched against — all of it, or (another
+ * company's person on a shared project) the guests already on that project's tasks.
+ */
+async function matchScope(db: Db, taskId: string, userId: string | null): Promise<{ companyId: string; onlyAmong: Set<string> | null; key?: string }> {
+  const task = await db.task.findUnique({ where: { id: taskId }, select: { key: true, projectId: true } });
+  const companyId = (await companyOfTask(db, taskId)) ?? DEFAULT_COMPANY.id;
+  const whole = !userId || !task || (await seesWholeList(db, { id: userId }, companyId));
+  return { companyId, onlyAmong: whole ? null : await guestIdsOnProject(db, task.projectId), key: task?.key };
+}
 
 /** Does any word of the text start with the prefix (case aside)? */
 export function hasWordStarting(text: string | null, prefix: string): boolean {
@@ -54,13 +65,13 @@ export function createPrismaExternalContactRepository(prisma: PrismaClient): Ext
       return prisma.$transaction(async (tx) => {
         await tx.$queryRaw`SELECT id FROM tasks WHERE id = ${taskId} FOR UPDATE`;
         const existing = await tx.taskExternalContact.findMany({ where: { taskId }, select: { id: true, guestId: true, position: true } });
-        const key = (await tx.task.findUnique({ where: { id: taskId }, select: { key: true } }))?.key;
-        const guest = await findOrCreateGuest(tx, (await companyOfTask(tx, taskId)) ?? DEFAULT_COMPANY.id, guestFieldsOf(fields), createdById, { taskKey: key });
+        const scope = await matchScope(tx, taskId, createdById);
+        const guest = await findOrCreateGuest(tx, scope.companyId, guestFieldsOf(fields), createdById, { taskKey: scope.key, onlyAmong: scope.onlyAmong });
         const already = existing.find((c) => c.guestId === guest.id);
         if (already) {
           // The task has this guest already: one row each — the remarks typed now are kept with it.
           const row = fields.remarks ? await tx.taskExternalContact.update({ where: { id: already.id }, data: { remarks: fields.remarks } }) : await tx.taskExternalContact.findUniqueOrThrow({ where: { id: already.id } });
-          return toExternalContactRecord(row);
+          return { ...toExternalContactRecord(row), alreadyOnTask: true };
         }
         if (existing.length >= max) return null;
         const position = existing.reduce((top, c) => Math.max(top, c.position + 1), 0);
@@ -68,12 +79,12 @@ export function createPrismaExternalContactRepository(prisma: PrismaClient): Ext
         return toExternalContactRecord(row);
       });
     },
-    async update(contactId, fields) {
+    async update(contactId, fields, actorId) {
       return prisma.$transaction(async (tx) => {
         const row = await tx.taskExternalContact.findUnique({ where: { id: contactId } });
         if (!row) return null;
-        const key = (await tx.task.findUnique({ where: { id: row.taskId }, select: { key: true } }))?.key;
-        const guest = await findOrCreateGuest(tx, (await companyOfTask(tx, row.taskId)) ?? DEFAULT_COMPANY.id, guestFieldsOf(fields), row.createdById, { taskKey: key });
+        const scope = await matchScope(tx, row.taskId, actorId ?? null);
+        const guest = await findOrCreateGuest(tx, scope.companyId, guestFieldsOf(fields), actorId ?? row.createdById, { taskKey: scope.key, onlyAmong: scope.onlyAmong });
         const other = guest.id !== row.guestId ? await tx.taskExternalContact.findFirst({ where: { taskId: row.taskId, guestId: guest.id, id: { not: row.id } } }) : null;
         if (other) {
           // The task has that guest already: this row goes, the other keeps both remarks.
@@ -88,14 +99,16 @@ export function createPrismaExternalContactRepository(prisma: PrismaClient): Ext
       const { count } = await prisma.taskExternalContact.deleteMany({ where: { id: contactId } });
       return count > 0;
     },
-    async searchProject(projectId, prefix, limit) {
+    async searchProject(projectId, prefix, limit, viewer) {
       const p = prefix.trim();
       if (!p) return [];
-      // 1.24: the suggestions are the project's company guest list (active guests), by the start of a word
-      // of the name or company (a word can start after a space, a hyphen or a bracket: "Al-Hassan", "Oman (PDO)").
+      // 1.24: the suggestions are the project's company guest list (active guests; another company's person on
+      // a shared project, only the guests on its tasks), by the start of a word of the name or company (a word
+      // can start after a space, a hyphen or a bracket: "Al-Hassan", "Oman (PDO)").
       const companyId = await companyOfProject(prisma, projectId);
+      const only = (await seesWholeList(prisma, viewer, companyId)) ? null : [...(await guestIdsOnProject(prisma, projectId))];
       const rows = await prisma.guestContact.findMany({
-        where: { companyId, retiredAt: null, mergedIntoId: null, OR: [{ name: { contains: p } }, { company: { contains: p } }] },
+        where: { companyId, retiredAt: null, mergedIntoId: null, ...(only ? { id: { in: only } } : {}), OR: [{ name: { contains: p } }, { company: { contains: p } }] },
         orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
         take: limit,
       });
