@@ -2,6 +2,7 @@ import { treeItemCount, type ChecklistTree } from '../tasks/checklist-tree';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../lib/http-errors';
 import { dueDayKey, todayKey, zonedDayKey } from '../../lib/due-date';
 import { boardDateFromKey } from '../tasks/board-date';
+import { newTaskBoardDay } from '../tasks/scheduled-start';
 import { dueDateOnEntry } from '../projects/project-task-settings';
 import { DEFAULT_COLUMNS, type PeopleLookup, type StartingContent } from '../projects/project-repository';
 import { planTemplateTasks, offsetBetween, startColumnIndex, type PlannedTask } from './template-plan';
@@ -346,8 +347,10 @@ export function createTemplateService(deps: TemplateServiceDeps) {
       tasks: planned.map((p: PlannedTask) => {
         // A task is under way from the project's start (or its due day, when that comes first).
         const startDate = day(p.dueDay && p.dueDay < startKey ? p.dueDay : startKey);
-        const dueDate = dueDateOnEntry({ dueDate: p.dueDay ? day(p.dueDay) : null, startDate, boardDate }, { defaultDueToday }, timeZone, at) ?? null;
-        return { title: p.title, description: p.description, priority: p.priority, startDate, dueDate, assigneeIds: p.assigneeId ? [p.assigneeId] : null, checklists: p.checklists };
+        // Tasks scheduled for the future: one that starts later than today waits on its start day's board.
+        const taskBoard = newTaskBoardDay({ startDate }, timeZone, at);
+        const dueDate = dueDateOnEntry({ dueDate: p.dueDay ? day(p.dueDay) : null, startDate, boardDate: taskBoard }, { defaultDueToday }, timeZone, at) ?? null;
+        return { title: p.title, description: p.description, priority: p.priority, startDate, dueDate, boardDate: taskBoard, assigneeIds: p.assigneeId ? [p.assigneeId] : null, checklists: p.checklists };
       }),
     };
     return { template, startWith, fillerIds, filledRoles: filled };

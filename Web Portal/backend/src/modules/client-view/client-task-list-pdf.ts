@@ -1,6 +1,5 @@
 import { PdfDocument, hexToRgb, type TableColumn } from '../../lib/pdf-document';
-import { isolate } from '../../lib/pdf-text';
-import { MINUTES_TYPE, fmtDay, projectFacts, type MinutesBrand } from '../meetings/minutes';
+import { MINUTES_TYPE, fmtDay, minutesFooter, printedAt, projectFacts, type MinutesBrand } from '../meetings/minutes';
 import { PROJECT_ICON_PATHS, projectInitials, type ProjectIcon } from '../projects/project-icons';
 
 /**
@@ -33,18 +32,11 @@ const day = (key: string | null, tz: string) => (key ? fmtDay(`${key}T12:00:00Z`
 
 export function buildClientTaskListPdf(data: ClientTaskListPdfData): Buffer {
   const { brand, project, timeZone: tz } = data;
-  const footer = [
-    [brand.companyName, brand.websiteUrl, brand.supportEmail].filter((b): b is string => Boolean(b)).map(isolate).join('  ·  '),
-    brand.companyAddress,
-    `Shared with you through ${isolate(brand.productName)}`,
-  ]
-    .filter(Boolean)
-    .join('\n');
+  // 1.23.11 footer: the company, when it was printed (no one's name: a client's copy) and the page; the website and address under them.
   const doc = new PdfDocument({
     title: `Task list: ${project.name}`,
     palette: { brand: brand.colors?.brand, ink: brand.colors?.ink, muted: brand.colors?.muted, line: brand.colors?.line },
-    footerLeft: footer,
-    density: 'compact',
+    footer: minutesFooter(brand, printedAt(data.generatedAt, tz), true),
     ...(data.logo ? { logo: data.logo } : {}),
   });
   doc.identityHeader({

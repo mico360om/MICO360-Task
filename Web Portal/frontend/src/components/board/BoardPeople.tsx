@@ -1,3 +1,4 @@
+import { useEffectiveAdmin } from '../../lib/manager-view';
 import { useId, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
@@ -5,7 +6,6 @@ import { apiClient } from '../../api/client';
 import { membersApi } from '../../api/members';
 import { usersApi } from '../../api/users';
 import type { ApiProject } from '../../api/projects';
-import { useAuthStore } from '../../stores/auth-store';
 import { BOARD_ROLE_LABEL, boardPeople, facesOf } from '../../lib/board-people';
 import { useMediaQuery } from '../../lib/useMediaQuery';
 import { Avatar } from '../ui/Avatar';
@@ -20,7 +20,8 @@ const PHONE = '(max-width: 39.9375em)';
  * runs the project, and administrators, can go from there to the project's Team tab.
  */
 export function BoardPeople({ project }: { project: ApiProject }) {
-  const isAdmin = useAuthStore((s) => s.isAdmin());
+  // Manager View (owner, 10 Nov): the team is a project setting — only where they run it then.
+  const isAdmin = useEffectiveAdmin();
   const phone = useMediaQuery(PHONE);
   const membersQ = useQuery({ queryKey: ['members', project.id], queryFn: () => membersApi(apiClient).list(project.id) });
   const directoryQ = useQuery({ queryKey: ['directory'], queryFn: () => usersApi(apiClient).directory() });

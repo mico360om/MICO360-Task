@@ -140,6 +140,9 @@ export const ARCHIVE_REFUSED: Readonly<Record<string, ArchiveTarget>> = {
   'PUT /projects/:id/categories/order': 'project',
   'PUT /projects/:id/category-settings': 'project',
   'PUT /project-categories/:categoryId': 'category',
+  // Duplicate Task: a copy is a new task in the chosen project (`body.projectId`, and its column's). The
+  // original may be in an archived project: copying from it changes nothing there.
+  'POST /tasks/:id/duplicate': 'newTask',
 };
 
 /** Write routes (one project's, task's or meeting's) an archived project does not refuse, and why. */

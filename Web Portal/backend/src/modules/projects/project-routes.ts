@@ -1,3 +1,4 @@
+import type { ManagerViewLookup } from '../auth/manager-view';
 import { z } from 'zod';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { ProjectService } from './project-service';
@@ -113,19 +114,33 @@ export interface ProjectRouteDeps {
    * person; a project edit or archive reads its health again.
    */
   health?: Pick<ProjectHealthService, 'cards' | 'changed'>;
+  /** Manager View: the projects an administrator in Manager View runs (their `canManage`). Absent: none. */
+  managerView?: Pick<ManagerViewLookup, 'runsProject' | 'runsAmong'>;
 }
 
 export async function registerProjectRoutes(app: FastifyInstance, deps: ProjectRouteDeps): Promise<void> {
   const { projectService, guard } = deps;
   const logAudit = (req: FastifyRequest, action: string, entityId: string | null, newValue?: unknown) =>
     deps.audit?.record({ userId: req.user?.id ?? null, ip: req.ip ?? null, module: 'projects', action, entityId, newValue });
-  const viewer = (req: FastifyRequest) => ({ id: req.user!.id, roles: req.user!.roles ?? [] });
+  // `managerView`: an administrator with Manager View on — they still SEE every project, but "may change it"
+  // (canManage, and the project-settings routes the auth guard checks) only where they run it (manager-view.ts).
+  const viewer = (req: FastifyRequest) => ({ id: req.user!.id, roles: req.user!.roles ?? [], managerView: req.user!.managerView === true });
+  type Viewer = { id: string; roles: string[]; managerView?: boolean };
   const pickOf = deps.pickOf ?? NO_PICK;
   const isAdmin = (roles: string[]) => roles.includes('ADMIN');
-  const canManage = (user: { id: string; roles: string[] }, projectId: string) =>
-    deps.authz ? deps.authz.canManageProject(user.id, user.roles, projectId) : Promise.resolve(isAdmin(user.roles));
-  const manageable = async (user: { id: string; roles: string[] }, ids: string[]): Promise<Set<string>> =>
-    deps.authz ? deps.authz.manageableProjectIds(user.id, user.roles, ids) : new Set(isAdmin(user.roles) ? ids : []);
+  // Manager View: "may change it" = a project they run (the team rule, as the auth guard decides its settings routes).
+  const canManage = (user: Viewer, projectId: string) =>
+    user.managerView
+      ? Promise.resolve(deps.managerView ? deps.managerView.runsProject(user.id, projectId) : false)
+      : deps.authz
+        ? deps.authz.canManageProject(user.id, user.roles, projectId)
+        : Promise.resolve(isAdmin(user.roles));
+  const manageable = async (user: Viewer, ids: string[]): Promise<Set<string>> =>
+    user.managerView
+      ? new Set(deps.managerView && ids.length ? await deps.managerView.runsAmong(user.id, ids) : [])
+      : deps.authz
+        ? deps.authz.manageableProjectIds(user.id, user.roles, ids)
+        : new Set(isAdmin(user.roles) ? ids : []);
   /** companies: the projects with their companies, main company and archived state (when wired). */
   async function withCompanies<T extends { id: string }>(rows: T[]): Promise<T[]> {
     if (!deps.companies || rows.length === 0) return rows;
@@ -133,7 +148,7 @@ export async function registerProjectRoutes(app: FastifyInstance, deps: ProjectR
     return rows.map((r) => ({ ...r, ...facts.get(r.id) }));
   }
   /** A project as sent back: with whether the person asking may change it, and its companies. */
-  const withCanManage = async (user: { id: string; roles: string[] }, project: ProjectRecord) => (await withCompanies([{ ...project, canManage: await canManage(user, project.id) }]))[0]!;
+  const withCanManage = async (user: Viewer, project: ProjectRecord) => (await withCompanies([{ ...project, canManage: await canManage(user, project.id) }]))[0]!;
 
   /**
    * The project, if the person asking may change it: hidden (404) from someone who can't even see

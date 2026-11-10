@@ -59,6 +59,37 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   task PDF, Excel, the report and the daily email, with a **Category** filter on the board, My Tasks, the
   Tasks tab, the Table view and Search results — and searching "category:Electrical" finds them too. The
   project's Overview shows its open tasks **By category**. Tags stay as they are.
+- Duplicate a task: "Duplicate…" in the task's ⋯ menu (task panel and board cards) and beside Open in
+  every Table view. The New task form opens filled in from it — title, description, project, assignees,
+  priority, dates, tags, checklists (every item unticked, sub-items kept), external contacts, the
+  inspection form and place, milestone, weight, estimate and watchers — titled "Duplicate of MSSP-34", so
+  you can change anything (or pick another project) before saving. "Copy files (3)" is ticked unless you
+  untick it; a file that can't be copied is named ("2 of 3 files copied — “x.dwg” couldn’t be copied") and
+  the task is still made. The copy gets its own new number and starts in To do; comments, history,
+  completion, approvals and the repeat are never copied. The copy shows "Duplicated from MSSP-34" and the
+  original lists its copies (only the ones you can open), and both histories say so. Duplicating needs
+  the internet connection.
+- Tasks for the future: the New and Edit task form has a Start date. A task that starts on a later day
+  waits until then — it is on that day's board, not today's, and the form says "Scheduled for 20 Nov".
+  Until its day it is under "Upcoming" in My Tasks and in the project's task list, and out of today's
+  lists, the Open and Overdue counts, My Priorities and the due-date reminders; the calendar, the Timeline,
+  Workload and the daily email's new "Coming up" part still show it. On its start day it is like any task.
+  The people on it are told when it is assigned ("You were assigned a task — starts 20 Nov") and again the
+  morning it starts ("A task starts today", once). This works for tasks made on the website, the Android
+  app, the Chrome extension, with MICO AI, from meeting notes and from a project template that starts later.
+  Moving a not-started task's start date to a later day moves it to that day; a task already under way
+  stays where it is; moving the start to today puts it back on today's board. Existing tasks aren't moved.
+- Manager View, for administrators: a switch in your account menu (saved on your account) that hides
+  the settings while you look at the work as a manager does. While it is on, a "Manager View" badge shows
+  in the top bar; the Admin menu (User Management, Clients, Companies, AI Management, System Settings,
+  Error Log, Audit Logs) is gone, and opening one of its pages by its address says "Manager View is on —
+  turn it off to open this page" with a Turn off button; a project's settings (its details, picture,
+  columns, team, client links, archive) open only for the projects you run; the dashboard's default for
+  everyone and the Workload daily limit can't be changed. Everything else stays as an administrator's:
+  every project's tasks, boards and meetings, Reports, Management and your own settings. The server keeps
+  to it too — for the website, the Android app and the Chrome extension alike. Turning it off gives
+  everything back at once (no signing out), and it can always be turned off. Each switch is recorded in
+  the audit log.
 
 ### Improvements
 - A task's history and the Activity page say who moved a task to the Recycle Bin and who restored it; every
@@ -71,6 +102,35 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   category and each guest once (Undo gives them back); repeating copies keep both; "Save as template"
   keeps a project's categories, and a project made from that template starts with them.
 - The task history says "assigned guest Ahmed (OXY)", "removed guest …", "added category Electrical".
+
+## [1.23.11] - 2026-11-10
+
+### Improvements
+- Every PDF — a task, the reports, the minutes of a meeting (and the client's copy), the client's task
+  list, inspection reports, the Management overview and MICO AI reports — now follows one A4 design:
+  narrower margins (14 mm at the sides, 12 mm top and bottom), one font, smaller and tighter type (9.5 pt
+  text, 11 pt headings, a 15.5 pt title), and nothing ever smaller than 7.5 pt.
+- A slim header on every PDF: the project's picture on the left, the company's logo on the right (the
+  built-in logo when the company has none) and the document's title; every later page repeats a slim
+  version of it, and every page ends with the company's name, "Printed 10 Nov 2026, 14:05 by Name" and
+  "Page 2 of 5" (a copy shared with a client says when it was printed, never by whom).
+- A task's status, priority, due date and progress sit in one slim strip in the site's colours, instead of
+  four tall cards; reports, the minutes, inspections and the Management overview use the same strip.
+- Tables fit their columns to what they hold, keep every date whole, line numbers up on the right, repeat
+  their header on every page, never split a row across two pages (a very long one carries on under
+  "(continued)") and never leave one row alone on a last page. A table too wide for an upright page turns
+  its part of the document sideways by itself; everything else stays upright.
+- Headings always stay with what follows them, a small section is never split across pages, no PDF ends
+  on a blank page, and a task's PDF leaves out the sections it has nothing for (no attachments, no
+  checklist, and so on).
+- Much smaller files: pictures and logos are printed at 200 dpi for the size they are shown at. The task
+  in the owner's screenshot went from 83 KB on 2 pages to 26 KB on 1; a sample report from 6 pages to 4
+  and the Management overview from 4 to 2.
+
+## [1.23.10] - 2026-11-10
+
+### Improvements
+- Kanban: overdue cards keep the normal border; the Overdue date shows as a dark-red-on-pale-red badge.
 
 ## [1.23.9] - 2026-11-10
 

@@ -38,7 +38,9 @@ const nameOf = (u: { firstName: string | null; lastName: string | null; username
  * Not "the latest update" line: comments are read as comments, and blocker changes may name a task the
  * person can't see (the "Blocked" mark says enough).
  */
-const NOT_AN_UPDATE = ['COMMENTED', 'comment.added', 'BLOCKER_ADDED', 'BLOCKER_REMOVED'];
+// Duplicate Task: "duplicated from / as" lines name another task (maybe in a project the reader can't open), as
+// blocker lines do — never the email's latest update (review I1).
+const NOT_AN_UPDATE = ['COMMENTED', 'comment.added', 'BLOCKER_ADDED', 'BLOCKER_REMOVED', 'DUPLICATED', 'DUPLICATED_FROM'];
 
 const taskSelect = {
   id: true,
@@ -51,6 +53,8 @@ const taskSelect = {
   // 1.22: the card's details.
   description: true,
   startDate: true,
+  // Tasks scheduled for the future: a later day's board means it is "Coming up".
+  boardDate: true,
   // 1.23.3: the live items; the count is of the real to-do items (no sub-items).
   checklist: { where: { deletedAt: null }, select: { id: true, parentId: true, done: true } },
   comments: { where: { deletedAt: null }, orderBy: { createdAt: 'desc' }, take: 1, select: { body: true, createdAt: true, user: { select: nameSelect } } },
@@ -116,6 +120,8 @@ const toTask = (t: TaskRow): DailyTask => ({
   waitingSince: t.approvalRequestedAt,
   description: t.description,
   startDate: t.startDate,
+  // Board days are noon-UTC anchors: their UTC date is the day.
+  boardDay: t.boardDate ? t.boardDate.toISOString().slice(0, 10) : null,
   checklist: t.checklist.length ? leafCounts(t.checklist) : null,
   latest: latestOf(t),
   // Blocked: a task it depends on isn't done yet.

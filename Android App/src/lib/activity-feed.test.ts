@@ -421,3 +421,19 @@ describe('the Recycle Bin in a task’s history', () => {
     expect(line('RESTORED').text).toBe('restored this task from the Recycle Bin');
   });
 });
+
+describe('Duplicate Task in a task’s history', () => {
+  const line = (action: string, meta?: Record<string, unknown>) => buildTimeline([e('a1', action, 'Aisha Khan', 1, meta)])[0]!;
+  it('the copy: duplicated from the original; the original: duplicated as the copy', () => {
+    expect(line('DUPLICATED_FROM', { fromTaskId: 't1', fromKey: 'MSSP-34' })).toMatchObject({ kind: 'other', text: 'duplicated this task from MSSP-34' });
+    expect(line('DUPLICATED', { copyTaskId: 't9', copyKey: 'MSSP-40' })).toMatchObject({ kind: 'other', text: 'duplicated this task as MSSP-40' });
+  });
+  it('a task the reader can’t open isn’t named (the server leaves its number out)', () => {
+    expect(line('DUPLICATED_FROM', {}).text).toBe('duplicated this task from another task');
+    expect(line('DUPLICATED').text).toBe('duplicated this task');
+  });
+  it('two copies made one after the other are two lines', () => {
+    const items = buildTimeline([e('a2', 'DUPLICATED', 'Aisha Khan', 1, { copyKey: 'MSSP-41' }), e('a1', 'DUPLICATED', 'Aisha Khan', 2, { copyKey: 'MSSP-40' })]);
+    expect(items.map((i) => i.text)).toEqual(['duplicated this task as MSSP-41', 'duplicated this task as MSSP-40']);
+  });
+});

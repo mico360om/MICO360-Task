@@ -1,5 +1,6 @@
 import { dueDayKey, todayKey } from '../../lib/due-date';
 import { defaultCompanyTimeZone, isTaskDone } from '../tasks/task-status';
+import { isWaitingTask } from '../tasks/scheduled-start';
 
 /** A task considered for the daily digest, with the users who should hear about it. */
 export interface DigestTask {
@@ -14,6 +15,8 @@ export interface DigestTask {
   approvalRequestedAt?: Date | null;
   /** Assignees ∪ watchers — everyone who should see this task in their digest. */
   recipientIds: string[];
+  /** Its board day: while later than today the task waits for its start day and is left out (owner, 10 Nov). */
+  boardDate?: Date | null;
 }
 
 export interface DigestItem {
@@ -54,6 +57,7 @@ export function buildDigests(tasks: DigestTask[], opts: BuildDigestOptions = {})
 
   for (const t of tasks) {
     if (isTaskDone(t) || t.approvalRequestedAt) continue;
+    if (isWaitingTask(t, timeZone, now)) continue;
     const due = dueDayKey(t.dueDate, timeZone);
     if (!due) continue;
     const bucket = due < today ? 'overdue' : due === today ? 'dueToday' : null;

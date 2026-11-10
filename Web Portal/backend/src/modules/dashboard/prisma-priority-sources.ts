@@ -63,6 +63,11 @@ const inScope = (ids: string[] | null): Prisma.TaskWhereInput => (ids ? { projec
 /** Loose date edges in the database (a stored instant may sit a day either side of its company day); the ranking decides each row's day exactly. */
 const soonEdgeOf = (today: string) => dayStart(shiftDayKey(today, UPCOMING_DAYS + 2));
 const lateEdgeOf = (today: string) => dayStart(shiftDayKey(today, -TEAM_OVERDUE_DAYS + 2));
+/**
+ * Tasks scheduled for the future (owner, 10 Nov): a task on a later day's board waits for its start day
+ * and isn't today's priority — board days are noon-UTC anchors, so "before tomorrow's UTC midnight".
+ */
+const notWaiting = (today: string): Prisma.TaskWhereInput => ({ OR: [{ boardDate: null }, { boardDate: { lt: dayStart(shiftDayKey(today, 1)) } }] });
 
 /**
  * Every statement "My Priorities Today" sends, in one place: the sources use them, and the start-up
@@ -76,11 +81,12 @@ export function priorityReads(prisma: PrismaClient) {
       return rows.map((r) => r.id);
     },
     /** The person's own open tasks that may have a reason: due before `soonEdge`, urgent, Blocked, or with a dependency either way. */
-    mineTasks(userId: string, own: string[] | null, soonEdge: Date): Promise<TaskPick[]> {
+    mineTasks(userId: string, own: string[] | null, soonEdge: Date, today: string): Promise<TaskPick[]> {
       return prisma.task.findMany({
         where: {
           AND: [
             OPEN_TASK,
+            notWaiting(today),
             inScope(own),
             { assignees: { some: { userId } } },
             { OR: [{ dueDate: { lt: soonEdge } }, { priority: 'URGENT' }, { column: { category: 'BLOCKED' } }, { dependencies: { some: {} } }, { dependedOnBy: { some: {} } }] },
@@ -90,9 +96,9 @@ export function priorityReads(prisma: PrismaClient) {
       });
     },
     /** Open tasks in `team` that aren't the person's and have no one assigned, sit in a Blocked column, or are due before `lateEdge`. */
-    teamTasks(userId: string, team: string[] | null, lateEdge: Date): Promise<TaskPick[]> {
+    teamTasks(userId: string, team: string[] | null, lateEdge: Date, today: string): Promise<TaskPick[]> {
       return prisma.task.findMany({
-        where: { AND: [OPEN_TASK, inScope(team), { assignees: { none: { userId } } }, { OR: [{ assignees: { none: {} } }, { column: { category: 'BLOCKED' } }, { dueDate: { lt: lateEdge } }] }] },
+        where: { AND: [OPEN_TASK, notWaiting(today), inScope(team), { assignees: { none: { userId } } }, { OR: [{ assignees: { none: {} } }, { column: { category: 'BLOCKED' } }, { dueDate: { lt: lateEdge } }] }] },
         select: taskSelect,
       });
     },
@@ -124,8 +130,8 @@ export async function priorityProbe(prisma: PrismaClient, nowhere: string, timeZ
   const reads = priorityReads(prisma);
   const today = todayKey(timeZone);
   await reads.managedProjectIds(nowhere, [nowhere]);
-  await reads.mineTasks(nowhere, [nowhere], soonEdgeOf(today));
-  await reads.teamTasks(nowhere, [nowhere], lateEdgeOf(today));
+  await reads.mineTasks(nowhere, [nowhere], soonEdgeOf(today), today);
+  await reads.teamTasks(nowhere, [nowhere], lateEdgeOf(today), today);
   await reads.edges([nowhere]);
   await reads.doneColumns([nowhere]);
   await reads.liveProjectIds([nowhere]);
@@ -154,8 +160,8 @@ export function createPrismaTaskPrioritySource(prisma: PrismaClient, scopes: Pri
       const me = viewer.id;
       const [own, team, openable] = await Promise.all([scopes.ownProjectIds(viewer, pick), teamProjectIds(viewer, pick), scopes.openableProjectIds(viewer)]);
       const [mineRows, teamRows] = await Promise.all([
-        own && own.length === 0 ? Promise.resolve([] as TaskPick[]) : reads.mineTasks(me, own, soonEdgeOf(today)),
-        team && team.length === 0 ? Promise.resolve([] as TaskPick[]) : reads.teamTasks(me, team, lateEdgeOf(today)),
+        own && own.length === 0 ? Promise.resolve([] as TaskPick[]) : reads.mineTasks(me, own, soonEdgeOf(today), today),
+        team && team.length === 0 ? Promise.resolve([] as TaskPick[]) : reads.teamTasks(me, team, lateEdgeOf(today), today),
       ]);
       const rows = [...mineRows.map((t) => ({ t, mine: true })), ...teamRows.map((t) => ({ t, mine: false }))];
       if (rows.length === 0) return [];

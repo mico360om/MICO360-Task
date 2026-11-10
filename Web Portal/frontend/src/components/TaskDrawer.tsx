@@ -28,6 +28,7 @@ import type { PickableCategory } from './task-form/category-picker';
 import { AttachmentsSection, type DrawerAttachment, type LoadOfficePreview, type SetFileClientVisible } from './task-drawer/attachments';
 import { DependenciesSection, type DrawerDependencies, type DrawerTaskRef } from './task-drawer/dependencies';
 import { ExportMenu, MoreActionsMenu, WatchButton } from './task-drawer/menus';
+import { DuplicateLinks } from './task-drawer/duplicate-links';
 import { ShortcutHint, useShortcut, useShortcutHint } from './shortcuts/ShortcutProvider';
 import { ConfirmDialog } from './ui/ConfirmDialog';
 import { DELETE_ASK, seriesDeleteAsk } from '../lib/recycle-bin';
@@ -157,6 +158,8 @@ export interface TaskDrawerProps {
   project?: ProjectLook & { id: string; completionMode?: 'COUNT' | 'WEIGHT'; weightUrgent?: number; weightHigh?: number; weightNormal?: number; weightLow?: number };
   /** Move the task to another project (in “More actions”). */
   onMoveToProject?: () => void;
+  /** Duplicate Task: "Duplicate…" in the actions menu (a copy, reviewed in the New task form). */
+  onDuplicate?: () => void;
   /** Why it can't be moved now: the item is shown, unavailable, saying so. */
   moveUnavailable?: string | null;
   /** Save it as a task template (in “More actions”; whoever runs its project). */
@@ -392,6 +395,7 @@ export function TaskDrawer({
   onEdit,
   project,
   onMoveToProject,
+  onDuplicate,
   moveUnavailable,
   onSaveAsTemplate,
   onSetClientVisible,
@@ -616,12 +620,13 @@ export function TaskDrawer({
               watching={watching}
               onToggleWatch={onToggleWatch}
               onExport={onExport}
+              onDuplicate={onDuplicate}
               onMoveToProject={onMoveToProject}
               moveUnavailable={moveUnavailable}
               onSaveAsTemplate={onSaveAsTemplate}
               onMerge={onMerge}
               mergeUnavailable={mergeUnavailable}
-              className={onMoveToProject || onSaveAsTemplate || onMerge ? '' : 'sm:hidden'}
+              className={onDuplicate || onMoveToProject || onSaveAsTemplate || onMerge ? '' : 'sm:hidden'}
             />
             <button
               type="button"
@@ -639,9 +644,11 @@ export function TaskDrawer({
         <div className="mt-2">
           <InlineTitle title={task.title} onSave={saveField ? (title) => saveField({ title }) : undefined} />
         </div>
-        {inSeries || carried || task.meeting ? (
+        {inSeries || carried || task.meeting || task.duplicatedFrom || task.copies?.length ? (
           <div className="mt-2 flex flex-wrap gap-1.5">
             {task.meeting ? <MeetingLink meeting={task.meeting} timeZone={timeZone} /> : null}
+            {/* Duplicate Task: the task it was copied from, and its copies (only those the reader may open). */}
+            <DuplicateLinks from={task.duplicatedFrom} copies={task.copies} />
             {task.recurrenceRule ? (
               <span className="inline-flex items-center gap-1 rounded-full bg-brand/10 px-2 py-0.5 text-xs font-medium text-brand">{Icon.repeat}{recurrenceSummary(task.recurrenceRule)}</span>
             ) : inSeries ? (

@@ -98,6 +98,19 @@ describe('Task export routes', () => {
     expect(readProjectImage).not.toHaveBeenCalled();
   });
 
+  it('1.23.11: makes the project picture the size its 26 pt badge prints it at (any picture, a big JPEG too)', async () => {
+    const big = await sharp({ create: { width: 1200, height: 1200, channels: 3, background: '#aa3322' } }).jpeg().toBuffer();
+    const small = await sharp({ create: { width: 73, height: 73, channels: 3, background: '#aa3322' } }).png().toBuffer();
+    const fitProjectImage = vi.fn(async () => small);
+    const app = await makeApp({ task: { ...data, projectImageUrl: '/uploads/projects/rig.jpg' }, extra: { readProjectImage: async () => big, fitProjectImage } });
+    const res = await app.inject({ method: 'GET', url: '/tasks/t1/export.pdf' });
+    expect(res.statusCode).toBe(200);
+    expect(fitProjectImage).toHaveBeenCalledWith(big);
+    const widths = [...inspectPdf(res.rawPayload).objects.values()].filter((d) => /\/Subtype \/Image/.test(d)).map((d) => Number(/\/Width (\d+)/.exec(d)?.[1]));
+    expect(widths).toContain(73);
+    expect(widths).not.toContain(1200);
+  });
+
   it('converts a project picture the PDF can’t print as stored (WebP), so the badge still shows it', async () => {
     const webp = await sharp({ create: { width: 40, height: 40, channels: 3, background: '#aa3322' } }).webp().toBuffer();
     const jpeg = await sharp({ create: { width: 40, height: 40, channels: 3, background: '#aa3322' } }).jpeg().toBuffer();
@@ -254,13 +267,15 @@ describe('Task export routes', () => {
 describe('Task export routes: the project’s company (companies)', () => {
   const widths = (pdf: Buffer) => [...inspectPdf(pdf).objects.values()].filter((d) => /\/Subtype \/Image/.test(d)).map((d) => Number(/\/Width (\d+)/.exec(d)?.[1]));
 
-  it('the PDF names the company before the product and carries its logo; the workbook is unchanged', async () => {
+  // tpdf: 1.23.11 (owner) — the footer names the company on its own (was "Alpha LLC · MICO360 Tasks · Generated …").
+  it('the PDF names the company in its footer and carries its logo; the workbook is unchanged', async () => {
     const asked: string[] = [];
     const app = await makeApp({ extra: { pdfBrand: async (id) => { asked.push(id); return { companyName: 'Alpha LLC', logo: solidPng(222, 60) }; } } });
     const pdf = await app.inject({ method: 'GET', url: '/tasks/t1/export.pdf' });
     expect(pdf.statusCode).toBe(200);
     expect(asked).toEqual(['t1']);
-    expect(inspectPdf(pdf.rawPayload).pages.flat().join('\n')).toContain('Alpha LLC · MICO360 Tasks');
+    const footer = inspectPdf(pdf.rawPayload).lines.flat().filter((l) => l.artifact).map((l) => l.text);
+    expect(footer).toContain('Alpha LLC');
     expect(widths(pdf.rawPayload)).toContain(222);
     expect((await app.inject({ method: 'GET', url: '/tasks/t1/export.xlsx' })).statusCode).toBe(200);
     expect(asked).toEqual(['t1']);

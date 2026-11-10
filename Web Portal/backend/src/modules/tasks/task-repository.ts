@@ -138,6 +138,8 @@ export interface CreateTaskData {
   guestLinks?: { guestId: string; note: string | null }[];
   /** 1.24: its categories (already checked), written in the same write as the task. */
   categoryIds?: string[];
+  /** Duplicate Task: the task this one is a copy of (single-task details read it; never list payloads). */
+  duplicatedFromId?: string | null;
 }
 
 /** Thrown by `TaskRepository.create` when the generated key is already taken (a concurrent create). */

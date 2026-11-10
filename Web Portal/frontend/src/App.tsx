@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, type ComponentType } from 'react';
 import { Routes, Route, Navigate, useLocation, useSearchParams } from 'react-router-dom';
 import { ProtectedRoute, returnPathFrom } from './features/auth/ProtectedRoute';
-import { AdminRoute } from './features/auth/AdminRoute';
+import { AdminRoute, AdminSettingsRoute } from './features/auth/AdminRoute';
 import { ClientRoute, HomeRedirect, StaffRoute } from './features/auth/RoleRoutes';
 import { landingPathFor } from './features/auth/client-routes';
 import { AppShell } from './components/AppShell';
@@ -201,6 +201,9 @@ export function App() {
             <Route path="/inspections/:id" element={<InspectionPage />} />
             <Route element={<AdminRoute />}>
               <Route path="/reports" element={<ReportsPage />} />
+            </Route>
+            {/* The Admin menu's pages — closed while Manager View is on (it says so, with Turn off). */}
+            <Route element={<AdminSettingsRoute />}>
               <Route path="/admin/settings" element={<SystemSettingsPage />} />
               <Route path="/admin/ai" element={<AiSettingsPage />} />
               <Route path="/admin/audit" element={<AuditPage />} />

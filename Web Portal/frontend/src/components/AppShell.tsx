@@ -35,6 +35,8 @@ import { TaskNoticeToast } from './TaskNoticeToast';
 import { BinUndoToast } from './recycle-bin/BinUndoToast';
 import { useDensitySync } from '../lib/density';
 import { useAppearanceSync } from '../lib/appearance';
+import { ManagerViewBadge } from './ManagerViewBadge';
+import { useEffectiveAdmin, useManagerViewSync } from '../lib/manager-view';
 
 /** The pages that still open when all of someone's companies are archived. */
 const OPEN_WHEN_ARCHIVED = ['/settings', '/profile', '/about'];
@@ -45,7 +47,7 @@ const opensWhenArchived = (path: string) => OPEN_WHEN_ARCHIVED.some((p) => path 
  * and the Close button dismiss it, and focus then returns to the menu button. (It used to be a
  * plain panel: Escape did nothing and Tab went to the page hidden behind it.)
  */
-function MobileMenu({ isAdmin, canLead, chatUnread, onClose }: { isAdmin: boolean; canLead: boolean; chatUnread: number; onClose: () => void }) {
+function MobileMenu({ isAdmin, adminMenu, canLead, chatUnread, onClose }: { isAdmin: boolean; adminMenu: boolean; canLead: boolean; chatUnread: number; onClose: () => void }) {
   // 1.23.8: it slides in and out (components/MenuDrawer), as a tablet's unfolded menu does.
   return (
     <MenuDrawer className="md:hidden" onClose={onClose}>
@@ -63,7 +65,7 @@ function MobileMenu({ isAdmin, canLead, chatUnread, onClose }: { isAdmin: boolea
             </svg>
           </button>
           <nav aria-label="Main" className="flex min-h-0 flex-1 flex-col">
-            <SidebarBody isAdmin={isAdmin} canLead={canLead} chatUnread={chatUnread} onNavigate={close} />
+            <SidebarBody isAdmin={isAdmin} adminMenu={adminMenu} canLead={canLead} chatUnread={chatUnread} onNavigate={close} />
           </nav>
           {/* Companies: on the smallest phones the top bar has no room for the picker — it is here. */}
           <CompanyPicker place="menu" />
@@ -85,6 +87,9 @@ export function AppShell() {
   // account's choices, put on <html> once they arrive.
   useDensitySync();
   useAppearanceSync();
+  // Manager View (owner, 10 Nov): an administrator's switch, read once per sign-in; while on, no Admin menu.
+  useManagerViewSync();
+  const adminMenu = useEffectiveAdmin();
   // How wide this page is (capped at 1680px unless it is built around a wide grid — the list is in
   // lib/page-layout.ts) and whether it sizes itself to the window. The top bar, the page and the
   // footer share one frame, so their edges line up on any screen.
@@ -156,10 +161,10 @@ export function AppShell() {
         Skip to content
       </a>
 
-      <Sidebar isAdmin={isAdmin()} canLead={canLead} chatUnread={chatUnread} />
+      <Sidebar isAdmin={isAdmin()} adminMenu={adminMenu} canLead={canLead} chatUnread={chatUnread} />
 
       {/* Mobile drawer */}
-      {drawerOpen ? <MobileMenu isAdmin={isAdmin()} canLead={canLead} chatUnread={chatUnread} onClose={() => setDrawerOpen(false)} /> : null}
+      {drawerOpen ? <MobileMenu isAdmin={isAdmin()} adminMenu={adminMenu} canLead={canLead} chatUnread={chatUnread} onClose={() => setDrawerOpen(false)} /> : null}
 
       <div className="flex min-w-0 flex-1 flex-col">
         {/* 56px tall, like the sidebar's logo row beside it: their bottom lines meet as one. Its
@@ -189,6 +194,7 @@ export function AppShell() {
               <CompanyPicker />
             </div>
             <div className="flex flex-none items-center gap-1.5 sm:gap-2">
+              <ManagerViewBadge />
               <SyncStatus />
               {/* The header's N is the fallback: a page with its own "New …" takes the key. */}
               <NewTaskButton size="sm" compact shortcutPriority={0} className="[@media(pointer:coarse)]:!min-h-11 [@media(pointer:coarse)]:!min-w-11" />

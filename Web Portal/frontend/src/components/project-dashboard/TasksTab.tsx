@@ -2,7 +2,8 @@ import { useMemo, useState } from 'react';
 import type { ApiTask } from '../../api/tasks';
 import { PriorityBadge } from '../ui/PriorityBadge';
 import { Avatar } from '../ui/Avatar';
-import { taskPhase, type TaskPhase } from '../../lib/project-dashboard';
+import { taskPhase, upcomingDay, type TaskPhase } from '../../lib/project-dashboard';
+import { startsText } from '../../lib/scheduled-start';
 import { matchesTaskNumber } from '../../lib/task-number';
 import { formatDueDay } from '../../lib/due-display';
 import { EmptyNote, FlagIcon } from './parts';
@@ -34,6 +35,8 @@ const FILTERS: Array<{ v: TaskFilter; label: string }> = [
   { v: 'all', label: 'All' },
   { v: 'ongoing', label: 'Ongoing' },
   { v: 'pending', label: 'Pending' },
+  // Tasks scheduled for the future: waiting for a later start day.
+  { v: 'upcoming', label: 'Upcoming' },
   { v: 'overdue', label: 'Overdue' },
   { v: 'completed', label: 'Completed' },
   { v: 'milestones', label: 'Milestones' },
@@ -46,7 +49,10 @@ export interface TaskGroup {
   tasks: ApiTask[];
 }
 
-function TaskRow({ task, statusName, phase, dueText, onOpen }: { task: ApiTask; statusName: string; phase: TaskPhase; dueText: string; onOpen: () => void }) {
+/** The list's last group: the tasks waiting for a later start day (tasks scheduled for the future). */
+const UPCOMING_GROUP = 'upcoming';
+
+function TaskRow({ task, statusName, phase, dueText, startsOn, onOpen }: { task: ApiTask; statusName: string; phase: TaskPhase; dueText: string; startsOn?: string | null; onOpen: () => void }) {
   const assignees = task.assignees ?? [];
   // Detailed (1.23.8, lib/density): the title wraps; its description's first line, tags and everyone on it.
   const density = useDensity();
@@ -76,6 +82,7 @@ function TaskRow({ task, statusName, phase, dueText, onOpen }: { task: ApiTask; 
       </span>
       <span className="flex flex-wrap items-center gap-2 ps-[4.5rem] sm:flex-nowrap sm:ps-0">
         <StatusPill category={task.columnCategory} label={statusName} />
+        {startsOn ? <span className="inline-flex flex-none items-center rounded-md bg-info-soft px-1.5 py-0.5 text-[11px] font-semibold text-info">{startsOn}</span> : null}
         {task.approvalRequestedAt ? <ApprovalChip /> : null}
         <PriorityBadge priority={task.priority} />
         <span className="flex w-20 items-center gap-1.5" title={`${progress}% done`}>
@@ -147,7 +154,7 @@ export function TasksTab({
   const view = project && columns ? chosenView : 'list';
   const all = useMemo(() => groups.flatMap((g) => g.tasks), [groups]);
   const counts = useMemo(() => {
-    const c: Record<TaskFilter, number> = { all: all.length, ongoing: 0, pending: 0, overdue: 0, completed: 0, milestones: 0 };
+    const c: Record<TaskFilter, number> = { all: all.length, ongoing: 0, pending: 0, upcoming: 0, overdue: 0, completed: 0, milestones: 0 };
     for (const t of all) {
       c[taskPhase(t, today, timeZone)] += 1;
       if (t.isMilestone) c.milestones += 1;
@@ -159,7 +166,15 @@ export function TasksTab({
     (filter === 'all' || (filter === 'milestones' ? !!t.isMilestone : taskPhase(t, today, timeZone) === filter)) &&
     (!words || t.title.toLocaleLowerCase('en').includes(words) || t.key.toLocaleLowerCase('en').includes(words) || guestsMatchWords(t, words) || matchesTaskNumber(words, t.key, t.formerKeys)) &&
     matchesGuestCategory(t, picked);
-  const shown = groups.map((g) => ({ ...g, tasks: g.tasks.filter(keep) })).filter((g) => g.tasks.length > 0);
+  // Tasks scheduled for the future: the waiting ones leave their columns for a last "Upcoming" group,
+  // soonest start first (each row keeps its column's name).
+  const columnOf = new Map(groups.flatMap((g) => g.tasks.map((t) => [t.id, g.name] as const)));
+  const waiting = (t: ApiTask) => upcomingDay(t, today) !== null;
+  const upcoming = all.filter((t) => waiting(t) && keep(t)).sort((a, b) => upcomingDay(a, today)!.localeCompare(upcomingDay(b, today)!, 'en'));
+  const shown = [
+    ...groups.map((g) => ({ ...g, tasks: g.tasks.filter((t) => !waiting(t) && keep(t)) })),
+    { id: UPCOMING_GROUP, name: 'Upcoming', color: '', tasks: upcoming },
+  ].filter((g) => g.tasks.length > 0);
 
   if (loading) return <div className="skeleton h-40 rounded-xl" role="status" aria-label="Loading tasks" />;
   if (all.length === 0) {
@@ -234,15 +249,33 @@ export function TasksTab({
       ) : (
         shown.map((g) => (
           <section key={g.id} aria-label={`${g.name}, ${g.tasks.length}`}>
-            <div className="mb-2 flex items-center gap-2 px-1">
-              <span className="h-2.5 w-2.5 rounded-full" style={{ background: g.color }} aria-hidden />
+            <div className="mb-2 flex flex-wrap items-center gap-2 px-1">
+              {g.id === UPCOMING_GROUP ? (
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="flex-none text-info">
+                  <rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" />
+                </svg>
+              ) : (
+                <span className="h-2.5 w-2.5 rounded-full" style={{ background: g.color }} aria-hidden />
+              )}
               <h2 className="text-sm font-bold text-ink">{g.name}</h2>
               <span className="rounded-full bg-ground px-2 text-xs font-semibold text-ink-2">{g.tasks.length}</span>
+              {g.id === UPCOMING_GROUP ? <span className="text-xs text-ink-2">Scheduled to start later — each joins the list on its start day.</span> : null}
             </div>
             <div className="card divide-y divide-line overflow-hidden">
-              {g.tasks.map((t) => (
-                <TaskRow key={t.id} task={t} statusName={g.name} phase={taskPhase(t, today, timeZone)} dueText={formatDueDay(t.dueDate, timeZone)} onOpen={() => onOpen(t.id)} />
-              ))}
+              {g.tasks.map((t) => {
+                const startsOn = upcomingDay(t, today);
+                return (
+                  <TaskRow
+                    key={t.id}
+                    task={t}
+                    statusName={columnOf.get(t.id) ?? g.name}
+                    phase={taskPhase(t, today, timeZone)}
+                    dueText={formatDueDay(t.dueDate, timeZone)}
+                    startsOn={startsOn ? startsText(startsOn, today) : null}
+                    onOpen={() => onOpen(t.id)}
+                  />
+                );
+              })}
             </div>
           </section>
         ))

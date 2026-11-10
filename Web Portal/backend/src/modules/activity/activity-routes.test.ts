@@ -127,6 +127,46 @@ describe('Activity routes — a blocker is named only to someone who can open it
   });
 });
 
+describe('Activity routes — Duplicate Task: the other task’s number only for someone who can open it', () => {
+  // t1 was duplicated as OPS-9 (u1 can open it) and as FIN-40 (a project u1 isn't on); t2 is a copy of FIN-3 (hidden).
+  const rows: ActivityRecord[] = [
+    { id: 'd1', taskId: 't1', projectId: 'p1', userId: 'u2', action: 'DUPLICATED', meta: { copyTaskId: 'open-task', copyKey: 'OPS-9' }, createdAt: new Date() },
+    { id: 'd2', taskId: 't1', projectId: 'p1', userId: 'u2', action: 'DUPLICATED', meta: { copyTaskId: 'hidden-task', copyKey: 'FIN-40' }, createdAt: new Date() },
+    { id: 'd3', taskId: 't2', projectId: 'p1', userId: 'u2', action: 'DUPLICATED_FROM', meta: { fromTaskId: 'hidden-task', fromKey: 'FIN-3' }, createdAt: new Date() },
+    { id: 'd4', taskId: 't2', projectId: 'p1', userId: 'u2', action: 'DUPLICATED_FROM', meta: { fromTaskId: 'open-task', fromKey: 'OPS-1' }, createdAt: new Date() },
+  ];
+  const dupApp = () =>
+    buildApp({
+      authService: createAuthService({
+        users: { async findByIdentifier() { return null; }, async findById() { return null; }, async applyFailedAttempt() {}, async resetFailedAttempts() {} },
+        maxAttempts: 5,
+      }),
+      tokenService,
+      activityService: createActivityService({
+        activities: { ...activities, async listForTask(taskId) { return rows.filter((r) => r.taskId === taskId); }, async listRecent() { return rows; } },
+      }),
+      projectAccess: { ...projectAccess, async canViewTask(userId: string, roles: string[], taskId: string) { return roles.includes('ADMIN') || taskId !== 'hidden-task'; } },
+    });
+  const keys = (data: Array<{ id: string; meta: Record<string, unknown> | null }>) => data.map((r) => [r.id, r.meta?.copyKey ?? r.meta?.fromKey ?? null]);
+
+  it('on the original’s and the copy’s timelines', async () => {
+    const app = await dupApp();
+    const t1 = await app.inject({ method: 'GET', url: '/api/v1/tasks/t1/activity', headers: await tokenFor('u1', ['EMPLOYEE']) });
+    expect(keys(t1.json().data)).toEqual([['d1', 'OPS-9'], ['d2', null]]);
+    const t2 = await app.inject({ method: 'GET', url: '/api/v1/tasks/t2/activity', headers: await tokenFor('u1', ['EMPLOYEE']) });
+    expect(keys(t2.json().data)).toEqual([['d3', null], ['d4', 'OPS-1']]);
+    expect(t1.body + t2.body).not.toMatch(/hidden-task|FIN-40|FIN-3/);
+  });
+
+  it('in the activity feed; an admin sees every number', async () => {
+    const app = await dupApp();
+    const feed = await app.inject({ method: 'GET', url: '/api/v1/activity', headers: await tokenFor('u1', ['EMPLOYEE']) });
+    expect(keys(feed.json().data)).toEqual([['d1', 'OPS-9'], ['d2', null], ['d3', null], ['d4', 'OPS-1']]);
+    const admin = await app.inject({ method: 'GET', url: '/api/v1/activity', headers: await tokenFor('admin', ['ADMIN']) });
+    expect(keys(admin.json().data)).toEqual([['d1', 'OPS-9'], ['d2', 'FIN-40'], ['d3', 'FIN-3'], ['d4', 'OPS-1']]);
+  });
+});
+
 describe('Activity routes — the calendar: changes per day, and one day’s changes (1.22)', () => {
   // Site time zone Asia/Muscat (UTC+4). u1 is on p1 only.
   const at = (iso: string) => new Date(iso);

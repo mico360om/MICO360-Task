@@ -1,8 +1,8 @@
 import { buildXlsx, type XlsxColumn, type XlsxKind, type XlsxValue } from '../../lib/xlsx-writer';
-import { PdfDocument, TABLE_PAD_X, contentWidthOf, hexToRgb, type PdfRichBlock, type TableColumn } from '../../lib/pdf-document';
-import { fitColumns, measureColumns } from '../../lib/pdf-table-layout';
+import { PDF_STANDARD, PdfDocument, hexToRgb, type PdfRichBlock, type TableColumn } from '../../lib/pdf-document';
 import type { StyledRun } from '../../lib/pdf-text';
-import { BRAND, formatDateTime, formatDay, slugPart, wallClock } from '../../lib/export-format';
+import { BRAND, formatDateTime, formatDay, printedLine, slugPart, wallClock } from '../../lib/export-format';
+import { resolveBrand } from '../email/brand';
 import type { AnswerTable, CellKind, CellValue, SourceRef } from './mico-ai-types';
 import type { PdfBrand } from '../companies/company-branding';
 
@@ -131,7 +131,8 @@ export function tableXlsx(d: TableExport): Buffer {
 // ── The PDF report ──────────────────────────────────────────────────────────────────────────
 // One text face throughout (IBM Plex Sans, with Noto Naskh Arabic for Arabic) on a fixed scale;
 // the title and the section headings use the brand's heading face, as every MICO360 PDF does.
-const TYPE = { body: 10, heading: 11, note: 8.5, table: 9, tableMin: 7 } as const;
+/** 1.23.11: the PDF standard's sizes (body 9.5, headings 11, notes 8, tables 8.5, never under 7.5). */
+const TYPE = { body: PDF_STANDARD.type.body, heading: PDF_STANDARD.type.heading, note: PDF_STANDARD.type.small, table: PDF_STANDARD.type.table, tableMin: PDF_STANDARD.type.tableMin } as const;
 const NUMERIC_KINDS = new Set<CellKind>(['number', 'percent', 'days']);
 /** Kinds whose cells read best on one line (when the width allows it). */
 const ONE_LINE_KINDS = new Set<CellKind>(['key', 'date', 'datetime', 'number', 'percent', 'days']);
@@ -146,14 +147,13 @@ function pdfColumns(t: AnswerTable): TableColumn[] {
 }
 
 /**
- * The page shape for a table: portrait when it has at most five columns and they fit across a
- * portrait page at the full table size without breaking a word; otherwise landscape. (A landscape
- * table that still doesn't fit sets its type smaller, down to 7 pt; past that, long words break
+ * The page shape for a table (1.23.11, owner: documents stay portrait): portrait while its columns
+ * fit across a portrait page without breaking a word, the type going down to 7.5 pt at the least;
+ * otherwise its section turns landscape. (A landscape table that still doesn't fit breaks long words
  * inside their cells. Nothing is ever cut off or drawn over the next column.)
  */
 export function pageOrientation(columns: TableColumn[], rows: string[][]): 'portrait' | 'landscape' {
-  if (columns.length > 5) return 'landscape';
-  return fitColumns(measureColumns(columns, rows), contentWidthOf('portrait'), { size: TYPE.table, padX: TABLE_PAD_X }).fits ? 'portrait' : 'landscape';
+  return PdfDocument.needsLandscape(columns, rows) ? 'landscape' : 'portrait';
 }
 
 /** A table's cells as the PDF shows them. */
@@ -171,24 +171,29 @@ const clipped = (text: string, n: number) => (text.length > n ? `${text.slice(0,
  * when and by whom at the bottom. Landscape when any table needs the width (see pageOrientation).
  */
 function reportPdf(r: { title: string; details: string[]; runningTitle: string; question: string; text: string; sources: string | null; tables: AnswerTable[]; made: Made; company?: PdfBrand | null }): Buffer {
-  const tables = r.tables.map((t) => ({ t, columns: pdfColumns(t), rows: pdfRows(t) }));
+  const tables = r.tables.map((t) => ({ t, columns: pdfColumns(t), rows: pdfRows(t), shape: pageOrientation(pdfColumns(t), pdfRows(t)) }));
+  // 1.23.11: portrait, a table too wide for it turning its own section landscape — from the first
+  // page when it is the first table, so the question and answer share its page (never a page 1 left
+  // nearly empty); the footer: the company (its own on a site with 2+ companies, else the site's),
+  // "Printed … by …" and the page.
   const doc = new PdfDocument({
-    orientation: tables.some((x) => pageOrientation(x.columns, x.rows) === 'landscape') ? 'landscape' : 'portrait',
+    orientation: tables[0]?.shape ?? 'portrait',
     title: r.title,
     runningTitle: r.runningTitle,
-    // Companies: the company's name before the product's (2+ companies), and its logo.
-    footerLeft: `${r.company?.companyName ? `${r.company.companyName} · ` : ''}MICO360 Tasks · MICO AI report · ${generatedLine(r.made)}`,
+    footer: { company: r.company?.companyName ?? resolveBrand().companyName, printed: printedLine(r.made.generatedAt, r.made.timeZone, r.made.generatedBy) },
     palette: { brand: BRAND },
     ...(r.company?.logo ? { logo: r.company.logo } : {}),
   });
   doc.reportHeader({ title: r.title, subtitle: 'MICO AI report', details: r.details });
 
-  doc.heading('Question', { size: TYPE.heading, topGap: 0, keepWith: 30 });
-  doc.text(r.question.trim() || '—', { size: TYPE.body, inset: 10, bar: hexToRgb(BRAND), gap: 2 });
+  doc.section(() => {
+    doc.heading('Question', { topGap: 0, keepWith: 26 });
+    doc.text(r.question.trim() || '—', { size: TYPE.body, inset: 10, bar: hexToRgb(BRAND), gap: 2 });
+  });
 
   const blocks = answerBlocks(r.text);
   if (blocks.length) {
-    doc.heading('Answer', { size: TYPE.heading, topGap: 12, keepWith: 30 });
+    doc.heading('Answer', { keepWith: 26 });
     blocks.forEach((b, i) => {
       // Paragraphs and lists are set apart; the items of one list sit close together.
       if (i > 0) doc.spacer(b.kind === 'item' && blocks[i - 1]!.kind === 'item' ? 2 : 6);
@@ -196,22 +201,25 @@ function reportPdf(r: { title: string; details: string[]; runningTitle: string; 
     });
   }
   if (r.sources) {
-    doc.spacer(blocks.length ? 8 : 4);
+    doc.spacer(blocks.length ? 6 : 4);
     doc.text(r.sources, { size: TYPE.note, color: MUTED });
   }
 
-  tables.forEach(({ t, columns, rows }, i) => {
+  tables.forEach(({ t, columns, rows, shape }) => {
     const showing = showingLine(t);
     const titleCol = t.columns.findIndex((c) => c.key === 'title' || c.key === 'message' || c.key === 'item');
     const options = { size: TYPE.table, fit: { minSize: TYPE.tableMin }, ...(titleCol >= 0 ? { wide: titleCol } : {}) };
-    // The heading stays with the table's header row and its first row (never alone at a page end).
-    doc.heading(`${t.title} (${showing ?? `${rows.length} ${rows.length === 1 ? 'row' : 'rows'}`})`, {
-      size: TYPE.heading,
-      topGap: i === 0 ? 14 : 18,
-      keepWith: doc.tableHeight(columns, rows, { ...options, firstRows: 1 }) + (rows.length ? 0 : 16),
+    // Each table on the page shape it needs (a new page only when the shape changes).
+    doc.orient(shape);
+    doc.section(() => {
+      // The heading stays with the table's header row and its first rows (never alone at a page end).
+      doc.heading(`${t.title} (${showing ?? `${rows.length} ${rows.length === 1 ? 'row' : 'rows'}`})`, {
+        topGap: PDF_STANDARD.space.xl,
+        keepWith: doc.tableHeight(columns, rows, { ...options, firstRows: 2 }) + (rows.length ? 0 : 16),
+      });
+      doc.table(columns, rows, options);
+      if (rows.length === 0) doc.text('No rows.', { size: TYPE.note, color: MUTED, gap: 2 });
     });
-    doc.table(columns, rows, options);
-    if (rows.length === 0) doc.text('No rows.', { size: TYPE.note, color: MUTED, gap: 2 });
   });
   return doc.build();
 }
@@ -225,7 +233,8 @@ export function tablePdf(d: TableExport, company?: PdfBrand | null): Buffer {
   return reportPdf({
     company,
     title: d.table.title,
-    details: [...(chat ? [`Chat: ${chat}`] : []), generatedLine(d)],
+    // 1.23.11: when and by whom is in the footer ("Printed … by …").
+    details: chat ? [`Chat: ${chat}`] : [],
     runningTitle: `MICO AI · ${chat || oneLine(d.question) || d.table.title}`,
     question: d.question,
     text: d.text,
@@ -245,7 +254,7 @@ export function answerPdf(d: AnswerExport, company?: PdfBrand | null): Buffer {
   return reportPdf({
     company,
     title,
-    details: [generatedLine(d)],
+    details: [],
     runningTitle: `MICO AI · ${title}`,
     question: d.question,
     text: d.text,
