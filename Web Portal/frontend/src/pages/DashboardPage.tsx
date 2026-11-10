@@ -1,3 +1,4 @@
+import { useEffectiveAdmin } from '../lib/manager-view';
 import { dayText, instantDayText } from '../lib/day-words';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -99,6 +100,8 @@ function dueMeta(due: string, timeZone: string): { label: string; overdue: boole
 export function DashboardPage() {
   const user = useAuthStore((s) => s.user);
   const isAdmin = useAuthStore((s) => s.isAdmin());
+  // Manager View (owner, 10 Nov): the default arrangement for everyone is a setting — not offered then.
+  const settingsAdmin = useEffectiveAdmin();
   const qc = useQueryClient();
   const [projectFilter, setProjectFilter] = useState('');
   // Tasks open in the app shell's task panel, through ?task= in the address (reload, Back, a shared link).
@@ -124,7 +127,7 @@ export function DashboardPage() {
   const [said, setSaid] = useState('');
   const [editError, setEditError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const defaultsQ = useQuery({ queryKey: LAYOUT_DEFAULTS_KEY, queryFn: () => dashboardApi(apiClient).defaults(), enabled: isAdmin && !!editing && editing.target !== 'mine' });
+  const defaultsQ = useQuery({ queryKey: LAYOUT_DEFAULTS_KEY, queryFn: () => dashboardApi(apiClient).defaults(), enabled: settingsAdmin && !!editing && editing.target !== 'mine' });
   const defaultOf = (group: LayoutGroup) => layoutOrDefault(defaultsQ.data?.[group] ?? builtInLayout(group === 'admins'), group === 'admins');
   // While an administrator arranges a default that hasn't loaded yet, its draft waits for it.
   const waitingForDefault = !!editing && editing.target !== 'mine' && editing.draft.widgets.length === 0;
@@ -436,7 +439,7 @@ export function DashboardPage() {
       {editing ? (
         <div id="customize-dashboard">
           <CustomizePanel
-            isAdmin={isAdmin}
+            isAdmin={settingsAdmin}
             target={editing.target}
             onTarget={chooseTarget}
             draft={editing.target === 'everyone' ? previewFor(editing.draft, 'everyone') : editing.draft}

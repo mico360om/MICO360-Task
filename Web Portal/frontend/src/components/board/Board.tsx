@@ -1,3 +1,4 @@
+import { useEffectiveAdmin } from '../../lib/manager-view';
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -27,7 +28,6 @@ import { Button } from '../ui/Button';
 import { SearchableSelect } from '../ui/SearchableSelect';
 import { EXTERNAL_CONTACT_WORDS } from '../../lib/external-contacts';
 import { useBoardRealtime, type BoardEvent } from '../../lib/useBoardRealtime';
-import { useAuthStore } from '../../stores/auth-store';
 import { LoadError } from '../ui/LoadError';
 import { useShortcut } from '../shortcuts/ShortcutProvider';
 import { MoveTaskDialog, useMoveTargets, type MoveTaskRef } from '../MoveTaskDialog';
@@ -100,7 +100,9 @@ export interface BoardProps {
  */
 export function Board({ projectId, projects, list, linking = false, hiddenProjects = NO_PROJECTS, header, onRemoved, readOnly = null, viewPlace = 'board' }: BoardProps) {
   const qc = useQueryClient();
-  const isAdmin = useAuthStore((s) => s.isAdmin());
+  // Manager View (owner, 10 Nov): the board's settings (columns, team) only for a project they run, and no
+  // carry-forward run from here (the server refuses it then; the nightly one still runs).
+  const settingsAdmin = useEffectiveAdmin();
   // A card's task opens in the app shell's task panel, through ?task= in the address (reload, Back, a shared link).
   const openTask = useOpenTask();
   const navigate = useNavigate();
@@ -157,13 +159,13 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
   // Auto carry-forward: when an admin opens today's board, run the sweep once so any still-open tasks
   // from previous days appear immediately (the server also sweeps on start-up + hourly for everyone).
   useEffect(() => {
-    if (!isAdmin || boardDate !== todayKey || carriedThisSession) return;
+    if (!settingsAdmin || boardDate !== todayKey || carriedThisSession) return;
     carriedThisSession = true;
     tasksApi(apiClient)
       .runCarryForward()
       .then((res) => { if (res.carried > 0) qc.invalidateQueries({ queryKey: ['board'] }); })
       .catch(() => { carriedThisSession = false; });
-  }, [isAdmin, boardDate, todayKey, qc]);
+  }, [settingsAdmin, boardDate, todayKey, qc]);
 
   const columnsQ = useQuery({
     queryKey: ['columns', projectId],
@@ -517,7 +519,7 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
   const actions = projectId && !locked ? (
     <>
       {/* Whoever runs the project (the server says) and admins change its columns. */}
-      {(isAdmin || project?.canManage === true) && !isAll ? (
+      {(settingsAdmin || project?.canManage === true) && !isAll ? (
         <button
           onClick={() => setManageColumns((v) => !v)}
           aria-expanded={manageColumns}

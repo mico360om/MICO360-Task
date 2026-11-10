@@ -1,3 +1,4 @@
+import { useEffectiveAdmin } from '../lib/manager-view';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -78,7 +79,7 @@ export function ProjectDetailPage() {
   // New task (the header button too) starts in this project.
   useCurrentProject(id);
   const qc = useQueryClient();
-  const isAdmin = useAuthStore((s) => s.isAdmin());
+  const settingsAdmin = useEffectiveAdmin();
   const myId = useAuthStore((s) => s.user?.id);
   const [params, setParams] = useSearchParams();
   const tabParam = params.get('tab') as Tab | null;
@@ -177,8 +178,10 @@ export function ProjectDetailPage() {
   // Who runs the project — an admin, or its owner, named manager or a manager on its team — changes
   // its details, picture, status and owner, and runs its team. The server says (canManage); an
   // older one that doesn't let MANAGER members run the team only.
-  const canManage = isAdmin || (project?.canManage ?? members.some((m) => m.id === myId && m.role === 'MANAGER'));
-  const canEditProject = isAdmin || project?.canManage === true;
+  // Manager View (owner, 10 Nov): an administrator with it on changes only the projects they run — the
+  // server's canManage says which.
+  const canManage = settingsAdmin || (project?.canManage ?? members.some((m) => m.id === myId && m.role === 'MANAGER'));
+  const canEditProject = settingsAdmin || project?.canManage === true;
   const [detailsProblem, setDetailsProblem] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   // Share with client: whoever runs the project (the server checks too). Archived: read-only, Remove still there.
