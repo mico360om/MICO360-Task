@@ -2,7 +2,7 @@ import { shiftDayKey, zonedDayKey, zonedStartOfDay } from '../../lib/due-date';
 import { instantOf } from '../meetings/meeting-series';
 import type { EmailContent, TemplateOptions } from '../email/email-templates';
 import { dailyEmailOn, dailyEmailPrefs, DAILY_EMAIL_PARTS, type DailyEmailPart, type NotificationPreferences } from '../notifications/notification-preferences';
-import { dailyEmail, type DailyMeeting, type DailyTask } from './daily-email-content';
+import { dailyEmail, type DailyMeeting, type DailyProjectFigures, type DailyTask, type DailyWeek } from './daily-email-content';
 import type { DailyEmailDayRow, DailyEmailFinish, DailyEmailKind, DailyEmailRecord, DailyEmailRepository, DailyEmailStatus } from './daily-email-repository';
 
 /** Someone who may get the morning emails (active accounts only). */
@@ -13,6 +13,8 @@ export interface DailyRecipient {
   email: string | null;
   /** Their own time zone, else null (the company's is used). */
   timeZone: string | null;
+  /** Their own week start (0 Sunday, 1 Monday, 6 Saturday), else null (their company's is used). */
+  weekStart?: number | null;
   prefs: NotificationPreferences;
   createdAt: Date;
 }
@@ -35,7 +37,16 @@ export interface DailyEmailServiceDeps {
      * approval at `now` (the email keeps the overdue and waiting ones).
      */
     managed?(userId: string, now: Date): Promise<DailyTask[]>;
+    /**
+     * The redesign: the person's week — their tasks due in [dueFrom, dueTo) (done or not; the email keeps
+     * those due in their week) and when their tasks were completed in [doneFrom, now].
+     */
+    weekFigures?(userId: string, range: { dueFrom: Date; dueTo: Date; doneFrom: Date; now: Date }): Promise<DailyWeek>;
+    /** The redesign: the projects they run (never all of an administrator's site), each with its figures. */
+    projectFigures?(userId: string, o: { now: Date; timeZone: string }): Promise<DailyProjectFigures[]>;
   };
+  /** The week start of someone without one of their own: their primary company's, else the site's. */
+  weekStartOf?: (userId: string) => Promise<number>;
   /**
    * Sends one email; throws when it can't be delivered. 'suppressed': the address is blocked after a
    * bounce or spam complaint, so nothing was sent.
@@ -247,6 +258,13 @@ function validZone(tz: string | null, fallback: string): string {
   }
 }
 
+const WEEK_STARTS = new Set([0, 1, 6]);
+/** The first day of the week `day` is in, for a week that starts on `weekStart`. */
+function weekStartKey(day: string, weekStart: number): string {
+  const weekday = new Date(`${day}T12:00:00Z`).getUTCDay();
+  return shiftDayKey(day, -((weekday - weekStart + 7) % 7));
+}
+
 /** The calendar day at `now` in a time zone. */
 function localClock(now: Date, timeZone: string): { day: string } {
   return { day: zonedDayKey(now, timeZone) };
@@ -349,12 +367,26 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
     const brand = await brandOf(person);
     const sender = brand?.fromName ? { fromName: brand.fromName } : {};
     const since = parts.completed ? await completedSince(person, day, timeZone) : at;
-    const [tasks, awaitingApproval, meetings, completed, managed] = await Promise.all([
+    // Their week: their own week start, else their company's (else the site's).
+    const weekStart = person.weekStart != null && WEEK_STARTS.has(person.weekStart) ? person.weekStart : ((await deps.weekStartOf?.(person.id).catch(() => 0)) ?? 0);
+    const firstDay = weekStartKey(day, weekStart);
+    const wantWeek = (parts.week || parts.glance) && deps.tasks.weekFigures;
+    const weekRange = {
+      // Due dates a day either side (a due time is read in their zone; the email keeps those in their week).
+      dueFrom: new Date(`${shiftDayKey(firstDay, -1)}T00:00:00.000Z`),
+      dueTo: new Date(`${shiftDayKey(firstDay, 8)}T00:00:00.000Z`),
+      // The trend's 14 days (the week's start is never further back).
+      doneFrom: zonedStartOfDay(shiftDayKey(day, -14), timeZone),
+      now: at,
+    };
+    const [tasks, awaitingApproval, meetings, completed, managed, week, projects] = await Promise.all([
       deps.tasks.pending(person.id),
       deps.tasks.awaitingApproval?.(person.id) ?? Promise.resolve(0),
       parts.schedule && deps.tasks.meetingsBetween ? deps.tasks.meetingsBetween(person.id, zonedStartOfDay(day, timeZone), zonedStartOfDay(shiftDayKey(day, 1), timeZone)) : Promise.resolve([]),
       parts.completed ? deps.tasks.completedBetween(person.id, since, at) : Promise.resolve([]),
       parts.managed && deps.tasks.managed ? deps.tasks.managed(person.id, at) : Promise.resolve([]),
+      wantWeek ? deps.tasks.weekFigures!(person.id, weekRange) : Promise.resolve(null),
+      parts.projects && deps.tasks.projectFigures ? deps.tasks.projectFigures(person.id, { now: at, timeZone }) : Promise.resolve([]),
     ]);
     const content = dailyEmail(
       {
@@ -364,6 +396,7 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
         appUrl: deps.appUrl,
         assetUrl: deps.assetUrl,
         time: prefs.time,
+        weekStart,
         parts,
         tasks,
         meetings,
@@ -371,6 +404,8 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
         completedSince: since,
         awaitingApproval,
         managed,
+        week,
+        projects,
         groupByCompany: inSeveralCompanies([...tasks, ...managed, ...completed]),
       },
       brand ?? undefined,
@@ -688,6 +723,19 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
   }
 
   /**
+   * "Preview my email" (System settings → Daily emails): the person's own email as it would be built
+   * now — every part when they turned them all off, as "Send me a test" — with its HTML, for their own
+   * eyes. Nothing is sent or recorded; it works without an email address or email being set up.
+   * Null: not an active person.
+   */
+  async function previewOwn(userId: string): Promise<{ subject: string | null; html: string | null; text: string | null; empty: boolean } | null> {
+    const person = await deps.people.find(userId);
+    if (!person) return null;
+    const { content } = await build('PENDING', person, now(), { test: true });
+    return content ? { subject: content.subject, html: content.html, text: content.text, empty: false } : { subject: null, html: null, text: null, empty: true };
+  }
+
+  /**
    * A day for the administrators: everyone with an email address, their time and time zone, and each
    * email's state; the day's numbers; when the server last checked and when the next email is due.
    * `day` is each person's own calendar day ('YYYY-MM-DD'); left out, each person's today. Records of
@@ -817,7 +865,7 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
     return { day: day ?? null, lastCheckedAt: checked, checkLate, nextSendAt, run: latestRun ? snapshot(latestRun) : null, summary, people: out };
   }
 
-  return { runSweep, sendTest, startSendNow, sendFor, preview, overview, lastCheckedAt };
+  return { runSweep, sendTest, startSendNow, sendFor, preview, previewOwn, overview, lastCheckedAt };
 }
 
 export type DailyEmailService = ReturnType<typeof createDailyEmailService>;

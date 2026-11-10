@@ -52,21 +52,32 @@ export interface NotificationPreferences {
 }
 
 /**
- * The daily email (1.22: one email, in parts). `pending` (your tasks by project) and `completed`
- * (recently completed) keep the names of the two emails before it, so older apps still work.
+ * The daily email (1.22: one email, in parts; the redesign of Nov 2026 adds five). `pending` (other open
+ * tasks) and `completed` (completed yesterday) keep the names of the two emails before 1.22, so older apps
+ * still work.
  */
 export interface DailyEmailPrefs {
   pending: boolean;
   completed: boolean;
   time: string;
-  /** Today's schedule. */
+  /** Today's meetings. */
   schedule: boolean;
-  /** Overdue & urgent. */
+  /** Overdue and due today. */
   urgent: boolean;
-  /** In your projects (people who run a project). */
+  /** Others' overdue and waiting tasks (people who run a project). */
   managed: boolean;
+  /** Today at a glance (the tiles). */
+  glance: boolean;
+  /** This week (done of due, and the last 7 days). */
+  week: boolean;
+  /** By priority. */
+  priority: boolean;
+  /** Coming up (next 7 days, and tasks starting later). */
+  comingUp: boolean;
+  /** Your projects (people who run a project). */
+  projects: boolean;
 }
-export type DailyEmailPart = 'schedule' | 'urgent' | 'pending' | 'managed' | 'completed';
+export type DailyEmailPart = 'glance' | 'week' | 'priority' | 'urgent' | 'comingUp' | 'pending' | 'schedule' | 'completed' | 'projects' | 'managed';
 
 /** What "Send me a test" sent: an email with nothing in it isn't sent. `pending`/`completed` repeat `daily` for older apps. */
 export interface DailyEmailTestResult {

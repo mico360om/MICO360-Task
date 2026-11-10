@@ -6,7 +6,7 @@ import type { DailyEmailService } from './daily-email-service';
 import type { DailyEmailKind, DailyEmailRepository } from './daily-email-repository';
 
 export interface DailyEmailRouteDeps {
-  service: Pick<DailyEmailService, 'sendTest' | 'overview' | 'startSendNow' | 'sendFor' | 'preview'>;
+  service: Pick<DailyEmailService, 'sendTest' | 'overview' | 'startSendNow' | 'sendFor' | 'preview'> & Partial<Pick<DailyEmailService, 'previewOwn'>>;
   log: Pick<DailyEmailRepository, 'list'>;
   isConfigured: () => boolean;
   guard: AuthGuard;
@@ -177,4 +177,18 @@ export async function registerDailyEmailRoutes(app: FastifyInstance, deps: Daily
     if (!shown) return reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'That person isn’t active or has no email address.' } });
     return { data: shown };
   });
+
+  // "Preview my email" (redesign): the administrator's own daily email as it would be built now — every
+  // part when they turned them all off, as "Send me a test" — with its HTML, for the page to show in a
+  // sandboxed frame. Only ever the signed-in person's own (any other id asked for is ignored); nothing is
+  // sent or recorded, and email needn't be set up.
+  if (deps.service.previewOwn) {
+    const previewOwn = deps.service.previewOwn;
+    app.get('/admin/daily-emails/my-preview', adminOnly, async (req, reply) => {
+      const shown = await previewOwn(req.user!.id);
+      if (!shown) return reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Your account isn’t active, so there is no daily email to show.' } });
+      reply.header('Cache-Control', 'no-store');
+      return { data: shown };
+    });
+  }
 }

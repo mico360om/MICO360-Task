@@ -1,13 +1,15 @@
 import { leafCounts } from '../tasks/checklist-tree';
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { normalizePreferences } from '../notifications/notification-preferences';
-import type { DailyMeeting, DailyTask } from './daily-email-content';
+import type { DailyMeeting, DailyProjectFigures, DailyTask, DailyWeek } from './daily-email-content';
 import type { DailyRecipient } from './daily-email-service';
 import { liveProjectWhere } from '../companies/project-archive';
 import { hasActiveCompany, sharedCompanyWhere } from '../companies/company-access';
 import { managedProjectsWhere } from '../projects/project-managers';
-import { buildTimeline } from '../activity/activity-feed';
 import { STAFF_ONLY_WHERE } from '../clients/client-kind';
+import { healthReads } from '../project-health/prisma-health-source';
+import { completionOf, type CompletionMode } from '../project-health/completion';
+import { daysUntilDue, zonedDayKey } from '../../lib/due-date';
 
 const personSelect = {
   id: true,
@@ -16,6 +18,7 @@ const personSelect = {
   username: true,
   email: true,
   preferredTimeZone: true,
+  weekStart: true,
   notificationPrefs: true,
   createdAt: true,
 } as const;
@@ -27,6 +30,7 @@ const toRecipient = (u: PersonRow): DailyRecipient => ({
   username: u.username,
   email: u.email || null,
   timeZone: u.preferredTimeZone ?? null,
+  weekStart: u.weekStart ?? null,
   prefs: normalizePreferences(u.notificationPrefs),
   createdAt: u.createdAt,
 });
@@ -35,10 +39,45 @@ const nameSelect = { firstName: true, lastName: true, username: true } as const;
 const nameOf = (u: { firstName: string | null; lastName: string | null; username: string }) => [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username;
 
 /**
- * Not "the latest update" line: comments are read as comments, and blocker changes may name a task the
- * person can't see (the "Blocked" mark says enough).
+ * The redesign (Nov 2026): which tasks count. A task in the Recycle Bin or merged into another carries
+ * `deletedAt` and counts nowhere. WIRE AFTER MERGE (bulk + task archive): an archived OPEN task leaves
+ * every list and figure (add `archivedAt: null` to OPEN_TASK and to the open side of COUNTED_TASK); an
+ * archived DONE task still counts as done in the week's figures and the projects' bars (owner, 10 Nov).
  */
-const NOT_AN_UPDATE = ['COMMENTED', 'comment.added', 'BLOCKER_ADDED', 'BLOCKER_REMOVED'];
+const OPEN_TASK = { deletedAt: null, completedAt: null, column: { category: { not: 'DONE' as const } } } satisfies Prisma.TaskWhereInput;
+/** Tasks a figure counts, done or not (archived done ones too, once the archive exists). */
+const COUNTED_TASK = { deletedAt: null } satisfies Prisma.TaskWhereInput;
+
+/** The project as the email names it. */
+const projectSelect = {
+  id: true,
+  code: true,
+  name: true,
+  number: true,
+  clientName: true,
+  status: true,
+  color: true,
+  imageUrl: true,
+  targetDate: true,
+  manager: { select: { firstName: true, lastName: true, username: true } },
+  // Companies: the main company heads the project's group when an email is grouped.
+  mainCompany: { select: { id: true, name: true } },
+  companies: { select: { company: { select: { id: true, name: true } } }, orderBy: { addedAt: 'asc' }, take: 1 },
+} as const satisfies Prisma.ProjectSelect;
+type ProjectRow = Prisma.ProjectGetPayload<{ select: typeof projectSelect }>;
+const toProject = (p: ProjectRow): DailyTask['project'] => ({
+  id: p.id,
+  code: p.code,
+  name: p.name,
+  number: p.number,
+  clientName: p.clientName,
+  managerName: p.manager ? [p.manager.firstName, p.manager.lastName].filter(Boolean).join(' ') || p.manager.username : null,
+  status: p.status,
+  color: p.color,
+  imageUrl: p.imageUrl,
+  targetDate: p.targetDate,
+  company: p.mainCompany ?? p.companies[0]?.company ?? null,
+});
 
 const taskSelect = {
   id: true,
@@ -48,76 +87,40 @@ const taskSelect = {
   dueDate: true,
   completedAt: true,
   approvalRequestedAt: true,
-  // 1.22: the card's details.
-  description: true,
   startDate: true,
+  // The redesign: the day it is on the board — a later day means it waits for that day (Coming up).
+  boardDate: true,
   // 1.23.3: the live items; the count is of the real to-do items (no sub-items).
   checklist: { where: { deletedAt: null }, select: { id: true, parentId: true, done: true } },
-  comments: { where: { deletedAt: null }, orderBy: { createdAt: 'desc' }, take: 1, select: { body: true, createdAt: true, user: { select: nameSelect } } },
-  activities: { where: { action: { notIn: NOT_AN_UPDATE } }, orderBy: { createdAt: 'desc' }, take: 1, select: { id: true, action: true, meta: true, createdAt: true, user: { select: nameSelect } } },
   dependencies: { select: { dependsOn: { select: { completedAt: true, deletedAt: true, column: { select: { category: true } } } } } },
-  project: {
-    select: {
-      id: true,
-      code: true,
-      name: true,
-      number: true,
-      clientName: true,
-      status: true,
-      color: true,
-      imageUrl: true,
-      targetDate: true,
-      manager: { select: { firstName: true, lastName: true, username: true } },
-      // Companies: the main company heads the project's section when an email is grouped.
-      mainCompany: { select: { id: true, name: true } },
-      companies: { select: { company: { select: { id: true, name: true } } }, orderBy: { addedAt: 'asc' }, take: 1 },
-    },
-  },
-  column: { select: { name: true } },
+  project: { select: projectSelect },
+  // The redesign: its column's kind (in progress or not started) as well as its name.
+  column: { select: { name: true, category: true } },
 } as const satisfies Prisma.TaskSelect;
 
 type TaskRow = Prisma.TaskGetPayload<{ select: typeof taskSelect }>;
-
-/** The newest comment or change, whichever is newer, as one line ("Sara Ali: “…”", "Omar moved this task (To Do → Done)"). */
-function latestOf(t: TaskRow): DailyTask['latest'] {
-  const c = t.comments[0];
-  const comment = c ? { text: `${nameOf(c.user)}: “${c.body.slice(0, 400).replace(/\s+/g, ' ').trim()}”`, at: c.createdAt } : null;
-  const a = t.activities[0];
-  const item = a ? buildTimeline([{ id: a.id, action: a.action, actorName: nameOf(a.user), createdAt: a.createdAt.toISOString(), meta: (a.meta as Record<string, unknown> | null) ?? null }])[0] : undefined;
-  const change = a && item ? { text: `${item.actorName} ${item.text}${item.path ? ` (${item.path.join(' → ')})` : ''}`, at: a.createdAt } : null;
-  if (comment && change) return comment.at >= change.at ? comment : change;
-  return comment ?? change;
-}
 
 const toTask = (t: TaskRow): DailyTask => ({
   id: t.id,
   key: t.key,
   title: t.title,
-  project: {
-    id: t.project.id,
-    code: t.project.code,
-    name: t.project.name,
-    number: t.project.number,
-    clientName: t.project.clientName,
-    managerName: t.project.manager ? [t.project.manager.firstName, t.project.manager.lastName].filter(Boolean).join(' ') || t.project.manager.username : null,
-    status: t.project.status,
-    color: t.project.color,
-    imageUrl: t.project.imageUrl,
-    targetDate: t.project.targetDate,
-    company: t.project.mainCompany ?? t.project.companies[0]?.company ?? null,
-  },
+  project: toProject(t.project),
   priority: t.priority,
   dueDate: t.dueDate,
   statusLabel: t.column.name,
+  statusKind: t.column.category,
   completedAt: t.completedAt,
   waitingSince: t.approvalRequestedAt,
-  description: t.description,
   startDate: t.startDate,
+  boardDate: t.boardDate,
   checklist: t.checklist.length ? leafCounts(t.checklist) : null,
-  latest: latestOf(t),
   // Blocked: a task it depends on isn't done yet.
   blocked: t.dependencies.some((d) => !d.dependsOn.deletedAt && !d.dependsOn.completedAt && d.dependsOn.column.category !== 'DONE'),
+  // WIRE AFTER MERGE (guests + categories): `categories` [{ name, color }] and `guests` ["Name (Company)"].
 });
+
+/** At most this many projects in Your projects (the email shows the first few, most in need first). */
+const PROJECTS_AT_MOST = 60;
 
 /** At most this many meetings in one person's day. */
 const MEETINGS_A_DAY = 60;
@@ -151,10 +154,8 @@ export function createPrismaDailyEmailSources(prisma: PrismaClient) {
       async pending(userId: string): Promise<DailyTask[]> {
         const rows = await prisma.task.findMany({
           where: {
-            deletedAt: null,
-            completedAt: null,
+            ...OPEN_TASK,
             assignees: { some: { userId } },
-            column: { category: { not: 'DONE' } },
             // companies: archived by its own status or by all its companies (liveProjectWhere), and in the person's company scope.
             project: liveProjectWhere({ deletedAt: null, status: { not: 'COMPLETED' }, AND: [await companyScope(userId)] }),
           },
@@ -225,9 +226,7 @@ export function createPrismaDailyEmailSources(prisma: PrismaClient) {
       async managed(userId: string, now: Date): Promise<DailyTask[]> {
         const rows = await prisma.task.findMany({
           where: {
-            deletedAt: null,
-            completedAt: null,
-            column: { category: { not: 'DONE' } },
+            ...OPEN_TASK,
             assignees: { none: { userId } },
             project: liveProjectWhere({ deletedAt: null, status: { not: 'COMPLETED' }, AND: [managedProjectsWhere(userId), await companyScope(userId)] }),
             OR: [{ approvalRequestedAt: { not: null } }, { dueDate: { lt: new Date(now.getTime() + 864e5) } }],
@@ -237,6 +236,78 @@ export function createPrismaDailyEmailSources(prisma: PrismaClient) {
           take: 200,
         });
         return rows.map((r) => ({ ...toTask(r), assignees: r.assignees.map((a) => nameOf(a.user)) }));
+      },
+
+      /**
+       * The redesign: the person's week — their tasks due in [dueFrom, dueTo), done or not (a Done column
+       * or a completion), and when their tasks were completed in [doneFrom, now]. Within their companies,
+       * never archived projects (as Completed yesterday).
+       */
+      async weekFigures(userId: string, r: { dueFrom: Date; dueTo: Date; doneFrom: Date; now: Date }): Promise<DailyWeek> {
+        const project = liveProjectWhere({ deletedAt: null, AND: [await companyScope(userId)] });
+        const mine = { ...COUNTED_TASK, assignees: { some: { userId } }, project };
+        const [due, done] = await Promise.all([
+          prisma.task.findMany({ where: { ...mine, dueDate: { gte: r.dueFrom, lt: r.dueTo } }, select: { dueDate: true, completedAt: true, column: { select: { category: true } } }, take: 2000 }),
+          prisma.task.findMany({ where: { ...mine, completedAt: { gte: r.doneFrom, lte: r.now } }, select: { completedAt: true }, take: 5000 }),
+        ]);
+        return {
+          due: due.map((t) => ({ dueDate: t.dueDate!, done: t.completedAt !== null || t.column.category === 'DONE' })),
+          completions: done.map((t) => t.completedAt!),
+        };
+      },
+
+      /**
+       * The redesign, Your projects: the projects the person runs (owner, named manager or MANAGER member)
+       * — administrators too, only theirs, never the whole site — still going (not completed or archived),
+       * within their companies (a project they run in a company they left is not theirs to see). Each with
+       * its completion as the Projects page counts it (its own mode: tasks or weight), its open tasks, those
+       * overdue by the person's day (not waiting for approval or for a later start day), and those waiting
+       * for approval.
+       */
+      async projectFigures(userId: string, o: { now: Date; timeZone: string }): Promise<DailyProjectFigures[]> {
+        const projects = await prisma.project.findMany({
+          where: liveProjectWhere({ deletedAt: null, status: { not: 'COMPLETED' }, AND: [managedProjectsWhere(userId), await companyScope(userId)] }),
+          select: { ...projectSelect, completionMode: true },
+          orderBy: [{ name: 'asc' }, { id: 'asc' }],
+          take: PROJECTS_AT_MOST,
+        });
+        if (projects.length === 0) return [];
+        const ids = projects.map((p) => p.id);
+        const [figures, open, waiting, maybeLate] = await Promise.all([
+          healthReads(prisma).figures(ids),
+          prisma.task.groupBy({ by: ['projectId'], where: { ...OPEN_TASK, projectId: { in: ids } }, _count: { _all: true } }),
+          prisma.task.groupBy({ by: ['projectId'], where: { ...OPEN_TASK, approvalRequestedAt: { not: null }, projectId: { in: ids } }, _count: { _all: true } }),
+          // Due by tomorrow at the latest (a day either side of any time zone); the person's day decides.
+          prisma.task.findMany({
+            where: { ...OPEN_TASK, approvalRequestedAt: null, projectId: { in: ids }, dueDate: { lt: new Date(o.now.getTime() + 864e5) } },
+            select: { projectId: true, dueDate: true, boardDate: true },
+            take: 20000,
+          }),
+        ]);
+        const today = zonedDayKey(o.now, o.timeZone);
+        const count = (rows: Array<{ projectId: string; _count: { _all: number } }>) => new Map(rows.map((r) => [r.projectId, r._count._all] as const));
+        const openOf = count(open);
+        const waitingOf = count(waiting);
+        const lateOf = new Map<string, number>();
+        for (const t of maybeLate) {
+          // Waiting for a later start day: not today's work, so not late today.
+          if (t.boardDate && t.boardDate.toISOString().slice(0, 10) > today) continue;
+          if ((daysUntilDue(t.dueDate, o.timeZone, o.now) ?? 0) < 0) lateOf.set(t.projectId, (lateOf.get(t.projectId) ?? 0) + 1);
+        }
+        const figuresOf = new Map(figures.map((f) => [f.projectId, f] as const));
+        return projects.map((p) => {
+          const f = figuresOf.get(p.id);
+          const n = { total: Number(f?.total ?? 0), done: Number(f?.done ?? 0), weightTotal: Number(f?.weightTotal ?? 0), weightDone: Number(f?.weightDone ?? 0) };
+          return {
+            project: toProject(p),
+            pct: completionOf(n, p.completionMode as CompletionMode).pct,
+            done: n.done,
+            total: n.total,
+            open: openOf.get(p.id) ?? 0,
+            overdue: lateOf.get(p.id) ?? 0,
+            waiting: waitingOf.get(p.id) ?? 0,
+          };
+        });
       },
     },
   };

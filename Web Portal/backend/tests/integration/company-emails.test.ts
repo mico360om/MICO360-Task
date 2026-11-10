@@ -100,22 +100,28 @@ describe('daily emails, one per person, grouped by company', () => {
       expect(ana.content.html).not.toContain(`/meetings/${w.meetings.MB}`);
       // Bob (Beta) is invited to Alpha's meeting: it is on his day, as a guest's.
       const bob = await dailyOf(w.people.bob);
-      expect(bob.content.text).toContain('MA ZZALPHA meeting (meeting)');
+      expect(bob.content.text.slice(bob.content.text.indexOf('== Today’s meetings'))).toContain('  MA ZZALPHA meeting\n');
       expect(bob.content.html).not.toContain(`/meetings/${w.meetings.MB}`);
     } finally {
       await prisma.meeting.updateMany({ where: { id: { in: [w.meetings.MA, w.meetings.MB] } }, data: { startAt: original.startAt } });
     }
   });
 
-  it('1.22: In your projects — ben runs PB: cat’s overdue Beta task, with her name; nothing of a company he isn’t in', async () => {
+  it('1.22: In your projects (now Overdue and waiting in your projects, under Your projects) — ben runs PB: cat’s overdue Beta task, with her name; nothing of a company he isn’t in', async () => {
     const late = new Date('2026-01-05T00:00:00Z');
     await prisma.task.updateMany({ where: { id: { in: [w.tasks.TB2, w.tasks.TA2, w.tasks.TC1] } }, data: { dueDate: late } });
     try {
       const ben = await dailyOf(w.people.ben);
-      const part = ben.content.text.slice(ben.content.text.indexOf('== In your projects =='));
+      const part = ben.content.text.slice(ben.content.text.indexOf('== Overdue and waiting in your projects'));
       expect(part).toContain(`TB2${w.tag.toUpperCase()}-1`);
       expect(part).toMatch(/Assigned to Cat/);
       expect(part).not.toMatch(/ZZALPHA|ZZGAMMA/);
+      // Redesign, Your projects: PB (he owns it) with its figures — never a project of a company he isn't in.
+      const text = ben.content.text;
+      const yours = text.slice(text.indexOf('== Your projects'), text.indexOf('== Overdue and waiting in your projects'));
+      expect(yours).toContain(`- Project PB ${w.tag}`);
+      expect(yours).toMatch(/1 overdue/);
+      expect(yours).not.toMatch(/Project (PA|PC) /);
     } finally {
       await prisma.task.updateMany({ where: { id: { in: [w.tasks.TB2, w.tasks.TA2, w.tasks.TC1] } }, data: { dueDate: null } });
     }

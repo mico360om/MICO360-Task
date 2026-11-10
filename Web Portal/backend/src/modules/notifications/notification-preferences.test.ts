@@ -32,37 +32,55 @@ describe('notification-preferences', () => {
 });
 
 describe('daily task email settings', () => {
+  const ALL_ON = { pending: true, completed: true, time: '06:00', schedule: true, urgent: true, managed: true, glance: true, week: true, priority: true, comingUp: true, projects: true };
+  const ALL_OFF = { pending: false, completed: false, time: '06:00', schedule: false, urgent: false, managed: false, glance: false, week: false, priority: false, comingUp: false, projects: false };
+
   it('are all on at 06:00 for someone who never chose', () => {
-    expect(DEFAULT_DAILY_EMAILS).toEqual({ pending: true, completed: true, time: '06:00', schedule: true, urgent: true, managed: true });
+    expect(DEFAULT_DAILY_EMAILS).toEqual(ALL_ON);
     expect(dailyEmailPrefs(emptyPreferences())).toEqual(DEFAULT_DAILY_EMAILS);
     expect(dailyEmailOn(dailyEmailPrefs(emptyPreferences()))).toBe(true);
   });
 
   it('keep what was chosen, and fill in or fix the rest', () => {
-    const p = normalizePreferences({ muted: [], dailyEmails: { pending: false, completed: true, time: '07:30', schedule: false, urgent: true, managed: false } });
-    expect(p.dailyEmails).toEqual({ pending: false, completed: true, time: '07:30', schedule: false, urgent: true, managed: false });
+    const chosen = { pending: false, completed: true, time: '07:30', schedule: false, urgent: true, managed: false, glance: false, week: true, priority: false, comingUp: true, projects: false };
+    expect(normalizePreferences({ muted: [], dailyEmails: chosen }).dailyEmails).toEqual(chosen);
     expect(normalizePreferences({ dailyEmails: { completed: 'yes', time: '25:00' } }).dailyEmails).toEqual(DEFAULT_DAILY_EMAILS);
     expect(normalizePreferences({ dailyEmails: { time: '6:5' } }).dailyEmails?.time).toBe('06:00');
+    // A part that isn't true or false is filled in as if it had never been saved.
+    expect(normalizePreferences({ dailyEmails: { ...ALL_ON, glance: 'yes' } }).dailyEmails?.glance).toBe(true);
   });
 
   it('1.22: settings saved before the one email keep their meaning — both old emails off means no email', () => {
-    // "Pending tasks" was the task list: it now stands for both task parts.
+    // "Pending tasks" was the task list: it now stands for every part about the person's open tasks.
     expect(normalizePreferences({ dailyEmails: { pending: false, completed: true, time: '07:30' } }).dailyEmails).toEqual({
-      pending: false, completed: true, time: '07:30', schedule: true, urgent: false, managed: true,
+      pending: false, completed: true, time: '07:30', schedule: true, urgent: false, managed: true, glance: false, week: true, priority: false, comingUp: false, projects: true,
     });
     expect(normalizePreferences({ dailyEmails: { pending: true, completed: false, time: '06:00' } }).dailyEmails).toEqual({
-      pending: true, completed: false, time: '06:00', schedule: true, urgent: true, managed: true,
+      pending: true, completed: false, time: '06:00', schedule: true, urgent: true, managed: true, glance: true, week: false, priority: true, comingUp: true, projects: true,
     });
     const off = dailyEmailPrefs(normalizePreferences({ dailyEmails: { pending: false, completed: false, time: '06:00' } }));
-    expect(off).toEqual({ pending: false, completed: false, time: '06:00', schedule: false, urgent: false, managed: false });
+    expect(off).toEqual(ALL_OFF);
     expect(dailyEmailOn(off)).toBe(false);
   });
 
-  it('the email is on while any one part is on', () => {
-    const none = { pending: false, completed: false, time: '06:00', schedule: false, urgent: false, managed: false };
-    expect(dailyEmailOn(none)).toBe(false);
-    for (const part of DAILY_EMAIL_PARTS) expect(dailyEmailOn({ ...none, [part]: true })).toBe(true);
-    expect([...DAILY_EMAIL_PARTS]).toEqual(['schedule', 'urgent', 'pending', 'managed', 'completed']);
+  it('redesign: settings saved before the new parts — new parts on, except those matching a part turned off', () => {
+    // Saved by the 1.22 website: every 1.22 part chosen, none of the new ones.
+    const saved = (d: Record<string, unknown>) => normalizePreferences({ dailyEmails: { time: '06:00', ...d } }).dailyEmails;
+    expect(saved({ pending: true, completed: true, schedule: true, urgent: true, managed: true })).toEqual(ALL_ON);
+    // "Your tasks" off: At a glance, By priority and Coming up (all about the person's open tasks) stay off.
+    expect(saved({ pending: false, completed: true, schedule: true, urgent: true, managed: true })).toMatchObject({ glance: false, priority: false, comingUp: false, week: true, projects: true });
+    // "Recently completed" off: This week (how much got done) stays off.
+    expect(saved({ pending: true, completed: false, schedule: true, urgent: true, managed: true })).toMatchObject({ glance: true, priority: true, comingUp: true, week: false, projects: true });
+    // "In your projects" off: Your projects stays off.
+    expect(saved({ pending: true, completed: true, schedule: true, urgent: true, managed: false })).toMatchObject({ projects: false, glance: true, week: true });
+    // Read straight from storage (not through normalizePreferences) the same.
+    expect(dailyEmailPrefs({ muted: [], dailyEmails: { pending: false, completed: true, time: '06:00', schedule: true, urgent: true, managed: false } })).toMatchObject({ glance: false, week: true, projects: false });
+  });
+
+  it('the email is on while any one part is on; the parts are in the email’s order', () => {
+    expect(dailyEmailOn(ALL_OFF)).toBe(false);
+    for (const part of DAILY_EMAIL_PARTS) expect(dailyEmailOn({ ...ALL_OFF, [part]: true })).toBe(true);
+    expect([...DAILY_EMAIL_PARTS]).toEqual(['glance', 'week', 'priority', 'urgent', 'comingUp', 'pending', 'schedule', 'completed', 'projects', 'managed']);
   });
 
   it('are left out when they were never saved (older stored settings stay as they are)', () => {

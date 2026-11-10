@@ -9,18 +9,23 @@ import { SearchableSelect } from '../ui/SearchableSelect';
 import { timeOptions } from '../ui/DateTimeField';
 import { Toggle } from '../ui/Toggle';
 
-const DEFAULTS: DailyEmailPrefs = { pending: true, completed: true, time: '06:00', schedule: true, urgent: true, managed: true };
+const DEFAULTS: DailyEmailPrefs = { pending: true, completed: true, time: '06:00', schedule: true, urgent: true, managed: true, glance: true, week: true, priority: true, comingUp: true, projects: true };
 const PREFS_KEY = ['notification-prefs'];
 /** The section's address: the email's "Daily email settings" link opens it (/settings#daily-email; the Settings page scrolls to it). */
 export const DAILY_EMAIL_ANCHOR = 'daily-email';
 
-/** The parts of the email, in its order, with what each one holds. */
+/** The parts of the email, in its order, with what each one holds (the redesign of Nov 2026). */
 const PARTS: Array<{ key: DailyEmailPart; label: string; hint: string }> = [
-  { key: 'schedule', label: 'Today’s schedule', hint: 'Your meetings today, and your tasks due at a time today, by time.' },
-  { key: 'urgent', label: 'Overdue & urgent', hint: 'Your overdue tasks (most days overdue first), then your urgent ones.' },
-  { key: 'pending', label: 'Your tasks by project', hint: 'Your other open tasks, grouped by project, most urgent first.' },
-  { key: 'managed', label: 'In your projects', hint: 'If you run a project: its overdue tasks and those waiting for approval.' },
-  { key: 'completed', label: 'Recently completed', hint: 'Your tasks completed since the last email.' },
+  { key: 'glance', label: 'Today at a glance', hint: 'Your open, in progress, not started and overdue tasks, and those done this week, as numbers.' },
+  { key: 'week', label: 'This week', hint: 'How many of this week’s tasks are done, and what you completed each day of the last week.' },
+  { key: 'priority', label: 'By priority', hint: 'Your open tasks by priority: urgent, high, normal and low.' },
+  { key: 'urgent', label: 'Overdue and due today', hint: 'Your overdue tasks (most days late first) and those due today.' },
+  { key: 'comingUp', label: 'Coming up', hint: 'Your tasks due in the next 7 days, and those that start on a later day.' },
+  { key: 'pending', label: 'Other open tasks', hint: 'The rest of your open tasks — no due date, or due later — by project.' },
+  { key: 'schedule', label: 'Today’s meetings', hint: 'Your meetings today, by time.' },
+  { key: 'completed', label: 'Completed yesterday', hint: 'Your tasks completed since the last email.' },
+  { key: 'projects', label: 'Your projects', hint: 'If you run a project: how complete it is, what is overdue and what waits for your approval.' },
+  { key: 'managed', label: 'Others’ overdue and waiting tasks', hint: 'If you run a project: tasks assigned to others there that are overdue or wait for approval.' },
 ];
 const anyOn = (d: DailyEmailPrefs) => PARTS.some((p) => d[p.key]);
 const allParts = (on: boolean) => Object.fromEntries(PARTS.map((p) => [p.key, on])) as Record<DailyEmailPart, boolean>;
@@ -88,8 +93,9 @@ export function DailyEmailSettings() {
     <section id={DAILY_EMAIL_ANCHOR} className="card scroll-mt-20 p-5 lg:col-span-2" aria-labelledby="daily-emails-heading">
       <h2 id="daily-emails-heading" className="eyebrow mb-1">Daily email</h2>
       <p className="mb-4 text-sm text-ink-2">
-        One email each morning with your day: the numbers, your schedule, what’s overdue or urgent, your tasks by project and what was
-        completed. A part with nothing in it is left out, and with nothing in any part no email is sent.
+        One email each morning with your day: your numbers and this week’s progress, what’s overdue, due today and coming up, your
+        meetings and what was completed — and, if you run a project, how it is going. A part with nothing in it is left out, and with
+        nothing in any part no email is sent.
       </p>
       {!emailEnabled ? (
         <p className="mb-4 rounded-lg bg-warning-soft px-3 py-2 text-sm text-warning">

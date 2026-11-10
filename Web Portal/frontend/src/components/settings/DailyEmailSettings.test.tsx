@@ -11,8 +11,10 @@ function json(body: unknown, status = 200): Response {
 
 type Call = { url: string; method: string; body?: Record<string, unknown> };
 let calls: Call[] = [];
-const ALL_ON = { pending: true, completed: true, time: '06:00', schedule: true, urgent: true, managed: true };
-const PARTS = ['Today’s schedule', 'Overdue & urgent', 'Your tasks by project', 'In your projects', 'Recently completed'];
+const ALL_ON = { pending: true, completed: true, time: '06:00', schedule: true, urgent: true, managed: true, glance: true, week: true, priority: true, comingUp: true, projects: true };
+const ALL_OFF = { pending: false, completed: false, time: '06:00', schedule: false, urgent: false, managed: false, glance: false, week: false, priority: false, comingUp: false, projects: false };
+/** The redesign's parts, in the email's order. */
+const PARTS = ['Today at a glance', 'This week', 'By priority', 'Overdue and due today', 'Coming up', 'Other open tasks', 'Today’s meetings', 'Completed yesterday', 'Your projects', 'Others’ overdue and waiting tasks'];
 let prefs: Record<string, unknown> = {};
 let emailEnabled = true;
 let testReply: () => Response = () => json({ data: { daily: 'sent', pending: 'sent', completed: 'sent' } });
@@ -58,19 +60,20 @@ function renderIt() {
 const puts = () => calls.filter((c) => c.method === 'PUT');
 
 describe('Settings: the daily email (1.22: one email, in parts)', () => {
-  it('shows the email on, every part on, and its time', async () => {
+  it('shows the email on, every part on (in the email’s order), and its time', async () => {
     renderIt();
     expect(await screen.findByRole('switch', { name: 'Send me the daily email' })).toHaveAttribute('aria-checked', 'true');
     for (const part of PARTS) expect(screen.getByRole('switch', { name: part })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getAllByRole('switch').slice(1).map((sw) => sw.getAttribute('aria-label'))).toEqual(PARTS);
     expect(screen.getByRole('button', { name: 'Send it at: 06:00' })).toHaveTextContent('06:00');
   });
 
   it('turns one part off, saving the daily email settings only', async () => {
     renderIt();
-    await userEvent.click(await screen.findByRole('switch', { name: 'Recently completed' }));
+    await userEvent.click(await screen.findByRole('switch', { name: 'Completed yesterday' }));
     await waitFor(() => expect(puts()).toHaveLength(1));
     expect(puts()[0]!.body).toEqual({ dailyEmails: { ...ALL_ON, completed: false } });
-    expect(screen.getByRole('switch', { name: 'Recently completed' })).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByRole('switch', { name: 'Completed yesterday' })).toHaveAttribute('aria-checked', 'false');
     expect(screen.getByRole('switch', { name: 'Send me the daily email' })).toHaveAttribute('aria-checked', 'true');
   });
 
@@ -78,7 +81,7 @@ describe('Settings: the daily email (1.22: one email, in parts)', () => {
     renderIt();
     await userEvent.click(await screen.findByRole('switch', { name: 'Send me the daily email' }));
     await waitFor(() => expect(puts()).toHaveLength(1));
-    expect(puts()[0]!.body).toEqual({ dailyEmails: { pending: false, completed: false, time: '06:00', schedule: false, urgent: false, managed: false } });
+    expect(puts()[0]!.body).toEqual({ dailyEmails: ALL_OFF });
     expect(await screen.findByText('You get no daily email. Turn on any part to get it again.')).toBeInTheDocument();
     for (const part of PARTS) expect(screen.getByRole('switch', { name: part })).toHaveAttribute('aria-checked', 'false');
     await userEvent.click(screen.getByRole('switch', { name: 'Send me the daily email' }));
@@ -142,5 +145,20 @@ describe('Settings: the daily email (1.22: one email, in parts)', () => {
     expect(await screen.findByText(/Email isn’t set up on this server yet/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Send me a test' })).not.toBeInTheDocument();
     expect(screen.getByRole('switch', { name: 'Send me the daily email' })).toBeInTheDocument(); // settings can still be chosen
+  });
+});
+
+describe('Settings: the daily email — the redesign’s parts', () => {
+  it('a new part turns off on its own, saving every part as it is (the server keeps the new parts the website sends)', async () => {
+    renderIt();
+    await userEvent.click(await screen.findByRole('switch', { name: 'By priority' }));
+    await waitFor(() => expect(puts()).toHaveLength(1));
+    expect(puts()[0]!.body).toEqual({ dailyEmails: { ...ALL_ON, priority: false } });
+  });
+
+  it('settings from a server before the redesign (no new parts): the new ones show on', async () => {
+    prefs = { muted: [], dailyEmails: { pending: true, completed: true, time: '06:00', schedule: true, urgent: true, managed: true } };
+    renderIt();
+    expect(await screen.findByRole('switch', { name: 'Your projects' })).toHaveAttribute('aria-checked', 'true');
   });
 });

@@ -119,8 +119,19 @@ export interface DailyEmailPreview {
   empty: boolean;
 }
 
+/** "Preview my email": the signed-in administrator's own daily email as it would be sent now, with its HTML. */
+export interface DailyEmailMyPreview {
+  subject: string | null;
+  /** The whole email (shown in a sandboxed frame), or null when there is nothing in it. */
+  html: string | null;
+  text: string | null;
+  empty: boolean;
+}
+
 export function dailyEmailsApi(client: ApiClient) {
   return {
+    /** The signed-in administrator's own email, as it would be sent now (nothing is sent). */
+    myPreview: () => client.get<{ data: DailyEmailMyPreview }>('/admin/daily-emails/my-preview').then((r) => r.data),
     /** A day at a glance; without a day, each person's own today. */
     overview: (day?: string) =>
       client.get<{ data: DailyEmailOverview }>(`/admin/daily-emails/overview${day ? `?day=${encodeURIComponent(day)}` : ''}`).then((r) => r.data),

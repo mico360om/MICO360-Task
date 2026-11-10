@@ -37,6 +37,7 @@ let overview: Record<string, unknown> = {};
 let overviewReply: () => Response | Promise<Response> = () => json({ data: overview });
 let sendNowReply: () => Response | Promise<Response> = () => json({ data: {} });
 let sendReply: (body: { userId: string; kind: string; resend: boolean; early?: boolean }) => Response = () => json({ data: {} });
+let myPreviewReply: () => Response = () => json({ data: { subject: 'Today: 2 overdue — Wed 21 Oct', html: '<!DOCTYPE html><html><body><h1>Good morning, Admin</h1></body></html>', text: 'Good morning, Admin', empty: false } });
 
 /** A reply the test lets go of later (a slow server). */
 function held() {
@@ -60,6 +61,7 @@ beforeEach(() => {
     people: PEOPLE,
   };
   overviewReply = () => json({ data: overview });
+  myPreviewReply = () => json({ data: { subject: 'Today: 2 overdue — Wed 21 Oct', html: '<!DOCTYPE html><html><body><h1>Good morning, Admin</h1></body></html>', text: 'Good morning, Admin', empty: false } });
   sendNowReply = () => json({ data: runOf() }, 202);
   sendReply = (b) => json({ data: { userId: b.userId, name: 'Bo Brown', email: 'bo@mico360.test', day: '2026-10-21', time: '16:00', results: [{ kind: b.kind, outcome: 'sent', error: null, sentAt: '2026-10-21T05:45:00.000Z' }] } });
   useAuthStore.getState().setSession({ user: { id: 'a1', email: 'a@b.c', username: 'admin', roles: ['ADMIN'] }, accessToken: 'at', refreshToken: 'rt' });
@@ -73,6 +75,7 @@ beforeEach(() => {
       calls.push({ url: u, method, body, headers });
       if (u.endsWith('/config')) return json({ data: { timeZone: 'Asia/Muscat', productName: 'x', companyName: 'y', serverTime: '2026-10-21T05:45:00.000Z' } });
       if (u.includes('/admin/daily-emails/overview')) return overviewReply();
+      if (u.includes('/admin/daily-emails/my-preview')) return myPreviewReply();
       if (u.includes('/admin/daily-emails/send-now')) return sendNowReply();
       if (u.includes('/admin/daily-emails/send')) return sendReply(body);
       if (u.includes('/admin/daily-emails/preview')) {
@@ -878,5 +881,41 @@ describe('System Settings → Daily email: finding a person', () => {
     await user.clear(find());
     await user.type(find(), 'م\u064fح\u064eم\u0651\u064eد');
     expect(shownNames()).toEqual([marked, 'محمد سالم']);
+  });
+});
+
+describe('System settings → Daily email: "Preview my email" (the redesign)', () => {
+  it('opens the administrator\u2019s own email as it is now, in a sandboxed frame, with its subject; a computer or a phone\u2019s width', async () => {
+    renderIt();
+    await userEvent.click(await screen.findByRole('button', { name: 'Preview my email' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Your daily email' });
+    expect(await within(dialog).findByText('Today: 2 overdue — Wed 21 Oct')).toBeInTheDocument();
+    const frame = within(dialog).getByTitle('Your daily email as it is now') as HTMLIFrameElement;
+    // No scripts, no navigation: an empty sandbox.
+    expect(frame.getAttribute('sandbox')).toBe('');
+    expect(frame.getAttribute('srcdoc')).toContain('Good morning, Admin');
+    expect(calls.filter((c) => c.url.includes('/admin/daily-emails/my-preview'))).toHaveLength(1);
+    const computer = within(dialog).getByRole('button', { name: 'Computer' });
+    const phone = within(dialog).getByRole('button', { name: 'Phone' });
+    expect(computer).toHaveAttribute('aria-pressed', 'true');
+    expect(frame.style.width).toBe('');
+    await userEvent.click(phone);
+    expect(phone).toHaveAttribute('aria-pressed', 'true');
+    expect(frame.style.width).toBe('375px');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('says when there is nothing in it, and when it can\u2019t be built', async () => {
+    myPreviewReply = () => json({ data: { subject: null, html: null, text: null, empty: true } });
+    renderIt();
+    await userEvent.click(await screen.findByRole('button', { name: 'Preview my email' }));
+    expect(await screen.findByText(/There\u2019s nothing in your daily email right now/)).toBeInTheDocument();
+  });
+
+  it('works while email isn\u2019t set up on the server (it sends nothing)', async () => {
+    overview = { ...overview, emailEnabled: false };
+    renderIt();
+    expect(await screen.findByRole('button', { name: 'Preview my email' })).toBeEnabled();
   });
 });

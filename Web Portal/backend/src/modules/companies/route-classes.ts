@@ -130,6 +130,7 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   'GET /admin/daily-emails': 'admin',
   'GET /admin/daily-emails/overview': 'admin',
   'GET /admin/daily-emails/preview': 'admin',
+  'GET /admin/daily-emails/my-preview': 'admin',
   'POST /admin/daily-emails/send': 'admin',
   'POST /admin/daily-emails/send-now': 'admin',
   'POST /tasks/carry-forward': 'admin',

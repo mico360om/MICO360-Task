@@ -1,12 +1,14 @@
 import { describe, it, expect, vi } from 'vitest';
-import { dailyEmail, taskLink, type DailyEmailInput, type DailyMeeting, type DailyProject, type DailyTask } from './daily-email-content';
+import { dailyEmail, emailSafetyProblems, taskLink, type DailyEmailInput, type DailyMeeting, type DailyProject, type DailyProjectFigures, type DailyTask } from './daily-email-content';
 import { DEFAULT_DAILY_EMAILS } from '../notifications/notification-preferences';
+import { OVERDUE_TONES, PRIORITY_TONES, STATUS_TONES } from '../../lib/colour-scheme';
 
 const TZ = 'Asia/Muscat';
 const NOW = new Date('2026-11-04T02:00:00Z'); // 06:00 on Wed 4 Nov 2026 in Muscat
 const APP = 'https://task.example';
 const ASSETS = 'https://api.example';
 const day = (key: string) => new Date(`${key}T00:00:00.000Z`); // due dates are stored as pure days
+const board = (key: string) => new Date(`${key}T12:00:00.000Z`); // board days: a noon-UTC anchor
 
 const RIG: DailyProject = {
   id: 'p-rig',
@@ -30,6 +32,7 @@ const task = (key: string, extra: Partial<DailyTask> = {}): DailyTask => ({
   priority: 'NORMAL',
   dueDate: null,
   statusLabel: 'To Do',
+  statusKind: 'TODO',
   completedAt: null,
   ...extra,
 });
@@ -46,6 +49,7 @@ const meeting = (id: string, extra: Partial<DailyMeeting> = {}): DailyMeeting =>
   status: 'SCHEDULED',
   ...extra,
 });
+const figures = (project: DailyProject, extra: Partial<DailyProjectFigures> = {}): DailyProjectFigures => ({ project, pct: 50, done: 5, total: 10, open: 5, overdue: 0, waiting: 0, ...extra });
 
 const input = (extra: Partial<DailyEmailInput> = {}): DailyEmailInput => ({
   name: 'Ada',
@@ -54,6 +58,7 @@ const input = (extra: Partial<DailyEmailInput> = {}): DailyEmailInput => ({
   appUrl: APP,
   assetUrl: ASSETS,
   time: '06:00',
+  weekStart: 0,
   parts: { ...DEFAULT_DAILY_EMAILS },
   tasks: [],
   meetings: [],
@@ -61,6 +66,8 @@ const input = (extra: Partial<DailyEmailInput> = {}): DailyEmailInput => ({
   completedSince: new Date('2026-11-03T02:00:00Z'),
   awaitingApproval: 0,
   managed: [],
+  week: { due: [], completions: [] },
+  projects: [],
   ...extra,
 });
 const build = (extra: Partial<DailyEmailInput> = {}) => {
@@ -69,6 +76,16 @@ const build = (extra: Partial<DailyEmailInput> = {}) => {
   return e;
 };
 const bytes = (s: string) => Buffer.byteLength(s, 'utf8');
+/** The plain text between one section heading and the next. */
+const section = (text: string, heading: string) => {
+  const start = text.indexOf(`== ${heading}`);
+  if (start < 0) return '';
+  const next = text.indexOf('\n== ', start + 3);
+  const foot = text.indexOf('You get this email', start);
+  const end = [next, foot].filter((i) => i > start).sort((a, b) => a - b)[0] ?? text.length;
+  return text.slice(start, end);
+};
+const only = (part: string) => ({ ...(Object.fromEntries(Object.keys(DEFAULT_DAILY_EMAILS).map((k) => [k, k === part])) as unknown as DailyEmailInput['parts']), time: '06:00' });
 
 describe('taskLink', () => {
   it('opens the task on My Tasks', () => {
@@ -76,23 +93,37 @@ describe('taskLink', () => {
   });
 });
 
-describe('the daily email: one email, its parts in order', () => {
+describe('the daily email: its sections in the design’s order', () => {
   const everything = () =>
     build({
       tasks: [
-        task('RIG-1', { dueDate: day('2026-11-01'), priority: 'HIGH' }), // 3 days overdue
+        task('RIG-1', { dueDate: day('2026-11-01'), priority: 'HIGH' }), // 3 days late
         task('RIG-2', { dueDate: day('2026-11-04') }), // due today
-        task('OPS-3', { project: OPS, dueDate: day('2026-11-06') }), // upcoming
-        task('OPS-4', { project: OPS }), // no due date
+        task('OPS-3', { project: OPS, dueDate: day('2026-11-06') }), // coming up
+        task('OPS-4', { project: OPS }), // no due date: other open tasks
       ],
       meetings: [meeting('m1')],
       managed: [task('RIG-9', { dueDate: day('2026-11-02'), assignees: ['Omar Ahmed'] })],
       completed: [task('RIG-5', { completedAt: new Date('2026-11-03T10:00:00Z'), dueDate: day('2026-11-05') })],
+      week: { due: [{ dueDate: day('2026-11-04'), done: false }, { dueDate: day('2026-11-02'), done: true }], completions: [new Date('2026-11-03T10:00:00Z')] },
+      projects: [figures(RIG, { overdue: 1 })],
     });
 
-  it('summary numbers → Today’s schedule → Overdue & urgent → your tasks by project → In your projects → Recently completed', () => {
+  it('At a glance → This week → By priority → Overdue → Due today → Coming up → Other open tasks → meetings → completed → Your projects → others’ tasks', () => {
     const { text } = everything();
-    const order = ['4 pending · 1 overdue · 1 due today · 1 upcoming · 1 completed recently', '== Today’s schedule ==', '== Overdue & urgent (1) ==', '== Your other tasks ==', '== In your projects ==', '== Recently completed =='];
+    const order = [
+      '== Today at a glance ==',
+      '== This week ==',
+      '== By priority ==',
+      '== Overdue (1) ==',
+      '== Due today (1) ==',
+      '== Coming up (1) ==',
+      '== Other open tasks (1) ==',
+      '== Today’s meetings (1) ==',
+      '== Completed yesterday (1) ==',
+      '== Your projects (1) ==',
+      '== Overdue and waiting in your projects (1) ==',
+    ];
     const at = order.map((s) => text.indexOf(s));
     expect(at.every((i) => i > -1)).toBe(true);
     expect([...at].sort((a, b) => a - b)).toEqual(at);
@@ -117,397 +148,585 @@ describe('the daily email: one email, its parts in order', () => {
     expect(build({ tasks: [task('RIG-1')], now: new Date('2026-11-04T15:00:00Z') }).html).toContain('Good evening, Ada'); // 19:00
   });
 
-  it('names the time zone once', () => {
+  it('names the time zone once, in the line about when the email comes', () => {
     const { text, html } = everything();
     expect(text.split('Asia/Muscat').length - 1).toBe(1);
-    expect(html).toContain('Times are in your time zone, Asia/Muscat.');
+    expect(html).toContain('You get this email at 06:00 every morning, Asia/Muscat time.');
   });
 
   it('nothing in any part that is on: no email', () => {
     expect(dailyEmail(input())).toBeNull();
-    // Only the schedule on, and nothing on it — though there are tasks.
-    expect(dailyEmail(input({ parts: { ...DEFAULT_DAILY_EMAILS, urgent: false, pending: false, managed: false, completed: false }, tasks: [task('RIG-1')] }))).toBeNull();
+    // Only the meetings on, and no meeting — though there are tasks.
+    expect(dailyEmail(input({ parts: only('schedule'), tasks: [task('RIG-1')] }))).toBeNull();
+  });
+
+  it('figures alone never send an email: last week’s work with nothing open, nothing new and no meeting is no email (as before)', () => {
+    expect(
+      dailyEmail(input({ week: { due: [{ dueDate: day('2026-11-02'), done: true }], completions: [new Date('2026-10-30T08:00:00Z'), new Date('2026-11-02T08:00:00Z')] }, projects: [figures(RIG, { open: 0, done: 10, total: 10, pct: 100 })] })),
+    ).toBeNull();
+  });
+
+  it('a summary-only email: only At a glance on still comes while the person has open tasks', () => {
+    const e = build({ parts: only('glance'), tasks: [task('RIG-1', { dueDate: day('2026-11-01') })] });
+    expect(e.text).toContain('== Today at a glance ==');
+    expect(e.text).not.toContain('== Overdue');
   });
 });
 
-describe('summary numbers', () => {
-  it('pending (not waiting for approval), overdue, due today, upcoming and completed recently', () => {
+describe('Today at a glance', () => {
+  const tiles = (text: string) => section(text, 'Today at a glance').split('\n')[1];
+
+  it('Open = their tasks not done; In progress = In progress, Review and Blocked columns, and tasks waiting for approval; Not started = To do and Backlog', () => {
     const e = build({
       tasks: [
-        task('RIG-1', { dueDate: day('2026-11-02') }),
-        task('RIG-2', { dueDate: day('2026-11-03') }),
-        task('RIG-3', { dueDate: day('2026-11-04') }),
-        task('RIG-4', { dueDate: day('2026-11-20') }),
-        task('RIG-5'),
-        task('RIG-6', { dueDate: day('2026-11-01'), waitingSince: new Date('2026-11-02T08:00:00Z') }), // handed in: never overdue
+        task('A-1', { statusKind: 'IN_PROGRESS', statusLabel: 'In Progress' }),
+        task('A-2', { statusKind: 'REVIEW', statusLabel: 'Review' }),
+        task('A-3', { statusKind: 'BLOCKED', statusLabel: 'Blocked' }),
+        task('A-4', { statusKind: 'TODO' }),
+        task('A-5', { statusKind: 'BACKLOG', statusLabel: 'Backlog' }),
+        task('A-6', { statusKind: 'TODO', waitingSince: new Date('2026-11-03T08:00:00Z') }), // handed in: in progress
       ],
-      completed: [task('RIG-7', { completedAt: NOW }), task('RIG-8', { completedAt: NOW })],
     });
-    expect(e.text).toContain('5 pending · 2 overdue · 1 due today · 1 upcoming · 2 completed recently');
-    expect(e.text).toContain('1 of your tasks is waiting for approval.');
-    for (const [label, n] of [['Pending', 5], ['Overdue', 2], ['Due today', 1], ['Upcoming', 1], ['Completed', 2]] as const) {
-      expect(e.html).toMatch(new RegExp(`>${n}</div><div[^>]*>${label}<`));
-    }
+    expect(tiles(e.text)).toBe('6 open · 4 in progress · 2 not started · 0 overdue · 0 done this week');
   });
 
-  it('no "Completed" number when that part is off', () => {
-    const e = build({ parts: { ...DEFAULT_DAILY_EMAILS, completed: false }, tasks: [task('RIG-1')], completed: [task('RIG-7', { completedAt: NOW })] });
-    expect(e.text).toContain('1 pending · 0 overdue · 0 due today · 0 upcoming');
-    expect(e.text).not.toContain('completed recently');
-    expect(e.text).not.toContain('Recently completed');
+  it('Overdue = open with a due day before today in their time zone; a task waiting for approval is never overdue', () => {
+    const e = build({
+      tasks: [
+        task('A-1', { dueDate: day('2026-11-03') }),
+        task('A-2', { dueDate: day('2026-10-20') }),
+        task('A-3', { dueDate: day('2026-11-04') }), // today
+        task('A-4', { dueDate: day('2026-11-02'), waitingSince: new Date('2026-11-03T08:00:00Z') }),
+      ],
+    });
+    expect(tiles(e.text)).toContain('2 overdue');
+    // 21:30 on Tuesday in UTC is Wednesday in Muscat: a task due Tuesday is already late.
+    const late = build({ now: new Date('2026-11-03T21:30:00Z'), tasks: [task('A-1', { dueDate: day('2026-11-03') })] });
+    expect(tiles(late.text)).toContain('1 overdue');
+    // ...and at 23:30 on Tuesday Muscat time (19:30 UTC) it isn't yet.
+    const notYet = build({ now: new Date('2026-11-03T19:30:00Z'), tasks: [task('A-1', { dueDate: day('2026-11-03') })] });
+    expect(tiles(notYet.text)).toContain('0 overdue');
   });
 
-  it('tasks waiting for the person’s approval: a line near the top with a link to the To approve list', () => {
-    const e = build({ tasks: [task('RIG-3')], awaitingApproval: 3 });
-    expect(e.text).toContain('3 tasks are waiting for your approval. Review them: https://task.example/my-tasks#to-approve');
-    expect(e.text.indexOf('waiting for your approval')).toBeLessThan(e.text.indexOf('RIG-3'));
-    expect(build({ tasks: [task('RIG-3')], awaitingApproval: 1 }).text).toContain('1 task is waiting for your approval.');
-    expect(build({ tasks: [task('RIG-3')] }).text).not.toContain('your approval');
+  it('the Overdue tile is red (word and colour) only when there is something overdue', () => {
+    const red = OVERDUE_TONES.light.text;
+    const late = build({ tasks: [task('A-1', { dueDate: day('2026-11-01') })] }).html;
+    const fine = build({ tasks: [task('A-1')] }).html;
+    expect(late).toMatch(new RegExp(`class="em-tile-n em-ink-overdue"[^>]*color:${red}[^>]*>1<`));
+    expect(fine).not.toMatch(/class="em-tile-n em-ink-overdue"/);
+  });
+
+  it('Done this week = completed since the start of their week (their own week start), in their time zone', () => {
+    const completions = [
+      new Date('2026-10-30T19:59:00Z'), // Fri 30 Oct 23:59 Muscat
+      new Date('2026-10-30T20:00:00Z'), // Sat 31 Oct 00:00 Muscat
+      new Date('2026-10-31T20:00:00Z'), // Sun 1 Nov 00:00 Muscat
+      new Date('2026-11-01T20:00:00Z'), // Mon 2 Nov 00:00 Muscat
+      new Date('2026-11-04T01:00:00Z'), // today 05:00
+    ];
+    const at = (weekStart: 0 | 1 | 6) => tiles(build({ weekStart, tasks: [task('A-1')], week: { due: [], completions } }).text);
+    expect(at(0)).toContain('3 done this week'); // Sunday weeks: since Sun 1 Nov
+    expect(at(1)).toContain('2 done this week'); // Monday weeks: since Mon 2 Nov
+    expect(at(6)).toContain('4 done this week'); // Saturday weeks: since Sat 31 Oct
+  });
+
+  it('tasks waiting for a later start day are out of today’s figures (they are in Coming up)', () => {
+    const e = build({ tasks: [task('A-1'), task('A-2', { boardDate: board('2026-11-05'), dueDate: day('2026-11-03') })] });
+    expect(tiles(e.text)).toBe('1 open · 0 in progress · 1 not started · 0 overdue · 0 done this week');
+    expect(section(e.text, 'Coming up')).toContain('A-2');
+  });
+
+  it('turned off: no tiles', () => {
+    expect(build({ parts: { ...DEFAULT_DAILY_EMAILS, glance: false }, tasks: [task('A-1')] }).text).not.toContain('Today at a glance');
   });
 });
 
-describe('Today’s schedule', () => {
-  it('meetings the person organizes or is invited to, and tasks due at a time today, by time, in their zone', () => {
-    const e = build({
-      meetings: [
-        meeting('late', { title: 'Close-out', startAt: new Date('2026-11-04T12:30:00Z'), endAt: null, organizer: true }), // 16:30
-        meeting('early', { title: 'Site walk', projectName: 'Rig Inspection', location: 'Room 2', online: true, response: 'TENTATIVE' }), // 09:00–10:00
-        meeting('ask', { title: 'Budget', startAt: new Date('2026-11-04T07:05:00Z'), endAt: new Date('2026-11-04T07:35:00Z'), response: 'PENDING', status: 'IN_PROGRESS' }), // 11:05
-      ],
-      tasks: [task('RIG-4', { title: 'Send the report', dueDate: new Date('2026-11-04T10:00:00Z') })], // due at 14:00 today
-    });
-    const at = (s: string) => e.text.indexOf(s);
-    expect(at('09:00–10:00  Site walk (meeting)')).toBeGreaterThan(-1);
-    expect(at('09:00–10:00  Site walk')).toBeLessThan(at('11:05–11:35  Budget'));
-    expect(at('11:05–11:35  Budget')).toBeLessThan(at('14:00  Send the report (RIG-4, due)'));
-    expect(at('14:00  Send the report')).toBeLessThan(at('16:30  Close-out'));
-    expect(e.text).toContain('Rig Inspection · Room 2 · Online · Maybe');
-    expect(e.text).toContain('Under way · Not answered yet');
-    expect(e.text).toContain('You organize');
-    expect(e.html).toContain('https://task.example/meetings/early');
-    expect(e.html).toContain('https://task.example/my-tasks?task=rig-4');
+describe('This week', () => {
+  const week = (text: string) => section(text, 'This week');
+
+  it('tasks due this week (their week) done of all due this week, with a bar; 100% only when all are done', () => {
+    const due = [
+      { dueDate: day('2026-11-01'), done: true }, // Sun: in a Sunday week
+      { dueDate: day('2026-11-04'), done: true },
+      { dueDate: day('2026-11-07'), done: false }, // Sat: the last day
+      { dueDate: day('2026-11-08'), done: true }, // next week
+      { dueDate: day('2026-10-31'), done: true }, // last week
+      { dueDate: new Date('2026-11-07T21:00:00Z'), done: false }, // an instant: Sun 8 Nov 01:00 Muscat — next week
+    ];
+    const e = build({ tasks: [task('A-1')], week: { due, completions: [] } });
+    expect(week(e.text)).toContain('Due this week: 2 of 3 done · 67%');
+    expect(e.html).toContain('2 of 3 done · 67%');
+    expect(e.html).toMatch(/class="em-f-status-done" width="67%"/);
+    // Monday weeks: Mon 2 Nov – Sun 8 Nov.
+    expect(week(build({ weekStart: 1, tasks: [task('A-1')], week: { due, completions: [] } }).text)).toContain('Due this week: 2 of 4 done · 50%');
+    const nearly = Array.from({ length: 200 }, (_, i) => ({ dueDate: day('2026-11-04'), done: i > 0 }));
+    expect(week(build({ tasks: [task('A-1')], week: { due: nearly, completions: [] } }).text)).toContain('199 of 200 done · 99%');
+    expect(week(build({ tasks: [task('A-1')], week: { due: [{ dueDate: day('2026-11-04'), done: true }], completions: [] } }).text)).toContain('1 of 1 done · 100%');
   });
 
-  it('a task due on a day (no time) isn’t on the schedule; nothing scheduled: no section', () => {
-    const e = build({ tasks: [task('RIG-1', { dueDate: day('2026-11-04') })] });
-    expect(e.text).not.toContain('Today’s schedule');
+  it('the trend: tasks completed on each of the last 7 days (to yesterday), against the 7 days before', () => {
+    const at = (key: string, n: number) => Array.from({ length: n }, () => new Date(`${key}T06:00:00Z`));
+    const completions = [
+      ...at('2026-10-20', 9), // 15 days back: not counted
+      ...at('2026-10-21', 3), // the week before: Wed 21 Oct … Tue 27 Oct
+      ...at('2026-10-27', 2),
+      ...at('2026-10-28', 2), // the last 7 days: Wed 28 Oct … Tue 3 Nov
+      ...at('2026-11-01', 1),
+      ...at('2026-11-03', 4),
+      ...at('2026-11-04', 5), // today: not in the 7 days
+    ];
+    const e = build({ tasks: [task('A-1')], week: { due: [], completions } });
+    const w = week(e.text);
+    expect(w).toContain('Done each day, last 7 days: Wed 2 · Thu 0 · Fri 0 · Sat 0 · Sun 1 · Mon 0 · Tue 4');
+    expect(w).toContain('7 done vs 5 the week before (more)');
+    expect(e.html).toContain('7 done vs 5 the week before ↑');
+    // Fewer, and the same.
+    expect(week(build({ tasks: [task('A-1')], week: { due: [], completions: [...at('2026-10-27', 3), ...at('2026-11-02', 1)] } }).text)).toContain('1 done vs 3 the week before (fewer)');
+    expect(week(build({ tasks: [task('A-1')], week: { due: [], completions: [...at('2026-10-27', 2), ...at('2026-11-02', 2)] } }).text)).toContain('2 done vs 2 the week before (the same)');
+  });
+
+  it('nothing due this week and nothing done in two weeks: no section', () => {
+    expect(build({ tasks: [task('A-1')] }).text).not.toContain('== This week');
+    // Something done, nothing due: the trend alone.
+    const e = build({ tasks: [task('A-1')], week: { due: [], completions: [new Date('2026-11-02T06:00:00Z')] } });
+    expect(week(e.text)).toContain('Nothing due this week');
   });
 
   it('turned off: not shown', () => {
-    const e = build({ parts: { ...DEFAULT_DAILY_EMAILS, schedule: false }, meetings: [meeting('m1')], tasks: [task('RIG-1')] });
-    expect(e.text).not.toContain('Today’s schedule');
-    expect(e.html).not.toContain('/meetings/m1');
+    expect(build({ parts: { ...DEFAULT_DAILY_EMAILS, week: false }, tasks: [task('A-1')], week: { due: [{ dueDate: day('2026-11-04'), done: false }], completions: [] } }).text).not.toContain('== This week');
   });
 });
 
-describe('Overdue & urgent', () => {
-  const tasks = [
-    task('RIG-1', { dueDate: day('2026-11-03') }), // 1 day overdue
-    task('OPS-2', { project: OPS, dueDate: day('2026-10-30'), priority: 'LOW' }), // 5 days overdue
-    task('RIG-3', { priority: 'URGENT', dueDate: day('2026-11-10') }), // urgent, not overdue
-    task('RIG-4', { dueDate: day('2026-11-04'), priority: 'HIGH' }), // due today: in its project
-  ];
-
-  it('days overdue, highest first, then urgent ones; each with its project (client)', () => {
-    const { text } = build({ tasks });
-    const section = text.slice(text.indexOf('== Overdue & urgent (3) =='), text.indexOf('== Your other tasks =='));
-    expect(section.indexOf('OPS-2')).toBeLessThan(section.indexOf('RIG-1'));
-    expect(section.indexOf('RIG-1')).toBeLessThan(section.indexOf('RIG-3'));
-    expect(section).toContain('- Task OPS-2 (OPS-2) — 5 days overdue · Low priority · To Do');
-    expect(section).toContain('- Task RIG-1 (RIG-1) — 1 day overdue · To Do');
-    expect(section).toContain('Rig Inspection (Acme Drilling)');
-    expect(section).toContain('- Task RIG-3 (RIG-3) — Due Tue 10 Nov 2026 · Urgent · To Do');
-    expect(section).not.toContain('RIG-4');
+describe('By priority', () => {
+  it('their open tasks by priority — urgent, high, normal, low — each with its count and a bar in the scheme’s colour', () => {
+    const e = build({
+      tasks: [task('A-1', { priority: 'URGENT' }), task('A-2', { priority: 'URGENT' }), task('A-3', { priority: 'HIGH' }), task('A-4'), task('A-5', { waitingSince: NOW, priority: 'LOW' })],
+    });
+    expect(section(e.text, 'By priority')).toContain('Urgent 2 · High 1 · Normal 1 · Low 1');
+    expect(e.html).toContain(`bgcolor="${PRIORITY_TONES.URGENT.light.fill}"`);
+    expect(e.html).toMatch(/class="em-f-prio-urgent" width="40%"/);
+    // A priority with none: a count of 0 and an empty track.
+    expect(build({ tasks: [task('A-1', { priority: 'HIGH' })] }).text).toContain('Urgent 0 · High 1 · Normal 0 · Low 0');
   });
 
-  it('they aren’t listed again under their project', () => {
-    const { text } = build({ tasks });
-    const rest = text.slice(text.indexOf('== Your other tasks =='));
-    expect(rest).toContain('RIG-4');
-    expect(rest).not.toContain('RIG-1');
-    expect(rest).not.toContain('OPS-2');
-  });
-
-  it('turned off: overdue tasks come first in their project instead', () => {
-    const { text } = build({ tasks, parts: { ...DEFAULT_DAILY_EMAILS, urgent: false } });
-    expect(text).not.toContain('Overdue & urgent');
-    expect(text).toContain('== Your tasks ==');
-    expect(text.indexOf('Task RIG-1')).toBeLessThan(text.indexOf('Task RIG-4'));
+  it('turned off: not shown', () => {
+    expect(build({ parts: { ...DEFAULT_DAILY_EMAILS, priority: false }, tasks: [task('A-1')] }).text).not.toContain('By priority');
   });
 });
 
-describe('your tasks, grouped by project, sorted by urgency', () => {
-  it('in each project: due today, high priority, due soon, then the rest, then those waiting for approval', () => {
-    const { text } = build({
-      parts: { ...DEFAULT_DAILY_EMAILS, urgent: false },
+describe('Overdue and Due today', () => {
+  it('overdue: most days late first, each saying how late, with a red edge; waiting-for-approval tasks are not overdue', () => {
+    const e = build({
       tasks: [
-        task('RIG-1'),
-        task('RIG-2', { dueDate: day('2026-11-08') }), // due soon
-        task('RIG-3', { priority: 'HIGH', dueDate: day('2026-12-01') }),
-        task('RIG-4', { dueDate: day('2026-11-04') }), // due today
-        task('RIG-5', { dueDate: day('2026-11-02') }), // overdue
-        task('RIG-6', { waitingSince: NOW }),
-        task('RIG-7', { dueDate: day('2026-12-20') }),
+        task('RIG-1', { dueDate: day('2026-11-03') }),
+        task('RIG-2', { dueDate: day('2026-10-30'), priority: 'URGENT' }),
+        task('RIG-3', { dueDate: day('2026-11-01'), waitingSince: NOW }),
       ],
     });
-    const keys = ['RIG-5', 'RIG-4', 'RIG-3', 'RIG-2', 'RIG-7', 'RIG-1', 'RIG-6'].map((k) => text.indexOf(`(${k})`));
-    expect([...keys].sort((a, b) => a - b)).toEqual(keys);
-    expect(text).toContain('- Task RIG-6 (RIG-6) — To Do · Waiting for approval');
+    const late = section(e.text, 'Overdue');
+    expect(late.indexOf('RIG-2')).toBeLessThan(late.indexOf('RIG-1'));
+    expect(late).toContain('5 days late');
+    expect(late).toContain('1 day late');
+    expect(late).not.toContain('RIG-3');
+    expect(e.html).toContain(`border-left:4px solid ${OVERDUE_TONES.light.fill}`);
   });
 
-  it('projects in the order of their most urgent task, each with its details (only those it has) and a link', () => {
-    const { text, html } = build({ tasks: [task('OPS-1', { project: OPS }), task('RIG-1', { dueDate: day('2026-11-04') })] });
-    expect(text.indexOf('RIG INSPECTION')).toBeLessThan(text.indexOf('OPERATIONS'));
-    expect(text).toContain('RIG INSPECTION — RIG · No. 2026-014 · Client: Acme Drilling · Manager: Sara Ali · Target Mon 30 Nov 2026');
-    expect(text).toContain('OPERATIONS — OPS\nOn hold · 1 task');
-    expect(html).toContain('https://task.example/projects/p-rig');
-    // A stored picture is loaded from the server's address; a project without one shows its initials.
-    expect(html).toContain('src="https://api.example/uploads/projects/ops.png"');
-    expect(html).toContain('>RI</td>');
+  it('due today: by time (a time first, in their zone), saying "today" or "today 14:00"', () => {
+    const e = build({ tasks: [task('RIG-1', { dueDate: day('2026-11-04') }), task('RIG-2', { dueDate: new Date('2026-11-04T10:00:00Z') })] });
+    const today = section(e.text, 'Due today');
+    expect(today.indexOf('RIG-2')).toBeLessThan(today.indexOf('RIG-1'));
+    expect(today).toContain('today 14:00');
+    expect(today).toMatch(/RIG-1 Task RIG-1 — today\n/);
   });
 
-  it('turned off: no project sections', () => {
-    const e = build({ parts: { ...DEFAULT_DAILY_EMAILS, pending: false }, tasks: [task('RIG-1', { dueDate: day('2026-11-02') }), task('RIG-2')] });
-    expect(e.text).toContain('Overdue & urgent (1)');
-    expect(e.text).not.toContain('Your other tasks');
-    expect(e.text).not.toContain('Task RIG-2');
+  it('turned off: neither list (the tiles still count them)', () => {
+    const e = build({ parts: { ...DEFAULT_DAILY_EMAILS, urgent: false }, tasks: [task('RIG-1', { dueDate: day('2026-11-01') }), task('RIG-2', { dueDate: day('2026-11-04') })] });
+    expect(e.text).not.toContain('== Overdue');
+    expect(e.text).not.toContain('== Due today');
+    expect(e.text).toContain('1 overdue');
   });
 });
 
-describe('a task’s card', () => {
-  const full = task('RIG-1', {
+describe('Coming up', () => {
+  it('tasks due in the next 7 days, by day ("tomorrow", "in 3 days"), and tasks waiting for a later start day', () => {
+    const e = build({
+      tasks: [
+        task('A-1', { dueDate: day('2026-11-07') }),
+        task('A-2', { dueDate: day('2026-11-05') }),
+        task('A-3', { dueDate: day('2026-11-11') }), // 7 days: still coming up
+        task('A-4', { dueDate: day('2026-11-12') }), // 8 days: other open tasks
+        task('A-5', { boardDate: board('2026-11-06'), startDate: day('2026-11-06') }), // starts in 2 days
+        task('A-6', { boardDate: board('2026-11-20') }), // starts later than a week: other open tasks
+      ],
+    });
+    const up = section(e.text, 'Coming up');
+    expect(up).toMatch(/A-2 Task A-2 — tomorrow/);
+    expect(up).toMatch(/A-1 Task A-1 — in 3 days/);
+    expect(up).toMatch(/A-5 Task A-5 — starts in 2 days/);
+    expect(up.indexOf('A-2')).toBeLessThan(up.indexOf('A-5'));
+    expect(up.indexOf('A-5')).toBeLessThan(up.indexOf('A-1'));
+    expect(up).toContain('A-3');
+    expect(up).not.toContain('A-4');
+    expect(up).not.toContain('A-6');
+    const other = section(e.text, 'Other open tasks');
+    expect(other).toContain('A-4');
+    expect(other).toMatch(/A-6 Task A-6 — starts 20 Nov/);
+  });
+
+  it('turned off: not shown', () => {
+    expect(build({ parts: { ...DEFAULT_DAILY_EMAILS, comingUp: false }, tasks: [task('A-1', { dueDate: day('2026-11-05') })] }).text).not.toContain('== Coming up');
+  });
+});
+
+describe('Other open tasks (nothing disappears)', () => {
+  it('no due date, due later than a week, urgent but not due soon, and waiting for approval — grouped by project', () => {
+    const e = build({
+      tasks: [
+        task('RIG-1'),
+        task('RIG-2', { dueDate: day('2026-12-01'), priority: 'URGENT' }),
+        task('OPS-1', { project: OPS, waitingSince: new Date('2026-11-03T08:00:00Z'), dueDate: day('2026-11-01') }),
+      ],
+    });
+    const other = section(e.text, 'Other open tasks');
+    expect(other).toContain('RIG INSPECTION');
+    expect(other).toContain('OPERATIONS');
+    expect(other).toMatch(/RIG-2 Task RIG-2 — 1 Dec/);
+    expect(other).toContain('Waiting for approval');
+    // Urgent first in its project.
+    expect(other.indexOf('RIG-2')).toBeLessThan(other.indexOf('RIG-1'));
+  });
+
+  it('a project cut short says how many more, with a link to the project', () => {
+    const tasks = Array.from({ length: 9 }, (_, i) => task(`RIG-${i + 1}`));
+    const { text } = build({ tasks });
+    expect(text).toContain(`and 3 more in this project: ${APP}/projects/p-rig`);
+  });
+
+  it('turned off: not shown', () => {
+    expect(build({ parts: { ...DEFAULT_DAILY_EMAILS, pending: false }, tasks: [task('A-1')] }).text).not.toContain('== Other open tasks');
+  });
+});
+
+describe('a task’s row', () => {
+  const t = task('RIG-7', {
     title: 'Replace the pump seal',
-    dueDate: new Date('2026-11-06T10:30:00Z'), // a due time: 14:30 Muscat
-    startDate: day('2026-11-02'),
-    priority: 'HIGH',
+    dueDate: day('2026-11-01'),
+    priority: 'URGENT',
     statusLabel: 'In Progress',
-    description: `The seal on pump 3 leaks under load.   ${'It must be replaced before the client visit, and the old one sent back to the supplier for a refund. '.repeat(3)}`,
-    checklist: { done: 3, total: 5 },
-    latest: { text: 'Sara Ali: “The new seal arrives on Friday”', at: new Date('2026-11-03T09:00:00Z') },
+    statusKind: 'IN_PROGRESS',
+    checklist: { done: 4, total: 7 },
     blocked: true,
+    categories: [{ name: 'Electrical', color: '#7C3AED' }],
+    guests: ['Ahmed (OXY)'],
   });
 
-  it('title, ID, status, priority, start, due date and time, checklist, a short description, the latest update, blocked', () => {
-    const { text, html } = build({ tasks: [full] });
-    expect(text).toContain('- Replace the pump seal (RIG-1) — Due Fri 6 Nov 2026, 14:30 · High priority · In Progress · Blocked');
-    expect(text).toContain('Start Mon 2 Nov 2026 · Checklist 3 of 5');
-    expect(text).toContain('Latest: Sara Ali: “The new seal arrives on Friday” · Tue 3 Nov 2026');
-    const desc = /The seal on pump 3 leaks under load\. It must[^\n]*/.exec(text)![0];
-    expect(desc.length).toBeLessThanOrEqual(161);
-    expect(desc.endsWith('…')).toBe(true);
-    expect(html).toContain('https://task.example/my-tasks?task=rig-1');
+  it('number, title (a link), project, status and priority badges in the scheme’s colours, how late, the checklist with a bar, categories and guests', () => {
+    const { html, text } = build({ tasks: [t] });
+    expect(html).toContain('>RIG-7<');
+    expect(html).toContain(`href="${APP}/my-tasks?task=rig-7"`);
+    expect(html).toContain('>Replace the pump seal</a>');
+    const progress = STATUS_TONES.IN_PROGRESS.light;
+    expect(html).toContain(`class="em-t-status-progress" style="display:inline-block;margin:4px 4px 0 0;padding:0 8px;border-radius:9px;background:${progress.soft};color:${progress.text}`);
+    expect(html).toContain('>In Progress</span>');
+    expect(html).toContain(`background:${PRIORITY_TONES.URGENT.light.soft};color:${PRIORITY_TONES.URGENT.light.text}`);
+    expect(html).toContain('>Urgent</span>');
+    expect(html).toContain('>Blocked</span>');
+    expect(html).toContain('>4/7 · 57%<');
+    expect(html).toMatch(/class="em-f-status-done" width="57%"/);
+    expect(html).toContain('<span style="color:#7C3AED">●</span>&nbsp;Electrical</span>');
+    expect(html).toContain('>Guest: Ahmed (OXY)</span>');
+    expect(text).toContain('- RIG-7 Replace the pump seal — 3 days late\n  Rig Inspection (Acme Drilling) · Due Sun 1 Nov · In Progress · Urgent · Blocked · Electrical · Guest: Ahmed (OXY) · Checklist 4/7 (57%)');
   });
 
-  it('empty fields are hidden: no due date, no start, no checklist, no description, no update; normal priority unsaid', () => {
-    const { text } = build({ tasks: [task('RIG-2')] });
-    expect(text).toContain('- Task RIG-2 (RIG-2) — To Do\n');
-    expect(text).not.toContain('No due date');
-    expect(text).not.toContain('Normal priority');
-    expect(text).not.toContain('Start ');
-    expect(text).not.toContain('Checklist');
-    expect(text).not.toContain('Latest:');
-  });
-
-  it('the assignee is not shown on the person’s own tasks', () => {
-    expect(build({ tasks: [task('RIG-2', { assignees: ['Ada Lovelace'] })] }).text).not.toContain('Assigned to');
+  it('a normal priority, an empty checklist and no categories or guests are left out', () => {
+    const { text, html } = build({ tasks: [task('RIG-8', { dueDate: day('2026-11-01'), checklist: { done: 0, total: 0 } })] });
+    expect(text).toContain('- RIG-8 Task RIG-8 — 3 days late\n  Rig Inspection (Acme Drilling) · Due Sun 1 Nov · To Do\n');
+    expect(html).not.toContain('>Normal</span>');
+    expect(html).not.toContain('Checklist');
   });
 
   it('text from tasks can’t break the email', () => {
-    const { html } = build({ tasks: [task('RIG-3', { title: '<script>alert(1)</script>', description: '<img src=x onerror=alert(1)>' })] });
-    expect(html).not.toContain('<script>alert');
-    expect(html).not.toContain('<img src=x');
-    expect(html).toContain('&lt;script&gt;');
+    const { html } = build({ tasks: [task('RIG-9', { title: '<script>alert(1)</script>', statusLabel: '"><b>x', categories: [{ name: '<i>c</i>', color: 'red;background:url(x)' }] })] });
+    expect(html).not.toContain('<script>');
+    expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
+    expect(html).not.toContain('"><b>x');
+    expect(html).not.toContain('url(x)');
   });
 });
 
-describe('In your projects (people who run a project)', () => {
-  const managed = [
-    task('RIG-8', { title: 'Order steel', waitingSince: new Date('2026-11-03T08:00:00Z'), assignees: ['Bilal Khan'] }),
-    task('RIG-9', { title: 'Fix the gate', dueDate: day('2026-11-01'), assignees: ['Omar Ahmed', 'Zara Noor'] }),
-    task('RIG-10', { title: 'Not late', dueDate: day('2026-11-20'), assignees: ['Omar Ahmed'] }), // neither: left out
-  ];
-
-  it('overdue first, then waiting for approval — with who it is assigned to and a link in its project', () => {
-    const { text, html } = build({ managed, tasks: [task('RIG-1')] });
-    const section = text.slice(text.indexOf('== In your projects =='));
-    expect(section).toContain('Overdue and waiting-for-approval tasks of the projects you run.');
-    expect(section.indexOf('RIG-9')).toBeLessThan(section.indexOf('RIG-8'));
-    expect(section).toContain('- Fix the gate (RIG-9) — 3 days overdue · To Do');
-    expect(section).toContain('Rig Inspection (Acme Drilling) · Assigned to Omar Ahmed, Zara Noor');
-    expect(section).toContain('- Order steel (RIG-8) — To Do · Waiting for approval');
-    expect(section).not.toContain('RIG-10');
-    expect(html).toContain('https://task.example/projects/p-rig?task=rig-9');
-  });
-
-  it('1.22 review: those waiting for approval, the longest-waiting first (whatever their due dates)', () => {
-    const { text } = build({
-      tasks: [task('RIG-1')],
-      managed: [
-        task('RIG-21', { waitingSince: new Date('2026-11-03T08:00:00Z'), dueDate: day('2026-11-06') }),
-        task('RIG-22', { waitingSince: new Date('2026-10-25T08:00:00Z') }),
+describe('Today’s meetings (kept)', () => {
+  it('meetings they organize or are invited to, by time, in their zone', () => {
+    const e = build({
+      meetings: [
+        meeting('late', { title: 'Wrap-up', startAt: new Date('2026-11-04T12:00:00Z'), endAt: null }),
+        meeting('early', { title: 'Site walk', organizer: true, response: null, location: 'Gate 2', projectName: 'Rig Inspection', online: true }),
+        meeting('maybe', { title: 'Supplier call', startAt: new Date('2026-11-04T07:30:00Z'), endAt: new Date('2026-11-04T08:00:00Z'), response: 'TENTATIVE' }),
       ],
     });
-    expect(text.indexOf('(RIG-22)')).toBeLessThan(text.indexOf('(RIG-21)'));
-  });
-
-  it('nothing overdue or waiting, or turned off: no section', () => {
-    expect(build({ managed: [managed[2]!], tasks: [task('RIG-1')] }).text).not.toContain('In your projects');
-    expect(build({ managed, tasks: [task('RIG-1')], parts: { ...DEFAULT_DAILY_EMAILS, managed: false } }).text).not.toContain('In your projects');
-  });
-});
-
-describe('Recently completed', () => {
-  const completed = [
-    task('RIG-1', { completedAt: new Date('2026-11-03T05:10:00Z'), dueDate: day('2026-11-05') }),
-    task('OPS-2', { project: OPS, completedAt: new Date('2026-11-03T14:00:00Z'), dueDate: day('2026-11-01') }),
-  ];
-
-  it('since the last email, newest first, each with when and whether it was on time', () => {
-    const { text } = build({ completed });
-    const section = text.slice(text.indexOf('== Recently completed =='));
-    expect(section).toContain('Since Tue 3 Nov 2026, 06:00.');
-    expect(section.indexOf('OPS-2')).toBeLessThan(section.indexOf('RIG-1'));
-    expect(section).toContain('- Task OPS-2 (OPS-2) — Completed Tue 3 Nov 2026, 18:00 · 2 days late');
-    expect(section).toContain('- Task RIG-1 (RIG-1) — Completed Tue 3 Nov 2026, 09:10 · On time');
+    const m = section(e.text, 'Today’s meetings');
+    expect(m.indexOf('Site walk')).toBeLessThan(m.indexOf('Supplier call'));
+    expect(m.indexOf('Supplier call')).toBeLessThan(m.indexOf('Wrap-up'));
+    expect(m).toContain('09:00–10:00  Site walk');
+    expect(m).toContain('Rig Inspection · Gate 2 · Online · You organize');
+    expect(m).toContain('Maybe');
+    expect(e.html).toContain(`href="${APP}/meetings/early"`);
   });
 
   it('turned off: not shown', () => {
-    expect(build({ completed, tasks: [task('RIG-5')], parts: { ...DEFAULT_DAILY_EMAILS, completed: false } }).text).not.toContain('Recently completed');
+    expect(build({ parts: { ...DEFAULT_DAILY_EMAILS, schedule: false }, meetings: [meeting('m')], tasks: [task('A-1')] }).text).not.toContain('meetings');
+  });
+});
+
+describe('Completed yesterday (kept)', () => {
+  const done = [
+    task('RIG-5', { completedAt: new Date('2026-11-03T10:00:00Z'), dueDate: day('2026-11-05') }),
+    task('RIG-6', { completedAt: new Date('2026-11-03T12:00:00Z'), dueDate: day('2026-11-01') }),
+  ];
+  it('since the last email, newest first, each with when and whether it was on time', () => {
+    const c = section(build({ completed: done }).text, 'Completed yesterday');
+    expect(c.indexOf('RIG-6')).toBeLessThan(c.indexOf('RIG-5'));
+    expect(c).toContain('Done Tue 3 Nov, 16:00');
+    expect(c).toContain('2 days late');
+    expect(c).toContain('On time');
+  });
+
+  it('after a gap (the last email was days ago) the heading says since when', () => {
+    const e = build({ completed: done, completedSince: new Date('2026-11-01T02:00:00Z') });
+    expect(e.text).toContain('== Completed since Sun 1 Nov (2) ==');
+  });
+
+  it('turned off: not shown', () => {
+    expect(build({ parts: { ...DEFAULT_DAILY_EMAILS, completed: false }, completed: done, tasks: [task('A-1')] }).text).not.toContain('Completed');
+  });
+});
+
+describe('Your projects (people who run a project)', () => {
+  it('each project: its completion bar, done of total, overdue and waiting-for-approval counts — the ones needing attention first', () => {
+    const e = build({
+      tasks: [task('A-1')],
+      projects: [figures(OPS, { pct: 80, done: 8, total: 10, open: 2, overdue: 0, waiting: 0 }), figures(RIG, { pct: 62, done: 24, total: 39, open: 15, overdue: 3, waiting: 2 })],
+    });
+    const p = section(e.text, 'Your projects');
+    expect(p.indexOf('Rig Inspection')).toBeLessThan(p.indexOf('Operations'));
+    expect(p).toContain('Rig Inspection — 62% complete (24 of 39 done) · 3 overdue · 2 to approve');
+    expect(p).toContain('Operations — 80% complete (8 of 10 done) · nothing overdue');
+    expect(e.html).toMatch(/class="em-f-status-done" width="62%"/);
+    expect(e.html).toContain(`href="${APP}/my-tasks#to-approve"`);
+    expect(e.html).toContain(`href="${APP}/projects/p-rig"`);
+  });
+
+  it('a project with no tasks yet is left out; none at all: no section', () => {
+    expect(build({ tasks: [task('A-1')], projects: [figures(RIG, { total: 0, done: 0, open: 0, pct: 0 })] }).text).not.toContain('Your projects');
+  });
+
+  it('turned off: not shown', () => {
+    expect(build({ parts: { ...DEFAULT_DAILY_EMAILS, projects: false }, tasks: [task('A-1')], projects: [figures(RIG)] }).text).not.toContain('Your projects');
+  });
+
+  it('others’ overdue and waiting tasks stay under it: overdue first, then waiting (longest first), with who it is assigned to and a link in its project', () => {
+    const e = build({
+      managed: [
+        task('RIG-9', { waitingSince: new Date('2026-11-03T08:00:00Z'), assignees: ['Omar Ahmed'] }),
+        task('RIG-8', { dueDate: day('2026-11-02'), assignees: ['Omar Ahmed', 'Lina Saeed'] }),
+        task('RIG-7', { dueDate: day('2026-11-20'), assignees: ['Omar Ahmed'] }), // not overdue, not waiting
+      ],
+    });
+    const m = section(e.text, 'Overdue and waiting in your projects');
+    expect(m.indexOf('RIG-8')).toBeLessThan(m.indexOf('RIG-9'));
+    expect(m).toContain('Assigned to Omar Ahmed, Lina Saeed');
+    expect(m).not.toContain('RIG-7');
+    expect(e.html).toContain(`href="${APP}/projects/p-rig?task=rig-8"`);
+  });
+});
+
+describe('the approval line', () => {
+  it('tasks waiting for the person’s approval: a line near the top with a link to the To approve list', () => {
+    const e = build({ tasks: [task('A-1')], awaitingApproval: 3 });
+    expect(e.text).toContain(`> 3 tasks are waiting for your approval. Review them: ${APP}/my-tasks#to-approve`);
+    expect(e.text.indexOf('waiting for your approval')).toBeLessThan(e.text.indexOf('== Other open tasks'));
   });
 });
 
 describe('links: the dashboard and where to change the email', () => {
-  it('a button to the dashboard, and links to the delivery time, the time zone and the notification settings', () => {
-    const { text, html } = build({ tasks: [task('RIG-1')], time: '07:30' });
-    expect(text).toContain('Open the dashboard: https://task.example/dashboard');
-    expect(text).toContain('You get this email at 07:30 every morning.');
-    expect(html).toContain('href="https://task.example/settings#daily-email"');
-    expect(html).toContain('href="https://task.example/settings#time-zone"');
-    expect(html).toContain('href="https://task.example/settings#notifications"');
+  it('a button to the dashboard, and links to the daily email settings, the time zone and the notification settings', () => {
+    const { html, text } = build({ tasks: [task('A-1')] });
+    expect(html).toContain(`href="${APP}/dashboard"`);
+    expect(text).toContain(`Daily email settings: ${APP}/settings#daily-email`);
+    expect(text).toContain(`Time zone: ${APP}/settings#time-zone`);
+    expect(text).toContain(`Notification settings: ${APP}/settings#notifications`);
   });
 
   it('every link goes to the site', () => {
-    const { html } = build({ tasks: [task('RIG-1')], meetings: [meeting('m1')], completed: [task('RIG-2', { completedAt: NOW })], managed: [task('RIG-3', { dueDate: day('2026-11-01') })] });
+    const { html } = build({
+      tasks: [task('A-1', { dueDate: day('2026-11-01') }), task('A-2', { project: OPS })],
+      meetings: [meeting('m')],
+      completed: [task('A-3', { completedAt: NOW })],
+      managed: [task('A-4', { dueDate: day('2026-11-01'), assignees: ['X'] })],
+      projects: [figures(RIG, { waiting: 1 })],
+      awaitingApproval: 1,
+    });
     const hrefs = [...html.matchAll(/href="([^"]+)"/g)].map((m) => m[1]!).filter((h) => !h.startsWith('mailto:'));
-    const site = hrefs.filter((h) => h.startsWith('https://task.example/'));
+    const site = hrefs.filter((h) => h.startsWith(`${APP}/`));
+    expect(site.length).toBeGreaterThan(5);
     // The footer's own links (the product and the website) are the brand's.
     expect(hrefs.length - site.length).toBeLessThanOrEqual(2);
   });
 });
 
-describe('email-safe HTML (Outlook and Gmail)', () => {
-  const big = () =>
+describe('email-safe HTML (Outlook, Gmail, phones)', () => {
+  const busy = () =>
     build({
-      tasks: Array.from({ length: 30 }, (_, i) => task(`RIG-${i + 1}`, { dueDate: day(i % 3 ? '2026-11-02' : '2026-11-09'), description: 'x'.repeat(200) })),
-      meetings: [meeting('m1')],
-      managed: [task('RIG-90', { dueDate: day('2026-11-01') })],
-      completed: [task('RIG-91', { completedAt: NOW })],
+      tasks: [
+        task('A-1', { dueDate: day('2026-11-01'), checklist: { done: 1, total: 3 }, categories: [{ name: 'HSE', color: '#2F6DB5' }], guests: ['G'] }),
+        task('A-2', { dueDate: day('2026-11-04') }),
+        task('A-3', { dueDate: day('2026-11-06'), project: OPS }),
+        task('A-4', { project: OPS }),
+      ],
+      meetings: [meeting('m')],
+      completed: [task('A-5', { completedAt: new Date('2026-11-03T10:00:00Z') })],
+      managed: [task('A-6', { dueDate: day('2026-11-01'), assignees: ['X'] })],
+      projects: [figures(RIG, { overdue: 1, waiting: 1 })],
+      week: { due: [{ dueDate: day('2026-11-04'), done: true }], completions: [new Date('2026-11-02T06:00:00Z')] },
+      awaitingApproval: 1,
     });
 
-  it('tables for layout, inline styles: no flex, grid or position', () => {
-    const { html } = big();
-    expect(html).not.toMatch(/display:\s*(flex|grid|inline-flex)/i);
-    expect(html).not.toMatch(/position:\s*(absolute|relative|fixed)/i);
-    expect(html).toMatch(/<table role="presentation"/);
+  it('passes the email-safety lint: tables only for layout, inline styles, no CSS Outlook drops (flex, grid, position, float, variables, calc, images for bars)', () => {
+    expect(emailSafetyProblems(busy().html)).toEqual([]);
   });
 
-  it('every picture has alt text', () => {
-    const { html } = build({ tasks: [task('OPS-1', { project: OPS })] });
-    const imgs = [...html.matchAll(/<img\b[^>]*>/g)].map((m) => m[0]);
-    expect(imgs.length).toBeGreaterThan(0);
-    for (const img of imgs) expect(img).toMatch(/alt="[^"]+"/);
+  it('the lint catches what Outlook can’t show', () => {
+    expect(emailSafetyProblems('<div style="display:flex">x</div>')).toEqual(expect.arrayContaining([expect.stringContaining('display:flex')]));
+    expect(emailSafetyProblems('<table role="presentation"><tr><td style="width:var(--w)">x</td></tr></table>')).toEqual(expect.arrayContaining([expect.stringContaining('var(')]));
+    expect(emailSafetyProblems('<span style="display:inline-block;width:40px;height:6px;background:#000"></span>')).toEqual(expect.arrayContaining([expect.stringContaining('bar')]));
+    expect(emailSafetyProblems('<table><tr><td style="color:#000">x</td></tr></table>')).toEqual(expect.arrayContaining([expect.stringContaining('role="presentation"')]));
+    expect(emailSafetyProblems('<p>no style</p>')).toEqual(expect.arrayContaining([expect.stringContaining('inline style')]));
   });
 
-  it('the button works in Outlook too (a VML button for Word-based Outlook)', () => {
-    const { html } = big();
-    expect(html).toContain('<!--[if mso]><v:roundrect');
-    expect(html).toContain('href="https://task.example/dashboard"');
+  it('phones: tiles two to a row, rows in one column, under 480 px; Outlook gets the fixed 720 px table', () => {
+    const { html } = busy();
+    expect(html).toContain('@media (max-width:480px){');
+    expect(html).toMatch(/\.em-tile\{display:inline-block!important;width:50%!important/);
+    expect(html).toMatch(/\.em-col\{display:block!important;width:auto!important/);
+    expect(html).toContain('<!--[if mso]><table role="presentation" width="720"');
   });
 
-  it('readable in dark mode: the email says it supports it and has dark styles for its own parts', () => {
-    const { html } = big();
+  it('readable in dark mode: the email says it supports it, and every coloured badge and bar has its dark colours', () => {
+    const { html } = busy();
     expect(html).toContain('<meta name="color-scheme" content="light dark"/>');
-    expect(html).toMatch(/@media \(prefers-color-scheme:dark\)\{[^}]*\.email-stat-danger\{color:#EE8C79!important\}/); // 1.23.8: the scheme's overdue words in dark
+    expect(html).toContain(`.em-t-status-todo{background:${STATUS_TONES.TODO.dark.soft}!important;color:${STATUS_TONES.TODO.dark.text}!important}`);
+    // Only the colours the email uses (nothing here is blocked).
+    expect(html).not.toContain('.em-t-status-blocked{');
+    expect(html).toContain(`.em-f-prio-normal{background:${PRIORITY_TONES.NORMAL.dark.fill}!important}`);
+    expect(html).toContain('.em-track{background:#3A312E!important}');
+  });
+
+  it('a system font stack, 14–15 px body text, and a button at least 44 px tall', () => {
+    const { html } = busy();
+    expect(html).toContain("font-family:'Segoe UI',-apple-system,BlinkMacSystemFont,Roboto,Helvetica,Arial,sans-serif");
+    expect(html).toMatch(/class="email-btn"[^>]*padding:13px 28px;[^>]*line-height:20px/); // 13 + 20 + 13 = 46 px
+  });
+
+  it('the plain-text version has every section, every link and no markup', () => {
+    const { text } = busy();
+    expect(text).not.toMatch(/<[a-z/][^>]*>/i);
+    for (const h of ['Today at a glance', 'This week', 'By priority', 'Overdue (1)', 'Due today (1)', 'Coming up (1)', 'Other open tasks (1)', 'Today’s meetings (1)', 'Completed yesterday (1)', 'Your projects (1)', 'Overdue and waiting in your projects (1)']) {
+      expect(text).toContain(`== ${h} ==`);
+    }
+    expect(text).toContain(`${APP}/my-tasks?task=a-1`);
   });
 });
 
 describe('long lists stay under Gmail’s limit (about 102 KB)', () => {
-  const many = (n: number, projects: number) =>
-    Array.from({ length: n }, (_, i) => {
-      const p = i % projects;
-      return task(`P${p}-${i}`, {
-        title: `A rather long task title number ${i} that goes on and on to fill the line`,
-        project: { ...RIG, id: `p${p}`, code: `P${p}`, name: `Project number ${p} with a long name` },
-        dueDate: day(i % 4 === 0 ? '2026-11-01' : i % 4 === 1 ? '2026-11-04' : '2026-11-12'),
-        description: 'Something to do '.repeat(30),
-        latest: { text: `Someone: “${'a long comment '.repeat(20)}”`, at: NOW },
-        checklist: { done: 1, total: 4 },
-        priority: i % 5 === 0 ? 'URGENT' : 'NORMAL',
-      });
-    });
+  const projects = Array.from({ length: 50 }, (_, i): DailyProject => ({ ...RIG, id: `p-${i}`, code: `P${i}`, name: `Project number ${i} with a fairly long name`, clientName: 'A client with a long name LLC' }));
+  const many = (n: number, extra: (i: number) => Partial<DailyTask>) =>
+    Array.from({ length: n }, (_, i) =>
+      task(`P-${i}`, {
+        title: `A long task title that goes on and on about the work to do, number ${i}`,
+        project: projects[i % 50]!,
+        statusKind: 'IN_PROGRESS',
+        statusLabel: 'In Progress',
+        priority: 'HIGH',
+        checklist: { done: 2, total: 9 },
+        categories: [{ name: 'Mechanical', color: '#2F6DB5' }],
+        guests: ['A guest with a long name (Some Company)'],
+        ...extra(i),
+      }),
+    );
+  const huge = () =>
+    dailyEmail(
+      input({
+        tasks: [...many(150, (i) => ({ dueDate: day(i % 2 ? '2026-10-20' : '2026-11-04') })), ...many(150, () => ({ dueDate: day('2026-11-08') })), ...many(200, () => ({}))].map((t, i) => ({ ...t, id: `t-${i}`, key: `P-${i}` })),
+        meetings: Array.from({ length: 60 }, (_, i) => meeting(`m-${i}`, { title: `A long meeting title number ${i}`, location: 'The big meeting room on the third floor', projectName: 'Project number 1' })),
+        completed: many(100, () => ({ completedAt: new Date('2026-11-03T10:00:00Z'), dueDate: day('2026-11-02') })),
+        managed: many(200, () => ({ dueDate: day('2026-10-01'), assignees: ['Someone With A Long Name', 'Another Person'] })),
+        projects: projects.map((p) => figures(p, { overdue: 4, waiting: 2 })),
+        week: {
+          due: Array.from({ length: 300 }, () => ({ dueDate: day('2026-11-04'), done: false })),
+          completions: Array.from({ length: 300 }, (_, i) => new Date(Date.parse('2026-10-22T06:00:00Z') + i * 3_600_000)),
+        },
+        awaitingApproval: 40,
+      }),
+    )!;
 
-  it('500 tasks in 50 projects, with a full day: well under the limit, saying how many more and where', () => {
-    const e = build({
-      tasks: many(500, 50),
-      meetings: Array.from({ length: 30 }, (_, i) => meeting(`m${i}`, { title: `Meeting ${i} with a long title`, location: 'Main office, room 4', projectName: 'Project number 1' })),
-      managed: many(120, 12).map((t) => ({ ...t, id: `x${t.id}`, assignees: ['Omar Ahmed', 'Sara Ali'] })),
-      completed: many(80, 8).map((t) => ({ ...t, id: `c${t.id}`, completedAt: NOW })),
-    });
-    expect(bytes(e.html)).toBeLessThan(95_000);
-    expect(e.text).toMatch(/and \d+ more · open the dashboard: https:\/\/task\.example\/dashboard/);
-    expect(e.html).toMatch(/and \d+ more · open the dashboard/);
+  it('500 tasks in 50 projects, with a full day: within 95 KB, saying how many more and where', () => {
+    const e = huge();
+    expect(bytes(e.html)).toBeLessThanOrEqual(95_000);
+    expect(e.text).toMatch(/and \d+ more on the Dashboard/);
+    expect(e.text).toMatch(/and \d+ more on the Projects page/);
+    expect(emailSafetyProblems(e.html)).toEqual([]);
   });
 
   it('a short day keeps every task', () => {
-    const e = build({ tasks: many(12, 3) });
-    for (let i = 0; i < 12; i++) expect(e.text).toContain(`(P${i % 3}-${i})`);
-    expect(e.text).not.toContain('more · open the dashboard');
-  });
-
-  it('a project cut short says how many more, with a link to the project', () => {
-    const e = build({ parts: { ...DEFAULT_DAILY_EMAILS, urgent: false }, tasks: Array.from({ length: 12 }, (_, i) => task(`RIG-${i + 1}`)) });
-    expect(e.text).toContain('and 4 more in this project: https://task.example/projects/p-rig');
+    const e = build({ tasks: [task('A-1', { dueDate: day('2026-11-01') }), task('A-2'), task('A-3', { dueDate: day('2026-11-05') })] });
+    expect(e.text).not.toContain('more on the Dashboard');
+    for (const k of ['A-1', 'A-2', 'A-3']) expect(e.text).toContain(`${k} Task ${k}`);
   });
 });
 
 describe('grouped by company (companies)', () => {
   const ALPHA = { id: 'c-a', name: 'Alpha LLC' };
   const BETA = { id: 'c-b', name: 'Beta LLC' };
-  const tasks = [
-    task('RIG-1', { project: { ...RIG, company: BETA }, dueDate: day('2026-11-04') }),
-    task('OPS-1', { project: { ...OPS, company: ALPHA } }),
-    task('OPS-2', { project: { ...OPS, company: ALPHA }, dueDate: day('2026-11-02') }),
-  ];
+  const tasks = [task('RIG-1', { project: { ...RIG, company: BETA } }), task('OPS-1', { project: { ...OPS, company: ALPHA } }), task('OPS-2', { project: { ...OPS, company: ALPHA }, dueDate: day('2026-11-02') })];
 
-  it('two companies: a heading per company in name order, each with its own projects; flat lists name the company', () => {
+  it('two companies: other open tasks under a heading per company in name order; flat lists name the company', () => {
     const { text, html } = build({ tasks, groupByCompany: true });
-    const rest = text.slice(text.indexOf('== Your other tasks =='));
-    expect(rest.indexOf('Alpha LLC')).toBeLessThan(rest.indexOf('OPERATIONS'));
-    expect(rest.indexOf('OPERATIONS')).toBeLessThan(rest.indexOf('Beta LLC'));
-    expect(rest.indexOf('Beta LLC')).toBeLessThan(rest.indexOf('RIG INSPECTION'));
+    const other = section(text, 'Other open tasks');
+    expect(other.indexOf('Alpha LLC')).toBeLessThan(other.indexOf('OPERATIONS'));
+    expect(other.indexOf('OPERATIONS')).toBeLessThan(other.indexOf('Beta LLC'));
+    expect(other.indexOf('Beta LLC')).toBeLessThan(other.indexOf('RIG INSPECTION'));
     expect(html.split('>Alpha LLC<').length - 1).toBe(1);
-    expect(text).toContain('Operations · Alpha LLC');
+    expect(section(text, 'Overdue')).toContain('Operations · Alpha LLC');
   });
 
   it('one company: no headings', () => {
-    const { html } = build({ tasks });
-    expect(html).not.toContain('Alpha LLC');
+    expect(build({ tasks }).html).not.toContain('Alpha LLC');
   });
 });
 
 describe('one company: the email pinned byte for byte (checked by eye when it changes)', () => {
   const fixture = input({
     tasks: [
-      task('RIG-1', { title: 'Replace the pump seal', dueDate: day('2026-11-01'), priority: 'URGENT', statusLabel: 'In Progress', startDate: day('2026-10-28'), checklist: { done: 3, total: 5 }, description: 'The seal on pump 3 leaks under load.', latest: { text: 'Sara Ali: “The new seal arrives on Friday”', at: new Date('2026-11-03T09:00:00Z') }, blocked: true }),
+      task('RIG-1', { title: 'Replace the pump seal', dueDate: day('2026-11-01'), priority: 'URGENT', statusLabel: 'In Progress', statusKind: 'IN_PROGRESS', startDate: day('2026-10-28'), checklist: { done: 3, total: 5 }, blocked: true }),
       task('RIG-2', { title: 'Send the weekly report', dueDate: new Date('2026-11-04T10:00:00Z'), priority: 'HIGH' }),
-      task('OPS-1', { project: OPS, dueDate: day('2026-11-06') }),
-      task('OPS-2', { project: OPS }),
-      task('RIG-3', { waitingSince: new Date('2026-11-03T08:00:00Z') }),
+      task('OPS-1', { project: OPS, dueDate: day('2026-11-06'), statusKind: 'BACKLOG', statusLabel: 'Backlog' }),
+      task('OPS-2', { project: OPS, priority: 'LOW' }),
+      task('RIG-3', { waitingSince: new Date('2026-11-03T08:00:00Z'), statusKind: 'REVIEW', statusLabel: 'Review' }),
+      task('RIG-4', { title: 'Order spare valves', boardDate: board('2026-11-05'), dueDate: day('2026-11-09') }),
     ],
-    meetings: [meeting('m-1', { title: 'Site walk', projectName: 'Rig Inspection', location: 'Gate 2', organizer: true })],
+    meetings: [meeting('m-1', { title: 'Site walk', projectName: 'Rig Inspection', location: 'Gate 2', organizer: true, response: null })],
     managed: [task('RIG-9', { title: 'Fix the gate', dueDate: day('2026-11-02'), assignees: ['Omar Ahmed'] })],
     completed: [task('OPS-5', { project: OPS, title: 'Order the steel', completedAt: new Date('2026-11-03T11:00:00Z'), dueDate: day('2026-11-05') })],
     awaitingApproval: 2,
+    week: {
+      due: [
+        { dueDate: day('2026-11-02'), done: true },
+        { dueDate: day('2026-11-03'), done: true },
+        { dueDate: day('2026-11-04'), done: false },
+        { dueDate: day('2026-11-06'), done: false },
+      ],
+      completions: ['2026-10-26', '2026-10-29', '2026-10-29', '2026-11-01', '2026-11-02', '2026-11-03', '2026-11-03'].map((d) => new Date(`${d}T07:00:00Z`)),
+    },
+    projects: [figures(RIG, { pct: 62, done: 24, total: 39, open: 15, overdue: 3, waiting: 2 }), figures(OPS, { pct: 80, done: 8, total: 10, open: 2 })],
   });
   const pinned = <T>(fn: () => T): T => {
     vi.useFakeTimers({ now: NOW, toFake: ['Date'] });
