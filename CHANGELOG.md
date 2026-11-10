@@ -14,6 +14,9 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### Improvements
+- Kanban: overdue cards keep the normal border; the Overdue date shows as a dark-red-on-pale-red badge.
+
 ## [1.23.9] - 2026-11-10
 
 ### New features
