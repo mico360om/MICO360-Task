@@ -6,7 +6,7 @@ import type { ApiProject } from '../../api/projects';
 import { projectHealthApi, projectHealthKey, type ProjectHealthDetail } from '../../api/project-health';
 import { projectDates, projectPeople, projectPlace } from '../../lib/board-project-strip';
 import { OVERDUE_CLASS } from '../../lib/colour-classes';
-import { TOUCH_TALL } from '../../lib/touch';
+import { TOUCH_SQUARE, TOUCH_TALL } from '../../lib/touch';
 import { useMediaQuery } from '../../lib/useMediaQuery';
 import { readUserValue, writeUserValue } from '../../lib/user-storage';
 import { useAuthStore } from '../../stores/auth-store';
@@ -103,7 +103,7 @@ export function ProjectStrip({ project, today, timeZone }: { project: ApiProject
       aria-expanded={open}
       aria-label="Project details"
       title={open ? 'Hide project details' : 'Show project details'}
-      className={`flex flex-none items-center gap-1 rounded-lg px-1.5 text-xs font-semibold text-ink-2 transition-colors hover:bg-ground hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand ${TOUCH_TALL} ${roomy ? 'h-7' : ''}`}
+      className={`flex flex-none items-center justify-center gap-1 rounded-lg px-1.5 text-xs font-semibold text-ink-2 transition-colors hover:bg-ground hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand ${roomy ? `h-7 ${TOUCH_SQUARE}` : TOUCH_TALL}`}
     >
       {/* On a phone the button says what it is ("Details"); elsewhere it is the small chevron at the line's end. */}
       {roomy ? null : <span>Details</span>}
@@ -112,18 +112,22 @@ export function ProjectStrip({ project, today, timeZone }: { project: ApiProject
       </svg>
     </button>
   );
-  const frame = 'mb-3 flex flex-none rounded-xl border border-line bg-surface px-3 text-sm';
+  // One frame for both: the button keeps its place in it, so folding or opening never loses the keyboard (review I2).
+  const frame = (strip: 'short' | 'full', content: ReactNode) => (
+    <section aria-label="Project details" data-project-strip={strip} className={`mb-3 flex flex-none items-center gap-2 rounded-xl border border-line bg-surface px-3 text-sm ${strip === 'short' ? 'py-1' : 'py-1.5'}`}>
+      {content}
+      {button}
+    </section>
+  );
 
   if (!open) {
-    return (
-      <section aria-label="Project details" data-project-strip="short" className={`${frame} items-center gap-2 py-1`}>
-        <span className="flex min-w-0 flex-1 items-center gap-2">
-          {name}
-          {healthMark}
-          {progress}
-        </span>
-        {button}
-      </section>
+    return frame(
+      'short',
+      <div className="flex min-w-0 flex-1 items-center gap-2">
+        {name}
+        {healthMark}
+        {progress}
+      </div>,
     );
   }
 
@@ -131,8 +135,9 @@ export function ProjectStrip({ project, today, timeZone }: { project: ApiProject
   const people = health ? projectPeople(health.owners) : null;
   const dates = projectDates(project, today, timeZone);
   const counts = health?.counts;
-  return (
-    <section aria-label="Project details" data-project-strip="full" className={`${frame} flex-wrap items-center gap-x-4 gap-y-1.5 py-1.5`}>
+  return frame(
+    'full',
+    <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-4 gap-y-1.5">
       <span className="flex min-w-0 max-w-full items-center gap-2">
         {name}
         <span className="flex-none rounded bg-ground px-1.5 py-px font-mono text-[11px] text-ink-2" translate="no">{project.code}</span>
@@ -170,12 +175,9 @@ export function ProjectStrip({ project, today, timeZone }: { project: ApiProject
           </span>
         </span>
       ) : null}
-      <span className="ms-auto flex flex-none items-center gap-1">
-        <Link to={`/projects/${encodeURIComponent(project.id)}`} className={`inline-flex items-center rounded px-1 text-xs font-semibold text-brand underline-offset-2 hover:underline ${TOUCH_TALL}`}>
-          Open project
-        </Link>
-        {button}
-      </span>
-    </section>
+      <Link to={`/projects/${encodeURIComponent(project.id)}`} className={`ms-auto inline-flex flex-none items-center rounded px-1 text-xs font-semibold text-brand underline-offset-2 hover:underline ${TOUCH_TALL}`}>
+        Open project
+      </Link>
+    </div>,
   );
 }

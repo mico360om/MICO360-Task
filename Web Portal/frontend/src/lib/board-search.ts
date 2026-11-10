@@ -34,7 +34,10 @@ export function readBoardSearch(text: string | null | undefined): BoardSearch | 
   return terms.length > 0 ? { text: raw, terms } : null;
 }
 
-/** What a card can be found by (a board card, and — older moves — the numbers it had). */
+/**
+ * What a card can be found by: a board card — and the numbers it had before it moved project, when it
+ * carries them (the board's task list doesn't send them yet: only a task's own answer has them).
+ */
 export type BoardSearchCard = Pick<TaskCardTask, 'key' | 'title' | 'description' | 'assignees' | 'tags' | 'project'> & {
   formerKeys?: readonly string[] | null;
 };
@@ -75,6 +78,8 @@ export interface BoardSearchOptions {
   fields?: readonly BoardSearchField[];
   /** Each card's folded text by its key (boardSearchDocs), kept between keystrokes. */
   docs?: ReadonlyMap<string, string>;
+  /** searchBoard: work out what each found card marks (default); false — only which are found (a count). */
+  marks?: boolean;
 }
 
 const withProject = <C extends BoardSearchCard>(card: C, project: BoardSearchOptions['project']): C =>
@@ -182,7 +187,10 @@ export function findOnCard(card: BoardSearchCard, search: BoardSearch, _opts: Bo
   return {
     title: findRanges(card.title, terms),
     key: namesNumber(card, search),
-    snippet: snippetOf(card.description, terms, terms.filter((t) => !foldedTitle.includes(t))),
+    // A word its number answers ("12" on MICO-12), or the whole search being its number, needs no description line.
+    snippet: matchedTaskNumber(search.text, card.key, formerOf(card)) !== null
+      ? null
+      : snippetOf(card.description, terms, terms.filter((t) => !foldedTitle.includes(t) && matchedTaskNumber(t, card.key, formerOf(card)) === null)),
     people: (card.assignees ?? []).map((a) => ({ id: a.id, ranges: findRanges(a.name, terms) })).filter((p) => p.ranges.length > 0),
     project,
     tags: (card.tags ?? []).filter((t) => holds(t.name)).map((t) => t.id),
@@ -208,7 +216,7 @@ export function searchBoard(
   const found = columns.map((column) => {
     const tasks = column.tasks
       .filter((card) => matchesBoardSearch(card, search, { ...opts, docs }))
-      .map((card) => ({ ...card, found: findOnCard(card, search, opts) }));
+      .map((card) => (opts.marks === false ? card : { ...card, found: findOnCard(card, search, opts) }));
     shown += tasks.length;
     return { ...column, tasks, total: column.tasks.length };
   });

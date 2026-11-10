@@ -9,6 +9,7 @@ import { useAuthStore } from '../stores/auth-store';
 import { userStorageKey } from '../lib/user-storage';
 import { shiftDayKey, todayKey } from '../lib/due-date';
 import type { ApiProject } from '../api/projects';
+import { TOUCH_SQUARE } from '../lib/touch';
 
 // The Kanban board's project strip (owner, 10 Nov): one slim line of the chosen project's basics above the columns.
 vi.mock('../lib/useBoardRealtime', () => ({ useBoardRealtime: () => {} }));
@@ -133,6 +134,25 @@ describe('Kanban board: the project strip', () => {
     expect(within(await strip()).getByTitle('Client: OXY Oman')).toBeInTheDocument();
   });
 
+  it('review I2: folding and opening keeps the keyboard on the button (it is the same button)', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    const s = await strip();
+    await within(s).findByTitle('Project manager: Bilal Khan');
+    within(s).getByRole('button', { name: 'Project details' }).focus();
+    await user.keyboard('{Enter}');
+    const folded = await strip();
+    expect(within(folded).getByRole('button', { name: 'Project details', expanded: false })).toHaveFocus();
+    await user.keyboard('{Enter}');
+    expect(within(await strip()).getByRole('button', { name: 'Project details', expanded: true })).toHaveFocus();
+  });
+
+  it('review: its arrow is a 44px square on a touch screen (not only 44px tall)', async () => {
+    renderPage();
+    const s = await strip();
+    expect(within(s).getByRole('button', { name: 'Project details' }).className).toContain(TOUCH_SQUARE);
+  });
+
   it('on a phone: the short version, with Details to open the rest', async () => {
     phone();
     const user = userEvent.setup();
@@ -144,6 +164,7 @@ describe('Kanban board: the project strip', () => {
     expect(details).toHaveTextContent('Details');
     await user.click(details);
     expect(within(await strip()).getByTitle('Client: OXY Oman')).toBeInTheDocument();
+    expect(within(await strip()).getByRole('button', { name: 'Project details', expanded: true })).toHaveFocus();
   });
 
   it('without its health (an older server, or it failed), the project’s own details still show', async () => {

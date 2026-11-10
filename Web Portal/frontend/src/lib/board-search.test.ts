@@ -136,6 +136,12 @@ describe('findOnCard (what the card marks)', () => {
     expect(ranges.map((r) => text.slice(r.start, r.end))).toContain('valve');
   });
 
+  it('review: a word its number already answers needs no description line ("12" on MICO-12 never marks "2012")', () => {
+    const found = findOnCard(card('MICO-12', 'Pump', { description: 'Report for 2012' }), read('12'));
+    expect(found.key).toBe(true);
+    expect(found.snippet).toBeNull();
+  });
+
   it('shows no description line when the title has every word', () => {
     expect(findOnCard(card('MICO-1', 'Valve', { description: 'the valve' }), read('valve')).snippet).toBeNull();
   });

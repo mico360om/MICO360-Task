@@ -9,31 +9,23 @@ export const SEARCH_DELAY_MS = 120;
 export const LEAVE_MS = 300;
 
 /**
- * Board search (10 Nov): the words in the board's search box. `text` is the box as typed; `words` follow
- * it SEARCH_DELAY_MS after the last key (cleared at once). The words stay in the address (?q=, kept
- * with the page's other settings), so a reload or a shared link keeps them; an address changed from
- * elsewhere (Back, a link to the board without them) is followed.
+ * Board search (10 Nov): the words the board searches for — what the box hands it SEARCH_DELAY_MS after
+ * the last key (BoardSearchBox keeps what is typed, so a key never redraws the board: review I1). The
+ * words stay in the address (?q=, kept with the page's other settings), so a reload or a shared link
+ * keeps them; an address changed from elsewhere (Back, a link to the board without them) is followed.
  */
 export function useBoardSearchWords() {
   const [params, setParams] = useSearchParams();
   const fromAddress = params.get('q') ?? '';
-  const [text, setText] = useState(fromAddress);
   const [words, setWords] = useState(fromAddress);
   /** The words the address has (as last written here, or read). */
   const inAddress = useRef(fromAddress.trim());
 
-  useEffect(() => {
-    if (text === words) return;
-    const timer = setTimeout(() => setWords(text), SEARCH_DELAY_MS);
-    return () => clearTimeout(timer);
-  }, [text, words]);
-
-  // The address changed from elsewhere: the box follows it.
+  // The address changed from elsewhere: the board (and the box) follow it.
   useEffect(() => {
     const next = fromAddress.trim();
     if (next === inAddress.current) return;
     inAddress.current = next;
-    setText(fromAddress);
     setWords(fromAddress);
   }, [fromAddress]);
 
@@ -53,12 +45,11 @@ export function useBoardSearchWords() {
     );
   }, [words, setParams]);
 
-  const clear = () => {
-    setText('');
-    setWords('');
-  };
-  return { text, setText, words, clear };
+  return { words, setWords };
 }
+
+/** The same keys, whatever the order (a new set each time the board is drawn is not a change). */
+const sameKeys = (a: ReadonlySet<string>, b: ReadonlySet<string>) => a === b || (a.size === b.size && [...a].every((k) => b.has(k)));
 
 /**
  * The board's columns as the search shows them, with each card a live change has just left unfound
@@ -76,7 +67,8 @@ export function useLeavingCards(before: KanbanColumnData[], found: KanbanColumnD
 
   // Worked out while drawing (React's "information from the last draw" pattern), so a card that
   // stops matching never blinks out before it fades.
-  if (last.words !== words || last.matched !== matched) {
+  // Compared by content (review): a new set with the same keys never sets state again while drawing.
+  if (last.words !== words || !sameKeys(last.matched, matched)) {
     setLast({ words, matched });
     if (words !== null && last.words === words) {
       const present = new Set(before.flatMap((c) => c.tasks.map((t) => t.key)));

@@ -46,7 +46,7 @@ import { MonthBar, PERIODS } from './MonthBar';
 import { useBoardPeriod } from './useBoardPeriod';
 import { nearestMonth, type MonthClock } from '../../lib/board-month';
 import { countCards, currentMonth, emptyMonthText, hideCards, monthCards, monthTitle, monthWord, undatedKeys, withMonthDates } from '../../lib/month-view';
-import { boardSearchDocs, readBoardSearch, searchBoard } from '../../lib/board-search';
+import { boardSearchDocs, matchesBoardSearch, readBoardSearch, searchBoard } from '../../lib/board-search';
 import { everythingAddress } from '../../lib/search-everything';
 import { BoardSearchBox } from './BoardSearchBox';
 import { useBoardSearchWords, useLeavingCards } from './useBoardSearch';
@@ -61,6 +61,8 @@ const errorText = (e: unknown, fallback: string) => (e instanceof ApiError && e.
 // Admin-triggered carry-forward runs at most once per app session (the server sweep handles the rest).
 let carriedThisSession = false;
 const NO_PROJECTS: ReadonlySet<string> = new Set();
+/** No search: no card's text is read. */
+const NO_DOCS: ReadonlyMap<string, string> = new Map();
 const VIEWS = [
   { value: 'board' as const, label: 'Board', icon: VIEW_ICONS.board },
   { value: 'table' as const, label: 'Table', icon: VIEW_ICONS.table },
@@ -391,6 +393,17 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
     return [{ label: 'Move to another project…', onSelect: () => setMovingTask(ref) }];
   };
 
+  /**
+   * Review: a task added while the board is searched that the words don't find is saved but not shown —
+   * so the board says so (else it looks as if saving failed).
+   */
+  function hiddenBySearch(t: ApiTask) {
+    if (!search) return;
+    const own = isAll ? projects.find((p) => p.id === t.projectId) : undefined;
+    const card = { key: t.key, title: t.title, description: t.description, assignees: t.assignees ?? [], tags: t.tags, formerKeys: t.formerKeys, project: own ? { name: own.name, code: own.code } : undefined };
+    if (!matchesBoardSearch(card, search, { project: searchProject })) setNotice(`${t.key} was saved, but your search “${search.text}” hides it. Clear the search to see it.`);
+  }
+
   /** Where keyboard focus goes once a moved card has left the board: the next card in its column (else the one before), else the board. */
   function focusAfterMove(movedKey: string) {
     const column = boardColumns.find((c) => c.tasks.some((t) => t.key === movedKey));
@@ -424,13 +437,15 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
   const words = useBoardSearchWords();
   const search = useMemo(() => readBoardSearch(words.words), [words.words]);
   const searchProject = useMemo(() => (project ? { name: project.name, code: project.code } : null), [project]);
-  const searchDocs = useMemo(() => boardSearchDocs(fullColumns, { project: searchProject }), [fullColumns, searchProject]);
+  const searching = search !== null;
+  // Read only while searching (review: not on every load and live change of a board nobody searches).
+  const searchDocs = useMemo(() => (searching ? boardSearchDocs(fullColumns, { project: searchProject }) : NO_DOCS), [searching, fullColumns, searchProject]);
   const searched = useMemo(() => searchBoard(companyColumns, search, { project: searchProject, docs: searchDocs }), [companyColumns, search, searchProject, searchDocs]);
   // The board as shown: the cards found (a card a live change has just left unfound fades out first).
   const boardColumns = useLeavingCards(companyColumns, searched.columns, search);
   // "No date (12)": the cards it would add (the company filter and the search apply to them too).
   const undatedCount = useMemo(
-    () => (isMonth ? countCards(searchBoard(filterBoardByCompany(fullColumns, company), search, { project: searchProject, docs: searchDocs }).columns, noDate) : 0),
+    () => (isMonth ? countCards(searchBoard(filterBoardByCompany(fullColumns, company), search, { project: searchProject, docs: searchDocs, marks: false }).columns, noDate) : 0),
     [isMonth, fullColumns, company, search, searchProject, searchDocs, noDate],
   );
   /** The cards shown, column by column (Previous / Next, the Table), none fading out. */
@@ -528,7 +543,8 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
   // The company filter leaves no card on a board that has some.
   const noneFromCompany = !emptyDay && Boolean(company) && companyColumns.length > 0 && companyColumns.every((c) => c.tasks.length === 0);
   // The search finds nothing here: it says so, and offers the top-bar search's results for the same words.
-  const noneFound = !loading && !error && Boolean(projectId) && search !== null && searched.shown === 0 && !noneFromCompany;
+  // (Not while the month keeps some found cards behind "No date (2)": the chip says so.)
+  const noneFound = !loading && !error && Boolean(projectId) && search !== null && searched.shown === 0 && undatedCount === 0 && !noneFromCompany;
 
   // A laptop, or a tablet with room: the board is the rest of the window's height and each column
   // scrolls by itself, its header always in view. A phone scrolls the page. So does the page while
@@ -572,7 +588,7 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
         </div>
       ) : projectId ? (
         <div className="mb-4 flex flex-wrap items-center gap-2">
-          <BoardSearchBox value={words.text} onChange={words.setText} onClear={words.clear} searching={search !== null} shown={searched.shown} total={searched.total} />
+          <BoardSearchBox words={words.words} onWords={words.setWords} searching={search !== null} shown={searched.shown} total={searched.total} />
           <ViewSwitch
             label="Show the board for"
             value={period}
@@ -827,7 +843,10 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
           {...(isAll ? { defaultColumnCategory: newTaskStatus } : { projectId, defaultColumnId: newTaskColumn })}
           // Month view: today's defaults (it keeps no board day).
           boardDate={isMonth ? undefined : boardDate}
-          onCreated={(t) => tellWhere(t, (word) => `Saved — it’s in ${word}.`)}
+          onCreated={(t) => {
+            tellWhere(t, (word) => `Saved — it’s in ${word}.`);
+            hiddenBySearch(t);
+          }}
           onClose={() => setAddingTask(false)}
           onQueued={() => setNotice('You’re offline — the task was saved and will sync when you reconnect.')}
         />

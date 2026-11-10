@@ -11,9 +11,11 @@ import { userStorageKey } from '../lib/user-storage';
 // Board search (10 Nov): dragging still works while searching. The real board can't be dragged in jsdom,
 // so this one hands over what the page gives it (its columns, onMove, onReorder).
 let board: KanbanBoardProps | null = null;
+let boardRenders = 0;
 vi.mock('../components/KanbanBoard', () => ({
   KanbanBoard: (props: KanbanBoardProps) => {
     board = props;
+    boardRenders += 1;
     return <div data-testid="board">{props.columns.map((c) => `${c.id}:${c.tasks.map((t) => t.key).join(',')}`).join('|')}</div>;
   },
 }));
@@ -74,6 +76,19 @@ function renderPage() {
     </QueryClientProvider>,
   );
 }
+
+describe('Kanban board search: typing', () => {
+  it('review I1: keys typed quickly don’t redraw the board each time — only once the words are read (a big board stays quick)', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByTestId('board')).toHaveTextContent('doing:MICO-2,MICO-3,MICO-4'));
+    const before = boardRenders;
+    await user.type(screen.getByRole('searchbox', { name: 'Search this board' }), 'pump spares');
+    await waitFor(() => expect(screen.getByTestId('board')).toHaveTextContent('todo:|doing:MICO-3'));
+    // The words read once (and the address following them): never one draw per key (11 keys).
+    expect(boardRenders - before).toBeLessThanOrEqual(3);
+  });
+});
 
 describe('Kanban board search: dragging', () => {
   it('a card dropped among the cards found lands in its place in the whole column (the cards not shown keep theirs)', async () => {

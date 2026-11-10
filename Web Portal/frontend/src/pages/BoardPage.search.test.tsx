@@ -37,10 +37,13 @@ const BASE_TASKS = (): T[] => [
   task('t6', 'OPS-1', 'Fleet pump check', 'p2', 'p2-todo', 'TODO'),
 ];
 let TASKS: T[] = BASE_TASKS();
+/** What POST /tasks answers (a task made in the New task form). */
+let created: T | null = null;
 let calls: { url: string; method: string; body?: Record<string, unknown> }[] = [];
 
 beforeEach(() => {
   TASKS = BASE_TASKS();
+  created = null;
   calls = [];
   localStorage.clear();
   useAuthStore.getState().setSession({ user: { id: 'u1', email: 'a@b.c', username: 'ada', roles: ['ADMIN'] }, accessToken: 'at', refreshToken: 'rt' });
@@ -55,6 +58,7 @@ beforeEach(() => {
       const cols = /\/projects\/(p\d)\/columns/.exec(u);
       if (cols) return json({ data: COLUMNS[cols[1]!] ?? [] });
       if (u.includes('/members')) return json({ data: [] });
+      if (method === 'POST' && u.endsWith('/tasks')) return json({ data: created }, 201);
       if (u.includes('/tasks?')) {
         const pid = new URL(u, 'http://x').searchParams.get('projectId');
         return json({ data: pid ? TASKS.filter((t) => t.projectId === pid) : TASKS });
@@ -230,6 +234,32 @@ describe('Kanban board: search', () => {
     expect(box()).toHaveValue('fence');
     await waitFor(() => expect(cardKeys()).toEqual(['MICO-3']));
     expect(calls.some((c) => c.url.includes('month='))).toBe(true);
+  });
+
+  it('review: in the month view, cards found only behind "No date" are counted there — no "nothing matches" line', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await ready();
+    await user.click(screen.getByRole('button', { name: 'Month view' }));
+    await screen.findByRole('group', { name: /^Month: / });
+    // MICO-1 and MICO-2 have no dates: the month keeps them behind "No date".
+    await user.type(box(), 'pump');
+    expect(await screen.findByRole('button', { name: /No date \(2\)/ })).toBeInTheDocument();
+    expect(screen.queryByText(/No cards on this board match/)).toBeNull();
+  });
+
+  it('review: a task added while searching that the words don’t find says it is hidden by the search', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await ready();
+    await user.type(box(), 'pump');
+    await waitFor(() => expect(cardKeys()).toEqual(['MICO-1', 'MICO-2']));
+    created = task('t9', 'MICO-9', 'Order cement', 'p1', 'p1-todo', 'TODO');
+    await user.click(screen.getByRole('button', { name: /\+ new task/i }));
+    const dialog = await screen.findByRole('dialog', { name: /new task/i });
+    await user.type(within(dialog).getByLabelText(/task title/i), 'Order cement');
+    await user.click(within(dialog).getByRole('button', { name: 'Create task' }));
+    expect(await screen.findByText(/MICO-9 was saved, but your search “pump” hides it/)).toBeInTheDocument();
   });
 
   it('the Table view uses the same box: it filters the rows (the table has no words box of its own here)', async () => {
