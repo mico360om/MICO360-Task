@@ -32,6 +32,26 @@ export interface KanbanColumnProps {
 
 const PLUS = <path d="M12 5v14M5 12h14" />;
 
+/**
+ * A column's count: how many cards it has, or — while the board is searched — how many of them are
+ * found: "3 of 12" with a mouse, the shorter "3/12" on a touch screen (its 44px buttons leave the
+ * column's name less room), always read out as "3 of 12".
+ */
+function ColumnCount({ shown, total, className }: { shown: number; total: number | undefined; className: string }) {
+  if (total === undefined) return <span data-testid="column-count" className={className}>{shown}</span>;
+  return (
+    <span data-testid="column-count" className={`relative whitespace-nowrap ${className}`}>
+      <span aria-hidden="true">
+        {shown}
+        <span className="[@media(pointer:coarse)]:hidden"> of </span>
+        <span className="hidden [@media(pointer:coarse)]:inline">/</span>
+        {total}
+      </span>
+      <span className="sr-only">{`${shown} of ${total}`}</span>
+    </span>
+  );
+}
+
 /** The "+" that starts a task in this column, in its header (and on its collapsed rail). */
 function AddTaskButton({ name, onAddTask }: { name: string; onAddTask: () => void }) {
   return (
@@ -54,7 +74,6 @@ export function KanbanColumn({ column, onTaskClick, onAddTask, timeZone, cardMen
   // found after a live change) isn't counted, dragged or opened.
   const searching = column.total !== undefined;
   const found = column.tasks.filter((t) => !t.leaving);
-  const count = searching ? `${found.length} of ${column.total}` : String(column.tasks.length);
 
   // Collapsed: a slim vertical rail (still a drop target) that clicks open again.
   if (collapsed) {
@@ -73,7 +92,7 @@ export function KanbanColumn({ column, onTaskClick, onAddTask, timeZone, cardMen
         >
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6" /></svg>
         </button>
-        <span className="min-w-[1.5rem] rounded-full bg-ground px-1.5 text-center text-xs font-semibold text-ink-2">{count}</span>
+        <ColumnCount shown={found.length} total={column.total} className="min-w-[1.5rem] rounded-full bg-ground px-1.5 text-center text-xs font-semibold text-ink-2" />
         {onAddTask ? <AddTaskButton name={column.name} onAddTask={onAddTask} /> : null}
         <span dir="auto" className="flex-1 whitespace-nowrap text-sm font-bold text-ink [writing-mode:vertical-rl]">{column.name}</span>
         <span className="h-2.5 w-2.5 rounded-full" style={{ background: column.color }} aria-hidden="true" />
@@ -95,7 +114,7 @@ export function KanbanColumn({ column, onTaskClick, onAddTask, timeZone, cardMen
         <div className="flex min-w-0 items-center gap-2">
           <span className="h-2.5 w-2.5 flex-none rounded-full ring-2 ring-surface" style={{ background: column.color }} />
           <span dir="auto" title={column.name} className="line-clamp-2 break-words text-sm font-bold leading-tight text-ink">{column.name}</span>
-          <span className="min-w-[1.25rem] flex-none whitespace-nowrap rounded-full bg-ground px-1.5 text-center text-xs font-semibold tabular-nums text-ink-2">{count}</span>
+          <ColumnCount shown={found.length} total={column.total} className="min-w-[1.25rem] flex-none rounded-full bg-ground px-1.5 text-center text-xs font-semibold tabular-nums text-ink-2" />
         </div>
         <div className="flex flex-none items-center gap-0.5">
           {onAddTask ? <AddTaskButton name={column.name} onAddTask={onAddTask} /> : null}
