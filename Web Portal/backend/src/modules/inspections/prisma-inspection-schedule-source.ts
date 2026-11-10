@@ -42,10 +42,13 @@ const toCheck = (t: Row): CheckRow => ({
   approvalRequestedAt: t.approvalRequestedAt,
 });
 
-/** Open: not completed and not in a Done column (inspection-checks' "done", in the query). */
-const openWhere = { completedAt: null, column: { category: { not: 'DONE' } } } satisfies Prisma.TaskWhereInput;
-/** A project's checks: its live tasks that carry a form. */
-const checksOf = (projectId: string) => ({ projectId, deletedAt: null, project: { is: { deletedAt: null } }, inspectionFormId: { not: null } }) satisfies Prisma.TaskWhereInput;
+/**
+ * Open: not completed and not in a Done column (inspection-checks' "done", in the query) — and not archived
+ * (task archive: an archived check is no one's open or late check; an archived done one still counts as done).
+ */
+const openWhere = { archivedAt: null, completedAt: null, column: { category: { not: 'DONE' } } } satisfies Prisma.TaskWhereInput;
+/** A project's checks: its live tasks that carry a form (task archive: never an archived one). */
+const checksOf = (projectId: string) => ({ projectId, deletedAt: null, archivedAt: null, project: { is: { deletedAt: null } }, inspectionFormId: { not: null } }) satisfies Prisma.TaskWhereInput;
 
 /** Scheduled inspections read from the tasks table: a check is a live task with `inspectionFormId` set. */
 export function createPrismaInspectionScheduleSource(prisma: PrismaClient, opts: { workingDays: () => Promise<number[]> }): InspectionScheduleSource {
@@ -105,7 +108,8 @@ export function createPrismaInspectionScheduleSource(prisma: PrismaClient, opts:
     async formUsage(formId, projectIds) {
       if ((await prisma.inspectionForm.count({ where: { id: formId, deletedAt: null } })) === 0) return null;
       // companies: only the projects the person sees (in the picked company) when they are given.
-      const live = { inspectionFormId: formId, deletedAt: null, project: { is: { deletedAt: null } }, ...(projectIds ? { projectId: { in: [...projectIds] } } : {}) } satisfies Prisma.TaskWhereInput;
+      // Task archive: an archived task doesn't use the form (it is on no list).
+      const live = { inspectionFormId: formId, deletedAt: null, archivedAt: null, project: { is: { deletedAt: null } }, ...(projectIds ? { projectId: { in: [...projectIds] } } : {}) } satisfies Prisma.TaskWhereInput;
       const [schedules, openChecks] = await Promise.all([
         prisma.task.count({ where: { ...live, NOT: [{ recurrenceRule: { equals: Prisma.DbNull } }] } }),
         prisma.task.count({ where: { ...live, ...openWhere } }),

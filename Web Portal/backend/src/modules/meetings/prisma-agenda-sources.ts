@@ -10,6 +10,7 @@ export function createPrismaAgendaSources(prisma: PrismaClient): AgendaSourceSto
         where: {
           projectId,
           deletedAt: null,
+          archivedAt: null, // task archive: never on a draft agenda
           completedAt: null,
           AND: [{ column: { category: { not: 'DONE' } } }, { OR: [{ column: { category: 'BLOCKED' } }, { dueDate: { lte: dueBy } }] }],
         },

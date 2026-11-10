@@ -238,7 +238,8 @@ export function createPrismaTemplateRepository(prisma: PrismaClient): TemplateRe
       });
       if (!p) return null;
       const rows = await prisma.task.findMany({
-        where: { projectId, deletedAt: null },
+        // Task archive: a template from a project leaves its archived tasks out (hidden but kept there).
+        where: { projectId, deletedAt: null, archivedAt: null },
         select: {
           id: true,
           key: true,

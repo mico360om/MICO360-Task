@@ -250,7 +250,8 @@ export function createSearchEngine({
     if (input.taskStatuses?.length) where.push(Prisma.sql`c.category IN (${Prisma.join(input.taskStatuses)})`);
     const done = Prisma.sql`(t.completedAt IS NOT NULL OR c.category = 'DONE')`;
     if (input.done === true) where.push(done);
-    if (input.done === false) where.push(Prisma.sql`NOT ${done}`);
+    // Task archive: an archived task is found (marked) but is no open work — "open" filters leave it out.
+    if (input.done === false) where.push(Prisma.sql`NOT ${done} AND t.archivedAt IS NULL`);
     const assigned = (userId: string) => Prisma.sql`EXISTS (SELECT 1 FROM task_assignees a WHERE a.taskId = t.id AND a.userId = ${userId})`;
     if (input.personId) where.push(assigned(input.personId));
     const dueFrom = input.dueFrom ?? input.from;
@@ -261,7 +262,7 @@ export function createSearchEngine({
     if (input.due?.none) where.push(Prisma.sql`t.dueDate IS NULL`);
     if (input.due?.from) where.push(Prisma.sql`t.dueDate >= ${input.due.from}`);
     if (input.due?.before) where.push(Prisma.sql`t.dueDate < ${input.due.before}`);
-    if (input.due?.open) where.push(Prisma.sql`NOT ${done}`);
+    if (input.due?.open) where.push(Prisma.sql`NOT ${done} AND t.archivedAt IS NULL`);
     if (input.priorities?.length) where.push(Prisma.sql`t.priority IN (${Prisma.join(input.priorities)})`);
     if (input.approval) where.push(Prisma.sql`t.approvalRequestedAt IS NOT NULL`);
     // 1.24: a task's categories and guests (plain EXISTS: portable to MariaDB).
@@ -716,5 +717,6 @@ export function fromTask(t: TaskSearchHit, look: SearchHit['project']): SearchHi
     people: t.assigneeCount ? { names: t.assignees.map((a) => a.name), count: t.assigneeCount } : null,
     matches: t.matches,
     target: { type: 'task', taskId: t.id },
+    ...(t.archived ? { archived: true as const } : {}),
   };
 }

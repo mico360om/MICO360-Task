@@ -106,7 +106,8 @@ describe('createPrismaTaskRepository', () => {
     const args = (findMany.mock.calls[0] as unknown as [{ where: Record<string, any>; select: Record<string, unknown> }])[0];
     expect(args.where.deletedAt).toBeNull();
     expect(args.where.project).toEqual({ is: { deletedAt: null } });
-    expect(args.where.AND).toEqual([{ projectId: { in: ['p1', 'p2'] } }, { priority: { in: ['HIGH'] } }]);
+    // Task archive: a list never has an archived task unless it asks.
+    expect(args.where.AND).toEqual([{ projectId: { in: ['p1', 'p2'] } }, { priority: { in: ['HIGH'] } }, { archivedAt: null }]);
     expect(args.select.carryForwardLog).toBeUndefined();
     expect(t).not.toHaveProperty('carryForwardLog');
     // List rows say which meeting a task came from too.

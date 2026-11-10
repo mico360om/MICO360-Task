@@ -6,6 +6,7 @@ import type { ProjectTaskSettings } from '../projects/project-task-settings';
 import type { ExternalContactFields, ExternalContactSummary } from './external-contacts';
 import type { ExternalContactRecord } from './external-contact-repository';
 import type { TaskGuestRecord } from '../guests/guest-store';
+import type { ArchivedListing } from './task-archive-where';
 
 export type Priority = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
 
@@ -222,6 +223,12 @@ export interface TaskListFilter {
    * runs on the rows. Repositories that can't narrow may return more; never fewer.
    */
   month?: MonthWindow;
+  /**
+   * Task archive: which archived tasks the list has — none (the default: every view, board, list, the
+   * calendar, My Tasks, the app and the extension), `only` them (a project's "Archived tasks" list),
+   * `counted` (figures: the archived Done ones still count, archived open ones leave) or `include` all.
+   */
+  archived?: ArchivedListing;
 }
 
 /**

@@ -37,6 +37,7 @@ import { TEXT_MAX } from '../tasks/checklist-tree';
 import { displayName, joinableOf, loadCounts, loadMergeTasks, teamOf, type Db, type MergeCounts, type MergeTask } from './merge-facts';
 import { alignTaskGuests, companyOfProject, findOrCreateGuest, guestColumns } from '../guests/guest-store';
 import { categoryPlanFor, setTaskCategories, taskCategoryNames } from '../categories/category-store';
+import { TASK_ARCHIVED_CODE } from '../companies/archive-guard';
 
 /** 1.23.3: a merged task's checklist on the main task: "From MICO-14 · Electrical" (fits the title's 191 characters). */
 export function mergedListTitle(key: string, title: string): string {
@@ -252,6 +253,9 @@ const TX = { timeout: 60_000, maxWait: 15_000 } as const;
 const TASK_ENTITIES = ['task', 'TASK'];
 
 /** The refusal of one task (or the whole merge), with the preview's short words. */
+/** Task archive: why an archived task can't be in a merge (its preview row, and the refusal). */
+const ARCHIVED_REASON = 'It is archived — unarchive it first.';
+
 class MergeRefusal extends HttpError {
   constructor(message: string, code: string, status = 409, details?: unknown) {
     super(message, code, status, details);
@@ -543,6 +547,8 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
       return `Already merged into ${into?.key ?? 'another task'}.`;
     }
     if (t.deletedAt || t.projectDeleted) return 'It was deleted.';
+    // Task archive: an archived task is read-only (its row says so; merging it is refused, TASK_ARCHIVED).
+    if (t.archivedAt) return ARCHIVED_REASON;
     if (t.projectArchived) return `${t.projectName} is archived.`;
     if (t.projectStatus === 'COMPLETED') return `${t.projectName} is completed.`;
     if (!manages(scope, t.projectId)) return `You need to manage ${t.projectName} to merge its tasks.`;
@@ -732,7 +738,10 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
     const holding = await holders(tx, ids);
     for (const t of tasks) {
       const reason = await refusalOf(tx, t, scope, holding, t.id === input.mainTaskId);
-      if (reason) throw reason.startsWith('You need to manage') ? new ForbiddenError(reason) : new MergeRefusal(`${t.key}: ${reason}`, 'CANT_MERGE');
+      if (reason) {
+        if (reason.startsWith('You need to manage')) throw new ForbiddenError(reason);
+        throw new MergeRefusal(`${t.key}: ${reason}`, reason === ARCHIVED_REASON ? TASK_ARCHIVED_CODE : 'CANT_MERGE');
+      }
       const shown = input.versions?.[t.id];
       if (shown !== undefined && shown !== t.version) throw new ConflictError(`${t.key} changed while you were merging. Look again and try once more.`, 'VERSION_CONFLICT');
     }
@@ -1293,6 +1302,8 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
     const notManaged = allProjects.filter((p) => !manages(scope, p));
     if (notManaged.length) return { reason: `You need to manage ${listWords(notManaged.map((p) => names.get(p) ?? 'its project'))} to undo this merge.`, status: 403, code: 'FORBIDDEN', main, tasks };
     if (main.deletedAt || main.projectDeleted) return { reason: `${main.key} was deleted, so the merge can’t be undone.`, status: 409, code: 'CANT_UNDO', main, tasks };
+    // Task archive: the main task is read-only while archived.
+    if (main.archivedAt) return { reason: `${main.key} is archived — unarchive it first.`, status: 409, code: TASK_ARCHIVED_CODE, main, tasks };
     const gone = ids.filter((id) => !tasks.some((t) => t.id === id));
     if (gone.length) return { reason: 'A merged task was deleted for good, so the merge can’t be undone.', status: 409, code: 'CANT_UNDO', main, tasks };
     for (const t of [main, ...tasks]) {

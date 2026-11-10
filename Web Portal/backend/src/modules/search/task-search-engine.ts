@@ -52,6 +52,10 @@ export interface TaskSearchHit {
   matches: TaskMatch[];
   /** Its external contacts' names and companies (older clients show which one matched). */
   external: string[];
+  /** Task archive: it is archived (hidden from boards and lists, read-only) — search still finds it, marked. */
+  archived: boolean;
+  /** When it was archived (ISO), or null. */
+  archivedAt: string | null;
 }
 
 export interface TaskSearchResult {
@@ -108,7 +112,8 @@ export function createTaskSearchEngine({
     if (input.statuses?.length) where.push(Prisma.sql`c.category IN (${Prisma.join(input.statuses)})`);
     if (input.assigneeId) where.push(Prisma.sql`EXISTS (SELECT 1 FROM task_assignees a WHERE a.taskId = t.id AND a.userId = ${input.assigneeId})`);
     if (input.done === true) where.push(Prisma.sql`(t.completedAt IS NOT NULL OR c.category = 'DONE')`);
-    if (input.done === false) where.push(Prisma.sql`(t.completedAt IS NULL AND c.category <> 'DONE')`);
+    // Task archive: an archived task is found (marked) but is no open work — the "open" filter leaves it out.
+    if (input.done === false) where.push(Prisma.sql`(t.completedAt IS NULL AND c.category <> 'DONE' AND t.archivedAt IS NULL)`);
     const from = Prisma.sql`FROM task_search_index si
       JOIN tasks t ON t.id = si.taskId
       JOIN projects p ON p.id = t.projectId
@@ -171,6 +176,7 @@ export async function describeTaskHits(
         projectId: true,
         dueDate: true,
         completedAt: true,
+        archivedAt: true,
         column: { select: { id: true, name: true, category: true } },
         project: { select: { id: true, code: true, name: true, status: true, companies: ARCHIVE_SELECT.companies } },
         assignees: { orderBy: { assignedAt: 'asc' }, select: { user: { select: { id: true, firstName: true, lastName: true, username: true } } } },
@@ -209,6 +215,8 @@ export async function describeTaskHits(
       assigneeCount: m.assignees.length,
       matches: found.matches,
       external: task.contacts.flatMap((c) => [c.name, c.company]).filter((v): v is string => Boolean(v)),
+      archived: m.archivedAt !== null,
+      archivedAt: m.archivedAt ? m.archivedAt.toISOString() : null,
     });
   }
   return hits;

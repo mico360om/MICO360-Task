@@ -62,6 +62,11 @@ const listQuerySchema = z.object({
   /** Optional paging over the filtered, sorted list. */
   limit: z.coerce.number().int().min(1).max(1000).optional(),
   offset: z.coerce.number().int().min(0).optional(),
+  /**
+   * Task archive: `only` = a project's "Archived tasks" list (with a projectId only; newest archived first).
+   * Left out (or `exclude`), archived tasks are never listed.
+   */
+  archived: z.enum(['exclude', 'only']).optional(),
 });
 
 const recurrenceSchema = z.object({
@@ -281,6 +286,9 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
   app.get('/tasks', { preHandler: guard.authenticate }, async (req, reply) => {
     const params = listQuerySchema.parse(req.query);
     if (params.month && params.boardDate) return reply.status(400).send({ error: { code: 'VALIDATION', message: 'Ask for a day or a month, not both.' } });
+    // Task archive: a project's archived tasks are listed one project at a time (anyone who sees it).
+    const archivedOnly = params.archived === 'only';
+    if (archivedOnly && !params.projectId) return reply.status(400).send({ error: { code: 'VALIDATION', message: 'Archived tasks are listed one project at a time.' } });
     // Object-level scope: a non-admin only ever sees tasks in projects they belong to. One named
     // project (its board, opened by its link) is checked by its own rule; the plain list follows
     // the picked company too (companies).
@@ -318,9 +326,12 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
       dueBefore: criteria.dueBefore,
       dueAfter: criteria.dueAfter,
       ...(params.month && monthClock ? { month: monthWindow(params.month, monthClock) } : {}),
+      ...(archivedOnly ? { archived: 'only' as const } : {}),
     });
     const scoped = allowedIds ? tasks.filter((t) => allowedIds.includes(t.projectId)) : tasks;
-    const filtered = filterAndSortTasks(scoped, criteria);
+    const sorted = filterAndSortTasks(scoped, criteria);
+    // The Archived tasks list: newest archived first unless a sort was asked for.
+    const filtered = archivedOnly && !params.sort ? [...sorted].sort((a, b) => (b.archivedAt?.getTime() ?? 0) - (a.archivedAt?.getTime() ?? 0)) : sorted;
     const month = params.month && monthClock ? inMonth(filtered, params.month, monthClock, params.undated === true) : null;
     const data = month ? month.rows : filtered;
     const monthMeta = month ? { month: params.month, undated: month.undated } : null;

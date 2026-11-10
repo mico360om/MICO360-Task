@@ -33,6 +33,8 @@ export interface MergeTask extends MergeTaskFacts {
   deletedAt: Date | null;
   mergedIntoId: string | null;
   assignees: { id: string; name: string }[];
+  /** Task archive: an archived task is read-only — it can't be merged (unarchive it first). */
+  archivedAt: Date | null;
 }
 
 const taskSelect = {
@@ -40,7 +42,7 @@ const taskSelect = {
   isMilestone: true, clientVisible: true, clientShowDescription: true, recurrenceRule: true, recurrenceParentId: true,
   inspectionFormId: true, inspectionPlace: true, meetingId: true, needsApproval: true, approvalRequestedAt: true, approvalRequestedById: true,
   approvedAt: true, approvedById: true, clientAcceptedAt: true, clientAcceptedById: true, completedAt: true, progress: true, boardDate: true,
-  createdAt: true, createdById: true, version: true, deletedAt: true, mergedIntoId: true,
+  createdAt: true, createdById: true, version: true, deletedAt: true, mergedIntoId: true, archivedAt: true,
   column: { select: { name: true, category: true } },
   project: { select: { code: true, name: true, status: true, deletedAt: true, companies: ARCHIVE_SELECT.companies } },
   inspectionForm: { select: { title: true } },
@@ -95,6 +97,7 @@ function toMergeTask(t: TaskRow): MergeTask {
     deletedAt: t.deletedAt,
     mergedIntoId: t.mergedIntoId,
     assignees: t.assignees.map((a) => ({ id: a.user.id, name: displayName(a.user) })),
+    archivedAt: t.archivedAt,
   };
 }
 

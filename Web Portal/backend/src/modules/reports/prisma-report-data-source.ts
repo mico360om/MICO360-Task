@@ -47,6 +47,8 @@ export function createPrismaReportDataSource(prisma: PrismaClient): ReportDataSo
         byWeight: t.project.completionMode === 'WEIGHT',
         ...(mergedFrom.has(t.id) ? { mergedFrom: mergedFrom.get(t.id) } : {}),
         guests: t.externalContacts.map(guestLabel),
+        // Task archive: reports leave it out unless "Include archived" is ticked.
+        archivedAt: t.archivedAt,
         categories: t.categories.map((c) => c.category).sort((a, b) => a.position - b.position || a.name.localeCompare(b.name, 'en')).map((c) => c.name),
       }));
     },

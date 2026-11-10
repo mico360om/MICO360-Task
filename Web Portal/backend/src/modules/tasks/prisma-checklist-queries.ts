@@ -5,8 +5,8 @@ import type { MyChecklistItem } from './checklist-routes';
 
 /** "Checklist items for me" shows at most this many (the soonest due). */
 const MINE_MAX = 500;
-/** A live task: not deleted (or merged), its project not deleted. */
-const liveTask = { deletedAt: null, project: { is: { deletedAt: null } } } as const;
+/** A live task: not deleted (or merged), its project not deleted — and not archived (task archive: its items leave My Tasks, the calendar and reminders). */
+const liveTask = { deletedAt: null, archivedAt: null, project: { is: { deletedAt: null } } } as const;
 const dayKey = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
 
 /** An item with a due day on the calendar. */

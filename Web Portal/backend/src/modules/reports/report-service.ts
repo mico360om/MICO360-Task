@@ -30,6 +30,8 @@ export interface ReportTask {
   weight?: number;
   /** …and whether its project counts completion by weight. */
   byWeight?: boolean;
+  /** Task archive: when it was archived (null/absent: it isn't) — in reports only with "Include archived". */
+  archivedAt?: Date | null;
 }
 
 export interface ReportUser {
@@ -59,6 +61,8 @@ export interface TaskListRow {
   /** 1.24: its guests and categories. */
   guests?: string[];
   categories?: string[];
+  /** Task archive: it is archived (its status says so too: "Done · Archived"). */
+  archived?: boolean;
 }
 
 /** The on-screen report filters; every report and export applies the same ones. */
@@ -73,12 +77,15 @@ export interface ReportFilter {
    * scope (null/absent = everyone).
    */
   peopleIds?: string[] | null;
+  /** Task archive: "Include archived" (off by default: archived tasks are left out of every report). */
+  includeArchived?: boolean;
 }
 
 export function applyReportFilter(tasks: ReportTask[], filter: ReportFilter = {}): ReportTask[] {
   const inPick = filter.projectIds ? new Set(filter.projectIds) : null;
   return tasks.filter(
     (t) =>
+      (filter.includeArchived === true || !t.archivedAt) &&
       (!filter.projectId || t.projectId === filter.projectId) &&
       (!filter.userId || t.assigneeIds.includes(filter.userId)) &&
       (!inPick || inPick.has(t.projectId)),
@@ -89,7 +96,8 @@ export function applyReportFilter(tasks: ReportTask[], filter: ReportFilter = {}
 // and every report agree. "Overdue" means the due day is before today in the company time zone,
 // and never while the task waits for approval (the shared isTaskLate).
 const isDone = (t: ReportTask): boolean => isTaskDone(t);
-const isOverdueOpen = (t: ReportTask, timeZone: string, now: Date): boolean => isTaskLate(t, timeZone, now);
+// Task archive: an archived task is in nobody's overdue count, even when archived tasks are included.
+const isOverdueOpen = (t: ReportTask, timeZone: string, now: Date): boolean => !t.archivedAt && isTaskLate(t, timeZone, now);
 
 /** Number of tasks in each column category. */
 export function statusBreakdown(tasks: ReportTask[]): Record<string, number> {
@@ -234,11 +242,13 @@ export function createReportService({ data, timeZone = defaultCompanyTimeZone(),
     const at = now();
     const rows = tasks.map((t): TaskListRow => {
       const done = isDone(t);
+      const status = t.columnName ?? t.columnCategory;
       return {
         key: t.key ?? '',
         title: t.title ?? '',
         projectName: t.projectName,
-        status: t.columnName ?? t.columnCategory,
+        // Task archive: an archived task's row says so (only listed with "Include archived").
+        status: t.archivedAt ? `${status} · Archived` : status,
         category: t.columnCategory,
         priority: t.priority ?? 'NORMAL',
         assignees: t.assigneeIds.map((id) => nameOf.get(id)).filter((n): n is string => Boolean(n)),
@@ -249,6 +259,7 @@ export function createReportService({ data, timeZone = defaultCompanyTimeZone(),
         mergedFrom: t.mergedFrom ?? [],
         guests: t.guests ?? [],
         categories: t.categories ?? [],
+        ...(t.archivedAt ? { archived: true } : {}),
       };
     });
     return rows.sort(

@@ -23,6 +23,7 @@ import { LIVE_PROJECT_WHERE } from '../companies/company-access';
 import { currentAcceptance } from '../clients/sign-off';
 import { checklistTreeOf, leafCounts } from './checklist-tree';
 import { rowsFromTree } from './checklist-service';
+import { NOT_ARCHIVED, archivedWhere } from './task-archive-where';
 
 type TagRelation = { tag: { id: string; name: string; color: string } };
 type AssigneeRelation = { user: { id: string; username: string; firstName: string | null; lastName: string | null } };
@@ -130,6 +131,12 @@ function categoriesOf(rows: NonNullable<EnrichedTask['categories']>): { id: stri
 
 /** Live tasks only: not deleted, and not in a deleted project. */
 export const liveTaskWhere = { deletedAt: null, project: { is: { deletedAt: null } } } satisfies Prisma.TaskWhereInput;
+
+/**
+ * Task archive: a list's tasks — live and not archived (boards, lists, My Tasks, the calendar, sweeps).
+ * A single task's read keeps liveTaskWhere: an archived task still opens (read-only).
+ */
+export const listedTaskWhere = { ...liveTaskWhere, ...NOT_ARCHIVED } satisfies Prisma.TaskWhereInput;
 
 /**
  * Month view (month-list.ts): the tasks that may show in a month's window — completed in it (a Done
@@ -370,6 +377,8 @@ export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository
       if (filter.recurring) and.push({ recurrenceRule: { not: Prisma.DbNull } });
       if (filter.awaitingApproval) and.push({ approvalRequestedAt: { not: null } });
       if (filter.month) and.push(monthWindowWhere(filter.month));
+      // Task archive: none by default (every view), only them (a project's "Archived tasks"), or counted (figures).
+      and.push(archivedWhere(filter.archived));
       const ts = await prisma.task.findMany({
         where: { ...liveTaskWhere, AND: and },
         // Enrich list rows for card display: assignees + lightweight aggregate counts. `_count`
@@ -461,6 +470,8 @@ export function createPrismaCarryForwardRepo(prisma: PrismaClient): CarryForward
       const ts = await prisma.task.findMany({
         where: {
           deletedAt: null,
+          // Task archive: an archived task stays on its day (it is on no board).
+          archivedAt: null,
           // Live projects that carry forward: one switched off keeps its tasks on their days. The
           // setting is read at each sweep, so a project switched back on carries on the next night.
           // 1.22: an archived project (its own status, or all its companies) is read-only — skipped.
