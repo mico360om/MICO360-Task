@@ -543,6 +543,33 @@ describe('onRequestDone', () => {
   });
 });
 
+// 1.23.14 — each request also tells where it went and when it started (the page's clock, the wall clock and
+// the page's mark from pageMark), so the Error log can match the browser's own timing and skip requests that
+// waited while the page was away; an abort on purpose says so.
+describe('onRequestDone: a request’s start (1.23.14)', () => {
+  it('tells the address, its start on both clocks and the page’s mark then', async () => {
+    const seen: RequestDone[] = [];
+    let marks = 0;
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ data: {} })));
+    const api = createApiClient({ baseUrl: 'http://api.test/api/v1', getToken: () => null, onRequestDone: (i) => seen.push(i), pageMark: () => ({ n: ++marks }) });
+    const before = Date.now();
+    await api.get('/tasks?limit=50');
+    expect(seen[0]).toMatchObject({ method: 'GET', path: '/tasks', url: 'http://api.test/api/v1/tasks?limit=50', mark: { n: 1 } });
+    expect(seen[0]!.startedAt).toEqual(expect.any(Number));
+    expect(seen[0]!.wallStart).toBeGreaterThanOrEqual(before);
+    expect(seen[0]).not.toHaveProperty('aborted');
+  });
+
+  it('an aborted request says so; a mark that fails changes nothing', async () => {
+    const seen: RequestDone[] = [];
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new DOMException('The user aborted a request.', 'AbortError'); }));
+    const api = createApiClient({ baseUrl: 'http://api.test', getToken: () => null, onRequestDone: (i) => seen.push(i), pageMark: () => { throw new Error('no mark'); } });
+    await expect(api.get('/x')).rejects.toMatchObject({ name: 'AbortError' });
+    expect(seen[0]).toMatchObject({ status: 0, aborted: true });
+    expect(seen[0]).not.toHaveProperty('mark');
+  });
+});
+
 // 1.23.1 — the server answers 503 DATABASE_BUSY while its database is away for a moment (a deploy
 // restart): told to onDatabaseBusy for a read and a change alike, so the page can say so in its words.
 describe('onDatabaseBusy', () => {

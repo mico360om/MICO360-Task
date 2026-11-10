@@ -1,6 +1,8 @@
 import { createErrorReporter, type ErrorReporter, type ReporterWorld } from './error-reporter';
-import { CHUNK_FAILURE, installErrorCapture, isLeaving, requestReport } from './error-capture';
+import { CHUNK_FAILURE, installErrorCapture, isLeaving } from './error-capture';
 import { recoverChunk } from './update-recovery';
+import { createPageLifecycle, type PageLifecycle } from './page-lifecycle';
+import { createRequestWatch, type ResourceTimingLike } from './request-watch';
 import type { RequestDone } from './api-client';
 
 /**
@@ -8,6 +10,24 @@ import type { RequestDone } from './api-client';
  * — and in tests, where nothing installs it — every function here does nothing. None of them throws.
  */
 let reporter: ErrorReporter | null = null;
+/** 1.23.14: whether the page is on screen, and the API requests' watch (request-watch). */
+let lifecycle: PageLifecycle | null = null;
+let requests: ReturnType<typeof createRequestWatch> | null = null;
+
+/** 1.23.14: how long the server has been up (ms), from /health — null when it doesn't answer. Never throws. */
+export async function serverUptimeMs(baseUrl: string): Promise<number | null> {
+  try {
+    const res = await fetch(`${baseUrl}/health`, { cache: 'no-store' });
+    if (!res.ok) return null;
+    const seconds = Number(((await res.json()) as { data?: { uptimeSeconds?: unknown } })?.data?.uptimeSeconds);
+    return Number.isFinite(seconds) && seconds >= 0 ? seconds * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The page is being left, or hidden now. */
+const goingOrHidden = () => isLeaving() || document.visibilityState === 'hidden';
 
 /** The browser's own pieces: fetch with keepalive (sendBeacon only where that is missing), timers, the page. */
 export function browserReporterWorld(opts: { baseUrl: string; getToken: () => string | null }): ReporterWorld {
@@ -54,10 +74,34 @@ export function installErrorReporting(opts: { baseUrl: string; getToken: () => s
   try {
     if (reporter || typeof window === 'undefined' || typeof fetch !== 'function') return;
     const r = createErrorReporter(browserReporterWorld(opts));
+    const life = createPageLifecycle(window);
     // 1.23.2: a code file of an older build (gone after an update) is recorded only when the page can't
-    // reload to the new build by itself.
-    installErrorCapture(window, r, { origin: window.location.origin, codeFailureStands: async () => (await recoverChunk()) === 'failed' });
+    // reload to the new build by itself. 1.23.14: page times only while the page is on screen.
+    installErrorCapture(window, r, { origin: window.location.origin, codeFailureStands: async () => (await recoverChunk()) === 'failed', lifecycle: life });
+    const watch = createRequestWatch({
+      lifecycle: life,
+      online: () => navigator.onLine !== false,
+      leaving: goingOrHidden,
+      report: (report) => r.report(report),
+      setTimeout: (fn, ms) => window.setTimeout(fn, ms),
+      clearTimeout: (t) => window.clearTimeout(t as number),
+      mono: () => performance.now(),
+      wall: () => Date.now(),
+      serverUptimeMs: () => serverUptimeMs(opts.baseUrl),
+      absolute: (url) => new URL(url, window.location.href).href,
+    });
+    // The browser's own timing of each API request (where its time went): matched to the request.
+    try {
+      const PO = window.PerformanceObserver;
+      if (PO?.supportedEntryTypes?.includes('resource')) {
+        new PO((list) => watch.resources(list.getEntries() as unknown as ResourceTimingLike[])).observe({ type: 'resource', buffered: true });
+      }
+    } catch {
+      // Without it, a slow request is judged on the page's own time.
+    }
     reporter = r;
+    lifecycle = life;
+    requests = watch;
   } catch {
     // Without a reporter the page works exactly as before.
   }
@@ -74,14 +118,25 @@ export function reportPageError(error: unknown): void {
   }
 }
 
-/** One API request, from the API client: blocked on the way (status 0 while online) or slow (1.23.3: with its Server-Timing). */
+/**
+ * One API request, from the API client: blocked on the way (status 0 while online) or slow (1.23.3: with
+ * its Server-Timing). 1.23.14: never while the page was away; timed by the browser's Resource Timing, with
+ * where the time went; one cut or held up by an update restart is the update's (request-watch).
+ */
 export function noteRequest(info: RequestDone): void {
   try {
-    if (!reporter) return;
-    const r = requestReport(info, { online: navigator.onLine !== false, leaving: isLeaving() || document.visibilityState === 'hidden' });
-    if (r) reporter.report(r);
+    requests?.requestDone(info);
   } catch {
     // Never in the request's way.
+  }
+}
+
+/** 1.23.14: the page's mark as a request starts (the API client's pageMark); nothing before the reporter is set up. */
+export function pageMark(): unknown {
+  try {
+    return lifecycle?.mark();
+  } catch {
+    return undefined;
   }
 }
 
