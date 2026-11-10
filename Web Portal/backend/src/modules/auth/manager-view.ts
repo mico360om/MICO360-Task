@@ -56,6 +56,8 @@ export const MANAGER_VIEW_ALLOWED: Readonly<Record<string, string>> = {
   'GET /reports/${def.key}.pdf': 'Reports export (owner: they still see Reports)',
   'GET /reports/${def.key}.xlsx': 'Reports export (owner: they still see Reports)',
   'GET /reports/export.${format}': 'Reports export (owner: they still see Reports)',
+  // Recycle Bin: deleting a task forever is work, not a setting (owner: an administrator in Manager View still has the Recycle Bin).
+  'POST /recycle-bin/erase': 'Recycle Bin Delete forever (owner: they still have the Recycle Bin)',
 };
 
 /** Routes outside the `admin` class that are refused all the same (an administrator's alone, even for a project's managers). */

@@ -67,10 +67,13 @@ describe('Manager View — the routes it refuses (scanned from the source)', () 
     expect(open).toEqual([]);
   });
 
-  it('the allowed list is exactly the reviewed one (Reports — the owner: they still see Reports), each with a reason, each a real admin-only route', () => {
+  // tbk: the Recycle Bin's "Delete forever" is work, not a setting (owner: an administrator in Manager View still has the Recycle Bin).
+  it('the allowed list is exactly the reviewed one (Reports — the owner: they still see Reports; the Recycle Bin’s Delete forever), each with a reason, each a real admin-only route', () => {
     const allowed = Object.keys(MANAGER_VIEW_ALLOWED).sort();
-    expect(allowed.every((k) => k.startsWith('GET /reports/'))).toBe(true);
-    expect(allowed).toEqual(adminOnly.filter((k) => k.startsWith('GET /reports/')));
+    const reviewed = (k: string) => k.startsWith('GET /reports/') || k === 'POST /recycle-bin/erase';
+    expect(allowed.every(reviewed)).toBe(true);
+    expect(allowed).toEqual(adminOnly.filter(reviewed));
+    expect(allowed).toContain('POST /recycle-bin/erase');
     for (const [k, why] of Object.entries(MANAGER_VIEW_ALLOWED)) {
       expect(why.length, k).toBeGreaterThan(5);
       expect(managerViewRule(k), k).toBe('open');
@@ -118,7 +121,7 @@ describe('Manager View — the routes it refuses (scanned from the source)', () 
   });
 
   it('the work stays an administrator’s: every project’s tasks, boards, meetings, Reports, Management, their own settings', () => {
-    for (const k of ['GET /projects', 'GET /projects/:id', 'POST /projects', 'GET /tasks', 'POST /tasks', 'PUT /tasks/:id', 'DELETE /tasks/:id', 'GET /reports/status', 'GET /management/overview', 'GET /meetings', 'PUT /columns/:columnId/tasks/reorder', 'GET /projects/:id/members', 'GET /projects/:id/columns']) {
+    for (const k of ['GET /projects', 'GET /projects/:id', 'POST /projects', 'GET /tasks', 'POST /tasks', 'PUT /tasks/:id', 'DELETE /tasks/:id', 'GET /reports/status', 'GET /management/overview', 'GET /meetings', 'PUT /columns/:columnId/tasks/reorder', 'GET /projects/:id/members', 'GET /projects/:id/columns', 'GET /recycle-bin', 'GET /recycle-bin/tasks/:id', 'POST /recycle-bin/restore', 'POST /recycle-bin/erase']) {
       if (scanned.includes(k)) expect(managerViewRule(k), k).toBe('open');
     }
   });
