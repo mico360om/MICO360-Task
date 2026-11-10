@@ -336,7 +336,8 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
   // A copy: filled in from its original once both it and the projects are here (as how the form opened —
   // not a change of yours). Its project, unless that one is archived now: then another (above).
   useEffect(() => {
-    if (!prefill || prefillApplied || !projectsQ.isSuccess || fetchingExtra) return;
+    // (Projects that couldn't be read: filled in all the same — the form then asks for a project.)
+    if (!prefill || prefillApplied || !(projectsQ.isSuccess || projectsQ.isError) || fetchingExtra) return;
     const t = prefill.task;
     const open = openProjects.some((p) => p.id === t.projectId);
     settle({
@@ -358,7 +359,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
     setWeight(w);
     setSavedWeight(w);
     setPrefillApplied(true);
-  }, [prefill, prefillApplied, projectsQ.isSuccess, fetchingExtra, openProjects]);
+  }, [prefill, prefillApplied, projectsQ.isSuccess, projectsQ.isError, fetchingExtra, openProjects]);
 
   const columnsQ = useQuery({ queryKey: ['columns', draft.projectId], queryFn: () => columnsApi(apiClient).list(draft.projectId), enabled: !!draft.projectId });
   const columns = useMemo(
