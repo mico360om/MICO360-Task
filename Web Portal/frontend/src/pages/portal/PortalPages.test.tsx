@@ -342,6 +342,142 @@ describe('Client portal: a task', () => {
   });
 });
 
+// Owner, 10 Nov 2026: comments newest first, the write box on top, live, and replies.
+describe('Client portal: comments newest first, live, with replies', () => {
+  const at = (h: number) => `2026-11-10T0${h}:00:00.000Z`;
+  const three = () =>
+    taskView({
+      comments: [
+        { id: 'c1', from: 'you', replyTo: null, body: 'Which white?', createdAt: at(1), edited: false },
+        { id: 'c2', from: 'team', replyTo: 'c1', body: 'Snow white, as agreed.', createdAt: at(2), edited: false },
+        { id: 'c3', from: 'you', replyTo: null, body: 'And the doors?', createdAt: at(3), edited: false },
+      ],
+    });
+  const tops = () =>
+    within(screen.getByRole('list', { name: 'Comments, newest first' }))
+      .getAllByRole('listitem')
+      .filter((li) => li.parentElement?.getAttribute('aria-label') === 'Comments, newest first')
+      .map((li) => li.querySelector('[data-comment-body]')?.textContent);
+
+  it('the newest comment first, replies under their comment, the write box above them', async () => {
+    api.task.mockResolvedValue(three());
+    renderAt('/portal/projects/p1/tasks/t2');
+    expect(await screen.findByText('And the doors?')).toBeInTheDocument();
+    expect(tops()).toEqual(['And the doors?', 'Which white?']);
+    expect(within(screen.getByRole('list', { name: 'Replies' })).getByText('Snow white, as agreed.')).toBeInTheDocument();
+    const box = screen.getByLabelText('Add a comment');
+    expect(box.compareDocumentPosition(screen.getByText('And the doors?')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('my comment shows at the top at once and once only when the answer comes', async () => {
+    let answer: (v: unknown) => void = () => {};
+    api.comment.mockReturnValue(new Promise((r) => (answer = r)));
+    renderAt('/portal/projects/p1/tasks/t2');
+    await userEvent.type(await screen.findByLabelText('Add a comment'), 'Thanks!');
+    await userEvent.click(screen.getByRole('button', { name: 'Send comment' }));
+    expect(tops()[0]).toBe('Thanks!');
+    expect(screen.getByText('Sending…')).toBeInTheDocument();
+    expect(screen.getByLabelText('Add a comment')).toHaveValue('');
+    const after = taskView();
+    after.comments = [...after.comments!, { id: 'c3', from: 'you', replyTo: null, body: 'Thanks!', createdAt: at(9), edited: false }];
+    answer(after);
+    await waitFor(() => expect(screen.queryByText('Sending…')).toBeNull());
+    expect(screen.getAllByText('Thanks!')).toHaveLength(1);
+    expect(screen.getByRole('status')).toHaveTextContent('Comment sent to the project team.');
+  });
+
+  it('one that didn’t go says so and keeps its words; Try again sends it again', async () => {
+    api.comment.mockRejectedValueOnce(new TypeError('offline')).mockResolvedValueOnce(taskView());
+    renderAt('/portal/projects/p1/tasks/t2');
+    await userEvent.type(await screen.findByLabelText('Add a comment'), 'Please call me');
+    await userEvent.click(screen.getByRole('button', { name: 'Send comment' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/^Not sent — /);
+    expect(screen.getByText('Please call me')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(api.comment).toHaveBeenLastCalledWith('p1', 't2', 'Please call me');
+  });
+
+  it('reads the task again every few seconds while it is open, so the team’s replies arrive by themselves — marked “New reply”', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      renderAt('/portal/projects/p1/tasks/t2');
+      expect(await screen.findByText('Snow white, as agreed.')).toBeInTheDocument();
+      const later = taskView();
+      later.comments = [...later.comments!, { id: 'c9', from: 'team', replyTo: 'c1', body: 'Two coats done.', createdAt: at(9), edited: false }];
+      api.task.mockResolvedValue(later);
+      await vi.advanceTimersByTimeAsync(5_500);
+      expect(await screen.findByText('Two coats done.')).toBeInTheDocument();
+      expect(screen.getByText('New reply')).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a re-read still on its way when the answer comes doesn’t wipe the answer (no flicker back)', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      renderAt('/portal/projects/p1/tasks/t2');
+      expect(await screen.findByText('Snow white, as agreed.')).toBeInTheDocument();
+      let late: (v: unknown) => void = () => {};
+      api.task.mockReturnValueOnce(new Promise((r) => (late = r)));
+      await vi.advanceTimersByTimeAsync(5_200); // a re-read starts, and hangs
+      const after = taskView();
+      after.comments = [...after.comments!, { id: 'c3', from: 'you', replyTo: null, body: 'Thanks!', createdAt: at(9), edited: false }];
+      api.comment.mockResolvedValue(after);
+      await userEvent.type(screen.getByLabelText('Add a comment'), 'Thanks!');
+      await userEvent.click(screen.getByRole('button', { name: 'Send comment' }));
+      await waitFor(() => expect(screen.queryByText('Sending…')).toBeNull());
+      late(taskView()); // the old answer arrives last
+      await vi.advanceTimersByTimeAsync(50);
+      expect(screen.getByText('Thanks!')).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('without the Comment action the task isn’t read again by itself', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      api.task.mockResolvedValue(taskView({ comments: null, can: { comment: false, signOff: true } }));
+      renderAt('/portal/projects/p1/tasks/t2');
+      expect(await screen.findByRole('heading', { level: 2, name: 'Paint the walls' })).toBeInTheDocument();
+      await vi.advanceTimersByTimeAsync(12_000);
+      expect(api.task).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('replies: to their own comment or the team’s reply, in the same thread; the team’s is never named', async () => {
+    api.comment.mockResolvedValue(taskView());
+    renderAt('/portal/projects/p1/tasks/t2');
+    await userEvent.click(await screen.findByRole('button', { name: 'Reply to the project team' }));
+    await userEvent.type(screen.getByRole('textbox', { name: 'Reply to the project team' }), 'Perfect');
+    await userEvent.click(screen.getByRole('button', { name: 'Send reply' }));
+    expect(api.comment).toHaveBeenCalledWith('p1', 't2', 'Perfect', 'c2');
+    await waitFor(() => expect(screen.queryByRole('textbox', { name: 'Reply to the project team' })).toBeNull());
+    await userEvent.click(screen.getByRole('button', { name: 'Reply to your comment' }));
+    expect(screen.getByRole('textbox', { name: 'Reply to your comment' })).toHaveValue('');
+  });
+
+  it('their reply under a comment that was deleted keeps its thread: “Comment deleted” above it', async () => {
+    api.task.mockResolvedValue(taskView({ comments: [{ id: 'r1', from: 'you', replyTo: 'gone', body: 'Still waiting', createdAt: at(4), edited: false }] }));
+    renderAt('/portal/projects/p1/tasks/t2');
+    expect(await screen.findByText('Comment deleted')).toBeInTheDocument();
+    expect(screen.getByText('Still waiting')).toBeInTheDocument();
+  });
+
+  it('shows the newest 30, then more with Show older comments', async () => {
+    const many = Array.from({ length: 35 }, (_, i) => ({ id: `k${i}`, from: 'you' as const, replyTo: null, body: `Note ${i}`, createdAt: new Date(Date.UTC(2026, 10, 1, 0, i)).toISOString(), edited: false }));
+    api.task.mockResolvedValue(taskView({ comments: many }));
+    renderAt('/portal/projects/p1/tasks/t2');
+    expect(await screen.findByText('Note 34')).toBeInTheDocument();
+    expect(screen.queryByText('Note 4')).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: 'Show older comments' }));
+    expect(screen.getByText('Note 0')).toBeInTheDocument();
+  });
+});
+
 describe('Client portal: meetings', () => {
   it('lists meetings with their day, status, the client’s answer and Minutes', async () => {
     renderAt('/portal/projects/p1/meetings');
@@ -698,6 +834,19 @@ function off(el: HTMLElement) {
 }
 
 describe('1.23.7 Client portal: Preview as client', () => {
+  it('a preview is a still look: the task is not read again by itself (owner, 10 Nov 2026)', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const other = otherApi();
+      renderPreview('/portal/projects/p1/tasks/t2', other);
+      expect(await screen.findByRole('heading', { level: 2, name: 'Paint the walls' })).toBeInTheDocument();
+      await vi.advanceTimersByTimeAsync(12_000);
+      expect(other.task).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('every read goes through the API the pages are given, never the client’s own', async () => {
     const other = otherApi();
     const task = renderPreview('/portal/projects/p1/tasks/t2', other, false);

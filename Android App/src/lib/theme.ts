@@ -130,7 +130,7 @@ const LIGHT = {
 const DARK = {
   brand: '#BC3E2C',
   brandText: '#E07A66',
-  brand2: '#C7513F',
+  brand2: '#C64F3D', // 1.23.9: as the website's dark hover (white words 4.58:1); not used by the app's screens
   brand3: '#D86C5A',
   brandInk: '#781E1E',
   ink: '#F4F0EE',

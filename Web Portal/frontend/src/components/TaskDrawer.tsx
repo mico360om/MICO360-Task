@@ -67,6 +67,10 @@ export interface TaskDrawerProps {
   /** 1.23.3: the task's checklists (none yet, or an older server: one "Checklist"). */
   checklistLists?: DrawerChecklistList[];
   comments: DrawerComment[];
+  /** The comments have loaded (until then an empty list isn't "no comments"; default: loaded). */
+  commentsLoaded?: boolean;
+  /** Who I am, for my comment while it is on its way. */
+  me?: { name: string; avatarUrl?: string | null };
   onToggleChecklistItem?: (id: string, done: boolean) => Promise<void> | void;
   /** Add an item at a place (a checklist, under a parent, after a sibling); answers its id. */
   onAddChecklistItem?: (text: string, at: ChecklistAt) => Promise<string | void> | string | void;
@@ -83,14 +87,17 @@ export interface TaskDrawerProps {
   onSuggestChecklist?: () => Promise<string[] | void>;
   /** Ask AI for a recommended priority + reason; the user applies it or not. */
   onSuggestPriority?: () => Promise<{ priority: Priority; reason: string }>;
-  /** Post a comment; rejects with the reason when it could not be posted (the draft is kept). */
-  onAddComment?: (body: string) => Promise<void> | void;
+  /**
+   * Post a comment; resolves with the saved comment's id (when known), rejects with the reason when it could not be
+   * posted (the comment stays, "Not sent", with its words).
+   */
+  onAddComment?: (body: string) => Promise<unknown> | void;
   /** Save a comment's new text; rejects with a message to show when it could not be saved. */
   onEditComment?: (id: string, body: string) => Promise<void> | void;
   onDeleteComment?: (id: string) => void;
   /**
-   * 1.23: reply to a client's comment — `clientVisible`: the client sees the reply and gets it by
-   * email. Rejects with the reason to show when it couldn't be sent (the draft is kept).
+   * Reply to any comment (owner, 10 Nov; 1.23: a client's) — `clientVisible`: in a client's thread, the client sees
+   * the reply and gets it by email. Rejects with the reason to show when it couldn't be sent (the draft is kept).
    */
   onReplyComment?: ReplyToComment;
   /** Who an @mention in this task's comments would notify — suggested while typing, marked in comments. */
@@ -333,6 +340,8 @@ export function TaskDrawer({
   checklistRestorable,
   onSuggestChecklist,
   onSuggestPriority,
+  commentsLoaded,
+  me,
   onAddComment,
   onEditComment,
   onDeleteComment,
@@ -621,7 +630,10 @@ export function TaskDrawer({
         ) : null}
       </div>
 
-      <div className="keyboard-flow-body flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6 sm:py-5">
+      <div className="keyboard-flow-body flex-1 overflow-y-auto overscroll-contain px-4 pb-4 sm:px-6 sm:pb-5">
+        {/* The top space is a spacer, not padding: the comments' write box sticks flush under the header
+            (a scroller's top padding would leave a strip where the comments show through above it). */}
+        <div aria-hidden="true" className="h-4 sm:h-5" />
         {mergeNotice ? (
           <p role="status" className="mb-4 rounded-lg bg-info-soft px-3 py-2 text-sm text-info">
             {mergeNotice}
@@ -690,7 +702,7 @@ export function TaskDrawer({
             />
           </div>
           <div className="min-w-0 lg:col-start-1 lg:row-start-3">
-            <CommentsSection comments={comments} people={mentionable} onAdd={onAddComment} onEdit={onEditComment} onDelete={onDeleteComment} onReply={onReplyComment} />
+            <CommentsSection comments={comments} loaded={commentsLoaded} me={me} people={mentionable} onAdd={onAddComment} onEdit={onEditComment} onDelete={onDeleteComment} onReply={onReplyComment} />
           </div>
           {phone ? <div className="flex min-w-0 flex-col gap-5">{sideParts}</div> : null}
           {activity.length > 0 ? (

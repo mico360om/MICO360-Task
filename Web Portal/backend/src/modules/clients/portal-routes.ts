@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { AuthGuard } from '../auth/auth-guard';
-import { longText } from '../tasks/validation';
+import { idString, longText } from '../tasks/validation';
 import type { PortalService } from './portal-service';
 
 /**
@@ -54,7 +54,8 @@ export function attachmentDisposition(name: string): string {
 /** The client's notification switches: booleans only, nothing else. */
 const settingsBody = z.object({ reply: z.boolean().optional(), signOff: z.boolean().optional(), minutes: z.boolean().optional(), document: z.boolean().optional() }).strict();
 
-const commentBody = z.object({ body: longText.refine((s) => s.trim().length > 0, { message: 'A comment cannot be empty.' }) });
+// Owner, 10 Nov 2026: `replyTo` — the comment a client's reply answers (one they can see; the service checks).
+const commentBody = z.object({ body: longText.refine((s) => s.trim().length > 0, { message: 'A comment cannot be empty.' }), replyTo: idString.optional() });
 const sendBackBody = z.object({ reason: z.string().trim().min(1, 'Say why you are sending it back.').max(2000, 'A reason has at most 2,000 characters.') });
 const responseBody = z.object({ response: z.enum(['ACCEPTED', 'TENTATIVE', 'DECLINED']) });
 
@@ -83,8 +84,8 @@ export async function registerPortalRoutes(app: FastifyInstance, deps: PortalRou
   app.get('/portal/projects/:projectId/tasks/:taskId', signedIn, async (req) => ({ data: await service.task(me(req), p(req).projectId, p(req).taskId) }));
 
   app.post('/portal/projects/:projectId/tasks/:taskId/comments', write, async (req, reply) => {
-    const { body } = commentBody.parse(req.body ?? {});
-    return reply.status(201).send({ data: await service.comment(me(req), p(req).projectId, p(req).taskId, body, ip(req)) });
+    const { body, replyTo } = commentBody.parse(req.body ?? {});
+    return reply.status(201).send({ data: await service.comment(me(req), p(req).projectId, p(req).taskId, body, ip(req), replyTo) });
   });
 
   app.post('/portal/projects/:projectId/tasks/:taskId/accept', write, async (req) => ({ data: await service.accept(me(req), p(req).projectId, p(req).taskId, ip(req)) }));

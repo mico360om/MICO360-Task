@@ -131,6 +131,58 @@ describe('tasks: only shown ones, only through their own project', () => {
   });
 });
 
+// Owner, 10 Nov 2026: replies on every comment — a client replies to comments they can see; team-only replies never reach them.
+describe('replies in the Client portal', () => {
+  const url = () => `/portal/projects/${w.projects.P1}/tasks/${w.tasks.S1}/comments`;
+  const view = async (as: (typeof w.as)[keyof typeof w.as]) => (await a.get(as, `/portal/projects/${w.projects.P1}/tasks/${w.tasks.S1}`)).data.comments as { id: string; from: string; replyTo: string | null; body: string }[];
+
+  it('a client replies to the team’s shown reply: filed in their own comment’s thread; the one answered hears it, the team too', async () => {
+    const before = a.notices.length;
+    const r = await a.post(w.as.c1, url(), { body: 'Monday works for us', replyTo: w.comments.shownReply });
+    expect(r.status).toBe(201);
+    expect(r.data.comments.find((c: { body: string }) => c.body === 'Monday works for us')).toMatchObject({ from: 'you', replyTo: w.comments.c1 });
+    const row = await prisma.comment.findFirst({ where: { taskId: w.tasks.S1, body: 'Monday works for us' } });
+    expect(row).toMatchObject({ parentId: w.comments.c1, fromClient: true, userId: w.people.c1 });
+    const told = a.notices.slice(before);
+    // Omar wrote the shown reply: "<client> replied to your comment"; the rest of the team the usual client notice.
+    expect(told).toContainEqual(expect.objectContaining({ type: 'TASK_COMMENT', userIds: [w.people.omar], title: `Cliff One ${w.tag} replied to your comment` }));
+    expect(told.filter((n) => n.userIds.includes(w.people.omar))).toHaveLength(1);
+    expect(a.broadcasts.at(-1)).toMatchObject({ projectId: w.projects.P1, event: 'comment:created' });
+    // The team sees it in the thread, marked Client.
+    const staff = await a.get(w.as.omar, `/tasks/${w.tasks.S1}/comments`);
+    expect(staff.data.find((c: { body: string }) => c.body === 'Monday works for us')).toMatchObject({ fromClient: true, parentId: w.comments.c1 });
+  });
+
+  it('a client may reply to their own comment', async () => {
+    const r = await a.post(w.as.c1, url(), { body: 'Adding: two units', replyTo: w.comments.c1 });
+    expect(r.status).toBe(201);
+    expect((await view(w.as.c1)).find((c) => c.body === 'Adding: two units')).toMatchObject({ from: 'you', replyTo: w.comments.c1 });
+  });
+
+  it('a comment they can’t see can’t be answered: a team-only reply, a staff note, another client’s comment (404, nothing saved)', async () => {
+    for (const replyTo of [w.comments.internalReply, w.comments.staff, w.comments.c2, 'no-such-comment']) {
+      expect((await a.post(w.as.c1, url(), { body: `ZZPROBE ${replyTo}`, replyTo })).status).toBe(404);
+    }
+    expect(await prisma.comment.count({ where: { body: { startsWith: 'ZZPROBE' } } })).toBe(0);
+  });
+
+  it('a team-only reply in their thread never reaches them; a staff reply to their reply shows only when ticked', async () => {
+    const mine = (await view(w.as.c1)).find((c) => c.body === 'Adding: two units')!;
+    const hidden = await a.post(w.as.omar, `/tasks/${w.tasks.S1}/comments`, { body: 'ZZSTAFF two is too many', parentId: mine.id });
+    expect(hidden.status).toBe(201);
+    expect(hidden.data.parentId).toBe(w.comments.c1); // one level deep
+    const shown = await a.post(w.as.omar, `/tasks/${w.tasks.S1}/comments`, { body: 'Two it is', parentId: mine.id, clientVisible: true });
+    expect(shown.data).toMatchObject({ parentId: w.comments.c1, clientVisible: true });
+    const seen = await view(w.as.c1);
+    expect(seen.map((c) => c.body)).toContain('Two it is');
+    expect(JSON.stringify(seen)).not.toMatch(/ZZSTAFF/);
+  });
+
+  it('a client without the Comment action can’t reply', async () => {
+    expect((await a.post(w.as.c1, `/portal/projects/${w.projects.P2}/tasks/${w.tasks.S2}/comments`, { body: 'Hi', replyTo: w.comments.c1 })).status).toBe(403);
+  });
+});
+
 describe('sign off: Accept and Send back', () => {
   it('needs the Sign off action (403) and a finished task (409)', async () => {
     expect((await a.post(w.as.c2, `/portal/projects/${w.projects.P1}/tasks/${w.tasks.D1}/accept`)).status).toBe(403);
