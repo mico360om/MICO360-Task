@@ -36,6 +36,11 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   in the owner's screenshot went from 83 KB on 2 pages to 26 KB on 1; a sample report from 6 pages to 4
   and the Management overview from 4 to 2.
 
+## [1.23.10] - 2026-11-10
+
+### Improvements
+- Kanban: overdue cards keep the normal border; the Overdue date shows as a dark-red-on-pale-red badge.
+
 ## [1.23.9] - 2026-11-10
 
 ### New features
