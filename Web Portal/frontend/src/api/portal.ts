@@ -202,7 +202,9 @@ export function portalApi(client: ApiClient) {
     me: () => client.get<Data<PortalHome>>('/portal/me').then((r) => r.data),
     project: (p: string) => client.get<Data<PortalProjectView>>(project(p)).then((r) => r.data),
     task: (p: string, t: string) => client.get<Data<PortalTaskView>>(task(p, t)).then((r) => r.data),
-    comment: (p: string, t: string, body: string) => client.post<Data<PortalTaskView>>(`${task(p, t)}/comments`, { body }).then((r) => r.data),
+    /** A comment, or (owner, 10 Nov 2026) a reply to one they can see (`replyTo`: its id). */
+    comment: (p: string, t: string, body: string, replyTo?: string) =>
+      client.post<Data<PortalTaskView>>(`${task(p, t)}/comments`, replyTo ? { body, replyTo } : { body }).then((r) => r.data),
     accept: (p: string, t: string) => client.post<Data<PortalTaskView>>(`${task(p, t)}/accept`).then((r) => r.data),
     sendBack: (p: string, t: string, reason: string) => client.post<Data<PortalTaskView>>(`${task(p, t)}/send-back`, { reason }).then((r) => r.data),
     /** The project's client task list (Progress + Download); a File named by the server. */

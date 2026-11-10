@@ -98,6 +98,11 @@ export interface PortalDeps {
   getTask: (taskId: string) => Promise<TaskRecord>;
   /** Who hears of a client's comment or sign-off: the task's assignees, watchers and managers who can open it. */
   teamOf: (taskId: string, actorId: string) => Promise<string[]>;
+  /**
+   * Owner, 10 Nov 2026: of these team members, those who can open the task (the one a client's reply answers hears it
+   * even when not following the task). Absent: only the people `teamOf` names.
+   */
+  visibleTeam?: (taskId: string, userIds: string[], actorId: string) => Promise<string[]>;
   notify: (n: PortalNotice) => Promise<void>;
   recordActivity?: (e: { taskId: string; userId: string; action: string; meta?: Record<string, unknown> }) => Promise<void>;
   broadcast?: (projectId: string, event: string, payload: unknown) => void;
@@ -352,9 +357,9 @@ export function createPortalService(deps: PortalDeps) {
     }
   };
   /** Best effort after a change: the team's notices, open boards, the search index. */
-  async function tellTeam(taskId: string, projectId: string, clientId: string, notice: { type: string; title: string; body: string | null }, event?: string): Promise<void> {
+  async function tellTeam(taskId: string, projectId: string, clientId: string, notice: { type: string; title: string; body: string | null }, event?: string, except: string[] = []): Promise<void> {
     try {
-      const userIds = await deps.teamOf(taskId, clientId);
+      const userIds = (await deps.teamOf(taskId, clientId)).filter((id) => !except.includes(id));
       if (userIds.length) await deps.notify({ userIds, taskId, ...notice });
     } catch (err) {
       deps.logger?.warn('client portal: the team could not be told', { err, taskId });
@@ -620,20 +625,43 @@ export function createPortalService(deps: PortalDeps) {
       return settingsFor(viewer);
     },
 
-    /** Comment on a shared task (the Comment action). The team sees it marked "Client". */
-    async comment(userId: string, projectId: unknown, taskId: unknown, body: string, meta: { ip?: string | null } = {}) {
+    /**
+     * Comment on a shared task (the Comment action). The team sees it marked "Client". Owner, 10 Nov 2026: `replyTo` —
+     * a reply to a comment they can see (their own, or the team's reply shown to them), filed in that thread (one level
+     * deep: their own comment's); anything they can't see is "not found". The team member answered hears it.
+     */
+    async comment(userId: string, projectId: unknown, taskId: unknown, body: string, meta: { ip?: string | null } = {}, replyTo?: unknown) {
       const { client, grant, project } = await open(writer(userId), projectId, 'progress');
       needAction(grant, 'comment');
       const t = await sharedTask(project.id, taskId);
-      const c = await prisma.comment.create({ data: { taskId: t.id, userId: client.id, body, fromClient: true } });
+      let answered: { id: string; userId: string; parentId: string | null; fromClient: boolean } | null = null;
+      if (replyTo !== undefined && replyTo !== null) {
+        answered = typeof replyTo === 'string' ? ((await threadOf(t.id, client.id)).find((c) => c.id === replyTo) ?? null) : null;
+        if (!answered) throw notFound();
+      }
+      const parentId = answered ? (answered.parentId ?? answered.id) : null;
+      const c = await prisma.comment.create({ data: { taskId: t.id, userId: client.id, body, fromClient: true, parentId } });
       await activity({ taskId: t.id, userId: client.id, action: 'COMMENTED', meta: { commentId: c.id, client: true } });
-      await record({ userId: client.id, ip: meta.ip ?? null, action: 'portal.comment', entityId: t.id, newValue: { projectId: project.id, commentId: c.id } });
+      await record({ userId: client.id, ip: meta.ip ?? null, action: 'portal.comment', entityId: t.id, newValue: { projectId: project.id, commentId: c.id, ...(parentId ? { replyTo: answered!.id } : {}) } });
       try {
-        deps.broadcast?.(project.id, 'comment:created', { taskId: t.id, comment: { id: c.id, taskId: t.id, userId: client.id, body: c.body, parentId: null, editedAt: null, createdAt: c.createdAt, fromClient: true, clientVisible: false } });
+        deps.broadcast?.(project.id, 'comment:created', { taskId: t.id, comment: { id: c.id, taskId: t.id, userId: client.id, body: c.body, parentId, editedAt: null, createdAt: c.createdAt, fromClient: true, clientVisible: false } });
       } catch {
         /* open boards are best effort */
       }
-      await tellTeam(t.id, project.id, client.id, { type: 'TASK_COMMENT', title: 'A client commented on a task', body: `${t.key} ${t.title}` });
+      // The team member whose reply they answered: "<name> replied to your comment" (once — not the team notice too).
+      const told: string[] = [];
+      if (answered && !answered.fromClient) {
+        const who = answered.userId;
+        told.push(who);
+        try {
+          const may = deps.visibleTeam ? await deps.visibleTeam(t.id, [who], client.id) : await deps.teamOf(t.id, client.id);
+          const name = `${client.firstName} ${client.lastName}`.trim() || 'A client';
+          if (may.includes(who)) await deps.notify({ userIds: [who], taskId: t.id, type: 'TASK_COMMENT', title: `${name} replied to your comment`, body: `${t.key} ${t.title}` });
+        } catch (err) {
+          deps.logger?.warn('client portal: the one answered could not be told', { err, taskId: t.id });
+        }
+      }
+      await tellTeam(t.id, project.id, client.id, { type: 'TASK_COMMENT', title: parentId ? 'A client replied on a task' : 'A client commented on a task', body: `${t.key} ${t.title}` }, undefined, told);
       return portalTaskView(toTaskSource(t), grant, await threadOf(t.id, client.id), client.id, deps.timeZone, now(), await filesOf(t.id, client.id));
     },
 

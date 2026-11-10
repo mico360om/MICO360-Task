@@ -201,7 +201,7 @@
     color-scheme: dark;
     --c-brand: 188 62 44;
     --c-brand-text: 224 122 102;
-    --c-brand-2: 199 81 63;
+    --c-brand-2: 198 79 61; /* 1.23.9: white words on it 4.58:1 (was 4.49) */
     --c-brand-3: 216 108 90;
     --c-brand-ink: 120 30 30;
     --c-ink: 244 240 238;
@@ -249,7 +249,7 @@
   color-scheme: dark;
   --c-brand: 188 62 44;
   --c-brand-text: 224 122 102;
-  --c-brand-2: 199 81 63;
+  --c-brand-2: 198 79 61; /* 1.23.9: white words on it 4.58:1 (was 4.49) */
   --c-brand-3: 216 108 90;
   --c-brand-ink: 120 30 30;
   --c-ink: 244 240 238;

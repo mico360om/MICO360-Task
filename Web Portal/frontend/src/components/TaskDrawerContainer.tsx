@@ -4,7 +4,8 @@ import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/rea
 import { apiClient } from '../api/client';
 import { checklistApi, type ChecklistPlace } from '../api/checklist';
 import type { ChecklistAt } from '../lib/checklist-tree';
-import { commentsApi, type CommentReply } from '../api/comments';
+import { commentsApi, type ApiComment, type CommentReply } from '../api/comments';
+import { useTaskCommentsRealtime } from '../lib/useTaskCommentsRealtime';
 import { attachmentsApi, type ApiAttachment } from '../api/attachments';
 import { dependenciesApi } from '../api/dependencies';
 import { assigneesApi } from '../api/assignees';
@@ -172,6 +173,9 @@ function TaskDrawerPanel({ taskId, onClose, stepper, mergeNotice, focusItemId }:
   const deletedQ = useQuery({ queryKey: ['checklist-deleted', taskId], queryFn: () => checklistApi(apiClient).deleted(taskId), retry: false });
   const restorable = useMemo(() => new Set((Array.isArray(deletedQ.data) ? deletedQ.data : []).map((b) => b.batchId)), [deletedQ.data]);
   const commentsQ = useQuery({ queryKey: ['comments', taskId], queryFn: () => commentsApi(apiClient).list(taskId) });
+  // Comments, newest first (owner, 10 Nov): comments added, changed or deleted by anyone show without reopening —
+  // read again through the comments' own checks.
+  useTaskCommentsRealtime(taskQ.data?.projectId, taskId, () => void queryClient.invalidateQueries({ queryKey: ['comments', taskId] }));
   const mentionableQ = useQuery({ queryKey: ['mentionable', taskId], queryFn: () => commentsApi(apiClient).mentionable(taskId), staleTime: 60_000 });
   const mentionable = useMemo(
     () => (Array.isArray(mentionableQ.data) ? mentionableQ.data : []).map((p) => ({ id: p.id, username: p.username, name: fullName(p), avatarUrl: p.avatarUrl })),
@@ -375,10 +379,14 @@ function TaskDrawerPanel({ taskId, onClose, stepper, mergeNotice, focusItemId }:
     onError: failed('Couldn’t delete the comment.'),
   });
   const addCommentM = useMutation({
-    // 1.23: a reply to a client's comment carries it (and "Visible to client" when ticked).
+    // A reply carries the comment it answers (and, in a client's thread, "Visible to client" when ticked).
     mutationFn: ({ body, reply }: { body: string; reply?: CommentReply }) => commentsApi(apiClient).add(taskId, body, reply),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['comments', taskId] });
+    onSuccess: (saved) => {
+      // The saved comment shows at once (a comment on its way meets it here), then the list is read again.
+      if (saved && typeof saved === 'object' && saved.id && saved.taskId === taskId) {
+        queryClient.setQueryData<ApiComment[]>(['comments', taskId], (old) => (Array.isArray(old) && !old.some((c) => c.id === saved.id) ? [...old, saved] : old));
+      }
+      void queryClient.invalidateQueries({ queryKey: ['comments', taskId] });
       refreshTaskViews(); // comment counts
     },
   });
@@ -493,11 +501,16 @@ function TaskDrawerPanel({ taskId, onClose, stepper, mergeNotice, focusItemId }:
             checklistRestorable={restorable}
             onSuggestChecklist={suggestChecklist}
             onSuggestPriority={suggestPriority}
+            commentsLoaded={commentsQ.isSuccess}
+            me={myId ? { name: authorName(myId), avatarUrl: avatarOf(myId) } : undefined}
             comments={(Array.isArray(commentsQ.data) ? commentsQ.data : []).map((c) => ({
               id: c.id,
               body: c.body,
               // 1.23: a client's comment names its writer itself (clients aren't in the directory).
               authorName: c.fromClient ? c.clientAuthor?.name || 'Client' : authorName(c.userId),
+              // A reply to their reply starts "@username" (clients can't be mentioned).
+              authorUsername: c.fromClient ? null : (directory.find((d) => d.id === c.userId)?.username ?? null),
+              mine: !c.fromClient && c.userId === myId,
               authorAvatar: c.fromClient ? null : avatarOf(c.userId),
               createdAt: c.createdAt,
               edited: Boolean(c.editedAt),
@@ -510,7 +523,7 @@ function TaskDrawerPanel({ taskId, onClose, stepper, mergeNotice, focusItemId }:
               canEdit: c.userId === myId,
               canDelete: c.userId === myId || isAdmin,
             }))}
-            onAddComment={(body) => attempt(() => addCommentM.mutateAsync({ body }), 'Couldn’t post the comment.').then(() => undefined)}
+            onAddComment={(body) => attempt(() => addCommentM.mutateAsync({ body }), 'Couldn’t post the comment.').then((saved) => saved?.id)}
             onReplyComment={(parentId, body, clientVisible) =>
               attempt(() => addCommentM.mutateAsync({ body, reply: { parentId, clientVisible } }), 'Couldn’t send the reply.').then(() => undefined)
             }
