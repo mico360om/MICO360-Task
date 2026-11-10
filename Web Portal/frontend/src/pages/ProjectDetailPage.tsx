@@ -387,7 +387,7 @@ export function ProjectDetailPage() {
       {/* Stat tiles — a snapshot of every task by where it stands */}
       <div className={TILE_GRID}>
         {/* "—" until the tasks arrive: a zero would read as "this project has no tasks". */}
-        <StatTile label="Total tasks" value={statsReady ? stats.total : '—'} hint={statsReady && stats.pending ? `${stats.pending} not started` : ''} className={TILE_SPAN[0]} />
+        <StatTile label="Total tasks" value={statsReady ? stats.total : '—'} hint={statsReady ? [stats.pending ? `${stats.pending} not started` : '', stats.upcoming ? `${stats.upcoming} upcoming` : ''].filter(Boolean).join(' · ') : ''} className={TILE_SPAN[0]} />
         <StatTile label="Completed" value={statsReady ? stats.completed : '—'} tone="done" className={TILE_SPAN[1]} />
         <StatTile label="Ongoing" value={statsReady ? stats.ongoing : '—'} tone="info" className={TILE_SPAN[2]} />
         <StatTile label="Overdue" value={statsReady ? stats.overdue : '—'} tone="overdue" className={TILE_SPAN[3]} />
