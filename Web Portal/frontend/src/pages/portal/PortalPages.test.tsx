@@ -413,6 +413,41 @@ describe('Client portal: comments newest first, live, with replies', () => {
     }
   });
 
+  it('a re-read still on its way when the answer comes doesn’t wipe the answer (no flicker back)', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      renderAt('/portal/projects/p1/tasks/t2');
+      expect(await screen.findByText('Snow white, as agreed.')).toBeInTheDocument();
+      let late: (v: unknown) => void = () => {};
+      api.task.mockReturnValueOnce(new Promise((r) => (late = r)));
+      await vi.advanceTimersByTimeAsync(5_200); // a re-read starts, and hangs
+      const after = taskView();
+      after.comments = [...after.comments!, { id: 'c3', from: 'you', replyTo: null, body: 'Thanks!', createdAt: at(9), edited: false }];
+      api.comment.mockResolvedValue(after);
+      await userEvent.type(screen.getByLabelText('Add a comment'), 'Thanks!');
+      await userEvent.click(screen.getByRole('button', { name: 'Send comment' }));
+      await waitFor(() => expect(screen.queryByText('Sending…')).toBeNull());
+      late(taskView()); // the old answer arrives last
+      await vi.advanceTimersByTimeAsync(50);
+      expect(screen.getByText('Thanks!')).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('without the Comment action the task isn’t read again by itself', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      api.task.mockResolvedValue(taskView({ comments: null, can: { comment: false, signOff: true } }));
+      renderAt('/portal/projects/p1/tasks/t2');
+      expect(await screen.findByRole('heading', { level: 2, name: 'Paint the walls' })).toBeInTheDocument();
+      await vi.advanceTimersByTimeAsync(12_000);
+      expect(api.task).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('replies: to their own comment or the team’s reply, in the same thread; the team’s is never named', async () => {
     api.comment.mockResolvedValue(taskView());
     renderAt('/portal/projects/p1/tasks/t2');

@@ -51,6 +51,12 @@ describe('comment notices (owner, 10 Nov 2026: the person replied to gets a noti
     expect(sent.map((n) => [n.userId, n.title])).toEqual([['u3', 'New comment on your task']]);
   });
 
+  it('a follower @mentioned in a comment gets the mention notice only — not “New comment” too', async () => {
+    const { notifier, sent } = world();
+    await notifier('t1', 'u1', 'c1', { repliedToUserId: null, mentioned: ['omar'] });
+    expect(sent.map((n) => n.userId)).toEqual(['u2']);
+  });
+
   it('never tells the writer', async () => {
     const { notifier, sent } = world({ followers: ['u2'] });
     await notifier('t1', 'u2', 'c2', { repliedToUserId: 'u2', mentioned: [] });

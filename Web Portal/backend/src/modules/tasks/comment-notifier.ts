@@ -27,17 +27,19 @@ export interface CommentNotifierDeps {
  * Who hears about a new comment. Its followers hear "New comment on your task" (as before). Owner, 10 Nov 2026: a
  * reply tells the person whose comment it answers — "Sara Ali replied to your comment" (a comment notice, so their
  * Comments setting applies) — while they can open the task, whether or not they follow it; once only (not the
- * follower notice too), and not at all when the reply @mentions them (their mention notice says it). Never the writer.
+ * follower notice too), and not at all when the reply @mentions them (their mention notice says it). Anyone
+ * @mentioned gets their mention notice only (not "New comment" too). Never the writer.
  */
 export function createCommentNotifier(deps: CommentNotifierDeps) {
   return async (taskId: string, authorId: string, _commentId: string, info: CommentNoticeInfo = { repliedToUserId: null, mentioned: [] }): Promise<void> => {
     const about = await deps.taskNotice(taskId);
-    const told = new Set<string>();
+    // The people @mentioned have their mention notice: nothing more from this comment (not doubled).
+    const mentioned = info.mentioned.length > 0 ? await deps.userIdsByUsername(info.mentioned) : [];
+    const told = new Set<string>(mentioned);
     const answered = info.repliedToUserId;
-    if (answered && answered !== authorId) {
+    if (answered && answered !== authorId && !told.has(answered)) {
       told.add(answered);
-      const mentioned = info.mentioned.length > 0 ? await deps.userIdsByUsername(info.mentioned) : [];
-      if (!mentioned.includes(answered) && (await deps.visibleRecipients(taskId, [answered], authorId)).includes(answered)) {
+      if ((await deps.visibleRecipients(taskId, [answered], authorId)).includes(answered)) {
         await deps.notify({ userId: answered, type: 'TASK_COMMENT', title: `${await deps.authorName(authorId)} replied to your comment`, body: about, entityType: 'task', entityId: taskId });
       }
     }

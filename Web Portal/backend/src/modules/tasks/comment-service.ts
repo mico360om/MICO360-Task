@@ -32,6 +32,9 @@ export interface CommentNoticeInfo {
   mentioned: string[];
 }
 
+/** How far up a reply chain (older data) the server walks to find a thread's top comment. */
+const MAX_THREAD_HOPS = 20;
+
 /** 1.23: why a comment can't be shown to the client. */
 export const NOT_A_CLIENT_REPLY = 'Only a reply to a client’s comment can be shown to the client.';
 
@@ -56,8 +59,15 @@ export function createCommentService({ repo, taskLookup, onMention, onComment, o
     if (parentId) {
       answered = await repo.findById(parentId);
       if (!answered || answered.taskId !== taskId) throw new NotFoundError('Parent comment not found.');
-      threadId = answered.parentId ?? answered.id;
-      root = answered.parentId ? await repo.findById(answered.parentId) : answered;
+      // Up to the thread's top comment (older data may hold a reply to a reply); a deleted one on the way is the top.
+      let at: CommentRecord = answered;
+      for (let hops = 0; at.parentId && hops < MAX_THREAD_HOPS; hops++) {
+        const up = await repo.findById(at.parentId);
+        if (!up || up.taskId !== taskId) break;
+        at = up;
+      }
+      threadId = at.parentId ?? at.id;
+      root = at.parentId ? null : at;
     }
     // 1.23: "Visible to client" only in a client's thread (the client sees it under their comment).
     const clientVisible = opts.clientVisible === true;

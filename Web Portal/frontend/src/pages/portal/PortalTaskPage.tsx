@@ -15,7 +15,7 @@ import { NeedsModule, usePortalProjectContext } from './PortalProjectLayout';
 import { COMMENTS_PAGE, newestFirst, scrolledPast, scrollToListTop, type PendingComment } from '../../lib/comment-feed';
 import { useCommentArrivals } from '../../hooks/useCommentArrivals';
 import { usePendingComments } from '../../hooks/usePendingComments';
-import { NewCommentsButton } from '../../components/task-drawer/comments';
+import { NewCommentsButton } from '../../components/comments/NewCommentsButton';
 
 /** The longest comment the server keeps. */
 const COMMENT_MAX = 10_000;
@@ -356,7 +356,7 @@ function Comments({ projectId, taskId, comments, canComment, timeZone }: { proje
     ids: comments.map((c) => c.id),
     ready: true,
     mine: (cid) => byId.get(cid)?.from === 'you',
-    reply: (cid) => Boolean(byId.get(cid)?.replyTo),
+    parentOf: (cid) => byId.get(cid)?.replyTo,
     isAway: () => scrolledPast(topRef.current, formRef.current),
     nameOf: (cid) => (byId.get(cid)?.from === 'team' ? 'the project team' : undefined),
   });
@@ -399,7 +399,7 @@ function Comments({ projectId, taskId, comments, canComment, timeZone }: { proje
     }
   };
 
-  const shown = comments.filter((c) => !arrivals.held.has(c.id));
+  const shown = comments.filter((c) => !arrivals.held.has(c.id) && !(c.replyTo && arrivals.held.has(c.replyTo)));
   const all = newestFirst(threads(shown), (c) => c.createdAt);
   const grown = all.filter((t) => arrivals.arrived.has(t.comment.id)).length;
   const visible = all.slice(0, limit + grown);
@@ -472,9 +472,9 @@ function Comments({ projectId, taskId, comments, canComment, timeZone }: { proje
         {empty ? (
           <p className="text-sm text-ink-2">No comments yet.</p>
         ) : (
-          <ol ref={listRef} tabIndex={-1} aria-label="Comments, newest first" className="flex flex-col gap-3 outline-none">
+          <ol ref={listRef} tabIndex={-1} aria-label="Comments, newest first" className="flex flex-col gap-3 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-brand/40 focus-visible:ring-offset-2 focus-visible:ring-offset-surface">
             {sending.pending.map((p) => (
-              <li key={p.key} className="flex flex-col gap-1" data-unsaved={p.status === 'failed' || undefined}>
+              <li key={p.key} className="flex flex-col gap-1" data-unsaved={p.status !== 'sent' || undefined}>
                 <div className={`rounded-xl border px-3 py-2.5 ${p.status === 'failed' ? 'border-danger/40 bg-danger-soft/30' : 'border-line bg-ground'}`}>
                   <p className="flex flex-wrap items-baseline gap-x-2 text-xs text-ink-2">
                     <span className="font-semibold text-ink">You</span>

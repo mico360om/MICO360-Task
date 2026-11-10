@@ -67,6 +67,8 @@ describe('CommentsSection: sending', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Comment' }));
     expect(onAdd).toHaveBeenCalledWith('Looks good');
     expect(screen.getByRole('textbox', { name: 'Add a comment' })).toHaveValue('');
+    // Still on its way: stepping to another task or closing asks first (its words aren't saved yet).
+    expect(screen.getByText('Sending…').closest('[data-unsaved]')).not.toBeNull();
     expect(commentTexts()).toEqual(['Looks good', 'Comment a']);
     expect(screen.getByText('Sending…')).toBeInTheDocument();
     expect(screen.getByText('Ada Lovelace')).toBeInTheDocument();
@@ -202,12 +204,32 @@ describe('CommentsSection: replies on every comment (owner addition)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Reply to Sara Ali' }));
     const box = screen.getByRole('textbox', { name: 'Reply to Sara Ali' });
     expect(box).toHaveValue('@sara ');
+    // Replies are one level deep: the reply box sits in the thread (under its replies), not under the reply.
+    const thread = screen.getByRole('list', { name: 'Replies to Omar Ahmed' }).parentElement!;
+    expect(thread.lastElementChild?.tagName).toBe('FORM');
+    expect(within(thread.lastElementChild as HTMLElement).getByRole('textbox', { name: 'Reply to Sara Ali' })).toBe(box);
     await userEvent.type(box, 'thanks');
     await userEvent.click(screen.getByRole('button', { name: 'Send reply' }));
     // The reply names the comment answered; the server files it in the thread.
     expect(onReply).toHaveBeenCalledWith('r1', '@sara thanks', false);
-    // Replies are one level deep: the reply box sits in the thread, not under the reply.
-    expect(screen.queryByRole('list', { name: 'Replies to Sara Ali' })).toBeNull();
+  });
+
+  it('in a client’s thread a reply to a colleague doesn’t start with their @username (the client could be shown it)', async () => {
+    const list = [comment('k', 1, { fromClient: true, authorName: 'Fatma Said' }), comment('r1', 2, { parentId: 'k', authorName: 'Sara Ali', authorUsername: 'sara' })];
+    render(<CommentsSection comments={list} people={people} onAdd={vi.fn()} onReply={vi.fn()} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Reply to Sara Ali' }));
+    expect(screen.getByRole('textbox', { name: 'Reply to Sara Ali' })).toHaveValue('');
+  });
+
+  it('a reply to a comment still waiting behind the button waits with it (never a “Comment deleted” stand-in at the top)', () => {
+    readerAt('down');
+    const list = [comment('a', 1)];
+    const { rerender } = render(<CommentsSection comments={list} people={people} onAdd={vi.fn()} onReply={vi.fn()} />);
+    rerender(<CommentsSection comments={[...list, comment('b', 5)]} people={people} onAdd={vi.fn()} onReply={vi.fn()} />);
+    rerender(<CommentsSection comments={[...list, comment('b', 5), comment('b1', 6, { parentId: 'b' })]} people={people} onAdd={vi.fn()} onReply={vi.fn()} />);
+    expect(screen.queryByText('Comment deleted')).toBeNull();
+    expect(screen.queryByText('Comment b1')).toBeNull();
+    expect(screen.getByRole('button', { name: /new comment/ })).toBeInTheDocument();
   });
 
   it('a reply that arrives live keeps its thread in place and marks it “New reply”', () => {

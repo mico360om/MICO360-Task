@@ -32,7 +32,10 @@ export function usePortalProject(p: string) {
  */
 export const TASK_EVERY_MS = 5_000;
 
-/** One shared task — read again every few seconds while the tab is shown, and on coming back to it (not in a preview). */
+/**
+ * One shared task — while its comments show (the Comment action), read again every few seconds while the tab is shown,
+ * and on coming back to it; never in a preview.
+ */
 export function usePortalTask(p: string, t: string) {
   const api = usePortalApi();
   const preview = usePortalPreview();
@@ -40,7 +43,7 @@ export function usePortalTask(p: string, t: string) {
     queryKey: portalKeys.task(p, t),
     queryFn: () => api.task(p, t),
     enabled: Boolean(p && t),
-    refetchInterval: preview ? false : TASK_EVERY_MS,
+    refetchInterval: (q) => (!preview && q.state.data?.can?.comment ? TASK_EVERY_MS : false),
     refetchOnWindowFocus: !preview,
   });
 }
@@ -89,6 +92,9 @@ export function noticesRead(qc: QueryClient, id: string | null, unread?: number)
 
 /** A task changed (a comment, accepted, sent back): its page shows the answer; the lists and progress read again. */
 export function taskChanged(qc: QueryClient, p: string, t: string, view: PortalTaskView): void {
+  // A re-read still on its way (they come every few seconds) would put the older view back over this answer: stopped
+  // first (it stops at once, back to what was there), then the answer shows (review).
+  void qc.cancelQueries({ queryKey: portalKeys.task(p, t), exact: true });
   qc.setQueryData(portalKeys.task(p, t), view);
   void qc.invalidateQueries({ queryKey: portalKeys.project(p) });
   void qc.invalidateQueries({ queryKey: portalKeys.me });

@@ -47,7 +47,8 @@ export interface PendingComment {
 /**
  * The sending comments whose saved copy is already in the list (so they aren't shown twice): by the saved id once the
  * answer came, else — the live copy can arrive first — by a comment of mine with the same words that wasn't in the
- * list when it was sent. One saved comment answers one sending comment. A failed one is never hidden.
+ * list when it was sent. One saved comment answers one sending comment. A "Not sent" one whose copy shows up was
+ * saved after all (the answer was lost — a timeout after saving): it goes too, so Try again can't post it twice.
  */
 export function matchedPending(pending: PendingComment[], list: { id: string; mine: boolean; body: string }[]): Set<string> {
   const ids = new Set(list.map((c) => c.id));
@@ -60,7 +61,7 @@ export function matchedPending(pending: PendingComment[], list: { id: string; mi
     }
   }
   for (const p of pending) {
-    if (matched.has(p.key) || p.status === 'failed') continue;
+    if (matched.has(p.key)) continue;
     const words = p.body.trim();
     const copy = list.find((c) => c.mine && !claimed.has(c.id) && !p.before.has(c.id) && c.body.trim() === words);
     if (copy) {

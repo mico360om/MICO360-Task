@@ -7,7 +7,8 @@ import { useMentionAutocomplete } from '../../hooks/useMentionAutocomplete';
 import { MentionList, MentionText } from '../Mentions';
 import { ClientEyeIcon } from '../TaskCard';
 import { failureMessage } from './save-state';
-import { COMMENTS_PAGE, newCommentsText, newestFirst, scrolledPast, scrollToListTop, type PendingComment } from '../../lib/comment-feed';
+import { COMMENTS_PAGE, newestFirst, scrolledPast, scrollToListTop, type PendingComment } from '../../lib/comment-feed';
+import { NewCommentsButton } from '../comments/NewCommentsButton';
 import { useCommentArrivals } from '../../hooks/useCommentArrivals';
 import { usePendingComments } from '../../hooks/usePendingComments';
 
@@ -395,7 +396,7 @@ function PendingItem({ pending: p, me, onRetry, onEdit }: { pending: PendingComm
   const failed = p.status === 'failed';
   const name = me?.name || 'You';
   return (
-    <li className="flex gap-2.5" data-unsaved={failed || undefined} data-pending={p.status}>
+    <li className="flex gap-2.5" data-unsaved={p.status !== 'sent' || undefined} data-pending={p.status}>
       <span className="flex-none pt-0.5">
         <Avatar name={name} size="md" src={me?.avatarUrl ?? null} />
       </span>
@@ -429,23 +430,6 @@ function PendingItem({ pending: p, me, onRetry, onEdit }: { pending: PendingComm
   );
 }
 
-/** "3 new comments ↑": new comments wait above while the reader is further down; pressing brings them in. */
-export function NewCommentsButton({ count, onClick }: { count: number; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title="Show them at the top"
-      className="pointer-events-auto inline-flex min-h-9 items-center gap-1.5 rounded-full bg-brand px-3.5 py-1.5 text-xs font-semibold text-white shadow-lift transition-colors hover:bg-brand-2 [@media(pointer:coarse)]:min-h-11"
-    >
-      {newCommentsText(count)}
-      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M12 19V5M5 12l7-7 7 7" />
-      </svg>
-    </button>
-  );
-}
-
 /** One thread: the comment (or "Comment deleted"), its replies oldest first, and the reply box when answering. */
 function ThreadItem({
   thread,
@@ -468,8 +452,10 @@ function ThreadItem({
   const [answering, setAnswering] = useState<DrawerComment | null>(null);
   const rootAuthor = deleted ? 'a deleted comment' : authorOf(root);
   const startReply = (c: DrawerComment) => (onReply ? () => setAnswering(c) : undefined);
-  // Answering a reply starts "@username " (not my own, not a client's — clients can't be mentioned).
-  const initial = answering && answering.id !== root.id && answering.authorUsername && !answering.mine ? `@${answering.authorUsername} ` : '';
+  // Answering a reply starts "@username " (not my own, not a client's — clients can't be mentioned). Never in a
+  // client's thread: a reply there may be shown to the client, who never sees a team member's name (review).
+  const inClientThread = !deleted && root.fromClient === true;
+  const initial = answering && answering.id !== root.id && answering.authorUsername && !answering.mine && !inClientThread ? `@${answering.authorUsername} ` : '';
   return (
     <li className="flex flex-col">
       {deleted ? (
@@ -555,7 +541,7 @@ export function CommentsSection({
     ids: comments.map((c) => c.id),
     ready: loaded,
     mine: (id) => Boolean(byId.get(id) && isMine(byId.get(id)!)),
-    reply: (id) => Boolean(byId.get(id)?.parentId),
+    parentOf: (id) => byId.get(id)?.parentId,
     isAway: () => scrolledPast(topRef.current, formRef.current),
     nameOf: (id) => byId.get(id)?.authorName,
   });
@@ -564,7 +550,7 @@ export function CommentsSection({
     'Check your connection and try again.',
   );
 
-  const shown = comments.filter((c) => !arrivals.held.has(c.id));
+  const shown = comments.filter((c) => !arrivals.held.has(c.id) && !(c.parentId && arrivals.held.has(c.parentId)));
   const threads = newestFirst(commentThreads(shown), (c) => c.createdAt);
   // What arrived since opening adds to what shows, so nothing being read drops off the end.
   const grown = threads.filter((t) => arrivals.arrived.has(t.comment.id)).length;
@@ -651,7 +637,7 @@ export function CommentsSection({
       {empty ? (
         <p className="text-sm text-ink-3">No comments yet. Start the conversation.</p>
       ) : (
-        <ul ref={listRef} tabIndex={-1} aria-label="Comments, newest first" className="flex flex-col gap-3 outline-none">
+        <ul ref={listRef} tabIndex={-1} aria-label="Comments, newest first" className="flex flex-col gap-3 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-brand/40 focus-visible:ring-offset-2 focus-visible:ring-offset-surface">
           {sending.pending.map((p) => (
             <PendingItem key={p.key} pending={p} me={me} onRetry={() => sending.retry(p.key, send)} onEdit={() => takeBack(p)} />
           ))}

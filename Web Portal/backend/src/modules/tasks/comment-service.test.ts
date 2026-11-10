@@ -281,3 +281,25 @@ describe('CommentService — replies on every comment', () => {
     expect(told.at(-1)).toEqual({ repliedToUserId: 'u2', mentioned: ['sara', 'omar'] });
   });
 });
+
+describe('CommentService — older reply chains (review)', () => {
+  it('a reply to a reply of a reply (older data) is filed under the real top comment; the client tick follows it', async () => {
+    const mem = inMemory(['t1']);
+    const svc = createCommentService(mem);
+    const client = await mem.repo.create('t1', 'client-1', 'Question', null, { fromClient: true });
+    const r1 = await mem.repo.create('t1', 'u1', 'First', client.id);
+    const r2 = await mem.repo.create('t1', 'u2', 'Second (an older reply to a reply)', r1.id);
+    const r3 = await svc.addComment('t1', 'u3', 'Third', r2.id, { clientVisible: true });
+    expect(r3).toMatchObject({ parentId: client.id, clientVisible: true });
+  });
+
+  it('a chain whose middle comment was deleted files under the deleted one (the thread stays together)', async () => {
+    const mem = inMemory(['t1']);
+    const svc = createCommentService(mem);
+    const root = await svc.addComment('t1', 'u1', 'Root');
+    const r1 = await mem.repo.create('t1', 'u1', 'First', root.id);
+    const r2 = await mem.repo.create('t1', 'u2', 'Second', r1.id);
+    await mem.repo.delete(r1.id);
+    expect((await svc.addComment('t1', 'u3', 'Third', r2.id)).parentId).toBe(r1.id);
+  });
+});

@@ -58,8 +58,9 @@ describe('comment feed: my sending comments meet their saved copies (no duplicat
     expect([...out]).toEqual(['p1']);
   });
 
-  it('a failed comment is never hidden', () => {
-    expect([...matchedPending([{ ...pending('p1', 'Same words', ['old']), status: 'failed' }], list)]).toEqual([]);
+  it('a “Not sent” one whose saved copy shows up was saved after all (a timeout after saving): it goes, so Try again can’t post it twice', () => {
+    expect([...matchedPending([{ ...pending('p1', 'Same words', ['old']), status: 'failed' }], list)]).toEqual(['p1']);
+    expect([...matchedPending([{ ...pending('p1', 'Other words', ['old']), status: 'failed' }], list)]).toEqual([]);
   });
 });
 

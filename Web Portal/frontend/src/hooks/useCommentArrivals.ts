@@ -27,7 +27,7 @@ export function useCommentArrivals({
   ids,
   ready,
   mine,
-  reply,
+  parentOf,
   isAway,
   nameOf,
 }: {
@@ -36,8 +36,11 @@ export function useCommentArrivals({
   /** The list has loaded (until then an empty list isn't "no comments"). */
   ready: boolean;
   mine: (id: string) => boolean;
-  /** A reply: shown at once in its thread (never held — its thread keeps its place, marked "New reply"). */
-  reply?: (id: string) => boolean;
+  /**
+   * A reply's comment (null for a comment). A reply shows at once in its thread (its thread keeps its place, marked
+   * "New reply") — unless its comment is itself waiting behind the button: then it waits with it.
+   */
+  parentOf?: (id: string) => string | null | undefined;
   /** Is the reader scrolled down the list, away from its top? (Read as a comment arrives.) */
   isAway: () => boolean;
   nameOf?: (id: string) => string | undefined;
@@ -61,7 +64,8 @@ export function useCommentArrivals({
         known.current.add(id);
         arrivedRef.current.add(id);
         if (mine(id)) continue;
-        if (!reply?.(id) && isAway()) decided.current.set(id, 'held');
+        const parent = parentOf?.(id);
+        if (parent ? decided.current.get(parent) === 'held' : isAway()) decided.current.set(id, 'held');
         else {
           decided.current.set(id, 'fresh');
           shownNow.push(id);
@@ -69,7 +73,7 @@ export function useCommentArrivals({
       }
       if (shownNow.length === 1) {
         const who = nameOf?.(shownNow[0]!);
-        const what = reply?.(shownNow[0]!) ? 'New reply' : 'New comment';
+        const what = parentOf?.(shownNow[0]!) ? 'New reply' : 'New comment';
         said.current = who ? `${what} from ${who}` : what;
       } else if (shownNow.length > 1) said.current = newCommentsText(shownNow.length);
     }
