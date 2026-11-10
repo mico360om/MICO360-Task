@@ -182,6 +182,8 @@ describe('TimelinePage', () => {
     // On the bars: how far behind an at-risk project is, and how late a late one is.
     expect(within(mobile!).getByText('9% done · 45% of the time used')).toBeInTheDocument();
     expect(within(falcon!).getByText('Target 21 Oct · 3 days late')).toBeInTheDocument();
+    // 1.23.8: in health's late red (the bars' and the badges' token), not the general danger tone.
+    expect(within(falcon!).getByText('Target 21 Oct · 3 days late')).toHaveClass('text-health-late');
   });
 
   it('shows the five cards: open projects, late, at risk, milestones in 30 days and meetings this week', async () => {

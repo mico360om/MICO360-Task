@@ -270,7 +270,7 @@ function ProjectRow({
           {over ? <span aria-hidden="true" className="hatch-late absolute top-3 h-6 rounded-e-md" style={{ left: `${over.left}%`, width: `${over.width}%` }} /> : null}
           {note ? (
             // After the bar when it fits, else against the right edge.
-            <span className="absolute top-[2.55rem] whitespace-nowrap text-[11.5px] font-semibold text-danger" style={lateNoteSpot(end, note) === 'after' ? { left: `calc(${end}% + 0.375rem)` } : { right: '0.375rem' }}>
+            <span className="absolute top-[2.55rem] whitespace-nowrap text-[11.5px] font-semibold text-health-late" style={lateNoteSpot(end, note) === 'after' ? { left: `calc(${end}% + 0.375rem)` } : { right: '0.375rem' }}>
               {note}
             </span>
           ) : null}
