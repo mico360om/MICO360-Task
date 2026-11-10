@@ -220,7 +220,7 @@ export interface PortalComment {
   id: string;
   /** 'you': the client's own; 'team': a team reply marked "Visible to client" (never a staff name). */
   from: 'you' | 'team';
-  /** For a team reply: the client comment it answers. */
+  /** A reply: the client's comment whose thread it is in (a team reply, or — owner, 10 Nov 2026 — their own). */
   replyTo: string | null;
   body: string;
   createdAt: string;
@@ -239,7 +239,8 @@ export function portalComments(rows: readonly PortalCommentSource[], clientId: s
     .map((c) => ({
       id: String(c.id),
       from: mine.has(c.id) ? ('you' as const) : ('team' as const),
-      replyTo: mine.has(c.id) ? null : String(c.parentId),
+      // A team reply: the client comment it answers. Owner, 10 Nov 2026: their own reply, the thread it is in.
+      replyTo: c.parentId !== null ? String(c.parentId) : null,
       body: String(c.body),
       createdAt: c.createdAt.toISOString(),
       edited: c.editedAt !== null,

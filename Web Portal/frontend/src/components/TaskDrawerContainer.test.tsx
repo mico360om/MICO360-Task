@@ -1,9 +1,20 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { TaskDrawerContainer } from './TaskDrawerContainer';
 import { useAuthStore } from '../stores/auth-store';
+
+// Comments live: the panel's own connection to the project room (no real socket in tests).
+type SocketHandler = (...a: unknown[]) => void;
+const socketHandlers: Record<string, SocketHandler> = {};
+const fakeSocket = {
+  on: vi.fn((ev: string, cb: SocketHandler) => { socketHandlers[ev] = cb; }),
+  emit: vi.fn(),
+  connect: vi.fn(),
+  disconnect: vi.fn(),
+};
+vi.mock('socket.io-client', () => ({ io: () => fakeSocket }));
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -879,5 +890,103 @@ describe('TaskDrawerContainer: writing a first checklist with the keyboard (1.23
     const next = await screen.findByRole('textbox', { name: 'New item after “Label circuits”' });
     expect(next).toHaveFocus();
     expect(next).toHaveValue('Test breakers');
+  });
+});
+
+// Comments, newest first (owner, 10 Nov 2026): live, at once, and replies on every comment.
+describe('TaskDrawerContainer — comments live, newest first', () => {
+  const at = (h: number) => `2026-11-10T0${h}:00:00.000Z`;
+  let rows: Record<string, unknown>[];
+  let posted: { url: string; body: unknown }[];
+  let answerPost: ((r: Response) => void) | null;
+  const serve = () => {
+    posted = [];
+    answerPost = null;
+    const base = fetch;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const u = String(url);
+      if (u.endsWith('/tasks/t1/comments') && init?.method === 'POST') {
+        const body = JSON.parse(String(init.body)) as { body: string; parentId?: string };
+        posted.push({ url: u, body });
+        const saved = { id: `n${posted.length}`, taskId: 't1', userId: 'u1', body: body.body, parentId: body.parentId ?? null, createdAt: at(9), editedAt: null };
+        return new Promise<Response>((resolve) => {
+          // Saved on the server at once (a re-read finds it), answered when the test says.
+          rows = [...rows, saved];
+          answerPost = () => resolve(json({ data: saved }, 201));
+        });
+      }
+      if (u.endsWith('/tasks/t1/comments')) return json({ data: rows });
+      if (u.endsWith('/users/directory')) return json({ data: MEMBERS.map((m) => ({ id: m.id, username: m.username, firstName: m.firstName, lastName: m.lastName, avatarUrl: null })) });
+      return base(url, init);
+    }));
+  };
+  const open = () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <TaskDrawerContainer taskId="t1" onClose={() => {}} />
+      </QueryClientProvider>,
+    );
+  };
+  const bodies = () =>
+    within(screen.getByRole('list', { name: 'Comments, newest first' }))
+      .getAllByRole('listitem')
+      .filter((li) => li.parentElement?.getAttribute('aria-label') === 'Comments, newest first')
+      .map((li) => li.querySelector('[data-comment-body]')?.textContent);
+
+  beforeEach(() => {
+    for (const k of Object.keys(socketHandlers)) delete socketHandlers[k];
+    fakeSocket.emit.mockClear();
+    rows = [
+      { id: 'c1', taskId: 't1', userId: 'u2', body: 'First note', parentId: null, createdAt: at(1), editedAt: null },
+      { id: 'c2', taskId: 't1', userId: 'u2', body: 'Second note', parentId: null, createdAt: at(2), editedAt: null },
+    ];
+    serve();
+  });
+
+  it('shows the newest comment first', async () => {
+    open();
+    await screen.findByText('Second note');
+    expect(bodies()).toEqual(['Second note', 'First note']);
+  });
+
+  it('a comment someone else adds to this task appears without reopening; an edit and a delete too', async () => {
+    open();
+    await screen.findByText('Second note');
+    act(() => socketHandlers['connect']!());
+    expect(fakeSocket.emit).toHaveBeenCalledWith('join', { projectId: 'p1' });
+    rows = [...rows, { id: 'c3', taskId: 't1', userId: 'u2', body: 'Live from site', parentId: null, createdAt: at(3), editedAt: null }];
+    act(() => socketHandlers['comment:created']!({ taskId: 't1', comment: { id: 'c3' } }));
+    await waitFor(() => expect(bodies()).toEqual(['Live from site', 'Second note', 'First note']));
+    rows = rows.filter((r) => r.id !== 'c1').map((r) => (r.id === 'c2' ? { ...r, body: 'Second note, changed', editedAt: at(4) } : r));
+    act(() => socketHandlers['comment:updated']!({ taskId: 't1', comment: { id: 'c2' } }));
+    await waitFor(() => expect(bodies()).toEqual(['Live from site', 'Second note, changed']));
+  });
+
+  it('my comment is at the top at once, and shows once when its live copy and the answer both come', async () => {
+    open();
+    await screen.findByText('Second note');
+    await userEvent.type(screen.getByRole('textbox', { name: 'Add a comment' }), 'On my way');
+    await userEvent.click(screen.getByRole('button', { name: 'Comment' }));
+    expect(bodies()[0]).toBe('On my way');
+    expect(screen.getByText('Sending…')).toBeInTheDocument();
+    await waitFor(() => expect(posted).toHaveLength(1));
+    // Its live copy first …
+    act(() => socketHandlers['comment:created']!({ taskId: 't1', comment: { id: 'n1' } }));
+    await waitFor(() => expect(screen.queryByText('Sending…')).toBeNull());
+    expect(bodies()).toEqual(['On my way', 'Second note', 'First note']);
+    // … then the server's answer: still once.
+    await act(async () => answerPost!(json({})));
+    await waitFor(() => expect(bodies()).toEqual(['On my way', 'Second note', 'First note']));
+  });
+
+  it('every comment offers Reply; a reply names the comment it answers', async () => {
+    open();
+    await screen.findByText('Second note');
+    await userEvent.click(screen.getAllByRole('button', { name: 'Reply to Omar A' })[0]!);
+    expect(screen.queryByRole('checkbox', { name: 'Visible to client' })).toBeNull();
+    await userEvent.type(screen.getAllByRole('textbox', { name: 'Reply to Omar A' })[0]!, 'Agreed');
+    await userEvent.click(screen.getByRole('button', { name: 'Send reply' }));
+    await waitFor(() => expect(posted[0]?.body).toEqual({ body: 'Agreed', parentId: 'c2' }));
   });
 });

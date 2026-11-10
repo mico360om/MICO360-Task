@@ -395,18 +395,24 @@ describe('TaskDrawer checklist', () => {
 });
 
 describe('TaskDrawer comments', () => {
-  it('keeps your draft and says why when a comment could not be posted', async () => {
+  it('a comment that could not be posted stays at the top with its words, saying why, and can be sent again', async () => {
+    // Owner, 10 Nov 2026: a comment shows at once; one that didn't go says "Not sent" (the box is free again).
     const onAddComment = vi.fn().mockRejectedValueOnce(new Error('Couldn’t post the comment.')).mockResolvedValueOnce(undefined);
     render(<TaskDrawer task={task} checklist={[]} comments={[]} onAddComment={onAddComment} onClose={vi.fn()} />);
     const box = screen.getByPlaceholderText(/write a comment/i);
     await userEvent.type(box, 'Looks good');
     await userEvent.click(screen.getByRole('button', { name: /^comment$/i }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Couldn’t post the comment.');
-    expect(box).toHaveValue('Looks good');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Not sent — Couldn’t post the comment.');
+    expect(box).toHaveValue('');
+    expect(screen.getByText('Looks good')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(onAddComment).toHaveBeenLastCalledWith('Looks good');
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
     // Ctrl+Enter posts too
+    await userEvent.type(box, 'Second');
     await userEvent.type(box, '{Control>}{Enter}{/Control}');
     await waitFor(() => expect(box).toHaveValue(''));
-    expect(onAddComment).toHaveBeenLastCalledWith('Looks good');
+    expect(onAddComment).toHaveBeenLastCalledWith('Second');
   });
 
   it('marks an edited comment', () => {
