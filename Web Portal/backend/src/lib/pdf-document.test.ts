@@ -43,7 +43,7 @@ describe('PdfDocument', () => {
   });
 
   it('flows onto multiple pages and numbers them "Page N of M"', () => {
-    // tpdf: 1.23.10 — the footer's words come from `footer` (company · "Printed … by …"), was footerLeft.
+    // tpdf: 1.23.11 — the footer's words come from `footer` (company · "Printed … by …"), was footerLeft.
     const doc = new PdfDocument({ footer: { company: 'MICO360', printed: 'Printed 1 Oct 2026, 09:00 by Ada' } });
     for (let i = 0; i < 160; i++) doc.text(`Line number ${i} with enough text to take vertical room on the page.`);
     const buf = doc.build();
@@ -150,7 +150,7 @@ describe('PdfDocument — report layout', () => {
     const buf = doc.build();
     const { pages, objects } = inspectPdf(buf);
     expect(pages[0]).toEqual(expect.arrayContaining(['Tasks report', 'MICO360 Platform', 'Generated 1 Oct 2026, 09:00']));
-    // tpdf: 1.23.10 — the built-in logo is stored at 200 dpi for its 26 pt header (155 pixels wide, was 900),
+    // tpdf: 1.23.11 — the built-in logo is stored at 200 dpi for its 26 pt header (155 pixels wide, was 900),
     // and titles are set in the one font family (IBM Plex Sans SemiBold, was Archivo).
     expect([...objects.values()].some((d) => /\/Subtype \/Image/.test(d) && /\/Width 155/.test(d))).toBe(true);
     expect(buf.toString('latin1')).toMatch(/\/FontName \/[A-Z]{6}\+IBMPlexSans-SemiBold/);
@@ -201,7 +201,7 @@ describe('PdfDocument — report layout', () => {
       }
     });
 
-    // tpdf: 1.23.10 (owner) — every header carries a logo: without the company's, the built-in one
+    // tpdf: 1.23.11 (owner) — every header carries a logo: without the company's, the built-in one
     // (a project header had none before); the built-in logo is 155 pixels wide now (was 900).
     it('without one, a project header and the report header show the built-in logo', () => {
       const plain = new PdfDocument();
@@ -248,7 +248,7 @@ describe('PdfDocument — report layout', () => {
 
   it('keeps a block whole: a chart that does not fit starts a new page', () => {
     const doc = new PdfDocument();
-    // tpdf: 1.23.10 — a taller page body and smaller type: more filler to reach the bottom (was 44 lines).
+    // tpdf: 1.23.11 — a taller page body and smaller type: more filler to reach the bottom (was 44 lines).
     while (doc.remaining > 100) doc.text(`Filler ${doc.cursor}`);
     doc.lineChart({ labels: ['a', 'b'], series: [{ name: 'Series', values: [1, 2] }] });
     const { pages } = inspectPdf(doc.build());
@@ -341,7 +341,7 @@ describe('PdfDocument — no clipping, no orphans', () => {
     const doc = new PdfDocument();
     doc.identityHeader({ initials: 'FC', eyebrow: 'Task', title: 'Falcon CRM', subtitle: 'FAL' });
     const title = inspectPdf(doc.build()).lines[0]!.find((l) => l.text === 'Falcon CRM')!;
-    // tpdf: 1.23.10 — the slim header band sets the project's name at 11 pt (was 17).
+    // tpdf: 1.23.11 — the slim header band sets the project's name at 11 pt (was 17).
     expect(title.size).toBe(11);
   });
 });
@@ -354,7 +354,7 @@ describe('PdfDocument — nested and formatted text, checklists, pictures', () =
     doc.text('رد باللغة العربية على التعليق', { inset: 24, bar: [0.2, 0.4, 0.6] });
     const { lines, contents } = inspectPdf(doc.build());
     const at = (t: string) => lines[0]!.find((l) => l.text === t)!;
-    // tpdf: 1.23.10 — 14 mm side margins (was 54 pt).
+    // tpdf: 1.23.11 — 14 mm side margins (was 54 pt).
     expect(at('Top level comment').x).toBeCloseTo(doc.margin, 1);
     expect(at('A reply in English').x).toBeCloseTo(doc.margin + 24, 1);
     // An Arabic reply is set from the right edge, inside the nested column.
@@ -438,7 +438,7 @@ describe('PdfDocument — measuring what follows a heading', () => {
     const doc = new PdfDocument();
     const image = doc.prepareImage(await sharp({ create: { width: 40, height: 30, channels: 3, background: '#336699' } }).jpeg().toBuffer())!;
     const items = [{ image, caption: 'a-caption-long-enough-to-wrap-onto-a-second-line-under-its-picture.jpg' }, { image, caption: 'b.jpg' }];
-    // tpdf: 1.23.10 — the grid's gap under a row is 8 pt (was 12).
+    // tpdf: 1.23.11 — the grid's gap under a row is 8 pt (was 12).
     expect(drop(doc, () => doc.imageGrid(items))).toBeCloseTo(doc.imageGridFirstRowHeight(items) + 8, 5); // + the gap under the row
     expect(doc.imageGridFirstRowHeight([])).toBe(0);
     const cols = [{ header: 'When' }, { header: 'What' }];
@@ -448,7 +448,7 @@ describe('PdfDocument — measuring what follows a heading', () => {
   });
 
   it('says how much room a subheading keeps together, so a heading above it can keep it too', () => {
-    // tpdf: 1.23.10 — sub-headings are 10 pt (was 11).
+    // tpdf: 1.23.11 — sub-headings are 10 pt (was 11).
     expect(new PdfDocument().subheadingRoom({ topGap: 4, keepWith: 60 })).toBeCloseTo(4 + 10 * 1.6 + 60, 5);
     expect(new PdfDocument().subheadingRoom({ topGap: 4 })).toBeCloseTo(4 + 10 * 1.6 + 28, 5);
   });
@@ -474,7 +474,7 @@ describe('PdfDocument — tables never lose or overlap text', () => {
       { header: 'Task', nowrap: true },
       { header: 'Title' },
       { header: 'Assigned to' },
-      // tpdf: 1.23.10 — dates centre by default; held left here so the headers mark where columns start.
+      // tpdf: 1.23.11 — dates centre by default; held left here so the headers mark where columns start.
       { header: 'Due', nowrap: true, align: 'left' as const },
       { header: 'Overdue', align: 'right' as const, nowrap: true },
     ];
@@ -558,7 +558,7 @@ describe('PdfDocument — running header and footer never cut text silently', ()
     expect(title.startsWith(top[0]!.text.slice(0, -1).trimEnd())).toBe(true);
   });
 
-  // tpdf: 1.23.10 — the footer is company · "Printed … by …" · page; a "Printed" line too long to sit
+  // tpdf: 1.23.11 — the footer is company · "Printed … by …" · page; a "Printed" line too long to sit
   // beside the company gets a row of its own and wraps there (never shrunk under 7.5 pt or cut, was "…").
   it('a footer line too long for its place moves to a row of its own and wraps — never cut; a short one is unchanged', () => {
     const long = `Printed 25 Oct 2026, 09:00 by ${'Khurram Shahzad Al-Balushi '.repeat(6).trim()}`;
@@ -610,7 +610,7 @@ describe('PdfDocument — review fixes', () => {
 
   it('balanced (fit) tables set rows without Arabic at the normal line height; a row with Arabic keeps the taller one, its cells on one baseline', () => {
     const latin = [['RIG-1', 'Pressure test report'], ['RIG-2', 'Valve inventory']];
-    // tpdf: 1.23.10 — every table is balanced now, with 2.5 pt above and below a cell's text (was 3).
+    // tpdf: 1.23.11 — every table is balanced now, with 2.5 pt above and below a cell's text (was 3).
     const doc = new PdfDocument();
     const h = doc.tableHeight(cols, latin, { size: 9, fit: {} });
     expect(h).toBeCloseTo(3 * (9 * 1.4 + 5), 5); // header + 2 rows, one line each
@@ -633,7 +633,7 @@ describe('PdfDocument — compact density (the minutes, 1.22.1)', () => {
   };
   const drawnLines = (doc: PdfDocument) => inspectPdf(doc.build()).lines.flat();
 
-  // tpdf: 1.23.10 — the compact scale became the one standard for every PDF (owner, 10 Nov): `density`
+  // tpdf: 1.23.11 — the compact scale became the one standard for every PDF (owner, 10 Nov): `density`
   // is still accepted but changes nothing; the strip sets its label over its value (was beside it).
   it('sets every PDF on the one standard, whatever density it asks for: 14 mm margins, 9.5 pt text, 11 pt headings, 8.5 pt tables', () => {
     for (const density of [undefined, 'regular', 'compact'] as const) {
@@ -703,7 +703,7 @@ describe('PdfDocument — compact density (the minutes, 1.22.1)', () => {
     while (new PdfDocument({ density: 'compact' }).textHeight('word '.repeat(words + 1).trim()) < 20) words++;
     const full = 'word '.repeat(words).trim();
     for (let fillers = 40; fillers < 70; fillers++) {
-      const doc = new PdfDocument({ density: 'compact', footer: { company: 'Footer' } }); // tpdf: 1.23.10 footer (was footerLeft)
+      const doc = new PdfDocument({ density: 'compact', footer: { company: 'Footer' } }); // tpdf: 1.23.11 footer (was footerLeft)
       for (let i = 0; i < fillers; i++) doc.text(`Filler line ${i}`);
       doc.text(full).aside('Ada Lovelace · 4 Nov, 17:45');
       const { lines } = inspectPdf(doc.build());

@@ -52,7 +52,7 @@ describe('MICO AI downloads', () => {
     for (const s of ['Overdue tasks', 'MICO AI', 'Which tasks are overdue in Rig Inspection, and who has them?', '3 tasks are overdue.', 'Omar has 2 of them.', 'RIG-14', 'Pressure test report', '19 Oct 2026', '5 days', '40%', 'Omar Said'])
       expect(all).toContain(s);
     expect(all).not.toContain('**');
-    expect(all).toMatch(/Printed 24 Oct 2026, 12:00 by Omar Said/); // tpdf: 1.23.10 — the footer's "Printed … by …" (was "Generated … (zone) by …")
+    expect(all).toMatch(/Printed 24 Oct 2026, 12:00 by Omar Said/); // tpdf: 1.23.11 — the footer's "Printed … by …" (was "Generated … (zone) by …")
   });
 
   it('a file name from the table and the company day', () => {
@@ -132,7 +132,7 @@ const squash = (s: string) => s.replace(/\s+/g, '');
 const HEADERS = ['Task', 'Title', 'Project', 'Status', 'Assigned to', 'Due', 'Overdue', 'Progress'];
 const shown = (r: { cells: Array<string | number | null> }) => r.cells.map((v, i) => cellText(big.table.columns[i]!.kind, v));
 
-// tpdf: 1.23.10 (owner: documents stay portrait) — an eight-column table whose words fit across a portrait
+// tpdf: 1.23.11 (owner: documents stay portrait) — an eight-column table whose words fit across a portrait
 // page at 7.5 pt or more stays portrait (was landscape for any table of six columns or more); the page
 // furniture is told by its artifact marks; 14 mm margins (was 54 pt).
 describe('MICO AI PDF report: a long answer with a wide table', () => {
@@ -227,7 +227,7 @@ describe('MICO AI PDF report: page shape', () => {
     const out = tablePdf(narrow);
     expect(out.toString('latin1')).toMatch(/\/MediaBox \[0 0 595\.28 841\.89\]/);
     const cell = inspectPdf(out).lines.flat().find((l) => l.text === 'RIG-1')!;
-    expect(cell.size).toBe(8.5); // tpdf: 1.23.10 — tables are 8.5 pt (was 9)
+    expect(cell.size).toBe(8.5); // tpdf: 1.23.11 — tables are 8.5 pt (was 9)
   });
 
   it('a very wide table turns landscape and shrinks its type, to no less than 7 pt, before it breaks words', () => {
@@ -268,7 +268,7 @@ const asAnswer = (d: TableExport, tables: TableExport['table'][]): AnswerExport 
   timeZone: d.timeZone,
   generatedBy: d.generatedBy,
 });
-// tpdf: 1.23.10 — the page furniture is told by its artifact marks; the footer says "Printed … by …" (was "Generated … (zone) by …").
+// tpdf: 1.23.11 — the page furniture is told by its artifact marks; the footer says "Printed … by …" (was "Generated … (zone) by …").
 const footerOk = (pdf: ReturnType<typeof inspectPdf>) => {
   const n = pdf.pages.length;
   pdf.lines.forEach((lines, p) => {
@@ -302,7 +302,7 @@ describe('MICO AI answer report: the whole answer as one PDF', () => {
     const blocked = { title: 'Blocked tasks', fromResult: 'r3', columns: [{ key: 'key', label: 'Task', kind: 'key' as const }, { key: 'title', label: 'Title' }], rows: [] };
     const report = asAnswer(big, [doc.table, big.table, blocked]);
     const out = answerPdf(report);
-    expect(out.toString('latin1')).toMatch(/\/MediaBox \[0 0 595\.28 841\.89\]/); // tpdf: 1.23.10 — portrait: every table's words fit across it
+    expect(out.toString('latin1')).toMatch(/\/MediaBox \[0 0 595\.28 841\.89\]/); // tpdf: 1.23.11 — portrait: every table's words fit across it
     const pdf = inspectPdf(out);
     const all = squash(pdf.pages.flat().join(''));
     const at = (s: string) => all.indexOf(squash(s));

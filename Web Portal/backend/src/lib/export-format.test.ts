@@ -22,7 +22,7 @@ describe('formatDay: the day before the month, three-letter months (never "Sept"
   });
 });
 
-describe('printedLine: the PDF footer’s words (1.23.10, owner)', () => {
+describe('printedLine: the PDF footer’s words (1.23.11, owner)', () => {
   it('"Printed 10 Nov 2026, 14:05 by Name", in company time; without a name for a shared copy', () => {
     expect(printedLine(new Date('2026-11-10T10:05:00Z'), 'Asia/Muscat', 'Khurram Mumtaz')).toBe('Printed 10 Nov 2026, 14:05 by Khurram Mumtaz');
     expect(printedLine(new Date('2026-11-10T10:05:00Z'), 'Asia/Muscat')).toBe('Printed 10 Nov 2026, 14:05');

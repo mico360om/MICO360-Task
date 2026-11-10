@@ -138,7 +138,7 @@ describe('readProjectPicture', () => {
     expect(printableImage(flat)).toBe(flat);
   });
 
-  it('1.23.10: with a sizer, any picture (a JPEG or an opaque PNG too) is made the size it is printed at; if sizing fails, as before', async () => {
+  it('1.23.11: with a sizer, any picture (a JPEG or an opaque PNG too) is made the size it is printed at; if sizing fails, as before', async () => {
     const sized = Buffer.from('sized');
     const fit = vi.fn(async () => sized);
     const convert = vi.fn(async () => Buffer.from('converted'));

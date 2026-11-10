@@ -69,7 +69,7 @@ describe('the client copy of the minutes PDF', () => {
     for (const heading of ['Discussion', 'Decisions', 'Risks & Open Issues', 'Next Steps']) expect(text).not.toContain(heading);
   });
 
-  // tpdf: 1.23.10 — the PDF standard: a 15.5 pt title, an 11 pt project name, 9.5 pt text (was 14–15 / 12–13 / 9 pt).
+  // tpdf: 1.23.11 — the PDF standard: a 15.5 pt title, an 11 pt project name, 9.5 pt text (was 14–15 / 12–13 / 9 pt).
   it('has the same look as the staff minutes (the PDF standard), the project’s code, number and client among the facts', () => {
     const { pages, lines: drawn } = inspectPdf(buildClientMinutesPdf(data));
     const at = (t: string) => drawn.flat().find((l) => l.text === t)!;

@@ -6,7 +6,7 @@
  * real, joined glyphs in the right order; right-to-left paragraphs align to the right
  * edge; long text wraps to the column; tables repeat their header on every page.
  *
- * 1.23.10 — one PDF standard for every document (owner, 10 Nov 2026): A4 with 14 mm side and
+ * 1.23.11 — one PDF standard for every document (owner, 10 Nov 2026): A4 with 14 mm side and
  * 12 mm top/bottom margins; one font family; body 9.5 pt, small 8 pt, section headings 11 pt,
  * tables 8.5 pt (never under 7.5 pt); a slim header (the project's picture on the left, the
  * company's logo on the right, both at most 26 pt tall); a slim running header on every later
@@ -164,7 +164,7 @@ export interface TextOptions {
   align?: TextAlign;
   /** Force the paragraph direction (e.g. to align an attribution line with the note above it). */
   direction?: TextDirection;
-  /** Accepted for older callers; since 1.23.10 every PDF is set in one font family. */
+  /** Accepted for older callers; since 1.23.11 every PDF is set in one font family. */
   family?: 'text' | 'display';
   /**
    * Inset from the left edge whatever the paragraph's direction, in points: a block nested in a
@@ -182,7 +182,7 @@ export interface GridPicture {
   caption: string;
 }
 
-/** What every page's footer says (1.23.10, owner): the company, when it was printed and by whom, and the page number. */
+/** What every page's footer says (1.23.11, owner): the company, when it was printed and by whom, and the page number. */
 export interface PdfFooter {
   /** The company's name (bold, on the left). */
   company?: string;
@@ -210,7 +210,7 @@ export interface PdfDocumentOptions {
    * the header and the running header. Null or left out (or one that can't be printed): the built-in logo.
    */
   logo?: Buffer | null;
-  /** Accepted for older callers; since 1.23.10 every PDF is set on one standard. */
+  /** Accepted for older callers; since 1.23.11 every PDF is set on one standard. */
   density?: PdfDensity;
 }
 
@@ -264,7 +264,7 @@ export interface StatTile {
   /** A small note beside the value (e.g. a percentage). */
   note?: string;
   tone?: 'brand' | 'danger' | 'success' | 'warning' | 'muted';
-  /** 1.23.10: the colour-scheme tones to set it in (a status's, a priority's); else from `tone`. */
+  /** 1.23.11: the colour-scheme tones to set it in (a status's, a priority's); else from `tone`. */
   colors?: Tone;
 }
 

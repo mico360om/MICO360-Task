@@ -153,12 +153,12 @@ describe('taskPdf: header', () => {
   it('opens with the project’s initials badge on its colour, its name and number, the task key, the title and who made the PDF', () => {
     const pdf = taskPdf(task({ title: 'Monthly sales review' }), ctx);
     const { pages, contents } = inspectPdf(pdf);
-    // tpdf: 1.23.10 — who made it and when is the footer's "Printed … by …" (was a "Generated … (zone) by …" line under the title).
+    // tpdf: 1.23.11 — who made it and when is the footer's "Printed … by …" (was a "Generated … (zone) by …" line under the title).
     for (const t of ['MP', 'TASK', 'MICO360 Platform', 'MICO  ·  Project no. PDO-2026-014', 'MICO-42', 'Monthly sales review', 'Printed 1 Oct 2026, 10:00 by Aisha Khan']) {
       expect(pages[0], t).toContain(t);
     }
     expect(contents[0]).toMatch(/0\.117\d* 0\.352\d* 0\.545\d* scn/); // the #1E5A8B tile
-    // tpdf: 1.23.10 — the header always carries a logo (the built-in one without the company's); no uploaded picture: the badge.
+    // tpdf: 1.23.11 — the header always carries a logo (the built-in one without the company's); no uploaded picture: the badge.
     expect(contents[0]!.match(/\/I\d+ Do/g)).toHaveLength(1);
     expect(pages[0]!.indexOf('MICO-42')).toBeLessThan(pages[0]!.indexOf('Monthly sales review'));
   });
@@ -186,14 +186,14 @@ describe('taskPdf: header', () => {
     for (const [name, projectImage] of [['interlaced PNG', interlaced], ['damaged JPEG', noSize]] as const) {
       const initials = inspectPdf(taskPdf(task({ projectImage }), ctx)); // throws on a broken file
       expect(initials.pages[0], name).toContain('MP');
-      expect(initials.contents[0]!.match(/\/I\d+ Do/g), name).toHaveLength(1); // tpdf: 1.23.10 — the built-in logo only, no project picture
+      expect(initials.contents[0]!.match(/\/I\d+ Do/g), name).toHaveLength(1); // tpdf: 1.23.11 — the built-in logo only, no project picture
       const icon = inspectPdf(taskPdf(task({ projectImage, projectIcon: 'rocket' }), ctx));
       expect(icon.pages[0], name).not.toContain('MP');
       expect(icon.contents[0], name).toMatch(/1 1 1 SCN/);
     }
   });
 
-  // tpdf: 1.23.10 (owner) — the title is 15.5 pt (14, then 13, when it needs more than two lines; was 20/18/16/14) on 14 mm margins (was 54 pt).
+  // tpdf: 1.23.11 (owner) — the title is 15.5 pt (14, then 13, when it needs more than two lines; was 20/18/16/14) on 14 mm margins (was 54 pt).
   it('sets the title from its start edge (left for English, right for Arabic), smaller as it gets longer', () => {
     const margin = 14 * (72 / 25.4);
     const titleLines = (title: string) => linesOf(taskPdf(task({ title }), ctx)).filter((l) => title.includes(l.text) && l.text.length > 2 && l.size >= 12.5);
@@ -275,7 +275,7 @@ describe('taskPdf: external contacts', () => {
     expect(text.indexOf('External contacts')).toBeLessThan(text.indexOf('Description'));
   });
 
-  // tpdf: 1.23.10 (design call 1) — an optional section with nothing in it is left out (was "No external contacts.").
+  // tpdf: 1.23.11 (design call 1) — an optional section with nothing in it is left out (was "No external contacts.").
   it('leaves the section out when a task has none', () => {
     const text = textOf(taskPdf(task({ externalContacts: [] }), ctx));
     expect(text).not.toContain('External contacts');
@@ -313,7 +313,7 @@ describe('taskPdf: description and checklist', () => {
     });
     const lines = linesOf(taskPdf(t, ctx));
     const at = (s: string) => lines.find((l) => l.text === s)!;
-    const margin = 14 * (72 / 25.4); // tpdf: 1.23.10 — 14 mm margins (was 54 pt)
+    const margin = 14 * (72 / 25.4); // tpdf: 1.23.11 — 14 mm margins (was 54 pt)
     expect(at('Gather the figures from finance.').x).toBeCloseTo(margin, 2);
     expect(at('Then compare with last month.').x).toBeCloseTo(margin, 2);
     expect(at('يرجى مراجعة الأرقام مع قسم المالية').x).toBeGreaterThan(250);
@@ -382,7 +382,7 @@ describe('taskPdf: comments', () => {
     const order = ['Figures attached, @aisha please review', 'Thanks @omar, looks good. Ask @stranger too', 'تمت المراجعة', 'I will draft the summary', 'Answering a deleted comment'];
     const ys = order.map((s) => lines.indexOf(body(s)));
     expect(ys).toEqual([...ys].sort((a, b) => a - b));
-    // tpdf: 1.23.10 — 14 mm margins (was 54 pt) and 16 pt steps for replies (was 18).
+    // tpdf: 1.23.11 — 14 mm margins (was 54 pt) and 16 pt steps for replies (was 18).
     const m = 14 * (72 / 25.4);
     expect(body('Figures attached, @aisha please review').x).toBeCloseTo(m, 2);
     expect(body('Thanks @omar, looks good. Ask @stranger too').x).toBeCloseTo(m + 16, 2);
@@ -470,7 +470,7 @@ describe('taskPdf: dependencies and activity', () => {
     expect(text.slice(i('Blocked by') + 1, i('Blocked by') + 4)).toEqual(['Task', 'Status', 'Title']);
   });
 
-  // tpdf: 1.23.10 (design call 1) — with no dependencies at all the section is left out (was "No dependencies.").
+  // tpdf: 1.23.11 (design call 1) — with no dependencies at all the section is left out (was "No dependencies.").
   it('says when one side is empty, and leaves the section out when there are none at all', () => {
     expect(textOf(taskPdf(task({ blocks: [] }), ctx))).toContain('No other task waits for this one.');
     const none = textOf(taskPdf(task({ blockedBy: [], blocks: [] }), ctx));
@@ -571,7 +571,7 @@ describe('taskPdf: flow', () => {
     expect(stranded).toEqual([]);
   }, 120_000);
 
-  // tpdf: 1.23.10 (design call 1: no empty sections) — an empty list's section is left out (was "No description." … "No activity yet.").
+  // tpdf: 1.23.11 (design call 1: no empty sections) — an empty list's section is left out (was "No description." … "No activity yet.").
   it('leaves out the sections of the lists that are empty, keeping the details', () => {
     const text = textOf(taskPdf(task({ description: null, checklist: [], comments: [], attachments: [], blockedBy: [], blocks: [], externalContacts: [], activity: [] }), ctx));
     for (const t of ['Description', 'Checklist', 'Comments', 'Attachments', 'Dependencies', 'Activity', 'External contacts', 'No description.', 'No checklist items.', 'No comments yet.', 'No attachments.', 'No dependencies.', 'No activity yet.']) expect(text, t).not.toContain(t);

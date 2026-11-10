@@ -196,7 +196,7 @@ describe('toThumbnail (a small picture for a document, such as a task’s attach
     const out = (await shrinker.toThumbnail(big))!;
     const meta = await sharp(out).metadata();
     expect(meta.format).toBe('jpeg');
-    // tpdf: 1.23.10 — 200 dpi for the third of a page it is printed on (was 600 pixels).
+    // tpdf: 1.23.11 — 200 dpi for the third of a page it is printed on (was 600 pixels).
     expect([meta.width, meta.height]).toEqual([460, 307]);
     expect(out.length).toBeLessThan(big.length / 10);
     expect(printableImage(out)).toBe(out);
@@ -215,7 +215,7 @@ describe('toThumbnail (a small picture for a document, such as a task’s attach
   });
 });
 
-describe('1.23.10 toDocumentPicture (a logo or a project picture at the size a PDF prints it)', () => {
+describe('1.23.11 toDocumentPicture (a logo or a project picture at the size a PDF prints it)', () => {
   it('makes a big photo 200 dpi for its printed box — a 26 pt badge is 73 pixels — and a JPEG, far smaller', async () => {
     const shrinker = createImageShrinker(quiet());
     const big = await photo(1600, 1600).jpeg({ quality: 92 }).toBuffer();

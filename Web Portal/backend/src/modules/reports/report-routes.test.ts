@@ -242,7 +242,7 @@ describe('Report PDFs: the company (companies)', () => {
     const branded = await makeApp({ pdfBranding });
     const auth = { authorization: `Bearer ${await token(['ADMIN'])}` };
     const all = await branded.inject({ method: 'GET', url: '/api/v1/reports/export.pdf', headers: auth });
-    // tpdf: 1.23.10 — the footer names the company on its own (was "Alpha LLC · MICO360 Tasks · …").
+    // tpdf: 1.23.11 — the footer names the company on its own (was "Alpha LLC · MICO360 Tasks · …").
     const footer = (pdf: Buffer) => inspectPdf(pdf).lines.flat().filter((l) => l.artifact).map((l) => l.text);
     expect(footer(all.rawPayload)).toContain('Alpha LLC');
     const one = await branded.inject({ method: 'GET', url: '/api/v1/reports/export.pdf?projectId=p1', headers: auth });

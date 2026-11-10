@@ -18,7 +18,7 @@ async function main(): Promise<void> {
   mkdirSync(out, { recursive: true });
   const raw = await samplePictures();
   const shrinker = createImageShrinker();
-  // As the routes do (1.23.10): a project's picture and a company's logo through readProjectPicture,
+  // As the routes do (1.23.11): a project's picture and a company's logo through readProjectPicture,
   // sized for the box the header prints them in; a drawn signature cleaned when it is saved.
   const prepare = (b: Buffer, box: { width: number; height: number }) => readProjectPicture('/uploads/x.png', async () => b, shrinker.toPrintable, (x) => shrinker.toDocumentPicture(x, box));
   const pictures = { project: await prepare(raw.project!, PDF_PICTURE_BOX.mark), logo: await prepare(raw.logo!, PDF_PICTURE_BOX.logo), signature: await shrinker.toPrintable(raw.signature!) };

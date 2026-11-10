@@ -1,5 +1,5 @@
 /**
- * 1.23.10 PDF standard — "Preserve all existing data and document content" (owner, 10 Nov).
+ * 1.23.11 PDF standard — "Preserve all existing data and document content" (owner, 10 Nov).
  *
  * For each of the nine PDFs (and a task with everything), the text of the render made before the
  * standard (before-text.json, from the same seeded samples) is checked against a render made now:
@@ -62,7 +62,7 @@ beforeAll(async () => {
   pictures = await samplePictures();
 });
 
-describe('every PDF keeps all of its content under the 1.23.10 standard', () => {
+describe('every PDF keeps all of its content under the 1.23.11 standard', () => {
   for (const name of SAMPLE_NAMES) {
     it(`${name}: every value is still there, nothing is cut, no more pages than before`, () => {
       const old = BEFORE[name];

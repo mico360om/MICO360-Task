@@ -1,5 +1,5 @@
 /**
- * 1.23.10 PDF standard — pagination across every PDF (seeded samples): a heading never ends a page
+ * 1.23.11 PDF standard — pagination across every PDF (seeded samples): a heading never ends a page
  * (orphan heading), no page is blank, and nothing is set under 7.5 pt.
  */
 import { beforeAll, describe, expect, it } from 'vitest';
@@ -15,7 +15,7 @@ beforeAll(async () => {
 /** A heading: a part (12 pt), a section heading (11 pt) or a sub-heading (10 pt), in the semibold face. */
 const isHeading = (l: { size: number; fonts: string[] }) => [PDF_STANDARD.type.part, PDF_STANDARD.type.heading, PDF_STANDARD.type.subheading].includes(l.size as never) && l.fonts.some((f) => /SemiBold|Bold/.test(f));
 
-describe('page furniture (review, 1.23.10)', () => {
+describe('page furniture (review, 1.23.11)', () => {
   it('every later page names the project in its running header (task, minutes, inspection)', () => {
     const pdfs = samplePdfs(pictures);
     for (const [name, project] of [['task-full', 'Rig 3 Overhaul'], ['minutes', 'Rig 3 Overhaul'], ['inspection', 'Rig 3 Overhaul']] as const) {
@@ -36,7 +36,7 @@ describe('page furniture (review, 1.23.10)', () => {
   });
 });
 
-describe('a table too wide for a portrait page (review, 1.23.10)', () => {
+describe('a table too wide for a portrait page (review, 1.23.11)', () => {
   const firstHeader: Record<WideSampleName, string> = { 'report-wide': 'Key', 'mico-ai-wide': 'Certificate1' };
   for (const name of WIDE_SAMPLE_NAMES) {
     it(`${name}: turns landscape without leaving page 1 nearly empty — the table starts on page 1`, () => {

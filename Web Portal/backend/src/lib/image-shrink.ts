@@ -39,7 +39,7 @@ export interface ImageShrinker {
    */
   toThumbnail(content: Buffer): Promise<Buffer | null>;
   /**
-   * 1.23.10: a logo or a project's picture as a PDF prints it — at most 200 dpi for the box it is
+   * 1.23.11: a logo or a project's picture as a PDF prints it — at most 200 dpi for the box it is
    * printed in (`box` in points: a 26 pt badge is 73 pixels), on white, re-encoded once from the
    * original: a PNG for line art, a JPEG for a photo (whichever reads well smaller). Never enlarged;
    * null when it can't be read or the library can't load.

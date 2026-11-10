@@ -209,7 +209,7 @@ export function paginateRows(
     atTop: boolean;
     /** A row split across pages starts on the current page only if this many of its lines fit there (default 2). */
     minLines?: number;
-    /** 1.23.10: lines each later piece of a split row needs for its "(continued)" note (default 0). */
+    /** 1.23.11: lines each later piece of a split row needs for its "(continued)" note (default 0). */
     continuedLines?: number;
   },
 ): TablePages {
@@ -263,7 +263,7 @@ export function paginateRows(
       if (from < n) turn();
     }
   });
-  // 1.23.10 widow control: the table's last page never holds a single row on its own while the page
+  // 1.23.11 widow control: the table's last page never holds a single row on its own while the page
   // before has three or more — that page gives it its last row (a "partially displayed section").
   if (pages.length >= 2) {
     const last = pages[pages.length - 1]!;

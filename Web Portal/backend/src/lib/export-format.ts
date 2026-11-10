@@ -39,7 +39,7 @@ export function formatDateTime(at: Date, timeZone: string): string {
 }
 
 /**
- * 1.23.10: the PDF footer's words — "Printed 10 Nov 2026, 14:05 by Aisha Khan" (owner, 10 Nov), in
+ * 1.23.11: the PDF footer's words — "Printed 10 Nov 2026, 14:05 by Aisha Khan" (owner, 10 Nov), in
  * company time; a copy shared with a client names no one. `name` wraps the name (the PDFs isolate
  * it, so an Arabic name keeps its place).
  */

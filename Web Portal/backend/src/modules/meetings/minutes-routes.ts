@@ -86,7 +86,7 @@ export interface MinutesRouteDeps {
   readProjectImage?: (imageUrl: string) => Promise<Buffer | null>;
   /** Converts a stored picture the PDF can't take as it is (WebP, GIF, some PNGs) into one it can. */
   printableProjectImage?: (raw: Buffer) => Promise<Buffer | null>;
-  /** 1.23.10: makes the project picture the size the header prints it at (≤ 200 dpi); without it, as above. */
+  /** 1.23.11: makes the project picture the size the header prints it at (≤ 200 dpi); without it, as above. */
   fitProjectImage?: (raw: Buffer) => Promise<Buffer | null>;
   /** Board keys of linked tasks (id → key), printed beside their action items. */
   resolveTaskKeys?: (taskIds: string[]) => Promise<Record<string, string>>;

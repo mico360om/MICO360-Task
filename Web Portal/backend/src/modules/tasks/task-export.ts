@@ -294,7 +294,7 @@ async function readPicture(storageKey: string, reader: PictureReader): Promise<B
 const MUTED: RGB = [0.42, 0.4, 0.38];
 const THREAD: RGB = [0.82, 0.8, 0.78];
 
-/** The title's size (1.23.10): 15.5 pt while it takes at most two lines, else 14 pt, else 13 pt over as many lines as it needs. */
+/** The title's size (1.23.11): 15.5 pt while it takes at most two lines, else 14 pt, else 13 pt over as many lines as it needs. */
 export function titleSize(title: string, width: number): number {
   const lines = (size: number) => layoutText(title, { size, bold: true, maxWidth: width }).length;
   return [PDF_STANDARD.type.title, 14].find((size) => lines(size) <= 2) ?? 13;
@@ -337,7 +337,7 @@ function meetingText(meeting: TaskExportData['meeting'], tz: string): string {
   return meeting.startAt ? `${isolate(meeting.title)} · ${day(meeting.startAt, tz)}` : isolate(meeting.title);
 }
 
-/** 1.23.10: the summary strip's status, priority and due colours — the site's one colour scheme. */
+/** 1.23.11: the summary strip's status, priority and due colours — the site's one colour scheme. */
 function statusColors(category: string) {
   return statusTones(category).light;
 }
@@ -348,7 +348,7 @@ function priorityColors(priority: string) {
 export function taskPdf(t: TaskExportData, ctx: TaskExportContext): Buffer {
   const tz = ctx.timeZone;
   const brand = hexToRgb(BRAND);
-  // 1.23.10 footer (owner): the company — the project's on a site with 2+ companies, else the site's —
+  // 1.23.11 footer (owner): the company — the project's on a site with 2+ companies, else the site's —
   // "Printed … by …" and the page number; the company's logo in the headers.
   const doc = new PdfDocument({
     title: `${t.key} · ${t.title}`,
@@ -414,7 +414,7 @@ export function taskPdf(t: TaskExportData, ctx: TaskExportContext): Buffer {
     );
   });
 
-  // 1.23.10: the optional sections below are left out when they have nothing in them (design call 1).
+  // 1.23.11: the optional sections below are left out when they have nothing in them (design call 1).
 
   // External contacts: the people outside the company responsible for it, each with every detail
   // given — name; company and designation; email and phone; remarks — kept on one page.

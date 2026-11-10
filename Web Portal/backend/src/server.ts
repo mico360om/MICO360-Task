@@ -623,7 +623,7 @@ async function main(): Promise<void> {
   // Attached pictures (tasks and chat) are stored smaller; if the picture library won't load on
   // this server they are kept at full size, which the log and /health say.
   const imageShrinker = createImageShrinker({ warn: (msg, meta) => logger.warn(msg, meta) });
-  /** 1.23.10: a project's picture at 200 dpi for the PDF header's 26 pt badge. */
+  /** 1.23.11: a project's picture at 200 dpi for the PDF header's 26 pt badge. */
   const fitProjectImage = (raw: Buffer) => imageShrinker.toDocumentPicture(raw, PDF_PICTURE_BOX.mark);
   void imageShrinker.check().then((on) => {
     if (on) logger.info('Attached pictures are made smaller to save space');
@@ -1343,7 +1343,7 @@ async function main(): Promise<void> {
     settings: settingsService,
     readImage: async (url) => (url.startsWith('/uploads/') && attachmentStorage.read ? attachmentStorage.read(url.slice('/uploads/'.length)) : null),
     printable: (raw) => imageShrinker.toPrintable(raw),
-    // 1.23.10: logos printed at 200 dpi for the 26 pt header, re-encoded once (smaller PDFs).
+    // 1.23.11: logos printed at 200 dpi for the 26 pt header, re-encoded once (smaller PDFs).
     documentPicture: (raw) => imageShrinker.toDocumentPicture(raw, PDF_PICTURE_BOX.logo),
     apiBaseUrl: env.API_BASE_URL,
   });
@@ -2344,7 +2344,7 @@ async function main(): Promise<void> {
       url.startsWith('/uploads/') && attachmentStorage.read ? attachmentStorage.read(url.slice('/uploads/'.length)) : null,
     // …and a WebP, GIF or unusual PNG picture is converted so the logo still prints.
     printableProjectImage: imageShrinker.toPrintable,
-    // 1.23.10: …and every project picture is printed at 200 dpi for its 26 pt badge (smaller PDFs).
+    // 1.23.11: …and every project picture is printed at 200 dpi for its 26 pt badge (smaller PDFs).
     fitProjectImage,
     activityService,
     auditService,

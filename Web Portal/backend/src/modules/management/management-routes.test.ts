@@ -153,7 +153,7 @@ describe('Management routes', () => {
       'Management overview',
       'All projects',
       'Projects: All · Owner: Anyone · Status: Planning, Active, On hold · Period: last 4 weeks (4 Oct – 27 Oct 2026)',
-      'Printed 27 Oct 2026, 10:00 by Aisha Khan', // tpdf: 1.23.10 footer words (was "Generated … (zone) by …")
+      'Printed 27 Oct 2026, 10:00 by Aisha Khan', // tpdf: 1.23.11 footer words (was "Generated … (zone) by …")
       'Project health',
       'Rig Inspection Portal',
       'Milestone “Handover” is 3 days late',
@@ -166,7 +166,7 @@ describe('Management routes', () => {
       'Trends',
       'Page 1 of',
     ]) {
-      // tpdf: 1.23.10 — the portrait page wraps long names inside their cells, so line breaks are ignored here.
+      // tpdf: 1.23.11 — the portrait page wraps long names inside their cells, so line breaks are ignored here.
       expect(text.replace(/\s+/g, ''), s).toContain(s.replace(/\s+/g, ''));
     }
   });
@@ -261,7 +261,7 @@ describe('Management PDF: the company (companies)', () => {
     const app = await makeApp({}, DATA, { pdfBranding });
     const headers = await auth('admin', ['ADMIN']);
     const all = await app.inject({ method: 'GET', url: '/api/v1/management/overview.pdf', headers });
-    // tpdf: 1.23.10 — the footer names the company on its own (was "Alpha LLC · MICO360 Tasks · …").
+    // tpdf: 1.23.11 — the footer names the company on its own (was "Alpha LLC · MICO360 Tasks · …").
     const footer = (pdf: Buffer) => inspectPdf(pdf).lines.flat().filter((l) => l.artifact).map((l) => l.text);
     expect(footer(all.rawPayload)).toContain('Alpha LLC');
     const one = await app.inject({ method: 'GET', url: '/api/v1/management/overview.pdf?projectIds=rig', headers });

@@ -215,7 +215,7 @@ export function reportPdf(b: ReportBundle, meta: ReportMeta, sections: ReportSec
     t.completedAt ? formatDay(wallClock(t.completedAt, meta.timeZone).slice(0, 10)) : '—',
   ]);
   const tasksWide = sections.includes('tasks') && PdfDocument.needsLandscape(taskCols, taskRows);
-  // 1.23.10: portrait (owner: documents stay portrait); a section whose table can't fit across a
+  // 1.23.11: portrait (owner: documents stay portrait); a section whose table can't fit across a
   // portrait page turns landscape by itself — from the first page when it is the report's first
   // section, so page 1 is never left with its header alone. The footer: the company, "Printed … by …", the page.
   const doc = new PdfDocument({

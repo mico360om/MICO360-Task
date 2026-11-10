@@ -48,7 +48,7 @@ export interface ClientMinutesPdfData {
 export function buildClientMinutesPdf(data: ClientMinutesPdfData): Buffer {
   const { brand, project, meeting, content: c } = data;
   const tz = resolveMinutesTimeZone(meeting.timeZone, data.companyTimeZone);
-  // The staff minutes' look (see meetings/minutes.ts). 1.23.10 footer: the company, when it was
+  // The staff minutes' look (see meetings/minutes.ts). 1.23.11 footer: the company, when it was
   // printed — no one's name, a client's copy — and the page; the website, address and "Shared with you through …".
   const doc = new PdfDocument({
     title: `Minutes of Meeting: ${meeting.title}`,

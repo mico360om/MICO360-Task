@@ -314,7 +314,7 @@ export interface AppDeps extends AuthRouteDeps {
   readProjectImage?: (imageUrl: string) => Promise<Buffer | null>;
   /** Converts a picture the PDF can't take as stored (WebP, GIF, some PNGs) into one it can. */
   printableProjectImage?: (raw: Buffer) => Promise<Buffer | null>;
-  /** 1.23.10: makes a project picture the size a PDF header prints it at (≤ 200 dpi). */
+  /** 1.23.11: makes a project picture the size a PDF header prints it at (≤ 200 dpi). */
   fitProjectImage?: (raw: Buffer) => Promise<Buffer | null>;
   /** Where meetings' final minutes (Final MOM) are kept. */
   finalMinutesRepository?: FinalMinutesRepository;

@@ -35,7 +35,7 @@ export function humanizeColumn(key: string): string {
 export function toSimplePdf({ title, columns, rows, footer }: PdfTable & { footer?: PdfFooter }): Buffer {
   const header = columns.map((c) => ({ header: humanizeColumn(c) }));
   const cells = rows.map((r) => columns.map((c) => cellText(r[c])));
-  // 1.23.10: the PDF standard — portrait unless the table can't fit across it; the title on every later page.
+  // 1.23.11: the PDF standard — portrait unless the table can't fit across it; the title on every later page.
   const doc = new PdfDocument({ title, runningTitle: title, orientation: PdfDocument.needsLandscape(header, cells) ? 'landscape' : 'portrait', footer: footer ?? {} });
   doc.documentTitle(title);
   doc.text(`${rows.length} ${rows.length === 1 ? 'row' : 'rows'}`, { size: PDF_STANDARD.type.small, color: [0.42, 0.4, 0.38], gap: 6 });

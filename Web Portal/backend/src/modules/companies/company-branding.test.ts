@@ -82,7 +82,7 @@ describe('company branding', () => {
     expect(b.clientPage(brand)).toBeNull();
   });
 
-  it('1.23.10: a company logo is made the size the PDF header prints it at, when the picture library can; the email keeps its address', async () => {
+  it('1.23.11: a company logo is made the size the PDF header prints it at, when the picture library can; the email keeps its address', async () => {
     const w = world();
     w.add('prolens', { logoUrl: '/uploads/companies/a/logo.png' });
     w.projects.set('P1', { mainCompanyId: 'prolens', companyIds: ['prolens'] });

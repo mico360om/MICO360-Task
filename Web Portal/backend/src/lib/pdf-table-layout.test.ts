@@ -119,7 +119,7 @@ describe('table rows: pages', () => {
     expect(plan.pages.length).toBeGreaterThan(2);
   });
 
-  it('1.23.10: never leaves one row alone on a table’s last page when the page before can give it another', () => {
+  it('1.23.11: never leaves one row alone on a table’s last page when the page before can give it another', () => {
     // Rows of one line (16 pt): 11 fit under the header on the first page (200 − 16), 17 on a fresh one.
     const lines = Array.from({ length: 12 }, () => 1);
     const plan = paginateRows(lines, base);
@@ -159,7 +159,7 @@ describe('table rows: pages', () => {
     expect(last.map((p) => p.row)).toEqual([1, 2]);
   });
 
-  it('1.23.10: each later piece of a split row leaves room for its "(continued)" line, so every page still fits', () => {
+  it('1.23.11: each later piece of a split row leaves room for its "(continued)" line, so every page still fits', () => {
     const plan = paginateRows([2, 70, 1], { ...base, continuedLines: 1 });
     const pieces = flat(plan.pages).filter((p) => p.row === 1);
     expect(pieces.length).toBeGreaterThan(2);

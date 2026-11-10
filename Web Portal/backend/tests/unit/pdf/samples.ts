@@ -1,5 +1,5 @@
 /**
- * The PDF standard (1.23.10): one set of seeded sample data for every PDF the server makes, so the
+ * The PDF standard (1.23.11): one set of seeded sample data for every PDF the server makes, so the
  * same data can be rendered before and after a change — the content-preservation tests compare
  * the text of both renders, and render-samples.ts writes them out for the owner's before/after.
  *
@@ -29,7 +29,7 @@ export interface SamplePictures {
 export const SAMPLE_NAMES = ['task', 'task-full', 'report', 'minutes', 'client-minutes', 'client-task-list', 'inspection', 'management', 'mico-ai', 'simple'] as const;
 export type SampleName = (typeof SAMPLE_NAMES)[number];
 
-/** Samples whose first table can't fit across a portrait page (review, 1.23.10): they must not leave page 1 nearly empty. */
+/** Samples whose first table can't fit across a portrait page (review, 1.23.11): they must not leave page 1 nearly empty. */
 export const WIDE_SAMPLE_NAMES = ['report-wide', 'mico-ai-wide'] as const;
 export type WideSampleName = (typeof WIDE_SAMPLE_NAMES)[number];
 

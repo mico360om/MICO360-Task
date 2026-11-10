@@ -85,7 +85,7 @@ export function buildManagementPdf(o: ManagementOverview, meta: { generatedBy: s
     formatDay(zonedDayKey(new Date(p.lastActivityAt), o.timeZone)),
     p.reasons.map((r) => r.text).join('; '),
   ]);
-  // 1.23.10: portrait (owner: documents stay portrait); when the health table can't fit across a
+  // 1.23.11: portrait (owner: documents stay portrait); when the health table can't fit across a
   // portrait page, the whole overview is landscape (as before), so page 1 keeps its tiles and table
   // together; another table too wide turns its own section landscape. The footer: the company (its
   // own on a site with 2+ companies, else the site's), "Printed … by …" and the page; the company's

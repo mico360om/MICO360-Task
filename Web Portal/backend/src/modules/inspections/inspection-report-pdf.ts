@@ -60,10 +60,10 @@ export interface InspectionReportData {
 }
 
 const MUTED: RGB = [0.42, 0.4, 0.38];
-/** 1.23.10: failed and passed results in the site's colour scheme's text tones. */
+/** 1.23.11: failed and passed results in the site's colour scheme's text tones. */
 const DANGER: RGB = hexToRgb(OVERDUE_TONES.light.text);
 const SUCCESS: RGB = hexToRgb(STATUS_TONES.DONE.light.text);
-/** 1.23.10: the PDF standard's sizes (body 9.5, headings 11, notes 8, tables 8.5, never under 7.5). */
+/** 1.23.11: the PDF standard's sizes (body 9.5, headings 11, notes 8, tables 8.5, never under 7.5). */
 const TYPE = { body: PDF_STANDARD.type.body, heading: PDF_STANDARD.type.heading, note: PDF_STANDARD.type.small, table: PDF_STANDARD.type.table, tableMin: PDF_STANDARD.type.tableMin } as const;
 const MAX_SLUG = 60;
 /** A note longer than this is cut short in its table cell and printed in full under its section's table. */
@@ -106,7 +106,7 @@ export function buildInspectionPdf(d: InspectionReportData): Buffer {
   const { brand, project, report: r, staff } = d;
   const tz = d.timeZone;
   const when = (iso: string | null) => (iso ? formatDateTime(new Date(iso), tz) : '—');
-  // 1.23.10 footer: the company, "Printed … by …" (the staff copy; a client's copy names no one) and
+  // 1.23.11 footer: the company, "Printed … by …" (the staff copy; a client's copy names no one) and
   // the page; the website and support address under them (and, on a client's copy, the postal
   // address and "Shared with you through …").
   const reach = [brand.websiteUrl, brand.supportEmail].filter((b): b is string => Boolean(b)).map(isolate).join('  ·  ');
@@ -170,7 +170,7 @@ export function buildInspectionPdf(d: InspectionReportData): Buffer {
   let n = 0;
   const numbered = r.sections.map((s, si) => ({ ...s, rows: s.items.map((item, ii) => ({ item, no: ++n, followUp: staff?.followUps[si]?.[ii] ?? null })) }));
   const tableOpts = (wide: number) => ({ size: TYPE.table, fit: { minSize: TYPE.tableMin }, wide });
-  /** 1.23.10 (owner): a table that can't fit across a portrait page turns its section landscape, then back. */
+  /** 1.23.11 (owner): a table that can't fit across a portrait page turns its section landscape, then back. */
   const landscapeFor = (columns: TableColumn[], rows: string[][], draw: () => void) => {
     const wide = PdfDocument.needsLandscape(columns, rows);
     if (wide) doc.orient('landscape');

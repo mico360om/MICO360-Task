@@ -25,7 +25,7 @@ export interface TaskExportRouteDeps {
   readProjectImage?: (imageUrl: string) => Promise<Buffer | null>;
   /** Converts a project picture the PDF can't take as stored (WebP, GIF, some PNGs). */
   printableProjectImage?: (raw: Buffer) => Promise<Buffer | null>;
-  /** 1.23.10: makes the project picture the size its badge prints it at (≤ 200 dpi); without it, as above. */
+  /** 1.23.11: makes the project picture the size its badge prints it at (≤ 200 dpi); without it, as above. */
   fitProjectImage?: (raw: Buffer) => Promise<Buffer | null>;
   /** Companies: the task's project's company brand on its PDF (name with 2+ companies, logo); absent: the site's. */
   pdfBrand?: (taskId: string) => Promise<PdfBrand>;

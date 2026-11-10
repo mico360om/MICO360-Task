@@ -172,7 +172,7 @@ const MUTED: RGB = [0.42, 0.4, 0.38];
 const INK: RGB = [0.11, 0.1, 0.09];
 
 /**
- * The minutes' own type sizes (points). The rest comes from the PDF standard (1.23.10): 9.5 pt
+ * The minutes' own type sizes (points). The rest comes from the PDF standard (1.23.11): 9.5 pt
  * text and notes, 10 pt sub-headings, 11 pt section headings, 8.5 pt tables, 14 mm margins, a
  * one-row header and one slim summary strip.
  */
@@ -238,7 +238,7 @@ export function minutesTitle(doc: PdfDocument, title: string): void {
 }
 
 /**
- * 1.23.10: the minutes' footer (the staff copy and the client's): the company, when it was printed
+ * 1.23.11: the minutes' footer (the staff copy and the client's): the company, when it was printed
  * (and, on the staff copy, by whom) and the page number; the website and support address, and the
  * postal address, under them; a client's copy also says it was shared through the product.
  */
@@ -367,7 +367,7 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
   const final = data.final ?? null;
   const approved = final?.status === 'FINAL';
 
-  // 1.23.10 footer (owner): the company, "Printed … by …" and the page number; the website, support
+  // 1.23.11 footer (owner): the company, "Printed … by …" and the page number; the website, support
   // address and postal address under them. Each user-supplied fragment is bidi-isolated so an Arabic
   // name can't reorder its neighbours.
   const doc = new PdfDocument({

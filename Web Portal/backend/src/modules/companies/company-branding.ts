@@ -82,7 +82,7 @@ export interface CompanyBrandingDeps {
   readImage(url: string): Promise<Buffer | null>;
   /** Converts a picture the PDF can't take as stored (WebP, see-through PNGs) — the picture library. */
   printable?(raw: Buffer): Promise<Buffer | null>;
-  /** 1.23.10: makes a logo the size the PDF header prints it at (≤ 200 dpi) — the picture library. */
+  /** 1.23.11: makes a logo the size the PDF header prints it at (≤ 200 dpi) — the picture library. */
   documentPicture?(raw: Buffer): Promise<Buffer | null>;
   /** Where '/uploads/…' is served (the API's public address), for logos in emails. */
   apiBaseUrl: string;

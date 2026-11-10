@@ -1,5 +1,5 @@
 /**
- * 1.23.10 — the PDF standard every PDF is set on (owner, 10 Nov): A4, 14 mm side and 12 mm top/bottom
+ * 1.23.11 — the PDF standard every PDF is set on (owner, 10 Nov): A4, 14 mm side and 12 mm top/bottom
  * margins, one font family, body 9.5 pt, headings 11 pt, tables 8.5 pt (never under 7.5 pt), a slim
  * header (project picture left, company logo right, ≤ 26 pt), a running header and a footer on every
  * page (company · Printed … by … · Page X of Y), one slim summary strip, automatic landscape for a

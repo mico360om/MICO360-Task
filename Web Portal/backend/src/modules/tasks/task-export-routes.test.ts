@@ -98,7 +98,7 @@ describe('Task export routes', () => {
     expect(readProjectImage).not.toHaveBeenCalled();
   });
 
-  it('1.23.10: makes the project picture the size its 26 pt badge prints it at (any picture, a big JPEG too)', async () => {
+  it('1.23.11: makes the project picture the size its 26 pt badge prints it at (any picture, a big JPEG too)', async () => {
     const big = await sharp({ create: { width: 1200, height: 1200, channels: 3, background: '#aa3322' } }).jpeg().toBuffer();
     const small = await sharp({ create: { width: 73, height: 73, channels: 3, background: '#aa3322' } }).png().toBuffer();
     const fitProjectImage = vi.fn(async () => small);
@@ -267,7 +267,7 @@ describe('Task export routes', () => {
 describe('Task export routes: the project’s company (companies)', () => {
   const widths = (pdf: Buffer) => [...inspectPdf(pdf).objects.values()].filter((d) => /\/Subtype \/Image/.test(d)).map((d) => Number(/\/Width (\d+)/.exec(d)?.[1]));
 
-  // tpdf: 1.23.10 (owner) — the footer names the company on its own (was "Alpha LLC · MICO360 Tasks · Generated …").
+  // tpdf: 1.23.11 (owner) — the footer names the company on its own (was "Alpha LLC · MICO360 Tasks · Generated …").
   it('the PDF names the company in its footer and carries its logo; the workbook is unchanged', async () => {
     const asked: string[] = [];
     const app = await makeApp({ extra: { pdfBrand: async (id) => { asked.push(id); return { companyName: 'Alpha LLC', logo: solidPng(222, 60) }; } } });

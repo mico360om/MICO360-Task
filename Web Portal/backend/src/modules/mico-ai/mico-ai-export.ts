@@ -131,7 +131,7 @@ export function tableXlsx(d: TableExport): Buffer {
 // ── The PDF report ──────────────────────────────────────────────────────────────────────────
 // One text face throughout (IBM Plex Sans, with Noto Naskh Arabic for Arabic) on a fixed scale;
 // the title and the section headings use the brand's heading face, as every MICO360 PDF does.
-/** 1.23.10: the PDF standard's sizes (body 9.5, headings 11, notes 8, tables 8.5, never under 7.5). */
+/** 1.23.11: the PDF standard's sizes (body 9.5, headings 11, notes 8, tables 8.5, never under 7.5). */
 const TYPE = { body: PDF_STANDARD.type.body, heading: PDF_STANDARD.type.heading, note: PDF_STANDARD.type.small, table: PDF_STANDARD.type.table, tableMin: PDF_STANDARD.type.tableMin } as const;
 const NUMERIC_KINDS = new Set<CellKind>(['number', 'percent', 'days']);
 /** Kinds whose cells read best on one line (when the width allows it). */
@@ -147,7 +147,7 @@ function pdfColumns(t: AnswerTable): TableColumn[] {
 }
 
 /**
- * The page shape for a table (1.23.10, owner: documents stay portrait): portrait while its columns
+ * The page shape for a table (1.23.11, owner: documents stay portrait): portrait while its columns
  * fit across a portrait page without breaking a word, the type going down to 7.5 pt at the least;
  * otherwise its section turns landscape. (A landscape table that still doesn't fit breaks long words
  * inside their cells. Nothing is ever cut off or drawn over the next column.)
@@ -172,7 +172,7 @@ const clipped = (text: string, n: number) => (text.length > n ? `${text.slice(0,
  */
 function reportPdf(r: { title: string; details: string[]; runningTitle: string; question: string; text: string; sources: string | null; tables: AnswerTable[]; made: Made; company?: PdfBrand | null }): Buffer {
   const tables = r.tables.map((t) => ({ t, columns: pdfColumns(t), rows: pdfRows(t), shape: pageOrientation(pdfColumns(t), pdfRows(t)) }));
-  // 1.23.10: portrait, a table too wide for it turning its own section landscape — from the first
+  // 1.23.11: portrait, a table too wide for it turning its own section landscape — from the first
   // page when it is the first table, so the question and answer share its page (never a page 1 left
   // nearly empty); the footer: the company (its own on a site with 2+ companies, else the site's),
   // "Printed … by …" and the page.
@@ -233,7 +233,7 @@ export function tablePdf(d: TableExport, company?: PdfBrand | null): Buffer {
   return reportPdf({
     company,
     title: d.table.title,
-    // 1.23.10: when and by whom is in the footer ("Printed … by …").
+    // 1.23.11: when and by whom is in the footer ("Printed … by …").
     details: chat ? [`Chat: ${chat}`] : [],
     runningTitle: `MICO AI · ${chat || oneLine(d.question) || d.table.title}`,
     question: d.question,
