@@ -14,6 +14,32 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### New features
+- A new daily email: wider (720 px on a computer, fitting any phone), compact and clear, in the site's colour
+  scheme and readable in light and dark mode, in Outlook, Gmail and phone mail apps. It opens with **Today at a
+  glance** — your open, in progress, not started and overdue tasks and how many you finished this week (Overdue
+  turns red when anything is late) — then **This week** (how many of this week's tasks are done, with a bar, and
+  the tasks you finished each day of the last 7 days against the week before) beside **By priority** (urgent,
+  high, normal, low, each with a bar). Then **Overdue** ("3 days late", with a red edge), **Due today**
+  ("today 14:00"), **Coming up** (the next 7 days, and tasks that start on a later day) and **Other open tasks**
+  (the rest, by project — nothing is left out), **Today's meetings** and **Completed yesterday**. Every task shows
+  its number, title, project, status and priority (word and colour), its day and, when it has one, its checklist
+  ("4/7 · 57%" with a small bar). Your week starts on your own week start and every day and time is in your own
+  time zone.
+- For people who run projects (and administrators, for the projects they run): **Your projects** — each project's
+  completion bar (as the Projects page counts it), how many tasks are overdue and how many wait for your approval
+  — above the list of others' overdue and waiting tasks. Only projects you can see.
+- Settings → Daily email has a switch for every part, in the email's order. The five new parts are on; if you had
+  turned "Your tasks" or "Recently completed" off, the new parts that go with them stay off. The phone app's and
+  the extension's switches keep working as before.
+- System settings → Daily email → **Preview my email**: your own email as it would be sent now, at a computer's
+  or a phone's width — it works before email is set up, and sends nothing.
+
+### Improvements
+- The daily email stays within Gmail's size limit on busy days by trimming the less urgent lists first (overdue
+  and due-today tasks keep the most rows), and says how many more there are and where. An email with nothing
+  in it is still not sent.
+
 ## [1.23.9] - 2026-11-10
 
 ### New features
