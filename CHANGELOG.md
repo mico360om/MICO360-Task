@@ -34,6 +34,16 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   on your account.
 - Words that are cut short — a task, project, person or file name — show in full when you point at them,
   tab to them, or press and hold on a touch screen.
+- Tasks for the future: the New and Edit task form has a Start date. A task that starts on a later day
+  waits until then — it is on that day's board, not today's, and the form says "Scheduled for 20 Nov".
+  Until its day it is under "Upcoming" in My Tasks and in the project's task list, and out of today's
+  lists, the Open and Overdue counts, My Priorities and the due-date reminders; the calendar, the Timeline,
+  Workload and the daily email's new "Coming up" part still show it. On its start day it is like any task.
+  The people on it are told when it is assigned ("You were assigned a task — starts 20 Nov") and again the
+  morning it starts ("A task starts today", once). This works for tasks made on the website, the Android
+  app, the Chrome extension, with MICO AI, from meeting notes and from a project template that starts later.
+  Moving a not-started task's start date to a later day moves it to that day; a task already under way
+  stays where it is; moving the start to today puts it back on today's board. Existing tasks aren't moved.
 
 ### Improvements
 - The Timeline fills the window: its chart grows to the window's height and scrolls by itself, with the
