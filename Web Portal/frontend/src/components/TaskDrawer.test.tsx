@@ -787,15 +787,15 @@ describe('TaskDrawer — clients (1.23)', () => {
   const clientComment = { id: 'c3', body: 'The gauge photo is missing.', authorName: 'Hamad Al Busaidi', organisation: 'Petroleum Development Oman', fromClient: true, createdAt: now };
   const staffComment = { id: 'c2', body: 'Someone else’s comment', authorName: 'Omar Ahmed', createdAt: now };
 
-  it('a client’s comment shows its writer with a Client mark and their organisation; only it offers Reply', () => {
+  it('a client’s comment shows its writer with a Client mark and their organisation; every comment offers Reply (owner, 10 Nov)', () => {
     render(<TaskDrawer task={task} checklist={[]} comments={[staffComment, clientComment]} onAddComment={vi.fn()} onReplyComment={vi.fn()} onClose={vi.fn()} />);
     const item = screen.getByText('The gauge photo is missing.').closest('li')!;
     expect(within(item).getByText('Hamad Al Busaidi')).toBeInTheDocument();
     expect(within(item).getByText('Client')).toBeInTheDocument();
     expect(within(item).getByText('Petroleum Development Oman')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Reply to Hamad Al Busaidi' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Reply to Omar Ahmed' })).toBeNull();
-    // The tick is only ever in a reply to a client: not in the main comment box.
+    expect(screen.getByRole('button', { name: 'Reply to Omar Ahmed' })).toBeInTheDocument();
+    // The tick is only ever in a reply in a client's thread: not in the main comment box.
     expect(screen.queryByRole('checkbox', { name: 'Visible to client' })).toBeNull();
   });
 
@@ -844,8 +844,8 @@ describe('TaskDrawer — clients (1.23)', () => {
     const shown = screen.getByText('Photo added').closest('li')!;
     expect(within(shown).getByText('Visible to client')).toBeInTheDocument();
     expect(within(screen.getByText('Internal: crew to re-check').closest('li')!).queryByText('Visible to client')).toBeNull();
-    // A reply isn't offered a reply of its own.
-    expect(screen.queryByRole('button', { name: 'Reply to Omar Ahmed' })).toBeNull();
+    // Owner, 10 Nov: a reply can be answered too — in the same thread (one level deep).
+    expect(screen.getAllByRole('button', { name: 'Reply to Omar Ahmed' })).toHaveLength(2);
   });
 
   it('a task the client accepted says so in its header, with the day', () => {
