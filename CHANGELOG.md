@@ -42,8 +42,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   room there is, the last of a row stretches, cards in a row end level, and its lists show more rows on a
   tall screen.
 - One spacing for cards and page headers on every page, the Client portal included; Day | Month on the
-  board keeps its words on a phone; the Client portal's bell count and the Dashboard's welcome band are
-  easier to read in dark mode.
+  board keeps its words on a phone; the Client portal's bell count, the Dashboard's welcome band and the
+  brand-coloured buttons when you point at them (Comment, Send) are easier to read in dark mode.
 
 ## [1.23.8] - 2026-11-10
 
