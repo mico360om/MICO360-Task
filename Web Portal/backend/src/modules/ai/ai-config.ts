@@ -49,6 +49,11 @@ export interface AiModel {
   available: boolean; // detected from the provider on sync
   /** When the provider released the model (seconds since 1970), if it says: newer is recommended first. */
   created?: number;
+  /**
+   * MICO360 AI: when the provider's list first left it out (that list omits busy nodes' models for a
+   * while). It stays available until MISSING_GRACE_MS have passed; absent while the list has it.
+   */
+  missingSince?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -267,12 +272,16 @@ export function setDefault(config: AiConfig, capability: string, modelId: string
 }
 
 // ── Provider sync (mark availability + auto-detect new models) ───────────────
+/** MICO360 AI: how long a model may be left out of its list before it counts as gone. */
+export const MISSING_GRACE_MS = 3 * 24 * 60 * 60 * 1000;
+
 /**
  * Apply a provider's current model list: known models are marked available or not (and get the
  * provider's name for them unless an admin renamed them), new ones are added switched off with
  * what they can do. The first time a provider's list loads and none of its models is on, its
  * recommended chat model is switched on, so AI works right after connecting; after that the
- * admin's on/off choices are never changed.
+ * admin's on/off choices are never changed. MICO360 AI's models left out of its list stay
+ * available for MISSING_GRACE_MS (its list omits a busy node's models for a while).
  */
 export function applySync(config: AiConfig, providerId: string, remoteModels: Array<string | RemoteModel>, meta: Meta): AiConfig {
   const provider = requireProvider(config, providerId);
@@ -283,15 +292,24 @@ export function applySync(config: AiConfig, providerId: string, remoteModels: Ar
     if (key && !remote.has(key)) remote.set(key, { ...m, key });
   }
   const known = new Set(config.models.filter((m) => m.providerId === providerId).map((m) => m.modelKey));
+  // MICO360 AI lists only the models of nodes accepting work right now: one left out may be on a busy
+  // node, so it stays available for a while (the platform itself then answers with a substitute or a 503).
+  const graceful = provider.preset === 'mico360';
+  const nowMs = Date.parse(meta.now);
 
   // Update availability of known models.
   let models = config.models.map((m) => {
     if (m.providerId !== providerId) return m;
     const r = remote.get(m.modelKey);
     const renamed = m.displayName !== m.modelKey && m.displayName !== friendlyModelName(m.modelKey);
+    const { missingSince, ...rest } = m;
+    const since = missingSince ?? meta.now;
+    const presence = r || !graceful
+      ? { available: Boolean(r) }
+      : { available: m.available && !(nowMs - Date.parse(since) >= MISSING_GRACE_MS), missingSince: since };
     return {
-      ...m,
-      available: Boolean(r),
+      ...rest,
+      ...presence,
       ...(r?.displayName && !renamed ? { displayName: r.displayName } : {}),
       ...(r?.created !== undefined && m.created === undefined ? { created: r.created } : {}),
       updatedAt: meta.now,

@@ -90,8 +90,11 @@ export function validateProviderUrl(raw: string, allowPrivateHosts = false): str
  */
 const HTTPS_ONLY_HOSTS = new Set(['ai.mico360.com']);
 
-function upgradeToHttps(url: URL): void {
-  if (url.protocol === 'http:' && HTTPS_ONLY_HOSTS.has(url.hostname.replace(/\.$/, '').toLowerCase())) url.protocol = 'https:';
+/** Switch an http URL to https when its host speaks only HTTPS; true when it was switched. */
+function upgradeToHttps(url: URL): boolean {
+  if (url.protocol !== 'http:' || !HTTPS_ONLY_HOSTS.has(url.hostname.replace(/\.$/, '').toLowerCase())) return false;
+  url.protocol = 'https:';
+  return true;
 }
 
 /**
@@ -105,9 +108,7 @@ export function httpsOnlyAddress(address: string): string {
   } catch {
     return address;
   }
-  if (url.protocol !== 'http:') return address;
-  upgradeToHttps(url);
-  return url.protocol === 'https:' ? address.replace(/^\s*http:/i, 'https:') : address;
+  return upgradeToHttps(url) ? address.replace(/^\s*http:/i, 'https:') : address;
 }
 
 export type LookupAll = (hostname: string) => Promise<Array<{ address: string }>>;

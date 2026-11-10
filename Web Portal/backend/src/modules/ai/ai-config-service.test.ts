@@ -187,6 +187,36 @@ describe('AiConfigService: connecting loads the models', () => {
     expect(cfg.providers[0]!.lastSyncError).toMatch(/HTTP 503/);
     expect(cfg.models[0]!.available).toBe(true); // nothing changed
   });
+
+  // MICO360 AI lists no models while none of its nodes is accepting work (busy, draining) — not "none exist".
+  const mico = { name: 'MICO360 AI', kind: 'custom' as const, preset: 'mico360' as const, apiBaseUrl: 'https://ai.mico360.com:5310/v1', apiKey: 'mico_k' };
+  it('MICO360 AI: an empty list keeps every model as it was and says why', async () => {
+    const answer = { models: ['llama3.1:latest'] };
+    const fetchImpl = vi.fn(async () => json({ object: 'list', data: answer.models.map((id) => ({ id, object: 'model', created: 1, owned_by: 'mico360' })) }));
+    const { svc } = make(fetchImpl as unknown as typeof fetch);
+    await svc.addProvider(mico, actor);
+    answer.models = [];
+    await expect(svc.syncProvider('id1', actor)).rejects.toThrow(/listed no models right now/);
+    const cfg = await svc.getConfig();
+    expect(cfg.models[0]).toMatchObject({ modelKey: 'llama3.1:latest', enabled: true, available: true });
+    expect(cfg.providers[0]!.lastSyncError).toMatch(/AI nodes may be busy or offline/);
+  });
+
+  it('MICO360 AI: connecting while it lists no models saves it with that note', async () => {
+    const { svc } = make(vi.fn(async () => json({ object: 'list', data: [] })) as unknown as typeof fetch);
+    const cfg = await svc.addProvider(mico, actor);
+    expect(cfg.providers[0]!.lastSyncError).toMatch(/listed no models right now/);
+  });
+
+  it('other providers: an empty list is still an empty list', async () => {
+    const answer = { models: ['gpt-4o-mini'] };
+    const fetchImpl = vi.fn(async () => json({ data: answer.models.map((id) => ({ id })) }));
+    const { svc } = make(fetchImpl as unknown as typeof fetch);
+    await svc.addProvider(openai, actor);
+    answer.models = [];
+    await svc.syncProvider('id1', actor);
+    expect((await svc.getConfig()).models[0]!.available).toBe(false);
+  });
 });
 
 describe('AiConfigService: daily refresh', () => {
