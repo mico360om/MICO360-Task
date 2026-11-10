@@ -94,6 +94,8 @@ export function ProjectDetailPage() {
     const p = new URLSearchParams(params);
     if (next === 'overview') p.delete('tab');
     else p.set('tab', next);
+    // Board search (10 Nov): the board's search words (?q=) are the board's: they go when you leave it.
+    if (next !== 'board') p.delete('q');
     setParams(p, { replace: true });
   };
 

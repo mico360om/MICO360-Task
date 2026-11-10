@@ -34,6 +34,13 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   on your account.
 - Words that are cut short — a task, project, person or file name — show in full when you point at them,
   tab to them, or press and hold on a touch screen.
+- Search on the Kanban board: a search box at the top of the board (one project, All projects and a
+  project's Board tab) shows only the matching cards as you type — by task number (MICO-12, mico 12 or
+  just 12), title, description, person, project or tag, Arabic in any spelling. The words found are
+  marked on each card, each column says how many of its cards match ("3 of 12"), and ✕ or Escape clears
+  it ("/" jumps to it). It works with the company filter, Day and Month and the Table view, cards can
+  still be dragged to another column, and the words stay in the page's link. When nothing matches,
+  "Search all tasks" opens the full search with the same words.
 
 ### Improvements
 - The Timeline fills the window: its chart grows to the window's height and scrolls by itself, with the

@@ -1,4 +1,6 @@
 import type { ReactNode } from 'react';
+import type { HighlightRange } from '../lib/search-highlight';
+import { Highlighted } from './ui/Highlighted';
 
 /**
  * 1.23.8 Detailed rows and cards (lib/density): the extra lines a task shows there — the description's first
@@ -53,13 +55,20 @@ export interface TagLike {
   color: string;
 }
 
-/** The task's tags: a small chip each, with the tag's own colour as a dot (a tag's colour is the person's choice). */
-export function TagChips({ tags, className = '' }: { tags: TagLike[] | null | undefined; className?: string }) {
+/**
+ * The task's tags: a small chip each, with the tag's own colour as a dot (a tag's colour is the person's choice).
+ * `marked` (board search, 10 Nov): the ids of the tags that hold a word searched for, marked as found words are.
+ */
+export function TagChips({ tags, className = '', marked }: { tags: TagLike[] | null | undefined; className?: string; marked?: readonly string[] }) {
   if (!tags?.length) return null;
   return (
     <span data-testid="card-tags" className={`flex flex-wrap gap-1 ${className}`}>
       {tags.map((g) => (
-        <span key={g.id} className="inline-flex max-w-full items-center gap-1 rounded-full bg-ground px-2 py-0.5 text-[11px] font-medium text-ink-2">
+        <span
+          key={g.id}
+          {...(marked?.includes(g.id) ? { 'data-marked': '' } : {})}
+          className={`inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-[11px] ${marked?.includes(g.id) ? 'bg-warning-soft font-semibold text-ink' : 'bg-ground font-medium text-ink-2'}`}
+        >
           <span aria-hidden="true" className="h-1.5 w-1.5 flex-none rounded-full" style={{ background: g.color }} />
           <span dir="auto" className="truncate">{g.name}</span>
         </span>
@@ -68,8 +77,23 @@ export function TagChips({ tags, className = '' }: { tags: TagLike[] | null | un
   );
 }
 
-/** Everyone on it, by name (the faces beside it show at most three). */
-export function PeopleLine({ people, className = '', icon, as: Tag = 'p' }: { people: { id: string; name: string }[] | null | undefined; className?: string; icon?: ReactNode; as?: LineTag }) {
+/**
+ * Everyone on it, by name (the faces beside it show at most three). `found` (board search, 10 Nov): where
+ * the words searched for are in each person's name, marked.
+ */
+export function PeopleLine({
+  people,
+  className = '',
+  icon,
+  as: Tag = 'p',
+  found,
+}: {
+  people: { id: string; name: string }[] | null | undefined;
+  className?: string;
+  icon?: ReactNode;
+  as?: LineTag;
+  found?: readonly { id: string; ranges: HighlightRange[] }[];
+}) {
   if (!people?.length) return null;
   return (
     <Tag data-testid="card-people" className={`flex items-start gap-1 text-[11px] leading-snug text-ink-2 ${className}`}>
@@ -81,7 +105,16 @@ export function PeopleLine({ people, className = '', icon, as: Tag = 'p' }: { pe
         </svg>
       )}
       <span className="sr-only">Assigned to </span>
-      <span dir="auto" className="min-w-0">{people.map((p) => p.name).join(', ')}</span>
+      <span dir="auto" className="min-w-0">
+        {found?.length
+          ? people.map((p, i) => (
+              <span key={p.id}>
+                {i > 0 ? ', ' : null}
+                <Highlighted text={p.name} ranges={found.find((f) => f.id === p.id)?.ranges} />
+              </span>
+            ))
+          : people.map((p) => p.name).join(', ')}
+      </span>
     </Tag>
   );
 }

@@ -15,6 +15,8 @@ import { DENSE_FACE, DENSE_STACK, DENSE_TEXT } from '../lib/density-tokens';
 import { useDensity } from '../lib/density';
 import { DUE_SOON_CLASS, OVERDUE_CLASS, STATUS_CLASS } from '../lib/colour-classes';
 import { DescriptionLine, PeopleLine, TagChips, type TagLike } from './DetailLines';
+import type { CardFound } from '../lib/board-search';
+import { Highlighted } from './ui/Highlighted';
 
 export interface TaskCardTask {
   key: string;
@@ -54,6 +56,10 @@ export interface TaskCardTask {
   /** 1.23.8 Detailed cards: its description (the first line shows) and its tags. */
   description?: string | null;
   tags?: TagLike[];
+  /** Board search (10 Nov): what the search found on it — marked on the card (lib/board-search). */
+  found?: CardFound | null;
+  /** Board search (10 Nov): a live change left it no longer found — it fades out, then goes. */
+  leaving?: boolean;
 }
 
 export interface TaskCardProps {
@@ -131,8 +137,13 @@ export function TaskCard({ task, onClick, timeZone = DEFAULT_TIME_ZONE, interact
   const hasDue = Boolean(line) || Boolean(task.dueDate);
   const dateLate = line ? line.overdue : overdue;
   const c = task.counts;
-  const shownAssignees = detailed ? task.assignees : task.assignees.slice(0, 3);
+  // Board search (10 Nov): what was found on it is marked — the people found come first among the faces.
+  const found = task.found ?? null;
+  const foundPerson = (id: string) => found?.people.find((p) => p.id === id);
+  const people = found?.people.length ? [...task.assignees].sort((a, b) => Number(!foundPerson(a.id)) - Number(!foundPerson(b.id))) : task.assignees;
+  const shownAssignees = detailed ? people : people.slice(0, 3);
   const extra = task.assignees.length - shownAssignees.length;
+  const foundTags = found?.tags.length ? (task.tags ?? []).filter((t) => found.tags.includes(t.id)) : [];
 
   // One base card; an overdue one gets a red edge on top of its status stripe (owner, 7 Nov). A blocked
   // one needs nothing more: its stripe is the Blocked red and its chip says so.
@@ -163,14 +174,16 @@ export function TaskCard({ task, onClick, timeZone = DEFAULT_TIME_ZONE, interact
       {task.project ? (
         <span data-testid="card-project" className={`flex min-w-0 items-center gap-1.5 text-[11px] font-medium text-ink-2 ${menuSpace ? 'pr-7 [@media(pointer:coarse)]:pr-11' : ''}`}>
           <ProjectAvatar project={task.project} size="xs" />
-          <span dir="auto" title={task.project.name} className="truncate">{task.project.name}</span>
+          <span dir="auto" title={task.project.name} className="truncate">
+            {found?.project.length ? <Highlighted text={task.project.name} ranges={found.project} /> : task.project.name}
+          </span>
         </span>
       ) : null}
 
       {/* The number never shrinks under the flags (a long one, e.g. TN2FF00336-2, once ran under the
           milestone flag): in a narrow column the flags and the priority wrap to the next line instead. */}
       <div className={`flex flex-wrap items-center justify-between gap-x-2 gap-y-1 ${menuSpace && !task.project ? 'pr-7 [@media(pointer:coarse)]:pr-11' : ''}`}>
-        <TaskKey value={task.key} dense="compact" />
+        <TaskKey value={task.key} dense="compact" marked={found?.key === true} />
         <div className="flex flex-none items-center gap-1.5">
           {task.blocked ? (
             <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wide ${STATUS_CLASS.BLOCKED.chip}`}>
@@ -198,10 +211,19 @@ export function TaskCard({ task, onClick, timeZone = DEFAULT_TIME_ZONE, interact
         </div>
       </div>
 
-      <div dir="auto" className={`${detailed ? 'break-words' : 'line-clamp-2'} text-start text-sm font-medium leading-snug text-ink transition-colors group-hover:text-brand ${DENSE_TEXT}`}>{task.title}</div>
-      {detailed ? <DescriptionLine description={task.description} className="-mt-1" /> : null}
+      <div dir="auto" className={`${detailed ? 'break-words' : 'line-clamp-2'} text-start text-sm font-medium leading-snug text-ink transition-colors group-hover:text-brand ${DENSE_TEXT}`}>
+        {found?.title.length ? <Highlighted text={task.title} ranges={found.title} /> : task.title}
+      </div>
+      {found?.snippet ? (
+        // Found by a word in its description only: the line it is in, the words marked.
+        <p data-testid="card-found" dir="auto" className="-mt-1 line-clamp-2 break-words text-start text-xs text-ink-2">
+          <Highlighted text={found.snippet.text} ranges={found.snippet.ranges} />
+        </p>
+      ) : detailed ? (
+        <DescriptionLine description={task.description} className="-mt-1" />
+      ) : null}
       <ExternalContactsLine summary={task.external} />
-      {detailed ? <TagChips tags={task.tags} /> : null}
+      {detailed ? <TagChips tags={task.tags} marked={found?.tags} /> : foundTags.length ? <TagChips tags={foundTags} marked={found?.tags} /> : null}
 
       {/* A check's chip leads the line of facts (it wraps there; beside the key, with the priority and
           the flags, it overlapped them in a narrow column and broke the key in two). */}
@@ -260,12 +282,21 @@ export function TaskCard({ task, onClick, timeZone = DEFAULT_TIME_ZONE, interact
         {task.assignees.length > 0 ? (
           <div className="flex flex-none items-center gap-1">
             {task.assignees.length === 1 ? (
-              <span dir="auto" className="max-w-[6rem] truncate text-[11px] text-ink-2">{task.assignees[0]!.name}</span>
+              <span dir="auto" className="max-w-[6rem] truncate text-[11px] text-ink-2">
+                {foundPerson(task.assignees[0]!.id) ? <Highlighted text={task.assignees[0]!.name} ranges={foundPerson(task.assignees[0]!.id)!.ranges} /> : task.assignees[0]!.name}
+              </span>
             ) : null}
             <div className={`flex ${detailed ? 'flex-wrap justify-end gap-y-0.5' : ''} -space-x-1.5 ${DENSE_STACK}`}>
-              {shownAssignees.map((a) => (
-                <Avatar key={a.id} name={a.name} size="sm" dense />
-              ))}
+              {shownAssignees.map((a) =>
+                foundPerson(a.id) ? (
+                  // Found by this person's name: their face is ringed in the found words' colour.
+                  <span key={a.id} data-marked="" className="relative z-[1] inline-flex rounded-full ring-2 ring-warning">
+                    <Avatar name={a.name} size="sm" dense />
+                  </span>
+                ) : (
+                  <Avatar key={a.id} name={a.name} size="sm" dense />
+                ),
+              )}
               {extra > 0 ? (
                 <span className={`grid h-6 w-6 place-items-center rounded-full border border-line bg-ground text-[10px] font-semibold text-ink-2 ${DENSE_FACE}`}>
                   +{extra}
@@ -275,7 +306,7 @@ export function TaskCard({ task, onClick, timeZone = DEFAULT_TIME_ZONE, interact
           </div>
         ) : null}
       </div>
-      {detailed && task.assignees.length > 1 ? <PeopleLine people={task.assignees} /> : null}
+      {detailed && task.assignees.length > 1 ? <PeopleLine people={task.assignees} found={found?.people} /> : null}
     </div>
   );
 }

@@ -57,6 +57,11 @@ export interface TaskTableProps {
   readOnly?: ProjectReadOnly | null;
   /** The table's own filter bar (pages without filters of their own). */
   filterBar?: boolean;
+  /**
+   * The filter bar's words box (default). False (board search, 10 Nov): the page's own search box filters the rows
+   * before they get here (the board's), so the table has none — and a word it remembers from before is let go.
+   */
+  wordsBox?: boolean;
   /** My Tasks: the page's own sort (its Sort menu), the rows already in that order. */
   sort?: SortState | null;
   onSortChange?: (next: SortState | null) => void;
@@ -104,6 +109,7 @@ export function TaskTable({
   showProject = false,
   readOnly = null,
   filterBar = false,
+  wordsBox = true,
   sort: pageSort,
   onSortChange,
   presorted = false,
@@ -191,6 +197,7 @@ export function TaskTable({
   // person not among this table's choices is let go here, never an empty table with a blank box.
   const filters = {
     ...remembered,
+    text: wordsBox ? remembered.text : '',
     status: statusOptions.some((o) => o.value === remembered.status) ? remembered.status : '',
     person: personOptions.some((o) => o.value === remembered.person) ? remembered.person : '',
   };
@@ -464,6 +471,7 @@ export function TaskTable({
       statusOptions={statusOptions}
       personOptions={personOptions}
       personLabel="assignee"
+      words={wordsBox}
       shown={rows.length}
       total={tasks.length}
       noun={['task', 'tasks']}

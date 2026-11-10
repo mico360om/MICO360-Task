@@ -46,6 +46,10 @@ import { MonthBar, PERIODS } from './MonthBar';
 import { useBoardPeriod } from './useBoardPeriod';
 import { nearestMonth, type MonthClock } from '../../lib/board-month';
 import { countCards, currentMonth, emptyMonthText, hideCards, monthCards, monthTitle, monthWord, undatedKeys, withMonthDates } from '../../lib/month-view';
+import { boardSearchDocs, readBoardSearch, searchBoard } from '../../lib/board-search';
+import { everythingAddress } from '../../lib/search-everything';
+import { BoardSearchBox } from './BoardSearchBox';
+import { useBoardSearchWords, useLeavingCards } from './useBoardSearch';
 
 /** The board's columns and cards — and (1.23.0, for its Table view) the project's columns and tasks as the server sent them. */
 type BoardData = { columns: KanbanColumnData[]; idByKey: Record<string, string>; apiColumns?: ApiColumn[]; tasks?: ApiTask[] };
@@ -407,19 +411,33 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
   const companies = useMemo(() => boardCompanies(periodColumns), [periodColumns]);
   // The chosen company stays a choice on a day without it, so it can be seen (and cleared).
   const companyChoices = company && !companies.includes(company) ? [company, ...companies] : companies;
-  const boardColumns = useMemo(() => filterBoardByCompany(periodColumns, company), [periodColumns, company]);
-  // "No date (12)": the cards it would add (the company filter applies to them too).
-  const undatedCount = isMonth ? countCards(filterBoardByCompany(fullColumns, company), noDate) : 0;
+  const companyColumns = useMemo(() => filterBoardByCompany(periodColumns, company), [periodColumns, company]);
+  // Board search (10 Nov): over what the board is showing (its day or month, the company filter), in
+  // memory. Each card's text is read once per load of the board, not on every key.
+  const words = useBoardSearchWords();
+  const search = useMemo(() => readBoardSearch(words.words), [words.words]);
+  const searchProject = useMemo(() => (project ? { name: project.name, code: project.code } : null), [project]);
+  const searchDocs = useMemo(() => boardSearchDocs(fullColumns, { project: searchProject }), [fullColumns, searchProject]);
+  const searched = useMemo(() => searchBoard(companyColumns, search, { project: searchProject, docs: searchDocs }), [companyColumns, search, searchProject, searchDocs]);
+  // The board as shown: the cards found (a card a live change has just left unfound fades out first).
+  const boardColumns = useLeavingCards(companyColumns, searched.columns, search);
+  // "No date (12)": the cards it would add (the company filter and the search apply to them too).
+  const undatedCount = useMemo(
+    () => (isMonth ? countCards(searchBoard(filterBoardByCompany(fullColumns, company), search, { project: searchProject, docs: searchDocs }).columns, noDate) : 0),
+    [isMonth, fullColumns, company, search, searchProject, searchDocs, noDate],
+  );
+  /** The cards shown, column by column (Previous / Next, the Table), none fading out. */
+  const shownCards = useMemo(() => boardColumns.flatMap((c) => c.tasks.filter((t) => !t.leaving)), [boardColumns]);
   const idByKey = useMemo(
     () => (isAll ? Object.fromEntries((allQ.data ?? []).map((t) => [t.key, t.id])) : boardQ.data?.idByKey ?? {}),
     [isAll, allQ.data, boardQ.data],
   );
 
-  // The Table view's rows: the board's cards in its order, as the server sent them.
+  // The Table view's rows: the board's cards in its order, as the server sent them (the search applied).
   const tableTasks = useMemo(() => {
     const raw = new Map((isAll ? allQ.data ?? [] : boardQ.data?.tasks ?? []).map((t) => [t.key, t]));
-    return boardColumns.flatMap((c) => c.tasks.map((card) => raw.get(card.key)).filter((t): t is ApiTask => Boolean(t)));
-  }, [isAll, allQ.data, boardQ.data, boardColumns]);
+    return shownCards.map((card) => raw.get(card.key)).filter((t): t is ApiTask => Boolean(t));
+  }, [isAll, allQ.data, boardQ.data, shownCards]);
 
   /**
    * New task, in the column it was started from (a column's "+" or empty box), else the first. On
@@ -479,8 +497,8 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
     const data = boardQ.data;
     const id = data?.idByKey[taskKey];
     if (!data || !id) return;
-    // Filtered by company (or cards without dates left off), the drop position is among the shown cards: place it in the whole column.
-    const at = company || hidingUndated ? fullColumnIndex(data.columns, boardColumns, toColumnId, toIndex, taskKey) : toIndex;
+    // Filtered by company or the search (or cards without dates left off), the drop position is among the shown cards: place it in the whole column.
+    const at = company || hidingUndated || search ? fullColumnIndex(data.columns, boardColumns, toColumnId, toIndex, taskKey) : toIndex;
     const after = moveTaskInBoard(data.columns, taskKey, toColumnId, at);
     const orderedIds = (after.find((c) => c.id === toColumnId)?.tasks ?? [])
       .map((t) => data.idByKey[t.key])
@@ -499,7 +517,9 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
   // (Not on a read-only board: its notice says why nothing can be added.)
   const emptyDay = !locked && !loading && !error && Boolean(projectId) && periodColumns.length > 0 && periodColumns.every((c) => c.tasks.length === 0);
   // The company filter leaves no card on a board that has some.
-  const noneFromCompany = !emptyDay && Boolean(company) && boardColumns.length > 0 && boardColumns.every((c) => c.tasks.length === 0);
+  const noneFromCompany = !emptyDay && Boolean(company) && companyColumns.length > 0 && companyColumns.every((c) => c.tasks.length === 0);
+  // The search finds nothing here: it says so, and offers the top-bar search's results for the same words.
+  const noneFound = !loading && !error && Boolean(projectId) && search !== null && searched.shown === 0 && !noneFromCompany;
 
   // A laptop, or a tablet with room: the board is the rest of the window's height and each column
   // scrolls by itself, its header always in view. A phone scrolls the page. So does the page while
@@ -543,6 +563,7 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
         </div>
       ) : projectId ? (
         <div className="mb-4 flex flex-wrap items-center gap-2">
+          <BoardSearchBox value={words.text} onChange={words.setText} onClear={words.clear} searching={search !== null} shown={searched.shown} total={searched.total} />
           <ViewSwitch
             label="Show the board for"
             value={period}
@@ -706,6 +727,18 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
             </button>
           </p>
         ) : null}
+        {noneFound && search ? (
+          <p role="status" className="mb-3 flex flex-none flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-xl border border-line bg-surface px-3 py-2 text-sm text-ink-2">
+            <span dir="auto">No cards on this board match “{search.text}”.</span>
+            <button
+              type="button"
+              onClick={() => navigate(`/search?${everythingAddress({ q: search.text, type: 'task' })}`)}
+              className={`flex-none text-xs font-semibold text-brand underline ${TOUCH_TALL}`}
+            >
+              Search all tasks
+            </button>
+          </p>
+        ) : null}
         {view === 'table' ? (
           // The day's cards as rows, column by column (the board's order), the company filter applied.
           <TaskTable
@@ -721,6 +754,8 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
             showProject={isAll}
             readOnly={locked ? readOnly : null}
             filterBar
+            // The board's search box filters the rows (the table has no words box of its own here).
+            wordsBox={false}
             onOpen={(id, ids) => openTask(id, ids)}
             empty={<span />}
           />
@@ -733,14 +768,14 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
           // A read-only project's board: cards only open (no dragging, no "+", no card menu).
           onMove={locked ? undefined : onMove}
           // On All projects a status mixes projects: cards keep their order (due date, then priority).
-          // Filtered by company, some cards are hidden: a column's order can't be set from what is shown.
-          onReorder={isAll || company || hidingUndated || locked ? undefined : onReorder}
+          // Filtered by company or the search, some cards are hidden: a column's order can't be set from what is shown.
+          onReorder={isAll || company || hidingUndated || search || locked ? undefined : onReorder}
           onAddTask={locked ? undefined : (columnId) => openAddTask(columnId)}
           cardMenu={locked ? undefined : cardMenu}
           onTaskClick={(key) => {
             const id = idByKey[key];
             // The board as shown is its list for Previous / Next: column by column, top to bottom.
-            if (id) openTask(id, boardColumns.flatMap((c) => c.tasks.map((t) => idByKey[t.key]).filter((x): x is string => Boolean(x))));
+            if (id) openTask(id, shownCards.map((t) => idByKey[t.key]).filter((x): x is string => Boolean(x)));
           }}
         />
         </div>
