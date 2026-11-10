@@ -33,6 +33,57 @@ describe('embedTexts', () => {
     expect(calls[0]!.url).toBe('http://localhost:11434/api/embed');
   });
 
+  // MICO360 AI's guide (§5, §11): at most 64 texts a request, 8,000 characters each, 32,000 together.
+  describe('within the embedding limits', () => {
+    /** Answers each call with one vector per text: [the text's length, its batch number]. */
+    const perText = () => {
+      const calls: string[][] = [];
+      const fetchImpl = (async (_url: string, init?: RequestInit) => {
+        const input = JSON.parse(String(init!.body)).input as string[];
+        calls.push(input);
+        return new Response(JSON.stringify({ data: input.map((t, i) => ({ index: i, embedding: [t.length, calls.length] })) }), { status: 200 });
+      }) as unknown as typeof fetch;
+      return { calls, fetchImpl };
+    };
+    const mico: ChatModel = { provider: { kind: 'custom', apiBaseUrl: 'https://ai.mico360.com:5310/v1', apiKey: 'k', preset: 'mico360' }, modelKey: 'nomic-embed-text:latest' };
+    const total = (input: string[]) => input.reduce((n, t) => n + t.length, 0);
+
+    it('splits texts that would pass 32,000 characters together into several calls, answers in order', async () => {
+      const { calls, fetchImpl } = perText();
+      const texts = Array.from({ length: 25 }, (_, i) => `${i}`.padEnd(1750, 'x'));
+      const vectors = await embedTexts(mico, texts, fetchImpl);
+      expect(calls.length).toBeGreaterThan(1);
+      for (const c of calls) expect(total(c)).toBeLessThanOrEqual(30_000);
+      expect(calls.flat()).toEqual(texts);
+      expect(vectors).toHaveLength(25);
+      expect(vectors.map((v) => v[0])).toEqual(texts.map((t) => t.length));
+    });
+
+    it('sends at most 64 texts a call', async () => {
+      const { calls, fetchImpl } = perText();
+      const vectors = await embedTexts(mico, Array.from({ length: 100 }, (_, i) => `item ${i}`), fetchImpl);
+      expect(calls.map((c) => c.length)).toEqual([64, 36]);
+      expect(vectors).toHaveLength(100);
+    });
+
+    it('cuts a text over 8,000 characters (never inside a character pair)', async () => {
+      const { calls, fetchImpl } = perText();
+      await embedTexts(mico, ['a'.repeat(12_000), `${'b'.repeat(7_999)}😀tail`], fetchImpl);
+      const sent = calls.flat();
+      expect(sent[0]).toHaveLength(8_000);
+      expect(sent[1]!.length).toBeLessThanOrEqual(8_000);
+      expect(sent[1]).toBe('b'.repeat(7_999)); // the emoji's two halves are not split
+    });
+
+    it('never sends a blank text (the platform refuses "input contained no text")', async () => {
+      const { calls, fetchImpl } = perText();
+      const vectors = await embedTexts(mico, ['', '   ', 'pump'], fetchImpl);
+      expect(calls.flat().every((t) => t.trim().length > 0)).toBe(true);
+      expect(calls.flat()[2]).toBe('pump');
+      expect(vectors).toHaveLength(3);
+    });
+  });
+
   it('refuses a provider without embeddings (Anthropic) and an answer of the wrong shape', async () => {
     const { fetchImpl } = capture({});
     await expect(embedTexts({ provider: { kind: 'anthropic', apiBaseUrl: 'https://api.anthropic.com', apiKey: 'a' }, modelKey: 'x' }, ['x'], fetchImpl)).rejects.toThrow(/embedding/i);

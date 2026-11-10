@@ -12,8 +12,53 @@ import { createSafeFetch, providerErrorDetail, providerFetch, readProviderJson }
 export const EMBEDDING_DIMENSIONS = 256;
 export const EMBEDDING_TIMEOUT_MS = 30_000;
 
-export async function embedTexts(model: ChatModel, texts: string[], fetchImpl?: typeof fetch, opts: { timeoutMs?: number; allowPrivateHosts?: boolean; signal?: AbortSignal } = {}): Promise<number[][]> {
-  if (texts.length === 0) return [];
+/**
+ * What one embeddings request may carry. MICO360 AI's guide (§5, §11): at most 64 texts, 8,000
+ * characters each and 32,000 together — a request over any of them is refused (400). The total is
+ * kept under 30,000, for room. Every provider is held to them: a smaller request is never refused.
+ */
+export const EMBED_MAX_TEXTS = 64;
+export const EMBED_MAX_TEXT_CHARS = 8_000;
+export const EMBED_MAX_TOTAL_CHARS = 30_000;
+/** Sent instead of a blank text: the platform refuses "input contained no text". */
+const BLANK_TEXT = '(no text)';
+
+type EmbedOptions = { timeoutMs?: number; allowPrivateHosts?: boolean; signal?: AbortSignal };
+
+/** At most `max` characters, never ending on the first half of a character pair (an emoji). */
+function cutChars(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const end = /[\uD800-\uDBFF]/.test(text[max - 1]!) ? max - 1 : max;
+  return text.slice(0, end);
+}
+
+/** The texts as sent, in order, packed into requests within the limits. */
+export function embeddingBatches(texts: readonly string[]): string[][] {
+  const batches: string[][] = [];
+  let batch: string[] = [];
+  let chars = 0;
+  for (const raw of texts) {
+    const text = raw.trim() ? cutChars(raw, EMBED_MAX_TEXT_CHARS) : BLANK_TEXT;
+    if (batch.length && (batch.length >= EMBED_MAX_TEXTS || chars + text.length > EMBED_MAX_TOTAL_CHARS)) {
+      batches.push(batch);
+      batch = [];
+      chars = 0;
+    }
+    batch.push(text);
+    chars += text.length;
+  }
+  if (batch.length) batches.push(batch);
+  return batches;
+}
+
+/** Vectors for texts, one per text in order — as many requests as the limits need. */
+export async function embedTexts(model: ChatModel, texts: string[], fetchImpl?: typeof fetch, opts: EmbedOptions = {}): Promise<number[][]> {
+  const vectors: number[][] = [];
+  for (const batch of embeddingBatches(texts)) vectors.push(...(await embedBatch(model, batch, fetchImpl, opts)));
+  return vectors;
+}
+
+async function embedBatch(model: ChatModel, texts: string[], fetchImpl: typeof fetch | undefined, opts: EmbedOptions): Promise<number[][]> {
   const base = model.provider.apiBaseUrl.replace(/\/+$/, '');
   const headers: Record<string, string> = { 'content-type': 'application/json', accept: 'application/json' };
   let url: string;
