@@ -229,9 +229,16 @@ export interface TaskMovePreview {
   repeat: 'SERIES' | 'COPY' | null;
   /** People assigned to it who aren't on the new project's team. */
   outsiders: MovePerson[];
-  /** 1.24: its categories the new project has no category of the same name for (dropped by the move). */
+}
+
+/**
+ * 1.24: what a move does to a task's categories and guests (POST /tasks/move-preview sends them with each task).
+ * Kept apart from TaskMovePreview, whose fields the Android app's copy mirrors (its drift test).
+ */
+export interface TaskMoveExtras {
+  /** Its categories the new project has no category of the same name for (dropped by the move). */
   categoriesDropped?: string[];
-  /** 1.24: how many of its guests are copied onto the new project's company list (another company's project). */
+  /** How many of its guests are copied onto the new project's company list (another company's project). */
   guestsCopied?: number;
 }
 

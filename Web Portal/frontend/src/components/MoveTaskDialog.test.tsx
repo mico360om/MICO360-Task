@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MoveTaskDialog, type MoveTaskDialogProps } from './MoveTaskDialog';
-import type { TaskMovePreview } from '../api/tasks';
+import type { TaskMoveExtras, TaskMovePreview } from '../api/tasks';
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -17,7 +17,7 @@ const COLUMNS = [
   { id: 'o-done', name: 'Finished', category: 'DONE', position: 3, enabled: true },
 ];
 const SARA = { id: 'sara', name: 'Sara Al Balushi' };
-const previewTask = (over: Partial<TaskMovePreview> = {}): TaskMovePreview => ({
+const previewTask = (over: Partial<TaskMovePreview & TaskMoveExtras> = {}): TaskMovePreview => ({
   id: 't4', key: 'RIG-4', title: 'Inspect the rig', from: { id: 'rig', code: 'RIG', name: 'Rig Inspection' }, canMove: true, reason: null, newKey: 'OPS-17',
   currentCategory: 'IN_PROGRESS', completed: false, columnId: 'o-doing', milestoneCleared: false, dueDate: null, repeat: null, outsiders: [], ...over,
 });

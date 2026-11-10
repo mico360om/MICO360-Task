@@ -3,7 +3,8 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { tasksApi, type AssigneeChoice, type BulkMoveResult, type MoveInput, type MoveResult, type MoveTargets } from '../api/tasks';
 import { ApiError } from '../lib/api-client';
-import { assigneeChoiceLabels, bulkMoveAvailability, bulkMovedText, moveAvailability, moveChanges, notOnTeamText } from '../lib/task-move';
+import { assigneeChoiceLabels, bulkMoveAvailability, bulkMovedText, moveAvailability, notOnTeamText } from '../lib/task-move';
+import { moveChangesWithExtras } from '../lib/task-move-extra';
 import { statusMeta } from '../lib/taskStatus';
 import { todayKey } from '../lib/due-date';
 import { useCompanyTimeZone } from '../lib/company-clock';
@@ -108,7 +109,7 @@ export function MoveTaskDialog({ tasks, onClose, onMoved, onBulkMoved }: MoveTas
   const suggested = single ? (movable[0]?.columnId ?? '') : '';
   const chosenColumn = columnId || suggested;
   // What will change, for the column chosen (one task: the suggestion until another is picked).
-  const changes = preview ? moveChanges(preview, today, single ? chosenColumn : columnId) : [];
+  const changes = preview ? moveChangesWithExtras(preview, today, single ? chosenColumn : columnId) : [];
 
   const moveOne = useMutation({
     mutationFn: (input: MoveInput) => tasksApi(apiClient).moveToProject(ids[0]!, input),

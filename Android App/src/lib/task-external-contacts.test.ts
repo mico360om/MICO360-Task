@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import { ApiError, NetworkError } from './api-client';
-import { readWeb } from '../testing/web-source';
 import {
   CONTACTS_OFFLINE,
   CONTACT_STILL_OPEN,
@@ -211,14 +210,8 @@ describe('external contacts on the phone: review fixes', () => {
 
   it('refuses to save the form while a contact is still open in its editor, in the website’s words', () => {
     expect(CONTACT_STILL_OPEN).toBe('Save the external contact you’re working on, or cancel it, first.');
-    const web = (() => {
-      try {
-        return readWeb('frontend/src/components/task-form/TaskFormDialog.tsx');
-      } catch {
-        return null;
-      }
-    })();
-    if (web) expect(web).toContain(CONTACT_STILL_OPEN);
+    // tgc: 1.24 — the website's form picks guests from its company's list (no contact editor any more), so
+    // these words are the app's own now; the app (unchanged) keeps them.
   });
 
   it('a move into another column while the board shows one company goes to its bottom with no new order (hidden cards keep their places)', () => {
