@@ -1,8 +1,9 @@
-import { PdfDocument, hexToRgb, type GridPicture, type RGB, type TableColumn } from '../../lib/pdf-document';
+import { PDF_STANDARD, PdfDocument, hexToRgb, type GridPicture, type RGB, type TableColumn } from '../../lib/pdf-document';
+import { OVERDUE_TONES, STATUS_TONES } from '../../lib/colour-scheme';
 import { isolate, textDirection } from '../../lib/pdf-text';
 import { formatDateTime, formatDay, slugPart } from '../../lib/export-format';
 import { projectIconPaths, projectInitials } from '../projects/project-icons';
-import type { MinutesBrand } from '../meetings/minutes';
+import { minutesFooter, printedAt, type MinutesBrand } from '../meetings/minutes';
 import { resolveBrand } from '../email/brand';
 import type { ClientInspection, ClientInspectionItem } from './inspection-client-copy';
 
@@ -58,11 +59,12 @@ export interface InspectionReportData {
   logo?: Buffer | null;
 }
 
-const INK: RGB = [0.11, 0.1, 0.09];
 const MUTED: RGB = [0.42, 0.4, 0.38];
-const DANGER: RGB = [0.72, 0.16, 0.16];
-const SUCCESS: RGB = [0.18, 0.49, 0.33];
-const TYPE = { body: 10, heading: 12, note: 8.5, table: 9, tableMin: 7 } as const;
+/** 1.23.11: failed and passed results in the site's colour scheme's text tones. */
+const DANGER: RGB = hexToRgb(OVERDUE_TONES.light.text);
+const SUCCESS: RGB = hexToRgb(STATUS_TONES.DONE.light.text);
+/** 1.23.11: the PDF standard's sizes (body 9.5, headings 11, notes 8, tables 8.5, never under 7.5). */
+const TYPE = { body: PDF_STANDARD.type.body, heading: PDF_STANDARD.type.heading, note: PDF_STANDARD.type.small, table: PDF_STANDARD.type.table, tableMin: PDF_STANDARD.type.tableMin } as const;
 const MAX_SLUG = 60;
 /** A note longer than this is cut short in its table cell and printed in full under its section's table. */
 const CELL_NOTE_MAX = 280;
@@ -104,16 +106,19 @@ export function buildInspectionPdf(d: InspectionReportData): Buffer {
   const { brand, project, report: r, staff } = d;
   const tz = d.timeZone;
   const when = (iso: string | null) => (iso ? formatDateTime(new Date(iso), tz) : '—');
-  const companyLine = [brand.companyName, brand.websiteUrl, brand.supportEmail].filter((b): b is string => Boolean(b)).map(isolate).join('  ·  ');
+  // 1.23.11 footer: the company, "Printed … by …" (the staff copy; a client's copy names no one) and
+  // the page; the website and support address under them (and, on a client's copy, the postal
+  // address and "Shared with you through …").
+  const reach = [brand.websiteUrl, brand.supportEmail].filter((b): b is string => Boolean(b)).map(isolate).join('  ·  ');
   const footer = staff
-    ? [companyLine, `${isolate(brand.productName)} · Inspection report · Generated ${when(d.generatedAt)} (${tz})${d.generatedBy ? ` by ${isolate(d.generatedBy)}` : ''}`]
-    : [companyLine, brand.companyAddress ?? '', `Shared with you through ${isolate(brand.productName)}`];
+    ? { company: brand.companyName, printed: printedAt(d.generatedAt, tz, d.generatedBy), extra: [reach].filter(Boolean) }
+    : minutesFooter({ ...brand, companyAddress: brand.companyAddress ?? '' }, printedAt(d.generatedAt, tz), true);
 
   const doc = new PdfDocument({
     title: `Inspection report: ${r.title}`,
     runningTitle: `${r.title} · ${project.name}`,
     palette: { brand: brand.colors?.brand, ink: brand.colors?.ink, muted: brand.colors?.muted, line: brand.colors?.line },
-    footerLeft: footer.filter(Boolean).join('\n'),
+    footer,
     ...(d.logo ? { logo: d.logo } : {}),
   });
   const brandRgb = hexToRgb(brand.colors?.brand ?? '#8B1E1E');
@@ -131,7 +136,7 @@ export function buildInspectionPdf(d: InspectionReportData): Buffer {
     subtitle: [project.code, project.number ? `Project no. ${project.number}` : null, project.clientName].filter((b): b is string => Boolean(b)).map(isolate).join('  ·  ') || undefined,
     badge: { text: r.result, tone: failed > 0 ? 'warning' : allNa ? 'muted' : 'success' },
   });
-  doc.text(r.title, { bold: true, size: 20, color: INK, gap: 6, family: 'display', direction: textDirection(r.title) });
+  doc.documentTitle(r.title, { direction: textDirection(r.title) });
   const left: Array<[string, string]> = [['Date', formatDay(r.date)]];
   if (r.place) left.push(['Place', r.place]);
   const right: Array<[string, string]> = staff
@@ -142,7 +147,7 @@ export function buildInspectionPdf(d: InspectionReportData): Buffer {
         ...(staff.task ? ([['For task', staff.task]] as Array<[string, string]>) : []),
       ]
     : [['Items checked', String(r.counts.total)]];
-  doc.keyValueColumns(left, right, { size: 9.5 });
+  doc.keyValueColumns(left, right);
   // A reopened and signed-again report says which signing it is (the client's copy: no names).
   if (r.revisionNumber > 1 && r.reopenedOn) {
     doc.spacer(6);
@@ -150,7 +155,7 @@ export function buildInspectionPdf(d: InspectionReportData): Buffer {
   }
 
   // ── Summary ─────────────────────────────────────────────────────────────────────────────────
-  doc.spacer(10);
+  doc.spacer(6);
   doc.statTiles([
     { label: 'Passed', value: String(r.counts.passed), tone: 'success' },
     { label: 'Failed', value: String(failed), tone: failed > 0 ? 'danger' : 'muted' },
@@ -165,6 +170,13 @@ export function buildInspectionPdf(d: InspectionReportData): Buffer {
   let n = 0;
   const numbered = r.sections.map((s, si) => ({ ...s, rows: s.items.map((item, ii) => ({ item, no: ++n, followUp: staff?.followUps[si]?.[ii] ?? null })) }));
   const tableOpts = (wide: number) => ({ size: TYPE.table, fit: { minSize: TYPE.tableMin }, wide });
+  /** 1.23.11 (owner): a table that can't fit across a portrait page turns its section landscape, then back. */
+  const landscapeFor = (columns: TableColumn[], rows: string[][], draw: () => void) => {
+    const wide = PdfDocument.needsLandscape(columns, rows);
+    if (wide) doc.orient('landscape');
+    draw();
+    if (wide) doc.orient('portrait');
+  };
 
   // ── The failed items, on their own ──────────────────────────────────────────────────────────
   const fails = numbered.flatMap((s) => s.rows.filter((x) => x.item.result === 'Fail').map((x) => ({ ...x, section: s.title })));
@@ -172,8 +184,12 @@ export function buildInspectionPdf(d: InspectionReportData): Buffer {
     const columns: TableColumn[] = [{ header: '#', align: 'right', nowrap: true }, { header: 'Item' }, { header: 'Section' }, { header: 'Reading' }, { header: 'Note' }, ...(staff ? [{ header: 'Follow-up', nowrap: true }] : [])];
     const rows = fails.map((x) => [String(x.no), x.item.label, x.section, readingCell(x.item), shortNote(x.item.note ?? '', LIST_NOTE_MAX, 'in full in the checklist'), ...(staff ? [x.followUp ?? ''] : [])]);
     const opts = tableOpts(1);
-    doc.heading(`Failed items (${fails.length})`, { size: TYPE.heading, color: DANGER, keepWith: doc.tableHeight(columns, rows, { ...opts, firstRows: 1 }) });
-    doc.table(columns, rows, opts);
+    landscapeFor(columns, rows, () =>
+      doc.section(() => {
+        doc.heading(`Failed items (${fails.length})`, { color: DANGER, keepWith: doc.tableHeight(columns, rows, { ...opts, firstRows: 2 }) });
+        doc.table(columns, rows, opts);
+      }),
+    );
   }
 
   // ── Every section ───────────────────────────────────────────────────────────────────────────
@@ -207,18 +223,22 @@ export function buildInspectionPdf(d: InspectionReportData): Buffer {
       },
       cellBold: (ri: number, ci: number) => ci === RESULT && s.rows[ri]!.item.result === 'Fail',
     };
-    doc.heading(s.title, { size: TYPE.heading, keepWith: doc.tableHeight(columns, rows, { ...opts, firstRows: 1 }) });
-    if (rows.length) doc.table(columns, rows, opts);
-    else doc.text('No items.', { size: TYPE.note, color: MUTED });
-    if (longNotes.length) {
-      doc.subheading(`Notes in full · ${s.title}`, { topGap: 8, keepWith: 30 });
-      for (const x of longNotes) {
-        doc.keepTogether(30);
-        doc.text(`#${x.no} · ${isolate(x.item.label)}`, { size: TYPE.note, bold: true, color: MUTED, gap: 1, direction: textDirection(x.item.label) });
-        for (const para of x.item.note!.split('\n').filter((l) => l.trim())) doc.text(para.trim(), { size: TYPE.body, gap: 1, direction: textDirection(para) });
-        doc.spacer(5);
-      }
-    }
+    landscapeFor(columns, rows, () =>
+      doc.section(() => {
+        doc.heading(s.title, { keepWith: doc.tableHeight(columns, rows, { ...opts, firstRows: 2 }) });
+        if (rows.length) doc.table(columns, rows, opts);
+        else doc.text('No items.', { size: TYPE.note, color: MUTED });
+        if (longNotes.length) {
+          doc.subheading(`Notes in full · ${s.title}`, { topGap: 6, keepWith: 30 });
+          for (const x of longNotes) {
+            doc.keepTogether(30);
+            doc.text(`#${x.no} · ${isolate(x.item.label)}`, { size: TYPE.note, bold: true, color: MUTED, gap: 1, direction: textDirection(x.item.label) });
+            for (const para of x.item.note!.split('\n').filter((l) => l.trim())) doc.text(para.trim(), { size: TYPE.body, gap: 1, direction: textDirection(para) });
+            doc.spacer(4);
+          }
+        }
+      }),
+    );
   }
 
   // ── Signatures ──────────────────────────────────────────────────────────────────────────────
@@ -242,19 +262,21 @@ export function buildInspectionPdf(d: InspectionReportData): Buffer {
   for (const role of d.unsigned ?? d.report.unsigned ?? []) entries.push({ role, line: `${role}: Not signed` });
   const order = (role: string) => (ROLE_ORDER.indexOf(role) + 1 || ROLE_ORDER.length + 1);
   entries.sort((a, b) => order(a.role) - order(b.role));
-  const gridOpts = { columns: 3, height: 74 };
-  doc.heading('Signatures', { size: TYPE.heading, keepWith: entries.length * 16 + (drawn.length ? doc.imageGridFirstRowHeight(drawn, gridOpts) + 6 : 0) });
-  for (const e of entries) doc.text(e.line, { size: TYPE.body, gap: 3, direction: 'ltr' });
-  if (!entries.length) doc.text('No signatures.', { size: TYPE.note, color: MUTED });
-  if (drawn.length) {
-    doc.spacer(6);
-    doc.imageGrid(drawn, gridOpts);
-  }
+  const gridOpts = { columns: 3, height: 64 };
+  doc.section(() => {
+    doc.heading('Signatures', { keepWith: entries.length * 14 + (drawn.length ? doc.imageGridFirstRowHeight(drawn, gridOpts) + 4 : 0) });
+    for (const e of entries) doc.text(e.line, { size: TYPE.body, gap: 2, direction: 'ltr' });
+    if (!entries.length) doc.text('No signatures.', { size: TYPE.note, color: MUTED });
+    if (drawn.length) {
+      doc.spacer(4);
+      doc.imageGrid(drawn, gridOpts);
+    }
+  });
 
   // The staff copy keeps the signings a reopen took off (they no longer count).
   const earlier = staff?.earlierRevisions ?? [];
   if (earlier.length) {
-    doc.heading('Earlier signed revisions', { size: TYPE.heading, keepWith: 40 });
+    doc.heading('Earlier signed revisions', { keepWith: 40 });
     doc.text('These signatures were taken off when the inspection was reopened; they no longer count.', { size: TYPE.note, color: MUTED, gap: 4 });
     for (const e of earlier) {
       doc.keepTogether(16 + e.signatures.length * 14);

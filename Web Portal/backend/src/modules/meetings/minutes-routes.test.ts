@@ -974,6 +974,6 @@ describe('Minutes PDF route: the meeting’s company (companies)', () => {
     const res = await app.inject({ method: 'GET', url: `/api/v1/meetings/${created.json().data.id}/minutes.pdf`, headers: { authorization: auth } });
     expect(res.statusCode).toBe(200);
     expect(inspectPdf(res.rawPayload).pages.flat().join('\n')).toContain('MICO360');
-    expect(widths(res.rawPayload)).toEqual([]);
+    expect(widths(res.rawPayload)).toEqual([155]); // tpdf: 1.23.11 — the built-in logo (every header carries one; 200 dpi, 155 pixels)
   });
 });

@@ -134,11 +134,6 @@ export function TaskCard({ task, onClick, timeZone = DEFAULT_TIME_ZONE, interact
   const shownAssignees = detailed ? task.assignees : task.assignees.slice(0, 3);
   const extra = task.assignees.length - shownAssignees.length;
 
-  // One base card; an overdue one gets a red edge on top of its status stripe (owner, 7 Nov). A blocked
-  // one needs nothing more: its stripe is the Blocked red and its chip says so.
-  // Written out in full: Tailwind only makes the classes it can read (a built `…/60` came out blue).
-  const stateCls = overdue ? 'border-overdue ring-1 ring-overdue/60' : 'border-line hover:border-brand/40';
-
   return (
     <div
       {...(interactive
@@ -155,7 +150,9 @@ export function TaskCard({ task, onClick, timeZone = DEFAULT_TIME_ZONE, interact
         : {})}
       onClick={onClick}
       // Compact rows (1.23.0, lib/density): a third less padding and room inside, the title a step smaller.
-      className={`group relative flex cursor-pointer flex-col gap-2 overflow-hidden rounded-xl border bg-surface p-3 pl-3.5 text-left shadow-soft compact:gap-1.5 compact:p-2 compact:pl-2.5 outline-none transition-all duration-200 ease-emphasized hover:-translate-y-0.5 hover:shadow-card ${stateCls}`}
+      // One border for every card, overdue or not (owner, 10 Nov: the red edge went; the Overdue badge and
+      // the status stripe say it). A blocked one's stripe is the Blocked red and its chip says so.
+      className="group relative flex cursor-pointer flex-col gap-2 overflow-hidden rounded-xl border border-line bg-surface p-3 pl-3.5 text-left shadow-soft compact:gap-1.5 compact:p-2 compact:pl-2.5 outline-none transition-all duration-200 ease-emphasized hover:-translate-y-0.5 hover:border-brand/40 hover:shadow-card"
     >
       {/* Status stripe in its status's colour, so a card always reads as belonging to its stage. */}
       <span data-card-stripe className="absolute inset-y-0 left-0 w-1" style={{ background: task.accentColor ?? 'transparent' }} aria-hidden="true" />
@@ -210,10 +207,12 @@ export function TaskCard({ task, onClick, timeZone = DEFAULT_TIME_ZONE, interact
           {task.awaitingApproval ? <ApprovalChip /> : null}
           {task.inspection ? <InspectionChip /> : null}
           {hasDue ? (
+            // Overdue: a badge, the scheme's overdue words on its pale tint (owner, 10 Nov) — dark red on pale
+            // red, light red on a dark red wash in dark mode. Other dates stay plain words.
             <span
               data-testid="card-date"
               title={line?.title}
-              className={`inline-flex items-center gap-1 rounded px-1 text-[11px] ${dateLate ? `${OVERDUE_CLASS.chip} font-semibold` : soon && !line ? `${DUE_SOON_CLASS.text} font-semibold` : 'text-ink-2'}`}
+              className={`inline-flex items-center gap-1 text-[11px] ${dateLate ? `rounded-full px-2 py-0.5 font-semibold ${OVERDUE_CLASS.chip}` : soon && !line ? `rounded px-1 ${DUE_SOON_CLASS.text} font-semibold` : 'rounded px-1 text-ink-2'}`}
             >
               <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" />
