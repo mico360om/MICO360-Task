@@ -15,6 +15,16 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 ## [Unreleased]
 
 ### New features
+- Duplicate a task: "Duplicate…" in the task's ⋯ menu (task panel and board cards) and beside Open in
+  every Table view. The New task form opens filled in from it — title, description, project, assignees,
+  priority, dates, tags, checklists (every item unticked, sub-items kept), external contacts, the
+  inspection form and place, milestone, weight, estimate and watchers — titled "Duplicate of MSSP-34", so
+  you can change anything (or pick another project) before saving. "Copy files (3)" is ticked unless you
+  untick it; a file that can't be copied is named ("2 of 3 files copied — “x.dwg” couldn’t be copied") and
+  the task is still made. The copy gets its own new number and starts in To do; comments, history,
+  completion, approvals and the repeat are never copied. The copy shows "Duplicated from MSSP-34" and the
+  original lists its copies (only the ones you can open), and both histories say so. Duplicating needs
+  the internet connection.
 - One colour scheme everywhere — boards, lists, tables, the calendar, the Timeline, the Dashboard, the
   Client portal, the PDFs and the daily email: statuses are Backlog grey, To do slate, In progress blue,
   Blocked red, Review purple and Done green; priorities are Urgent red, High orange, Normal blue-grey and
