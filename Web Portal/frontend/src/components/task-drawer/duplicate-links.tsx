@@ -10,7 +10,7 @@ import { TOUCH_TALL } from '../../lib/touch';
  * do). The server names only tasks the reader may open, so a hidden one never shows here.
  */
 
-const CHIP = 'inline-block max-w-full rounded-2xl bg-ground px-2 py-0.5 text-xs font-medium leading-6 text-ink-2';
+const CHIP = 'inline-block max-w-full rounded-2xl bg-ground px-2 py-0.5 text-xs font-medium leading-6 text-ink-2 [@media(pointer:coarse)]:py-0';
 const LINK = `inline-flex min-h-6 items-center rounded px-0.5 align-middle font-semibold text-brand underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand ${TOUCH_TALL}`;
 
 const CopyIcon = () => (
