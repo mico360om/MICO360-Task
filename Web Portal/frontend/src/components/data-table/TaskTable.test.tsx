@@ -219,6 +219,21 @@ describe('TaskTable', () => {
     expect(onOpen).toHaveBeenCalledWith('t2', ['t1', 't2', 't3']);
   });
 
+  it('Duplicate beside Open opens the New task form filled in from that task (Duplicate Task)', async () => {
+    const user = userEvent.setup();
+    show();
+    await user.click(within(row('MICO-2')).getByRole('button', { name: 'Duplicate MICO-2: Order rebar' }));
+    const form = await screen.findByRole('dialog', { name: /^Duplicate of/ });
+    await waitFor(() => expect(calls.some((c) => c.method === 'GET' && c.url.endsWith('/tasks/t2/duplicate'))).toBe(true));
+    expect(form).toBeInTheDocument();
+  });
+
+  it('a table that is only to look at has no Duplicate (the task panel still offers it)', () => {
+    show({ readOnly: 'archived' });
+    expect(screen.queryByRole('button', { name: /^Duplicate MICO-1/ })).toBeNull();
+    expect(within(row('MICO-1')).getByRole('button', { name: 'Open MICO-1: Pour slab B' })).toBeInTheDocument();
+  });
+
   it('its own filter bar narrows the rows and counts them', async () => {
     const user = userEvent.setup();
     show();

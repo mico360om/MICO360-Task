@@ -48,6 +48,7 @@ beforeAll(async () => {
     'tagService', 'checklistService', 'externalContactService', 'commentService', 'attachmentService', 'dependencyService', 'meetingService',
     'attendeeService', 'agendaService', 'actionItemService', 'noteService', 'clientView',
     'namedSeriesService', // 1.23 Meeting series
+    'taskDuplicateService', // Duplicate Task
   ] as const;
   const deps = Object.fromEntries(services.map((s) => [s, untouched(s)])) as Partial<AppDeps>;
   app = await buildApp({

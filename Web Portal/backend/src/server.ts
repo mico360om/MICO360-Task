@@ -89,6 +89,8 @@ import {
   createPrismaChatMemberLookup,
 } from './modules/chat/prisma-chat-repository';
 import { createAttachmentService } from './modules/tasks/attachment-service';
+import { createTaskDuplicateService } from './modules/tasks/task-duplicate';
+import { createPrismaTaskDuplicateSource } from './modules/tasks/prisma-task-duplicate-source';
 import { createImageShrinker } from './lib/image-shrink';
 import { createPrismaAttachmentRepository } from './modules/tasks/prisma-attachment-repository';
 import { createLocalDiskStorage } from './modules/tasks/local-disk-storage';
@@ -1887,6 +1889,27 @@ async function main(): Promise<void> {
   // a suspended, deleted or demoted user loses access at once, not when their token expires.
   const userStateLookup = createPrismaUserStateLookup(prisma);
 
+  // Duplicate Task: a copy is made as any new task in the chosen project (the same pipeline as POST /tasks:
+  // its scope, tags, contacts and assignee rules), then gets the original's watchers who can see that
+  // project, its files through the upload checks (when ticked), and a history line on both tasks.
+  const duplicateSource = createPrismaTaskDuplicateSource(prisma);
+  const taskDuplicateService = createTaskDuplicateService({
+    ...duplicateSource,
+    canViewTask: (actor, taskId) => projectAccess.canViewTask(actor.id, actor.roles, taskId),
+    readFile: async (storageKey) => (attachmentStorage.read ? attachmentStorage.read(storageKey).catch(() => null) : null),
+    uploadFile: (taskId, uploadedById, file) => attachmentService.upload(taskId, uploadedById, file),
+    recordActivity: recordTaskActivity,
+    pipeline: {
+      taskService,
+      scopeOf: (actor) => projectAccess.accessibleProjectIds(actor.id, actor.roles),
+      assigneeService,
+      projectOwnerOf: async (projectId) => (await projectService.getProject(projectId)).ownerId,
+      broadcast: (projectId, event, payload) => broadcast(projectId, event, payload),
+    },
+    timeZone: companyTz,
+    onError: (err, what) => logger.error(`duplicating a task: ${what} failed`, { err }),
+  });
+
   logger.info('Release', { version: release.build.version, builtAt: release.build.builtAt, commit: release.build.commit, source: release.source });
 
   // The hosted Android app lives in a folder deploys keep (made here, so it is there to upload into).
@@ -2212,6 +2235,9 @@ async function main(): Promise<void> {
     taskService,
     taskMoveService,
     taskMergeService,
+    // Duplicate Task: the review form's pre-fill, the copy, and each task's "Duplicated from" / "Copies".
+    taskDuplicateService,
+    duplicateLinks: (taskId) => duplicateSource.links(taskId),
     carryForwardService,
     assigneeService,
     watcherService,

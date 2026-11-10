@@ -117,6 +117,8 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
   // A card's "Move to another project…": the task being moved, then what happened.
   const [movingTask, setMovingTask] = useState<MoveTaskRef | null>(null);
   const [movedToast, setMovedToast] = useState<string | null>(null);
+  // Duplicate Task: a card's "Duplicate…" — the New task form, filled in from that task.
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
   useEffect(() => {
     if (!movedToast) return;
     const t = setTimeout(() => setMovedToast(null), 6000);
@@ -355,7 +357,7 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
     statusMoveMut.mutate({ id: t.id, toColumnId: target, taskKey, status });
   }
 
-  // Each card's menu: "Move to another project…", offered to those who may (and saying why to others).
+  // Each card's menu: "Duplicate…" (anyone who sees the card), and "Move to another project…" for those who may move it.
   const moveTargets = useMoveTargets();
   const refByKey = useMemo(() => {
     const refs = new Map<string, MoveTaskRef>();
@@ -371,13 +373,14 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
     }
     return refs;
   }, [isAll, allQ.data, boardQ.data, projectId]);
-  // Only for someone who may move the task: others (members who don't manage it) see no ⋯ at all.
+  // The ⋯ shows whenever there is an item for the person: Duplicate always; Move only for whoever may move it.
   const cardMenu = (key: string): CardMenuItem[] | null => {
     const ref = refByKey.get(key);
     if (!ref) return null;
+    const items: CardMenuItem[] = [{ label: 'Duplicate…', onSelect: () => setDuplicatingId(ref.id) }];
     const name = projects.find((p) => p.id === ref.projectId)?.name;
-    if (!moveAvailability(ref.projectId, moveTargets, name).canMove) return null;
-    return [{ label: 'Move to another project…', onSelect: () => setMovingTask(ref) }];
+    if (moveAvailability(ref.projectId, moveTargets, name).canMove) items.push({ label: 'Move to another project…', onSelect: () => setMovingTask(ref) });
+    return items;
   };
 
   /** Where keyboard focus goes once a moved card has left the board: the next card in its column (else the one before), else the board. */
@@ -749,6 +752,10 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
       )}
 
 
+      {duplicatingId ? (
+        // The copy's notice ("Task MSSP-40 created", with Open) comes from the app shell; every view refreshes.
+        <TaskFormDialog duplicateOfId={duplicatingId} onClose={() => setDuplicatingId(null)} />
+      ) : null}
       {movingTask ? (
         <MoveTaskDialog
           tasks={[movingTask]}

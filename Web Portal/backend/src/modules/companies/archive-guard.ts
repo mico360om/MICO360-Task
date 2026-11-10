@@ -130,6 +130,9 @@ export const ARCHIVE_REFUSED: Readonly<Record<string, ArchiveTarget>> = {
   'POST /meeting-series/:id/merge': 'series',
   // 1.23: Make Teams link writes the meeting's online link.
   'POST /meetings/:id/teams-link': 'meeting',
+  // Duplicate Task: a copy is a new task in the chosen project (`body.projectId`, and its column's). The
+  // original may be in an archived project: copying from it changes nothing there.
+  'POST /tasks/:id/duplicate': 'newTask',
 };
 
 /** Write routes (one project's, task's or meeting's) an archived project does not refuse, and why. */

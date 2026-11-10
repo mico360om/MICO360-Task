@@ -24,6 +24,9 @@ import { registerTaskExportRoutes } from './modules/tasks/task-export-routes';
 import { registerTaskMoveRoutes } from './modules/tasks/task-move-routes';
 import type { TaskMoveService } from './modules/tasks/task-move-service';
 import { installMergedTaskRedirect, registerTaskMergeRoutes } from './modules/task-merge/merge-routes';
+import { registerTaskDuplicateRoutes } from './modules/tasks/task-duplicate-routes';
+import type { TaskDuplicateService } from './modules/tasks/task-duplicate';
+import type { DuplicateLinks } from './modules/tasks/task-routes';
 import type { TaskMergeService } from './modules/task-merge/merge-service';
 import type { TaskExportSource } from './modules/tasks/task-export';
 import type { TaskService } from './modules/tasks/task-service';
@@ -204,6 +207,10 @@ export interface AppDeps extends AuthRouteDeps {
   taskMoveService?: TaskMoveService;
   /** 1.23.1 Merge tasks: the merge dialog, the merge, a main task's "Merged from" panel and Undo. */
   taskMergeService?: TaskMergeService;
+  /** Duplicate Task: the review form's pre-fill and the copy (GET/POST /tasks/:id/duplicate). */
+  taskDuplicateService?: TaskDuplicateService;
+  /** Duplicate Task: the task a copy was made from, and an original's copies (a task's details; each shown only to whoever may open it). */
+  duplicateLinks?: (taskId: string) => Promise<DuplicateLinks>;
   carryForwardService?: import('./modules/tasks/carry-forward-service').CarryForwardService;
   assigneeService?: AssigneeService;
   watcherService?: WatcherService;
@@ -799,6 +806,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           taskApproval: deps.taskApprovalDetails,
           // 1.23.1: the tasks merged into a task (its "Merged from" panel opens from them).
           mergedFrom: deps.taskMergeService ? (id) => deps.taskMergeService!.mergedInto(id) : undefined,
+          // Duplicate Task: "Duplicated from MSSP-34" and "Copies: …" (only those the reader may open).
+          duplicateLinks: deps.duplicateLinks,
           checklistDue: deps.checklistDue,
           projectOwnerOf: deps.projectService
             ? async (projectId) => (await deps.projectService!.getProject(projectId)).ownerId
@@ -836,6 +845,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       }
       if (deps.taskMergeService) {
         await registerTaskMergeRoutes(api, { service: deps.taskMergeService, guard, broadcast: deps.onTaskEvent, canViewTask, audit: deps.auditService, logger: deps.logger });
+      }
+      if (deps.taskDuplicateService) {
+        // Duplicate Task: staff only (client sessions are refused by the guard's route table).
+        await registerTaskDuplicateRoutes(api, { service: deps.taskDuplicateService, guard });
       }
       if (deps.assigneeService) {
         await registerAssigneeRoutes(api, {

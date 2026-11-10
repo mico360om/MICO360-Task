@@ -457,6 +457,10 @@ model Task {
   mergedById     String?
   /// The merge (task_merges) that merged it.
   mergeId        String?
+  /// Duplicate Task: the task this one was copied from ("Duplicated from MSSP-34"); null for any other
+  /// task. No relation: the original may be deleted or merged later (then nothing is found). Single-task
+  /// details only — never in list payloads.
+  duplicatedFromId String?
 
   project      Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
   column       KanbanColumn     @relation(fields: [columnId], references: [id])
@@ -502,6 +506,8 @@ model Task {
   @@index([approvedById])
   /// 1.23.1: the tasks merged into a main task.
   @@index([mergedIntoId])
+  /// Duplicate Task: an original's copies.
+  @@index([duplicatedFromId])
   @@fulltext([title, description])
   @@map("tasks")
 }
