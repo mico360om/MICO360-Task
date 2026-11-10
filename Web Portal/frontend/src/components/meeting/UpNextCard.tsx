@@ -52,7 +52,7 @@ export function UpNextCard({ meeting: m, timeZone, now, project }: { meeting: Me
           <MeetingProject project={project} />
         </p>
       </div>
-      <People names={m.attendees} count={m.attendeeCount} />
+      <People names={m.attendees} faces={m.attendeeFaces} count={m.attendeeCount} />
       <div className="flex flex-none items-center gap-2">
         {join ? (
           <a

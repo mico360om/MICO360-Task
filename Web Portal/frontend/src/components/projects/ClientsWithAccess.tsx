@@ -61,7 +61,7 @@ export function ClientsWithAccess({ projectId }: { projectId: string }) {
               return (
                 <li key={c.id} className="flex items-start gap-3 py-2.5">
                   <span className="flex-none pt-0.5">
-                    <Avatar name={c.name} size="md" />
+                    <Avatar name={c.name} src={c.avatarUrl} size="md" />
                   </span>
                   <div className="min-w-0 flex-1">
                     <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5">

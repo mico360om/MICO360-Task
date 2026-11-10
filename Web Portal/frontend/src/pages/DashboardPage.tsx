@@ -550,7 +550,7 @@ function ActivityRow({ a, onOpenTask }: { a: ApiActivity; onOpenTask: (taskId: s
   const assignee = a.action === 'ASSIGNED' && typeof a.meta?.assignee === 'string' ? a.meta.assignee : null;
   return (
     <li className="flex gap-2 text-sm">
-      <Avatar name={who} size="sm" />
+      <Avatar name={who} src={a.actor?.avatarUrl} size="sm" />
       <div className="min-w-0 flex-1">
         <p className="leading-snug text-ink">
           <bdi className="font-semibold">{who}</bdi> <span className={actionTone(a.action)}>{actionLabel(a.action)}</span>{' '}

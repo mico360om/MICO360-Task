@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { assetUrl } from '../../api/client';
 import { personInitials } from '../../lib/initials';
 import { DENSE_FACE } from '../../lib/density-tokens';
@@ -5,7 +6,7 @@ import { DENSE_FACE } from '../../lib/density-tokens';
 export interface AvatarProps {
   name: string;
   size?: 'sm' | 'md' | 'lg';
-  /** Profile image path (server-relative like /uploads/<key>, or an absolute URL). Falls back to initials. */
+  /** Profile image path (server-relative like /uploads/<key>, or an absolute URL). Falls back to initials (also when it doesn't load). */
   src?: string | null;
   /** A face in a row of a list, table or board: 20px in compact rows (1.23.0, lib/density). */
   dense?: boolean;
@@ -17,15 +18,26 @@ const SIZE: Record<NonNullable<AvatarProps['size']>, string> = {
   lg: 'h-16 w-16 text-lg',
 };
 
+/**
+ * A person's photo to show, or null for the initials: none given, or it didn't load (removed, a dead
+ * link, offline). A new photo is tried again. Shared by every face that shows a photo (avatar hotfix).
+ */
+export function usePersonPhoto(src: string | null | undefined): { url: string | null; onError: () => void } {
+  const url = (src ? (src.startsWith('/') ? assetUrl(src) : src) : null) || null;
+  const [failed, setFailed] = useState<string | null>(null);
+  return { url: url && url !== failed ? url : null, onError: () => setFailed(url) };
+}
+
 export function Avatar({ name, size = 'md', src, dense = false }: AvatarProps) {
   const sizing = dense ? `${SIZE[size]} ${DENSE_FACE}` : SIZE[size];
-  const resolved = src && src.startsWith('/') ? assetUrl(src) : src ?? undefined;
-  if (resolved) {
+  const photo = usePersonPhoto(src);
+  if (photo.url) {
     return (
       <img
-        src={resolved}
+        src={photo.url}
         alt={name}
         title={name}
+        onError={photo.onError}
         className={`inline-block flex-none rounded-full border border-surface object-cover ${sizing}`}
       />
     );

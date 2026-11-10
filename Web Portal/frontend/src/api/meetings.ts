@@ -114,6 +114,8 @@ export interface Meeting {
   openActionItemCount?: number;
   /** List only: the first few attendees' names (older servers leave it out). */
   attendees?: string[];
+  /** List only: the same first few as faces — name and photo (null: initials; older servers leave it out). */
+  attendeeFaces?: MeetingFace[];
   /** List only: how far the minutes are. */
   minutes?: MinutesState;
   /** List only: notes recorded as decisions. */
@@ -442,6 +444,12 @@ export function seriesIdOf(m: Pick<Meeting, 'id' | 'recurrenceParentId' | 'recur
 
 export type MeetingPhase = 'upcoming' | 'ongoing' | 'completed' | 'cancelled';
 /** How far a meeting's minutes are: none, notes taken, final minutes drafted, final minutes approved. */
+/** A face on a meeting card (avatar hotfix): an attendee's name and photo (a guest, or no photo: null). */
+export interface MeetingFace {
+  name: string;
+  avatarUrl: string | null;
+}
+
 export type MinutesState = 'NONE' | 'NOTES' | 'DRAFT' | 'FINAL';
 
 export interface ProjectMeeting {
@@ -461,6 +469,8 @@ export interface ProjectMeeting {
   attendeeCount: number;
   /** The first few attendees' names. */
   attendees: string[];
+  /** The same first few as faces — name and photo (null: initials; older servers leave it out). */
+  attendeeFaces?: MeetingFace[];
   minutes: MinutesState;
   decisionCount: number;
   openActionItemCount: number;

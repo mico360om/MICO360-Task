@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import type { ProjectHealth } from '../../api/planning';
 import { HEALTH_LABEL, initialsOf } from '../../lib/timeline';
 import { HEALTH_CLASS } from '../../lib/colour-classes';
+import { usePersonPhoto } from '../ui/Avatar';
 
 /** The chart's left column and the weeks, the same in every row. */
 export const ROW = 'grid grid-cols-[16rem_minmax(0,1fr)] xl:grid-cols-[18rem_minmax(0,1fr)]';
@@ -103,21 +104,32 @@ export function ExpandButton({ name, expanded, onToggle, children, className = '
   );
 }
 
+const CHIP = 'grid h-5 min-w-[1.25rem] place-items-center rounded-full bg-ground px-0.5 text-[10px] font-bold text-ink-2';
+
+/** One person's chip: their photo (avatar hotfix), else — none, or it doesn't load — their initials. */
+function Face({ person }: { person: { name: string; avatarUrl?: string | null } }) {
+  const photo = usePersonPhoto(person.avatarUrl);
+  if (photo.url) return <img src={photo.url} alt="" aria-hidden="true" onError={photo.onError} className="h-5 w-5 flex-none rounded-full object-cover" />;
+  return (
+    <span aria-hidden="true" className={CHIP}>
+      {initialsOf(person.name)}
+    </span>
+  );
+}
+
 /**
- * Who has a task: their initials, their names on hover. `announce` also says the names to screen
- * readers (where the row's own name doesn't already).
+ * Who has a task: their photos (or initials), their names on hover. `announce` also says the names to
+ * screen readers (where the row's own name doesn't already).
  */
-export function Initials({ people, announce = false, className = '' }: { people: { id: string; name: string }[]; announce?: boolean; className?: string }) {
+export function Initials({ people, announce = false, className = '' }: { people: { id: string; name: string; avatarUrl?: string | null }[]; announce?: boolean; className?: string }) {
   if (people.length === 0) return null;
   const names = people.map((p) => p.name).join(', ');
-  const chip = 'grid h-5 min-w-[1.25rem] place-items-center rounded-full bg-ground px-0.5 text-[10px] font-bold text-ink-2';
+  const chip = CHIP;
   return (
     <span title={names} className={`flex flex-none gap-0.5 ${className}`}>
       {announce ? <span className="sr-only">, assigned to {names}</span> : null}
       {people.slice(0, 2).map((p) => (
-        <span key={p.id} aria-hidden="true" className={chip}>
-          {initialsOf(p.name)}
-        </span>
+        <Face key={p.id} person={p} />
       ))}
       {people.length > 2 ? (
         <span aria-hidden="true" className={chip}>

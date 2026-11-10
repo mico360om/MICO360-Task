@@ -9,8 +9,8 @@ export interface ApiActivity {
   createdAt: string;
   /** Action details (e.g. { from, to } for a move, { assignee } for an assignment). */
   meta?: Record<string, unknown> | null;
-  /** The user who performed the action (the feed's "who"). */
-  actor?: { id: string; name: string } | null;
+  /** The user who performed the action (the feed's "who"), with their photo (null or left out: initials). */
+  actor?: { id: string; name: string; avatarUrl?: string | null } | null;
   /** The task the action was on. */
   task?: { id: string; key: string; title: string } | null;
   /** The project the action was in. */

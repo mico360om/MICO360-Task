@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { Avatar } from './Avatar';
 
 describe('Avatar', () => {
@@ -25,6 +25,37 @@ describe('Avatar', () => {
     expect(face).toHaveClass('bg-surface');
     expect(face.className).toMatch(/linear-gradient\(rgb\(var\(--c-brand\)\/0\.1\)/);
     expect(face.className).not.toMatch(/(^|\s)bg-brand\/10(\s|$)/);
+  });
+
+  it('shows the person’s photo when they have one (avatar hotfix, owner 10 Nov)', () => {
+    render(<Avatar name="Khurram Mian" src="/uploads/avatars/km.png" />);
+    const img = screen.getByAltText('Khurram Mian');
+    expect(img.tagName).toBe('IMG');
+    expect(img.getAttribute('src')).toMatch(/\/uploads\/avatars\/km\.png$/);
+    expect(screen.queryByText('KM')).toBeNull();
+  });
+
+  it('falls back to the initials when the photo can’t be loaded, and tries a new photo again', () => {
+    const { rerender } = render(<Avatar name="Khurram Mian" src="/uploads/avatars/gone.png" />);
+    fireEvent.error(screen.getByAltText('Khurram Mian'));
+    expect(document.querySelector('img')).toBeNull();
+    expect(screen.getByLabelText('Khurram Mian')).toHaveTextContent(/^KM$/);
+    rerender(<Avatar name="Khurram Mian" src="/uploads/avatars/new.png" />);
+    expect(screen.getByAltText('Khurram Mian').getAttribute('src')).toMatch(/new\.png$/);
+  });
+
+  it('with no photo (null, empty or missing) it shows the initials', () => {
+    render(
+      <>
+        <Avatar name="Ada Lovelace" src={null} />
+        <Avatar name="Bo Diddley" src="" />
+        <Avatar name="Cy Twombly" />
+      </>,
+    );
+    expect(screen.getByLabelText('Ada Lovelace')).toHaveTextContent('AL');
+    expect(screen.getByLabelText('Bo Diddley')).toHaveTextContent('BD');
+    expect(screen.getByLabelText('Cy Twombly')).toHaveTextContent('CT');
+    expect(document.querySelector('img')).toBeNull();
   });
 
   it('a face in a row is 24px, and 20px in compact (1.23.0); elsewhere it never changes', () => {

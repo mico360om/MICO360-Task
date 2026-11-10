@@ -25,8 +25,8 @@ export interface ProjectMeetingsData {
   }>;
   /** First meetings of the series shown that aren't among `meetings` (older, or deleted on their own). */
   seriesRoots: Array<{ id: string; title: string; recurrenceRule: RecurrenceRule | null; recurrenceStart: Date | null; startAt: Date }>;
-  /** Attendees by meeting, with their display names (guests too). */
-  attendees: Array<{ meetingId: string; userId: string | null; name: string }>;
+  /** Attendees by meeting, with their display names (guests too) and photos (none: null or left out). */
+  attendees: Array<{ meetingId: string; userId: string | null; name: string; avatarUrl?: string | null }>;
   /** Notes recorded as decisions (not deleted); a RICH one is formatted (its words are listed). */
   decisions: Array<{ id: string; meetingId: string; body: string; bodyFormat?: 'PLAIN' | 'RICH'; createdAt: Date }>;
   /** Notes taken per meeting (any kind, not deleted). */
@@ -60,10 +60,17 @@ export function minutesState(recordStatus: string | undefined, noteCount: number
   return noteCount > 0 ? 'NOTES' : 'NONE';
 }
 
+/** A face on a meeting card: the attendee's name and photo (a guest, or no photo: null). */
+export interface MeetingFace {
+  name: string;
+  avatarUrl: string | null;
+}
+const faceOf = (a: { name: string; avatarUrl?: string | null }): MeetingFace => ({ name: a.name, avatarUrl: a.avatarUrl ?? null });
+
 /** What the meetings list needs about each meeting, read in one go for the whole list. */
 export interface MeetingListData {
-  /** Attendees with their display names, in the order they were added (with their row id and answer). */
-  attendees: Array<{ meetingId: string; userId: string | null; name: string; id?: string; response?: string }>;
+  /** Attendees with their display names and photos, in the order they were added (with their row id and answer). */
+  attendees: Array<{ meetingId: string; userId: string | null; name: string; avatarUrl?: string | null; id?: string; response?: string }>;
   /** Notes taken per meeting (any kind, not deleted). */
   noteCounts: Record<string, number>;
   /** Notes recorded as decisions per meeting. */
@@ -81,8 +88,8 @@ export interface MeetingListData {
  */
 export function buildMeetingListCounts(ids: string[], data: MeetingListData, viewerId?: string) {
   const minutesOf = new Map(data.minutes.map((x) => [x.meetingId, x.status]));
-  const people = new Map<string, string[]>();
-  for (const a of data.attendees) people.set(a.meetingId, [...(people.get(a.meetingId) ?? []), a.name]);
+  const people = new Map<string, MeetingFace[]>();
+  for (const a of data.attendees) people.set(a.meetingId, [...(people.get(a.meetingId) ?? []), faceOf(a)]);
   const mineOf = new Map<string, { attendeeId: string; response: string }>();
   if (viewerId) {
     for (const a of data.attendees) {
@@ -91,13 +98,15 @@ export function buildMeetingListCounts(ids: string[], data: MeetingListData, vie
   }
   return Object.fromEntries(
     ids.map((id) => {
-      const names = people.get(id) ?? [];
+      const faces = people.get(id) ?? [];
       return [
         id,
         {
-          attendeeCount: names.length,
+          attendeeCount: faces.length,
           openActionItemCount: data.openActionItemCounts[id] ?? 0,
-          attendees: names.slice(0, 4),
+          attendees: faces.slice(0, 4).map((f) => f.name),
+          // Avatar hotfix: the same first four with their photos (the names above stay for older readers).
+          attendeeFaces: faces.slice(0, 4),
           minutes: minutesState(minutesOf.get(id), data.noteCounts[id] ?? 0),
           decisionCount: data.decisionCounts[id] ?? 0,
           ...(viewerId ? { mine: mineOf.get(id) ?? null } : {}),
@@ -142,6 +151,7 @@ export function buildProjectMeetingsOverview(data: ProjectMeetingsData, now: Dat
         phase: meetingPhase(m, now),
         attendeeCount: people.length,
         attendees: people.slice(0, 6).map((p) => p.name),
+        attendeeFaces: people.slice(0, 6).map(faceOf),
         minutes,
         decisionCount: (decisionsOf.get(m.id) ?? []).length,
         openActionItemCount: (itemsOf.get(m.id) ?? []).filter(openItem).length,
