@@ -48,13 +48,14 @@ export function CategoryPicker({
     onChange(ordered.map((c) => c.id).filter((x) => next.includes(x)));
   };
   return (
+    // A group can't carry aria-required (axe: aria-allowed-attr): "required" is in its name instead —
+    // the form's own label says "(required)"; a picker named here says it too.
     <div
       role="group"
-      aria-label={labelledBy ? undefined : label}
+      aria-label={labelledBy ? undefined : required ? `${label} (required)` : label}
       aria-labelledby={labelledBy}
       aria-describedby={describedBy}
       aria-invalid={invalid || undefined}
-      aria-required={required || undefined}
       className="flex flex-wrap gap-1.5"
     >
       {shown.length === 0 ? <p className="text-sm text-ink-3">{CATEGORY_WORDS.none}</p> : null}

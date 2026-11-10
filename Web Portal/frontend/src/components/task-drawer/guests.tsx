@@ -179,13 +179,14 @@ export function GuestDetailsDialog({
               if (!value) return null;
               const label = GUEST_WORDS.labels[field];
               return (
-                <div key={field} className="flex items-center gap-2 px-3 py-1.5">
-                  <div className="min-w-0 flex-1">
-                    <dt className="text-[11px] font-medium text-ink-3">{label}</dt>
-                    <dd dir={field === 'phone' || field === 'email' ? 'ltr' : 'auto'} className="select-text break-words text-start text-sm text-ink">
-                      {value}
-                    </dd>
-                  </div>
+                // A <dl> row holds only its <dt> and <dd>s (axe: definition-list, dlitem): the label over the
+                // value on the left, the Copy button in its own <dd> on the right, across both lines.
+                <div key={field} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 px-3 py-1.5">
+                  <dt className="col-start-1 row-start-1 text-[11px] font-medium text-ink-3">{label}</dt>
+                  <dd dir={field === 'phone' || field === 'email' ? 'ltr' : 'auto'} className="col-start-1 row-start-2 min-w-0 select-text break-words text-start text-sm text-ink">
+                    {value}
+                  </dd>
+                  <dd className="col-start-2 row-span-2 row-start-1 flex">
                   <button
                     type="button"
                     onClick={() => void copy(field, value)}
@@ -205,6 +206,7 @@ export function GuestDetailsDialog({
                     )}
                     {copied === field ? GUEST_WORDS.copied : GUEST_WORDS.copy}
                   </button>
+                  </dd>
                 </div>
               );
             })}

@@ -82,6 +82,24 @@ describe('TaskDrawer: guests under Assigned', () => {
     expect(screen.queryByRole('dialog', { name: 'Ahmed Al Harthy' })).toBeNull();
   });
 
+  // Browser check (axe, serious "definition-list" / "dlitem"): a <dl>'s rows hold only <dt> and <dd>.
+  it('the details are a well-formed description list: each row holds only its term and descriptions', async () => {
+    const user = userEvent.setup();
+    render(<TaskDrawer task={task} checklist={[]} comments={[]} assignees={team} onClose={vi.fn()} />);
+    await user.click(within(assigned()).getByRole('button', { name: 'Ahmed Al Harthy · OXY · Guest' }));
+    const dialog = screen.getByRole('dialog', { name: 'Ahmed Al Harthy' });
+    const list = dialog.querySelector('dl')!;
+    const rows = Array.from(list.children);
+    expect(rows).toHaveLength(5);
+    for (const row of rows) {
+      expect(row.tagName).toBe('DIV');
+      expect(Array.from(row.children).map((c) => c.tagName).filter((t) => t !== 'DT' && t !== 'DD')).toEqual([]);
+      expect(row.querySelectorAll(':scope > dt')).toHaveLength(1);
+    }
+    // Each still has its Copy button.
+    expect(within(list as HTMLElement).getAllByRole('button', { name: /^Copy / })).toHaveLength(5);
+  });
+
   it('this task’s note for the guest is changed by whoever can edit the task (and checked first)', async () => {
     const onSetGuestNote = vi.fn(async () => {});
     render(<TaskDrawer task={task} checklist={[]} comments={[]} assignees={team} onSetGuestNote={onSetGuestNote} onRemoveGuest={vi.fn()} onClose={vi.fn()} />);

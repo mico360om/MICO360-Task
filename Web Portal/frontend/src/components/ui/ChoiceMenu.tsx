@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { TOUCH_TALL } from '../../lib/touch';
 
 export interface Choice<T extends string> {
   value: T;
@@ -133,7 +134,8 @@ export function ChoiceMenu<T extends string>({
                     close();
                     if (c.value !== value) onChoose(c.value);
                   }}
-                  className="flex w-full items-center gap-2.5 px-3 py-2 text-start text-sm text-ink outline-none hover:bg-ground focus-visible:bg-ground [@media(pointer:coarse)]:min-h-11"
+                  // TOUCH_TALL (with `!`): a plain min-h-11 loses to index.css's 32px floor for buttons.
+                  className={`flex w-full items-center gap-2.5 px-3 py-2 text-start text-sm text-ink outline-none hover:bg-ground focus-visible:bg-ground ${TOUCH_TALL}`}
                 >
                   <span aria-hidden="true" className={`grid h-4 w-4 flex-none place-items-center ${c.value === value ? 'text-brand' : 'text-transparent'}`}>
                     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">

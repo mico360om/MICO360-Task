@@ -51,6 +51,24 @@ describe('CategoryPicker', () => {
     expect(onChange).toHaveBeenLastCalledWith(['k1']);
   });
 
+  // Browser check (axe, critical "aria-allowed-attr"): aria-required isn't allowed on role="group".
+  it('a required pick says so in its name, never with aria-required (a group can’t have it)', () => {
+    render(<CategoryPicker categories={LIST} value={[]} onChange={vi.fn()} required />);
+    expect(screen.getByRole('group', { name: `${CATEGORY_WORDS.pick} (required)` })).not.toHaveAttribute('aria-required');
+  });
+
+  it('labelled by the form’s own label (which says “required”), it has no aria-required either', () => {
+    render(
+      <>
+        <span id="cat-label">Categories (required)</span>
+        <CategoryPicker categories={LIST} value={[]} onChange={vi.fn()} labelledBy="cat-label" required invalid />
+      </>,
+    );
+    const group = screen.getByRole('group', { name: 'Categories (required)' });
+    expect(group).not.toHaveAttribute('aria-required');
+    expect(group).toHaveAttribute('aria-invalid', 'true');
+  });
+
   it('says when the project has no categories', () => {
     render(<CategoryPicker categories={[]} value={[]} onChange={vi.fn()} />);
     expect(screen.getByText(CATEGORY_WORDS.none)).toBeInTheDocument();
