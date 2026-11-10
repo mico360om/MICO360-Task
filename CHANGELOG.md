@@ -14,6 +14,30 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### New features
+- Replies on every comment: every comment on a task now has Reply, not only a client's. Replies sit indented
+  under their comment, oldest first, so a thread reads like a conversation; replying to a reply answers the
+  same thread and starts with "@name". @mentions work in replies. The person you reply to gets a notice
+  ("Sara Ali replied to your comment"), once — not again as "New comment", and not twice when you @mention
+  them. In a client's thread a reply stays with the team unless "Visible to client" is ticked, as before.
+- Client portal replies: a client who may comment can reply to their own comments and to the team's replies
+  they can see; the team member they answer gets a notice. Team-only replies never reach the client.
+- When a comment that has replies is deleted, its replies stay together under "Comment deleted".
+
+### Improvements
+- Task comments, newest first: in the task panel on every page (My Tasks, boards, projects, calendar, search,
+  tables…) and on the Client portal's task page, the newest comment is at the top, and the write box with its
+  Comment / Send comment button sits above the comments and stays in view while you scroll them. The newest 30
+  show; "Show older comments" loads 30 more.
+- Your comment shows at the top the moment you send it. If it can't be sent it stays there, marked "Not sent",
+  with Try again and Edit — your words are never lost.
+- New comments, edits and deletions appear without refreshing: in the task panel at once, in the Client portal
+  within a few seconds. If you are reading further down, a small "1 new comment ↑" button appears instead of
+  moving what you are reading; pressing it scrolls smoothly to the top (instantly when your device asks for
+  reduced motion). A new comment is highlighted for a few seconds, a thread with a new reply is marked "New
+  reply" and keeps its place, and screen readers hear "New comment from …".
+- Anyone @mentioned in a comment gets the mention notice only, not a second "New comment" notice.
+
 ## [1.23.7] - 2026-11-09
 
 ### New features
