@@ -162,6 +162,12 @@ export interface TaskMeetingLookup {
   canView: (userId: string, roles: string[], meetingId: string) => Promise<boolean>;
 }
 
+/** Duplicate Task: a task's links to the task it was copied from and to its copies (live tasks, oldest copy first). */
+export interface DuplicateLinks {
+  from: { id: string; key: string } | null;
+  copies: { id: string; key: string }[];
+}
+
 export interface TaskRouteDeps {
   taskService: TaskService;
   guard: AuthGuard;
@@ -201,6 +207,8 @@ export interface TaskRouteDeps {
   taskApproval?: (viewer: ApprovalViewer, task: TaskRecord) => Promise<TaskApprovalDetails>;
   /** 1.23.1: the tasks merged into this one (additive `mergedFrom`; its "Merged from" panel opens from them). */
   mergedFrom?: (taskId: string) => Promise<{ id: string; key: string; mergeId: string }[]>;
+  /** Duplicate Task: the task this one was copied from, and its own copies (live tasks; additive `duplicatedFrom`, `copies`). */
+  duplicateLinks?: (taskId: string) => Promise<DuplicateLinks>;
   /** 1.23.3: dated checklist items for the calendar, in the caller's scope (see prisma-checklist-queries). */
   checklistDue?: (opts: { from: string; to: string; userId: string; ownIds: string[] | null; listIds: string[] | null }) => Promise<unknown[]>;
 }
@@ -383,6 +391,18 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
     };
   }
 
+  /**
+   * Duplicate Task: "Duplicated from MSSP-34" and "Copies: MSSP-40, MSSP-41" — only tasks the reader may
+   * open (a copy in a project they can't see is never named or counted).
+   */
+  async function duplicateLinksFor(req: FastifyRequest, taskId: string): Promise<{ duplicatedFrom: DuplicateLinks['from']; copies: DuplicateLinks['copies'] }> {
+    const links = await deps.duplicateLinks!(taskId);
+    const opens = (id: string) => assertTaskView(req, id).catch(() => false);
+    const from = links.from && (await opens(links.from.id)) ? links.from : null;
+    const shown = await Promise.all(links.copies.map((c) => opens(c.id)));
+    return { duplicatedFrom: from, copies: links.copies.filter((_, i) => shown[i]) };
+  }
+
   app.get('/tasks/:id', { preHandler: guard.authenticate }, async (req, reply) => {
     const { id } = req.params as { id: string };
     if (!(await assertTaskView(req, id))) {
@@ -395,7 +415,8 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
     // 1.23.1: the tasks merged into it; and, opened by a merged task's id (an old link), which one that was.
     const merged = deps.mergedFrom ? { mergedFrom: await deps.mergedFrom(task.id) } : {};
     const notice = req.mergedFrom ? { mergeNotice: { key: req.mergedFrom.key, mergedAt: req.mergedFrom.mergedAt, mergedByName: req.mergedFrom.mergedByName } } : {};
-    return { data: { ...task, meeting: await meetingLinkOf(req, task.meetingId ?? null), inspectionForm, ...approval, canDelete, canDeleteSeries, ...merged, ...notice } };
+    const duplicates = deps.duplicateLinks ? await duplicateLinksFor(req, task.id) : {};
+    return { data: { ...task, meeting: await meetingLinkOf(req, task.meetingId ?? null), inspectionForm, ...approval, canDelete, canDeleteSeries, ...merged, ...notice, ...duplicates } };
   });
 
   // A new task: the shared pipeline (task-create.ts) — the project scope, then tags, contacts and

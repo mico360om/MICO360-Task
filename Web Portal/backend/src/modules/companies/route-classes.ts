@@ -508,4 +508,8 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   'GET /projects/:id/health': 'object',
   'GET /projects/:id/next-actions': 'object',
   'GET /projects/:id/activity': 'object',
+  // Duplicate Task: the review form's pre-fill (the original by the task rule) and the copy (the original
+  // by the task rule, the chosen project by the new-task rule; staff only — a client account is refused).
+  'GET /tasks/:id/duplicate': 'object',
+  'POST /tasks/:id/duplicate': 'object',
 };
