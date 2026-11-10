@@ -213,7 +213,7 @@ export interface TaskRouteDeps {
   checklistDue?: (opts: { from: string; to: string; userId: string; ownIds: string[] | null; listIds: string[] | null }) => Promise<unknown[]>;
 }
 
-/** POST /tasks' pipeline from the routes' deps (Duplicate builds the same one: task-duplicate-routes.ts). */
+/** POST /tasks' pipeline from the routes' deps (server.ts gives Duplicate the same one: task-duplicate.ts). */
 export function newTaskPipeline(deps: Pick<TaskRouteDeps, 'taskService' | 'accessibleProjectIds' | 'assigneeService' | 'projectOwnerOf' | 'broadcast'>): NewTaskPipeline {
   return {
     taskService: deps.taskService,
