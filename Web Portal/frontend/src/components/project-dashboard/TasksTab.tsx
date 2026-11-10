@@ -160,7 +160,7 @@ export function TasksTab({
   // soonest start first (each row keeps its column's name).
   const columnOf = new Map(groups.flatMap((g) => g.tasks.map((t) => [t.id, g.name] as const)));
   const waiting = (t: ApiTask) => upcomingDay(t, today) !== null;
-  const upcoming = all.filter((t) => waiting(t) && keep(t)).sort((a, b) => upcomingDay(a, today)!.localeCompare(upcomingDay(b, today)!));
+  const upcoming = all.filter((t) => waiting(t) && keep(t)).sort((a, b) => upcomingDay(a, today)!.localeCompare(upcomingDay(b, today)!, 'en'));
   const shown = [
     ...groups.map((g) => ({ ...g, tasks: g.tasks.filter((t) => !waiting(t) && keep(t)) })),
     { id: UPCOMING_GROUP, name: 'Upcoming', color: '', tasks: upcoming },

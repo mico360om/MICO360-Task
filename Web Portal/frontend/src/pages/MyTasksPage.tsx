@@ -245,7 +245,7 @@ export function MyTasksPage() {
   // Tasks scheduled for the future: today's list, then "Upcoming" — the ones waiting for a later start
   // day, soonest first (the chosen sort within a day).
   const todayRows = useMemo(() => sorted.filter((e) => !e.waits), [sorted]);
-  const upcomingRows = useMemo(() => sorted.filter((e) => e.waits).sort((a, b) => a.waits!.localeCompare(b.waits!)), [sorted]);
+  const upcomingRows = useMemo(() => sorted.filter((e) => e.waits).sort((a, b) => a.waits!.localeCompare(b.waits!, 'en')), [sorted]);
   const today = companyTodayKey(timeZone);
 
   const counts = useMemo(() => {
