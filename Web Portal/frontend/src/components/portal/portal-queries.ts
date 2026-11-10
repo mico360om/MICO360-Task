@@ -26,9 +26,23 @@ export function usePortalProject(p: string) {
   const api = usePortalApi();
   return useQuery({ queryKey: portalKeys.project(p), queryFn: () => api.project(p), enabled: Boolean(p) });
 }
+/**
+ * Owner, 10 Nov 2026: how often an open task is read again, so the team's replies (and files) arrive by themselves.
+ * Client accounts have no live connection; the read applies their permissions every time.
+ */
+export const TASK_EVERY_MS = 5_000;
+
+/** One shared task — read again every few seconds while the tab is shown, and on coming back to it (not in a preview). */
 export function usePortalTask(p: string, t: string) {
   const api = usePortalApi();
-  return useQuery({ queryKey: portalKeys.task(p, t), queryFn: () => api.task(p, t), enabled: Boolean(p && t) });
+  const preview = usePortalPreview();
+  return useQuery({
+    queryKey: portalKeys.task(p, t),
+    queryFn: () => api.task(p, t),
+    enabled: Boolean(p && t),
+    refetchInterval: preview ? false : TASK_EVERY_MS,
+    refetchOnWindowFocus: !preview,
+  });
 }
 export function usePortalMeetings(p: string) {
   const api = usePortalApi();
