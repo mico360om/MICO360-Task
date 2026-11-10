@@ -65,6 +65,10 @@ export interface TaskMovePreview {
   repeat: 'SERIES' | 'COPY' | null;
   /** People assigned to it who aren't on the new project's team (companies: `canJoin` false — only "Unassign them"). */
   outsiders: Outsider[];
+  /** 1.24: its categories the new project has none of the same name for (the move drops them). */
+  categoriesDropped?: string[];
+  /** 1.24: how many of its guests are copied onto the new project's company list (another company's project). */
+  guestsCopied?: number;
 }
 
 /** Someone assigned who isn't on the new team, and whether they may join it (companies: in one of its companies). */
@@ -268,8 +272,10 @@ export function createTaskMoveService(deps: TaskMoveServiceDeps) {
         const people = await outsidersOf(task, to);
         for (const p of people) outsiders.set(p.id, p);
         const due = dueOnEntry(task, to);
+        const changes = repo.categoryAndGuestChanges ? await repo.categoryAndGuestChanges(task.id, to.id) : null;
         tasks.push({
           ...base,
+          ...(changes ?? {}),
           from: { id: from.id, code: from.code, name: from.name },
           canMove: true,
           reason: null,
@@ -307,6 +313,15 @@ export function createTaskMoveService(deps: TaskMoveServiceDeps) {
     }
     const addedToTeam = input.assignees === 'ADD_TO_TEAM' ? outsiders : [];
     const unassigned = input.assignees === 'UNASSIGN' ? outsiders : [];
+    // 1.24: a task with guests keeps at least one person from the team.
+    if ((task.guestCount ?? 0) > 0 && task.assignees.length > 0 && unassigned.length >= task.assignees.length) {
+      throw new TaskRefusal(
+        `This task has guests, so it needs at least one person from the ${to.name} team. Add them to the team instead of unassigning everyone.`,
+        'NEEDS_TEAM_MEMBER',
+        409,
+        'It has guests: it needs a person from the new team.',
+      );
+    }
 
     const at = now();
     const due = dueOnEntry(task, to);

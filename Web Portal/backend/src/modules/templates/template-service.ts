@@ -240,6 +240,8 @@ export function createTemplateService(deps: TemplateServiceDeps) {
       name: input.name,
       description: input.description,
       columns: usableColumns(snap.columns),
+      // 1.24: the project's categories in use.
+      categories: snap.categories ?? [],
       roles,
       tasks: snap.tasks.map((t) => {
         const offset = offsetBetween(base, dueDayKey(t.dueDate, timeZone));
@@ -336,6 +338,8 @@ export function createTemplateService(deps: TemplateServiceDeps) {
     const day = (key: string) => new Date(`${key}T00:00:00.000Z`);
     const startWith: StartingContent = {
       columns: template.columns.map((c) => ({ ...c })),
+      // 1.24: the template's task categories.
+      categories: (template.categories ?? []).map((c) => ({ ...c })),
       startColumn: startColumnIndex(template.columns),
       boardDate,
       templateName: template.name,

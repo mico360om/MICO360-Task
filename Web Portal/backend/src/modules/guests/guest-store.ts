@@ -178,3 +178,45 @@ export function alsoRecorded(guest: GuestFields, rows: (GuestFields & { task: { 
   }
   return parts.length ? `Also recorded: ${parts.join('; ')}` : null;
 }
+
+/**
+ * Keep each of these tasks' guests on its own project's company list: a row whose guest is another
+ * company's (the task moved, or a merge brought it from another company's task) is linked to that company's
+ * guest with the same details by the duplicate rule — a copy is made when there is none; the other
+ * company's guest is never changed. A task left with one guest twice keeps the first row (both notes).
+ * Returns how many rows were linked anew.
+ */
+export async function alignTaskGuests(db: Db, taskIds: string[], actorId: string | null): Promise<number> {
+  let linked = 0;
+  for (const taskId of [...new Set(taskIds)]) {
+    const task = await db.task.findUnique({ where: { id: taskId }, select: { key: true, projectId: true } });
+    if (!task) continue;
+    const companyId = await companyOfProject(db, task.projectId);
+    const rows = await db.taskExternalContact.findMany({ where: { taskId }, include: { guest: true }, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }] });
+    let mine = 0;
+    for (const row of rows) {
+      if (!row.guest || row.guest.companyId === companyId) continue;
+      const guest = await findOrCreateGuest(db, companyId, guestColumns(row.guest), actorId, { taskKey: task.key });
+      await db.taskExternalContact.update({ where: { id: row.id }, data: { guestId: guest.id, ...guestColumns(guest) } });
+      mine += 1;
+    }
+    linked += mine;
+    if (mine === 0) continue;
+    const after = await db.taskExternalContact.findMany({ where: { taskId }, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }] });
+    const byGuest = new Map<string, typeof after>();
+    for (const r of after) if (r.guestId) byGuest.set(r.guestId, [...(byGuest.get(r.guestId) ?? []), r]);
+    for (const same of byGuest.values()) {
+      if (same.length < 2) continue;
+      const remarks = [...new Set(same.map((r) => r.remarks).filter((x): x is string => Boolean(x)))].join('\n').slice(0, GUEST_LIMITS.note) || null;
+      await db.taskExternalContact.update({ where: { id: same[0]!.id }, data: { remarks } });
+      await db.taskExternalContact.deleteMany({ where: { id: { in: same.slice(1).map((r) => r.id) } } });
+    }
+  }
+  return linked;
+}
+
+/** How many of a task's guests are another company's than this project's (a move there would copy them). */
+export async function guestsToCopy(db: Db, taskId: string, projectId: string): Promise<number> {
+  const companyId = await companyOfProject(db, projectId);
+  return db.taskExternalContact.count({ where: { taskId, guest: { is: { companyId: { not: companyId } } } } });
+}

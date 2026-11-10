@@ -35,6 +35,8 @@ import {
 } from './merge-rules';
 import { TEXT_MAX } from '../tasks/checklist-tree';
 import { displayName, joinableOf, loadCounts, loadMergeTasks, teamOf, type Db, type MergeCounts, type MergeTask } from './merge-facts';
+import { alignTaskGuests } from '../guests/guest-store';
+import { categoryPlanFor, setTaskCategories, taskCategoryNames } from '../categories/category-store';
 
 /** 1.23.3: a merged task's checklist on the main task: "From MICO-14 · Electrical" (fits the title's 191 characters). */
 export function mergedListTitle(key: string, title: string): string {
@@ -292,7 +294,7 @@ interface RowsAround {
   /** 1.23.3: the tasks' checklists (deleted ones too: they move with their items, still restorable). */
   lists: { id: string; taskId: string; title: string; position: number; deletedAt: Date | null }[];
   files: { id: string; taskId: string; filename: string; sizeBytes: number; storageKey: string }[];
-  contacts: ({ id: string; taskId: string; position: number } & ContactValues)[];
+  contacts: ({ id: string; taskId: string; position: number; guestId?: string | null } & ContactValues)[];
   assignees: { taskId: string; userId: string; name: string }[];
   watchers: { taskId: string; userId: string }[];
   tags: { taskId: string; tagId: string }[];
@@ -308,7 +310,7 @@ async function rowsAround(db: Db, ids: string[]): Promise<RowsAround> {
     db.attachment.findMany({ where: { taskId: { in: ids } }, select: { id: true, taskId: true, filename: true, sizeBytes: true, storageKey: true }, orderBy: { createdAt: 'asc' } }),
     db.taskExternalContact.findMany({
       where: { taskId: { in: ids } },
-      select: { id: true, taskId: true, position: true, name: true, company: true, designation: true, email: true, phone: true, remarks: true },
+      select: { id: true, taskId: true, position: true, guestId: true, name: true, company: true, designation: true, email: true, phone: true, remarks: true },
       orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
     }),
     db.taskAssignee.findMany({ where: { taskId: { in: ids } }, select: { taskId: true, userId: true, user: { select: { username: true, firstName: true, lastName: true } } }, orderBy: { assignedAt: 'asc' } }),
@@ -410,13 +412,15 @@ async function planRows(
   }
 
   // External contacts: the same email or phone is one person — the kept copy gets the missing fields.
+  // 1.24: rows linked to guests are the same person only when they are the same guest (its details are the
+  // guest's, so only the task's note can be filled in).
   const keptContacts: (RowsAround['contacts'][number] & { filled: Partial<ContactValues> })[] = ofTask(rows.contacts, main.id).map((c) => ({ ...c, filled: {} }));
   let nextContact = Math.max(-1, ...ofTask(rows.contacts, main.id).map((c) => c.position)) + 1;
   for (const t of others) {
     const mine = ofTask(rows.contacts, t.id);
     const keptBefore = keptContacts.slice();
     for (const c of mine) {
-      const match = keptBefore.find((k) => sameContact(k, c));
+      const match = keptBefore.find((k) => (k.guestId && c.guestId ? k.guestId === c.guestId : sameContact(k, c)));
       if (!match) {
         plan.contacts.push({ id: c.id, fromTaskId: t.id, position: c.position, newPosition: nextContact++ });
         keptContacts.push({ ...c, filled: {} });
@@ -425,6 +429,7 @@ async function planRows(
       plan.contactDupes.push({ id: c.id, fromTaskId: t.id });
       const values = { ...match, ...match.filled };
       const fill = contactFill(values, c);
+      if (match.guestId && c.guestId) for (const f of Object.keys(fill) as (keyof typeof fill)[]) if (f !== 'remarks') delete fill[f];
       if (Object.keys(fill).length > 0) {
         Object.assign(match.filled, fill);
         plan.fills.push({ contactId: match.id, fromTaskId: t.id, fill });
@@ -985,6 +990,27 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
       item('tag', t.tagId, t.fromTaskId);
       await tx.taskTag.update({ where: { taskId_tagId: { taskId: t.fromTaskId, tagId: t.tagId } }, data: { taskId: main.id } });
     }
+    // 1.24 Categories: the union, in the main task's project — another project's by name (the rest left
+    // off). The merged tasks keep their own; Undo takes off what was added and gives back what was dropped.
+    {
+      const before = await taskCategoryNames(tx, main.id);
+      const own = await categoryPlanFor(tx, before, projectId);
+      const final = [...own.keep];
+      const from = new Map<string, string>(own.keep.map((id) => [id, main.id]));
+      for (const t of others) {
+        for (const id of (await categoryPlanFor(tx, await taskCategoryNames(tx, t.id), projectId)).keep) {
+          if (from.has(id)) continue;
+          from.set(id, t.id);
+          final.push(id);
+        }
+      }
+      const had = new Set(before.map((c) => c.id));
+      for (const id of final) if (!had.has(id)) item('category', id, from.get(id)!);
+      for (const c of before) if (!final.includes(c.id)) item('categoryDropped', c.id, main.id);
+      await setTaskCategories(tx, main.id, final, actor.id);
+    }
+    // 1.24 Guests: the rows that came from another company's task are linked to the main task's company list.
+    await alignTaskGuests(tx, [main.id], actor.id);
     for (const m of plan.links.move) {
       item('dependency', m.edge.id, m.fromTaskId, { side: m.side });
       await tx.taskDependency.update({ where: { id: m.edge.id }, data: m.side === 'blocked' ? { taskId: main.id } : { dependsOnTaskId: main.id } });
@@ -1438,6 +1464,11 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
     await links('assignee');
     await links('watcher');
     await links('tag');
+    // 1.24 Categories: the ones the merge added to the main task go; the ones it dropped come back.
+    for (const i of of('category')) await tx.taskCategory.deleteMany({ where: { taskId: main.id, categoryId: i.rowId } });
+    for (const i of of('categoryDropped')) {
+      if (await tx.projectCategory.findUnique({ where: { id: i.rowId }, select: { id: true } })) await tx.taskCategory.createMany({ data: [{ taskId: main.id, categoryId: i.rowId }], skipDuplicates: true });
+    }
     // Numbers: the merged tasks' own numbers are theirs again (and the old ones they had).
     await backTo('alias', (from, rowIds) => tx.taskKeyAlias.updateMany({ where: { id: { in: rowIds } }, data: { taskId: from } }));
     if (ids('aliasNew').length) await tx.taskKeyAlias.deleteMany({ where: { id: { in: ids('aliasNew') } } });
@@ -1462,6 +1493,8 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
     }
     const statusChange: StatusChange | null = typeof patch.columnId === 'string' && patch.columnId !== main.columnId ? { prevColumnId: main.columnId, approval: null, requestedById: null } : null;
 
+    // 1.24 Guests: rows given back to a task of another company are linked to its company's list.
+    await alignTaskGuests(tx, [main.id, ...tasks.map((t) => t.id)], actor.id);
     await tx.taskMerge.update({ where: { id: mergeId }, data: { undoneAt: at, undoneById: actor.id } });
     const keys = tasks.map((t) => t.key);
     let tick = 0;

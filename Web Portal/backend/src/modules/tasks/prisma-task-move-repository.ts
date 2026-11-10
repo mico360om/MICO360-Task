@@ -6,6 +6,8 @@ import { moveHistory } from './task-move-history';
 import { managedVisibleWhere } from '../projects/project-managers';
 import { ARCHIVE_SELECT, archivedOf, liveProjectWhere } from '../companies/project-archive';
 import { sharesProjectCompanyWhere } from '../companies/company-access';
+import { alignTaskGuests, guestsToCopy } from '../guests/guest-store';
+import { categoryPlanFor, setTaskCategories, taskCategoryNames } from '../categories/category-store';
 
 // companies: with its companies' statuses, so it says whether it counts as archived.
 const projectSelect = { id: true, code: true, name: true, status: true, defaultDueToday: true, color: true, icon: true, imageUrl: true, companies: ARCHIVE_SELECT.companies } as const;
@@ -33,6 +35,7 @@ export function createPrismaTaskMoveRepository(prisma: PrismaClient): TaskMoveRe
           needsApproval: true, approvalRequestedAt: true, approvalRequestedById: true, approvedAt: true,
           column: { select: { category: true } },
           assignees: { select: { user: { select: { id: true, username: true, firstName: true, lastName: true } } }, orderBy: { assignedAt: 'asc' } },
+          _count: { select: { externalContacts: true } },
         },
       });
       return rows.map((t) => ({
@@ -56,7 +59,13 @@ export function createPrismaTaskMoveRepository(prisma: PrismaClient): TaskMoveRe
         repeats: t.recurrenceRule !== null,
         inSeries: t.recurrenceRule !== null || t.recurrenceParentId !== null,
         assignees: t.assignees.map((a) => ({ id: a.user.id, name: displayName(a.user) })),
+        guestCount: t._count.externalContacts,
       }));
+    },
+
+    async categoryAndGuestChanges(taskId, projectId) {
+      const plan = await categoryPlanFor(prisma, await taskCategoryNames(prisma, taskId), projectId);
+      return { categoriesDropped: plan.drop.map((c) => c.name), guestsCopied: await guestsToCopy(prisma, taskId, projectId) };
     },
 
     async findProject(id) {
@@ -139,6 +148,11 @@ export function createPrismaTaskMoveRepository(prisma: PrismaClient): TaskMoveRe
             await tx.projectMember.createMany({ data: w.addToTeam.map((userId) => ({ projectId: w.to.projectId, userId })), skipDuplicates: true });
           }
           if (w.unassign.length > 0) await tx.taskAssignee.deleteMany({ where: { taskId: w.taskId, userId: { in: w.unassign.map((p) => p.id) } } });
+          // 1.24: its categories become the new project's of the same name (the rest are dropped), and its
+          // guests another company's are copied onto the new project's company list and linked there.
+          const plan = await categoryPlanFor(tx, await taskCategoryNames(tx, w.taskId), w.to.projectId);
+          await setTaskCategories(tx, w.taskId, plan.keep, w.actorId);
+          await alignTaskGuests(tx, [w.taskId], w.actorId);
 
           // Its history goes with it: every line is filed under the new project. Then the move's own
           // lines (task-move-history), a millisecond apart so they read in the order they are written.
@@ -148,6 +162,11 @@ export function createPrismaTaskMoveRepository(prisma: PrismaClient): TaskMoveRe
           for (const line of moveHistory(w, key)) {
             await tx.activity.create({
               data: { taskId: line.taskId, projectId: line.projectId, userId: w.actorId, action: line.action, meta: line.meta as Prisma.InputJsonValue, createdAt: new Date(at + i++) },
+            });
+          }
+          for (const c of plan.drop) {
+            await tx.activity.create({
+              data: { taskId: w.taskId, projectId: w.to.projectId, userId: w.actorId, action: 'CATEGORY_REMOVED', meta: { name: c.name, categoryId: c.id, moved: true }, createdAt: new Date(at + i++) },
             });
           }
         });
