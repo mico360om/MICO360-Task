@@ -141,7 +141,7 @@ describe('GET /search/tasks — the full task search', () => {
     }
   });
 
-  // 1.23.13 (zod 4): a bad cursor is a real error (with its stack for the logs) that the API answers like any check.
+  // 1.23.12 (zod 4): a bad cursor is a real error (with its stack for the logs) that the API answers like any check.
   it('a bad cursor says so by name', async () => {
     const { app } = makeTaskApp();
     const res = await get(await app, '/search/tasks?q=rig&cursor=nope', await tokenFor('u1', ['EMPLOYEE']));

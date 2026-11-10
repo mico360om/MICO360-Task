@@ -154,7 +154,7 @@ describe('POST /notifications/read-all follows the chips', () => {
   });
 });
 
-// Pinned before the zod 4 upgrade (1.23.13): "Mark all read" up to a time the page, the app and the extension send.
+// Pinned before the zod 4 upgrade (1.23.12): "Mark all read" up to a time the page, the app and the extension send.
 describe('POST /notifications/read-all up to a time', () => {
   it('takes an ISO timestamp with Z, milliseconds or an offset; refuses anything else in words', async () => {
     for (const upTo of ['2026-11-03T08:01:00Z', '2026-11-03T08:01:00.000Z', '2026-11-03T12:01:00+04:00']) {

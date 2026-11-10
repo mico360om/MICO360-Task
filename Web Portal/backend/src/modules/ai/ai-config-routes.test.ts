@@ -98,7 +98,7 @@ describe('AI routes — admin management', () => {
     expect(m.json().data.models[0].modelKey).toBe('gpt-4o');
   });
 
-  // Pinned before the zod 4 upgrade (1.23.13): a model's parameters are a free map of at most 20 entries.
+  // Pinned before the zod 4 upgrade (1.23.12): a model's parameters are a free map of at most 20 entries.
   it('takes a model’s parameters as a map of up to 20, refusing more in words', async () => {
     const admin = await auth(['ADMIN']);
     await app.inject({ method: 'POST', url: '/api/v1/ai/providers', headers: admin, payload: { name: 'OpenAI', kind: 'openai', apiBaseUrl: 'https://api.openai.com/v1' } });

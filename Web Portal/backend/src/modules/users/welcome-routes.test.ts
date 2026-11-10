@@ -227,7 +227,7 @@ describe('POST /users with "Send a welcome email"', () => {
     expect(sent).toEqual([]);
   });
 
-  // Pinned before the zod 4 upgrade (1.23.13): the New account dialogs (website, Android) show a field's first words.
+  // Pinned before the zod 4 upgrade (1.23.12): the New account dialogs (website, Android) show a field's first words.
   it('a refused detail is named with the words the dialogs show', async () => {
     const res = await create({ ...newUser, firstName: ' ', username: 'x'.repeat(192), email: 'not-an-email', roleNames: [] });
     expect(res.statusCode).toBe(400);

@@ -36,7 +36,7 @@ describe('Client project grants', () => {
   });
 });
 
-// Pinned before the zod 4 upgrade (1.23.13): a grant with nothing ticked comes out with every tick false
+// Pinned before the zod 4 upgrade (1.23.12): a grant with nothing ticked comes out with every tick false
 // (zod 4's .default({}) no longer fills an object's own defaults — the schema must keep doing it).
 describe('Client project grants — what a bare grant reads as', () => {
   it('a project alone: Custom, every module and action off', () => {

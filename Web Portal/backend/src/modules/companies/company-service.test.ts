@@ -60,7 +60,7 @@ describe('The sender name of the site', () => {
   });
 });
 
-// Pinned before the zod 4 upgrade (1.23.13): a company's working hours are refused with the words of the rule broken.
+// Pinned before the zod 4 upgrade (1.23.12): a company's working hours are refused with the words of the rule broken.
 describe('A company’s working hours, refused in words', () => {
   const refusal = async (workingHours: unknown) => {
     try {

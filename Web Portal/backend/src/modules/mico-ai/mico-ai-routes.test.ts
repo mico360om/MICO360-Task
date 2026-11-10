@@ -259,7 +259,7 @@ describe('MICO AI routes: confirming, cancelling and undoing a card', () => {
     await app.close();
   });
 
-  // Pinned before the zod 4 upgrade (1.23.13): a Confirm with no body takes every change as proposed (its
+  // Pinned before the zod 4 upgrade (1.23.12): a Confirm with no body takes every change as proposed (its
   // items default to none; zod 4's .default({}) would skip that inner default).
   it('Confirm with no body confirms every change as proposed', async () => {
     const { app, omar, base, world } = await withCard();

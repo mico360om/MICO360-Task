@@ -183,7 +183,7 @@ describe('settings routes', () => {
     await app.close();
   });
 
-  // Pinned before the zod 4 upgrade (1.23.13): the 400s keep their words and their details.
+  // Pinned before the zod 4 upgrade (1.23.12): the 400s keep their words and their details.
   it('a missing value and a bad value say what is wrong, field by field', async () => {
     const app = Fastify();
     app.setErrorHandler((err, _req, reply) => {

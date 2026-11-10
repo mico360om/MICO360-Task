@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 /**
- * 1.23.13 (zod 4 upgrade, security fix GHSA-mrhx-c7xc-m3w5): the words of a failed check stay those
+ * 1.23.12 (zod 4 upgrade, security fix GHSA-mrhx-c7xc-m3w5): the words of a failed check stay those
  * the API has always given. They reach people — the New account dialogs (website and Android app)
  * show a field's first problem, and a refused inspection form shows its own first words only when
  * they aren't one of these general ones — and the API's 400 `details` carry them to the website, the

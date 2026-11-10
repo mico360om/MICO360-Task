@@ -67,7 +67,7 @@ describe('400 VALIDATION body — shape and words (pinned from 1.23.11)', () => 
   }
 });
 
-// 1.23.13: the security fix itself (GHSA-mrhx-c7xc-m3w5, zod >= 4.6.6). A list longer than its limit is refused on
+// 1.23.12: the security fix itself (GHSA-mrhx-c7xc-m3w5, zod >= 4.6.6). A list longer than its limit is refused on
 // its length alone, before any of its items are checked — a huge list can no longer make the server check every
 // item first. (zod 3 also listed each bad item; the words of the length problem are the same.)
 describe('an oversized list is refused before its items are checked', () => {
@@ -85,7 +85,7 @@ describe('an oversized list is refused before its items are checked', () => {
   });
 });
 
-// 1.23.13 (review I1, accepted): zod 4 counts a text's length in characters (Unicode code points), as MySQL's
+// 1.23.12 (review I1, accepted): zod 4 counts a text's length in characters (Unicode code points), as MySQL's
 // VARCHAR does; zod 3 counted UTF-16 units, so an emoji counted twice. The website's own maxLength stops typing at
 // the same place as before; only text with emoji or other rare characters is affected, and only in its favour for
 // a maximum (a 1-emoji AI search question, under a minimum of 2, is now refused).

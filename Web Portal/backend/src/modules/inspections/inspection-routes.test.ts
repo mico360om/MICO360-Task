@@ -300,7 +300,7 @@ describe('inspection report PDF: the company (companies)', () => {
   });
 });
 
-// Pinned before the zod 4 upgrade (1.23.13): a refused form says its first problem in words when it has its
+// Pinned before the zod 4 upgrade (1.23.12): a refused form says its first problem in words when it has its
 // own words, else "Invalid input."; every problem is in the details; timestamps read as before.
 describe('inspection routes — refusals in words', () => {
   const form = (patch: Record<string, unknown>) => call('POST', '/inspection-forms', owner, { ...FORM_BODY, ...patch });

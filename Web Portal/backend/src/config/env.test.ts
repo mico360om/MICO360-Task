@@ -123,7 +123,7 @@ describe('loadEnv', () => {
   });
 });
 
-// Pinned before the zod 4 upgrade (1.23.13): the defaults, the switches and the address checks read as before.
+// Pinned before the zod 4 upgrade (1.23.12): the defaults, the switches and the address checks read as before.
 describe('loadEnv — defaults and checks', () => {
   it('fills the defaults', () => {
     const env = loadEnv({ ...base } as NodeJS.ProcessEnv);

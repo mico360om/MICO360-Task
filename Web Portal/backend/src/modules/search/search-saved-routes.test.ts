@@ -124,7 +124,7 @@ describe('saved searches — the routes', () => {
   });
 });
 
-// Pinned before the zod 4 upgrade (1.23.13): what a saved search keeps when only its name is given.
+// Pinned before the zod 4 upgrade (1.23.12): what a saved search keeps when only its name is given.
 describe('A saved search’s body', () => {
   it('a name alone: no words, no filters', async () => {
     const { savedSearchBody } = await import('./saved-searches');

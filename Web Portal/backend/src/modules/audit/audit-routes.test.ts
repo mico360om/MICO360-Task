@@ -77,7 +77,7 @@ describe('GET /audit-logs', () => {
     await app.close();
   });
 
-  // Pinned before the zod 4 upgrade (1.23.13): the paging cursor is the createdAt the page got (Z), or an offset time.
+  // Pinned before the zod 4 upgrade (1.23.12): the paging cursor is the createdAt the page got (Z), or an offset time.
   it('takes before= as an ISO timestamp with Z or an offset', async () => {
     const { app, admin } = await makeApp();
     for (const before of ['2026-09-27T10:00:00.000Z', '2026-09-27T10:00:00Z', '2026-09-27T14:00:00+04:00']) {

@@ -385,7 +385,7 @@ function writeBackendLock() {
 }
 
 /**
- * 1.23.13: every package in the backend's lockfile says where it is downloaded from and its sha512,
+ * 1.23.12: every package in the backend's lockfile says where it is downloaded from and its sha512,
  * as the monorepo lockfile does (npm leaves both out when it records a tree it didn't download, and
  * `npm ci` would then take whatever the registry serves). The same name and version in the root
  * lockfile is the same tarball. Only registry.npmjs.org; anything that can't be matched stops the build.

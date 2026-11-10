@@ -628,7 +628,7 @@ describe('Final minutes (Final MOM)', () => {
     expect(res.json().data).toMatchObject({ status: 'FINAL', content });
   });
 
-  // Pinned before the zod 4 upgrade (1.23.13): a save with no content in the body is refused with the minutes' own words.
+  // Pinned before the zod 4 upgrade (1.23.12): a save with no content in the body is refused with the minutes' own words.
   it('a save with nothing in the body is refused in words', async () => {
     const { call } = await setup();
     const res = await call('PUT', '/final-minutes', undefined, {});
