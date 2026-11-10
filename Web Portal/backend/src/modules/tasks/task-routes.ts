@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { WEIGHT_MAX, WEIGHT_MIN } from '../project-health/completion';
 import { checklistTreeSchema } from './checklist-tree-schema';
-import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { NotFoundError } from '../../lib/http-errors';
 import type { TaskService } from './task-service';
 import type { CarryForwardService } from './carry-forward-service';
 import { normalizeTagNames, type TagService } from './tag-service';
@@ -202,7 +203,14 @@ export interface TaskRouteDeps {
   mergedFrom?: (taskId: string) => Promise<{ id: string; key: string; mergeId: string }[]>;
   /** 1.23.3: dated checklist items for the calendar, in the caller's scope (see prisma-checklist-queries). */
   checklistDue?: (opts: { from: string; to: string; userId: string; ownIds: string[] | null; listIds: string[] | null }) => Promise<unknown[]>;
+  /** Recycle Bin: after a delete — the history line on each task and the audit log's (who deleted it). */
+  binDeleted?: (e: { actorId: string; taskIds: string[]; batchId: string | null; ip?: string | null }) => Promise<void>;
+  /** Recycle Bin: a deleted task opened — 'TASK_DELETED' for its project's people, null for anyone else. */
+  binNotice?: (viewer: { id: string; roles: string[] }, taskId: string) => Promise<'TASK_DELETED' | null>;
 }
+
+/** Recycle Bin: what opening a deleted task answers its project's people (the app and extension read any 404 as gone). */
+const TASK_DELETED = { error: { code: 'TASK_DELETED', message: 'This task was deleted.' } };
 
 export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDeps): Promise<void> {
   const { taskService, guard } = deps;
@@ -371,12 +379,20 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
     };
   }
 
+  /** A task that isn't there: deleted (in the Recycle Bin) as its project's people are told, else not found. */
+  async function deletedOrNotFound(req: FastifyRequest, reply: FastifyReply, id: string) {
+    const notice = deps.binNotice ? await deps.binNotice({ id: req.user!.id, roles: req.user!.roles ?? [] }, id) : null;
+    return reply.status(404).send(notice === 'TASK_DELETED' ? TASK_DELETED : { error: { code: 'NOT_FOUND', message: 'Task not found.' } });
+  }
+
   app.get('/tasks/:id', { preHandler: guard.authenticate }, async (req, reply) => {
     const { id } = req.params as { id: string };
-    if (!(await assertTaskView(req, id))) {
-      return reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Task not found.' } });
-    }
-    const task = await taskService.getTask(id);
+    if (!(await assertTaskView(req, id))) return deletedOrNotFound(req, reply, id);
+    const task = await taskService.getTask(id).catch((err: unknown) => {
+      if (err instanceof NotFoundError) return null;
+      throw err;
+    });
+    if (!task) return deletedOrNotFound(req, reply, id);
     const inspectionForm = task.inspectionFormId && deps.taskInspectionForm ? await deps.taskInspectionForm(task.inspectionFormId) : null;
     const approval = deps.taskApproval ? { approval: await deps.taskApproval({ id: req.user!.id, roles: req.user!.roles ?? [] }, task) } : {};
     const { canDelete, canDeleteSeries } = await deleteRightsOf(req, task);
@@ -482,7 +498,9 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
     if (!(wholeSeries ? rights.canDeleteSeries : rights.canDelete)) {
       return reply.status(403).send({ error: { code: DELETE_NOT_ALLOWED_CODE, message: wholeSeries ? DELETE_SERIES_NOT_ALLOWED : DELETE_NOT_ALLOWED } });
     }
-    await taskService.deleteTask(id, scope);
+    // To the Recycle Bin, saying who deleted it; then its history and audit lines (never failing the delete).
+    const gone = await taskService.deleteTask(id, scope, req.user!.id);
+    await deps.binDeleted?.({ actorId: req.user!.id, taskIds: gone.ids, batchId: gone.batchId, ip: req.ip ?? null }).catch((err: unknown) => req.log.error({ err }, 'recycle bin: recording a delete failed'));
     deps.broadcast?.(task.projectId, 'task:deleted', { id });
     return reply.status(204).send();
   });

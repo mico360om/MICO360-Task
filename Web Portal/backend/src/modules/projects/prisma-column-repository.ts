@@ -33,20 +33,20 @@ export function createPrismaColumnRepository(prisma: PrismaClient): ColumnReposi
     },
     async remove(id) {
       return prisma.$transaction(async (tx) => {
-        const column = await tx.kanbanColumn.findUnique({ where: { id }, select: { projectId: true } });
+        const column = await tx.kanbanColumn.findUnique({ where: { id }, select: { projectId: true, category: true } });
         if (!column) return null;
         // Re-checked inside the transaction: a task may have landed here since the caller looked.
         if ((await tx.task.count({ where: { columnId: id, deletedAt: null } })) > 0) {
           throw new ConflictError('This column still has tasks. Move them to another column first.', 'COLUMN_NOT_EMPTY');
         }
         // Soft-deleted tasks keep a (restricting) reference to their column; park them on another
-        // column of the project so this one can go.
+        // column of the project so this one can go — the first of the same kind (Recycle Bin: restored,
+        // a task comes back in the same stage), else the first column.
         if ((await tx.task.count({ where: { columnId: id } })) > 0) {
-          const fallback = await tx.kanbanColumn.findFirst({
-            where: { projectId: column.projectId, id: { not: id } },
-            orderBy: { position: 'asc' },
-            select: { id: true },
-          });
+          const others = { projectId: column.projectId, id: { not: id } };
+          const fallback =
+            (await tx.kanbanColumn.findFirst({ where: { ...others, category: column.category }, orderBy: { position: 'asc' }, select: { id: true } })) ??
+            (await tx.kanbanColumn.findFirst({ where: others, orderBy: { position: 'asc' }, select: { id: true } }));
           if (!fallback) {
             throw new ConflictError('A project needs at least one column. Add another column before deleting this one.', 'LAST_COLUMN');
           }

@@ -589,6 +589,48 @@ describe('Task routes', () => {
   });
 });
 
+describe('Task routes — the Recycle Bin', () => {
+  async function build(notice: 'TASK_DELETED' | null) {
+    const mem = inMemory();
+    const taskService = createTaskService(mem);
+    const deleted: unknown[] = [];
+    const asked: unknown[] = [];
+    const built = await buildApp({
+      authService,
+      tokenService,
+      taskService,
+      onTaskEvent: () => {},
+      binService: {
+        async deleted(e: unknown) { deleted.push(e); },
+        async noticeFor(viewer: unknown, taskId: string) { asked.push([viewer, taskId]); return notice; },
+      } as never,
+    });
+    const admin = { authorization: `Bearer ${(await tokenService.issueTokens({ id: 'boss', roles: ['ADMIN'] })).accessToken}` };
+    const created = await built.inject({ method: 'POST', url: '/api/v1/tasks', headers: admin, payload: { title: 'Bin me', projectId: 'p1', columnId: 'c1' } });
+    return { built, admin, id: created.json().data.id as string, deleted, asked };
+  }
+
+  it('a delete records who deleted it (history + audit through the bin), then answers 204 as before', async () => {
+    const { built, admin, id, deleted } = await build(null);
+    expect((await built.inject({ method: 'DELETE', url: `/api/v1/tasks/${id}`, headers: admin })).statusCode).toBe(204);
+    expect(deleted).toEqual([{ actorId: 'boss', taskIds: [id], batchId: null, ip: expect.any(String) }]);
+  });
+
+  it('opening a deleted task: "This task was deleted" (TASK_DELETED) for its project’s people, the plain 404 for anyone else', async () => {
+    const yes = await build('TASK_DELETED');
+    await yes.built.inject({ method: 'DELETE', url: `/api/v1/tasks/${yes.id}`, headers: yes.admin });
+    const res = await yes.built.inject({ method: 'GET', url: `/api/v1/tasks/${yes.id}`, headers: yes.admin });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error).toEqual({ code: 'TASK_DELETED', message: 'This task was deleted.' });
+    expect(yes.asked).toEqual([[{ id: 'boss', roles: ['ADMIN'] }, yes.id]]);
+    const no = await build(null);
+    await no.built.inject({ method: 'DELETE', url: `/api/v1/tasks/${no.id}`, headers: no.admin });
+    expect((await no.built.inject({ method: 'GET', url: `/api/v1/tasks/${no.id}`, headers: no.admin })).json().error.code).toBe('NOT_FOUND');
+    // Deleting it again stays the plain "already gone" (an offline delete replayed late counts it as done).
+    expect((await yes.built.inject({ method: 'DELETE', url: `/api/v1/tasks/${yes.id}`, headers: yes.admin })).json().error.code).toBe('NOT_FOUND');
+  });
+});
+
 describe('Task routes — the picked company (companies)', () => {
   // cat belongs to companies A and B (projects p1, p2); ana only to A. The company module is a fake
   // whose checkPick refuses a company that isn't the person's — the real resolver reads the header.

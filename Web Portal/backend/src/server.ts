@@ -39,6 +39,8 @@ import { createProjectNotices } from './modules/projects/project-notices';
 import { createProjectAccess } from './modules/projects/project-access';
 import { createCompanyAccess, fallbackProjectCompanyId, isAdminRoles, readMyProjectsOnly } from './modules/companies/company-access';
 import { createPrismaArchiveLookup } from './modules/companies/archive-guard';
+import { createBinService } from './modules/recycle-bin/bin-service';
+import { createPrismaBinStore } from './modules/recycle-bin/prisma-bin-store';
 import { createCompanyService, mailFromName, type OnCompanyAccessChanged } from './modules/companies/company-service';
 import { createPrismaCompanyRepository } from './modules/companies/prisma-company-repository';
 import { createCompanyMembership, createPrismaMembershipStore } from './modules/companies/company-membership';
@@ -1306,6 +1308,32 @@ async function main(): Promise<void> {
   const auditService = createAuditService({ audit: createPrismaAuditRepository(prisma), tasks: createPrismaAuditTaskRefs(prisma) });
   onClientMinutesHidden = auditMinutesMovedAway(auditService);
 
+  // Recycle Bin: a deleted task is kept 60 days — admins see every one, the people who run a project its
+  // own; restore brings it all back (its people told, search and open boards refreshed); admins may
+  // delete one forever; the nightly sweep (below) erases them after 60 days, files and all.
+  const binArchive = createPrismaArchiveLookup(prisma);
+  const binService = createBinService({
+    store: createPrismaBinStore(prisma),
+    timeZone: companyTz,
+    adminScope: (viewer, pick) => projectAccess.accessibleProjectIds(viewer.id, viewer.roles, pick),
+    isArchived: (projectId) => binArchive.isArchived(projectId),
+    canViewProject: (viewer, projectId) => projectAccess.canViewProject(viewer.id, viewer.roles, projectId),
+    removeFile: (storageKey) => attachmentStorage.remove(storageKey),
+    audit: (entry) => auditService.record(entry).then(() => undefined),
+    record: (entry) => activityService.record(entry).then(() => undefined),
+    onRestored: async (restored, actor) => {
+      for (const t of restored) {
+        await taskSearchIndex.taskChanged(t.id);
+        const task = await taskService.getTask(t.id);
+        broadcast(task.projectId, 'task:created', task);
+        for (const userId of await taskRecipientIds(task.id, actor.id)) {
+          await notificationService.notify({ userId, type: 'TASK_STATUS', title: 'A task was restored from the Recycle Bin', body: taskNoticeBody(task), entityType: 'task', entityId: task.id });
+        }
+      }
+    },
+    onError: (err, what, taskId) => logger.error(`recycle bin: ${what} failed`, { err, taskId }),
+  });
+
   const settingsService = createSettingsService({ settings: createPrismaSettingsRepository(prisma) });
   collectSetting = () => settingsService.collectBrowserErrors(); // the Error log's "Collect browser errors"
   // companies: System → Companies and each person's companies (GET /me/companies). A company inherits
@@ -2210,6 +2238,7 @@ async function main(): Promise<void> {
     taskService,
     taskMoveService,
     taskMergeService,
+    binService, // Recycle Bin
     carryForwardService,
     assigneeService,
     watcherService,
@@ -2547,6 +2576,15 @@ async function main(): Promise<void> {
       if (gone) logger.info('Checklists: deleted items older than 30 days removed', { rows: gone });
     }).catch(sweepFailed('checklist-purge', 'checklist clean-up'));
   jobs.every(24 * 60 * 60 * 1000, runChecklistPurge);
+
+  // Recycle Bin: a deleted task is erased (files and all) once its 60 days are over — at the company
+  // midnight that ends them. Hourly, so it goes soon after; one instance at a time, a few at once.
+  const runBinErase = () =>
+    runExclusive(jobLock, 'recycle-bin-erase', SWEEP_LEASE_MS, () => new Date(), async () => {
+      const gone = await binService.sweep();
+      if (gone) logger.info('Recycle Bin: tasks erased after 60 days', { tasks: gone });
+    }).catch(sweepFailed('recycle-bin-erase', 'Recycle Bin clean-up'));
+  jobs.every(60 * 60 * 1000, runBinErase);
 
   await app.listen({ port: env.PORT, host: env.HOST });
   logger.info('MICO360 Tasks API listening', { port: env.PORT, realtime: true, env: env.NODE_ENV });

@@ -208,6 +208,10 @@ export const ARCHIVE_ALLOWED: Readonly<Record<string, string>> = {
   'POST /task-merges/:mergeId/undo': 'Undo refuses archived projects itself, for every task involved (merge-service)',
   // 1.23.6: a saved search shared with a project's team changes nothing in the project (its owner's search).
   'PUT /search/saved/:id/share': 'the owner’s saved search shown to a team: nothing in the project changes',
+  // Recycle Bin: restoring refuses an archived project's tasks itself, task by task ("Unarchive the
+  // project first" — recycle-bin/bin-service); deleting forever is deleting, as today.
+  'POST /recycle-bin/restore': 'restore refuses archived projects itself, for each task (recycle-bin/bin-service)',
+  'POST /recycle-bin/erase': 'deleting, as today',
 };
 
 /** What a refused write is about: a project, and the meeting when it is one (its people may see it without the project). */

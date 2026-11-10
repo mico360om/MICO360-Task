@@ -24,6 +24,8 @@ import { registerTaskExportRoutes } from './modules/tasks/task-export-routes';
 import { registerTaskMoveRoutes } from './modules/tasks/task-move-routes';
 import type { TaskMoveService } from './modules/tasks/task-move-service';
 import { installMergedTaskRedirect, registerTaskMergeRoutes } from './modules/task-merge/merge-routes';
+import { registerBinRoutes } from './modules/recycle-bin/bin-routes';
+import type { BinService } from './modules/recycle-bin/bin-service';
 import type { TaskMergeService } from './modules/task-merge/merge-service';
 import type { TaskExportSource } from './modules/tasks/task-export';
 import type { TaskService } from './modules/tasks/task-service';
@@ -204,6 +206,11 @@ export interface AppDeps extends AuthRouteDeps {
   taskMoveService?: TaskMoveService;
   /** 1.23.1 Merge tasks: the merge dialog, the merge, a main task's "Merged from" panel and Undo. */
   taskMergeService?: TaskMergeService;
+  /**
+   * Recycle Bin: deleted tasks kept 60 days — the bin page, restore, delete forever; a delete's history
+   * and audit lines; "This task was deleted" when one is opened.
+   */
+  binService?: BinService;
   carryForwardService?: import('./modules/tasks/carry-forward-service').CarryForwardService;
   assigneeService?: AssigneeService;
   watcherService?: WatcherService;
@@ -800,6 +807,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           // 1.23.1: the tasks merged into a task (its "Merged from" panel opens from them).
           mergedFrom: deps.taskMergeService ? (id) => deps.taskMergeService!.mergedInto(id) : undefined,
           checklistDue: deps.checklistDue,
+          // Recycle Bin: a delete's history and audit lines; a deleted task opened says it was deleted.
+          binDeleted: deps.binService ? (e) => deps.binService!.deleted(e) : undefined,
+          binNotice: deps.binService ? (viewer, taskId) => deps.binService!.noticeFor(viewer, taskId) : undefined,
           projectOwnerOf: deps.projectService
             ? async (projectId) => (await deps.projectService!.getProject(projectId)).ownerId
             : undefined,
@@ -836,6 +846,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       }
       if (deps.taskMergeService) {
         await registerTaskMergeRoutes(api, { service: deps.taskMergeService, guard, broadcast: deps.onTaskEvent, canViewTask, audit: deps.auditService, logger: deps.logger });
+      }
+      if (deps.binService) {
+        // Recycle Bin: staff only (client sessions are refused by the guard's route table).
+        await registerBinRoutes(api, { service: deps.binService, guard, pickOf });
       }
       if (deps.assigneeService) {
         await registerAssigneeRoutes(api, {

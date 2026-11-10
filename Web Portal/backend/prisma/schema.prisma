@@ -326,6 +326,9 @@ model Project {
   weightHigh   Int @default(3)
   weightNormal Int @default(2)
   weightLow    Int @default(1)
+  /// Recycle Bin: the highest task number it has used — erasing its newest task (or a merge's main task)
+  /// never frees a number (task numbers are never given twice).
+  taskNumberMark Int @default(0)
   createdById String
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
@@ -457,6 +460,13 @@ model Task {
   mergedById     String?
   /// The merge (task_merges) that merged it.
   mergeId        String?
+  /// Recycle Bin: who deleted it (no foreign key, like the other "by" columns of history); null = not
+  /// recorded (deleted before the Recycle Bin). Merged tasks get none of these three.
+  deletedById    String?
+  /// Recycle Bin: when it is erased for good — the company midnight 60 days after the day it was deleted.
+  binExpiresAt   DateTime?
+  /// Recycle Bin: the delete it went with (a series deleted as a whole restores as a whole).
+  deleteBatchId  String?
 
   project      Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
   column       KanbanColumn     @relation(fields: [columnId], references: [id])
@@ -502,6 +512,9 @@ model Task {
   @@index([approvedById])
   /// 1.23.1: the tasks merged into a main task.
   @@index([mergedIntoId])
+  /// Recycle Bin: the nightly erase, and a delete's batch.
+  @@index([binExpiresAt])
+  @@index([deleteBatchId])
   @@fulltext([title, description])
   @@map("tasks")
 }
@@ -2105,6 +2118,9 @@ model Inspection {
   place                  String?               @db.VarChar(200)
   /// The task it was carried out for ("Inspect rig 3"), if any.
   taskId                 String?
+  /// Recycle Bin: that task was erased — its number and title as they were ("KEY-12 'Inspect rig 3'"),
+  /// so the report still says which task it was carried out for.
+  erasedTask             String?               @db.VarChar(300)
   /// IN_PROGRESS or FINISHED.
   status                 String                @default("IN_PROGRESS") @db.VarChar(12)
   /// The one person who answers it now (whoever started it, or took it over).

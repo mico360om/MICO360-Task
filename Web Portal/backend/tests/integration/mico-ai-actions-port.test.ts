@@ -176,10 +176,17 @@ describe('MICO AI’s changes through the app’s services (integration)', () =>
     // Untouched: gone for everyone.
     const a = await make('Undo me');
     expect(await port.deleteCreatedTask(as(ids.owner), a.id, touch(a))).toBe(false); // not its creator
+    await prisma.notification.create({ data: { userId: ids.sara, type: 'TASK_ASSIGNED', title: 'x', entityType: 'task', entityId: a.id } });
     expect(await port.deleteCreatedTask(as(ids.sara), a.id, touch(a))).toBe(true);
     expect(await port.taskState(a.id)).toBeNull();
-    expect((await prisma.task.findUnique({ where: { id: a.id } }))!.deletedAt).not.toBeNull();
+    // Recycle Bin (design call 2): the undo of something just made erases it at once — never in the bin —
+    // with the notices about it, and its number is never given again.
+    expect(await prisma.task.findUnique({ where: { id: a.id } })).toBeNull();
+    expect(await prisma.notification.count({ where: { entityId: a.id } })).toBe(0);
     expect(broadcasts).toContain('task:deleted');
+    const after = await make('After the undo');
+    expect(Number(after.key.split('-')[1])).toBe(Number(a.key.split('-')[1]) + 1);
+    await prisma.task.delete({ where: { id: after.id } });
     // Tagged, watched, blocked, commented on (a history line) or edited since: it stays.
     const b = await make('Tagged');
     const tag = await prisma.tag.create({ data: { name: 'maip-tag' } });

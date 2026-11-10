@@ -2,6 +2,7 @@ import { Prisma, type ColumnCategory, type PrismaClient, type Task } from '@pris
 import {
   TaskKeyConflictError,
   TaskVersionConflictError,
+  type BinMark,
   type CreateTaskData,
   type ProjectLookup,
   type TaskRecord,
@@ -23,8 +24,9 @@ import { rowsFromTree } from './checklist-service';
 
 type TagRelation = { tag: { id: string; name: string; color: string } };
 type AssigneeRelation = { user: { id: string; username: string; firstName: string | null; lastName: string | null } };
-// 1.23.1: a merged task's merge columns aren't read here (merged tasks aren't live tasks).
-type EnrichedTask = Omit<Task, 'carryForwardLog' | 'mergedIntoId' | 'mergedAt' | 'mergedById' | 'mergeId'> & {
+// 1.23.1: a merged task's merge columns aren't read here (merged tasks aren't live tasks), nor the
+// Recycle Bin's (deleted tasks aren't live tasks either).
+type EnrichedTask = Omit<Task, 'carryForwardLog' | 'mergedIntoId' | 'mergedAt' | 'mergedById' | 'mergeId' | 'deletedById' | 'binExpiresAt' | 'deleteBatchId'> & {
   /** Absent on list rows — the carry-forward history is only returned for a single task. */
   carryForwardLog?: Prisma.JsonValue;
   /** Its old keys (a single task only). */
@@ -97,6 +99,12 @@ function toRecord(t: EnrichedTask): TaskRecord {
   };
 }
 
+/** What a delete writes: the Recycle Bin's marks (an older caller without one: just when). */
+function binData(mark: BinMark | undefined): Prisma.TaskUncheckedUpdateManyInput {
+  if (!mark) return { deletedAt: new Date() };
+  return { deletedAt: mark.at, deletedById: mark.by, binExpiresAt: mark.expiresAt, deleteBatchId: mark.batchId };
+}
+
 /** Live tasks only: not deleted, and not in a deleted project. */
 export const liveTaskWhere = { deletedAt: null, project: { is: { deletedAt: null } } } satisfies Prisma.TaskWhereInput;
 
@@ -136,13 +144,16 @@ export function isTaskKeyConflict(err: unknown): boolean {
  * this + 1. The highest, not a count: a gap (a number a create or move skipped) never makes the next
  * one collide, and a fresh read after losing a race to another task gives exactly the next number.
  * The keys are compared as numbers here (task-keys), not in SQL, so MySQL and PostgreSQL agree.
+ * Recycle Bin: and the project's mark — the highest number of a task erased for good — so erasing the
+ * newest task (or a merge's main task) never frees a number.
  */
-export async function highestKeyNumber(db: Pick<PrismaClient, 'task' | 'taskKeyAlias'> | Prisma.TransactionClient, projectId: string): Promise<number> {
-  const [tasks, oldKeys] = await Promise.all([
+export async function highestKeyNumber(db: Pick<PrismaClient, 'task' | 'taskKeyAlias' | 'project'> | Prisma.TransactionClient, projectId: string): Promise<number> {
+  const [tasks, oldKeys, project] = await Promise.all([
     db.task.findMany({ where: { projectId }, select: { key: true } }),
     db.taskKeyAlias.findMany({ where: { projectId }, select: { key: true } }),
+    db.project.findUnique({ where: { id: projectId }, select: { taskNumberMark: true } }),
   ]);
-  return highestKeyNumberIn([...tasks, ...oldKeys].map((k) => k.key));
+  return Math.max(project?.taskNumberMark ?? 0, highestKeyNumberIn([...tasks, ...oldKeys].map((k) => k.key)));
 }
 
 /** True when `key` was a task's key before it moved project: it is never given to another task. */
@@ -321,8 +332,8 @@ export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository
       const t = await prisma.task.update({ where: { id }, data, include: withColumn });
       return toRecord(t);
     },
-    async softDelete(id) {
-      await prisma.task.update({ where: { id }, data: { deletedAt: new Date() } });
+    async softDelete(id, mark) {
+      await prisma.task.update({ where: { id }, data: binData(mark) });
     },
     async updateSeries(seriesId, patch, opts = {}) {
       // One atomic UPDATE over the series members — no full-table scan, no loop.
@@ -344,11 +355,12 @@ export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository
         data,
       });
     },
-    async softDeleteSeries(seriesId) {
-      await prisma.task.updateMany({
-        where: { deletedAt: null, OR: [{ id: seriesId }, { recurrenceParentId: seriesId }] },
-        data: { deletedAt: new Date() },
-      });
+    async softDeleteSeries(seriesId, mark) {
+      // The live members, then one statement over exactly those (all in one batch: they restore together).
+      const ids = (await prisma.task.findMany({ where: { deletedAt: null, OR: [{ id: seriesId }, { recurrenceParentId: seriesId }] }, select: { id: true } })).map((t) => t.id);
+      if (ids.length === 0) return [];
+      await prisma.task.updateMany({ where: { id: { in: ids }, deletedAt: null }, data: binData(mark) });
+      return ids;
     },
     async countByProject(projectId) {
       // The highest number used — deleted tasks and old keys of tasks moved away too — so keys never repeat.
