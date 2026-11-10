@@ -66,6 +66,8 @@ export interface NewTask {
   externalContacts?: ExternalContactFields[];
   /** Needs approval before it counts as done; left out, the project's "New tasks need approval" decides. */
   needsApproval?: boolean;
+  /** Duplicate Task: the task this one is a copy of (task-duplicate.ts). */
+  duplicatedFromId?: string | null;
 }
 
 /** What approvals need to know: who may approve a project's tasks, and its board columns. */

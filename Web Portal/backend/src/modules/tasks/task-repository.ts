@@ -127,6 +127,8 @@ export interface CreateTaskData {
   checklists?: ChecklistTree;
   /** External contacts (already checked), in order, written in the same write as the task. */
   externalContacts?: ExternalContactFields[];
+  /** Duplicate Task: the task this one is a copy of (single-task details read it; never list payloads). */
+  duplicatedFromId?: string | null;
 }
 
 /** Thrown by `TaskRepository.create` when the generated key is already taken (a concurrent create). */
