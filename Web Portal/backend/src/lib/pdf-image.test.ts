@@ -138,6 +138,21 @@ describe('readProjectPicture', () => {
     expect(printableImage(flat)).toBe(flat);
   });
 
+  it('1.23.10: with a sizer, any picture (a JPEG or an opaque PNG too) is made the size it is printed at; if sizing fails, as before', async () => {
+    const sized = Buffer.from('sized');
+    const fit = vi.fn(async () => sized);
+    const convert = vi.fn(async () => Buffer.from('converted'));
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 16, 0x4a, 0x46, 0x49, 0x46]);
+    expect(await readProjectPicture('/uploads/a.jpg', read(jpeg), convert, fit)).toBe(sized);
+    expect(await readProjectPicture('/uploads/c.png', read(seeThrough()), convert, fit)).toBe(sized);
+    expect(fit).toHaveBeenCalledTimes(2);
+    expect(convert).not.toHaveBeenCalled();
+    // A sizer that can't (no picture library, a damaged file) leaves the old way: as stored, converted or flattened.
+    expect(await readProjectPicture('/uploads/a.jpg', read(jpeg), convert, async () => null)).toBe(jpeg);
+    expect(await readProjectPicture('/uploads/a.jpg', read(jpeg), convert, async () => { throw new Error('libvips'); })).toBe(jpeg);
+    expect(await readProjectPicture('/uploads/c.png', read(seeThrough()), async () => Buffer.from('converted'), async () => null)).toEqual(Buffer.from('converted'));
+  });
+
   it('has nothing when there is no picture, it can’t be read, or nothing can print it', async () => {
     expect(await readProjectPicture(null, read(opaque()))).toBeNull();
     expect(await readProjectPicture('/uploads/gone.png', async () => { throw new Error('ENOENT'); })).toBeNull();

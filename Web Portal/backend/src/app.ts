@@ -314,6 +314,8 @@ export interface AppDeps extends AuthRouteDeps {
   readProjectImage?: (imageUrl: string) => Promise<Buffer | null>;
   /** Converts a picture the PDF can't take as stored (WebP, GIF, some PNGs) into one it can. */
   printableProjectImage?: (raw: Buffer) => Promise<Buffer | null>;
+  /** 1.23.10: makes a project picture the size a PDF header prints it at (≤ 200 dpi). */
+  fitProjectImage?: (raw: Buffer) => Promise<Buffer | null>;
   /** Where meetings' final minutes (Final MOM) are kept. */
   finalMinutesRepository?: FinalMinutesRepository;
   /** Each send of a meeting's minutes: its "Sent" log and the Cc suggestions (1.22). */
@@ -773,6 +775,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           pictureThumbnail: deps.pictureThumbnail,
           readProjectImage: deps.readProjectImage,
           printableProjectImage: deps.printableProjectImage,
+          fitProjectImage: deps.fitProjectImage,
           // companies: the task's project's company on its PDF (MC1 Task 14).
           pdfBrand: brands ? (taskId) => brands.task(taskId) : undefined,
         });
@@ -1080,6 +1083,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           resolveProject: deps.resolveProject,
           readProjectImage: deps.readProjectImage,
           printableProjectImage: deps.printableProjectImage,
+          fitProjectImage: deps.fitProjectImage,
           finalMinutes: deps.finalMinutesRepository,
           draftMinutesWithAi: deps.draftMinutesWithAi,
           finalMinutesAi: deps.finalMinutesAi,

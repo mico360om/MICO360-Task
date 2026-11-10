@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatDateTime, formatDay } from './export-format';
+import { formatDateTime, formatDay, printedLine } from './export-format';
 
 describe('formatDay: the day before the month, three-letter months (never "Sept")', () => {
   it('writes a calendar day with its year by default', () => {
@@ -19,5 +19,14 @@ describe('formatDay: the day before the month, three-letter months (never "Sept"
 
   it('formatDateTime keeps the 24-hour clock in the company zone', () => {
     expect(formatDateTime(new Date('2026-09-30T06:15:00Z'), 'Asia/Muscat')).toBe('30 Sep 2026, 10:15');
+  });
+});
+
+describe('printedLine: the PDF footer’s words (1.23.10, owner)', () => {
+  it('"Printed 10 Nov 2026, 14:05 by Name", in company time; without a name for a shared copy', () => {
+    expect(printedLine(new Date('2026-11-10T10:05:00Z'), 'Asia/Muscat', 'Khurram Mumtaz')).toBe('Printed 10 Nov 2026, 14:05 by Khurram Mumtaz');
+    expect(printedLine(new Date('2026-11-10T10:05:00Z'), 'Asia/Muscat')).toBe('Printed 10 Nov 2026, 14:05');
+    expect(printedLine(new Date('2026-11-10T10:05:00Z'), 'Asia/Muscat', null, (n) => `[${n}]`)).toBe('Printed 10 Nov 2026, 14:05');
+    expect(printedLine(new Date('2026-11-10T10:05:00Z'), 'Asia/Muscat', 'سالم', (n) => `[${n}]`)).toBe('Printed 10 Nov 2026, 14:05 by [سالم]');
   });
 });

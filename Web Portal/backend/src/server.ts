@@ -138,6 +138,7 @@ import { createInspectionPorts } from './modules/inspections/prisma-inspection-p
 import { createInspectionScheduleService } from './modules/inspections/inspection-schedules';
 import { createPrismaInspectionScheduleSource } from './modules/inspections/prisma-inspection-schedule-source';
 import { readProjectPicture } from './lib/pdf-image';
+import { PDF_PICTURE_BOX } from './lib/pdf-document';
 import { auditMinutesMovedAway } from './modules/client-view/client-view-events';
 import { createBackupsFromPrisma } from './modules/backups/backup-wiring';
 import { microsoftConfigFromEnv } from './modules/integrations/microsoft/microsoft-config';
@@ -621,6 +622,8 @@ async function main(): Promise<void> {
   // Attached pictures (tasks and chat) are stored smaller; if the picture library won't load on
   // this server they are kept at full size, which the log and /health say.
   const imageShrinker = createImageShrinker({ warn: (msg, meta) => logger.warn(msg, meta) });
+  /** 1.23.10: a project's picture at 200 dpi for the PDF header's 26 pt badge. */
+  const fitProjectImage = (raw: Buffer) => imageShrinker.toDocumentPicture(raw, PDF_PICTURE_BOX.mark);
   void imageShrinker.check().then((on) => {
     if (on) logger.info('Attached pictures are made smaller to save space');
   });
@@ -1340,6 +1343,8 @@ async function main(): Promise<void> {
     settings: settingsService,
     readImage: async (url) => (url.startsWith('/uploads/') && attachmentStorage.read ? attachmentStorage.read(url.slice('/uploads/'.length)) : null),
     printable: (raw) => imageShrinker.toPrintable(raw),
+    // 1.23.10: logos printed at 200 dpi for the 26 pt header, re-encoded once (smaller PDFs).
+    documentPicture: (raw) => imageShrinker.toDocumentPicture(raw, PDF_PICTURE_BOX.logo),
     apiBaseUrl: env.API_BASE_URL,
   });
   const documentBrands = createDocumentBrands(companyBranding, prisma);
@@ -2068,7 +2073,7 @@ async function main(): Promise<void> {
     assetUrl: env.API_BASE_URL,
     timeZone: companyTz,
     audit: auditService,
-    projectImage: (url) => readProjectPicture(url, readStoredProjectImage, imageShrinker.toPrintable),
+    projectImage: (url) => readProjectPicture(url, readStoredProjectImage, imageShrinker.toPrintable, fitProjectImage),
     logger,
     // Finished inspection reports marked "Show to client".
     inspections: {
@@ -2337,6 +2342,8 @@ async function main(): Promise<void> {
       url.startsWith('/uploads/') && attachmentStorage.read ? attachmentStorage.read(url.slice('/uploads/'.length)) : null,
     // …and a WebP, GIF or unusual PNG picture is converted so the logo still prints.
     printableProjectImage: imageShrinker.toPrintable,
+    // 1.23.10: …and every project picture is printed at 200 dpi for its 26 pt badge (smaller PDFs).
+    fitProjectImage,
     activityService,
     auditService,
     settingsService,
@@ -2396,7 +2403,7 @@ async function main(): Promise<void> {
         timeZone: companyTz,
       }),
       timeZone: companyTz,
-      projectImage: (url) => readProjectPicture(url, readStoredProjectImage, imageShrinker.toPrintable),
+      projectImage: (url) => readProjectPicture(url, readStoredProjectImage, imageShrinker.toPrintable, fitProjectImage),
       userName: async (id) => (await resolveUserNames([id])).get(id) ?? null,
       pdfBrand: documentBrands.pdf.inspection, // companies: the inspection's project's company
     },

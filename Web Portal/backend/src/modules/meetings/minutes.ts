@@ -1,10 +1,10 @@
-import { BULLET, PdfDocument, hexToRgb, type HeaderBadge, type KeyValueRow, type PdfRichBlock, type RGB } from '../../lib/pdf-document';
+import { BULLET, PdfDocument, hexToRgb, type HeaderBadge, type KeyValueRow, type PdfFooter, type PdfRichBlock, type RGB } from '../../lib/pdf-document';
 import { linkNeedsAddress, listMarkers, noteText, parseRichHtml } from '../../lib/rich-text';
 import type { StyledRun } from '../../lib/pdf-text';
 import { PROJECT_ICON_PATHS, projectInitials, type ProjectIcon } from '../projects/project-icons';
 import { isolate, textDirection } from '../../lib/pdf-text';
 import { zonedDayKey } from '../../lib/due-date';
-import { formatDateTime, formatDay, wallClock } from '../../lib/export-format';
+import { formatDateTime, formatDay, printedLine, wallClock } from '../../lib/export-format';
 import { isValidTimeZone } from './meeting-validation';
 import type { FinalMinutesContent } from './final-minutes';
 
@@ -172,13 +172,13 @@ const MUTED: RGB = [0.42, 0.4, 0.38];
 const INK: RGB = [0.11, 0.1, 0.09];
 
 /**
- * The minutes' own type sizes (points). The rest comes from the builder's compact density: 9 pt
- * text and notes, 9.5 pt sub-headings, 10.5 pt section headings, 8 pt tables, 16 mm margins, a
- * one-row header with the project's name at 12.5 pt and slim summary tiles.
+ * The minutes' own type sizes (points). The rest comes from the PDF standard (1.23.10): 9.5 pt
+ * text and notes, 10 pt sub-headings, 11 pt section headings, 8.5 pt tables, 14 mm margins, a
+ * one-row header and one slim summary strip.
  */
 export const MINUTES_TYPE = {
   /** The meeting's title, under the header. */
-  title: 14.5,
+  title: 15.5,
   /** The facts under the title: when, who, where, how it stands, and the project's details. */
   facts: 8.5,
   /** Who wrote a note and when, at the end of its last line. */
@@ -234,7 +234,27 @@ export function minutesProjectHeader(doc: PdfDocument, project: Pick<MinutesProj
 
 /** The meeting's title under the header (an Arabic title is set right-to-left, flush right). */
 export function minutesTitle(doc: PdfDocument, title: string): void {
-  doc.text(title, { bold: true, size: MINUTES_TYPE.title, color: INK, gap: 4, family: 'display' });
+  doc.documentTitle(title, { size: MINUTES_TYPE.title });
+}
+
+/**
+ * 1.23.10: the minutes' footer (the staff copy and the client's): the company, when it was printed
+ * (and, on the staff copy, by whom) and the page number; the website and support address, and the
+ * postal address, under them; a client's copy also says it was shared through the product.
+ */
+export function minutesFooter(brand: Pick<MinutesBrand, 'companyName' | 'websiteUrl' | 'supportEmail' | 'companyAddress' | 'productName'>, printed: string, shared = false): PdfFooter {
+  const reach = [brand.websiteUrl, brand.supportEmail].filter((b): b is string => Boolean(b)).map(isolate).join('  ·  ');
+  return {
+    company: brand.companyName,
+    printed,
+    extra: [reach, brand.companyAddress ?? '', shared ? `Shared with you through ${isolate(brand.productName)}` : ''].filter(Boolean),
+  };
+}
+
+/** "Printed 10 Nov 2026, 14:05 by Name" in the minutes' zone (an unreadable time: "Printed"). */
+export function printedAt(iso: string, tz: string, by?: string | null): string {
+  const at = new Date(iso);
+  return Number.isNaN(at.getTime()) ? `Printed${by ? ` by ${isolate(by)}` : ''}` : printedLine(at, tz, by, isolate);
 }
 
 /** The project's details among the facts: its name, code, number and client (and, for staff, more). */
@@ -347,23 +367,19 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
   const final = data.final ?? null;
   const approved = final?.status === 'FINAL';
 
-  // Branded footer: company · website · support on line 1, address on line 2, generated credit on line 3.
-  // Each user-supplied fragment is bidi-isolated so an Arabic name can't reorder its neighbours.
-  const footerBits = [brand.companyName, brand.websiteUrl, brand.supportEmail].filter((b): b is string => Boolean(b)).map(isolate);
-  const generated = `Generated ${isolate(fmtTimestamp(data.generatedAt, tz))}${data.generatedByName ? ` by ${isolate(data.generatedByName)}` : ''} · ${isolate(brand.productName)}`;
-  const footerLeft = [footerBits.join('  ·  '), brand.companyAddress, generated].filter(Boolean).join('\n');
-
-  // Compact: minutes are read and filed, so they are set small and tight (see MINUTES_TYPE).
+  // 1.23.10 footer (owner): the company, "Printed … by …" and the page number; the website, support
+  // address and postal address under them. Each user-supplied fragment is bidi-isolated so an Arabic
+  // name can't reorder its neighbours.
   const doc = new PdfDocument({
     title: `Minutes of Meeting: ${meeting.title}`,
+    runningTitle: `Minutes of Meeting · ${meeting.title}`,
     palette: {
       brand: brand.colors?.brand,
       ink: brand.colors?.ink,
       muted: brand.colors?.muted,
       line: brand.colors?.line,
     },
-    footerLeft,
-    density: 'compact',
+    footer: minutesFooter(brand, printedAt(data.generatedAt, tz, data.generatedByName)),
     ...(data.logo ? { logo: data.logo } : {}),
   });
 
@@ -542,14 +558,19 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
     }
 
     // ── Then the record of the meeting: who came, the agenda, the action items and every note ──
-    doc.partBand('Meeting record', { keepWith: 70 });
-    attendees();
-    agenda();
+    // The part's heading goes with the attendees (kept whole when they are a small section).
+    doc.section(() => {
+      doc.partBand('Meeting record', { keepWith: 70 });
+      attendees();
+    });
+    doc.section(agenda);
     if (items.length > 0) {
-      doc.heading('Action Items', { keepWith: 40 });
-      actionItemsTable(doc, items, dueText);
+      doc.section(() => {
+        doc.heading('Action Items', { keepWith: 40 });
+        actionItemsTable(doc, items, dueText);
+      });
     }
-    carryOver();
+    doc.section(carryOver);
     doc.heading('Notes taken during the meeting', { keepWith: 30 });
     if (data.notes.length === 0) {
       doc.text('No notes were taken.', { color: MUTED });
@@ -572,8 +593,8 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
     doc.heading('Summary');
     doc.text(summaryText);
   }
-  attendees();
-  agenda();
+  doc.section(attendees);
+  doc.section(agenda);
 
   if (decisions.length > 0) {
     doc.heading('Decisions', { keepWith: 30 });
@@ -591,7 +612,7 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
       for (const n of actionNotes) noteItem(n);
     }
   }
-  carryOver();
+  doc.section(carryOver);
 
   // Risks & open issues: what could go wrong, and what is still unanswered.
   if (issues.length + questions.length > 0) {

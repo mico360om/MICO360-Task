@@ -69,13 +69,13 @@ describe('the client copy of the minutes PDF', () => {
     for (const heading of ['Discussion', 'Decisions', 'Risks & Open Issues', 'Next Steps']) expect(text).not.toContain(heading);
   });
 
-  it('has the same compact look as the staff minutes: small type, the project’s code, number and client among the facts', () => {
+  // tpdf: 1.23.10 — the PDF standard: a 15.5 pt title, an 11 pt project name, 9.5 pt text (was 14–15 / 12–13 / 9 pt).
+  it('has the same look as the staff minutes (the PDF standard), the project’s code, number and client among the facts', () => {
     const { pages, lines: drawn } = inspectPdf(buildClientMinutesPdf(data));
     const at = (t: string) => drawn.flat().find((l) => l.text === t)!;
-    expect(at('Kick-off').size).toBeGreaterThanOrEqual(14);
-    expect(at('Kick-off').size).toBeLessThanOrEqual(15);
-    expect(at('Rig 7 Inspection').size).toBeLessThanOrEqual(13);
-    expect(at('Agreed the inspection plan for the three rigs.').size).toBe(9);
+    expect(at('Kick-off').size).toBe(15.5);
+    expect(at('Rig 7 Inspection').size).toBe(11);
+    expect(at('Agreed the inspection plan for the three rigs.').size).toBe(9.5);
     expect(pages[0]).toEqual(expect.arrayContaining(['Code', 'RIG', 'Project no.', 'OD-2231', 'Client', 'Oman Drilling Co.']));
     expect(pages).toHaveLength(1);
   });

@@ -153,7 +153,7 @@ describe('Management routes', () => {
       'Management overview',
       'All projects',
       'Projects: All · Owner: Anyone · Status: Planning, Active, On hold · Period: last 4 weeks (4 Oct – 27 Oct 2026)',
-      'Generated 27 Oct 2026, 10:00 (Asia/Muscat) by Aisha Khan',
+      'Printed 27 Oct 2026, 10:00 by Aisha Khan', // tpdf: 1.23.10 footer words (was "Generated … (zone) by …")
       'Project health',
       'Rig Inspection Portal',
       'Milestone “Handover” is 3 days late',
@@ -166,7 +166,8 @@ describe('Management routes', () => {
       'Trends',
       'Page 1 of',
     ]) {
-      expect(text, s).toContain(s);
+      // tpdf: 1.23.10 — the portrait page wraps long names inside their cells, so line breaks are ignored here.
+      expect(text.replace(/\s+/g, ''), s).toContain(s.replace(/\s+/g, ''));
     }
   });
 
@@ -260,9 +261,11 @@ describe('Management PDF: the company (companies)', () => {
     const app = await makeApp({}, DATA, { pdfBranding });
     const headers = await auth('admin', ['ADMIN']);
     const all = await app.inject({ method: 'GET', url: '/api/v1/management/overview.pdf', headers });
-    expect(inspectPdf(all.rawPayload).pages.flat().join('\n')).toContain('Alpha LLC · MICO360 Tasks');
+    // tpdf: 1.23.10 — the footer names the company on its own (was "Alpha LLC · MICO360 Tasks · …").
+    const footer = (pdf: Buffer) => inspectPdf(pdf).lines.flat().filter((l) => l.artifact).map((l) => l.text);
+    expect(footer(all.rawPayload)).toContain('Alpha LLC');
     const one = await app.inject({ method: 'GET', url: '/api/v1/management/overview.pdf?projectIds=rig', headers });
-    expect(inspectPdf(one.rawPayload).pages.flat().join('\n')).toContain('Rig Co · MICO360 Tasks');
+    expect(footer(one.rawPayload)).toContain('Rig Co');
     expect([...inspectPdf(one.rawPayload).objects.values()].some((d) => /\/Subtype \/Image/.test(d) && /\/Width 215\b/.test(d))).toBe(true);
     expect(asked).toEqual([['scope', 'admin', null], ['project', 'rig']]);
   });

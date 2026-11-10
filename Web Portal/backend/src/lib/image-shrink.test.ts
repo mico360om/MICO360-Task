@@ -196,7 +196,8 @@ describe('toThumbnail (a small picture for a document, such as a task’s attach
     const out = (await shrinker.toThumbnail(big))!;
     const meta = await sharp(out).metadata();
     expect(meta.format).toBe('jpeg');
-    expect([meta.width, meta.height]).toEqual([600, 400]);
+    // tpdf: 1.23.10 — 200 dpi for the third of a page it is printed on (was 600 pixels).
+    expect([meta.width, meta.height]).toEqual([460, 307]);
     expect(out.length).toBeLessThan(big.length / 10);
     expect(printableImage(out)).toBe(out);
     // WebP, GIF and see-through PNG pictures too.
@@ -211,6 +212,41 @@ describe('toThumbnail (a small picture for a document, such as a task’s attach
     expect(await createImageShrinker(quiet()).toThumbnail(Buffer.from('not a picture'))).toBeNull();
     const broken = createImageShrinker({ ...quiet(), load: async () => { throw new Error('missing libvips'); } });
     expect(await broken.toThumbnail(await photo(40, 30).jpeg().toBuffer())).toBeNull();
+  });
+});
+
+describe('1.23.10 toDocumentPicture (a logo or a project picture at the size a PDF prints it)', () => {
+  it('makes a big photo 200 dpi for its printed box — a 26 pt badge is 73 pixels — and a JPEG, far smaller', async () => {
+    const shrinker = createImageShrinker(quiet());
+    const big = await photo(1600, 1600).jpeg({ quality: 92 }).toBuffer();
+    const out = (await shrinker.toDocumentPicture(big, { width: 26, height: 26 }))!;
+    const meta = await sharp(out).metadata();
+    expect([meta.format, meta.width, meta.height]).toEqual(['jpeg', 73, 73]);
+    expect(out.length).toBeLessThan(big.length / 20);
+    expect(printableImage(out)).toBe(out);
+  });
+
+  it('keeps flat line art (a logo with a see-through background) a PNG, set on white, fitted inside its box', async () => {
+    const shrinker = createImageShrinker(quiet());
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="560"><rect x="100" y="100" width="500" height="300" fill="#c2410c"/><rect x="700" y="330" width="600" height="110" fill="#f59e0b"/></svg>`;
+    const logo = await sharp(Buffer.from(svg)).png().toBuffer();
+    const out = (await shrinker.toDocumentPicture(logo, { width: 110, height: 26 }))!;
+    const meta = await sharp(out).metadata();
+    expect(meta.format).toBe('png');
+    expect(meta.hasAlpha).toBe(false);
+    expect(meta.height).toBe(73); // 26 pt at 200 dpi; the width keeps the logo's shape
+    expect(Math.abs(meta.width! - (73 * 1400) / 560)).toBeLessThanOrEqual(1);
+    expect(printableImage(out)).toBe(out);
+  });
+
+  it('never enlarges a small picture, and returns nothing for a file that isn’t one or without the library', async () => {
+    const shrinker = createImageShrinker(quiet());
+    const small = await photo(30, 20).jpeg().toBuffer();
+    const meta = await sharp((await shrinker.toDocumentPicture(small, { width: 110, height: 26 }))!).metadata();
+    expect([meta.width, meta.height]).toEqual([30, 20]);
+    expect(await shrinker.toDocumentPicture(Buffer.from('not a picture'), { width: 26, height: 26 })).toBeNull();
+    const broken = createImageShrinker({ ...quiet(), load: async () => { throw new Error('missing libvips'); } });
+    expect(await broken.toDocumentPicture(small, { width: 26, height: 26 })).toBeNull();
   });
 });
 
@@ -229,7 +265,9 @@ describe('pictures for documents get a time limit', () => {
     const shrinker = createImageShrinker({ ...quiet(), load: async () => library as never });
     await shrinker.toThumbnail(Buffer.from('picture'));
     await shrinker.toPrintable(Buffer.from('picture'));
+    await shrinker.toDocumentPicture(Buffer.from('picture'), { width: 26, height: 26 });
     expect(steps.filter(([name]) => name === 'timeout')).toEqual([
+      ['timeout', [{ seconds: 10 }]],
       ['timeout', [{ seconds: 10 }]],
       ['timeout', [{ seconds: 10 }]],
     ]);

@@ -119,6 +119,17 @@ describe('table rows: pages', () => {
     expect(plan.pages.length).toBeGreaterThan(2);
   });
 
+  it('1.23.10: never leaves one row alone on a table’s last page when the page before can give it another', () => {
+    // Rows of one line (16 pt): 11 fit under the header on the first page (200 − 16), 17 on a fresh one.
+    const lines = Array.from({ length: 12 }, () => 1);
+    const plan = paginateRows(lines, base);
+    expect(plan.pages.map((p) => p.length)).toEqual([10, 2]);
+    expect(flat(plan.pages).map((p) => p.row)).toEqual(lines.map((_, i) => i));
+    // Already two on the last page, or a page before with too few to spare: as it was.
+    expect(paginateRows(Array.from({ length: 13 }, () => 1), base).pages.map((p) => p.length)).toEqual([11, 2]);
+    expect(paginateRows([1, 1], { ...base, room: 16 + 16 + 1 }).pages.map((p) => p.length)).toEqual([1, 1]);
+  });
+
   it('starts on a new page when the header and the first row don’t fit in what is left', () => {
     const plan = paginateRows([5, 1], { ...base, room: 60 });
     expect(plan.newPage).toBe(true);
@@ -146,6 +157,22 @@ describe('table rows: pages', () => {
     expect(flat(plan.pages).map((p) => p.row)).toEqual([0, ...pieces.map(() => 1), 2]);
     const last = plan.pages[plan.pages.length - 1]!;
     expect(last.map((p) => p.row)).toEqual([1, 2]);
+  });
+
+  it('1.23.10: each later piece of a split row leaves room for its "(continued)" line, so every page still fits', () => {
+    const plan = paginateRows([2, 70, 1], { ...base, continuedLines: 1 });
+    const pieces = flat(plan.pages).filter((p) => p.row === 1);
+    expect(pieces.length).toBeGreaterThan(2);
+    for (let i = 1; i < pieces.length; i++) expect(pieces[i]!.from).toBe(pieces[i - 1]!.to);
+    expect(pieces[pieces.length - 1]!.to).toBe(70);
+    plan.pages.forEach((page, i) => {
+      const used = sum(page.map((p) => (p.to - p.from + (p.row === 1 && p.from > 0 ? 1 : 0)) * 10 + 6));
+      expect(used).toBeLessThanOrEqual((i === 0 ? 200 : 300) - 16);
+    });
+    // A whole page holds one line fewer of a continued piece than of a first one.
+    const full = paginateRows([70], { ...base, atTop: true, room: 300 });
+    const withNote = paginateRows([70], { ...base, atTop: true, room: 300, continuedLines: 1 });
+    expect(withNote.pages[1]![0]!.to - withNote.pages[1]![0]!.from).toBe(full.pages[1]![0]!.to - full.pages[1]![0]!.from - 1);
   });
 
   it('a split row starts on the current page only when at least two of its lines fit there', () => {

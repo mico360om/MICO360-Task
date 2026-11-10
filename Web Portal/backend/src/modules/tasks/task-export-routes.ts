@@ -25,6 +25,8 @@ export interface TaskExportRouteDeps {
   readProjectImage?: (imageUrl: string) => Promise<Buffer | null>;
   /** Converts a project picture the PDF can't take as stored (WebP, GIF, some PNGs). */
   printableProjectImage?: (raw: Buffer) => Promise<Buffer | null>;
+  /** 1.23.10: makes the project picture the size its badge prints it at (≤ 200 dpi); without it, as above. */
+  fitProjectImage?: (raw: Buffer) => Promise<Buffer | null>;
   /** Companies: the task's project's company brand on its PDF (name with 2+ companies, logo); absent: the site's. */
   pdfBrand?: (taskId: string) => Promise<PdfBrand>;
 }
@@ -58,7 +60,7 @@ async function asSeenBy(data: TaskExportData, user: { id: string; roles?: string
 /** The task with what only its PDF shows: the project's picture and the task's own pictures. */
 async function forPdf(data: TaskExportData, deps: TaskExportRouteDeps): Promise<TaskExportData> {
   const [projectImage, withFiles] = await Promise.all([
-    readProjectPicture(data.projectImageUrl, deps.readProjectImage, deps.printableProjectImage),
+    readProjectPicture(data.projectImageUrl, deps.readProjectImage, deps.printableProjectImage, deps.fitProjectImage),
     deps.readAttachment ? withPictures(data, { read: deps.readAttachment, thumbnail: deps.pictureThumbnail }) : data,
   ]);
   return projectImage ? { ...withFiles, projectImage } : withFiles;

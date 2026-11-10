@@ -1,4 +1,4 @@
-import { PdfDocument } from './pdf-document';
+import { PDF_STANDARD, PdfDocument, type PdfFooter } from './pdf-document';
 
 export interface PdfTable {
   title: string;
@@ -32,18 +32,16 @@ export function humanizeColumn(key: string): string {
  * embedded Unicode fonts with bidi + Arabic shaping, so Arabic project and employee
  * names print correctly.
  */
-export function toSimplePdf({ title, columns, rows }: PdfTable): Buffer {
-  const doc = new PdfDocument({ title, footerLeft: title });
-  doc.text(title, { bold: true, size: 16 });
-  doc.text(`${rows.length} ${rows.length === 1 ? 'row' : 'rows'}`, { size: 9, color: [0.42, 0.4, 0.38], gap: 8 });
-  if (columns.length > 0) {
-    doc.table(
-      columns.map((c) => ({ header: humanizeColumn(c) })),
-      rows.map((r) => columns.map((c) => cellText(r[c]))),
-    );
-  }
+export function toSimplePdf({ title, columns, rows, footer }: PdfTable & { footer?: PdfFooter }): Buffer {
+  const header = columns.map((c) => ({ header: humanizeColumn(c) }));
+  const cells = rows.map((r) => columns.map((c) => cellText(r[c])));
+  // 1.23.10: the PDF standard — portrait unless the table can't fit across it; the title on every later page.
+  const doc = new PdfDocument({ title, runningTitle: title, orientation: PdfDocument.needsLandscape(header, cells) ? 'landscape' : 'portrait', footer: footer ?? {} });
+  doc.documentTitle(title);
+  doc.text(`${rows.length} ${rows.length === 1 ? 'row' : 'rows'}`, { size: PDF_STANDARD.type.small, color: [0.42, 0.4, 0.38], gap: 6 });
+  if (columns.length > 0) doc.table(header, cells);
   if (columns.length === 0 || rows.length === 0) {
-    doc.spacer(6).text('No data for this report.', { color: [0.42, 0.4, 0.38], size: 9.5 });
+    doc.spacer(6).text('No data for this report.', { color: [0.42, 0.4, 0.38], size: PDF_STANDARD.type.small });
   }
   return doc.build();
 }

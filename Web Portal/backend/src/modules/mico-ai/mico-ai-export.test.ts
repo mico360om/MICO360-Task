@@ -52,7 +52,7 @@ describe('MICO AI downloads', () => {
     for (const s of ['Overdue tasks', 'MICO AI', 'Which tasks are overdue in Rig Inspection, and who has them?', '3 tasks are overdue.', 'Omar has 2 of them.', 'RIG-14', 'Pressure test report', '19 Oct 2026', '5 days', '40%', 'Omar Said'])
       expect(all).toContain(s);
     expect(all).not.toContain('**');
-    expect(all).toMatch(/Generated 24 Oct 2026, 12:00 \(Asia\/Muscat\) by Omar Said/);
+    expect(all).toMatch(/Printed 24 Oct 2026, 12:00 by Omar Said/); // tpdf: 1.23.10 — the footer's "Printed … by …" (was "Generated … (zone) by …")
   });
 
   it('a file name from the table and the company day', () => {
@@ -132,14 +132,17 @@ const squash = (s: string) => s.replace(/\s+/g, '');
 const HEADERS = ['Task', 'Title', 'Project', 'Status', 'Assigned to', 'Due', 'Overdue', 'Progress'];
 const shown = (r: { cells: Array<string | number | null> }) => r.cells.map((v, i) => cellText(big.table.columns[i]!.kind, v));
 
+// tpdf: 1.23.10 (owner: documents stay portrait) — an eight-column table whose words fit across a portrait
+// page at 7.5 pt or more stays portrait (was landscape for any table of six columns or more); the page
+// furniture is told by its artifact marks; 14 mm margins (was 54 pt).
 describe('MICO AI PDF report: a long answer with a wide table', () => {
   const buf = tablePdf(big);
   const pdf = inspectPdf(buf);
-  const W = 841.89;
-  const H = 595.28;
+  const W = 595.28;
+  const M = 14 * (72 / 25.4);
 
-  it('is landscape A4, and every row of the table is there whole on one page — every cell, in order', () => {
-    expect(buf.toString('latin1')).toMatch(/\/MediaBox \[0 0 841\.89 595\.28\]/);
+  it('is portrait A4 (its words fit across it), and every row of the table is there whole on one page — every cell, in order', () => {
+    expect(buf.toString('latin1')).toMatch(/\/MediaBox \[0 0 595\.28 841\.89\]/);
     expect(pdf.pages.length).toBeGreaterThan(2);
     const perPage = pdf.pages.map((p) => squash(p.join('')));
     big.table.rows.forEach((r, i) => {
@@ -163,22 +166,24 @@ describe('MICO AI PDF report: a long answer with a wide table', () => {
   it('every page has a header (logo and the chat) and a footer with “Page N of M”, when and by whom', () => {
     const n = pdf.pages.length;
     pdf.lines.forEach((lines, p) => {
-      const footer = lines.filter((l) => l.y > H - 50).map((l) => l.text);
+      const footer = lines.filter((l) => l.artifact && l.y > 400).map((l) => l.text);
       expect(footer, `page ${p + 1}`).toContain(`Page ${p + 1} of ${n}`);
-      expect(footer.join(' ')).toContain('Generated 25 Oct 2026, 09:00 (Asia/Muscat) by Khurram Shahzad');
-      if (p > 0) expect(lines.filter((l) => l.y < 54).map((l) => l.text).join(' ')).toContain('MICO AI · Overdue tasks in Rig Inspection');
+      expect(footer.join(' ')).toContain('Printed 25 Oct 2026, 09:00 by Khurram Shahzad');
+      if (p > 0) expect(lines.filter((l) => l.artifact && l.y < 100).map((l) => l.text).join(' ')).toContain('MICO AI · Overdue tasks in Rig Inspection');
       expect(pdf.contents[p]).toMatch(/\/I\d+ Do/); // the company logo
     });
   });
 
   it('keeps the page body clear of the header and the footer (nothing overlaps them or runs off the page)', () => {
     pdf.lines.forEach((lines, p) => {
-      const body = lines.filter((l) => l.y >= 54 && l.y <= H - 50);
+      const body = lines.filter((l) => !l.artifact);
+      const footerTop = Math.min(...lines.filter((l) => l.artifact && l.y > 400).map((l) => l.y - l.size));
+      const headerBottom = Math.max(0, ...lines.filter((l) => l.artifact && l.y < 100).map((l) => l.y));
       for (const l of body) {
-        expect(l.y, `page ${p + 1}: ${l.text}`).toBeLessThanOrEqual(H - 62);
-        if (p > 0) expect(l.y, `page ${p + 1}: ${l.text}`).toBeGreaterThan(54 + 14);
-        expect(l.x).toBeGreaterThanOrEqual(54 - 0.5);
-        expect(l.x + measureText(l.text, l.size, l.fonts.some((f) => /SemiBold|Bold/.test(f)))).toBeLessThanOrEqual(W - 54 + 0.5);
+        expect(l.y, `page ${p + 1}: ${l.text}`).toBeLessThan(footerTop - 8);
+        if (p > 0) expect(l.y - l.size, `page ${p + 1}: ${l.text}`).toBeGreaterThan(headerBottom + 4);
+        expect(l.x).toBeGreaterThanOrEqual(M - 0.5);
+        expect(l.x + measureText(l.text, l.size, l.fonts.some((f) => /SemiBold|Bold/.test(f)))).toBeLessThanOrEqual(W - M + 0.5);
       }
     });
   });
@@ -222,7 +227,7 @@ describe('MICO AI PDF report: page shape', () => {
     const out = tablePdf(narrow);
     expect(out.toString('latin1')).toMatch(/\/MediaBox \[0 0 595\.28 841\.89\]/);
     const cell = inspectPdf(out).lines.flat().find((l) => l.text === 'RIG-1')!;
-    expect(cell.size).toBe(9);
+    expect(cell.size).toBe(8.5); // tpdf: 1.23.10 — tables are 8.5 pt (was 9)
   });
 
   it('a very wide table turns landscape and shrinks its type, to no less than 7 pt, before it breaks words', () => {
@@ -263,13 +268,14 @@ const asAnswer = (d: TableExport, tables: TableExport['table'][]): AnswerExport 
   timeZone: d.timeZone,
   generatedBy: d.generatedBy,
 });
-const footerOk = (pdf: ReturnType<typeof inspectPdf>, height: number) => {
+// tpdf: 1.23.10 — the page furniture is told by its artifact marks; the footer says "Printed … by …" (was "Generated … (zone) by …").
+const footerOk = (pdf: ReturnType<typeof inspectPdf>) => {
   const n = pdf.pages.length;
   pdf.lines.forEach((lines, p) => {
-    const footer = lines.filter((l) => l.y > height - 50).map((l) => l.text);
+    const footer = lines.filter((l) => l.artifact && l.y > 400).map((l) => l.text);
     expect(footer, `page ${p + 1}`).toContain(`Page ${p + 1} of ${n}`);
-    expect(footer.join(' ')).toMatch(/Generated .* \(Asia\/Muscat\) by /);
-    if (p > 0) expect(lines.filter((l) => l.y < 54).map((l) => l.text).join(' ')).toMatch(/^MICO AI · /);
+    expect(footer.join(' ')).toMatch(/Printed .* by /);
+    if (p > 0) expect(lines.filter((l) => l.artifact && l.y < 100).map((l) => l.text).join(' ')).toMatch(/^MICO AI · /);
   });
 };
 
@@ -289,14 +295,14 @@ describe('MICO AI answer report: the whole answer as one PDF', () => {
     for (const s of ['This week’s meetings', 'MICO AI report', 'Summarize this week’s meetings', 'Two meetings this week.', 'Weekly review, Wed 21 Oct: Omar finishes the pressure test.', 'Site visit, Thu 22 Oct: the test moved from rig 2 to rig 3.', 'No decisions are waiting.', 'Sources: Weekly review · 21 Oct'])
       expect(stream).toContain(squash(s));
     expect(stream).not.toContain('rows)');
-    footerOk(pdf, 841.89);
+    footerOk(pdf);
   });
 
   it('every table of the answer in order, each under its own heading kept with it, its header row repeated on every page it runs onto; an empty table says so', () => {
     const blocked = { title: 'Blocked tasks', fromResult: 'r3', columns: [{ key: 'key', label: 'Task', kind: 'key' as const }, { key: 'title', label: 'Title' }], rows: [] };
     const report = asAnswer(big, [doc.table, big.table, blocked]);
     const out = answerPdf(report);
-    expect(out.toString('latin1')).toMatch(/\/MediaBox \[0 0 841\.89 595\.28\]/); // a wide table: the report is landscape
+    expect(out.toString('latin1')).toMatch(/\/MediaBox \[0 0 595\.28 841\.89\]/); // tpdf: 1.23.10 — portrait: every table's words fit across it
     const pdf = inspectPdf(out);
     const all = squash(pdf.pages.flat().join(''));
     const at = (s: string) => all.indexOf(squash(s));
@@ -319,7 +325,7 @@ describe('MICO AI answer report: the whole answer as one PDF', () => {
       const h = header.lastIndexOf('Task');
       expect(h, `page ${p + 1}`).toBeGreaterThanOrEqual(0);
     });
-    footerOk(pdf, 595.28);
+    footerOk(pdf);
     // Each heading is on the same page as its table's header row (never alone at a page end).
     for (const heading of ['Overdue tasks (2 rows)', 'Blocked tasks (0 rows)']) {
       const p = pdf.pages.findIndex((page) => squash(page.join('')).includes(squash(heading)));
@@ -334,9 +340,9 @@ describe('MICO AI answer report: the whole answer as one PDF', () => {
     const pdf = inspectPdf(answerPdf(long));
     expect(pdf.pages.length).toBeGreaterThan(3);
     // The page bodies in reading order (a paragraph may run on from one page to the next).
-    const body = squash(pdf.lines.flatMap((lines) => lines.filter((l) => l.y > 54 && l.y < 841.89 - 50).map((l) => l.text)).join(''));
+    const body = squash(pdf.lines.flatMap((lines) => lines.filter((l) => !l.artifact).map((l) => l.text)).join(''));
     paragraphs.forEach((p) => expect(body.split(squash(p)).length - 1, p.slice(0, 14)).toBe(1));
-    footerOk(pdf, 841.89);
+    footerOk(pdf);
   });
 
   it('a file name from the chat and the company day', () => {

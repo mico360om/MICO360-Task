@@ -172,7 +172,9 @@ describe('buildMinutesPdf', () => {
     const { pages, contents } = inspectPdf(buildMinutesPdf(data));
     expect(pages[0]).toContain('MINUTES OF MEETING'); // eyebrow
     expect(pages[0]).toContain('MICO360 Tasks'); // product name in the masthead
-    expect(pages[0]).toContain('MICO360 Softwares  ·  https://mico360.example  ·  info@mico360.example'); // footer
+    // tpdf: 1.23.10 footer — the company on its own, the website and support address under it (was one "company · website · email" line).
+    expect(pages[0]).toContain('MICO360 Softwares'); // footer
+    expect(pages[0]).toContain('https://mico360.example  ·  info@mico360.example');
     expect(pages[0]).toContain('MICO360, Muscat, Oman');
     // brand color #8B1E1E → red ≈ 0.545 drives the brand rule/eyebrow fill
     expect(contents[0]).toMatch(/0\.545\d* 0\.117\d* 0\.117\d* scn/);
@@ -263,7 +265,7 @@ describe('minutes time zone (MTG-01)', () => {
     delete process.env.COMPANY_TIMEZONE;
     const noZone: MinutesData = { ...data, meeting: { ...data.meeting, timeZone: null } };
     const text = lines(noZone);
-    expect(text.some((t) => t.startsWith('Generated 1 Oct 2026, 15:00 by Ada Lovelace'))).toBe(true);
+    expect(text.some((t) => t.startsWith('Printed 1 Oct 2026, 15:00 by Ada Lovelace'))).toBe(true); // tpdf: 1.23.10 footer words (was "Generated …")
   });
 
   it('resolveMinutesTimeZone: meeting → caller company zone → env → Asia/Muscat', () => {
@@ -314,7 +316,7 @@ describe('buildMinutesPdf: project header and layout', () => {
   it('draws the project’s initials on its colour when its picture can’t be printed', () => {
     const webp = Buffer.from('RIFF\u0000\u0000\u0000\u0000WEBPVP8 ', 'latin1');
     const { pages, contents } = inspectPdf(buildMinutesPdf({ ...data, project: { ...project, image: webp } }));
-    expect(contents[0]).not.toMatch(/\/I\d+ Do/);
+    expect(contents[0]!.match(/\/I\d+ Do/g)).toHaveLength(1); // tpdf: 1.23.10 — the built-in logo only (every header has one), no project picture
     expect(pages[0]).toContain('FC');
     expect(contents[0]).toMatch(/0\.117\d* 0\.352\d* 0\.545\d* scn/); // #1E5A8B tile
   });
@@ -326,7 +328,7 @@ describe('buildMinutesPdf: project header and layout', () => {
     for (const [name, image] of [['interlaced PNG', interlaced], ['damaged JPEG', damaged]] as const) {
       const initials = inspectPdf(buildMinutesPdf({ ...data, project: { ...project, image } })); // throws on a broken file
       expect(initials.pages[0], name).toContain('FC');
-      expect(initials.contents[0], name).not.toMatch(/\/I\d+ Do/);
+      expect(initials.contents[0]!.match(/\/I\d+ Do/g), name).toHaveLength(1); // tpdf: 1.23.10 — the built-in logo only
       const icon = inspectPdf(buildMinutesPdf({ ...data, project: { ...project, image, icon: 'rocket' } }));
       expect(icon.pages[0], name).not.toContain('FC');
       expect(icon.contents[0], name).toMatch(/1 1 1 SCN\nS\n/);
@@ -335,7 +337,7 @@ describe('buildMinutesPdf: project header and layout', () => {
 
   it('draws the project’s icon on its colour when it has an icon and no picture, as the app shows it', () => {
     const { pages, contents } = inspectPdf(buildMinutesPdf({ ...data, project: { ...project, image: null, icon: 'rocket' } }));
-    expect(contents[0]).not.toMatch(/\/I\d+ Do/);
+    expect(contents[0]!.match(/\/I\d+ Do/g)).toHaveLength(1); // tpdf: 1.23.10 — the built-in logo only
     expect(pages[0]).not.toContain('FC'); // no initials
     expect(contents[0]).toMatch(/0\.117\d* 0\.352\d* 0\.545\d* scn/); // #1E5A8B tile
     expect(contents[0]).toMatch(/1 1 1 SCN/); // drawn in white…
@@ -474,7 +476,7 @@ describe('buildMinutesPdf: dates as the other PDFs write them, and late action i
       expect(text).toContain('Thursday 1 October 2026');
       expect(text).toContain('09:00 – 10:30 (UTC)');
       expect(text).toEqual(expect.arrayContaining(['1 Sep 2026  –  31 Dec 2026']));
-      expect(text.some((l) => l.startsWith('Generated 10 Oct 2026, 08:00 by Ada Lovelace'))).toBe(true);
+      expect(text.some((l) => l.startsWith('Printed 10 Oct 2026, 08:00 by Ada Lovelace'))).toBe(true); // tpdf: 1.23.10 footer words
       expect(text.filter((l) => MONTH_FIRST.test(l)), 'month-first dates').toEqual([]);
       expect(text.filter((l) => TWELVE_HOUR.test(l)), '12-hour times').toEqual([]);
     }
@@ -512,30 +514,24 @@ describe('buildMinutesPdf: the compact layout (1.22.1)', () => {
   };
   const project = { name: 'Falcon CRM', code: 'FAL', clientName: 'Acme Corp', statusLabel: 'Active', ownerName: 'Grace Hopper' };
 
-  it('sets the minutes in compact type: a 14–15 pt title, a 12–13 pt project name, 9 pt notes, 8–8.5 pt tables and facts', () => {
+  // tpdf: 1.23.10 — the minutes' compact look became every PDF's standard (owner, 10 Nov): a 15.5 pt
+  // title, an 11 pt project name in the slim header, 9.5 pt notes, 8.5 pt tables and facts, 11 pt headings,
+  // 10.5 pt strip values, 14 mm margins (was 14.5 / 12.5 / 9 / 8 / 10.5 / 11 pt and 16 mm).
+  it('sets the minutes on the PDF standard: a 15.5 pt title, an 11 pt project name, 9.5 pt notes, 8.5 pt tables and facts', () => {
     const d: MinutesData = { ...data, project };
-    expect(line(d, 'Q4 Planning Sync').size).toBeGreaterThanOrEqual(14);
-    expect(line(d, 'Q4 Planning Sync').size).toBeLessThanOrEqual(15);
-    expect(line(d, 'Falcon CRM').size).toBeGreaterThanOrEqual(12); // the header's project name (drawn first)
-    expect(line(d, 'Falcon CRM').size).toBeLessThanOrEqual(13);
-    expect(line(d, 'Team aligned on focus areas.').size).toBe(9); // a note
-    expect(line(d, 'Boardroom A').size).toBeGreaterThanOrEqual(8.5); // a fact
-    expect(line(d, 'Boardroom A').size).toBeLessThanOrEqual(9);
-    expect(line(d, 'Guest Visitor').size).toBeGreaterThanOrEqual(8); // a table cell
-    expect(line(d, 'Guest Visitor').size).toBeLessThanOrEqual(8.5);
-    for (const heading of ['Attendees', 'Agenda', 'Decisions']) {
-      expect(line(d, heading).size, heading).toBeGreaterThanOrEqual(10.5);
-      expect(line(d, heading).size, heading).toBeLessThanOrEqual(11);
-    }
-    // Small, slim summary tiles: values well under the old 19 pt.
-    expect(line(d, '1/2').size).toBeLessThanOrEqual(12);
+    expect(line(d, 'Q4 Planning Sync').size).toBe(15.5);
+    expect(line(d, 'Falcon CRM').size).toBe(11); // the header's project name (drawn first)
+    expect(line(d, 'Team aligned on focus areas.').size).toBe(9.5); // a note
+    expect(line(d, 'Boardroom A').size).toBe(8.5); // a fact
+    expect(line(d, 'Guest Visitor').size).toBe(8.5); // a table cell
+    for (const heading of ['Attendees', 'Agenda', 'Decisions']) expect(line(d, heading).size, heading).toBe(11);
+    // One slim summary strip: values at 10.5 pt.
+    expect(line(d, '1/2').size).toBe(10.5);
   });
 
-  it('uses narrower margins than the other PDFs (about 16 mm)', () => {
+  it('uses the standard’s 14 mm side margins', () => {
     const x = line(data, 'Q4 Planning Sync').x;
-    const mm = (x / 72) * 25.4;
-    expect(mm).toBeGreaterThanOrEqual(15);
-    expect(mm).toBeLessThanOrEqual(18);
+    expect((x / 72) * 25.4).toBeCloseTo(14, 1);
   });
 
   it('shows a long online link as a short label that can still be clicked, never the address over many lines', () => {

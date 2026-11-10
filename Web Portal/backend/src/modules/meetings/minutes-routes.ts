@@ -86,6 +86,8 @@ export interface MinutesRouteDeps {
   readProjectImage?: (imageUrl: string) => Promise<Buffer | null>;
   /** Converts a stored picture the PDF can't take as it is (WebP, GIF, some PNGs) into one it can. */
   printableProjectImage?: (raw: Buffer) => Promise<Buffer | null>;
+  /** 1.23.10: makes the project picture the size the header prints it at (≤ 200 dpi); without it, as above. */
+  fitProjectImage?: (raw: Buffer) => Promise<Buffer | null>;
   /** Board keys of linked tasks (id → key), printed beside their action items. */
   resolveTaskKeys?: (taskIds: string[]) => Promise<Record<string, string>>;
   /** Where the final minutes (Final MOM) are kept; enables the /meetings/:id/final-minutes routes. */
@@ -185,7 +187,7 @@ const sendBody = z
  * person may see the meeting. (MICO AI drafts final minutes from the same facts.)
  */
 export function createMinutesData(
-  deps: Pick<MinutesRouteDeps, 'meetingService' | 'attendeeService' | 'agendaService' | 'noteService' | 'actionItemService' | 'resolveUserNames' | 'resolveProject' | 'readProjectImage' | 'printableProjectImage' | 'resolveTaskKeys' | 'seriesFacts'>,
+  deps: Pick<MinutesRouteDeps, 'meetingService' | 'attendeeService' | 'agendaService' | 'noteService' | 'actionItemService' | 'resolveUserNames' | 'resolveProject' | 'readProjectImage' | 'printableProjectImage' | 'fitProjectImage' | 'resolveTaskKeys' | 'seriesFacts'>,
 ) {
   const { meetingService, attendeeService, agendaService, noteService } = deps;
   /** The minutes data of a meeting, for the person `viewerId` (`alsoName`: more people to name; `seriesFor`: whose carry-over). */
@@ -222,7 +224,7 @@ export function createMinutesData(
       taskIds.length && deps.resolveTaskKeys ? deps.resolveTaskKeys(taskIds) : Promise.resolve({} as Record<string, string>),
     ]);
     // A picture in a format the PDF can't embed as stored is converted, so the logo still prints.
-    const projectImage = await readProjectPicture(projectSrc?.imageUrl, deps.readProjectImage, deps.printableProjectImage);
+    const projectImage = await readProjectPicture(projectSrc?.imageUrl, deps.readProjectImage, deps.printableProjectImage, deps.fitProjectImage);
     const trackedNotes = new Set(actionItems.map((a) => a.sourceNoteId).filter(Boolean));
     const nameOf = (uid: string | null): string | null => (uid ? names.get(uid) ?? null : null);
 

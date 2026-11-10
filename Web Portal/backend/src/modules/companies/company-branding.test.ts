@@ -43,12 +43,13 @@ function world() {
 
 const SITE_HOURS = { days: [0, 1, 2, 3, 4], start: '08:00', end: '17:00' };
 const logo = solidPng(300, 100);
-function branding(w: ReturnType<typeof world>, more: { ttlMs?: number; read?: (url: string) => Promise<Buffer | null> } = {}) {
+function branding(w: ReturnType<typeof world>, more: { ttlMs?: number; read?: (url: string) => Promise<Buffer | null>; documentPicture?: (raw: Buffer) => Promise<Buffer | null> } = {}) {
   return createCompanyBranding({
     prisma: w.prisma,
     site: { companyName: 'MICO360', timeZone: 'Asia/Muscat', senderName: 'MICO360 Tasks' },
     settings: { companyWeekStart: async () => 0, workingHours: async () => ({ ...SITE_HOURS, days: [...SITE_HOURS.days] }) },
     readImage: more.read ?? (async (url) => (url === '/uploads/companies/a/logo.png' ? logo : null)),
+    ...(more.documentPicture ? { documentPicture: more.documentPicture } : {}),
     apiBaseUrl: 'https://api.test/',
     ttlMs: more.ttlMs ?? 0,
   });
@@ -79,6 +80,23 @@ describe('company branding', () => {
     });
     expect(await b.pdf(brand)).toEqual({ companyName: null, logo });
     expect(b.clientPage(brand)).toBeNull();
+  });
+
+  it('1.23.10: a company logo is made the size the PDF header prints it at, when the picture library can; the email keeps its address', async () => {
+    const w = world();
+    w.add('prolens', { logoUrl: '/uploads/companies/a/logo.png' });
+    w.projects.set('P1', { mainCompanyId: 'prolens', companyIds: ['prolens'] });
+    const sized = Buffer.from('sized');
+    const documentPicture = vi.fn(async () => sized);
+    const b = branding(w, { documentPicture });
+    const brand = await b.forProject('P1');
+    expect((await b.pdf(brand)).logo).toBe(sized);
+    expect(await b.pdfLogo(brand)).toBe(sized);
+    expect(documentPicture).toHaveBeenCalledWith(logo);
+    expect(b.emailOptions(brand).brand.logoUrl).toBe('https://api.test/uploads/companies/a/logo.png');
+    // A sizer that can't: the logo as before.
+    const plain = branding(w, { documentPicture: async () => null });
+    expect((await plain.pdf(await plain.forProject('P1'))).logo).toBe(logo);
   });
 
   it('two active companies: each project carries its main company’s name', async () => {

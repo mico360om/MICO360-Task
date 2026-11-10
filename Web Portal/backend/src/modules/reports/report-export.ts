@@ -3,9 +3,11 @@
  * workbook (one sheet per section) or a branded PDF (logo header, summary tiles, status bars,
  * tables that repeat their header across pages, the completion trend chart, page numbers).
  */
-import { PdfDocument, type TableColumn } from '../../lib/pdf-document';
+import { PDF_STANDARD, PdfDocument, hexToRgb, type TableColumn } from '../../lib/pdf-document';
 import type { XlsxSheet, XlsxValue } from '../../lib/xlsx-writer';
-import { BRAND, CATEGORY_COLOR, CATEGORY_ORDER, categoryLabel, formatDateTime, formatDay, priorityLabel, slugPart, wallClock } from '../../lib/export-format';
+import { BRAND, CATEGORY_COLOR, CATEGORY_ORDER, categoryLabel, formatDateTime, formatDay, printedLine, priorityLabel, slugPart, wallClock } from '../../lib/export-format';
+import { OVERDUE_TONES, STATUS_TONES } from '../../lib/colour-scheme';
+import { resolveBrand } from '../email/brand';
 import type { CompletionStats, ProjectPerformance, ReportFilter, ReportService, TaskListRow, UserWorkload } from './report-service';
 import type { TimeSeriesResult } from './report-timeseries';
 import type { PdfBrand } from '../companies/company-branding';
@@ -199,100 +201,106 @@ export function reportSheets(b: ReportBundle, meta: ReportMeta, sections: Report
 /** `company` (companies): the company's name before the product's in the credit line (2+ companies), and its logo. */
 export function reportPdf(b: ReportBundle, meta: ReportMeta, sections: ReportSection[] = ALL_SECTIONS, company?: PdfBrand | null): Buffer {
   const runningTitle = `${meta.title}${meta.projectName ? ` · ${meta.projectName}` : ''}`;
+  // 1.23.10: portrait (owner: documents stay portrait); a section whose table can't fit across a
+  // portrait page turns landscape by itself. The footer: the company, "Printed … by …", the page.
   const doc = new PdfDocument({
-    orientation: 'landscape',
     title: runningTitle,
     runningTitle,
-    footerLeft: `${company?.companyName ? `${company.companyName} · ` : ''}MICO360 Tasks · ${generatedLine(meta)}`,
+    footer: { company: company?.companyName ?? resolveBrand().companyName, printed: printedLine(meta.generatedAt, meta.timeZone, meta.generatedBy) },
     palette: { brand: BRAND },
     ...(company?.logo ? { logo: company.logo } : {}),
   });
-  doc.reportHeader({ title: meta.title, subtitle: meta.projectName || 'All projects', details: [filterSummary(meta, sections), generatedLine(meta)] });
+  doc.reportHeader({ title: meta.title, subtitle: meta.projectName || 'All projects', details: [filterSummary(meta, sections)] });
 
   const total = b.completion.total;
-  const empty = () => doc.text(EMPTY, { color: [0.42, 0.4, 0.38], size: 10, gap: 4 });
-  let first = true;
-  /** A section heading kept on the same page as the first `keepWith` points of its content. */
-  const heading = (s: ReportSection, keepWith: number) => {
-    doc.heading(SECTION_TITLE[s], { size: 13, topGap: first ? 2 : 16, keepWith });
-    first = false;
-  };
-  // A table that fits on one page is kept whole; a longer one keeps its header and first rows with the heading.
-  const tableKeep = (cols: TableColumn[], rows: string[][], size: number) => {
-    const whole = doc.tableHeight(cols, rows, { size });
-    return whole <= 320 ? whole : doc.tableHeight(cols, rows.slice(0, 3), { size });
-  };
-  const DANGER: [number, number, number] = [0.72, 0.16, 0.16];
+  const muted: [number, number, number] = [0.42, 0.4, 0.38];
+  const empty = () => doc.text(EMPTY, { color: muted, size: PDF_STANDARD.type.small, gap: 4 });
+  /** A section heading kept on the same page as the first `keepWith` points of its content (the first one close under the header). */
+  const heading = (s: ReportSection, keepWith: number) => doc.heading(SECTION_TITLE[s], { topGap: s === sections[0] ? 0 : PDF_STANDARD.space.xl, keepWith });
+  const DANGER = hexToRgb(OVERDUE_TONES.light.text);
 
   for (const section of sections) {
     if (section === 'summary') {
-      heading('summary', 90);
       const overdue = b.tasks.filter((t) => t.overdue).length;
-      doc.statTiles([
-        { label: 'Total tasks', value: String(total) },
-        { label: 'Completed', value: String(b.completion.completed), note: `${pct(b.completion.completed, total)}%`, tone: 'success' },
-        { label: 'Open', value: String(total - b.completion.completed), tone: 'muted' },
-        { label: 'Overdue', value: String(overdue), tone: overdue ? 'danger' : 'muted' },
-        { label: 'On-time completion', value: `${b.completion.onTimeRate}%`, note: `${b.completion.onTime} on time · ${b.completion.late} late`, tone: 'brand' },
-      ]);
-      doc.keyValue('Average completed per week', `${b.series.velocityPerWeek} (${formatDay(b.series.from)} – ${formatDay(b.series.to)})`, { size: 9.5 });
+      doc.section(() => {
+        heading('summary', 60);
+        doc.statTiles([
+          { label: 'Total tasks', value: String(total) },
+          { label: 'Completed', value: String(b.completion.completed), note: `${pct(b.completion.completed, total)}%`, tone: 'success' },
+          { label: 'Open', value: String(total - b.completion.completed), tone: 'muted' },
+          { label: 'Overdue', value: String(overdue), tone: overdue ? 'danger' : 'muted' },
+          { label: 'On-time completion', value: `${b.completion.onTimeRate}%`, note: `${b.completion.onTime} on time · ${b.completion.late} late`, tone: 'brand' },
+        ]);
+        doc.keyValue('Average completed per week', `${b.series.velocityPerWeek} (${formatDay(b.series.from)} – ${formatDay(b.series.to)})`);
+      });
     } else if (section === 'status') {
       const rows = statusRows(b.status);
-      heading('status', rows.length * 17 + 4);
       const sum = rows.reduce((s, r) => s + r.count, 0);
-      if (rows.length === 0) empty();
-      else doc.barList(rows.map((r) => ({ label: `${categoryLabel(r.category)} · ${pct(r.count, sum)}%`, value: r.count, color: CATEGORY_COLOR[r.category] ?? BRAND })));
+      doc.section(() => {
+        heading('status', rows.length * 14 + 4);
+        if (rows.length === 0) empty();
+        else doc.barList(rows.map((r) => ({ label: `${categoryLabel(r.category)} · ${pct(r.count, sum)}%`, value: r.count, color: CATEGORY_COLOR[r.category] ?? BRAND })));
+      });
     } else if (section === 'projects') {
       const cols: TableColumn[] = [{ header: 'Project' }, { header: 'Tasks', align: 'right' }, { header: 'Completed', align: 'right' }, { header: 'Overdue', align: 'right' }, { header: 'Completion', align: 'right' }];
       const rows = byName(b.projects, (p) => p.projectName).map((p) => [p.projectName, String(p.total), String(p.completed), String(p.overdue), `${p.completionPct}%`]);
-      heading('projects', tableKeep(cols, rows, 9));
-      if (rows.length === 0) empty();
-      else doc.table(cols, rows, { size: 9, cellColor: (r, c) => (c === 3 && rows[r]![3] !== '0' ? DANGER : null) });
+      doc.section(() => {
+        heading('projects', doc.tableHeight(cols, rows, { firstRows: 2 }));
+        if (rows.length === 0) empty();
+        else doc.table(cols, rows, { cellColor: (r, c) => (c === 3 && rows[r]![3] !== '0' ? DANGER : null) });
+      });
     } else if (section === 'workload') {
       const cols: TableColumn[] = [{ header: 'Team member' }, { header: 'Assigned', align: 'right' }, { header: 'Completed', align: 'right' }, { header: 'Open', align: 'right' }, { header: 'Overdue', align: 'right' }];
       const rows = byName(b.workload, (w) => w.name).map((w) => [w.name, String(w.assigned), String(w.completed), String(w.assigned - w.completed), String(w.overdue)]);
-      heading('workload', tableKeep(cols, rows, 9));
-      if (rows.length === 0) empty();
-      else doc.table(cols, rows, { size: 9, cellColor: (r, c) => (c === 4 && rows[r]![4] !== '0' ? DANGER : null) });
+      doc.section(() => {
+        heading('workload', doc.tableHeight(cols, rows, { firstRows: 2 }));
+        if (rows.length === 0) empty();
+        else doc.table(cols, rows, { cellColor: (r, c) => (c === 4 && rows[r]![4] !== '0' ? DANGER : null) });
+      });
     } else if (section === 'trend') {
-      heading('trend', 200);
-      if (b.series.points.length === 0) empty();
-      else {
-        doc.lineChart({
-          labels: b.series.points.map((p) => formatDay(p.date)),
-          series: [
-            { name: 'Created', values: b.series.points.map((p) => p.created), color: '#57514C' },
-            { name: 'Completed', values: b.series.points.map((p) => p.completed), color: '#2E7D53' },
-            { name: 'Overdue', values: b.series.points.map((p) => p.overdue), color: BRAND },
-          ],
-        });
-        if (b.series.velocity.length > 0) {
-          doc.table(
-            [{ header: 'Week starting' }, { header: 'Completed', align: 'right' }],
-            b.series.velocity.map((v) => [formatDay(v.weekStart), String(v.completed)]),
-            { size: 9 },
-          );
+      doc.section(() => {
+        heading('trend', 170);
+        if (b.series.points.length === 0) empty();
+        else {
+          doc.lineChart({
+            labels: b.series.points.map((p) => formatDay(p.date)),
+            series: [
+              { name: 'Created', values: b.series.points.map((p) => p.created), color: '#57514C' },
+              { name: 'Completed', values: b.series.points.map((p) => p.completed), color: STATUS_TONES.DONE.light.fill },
+              { name: 'Overdue', values: b.series.points.map((p) => p.overdue), color: OVERDUE_TONES.light.fill },
+            ],
+          });
+          if (b.series.velocity.length > 0) {
+            doc.table(
+              [{ header: 'Week starting' }, { header: 'Completed', align: 'right' }],
+              b.series.velocity.map((v) => [formatDay(v.weekStart), String(v.completed)]),
+            );
+          }
         }
-      }
+      });
     } else if (section === 'tasks') {
-      const cols: TableColumn[] = [{ header: 'Key' }, { header: 'Title' }, { header: 'Project' }, { header: 'Status' }, { header: 'Priority' }, { header: 'Assignees' }, { header: 'Due', align: 'left' }, { header: 'Completed', align: 'left' }];
+      const cols: TableColumn[] = [{ header: 'Key', nowrap: true }, { header: 'Title' }, { header: 'Project' }, { header: 'Status' }, { header: 'Priority' }, { header: 'Assignees' }, { header: 'Due' }, { header: 'Completed' }];
       const shown = b.tasks.slice(0, PDF_TASK_LIMIT);
       const rows = shown.map((t) => [
-            t.key,
-            t.mergedFrom?.length ? `${t.title} (merged from ${t.mergedFrom.join(', ')})` : t.title,
-            t.projectName,
-            t.status,
-            priorityLabel(t.priority),
-            t.assignees.join(', ') || '—',
-            t.dueDate ? `${formatDay(t.dueDate)}${t.overdue ? ' · Overdue' : ''}` : '—',
+        t.key,
+        t.mergedFrom?.length ? `${t.title} (merged from ${t.mergedFrom.join(', ')})` : t.title,
+        t.projectName,
+        t.status,
+        priorityLabel(t.priority),
+        t.assignees.join(', ') || '—',
+        t.dueDate ? `${formatDay(t.dueDate)}${t.overdue ? ' · Overdue' : ''}` : '—',
         t.completedAt ? formatDay(wallClock(t.completedAt, meta.timeZone).slice(0, 10)) : '—',
       ]);
-      heading('tasks', doc.tableHeight(cols, rows.slice(0, 3), { size: 8.5 }));
+      // A table too wide for a portrait page turns its section landscape (owner, 10 Nov), then back.
+      const wide = PdfDocument.needsLandscape(cols, rows);
+      if (wide) doc.orient('landscape');
+      heading('tasks', doc.tableHeight(cols, rows, { firstRows: 2 }));
       if (rows.length === 0) empty();
       else {
-        doc.table(cols, rows, { size: 8.5, cellColor: (r, c) => (c === 6 && shown[r]!.overdue ? DANGER : null) });
-        if (b.tasks.length > shown.length) doc.text(`Showing the first ${shown.length} of ${b.tasks.length} tasks — the Excel export lists them all.`, { size: 9, color: [0.42, 0.4, 0.38] });
+        doc.table(cols, rows, { cellColor: (r, c) => (c === 6 && shown[r]!.overdue ? DANGER : null) });
+        if (b.tasks.length > shown.length) doc.text(`Showing the first ${shown.length} of ${b.tasks.length} tasks — the Excel export lists them all.`, { size: PDF_STANDARD.type.small, color: muted });
       }
+      if (wide) doc.orient('portrait');
     }
   }
   return doc.build();

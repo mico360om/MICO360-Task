@@ -118,7 +118,7 @@ describe('MICO AI routes', () => {
     expect(pdf.headers['content-type']).toBe('application/pdf');
     const text = inspectPdf(pdf.rawPayload).pages.flat().join('\n');
     expect(text).toContain('5 days');
-    expect(text).toContain('Generated 24 Oct 2026, 12:00 (Asia/Muscat) by Omar Said');
+    expect(text).toContain('Printed 24 Oct 2026, 12:00 by Omar Said'); // tpdf: 1.23.10 footer words (was "Generated … (zone) by …")
 
     // The whole answer as one PDF report: the question, the words, every table, the sources.
     const report = await app.inject({ method: 'GET', url: `/api/v1/mico-ai/chats/${chatId}/messages/${answer.id}/report.pdf`, headers: omar });
@@ -312,7 +312,9 @@ describe('MICO AI report PDFs: the reader’s company (companies)', () => {
     for (const path of ['tables/1.pdf', 'report.pdf']) {
       const pdf = await app.inject({ method: 'GET', url: `/api/v1/mico-ai/chats/${chatId}/messages/${answer.id}/${path}`, headers: omar });
       expect(pdf.statusCode, path).toBe(200);
-      expect(inspectPdf(pdf.rawPayload).pages.flat().join('\n')).toContain('Alpha LLC · MICO360 Tasks · MICO AI report');
+      // tpdf: 1.23.10 — the footer names the company on its own; "MICO AI report" is the header's (was one credit line).
+      expect(inspectPdf(pdf.rawPayload).lines.flat().filter((l) => l.artifact).map((l) => l.text)).toContain('Alpha LLC');
+      expect(inspectPdf(pdf.rawPayload).pages.flat()).toContain('MICO AI report');
       expect([...inspectPdf(pdf.rawPayload).objects.values()].some((d) => /\/Subtype \/Image/.test(d) && /\/Width 230\b/.test(d))).toBe(true);
     }
     expect(asked).toEqual([['u-omar', null], ['u-omar', null]]);

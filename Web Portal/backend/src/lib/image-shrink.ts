@@ -33,18 +33,31 @@ export interface ImageShrinker {
    */
   toPrintable(content: Buffer): Promise<Buffer | null>;
   /**
-   * Any picture as a small upright JPEG on white (at most 600 pixels on its long side), which a PDF
+   * Any picture as a small upright JPEG on white (at most 460 pixels on its long side), which a PDF
    * embeds as it is and keeps small (a task's attached photos); null when it can't be read or the
    * library can't load.
    */
   toThumbnail(content: Buffer): Promise<Buffer | null>;
+  /**
+   * 1.23.10: a logo or a project's picture as a PDF prints it — at most 200 dpi for the box it is
+   * printed in (`box` in points: a 26 pt badge is 73 pixels), on white, re-encoded once from the
+   * original: a PNG for line art, a JPEG for a photo (whichever reads well smaller). Never enlarged;
+   * null when it can't be read or the library can't load.
+   */
+  toDocumentPicture(content: Buffer, box: { width: number; height: number }): Promise<Buffer | null>;
 }
 
 /** A logo in a document is printed small: this many pixels on its long side is plenty. */
 const PRINTABLE_MAX_SIDE = 512;
 
-/** A photo printed a third of a page wide: this many pixels on its long side keeps it sharp. */
-const THUMBNAIL_MAX_SIDE = 600;
+/** A photo printed a third of a page wide (about 160 × 106 pt): this many pixels on its long side is 200 dpi. */
+const THUMBNAIL_MAX_SIDE = 460;
+
+/** Pictures in documents are printed at this resolution (dots per inch) at most. */
+const DOCUMENT_DPI = 200;
+
+/** Line art stays a PNG unless a JPEG is this much smaller (a PNG keeps flat colours and edges crisp). */
+const PNG_ALLOWANCE = 1.25;
 
 /** A picture for a document that takes longer than this to prepare is given up (a crafted file can't keep the server busy). */
 const DOCUMENT_PICTURE_SECONDS = 10;
@@ -154,11 +167,31 @@ export function createImageShrinker({ load = loadSharp, warn = () => {} }: Image
     }
   }
 
+  async function toDocumentPicture(content: Buffer, box: { width: number; height: number }): Promise<Buffer | null> {
+    const sharp = await library();
+    if (!sharp) return null;
+    const px = (points: number) => Math.max(1, Math.ceil((points * DOCUMENT_DPI) / 72));
+    try {
+      const base = sharp(content, { limitInputPixels: MAX_INPUT_PIXELS })
+        .rotate()
+        .resize({ width: px(box.width), height: px(box.height), fit: 'inside', withoutEnlargement: true })
+        .flatten({ background: '#ffffff' })
+        .toColourspace('srgb')
+        .timeout({ seconds: DOCUMENT_PICTURE_SECONDS });
+      const [png, jpeg] = await Promise.all([base.clone().png({ compressionLevel: 9, adaptiveFiltering: true }).toBuffer(), base.clone().jpeg({ quality: 85, mozjpeg: true }).toBuffer()]);
+      return png.length <= jpeg.length * PNG_ALLOWANCE ? png : jpeg;
+    } catch (err) {
+      warn('A picture could not be prepared for a document', { err, bytes: content.length });
+      return null;
+    }
+  }
+
   return {
     shrink,
     check: async () => (await library()) !== null,
     status: () => available,
     toPrintable,
     toThumbnail,
+    toDocumentPicture,
   };
 }
