@@ -245,9 +245,10 @@ export function createAiFeatureService({
             .sort((a, b) => a.name.localeCompare(b.name))
             .slice(0, MAX_PROMPT_PROJECTS)
         : [];
-    const projectList = projects.length
-      ? `\nProjects (code | number | name), one per line:\n${projects.map((p) => `${p.code} | ${p.number ?? '-'} | ${p.name}`).join('\n')}`
-      : '';
+    // Within a size budget (MICO360 AI reads at most 32,000 characters a conversation): a long name is
+    // cut, and the list stops when full. The note's own project number or code still matches any of them.
+    const lines = fitLines(projects.map((p) => `${p.code} | ${p.number ?? '-'} | ${cut(p.name, PROMPT_NAME_CHARS)}`), PROMPT_PROJECT_CHARS);
+    const projectList = lines.length ? `\nProjects (code | number | name), one per line:\n${lines.join('\n')}` : '';
     return { projects, projectList };
   }
 
@@ -297,7 +298,10 @@ export function createAiFeatureService({
       .map((p) => ({ ...p, name: `${p.firstName} ${p.lastName}`.trim() || p.username }))
       .sort((a, b) => a.name.localeCompare(b.name));
     const people = everyone.slice(0, MAX_PROMPT_PEOPLE);
-    const peopleList = people.length ? `\nPeople (id | name | username), one per line:\n${people.map((p) => `${p.id} | ${p.name} | ${p.username}`).join('\n')}` : '';
+    // Within its size budget too: a long name is cut, and the list stops when full (names are still
+    // matched against everyone, below).
+    const peopleLines = fitLines(people.map((p) => `${p.id} | ${cut(p.name, PROMPT_NAME_CHARS)} | ${cut(p.username, PROMPT_USERNAME_CHARS)}`), PROMPT_PEOPLE_CHARS);
+    const peopleList = peopleLines.length ? `\nPeople (id | name | username), one per line:\n${peopleLines.join('\n')}` : '';
     const text = await run(
       [
         `Fill in a meeting from the user's sentence. Today is ${today}; times are company time. Reply with ONLY JSON:`,
@@ -350,14 +354,17 @@ export function createAiFeatureService({
    * scaled so the items fit the meeting's length.
    */
   async function draftAgenda(input: DraftAgendaInput, requester?: AiRequester): Promise<DraftedAgendaItem[]> {
+    // Long names and titles are cut, and the people list has a size budget, so the whole stays within
+    // MICO360 AI's 32,000 characters a conversation.
+    const people = fitLines(input.people.map((p) => `${p.id} | ${cut(p.name, PROMPT_NAME_CHARS)}`), AGENDA_PEOPLE_CHARS);
     const lines = [
       `Meeting: ${input.title}`,
       input.description?.trim() ? `Description: ${input.description.trim()}` : '',
       input.text?.trim() ? `What the organizer wrote: ${input.text.trim()}` : '',
       `Length: ${input.minutes} minutes`,
-      input.people.length ? `People (id | name), one per line:\n${input.people.map((p) => `${p.id} | ${p.name}`).join('\n')}` : 'People: none listed',
-      input.tasks.length ? `Open project tasks (key | title | why):\n${input.tasks.map((t) => `${t.key} | ${t.title} | ${t.reason}`).join('\n')}` : '',
-      input.leftovers.length ? `Left open by the last meeting:\n${input.leftovers.map((l) => `${l.kind === 'action' ? 'Action item' : 'Agenda item'}: ${l.title}`).join('\n')}` : '',
+      people.length ? `People (id | name), one per line:\n${people.join('\n')}` : 'People: none listed',
+      input.tasks.length ? `Open project tasks (key | title | why):\n${input.tasks.map((t) => `${t.key} | ${cut(t.title, PROMPT_TITLE_CHARS)} | ${t.reason}`).join('\n')}` : '',
+      input.leftovers.length ? `Left open by the last meeting:\n${input.leftovers.map((l) => `${l.kind === 'action' ? 'Action item' : 'Agenda item'}: ${cut(l.title, PROMPT_TITLE_CHARS)}`).join('\n')}` : '',
     ].filter(Boolean);
     const text = await run(
       [
@@ -617,6 +624,33 @@ const isMico360 = (chat: ChatModel): boolean => chat.provider.preset === 'mico36
 
 /** At most this many projects are listed in the prompt (each one is a line). */
 const MAX_PROMPT_PROJECTS = 100;
+
+/**
+ * Size budgets for the lists in a prompt (characters). MICO360 AI reads at most 32,000 characters a
+ * conversation, instructions included (its guide, §5) — over it, 413. With the instructions and the
+ * longest note a route accepts, every feature stays within it (ai-prompt-size.test). Typical lists
+ * (names of 20–40 characters) fit whole.
+ */
+const PROMPT_PROJECT_CHARS = 8_000;
+const PROMPT_PEOPLE_CHARS = 19_000;
+const AGENDA_PEOPLE_CHARS = 8_000;
+const PROMPT_NAME_CHARS = 120;
+const PROMPT_USERNAME_CHARS = 60;
+const PROMPT_TITLE_CHARS = 200;
+
+/** At most `n` characters, a cut one ending in "…". */
+const cut = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+/** The lines, in order, while they fit in `maxChars` (each with its line break). */
+function fitLines(lines: string[], maxChars: number): string[] {
+  const out: string[] = [];
+  let used = 0;
+  for (const line of lines) {
+    if (used + line.length + 1 > maxChars) break;
+    out.push(line);
+    used += line.length + 1;
+  }
+  return out;
+}
 const FREQUENCIES = ['DAILY', 'WEEKLY', 'MONTHLY', 'QUARTERLY', 'YEARLY'] as const;
 
 const normalise = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();

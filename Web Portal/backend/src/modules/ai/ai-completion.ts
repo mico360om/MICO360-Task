@@ -109,6 +109,12 @@ export interface CompletionOptions {
 export const COMPLETION_TIMEOUT_MS = 120_000;
 
 /**
+ * The most MICO360 AI reads of one conversation, system messages included (its guide, §5 and §11):
+ * over it, 413. Every feature's prompt is built to fit it (ai-prompt-size.test).
+ */
+export const CONVERSATION_LIMIT = 32_000;
+
+/**
  * Single-turn text completion against a configured provider. Speaks each provider kind's
  * chat API (Anthropic Messages, OpenAI/custom chat-completions, Ollama chat) and returns the
  * assistant's text. `fetchImpl` is injected so features are fully testable without a network.
