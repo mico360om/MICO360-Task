@@ -27,7 +27,7 @@ async function main(): Promise<void> {
     const pdf = pdfs[name]();
     writeFileSync(join(out, `${name}.pdf`), pdf);
     const { lines } = inspectPdf(pdf);
-    writeFileSync(join(out, `${name}.lines.json`), JSON.stringify(lines.map((page) => page.map((l) => ({ text: l.text, x: +l.x.toFixed(2), y: +l.y.toFixed(2), size: l.size })))));
+    writeFileSync(join(out, `${name}.lines.json`), JSON.stringify(lines.map((page) => page.map((l) => ({ text: l.text, x: +l.x.toFixed(2), y: +l.y.toFixed(2), size: l.size, artifact: l.artifact })))));
     console.log(`${name}: ${lines.length} page(s), ${(pdf.length / 1024).toFixed(1)} KB`);
   }
 }

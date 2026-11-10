@@ -201,9 +201,25 @@ export function reportSheets(b: ReportBundle, meta: ReportMeta, sections: Report
 /** `company` (companies): the company's name before the product's in the credit line (2+ companies), and its logo. */
 export function reportPdf(b: ReportBundle, meta: ReportMeta, sections: ReportSection[] = ALL_SECTIONS, company?: PdfBrand | null): Buffer {
   const runningTitle = `${meta.title}${meta.projectName ? ` · ${meta.projectName}` : ''}`;
+  // The tasks table, laid out first: whether it needs a landscape page decides how the report starts.
+  const taskCols: TableColumn[] = [{ header: 'Key', nowrap: true }, { header: 'Title' }, { header: 'Project' }, { header: 'Status' }, { header: 'Priority' }, { header: 'Assignees' }, { header: 'Due' }, { header: 'Completed' }];
+  const shownTasks = b.tasks.slice(0, PDF_TASK_LIMIT);
+  const taskRows = shownTasks.map((t) => [
+    t.key,
+    t.mergedFrom?.length ? `${t.title} (merged from ${t.mergedFrom.join(', ')})` : t.title,
+    t.projectName,
+    t.status,
+    priorityLabel(t.priority),
+    t.assignees.join(', ') || '—',
+    t.dueDate ? `${formatDay(t.dueDate)}${t.overdue ? ' · Overdue' : ''}` : '—',
+    t.completedAt ? formatDay(wallClock(t.completedAt, meta.timeZone).slice(0, 10)) : '—',
+  ]);
+  const tasksWide = sections.includes('tasks') && PdfDocument.needsLandscape(taskCols, taskRows);
   // 1.23.10: portrait (owner: documents stay portrait); a section whose table can't fit across a
-  // portrait page turns landscape by itself. The footer: the company, "Printed … by …", the page.
+  // portrait page turns landscape by itself — from the first page when it is the report's first
+  // section, so page 1 is never left with its header alone. The footer: the company, "Printed … by …", the page.
   const doc = new PdfDocument({
+    orientation: tasksWide && sections[0] === 'tasks' ? 'landscape' : 'portrait',
     title: runningTitle,
     runningTitle,
     footer: { company: company?.companyName ?? resolveBrand().companyName, printed: printedLine(meta.generatedAt, meta.timeZone, meta.generatedBy) },
@@ -258,8 +274,13 @@ export function reportPdf(b: ReportBundle, meta: ReportMeta, sections: ReportSec
         else doc.table(cols, rows, { cellColor: (r, c) => (c === 4 && rows[r]![4] !== '0' ? DANGER : null) });
       });
     } else if (section === 'trend') {
+      const weekCols: TableColumn[] = [{ header: 'Week starting' }, { header: 'Completed', align: 'right' }];
+      const weekRows = b.series.velocity.map((v) => [formatDay(v.weekStart), String(v.completed)]);
+      // The chart (legend, plot and its gap: 144 pt) and the weekly table stay with the heading, on one
+      // page when they fit one: the table is never left alone at the top of the next page.
+      const chart = 144 + (weekRows.length ? doc.tableHeight(weekCols, weekRows) : 0);
       doc.section(() => {
-        heading('trend', 170);
+        heading('trend', b.series.points.length ? chart : 40);
         if (b.series.points.length === 0) empty();
         else {
           doc.lineChart({
@@ -270,37 +291,19 @@ export function reportPdf(b: ReportBundle, meta: ReportMeta, sections: ReportSec
               { name: 'Overdue', values: b.series.points.map((p) => p.overdue), color: OVERDUE_TONES.light.fill },
             ],
           });
-          if (b.series.velocity.length > 0) {
-            doc.table(
-              [{ header: 'Week starting' }, { header: 'Completed', align: 'right' }],
-              b.series.velocity.map((v) => [formatDay(v.weekStart), String(v.completed)]),
-            );
-          }
+          if (weekRows.length > 0) doc.table(weekCols, weekRows);
         }
       });
     } else if (section === 'tasks') {
-      const cols: TableColumn[] = [{ header: 'Key', nowrap: true }, { header: 'Title' }, { header: 'Project' }, { header: 'Status' }, { header: 'Priority' }, { header: 'Assignees' }, { header: 'Due' }, { header: 'Completed' }];
-      const shown = b.tasks.slice(0, PDF_TASK_LIMIT);
-      const rows = shown.map((t) => [
-        t.key,
-        t.mergedFrom?.length ? `${t.title} (merged from ${t.mergedFrom.join(', ')})` : t.title,
-        t.projectName,
-        t.status,
-        priorityLabel(t.priority),
-        t.assignees.join(', ') || '—',
-        t.dueDate ? `${formatDay(t.dueDate)}${t.overdue ? ' · Overdue' : ''}` : '—',
-        t.completedAt ? formatDay(wallClock(t.completedAt, meta.timeZone).slice(0, 10)) : '—',
-      ]);
       // A table too wide for a portrait page turns its section landscape (owner, 10 Nov), then back.
-      const wide = PdfDocument.needsLandscape(cols, rows);
-      if (wide) doc.orient('landscape');
-      heading('tasks', doc.tableHeight(cols, rows, { firstRows: 2 }));
-      if (rows.length === 0) empty();
+      if (tasksWide) doc.orient('landscape');
+      heading('tasks', doc.tableHeight(taskCols, taskRows, { firstRows: 2 }));
+      if (taskRows.length === 0) empty();
       else {
-        doc.table(cols, rows, { cellColor: (r, c) => (c === 6 && shown[r]!.overdue ? DANGER : null) });
-        if (b.tasks.length > shown.length) doc.text(`Showing the first ${shown.length} of ${b.tasks.length} tasks — the Excel export lists them all.`, { size: PDF_STANDARD.type.small, color: muted });
+        doc.table(taskCols, taskRows, { cellColor: (r, c) => (c === 6 && shownTasks[r]!.overdue ? DANGER : null) });
+        if (b.tasks.length > shownTasks.length) doc.text(`Showing the first ${shownTasks.length} of ${b.tasks.length} tasks — the Excel export lists them all.`, { size: PDF_STANDARD.type.small, color: muted });
       }
-      if (wide) doc.orient('portrait');
+      if (tasksWide) doc.orient('portrait');
     }
   }
   return doc.build();

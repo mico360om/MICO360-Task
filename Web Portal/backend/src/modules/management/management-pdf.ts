@@ -64,38 +64,7 @@ export function milestoneCell(m: ManagementOverview['projects'][number]['nextMil
 }
 
 export function buildManagementPdf(o: ManagementOverview, meta: { generatedBy: string | null; company?: PdfBrand | null }): Buffer {
-  // 1.23.10: portrait (owner: documents stay portrait; a table that won't fit turns its section
-  // landscape by itself). The footer: the company (its own on a site with 2+ companies, else the
-  // site's), "Printed … by …" and the page; the company's logo in the headers.
-  const doc = new PdfDocument({
-    title: 'Management overview',
-    runningTitle: 'Management overview',
-    footer: { company: meta.company?.companyName ?? resolveBrand().companyName, printed: printedLine(new Date(o.generatedAt), o.timeZone, meta.generatedBy) },
-    palette: { brand: BRAND },
-    ...(meta.company?.logo ? { logo: meta.company.logo } : {}),
-  });
-  doc.reportHeader({ title: 'Management overview', subtitle: o.scope === 'ALL' ? 'All projects' : 'Projects you run', details: [filtersInWords(o)] });
-  const t = o.tiles;
-  const note = (text: string) => doc.text(text, { size: PDF_STANDARD.type.small, color: MUTED, gap: 3 });
-  /** A table too wide for a portrait page turns its section landscape, then back. */
-  const landscapeFor = (columns: TableColumn[], rows: string[][], draw: () => void) => {
-    const wide = PdfDocument.needsLandscape(columns, rows);
-    if (wide) doc.orient('landscape');
-    draw();
-    if (wide) doc.orient('portrait');
-  };
-
-  doc.heading('At a glance', { topGap: 0, keepWith: 60 });
-  doc.statTiles([
-    { label: 'Projects', value: String(t.projects), note: `${t.red} red · ${t.amber} amber · ${t.green} green`, tone: t.red ? 'danger' : t.amber ? 'warning' : 'success' },
-    { label: 'Late tasks', value: String(t.lateTasks), tone: t.lateTasks ? 'danger' : 'muted' },
-    { label: 'Missing checks', value: String(t.missingChecks), tone: t.missingChecks ? 'danger' : 'muted' },
-    { label: 'Checks done', value: `${t.checksDone} of ${t.checksDue}`, ...(t.checksDoneLate ? { note: `${t.checksDoneLate} late` } : {}), tone: 'brand' },
-    { label: 'Pass rate', value: t.passRate === null ? 'None yet' : `${t.passRate}%`, tone: 'success' },
-    { label: 'Overloaded this week', value: String(t.overloadedPeople), tone: t.overloadedPeople ? 'warning' : 'muted' },
-  ]);
-
-  // ── Project health ──
+  // ── Project health, its main table (laid out first: it decides the page shape) ──
   const healthCols: TableColumn[] = [
     { header: 'Mark', nowrap: true },
     { header: 'Project' },
@@ -116,6 +85,42 @@ export function buildManagementPdf(o: ManagementOverview, meta: { generatedBy: s
     formatDay(zonedDayKey(new Date(p.lastActivityAt), o.timeZone)),
     p.reasons.map((r) => r.text).join('; '),
   ]);
+  // 1.23.10: portrait (owner: documents stay portrait); when the health table can't fit across a
+  // portrait page, the whole overview is landscape (as before), so page 1 keeps its tiles and table
+  // together; another table too wide turns its own section landscape. The footer: the company (its
+  // own on a site with 2+ companies, else the site's), "Printed … by …" and the page; the company's
+  // logo in the headers.
+  const shape = PdfDocument.needsLandscape(healthCols, healthRows) ? 'landscape' : 'portrait';
+  const doc = new PdfDocument({
+    orientation: shape,
+    title: 'Management overview',
+    runningTitle: 'Management overview',
+    footer: { company: meta.company?.companyName ?? resolveBrand().companyName, printed: printedLine(new Date(o.generatedAt), o.timeZone, meta.generatedBy) },
+    palette: { brand: BRAND },
+    ...(meta.company?.logo ? { logo: meta.company.logo } : {}),
+  });
+  doc.reportHeader({ title: 'Management overview', subtitle: o.scope === 'ALL' ? 'All projects' : 'Projects you run', details: [filtersInWords(o)] });
+  const t = o.tiles;
+  const note = (text: string) => doc.text(text, { size: PDF_STANDARD.type.small, color: MUTED, gap: 3 });
+  /** A table too wide for a portrait page turns its section landscape, then back to the overview's shape. */
+  const landscapeFor = (columns: TableColumn[], rows: string[][], draw: () => void) => {
+    const wide = PdfDocument.needsLandscape(columns, rows);
+    if (wide) doc.orient('landscape');
+    draw();
+    if (wide) doc.orient(shape);
+  };
+
+  doc.heading('At a glance', { topGap: 0, keepWith: 60 });
+  doc.statTiles([
+    { label: 'Projects', value: String(t.projects), note: `${t.red} red · ${t.amber} amber · ${t.green} green`, tone: t.red ? 'danger' : t.amber ? 'warning' : 'success' },
+    { label: 'Late tasks', value: String(t.lateTasks), tone: t.lateTasks ? 'danger' : 'muted' },
+    { label: 'Missing checks', value: String(t.missingChecks), tone: t.missingChecks ? 'danger' : 'muted' },
+    { label: 'Checks done', value: `${t.checksDone} of ${t.checksDue}`, ...(t.checksDoneLate ? { note: `${t.checksDoneLate} late` } : {}), tone: 'brand' },
+    { label: 'Pass rate', value: t.passRate === null ? 'None yet' : `${t.passRate}%`, tone: 'success' },
+    { label: 'Overloaded this week', value: String(t.overloadedPeople), tone: t.overloadedPeople ? 'warning' : 'muted' },
+  ]);
+
+  // ── Project health ──
   landscapeFor(healthCols, healthRows, () => {
     doc.heading('Project health', { topGap: PDF_STANDARD.space.xl, keepWith: healthRows.length ? doc.tableHeight(healthCols, healthRows, { firstRows: 2 }) : 40 });
     if (healthRows.length === 0) note('No projects match these filters.');

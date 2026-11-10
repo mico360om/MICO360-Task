@@ -52,7 +52,7 @@ export function buildClientMinutesPdf(data: ClientMinutesPdfData): Buffer {
   // printed — no one's name, a client's copy — and the page; the website, address and "Shared with you through …".
   const doc = new PdfDocument({
     title: `Minutes of Meeting: ${meeting.title}`,
-    runningTitle: `Minutes of Meeting · ${meeting.title}`,
+    runningTitle: `Minutes of Meeting · ${meeting.title} · ${project.name}`,
     palette: { brand: brand.colors?.brand, ink: brand.colors?.ink, muted: brand.colors?.muted, line: brand.colors?.line },
     footer: minutesFooter(brand, printedAt(data.generatedAt, tz), true),
     ...(data.logo ? { logo: data.logo } : {}),

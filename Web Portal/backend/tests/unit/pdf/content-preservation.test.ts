@@ -84,6 +84,15 @@ describe('every PDF keeps all of its content under the 1.23.10 standard', () => 
         for (const piece of pieces) if (!everything.includes(norm(piece))) missing.push(`footer: ${piece}`);
       }
       if (lines.length > 1) for (const t of old.running) if (!everything.includes(norm(t))) missing.push(`running: ${t}`);
+      // Short values (a "Yes", a "0", a "—", a "Pass", a "40%") are found inside other words, so they
+      // are also counted: each is drawn as a cell of its own at least as often as before. (Table
+      // headers repeat less now that fewer tables break across pages, so labels aren't counted.)
+      const VALUE = /^(?:[\d.,:%]+|—|Yes|No|Pass|FAIL|N\/A)$/;
+      const count = (list: string[]) => list.reduce((m, t) => m.set(norm(t), (m.get(norm(t)) ?? 0) + 1), new Map<string, number>());
+      const newCounts = count(all.filter((l) => !l.artifact).map((l) => l.text));
+      for (const [value, n] of count(old.body.filter((t) => VALUE.test(norm(t)) && !dropped.has(t) && !moved[t]))) {
+        if ((newCounts.get(value) ?? 0) < n) missing.push(`"${value}" drawn ${newCounts.get(value) ?? 0} times, was ${n}`);
+      }
       expect(missing).toEqual([]);
       // Nothing is shortened with "…" that wasn't before.
       expect(all.filter((l) => l.text.includes('…')).length).toBeLessThanOrEqual(old.body.filter((t) => t.includes('…')).length);

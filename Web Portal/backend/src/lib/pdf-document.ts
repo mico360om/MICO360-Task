@@ -96,8 +96,14 @@ export const PDF_PICTURE_BOX = {
   logo: { width: LOGO_MAX_W, height: MARK },
 } as const;
 
-/** A half-point position (crisp hairlines). */
-const snap = (v: number) => Math.round(v * 2) / 2;
+/** The room between the last line of text and the footer's rule. */
+const FOOTER_GAP = 8;
+
+/**
+ * A top-down position moved to the nearest half point of the printed page (crisp hairlines): pdfkit
+ * draws under a flip of the page's height, so the printed edge is `pageHeight − v`.
+ */
+const snap = (v: number, pageHeight: number) => pageHeight - Math.round((pageHeight - v) * 2) / 2;
 
 /**
  * The built-in logo for PDFs: assets/logo-pdf.png, the brand logo flattened onto white (no alpha
@@ -418,7 +424,7 @@ export class PdfDocument {
   }
 
   private get contentBottom(): number {
-    return this.pageHeight - this.footerLayout(this.orientation).band - 8;
+    return this.pageHeight - this.footerLayout(this.orientation).band - FOOTER_GAP;
   }
 
   /** Where text starts on this page: the top margin on the first page, under the running header after it. */
@@ -592,7 +598,7 @@ export class PdfDocument {
 
   /** A crisp 0.5 pt hairline across the content width, on a half-point position. */
   private hairline(top: number, color: RGB = this.pal.line, doc: PDFKit.PDFDocument = this.ink, width = this.contentWidth): void {
-    this.fillRect(this.margin, snap(top), width, 0.5, color, doc);
+    this.fillRect(this.margin, snap(top, this.pageHeight), width, 0.5, color, doc);
   }
 
   /** Draw a laid-out line on `baseline`, aligned inside [left, left + width]. Returns where its left end is. */
@@ -959,9 +965,10 @@ export class PdfDocument {
     }
     lines.forEach((ln, i) => {
       const box = lineBox(ln, size);
-      // Kept with the block it belongs to: a one-line aside right under it may reach one line into
-      // the bottom margin (still clear of the footer) rather than sit alone at the top of a page.
-      if (!(i === 0 && last && lines.length === 1)) this.ensure(box.height);
+      // Kept with the block it belongs to: a one-line aside right under it may reach into the gap
+      // above the footer — never onto its rule — rather than sit alone at the top of a page.
+      const overhang = i === 0 && last !== null && lines.length === 1 && this.y + box.height <= this.contentBottom + FOOTER_GAP - 2;
+      if (!overhang) this.ensure(box.height);
       this.placeLine(ln, left, this.contentWidth, this.y + box.ascent, size, color, rtl ? 'left' : 'right');
       this.y += box.height;
     });
@@ -1348,7 +1355,7 @@ export class PdfDocument {
     const yOf = (v: number) => top + plotH - (plotH * v) / yMax;
     for (let g = 0; g <= 4; g++) {
       const gy = yOf(g * step);
-      this.fillRect(left, snap(gy), plotW, 0.5, g === 0 ? this.pal.muted : mix(this.pal.line, WHITE, 0.3));
+      this.fillRect(left, snap(gy, this.pageHeight), plotW, 0.5, g === 0 ? this.pal.muted : mix(this.pal.line, WHITE, 0.3));
       const t = layoutText(String(g * step), { size: small })[0]!;
       drawTextLine(this.ink, t, left - 6 - t.width, gy + 3, small, toHex(this.pal.muted));
     }
@@ -1503,7 +1510,14 @@ export class PdfDocument {
     // Each row has its own line height: the normal one, or the taller Arabic one when the row has
     // Arabic (its cells still share one baseline).
     const layoutRow = (cells: ReadonlyArray<string>, bold: boolean, ri?: number): TableRowLayout => {
-      const laid = columns.map((_, ci) => layoutText(cells[ci] ?? '', { size, bold: bold || (ri !== undefined && cellBold?.(ri, ci) === true), maxWidth: widths[ci]! - padX * 2 }));
+      const laid = columns.map((_, ci) => {
+        const text = cells[ci] ?? '';
+        const opts = { size, bold: bold || (ri !== undefined && cellBold?.(ri, ci) === true), maxWidth: widths[ci]! - padX * 2 };
+        const lines = layoutText(text, opts);
+        // A date whose note doesn't fit beside it: the date on its line, the note (its dot too) under it.
+        const date = ri !== undefined && kinds[ci] === 'date' && lines.length > 1 ? DATE_PART.exec(text.trim())?.[0] : undefined;
+        return date ? [...layoutText(date, opts), ...layoutText(text.trim().slice(date.length).trim(), opts)] : lines;
+      });
       const lines = Math.max(1, ...laid.map((l) => l.length));
       const rowBox = lineBox(null, size, laid.some((cell) => cell.some((ln) => ln.arabic)));
       return { laid, lines, box: rowBox, height: lines * rowBox.height + padY * 2 };

@@ -239,6 +239,21 @@ describe('the PDF standard: tables', () => {
     expect(texts.filter((t) => t.startsWith('12 Nov 2026'))).toHaveLength(3);
     expect(texts.filter((t) => t === '3 Dec 2026')).toHaveLength(3);
     expect(texts.filter((t) => t === '5 Nov 2026')).toHaveLength(2);
+    // A note that goes under its date keeps its dot ("12 Nov 2026" / "· Overdue"), never "12 Nov 2026 ·" / "Overdue".
+    expect(texts.filter((t) => t.endsWith('·'))).toEqual([]);
+    for (const t of texts.filter((x) => x.startsWith('12 Nov 2026'))) expect(['12 Nov 2026', '12 Nov 2026 · Overdue']).toContain(t);
+  });
+
+  it('a date note wraps the same way in every row (all "· Overdue" under the date, or none)', () => {
+    const doc = new PdfDocument({ footer });
+    const cols: TableColumn[] = [{ header: 'Task' }, { header: 'Title' }, { header: 'Due' }];
+    const title = 'Prepare the handover dossier with as-built drawings, test certificates and the punch list for the client walk-down';
+    const rows = ['2 Nov 2026 · Overdue', '14 Nov 2026 · Overdue', '28 Nov 2026 · Overdue'].map((due, i) => [`RIG-${i}`, `${title} ${'and more words '.repeat(i * 3)}`, due]);
+    doc.table(cols, rows);
+    const texts = inspectPdf(doc.build()).lines[0]!.map((l) => l.text);
+    const under = texts.filter((t) => t === '· Overdue').length;
+    expect([0, 3]).toContain(under);
+    expect(texts.filter((t) => t.endsWith('·'))).toEqual([]);
   });
 
   it('a row taller than a page continues under the repeated header with "(continued)", every word kept', () => {
@@ -325,8 +340,27 @@ describe('the PDF standard: pagination', () => {
   });
 });
 
+describe('the PDF standard: a small aside stays clear of the footer (review)', () => {
+  it('a one-line aside under the last line of a page never reaches the footer rule', () => {
+    for (const extra of [[], ['https://x.example · a@x', 'Address line']]) {
+      for (let room = 8; room <= 22; room += 0.5) {
+        const doc = new PdfDocument({ footer: { ...footer, extra } });
+        let s = 'Valve';
+        while (doc.textWidth(`${s} gasket`, 9.5) < doc.pageWidth - doc.margin * 2 - 15) s += ' gasket';
+        while (doc.remaining > 60) doc.text(`Filler ${doc.cursor.toFixed(1)}`);
+        doc.spacer(doc.remaining - room);
+        doc.bullet(s).aside('Key point');
+        const all = inspectPdf(doc.build()).lines.flatMap((p, i) => p.map((l) => ({ ...l, page: i })));
+        const aside = all.find((l) => l.text === 'Key point')!;
+        const footerTop = Math.min(...all.filter((l) => l.artifact && l.page === aside.page && l.y > 400).map((l) => l.y)) - 7.5 - 4.5;
+        expect(aside.y + 2, `room ${room}, ${extra.length} extra lines`).toBeLessThan(footerTop);
+      }
+    }
+  });
+});
+
 describe('the PDF standard: print quality', () => {
-  it('draws rules as crisp 0.5 pt hairlines on half-point positions', () => {
+  it('draws rules as crisp 0.5 pt hairlines on half-point positions of the printed page', () => {
     const doc = new PdfDocument({ footer });
     doc.heading('Section').text('x').rule();
     const content = inspectPdf(doc.build()).contents[0]!;
@@ -335,7 +369,9 @@ describe('the PDF standard: print quality', () => {
     expect(hairlines.length).toBeGreaterThanOrEqual(2);
     for (const [, y, , h] of hairlines) {
       expect(h).toBe(0.5);
-      expect(Math.abs(y! * 2 - Math.round(y! * 2))).toBeLessThan(1e-6);
+      // pdfkit draws top-down under a flip of the page height: the printed edge is 841.89 − y.
+      const printed = 841.89 - y!;
+      expect(Math.abs(printed * 2 - Math.round(printed * 2))).toBeLessThan(1e-6);
     }
   });
 });

@@ -171,10 +171,13 @@ const clipped = (text: string, n: number) => (text.length > n ? `${text.slice(0,
  * when and by whom at the bottom. Landscape when any table needs the width (see pageOrientation).
  */
 function reportPdf(r: { title: string; details: string[]; runningTitle: string; question: string; text: string; sources: string | null; tables: AnswerTable[]; made: Made; company?: PdfBrand | null }): Buffer {
-  const tables = r.tables.map((t) => ({ t, columns: pdfColumns(t), rows: pdfRows(t) }));
-  // 1.23.10: portrait, a table too wide for it turning its own section landscape; the footer: the
-  // company (its own on a site with 2+ companies, else the site's), "Printed … by …" and the page.
+  const tables = r.tables.map((t) => ({ t, columns: pdfColumns(t), rows: pdfRows(t), shape: pageOrientation(pdfColumns(t), pdfRows(t)) }));
+  // 1.23.10: portrait, a table too wide for it turning its own section landscape — from the first
+  // page when it is the first table, so the question and answer share its page (never a page 1 left
+  // nearly empty); the footer: the company (its own on a site with 2+ companies, else the site's),
+  // "Printed … by …" and the page.
   const doc = new PdfDocument({
+    orientation: tables[0]?.shape ?? 'portrait',
     title: r.title,
     runningTitle: r.runningTitle,
     footer: { company: r.company?.companyName ?? resolveBrand().companyName, printed: printedLine(r.made.generatedAt, r.made.timeZone, r.made.generatedBy) },
@@ -202,12 +205,12 @@ function reportPdf(r: { title: string; details: string[]; runningTitle: string; 
     doc.text(r.sources, { size: TYPE.note, color: MUTED });
   }
 
-  tables.forEach(({ t, columns, rows }) => {
+  tables.forEach(({ t, columns, rows, shape }) => {
     const showing = showingLine(t);
     const titleCol = t.columns.findIndex((c) => c.key === 'title' || c.key === 'message' || c.key === 'item');
     const options = { size: TYPE.table, fit: { minSize: TYPE.tableMin }, ...(titleCol >= 0 ? { wide: titleCol } : {}) };
-    const wide = pageOrientation(columns, rows) === 'landscape';
-    if (wide) doc.orient('landscape');
+    // Each table on the page shape it needs (a new page only when the shape changes).
+    doc.orient(shape);
     doc.section(() => {
       // The heading stays with the table's header row and its first rows (never alone at a page end).
       doc.heading(`${t.title} (${showing ?? `${rows.length} ${rows.length === 1 ? 'row' : 'rows'}`})`, {
@@ -217,7 +220,6 @@ function reportPdf(r: { title: string; details: string[]; runningTitle: string; 
       doc.table(columns, rows, options);
       if (rows.length === 0) doc.text('No rows.', { size: TYPE.note, color: MUTED, gap: 2 });
     });
-    if (wide) doc.orient('portrait');
   });
   return doc.build();
 }

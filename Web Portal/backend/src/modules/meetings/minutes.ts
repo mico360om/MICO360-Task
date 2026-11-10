@@ -372,7 +372,7 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
   // name can't reorder its neighbours.
   const doc = new PdfDocument({
     title: `Minutes of Meeting: ${meeting.title}`,
-    runningTitle: `Minutes of Meeting · ${meeting.title}`,
+    runningTitle: `Minutes of Meeting · ${meeting.title}${project ? ` · ${project.name}` : ''}`,
     palette: {
       brand: brand.colors?.brand,
       ink: brand.colors?.ink,

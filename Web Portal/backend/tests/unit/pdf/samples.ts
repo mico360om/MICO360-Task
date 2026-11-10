@@ -29,6 +29,37 @@ export interface SamplePictures {
 export const SAMPLE_NAMES = ['task', 'task-full', 'report', 'minutes', 'client-minutes', 'client-task-list', 'inspection', 'management', 'mico-ai', 'simple'] as const;
 export type SampleName = (typeof SAMPLE_NAMES)[number];
 
+/** Samples whose first table can't fit across a portrait page (review, 1.23.10): they must not leave page 1 nearly empty. */
+export const WIDE_SAMPLE_NAMES = ['report-wide', 'mico-ai-wide'] as const;
+export type WideSampleName = (typeof WIDE_SAMPLE_NAMES)[number];
+
+/** A dozen columns of long unbreakable words: too wide for a portrait page even at 7.5 pt. */
+function wideColumns(n = 12) {
+  return Array.from({ length: n }, (_, i) => `Certificate${i + 1}`);
+}
+
+export function wideSamplePdfs(p: SamplePictures): Record<WideSampleName, () => Buffer> {
+  const company = { companyName: 'Prolens Projects LLC', logo: p.logo };
+  const cols = wideColumns();
+  return {
+    'report-wide': () => {
+      const b = reportBundle();
+      const tasks = b.tasks.slice(0, 20).map((t, i) => ({ ...t, title: `Inspection-certificate-${2026_0000 + i}-north-deck-manifold`, projectName: `Pipeline-segment-${i}-section-north-west`, assignees: [`Engineer-${i}-on-call-rotation`] }));
+      return reportPdf({ ...b, tasks }, { ...reportMeta, title: 'Tasks' }, ['tasks'], company);
+    },
+    'mico-ai-wide': () => {
+      const a = micoAiAnswer();
+      return answerPdf(
+        {
+          ...a,
+          tables: [{ title: 'Certificates by rig', fromResult: 'r2', columns: cols.map((label, i) => ({ key: `c${i}`, label })), rows: Array.from({ length: 6 }, (_, r) => ({ ref: null, cells: cols.map((_, c) => `CERT-${2026_0000 + r * 100 + c}-RIG`) })) }],
+        },
+        company,
+      );
+    },
+  };
+}
+
 const TZ = 'Asia/Muscat';
 const at = (iso: string) => new Date(iso);
 const BRAND = {
