@@ -139,8 +139,9 @@ describe('Templates (integration)', () => {
     ]);
     expect(tasks[0]).toMatchObject({ priority: 'HIGH', createdById: id.creator, progress: 0, completedAt: null });
     expect(tasks[1]!.description).toBe('Walk the site');
-    // On today's board, with a "created" line in each task's history.
-    expect(tasks.every((x) => x.boardDate?.toISOString() === '2026-10-27T12:00:00.000Z')).toBe(true);
+    // The project starts on 1 Nov, later than today (27 Oct): tasks scheduled for the future wait on their
+    // start day's board (owner, 10 Nov 2026) — with a "created" line in each task's history.
+    expect(tasks.every((x) => x.boardDate?.toISOString() === '2026-11-01T12:00:00.000Z')).toBe(true);
     const created = await prisma.activity.findMany({ where: { projectId: p.id, action: 'CREATED' } });
     expect(created).toHaveLength(3);
     expect(created[0]!.meta).toMatchObject({ template: 'Rig inspection' });
