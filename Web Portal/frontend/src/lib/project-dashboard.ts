@@ -40,11 +40,12 @@ export function taskPhase(t: ApiTask, today: string, timeZone = 'UTC'): TaskPhas
 }
 
 export function taskStats(tasks: ApiTask[], today: string, timeZone = 'UTC') {
-  const count = { completed: 0, overdue: 0, ongoing: 0, pending: 0, upcoming: 0 };
+  const count = { completed: 0, overdue: 0, ongoing: 0, pending: 0 };
   const byPriority: Record<Priority, number> = { URGENT: 0, HIGH: 0, NORMAL: 0, LOW: 0 };
   for (const t of tasks) {
     const phase = taskPhase(t, today, timeZone);
-    count[phase] += 1;
+    // A task waiting for its start day isn't started: the tiles count it with the not-started ones.
+    count[phase === 'upcoming' ? 'pending' : phase] += 1;
     if (phase !== 'completed') byPriority[t.priority] += 1;
   }
   const total = tasks.length;

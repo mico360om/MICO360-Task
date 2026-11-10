@@ -24,8 +24,9 @@ describe('the project’s numbers', () => {
     expect(taskPhase(waiting, TODAY, 'Asia/Muscat')).toBe('upcoming');
     expect(taskPhase(waiting, '2026-11-20', 'Asia/Muscat')).toBe('pending');
     expect(taskPhase({ ...waiting, completedAt: '2026-11-09T08:00:00.000Z', columnCategory: 'DONE' }, TODAY, 'Asia/Muscat')).toBe('completed');
+    // The project's tiles count it with the not-started tasks (the app works the tiles out the same way).
     const stats = taskStats(groups.flatMap((g) => g.tasks), TODAY, 'Asia/Muscat');
-    expect(stats).toMatchObject({ total: 4, pending: 1, ongoing: 1, upcoming: 2, completed: 0, overdue: 0 });
+    expect(stats).toMatchObject({ total: 4, pending: 3, ongoing: 1, completed: 0, overdue: 0 });
   });
 
   it('a person’s open load on the project leaves out their waiting tasks', () => {
