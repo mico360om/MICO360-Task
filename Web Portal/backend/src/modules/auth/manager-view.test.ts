@@ -5,6 +5,7 @@ import { join, relative, resolve, sep } from 'node:path';
 import { createTokenService } from './token-service';
 import { createAuthGuard, type UserState } from './auth-guard';
 import { ROUTE_CLASSES } from '../companies/route-classes';
+import { routeKeyOf } from '../clients/client-route-table';
 import {
   MANAGER_VIEW_ALLOWED,
   MANAGER_VIEW_ALWAYS_REFUSED,
@@ -76,6 +77,11 @@ describe('Manager View — the routes it refuses (scanned from the source)', () 
     }
   });
 
+  it('a route registered with its full path (GET /api/v1/metrics) is judged by its table row too', () => {
+    expect(managerViewRule(routeKeyOf('GET', '/api/v1/metrics'))).toBe('refuse');
+    expect(managerViewRule(routeKeyOf('GET', '/api/v1/health'))).toBe('open');
+  });
+
   it('the switch is never refused, and it is the person’s own route', () => {
     expect(scanned).toContain(MANAGER_VIEW_SWITCH);
     expect(managerViewRule(MANAGER_VIEW_SWITCH)).toBe('open');
@@ -145,8 +151,10 @@ function tokens() {
 }
 const admin = (managerView: boolean): UserState => ({ tokenVersion: 0, active: true, roles: ['ADMIN'], managerView });
 const employee = (managerView: boolean): UserState => ({ tokenVersion: 0, active: true, roles: ['EMPLOYEE'], managerView });
+/** A route registered at the root with its full path (`/api/v1/metrics`), as app.ts does for a few. */
+const atRoot = (path: string) => path.startsWith('/api/v1/');
 /** The URL to call for a route pattern (':x' → 'x1'). */
-const urlOf = (path: string) => `/api/v1${path.replace(/:(\w+)/g, '$1-1')}`;
+const urlOf = (path: string) => `${atRoot(path) ? '' : '/api/v1'}${path.replace(/:(\w+)/g, '$1-1')}`;
 
 type Lookup = { runsProject(userId: string, projectId: string): Promise<boolean>; projectIdOfColumn(columnId: string): Promise<string | null> };
 async function standIn(states: Record<string, UserState>, keys: string[], given?: Lookup) {
@@ -158,12 +166,18 @@ async function standIn(states: Record<string, UserState>, keys: string[], given?
     const e = err as { status?: number; code?: string; message?: string };
     reply.status(e.status ?? 500).send({ error: { code: e.code ?? 'INTERNAL', message: e.message } });
   });
+  const handler = async (req: { user?: { roles: string[]; managerView?: boolean } }) => ({ data: { roles: req.user!.roles, managerView: req.user!.managerView ?? false } });
+  const preOf = (key: string) => (found.find((r) => r.key === key)?.adminGuard ? guard.requireRoles('ADMIN') : guard.authenticate);
+  // As the server registers them: under /api/v1, or at the root with their full path (review M1).
+  for (const key of keys.filter((k) => atRoot(k.split(' ')[1]!))) {
+    const [method, path] = key.split(' ') as [string, string];
+    app.route({ method: method as 'GET', url: path, preHandler: preOf(key), handler });
+  }
   await app.register(
     async (api) => {
-      for (const key of keys) {
+      for (const key of keys.filter((k) => !atRoot(k.split(' ')[1]!))) {
         const [method, path] = key.split(' ') as [string, string];
-        const pre = found.find((r) => r.key === key)?.adminGuard ? guard.requireRoles('ADMIN') : guard.authenticate;
-        api.route({ method: method as 'GET', url: path, preHandler: pre, handler: async (req) => ({ data: { roles: req.user!.roles, managerView: req.user!.managerView ?? false } }) });
+        api.route({ method: method as 'GET', url: path, preHandler: preOf(key), handler });
       }
     },
     { prefix: '/api/v1' },

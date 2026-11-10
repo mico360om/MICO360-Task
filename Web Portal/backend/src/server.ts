@@ -101,6 +101,7 @@ import { createPrismaRecurrencePort } from './modules/tasks/prisma-recurrence-po
 import { createPrismaPreferences } from './modules/users/user-preferences';
 import { createPrismaManagerViewStore } from './modules/users/manager-view-routes';
 import { createPrismaManagerViewLookup } from './modules/auth/prisma-manager-view-lookup';
+import { isEffectiveAdmin } from './modules/auth/manager-view';
 import { createUserService } from './modules/users/user-service';
 import { createPrismaUserRepository as createPrismaUserMgmtRepository } from './modules/users/prisma-user-repository';
 import { createNotificationService } from './modules/notifications/notification-service';
@@ -1970,9 +1971,11 @@ async function main(): Promise<void> {
     appVersion: release.build.version,
     timeZone: companyTz,
     weekStart: () => settingsService.companyWeekStart(),
+    // An active administrator with Manager View off (a download link made just before turning it on doesn't
+    // work while it is on — review M3).
     isActiveAdmin: async (userId) => {
       const state = await userStateLookup(userId);
-      return Boolean(state?.active && state.roles.includes('ADMIN'));
+      return Boolean(state?.active && isEffectiveAdmin(state));
     },
     // Failures go to every active administrator by email (when email is set up); success is quiet.
     alertAdmins: async ({ title, message }) => {

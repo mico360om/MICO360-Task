@@ -19,7 +19,15 @@ export const duplicateSchema = createSchema.extend({
 export interface TaskDuplicateRouteDeps {
   service: TaskDuplicateService;
   guard: AuthGuard;
+  /**
+   * Copies one person may make a minute (default DUPLICATES_PER_MINUTE): each copies its files on the server,
+   * up to the task's whole storage limit, so it is limited apart from the site's general one (review M2).
+   */
+  perMinute?: number;
 }
+
+/** A person's copies a minute — far more than anyone makes by hand. */
+export const DUPLICATES_PER_MINUTE = 20;
 
 /**
  * GET /tasks/:id/duplicate — the New task form's pre-fill for a copy (only what the person may see);
@@ -36,7 +44,7 @@ export async function registerTaskDuplicateRoutes(app: FastifyInstance, deps: Ta
     return { data: await service.prefill(actor(req), id) };
   });
 
-  app.post('/tasks/:id/duplicate', { preHandler: guard.authenticate }, async (req, reply) => {
+  app.post('/tasks/:id/duplicate', { preHandler: guard.authenticate, config: { rateLimit: { max: deps.perMinute ?? DUPLICATES_PER_MINUTE, timeWindow: '1 minute' } } }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const { copyFiles, ...body } = duplicateSchema.parse(req.body);
     const result = await service.duplicate(actor(req), id, { body, copyFiles: copyFiles ?? true });

@@ -132,6 +132,15 @@ describe('Daily email sources, 1.22: the card’s details, the day’s meetings,
     expect(two.latest).toEqual({ text: 'Bo Test: “The newest words here”', at: new Date('2026-10-20T09:00:00Z') });
   });
 
+  it('Duplicate Task: a "duplicated from / as" history line is never the latest update (it names another task, maybe in a project the reader can’t open)', async () => {
+    const dm1 = await byKey('DM-1');
+    await prisma.activity.create({ data: { taskId: dm1.id, projectId: dm1.projectId, userId: bo, action: 'DUPLICATED', meta: { copyTaskId: 'hidden-copy', copyKey: 'HIDDEN-9' }, createdAt: new Date('2026-10-21T08:00:00Z') } });
+    await prisma.activity.create({ data: { taskId: dm1.id, projectId: dm1.projectId, userId: bo, action: 'DUPLICATED_FROM', meta: { fromTaskId: 'hidden-original', fromKey: 'HIDDEN-3' }, createdAt: new Date('2026-10-21T09:00:00Z') } });
+    const one = (await sources.tasks.pending(ada)).find((t) => t.key === 'DM-1')!;
+    expect(one.latest?.text ?? '').not.toContain('HIDDEN');
+    expect(one.latest?.text ?? '').not.toMatch(/duplicated/i);
+  });
+
   it('meetings: those the person organizes or is invited to and hasn’t declined, starting in the window — not drafts, cancelled, deleted or archived projects’', async () => {
     const open = await prisma.project.findFirstOrThrow({ where: { code: 'DMOPEN' } });
     const old = await prisma.project.findFirstOrThrow({ where: { code: 'DMOLD' } });

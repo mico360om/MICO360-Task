@@ -215,6 +215,8 @@ export interface AppDeps extends AuthRouteDeps {
   taskMergeService?: TaskMergeService;
   /** Duplicate Task: the review form's pre-fill and the copy (GET/POST /tasks/:id/duplicate). */
   taskDuplicateService?: TaskDuplicateService;
+  /** Duplicate Task: copies one person may make a minute (default 20; each copies its files on the server). */
+  duplicatesPerMinute?: number;
   /** Duplicate Task: the task a copy was made from, and an original's copies (a task's details; each shown only to whoever may open it). */
   duplicateLinks?: (taskId: string) => Promise<DuplicateLinks>;
   carryForwardService?: import('./modules/tasks/carry-forward-service').CarryForwardService;
@@ -856,7 +858,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       }
       if (deps.taskDuplicateService) {
         // Duplicate Task: staff only (client sessions are refused by the guard's route table).
-        await registerTaskDuplicateRoutes(api, { service: deps.taskDuplicateService, guard });
+        await registerTaskDuplicateRoutes(api, { service: deps.taskDuplicateService, guard, ...(deps.duplicatesPerMinute ? { perMinute: deps.duplicatesPerMinute } : {}) });
       }
       if (deps.assigneeService) {
         await registerAssigneeRoutes(api, {

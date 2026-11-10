@@ -58,7 +58,7 @@ const DUP_LINKS: Record<string, { from: { id: string; key: string } | null; copi
   c3: { from: { id: 'secret', key: 'ADM-1' }, copies: [] },
 };
 
-async function makeApp(opts: { idempotency?: boolean } = {}) {
+async function makeApp(opts: { idempotency?: boolean; perMinute?: number } = {}) {
   calls = [];
   made = 0;
   const tasks = new Map([
@@ -85,6 +85,7 @@ async function makeApp(opts: { idempotency?: boolean } = {}) {
     taskDuplicateService: fakeService(),
     duplicateLinks: async (id) => DUP_LINKS[id] ?? { from: null, copies: [] },
     ...(opts.idempotency ? { idempotencyStore: createMemoryIdempotencyStore() } : {}),
+    ...(opts.perMinute ? { duplicatesPerMinute: opts.perMinute } : {}),
   });
 }
 
@@ -128,6 +129,15 @@ describe('POST /tasks/:id/duplicate', () => {
     expect(asked.body!.dueDate).toEqual(new Date('2026-11-12T00:00:00Z'));
     expect(asked.body!.startDate).toEqual(new Date('2026-11-03T00:00:00Z'));
     expect(asked.body!.columnId).toBeUndefined();
+  });
+
+  it('a person’s copies are limited per minute (each one copies its files on the server; review M2)', async () => {
+    const limited = await makeApp({ perMinute: 2 });
+    const send = async () => (await limited.inject({ method: 'POST', url: '/api/v1/tasks/t1/duplicate', headers: await bearer('omar'), payload: body })).statusCode;
+    expect([await send(), await send(), await send()]).toEqual([201, 201, 429]);
+    // Someone else's copies aren't counted with theirs.
+    expect((await limited.inject({ method: 'POST', url: '/api/v1/tasks/t1/duplicate', headers: await bearer('sara'), payload: body })).statusCode).toBe(201);
+    await limited.close();
   });
 
   it('passes the tick as sent, a start date of none, and the column chosen', async () => {

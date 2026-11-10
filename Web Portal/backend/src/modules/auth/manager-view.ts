@@ -84,6 +84,15 @@ export const PROJECT_SETTINGS_ROUTES: Readonly<Record<string, ProjectOfRoute>> =
 
 export type ManagerViewRule = 'refuse' | 'project-settings' | 'open';
 
+/**
+ * A few routes are registered at the root with their full path ('GET /api/v1/metrics') and keep it in the
+ * companies table, while the guard's key has the API prefix off ('GET /metrics'): look them up both ways.
+ */
+const withApiPrefix = (key: string): string => {
+  const at = key.indexOf(' ');
+  return `${key.slice(0, at)} /api/v1${key.slice(at + 1)}`;
+};
+
 /** What Manager View does with a route (`${METHOD} ${pattern}`, the API prefix off). */
 export function managerViewRule(key: string): ManagerViewRule {
   if (key === MANAGER_VIEW_SWITCH) return 'open';
@@ -91,7 +100,7 @@ export function managerViewRule(key: string): ManagerViewRule {
   if (key in PROJECT_SETTINGS_ROUTES) return 'project-settings';
   // (A requireRoles('ADMIN') route outside the `admin` class must be listed in MANAGER_VIEW_ALWAYS_REFUSED or
   // MANAGER_VIEW_ALLOWED — manager-view.test.ts scans the guards and fails otherwise.)
-  if (ROUTE_CLASSES[key] === 'admin' || MANAGER_VIEW_ALWAYS_REFUSED.includes(key)) return 'refuse';
+  if (ROUTE_CLASSES[key] === 'admin' || ROUTE_CLASSES[withApiPrefix(key)] === 'admin' || MANAGER_VIEW_ALWAYS_REFUSED.includes(key)) return 'refuse';
   return 'open';
 }
 

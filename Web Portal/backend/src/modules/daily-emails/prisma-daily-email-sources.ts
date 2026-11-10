@@ -38,7 +38,9 @@ const nameOf = (u: { firstName: string | null; lastName: string | null; username
  * Not "the latest update" line: comments are read as comments, and blocker changes may name a task the
  * person can't see (the "Blocked" mark says enough).
  */
-const NOT_AN_UPDATE = ['COMMENTED', 'comment.added', 'BLOCKER_ADDED', 'BLOCKER_REMOVED'];
+// Duplicate Task: "duplicated from / as" lines name another task (maybe in a project the reader can't open), as
+// blocker lines do — never the email's latest update (review I1).
+const NOT_AN_UPDATE = ['COMMENTED', 'comment.added', 'BLOCKER_ADDED', 'BLOCKER_REMOVED', 'DUPLICATED', 'DUPLICATED_FROM'];
 
 const taskSelect = {
   id: true,
