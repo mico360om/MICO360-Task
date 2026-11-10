@@ -54,6 +54,7 @@ export const zodMessages: z.core.$ZodErrorMap = (issue) => {
     }
     case 'invalid_value': {
       if (kindOf(issue) === 'enum') {
+        if (issue.input === undefined) return 'Required';
         return typeof issue.input === 'string'
           ? `Invalid enum value. Expected ${joinValues(issue.values)}, received '${issue.input}'`
           : `Expected ${joinValues(issue.values)}, received ${receivedOf(issue.input)}`;

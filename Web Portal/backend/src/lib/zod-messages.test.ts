@@ -22,6 +22,14 @@ describe('zod messages', () => {
     expect(z.string().min(2, 'Two at least.').safeParse('a').error!.issues[0]!.message).toBe('Two at least.');
   });
 
+  it('an error made by hand for the API is a real Error (it keeps its stack for the logs)', async () => {
+    const { badCursor } = await import('../modules/search/search-routes');
+    const err = badCursor();
+    expect(err).toBeInstanceOf(Error);
+    expect(err).toBeInstanceOf(z.ZodError);
+    expect(err.issues).toEqual([{ code: 'custom', path: ['cursor'], message: 'Invalid cursor.' }]);
+  });
+
   it('a problem zod 3 had no words for keeps zod’s own', () => {
     expect(zodMessages({ code: 'invalid_element', origin: 'set', key: 1, issues: [], input: new Set() } as never)).toBeUndefined();
   });

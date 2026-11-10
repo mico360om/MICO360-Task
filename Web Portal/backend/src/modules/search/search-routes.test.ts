@@ -141,6 +141,13 @@ describe('GET /search/tasks — the full task search', () => {
     }
   });
 
+  // 1.23.13 (zod 4): a bad cursor is a real error (with its stack for the logs) that the API answers like any check.
+  it('a bad cursor says so by name', async () => {
+    const { app } = makeTaskApp();
+    const res = await get(await app, '/search/tasks?q=rig&cursor=nope', await tokenFor('u1', ['EMPLOYEE']));
+    expect(res.json().error).toEqual({ code: 'VALIDATION', message: 'Invalid input.', details: { formErrors: [], fieldErrors: { cursor: ['Invalid cursor.'] } } });
+  });
+
   it('an empty query asks nothing and finds nothing', async () => {
     const { app, calls } = makeTaskApp();
     const res = await get(await app, '/search/tasks?q=%20', await tokenFor('u1', ['EMPLOYEE']));

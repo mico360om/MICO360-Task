@@ -41,6 +41,8 @@ describe('400 VALIDATION body — shape and words (pinned from 1.23.11)', () => 
     ['not a date', () => z.object({ at: z.coerce.date() }), { at: 'soon' }, details([], { at: ['Invalid date'] })],
     ['a choice not on the list', () => z.object({ kind: z.enum(['A', 'B']) }), { kind: 'C' }, details([], { kind: ["Invalid enum value. Expected 'A' | 'B', received 'C'"] })],
     ['a choice of the wrong type', () => z.object({ kind: z.enum(['A', 'B']) }), { kind: 1 }, details([], { kind: ["Expected 'A' | 'B', received number"] })],
+    ['a missing choice', () => z.object({ kind: z.enum(['A', 'B']) }), {}, details([], { kind: ['Required'] })],
+    ['a missing choice in a list item', () => z.object({ signatures: z.array(z.object({ role: z.enum(['INSPECTOR', 'CLIENT']) })) }), { signatures: [{}] }, details([], { signatures: ['Required'] })],
     ['a fixed value', () => z.object({ kind: z.literal('A') }), { kind: 'B' }, details([], { kind: ['Invalid literal value, expected "A"'] })],
     ['one of several fixed numbers', () => z.object({ week: z.union([z.literal(1), z.literal(2)]) }), { week: 3 }, details([], { week: ['Invalid input'] })],
     ['a pattern', () => z.object({ code: z.string().regex(/^[A-Z]+$/) }), { code: 'ab' }, details([], { code: ['Invalid'] })],
@@ -80,6 +82,21 @@ describe('an oversized list is refused before its items are checked', () => {
     expect(looked).toBe(0);
     expect(schema.safeParse({ ids: ['x', 'y'] }).success).toBe(true);
     expect(looked).toBe(2);
+  });
+});
+
+// 1.23.13 (review I1, accepted): zod 4 counts a text's length in characters (Unicode code points), as MySQL's
+// VARCHAR does; zod 3 counted UTF-16 units, so an emoji counted twice. The website's own maxLength stops typing at
+// the same place as before; only text with emoji or other rare characters is affected, and only in its favour for
+// a maximum (a 1-emoji AI search question, under a minimum of 2, is now refused).
+describe('text length counts characters', () => {
+  it('a maximum counts each emoji once', () => {
+    expect(z.string().max(3).safeParse('😀😀😀').success).toBe(true);
+    expect(z.string().max(3).safeParse('😀😀😀😀').success).toBe(false);
+  });
+  it('a minimum counts each emoji once', () => {
+    expect(z.string().min(2).safeParse('😀').success).toBe(false);
+    expect(z.string().min(2).safeParse('😀😀').success).toBe(true);
   });
 });
 
