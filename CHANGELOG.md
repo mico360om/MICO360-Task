@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.23.11] - 2026-11-10
+
 ### Improvements
 - Every PDF — a task, the reports, the minutes of a meeting (and the client's copy), the client's task
   list, inspection reports, the Management overview and MICO AI reports — now follows one A4 design:
