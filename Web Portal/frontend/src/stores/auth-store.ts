@@ -43,6 +43,12 @@ interface AuthState {
   endedBy: LogoutReason | null;
   setSession: (session: Session, opts?: SetSessionOptions) => void;
   /**
+   * The signed-in person's own details changed (11 Nov: a new photo, their name): take them, save only
+   * them (the tokens are never written back, so a refresh another tab just rotated isn't undone) and
+   * tell this person's other tabs. Ignored for anyone else or when signed out.
+   */
+  setUser: (user: AuthUser) => void;
+  /**
    * End the session. Also safe as a click handler (`onClick={logout}`): any non-reason argument
    * (the click event) counts as an explicit `'user'` sign-out.
    */
@@ -132,7 +138,9 @@ type AuthMessage =
   // A newly opened tab asks whether another tab holds a window-only ("not remembered") session…
   | { type: 'request-session' }
   // …and such a tab shares it, so a link opened in a new tab doesn't demand a fresh sign-in.
-  | { type: 'share-session'; session: Session };
+  | { type: 'share-session'; session: Session }
+  // The signed-in person's own details changed (a new photo, a name): only the user, never the tokens.
+  | { type: 'user'; user: AuthUser };
 
 /** When this tab last asked other tabs for their window-only session (a reply is only accepted shortly after). */
 let requestedSessionAt = 0;
@@ -165,6 +173,18 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   isAuthenticated: Boolean(initial?.accessToken),
   remember: initial?.remember ?? true,
   endedBy: null,
+
+  setUser: (user) => {
+    const { user: current, isAuthenticated, remember } = get();
+    if (!isAuthenticated || !current || current.id !== user.id) return;
+    try {
+      storageFor(remember)?.setItem(KEYS.user, JSON.stringify(user));
+    } catch {
+      /* keep the in-memory copy */
+    }
+    set({ user });
+    broadcast({ type: 'user', user });
+  },
 
   setSession: (session, opts) => {
     const remember = opts?.remember ?? get().remember;
@@ -236,6 +256,16 @@ export function handleAuthMessage(msg: AuthMessage): void {
     if (state.isAuthenticated || Date.now() - requestedSessionAt > SHARE_WINDOW_MS) return;
     writeTo(storageFor(false), msg.session); // this tab's own window-only copy; localStorage untouched
     adopt(msg.session, false);
+    return;
+  }
+  if (msg.type === 'user') {
+    if (!state.isAuthenticated || state.user?.id !== msg.user.id) return;
+    try {
+      storageFor(state.remember)?.setItem(KEYS.user, JSON.stringify(msg.user));
+    } catch {
+      /* keep the in-memory copy */
+    }
+    useAuthStore.setState({ user: msg.user });
     return;
   }
   if (msg.type === 'logout') {

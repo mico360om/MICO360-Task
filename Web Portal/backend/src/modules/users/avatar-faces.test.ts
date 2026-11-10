@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, existsSync, readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Fastify from 'fastify';
@@ -13,6 +13,7 @@ const FACE = `${KEY}.webp`;
 let dir: string;
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'faces-'));
+  writeFileSync(join(dir, KEY), 'original'); // the stored photo
 });
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
@@ -71,12 +72,56 @@ describe('avatar faces', () => {
     expect(deps.readOriginal).not.toHaveBeenCalled();
     expect(await faces.find('../../etc/passwd.webp')).toBeNull();
     expect(deps.isAvatar).toHaveBeenCalledTimes(1);
-    const gone = make({
-      readOriginal: vi.fn(async () => {
-        throw new Error('ENOENT');
-      }),
-    });
+    rmSync(join(dir, KEY));
+    const gone = make();
     expect(await gone.faces.find(FACE)).toBeNull();
+    expect(gone.deps.isAvatar).not.toHaveBeenCalled();
+  });
+
+  it('a made-up name with no stored photo behind it never reaches the database (the route has no rate limit)', async () => {
+    const { faces, deps } = make();
+    expect(await faces.find('11111111-2222-4333-8444-555555555555.png.webp')).toBeNull();
+    expect(deps.isAvatar).not.toHaveBeenCalled();
+    expect(deps.readOriginal).not.toHaveBeenCalled();
+  });
+
+  it('no picture library on this server: the photo itself at once — no database, no reading the photo', async () => {
+    const { faces, deps } = make({ canMake: () => false });
+    expect(await faces.find(FACE)).toEqual({ fallback: `/uploads/${KEY}` });
+    expect(deps.isAvatar).not.toHaveBeenCalled();
+    expect(deps.readOriginal).not.toHaveBeenCalled();
+  });
+
+  it('a photo whose copy failed is not tried again on every view', async () => {
+    const { faces, deps } = make({ toFace: vi.fn(async () => null) });
+    expect(await faces.find(FACE)).toEqual({ fallback: `/uploads/${KEY}` });
+    expect(await faces.find(FACE)).toEqual({ fallback: `/uploads/${KEY}` });
+    expect(deps.toFace).toHaveBeenCalledTimes(1);
+    expect(deps.isAvatar).toHaveBeenCalledTimes(1);
+    expect(deps.readOriginal).toHaveBeenCalledTimes(1);
+  });
+
+  it('many first requests at once make the copy once', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const toFace = vi.fn(async () => {
+      await gate;
+      return Buffer.from('face-webp');
+    });
+    const { faces, deps } = make({ toFace });
+    const all = Promise.all(Array.from({ length: 6 }, () => faces.find(FACE)));
+    await new Promise((r) => setTimeout(r, 20));
+    release();
+    expect(new Set((await all).map((a) => JSON.stringify(a)))).toEqual(new Set([JSON.stringify({ file: join(dir, 'faces', FACE) })]));
+    expect(toFace).toHaveBeenCalledTimes(1);
+    expect(deps.readOriginal).toHaveBeenCalledTimes(1);
+  });
+
+  it('a copy that can’t be put in place leaves no half-written file behind', async () => {
+    mkdirSync(join(dir, 'faces', FACE), { recursive: true }); // something in the way: the move fails
+    const { faces } = make();
+    expect(await faces.find(FACE)).toEqual({ fallback: `/uploads/${KEY}` });
+    expect(readdirSync(join(dir, 'faces')).filter((n) => n.endsWith('.part'))).toEqual([]);
   });
 
   it('when the copy can’t be made, the face is the photo itself', async () => {
@@ -115,11 +160,24 @@ describe('GET /uploads/faces/:file', () => {
     }
   });
 
-  it('no copy possible: sends the browser to the photo itself, never remembered', async () => {
+  it('no copy possible: sends the browser to the photo itself (asked again after an hour)', async () => {
     const app = await serve({ toFace: vi.fn(async () => null) });
     const res = await app.inject({ method: 'GET', url: `/uploads/faces/${FACE}` });
     expect(res.statusCode).toBe(302);
     expect(res.headers.location).toBe(`/uploads/${KEY}`);
-    expect(res.headers['cache-control']).toBe('no-store');
+    expect(res.headers['cache-control']).toBe('private, max-age=3600');
+  });
+
+  it('beside the uploads folder as the server serves it: the face route answers (GET and HEAD), the photo is still the folder’s', async () => {
+    const app = Fastify();
+    const { faces } = make();
+    await registerAvatarFaceRoute(app, faces);
+    const { default: fastifyStatic } = await import('@fastify/static');
+    await app.register(fastifyStatic, { root: dir, prefix: '/uploads/' });
+    const face = await app.inject({ method: 'GET', url: `/uploads/faces/${FACE}` });
+    expect([face.statusCode, face.headers['content-type'], face.headers['cache-control']]).toEqual([200, 'image/webp', FACE_CACHE_CONTROL]);
+    expect((await app.inject({ method: 'HEAD', url: `/uploads/faces/${FACE}` })).statusCode).toBe(200);
+    const photo = await app.inject({ method: 'GET', url: `/uploads/${KEY}` });
+    expect([photo.statusCode, photo.body]).toEqual([200, 'original']);
   });
 });

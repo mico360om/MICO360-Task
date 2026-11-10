@@ -198,13 +198,11 @@ export function createImageShrinker({ load = loadSharp, warn = () => {} }: Image
     if (!sharp) return null;
     try {
       const meta = await sharp(content, { limitInputPixels: MAX_INPUT_PIXELS }).metadata();
-      // Upright first (a phone photo's EXIF turn swaps its sides), then a square of the short side at most.
-      const turned = (meta.orientation ?? 1) >= 5;
-      const shortSide = Math.min((turned ? meta.height : meta.width) ?? FACE_SIDE, (turned ? meta.width : meta.height) ?? FACE_SIDE);
-      const side = Math.max(1, Math.min(FACE_SIDE, shortSide));
+      // A square of the short side at most (never enlarged), cut from the middle like the faces' CSS crop.
+      const side = Math.max(1, Math.min(FACE_SIDE, meta.width ?? FACE_SIDE, meta.height ?? FACE_SIDE));
       return await sharp(content, { limitInputPixels: MAX_INPUT_PIXELS })
         .rotate()
-        .resize({ width: side, height: side, fit: 'cover', position: 'attention' })
+        .resize({ width: side, height: side, fit: 'cover', position: 'centre' })
         .webp({ quality: 78 })
         .timeout({ seconds: DOCUMENT_PICTURE_SECONDS })
         .toBuffer();

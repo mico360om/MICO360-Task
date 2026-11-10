@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useAuthStore } from '../stores/auth-store';
-import { ownName, updateOwnUser, useOwnUserRefresh } from './own-user';
+import { ME_KEY, ownName, updateOwnUser, useOwnUserRefresh } from './own-user';
 
 // The header's face (11 Nov): the signed-in person's own name and current photo — refreshed on every
 // load (GET /users/me) and the moment they change their photo, not only when they sign in.
@@ -17,6 +17,12 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
   useAuthStore.setState({ user: null, accessToken: null, refreshToken: null, isAuthenticated: false });
+});
+
+describe('ME_KEY', () => {
+  it('is not under ["me", …]: refreshing it never refetches My companies too', () => {
+    expect(ME_KEY[0]).not.toBe('me');
+  });
 });
 
 describe('ownName', () => {

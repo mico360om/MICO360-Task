@@ -633,6 +633,8 @@ async function main(): Promise<void> {
     },
     isAvatar: prismaIsAvatar(prisma),
     toFace: (content) => imageShrinker.toFace(content),
+    // The picture library didn't load: faces use the photos themselves, with no work per view.
+    canMake: () => imageShrinker.status() !== false,
     warn: (msg, meta) => logger.warn(msg, meta),
   });
   /** 1.23.11: a project's picture at 200 dpi for the PDF header's 26 pt badge. */

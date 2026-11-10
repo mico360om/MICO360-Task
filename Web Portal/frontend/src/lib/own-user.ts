@@ -9,7 +9,8 @@ import { useAuthStore, type AuthUser } from '../stores/auth-store';
  * saved at sign-in is refreshed on every load (GET /users/me) and the moment they change their photo, so
  * a photo or a name changed elsewhere — another device, User Management — shows without signing in again.
  */
-export const ME_KEY = ['me'] as const;
+/** Not under ['me', …]: invalidating it must not refetch My companies (['me', 'companies']) too. */
+export const ME_KEY = ['own-user'] as const;
 
 /** Their first and last name, else the username ('' when nobody is signed in). */
 export function ownName(user: Pick<AuthUser, 'username' | 'firstName' | 'lastName'> | null | undefined): string {
@@ -19,11 +20,12 @@ export function ownName(user: Pick<AuthUser, 'username' | 'firstName' | 'lastNam
 
 /** Take these newer details of the signed-in person (only theirs), keeping the rest and the session. */
 export function updateOwnUser(patch: Partial<AuthUser> & { id: string }): void {
-  const { user, accessToken, refreshToken, setSession } = useAuthStore.getState();
-  if (!user || user.id !== patch.id || !accessToken || !refreshToken) return;
+  const { user, setUser } = useAuthStore.getState();
+  if (!user || user.id !== patch.id) return;
   const next = { ...user, ...patch };
   if (JSON.stringify(next) === JSON.stringify(user)) return;
-  setSession({ user: next, accessToken, refreshToken });
+  // Only the user is saved and shared with their other tabs: the tokens are never written back.
+  setUser(next);
 }
 
 /** On every load: read GET /users/me and take their current name and photo. */
