@@ -79,6 +79,19 @@ describe('the colour scheme (1.23.8)', () => {
     expect(problems).toEqual([]);
   });
 
+  it('white words on the brand fill and on its hover (brand-2) reach 4.5:1 in light and both dark blocks — Comment, Send, “1 new comment ↑” (1.23.9: dark hover was 4.49)', () => {
+    const problems: string[] = [];
+    for (const [theme, palette] of [['light', LIGHT], ['dark (system)', DARK_SYSTEM], ['dark', DARK]] as const) {
+      for (const name of ['brand', 'brand-2']) {
+        const r = contrast('255 255 255', palette.get(name)!);
+        if (r < 4.5) problems.push(`${theme} white on ${name}: ${r.toFixed(2)}`);
+      }
+      // The hover still shows as a change.
+      expect(palette.get('brand-2'), theme).not.toBe(palette.get('brand'));
+    }
+    expect(problems).toEqual([]);
+  });
+
   it('tells the six statuses apart, and the four priorities, in each theme', () => {
     for (const theme of ['light', 'dark'] as const) {
       expect(new Set(STATUS_KINDS.map((k) => STATUS_TONES[k][theme].fill)).size).toBe(6);
