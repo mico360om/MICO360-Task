@@ -109,9 +109,11 @@ describe('the cards follow the website’s card rules (drift)', () => {
     const theirs = mod.exports.composeBoard!(columns, tasks) as { id: string; color: string; tasks: Record<string, unknown>[] }[];
     const ours = composeBoard(columns, tasks).map((b) => ({ id: b.column.id, color: b.column.color, tasks: b.tasks.map((t) => boardCard(t, b.column)) }));
     expect(ours.map((c) => c.id)).toEqual(theirs.map((c) => c.id));
-    const fields = ['key', 'title', 'priority', 'dueDate', 'progress', 'assignees', 'counts', 'accentColor', 'blocked', 'recurring', 'milestone', 'clientVisible', 'inspection', 'awaitingApproval', 'done'] as const;
+    // 1.23.8 (website only): the website's columns and cards wear their status kind's colour from its one colour
+    // scheme (the colour stored on a column isn't read there any more); the app keeps the stored colour until its
+    // own update, so the colours aren't compared.
+    const fields = ['key', 'title', 'priority', 'dueDate', 'progress', 'assignees', 'counts', 'blocked', 'recurring', 'milestone', 'clientVisible', 'inspection', 'awaitingApproval', 'done'] as const;
     theirs.forEach((column, i) => {
-      expect(ours[i]!.color).toBe(column.color);
       const mine = ours[i]!.tasks.map((card: BoardCard) => Object.fromEntries(fields.map((f) => [f, card[f]])));
       expect(mine).toEqual(column.tasks.map((t) => Object.fromEntries(fields.map((f) => [f, t[f]]))));
     });
@@ -124,7 +126,8 @@ describe('the cards follow the website’s card rules (drift)', () => {
     expect(card).toMatch(/const overdue = !task\.done && !task\.awaitingApproval && isOverdue\(task\.dueDate, timeZone\);/);
     expect(card).toMatch(/const dueText = formatDueDay\(task\.dueDate, timeZone\) \|\| 'No due date';/);
     expect(card).toMatch(/\{overdue \? `Overdue · \$\{dueText\}` : dueText\}/);
-    expect(card).toMatch(/const shownAssignees = task\.assignees\.slice\(0, 3\);/);
+    // 1.23.8 (website only): Detailed cards show everyone; otherwise three faces and +N, as here.
+    expect(card).toMatch(/const shownAssignees = (detailed \? task\.assignees : )?task\.assignees\.slice\(0, 3\);/);
     expect(card).toMatch(/c && c\.checklistTotal > 0 \?/);
     expect(card).toMatch(/c && c\.comments > 0 \?/);
     expect(card).toMatch(/c && c\.attachments > 0 \?/);

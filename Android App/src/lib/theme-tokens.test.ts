@@ -17,6 +17,13 @@ const hex = (n: string) => Number(n).toString(16).toUpperCase().padStart(2, '0')
  * The `--c-*: r g b;` lines of one block of the website's index.css as { appKey: '#RRGGBB' }:
  * 'brand-text' → brandText, 'ink-2' → ink2, 'danger-soft' → dangerSoft, 'cat-progress' → category.IN_PROGRESS.
  */
+/**
+ * 1.23.8 (website only): the website's one colour scheme — statuses, priorities, overdue, due soon and project health
+ * (`--c-status-*`, `--c-prio-*`, `--c-overdue*`, `--c-soon*`, `--c-health-*`, replacing `--c-cat-*`). The app keeps its
+ * own category colours until its update, so those tokens aren't compared.
+ */
+const WEBSITE_ONLY = /^(status|prio|overdue|soon|health)(-|$)/;
+
 function paletteFromCss(selector: string): Record<string, string> {
   const css = readWeb('frontend/src/index.css');
   const start = css.indexOf(selector);
@@ -24,6 +31,7 @@ function paletteFromCss(selector: string): Record<string, string> {
   const block = css.slice(start, css.indexOf('}', start));
   const out: Record<string, string> = {};
   for (const [, name, r, g, b] of block.matchAll(/--c-([a-z0-9-]+):\s*(\d+)\s+(\d+)\s+(\d+)\s*;/g)) {
+    if (WEBSITE_ONLY.test(name!)) continue;
     const key = CATEGORY[name!] ?? name!.replace(/-(\w)/g, (_, ch: string) => ch.toUpperCase());
     out[key] = `#${hex(r!)}${hex(g!)}${hex(b!)}`;
   }
@@ -41,12 +49,12 @@ function pick(p: Palette, ref: Record<string, string>): Record<string, unknown> 
 describe.skipIf(!hasWeb('frontend/src/index.css', 'frontend/tailwind.config.js'))('the website’s tokens', () => {
   it('the light palette is index.css :root', () => {
     const css = paletteFromCss(':root {');
-    expect(Object.keys(css).length).toBeGreaterThan(30);
+    expect(Object.keys(css).length).toBeGreaterThan(25); // 1.23.8: the six category colours moved to the website-only scheme
     expect(pick(lightColors, css)).toEqual(css);
   });
   it('the dark palette is index.css :root[data-theme=dark]', () => {
     const css = paletteFromCss(":root[data-theme='dark'] {");
-    expect(Object.keys(css).length).toBeGreaterThan(30);
+    expect(Object.keys(css).length).toBeGreaterThan(25); // 1.23.8: the six category colours moved to the website-only scheme
     expect(pick(darkColors, css)).toEqual(css);
   });
   it('radii, scrim and the brand gradient are tailwind.config.js', () => {

@@ -1,6 +1,5 @@
 import type { ReactNode } from 'react';
 import { TOUCH_TALL } from '../../lib/touch';
-import { OVERDUE_CLASS, STATUS_CLASS } from '../../lib/colour-classes';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -35,8 +34,9 @@ export function EmptyNote({ children }: { children: ReactNode }) {
   return <p className="rounded-lg bg-ground/60 px-3 py-3 text-sm text-ink-2">{children}</p>;
 }
 
-// 1.23.8: `overdue` (time past the target) and `done` (work done) are the one colour scheme's.
-const BAR_TONE = { brand: 'bg-brand', success: 'bg-success', danger: 'bg-danger', info: 'bg-info', warning: 'bg-warning', overdue: OVERDUE_CLASS.dot, done: STATUS_CLASS.DONE.dot } as const;
+// 1.23.8: `overdue` (time past the target) and `done` (work done) are the one colour scheme's (lib/colour-classes;
+// written out: the Android app's drift test loads this file on its own).
+const BAR_TONE = { brand: 'bg-brand', success: 'bg-success', danger: 'bg-danger', info: 'bg-info', warning: 'bg-warning', overdue: 'bg-overdue', done: 'bg-status-done' } as const;
 
 /** A thin progress bar (0–100), with its value for screen readers. */
 export function ProgressBar({ value, label, tone = 'brand', className = '' }: { value: number; label: string; tone?: keyof typeof BAR_TONE; className?: string }) {

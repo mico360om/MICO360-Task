@@ -394,11 +394,11 @@ export function DashboardPage() {
         <div className="pointer-events-none absolute -bottom-16 right-24 h-32 w-32 rounded-full bg-black/10 blur-2xl" />
         <div className="relative flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
           <div className="min-w-0">
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-white/70">{today}</div>
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-white/90">{today}</div>
             <h1 className="font-display text-2xl font-extrabold tracking-tightish sm:text-[1.75rem]">
               {firstDay ? 'Welcome' : 'Welcome back'}, <bdi>{user?.username ?? 'there'}</bdi>.
             </h1>
-            <p className="mt-0.5 hidden text-sm text-white/80 sm:block">
+            <p className="mt-0.5 hidden text-sm text-white sm:block">
               {firstDay
                 ? 'Your workspace is ready. A few steps and your team’s work will show up here.'
                 : 'Here’s a snapshot of your work. Jump into a board, review what’s due, and keep things moving.'}

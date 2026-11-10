@@ -8,7 +8,7 @@ import type { CalendarChecklistItem } from '../../lib/calendar-checklist';
 import { WaitingIcon } from '../approvals/ApprovalChip';
 import { isWaitingForApproval } from '../../lib/approvals';
 import { TaskKey } from '../TaskKey';
-import { OVERDUE_CLASS, STATUS_CLASS, statusClass } from '../../lib/colour-classes';
+import { statusClass } from '../../lib/colour-classes';
 
 /**
  * 'Sat 10 Oct' for a 'YYYY-MM-DD' day (formatted as that day, whatever the device's zone): the
@@ -57,32 +57,33 @@ export const STATUS_META: Record<CalStatus, { label: string; icon: ReactNode; ch
   overdue: {
     label: 'Overdue',
     icon: <Svg><circle cx="12" cy="12" r="9" /><path d="M12 7v6M12 16.5h.01" /></Svg>,
-    chip: `${OVERDUE_CLASS.edge}/60 ${OVERDUE_CLASS.chip}`,
-    dot: OVERDUE_CLASS.dot,
+    // The scheme's classes written out (lib/colour-classes): the Android app's drift test loads this file on its own.
+    chip: 'border-overdue/60 bg-overdue-soft text-overdue',
+    dot: 'bg-overdue',
   },
   blocked: {
     label: 'Blocked',
     icon: <Svg><circle cx="12" cy="12" r="9" /><path d="m5.6 5.6 12.8 12.8" /></Svg>,
     chip: 'border-line bg-surface text-ink [&_svg]:text-status-blocked',
-    dot: STATUS_CLASS.BLOCKED.dot,
+    dot: 'bg-status-blocked',
   },
   'in-progress': {
     label: 'In progress',
     icon: <Svg><circle cx="12" cy="12" r="9" /><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" /></Svg>,
     chip: 'border-line bg-surface text-ink [&_svg]:text-status-progress',
-    dot: STATUS_CLASS.IN_PROGRESS.dot,
+    dot: 'bg-status-progress',
   },
   todo: {
     label: 'To do',
     icon: <Svg><circle cx="12" cy="12" r="9" /></Svg>,
     chip: 'border-line bg-surface text-ink [&_svg]:text-ink-2',
-    dot: STATUS_CLASS.TODO.dot,
+    dot: 'bg-status-todo',
   },
   done: {
     label: 'Done',
     icon: <Svg><circle cx="12" cy="12" r="9" /><path d="m8 12.5 2.5 2.5L16 9.5" /></Svg>,
     chip: 'border-line bg-surface/60 text-ink-2 [&_svg]:text-status-done',
-    dot: STATUS_CLASS.DONE.dot,
+    dot: 'bg-status-done',
   },
   projected: {
     label: 'Repeats (not created yet)',
