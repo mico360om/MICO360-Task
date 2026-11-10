@@ -158,22 +158,41 @@ describe('AI Management: connecting a provider', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('Connected to Anthropic: 2 models found. Claude Haiku 4.5 is switched on.');
   });
 
-  it('connects MICO360 AI with only its key, at its /v1 address, and says the address is unencrypted', async () => {
+  it('connects MICO360 AI with only its key, at its https /v1 address (Connect 2.6.17+ is HTTPS-only)', async () => {
     answers['POST /ai/providers'] = () => json({ data: config });
     renderPage();
-    expect(screen.queryByText(/plain http/i)).not.toBeInTheDocument();
     fireEvent.change(await screen.findByLabelText('Service'), { target: { value: 'mico360' } });
     expect(screen.getByLabelText(/^Name/)).toHaveValue('MICO360 AI');
-    expect(screen.getByText('http://ai.mico360.com:5310/v1')).toBeInTheDocument();
-    expect(screen.getByText(/plain http/i)).toHaveTextContent('the API key and what is sent to the AI cross the network unencrypted');
+    expect(screen.getByText('https://ai.mico360.com:5310/v1')).toBeInTheDocument();
+    expect(screen.queryByText(/plain http/i)).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText(/^API key/), { target: { value: 'mico_abc' } });
     fireEvent.click(screen.getByRole('button', { name: 'Connect & load models' }));
     await waitFor(() =>
       expect(writes).toContainEqual({
         call: 'POST /ai/providers',
-        body: { name: 'MICO360 AI', kind: 'custom', preset: 'mico360', apiBaseUrl: 'http://ai.mico360.com:5310/v1', apiKey: 'mico_abc' },
+        body: { name: 'MICO360 AI', kind: 'custom', preset: 'mico360', apiBaseUrl: 'https://ai.mico360.com:5310/v1', apiKey: 'mico_abc' },
       }),
     );
+  });
+
+  it('says which MICO360 Connect API it targets, and which capabilities the key needs', async () => {
+    renderPage();
+    fireEvent.change(await screen.findByLabelText('Service'), { target: { value: 'mico360' } });
+    const help = screen.getByText(/MICO360 Connect 2\.6\.28/);
+    expect(help).toHaveTextContent('https on port 5310, under /v1');
+    expect(help).toHaveTextContent('Chat');
+    expect(help).toHaveTextContent('Vision');
+    expect(help).toHaveTextContent('Embedding');
+    // Another service: no MICO360 note.
+    fireEvent.change(screen.getByLabelText('Service'), { target: { value: 'openai' } });
+    expect(screen.queryByText(/MICO360 Connect 2\.6\.28/)).not.toBeInTheDocument();
+  });
+
+  it('a connected MICO360 AI provider names the Connect API it targets', async () => {
+    current = { ...config, providers: [{ ...acme, name: 'MICO360 AI', kind: 'custom', preset: 'mico360', apiBaseUrl: 'https://ai.mico360.com:5310/v1' }] };
+    renderPage();
+    const card = (await screen.findByText('https://ai.mico360.com:5310/v1')).closest('[data-provider]') as HTMLElement;
+    expect(within(card).getByText(/MICO360 Connect 2\.6\.28/)).toBeInTheDocument();
   });
 
   it('no unencrypted note for an office or local address', async () => {

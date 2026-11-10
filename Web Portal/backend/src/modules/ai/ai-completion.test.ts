@@ -142,7 +142,7 @@ describe('extractText tolerates odd shapes', () => {
 
 describe('MICO360 AI (the company’s platform, per its API guide)', () => {
   const mico = (): ChatModel => ({
-    provider: { kind: 'custom', preset: 'mico360', apiBaseUrl: 'http://ai.mico360.com:5310/v1', apiKey: 'mico_x' },
+    provider: { kind: 'custom', preset: 'mico360', apiBaseUrl: 'https://ai.mico360.com:5310/v1', apiKey: 'mico_x' },
     modelKey: 'llama3.1:latest',
   });
   const reply = (content: string, status = 200, headers: Record<string, string> = {}) =>
@@ -156,7 +156,7 @@ describe('MICO360 AI (the company’s platform, per its API guide)', () => {
     }) as unknown as typeof fetch;
     await complete(mico(), { system: 'Reply with ONLY JSON', prompt: 'hi', json: true }, fetchImpl, { allowPrivateHosts: true });
     await complete(mico(), { prompt: 'hi' }, fetchImpl, { allowPrivateHosts: true });
-    expect(bodies[0]).toMatchObject({ url: 'http://ai.mico360.com:5310/v1/chat/completions', response_format: { type: 'json_object' } });
+    expect(bodies[0]).toMatchObject({ url: 'https://ai.mico360.com:5310/v1/chat/completions', response_format: { type: 'json_object' } });
     expect(bodies[1]).not.toHaveProperty('response_format');
   });
 

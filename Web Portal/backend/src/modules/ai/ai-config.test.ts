@@ -252,8 +252,15 @@ describe('ai-config: provider presets', () => {
   });
 
   it('knows MICO360 AI (the company’s own OpenAI-compatible platform)', () => {
-    const { provider } = addProvider(emptyConfig(), { name: 'MICO360 AI', kind: 'custom', preset: 'mico360', apiBaseUrl: 'http://ai.mico360.com:5310/v1' }, meta('p1'));
+    const { provider } = addProvider(emptyConfig(), { name: 'MICO360 AI', kind: 'custom', preset: 'mico360', apiBaseUrl: 'https://ai.mico360.com:5310/v1' }, meta('p1'));
     expect(provider.preset).toBe('mico360');
+  });
+
+  it('saves a MICO360 AI address typed with http as https, when added or changed (Connect 2.6.17+)', () => {
+    const { config, provider } = addProvider(emptyConfig(), { name: 'MICO360 AI', kind: 'custom', preset: 'mico360', apiBaseUrl: 'http://ai.mico360.com:5310/v1' }, meta('p1'));
+    expect(provider.apiBaseUrl).toBe('https://ai.mico360.com:5310/v1');
+    const changed = updateProvider(config, 'p1', { apiBaseUrl: 'http://ai.mico360.com:5310/v1/' }, 'now');
+    expect(changed.providers[0]!.apiBaseUrl).toBe('https://ai.mico360.com:5310/v1');
   });
 });
 
