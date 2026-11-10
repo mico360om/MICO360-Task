@@ -259,6 +259,17 @@ describe('MICO AI routes: confirming, cancelling and undoing a card', () => {
     await app.close();
   });
 
+  // Pinned before the zod 4 upgrade (1.23.13): a Confirm with no body takes every change as proposed (its
+  // items default to none; zod 4's .default({}) would skip that inner default).
+  it('Confirm with no body confirms every change as proposed', async () => {
+    const { app, omar, base, world } = await withCard();
+    const res = await app.inject({ method: 'POST', url: `${base}/confirm`, headers: omar });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.answer.proposal.items.map((i: { result: { status: string } }) => i.result.status)).toEqual(['done', 'done']);
+    expect(world.calls.filter((c) => c.startsWith('createTask'))).toHaveLength(2);
+    await app.close();
+  });
+
   it('Confirm with ticks and edits returns the message with each change’s result; again, the same', async () => {
     const { app, omar, base, world } = await withCard();
     const body = { items: [{ id: 'c1', include: true, edits: { title: 'A, edited' } }, { id: 'c2', include: false }], sendInvites: true };

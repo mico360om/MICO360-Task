@@ -227,6 +227,26 @@ describe('POST /users with "Send a welcome email"', () => {
     expect(sent).toEqual([]);
   });
 
+  // Pinned before the zod 4 upgrade (1.23.13): the New account dialogs (website, Android) show a field's first words.
+  it('a refused detail is named with the words the dialogs show', async () => {
+    const res = await create({ ...newUser, firstName: ' ', username: 'x'.repeat(192), email: 'not-an-email', roleNames: [] });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toEqual({
+      code: 'VALIDATION',
+      message: 'Invalid input.',
+      details: {
+        formErrors: [],
+        fieldErrors: {
+          email: ['Invalid email'],
+          username: ['String must contain at most 191 character(s)'],
+          firstName: ['String must contain at least 1 character(s)'],
+          roleNames: ['Array must contain at least 1 element(s)'],
+        },
+      },
+    });
+    expect(sent).toEqual([]);
+  });
+
   it('a weak temporary password is still refused', async () => {
     expect((await create({ ...newUser, password: 'abc' })).json().error.code).toBe('WEAK_PASSWORD');
     expect(sent).toEqual([]);

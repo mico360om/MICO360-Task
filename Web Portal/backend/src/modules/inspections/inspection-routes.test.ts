@@ -299,3 +299,50 @@ describe('inspection report PDF: the company (companies)', () => {
     expect(inspectPdf(pdf.rawPayload).pages.flat().join('\n')).toContain('Alpha LLC');
   });
 });
+
+// Pinned before the zod 4 upgrade (1.23.13): a refused form says its first problem in words when it has its
+// own words, else "Invalid input."; every problem is in the details; timestamps read as before.
+describe('inspection routes — refusals in words', () => {
+  const form = (patch: Record<string, unknown>) => call('POST', '/inspection-forms', owner, { ...FORM_BODY, ...patch });
+  it('the rule’s own words', async () => {
+    const r = await form({ title: '  ' });
+    expect(r.statusCode).toBe(400);
+    expect(r.json().error).toEqual({ code: 'VALIDATION', message: 'Enter a title.', details: { formErrors: [], fieldErrors: { title: ['Enter a title.'] } } });
+    expect((await form({ sections: [{ title: 'A', items: [{ kind: 'READING', label: 'P', min: 9, max: 1 }] }] })).json().error.message).toBe('The lowest allowed reading must not be above the highest.');
+    expect((await form({ sections: [] })).json().error.message).toBe('Add at least one section.');
+  });
+  it('a general problem: “Invalid input.”, with the details', async () => {
+    const kind = await form({ sections: [{ title: 'A', items: [{ kind: 'NOTE', label: 'x' }] }] });
+    expect(kind.statusCode).toBe(400);
+    expect(kind.json().error).toEqual({ code: 'VALIDATION', message: 'Invalid input.', details: { formErrors: [], fieldErrors: { sections: ["Invalid discriminator value. Expected 'CHECK' | 'READING'"] } } });
+    const label = await form({ sections: [{ title: 'A', items: [{ kind: 'CHECK' }] }] });
+    expect(label.json().error).toEqual({ code: 'VALIDATION', message: 'Invalid input.', details: { formErrors: [], fieldErrors: { sections: ['Required'] } } });
+    const rule = await form({ clientSignature: 'ALWAYS' });
+    expect(rule.json().error).toEqual({ code: 'VALIDATION', message: 'Invalid input.', details: { formErrors: [], fieldErrors: { clientSignature: ["Invalid enum value. Expected 'NONE' | 'OPTIONAL' | 'REQUIRED', received 'ALWAYS'"] } } });
+  });
+  it('answers left out of the body', async () => {
+    const { insp } = await startedByIvan();
+    const r = await call('PUT', `/inspections/${insp.id}/answers`, inspector, {});
+    expect(r.statusCode).toBe(400);
+    expect(r.json().error).toEqual({ code: 'VALIDATION', message: 'Invalid input.', details: { formErrors: ['Required'], fieldErrors: {} } });
+  });
+  it('a signature’s time: an ISO timestamp with Z or an offset', async () => {
+    const answered = async () => {
+      const { insp, ids } = await startedByIvan();
+      await call('PUT', `/inspections/${insp.id}/answers`, inspector, {
+        answers: ids.map((itemId, k) => ({ itemId, result: k === 0 ? 'NA' : 'PASS', reading: null, note: null, editedAt: new Date(Date.UTC(2026, 9, 27, 8, 10, k)).toISOString() })),
+      });
+      const seen = (await call('GET', `/inspections/${insp.id}`, inspector)).json().data.answers.map((a: { itemId: string; editedAt: string }) => ({ itemId: a.itemId, editedAt: a.editedAt }));
+      return { insp, seen };
+    };
+    for (const [i, signedAt] of ['2026-10-27T08:30:00Z', '2026-10-27T08:30:00.123Z', '2026-10-27T12:30:00+04:00'].entries()) {
+      const { insp, seen } = await answered();
+      const r = await call('POST', `/inspections/${insp.id}/finish`, inspector, { finishId: `t-${i}`, revision: 0, seen, signatures: [{ role: 'INSPECTOR', name: 'Ivan Inspector', method: 'TYPED', signedAt }] });
+      expect(r.statusCode, signedAt).toBe(200);
+    }
+    const { insp, seen } = await answered();
+    const bad = await call('POST', `/inspections/${insp.id}/finish`, inspector, { finishId: 't-bad', revision: 0, seen, signatures: [{ role: 'INSPECTOR', name: 'Ivan Inspector', method: 'TYPED', signedAt: 'today' }] });
+    expect(bad.statusCode).toBe(400);
+    expect(bad.json().error).toEqual({ code: 'VALIDATION', message: 'Invalid input.', details: { formErrors: [], fieldErrors: { signatures: ['Invalid datetime'] } } });
+  });
+});

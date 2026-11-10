@@ -35,3 +35,18 @@ describe('Client project grants', () => {
     expect(() => grantsSchema.parse([{ projectId: 'p1', modules: { progress: 'yes' } }])).toThrow();
   });
 });
+
+// Pinned before the zod 4 upgrade (1.23.13): a grant with nothing ticked comes out with every tick false
+// (zod 4's .default({}) no longer fills an object's own defaults — the schema must keep doing it).
+describe('Client project grants — what a bare grant reads as', () => {
+  it('a project alone: Custom, every module and action off', () => {
+    expect(grantsSchema.parse([{ projectId: 'p1' }])).toEqual([
+      { projectId: 'p1', role: 'CUSTOM', modules: { progress: false, meetings: false }, actions: { comment: false, signOff: false, respond: false, download: false, upload: false, notify: false } },
+    ]);
+  });
+  it('one tick given: the rest are off', () => {
+    expect(grantsSchema.parse([{ projectId: 'p1', role: 'VIEWER', modules: { meetings: true }, actions: { download: true } }])).toEqual([
+      { projectId: 'p1', role: 'VIEWER', modules: { progress: false, meetings: true }, actions: { comment: false, signOff: false, respond: false, download: true, upload: false, notify: false } },
+    ]);
+  });
+});

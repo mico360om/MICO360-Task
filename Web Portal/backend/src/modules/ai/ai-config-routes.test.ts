@@ -98,6 +98,21 @@ describe('AI routes — admin management', () => {
     expect(m.json().data.models[0].modelKey).toBe('gpt-4o');
   });
 
+  // Pinned before the zod 4 upgrade (1.23.13): a model's parameters are a free map of at most 20 entries.
+  it('takes a model’s parameters as a map of up to 20, refusing more in words', async () => {
+    const admin = await auth(['ADMIN']);
+    await app.inject({ method: 'POST', url: '/api/v1/ai/providers', headers: admin, payload: { name: 'OpenAI', kind: 'openai', apiBaseUrl: 'https://api.openai.com/v1' } });
+    const ok = await app.inject({ method: 'POST', url: '/api/v1/ai/models', headers: admin, payload: { providerId: 'id1', modelKey: 'gpt-4o', capabilities: ['chat'], parameters: { temperature: 0.2, stop: ['x'] } } });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json().data.models[0].parameters).toMatchObject({ temperature: 0.2 });
+    const many = Object.fromEntries(Array.from({ length: 21 }, (_, i) => [`p${i}`, i]));
+    const tooMany = await app.inject({ method: 'PUT', url: '/api/v1/ai/models/id2', headers: admin, payload: { parameters: many } });
+    expect(tooMany.statusCode).toBe(400);
+    expect(tooMany.json().error.details).toEqual({ formErrors: [], fieldErrors: { parameters: ['Too many parameters.'] } });
+    const notMap = await app.inject({ method: 'PUT', url: '/api/v1/ai/models/id2', headers: admin, payload: { parameters: ['temperature'] } });
+    expect(notMap.json().error.details).toEqual({ formErrors: [], fieldErrors: { parameters: ['Expected object, received array'] } });
+  });
+
   it('sets a default model for a capability', async () => {
     const admin = await auth(['ADMIN']);
     await app.inject({ method: 'POST', url: '/api/v1/ai/providers', headers: admin, payload: { name: 'OpenAI', kind: 'openai', apiBaseUrl: 'https://api.openai.com/v1' } });

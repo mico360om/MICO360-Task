@@ -1,5 +1,6 @@
 import { z, ZodError, type ZodTypeAny } from 'zod';
 import { ConflictError, ForbiddenError, HttpError, NotFoundError, ValidationError } from '../../lib/http-errors';
+import { validationDetails } from '../../lib/validation-errors';
 import { imageDimensions } from '../../lib/image-dimensions';
 import type { CreateAuditData } from '../audit/audit-repository';
 import { defaultCompanyTimeZone } from '../tasks/task-status';
@@ -215,7 +216,7 @@ function validated<T>(check: () => T): T {
     if (err instanceof ZodError) {
       const first = err.issues[0];
       const words = first && !/^(Required|Invalid|Expected|String must|Array must|Number must)/.test(first.message) ? first.message : 'Invalid input.';
-      throw new ValidationError(words, err.flatten());
+      throw new ValidationError(words, validationDetails(err));
     }
     throw err;
   }

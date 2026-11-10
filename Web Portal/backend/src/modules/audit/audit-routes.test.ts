@@ -77,6 +77,16 @@ describe('GET /audit-logs', () => {
     await app.close();
   });
 
+  // Pinned before the zod 4 upgrade (1.23.13): the paging cursor is the createdAt the page got (Z), or an offset time.
+  it('takes before= as an ISO timestamp with Z or an offset', async () => {
+    const { app, admin } = await makeApp();
+    for (const before of ['2026-09-27T10:00:00.000Z', '2026-09-27T10:00:00Z', '2026-09-27T14:00:00+04:00']) {
+      const res = await app.inject({ method: 'GET', url: `/api/v1/audit-logs?before=${encodeURIComponent(before)}`, headers: admin });
+      expect(res.statusCode, before).toBe(200);
+    }
+    await app.close();
+  });
+
   it('rejects bad parameters with 400', async () => {
     const { app, admin } = await makeApp();
     for (const qs of ['limit=0', 'limit=500', 'limit=abc', 'before=yesterday', 'from=2026-02-30', 'from=26-09-2026', 'from=2026-09-27&to=2026-09-26', 'module=']) {
