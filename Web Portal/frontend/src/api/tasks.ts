@@ -3,6 +3,8 @@ import type { ChecklistTree } from '../lib/checklist-tree';
 import type { RecurrenceRule } from '../lib/recurrence';
 import type { ExternalContactDraft, ExternalContactSummary } from '../lib/external-contacts';
 import type { ApiExternalContact } from './external-contacts';
+import type { ApiTaskGuest } from './guests';
+import type { TaskCategoryChip } from './categories';
 
 export type Priority = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
 
@@ -123,6 +125,12 @@ export interface ApiTask {
   externalSummary?: ExternalContactSummary | null;
   /** Its external contacts in full, in order (single-task responses). */
   externalContacts?: ApiExternalContact[];
+  /** 1.24: its guests in short, in order (list and single-task responses; older servers leave it out). */
+  guests?: { id: string; name: string; company: string | null }[];
+  /** 1.24: its guests in full, with this task's note for each (single-task responses). */
+  taskGuests?: ApiTaskGuest[];
+  /** 1.24: its categories, in its project's order (retired ones marked). */
+  categories?: TaskCategoryChip[];
   /** 1.23.1: the tasks merged into it (single-task responses): its "Merged from" panel opens from them. */
   mergedFrom?: { id: string; key: string; mergeId: string }[];
   /** 1.23.1: opened by a merged task's id (an old link or notice): which one, when and by whom. */
@@ -153,6 +161,10 @@ export interface NewTaskInput {
   checklists?: ChecklistTree;
   /** Its external contacts (people outside the company responsible for it), in order, created with the task. */
   externalContacts?: ExternalContactDraft[];
+  /** 1.24: guests from the project's company list (and this task's note for each); needs a team member too. */
+  guests?: { guestId: string; note?: string | null }[];
+  /** 1.24: its categories. Sent (even []) they are checked — a project that needs one refuses none. */
+  categoryIds?: string[];
   /** The inspection form it is carried out with, and where (a check). */
   inspectionFormId?: string | null;
   inspectionPlace?: string | null;
@@ -217,6 +229,10 @@ export interface TaskMovePreview {
   repeat: 'SERIES' | 'COPY' | null;
   /** People assigned to it who aren't on the new project's team. */
   outsiders: MovePerson[];
+  /** 1.24: its categories the new project has no category of the same name for (dropped by the move). */
+  categoriesDropped?: string[];
+  /** 1.24: how many of its guests are copied onto the new project's company list (another company's project). */
+  guestsCopied?: number;
 }
 
 export interface MovePreview {
@@ -284,7 +300,7 @@ export function tasksApi(client: ApiClient) {
         .then((r) => r.data),
     update: (
       id: string,
-      patch: Omit<Partial<NewTaskInput>, 'dueDate' | 'externalContacts'> & {
+      patch: Omit<Partial<NewTaskInput>, 'dueDate' | 'externalContacts' | 'guests' | 'categoryIds'> & {
         progress?: number;
         columnId?: string;
         dueDate?: string | null;

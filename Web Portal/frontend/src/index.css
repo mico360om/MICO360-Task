@@ -396,6 +396,14 @@
 }
 
 @layer components {
+  /* 1.24 Task categories: a chip in its category's colour (components/CategoryChip sets the six variables). */
+  .cat-chip {
+    color: var(--cat-light-text);
+    background-color: var(--cat-light-soft);
+  }
+  .cat-swatch {
+    background-color: var(--cat-light-fill);
+  }
   /* The Projects page's cards: as many columns of at least 19rem as fit, but never more than three
      (a narrower column stays a full card) — four only on a very wide screen. */
   .project-grid {
@@ -715,4 +723,22 @@
     opacity: 1;
     transform: none;
   }
+}
+
+/* 1.24 Task categories in dark mode (the system's, and the person's own choice). */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .cat-chip {
+    color: var(--cat-dark-text);
+    background-color: var(--cat-dark-soft);
+  }
+  :root:not([data-theme='light']) .cat-swatch {
+    background-color: var(--cat-dark-fill);
+  }
+}
+:root[data-theme='dark'] .cat-chip {
+  color: var(--cat-dark-text);
+  background-color: var(--cat-dark-soft);
+}
+:root[data-theme='dark'] .cat-swatch {
+  background-color: var(--cat-dark-fill);
 }
