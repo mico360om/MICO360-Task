@@ -13,10 +13,13 @@ const WORDS = ['pump', 'valve', 'crane'];
 /** A stand-in embedding model: one number per known word, so "pump" questions are near pump tasks. */
 const vector = (text: string) => WORDS.map((w) => (text.toLowerCase().includes(w) ? 1 : 0.01));
 let embedded: string[] = [];
+/** How each embed call was asked: the sweep is background work (MICO360 AI waits 120 s), a question is not. */
+const asked: Array<{ background?: boolean; question: boolean }> = [];
 let model: { id: string; modelKey: string } | null = { id: `emb-${tag}`, modelKey: 'stand-in' };
 const ai = {
   embeddingModel: async () => model,
-  embed: async (texts: string[]) => {
+  embed: async (texts: string[], opts?: { signal?: AbortSignal; background?: boolean }) => {
+    asked.push({ background: opts?.background, question: texts.some((x) => x.includes('makes noise')) });
     embedded.push(...texts);
     return { model: model!.id, vectors: texts.map(vector) };
   },
@@ -62,6 +65,8 @@ describe('meaning search (database)', () => {
     expect(await prisma.searchEmbedding.count({ where: { model: `emb-${tag}`, recordId: { in: Object.values(t) } } })).toBe(3);
     const near = await semantic.nearest('my pump makes noise', { limit: 2 });
     expect(near[0]).toMatchObject({ kind: 'task', id: t.pump });
+    expect(asked.filter((a) => !a.question).every((a) => a.background === true)).toBe(true);
+    expect(asked.filter((a) => a.question)).toEqual([{ background: undefined, question: true }]);
   });
 
   it('review M3: an item indexed again with the same text is not embedded again; one whose text changed is', async () => {

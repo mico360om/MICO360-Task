@@ -96,23 +96,25 @@ export function createAiFeatureService({
 
   /**
    * One completion with the default chat model. `json`: the answer is parsed as JSON, so a provider
-   * that can hold the model to JSON is asked to (MICO360 AI); `wait` overrides the time allowed.
+   * that can hold the model to JSON is asked to (MICO360 AI); `wait` overrides the time allowed;
+   * `background`: nobody is waiting at a page, so MICO360 AI is waited for as long as it waits itself.
    */
   async function run(
     system: string,
     prompt: string,
     maxTokens: number | undefined,
     requester?: AiRequester,
-    opts: { json?: boolean; wait?: number; signal?: AbortSignal; dailyOnly?: boolean } = {},
+    opts: { json?: boolean; wait?: number; signal?: AbortSignal; dailyOnly?: boolean; background?: boolean } = {},
   ): Promise<string> {
     const { model, chat } = resolveChatModel(await repo.load());
     if (requester) {
       if (opts.dailyOnly) usage.takeDaily(requester.userId);
       else usage.take(requester.userId);
     }
+    const wait = opts.background && isMico360(chat) ? BACKGROUND_WAIT_MS : (opts.wait ?? timeoutMs);
     const release = await gate.acquire(model.id, model.concurrencyLimit);
     try {
-      return await complete(chat, { system, prompt, maxTokens, json: opts.json }, doFetch, { timeoutMs: opts.wait ?? timeoutMs, allowPrivateHosts, signal: opts.signal });
+      return await complete(chat, { system, prompt, maxTokens, json: opts.json }, doFetch, { timeoutMs: wait, allowPrivateHosts, signal: opts.signal });
     } finally {
       release();
     }
@@ -166,6 +168,7 @@ export function createAiFeatureService({
   /**
    * 1.23: the text in pictures (a scanned PDF's pages, a photo), read by the OCR model — work the
    * system does for search, so no person's limit is counted; the model's concurrency limit applies.
+   * Background work: MICO360 AI is waited for as long as it waits itself (a vision job may take 300 s).
    */
   async function readPictures(images: { data: Buffer; mimeType: string }[], opts: { signal?: AbortSignal } = {}): Promise<string> {
     const found = resolveFor(await repo.load(), 'ocr');
@@ -181,7 +184,7 @@ export function createAiFeatureService({
           images,
         },
         doFetch,
-        { timeoutMs: Math.max(timeoutMs, 120_000), allowPrivateHosts, signal: opts.signal },
+        { timeoutMs: isMico360(found.chat) ? BACKGROUND_WAIT_MS : Math.max(timeoutMs, 120_000), allowPrivateHosts, signal: opts.signal },
       );
     } finally {
       release();
@@ -194,13 +197,18 @@ export function createAiFeatureService({
     return found ? { id: found.model.id, modelKey: found.model.modelKey } : null;
   }
 
-  /** 1.23: vectors for texts with the embedding model (and which model made them). */
-  async function embed(texts: string[], opts: { signal?: AbortSignal } = {}): Promise<{ model: string; vectors: number[][] }> {
+  /**
+   * 1.23: vectors for texts with the embedding model (and which model made them). `background`: the
+   * search sweep — MICO360 AI is given 120 s, as its guide asks of every client (a person's question
+   * keeps the short wait).
+   */
+  async function embed(texts: string[], opts: { signal?: AbortSignal; background?: boolean } = {}): Promise<{ model: string; vectors: number[][] }> {
     const found = resolveFor(await repo.load(), 'embedding');
     if (!found) throw new ValidationError('No embedding model is set up in AI Management.');
+    const timeoutMs = opts.background && isMico360(found.chat) ? EMBEDDING_SWEEP_WAIT_MS : undefined;
     const release = await gate.acquire(found.model.id, found.model.concurrencyLimit);
     try {
-      return { model: found.model.id, vectors: await embedTexts(found.chat, texts, doFetch, { allowPrivateHosts, signal: opts.signal }) };
+      return { model: found.model.id, vectors: await embedTexts(found.chat, texts, doFetch, { allowPrivateHosts, signal: opts.signal, timeoutMs }) };
     } finally {
       release();
     }
@@ -444,8 +452,9 @@ export function createAiFeatureService({
   /**
    * Draft a meeting's final minutes from its facts (see meetings/final-minutes minutesFacts). The
    * model is told to write only what the facts support. Returns its JSON; the caller checks it.
+   * `background`: the Final MOM job (1.22), which nobody waits for at a page.
    */
-  async function draftMinutes(facts: string, requester?: AiRequester, opts: { signal?: AbortSignal } = {}): Promise<Record<string, unknown>> {
+  async function draftMinutes(facts: string, requester?: AiRequester, opts: { signal?: AbortSignal; background?: boolean } = {}): Promise<Record<string, unknown>> {
     const text = await run(
       [
         'You write the final minutes of a business meeting. Use only the facts given: never invent names, dates, numbers or decisions.',
@@ -459,7 +468,7 @@ export function createAiFeatureService({
       2500,
       requester,
       // A long answer: ~2,500 tokens at ~35 a second, after a cold load, is well over 2 minutes.
-      { json: true, wait: Math.max(timeoutMs, MINUTES_TIMEOUT_MS), signal: opts.signal },
+      { json: true, wait: Math.max(timeoutMs, MINUTES_TIMEOUT_MS), signal: opts.signal, background: opts.background },
     );
     const obj = parseJsonObject(text);
     if (Object.keys(obj).length === 0) throw new ValidationError('The AI’s draft couldn’t be read. Try again, or start from the notes.');
@@ -594,6 +603,17 @@ function guestsIn(sentence: string, value: unknown): DescribedMeeting['guests'] 
 
 /** The minutes draft is the one long answer: it gets 3 minutes, as MICO360 AI's guide advises for long text. */
 const MINUTES_TIMEOUT_MS = 180_000;
+
+/**
+ * Background work on MICO360 AI (reading pictures, the Final MOM job): its OpenAI surface waits 300 s and
+ * a vision job may run 300 s on a node (its guide, §5 and §7). Giving up sooner leaves the job running
+ * there and the retry runs it again; just past 300 s, the platform's own 504 (with the job id) comes first.
+ */
+export const BACKGROUND_WAIT_MS = 310_000;
+/** MICO360 AI's meaning-search sweep: at least the 120 s its guide asks of every client (§4, §7). */
+export const EMBEDDING_SWEEP_WAIT_MS = 120_000;
+
+const isMico360 = (chat: ChatModel): boolean => chat.provider.preset === 'mico360';
 
 /** At most this many projects are listed in the prompt (each one is a line). */
 const MAX_PROMPT_PROJECTS = 100;

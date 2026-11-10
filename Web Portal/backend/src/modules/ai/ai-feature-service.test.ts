@@ -337,6 +337,60 @@ describe('AiFeatureService on MICO360 AI (its API guide)', () => {
       spy.mockRestore();
     }
   });
+
+  // Its guide (§5, §7): the OpenAI surface waits 300 s and a vision job may run 300 s on a node; a caller
+  // that gives up sooner leaves a running job behind and its retry runs it again. Background work waits
+  // just past the platform's own 300 s, so the platform's 504 comes first; the meaning-search sweep 120 s.
+  describe('background work waits as long as the platform does', () => {
+    const withModels = (preset: 'mico360' | 'custom'): AiConfig => ({
+      providers: [{ ...micoConfig.providers[0]!, preset, apiBaseUrl: preset === 'mico360' ? 'https://ai.mico360.com:5310/v1' : 'https://ai.example.com/v1' }],
+      models: [
+        micoConfig.models[0]!,
+        { ...micoConfig.models[0]!, id: 'ocr', modelKey: 'glm-ocr:latest', capabilities: ['vision', 'ocr', 'document'] },
+        { ...micoConfig.models[0]!, id: 'emb', modelKey: 'nomic-embed-text:latest', capabilities: ['embedding'] },
+      ],
+      defaults: { chat: 'm1' },
+    });
+    const run = async (preset: 'mico360' | 'custom', work: (svc: ReturnType<typeof createAiFeatureService>) => Promise<unknown>) => {
+      const waits: number[] = [];
+      const real = AbortSignal.timeout.bind(AbortSignal);
+      const spy = vi.spyOn(AbortSignal, 'timeout').mockImplementation((ms: number) => {
+        waits.push(ms);
+        return real(ms);
+      });
+      const fetchImpl = (async (url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init!.body));
+        const answer = String(url).endsWith('/embeddings')
+          ? { model: body.model, data: (body.input as string[]).map((_, index) => ({ index, embedding: [1, 0] })) }
+          : { choices: [{ message: { content: '{"summary":"s"}' } }] };
+        return new Response(JSON.stringify(answer), { status: 200, headers: { 'content-type': 'application/json' } });
+      }) as unknown as typeof fetch;
+      try {
+        await work(createAiFeatureService({ repo: createMemoryAiConfigRepository(withModels(preset)), fetchImpl }));
+      } finally {
+        spy.mockRestore();
+      }
+      return waits;
+    };
+    const picture = [{ data: Buffer.from('jpeg'), mimeType: 'image/jpeg' }];
+
+    it('MICO360 AI: reading pictures and the Final MOM in the background wait 310 s; the search sweep 120 s', async () => {
+      expect(await run('mico360', (svc) => svc.readPictures(picture))).toEqual([310_000]);
+      expect(await run('mico360', (svc) => svc.draftMinutes('Meeting: X', { userId: 'u1' }, { background: true }))).toEqual([310_000]);
+      expect(await run('mico360', (svc) => svc.embed(['a', 'b'], { background: true }))).toEqual([120_000]);
+    });
+
+    it('MICO360 AI: what a person waits for keeps its own wait (the minutes on the page 180 s, a question 30 s)', async () => {
+      expect(await run('mico360', (svc) => svc.draftMinutes('Meeting: X', { userId: 'u1' }))).toEqual([180_000]);
+      expect(await run('mico360', (svc) => svc.embed(['a question']))).toEqual([30_000]);
+    });
+
+    it('other providers are unchanged', async () => {
+      expect(await run('custom', (svc) => svc.readPictures(picture))).toEqual([120_000]);
+      expect(await run('custom', (svc) => svc.draftMinutes('Meeting: X', { userId: 'u1' }, { background: true }))).toEqual([180_000]);
+      expect(await run('custom', (svc) => svc.embed(['a'], { background: true }))).toEqual([30_000]);
+    });
+  });
 });
 
 describe('AiFeatureService: filling the meeting form from a sentence', () => {

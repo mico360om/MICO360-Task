@@ -32,7 +32,8 @@ export interface SemanticDeps {
   prisma: PrismaClient;
   ai: {
     embeddingModel(): Promise<{ id: string; modelKey: string } | null>;
-    embed(texts: string[], opts?: { signal?: AbortSignal }): Promise<{ model: string; vectors: number[][] }>;
+    /** `background`: the sweep (MICO360 AI is given the 120 s its guide asks for); a question is not. */
+    embed(texts: string[], opts?: { signal?: AbortSignal; background?: boolean }): Promise<{ model: string; vectors: number[][] }>;
   };
   logger?: { error(message: string, meta?: Record<string, unknown>): void };
   now?: () => Date;
@@ -68,7 +69,7 @@ export function createSemanticSearch({ prisma, ai, logger, now = () => new Date(
     for (let i = 0; i < items.length; i += PER_CALL) {
       const chunk = items.slice(i, i + PER_CALL);
       try {
-        const { model: used, vectors } = await ai.embed(chunk.map((c) => c.text || ' '));
+        const { model: used, vectors } = await ai.embed(chunk.map((c) => c.text), { background: true });
         const at = now();
         await prisma.$executeRaw`INSERT INTO search_embeddings (kind, recordId, model, dims, vector, textHash, embeddedAt) VALUES ${Prisma.join(
           chunk.map((c, k) => Prisma.sql`(${c.kind}, ${c.id}, ${used}, ${vectors[k]!.length}, ${toVector(vectors[k]!)}, ${hash(c.text)}, ${at})`),
