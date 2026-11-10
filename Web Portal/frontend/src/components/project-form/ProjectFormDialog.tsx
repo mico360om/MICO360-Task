@@ -21,6 +21,7 @@ import { Toggle } from '../ui/Toggle';
 import { ProjectAvatar } from '../ProjectAvatar';
 import { AssigneeSelect } from '../task-form/AssigneeSelect';
 import { IdentityEditor, type ImageChoice } from './IdentityEditor';
+import { CategoriesEditor } from './CategoriesEditor';
 import { activePeople, ownerChoices, personName } from './owner-options';
 import { priorityOptions } from '../priority-option';
 import { templatesApi } from '../../api/templates';
@@ -764,6 +765,13 @@ export function ProjectFormDialog({ project, onClose, onSaved, templateId }: { p
     </fieldset>
   );
 
+  // 1.24 The project's categories: saved one change at a time (not by this window's Save), so only once it exists.
+  const categoriesField = editing ? (
+    <CategoriesEditor projectId={saved!.id} />
+  ) : (
+    <p className="rounded-2xl border border-dashed border-line px-4 py-3 text-xs text-ink-2">Categories are added once the project is saved.</p>
+  );
+
   return (
     <ModalPortal>
       <div className={dialogLayer('wide')}>
@@ -800,6 +808,7 @@ export function ProjectFormDialog({ project, onClose, onSaved, templateId }: { p
                     {ownerField}
                     {teamField}
                     {tasksField}
+                    {categoriesField}
                   </div>
                 </div>
               ) : (
@@ -814,6 +823,7 @@ export function ProjectFormDialog({ project, onClose, onSaved, templateId }: { p
                   {ownerField}
                   {teamField}
                   {tasksField}
+                  {categoriesField}
                 </>
               )}
             </div>

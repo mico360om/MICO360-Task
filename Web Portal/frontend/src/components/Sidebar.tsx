@@ -207,10 +207,23 @@ const ERROR_LOG_ICON = (
   </>
 );
 
+/**
+ * 1.24: an address card with a person on it — Guest contacts, each company's list of people outside it
+ * named on tasks. Kept out of `I`, the icon set the Android app copies (its menu has no such page).
+ */
+const GUEST_CONTACTS_ICON = (
+  <>
+    <rect x="5" y="3" width="15" height="18" rx="2.5" />
+    <circle cx="12.5" cy="10" r="2.6" />
+    <path d="M8.6 17a3.9 3.9 0 0 1 7.8 0M3 7.5h3.5M3 12h3.5M3 16.5h3.5" />
+  </>
+);
+
 const ADMIN: NavItem[] = [
   { label: 'User Management', to: '/admin/users', icon: I.users },
   { label: 'Clients', to: '/admin/clients', icon: I.clients },
   { label: 'Companies', to: '/admin/companies', icon: I.companies },
+  { label: 'Guest contacts', to: '/admin/guests', icon: GUEST_CONTACTS_ICON },
   { label: 'AI Management', to: '/admin/ai', icon: I.aiManagement },
   { label: 'System Settings', to: '/admin/settings', icon: I.sliders },
   { label: 'Error Log', to: '/admin/error-log', icon: ERROR_LOG_ICON },

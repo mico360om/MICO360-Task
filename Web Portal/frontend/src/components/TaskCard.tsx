@@ -9,7 +9,9 @@ import { DEFAULT_TIME_ZONE } from '../lib/company-clock';
 import { InspectionChip } from './inspections/inspection-ui';
 import { ApprovalChip } from './approvals/ApprovalChip';
 import type { ExternalContactSummary } from '../lib/external-contacts';
-import { ExternalContactsLine } from './ExternalContactsLine';
+import { GuestsLine } from './GuestsLine';
+import { CategoryChips, type CategoryChipData } from './CategoryChip';
+import { NeedsCategoryMark } from './NeedsCategoryMark';
 import { TaskKey } from './TaskKey';
 import { DENSE_FACE, DENSE_STACK, DENSE_TEXT } from '../lib/density-tokens';
 import { useDensity } from '../lib/density';
@@ -47,8 +49,14 @@ export interface TaskCardTask {
   done?: boolean;
   /** Its project, on a board showing several projects (the All projects board). */
   project?: { name: string; code: string; color?: string | null; icon?: string | null; imageUrl?: string | null };
-  /** Its external contacts in short ("External: Ahmed Al Said (OXY) and 2 more"); null or absent for none. */
+  /** Its external contacts in short — the guests line's words when an older server sends no `guests`; null or absent for none. */
   external?: ExternalContactSummary | null;
+  /** 1.24: its guests ("Guest: Ahmed (OXY) and 2 more"), in order. */
+  guests?: { id: string; name: string; company?: string | null }[] | null;
+  /** 1.24: its categories, in its project's order (Compact 1, Comfortable 2, Detailed all + "+N"). */
+  categories?: CategoryChipData[] | null;
+  /** 1.24: its project asks every task for a category and it has none ("Needs a category"). */
+  needsCategory?: boolean;
   /** The board's month view: its dates in the month ("5–20 Nov", "Overdue · from Oct"), shown instead of the due date. */
   dateLine?: { text: string; overdue: boolean; title?: string };
   /** 1.23.8 Detailed cards: its description (the first line shows) and its tags. */
@@ -125,7 +133,8 @@ export function TaskCard({ task, onClick, timeZone = DEFAULT_TIME_ZONE, interact
   const daysLeft = task.done || task.awaitingApproval ? null : daysUntilDue(task.dueDate, timeZone);
   const soon = daysLeft === 0 ? 'Due today' : daysLeft === 1 ? 'Due tomorrow' : null;
   // Detailed (1.23.8, lib/density): the whole title, the description's first line, the tags and everyone on it.
-  const detailed = useDensity() === 'detailed';
+  const density = useDensity();
+  const detailed = density === 'detailed';
   // The month view gives its own line (a span, "From 5 Nov", "No date"), shown even without a due date.
   const line = task.dateLine;
   const hasDue = Boolean(line) || Boolean(task.dueDate);
@@ -200,7 +209,9 @@ export function TaskCard({ task, onClick, timeZone = DEFAULT_TIME_ZONE, interact
 
       <div dir="auto" className={`${detailed ? 'break-words' : 'line-clamp-2'} text-start text-sm font-medium leading-snug text-ink transition-colors group-hover:text-brand ${DENSE_TEXT}`}>{task.title}</div>
       {detailed ? <DescriptionLine description={task.description} className="-mt-1" /> : null}
-      <ExternalContactsLine summary={task.external} />
+      {/* 1.24: its categories (as many as the density shows), or "Needs a category" when its project asks for one. */}
+      {task.categories?.length ? <CategoryChips categories={task.categories} density={density} /> : task.needsCategory ? <NeedsCategoryMark /> : null}
+      <GuestsLine guests={task.guests} summary={task.external} />
       {detailed ? <TagChips tags={task.tags} /> : null}
 
       {/* A check's chip leads the line of facts (it wraps there; beside the key, with the priority and

@@ -52,7 +52,8 @@ export interface GuestLike {
 export function checkGuest(draft: GuestDraft): GuestCheck {
   const check = checkExternalContact({ name: draft.name, company: draft.company, designation: draft.designation, email: draft.email, phone: draft.phone });
   if (!check.ok) {
-    const { remarks: _remarks, ...problems } = check.problems;
+    const problems: Partial<Record<GuestField, string>> = {};
+    for (const k of ['name', 'company', 'designation', 'email', 'phone'] as const) if (check.problems[k]) problems[k] = check.problems[k];
     if (problems.name === 'Enter the contact’s name.') problems.name = 'Enter the guest’s name.';
     return { ok: false, problems };
   }

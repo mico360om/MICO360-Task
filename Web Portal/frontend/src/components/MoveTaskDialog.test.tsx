@@ -90,6 +90,17 @@ describe('Move to another project (one task)', () => {
     expect(calls.find((c) => c.url.endsWith('/tasks/move-preview'))!.body).toEqual({ taskIds: ['t4'], projectId: 'ops' });
   });
 
+  it('1.24: says which categories it drops and how many guests are copied to the new company’s list, in plain words', async () => {
+    previewTasks = [previewTask({ categoriesDropped: ['Electrical', 'HSE'], guestsCopied: 2 })];
+    open();
+    await chooseProject('Operations');
+    const changes = await screen.findByRole('list', { name: 'What will change' });
+    const dropped = within(changes).getByText('Drops categories: Electrical, HSE — Operations has none of those names.');
+    expect(within(changes).getByText('Copies 2 guests to the new company’s list.')).toBeInTheDocument();
+    // An ordinary line of the list: no alarm colours.
+    expect(dropped.className).not.toMatch(/danger|warning|overdue/);
+  });
+
   it('when the new project has no column of its stage, says it goes to the first one', async () => {
     previewTasks = [previewTask({ currentCategory: 'REVIEW', columnId: 'o-backlog' })];
     open();

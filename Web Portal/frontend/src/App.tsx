@@ -30,6 +30,8 @@ const NotificationsPage = lazyPage(() => import('./pages/NotificationsPage'), 'N
 const ReportsPage = lazyPage(() => import('./pages/ReportsPage'), 'ReportsPage');
 const UsersPage = lazyPage(() => import('./pages/UsersPage'), 'UsersPage');
 const CompaniesPage = lazyPage(() => import('./pages/CompaniesPage'), 'CompaniesPage');
+// 1.24 Guest contacts: each company's list of guests (administrators).
+const GuestContactsPage = lazyPage(() => import('./pages/GuestContactsPage'), 'GuestContactsPage');
 const ClientsPage = lazyPage(() => import('./pages/ClientsPage'), 'ClientsPage');
 const SettingsPage = lazyPage(() => import('./pages/SettingsPage'), 'SettingsPage');
 const MyTasksPage = lazyPage(() => import('./pages/MyTasksPage'), 'MyTasksPage');
@@ -202,6 +204,7 @@ export function App() {
               <Route path="/admin/error-log" element={<ErrorLogPage />} />
               <Route path="/admin/users" element={<UsersPage />} />
               <Route path="/admin/companies" element={<CompaniesPage />} />
+              <Route path="/admin/guests" element={<GuestContactsPage />} />
               <Route path="/admin/clients" element={<ClientsPage />} />
             </Route>
           </Route>

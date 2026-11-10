@@ -16,6 +16,7 @@ import type { TaskFilter, TaskGroup } from './TasksTab';
 import { TaskKey } from '../TaskKey';
 import type { ProjectCompletion } from '../../api/projects';
 import { HealthCard, NextActionsCard, OwnersCard, RecentActivityCard, RisksCard } from './HealthCards';
+import { ByCategoryCard } from './ByCategoryCard';
 import { OVERDUE_CLASS, STATUS_CLASS, dueTone } from '../../lib/colour-classes';
 
 const PROJECT_STATUS_TONE: Record<string, BadgeTone> = { PLANNING: 'info', ACTIVE: 'success', ON_HOLD: 'warning', COMPLETED: 'brand', ARCHIVED: 'neutral' };
@@ -76,7 +77,7 @@ export interface OverviewProps {
 
 /**
  * The project at a glance: its details and timeline, milestones, deadlines coming up, who runs it
- * and who has what, the next meeting, and the tasks by status.
+ * and who has what, the next meeting, and the tasks by status (1.24: and by category).
  */
 export function OverviewTab(p: OverviewProps) {
   const { project, tasks, today, timeZone } = p;
@@ -327,6 +328,9 @@ export function OverviewTab(p: OverviewProps) {
             </>
           )}
         </SectionCard>
+
+        {/* 1.24: open tasks per category (hidden when the project has none). */}
+        <ByCategoryCard projectId={project.id} tasks={tasks} ready={p.statsReady} />
       </div>
     </div>
   );

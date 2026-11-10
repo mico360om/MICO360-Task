@@ -86,6 +86,10 @@ export function moveChanges(preview: MovePreview, today: string, columnId?: stri
     }
     if (t.repeat === 'SERIES') lines.push(`It repeats: its next copies will be made in ${project}.`);
     if (t.repeat === 'COPY') lines.push('It’s an earlier copy of a repeating task: only this copy moves.');
+    // 1.24: the categories it drops (the new project has none of the same name) and the guests copied.
+    const dropped = t.categoriesDropped ?? [];
+    if (dropped.length) lines.push(`${droppedText(dropped)} — ${project} has none of ${dropped.length === 1 ? 'that name' : 'those names'}.`);
+    if ((t.guestsCopied ?? 0) > 0) lines.push(`Copies ${guestsCopiedText(t.guestsCopied!)}.`);
     lines.push('Its comments, files, checklist, history, watchers and blockers go with it.');
     return lines;
   }
@@ -105,9 +109,23 @@ export function moveChanges(preview: MovePreview, today: string, columnId?: stri
   const copies = movable.filter((t) => t.repeat === 'COPY').length;
   if (copies === 1) lines.push('One is an earlier copy of a repeating task: only that copy moves.');
   else if (copies > 1) lines.push(`${copies} are earlier copies of repeating tasks: only those copies move.`);
+  // 1.24: each task that drops categories (none of the same name in the new project) or copies guests.
+  for (const t of movable) {
+    const dropped = t.categoriesDropped ?? [];
+    const copied = t.guestsCopied ?? 0;
+    if (dropped.length && copied > 0) lines.push(`${t.key} ${lowerFirst(droppedText(dropped))}, and copies ${guestsCopiedText(copied)}.`);
+    else if (dropped.length) lines.push(`${t.key} ${lowerFirst(droppedText(dropped))}.`);
+    else if (copied > 0) lines.push(`${t.key} copies ${guestsCopiedText(copied)}.`);
+  }
   lines.push('Their comments, files, checklists, history, watchers and blockers go with them.');
   return lines;
 }
+
+/** 1.24 "Drops categories: Electrical, HSE" / "Drops category: Civil". */
+const droppedText = (names: string[]) => `Drops ${names.length === 1 ? 'category' : 'categories'}: ${names.join(', ')}`;
+/** 1.24 "2 guests to the new company’s list" (moved to another company's project, they are copied onto its list). */
+const guestsCopiedText = (n: number) => `${n} ${n === 1 ? 'guest' : 'guests'} to the new company’s list`;
+const lowerFirst = (text: string) => text.charAt(0).toLowerCase() + text.slice(1);
 
 /** "Sara Al Balushi isn’t on the Operations team." / "A and B aren’t on the Operations team." */
 export function notOnTeamText(people: MovePerson[], projectName: string): string {

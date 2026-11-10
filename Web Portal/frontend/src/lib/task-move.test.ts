@@ -99,6 +99,40 @@ describe('What a move will change, in plain words', () => {
     ]);
   });
 
+  it('1.24: the categories it drops (the new project has none of those names) and the guests copied to the new company’s list', () => {
+    expect(moveChanges(preview([task({ categoriesDropped: ['Electrical', 'HSE'], guestsCopied: 2 })]), TODAY)).toEqual([
+      'Becomes OPS-17. Searching for RIG-4 still finds it.',
+      'Drops categories: Electrical, HSE — Operations has none of those names.',
+      'Copies 2 guests to the new company’s list.',
+      'Its comments, files, checklist, history, watchers and blockers go with it.',
+    ]);
+    expect(moveChanges(preview([task({ categoriesDropped: ['Civil'], guestsCopied: 1 })]), TODAY)).toEqual([
+      'Becomes OPS-17. Searching for RIG-4 still finds it.',
+      'Drops category: Civil — Operations has none of that name.',
+      'Copies 1 guest to the new company’s list.',
+      'Its comments, files, checklist, history, watchers and blockers go with it.',
+    ]);
+    // Nothing dropped or copied (or an older server): no lines.
+    expect(moveChanges(preview([task({ categoriesDropped: [], guestsCopied: 0 })]), TODAY)).toHaveLength(2);
+  });
+
+  it('1.24 several tasks: each one that drops categories or copies guests, by its number', () => {
+    const many = [
+      task({ id: 'a', key: 'RIG-1', newKey: 'OPS-17', categoriesDropped: ['Electrical', 'HSE'] }),
+      task({ id: 'b', key: 'RIG-2', newKey: 'OPS-18', guestsCopied: 1 }),
+      task({ id: 'c', key: 'RIG-3', newKey: 'OPS-19', categoriesDropped: ['Civil'], guestsCopied: 3 }),
+      task({ id: 'd', key: 'RIG-4', newKey: 'OPS-20' }),
+      task({ id: 'e', key: 'ADM-1', canMove: false, newKey: null, reason: 'Already in Operations.', categoriesDropped: ['X'] }),
+    ];
+    expect(moveChanges(preview(many), TODAY)).toEqual([
+      'They get the next OPS numbers, OPS-17 to OPS-20. Searching for their old numbers still finds them.',
+      'RIG-1 drops categories: Electrical, HSE.',
+      'RIG-2 copies 1 guest to the new company’s list.',
+      'RIG-3 drops category: Civil, and copies 3 guests to the new company’s list.',
+      'Their comments, files, checklists, history, watchers and blockers go with them.',
+    ]);
+  });
+
   it('into a Done column it will be marked complete; a completed task moved to an open one will be reopened', () => {
     expect(moveChanges(preview([task({ columnId: 'o-done' })]), TODAY)).toContain('It will be marked complete.');
     expect(moveChanges(preview([task({ completed: true, columnId: 'o-doing' })]), TODAY)).toContain('It will be reopened.');

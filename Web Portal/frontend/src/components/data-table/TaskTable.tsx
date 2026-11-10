@@ -39,6 +39,10 @@ import { weightColumns } from './weight-column';
 import { PRIORITY_CLASS, dueTone, statusColour } from '../../lib/colour-classes';
 import { useDensity } from '../../lib/density';
 import { ChecklistCount, DescriptionLine, TagChips } from '../DetailLines';
+import { CategoryChips } from '../CategoryChip';
+import { GuestIcon } from '../GuestsLine';
+import { GUEST_WORDS, guestLabel } from '../../lib/guest-contacts';
+import { CATEGORY_WORDS } from '../../lib/task-categories';
 
 export interface TaskTableProps {
   /** Which page's table (what it remembers for the person: sort, filters, columns). */
@@ -195,7 +199,7 @@ export function TaskTable({
     person: personOptions.some((o) => o.value === remembered.person) ? remembered.person : '',
   };
   // A sort on a column since hidden is let go too (unless the page keeps its own sort: My Tasks' menu says it).
-  const OPTIONAL = new Set(['start', 'progress', 'tags']);
+  const OPTIONAL = new Set(['start', 'progress', 'tags', 'guests', 'categories']);
   const shownSort = presorted || !sort || !OPTIONAL.has(sort.column) || shown.includes(sort.column) ? sort : null;
 
   const rawById = useMemo(() => new Map(tasks.map((t) => [t.id, t])), [tasks]);
@@ -294,6 +298,7 @@ export function TaskTable({
             ) : null}
             {/* Detailed (1.23.8, lib/density): the description's first line and the tags under the title. */}
             {detailed ? <DescriptionLine description={t.description} /> : null}
+            {detailed && !shown.includes('categories') ? <CategoryChips categories={t.categories} density="detailed" /> : null}
             {detailed && !shown.includes('tags') ? <TagChips tags={t.tags} /> : null}
             {detailed ? <ChecklistCount counts={t.counts} /> : null}
           </span>
@@ -436,6 +441,23 @@ export function TaskTable({
           <span className="text-ink-3">—</span>
         ),
     },
+    // 1.24: its guests (people outside the company, named for the record) and its categories.
+    {
+      id: 'guests',
+      label: GUEST_WORDS.heading,
+      optional: true,
+      sortable: true,
+      className: 'min-w-[9rem] max-w-[16rem]',
+      cell: (t) => <GuestsCell task={t} />,
+    },
+    {
+      id: 'categories',
+      label: CATEGORY_WORDS.heading,
+      optional: true,
+      sortable: true,
+      className: 'min-w-[8rem] max-w-[16rem]',
+      cell: (t) => (t.categories?.length ? <CategoryChips categories={t.categories} density="detailed" /> : <span className="text-ink-3">—</span>),
+    },
     {
       id: 'open',
       label: 'Open',
@@ -509,6 +531,28 @@ export function TaskTable({
         )
       }
     />
+  );
+}
+
+/**
+ * 1.24 A task's guests in the table: each by name (company) with the person-outside icon, read out as
+ * "Guest: …" (an older server: its contacts in short, by name). Never a link or a button: guests have no access.
+ */
+function GuestsCell({ task }: { task: ApiTask }) {
+  const labels = task.guests?.length
+    ? task.guests.map((g) => ({ key: g.id, text: guestLabel(g) }))
+    : (task.externalSummary?.names ?? []).map((name, i) => ({ key: `${i}`, text: i === 0 ? guestLabel({ name, company: task.externalSummary!.company }) : name }));
+  if (labels.length === 0) return <span className="text-ink-3">—</span>;
+  return (
+    <span className="flex flex-wrap gap-1">
+      {labels.map((g) => (
+        <span key={g.key} data-testid="table-guest" title={`${GUEST_WORDS.one}: ${g.text}`} className="inline-flex max-w-full items-center gap-1 rounded-full bg-ground px-2 py-0.5 text-[11px] font-medium text-ink-2">
+          <GuestIcon size={11} />
+          <span className="sr-only">{GUEST_WORDS.one}: </span>
+          <span dir="auto" className="truncate">{g.text}</span>
+        </span>
+      ))}
+    </span>
   );
 }
 

@@ -3,7 +3,7 @@ import type { ApiColumn } from '../api/columns';
 import type { ApiProject } from '../api/projects';
 import { STATUS_META, STATUS_ORDER, type TaskCategory } from './taskStatus';
 import type { KanbanColumnData } from '../components/KanbanColumn';
-import { externalCompanyOptions, hasExternalCompany } from './external-contacts';
+import { matchesGuestCategory, type GuestCategoryFilters, type GuestCategoryRow } from './guest-category-filter';
 
 /**
  * Resolve a drag-drop: given the dragged task key and the id it was dropped over
@@ -120,6 +120,9 @@ export function composeBoard(columns: ApiColumn[], tasks: ApiTask[]): KanbanColu
           // A finished task (DONE column, or completed) is never shown as overdue.
           done: col.category === 'DONE' || !!t.completedAt,
           external: t.externalSummary ?? null,
+          // 1.24: its guests (the card's "Guest: …" line) and categories (its chips; the filters read both).
+          guests: t.guests,
+          categories: t.categories,
           description: t.description,
           tags: t.tags,
         })),
@@ -189,6 +192,8 @@ export function composeAllProjectsBoard(tasks: ApiTask[], projects: ApiProject[]
           awaitingApproval: !!t.approvalRequestedAt,
           done: status === 'DONE' || !!t.completedAt,
           external: t.externalSummary ?? null,
+          guests: t.guests,
+          categories: t.categories,
           description: t.description,
           tags: t.tags,
           project: { name: p.name, code: p.code, color: p.color, icon: p.icon ?? null, imageUrl: p.imageUrl },
@@ -198,15 +203,26 @@ export function composeAllProjectsBoard(tasks: ApiTask[], projects: ApiProject[]
   });
 }
 
-/** The companies named on the board's cards' external contacts, each once, A to Z (the company filter's choices). */
-export function boardCompanies(columns: KanbanColumnData[]): string[] {
-  return externalCompanyOptions(columns.flatMap((c) => c.tasks.map((t) => ({ externalSummary: t.external }))));
+/**
+ * 1.24 The board's cards as rows for the Guest, Guest company and Category filters' choices (each with its
+ * project's name on All projects: categories are each project's own).
+ */
+export function boardFilterRows(columns: KanbanColumnData[]): (GuestCategoryRow & { projectName?: string })[] {
+  return columns.flatMap((c) =>
+    c.tasks.map((t) => ({ guests: t.guests, categories: t.categories, externalSummary: t.external ?? null, ...(t.project ? { projectName: t.project.name } : {}) })),
+  );
 }
 
-/** Only the cards with an external contact from `company` (case and extra spaces aside); the board as it is for no company. */
-export function filterBoardByCompany(columns: KanbanColumnData[], company: string): KanbanColumnData[] {
-  if (!company.trim()) return columns;
-  return columns.map((c) => ({ ...c, tasks: c.tasks.filter((t) => hasExternalCompany(t.external, company)) }));
+/** Only the cards that pass the Guest, Guest company and Category filters; the board as it is when none is chosen. */
+export function filterBoard(columns: KanbanColumnData[], f: GuestCategoryFilters): KanbanColumnData[] {
+  if (!f.guest && !f.guestCompany.trim() && !f.category) return columns;
+  return columns.map((c) => ({ ...c, tasks: c.tasks.filter((t) => matchesGuestCategory({ guests: t.guests, categories: t.categories, externalSummary: t.external }, f)) }));
+}
+
+/** 1.24 "Needs a category" on each card without one, when the board's project asks every task for one. */
+export function markNeedsCategory(columns: KanbanColumnData[], required: boolean): KanbanColumnData[] {
+  if (!required) return columns;
+  return columns.map((c) => ({ ...c, tasks: c.tasks.map((t) => (t.categories?.length ? t : { ...t, needsCategory: true })) }));
 }
 
 /**

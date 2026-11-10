@@ -22,6 +22,9 @@ import type { ChecklistAt, CLList, CLPerson } from '../lib/checklist-tree';
 import { todayKey } from '../lib/due-date';
 import { CommentsSection, type DrawerComment, type ReplyToComment } from './task-drawer/comments';
 import { ActivityTimeline, type DrawerActivity } from './task-drawer/activity';
+import { drawerGuests } from './task-drawer/guests';
+import { CategoriesBox } from './task-drawer/categories';
+import type { PickableCategory } from './task-form/category-picker';
 import { AttachmentsSection, type DrawerAttachment, type LoadOfficePreview, type SetFileClientVisible } from './task-drawer/attachments';
 import { DependenciesSection, type DrawerDependencies, type DrawerTaskRef } from './task-drawer/dependencies';
 import { ExportMenu, MoreActionsMenu, WatchButton } from './task-drawer/menus';
@@ -162,8 +165,18 @@ export interface TaskDrawerProps {
   inspections?: ReactNode;
   /** The "Approval" section (needs approval; Approve / Send back while it waits) — first while it waits. */
   approval?: ReactNode;
-  /** The "External contacts" section (people outside the company responsible for the task), under its details. */
-  externalContacts?: ReactNode;
+  /**
+   * 1.24 Guests (people outside the company, for the record; shown under Assigned after the team):
+   * put one from the company's list on the task, take one off, change this task's note for one. Each
+   * rejects with the reason to show. Without them the guests are shown read-only.
+   */
+  onAddGuest?: (guestId: string) => Promise<void> | void;
+  onRemoveGuest?: (guestId: string) => Promise<void> | void;
+  onSetGuestNote?: (guestId: string, note: string | null) => Promise<void> | void;
+  /** 1.24 Categories: the project's list to pick from (null while it loads), whether it needs one, and saving the task's set. */
+  categoryChoices?: PickableCategory[] | null;
+  requireCategory?: boolean;
+  onSetCategories?: (categoryIds: string[]) => Promise<void> | void;
   /** Previous / Next through the list the task was opened from (none: no steps shown). */
   stepper?: TaskStepper;
   /** 1.23.1: merge it with other tasks (in “More actions”; administrators and its project's managers). */
@@ -372,7 +385,12 @@ export function TaskDrawer({
   onSetClientDescription,
   inspections,
   approval,
-  externalContacts,
+  onAddGuest,
+  onRemoveGuest,
+  onSetGuestNote,
+  categoryChoices,
+  requireCategory = false,
+  onSetCategories,
   stepper,
   onMerge,
   mergeUnavailable,
@@ -437,6 +455,10 @@ export function TaskDrawer({
   // the checklist and comments, which come first.
   const phone = useMediaQuery(PHONE_QUERY);
   const former = mergedFromKeys(task).former;
+  // 1.24: its guests (in full from the task, else a list row's short ones) and its categories.
+  const guests = useMemo(() => drawerGuests(task), [task.taskGuests, task.guests]);
+  const categories = task.categories;
+  const showCategories = categories !== undefined && (categories.length > 0 || (categoryChoices?.length ?? 0) > 0 || requireCategory);
   // The checklists: the panel's own changes, then everything else the container offers.
   // Only a new list from the server is new items (a tick waiting for the server stays while the panel redraws).
   const checklistItems = useMemo(
@@ -671,9 +693,12 @@ export function TaskDrawer({
               scope={scope}
               onScope={setScope}
               weightDefaults={countsByWeight(project) ? projectWeights(project) : null}
+              guests={guests}
+              onAddGuest={onAddGuest}
+              onRemoveGuest={onRemoveGuest}
+              onSetGuestNote={onSetGuestNote}
             />
-            {/* Apart from the assignees above: the people outside the company responsible for it. */}
-            {externalContacts}
+            {showCategories ? <CategoriesBox categories={categories ?? []} choices={categoryChoices} requireCategory={requireCategory} onSave={onSetCategories} /> : null}
             {phone ? null : sideParts}
           </div>
           <div className="min-w-0 lg:col-start-1 lg:row-start-2">

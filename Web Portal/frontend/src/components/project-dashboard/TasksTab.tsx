@@ -11,8 +11,10 @@ import { TOUCH_TALL } from '../../lib/touch';
 import { EmptyState } from '../ui/EmptyState';
 import { Button } from '../ui/Button';
 import { ApprovalChip } from '../approvals/ApprovalChip';
-import { ExternalContactsLine } from '../ExternalContactsLine';
-import { matchesExternalContact } from '../../lib/external-contacts';
+import { GuestsLine } from '../GuestsLine';
+import { RowCategoryChips } from '../RowCategoryChips';
+import { GuestCategoryFilterBoxes, type GuestCategoryFilterState } from '../GuestCategoryFilters';
+import { EMPTY_GUEST_CATEGORY_FILTERS, guestCategoryFiltersActive, guestsMatchWords, matchesGuestCategory } from '../../lib/guest-category-filter';
 import { TaskKey } from '../TaskKey';
 import { DENSE_FACE, DENSE_STACK, DENSE_TEXT } from '../../lib/density-tokens';
 import type { ApiProject } from '../../api/projects';
@@ -47,7 +49,8 @@ export interface TaskGroup {
 function TaskRow({ task, statusName, phase, dueText, onOpen }: { task: ApiTask; statusName: string; phase: TaskPhase; dueText: string; onOpen: () => void }) {
   const assignees = task.assignees ?? [];
   // Detailed (1.23.8, lib/density): the title wraps; its description's first line, tags and everyone on it.
-  const detailed = useDensity() === 'detailed';
+  const density = useDensity();
+  const detailed = density === 'detailed';
   const overdue = phase === 'overdue';
   const progress = phase === 'completed' ? 100 : Math.max(0, Math.min(100, task.progress ?? 0));
   return (
@@ -59,9 +62,13 @@ function TaskRow({ task, statusName, phase, dueText, onOpen }: { task: ApiTask; 
         {task.isMilestone ? <span className="text-brand" role="img" aria-label="Milestone" title="Milestone"><FlagIcon /></span> : null}
         {task.clientVisible ? <span className="text-info" role="img" aria-label="Visible to client" title="Visible to client"><ClientEyeIcon size={13} /></span> : null}
         <span className="flex min-w-0 flex-1 flex-col">
-          <span dir="auto" className={`min-w-0 ${detailed ? 'break-words' : 'truncate'} text-start text-sm font-medium ${DENSE_TEXT} ${phase === 'completed' ? 'text-ink-2' : 'text-ink'}`}>{task.title}</span>
+          {/* 1.24: its categories beside the title (Detailed: every one, on a line under it). */}
+          <span className={`flex min-w-0 items-center gap-x-2 gap-y-0.5 ${detailed ? 'flex-wrap' : 'max-sm:flex-wrap'}`}>
+            <span dir="auto" className={`min-w-0 ${detailed ? 'break-words' : 'flex-1 truncate'} text-start text-sm font-medium ${DENSE_TEXT} ${phase === 'completed' ? 'text-ink-2' : 'text-ink'}`}>{task.title}</span>
+            <RowCategoryChips categories={task.categories} density={density} />
+          </span>
           {detailed ? <DescriptionLine description={task.description} as="span" /> : null}
-          <ExternalContactsLine summary={task.externalSummary} />
+          <GuestsLine guests={task.guests} summary={task.externalSummary} />
           {detailed ? <TagChips tags={task.tags} className="mt-0.5" /> : null}
           {detailed && assignees.length > 0 ? <PeopleLine people={assignees} className="mt-0.5" as="span" /> : null}
           {detailed ? <ChecklistCount counts={task.counts} className="mt-0.5" /> : null}
@@ -101,9 +108,10 @@ const VIEWS = [
 
 /**
  * Every task of the project by status column, narrowed to ongoing, pending, overdue, completed
- * or milestone tasks, or by words (its title, key or an external contact's name or company) — with
- * priority, people, external contacts, progress and due date on each. 1.23.0: shown as that list or
- * as a table (List | Table, remembered for the person), the table changed in place.
+ * or milestone tasks, or by words (its title, key or a guest's name or company) — with priority,
+ * people, categories, guests, progress and due date on each. 1.23.0: shown as that list or as a table
+ * (List | Table, remembered for the person), the table changed in place. 1.24: and by guest, guest
+ * company or category.
  */
 export function TasksTab({
   groups,
@@ -134,6 +142,7 @@ export function TasksTab({
   readOnly?: ProjectReadOnly | null;
 }) {
   const [q, setQ] = useState('');
+  const [picked, setPicked] = useState<GuestCategoryFilterState>(EMPTY_GUEST_CATEGORY_FILTERS);
   const [chosenView, setView] = useViewChoice('project-tasks.view', ['list', 'table'] as const, 'list');
   const view = project && columns ? chosenView : 'list';
   const all = useMemo(() => groups.flatMap((g) => g.tasks), [groups]);
@@ -148,7 +157,8 @@ export function TasksTab({
   const words = q.trim().toLocaleLowerCase('en');
   const keep = (t: ApiTask) =>
     (filter === 'all' || (filter === 'milestones' ? !!t.isMilestone : taskPhase(t, today, timeZone) === filter)) &&
-    (!words || t.title.toLocaleLowerCase('en').includes(words) || t.key.toLocaleLowerCase('en').includes(words) || matchesExternalContact(t.externalSummary, words) || matchesTaskNumber(words, t.key, t.formerKeys));
+    (!words || t.title.toLocaleLowerCase('en').includes(words) || t.key.toLocaleLowerCase('en').includes(words) || guestsMatchWords(t, words) || matchesTaskNumber(words, t.key, t.formerKeys)) &&
+    matchesGuestCategory(t, picked);
   const shown = groups.map((g) => ({ ...g, tasks: g.tasks.filter(keep) })).filter((g) => g.tasks.length > 0);
 
   if (loading) return <div className="skeleton h-40 rounded-xl" role="status" aria-label="Loading tasks" />;
@@ -172,7 +182,9 @@ export function TasksTab({
               type="button"
               aria-pressed={filter === f.v}
               onClick={() => onFilter(f.v)}
-              className={`whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-colors ${TOUCH_TALL} [@media(pointer:coarse)]:!min-w-11 ${filter === f.v ? 'bg-surface text-ink shadow-soft' : 'text-ink-2 hover:text-ink'} ${f.v === 'overdue' && counts.overdue ? OVERDUE_CLASS.text : ''}`}
+              // flex-none: on a phone the chips keep their words whole and the group scrolls sideways
+              // (shrunk to their 44px touch minimum, the words ran into each other).
+              className={`flex-none whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-colors ${TOUCH_TALL} [@media(pointer:coarse)]:!min-w-11 ${filter === f.v ? 'bg-surface text-ink shadow-soft' : 'text-ink-2 hover:text-ink'} ${f.v === 'overdue' && counts.overdue ? OVERDUE_CLASS.text : ''}`}
             >
               {f.label} <span className="tabular-nums text-ink-3">{counts[f.v]}</span>
             </button>
@@ -185,6 +197,15 @@ export function TasksTab({
           </label>
           {project && columns ? <ViewSwitch label="Show tasks as" value={view} onChange={setView} options={VIEWS} /> : null}
         </div>
+      </div>
+      {/* 1.24: Guest, Guest company and Category — each only when the project's tasks give it a choice. */}
+      <div className="flex flex-wrap items-center gap-2 empty:hidden">
+        <GuestCategoryFilterBoxes rows={all} value={picked} onChange={setPicked} box="min-w-0 max-sm:flex-[1_1_calc(50%-0.25rem)] sm:w-48" />
+        {guestCategoryFiltersActive(picked) > 0 ? (
+          <button type="button" onClick={() => setPicked(EMPTY_GUEST_CATEGORY_FILTERS)} className={`rounded-lg px-2 py-1 text-xs font-medium text-ink-2 transition-colors hover:bg-ground hover:text-ink ${TOUCH_TALL}`}>
+            Clear
+          </button>
+        ) : null}
       </div>
       {view === 'table' && project && columns && readOnly ? (
         // An archived or completed project's table is there to look at, and says why (the board's notice).

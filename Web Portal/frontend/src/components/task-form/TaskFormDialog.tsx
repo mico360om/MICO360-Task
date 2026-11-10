@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useInRouterContext } from 'react-router-dom';
 import { apiClient } from '../../api/client';
@@ -45,8 +45,12 @@ import { inspectionsApi } from '../../api/inspections';
 import { INSPECTION_LIMITS } from '../../lib/inspection-rules';
 import { ChecklistDraftEditor } from '../checklists/ChecklistDraftEditor';
 import { draftFromTree, draftToTree, emptyDraft, treeLeafCount, type ChecklistDraft } from '../../lib/checklist-tree';
-import { ExternalContactsField, changedContactFields, fieldsOnly, formContact, type FormContact } from './ExternalContactsField';
-import { externalContactsApi } from '../../api/external-contacts';
+import { AssignModeSwitch, GuestBadge, GuestPicker, guestChipText, pickedGuest, type AssignMode, type PickedGuest } from './guest-picker';
+import { CategoryPicker } from './category-picker';
+import { guestsApi } from '../../api/guests';
+import { categoriesApi } from '../../api/categories';
+import { GUEST_WORDS, guestLabel } from '../../lib/guest-contacts';
+import { CATEGORY_WORDS } from '../../lib/task-categories';
 import { isProjectArchived } from '../../lib/project-archive';
 import { TaskKey } from '../TaskKey';
 import { showTaskNotice, taskCreatedNotice } from '../../lib/task-notice';
@@ -97,9 +101,14 @@ interface Draft {
   place: string;
   /** Needs approval: a project manager must approve it before it counts as done. */
   approval: boolean;
-  /** People outside the company responsible for it (an existing task's carry their ids). */
-  contacts: FormContact[];
+  /** 1.24: guests from the project's company list (people outside the company, for the record), in order. */
+  guests: PickedGuest[];
+  /** 1.24: its categories from the project's list, in the project's order. */
+  categoryIds: string[];
 }
+
+/** 1.24: the categories a project offers, cached for every place that shows them (the task panel too). */
+export const categoriesKey = (projectId: string) => ['categories', projectId] as const;
 
 export const TITLE_MAX = 191;
 const DESCRIPTION_MAX = 20_000;
@@ -168,7 +177,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
   const editing = !!task;
   const qc = useQueryClient();
   const timeZone = useCompanyTimeZone();
-  const ids = { title: useId(), desc: useId(), due: useId(), dueNote: useId(), titleErr: useId(), untilErr: useId(), owner: useId(), place: useId(), formNote: useId(), approvalHint: useId(), approvalLocked: useId() };
+  const ids = { title: useId(), desc: useId(), due: useId(), dueNote: useId(), titleErr: useId(), untilErr: useId(), owner: useId(), place: useId(), formNote: useId(), approvalHint: useId(), approvalLocked: useId(), teamErr: useId(), catLabel: useId(), catErr: useId() };
 
   // One empty checklist draft for how the form opened and the form itself (so an untouched form isn't "changed").
   const [blankChecklists] = useState(emptyDraft);
@@ -188,9 +197,10 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
           formId: task.inspectionFormId ?? '',
           place: task.inspectionPlace ?? '',
           approval: !!task.needsApproval,
-          contacts: (task.externalContacts ?? []).map((c) => formContact(c, c.id)),
+          guests: task.taskGuests ? task.taskGuests.map((g) => pickedGuest({ ...g, id: g.guestId })) : (task.guests ?? []).map(pickedGuest),
+          categoryIds: (task.categories ?? []).map((c) => c.id),
         }
-      : { projectId: fixedProjectId ?? '', columnId: defaultColumnId ?? '', title: '', description: '', priority: 'NORMAL', dueDate: defaultDueDate ?? '', rule: null, assigneeIds: [], milestone: false, checklists: blankChecklists, formId: '', place: '', approval: false, contacts: [] };
+      : { projectId: fixedProjectId ?? '', columnId: defaultColumnId ?? '', title: '', description: '', priority: 'NORMAL', dueDate: defaultDueDate ?? '', rule: null, assigneeIds: [], milestone: false, checklists: blankChecklists, formId: '', place: '', approval: false, guests: [], categoryIds: [] };
   // `saved` is what the server has (or, for a new task, how the form opened); `draft` is the form.
   const [saved, setSaved] = useState<Draft>(start);
   const [draft, setDraft] = useState<Draft>(start);
@@ -207,11 +217,17 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
   const [scope, setScope] = useState<'one' | 'series'>('one');
   const [titleError, setTitleError] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
-  // A contact being typed in (its editor open): saving the task asks for it to be saved first.
-  const [contactOpen, setContactOpen] = useState(false);
+  // 1.24: the Assign box picks team members ("Internal user") or guests; why a save was stopped there
+  // (guests and no team member) or at Categories (the project needs one); what a project change took off.
+  const [assignMode, setAssignMode] = useState<AssignMode>('internal');
+  const [teamError, setTeamError] = useState(false);
+  const [categoryError, setCategoryError] = useState(false);
+  const [notes, setNotes] = useState<{ members?: string; guests?: string; categories?: string }>({});
+  const assignRef = useRef<HTMLDivElement>(null);
+  const categoriesRef = useRef<HTMLDivElement>(null);
+  const myId = useAuthStore((s) => s.user?.id);
   // Files for a new task (chosen, dropped or pasted); they go up once the task exists.
   const [files, setFiles] = useState<PendingFile[]>([]);
   const fileSeq = useRef(0);
@@ -222,10 +238,11 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
   const titleRef = useRef<HTMLInputElement>(null);
   const untilRef = useRef<HTMLDivElement>(null);
 
+  /** A new guest being typed in the Assign box (not on the task until it is added). */
+  const guestTyping = () => Boolean(dialogRef.current?.querySelector('[data-guest-form][data-unsaved]'));
   const dirty =
     placeChosen ||
     files.length > 0 ||
-    contactOpen ||
     JSON.stringify({ ...draft, projectId: '', columnId: '' }) !== JSON.stringify({ ...saved, projectId: '', columnId: '' }) ||
     draft.columnId !== saved.columnId ||
     weight !== savedWeight;
@@ -238,7 +255,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
   const requestClose = () => {
     if (busy.current) return;
     if (created) finish(created);
-    else if (dirty) setConfirmClose(true);
+    else if (dirty || guestTyping()) setConfirmClose(true);
     else onClose();
   };
   const addFiles = (more: File[]) => {
@@ -326,8 +343,6 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
   // ── Who can do it ──
   const membersQ = useQuery({ queryKey: ['members', draft.projectId], queryFn: () => membersApi(apiClient).list(draft.projectId), enabled: !!draft.projectId });
   const dirQ = useQuery({ queryKey: ['directory'], queryFn: () => usersApi(apiClient).directory() });
-  // Earlier external contacts of the chosen project, suggested as a contact's name is typed.
-  const suggestContacts = useCallback((typed: string) => externalContactsApi(apiClient).suggest(draft.projectId, typed), [draft.projectId]);
   const people = useMemo<PersonOption[]>(() => {
     const dir = Array.isArray(dirQ.data) ? dirQ.data : [];
     return (Array.isArray(membersQ.data) ? membersQ.data : []).map((m) => ({ id: m.id, name: fullName(m), username: m.username, avatarUrl: dir.find((d) => d.id === m.id)?.avatarUrl ?? null }));
@@ -354,16 +369,58 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
     if (gone.length === 0) return;
     set({ assigneeIds: draft.assigneeIds.filter((id) => onTeam.has(id)) });
     const names = gone.map((id) => known.current.get(id) ?? 'Someone');
-    setNotice(`${listNames(names)} ${names.length === 1 ? 'isn’t' : 'aren’t'} on ${project?.name ?? 'that project'}, so ${names.length === 1 ? 'they were' : 'they were'} taken off this task.`);
+    setNotes((n) => ({ ...n, members: `${listNames(names)} ${names.length === 1 ? 'isn’t' : 'aren’t'} on ${project?.name ?? 'that project'}, so ${names.length === 1 ? 'they were' : 'they were'} taken off this task.` }));
   }, [membersQ.isSuccess, membersQ.isFetching, people, draft.projectId]);
+
+  // ── 1.24 Guests: from the project's main company's list ──
+  // An existing task's come with it (an older server sends none, and has no guests to pick from).
+  const guestsKnown = !editing || task?.taskGuests !== undefined || task?.guests !== undefined;
+  const teamProblem = draft.guests.length > 0 && draft.assigneeIds.length === 0 && (!editing || assigneesQ.isSuccess);
+  function addGuest(g: PickedGuest) {
+    // The person adding a guest looks after them when nobody from the team is picked yet (changeable).
+    const me = myId && people.some((p) => p.id === myId) ? myId : null;
+    setDraft((d) => (d.guests.some((x) => x.id === g.id) ? d : asCheck({ ...d, guests: [...d.guests, g], ...(d.assigneeIds.length === 0 && me ? { assigneeIds: [me] } : {}) })));
+  }
+  const removeGuest = (id: string) => set({ guests: draft.guests.filter((g) => g.id !== id) });
+  /** After a project change: keep only the guests the new project's company list has (another company's list is another list). */
+  async function recheckGuests(projectId: string, picked: PickedGuest[], projectName: string) {
+    const api = guestsApi(apiClient);
+    const onList = await Promise.all(picked.map((g) => api.forProject(projectId, g.name).then((list) => Array.isArray(list) && list.some((x) => x.id === g.id), () => false)));
+    const gone = picked.filter((_, i) => !onList[i]);
+    if (gone.length === 0) return;
+    setDraft((d) => (d.projectId !== projectId ? d : asCheck({ ...d, guests: d.guests.filter((g) => !gone.some((x) => x.id === g.id)) })));
+    setNotes((n) => ({ ...n, guests: `${listNames(gone.map(guestLabel))} ${gone.length === 1 ? 'isn’t' : 'aren’t'} on ${projectName}’s guest list, so ${gone.length === 1 ? 'they were' : 'they were'} taken off this task.` }));
+  }
+
+  // ── 1.24 Categories: the project's own list ──
+  const categoriesQ = useQuery({ queryKey: categoriesKey(draft.projectId), queryFn: () => categoriesApi(apiClient).forProject(draft.projectId), enabled: !!draft.projectId, staleTime: 30_000 });
+  const projectCats = categoriesQ.data && Array.isArray(categoriesQ.data.categories) ? categoriesQ.data : null;
+  const catChoices = projectCats?.categories ?? [];
+  const catsRequired = projectCats?.requireCategory === true;
+  // An existing task's come with it (an older server sends none). Shown when the project has any or needs one.
+  const categoriesKnown = !editing || task?.categories !== undefined;
+  const catsShown = categoriesKnown && !!projectCats && (catChoices.length > 0 || catsRequired || draft.categoryIds.length > 0);
+  const categoryProblem = catsShown && catsRequired && draft.categoryIds.length === 0;
+  const keptCategories = useMemo(() => (task?.categories ?? []).filter((c) => c.retired).map((c) => c.id), [task?.categories]);
+  // A problem put right is forgotten (it is said again only at the next save).
+  useEffect(() => {
+    if (!teamProblem) setTeamError(false);
+  }, [teamProblem]);
+  useEffect(() => {
+    if (!categoryProblem) setCategoryError(false);
+  }, [categoryProblem]);
 
   function chooseProject(id: string) {
     if (id === draft.projectId) return;
     preferKind.current = columns.find((c) => c.id === draft.columnId)?.category ?? null;
     pruneFor.current = id;
-    setNotice(null);
+    setNotes(draft.categoryIds.length > 0 ? { categories: 'Categories are each project’s own, so the ones picked were cleared.' } : {});
     setPlaceChosen(true);
-    set({ projectId: id, columnId: '' });
+    // Categories are each project's own: the ones picked go.
+    set({ projectId: id, columnId: '', categoryIds: [] });
+    const next = allProjects.find((p) => p.id === id);
+    const sameCompany = !!project?.mainCompanyId && project.mainCompanyId === next?.mainCompanyId;
+    if (draft.guests.length > 0 && !sameCompany) void recheckGuests(id, draft.guests, next?.name ?? 'that project');
   }
 
   const ownerName = project?.ownerId ? known.current.get(project.ownerId) ?? null : null;
@@ -417,8 +474,21 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
       untilRef.current?.querySelector<HTMLElement>('input[aria-label="End date"]')?.focus();
       return;
     }
-    if (contactOpen) {
-      setBanner('Save the external contact you’re working on, or cancel it, first.');
+    if (guestTyping()) {
+      setBanner('Add the guest you’re typing in, or cancel it, first.');
+      return;
+    }
+    // 1.24: a task with guests needs a person from the team (the server says so too).
+    if (teamProblem) {
+      setTeamError(true);
+      setAssignMode('internal');
+      setTimeout(() => assignRef.current?.querySelector<HTMLElement>('input[role="combobox"]')?.focus(), 0);
+      return;
+    }
+    // 1.24: a project that asks every task for a category.
+    if (categoryProblem) {
+      setCategoryError(true);
+      categoriesRef.current?.querySelector<HTMLElement>('button')?.focus();
       return;
     }
     if (!draft.projectId || !draft.columnId) {
@@ -457,7 +527,10 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
       ...(checklists.length ? { checklists } : {}),
       // Only when someone was picked — otherwise the project's default (its owner) applies.
       ...(draft.assigneeIds.length ? { assigneeIds: draft.assigneeIds } : {}),
-      ...(draft.contacts.length ? { externalContacts: draft.contacts.map(fieldsOnly) } : {}),
+      // 1.24: guests from the company's list (a team member is picked too — checked above).
+      ...(draft.guests.length ? { guests: draft.guests.map((g) => ({ guestId: g.id })) } : {}),
+      // 1.24: sent whenever the project has categories or needs one (sent, they are checked).
+      ...(projectCats && (catChoices.length > 0 || catsRequired) ? { categoryIds: draft.categoryIds } : {}),
       ...(boardDate ? { boardDate } : {}),
       ...(draft.formId ? { inspectionFormId: draft.formId, inspectionPlace: draft.place.trim() || null } : {}),
     };
@@ -562,54 +635,37 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
         version.current = latest.version ?? version.current;
         keep({ columnId: draft.columnId });
       }
+      // 1.24: its categories, only when the set changed (the server checks the project's rule).
+      if (categoriesKnown && JSON.stringify(draft.categoryIds) !== JSON.stringify(done.categoryIds)) {
+        await categoriesApi(apiClient).setForTask(t.id, draft.categoryIds);
+        keep({ categoryIds: draft.categoryIds });
+      }
+      // People: team members added first, then guests added and removed, team members removed last —
+      // so a task with guests always keeps someone from the team (the server refuses otherwise). Each
+      // change is kept as it goes through, so a retry sends only the rest.
       const add = draft.assigneeIds.filter((id) => !done.assigneeIds.includes(id));
       if (add.length) {
         await assigneesApi(apiClient).assignMany(t.id, add);
         keep({ assigneeIds: [...done.assigneeIds, ...add] });
       }
+      const guests = guestsApi(apiClient);
+      for (const g of draft.guests.filter((x) => !done.guests.some((d) => d.id === x.id))) {
+        // Put on it by someone else meanwhile: it is on the task either way.
+        await guests.addToTask(t.id, g.id).catch((err) => {
+          if (!(err instanceof ApiError && err.status === 409 && err.code === 'GUEST_ON_TASK')) throw err;
+        });
+        keep({ guests: [...done.guests, g] });
+      }
+      for (const g of done.guests.filter((x) => !draft.guests.some((d) => d.id === x.id))) {
+        // Taken off by someone else already: it is gone either way.
+        await guests.removeFromTask(t.id, g.id).catch((err) => {
+          if (!(err instanceof ApiError && err.status === 404)) throw err;
+        });
+        keep({ guests: done.guests.filter((x) => x.id !== g.id) });
+      }
       for (const id of done.assigneeIds.filter((x) => !draft.assigneeIds.includes(x))) {
         await assigneesApi(apiClient).unassign(t.id, id);
         keep({ assigneeIds: done.assigneeIds.filter((x) => x !== id) });
-      }
-      // External contacts, each saved on its own (what went through is kept, so a retry sends the rest):
-      // the ones removed, then the ones changed (only the fields changed, so someone else's change to
-      // another field stays), then the new ones.
-      const contacts = externalContactsApi(apiClient);
-      const goneAlready = (err: unknown) => err instanceof ApiError && err.status === 404;
-      for (const gone of done.contacts.filter((c) => c.id && !draft.contacts.some((d) => d.id === c.id))) {
-        // Someone else removed it already: it is gone either way.
-        await contacts.remove(gone.id!).catch((err) => {
-          if (!goneAlready(err)) throw err;
-        });
-        keep({ contacts: done.contacts.filter((c) => c.key !== gone.key) });
-      }
-      const lost: string[] = [];
-      for (const now of draft.contacts.filter((d) => d.id)) {
-        const before = done.contacts.find((c) => c.id === now.id);
-        const patch = before ? changedContactFields(before, now) : {};
-        if (!before || Object.keys(patch).length === 0) continue;
-        try {
-          await contacts.update(now.id!, patch);
-          keep({ contacts: done.contacts.map((c) => (c.id === now.id ? now : c)) });
-        } catch (err) {
-          if (!goneAlready(err)) throw err;
-          // Removed by someone else meanwhile: the change can't be saved, and the row goes.
-          lost.push(now.name);
-          keep({ contacts: done.contacts.filter((c) => c.key !== now.key) });
-          setDraft((d) => ({ ...d, contacts: d.contacts.filter((c) => c.key !== now.key) }));
-        }
-      }
-      for (const added of draft.contacts.filter((d) => !d.id && !done.contacts.some((c) => c.key === d.key))) {
-        const made = await contacts.add(t.id, fieldsOnly(added));
-        // Kept with the server's id, so it can still be changed or removed if a later save fails.
-        keep({ contacts: [...done.contacts, { ...added, id: made.id }] });
-        setDraft((d) => ({ ...d, contacts: d.contacts.map((c) => (c.key === added.key ? { ...c, id: made.id } : c)) }));
-      }
-      if (lost.length) {
-        void invalidateTaskQueries(qc);
-        void qc.invalidateQueries({ queryKey: ['task', t.id] });
-        setBanner(`${listNames(lost)} had been removed by someone else, so your ${lost.length === 1 ? 'change to them wasn’t' : 'changes to them weren’t'} saved. Everything else was saved.`);
-        return;
       }
       void invalidateTaskQueries(qc);
       void qc.invalidateQueries({ queryKey: ['task', t.id] });
@@ -634,7 +690,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
 
   // Big form (1.22): 960px and two columns from 1024px — what the task is on the left (template,
   // Describe, project and column, title, description, checklist, files); when, who and how on the
-  // right (dates and repeat, assignees, outside contacts, inspection form, milestone, approval).
+  // right (dates and repeat, assignees and guests, categories, inspection form, milestone, approval).
   // One column below, in the order it always had.
   const twoColumns = useTwoColumns();
   const templateField = !editing && !noProjects && taskTemplates.length ? (
@@ -696,7 +752,15 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
       </div>
     </div>
   );
-  const noticeLine = notice ? <p role="status" className="-mt-2 text-xs text-ink-2">{notice}</p> : null;
+  // What a project change took off (people, guests) or cleared (categories).
+  const noticeText = [notes.members, notes.guests, notes.categories].filter(Boolean);
+  const noticeLine = noticeText.length ? (
+    <div role="status" className="-mt-2 space-y-0.5 text-xs text-ink-2">
+      {noticeText.map((t) => (
+        <p key={t}>{t}</p>
+      ))}
+    </div>
+  ) : null;
   const titleField = (
     <div>
       <Label htmlFor={ids.title} required>Task title</Label>
@@ -820,27 +884,87 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
       {!dueWhen ? <p className="mt-2 text-xs text-ink-2">Set a due date to see the next dates.</p> : null}
     </fieldset>
   ) : null;
+  // 1.24 The Assign box: team members ("Internal user") and guests from the company's list ("Guest"),
+  // the guests after the team in one list, each marked Guest.
+  const showTeamError = teamError && teamProblem;
+  const guestChips = draft.guests.length
+    ? draft.guests.map((g) => (
+        <li key={`guest-${g.id}`} data-guest-chip={g.id} className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-line bg-ground py-1 pe-1 ps-2.5 text-sm text-ink">
+          <span dir="auto" className="min-w-0 truncate" title={guestChipText(g)}>
+            {guestChipText(g)}
+          </span>
+          <GuestBadge />
+          <button
+            type="button"
+            onClick={() => removeGuest(g.id)}
+            disabled={saving || !!created}
+            aria-label={`Remove ${guestLabel(g)}`}
+            title={`Remove ${guestLabel(g)}`}
+            className="grid h-6 w-6 flex-none place-items-center rounded-full text-ink-2 transition-colors hover:bg-danger-soft hover:text-danger [@media(pointer:coarse)]:-my-2.5 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
+          >
+            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
+          </button>
+        </li>
+      ))
+    : null;
   const assigneesField = (
-    <div>
-      <Label optional>Assignees</Label>
+    <div ref={assignRef}>
+      <Label optional={!draft.guests.length}>Assignees</Label>
       <AssigneeSelect
         people={people}
         value={draft.assigneeIds}
         onChange={(assigneeIds) => set({ assigneeIds })}
-        note={assigneeNote}
+        note={showTeamError ? null : teamProblem ? GUEST_WORDS.needsTeam : assigneeNote}
         disabled={!draft.projectId}
+        invalid={showTeamError || undefined}
+        describedBy={showTeamError ? ids.teamErr : undefined}
+        extraChips={guestChips}
+        modeSwitch={guestsKnown && draft.projectId ? <AssignModeSwitch mode={assignMode} onChange={setAssignMode} disabled={saving || !!created} /> : null}
+        picker={
+          guestsKnown && draft.projectId && assignMode === 'guest' ? (
+            <GuestPicker projectId={draft.projectId} exclude={draft.guests.map((g) => g.id)} onPick={addGuest} disabled={saving || !!created} />
+          ) : undefined
+        }
       />
+      {showTeamError ? (
+        <p id={ids.teamErr} role="alert" className="mt-1 text-xs font-medium text-danger">
+          {GUEST_WORDS.needsTeam}
+        </p>
+      ) : null}
     </div>
   );
-  // Apart from the assignees: people outside the company. An existing task's come with its details (an older server sends none, and has nowhere to keep them).
-  const contactsField = !editing || task?.externalContacts ? (
-    <ExternalContactsField
-      contacts={draft.contacts}
-      onChange={(contacts) => set({ contacts })}
-      suggest={draft.projectId ? suggestContacts : undefined}
-      onEditingChange={setContactOpen}
-      disabled={saving || !!created}
-    />
+  // 1.24 Categories: the project's own list (shown when it has any, or needs one).
+  const showCategoryError = categoryError && categoryProblem;
+  const categoriesField = catsShown ? (
+    <div ref={categoriesRef}>
+      <span id={ids.catLabel} className="mb-1.5 flex items-baseline gap-1.5 text-sm font-semibold text-ink">
+        {CATEGORY_WORDS.heading}
+        {catsRequired ? (
+          <>
+            <span aria-hidden="true" className="text-danger">*</span>
+            <span className="text-xs font-normal text-ink-2">(required)</span>
+          </>
+        ) : (
+          <span className="text-xs font-normal text-ink-2">(optional)</span>
+        )}
+      </span>
+      <CategoryPicker
+        categories={catChoices}
+        value={draft.categoryIds}
+        kept={keptCategories}
+        onChange={(categoryIds) => set({ categoryIds })}
+        labelledBy={ids.catLabel}
+        required={catsRequired}
+        invalid={showCategoryError}
+        describedBy={showCategoryError ? ids.catErr : undefined}
+        disabled={saving || !!created}
+      />
+      {showCategoryError ? (
+        <p id={ids.catErr} role="alert" className="mt-1 text-xs font-medium text-danger">
+          {CATEGORY_WORDS.pickOne}
+        </p>
+      ) : null}
+    </div>
   ) : null;
   const attachmentsField = !editing ? (
     <div>
@@ -944,7 +1068,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
                     {whenFields}
                     {repeatSchedule}
                     {assigneesField}
-                    {contactsField}
+                    {categoriesField}
                     {formFields}
                     {milestoneField}
                     {approvalField}
@@ -964,7 +1088,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
                   {whenFields}
                   {repeatSchedule}
                   {assigneesField}
-                  {contactsField}
+                  {categoriesField}
                   {attachmentsField}
                   {milestoneField}
                   {approvalField}
