@@ -22,12 +22,14 @@ export function BinUndoToast() {
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  // Pointed at or focused, it waits (a keyboard user can reach Undo); a failure stays until dismissed.
+  const [held, setHeld] = useState(false);
+  useEffect(() => setProblem(null), [notice]);
   useEffect(() => {
-    setProblem(null);
-    if (!notice) return;
+    if (!notice || problem || held || busy) return;
     const t = setTimeout(clearBinNotice, UNDO_MS);
     return () => clearTimeout(t);
-  }, [notice]);
+  }, [notice, problem, held, busy]);
   if (!notice) return null;
 
   async function undo() {
@@ -53,7 +55,14 @@ export function BinUndoToast() {
 
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-6 z-40 flex justify-center px-4">
-      <p role="status" className="pointer-events-auto flex max-w-full flex-wrap items-center gap-x-3 gap-y-1 rounded-2xl border border-line bg-surface py-2 pe-2 ps-4 text-sm font-medium text-ink shadow-lift">
+      <p
+        role="status"
+        onMouseEnter={() => setHeld(true)}
+        onMouseLeave={() => setHeld(false)}
+        onFocus={() => setHeld(true)}
+        onBlur={() => setHeld(false)}
+        className="pointer-events-auto flex max-w-full flex-wrap items-center gap-x-3 gap-y-1 rounded-2xl border border-line bg-surface py-2 pe-2 ps-4 text-sm font-medium text-ink shadow-lift"
+      >
         <span>{problem ?? notice.text}</span>
         {problem ? null : (
           <button type="button" onClick={() => void undo()} disabled={busy} aria-label={`Undo: restore ${notice.key}`} className={`rounded-full px-2 font-semibold text-brand hover:underline disabled:opacity-60 ${TOUCH_TALL}`}>

@@ -16,6 +16,8 @@ import { createPrismaBinStore } from '../../src/modules/recycle-bin/prisma-bin-s
 import { createBinService, type BinViewer } from '../../src/modules/recycle-bin/bin-service';
 import { binExpiryOf } from '../../src/modules/recycle-bin/bin-rules';
 import { portabilityProblems } from '../../src/lib/sql-portability';
+import { createPrismaRecurrencePort } from '../../src/modules/tasks/prisma-recurrence-port';
+import { createPrismaInspectionStore } from '../../src/modules/inspections/prisma-inspection-store';
 import { runBackfill } from './company-helpers';
 
 // The Recycle Bin on a real database (TEST_DATABASE_URL, migrations applied): delete → bin with who and
@@ -354,14 +356,69 @@ describe('the upgrade (older deletes)', () => {
     await prisma.task.update({ where: { id: old.id }, data: { deletedAt: new Date('2026-09-01T08:00:00Z') } });
     await prisma.project.update({ where: { id: ids.project! }, data: { taskNumberMark: 0 } });
     for (let i = 0; i < 2; i++) for (const s of statements()) await prisma.$executeRawUnsafe(s);
-    const today = (await prisma.$queryRaw<{ today: string }[]>`SELECT DATE_FORMAT(UTC_DATE(), '%Y-%m-%d') AS today`)[0]!.today;
+    const today = (await prisma.$queryRaw<{ today: string }[]>`SELECT DATE_FORMAT(UTC_TIMESTAMP() + INTERVAL 4 HOUR, '%Y-%m-%d') AS today`)[0]!.today;
+    // Muscat's day of the upgrade (UTC + 4), +61 days, at Muscat midnight: a full 60 days whatever the hour.
     const want = new Date(`${today}T00:00:00.000Z`);
     want.setUTCDate(want.getUTCDate() + 61);
+    want.setUTCHours(want.getUTCHours() - 4);
     expect(await prisma.task.findUniqueOrThrow({ where: { id: old.id } })).toMatchObject({ binExpiresAt: want, deletedById: null });
     expect((await prisma.task.findUniqueOrThrow({ where: { id: merged.id } })).binExpiresAt).toBeNull();
     const highest = Math.max(...[old, main, merged].map((t) => Number(t.key.split('-')[1])));
     expect((await prisma.project.findUniqueOrThrow({ where: { id: ids.project! } })).taskNumberMark).toBe(highest);
     const page = await bin.list(admin, null, {});
     expect(page.rows.map((r) => [r.id, r.deletedBy])).toEqual([[old.id, null]]);
+  });
+});
+
+describe('review fixes', () => {
+  it('C1: the read-only view never names a blocker the person can’t open, nor a deleted one', async () => {
+    const t = await make('Blocked task');
+    const seen = await make('Visible blocker');
+    const gone = await make('Deleted blocker');
+    const hidden = await tasks.createTask({ title: 'Secret blocker', projectId: ids.otherProject!, columnId: ids.qTodo!, createdById: ids.other! });
+    for (const b of [seen, gone, hidden]) await prisma.taskDependency.create({ data: { taskId: t.id, dependsOnTaskId: b.id } });
+    await del(gone.id, 'one', ids.manager!);
+    await del(t.id, 'one', ids.manager!);
+    // The manager doesn't see the other project: its task isn't named.
+    expect((await bin.detail(manager, t.id)).blockers.map((b) => b.title)).toEqual(['Visible blocker']);
+    expect((await bin.detail(admin, t.id)).blockers.map((b) => b.title).sort()).toEqual(['Secret blocker', 'Visible blocker']);
+  });
+
+  it('I1: a restore racing an erase never reports a task restored that is then erased', async () => {
+    for (let i = 0; i < 6; i++) {
+      const t = await make(`Race ${i}`);
+      await prisma.comment.create({ data: { taskId: t.id, userId: ids.mate!, body: 'x' } });
+      await del(t.id, 'one', ids.manager!);
+      const [restored, erased] = await Promise.all([bin.restore(admin, [t.id], {}), bin.erase(admin, [t.id])]);
+      const there = (await prisma.task.count({ where: { id: t.id } })) === 1;
+      expect(restored.restored.length + erased.erased.length).toBe(1);
+      expect(there).toBe(restored.restored.length === 1);
+    }
+  });
+
+  it('I2: erasing deleted copies keeps a counted series counted, and an earlier copy keeps its next copy', async () => {
+    const port = createPrismaRecurrencePort(prisma, { timeZone: TZ });
+    const head = await make('Counted', { recurrenceRule: { freq: 'DAILY', interval: 1, count: 3 } });
+    await prisma.task.update({ where: { id: head.id }, data: { recurrenceParentId: head.id } });
+    const second = await tasks.createTask({ title: 'Counted', projectId: ids.project!, columnId: ids.todo!, createdById: ids.manager!, recurrenceParentId: head.id });
+    const third = await tasks.createTask({ title: 'Counted', projectId: ids.project!, columnId: ids.todo!, createdById: ids.manager!, recurrenceParentId: head.id });
+    await prisma.task.update({ where: { id: second.id }, data: { recurrenceSourceId: head.id } });
+    await prisma.task.update({ where: { id: third.id }, data: { recurrenceSourceId: second.id } });
+    expect(await port.countInstances(head.id)).toBe(3);
+    await del(second.id, 'one', ids.manager!);
+    await bin.erase(admin, [second.id]);
+    // Still three made: the series stays full (no fourth copy), and the head's next copy is the third.
+    expect(await port.countInstances(head.id)).toBe(3);
+    expect((await prisma.task.findUniqueOrThrow({ where: { id: third.id } })).recurrenceSourceId).toBe(head.id);
+    expect((await tasks.getTask(head.id)).recurrenceNextId).toBe(third.id);
+  });
+
+  it('I3: an inspection whose task was erased still says which task it was for', async () => {
+    const t = await make('Inspect rig 3');
+    const insp = await prisma.inspection.create({ data: { projectId: ids.project!, formVersion: 1, title: 'Rig check', structure: { sections: [] }, taskId: t.id, inspectorId: ids.mate!, startedById: ids.mate! } });
+    await del(t.id, 'one', ids.manager!);
+    await bin.erase(admin, [t.id]);
+    const record = await createPrismaInspectionStore(prisma).findInspection(insp.id);
+    expect(record).toMatchObject({ taskId: null, erasedTask: `${t.key} 'Inspect rig 3'` });
   });
 });

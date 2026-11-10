@@ -103,7 +103,8 @@ export interface BinDetail {
   checklists: { title: string; items: { text: string; done: boolean; depth: number }[] }[];
   comments: BinComment[];
   files: { filename: string; sizeBytes: number; createdAt: Date; uploadedBy: BinPerson | null }[];
-  blockers: { key: string; title: string }[];
+  /** Its blockers that are still there, with their projects (the service keeps those the person may open). */
+  blockers: { key: string; title: string; projectId: string }[];
   history: BinHistoryLine[];
 }
 
@@ -129,8 +130,8 @@ export interface BinStore {
   erase(id: string): Promise<ErasedTask | null>;
   /** Is this file still used by anything (a task, a chat message, a meeting note, a decision)? */
   fileInUse(storageKey: string): Promise<boolean>;
-  /** Deleted tasks whose 60 days are over (in any project), at most `limit`. */
-  due(now: Date, limit: number): Promise<string[]>;
+  /** Deleted tasks whose 60 days are over (in any project), at most `limit`, leaving out `skip`. */
+  due(now: Date, limit: number, skip?: string[]): Promise<string[]>;
   /** Does this person run this project (owner, named manager, MANAGER member, sharing one of its companies)? */
   runsProject(userId: string, projectId: string): Promise<boolean>;
   /** The live projects this person runs, in the picked company (null: all of theirs). */

@@ -853,7 +853,7 @@ export function createInspectionService(deps: InspectionServiceDeps) {
           inspector: personOf(r.inspectorId, names).name,
           startedAt: r.startedAt.toISOString(),
           finishedAt: r.finishedAt?.toISOString() ?? null,
-          task: attached ? `${attached.key} · ${attached.title}` : null,
+          task: attached ? `${attached.key} · ${attached.title}` : r.erasedTask ? `Task erased (${r.erasedTask})` : null,
           followUps: r.structure.sections.map((s) => s.items.map((i) => followUpKeys.get(i.id) ?? null)),
           reopenedBy: r.reopenedById ? personOf(r.reopenedById, names).name : null,
           earlierRevisions: earlierRevisionsOf(earlier).map((e) => ({ number: e.number, reopenedAt: e.reopenedAt, signatures: e.signatures.map((x) => ({ role: SIGNATURE_LABEL[x.role], name: x.name, signedAt: x.signedAt })) })),

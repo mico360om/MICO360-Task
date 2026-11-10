@@ -70,7 +70,7 @@ export interface BinFacts {
   canErase: boolean;
 }
 
-export type BinDetailView = BinDetail & { bin: BinFacts };
+export type BinDetailView = Omit<BinDetail, 'blockers'> & { blockers: { key: string; title: string }[]; bin: BinFacts };
 
 /** A task that wasn't restored or erased, and why (a task the person can't see says only "not found"). */
 export interface BinRefusal {
@@ -144,6 +144,8 @@ export const BIN_WORDS = {
 
 /** At most this many in one restore or erase (the routes take at most 200 ids). */
 export const MAX_BIN_IDS = 200;
+/** A whole series restored at once brings back at most this many of its tasks (the rest stay in the bin). */
+export const MAX_BATCH_RESTORE = 1000;
 /** The sweep erases this many at a time, and at most this many batches in one run. */
 const SWEEP_BATCH = 25;
 const SWEEP_MAX_BATCHES = 40;
@@ -261,7 +263,10 @@ export function createBinService(deps: BinServiceDeps) {
     if (!t || !(await mayRestoreTask(viewer, t))) throw new NotFoundError(BIN_WORDS.notFound);
     const d = await store.detail(taskId);
     if (!d) throw new NotFoundError(BIN_WORDS.notFound);
-    return { ...d, bin: await factsOf(viewer, t) };
+    // A blocker in a project this person can't open looks exactly like none (as on a live task).
+    const blockers: { key: string; title: string }[] = [];
+    for (const b of d.blockers) if (await deps.canViewProject(viewer, b.projectId)) blockers.push({ key: b.key, title: b.title });
+    return { ...d, blockers, bin: await factsOf(viewer, t) };
   }
 
   /**
@@ -278,7 +283,7 @@ export function createBinService(deps: BinServiceDeps) {
         notRestored.push({ id, reason: 'not_found', message: BIN_WORDS.notInBin });
         continue;
       }
-      const group = opts.wholeBatch && t.deleteBatchId ? await store.inBatch(t.deleteBatchId) : [t];
+      const group = opts.wholeBatch && t.deleteBatchId ? (await store.inBatch(t.deleteBatchId)).slice(0, MAX_BATCH_RESTORE) : [t];
       for (const g of group) if (!candidates.has(g.id) && (g.id === t.id || (await mayRestoreTask(viewer, g)))) candidates.set(g.id, g);
     }
     const restored: BinnedTask[] = [];
@@ -332,22 +337,24 @@ export function createBinService(deps: BinServiceDeps) {
     return { erased, notErased };
   }
 
-  /** The nightly erase: deleted tasks whose 60 days are over, a few at a time. How many went. */
+  /**
+   * The nightly erase: deleted tasks whose 60 days are over, a few at a time. One that can't be erased
+   * (logged) is left for the next run and never holds up the ones after it. How many went.
+   */
   async function sweep(): Promise<number> {
     let count = 0;
+    const failed: string[] = [];
     for (let i = 0; i < SWEEP_MAX_BATCHES; i++) {
-      const due = await store.due(now(), SWEEP_BATCH);
+      const due = await store.due(now(), SWEEP_BATCH, failed);
       if (due.length === 0) break;
-      let gone = 0;
       for (const id of due) {
         try {
-          if (await eraseOne(id, null, 'Recycle Bin, 60 days')) gone++;
+          if (await eraseOne(id, null, 'Recycle Bin, 60 days')) count++;
         } catch (err) {
+          failed.push(id);
           fail('erasing a task after 60 days', id)(err);
         }
       }
-      count += gone;
-      if (gone === 0) break; // nothing could be erased (each failed): try again next time
     }
     return count;
   }

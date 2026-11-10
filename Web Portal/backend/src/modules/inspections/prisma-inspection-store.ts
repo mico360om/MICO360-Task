@@ -49,6 +49,7 @@ const toInspection = (r: InspectionRow): InspectionRecord => ({
   revision: r.revision,
   reopenedAt: r.reopenedAt,
   reopenedById: r.reopenedById,
+  erasedTask: r.erasedTask ?? null,
   counts: { itemCount: r.itemCount, passed: r.passedCount, failed: r.failedCount, na: r.naCount },
   clientVisible: r.clientVisible,
   clientVisibleProjectId: r.clientVisibleProjectId,

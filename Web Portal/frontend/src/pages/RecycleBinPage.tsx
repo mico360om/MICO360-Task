@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
-import { BIN_KEY, binApi, type BinQuery, type BinRow } from '../api/recycle-bin';
+import { BIN_KEY, binApi, type BinQuery, type BinRow, type EraseResult, type RestoreResult } from '../api/recycle-bin';
 import { ApiError } from '../lib/api-client';
 import { binCountdown, binDay, eraseText, restoreText, type BinTone } from '../lib/recycle-bin';
 import { invalidateTaskQueries } from '../lib/task-cache';
@@ -24,6 +24,11 @@ import { ProjectAvatar } from '../components/ProjectAvatar';
 
 /** Rows per page ("Show more" asks for the next page). */
 export const BIN_PAGE_SIZE = 50;
+/** The server restores or deletes at most this many tasks per request. */
+const PER_REQUEST = 200;
+const chunks = (ids: string[]) => Array.from({ length: Math.ceil(ids.length / PER_REQUEST) }, (_, i) => ids.slice(i * PER_REQUEST, (i + 1) * PER_REQUEST));
+/** A tick box with a 44px target on a touch screen (the box itself stays its size). */
+const TICK = `inline-flex items-center justify-center ${TOUCH_SQUARE}`;
 
 const TONE_CLASS: Record<BinTone, string> = {
   neutral: 'bg-ground text-ink-2',
@@ -138,7 +143,16 @@ export function RecycleBinPage() {
   };
   const failed = (e: unknown) => setMessage({ text: e instanceof ApiError && e.message ? e.message : 'Couldn’t do that. Check your connection and try again.', problem: true });
   const restoreM = useMutation({
-    mutationFn: ({ ids, whole }: { ids: string[]; whole: boolean }) => binApi(apiClient).restore(ids, whole),
+    mutationFn: async ({ ids, whole }: { ids: string[]; whole: boolean }) => {
+      // The server takes 200 at a time: a longer selection goes in turns, one answer for all of it.
+      const all: RestoreResult = { restored: [], notRestored: [] };
+      for (const part of chunks(ids)) {
+        const r = await binApi(apiClient).restore(part, whole);
+        all.restored.push(...r.restored);
+        all.notRestored.push(...r.notRestored);
+      }
+      return all;
+    },
     onSuccess: (r) => {
       setAskBatch(null);
       if (r.restored.length) void invalidateTaskQueries(queryClient);
@@ -147,7 +161,15 @@ export function RecycleBinPage() {
     onError: failed,
   });
   const eraseM = useMutation({
-    mutationFn: (ids: string[]) => binApi(apiClient).erase(ids),
+    mutationFn: async (ids: string[]) => {
+      const all: EraseResult = { erased: [], notErased: [] };
+      for (const part of chunks(ids)) {
+        const r = await binApi(apiClient).erase(part);
+        all.erased.push(...r.erased);
+        all.notErased.push(...r.notErased);
+      }
+      return all;
+    },
     onSuccess: (r) => {
       setAskErase(null);
       done(eraseText(r), r.erased.length === 0);
@@ -174,7 +196,7 @@ export function RecycleBinPage() {
         Restore
       </Button>
       {canErase ? (
-        <Button size="sm" variant="ghost" onClick={() => setAskErase([r])} disabled={busy} aria-label={`Delete ${r.key} forever`} className={`text-danger hover:text-danger ${TOUCH_TALL}`}>
+        <Button size="sm" variant="ghost" onClick={() => setAskErase([r])} disabled={busy} aria-label={`Delete forever: ${r.key}`} className={`text-danger hover:text-danger ${TOUCH_TALL}`}>
           Delete forever
         </Button>
       ) : null}
@@ -306,13 +328,15 @@ export function RecycleBinPage() {
               <thead>
                 <tr className="border-b border-line text-left text-xs font-semibold uppercase tracking-wide text-ink-3">
                   <th scope="col" className="w-10 px-3 py-2">
-                    <input
-                      type="checkbox"
-                      aria-label="Select every task shown"
-                      checked={allPicked}
-                      onChange={() => setPicked(allPicked ? new Set() : new Set(rows.map((r) => r.id)))}
-                      className="h-4 w-4 accent-brand"
-                    />
+                    <label className={TICK}>
+                      <input
+                        type="checkbox"
+                        aria-label="Select every task shown"
+                        checked={allPicked}
+                        onChange={() => setPicked(allPicked ? new Set() : new Set(rows.map((r) => r.id)))}
+                        className="h-4 w-4 accent-brand"
+                      />
+                    </label>
                   </th>
                   <th scope="col" className="px-3 py-2">Task</th>
                   <th scope="col" className="px-3 py-2">Project</th>
@@ -330,7 +354,9 @@ export function RecycleBinPage() {
                 {rows.map((r) => (
                   <tr key={r.id} data-bin-row={r.id} className="border-b border-line last:border-0 hover:bg-ground/60">
                     <td className="px-3 py-2">
-                      <input type="checkbox" aria-label={`Select ${r.key}`} checked={picked.has(r.id)} onChange={() => toggle(r.id)} className="h-4 w-4 accent-brand" />
+                      <label className={TICK}>
+                        <input type="checkbox" aria-label={`Select ${r.key}`} checked={picked.has(r.id)} onChange={() => toggle(r.id)} className="h-4 w-4 accent-brand" />
+                      </label>
                     </td>
                     <td className="max-w-[22rem] px-3 py-2">
                       {taskButton(r)}
@@ -362,7 +388,9 @@ export function RecycleBinPage() {
             {rows.map((r) => (
               <li key={r.id} data-bin-card={r.id} className="card p-3">
                 <div className="flex items-start gap-3">
-                  <input type="checkbox" aria-label={`Select ${r.key}`} checked={picked.has(r.id)} onChange={() => toggle(r.id)} className="mt-3 h-5 w-5 flex-none accent-brand" />
+                  <label className={`mt-1 flex-none ${TICK} min-h-11 min-w-11`}>
+                    <input type="checkbox" aria-label={`Select ${r.key}`} checked={picked.has(r.id)} onChange={() => toggle(r.id)} className="h-5 w-5 accent-brand" />
+                  </label>
                   <div className="min-w-0 flex-1">
                     {taskButton(r)}
                     <p className="mt-0.5 flex items-center gap-1.5 text-xs text-ink-2">

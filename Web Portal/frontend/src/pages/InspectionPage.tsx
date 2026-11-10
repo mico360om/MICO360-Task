@@ -324,6 +324,11 @@ export function InspectionPage() {
                   For <TaskKey value={d.task.key} />
                 </Link>
               </>
+            ) : d.erasedTask ? (
+              <>
+                <span aria-hidden="true">·</span>
+                <span dir="auto">Task erased ({d.erasedTask})</span>
+              </>
             ) : null}
           </p>
           {d.reopened ? (

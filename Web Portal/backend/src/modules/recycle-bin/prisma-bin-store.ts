@@ -15,6 +15,8 @@ const nameOf = (u: { username: string; firstName: string | null; lastName: strin
 const person = (u: { id: string; username: string; firstName: string | null; lastName: string | null } | null | undefined): BinPerson | null =>
   u ? { id: u.id, name: nameOf(u) } : null;
 const projectSelect = { id: true, name: true, code: true, color: true, icon: true, imageUrl: true } as const;
+/** Erasing a big task (long history, many files, a merge's main task) may take a while on a busy host. */
+const ERASE_TX = { timeout: 30_000, maxWait: 10_000 };
 const binnedSelect = { id: true, key: true, title: true, projectId: true, deletedAt: true, deletedById: true, binExpiresAt: true, deleteBatchId: true } as const;
 
 const toBinned = (t: { id: string; key: string; title: string; projectId: string; deletedAt: Date | null; deletedById: string | null; binExpiresAt: Date | null; deleteBatchId: string | null }): BinnedTask => ({
@@ -133,7 +135,9 @@ export function createPrismaBinStore(prisma: PrismaClient): BinStore {
           checklist: { where: { deletedAt: null }, select: { id: true, listId: true, parentId: true, text: true, done: true, position: true } },
           comments: { select: { id: true, parentId: true, body: true, fromClient: true, createdAt: true, editedAt: true, deletedAt: true, user: { select: personSelect } }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] },
           attachments: { select: { filename: true, sizeBytes: true, createdAt: true, uploadedBy: { select: personSelect } }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] },
-          dependencies: { select: { dependsOn: { select: { key: true, title: true } } } },
+          // Blockers that are still there (not deleted, merged or in a deleted project); the service keeps
+          // only those the person may open.
+          dependencies: { where: { dependsOn: { deletedAt: null, project: { is: { deletedAt: null } } } }, select: { dependsOn: { select: { key: true, title: true, projectId: true } } } },
         },
       });
       if (!t) return null;
@@ -197,6 +201,10 @@ export function createPrismaBinStore(prisma: PrismaClient): BinStore {
 
     async erase(id) {
       return prisma.$transaction(async (tx): Promise<ErasedTask | null> => {
+        // The row is locked first: a restore at the same moment waits, then finds it gone (it is never
+        // told "restored" for a task this erases). MariaDB- and MySQL-safe.
+        const locked = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM tasks WHERE id = ${id} AND deletedAt IS NOT NULL AND mergedIntoId IS NULL FOR UPDATE`;
+        if (locked.length === 0) return null;
         const t = await tx.task.findFirst({ where: { id, ...IN_BIN }, select: { id: true, key: true, title: true, projectId: true } });
         if (!t) return null;
         // The tasks merged into it (and into those): merged records whose content is this task's now.
@@ -209,7 +217,10 @@ export function createPrismaBinStore(prisma: PrismaClient): BinStore {
         }
         const rows = await tx.task.findMany({
           where: { id: { in: all } },
-          select: { id: true, key: true, title: true, projectId: true, keyAliases: { select: { key: true, projectId: true } }, attachments: { select: { storageKey: true } } },
+          select: {
+            id: true, key: true, title: true, projectId: true, recurrenceRule: true, recurrenceParentId: true, recurrenceSourceId: true,
+            keyAliases: { select: { key: true, projectId: true } }, attachments: { select: { storageKey: true } },
+          },
         });
         // Its numbers stay used: each project's mark is raised to the highest number going.
         const marks = new Map<string, number>();
@@ -220,6 +231,17 @@ export function createPrismaBinStore(prisma: PrismaClient): BinStore {
         }
         for (const [projectId, n] of marks) {
           if (n > 0) await tx.project.updateMany({ where: { id: projectId, taskNumberMark: { lt: n } }, data: { taskNumberMark: n } });
+        }
+        // A repeating series still counts its erased tasks (its "10 times" stays 10 made), and the copy this one
+        // was made from keeps a next copy: the one made from this, if any (so no parallel series can start).
+        for (const r of rows) {
+          if (r.recurrenceRule === null && r.recurrenceParentId === null) continue;
+          const seriesId = r.recurrenceParentId ?? r.id;
+          await tx.taskSeriesErased.upsert({ where: { seriesId }, create: { seriesId, erased: 1 }, update: { erased: { increment: 1 } } });
+          if (await tx.task.count({ where: { recurrenceSourceId: r.id } })) {
+            if (r.recurrenceSourceId) await tx.task.update({ where: { id: r.id }, data: { recurrenceSourceId: null } });
+            await tx.task.updateMany({ where: { recurrenceSourceId: r.id }, data: { recurrenceSourceId: r.recurrenceSourceId } });
+          }
         }
         // Inspections are compliance records: kept, saying which task they were for. A failed item's
         // follow-up whose task is gone is free to get a new one.
@@ -236,9 +258,10 @@ export function createPrismaBinStore(prisma: PrismaClient): BinStore {
         // contacts, blockers, history, its search entry) go by the database's cascades.
         const merged = all.filter((x) => x !== t.id);
         if (merged.length) await tx.task.deleteMany({ where: { id: { in: merged } } });
-        await tx.task.delete({ where: { id: t.id } });
+        const { count } = await tx.task.deleteMany({ where: { id: t.id, ...IN_BIN } });
+        if (count !== 1) throw new Error('Recycle Bin: the task changed while it was being erased (left as it was).');
         return { ...t, files: [...new Set(rows.flatMap((r) => r.attachments.map((a) => a.storageKey)))] };
-      });
+      }, ERASE_TX);
     },
 
     async fileInUse(storageKey) {
@@ -251,11 +274,11 @@ export function createPrismaBinStore(prisma: PrismaClient): BinStore {
       return tasks + chat + notes + decisions > 0;
     },
 
-    async due(now, limit) {
+    async due(now, limit, skip = []) {
       // A row deleted by something older than the bin (no expiry stored) is kept 60 days and a bit more.
       const oldest = new Date(now.getTime() - (BIN_DAYS + 1) * 86_400_000);
       const rows = await prisma.task.findMany({
-        where: { ...IN_BIN, OR: [{ binExpiresAt: { lte: now } }, { binExpiresAt: null, deletedAt: { lte: oldest } }] },
+        where: { ...IN_BIN, ...(skip.length ? { id: { notIn: skip } } : {}), OR: [{ binExpiresAt: { lte: now } }, { binExpiresAt: null, deletedAt: { lte: oldest } }] },
         select: { id: true },
         orderBy: { id: 'asc' },
         take: limit,

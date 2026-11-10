@@ -565,6 +565,15 @@ model TaskMergeItem {
   @@map("task_merge_items")
 }
 
+/// Recycle Bin: how many tasks of a repeating series were erased for good. The repeat still counts them,
+/// as it counts deleted copies ("every day, 10 times" stays at 10 made), and so do a schedule's figures.
+model TaskSeriesErased {
+  seriesId String @id
+  erased   Int    @default(0)
+
+  @@map("task_series_erased")
+}
+
 /// Task search: one normalised text per task — its keys (old ones too), title, description, live
 /// comments and replies, checklist items, assignees' names, external contacts, tags and file names —
 /// folded as text-normalize folds a query (case, Arabic letter forms, diacritics). Binary columns,

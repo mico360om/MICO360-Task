@@ -8,7 +8,7 @@ import { buildTimeline } from '../../lib/activity-feed';
 import { invalidateTaskQueries } from '../../lib/task-cache';
 import { showTaskNotice } from '../../lib/task-notice';
 import { useCompanyTimeZone } from '../../lib/useCompanyTimeZone';
-import { todayKey } from '../../lib/due-date';
+import { dueDayKey, todayKey } from '../../lib/due-date';
 import { dayText, instantDayText } from '../../lib/day-words';
 import { formatSize } from '../task-drawer/attachments';
 import { TaskKey } from '../TaskKey';
@@ -93,7 +93,8 @@ export function DeletedTaskPanel({ taskId, onClose, closeButton }: { taskId: str
   const countdown = binCountdown(d.bin.daysLeft);
   const busy = restoreM.isPending || eraseM.isPending;
   const history = buildTimeline(d.history.map((h) => ({ id: h.id, action: h.action, actorName: h.actor?.name ?? 'Someone', createdAt: h.createdAt, meta: h.meta })));
-  const day = (iso: string | null) => (iso ? dayText(iso.slice(0, 10)) : '—');
+  // A date-only value keeps its day; an instant (a repeat copy's start: "now") is read in company time.
+  const day = (iso: string | null) => (iso ? dayText(dueDayKey(iso, timeZone) ?? iso.slice(0, 10)) : '—');
 
   return (
     <div role="dialog" aria-modal="true" aria-labelledby="deleted-task-title" className="flex h-full w-full flex-col border-l border-line bg-surface">

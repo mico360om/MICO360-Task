@@ -126,6 +126,15 @@ describe('RecycleBinPage', () => {
     expect(calls.find((c) => c.url.includes('/restore'))!.body).toEqual({ taskIds: ['t12', 't7'], wholeBatch: false });
   });
 
+  it('a selection longer than the server takes at once goes in turns of 200', async () => {
+    rows = Array.from({ length: 250 }, (_, i) => row(`t${i + 1}`));
+    renderPage();
+    const table = await screen.findByRole('table', { name: 'Deleted tasks' });
+    await userEvent.click(within(table).getByRole('checkbox', { name: 'Select every task shown' }));
+    await userEvent.click(within(screen.getByRole('region', { name: 'Selected tasks' })).getByRole('button', { name: 'Restore' }));
+    await waitFor(() => expect(calls.filter((c) => c.url.includes('/restore')).map((c) => (c.body as { taskIds: string[] }).taskIds.length)).toEqual([200, 50]));
+  });
+
   it('a task deleted with its series: Restore asks — all of them, or only this one', async () => {
     renderPage();
     const table = await screen.findByRole('table', { name: 'Deleted tasks' });
@@ -139,7 +148,7 @@ describe('RecycleBinPage', () => {
     canErase = true;
     renderPage();
     const table = await screen.findByRole('table', { name: 'Deleted tasks' });
-    await userEvent.click(within(table).getByRole('button', { name: 'Delete RIG-12 forever' }));
+    await userEvent.click(within(table).getByRole('button', { name: 'Delete forever: RIG-12' }));
     const dialog = screen.getByRole('alertdialog', { name: 'Delete forever?' });
     expect(dialog).toHaveTextContent('This can’t be undone.');
     await userEvent.click(within(dialog).getByRole('button', { name: 'Delete forever' }));

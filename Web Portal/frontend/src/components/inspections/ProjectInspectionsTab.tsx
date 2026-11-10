@@ -58,6 +58,8 @@ function Row({ x, timeZone }: { x: InspectionListItem; timeZone: string }) {
                 <span>
                   For <TaskKey value={x.task.key} />
                 </span>
+              ) : x.erasedTask ? (
+                <span dir="auto">Task erased ({x.erasedTask})</span>
               ) : null,
             ]
               .filter(Boolean)

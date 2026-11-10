@@ -179,3 +179,31 @@ describe('who sees and does what', () => {
     expect((await service.erase(admin, ['r1', 'nope'])).notErased).toEqual([{ id: 'nope', reason: 'not_found', message: BIN_WORDS.notInBin }]);
   });
 });
+
+describe('the nightly erase keeps going', () => {
+  it('a task that can’t be erased doesn’t hold up the ones after it (I4)', async () => {
+    const due = Array.from({ length: 30 }, (_, i) => `d${i}`);
+    const erased: string[] = [];
+    const asked: string[][] = [];
+    const store = {
+      async due(_now: Date, limit: number, skip: string[] = []) {
+        asked.push(skip);
+        return due.filter((id) => !erased.includes(id) && !skip.includes(id)).slice(0, limit);
+      },
+      async erase(id: string) {
+        // The first 25 always fail (as a too-big task timing out would).
+        if (Number(id.slice(1)) < 25) throw new Error('timed out');
+        erased.push(id);
+        return { id, key: `K-${id}`, title: id, projectId: 'p', files: [] };
+      },
+      async fileInUse() {
+        return false;
+      },
+    } as unknown as BinStore;
+    const failures: string[] = [];
+    const service = createBinService({ store, timeZone: TZ, now: () => NOW, adminScope: async () => null, isArchived: async () => false, canViewProject: async () => true, onError: (_e, _w, id) => failures.push(id!) });
+    expect(await service.sweep()).toBe(5);
+    expect(erased).toEqual(['d25', 'd26', 'd27', 'd28', 'd29']);
+    expect(failures).toHaveLength(25);
+  });
+});

@@ -1322,12 +1322,21 @@ async function main(): Promise<void> {
     audit: (entry) => auditService.record(entry).then(() => undefined),
     record: (entry) => activityService.record(entry).then(() => undefined),
     onRestored: async (restored, actor) => {
+      // Each task on its own (one failing never skips the others); a series restored as a whole is one
+      // notice per person (its first task), not one per copy.
+      const told = new Set<string>();
       for (const t of restored) {
-        await taskSearchIndex.taskChanged(t.id);
-        const task = await taskService.getTask(t.id);
-        broadcast(task.projectId, 'task:created', task);
-        for (const userId of await taskRecipientIds(task.id, actor.id)) {
-          await notificationService.notify({ userId, type: 'TASK_STATUS', title: 'A task was restored from the Recycle Bin', body: taskNoticeBody(task), entityType: 'task', entityId: task.id });
+        try {
+          await taskSearchIndex.taskChanged(t.id);
+          const task = await taskService.getTask(t.id);
+          broadcast(task.projectId, 'task:created', task);
+          if (t.deleteBatchId && told.has(t.deleteBatchId)) continue;
+          if (t.deleteBatchId) told.add(t.deleteBatchId);
+          for (const userId of await taskRecipientIds(task.id, actor.id)) {
+            await notificationService.notify({ userId, type: 'TASK_STATUS', title: 'A task was restored from the Recycle Bin', body: taskNoticeBody(task), entityType: 'task', entityId: task.id });
+          }
+        } catch (err) {
+          logger.error('recycle bin: after restoring a task, a follow-up step failed', { err, taskId: t.id });
         }
       }
     },

@@ -333,7 +333,8 @@ export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository
       return toRecord(t);
     },
     async softDelete(id, mark) {
-      await prisma.task.update({ where: { id }, data: binData(mark) });
+      // Only a live task (a merge at the same moment keeps its merged record as it is).
+      await prisma.task.updateMany({ where: { id, deletedAt: null }, data: binData(mark) });
     },
     async updateSeries(seriesId, patch, opts = {}) {
       // One atomic UPDATE over the series members — no full-table scan, no loop.
@@ -356,11 +357,10 @@ export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository
       });
     },
     async softDeleteSeries(seriesId, mark) {
-      // The live members, then one statement over exactly those (all in one batch: they restore together).
-      const ids = (await prisma.task.findMany({ where: { deletedAt: null, OR: [{ id: seriesId }, { recurrenceParentId: seriesId }] }, select: { id: true } })).map((t) => t.id);
-      if (ids.length === 0) return [];
-      await prisma.task.updateMany({ where: { id: { in: ids }, deletedAt: null }, data: binData(mark) });
-      return ids;
+      // One statement over every live member (a copy made meanwhile goes too); its batch says which went.
+      await prisma.task.updateMany({ where: { deletedAt: null, OR: [{ id: seriesId }, { recurrenceParentId: seriesId }] }, data: binData(mark) });
+      if (!mark?.batchId) return [];
+      return (await prisma.task.findMany({ where: { deleteBatchId: mark.batchId }, select: { id: true } })).map((t) => t.id);
     },
     async countByProject(projectId) {
       // The highest number used — deleted tasks and old keys of tasks moved away too — so keys never repeat.

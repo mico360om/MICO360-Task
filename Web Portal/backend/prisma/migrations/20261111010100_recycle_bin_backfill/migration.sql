@@ -3,10 +3,11 @@
 -- each statement only fills what is still empty, or raises a mark to what is already used.
 
 -- 1. Tasks deleted before the Recycle Bin go into it with a full 60 days from the day of the upgrade
---    (nothing disappears suddenly): erased at the end of the 60th day (UTC midnight). Who deleted them
---    was never recorded, so it stays unknown. Merged tasks are not deleted tasks: they are left alone.
+--    (nothing disappears suddenly): erased at the midnight that ends the 60th day, in the company's time
+--    (Asia/Muscat, UTC+4, no daylight saving — an upgrade at 01:00 there is that day, not the day before).
+--    Who deleted them was never recorded, so it stays unknown. Merged tasks are not deleted tasks: left alone.
 UPDATE `tasks`
-SET `binExpiresAt` = DATE_ADD(UTC_DATE(), INTERVAL 61 DAY)
+SET `binExpiresAt` = DATE_ADD(DATE(DATE_ADD(UTC_TIMESTAMP(), INTERVAL 4 HOUR)), INTERVAL 61 DAY) - INTERVAL 4 HOUR
 WHERE `deletedAt` IS NOT NULL
   AND `mergedIntoId` IS NULL
   AND `binExpiresAt` IS NULL;

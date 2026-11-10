@@ -63,6 +63,22 @@ describe('Undo after a delete', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Undo: restore RIG-12' }));
     expect(screen.getByRole('status')).toHaveTextContent('RIG-12 wasn’t restored: its project is archived. Unarchive the project first.');
     expect(screen.queryByRole('button', { name: /^Undo/ })).toBeNull();
+    vi.useFakeTimers();
+    act(() => vi.advanceTimersByTime(UNDO_MS * 3));
+    expect(screen.getByRole('status')).toHaveTextContent('wasn’t restored');
+  });
+
+  it('waits while pointed at (a keyboard user can reach Undo); a failure stays until dismissed', async () => {
+    renderHost();
+    act(() => showBinNotice(binNoticeFor({ id: 't1', key: 'RIG-12' }, null)));
+    vi.useFakeTimers();
+    const toast = screen.getByRole('status');
+    act(() => toast.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })));
+    act(() => vi.advanceTimersByTime(UNDO_MS * 2));
+    expect(screen.getByRole('status')).toBeInTheDocument();
+    act(() => toast.dispatchEvent(new MouseEvent('mouseout', { bubbles: true })));
+    act(() => vi.advanceTimersByTime(UNDO_MS));
+    expect(screen.queryByRole('status')).toBeNull();
   });
 
   it('goes away on its own after a few seconds', () => {
