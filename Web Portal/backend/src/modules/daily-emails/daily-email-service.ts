@@ -43,7 +43,7 @@ export interface DailyEmailServiceDeps {
      */
     weekFigures?(userId: string, range: { dueFrom: Date; dueTo: Date; doneFrom: Date; now: Date }): Promise<DailyWeek>;
     /** The redesign: the projects they run (never all of an administrator's site), each with its figures. */
-    projectFigures?(userId: string, o: { now: Date; timeZone: string }): Promise<DailyProjectFigures[]>;
+    projectFigures?(userId: string, o: { now: Date; timeZone: string; companyTimeZone: string }): Promise<DailyProjectFigures[]>;
   };
   /** The week start of someone without one of their own: their primary company's, else the site's. */
   weekStartOf?: (userId: string) => Promise<number>;
@@ -386,12 +386,14 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
       parts.completed ? deps.tasks.completedBetween(person.id, since, at) : Promise.resolve([]),
       parts.managed && deps.tasks.managed ? deps.tasks.managed(person.id, at) : Promise.resolve([]),
       wantWeek ? deps.tasks.weekFigures!(person.id, weekRange) : Promise.resolve(null),
-      parts.projects && deps.tasks.projectFigures ? deps.tasks.projectFigures(person.id, { now: at, timeZone }) : Promise.resolve([]),
+      parts.projects && deps.tasks.projectFigures ? deps.tasks.projectFigures(person.id, { now: at, timeZone, companyTimeZone: deps.companyTimeZone }) : Promise.resolve([]),
     ]);
     const content = dailyEmail(
       {
         name: person.name,
         timeZone,
+        // Board days (tasks waiting for a later day) are the company's days.
+        companyTimeZone: deps.companyTimeZone,
         now: at,
         appUrl: deps.appUrl,
         assetUrl: deps.assetUrl,

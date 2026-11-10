@@ -72,7 +72,8 @@ describe('Settings: the daily email (1.22: one email, in parts)', () => {
     renderIt();
     await userEvent.click(await screen.findByRole('switch', { name: 'Completed yesterday' }));
     await waitFor(() => expect(puts()).toHaveLength(1));
-    expect(puts()[0]!.body).toEqual({ dailyEmails: { ...ALL_ON, completed: false } });
+    // The website says it knows every part, so the server saves them as they are.
+    expect(puts()[0]!.body).toEqual({ dailyEmails: { ...ALL_ON, completed: false, knowsAllParts: true } });
     expect(screen.getByRole('switch', { name: 'Completed yesterday' })).toHaveAttribute('aria-checked', 'false');
     expect(screen.getByRole('switch', { name: 'Send me the daily email' })).toHaveAttribute('aria-checked', 'true');
   });
@@ -81,12 +82,12 @@ describe('Settings: the daily email (1.22: one email, in parts)', () => {
     renderIt();
     await userEvent.click(await screen.findByRole('switch', { name: 'Send me the daily email' }));
     await waitFor(() => expect(puts()).toHaveLength(1));
-    expect(puts()[0]!.body).toEqual({ dailyEmails: ALL_OFF });
+    expect(puts()[0]!.body).toEqual({ dailyEmails: { ...ALL_OFF, knowsAllParts: true } });
     expect(await screen.findByText('You get no daily email. Turn on any part to get it again.')).toBeInTheDocument();
     for (const part of PARTS) expect(screen.getByRole('switch', { name: part })).toHaveAttribute('aria-checked', 'false');
     await userEvent.click(screen.getByRole('switch', { name: 'Send me the daily email' }));
     await waitFor(() => expect(puts()).toHaveLength(2));
-    expect(puts()[1]!.body).toEqual({ dailyEmails: ALL_ON });
+    expect(puts()[1]!.body).toEqual({ dailyEmails: { ...ALL_ON, knowsAllParts: true } });
   });
 
   it('changes the time from the site’s 24-hour list', async () => {
@@ -97,7 +98,7 @@ describe('Settings: the daily email (1.22: one email, in parts)', () => {
     expect(screen.getByRole('option', { name: '13:45' })).toBeInTheDocument(); // 24-hour, never "1:45 PM"
     await userEvent.click(screen.getByRole('option', { name: '07:30' }));
     await waitFor(() => expect(puts()).toHaveLength(1));
-    expect(puts()[0]!.body).toEqual({ dailyEmails: { ...ALL_ON, time: '07:30' } });
+    expect(puts()[0]!.body).toEqual({ dailyEmails: { ...ALL_ON, time: '07:30', knowsAllParts: true } });
   });
 
   it('names the time zone it goes in, with links to change it and the notification settings', async () => {
@@ -153,7 +154,7 @@ describe('Settings: the daily email — the redesign’s parts', () => {
     renderIt();
     await userEvent.click(await screen.findByRole('switch', { name: 'By priority' }));
     await waitFor(() => expect(puts()).toHaveLength(1));
-    expect(puts()[0]!.body).toEqual({ dailyEmails: { ...ALL_ON, priority: false } });
+    expect(puts()[0]!.body).toEqual({ dailyEmails: { ...ALL_ON, priority: false, knowsAllParts: true } });
   });
 
   it('settings from a server before the redesign (no new parts): the new ones show on', async () => {

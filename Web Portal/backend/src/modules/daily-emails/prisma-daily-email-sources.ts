@@ -1,7 +1,7 @@
 import { leafCounts } from '../tasks/checklist-tree';
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { normalizePreferences } from '../notifications/notification-preferences';
-import type { DailyMeeting, DailyProjectFigures, DailyTask, DailyWeek } from './daily-email-content';
+import { waitsDays, type DailyMeeting, type DailyProjectFigures, type DailyTask, type DailyWeek } from './daily-email-content';
 import type { DailyRecipient } from './daily-email-service';
 import { liveProjectWhere } from '../companies/project-archive';
 import { hasActiveCompany, sharedCompanyWhere } from '../companies/company-access';
@@ -119,8 +119,11 @@ const toTask = (t: TaskRow): DailyTask => ({
   // WIRE AFTER MERGE (guests + categories): `categories` [{ name, color }] and `guests` ["Name (Company)"].
 });
 
-/** At most this many projects in Your projects (the email shows the first few, most in need first). */
-const PROJECTS_AT_MOST = 60;
+/**
+ * At most this many projects read for Your projects (the email shows the first few, most in need first;
+ * the read is by name, so the cap is well above what anyone runs).
+ */
+const PROJECTS_AT_MOST = 300;
 
 /** At most this many meetings in one person's day. */
 const MEETINGS_A_DAY = 60;
@@ -133,7 +136,16 @@ const MEETINGS_A_DAY = 60;
 export function createPrismaDailyEmailSources(prisma: PrismaClient) {
   // 1.23: client accounts never get the morning emails.
   const active = { status: 'ACTIVE', deletedAt: null, ...STAFF_ONLY_WHERE } as const;
-  const isAdmin = async (userId: string) => (await prisma.userRole.count({ where: { userId, role: { name: 'ADMIN' } } })) > 0;
+  // Asked several times while one person's email is built: kept for a few seconds (review: once per build).
+  const adminCache = new Map<string, { at: number; admin: Promise<boolean> }>();
+  const isAdmin = (userId: string): Promise<boolean> => {
+    const hit = adminCache.get(userId);
+    if (hit && Date.now() - hit.at < 5_000) return hit.admin;
+    const admin = prisma.userRole.count({ where: { userId, role: { name: 'ADMIN' } } }).then((n) => n > 0);
+    adminCache.set(userId, { at: Date.now(), admin });
+    if (adminCache.size > 500) adminCache.clear();
+    return admin;
+  };
   /**
    * Companies: someone who isn't an administrator only hears of tasks in projects that share an active
    * company with them (losing a company takes its tasks out of the next email). Administrators: as before.
@@ -247,7 +259,12 @@ export function createPrismaDailyEmailSources(prisma: PrismaClient) {
         const project = liveProjectWhere({ deletedAt: null, AND: [await companyScope(userId)] });
         const mine = { ...COUNTED_TASK, assignees: { some: { userId } }, project };
         const [due, done] = await Promise.all([
-          prisma.task.findMany({ where: { ...mine, dueDate: { gte: r.dueFrom, lt: r.dueTo } }, select: { dueDate: true, completedAt: true, column: { select: { category: true } } }, take: 2000 }),
+          prisma.task.findMany({
+            // An open task of a completed project is in no list: left out (its done ones still count).
+            where: { ...mine, dueDate: { gte: r.dueFrom, lt: r.dueTo }, OR: [{ project: { status: { not: 'COMPLETED' } } }, { completedAt: { not: null } }, { column: { category: 'DONE' } }] },
+            select: { dueDate: true, completedAt: true, column: { select: { category: true } } },
+            take: 2000,
+          }),
           prisma.task.findMany({ where: { ...mine, completedAt: { gte: r.doneFrom, lte: r.now } }, select: { completedAt: true }, take: 5000 }),
         ]);
         return {
@@ -264,7 +281,7 @@ export function createPrismaDailyEmailSources(prisma: PrismaClient) {
        * overdue by the person's day (not waiting for approval or for a later start day), and those waiting
        * for approval.
        */
-      async projectFigures(userId: string, o: { now: Date; timeZone: string }): Promise<DailyProjectFigures[]> {
+      async projectFigures(userId: string, o: { now: Date; timeZone: string; companyTimeZone?: string }): Promise<DailyProjectFigures[]> {
         const projects = await prisma.project.findMany({
           where: liveProjectWhere({ deletedAt: null, status: { not: 'COMPLETED' }, AND: [managedProjectsWhere(userId), await companyScope(userId)] }),
           select: { ...projectSelect, completionMode: true },
@@ -284,14 +301,15 @@ export function createPrismaDailyEmailSources(prisma: PrismaClient) {
             take: 20000,
           }),
         ]);
-        const today = zonedDayKey(o.now, o.timeZone);
+        // Board days are the company's days: a task waits for a later one by the company's today.
+        const companyToday = zonedDayKey(o.now, o.companyTimeZone ?? o.timeZone);
         const count = (rows: Array<{ projectId: string; _count: { _all: number } }>) => new Map(rows.map((r) => [r.projectId, r._count._all] as const));
         const openOf = count(open);
         const waitingOf = count(waiting);
         const lateOf = new Map<string, number>();
         for (const t of maybeLate) {
           // Waiting for a later start day: not today's work, so not late today.
-          if (t.boardDate && t.boardDate.toISOString().slice(0, 10) > today) continue;
+          if (waitsDays(t.boardDate, companyToday) > 0) continue;
           if ((daysUntilDue(t.dueDate, o.timeZone, o.now) ?? 0) < 0) lateOf.set(t.projectId, (lateOf.get(t.projectId) ?? 0) + 1);
         }
         const figuresOf = new Map(figures.map((f) => [f.projectId, f] as const));

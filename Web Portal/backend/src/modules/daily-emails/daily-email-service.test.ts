@@ -121,7 +121,7 @@ function setup(
   const meetingsBetween = vi.fn(async (_u: string, _from: Date, _to: Date) => opts.meetings ?? []);
   const managed = vi.fn(async (_u: string, _at: Date) => opts.managed ?? []);
   const weekFigures = vi.fn(async (_u: string, _r: { dueFrom: Date; dueTo: Date; doneFrom: Date; now: Date }) => opts.week ?? { due: [], completions: [] });
-  const projectFigures = vi.fn(async (_u: string, _o: { now: Date; timeZone: string }) => opts.projects ?? []);
+  const projectFigures = vi.fn(async (_u: string, _o: { now: Date; timeZone: string; companyTimeZone: string }) => opts.projects ?? []);
   const weekStartOf = vi.fn(async (_u: string) => opts.companyWeekStart ?? 0);
   const warn = vi.fn();
   const service = createDailyEmailService({
@@ -285,7 +285,7 @@ describe('the daily email: the morning sweep', () => {
     // At a glance is on (it follows the task list): the week's figures are read; Your projects follows "In your projects" (off).
     expect(s.weekFigures).toHaveBeenCalled();
     expect(s.projectFigures).not.toHaveBeenCalled();
-    const t = setup({ people: [person('ada', { prefs: { muted: [], dailyEmails: { ...ALL_OFF, urgent: true, time: '06:00' } } })] });
+    const t = setup({ people: [person('ada', { prefs: { muted: [], dailyEmails: { ...ALL_OFF, urgent: true, time: '06:00' } } })], pending: [task('RIG-1', { dueDate: at('2026-10-19T00:00:00Z') })] });
     await t.service.runSweep();
     expect(t.sent).toHaveLength(1);
     expect(t.weekFigures).not.toHaveBeenCalled();
@@ -314,7 +314,8 @@ describe('the daily email: the morning sweep', () => {
   it('redesign: the projects they run, with their time zone (overdue is by their day)', async () => {
     const s = setup({ people: [person('ada', { timeZone: 'Asia/Dubai' })] });
     await s.service.runSweep();
-    expect(s.projectFigures).toHaveBeenCalledWith('ada', { now: at('2026-10-21T02:00:00Z'), timeZone: 'Asia/Dubai' });
+    // Board days (a task waiting for a later day) are the company's days: its time zone goes too.
+    expect(s.projectFigures).toHaveBeenCalledWith('ada', { now: at('2026-10-21T02:00:00Z'), timeZone: 'Asia/Dubai', companyTimeZone: TZ });
   });
 
   it('it goes when only approvals wait for the person (none of their own tasks)', async () => {

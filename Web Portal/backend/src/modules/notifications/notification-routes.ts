@@ -25,6 +25,10 @@ const prefsSchema = z.object({
       priority: z.boolean().optional(),
       comingUp: z.boolean().optional(),
       projects: z.boolean().optional(),
+      // The website since the redesign says it knows every part: its saves are taken as they are. Saves
+      // without it (the phone app, the extension, a 1.22 website tab still open — which sends back every
+      // part it read) have their new parts follow their old ones. Never stored.
+      knowsAllParts: z.literal(true).optional(),
     })
     .optional(),
   weeklySummary: z.boolean().optional(),
@@ -74,14 +78,19 @@ type DailySave = z.infer<typeof prefsSchema>['dailyEmails'] & object;
 
 /**
  * The redesign: a save from an app or page that doesn't know the five new parts (the phone app, the
- * extension, a 1.22 website still open) moves each new part with its matching old part
+ * extension, a 1.22 website still open — anything without `knowsAllParts`) moves each new part with its
+ * matching old part
  * (NEW_PART_MATCH) — so turning every part it knows off still means no email, and turning "Pending
  * tasks" off takes At a glance, By priority and Coming up with it. A save that changes no old part
  * leaves the new parts as they are (a time change never turns them on or off).
  */
-function dailyEmailsSaved(current: DailyEmailPrefs, sent: DailySave): DailyEmailPrefs {
+function dailyEmailsSaved(current: DailyEmailPrefs, saved: DailySave): DailyEmailPrefs {
+  const { knowsAllParts, ...sent } = saved;
+  if (knowsAllParts) return { ...current, ...sent };
+  // Review: a save that doesn't say it knows the new parts may still carry them (a 1.22 tab sends back
+  // what it read): they are left out, so they follow their old parts below.
+  for (const k of NEW_DAILY_EMAIL_PARTS) delete sent[k];
   const next = oldAppSaved(current, sent);
-  if (NEW_DAILY_EMAIL_PARTS.some((k) => sent[k] !== undefined)) return next;
   const moved = (k: (typeof OLD_DAILY_EMAIL_PARTS)[number]) => next[k] !== current[k];
   if (!OLD_DAILY_EMAIL_PARTS.some(moved)) return next;
   const wasOff = !dailyEmailOn(current);

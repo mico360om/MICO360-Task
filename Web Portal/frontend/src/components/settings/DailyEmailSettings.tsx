@@ -61,7 +61,9 @@ export function DailyEmailSettings() {
   const [testNote, setTestNote] = useState<{ ok: boolean; text: string } | null>(null);
 
   const save = useMutation({
-    mutationFn: (next: DailyEmailPrefs) => notificationsApi(apiClient).setPreferences({ dailyEmails: next }),
+    // `knowsAllParts`: this page knows every part, so the server saves them as they are (an older app's
+    // saves move the new parts with their old ones).
+    mutationFn: (next: DailyEmailPrefs) => notificationsApi(apiClient).setPreferences({ dailyEmails: { ...next, knowsAllParts: true } }),
     onMutate: async (next) => {
       setProblem(null);
       await qc.cancelQueries({ queryKey: PREFS_KEY });

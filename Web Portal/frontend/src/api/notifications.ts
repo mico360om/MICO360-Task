@@ -113,8 +113,11 @@ export function notificationsApi(client: ApiClient) {
     bulk: (ids: readonly string[], action: NotificationBulkAction, opts?: RequestOptions) =>
       client.post<{ data: { count: number } }>('/notifications/bulk', { ids, action }, opts).then((r) => r.data),
     getPreferences: () => client.get<{ data: NotificationPreferences }>('/notifications/preferences').then((r) => r.data),
-    /** Saves what is sent; daily email settings left out are kept as they are. */
-    setPreferences: (prefs: Partial<NotificationPreferences>) =>
+    /**
+     * Saves what is sent; daily email settings left out are kept as they are. `knowsAllParts`: the save
+     * has every part of the daily email (this website), so the server takes them as they are.
+     */
+    setPreferences: (prefs: Partial<Omit<NotificationPreferences, 'dailyEmails'>> & { dailyEmails?: DailyEmailPrefs & { knowsAllParts?: true } }) =>
       client.put<{ data: NotificationPreferences }>('/notifications/preferences', prefs).then((r) => r.data),
     sendDailyTest: () => client.post<{ data: DailyEmailTestResult }>('/notifications/daily-emails/test').then((r) => r.data),
   };

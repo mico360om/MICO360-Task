@@ -751,3 +751,48 @@ describe('one company: the email pinned byte for byte (checked by eye when it ch
     await expect(e.text).toMatchFileSnapshot('__snapshots__/daily-email.text.snap');
   });
 });
+
+describe('review fixes', () => {
+  it('I1: an email goes only when a section that is on has something in it (never just a greeting and a button)', () => {
+    // Only "Overdue and due today" on: a task with no due date is in Other open tasks, which is off.
+    expect(dailyEmail(input({ parts: only('urgent'), tasks: [task('A-1')] }))).toBeNull();
+    // Only Coming up on: nothing in the next 7 days.
+    expect(dailyEmail(input({ parts: only('comingUp'), tasks: [task('A-1', { dueDate: day('2026-11-30') })] }))).toBeNull();
+    // Overdue and due today on, a task 1 day late: an email.
+    expect(dailyEmail(input({ parts: only('urgent'), tasks: [task('A-1', { dueDate: day('2026-11-03') })] }))).not.toBeNull();
+    // Coming up on and a task due tomorrow: an email.
+    expect(dailyEmail(input({ parts: only('comingUp'), tasks: [task('A-1', { dueDate: day('2026-11-05') })] }))).not.toBeNull();
+  });
+
+  it('I3: board days are the company\u2019s calendar days — a person far west of the company never sees today\u2019s tasks as "starts tomorrow"', () => {
+    // 21:00 on Tue 3 Nov in New York = 06:00 on Wed 4 Nov in Muscat (the company): today\u2019s board is 4 Nov.
+    const ny = { timeZone: 'America/New_York', companyTimeZone: TZ, now: new Date('2026-11-04T02:00:00Z') };
+    const e = build({ ...ny, tasks: [task('A-1', { boardDate: board('2026-11-04'), dueDate: day('2026-10-30') }), task('A-2', { boardDate: board('2026-11-05') })] });
+    expect(section(e.text, 'Overdue')).toContain('A-1');
+    expect(section(e.text, 'Coming up')).toMatch(/A-2 Task A-2 — starts tomorrow/);
+    expect(section(e.text, 'Today at a glance')).toContain('1 open');
+  });
+
+  it('M4: figures alone don\u2019t send it — an open task due this week with only This week on, or projects with nothing overdue or waiting', () => {
+    expect(dailyEmail(input({ parts: only('week'), tasks: [task('A-1', { dueDate: day('2026-11-05') })], week: { due: [{ dueDate: day('2026-11-05'), done: false }], completions: [] } }))).toBeNull();
+    expect(dailyEmail(input({ parts: only('projects'), projects: [figures(RIG, { open: 5, overdue: 0, waiting: 0 })] }))).toBeNull();
+    expect(dailyEmail(input({ parts: only('projects'), projects: [figures(RIG, { open: 5, overdue: 1, waiting: 0 })] }))).not.toBeNull();
+  });
+
+  it('M5: others\u2019 tasks waiting for a later start day are not overdue in the managers\u2019 list', () => {
+    const e = build({ managed: [task('RIG-8', { dueDate: day('2026-11-02'), assignees: ['Omar'] }), task('RIG-9', { dueDate: day('2026-11-02'), boardDate: board('2026-11-20'), assignees: ['Omar'] })] });
+    const m = section(e.text, 'Overdue and waiting in your projects');
+    expect(m).toContain('RIG-8');
+    expect(m).not.toContain('RIG-9');
+  });
+
+  it('M6: the subject and the preview line say only what the parts that are on show', () => {
+    const tasks = [task('A-1', { dueDate: day('2026-11-01') }), task('A-2', { dueDate: day('2026-11-04') })];
+    // Overdue and due today off: the subject doesn't count them.
+    const off = build({ parts: { ...DEFAULT_DAILY_EMAILS, urgent: false }, tasks });
+    expect(off.subject).toBe('Today: 2 open tasks — Wed 4 Nov');
+    // At a glance and This week off: no "done this week" in the preview line (it wasn't counted).
+    const noWeek = build({ parts: { ...DEFAULT_DAILY_EMAILS, glance: false, week: false }, tasks });
+    expect(noWeek.html).not.toContain('done this week');
+  });
+});

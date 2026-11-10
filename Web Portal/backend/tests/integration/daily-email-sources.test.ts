@@ -12,7 +12,7 @@ let ada = '';
 let bo = '';
 
 async function cleanup() {
-  const projects = await prisma.project.findMany({ where: { code: { in: ['DMOPEN', 'DMOLD', 'DMRUN', 'DMOTHER', 'DMFAR', 'DMDONE', 'DMWEIGHT'] } }, select: { id: true } });
+  const projects = await prisma.project.findMany({ where: { code: { in: ['DMOPEN', 'DMOLD', 'DMRUN', 'DMOTHER', 'DMFAR', 'DMDONE', 'DMWEIGHT', 'DMTEAM', 'DMCLOSED'] } }, select: { id: true } });
   const ids = projects.map((p) => p.id);
   await prisma.meeting.deleteMany({ where: { title: { startsWith: 'DM meeting' } } });
   await prisma.task.deleteMany({ where: { projectId: { in: ids } } });
@@ -234,31 +234,31 @@ describe('Daily email sources, the redesign: the week\u2019s figures and the pro
     await prisma.project.create({ data: { code: 'DMDONE', name: 'Project DMDONE', status: 'COMPLETED', createdById: ada, ownerId: ada } });
     await runBackfill(prisma);
 
-    const mine = await sources.tasks.projectFigures(ada, { now, timeZone: 'Asia/Muscat' });
+    const mine = await sources.tasks.projectFigures(ada, { now, timeZone: 'Asia/Muscat', companyTimeZone: 'Asia/Muscat' });
     expect(mine.map((f) => f.project.code)).toEqual(['DMOPEN']); // DMOLD archived, DMDONE completed, DMFAR Bo's
     // Its 9 live tasks: DM-1, 2, 3, 4, 5, 8, 30, 31, 32 (DM-6 deleted); done: DM-4, DM-5.
     // Overdue: DM-1 only (DM-30 waits for approval, DM-31 is due today here, DM-32 waits for its start day).
     expect(mine[0]).toMatchObject({ total: 9, done: 2, pct: 22, open: 7, overdue: 1, waiting: 1, project: { code: 'DMOPEN', name: 'Project DMOPEN' } });
     // In London DM-31 was due yesterday evening: late there.
-    expect((await sources.tasks.projectFigures(ada, { now, timeZone: 'Europe/London' }))[0]!.overdue).toBe(2);
+    expect((await sources.tasks.projectFigures(ada, { now, timeZone: 'Europe/London', companyTimeZone: 'Asia/Muscat' }))[0]!.overdue).toBe(2);
     // Bo is DMOPEN's named manager and DMFAR's owner.
-    expect((await sources.tasks.projectFigures(bo, { now, timeZone: 'Asia/Muscat' })).map((f) => f.project.code)).toEqual(['DMFAR', 'DMOPEN']);
+    expect((await sources.tasks.projectFigures(bo, { now, timeZone: 'Asia/Muscat', companyTimeZone: 'Asia/Muscat' })).map((f) => f.project.code)).toEqual(['DMFAR', 'DMOPEN']);
     // Someone who runs nothing: nothing.
-    expect(await sources.tasks.projectFigures('nobody', { now, timeZone: 'Asia/Muscat' })).toEqual([]);
+    expect(await sources.tasks.projectFigures('nobody', { now, timeZone: 'Asia/Muscat', companyTimeZone: 'Asia/Muscat' })).toEqual([]);
   });
 
   it('privacy: never a project the person can\u2019t see — one they run in a company they left is left out; an administrator gets only the projects they run, not the site\u2019s', async () => {
     const farCo = await prisma.company.create({ data: { name: 'DM Far Co', code: 'DMFARCO' } });
     // Ada owns DMFAR, but it is only in a company she isn't in.
     await prisma.project.create({ data: { code: 'DMFAR', name: 'Project DMFAR', status: 'ACTIVE', createdById: bo, ownerId: ada, mainCompanyId: farCo.id, companies: { create: { companyId: farCo.id } } } });
-    expect((await sources.tasks.projectFigures(ada, { now, timeZone: 'Asia/Muscat' })).map((f) => f.project.code)).toEqual(['DMOPEN']);
+    expect((await sources.tasks.projectFigures(ada, { now, timeZone: 'Asia/Muscat', companyTimeZone: 'Asia/Muscat' })).map((f) => f.project.code)).toEqual(['DMOPEN']);
     // Losing her company takes DMOPEN out too.
     await prisma.companyMember.deleteMany({ where: { userId: ada } });
-    expect(await sources.tasks.projectFigures(ada, { now, timeZone: 'Asia/Muscat' })).toEqual([]);
+    expect(await sources.tasks.projectFigures(ada, { now, timeZone: 'Asia/Muscat', companyTimeZone: 'Asia/Muscat' })).toEqual([]);
     // Bo as an administrator: every company — but still only the projects he runs (DMOPEN), never DMFAR or DMOLD.
     const admin = await prisma.role.upsert({ where: { name: 'ADMIN' }, update: {}, create: { name: 'ADMIN' } });
     await prisma.userRole.create({ data: { userId: bo, roleId: admin.id } });
-    expect((await sources.tasks.projectFigures(bo, { now, timeZone: 'Asia/Muscat' })).map((f) => f.project.code)).toEqual(['DMOPEN']);
+    expect((await sources.tasks.projectFigures(bo, { now, timeZone: 'Asia/Muscat', companyTimeZone: 'Asia/Muscat' })).map((f) => f.project.code)).toEqual(['DMOPEN']);
   });
 
   it('a project counted by weight shows its weighted completion', async () => {
@@ -268,7 +268,33 @@ describe('Daily email sources, the redesign: the week\u2019s figures and the pro
     await prisma.task.create({ data: { key: 'DMW-1', title: 'Heavy, done', projectId: w.id, columnId: done.id, createdById: ada, weight: 9, completedAt: now } });
     await prisma.task.create({ data: { key: 'DMW-2', title: 'Light, open', projectId: w.id, columnId: todo.id, createdById: ada, weight: 1 } });
     await runBackfill(prisma);
-    const f = (await sources.tasks.projectFigures(ada, { now, timeZone: 'Asia/Muscat' })).find((x) => x.project.code === 'DMWEIGHT')!;
+    const f = (await sources.tasks.projectFigures(ada, { now, timeZone: 'Asia/Muscat', companyTimeZone: 'Asia/Muscat' })).find((x) => x.project.code === 'DMWEIGHT')!;
     expect(f).toMatchObject({ pct: 90, done: 1, total: 2, open: 1 });
+  });
+
+  it('review: a MANAGER member runs the project; a plain team member doesn\u2019t — and board days are the company\u2019s days', async () => {
+    const run = await prisma.project.create({ data: { code: 'DMRUN', name: 'Project DMRUN', status: 'ACTIVE', createdById: bo, members: { create: [{ userId: ada, role: 'MANAGER' }] } } });
+    await prisma.project.create({ data: { code: 'DMTEAM', name: 'Project DMTEAM', status: 'ACTIVE', createdById: bo, ownerId: bo, members: { create: [{ userId: ada }] } } });
+    const col = await prisma.kanbanColumn.create({ data: { projectId: run.id, name: 'Doing', category: 'IN_PROGRESS', position: 0 } });
+    // Late, on the company's today's board (4 Nov in Muscat): late for someone in New York too, where it is still 3 Nov.
+    await prisma.task.create({ data: { key: 'DM-40', title: 'Late, on today\u2019s board', projectId: run.id, columnId: col.id, createdById: bo, dueDate: new Date('2026-10-30T00:00:00Z'), boardDate: new Date('2026-11-04T12:00:00Z') } });
+    await runBackfill(prisma);
+    const codes = (await sources.tasks.projectFigures(ada, { now, timeZone: 'Asia/Muscat', companyTimeZone: 'Asia/Muscat' })).map((f) => f.project.code);
+    expect(codes).toContain('DMRUN');
+    expect(codes).not.toContain('DMTEAM');
+    const ny = await sources.tasks.projectFigures(ada, { now, timeZone: 'America/New_York', companyTimeZone: 'Asia/Muscat' });
+    expect(ny.find((f) => f.project.code === 'DMRUN')!.overdue).toBe(1);
+  });
+
+  it('review: the week\u2019s due tasks leave out open tasks of a completed project (they are in no list) but keep its done ones', async () => {
+    const closed = await prisma.project.create({ data: { code: 'DMCLOSED', name: 'Project DMCLOSED', status: 'COMPLETED', createdById: ada, ownerId: ada } });
+    const todo = await prisma.kanbanColumn.create({ data: { projectId: closed.id, name: 'To do', category: 'TODO', position: 0 } });
+    const done = await prisma.kanbanColumn.create({ data: { projectId: closed.id, name: 'Done', category: 'DONE', position: 1 } });
+    const due = new Date('2026-11-05T00:00:00Z');
+    await prisma.task.create({ data: { key: 'DMC-1', title: 'Open, closed project', projectId: closed.id, columnId: todo.id, createdById: ada, dueDate: due, assignees: { create: [{ userId: ada }] } } });
+    await prisma.task.create({ data: { key: 'DMC-2', title: 'Done, closed project', projectId: closed.id, columnId: done.id, createdById: ada, dueDate: due, completedAt: now, assignees: { create: [{ userId: ada }] } } });
+    await runBackfill(prisma);
+    const week = await sources.tasks.weekFigures(ada, { dueFrom: new Date('2026-10-31T00:00:00Z'), dueTo: new Date('2026-11-09T00:00:00Z'), doneFrom: new Date('2026-10-20T20:00:00Z'), now });
+    expect(week.due.filter((r) => r.dueDate.getTime() === due.getTime()).map((r) => r.done)).toEqual([true]);
   });
 });

@@ -80,10 +80,13 @@ describe('Notification preferences: daily task emails', () => {
   it('1.22: saves each part of the one daily email', async () => {
     const a = await appWithStore();
     const auth = { authorization: `Bearer ${await token()}` };
-    const saved = await a.inject({ method: 'PUT', url: '/api/v1/notifications/preferences', headers: auth, payload: { dailyEmails: { schedule: false, urgent: true, pending: false, managed: false, completed: true, time: '07:00', glance: true, week: false, priority: true, comingUp: false, projects: true } } });
+    const saved = await a.inject({ method: 'PUT', url: '/api/v1/notifications/preferences', headers: auth, payload: { dailyEmails: { schedule: false, urgent: true, pending: false, managed: false, completed: true, time: '07:00', glance: true, week: false, priority: true, comingUp: false, projects: true, knowsAllParts: true } } });
     expect(saved.statusCode).toBe(200);
     expect(saved.json().data.dailyEmails).toEqual({ pending: false, completed: true, time: '07:00', schedule: false, urgent: true, managed: false, glance: true, week: false, priority: true, comingUp: false, projects: true });
     expect((await a.inject({ method: 'PUT', url: '/api/v1/notifications/preferences', headers: auth, payload: { dailyEmails: { glance: 'no' } } })).statusCode).toBe(400);
+    expect((await a.inject({ method: 'PUT', url: '/api/v1/notifications/preferences', headers: auth, payload: { dailyEmails: { knowsAllParts: 'yes' } } })).statusCode).toBe(400);
+    // The marker is never stored or read back.
+    expect((await a.inject({ method: 'GET', url: '/api/v1/notifications/preferences', headers: auth })).json().data.dailyEmails).not.toHaveProperty('knowsAllParts');
     expect((await a.inject({ method: 'PUT', url: '/api/v1/notifications/preferences', headers: auth, payload: { dailyEmails: { managed: 'no' } } })).statusCode).toBe(400);
   });
 
@@ -106,7 +109,7 @@ describe('Notification preferences: daily task emails', () => {
     const put = async (dailyEmails: Record<string, unknown>) =>
       (await a.inject({ method: 'PUT', url: '/api/v1/notifications/preferences', headers: auth, payload: { dailyEmails } })).json().data.dailyEmails;
     // On the website: only the schedule and Overdue & urgent.
-    await put({ schedule: true, urgent: true, pending: false, managed: false, completed: false, time: '06:00', glance: false, week: false, priority: false, comingUp: false, projects: false });
+    await put({ schedule: true, urgent: true, pending: false, managed: false, completed: false, time: '06:00', glance: false, week: false, priority: false, comingUp: false, projects: false, knowsAllParts: true });
     // The extension changes only the time (it sends the two old switches as they are).
     expect(await put({ pending: false, completed: false, time: '07:00' })).toEqual({ pending: false, completed: false, time: '07:00', schedule: true, urgent: true, managed: false, glance: false, week: false, priority: false, comingUp: false, projects: false });
     // It turns "Completed yesterday" on: Overdue & urgent stays as chosen; This week (its match) comes on.
@@ -152,8 +155,8 @@ describe('Notification preferences: daily task emails', () => {
     expect(await put(five(true))).toEqual({ ...five(true), glance: true, week: true, priority: true, comingUp: true, projects: true });
     // Its "In your projects" switch takes Your projects with it; the other new parts stay.
     expect(await put({ ...five(true), managed: false })).toMatchObject({ managed: false, projects: false, glance: true, week: true });
-    // The new website's own switches are saved as they are.
-    expect(await put({ ...five(true), glance: false, projects: true })).toMatchObject({ glance: false, projects: true, managed: true });
+    // The new website's own switches are saved as they are (it says it knows every part).
+    expect(await put({ ...five(true), glance: false, projects: true, knowsAllParts: true })).toMatchObject({ glance: false, projects: true, managed: true });
   });
 
   it('redesign: a save that changes no old part leaves the new parts alone (a summary-only email stays)', async () => {
@@ -162,9 +165,22 @@ describe('Notification preferences: daily task emails', () => {
     const put = async (dailyEmails: Record<string, unknown>) =>
       (await a.inject({ method: 'PUT', url: '/api/v1/notifications/preferences', headers: auth, payload: { dailyEmails } })).json().data.dailyEmails;
     const glanceOnly = { pending: false, completed: false, schedule: false, urgent: false, managed: false, glance: true, week: false, priority: false, comingUp: false, projects: false };
-    await put({ ...glanceOnly, time: '06:00' });
+    await put({ ...glanceOnly, time: '06:00', knowsAllParts: true });
     // An older app changes only the time (sending the two old switches as they are).
     expect(await put({ pending: false, completed: false, time: '07:00' })).toEqual({ ...glanceOnly, time: '07:00' });
+  });
+
+  it('review: a 1.22 website tab still open sends back all ten parts it read (it doesn’t know the new ones) — turning the email off still turns every part off', async () => {
+    const a = await appWithStore();
+    const auth = { authorization: `Bearer ${await token()}` };
+    const put = async (dailyEmails: Record<string, unknown>) =>
+      (await a.inject({ method: 'PUT', url: '/api/v1/notifications/preferences', headers: auth, payload: { dailyEmails } })).json().data.dailyEmails;
+    const on = { pending: true, completed: true, time: '06:00', schedule: true, urgent: true, managed: true, glance: true, week: true, priority: true, comingUp: true, projects: true };
+    // "Send me the daily email" off: its five parts off, the new ones as it read them (on).
+    expect(await put({ ...on, pending: false, completed: false, schedule: false, urgent: false, managed: false })).toEqual({ ...on, pending: false, completed: false, schedule: false, urgent: false, managed: false, glance: false, week: false, priority: false, comingUp: false, projects: false });
+    // Back on, then "Your tasks by project" off: At a glance, By priority and Coming up go with it.
+    await put(on);
+    expect(await put({ ...on, pending: false })).toMatchObject({ pending: false, glance: false, priority: false, comingUp: false, week: true, projects: true });
   });
 
   it('saves them without losing other settings, and an app that doesn’t know them keeps them', async () => {

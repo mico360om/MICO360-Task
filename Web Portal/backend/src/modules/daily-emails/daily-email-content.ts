@@ -132,6 +132,11 @@ export interface DailyEmailInput {
   name: string;
   /** Their own time zone (else the company's): every day and time in the email is in it. */
   timeZone: string;
+  /**
+   * The company's time zone: board days (`boardDate`) are the company's calendar days, so whether a task
+   * waits for a later day is judged by the company's today (absent: `timeZone`).
+   */
+  companyTimeZone?: string;
   now: Date;
   appUrl: string;
   /** Where the server serves stored files ("/uploads/…"), for project pictures email clients can load. */
@@ -220,6 +225,18 @@ const PRIORITY_WORD: Record<DailyTask['priority'], string> = { URGENT: 'Urgent',
 const share = (part: number, whole: number) => (whole <= 0 ? 0 : part >= whole ? 100 : Math.min(99, Math.round((Math.max(0, part) / whole) * 100)));
 const IN_PROGRESS_KINDS = new Set<string>(['IN_PROGRESS', 'REVIEW', 'BLOCKED']);
 const safeColor = (v: string | null | undefined) => (/^#[0-9a-f]{6}$/i.test(v ?? '') ? v! : null);
+
+/**
+ * How many days a task still waits for its board day (scheduled for the future), else 0. Board days are
+ * the company's calendar days, stored as a noon-UTC anchor (their UTC date), so they are compared with the
+ * company's today — never the person's (someone far west of the company would see today's tasks as
+ * "tomorrow's"). One rule for the email's lists and figures and the sources' project figures.
+ */
+export function waitsDays(boardDate: Date | null | undefined, companyToday: string): number {
+  if (!boardDate) return 0;
+  const day = boardDate.toISOString().slice(0, 10);
+  return day > companyToday ? daysBetween(companyToday, day) : 0;
+}
 
 // ── How many fit ─────────────────────────────────────────────────────────────
 
@@ -367,12 +384,9 @@ function classify(input: DailyEmailInput) {
   const today = zonedDayKey(now, tz);
   const days = (t: DailyTask) => daysUntilDue(t.dueDate, tz, now);
   const waiting = (t: DailyTask) => Boolean(t.waitingSince);
-  /** Days until the task's start day when it waits for a later day (else 0). Board days are noon-UTC anchors: their UTC date. */
-  const startsIn = (t: DailyTask) => {
-    if (!t.boardDate) return 0;
-    const start = t.boardDate.toISOString().slice(0, 10);
-    return start > today ? daysBetween(today, start) : 0;
-  };
+  /** Days until the task's board day when it waits for a later one (else 0): by the company's today (board days are its days). */
+  const companyToday = zonedDayKey(now, input.companyTimeZone ?? tz);
+  const startsIn = (t: DailyTask) => waitsDays(t.boardDate, companyToday);
   const dueKey = (t: DailyTask) => dueDayKey(t.dueDate, tz) ?? '9999';
 
   const placeOf = (t: DailyTask): Place => {
@@ -391,7 +405,8 @@ function classify(input: DailyEmailInput) {
   placed.overdue.sort((a, b) => dueKey(a).localeCompare(dueKey(b)) || PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] || byKey(a, b));
   placed.dueToday.sort((a, b) => dueTime(a) - dueTime(b) || PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] || byKey(a, b));
   /** The day a coming-up task counts from: its start day when it waits for one, else its due day. */
-  const upKey = (t: DailyTask) => (startsIn(t) > 0 ? shiftDayKey(today, startsIn(t)) : dueKey(t));
+  const startKey = (t: DailyTask) => (t.boardDate ? t.boardDate.toISOString().slice(0, 10) : today);
+  const upKey = (t: DailyTask) => (startsIn(t) > 0 ? startKey(t) : dueKey(t));
   placed.comingUp.sort((a, b) => upKey(a).localeCompare(upKey(b)) || PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] || byKey(a, b));
   placed.other.sort((a, b) => Number(waiting(a)) - Number(waiting(b)) || PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] || dueKey(a).localeCompare(dueKey(b)) || byKey(a, b));
 
@@ -431,7 +446,7 @@ function classify(input: DailyEmailInput) {
   // Others' overdue (most days first), then waiting for approval (longest first).
   const managed = parts.managed
     ? input.managed
-        .filter((t) => waiting(t) || (days(t) ?? 0) < 0)
+        .filter((t) => waiting(t) || (startsIn(t) === 0 && (days(t) ?? 0) < 0))
         .sort((a, b) => Number(waiting(a)) - Number(waiting(b)) || (waiting(a) ? a.waitingSince!.getTime() - b.waitingSince!.getTime() : dueKey(a).localeCompare(dueKey(b))) || byKey(a, b))
     : [];
   // Your projects: those needing attention first (overdue, then waiting, then least done), each with tasks.
@@ -441,20 +456,24 @@ function classify(input: DailyEmailInput) {
 
   const approvals = parts.glance || parts.urgent || parts.pending || parts.projects || parts.managed ? input.awaitingApproval : 0;
 
-  // Figures alone never send an email: something open, new or on the day must be in it.
-  const ownOn = parts.glance || parts.priority || parts.urgent || parts.comingUp || parts.pending;
-  const weekOpen = parts.week && dueThisWeek.some((r) => !r.done);
+  // An email goes only when a section that is on has something in it — and figures alone (This week,
+  // project bars with nothing overdue or waiting) never send one: something open, new or on the day must be in it.
   const hasContent =
-    (ownOn && input.tasks.length > 0) ||
-    weekOpen ||
+    ((parts.glance || parts.priority) && current.length > 0) ||
+    (parts.urgent && placed.overdue.length + placed.dueToday.length > 0) ||
+    (parts.comingUp && placed.comingUp.length > 0) ||
+    (parts.pending && placed.other.length > 0) ||
     meetings.length > 0 ||
     completed.length > 0 ||
     approvals > 0 ||
     managed.length > 0 ||
-    projects.some((p) => p.open > 0 || p.waiting > 0 || p.overdue > 0);
+    projects.some((p) => p.waiting > 0 || p.overdue > 0);
 
+  // The subject and the preview line say only what the parts that are on show.
   const dueToday = placed.dueToday.length;
-  const said = [numbers.overdue > 0 && `${numbers.overdue} overdue`, dueToday > 0 && `${dueToday} due`, meetings.length > 0 && plural(meetings.length, 'meeting')].filter(Boolean);
+  const late = parts.urgent ? numbers.overdue : 0;
+  const due = parts.urgent ? dueToday : 0;
+  const said = [late > 0 && `${late} overdue`, due > 0 && `${due} due`, meetings.length > 0 && plural(meetings.length, 'meeting')].filter(Boolean);
   const subjectWhat = said.length
     ? said.join(', ')
     : input.tasks.length
@@ -467,12 +486,13 @@ function classify(input: DailyEmailInput) {
             ? `${plural(managed.length, 'task')} to check in your projects`
             : 'your day';
   const subject = `Today: ${subjectWhat} — ${shortDay(today)}`;
+  const counted = parts.glance || parts.urgent;
   const preheader = [
-    numbers.overdue > 0 ? `${numbers.overdue} overdue` : null,
-    dueToday > 0 ? `${dueToday} due today` : null,
+    counted && numbers.overdue > 0 ? `${numbers.overdue} overdue` : null,
+    counted && dueToday > 0 ? `${dueToday} due today` : null,
     `${numbers.open} open`,
     meetings.length > 0 ? plural(meetings.length, 'meeting') : null,
-    `${numbers.doneThisWeek} done this week`,
+    input.week && (parts.glance || parts.week) ? `${numbers.doneThisWeek} done this week` : null,
   ]
     .filter(Boolean)
     .join(' · ');
@@ -726,7 +746,7 @@ function projectLine(p: DailyProject, grouped: boolean | undefined): string {
 function dayPhrase(t: DailyTask, m: Model, tz: string): { text: string; token: string | null; tones: ThemeTones | null } | null {
   const s = m.startsIn(t);
   const rel = (d: number) => (d === 1 ? 'tomorrow' : d <= 7 ? `in ${d} days` : plainDay(shiftDayKey(m.today, d)));
-  if (s > 0) return { text: `starts ${rel(s)}`, token: null, tones: null };
+  if (s > 0) return { text: `starts ${s === 1 ? 'tomorrow' : s <= 7 ? `in ${s} days` : plainDay(t.boardDate!.toISOString().slice(0, 10))}`, token: null, tones: null };
   const d = m.days(t);
   if (d === null) return null;
   const at = t.dueDate && hasDueTime(t.dueDate) ? ` ${clock(t.dueDate, tz)}` : '';
@@ -748,7 +768,7 @@ function rowMaker(input: DailyEmailInput, m: Model, c: Brand['colors']) {
     const at = t.dueDate && hasDueTime(t.dueDate) ? `, ${clock(t.dueDate, tz)}` : '';
     // The day itself beside a relative phrase ("3 days late" · "Due Sun 1 Nov"); a phrase that is a date already says it.
     const relative = !m.waiting(t) && d !== null && (s > 0 || d < 0 || (d > 0 && d <= 7));
-    const dates = [s > 0 ? `Starts ${shortDay(shiftDayKey(m.today, s))}` : null, dueKey && relative ? `Due ${shortDay(dueKey)}${at}` : null].filter((x): x is string => !!x);
+    const dates = [s > 0 && t.boardDate ? `Starts ${shortDay(t.boardDate.toISOString().slice(0, 10))}` : null, dueKey && relative ? `Due ${shortDay(dueKey)}${at}` : null].filter((x): x is string => !!x);
     const meta = [o.inGroup ? null : projectLine(t.project, input.groupByCompany), ...dates, o.managed && t.assignees?.length ? `Assigned to ${t.assignees.join(', ')}` : null].filter(
       (x): x is string => !!x,
     );
