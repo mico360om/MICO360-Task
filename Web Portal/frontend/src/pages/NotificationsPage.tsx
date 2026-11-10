@@ -322,7 +322,7 @@ export function NotificationsPage({ undoMs = 5000 }: { undoMs?: number }) {
                 >
                   <span>{k.label}</span>
                   {n > 0 ? (
-                    <span aria-hidden="true" className={`min-w-[1.25rem] rounded-full px-1.5 text-center text-[11px] font-semibold tabular-nums ${on ? 'bg-white/25 text-white' : 'bg-brand/10 text-brand'}`}>
+                    <span aria-hidden="true" className={`min-w-[1.25rem] rounded-full px-1.5 text-center text-[11px] font-semibold tabular-nums ${on ? 'bg-black/20 text-white' : 'bg-brand/10 text-brand'}`}>
                       {n > 99 ? '99+' : n}
                     </span>
                   ) : null}

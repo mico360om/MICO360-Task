@@ -117,7 +117,7 @@ export function ErrorLogPage() {
             return (
               <button key={f.key} type="button" title={f.hint} aria-pressed={kind === f.key} aria-label={`${f.label}, ${n}`} onClick={() => setKind(f.key)} className={chip(kind === f.key)}>
                 <span>{f.label}</span>
-                <span aria-hidden="true" className={`min-w-[1.25rem] rounded-full px-1.5 text-center text-[11px] font-semibold tabular-nums ${kind === f.key ? 'bg-white/25 text-white' : 'bg-ground text-ink-2'}`}>
+                <span aria-hidden="true" className={`min-w-[1.25rem] rounded-full px-1.5 text-center text-[11px] font-semibold tabular-nums ${kind === f.key ? 'bg-black/20 text-white' : 'bg-ground text-ink-2'}`}>
                   {n > 999 ? '999+' : n}
                 </span>
               </button>

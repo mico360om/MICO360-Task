@@ -260,7 +260,7 @@ export function ProjectsPage() {
               }`}
             >
               {t.label}{' '}
-              <span className={`min-w-[1.5rem] rounded-full px-1.5 text-center text-xs tabular-nums ${selected ? 'bg-white/20 text-white' : 'bg-ground text-ink-2'}`}>
+              <span className={`min-w-[1.5rem] rounded-full px-1.5 text-center text-xs tabular-nums ${selected ? 'bg-black/20 text-white' : 'bg-ground text-ink-2'}`}>
                 {loading || query.isError ? '–' : counts[t.value]}
               </span>
             </button>

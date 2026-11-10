@@ -594,7 +594,7 @@ function SavedNav({ onNavigate, rail }: { onNavigate?: () => void; rail: boolean
                 {s.name}
               </span>
               {count ? (
-                <span aria-hidden="true" className={`flex-none rounded-full px-1.5 py-0.5 text-[11px] font-semibold tabular-nums ${active ? 'bg-white/20 text-white' : 'bg-ground text-ink-2'} ${rail ? 'rail:hidden' : ''}`}>
+                <span aria-hidden="true" className={`flex-none rounded-full px-1.5 py-0.5 text-[11px] font-semibold tabular-nums ${active ? 'bg-black/20 text-white' : 'bg-ground text-ink-2'} ${rail ? 'rail:hidden' : ''}`}>
                   {count}
                 </span>
               ) : null}
