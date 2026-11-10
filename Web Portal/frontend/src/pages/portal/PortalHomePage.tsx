@@ -48,7 +48,7 @@ function ProjectCard({ project: p }: { project: PortalProjectCard }) {
   return (
     <Link
       to={`/portal/projects/${encodeURIComponent(p.id)}`}
-      className="card card-hover flex h-full flex-col gap-4 p-5 outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
+      className="card card-hover card-pad flex h-full flex-col gap-4 outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
     >
       {/* Branded with the project's main company (its logo, else the built-in one). */}
       <div className="flex min-w-0 items-center gap-2 border-b border-line pb-3">

@@ -107,14 +107,14 @@ function TaskList({ projectId, items, empty, milestone = false, canSignOff }: { 
               </span>
               <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-2">
                 <span>{t.dueDate ? `Due ${day(t.dueDate)}` : 'No due date'}</span>
-                {t.acceptedOn ? <Chip tone="success">Accepted {day(t.acceptedOn)}</Chip> : null}
+                {t.acceptedOn ? <Chip tone="done">Accepted {day(t.acceptedOn)}</Chip> : null}
                 {t.awaitingSignOff && canSignOff ? <Chip tone="brand">Waiting for your sign-off</Chip> : null}
               </span>
             </span>
             <span className="flex flex-none flex-col items-end gap-1">
               <StatusBadge label={t.status} />
               {/* Past its due day and not done — in words, not by colour alone. */}
-              {t.late ? <Chip tone="danger">Late</Chip> : null}
+              {t.late ? <Chip tone="overdue">Late</Chip> : null}
             </span>
           </Link>
         </li>

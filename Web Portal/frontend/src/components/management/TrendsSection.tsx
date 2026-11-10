@@ -3,6 +3,7 @@ import type { TrendRow } from '../../api/management';
 import { LineChart } from '../LineChart';
 import { dayMonth } from '../../lib/management';
 import { Section } from './parts';
+import { OVERDUE_CLASS } from '../../lib/colour-classes';
 
 /** In a chart's place when there is nothing to draw: what that means, in words. */
 function Quiet({ children }: { children: string }) {
@@ -93,7 +94,7 @@ export function TrendsSection({ weeks }: { weeks: TrendRow[] }) {
                 </th>
                 <td className="px-3 py-1.5 text-end tabular-nums">{w.created}</td>
                 <td className="px-3 py-1.5 text-end tabular-nums">{w.completed}</td>
-                <td className={`px-3 py-1.5 text-end tabular-nums ${w.late ? 'text-danger' : ''}`}>{w.late}</td>
+                <td className={`px-3 py-1.5 text-end tabular-nums ${w.late ? OVERDUE_CLASS.text : ''}`}>{w.late}</td>
                 <td className="px-3 py-1.5 text-end tabular-nums">{w.passRate === null ? '—' : `${w.passRate}%`}</td>
               </tr>
             ))}

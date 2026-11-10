@@ -355,8 +355,8 @@ export function ReportsPage() {
               ) : completion ? (
                 <div className="flex flex-col gap-4">
                   <div className="flex items-end gap-6">
-                    <div><div className="font-display text-3xl font-bold text-success">{completion.onTime}</div><div className="text-xs text-ink-2">On time</div></div>
-                    <div><div className="font-display text-3xl font-bold text-danger">{completion.late}</div><div className="text-xs text-ink-2">Late</div></div>
+                    <div><div className={`font-display text-3xl font-bold ${STATUS_CLASS.DONE.text}`}>{completion.onTime}</div><div className="text-xs text-ink-2">On time</div></div>
+                    <div><div className={`font-display text-3xl font-bold ${OVERDUE_CLASS.text}`}>{completion.late}</div><div className="text-xs text-ink-2">Late</div></div>
                     <div><div className="font-display text-3xl font-bold text-ink-2">{completion.unclassified}</div><div className="text-xs text-ink-2">No due date</div></div>
                   </div>
                   <div className="h-3 overflow-hidden rounded-full bg-ground">

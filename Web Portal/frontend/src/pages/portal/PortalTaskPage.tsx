@@ -88,12 +88,12 @@ function TaskBody({ projectId, taskId, view, timeZone }: { projectId: string; ta
 
   return (
     <>
-      <article aria-labelledby="portal-task-title" className="rounded-2xl border border-line bg-surface p-4 shadow-soft sm:p-6">
+      <article aria-labelledby="portal-task-title" className="card card-pad">
         <div className="flex flex-wrap items-center gap-2">
           <KeyChip value={task.key} />
           <StatusBadge label={task.status} />
-          {task.late ? <Chip tone="danger">Late</Chip> : null}
-          {task.acceptedOn ? <Chip tone="success">Accepted {day(task.acceptedOn)}</Chip> : null}
+          {task.late ? <Chip tone="overdue">Late</Chip> : null}
+          {task.acceptedOn ? <Chip tone="done">Accepted {day(task.acceptedOn)}</Chip> : null}
         </div>
         <h2 id="portal-task-title" dir="auto" className="mt-2 break-words font-display text-xl font-bold text-ink sm:text-2xl">{task.title}</h2>
         <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">

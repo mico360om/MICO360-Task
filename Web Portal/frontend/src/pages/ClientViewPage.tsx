@@ -13,6 +13,7 @@ import { fieldClass } from '../components/ui/Field';
 import { askedTooSoon, codeStepMemory, linkTag, NEW_CODE_SENT, RESEND_AFTER_MS, waitFromAnswer, type CodeStepMemory } from '../lib/login-code-step';
 import { dateTimeText } from '../lib/day-words';
 import { TaskKey } from '../components/TaskKey';
+import { OVERDUE_CLASS, STATUS_CLASS } from '../lib/colour-classes';
 
 /**
  * The client page: someone outside the company follows one shared project, read-only, with no
@@ -335,14 +336,15 @@ function SignIn({
   );
 }
 
+// 1.23.8 one colour scheme: the client's words for a task's status read like the team's.
 const STATUS_TONE: Record<string, string> = {
-  Done: 'bg-success-soft text-success',
-  'In progress': 'bg-info-soft text-info',
-  'In review': 'bg-info-soft text-info',
-  'On hold': 'bg-warning-soft text-warning',
-  'Not started': 'bg-ground text-ink-2',
-  Planning: 'bg-info-soft text-info',
-  Completed: 'bg-success-soft text-success',
+  Done: STATUS_CLASS.DONE.chip,
+  'In progress': STATUS_CLASS.IN_PROGRESS.chip,
+  'In review': STATUS_CLASS.REVIEW.chip,
+  'On hold': STATUS_CLASS.BLOCKED.chip,
+  'Not started': STATUS_CLASS.TODO.chip,
+  Planning: STATUS_CLASS.IN_PROGRESS.chip,
+  Completed: STATUS_CLASS.DONE.chip,
 };
 
 function Status({ label }: { label: string }) {
@@ -532,7 +534,7 @@ function Items({ items, empty, milestone = false }: { items: ClientViewItem[]; e
             <p className="text-xs text-ink-2">{t.dueDate ? `Due ${dayText(t.dueDate)}` : 'No due date'}</p>
           </div>
           {/* Past its due day and not done, as the staff see it — in words, not by colour alone. */}
-          {t.late ? <span className="inline-flex flex-none items-center rounded-md bg-danger-soft px-2 py-0.5 text-xs font-semibold text-danger">Late</span> : null}
+          {t.late ? <span className={`inline-flex flex-none items-center rounded-md px-2 py-0.5 text-xs font-semibold ${OVERDUE_CLASS.chip}`}>Late</span> : null}
           <Status label={t.status} />
         </li>
       ))}

@@ -52,7 +52,7 @@ export function PortalProjectLayout() {
   return (
     <div className="flex flex-col gap-5">
       <BackLink to="/portal">Your projects</BackLink>
-      <header className="rounded-2xl border border-line bg-surface p-4 shadow-soft sm:p-6">
+      <header className="card card-pad">
         {compact ? (
           <div className="flex min-w-0 items-center gap-3">
             <ProjectAvatar project={project} size="md" />

@@ -193,7 +193,7 @@ export function ProjectCard({ project: p, today, now, timeZone, onChangeStatus, 
             <span className="text-ink-3">No owner</span>
           )}
         </span>
-        <span data-late={String(target.late)} className={`ms-auto whitespace-nowrap ${target.late ? 'font-semibold text-danger' : ''}`}>
+        <span data-late={String(target.late)} className={`ms-auto whitespace-nowrap ${target.late ? `font-semibold ${HEALTH_CLASS.LATE.text}` : ''}`}>
           {target.text}
         </span>
       </div>

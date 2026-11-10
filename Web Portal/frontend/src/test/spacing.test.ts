@@ -46,10 +46,10 @@ describe('one page header layout (1.23.8)', () => {
 
 describe('one padding inside cards (1.23.8)', () => {
   it('cards use card-pad (16px on a phone, 20px from 640px), not a padding of their own', () => {
+    // The Client portal too: its sections are the same cards as the team's.
     const own = files(SRC)
-      .filter((p) => !rel(p).startsWith('pages/portal/') && !rel(p).startsWith('components/portal/'))
       .flatMap((p) => readFileSync(p, 'utf8').split(/\r?\n/).map((line, i) => [rel(p), i + 1, line] as const))
-      .filter(([, , line]) => /\bcard p-[45]\b/.test(line))
+      .filter(([, , line]) => /\bcard p-[45]\b/.test(line) || line.includes('rounded-2xl border border-line bg-surface p-4 shadow-soft sm:p-6'))
       .map(([f, n]) => `${f}:${n}`);
     expect(own).toEqual([]);
     expect(SPACE.card).toBe('card-pad');

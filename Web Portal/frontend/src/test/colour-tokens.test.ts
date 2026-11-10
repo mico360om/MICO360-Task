@@ -39,7 +39,7 @@ const SCHEME_VAR = /--c-(status|prio|overdue|soon|health|cat)-?/;
 /** A general tone (danger / warning / success) on the same line as a status, a priority, overdue, due soon or health. */
 const GENERAL_TONE = /\b(?:bg|text|border|ring|fill)-(?:danger|warning|success)\b|\btone=["'{](?:danger|warning|success)\b|['"](?:danger|warning|success)['"]/;
 const MEANING =
-  /\b(overdue|Overdue|isOverdue|dueSoon|isDueSoon|dueToday|priority|Priority|PRIORITY|RAG|rag|Rag|health|Health|on-track|at-risk|BLOCKED|IN_PROGRESS|REVIEW|blocked)\b|\b(URGENT|HIGH|NORMAL|LOW|RED|AMBER|GREEN|late)\s*:|'(RED|AMBER|GREEN|late|URGENT|HIGH)'/;
+  /\b(overdue|Overdue|isOverdue|dueSoon|isDueSoon|dueToday|priority|Priority|PRIORITY|RAG|rag|Rag|health|Health|on-track|at-risk|BLOCKED|IN_PROGRESS|REVIEW|blocked)\b|\b(URGENT|HIGH|NORMAL|LOW|RED|AMBER|GREEN|late)\s*:|'(RED|AMBER|GREEN|late|URGENT|HIGH)'|\.late\b|>Late<|'(Not started|In progress|In review|On hold|Done)'\s*:|\b(Done|Blocked)\s*:/;
 
 /**
  * Lines checked by hand that use a general tone for something else that happens to share the line (an
@@ -55,6 +55,7 @@ const ALLOWED: Array<[file: string, includes: string, why: string]> = [
   ['pages/ManagementPage.tsx', "tone?: 'brand' | 'success' | 'warning' | 'info' | 'danger' | 'overdue' | 'late'", 'the list of tile tones: the general ones beside the scheme’s'],
   ['components/management/parts.tsx', "type Tone = 'danger' | 'warning' | 'neutral' | 'overdue';", 'the list of number tones: the general ones beside the scheme’s'],
   ['components/management/parts.tsx', "const NUMBER_TONE: Record<Tone, string> = { danger: 'text-danger', warning: 'text-warning', neutral: 'text-ink', overdue: OVERDUE_CLASS.text };", 'the number tones: the general ones beside the scheme’s'],
+  ['components/portal/portal-ui.tsx', "export function Chip({ tone = 'neutral', children }: { tone?: 'neutral' | 'danger' | 'success' | 'warning' | 'info' | 'brand' | 'overdue' | 'done'", 'the list of chip tones: the general ones beside the scheme’s'],
   ['pages/ManagementPage.tsx', "{tile({ label: 'Missing checks', value: t.missingChecks, hint: 'Inspections not done on time', tone: 'warning'", 'missing inspections (a warning), on the line after the late tasks'],
 ];
 

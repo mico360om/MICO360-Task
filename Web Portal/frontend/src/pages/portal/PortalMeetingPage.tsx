@@ -94,7 +94,7 @@ function MeetingBody({ projectId, view }: { projectId: string; view: PortalMeeti
 
   return (
     <>
-      <article aria-labelledby="portal-meeting-title" className="rounded-2xl border border-line bg-surface p-4 shadow-soft sm:p-6">
+      <article aria-labelledby="portal-meeting-title" className="card card-pad">
         <div className="flex flex-wrap items-center gap-2">
           <StatusBadge label={m.status} />
           {m.invited && m.response ? <Chip tone={RESPONSE_TONE[m.response]}>{RESPONSE_WORDS[m.response]}</Chip> : null}

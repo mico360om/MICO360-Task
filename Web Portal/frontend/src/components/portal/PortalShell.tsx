@@ -158,7 +158,7 @@ function NoticeBell({ className = '' }: { className?: string }) {
         <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
       </svg>
       {unread ? (
-        <span aria-hidden="true" className="absolute end-0.5 top-0.5 min-w-[1.25rem] rounded-full bg-danger px-1 text-center text-[11px] font-bold leading-5 text-white ring-2 ring-surface">
+        <span aria-hidden="true" className="absolute end-0.5 top-0.5 min-w-[1.25rem] rounded-full bg-brand px-1 text-center text-[11px] font-bold leading-5 text-white ring-2 ring-surface">
           {countWords(unread)}
         </span>
       ) : null}

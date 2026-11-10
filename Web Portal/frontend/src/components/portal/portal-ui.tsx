@@ -8,6 +8,7 @@ import { buttonClass } from '../ui/Button';
 import { dayText } from '../../lib/day-words';
 import { usePageName } from '../../lib/page-meta';
 import { usePortalPreview } from './portal-context';
+import { OVERDUE_CLASS, STATUS_CLASS } from '../../lib/colour-classes';
 
 /**
  * 1.23 Pieces the Client portal's pages share, in the look of the client page (ClientViewPage) the
@@ -41,18 +42,23 @@ export function usePortalPageName(name: string | null | undefined): void {
   usePageName(usePortalPreview() ? null : name);
 }
 
+/**
+ * 1.23.8 one colour scheme: a task's status in the client's words reads like the team's (Not started = To do
+ * slate, In progress blue, In review purple, On hold = Blocked red, Done green); a project's and a meeting's
+ * words take the nearest (Completed / Held green, Planning / Scheduled blue).
+ */
 const STATUS_TONE: Record<string, string> = {
-  Done: 'bg-success-soft text-success',
-  Completed: 'bg-success-soft text-success',
-  Held: 'bg-success-soft text-success',
-  'In progress': 'bg-info-soft text-info',
-  'In review': 'bg-info-soft text-info',
-  Planning: 'bg-info-soft text-info',
-  Scheduled: 'bg-info-soft text-info',
+  Done: STATUS_CLASS.DONE.chip,
+  Completed: STATUS_CLASS.DONE.chip,
+  Held: STATUS_CLASS.DONE.chip,
+  'In progress': STATUS_CLASS.IN_PROGRESS.chip,
+  'In review': STATUS_CLASS.REVIEW.chip,
+  Planning: STATUS_CLASS.IN_PROGRESS.chip,
+  Scheduled: STATUS_CLASS.IN_PROGRESS.chip,
   Planned: 'bg-ground text-ink-2',
-  'On hold': 'bg-warning-soft text-warning',
-  Cancelled: 'bg-danger-soft text-danger',
-  'Not started': 'bg-ground text-ink-2',
+  'On hold': STATUS_CLASS.BLOCKED.chip,
+  Cancelled: 'bg-ground text-ink-2 line-through',
+  'Not started': STATUS_CLASS.TODO.chip,
 };
 
 /** A status in words, coloured by its meaning (the words carry it too). */
@@ -60,7 +66,7 @@ export function StatusBadge({ label }: { label: string }) {
   return <span className={`inline-flex flex-none items-center rounded-md px-2 py-0.5 text-xs font-semibold ${STATUS_TONE[label] ?? 'bg-ground text-ink-2'}`}>{label}</span>;
 }
 
-export function Chip({ tone = 'neutral', children }: { tone?: 'neutral' | 'danger' | 'success' | 'warning' | 'info' | 'brand'; children: ReactNode }) {
+export function Chip({ tone = 'neutral', children }: { tone?: 'neutral' | 'danger' | 'success' | 'warning' | 'info' | 'brand' | 'overdue' | 'done'; children: ReactNode }) {
   const tones = {
     neutral: 'bg-ground text-ink-2',
     danger: 'bg-danger-soft text-danger',
@@ -68,6 +74,9 @@ export function Chip({ tone = 'neutral', children }: { tone?: 'neutral' | 'dange
     warning: 'bg-warning-soft text-warning',
     info: 'bg-info-soft text-info',
     brand: 'bg-brand/10 text-brand',
+    // 1.23.8: late work and done work in the one colour scheme.
+    overdue: OVERDUE_CLASS.chip,
+    done: STATUS_CLASS.DONE.chip,
   } as const;
   return <span className={`inline-flex flex-none items-center rounded-md px-2 py-0.5 text-xs font-semibold ${tones[tone]}`}>{children}</span>;
 }
@@ -81,7 +90,7 @@ export function KeyChip({ value }: { value: string }) {
 export function Section({ title, children, aside, as: Heading = 'h2' }: { title: string; children: ReactNode; aside?: ReactNode; as?: 'h2' | 'h3' }) {
   const id = useId();
   return (
-    <section aria-labelledby={id} className="rounded-2xl border border-line bg-surface p-4 shadow-soft sm:p-6">
+    <section aria-labelledby={id} className="card card-pad">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <Heading id={id} className="font-display text-base font-bold text-ink">{title}</Heading>
         {aside}
