@@ -14,6 +14,40 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### New features
+- Guests on tasks: people outside the company — a client's engineer, a supplier's site lead — can be named
+  on a task for the record. The Assign box (New task, Edit task and the task panel) has a switch
+  **Internal user | Guest**: pick a guest from your company's list, or add a new one (name required;
+  company, designation, email and phone if you have them). If the same person is already on the list, the
+  form says so ("Ahmed Al Harthy (OXY) is already on the list — use them?"). A task can have several team
+  members and several guests, and always needs at least one person from your team, who looks after it.
+  Guests never sign in, never get emails or notices, take no licence and are never shown to clients.
+- Guests show on the task's right side under Assigned (with a Guest badge; their phone and email with a
+  Copy button, and a note for this task), on cards and rows ("Guest: Ahmed (OXY)"), in the Table view's
+  Guests column, in the task PDF and Excel, in the report's task list, and in the daily email of the person
+  looking after the task ("with guest Ahmed (OXY)"). Filter by **Guest** and **Guest company** on the
+  board, My Tasks, the project's Tasks tab, the Table view and Search results.
+- Today's external contacts become guests on your company's list by themselves (the same person on several
+  tasks becomes one guest; other details found are kept in the guest's notes). An open task that had
+  contacts and nobody from the team gets its creator as the person responsible.
+- Admin → Guest contacts: search your company's guest list, change a guest's details (every task shows
+  them), retire a guest (kept on old tasks, not offered any more), merge duplicates into one, or remove a
+  guest who is on no task.
+- Task categories: each project has its own categories (a name and one of 12 colours), set up by admins and
+  the project's managers in Edit project → Categories (add, rename, recolour, reorder, retire). A task can
+  have several; the project can ask that **every task needs a category**. Categories show as coloured
+  chips on cards, rows and the Table view (Compact 1, Comfortable 2, Detailed all), in the task panel, the
+  task PDF, Excel, the report and the daily email, with a **Category** filter on the board, My Tasks, the
+  Tasks tab, the Table view and Search results — and searching "category:Electrical" finds them too. The
+  project's Overview shows its open tasks **By category**. Tags stay as they are.
+
+### Improvements
+- Moving a task to another project keeps the categories that project has by name and says which it drops;
+  a guest of another company is copied onto the new project's company list. Merging tasks keeps every
+  category and each guest once (Undo gives them back); repeating copies keep both; "Save as template"
+  keeps a project's categories, and a project made from that template starts with them.
+- The task history says "assigned guest Ahmed (OXY)", "removed guest …", "added category Electrical".
+
 ## [1.23.9] - 2026-11-10
 
 ### New features
