@@ -82,6 +82,8 @@ export interface AiTaskExtras {
   checklist: Array<{ text: string; done: boolean }>;
   /** The people outside the company responsible for it, in order (MICO AI may read them, never change them). */
   externalContacts: ExternalContactFields[];
+  /** 1.24: its categories' names (MICO AI may read them; its actions never set them). */
+  categories?: string[];
   comments: Array<{ userId: string; body: string; createdAt: Date }>;
   /** Newest first. */
   activity: AiActivityRec[];

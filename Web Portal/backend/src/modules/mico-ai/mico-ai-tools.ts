@@ -3,7 +3,7 @@ import { dueDayKey, daysUntilDue, shiftDayKey, todayKey, zonedDayKey, zonedStart
 import { CATEGORY_ORDER, categoryLabel, priorityLabel, wallClock } from '../../lib/export-format';
 import { isTaskDone, isTaskLate } from '../tasks/task-status';
 import { matchesNormalized, normalizeForSearch } from '../search/text-normalize';
-import { buildTimeline } from '../activity/activity-feed';
+import { buildTaskTimeline as buildTimeline } from '../activity/task-history-extra';
 import { withoutHiddenBlockers } from '../activity/hidden-blockers';
 import { completionStats, projectPerformance, statusBreakdown, userWorkload, type ReportTask } from '../reports/report-service';
 import type { ToolInfo } from './mico-ai-loop';
@@ -437,8 +437,10 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
           milestone: t.isMilestone,
           start: dueDayKey(t.startDate, timeZone),
           checklist: x.checklist.slice(0, 25).map((c) => ({ item: clip(c.text, 150), done: c.done })),
-          // The people outside the company responsible for it (read only: MICO AI has no action that changes them).
+          // Its guests — people outside the company named on it (read only: MICO AI has no action that changes them).
           externalContacts: x.externalContacts.map((c) => ({ ...c, remarks: c.remarks === null ? null : clip(c.remarks, 300) })),
+          // 1.24: its categories (read only).
+          ...(x.categories?.length ? { categories: x.categories } : {}),
           comments: x.comments.slice(-10).map((c) => ({ by: nameOf(s.person.get(c.userId)) || 'Someone', at: wallClock(c.createdAt, timeZone), text: clip(c.body, 300) })),
           history,
           blockedBy: blockedBy.map(link),

@@ -1,3 +1,4 @@
+import { withGuestsText } from '../tasks/guest-contacts';
 import { chipsHtml, escapeHtml, initialsInk, initialsOf, renderEmail, safeHref, type Block, type EmailChip } from '../email/email-layout';
 import { resolveBrand, type Brand } from '../email/brand';
 import type { EmailContent, TemplateOptions } from '../email/email-templates';
@@ -48,6 +49,10 @@ export interface DailyTask {
   blocked?: boolean;
   /** Who it is assigned to (shown in "In your projects" only: everyone else's tasks are their own). */
   assignees?: string[];
+  /** 1.24: its guests (name and company only — a guest's email or phone is never in an email). */
+  guests?: { name: string; company: string | null }[];
+  /** 1.24: its categories' names. */
+  categories?: string[];
 }
 
 /** A meeting on the person's day: one they organize or are invited to and haven't declined. */
@@ -484,7 +489,15 @@ function cardMaker(input: DailyEmailInput, m: Model, c: Brand['colors']) {
       t.blocked ? ({ text: 'Blocked', tone: 'danger' } as EmailChip) : null,
     ].filter((x): x is EmailChip => !!x);
     const start = dueDayKey(t.startDate ?? null, tz);
-    const facts = [start ? `Start ${dayLabel(start)}` : null, t.checklist?.total ? `Checklist ${t.checklist.done} of ${t.checklist.total}` : null].filter(Boolean).join(' · ');
+    const facts = [
+      start ? `Start ${dayLabel(start)}` : null,
+      t.checklist?.total ? `Checklist ${t.checklist.done} of ${t.checklist.total}` : null,
+      // 1.24: "with guest Ahmed (OXY)" and its categories.
+      withGuestsText(t.guests) || null,
+      t.categories?.length ? `Categories: ${t.categories.join(', ')}` : null,
+    ]
+      .filter(Boolean)
+      .join(' · ');
     const assigned = o.managed && t.assignees?.length ? `Assigned to ${t.assignees.join(', ')}` : null;
     const meta = o.flat ? [projectLine(t.project, input.groupByCompany), assigned].filter(Boolean).join(' · ') : '';
     const description = t.description ? clip(t.description, 160) : '';

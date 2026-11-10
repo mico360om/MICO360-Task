@@ -21,7 +21,7 @@ import type { SearchKind } from './search-types';
  * nothing is, the search is exactly what was typed.
  */
 
-export const READER_CHIP_KEYS = ['kind', 'due', 'when', 'done', 'status', 'approval', 'priority', 'project', 'assignee', 'mine', 'creator', 'organizer'] as const;
+export const READER_CHIP_KEYS = ['kind', 'due', 'when', 'done', 'status', 'approval', 'priority', 'category', 'project', 'assignee', 'mine', 'creator', 'organizer'] as const;
 /** One chip per key, shown in this order ("Tasks · Overdue · MICO · Assigned to me"). */
 export type ReaderChipKey = (typeof READER_CHIP_KEYS)[number];
 
@@ -68,6 +68,8 @@ export interface ReaderFilters {
   /** "my meetings", "mine": the person's own, each kind's way (the page's "Only mine"). */
   mine?: true;
   projectId?: string;
+  /** 1.24: tasks with a category of one of these names ("category:Electrical"; tasks only). */
+  categories?: string[];
 }
 
 export interface ReaderChip {
@@ -235,7 +237,33 @@ interface Reading {
 
 const MERGED: ReadonlySet<ReaderChipKey> = new Set(['kind', 'priority', 'status', 'assignee', 'creator', 'organizer']);
 
+/** 1.24: "category:Electrical", "category:\"Civil works\"", "categories:HSE" — a task category by its name. */
+const CATEGORY_WORD = /(^|\s)categor(?:y|ies):(?:"([^"]{1,60})"|([^\s"]{1,60}))/gi;
+
+/**
+ * Read a search (see above). 1.24: "category:<name>" is read first (always strong: the colon says so) into a
+ * Category chip — tasks with a category of that name in any project the person may see; the rest is read
+ * as before.
+ */
 export function readQuery(text: string, ctx: ReaderContext, opts: { off?: readonly string[] } = {}): ReadResult {
+  const source = String(text ?? '').slice(0, 400);
+  if ((opts.off ?? []).includes('category')) return readWords(source, ctx, opts);
+  const names: string[] = [];
+  const typed: string[] = [];
+  const rest = source.replace(CATEGORY_WORD, (whole: string, lead: string, quoted: string | undefined, bare: string | undefined) => {
+    const name = (quoted ?? bare ?? '').trim().replace(/[,.;!?]+$/, '');
+    if (name && !names.some((n) => n.toLowerCase() === name.toLowerCase())) names.push(name);
+    typed.push(whole.trim());
+    return lead;
+  });
+  if (names.length === 0) return readWords(source, ctx, opts);
+  const read = readWords(rest, ctx, opts);
+  const chip: ReaderChip = { key: 'category', label: `Category: ${names.join(' or ')}`, text: typed.join(' ') };
+  const chips = [...read.chips, chip].sort((a, b) => READER_CHIP_KEYS.indexOf(a.key) - READER_CHIP_KEYS.indexOf(b.key));
+  return { chips, words: read.words, filters: { ...read.filters, categories: names } };
+}
+
+function readWords(text: string, ctx: ReaderContext, opts: { off?: readonly string[] } = {}): ReadResult {
   const source = String(text ?? '').slice(0, 400);
   const toks = tokens(source);
   const none: ReadResult = { chips: [], words: source.trim(), filters: {} };

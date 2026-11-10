@@ -169,6 +169,8 @@ export function reportSheets(b: ReportBundle, meta: ReportMeta, sections: Report
           { header: 'Status' },
           { header: 'Priority' },
           { header: 'Assignees', wrap: true },
+          { header: 'Guests', wrap: true },
+          { header: 'Categories', wrap: true },
           { header: 'Due', kind: 'date' },
           { header: 'Completed', kind: 'datetime' },
           { header: 'Overdue' },
@@ -181,6 +183,8 @@ export function reportSheets(b: ReportBundle, meta: ReportMeta, sections: Report
           t.status,
           priorityLabel(t.priority),
           t.assignees.join(', '),
+          (t.guests ?? []).join(', '),
+          (t.categories ?? []).join(', '),
           t.dueDate ? { date: t.dueDate } : null,
           t.completedAt ? { date: wallClock(t.completedAt, meta.timeZone) } : null,
           t.overdue ? 'Yes' : '',
@@ -279,7 +283,14 @@ export function reportPdf(b: ReportBundle, meta: ReportMeta, sections: ReportSec
       const shown = b.tasks.slice(0, PDF_TASK_LIMIT);
       const rows = shown.map((t) => [
             t.key,
-            t.mergedFrom?.length ? `${t.title} (merged from ${t.mergedFrom.join(', ')})` : t.title,
+            [
+              t.mergedFrom?.length ? `${t.title} (merged from ${t.mergedFrom.join(', ')})` : t.title,
+              // 1.24: its guests and categories under the title (the table has no room for two more columns).
+              t.guests?.length ? `Guests: ${t.guests.join(', ')}` : '',
+              t.categories?.length ? `Categories: ${t.categories.join(', ')}` : '',
+            ]
+              .filter(Boolean)
+              .join('\n'),
             t.projectName,
             t.status,
             priorityLabel(t.priority),

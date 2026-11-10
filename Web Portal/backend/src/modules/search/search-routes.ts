@@ -1,3 +1,4 @@
+import { categoryNameKey } from '../tasks/task-categories';
 import { z } from 'zod';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { SearchService } from './search-service';
@@ -358,6 +359,10 @@ export async function registerSearchRoutes(app: FastifyInstance, deps: SearchRou
       // 1.23.6: the reader's chips taken off, and "Search the words instead".
       off: offList,
       plain: flag.optional(),
+      // 1.24: the Guest, Guest company and Category filters (ids comma-separated; tasks only).
+      guest: z.string().max(2000).optional().transform((v) => (v ? v.split(',').map((x) => x.trim()).filter(Boolean).slice(0, 20) : undefined)),
+      guestCompany: z.string().max(120).optional(),
+      category: z.string().max(2000).optional().transform((v) => (v ? v.split(',').map((x) => x.trim()).filter(Boolean).slice(0, 20) : undefined)),
       limit: z.coerce.number().int().min(1).max(50).default(ALL_PAGE_SIZE),
       cursor: z.string().max(40).optional(),
     });
@@ -453,6 +458,10 @@ interface PageFilters {
   q: string;
   type?: SearchKind[];
   projectId?: string;
+  /** 1.24: the page's Guest, Guest company and Category filters (tasks only). */
+  guest?: string[];
+  guestCompany?: string;
+  category?: string[];
   status?: string[];
   done?: boolean;
   person?: string;
@@ -511,6 +520,11 @@ export function engineInput(timeZone: string, ctx: ReaderContext | null, viewerI
     ...(f.assignee === 'none' ? { unassigned: true } : {}),
     ...(f.creator?.length ? { creatorIds: me(f.creator) } : {}),
     ...(f.organizer?.length ? { organizerIds: me(f.organizer) } : {}),
+    // 1.24: "category:Electrical" (by name, in any project the person may see) and the page's own filters.
+    ...(f.categories?.length ? { categoryKeys: [...new Set(f.categories.map(categoryNameKey))] } : {}),
+    ...(p.category?.length ? { categoryIds: p.category } : {}),
+    ...(p.guest?.length ? { guestIds: p.guest } : {}),
+    ...(p.guestCompany?.trim() ? { guestCompany: p.guestCompany.trim() } : {}),
   };
   const filtered = Object.keys(out).some((k) => k !== 'q' && k !== 'includeArchived');
   return { ...out, ...(parseTaskQuery(q).terms.length === 0 && filtered ? { browse: true } : {}) };

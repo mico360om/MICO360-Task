@@ -2,6 +2,7 @@ import type { PrismaClient } from '@prisma/client';
 import type { ReportDataSource } from './report-service';
 import { STAFF_ONLY_WHERE } from '../clients/client-kind';
 import { effectiveWeight, weightDefaultsOf } from '../project-health/completion';
+import { guestLabel } from '../tasks/guest-contacts';
 
 export function createPrismaReportDataSource(prisma: PrismaClient): ReportDataSource {
   return {
@@ -15,6 +16,9 @@ export function createPrismaReportDataSource(prisma: PrismaClient): ReportDataSo
           project: { select: { name: true, completionMode: true, weightUrgent: true, weightHigh: true, weightNormal: true, weightLow: true } },
           column: { select: { category: true, name: true } },
           assignees: { select: { userId: true } },
+          // 1.24: its guests and categories (the task list exports).
+          externalContacts: { select: { name: true, company: true }, orderBy: { position: 'asc' } },
+          categories: { select: { category: { select: { name: true, position: true } } } },
         },
       });
       // 1.23.1: the main task's row says which tasks were merged into it.
@@ -42,6 +46,8 @@ export function createPrismaReportDataSource(prisma: PrismaClient): ReportDataSo
         weight: effectiveWeight(t, weightDefaultsOf(t.project)),
         byWeight: t.project.completionMode === 'WEIGHT',
         ...(mergedFrom.has(t.id) ? { mergedFrom: mergedFrom.get(t.id) } : {}),
+        guests: t.externalContacts.map(guestLabel),
+        categories: t.categories.map((c) => c.category).sort((a, b) => a.position - b.position || a.name.localeCompare(b.name, 'en')).map((c) => c.name),
       }));
     },
     async getUsers() {
