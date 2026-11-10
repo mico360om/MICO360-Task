@@ -5,9 +5,11 @@ import {
   fmtDate,
   fmtDay,
   fmtTimeRange,
+  minutesFooter,
   minutesProjectHeader,
   minutesTitle,
   printFinalMinutes,
+  printedAt,
   projectFacts,
   resolveMinutesTimeZone,
   type MinutesBrand,
@@ -46,20 +48,13 @@ export interface ClientMinutesPdfData {
 export function buildClientMinutesPdf(data: ClientMinutesPdfData): Buffer {
   const { brand, project, meeting, content: c } = data;
   const tz = resolveMinutesTimeZone(meeting.timeZone, data.companyTimeZone);
-  const footer = [
-    [brand.companyName, brand.websiteUrl, brand.supportEmail].filter((b): b is string => Boolean(b)).map(isolate).join('  ·  '),
-    brand.companyAddress,
-    `Shared with you through ${isolate(brand.productName)}`,
-  ]
-    .filter(Boolean)
-    .join('\n');
-
-  // The staff minutes' compact look (see meetings/minutes.ts).
+  // The staff minutes' look (see meetings/minutes.ts). 1.23.11 footer: the company, when it was
+  // printed — no one's name, a client's copy — and the page; the website, address and "Shared with you through …".
   const doc = new PdfDocument({
     title: `Minutes of Meeting: ${meeting.title}`,
+    runningTitle: `Minutes of Meeting · ${meeting.title} · ${project.name}`,
     palette: { brand: brand.colors?.brand, ink: brand.colors?.ink, muted: brand.colors?.muted, line: brand.colors?.line },
-    footerLeft: footer,
-    density: 'compact',
+    footer: minutesFooter(brand, printedAt(data.generatedAt, tz), true),
     ...(data.logo ? { logo: data.logo } : {}),
   });
 

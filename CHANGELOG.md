@@ -27,6 +27,35 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   open and overdue tasks, and "Open project". Fold it away with its arrow (remembered); on a phone it shows
   the short version with "Details".
 
+## [1.23.11] - 2026-11-10
+
+### Improvements
+- Every PDF — a task, the reports, the minutes of a meeting (and the client's copy), the client's task
+  list, inspection reports, the Management overview and MICO AI reports — now follows one A4 design:
+  narrower margins (14 mm at the sides, 12 mm top and bottom), one font, smaller and tighter type (9.5 pt
+  text, 11 pt headings, a 15.5 pt title), and nothing ever smaller than 7.5 pt.
+- A slim header on every PDF: the project's picture on the left, the company's logo on the right (the
+  built-in logo when the company has none) and the document's title; every later page repeats a slim
+  version of it, and every page ends with the company's name, "Printed 10 Nov 2026, 14:05 by Name" and
+  "Page 2 of 5" (a copy shared with a client says when it was printed, never by whom).
+- A task's status, priority, due date and progress sit in one slim strip in the site's colours, instead of
+  four tall cards; reports, the minutes, inspections and the Management overview use the same strip.
+- Tables fit their columns to what they hold, keep every date whole, line numbers up on the right, repeat
+  their header on every page, never split a row across two pages (a very long one carries on under
+  "(continued)") and never leave one row alone on a last page. A table too wide for an upright page turns
+  its part of the document sideways by itself; everything else stays upright.
+- Headings always stay with what follows them, a small section is never split across pages, no PDF ends
+  on a blank page, and a task's PDF leaves out the sections it has nothing for (no attachments, no
+  checklist, and so on).
+- Much smaller files: pictures and logos are printed at 200 dpi for the size they are shown at. The task
+  in the owner's screenshot went from 83 KB on 2 pages to 26 KB on 1; a sample report from 6 pages to 4
+  and the Management overview from 4 to 2.
+
+## [1.23.10] - 2026-11-10
+
+### Improvements
+- Kanban: overdue cards keep the normal border; the Overdue date shows as a dark-red-on-pale-red badge.
+
 ## [1.23.9] - 2026-11-10
 
 ### New features

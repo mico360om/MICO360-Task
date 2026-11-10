@@ -82,6 +82,8 @@ export interface CompanyBrandingDeps {
   readImage(url: string): Promise<Buffer | null>;
   /** Converts a picture the PDF can't take as stored (WebP, see-through PNGs) — the picture library. */
   printable?(raw: Buffer): Promise<Buffer | null>;
+  /** 1.23.11: makes a logo the size the PDF header prints it at (≤ 200 dpi) — the picture library. */
+  documentPicture?(raw: Buffer): Promise<Buffer | null>;
   /** Where '/uploads/…' is served (the API's public address), for logos in emails. */
   apiBaseUrl: string;
   ttlMs?: number;
@@ -186,7 +188,7 @@ export function createCompanyBranding(deps: CompanyBrandingDeps): CompanyBrandin
   const logoFile = cached(async (url: string): Promise<{ printable: Buffer | null; size: { width: number; height: number } | null }> => {
     const raw = await deps.readImage(url).catch(() => null);
     if (!raw) return { printable: null, size: null };
-    const printable = await readProjectPicture(url, async () => raw, deps.printable);
+    const printable = await readProjectPicture(url, async () => raw, deps.printable, deps.documentPicture ? (b) => deps.documentPicture!(b) : undefined);
     return { printable, size: imageDimensions(raw) };
   });
 
