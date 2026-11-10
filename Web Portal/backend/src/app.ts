@@ -211,6 +211,8 @@ export interface AppDeps extends AuthRouteDeps {
    * and audit lines; "This task was deleted" when one is opened.
    */
   binService?: BinService;
+  /** How many live tasks a repeating series has (a copy's details: "the entire series (12 tasks)"). */
+  seriesSize?: (seriesId: string) => Promise<number>;
   carryForwardService?: import('./modules/tasks/carry-forward-service').CarryForwardService;
   assigneeService?: AssigneeService;
   watcherService?: WatcherService;
@@ -810,6 +812,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           // Recycle Bin: a delete's history and audit lines; a deleted task opened says it was deleted.
           binDeleted: deps.binService ? (e) => deps.binService!.deleted(e) : undefined,
           binNotice: deps.binService ? (viewer, taskId) => deps.binService!.noticeFor(viewer, taskId) : undefined,
+          seriesSize: deps.seriesSize,
           projectOwnerOf: deps.projectService
             ? async (projectId) => (await deps.projectService!.getProject(projectId)).ownerId
             : undefined,

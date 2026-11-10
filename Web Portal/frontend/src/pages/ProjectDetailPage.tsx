@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { projectsApi } from '../api/projects';
@@ -359,6 +359,19 @@ export function ProjectDetailPage() {
             {TemplateGlyph.save}
             <span className="max-sm:sr-only">Save as template</span>
           </button>
+        ) : null}
+        {canEditProject && project ? (
+          // Recycle Bin: this project's deleted tasks (the bin, filtered to it) — for the people who run it.
+          <Link
+            to={`/recycle-bin?project=${encodeURIComponent(project.id)}`}
+            title="This project’s deleted tasks (kept 60 days)"
+            className={`inline-flex flex-none items-center justify-center gap-1.5 rounded-xl border border-line bg-surface px-3 py-2 text-sm font-semibold text-ink transition-colors hover:border-brand hover:text-brand ${TOUCH_SQUARE}`}
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M6 6v14a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6M10 11v6M14 11v6" />
+            </svg>
+            <span className="max-sm:sr-only">Deleted tasks</span>
+          </Link>
         ) : null}
         {canEditProject && project ? (
           <button

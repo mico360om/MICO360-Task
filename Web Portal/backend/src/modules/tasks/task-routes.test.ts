@@ -631,6 +631,20 @@ describe('Task routes — the Recycle Bin', () => {
   });
 });
 
+describe('Task routes — a repeating task’s details say how many tasks its series has (the delete question)', () => {
+  it('seriesSize: the live tasks of its series; none for a one-off task', async () => {
+    const mem = inMemory();
+    const asked: string[] = [];
+    const built = await buildApp({ authService, tokenService, taskService: createTaskService(mem), seriesSize: async (seriesId: string) => { asked.push(seriesId); return 12; } });
+    const admin = { authorization: `Bearer ${(await tokenService.issueTokens({ id: 'boss', roles: ['ADMIN'] })).accessToken}` };
+    const head = (await built.inject({ method: 'POST', url: '/api/v1/tasks', headers: admin, payload: { title: 'Weekly', projectId: 'p1', columnId: 'c1', recurrenceRule: { freq: 'WEEKLY', interval: 1 } } })).json().data;
+    const one = (await built.inject({ method: 'POST', url: '/api/v1/tasks', headers: admin, payload: { title: 'Once', projectId: 'p1', columnId: 'c1' } })).json().data;
+    expect((await built.inject({ method: 'GET', url: `/api/v1/tasks/${head.id}`, headers: admin })).json().data.seriesSize).toBe(12);
+    expect(asked).toEqual([head.id]);
+    expect((await built.inject({ method: 'GET', url: `/api/v1/tasks/${one.id}`, headers: admin })).json().data.seriesSize).toBeUndefined();
+  });
+});
+
 describe('Task routes — the picked company (companies)', () => {
   // cat belongs to companies A and B (projects p1, p2); ana only to A. The company module is a fake
   // whose checkPick refuses a company that isn't the person's — the real resolver reads the header.

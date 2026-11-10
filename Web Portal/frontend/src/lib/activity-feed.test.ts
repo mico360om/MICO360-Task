@@ -412,3 +412,12 @@ describe('merging tasks in a task’s history (1.23.1)', () => {
     expect(line('MERGE_UNDONE', { keys: ['MICO-14'], mainKey: 'MICO-12', fromMain: true }).text).toBe('undid its merge into MICO-12: this is a separate task again');
   });
 });
+
+describe('the Recycle Bin in a task’s history', () => {
+  const line = (action: string, meta?: Record<string, unknown>) => buildTimeline([e('a1', action, 'Sara Al Balushi', 1, meta)])[0]!;
+  it('deleted (to the bin, with its series when it went as a whole) and restored', () => {
+    expect(line('DELETED')).toMatchObject({ kind: 'other', text: 'moved this task to the Recycle Bin' });
+    expect(line('DELETED', { batch: 12 }).text).toBe('moved this task to the Recycle Bin with its series (12 tasks)');
+    expect(line('RESTORED').text).toBe('restored this task from the Recycle Bin');
+  });
+});

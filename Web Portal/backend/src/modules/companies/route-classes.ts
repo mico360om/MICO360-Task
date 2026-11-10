@@ -509,10 +509,9 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   'GET /projects/:id/next-actions': 'object',
   'GET /projects/:id/activity': 'object',
   // Recycle Bin: the bin lists the deleted tasks of the projects the person runs (an administrator's:
-  // every project) in the picked company; whether they may use it is theirs; one deleted task, restore
+  // every project) in the picked company; one deleted task, restore
   // and Delete forever are checked task by task (Delete forever: administrators only).
   'GET /recycle-bin': 'list',
-  'GET /recycle-bin/access': 'own',
   'GET /recycle-bin/tasks/:id': 'object',
   'POST /recycle-bin/restore': 'object',
   'POST /recycle-bin/erase': 'admin',

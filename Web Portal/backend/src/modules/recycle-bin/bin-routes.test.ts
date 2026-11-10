@@ -27,7 +27,6 @@ function fakeService(): BinService {
   };
   return {
     list: log('list', { rows: [{ id: 't1' }], total: 1, offset: 0, limit: 50, facets: { projects: [], deleters: [] }, canErase: false }),
-    access: log('access', { allowed: true, canErase: false }),
     detail: log('detail', { task: { id: 't1' } }),
     restore: log('restore', { restored: [], notRestored: [] }),
     erase: log('erase', { erased: [], notErased: [] }),
@@ -92,8 +91,7 @@ describe('POST /recycle-bin/restore and /erase', () => {
     expect(calls.map((c) => c.name)).toEqual(['erase']);
   });
 
-  it('a deleted task read-only, and who may use the bin', async () => {
+  it('a deleted task read-only', async () => {
     expect((await app.inject({ method: 'GET', url: '/api/v1/recycle-bin/tasks/t1', headers: await bearer('sara') })).json()).toEqual({ data: { task: { id: 't1' } } });
-    expect((await app.inject({ method: 'GET', url: '/api/v1/recycle-bin/access', headers: await bearer('sara') })).json()).toEqual({ data: { allowed: true, canErase: false } });
   });
 });

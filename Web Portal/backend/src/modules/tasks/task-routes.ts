@@ -205,6 +205,8 @@ export interface TaskRouteDeps {
   checklistDue?: (opts: { from: string; to: string; userId: string; ownIds: string[] | null; listIds: string[] | null }) => Promise<unknown[]>;
   /** Recycle Bin: after a delete — the history line on each task and the audit log's (who deleted it). */
   binDeleted?: (e: { actorId: string; taskIds: string[]; batchId: string | null; ip?: string | null }) => Promise<void>;
+  /** How many live tasks a repeating series has (a copy's details say so: "the entire series (12 tasks)"). */
+  seriesSize?: (seriesId: string) => Promise<number>;
   /** Recycle Bin: a deleted task opened — 'TASK_DELETED' for its project's people, null for anyone else. */
   binNotice?: (viewer: { id: string; roles: string[] }, taskId: string) => Promise<'TASK_DELETED' | null>;
 }
@@ -399,7 +401,9 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
     // 1.23.1: the tasks merged into it; and, opened by a merged task's id (an old link), which one that was.
     const merged = deps.mergedFrom ? { mergedFrom: await deps.mergedFrom(task.id) } : {};
     const notice = req.mergedFrom ? { mergeNotice: { key: req.mergedFrom.key, mergedAt: req.mergedFrom.mergedAt, mergedByName: req.mergedFrom.mergedByName } } : {};
-    return { data: { ...task, meeting: await meetingLinkOf(req, task.meetingId ?? null), inspectionForm, ...approval, canDelete, canDeleteSeries, ...merged, ...notice } };
+    const inSeries = Boolean(task.recurrenceRule || task.recurrenceParentId);
+    const series = inSeries && deps.seriesSize ? { seriesSize: await deps.seriesSize(task.recurrenceParentId ?? task.id) } : {};
+    return { data: { ...task, meeting: await meetingLinkOf(req, task.meetingId ?? null), inspectionForm, ...approval, canDelete, canDeleteSeries, ...merged, ...notice, ...series } };
   });
 
   app.post('/tasks', { preHandler: guard.authenticate }, async (req, reply) => {

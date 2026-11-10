@@ -2241,6 +2241,8 @@ async function main(): Promise<void> {
     taskMoveService,
     taskMergeService,
     binService, // Recycle Bin
+    // The delete question names the series' size: "the entire series (12 tasks)".
+    seriesSize: (seriesId) => prisma.task.count({ where: { deletedAt: null, OR: [{ id: seriesId }, { recurrenceParentId: seriesId }] } }),
     carryForwardService,
     assigneeService,
     watcherService,

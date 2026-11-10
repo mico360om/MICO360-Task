@@ -19,6 +19,9 @@ export const ACTION_VERB: Record<string, string> = {
   APPROVAL_WITHDRAWN: 'withdrew the approval request on',
   // Companies: a line on the project itself (no task).
   PROJECT_COMPANIES_CHANGED: 'changed the companies of',
+  // Recycle Bin.
+  DELETED: 'deleted',
+  RESTORED: 'restored',
 };
 /** Lines about a project itself: they name the project, not "a task". */
 export const PROJECT_LINES = new Set(['PROJECT_COMPANIES_CHANGED']);
@@ -34,6 +37,8 @@ export const ACTION_TONE: Record<string, string> = {
   APPROVED: 'text-success',
   SENT_BACK: 'text-warning',
   APPROVAL_WITHDRAWN: 'text-ink-2',
+  DELETED: 'text-danger',
+  RESTORED: 'text-success',
 };
 export const ACTION_DOT: Record<string, string> = {
   CREATED: 'bg-info',
@@ -44,6 +49,8 @@ export const ACTION_DOT: Record<string, string> = {
   APPROVAL_REQUESTED: 'bg-brand',
   APPROVED: 'bg-success',
   SENT_BACK: 'bg-warning',
+  DELETED: 'bg-danger',
+  RESTORED: 'bg-success',
 };
 const str = (v: unknown) => (typeof v === 'string' ? v : null);
 
@@ -68,6 +75,10 @@ export function detailOf(a: ApiActivity): string {
       return str(m.reason) ? `“${str(m.reason)}”` : '';
     case 'ASSIGNED':
       return str(m.assignee) ? `→ ${str(m.assignee)}` : '';
+    case 'DELETED':
+      return 'to the Recycle Bin';
+    case 'RESTORED':
+      return 'from the Recycle Bin';
     case 'PROJECT_CHANGED': {
       // To another project: from where, by the key it had there ("from Rig Inspection (RIG-4) to Operations").
       const fromProject = str(m.fromProject);

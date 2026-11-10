@@ -176,6 +176,14 @@ const I = {
 };
 
 // Grouped so the rail reads as a few short sections rather than one long list.
+/** Recycle Bin: a bin — kept out of `I`, the icon set the Android app copies (its menu has no such page). */
+const RECYCLE_BIN_ICON = (
+  <>
+    <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M6 6v14a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6" />
+    <path d="M10 11v6M14 11v6" />
+  </>
+);
+
 const WORKSPACE: NavItem[] = [
   { label: 'Dashboard', to: '/dashboard', icon: I.dashboard },
   { label: 'My Tasks', to: '/my-tasks', icon: I.tasks },
@@ -189,6 +197,8 @@ const WORKSPACE: NavItem[] = [
   { label: 'Templates', to: '/templates', icon: I.templates },
   { label: 'Management', to: '/management', icon: I.management, leadsOnly: true },
   { label: 'Reports', to: '/reports', icon: I.reports, adminOnly: true },
+  // Recycle Bin: admins and anyone who runs a project (the Management page's people).
+  { label: 'Recycle Bin', to: '/recycle-bin', icon: RECYCLE_BIN_ICON, leadsOnly: true },
 ];
 const COMMUNICATION: NavItem[] = [
   { label: 'Chat', to: '/chat', icon: I.chat },

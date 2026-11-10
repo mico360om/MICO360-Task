@@ -397,6 +397,12 @@ function lineOf(kind: TimelineKind, entries: FeedEntry[]): TimelineItem | null {
       if (newest.action === 'TASKS_MERGED') return { ...base, text: mergedText(newest) };
       if (newest.action === 'MERGED_INTO') return { ...base, text: `merged this task into ${str(newest.meta?.intoKey) ?? 'another task'}` };
       if (newest.action === 'MERGE_UNDONE') return { ...base, text: mergeUndoneText(newest) };
+      // Recycle Bin: deleted (with its whole series, when it went as one) and brought back.
+      if (newest.action === 'DELETED') {
+        const batch = typeof newest.meta?.batch === 'number' && newest.meta.batch > 1 ? ` with its series (${newest.meta.batch} tasks)` : '';
+        return { ...base, text: `moved this task to the Recycle Bin${batch}` };
+      }
+      if (newest.action === 'RESTORED') return { ...base, text: 'restored this task from the Recycle Bin' };
       // Inspections: one carried out for this task, or the one whose failed item this task follows up.
       if (newest.action === 'INSPECTION_ATTACHED') return { ...base, text: `attached ${inspectionName(newest)}` };
       if (newest.action === 'INSPECTION_FINISHED') return { ...base, text: inspectionFinishedText(newest) };

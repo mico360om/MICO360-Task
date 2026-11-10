@@ -373,13 +373,7 @@ export function createBinService(deps: BinServiceDeps) {
     return (await deps.canViewProject(viewer, t.projectId)) ? 'TASK_DELETED' : null;
   }
 
-  /** Who may use the bin at all (the side menu's link): administrators and people who run a project. */
-  async function access(viewer: BinViewer): Promise<{ allowed: boolean; canErase: boolean }> {
-    const allowed = isAdmin(viewer) || (await store.runsAny(viewer.id));
-    return { allowed, canErase: allowed && mayEraseNow({ isAdmin: isAdmin(viewer) }) };
-  }
-
-  return { list, detail, restore, erase, sweep, deleted, noticeFor, access };
+  return { list, detail, restore, erase, sweep, deleted, noticeFor };
 }
 
 export type BinService = ReturnType<typeof createBinService>;

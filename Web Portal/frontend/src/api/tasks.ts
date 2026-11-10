@@ -113,6 +113,8 @@ export interface ApiTask {
   canDelete?: boolean;
   /** May they delete its entire repeating series (only the series' creator; single-task responses). */
   canDeleteSeries?: boolean;
+  /** A repeating task: how many live tasks its series has (the delete question: "the entire series (12 tasks)"). */
+  seriesSize?: number;
   /** Assignees (present on list responses; used for card avatars). */
   assignees?: { id: string; name: string }[];
   /** Its tags (list and single-task responses; the Table view's optional Tags column). */

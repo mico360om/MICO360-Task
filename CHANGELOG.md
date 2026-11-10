@@ -14,6 +14,34 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### New features
+- Recycle Bin: a deleted task is no longer gone at once. It goes to the Recycle Bin (side menu, for
+  administrators and the people who run a project) and can be restored for 60 days with everything it had —
+  details, people, contacts, followers, tags, comments and replies, files, checklists, blockers and history.
+  The bin shows who deleted each task, when, and the days left before it is erased ("12 days left", amber at
+  7 or less, red at 2 or less, "Erased tonight" on its last day); search by number, title or description;
+  filter by project, who deleted it, the days it was deleted, "7 days or less left" and (with several
+  companies) company; sort by days left or by when it was deleted; select several to restore together.
+  Administrators see every deleted task and may also delete one forever; the people who run a project see
+  and restore that project's deleted tasks. A project's page has "Deleted tasks", the bin filtered to it.
+- Delete asks first — "Move to the Recycle Bin? You (or an admin) can restore it for 60 days." (a repeating
+  task: this copy, or the entire series with how many tasks it has) — and offers Undo for a few seconds.
+  A series deleted as a whole comes back as a whole (or just one copy, if you choose).
+- Opening a deleted task (an old notification, an email link) shows it read-only under "In the Recycle Bin —
+  deleted by Ali on 3 Nov · 53 days left" with Restore, for the people who may restore it; anyone else on the
+  project sees "This task was deleted".
+- After its 60 days a task is erased for good, with its files; the Audit log keeps a line saying which task
+  was erased and when. Inspections carried out for it are kept and still say which task they were for, and
+  its number is never given to another task. Tasks deleted before this version get a full 60 days from the
+  upgrade ("Deleted by: Unknown", as it was never recorded).
+
+### Improvements
+- A task's history and the Activity page say who moved a task to the Recycle Bin and who restored it; every
+  delete, restore and erase is in the Audit log.
+- Restoring a task whose board column was deleted meanwhile puts it in the project's first column of the same
+  kind; a task of an archived project waits until the project is unarchived. Undo of a task MICO AI has just
+  made removes it at once (it never goes to the Recycle Bin).
+
 ## [1.23.9] - 2026-11-10
 
 ### New features

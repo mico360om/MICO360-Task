@@ -57,8 +57,6 @@ export async function registerBinRoutes(app: FastifyInstance, deps: BinRouteDeps
     return { data: rows, meta };
   });
 
-  app.get('/recycle-bin/access', { preHandler: guard.authenticate }, async (req) => ({ data: await service.access(viewer(req)) }));
-
   app.get('/recycle-bin/tasks/:id', { preHandler: guard.authenticate }, async (req) => {
     const { id } = z.object({ id: idString }).parse(req.params);
     return { data: await service.detail(viewer(req), id) };

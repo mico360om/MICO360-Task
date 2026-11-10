@@ -163,9 +163,6 @@ describe('who sees and does what', () => {
     expect((await service.list(lead, null, {})).canErase).toBe(false);
     expect((await service.list(admin, null, {})).canErase).toBe(true);
     await expect(service.list(member, null, {})).rejects.toMatchObject({ status: 403, message: BIN_WORDS.notAllowed });
-    expect(await service.access(member)).toEqual({ allowed: false, canErase: false });
-    expect(await service.access(lead)).toEqual({ allowed: true, canErase: false });
-    expect(await service.access(admin)).toEqual({ allowed: true, canErase: true });
   });
 
   it('restore: someone else’s project’s task is "not found" (nothing about it); a whole batch only within what they run', async () => {

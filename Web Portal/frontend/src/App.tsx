@@ -54,6 +54,7 @@ const ChatPage = lazy(loadWithRecovery(() => import('./pages/ChatPage').then((m)
 const ProfilePage = lazyPage(() => import('./pages/ProfilePage'), 'ProfilePage');
 const MicoAiPage = lazyPage(() => import('./pages/MicoAiPage'), 'MicoAiPage');
 const TemplatesPage = lazyPage(() => import('./pages/TemplatesPage'), 'TemplatesPage');
+const RecycleBinPage = lazyPage(() => import('./pages/RecycleBinPage'), 'RecycleBinPage');
 // A client's read-only page for one shared project (no staff sign-in, no app shell).
 const ClientViewPage = lazyPage(() => import('./pages/ClientViewPage'), 'ClientViewPage');
 const AboutPage = lazyPage(() => import('./pages/AboutPage'), 'AboutPage');
@@ -183,6 +184,8 @@ export function App() {
             <Route path="/meetings/:id" element={<MeetingDetailPage />} />
             <Route path="/my-action-items" element={<MyActionItemsPage />} />
             <Route path="/templates" element={<TemplatesPage />} />
+            {/* Recycle Bin: admins and the people who run a project (the server decides what each one sees). */}
+            <Route path="/recycle-bin" element={<RecycleBinPage />} />
             <Route path="/chat" element={<ChatRoute />} />
             <Route path="/mico-ai" element={<MicoAiPage />} />
             <Route path="/activity" element={<ActivityPage />} />
