@@ -375,7 +375,8 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
       },
       brand ?? undefined,
     );
-    return { count: tasks.filter((t) => !t.waitingSince).length, content, ...sender };
+    // The email's "Pending" number: not handed in, and not waiting for a later start day ("Coming up").
+    return { count: tasks.filter((t) => !t.waitingSince && !(t.boardDay && t.boardDay > day)).length, content, ...sender };
   }
 
   /** Sends a built email (with the company's sender name when it has one; as before without). */
