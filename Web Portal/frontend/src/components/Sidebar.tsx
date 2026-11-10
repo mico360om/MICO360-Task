@@ -361,13 +361,22 @@ function FlyoutGroup({ label, icon, items, onNavigate }: { label: string; icon: 
     const onScroll = (e: Event) => {
       if (!(e.target instanceof Node && menu.current?.contains(e.target))) setOpen(false);
     };
+    // Escape closes it wherever the focus is (a list opened by hover has none of it).
+    const onEscape = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      const inside = !!menu.current?.contains(document.activeElement);
+      setOpen(false);
+      if (inside) button.current?.focus();
+    };
     document.addEventListener('mousedown', onDown);
     document.addEventListener('touchstart', onDown, { passive: true });
+    document.addEventListener('keydown', onEscape);
     window.addEventListener('scroll', onScroll, true);
     window.addEventListener('resize', onScroll);
     return () => {
       document.removeEventListener('mousedown', onDown);
       document.removeEventListener('touchstart', onDown);
+      document.removeEventListener('keydown', onEscape);
       window.removeEventListener('scroll', onScroll, true);
       window.removeEventListener('resize', onScroll);
     };
@@ -390,6 +399,8 @@ function FlyoutGroup({ label, icon, items, onNavigate }: { label: string; icon: 
       e.preventDefault();
       all[e.key === 'Home' ? 0 : all.length - 1]?.focus();
     } else if (e.key === 'Tab') {
+      // Back on the icon first (the list is at the end of the page): Tab then moves on from there.
+      button.current?.focus();
       setOpen(false);
     }
   };
@@ -438,27 +449,31 @@ function FlyoutGroup({ label, icon, items, onNavigate }: { label: string; icon: 
               <p aria-hidden="true" className="px-3 pb-1 pt-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink-3">
                 {label}
               </p>
-              {items.map((item) => (
-                <NavLink
-                  key={item.key}
-                  to={item.to}
-                  role="menuitem"
-                  aria-label={item.name}
-                  aria-current={item.current ? 'page' : undefined}
-                  onClick={() => {
-                    setOpen(false);
-                    onNavigate?.();
-                  }}
-                  className={({ isActive }) =>
-                    `flex items-center gap-2.5 px-3 py-2 text-sm outline-none transition-colors [@media(pointer:coarse)]:min-h-11 ${
-                      isActive || item.current ? 'bg-brand/10 font-semibold text-brand' : 'text-ink hover:bg-ground focus-visible:bg-ground'
-                    }`
-                  }
-                >
-                  <NavIcon>{item.icon}</NavIcon>
-                  <span dir="auto" className="min-w-0 truncate">{item.label}</span>
-                </NavLink>
-              ))}
+              {items.map((item) => {
+                const look = (on: boolean) =>
+                  `flex items-center gap-2.5 px-3 py-2 text-sm outline-none transition-colors [@media(pointer:coarse)]:min-h-11 ${on ? 'bg-brand/10 font-semibold text-brand' : 'text-ink hover:bg-ground focus-visible:bg-ground'}`;
+                const pick = () => {
+                  setOpen(false);
+                  onNavigate?.();
+                };
+                const inner = (
+                  <>
+                    <NavIcon>{item.icon}</NavIcon>
+                    <span dir="auto" className="min-w-0 truncate">{item.label}</span>
+                  </>
+                );
+                // A saved search says itself whether it is the one shown (the Search page's address has a query
+                // NavLink can't see); a page link lets NavLink mark it.
+                return item.current !== undefined ? (
+                  <Link key={item.key} to={item.to} role="menuitem" aria-label={item.name} aria-current={item.current ? 'page' : undefined} onClick={pick} className={look(item.current)}>
+                    {inner}
+                  </Link>
+                ) : (
+                  <NavLink key={item.key} to={item.to} role="menuitem" aria-label={item.name} onClick={pick} className={({ isActive }) => look(isActive)}>
+                    {inner}
+                  </NavLink>
+                );
+              })}
             </div>,
             document.body,
           )
@@ -673,7 +688,7 @@ function RailTooltip({ root }: { root: RefObject<HTMLElement> }) {
  */
 function FoldButton({ onTabletOpen, tabletOpen = false }: { onTabletOpen?: () => void; tabletOpen?: boolean }) {
   const folded = useSidebarCollapsed();
-  const { change } = useSetAppearance();
+  const { change, failed } = useSetAppearance();
   // A tablet (owner, 10 Nov): folded by default; unfolding opens the whole menu over the page (not saved).
   const tablet = useMediaQuery(RAIL_WIDTHS);
   const label = tablet || folded ? 'Expand the menu' : 'Collapse the menu';
@@ -685,6 +700,7 @@ function FoldButton({ onTabletOpen, tabletOpen = false }: { onTabletOpen?: () =>
     setTimeout(() => window.dispatchEvent(new Event('resize')), 220);
   };
   return (
+    <>
     <button
       type="button"
       onClick={toggle}
@@ -697,6 +713,16 @@ function FoldButton({ onTabletOpen, tabletOpen = false }: { onTabletOpen?: () =>
       <NavIcon>{tablet || folded ? <path d="M6 7l5 5-5 5M13 7l5 5-5 5" /> : <path d="M18 7l-5 5 5 5M11 7l-5 5 5 5" />}</NavIcon>
       <span className={labelClass(true)}>{label}</span>
     </button>
+    {/* The menu narrows back when the fold can't be saved — and says why (the menu itself is too narrow to). */}
+    {failed
+      ? createPortal(
+          <p role="alert" className="fixed bottom-4 start-4 z-[60] max-w-xs rounded-lg border border-danger/30 bg-danger-soft px-3 py-2 text-xs font-medium text-danger shadow-lift">
+            Couldn’t save the menu’s fold. Please try again.
+          </p>,
+          document.body,
+        )
+      : null}
+    </>
   );
 }
 

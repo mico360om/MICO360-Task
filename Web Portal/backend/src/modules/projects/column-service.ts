@@ -46,7 +46,11 @@ export function createColumnService({ columns, waitingTasksIn }: ColumnServiceDe
         );
       }
     }
-    return columns.update(id, patch);
+    // 1.23.8 one colour scheme: a column moved to another status takes that status's colour, unless a colour is
+    // sent with the change (the Android app's picker) — the website shows the status's colour either way, the
+    // app the stored one.
+    const stamped = patch.category && patch.color === undefined ? { ...patch, color: statusTones(patch.category).light.fill } : patch;
+    return columns.update(id, stamped);
   }
 
   /** Delete a column — only once it's empty, so no task is ever left without a column. */

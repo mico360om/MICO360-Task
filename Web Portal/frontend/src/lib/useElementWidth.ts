@@ -1,4 +1,4 @@
-import { useEffect, useState, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useState, type RefObject } from 'react';
 
 /**
  * 1.23.8 An element's width in pixels, followed as it changes (a folded menu, a turned tablet); null until it
@@ -6,7 +6,8 @@ import { useEffect, useState, type RefObject } from 'react';
  */
 export function useElementWidth(ref: RefObject<HTMLElement>): number | null {
   const [width, setWidth] = useState<number | null>(null);
-  useEffect(() => {
+  // Before the first paint (a layout effect): a wide grid never shows two columns and then three.
+  useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
     const read = () => {

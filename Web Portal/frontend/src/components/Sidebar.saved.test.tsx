@@ -58,3 +58,23 @@ describe('Sidebar — Saved (1.23.6)', () => {
     expect(screen.queryByText('Saved')).toBeNull();
   });
 });
+
+describe('Saved on the folded menu (1.23.8 review)', () => {
+  it('the fly-out marks only the search shown on the Search page as the current one', async () => {
+    vi.stubGlobal('matchMedia', (q: string) => ({ matches: /max-width/.test(q) && /48em/.test(q), media: q, addEventListener: () => {}, removeEventListener: () => {} }));
+    const list = { mine: [saved('s1', 'Overdue of mine'), saved('s3', 'Blocked work', { q: 'blocked' })], shared: [], pinned: ['s1', 's3'] };
+    vi.stubGlobal('fetch', vi.fn((url: string) => Promise.resolve(json({ data: String(url).endsWith('/search/saved') ? list : String(url).includes('/counts') ? {} : [] }))));
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <MemoryRouter initialEntries={['/search?q=overdue']}>
+          <SidebarBody isAdmin={false} rail />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    const { default: userEvent } = await import('@testing-library/user-event');
+    await userEvent.setup().click(await screen.findByRole('button', { name: 'Saved' }));
+    const menu = screen.getByRole('menu', { name: 'Saved' });
+    expect(within(menu).getByRole('menuitem', { name: /Overdue of mine/ })).toHaveAttribute('aria-current', 'page');
+    expect(within(menu).getByRole('menuitem', { name: /Blocked work/ })).not.toHaveAttribute('aria-current');
+  });
+});

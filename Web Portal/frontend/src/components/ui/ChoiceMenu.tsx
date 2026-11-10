@@ -88,6 +88,8 @@ export function ChoiceMenu<T extends string>({
       e.preventDefault();
       all[e.key === 'Home' ? 0 : all.length - 1]?.focus();
     } else if (e.key === 'Tab') {
+      // Back on the button first (the menu is at the end of the page): Tab then moves on from there.
+      trigger.current?.focus();
       close(false);
     }
   };

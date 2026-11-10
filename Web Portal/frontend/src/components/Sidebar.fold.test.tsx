@@ -196,3 +196,36 @@ describe('tablets (768–1023px): the same toggle, folded by default, unfolding 
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Menu' })).toBeNull());
   });
 });
+
+describe('review fixes (1.23.8)', () => {
+  it('Tab out of the fly-out leaves focus on the next thing after the group, not lost', async () => {
+    screenIs('desktop');
+    act(() => useAppearanceStore.getState().set({ sidebarCollapsed: true }));
+    renderMenu();
+    const user = userEvent.setup();
+    const group = within(nav()).getByRole('button', { name: 'Admin' });
+    await user.click(group);
+    await user.tab();
+    expect(screen.queryByRole('menu', { name: 'Admin' })).toBeNull();
+    expect(document.activeElement).not.toBe(document.body);
+    expect(nav().contains(document.activeElement)).toBe(true);
+  });
+
+  it('a fly-out opened by hover closes with Escape too', () => {
+    screenIs('desktop');
+    act(() => useAppearanceStore.getState().set({ sidebarCollapsed: true }));
+    renderMenu();
+    fireEvent.pointerEnter(within(nav()).getByRole('button', { name: 'Admin' }));
+    expect(screen.getByRole('menu', { name: 'Admin' })).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('menu', { name: 'Admin' })).toBeNull();
+  });
+
+  it('a fold that can’t be saved says so', async () => {
+    screenIs('desktop');
+    vi.stubGlobal('fetch', vi.fn(async (input: string, init?: RequestInit) => (String(input).endsWith('/users/me/preferences') && init?.method === 'PUT' ? json({ error: { code: 'INTERNAL', message: 'x' } }, 500) : json({ data: [] }))));
+    renderMenu();
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Collapse the menu' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Couldn’t save the menu’s fold. Please try again.');
+  });
+});

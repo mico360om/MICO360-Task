@@ -57,7 +57,7 @@ import { myTasksSort, myTasksSortLabel, myTasksSortValue } from '../lib/task-tab
 import { StatusPill as SchemeStatusPill } from '../components/ui/StatusPill';
 import { OVERDUE_CLASS, STATUS_CLASS, dueTone } from '../lib/colour-classes';
 import { useDensity } from '../lib/density';
-import { DescriptionLine, PeopleLine, TagChips } from '../components/DetailLines';
+import { ChecklistCount, DescriptionLine, PeopleLine, TagChips } from '../components/DetailLines';
 
 const CheckIcon = (
   <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -712,6 +712,7 @@ function MyTaskCard({ e, onOpen, selected, onToggleSelect }: { e: Enriched; onOp
           <Assignees list={t.assignees ?? []} all={detailed} />
         </div>
         {detailed && (t.assignees?.length ?? 0) > 1 ? <PeopleLine people={t.assignees} /> : null}
+        {detailed ? <ChecklistCount counts={t.counts} /> : null}
       </div>
     </div>
   );
@@ -759,6 +760,7 @@ function MyTaskRow({ e, onOpen, selected, onToggleSelect }: { e: Enriched; onOpe
         <ExternalContactsLine summary={t.externalSummary} className="basis-full" />
         {detailed ? <TagChips tags={t.tags} className="mt-1 basis-full" /> : null}
         {detailed && (t.assignees?.length ?? 0) > 0 ? <PeopleLine people={t.assignees} className="mt-1 basis-full" /> : null}
+        {detailed ? <ChecklistCount counts={t.counts} className="mt-1" /> : null}
         {/* Phones have no room for the columns: the same facts go on a second line. */}
         <div data-phone-meta className="mt-1 flex basis-full flex-wrap items-center gap-x-2 gap-y-1 sm:hidden">
           <TaskKey value={t.key} />

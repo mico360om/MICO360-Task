@@ -24,7 +24,7 @@ import { useViewChoice } from '../data-table/hooks';
 import { OVERDUE_CLASS, STATUS_CLASS, dueTone } from '../../lib/colour-classes';
 import { StatusPill } from '../ui/StatusPill';
 import { useDensity } from '../../lib/density';
-import { DescriptionLine, PeopleLine, TagChips } from '../DetailLines';
+import { ChecklistCount, DescriptionLine, PeopleLine, TagChips } from '../DetailLines';
 
 export type TaskFilter = 'all' | TaskPhase | 'milestones';
 
@@ -60,10 +60,11 @@ function TaskRow({ task, statusName, phase, dueText, onOpen }: { task: ApiTask; 
         {task.clientVisible ? <span className="text-info" role="img" aria-label="Visible to client" title="Visible to client"><ClientEyeIcon size={13} /></span> : null}
         <span className="flex min-w-0 flex-1 flex-col">
           <span dir="auto" className={`min-w-0 ${detailed ? 'break-words' : 'truncate'} text-start text-sm font-medium ${DENSE_TEXT} ${phase === 'completed' ? 'text-ink-2' : 'text-ink'}`}>{task.title}</span>
-          {detailed ? <DescriptionLine description={task.description} /> : null}
+          {detailed ? <DescriptionLine description={task.description} as="span" /> : null}
           <ExternalContactsLine summary={task.externalSummary} />
           {detailed ? <TagChips tags={task.tags} className="mt-0.5" /> : null}
-          {detailed && assignees.length > 0 ? <PeopleLine people={assignees} className="mt-0.5" /> : null}
+          {detailed && assignees.length > 0 ? <PeopleLine people={assignees} className="mt-0.5" as="span" /> : null}
+          {detailed ? <ChecklistCount counts={task.counts} className="mt-0.5" /> : null}
         </span>
       </span>
       <span className="flex flex-wrap items-center gap-2 ps-[4.5rem] sm:flex-nowrap sm:ps-0">

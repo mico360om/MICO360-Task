@@ -74,6 +74,16 @@ describe('ColumnService', () => {
     expect(cols.map((c) => c.name)).toEqual(['A', 'B']);
   });
 
+  it('1.23.8: a column added without a colour, or moved to another status, takes that status’s colour (one scheme)', async () => {
+    const c = await svc.addColumn('p1', { name: 'Doing', category: 'IN_PROGRESS' });
+    expect(c.color).toBe('#2F6DB5');
+    expect((await svc.updateColumn(c.id, { category: 'REVIEW' })).color).toBe('#7C56B4');
+    // A colour sent with the change (the Android app's picker) is kept.
+    expect((await svc.updateColumn(c.id, { category: 'DONE', color: '#123456' })).color).toBe('#123456');
+    // Renaming leaves the colour alone.
+    expect((await svc.updateColumn(c.id, { name: 'Finished' })).color).toBe('#123456');
+  });
+
   it('renames a column', async () => {
     const c = await svc.addColumn('p1', { name: 'Todo' });
     const updated = await svc.updateColumn(c.id, { name: 'To Do' });

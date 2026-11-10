@@ -136,7 +136,8 @@ export function TaskCard({ task, onClick, timeZone = DEFAULT_TIME_ZONE, interact
 
   // One base card; an overdue one gets a red edge on top of its status stripe (owner, 7 Nov). A blocked
   // one needs nothing more: its stripe is the Blocked red and its chip says so.
-  const stateCls = overdue ? `${OVERDUE_CLASS.edge} ring-1 ${OVERDUE_CLASS.ring}/60` : 'border-line hover:border-brand/40';
+  // Written out in full: Tailwind only makes the classes it can read (a built `…/60` came out blue).
+  const stateCls = overdue ? 'border-overdue ring-1 ring-overdue/60' : 'border-line hover:border-brand/40';
 
   return (
     <div

@@ -526,7 +526,22 @@ describe('TimelinePage', () => {
 });
 
 describe('the Timeline fills the window (1.23.8)', () => {
+  /** A window `tall` or not (from 640px of height), never a phone. */
+  const windowIs = (tall: boolean) => {
+    const mm = vi.fn((q: string) => ({ matches: q.includes('min-height') ? tall : false, media: q, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {}, onchange: null, dispatchEvent: () => false }));
+    vi.stubGlobal('matchMedia', mm);
+    Object.defineProperty(window, 'matchMedia', { value: mm, configurable: true, writable: true });
+  };
+
+  it('a short window (a phone on its side, a 720px laptop) scrolls the page instead (review: the summary and chart didn’t fit)', async () => {
+    windowIs(false);
+    renderPage();
+    await screen.findByRole('list', { name: 'Projects' });
+    expect(document.querySelector('[data-timeline-page]')!.className).not.toContain('page-fill');
+  });
+
   it('on a computer the chart grows to the window’s height and scrolls by itself, its weeks staying in view', async () => {
+    windowIs(true);
     renderPage();
     await screen.findByRole('list', { name: 'Projects' });
     const page = document.querySelector('[data-timeline-page]')!;
@@ -535,6 +550,8 @@ describe('the Timeline fills the window (1.23.8)', () => {
     expect(chart.className).toMatch(/\bflex-1\b/);
     expect(chart.className).toContain('overflow-auto');
     expect(document.querySelector('[data-timeline-head]')!.className).toContain('sticky');
+    // Above the rows' faces and focused bars (z-20), so nothing scrolls over the months and weeks.
+    expect(document.querySelector('[data-timeline-head]')!.className).toContain('z-30');
     // Under the last project the weeks run on to the bottom (no blank page under a short list).
     expect(document.querySelector('[data-timeline-fill]')).not.toBeNull();
   });

@@ -19,8 +19,17 @@ const MAX_DEPTH = 6;
 
 const CUT_CLASS = /(^|\s)(truncate|line-clamp-\d|text-ellipsis)(\s|$)/;
 
+/** Hidden from the eye (a screen reader's words: `sr-only`, clipped to a pixel) — never "cut". */
+function visuallyHidden(el: HTMLElement): boolean {
+  if (el.clientWidth <= 1 || el.clientHeight <= 1) return true;
+  if (/(^|\s)sr-only(\s|$)/.test(el.getAttribute('class') ?? '')) return true;
+  const cs = el.ownerDocument.defaultView?.getComputedStyle(el);
+  return !!cs && cs.position === 'absolute' && (cs.clip === 'rect(0px, 0px, 0px, 0px)' || cs.clipPath === 'inset(50%)');
+}
+
 function looksCuttable(el: Element): el is HTMLElement {
   if (!(el instanceof HTMLElement) || el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) return false;
+  if (visuallyHidden(el)) return false;
   if (CUT_CLASS.test(el.getAttribute('class') ?? '')) return true;
   const cs = el.ownerDocument.defaultView?.getComputedStyle(el);
   if (!cs) return false;
@@ -48,7 +57,21 @@ function cutWithin(control: EventTarget | null): HTMLElement | null {
   if (!(control instanceof HTMLElement)) return null;
   const own = cutAt(control);
   if (own) return own;
+  // A dialog or a panel that takes the focus itself (tabindex -1) isn't one control: its words aren't searched.
+  if (control.getAttribute('role') === 'dialog' || control.getAttribute('tabindex') === '-1' || control === control.ownerDocument.body) return null;
   for (const el of control.querySelectorAll('*')) {
+    if (looksCuttable(el) && isCut(el) && wordsOf(el)) return el;
+  }
+  return null;
+}
+
+/**
+ * The cut words under a point, where the pointer's target is something else on top of them — a row's or a card's
+ * click area stretched over it (a button's ::after) covers the words it opens.
+ */
+function cutUnder(doc: Document, x: number, y: number): HTMLElement | null {
+  if (typeof doc.elementsFromPoint !== 'function') return null;
+  for (const el of doc.elementsFromPoint(x, y).slice(0, 8)) {
     if (looksCuttable(el) && isCut(el) && wordsOf(el)) return el;
   }
   return null;
@@ -70,6 +93,8 @@ export function installTruncationTips(doc: Document = document): () => void {
   let hoverTimer: ReturnType<typeof setTimeout> | null = null;
   let pressTimer: ReturnType<typeof setTimeout> | null = null;
   let pressAt: { x: number; y: number } | null = null;
+  /** When the pointer last pressed: focus that follows a click or a tap isn't keyboard focus. */
+  let pointerAt = Number.NEGATIVE_INFINITY;
 
   const clearTimers = () => {
     if (hoverTimer) clearTimeout(hoverTimer);
@@ -116,7 +141,7 @@ export function installTruncationTips(doc: Document = document): () => void {
   const onOver = (e: PointerEvent) => {
     if (e.pointerType === 'touch') return;
     if (box && e.target instanceof Node && box.contains(e.target)) return;
-    const el = cutAt(e.target);
+    const el = cutAt(e.target) ?? cutUnder(doc, e.clientX, e.clientY);
     if (!el || el === shownFor) return;
     if (hoverTimer) clearTimeout(hoverTimer);
     if (hasNativeTitle(el)) return;
@@ -133,6 +158,8 @@ export function installTruncationTips(doc: Document = document): () => void {
     if (shownBy === 'pointer') hide();
   };
   const onFocus = (e: FocusEvent) => {
+    // Keyboard focus only (a click or a tap focuses too, and the pointer has its own way).
+    if (Date.now() - pointerAt < 1000) return;
     const el = cutWithin(e.target);
     if (el) show(el, 'focus');
     else if (shownFor) hide();
@@ -144,12 +171,17 @@ export function installTruncationTips(doc: Document = document): () => void {
     hide();
   };
   const onKey = (e: KeyboardEvent) => {
+    pointerAt = Number.NEGATIVE_INFINITY;
     if (e.key === 'Escape' && box) hide();
   };
+  const onPress = () => {
+    pointerAt = Date.now();
+  };
   const onTouchStart = (e: TouchEvent) => {
+    pointerAt = Date.now();
     if (box) hide();
-    const el = cutAt(e.target);
     const t = e.touches[0];
+    const el = cutAt(e.target) ?? (t ? cutUnder(doc, t.clientX, t.clientY) : null);
     if (!el || !t) return;
     pressAt = { x: t.clientX, y: t.clientY };
     pressTimer = setTimeout(() => show(el, 'touch'), LONG_PRESS_MS);
@@ -175,6 +207,8 @@ export function installTruncationTips(doc: Document = document): () => void {
   doc.addEventListener('focusin', onFocus);
   doc.addEventListener('focusout', onBlur);
   doc.addEventListener('keydown', onKey);
+  doc.addEventListener('pointerdown', onPress, true);
+  doc.addEventListener('mousedown', onPress, true);
   doc.addEventListener('touchstart', onTouchStart, { passive: true });
   doc.addEventListener('touchmove', onTouchMove, { passive: true });
   doc.addEventListener('touchend', onTouchEnd);
@@ -188,6 +222,8 @@ export function installTruncationTips(doc: Document = document): () => void {
     doc.removeEventListener('focusin', onFocus);
     doc.removeEventListener('focusout', onBlur);
     doc.removeEventListener('keydown', onKey);
+    doc.removeEventListener('pointerdown', onPress, true);
+    doc.removeEventListener('mousedown', onPress, true);
     doc.removeEventListener('touchstart', onTouchStart);
     doc.removeEventListener('touchmove', onTouchMove);
     doc.removeEventListener('touchend', onTouchEnd);

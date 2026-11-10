@@ -68,7 +68,7 @@ export function HealthPill({ health, className = '' }: { health: ProjectHealth; 
  * green · at risk amber · late red, as the health badges); a project with no target date is neutral grey.
  */
 export const BAR_TONE: Record<ProjectHealth, { track: string; fill: string }> = {
-  'on-track': { track: `${HEALTH_CLASS.ON_TRACK.soft} ring-1 ring-inset ${HEALTH_CLASS.ON_TRACK.ring}/50`, fill: HEALTH_CLASS.ON_TRACK.dot },
+  'on-track': { track: 'bg-health-ok-soft ring-1 ring-inset ring-health-ok/50', fill: HEALTH_CLASS.ON_TRACK.dot },
   'at-risk': { track: `${HEALTH_CLASS.AT_RISK.soft} ring-[1.5px] ring-inset ${HEALTH_CLASS.AT_RISK.ring}`, fill: HEALTH_CLASS.AT_RISK.dot },
   late: { track: `${HEALTH_CLASS.LATE.soft} ring-[1.5px] ring-inset ${HEALTH_CLASS.LATE.ring}`, fill: HEALTH_CLASS.LATE.dot },
   'no-target': { track: 'bg-ground ring-1 ring-inset ring-line', fill: 'bg-ink-3' },

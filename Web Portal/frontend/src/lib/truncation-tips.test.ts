@@ -116,3 +116,52 @@ describe('tooltips on every truncation (1.23.8)', () => {
     expect(tip()).not.toBeNull();
   });
 });
+
+describe('review fixes (1.23.8)', () => {
+  it('a visually hidden label (sr-only, 1px) is never “cut”: focusing a rail icon shows only the rail’s own name', () => {
+    document.body.innerHTML = '<a href="/projects" id="l"><svg></svg><span class="truncate rail:sr-only" id="t">Projects</span></a>';
+    const label = document.getElementById('t')!;
+    Object.defineProperty(label, 'clientWidth', { configurable: true, value: 1 });
+    Object.defineProperty(label, 'scrollWidth', { configurable: true, value: 60 });
+    fireEvent.focusIn(document.getElementById('l')!);
+    expect(tip()).toBeNull();
+  });
+
+  it('a dialog or a panel focusing itself (tabindex -1) isn’t searched for cut words', () => {
+    document.body.innerHTML = '<div role="dialog" tabindex="-1" id="d"><p class="truncate" id="t">A long task title inside the panel that is cut</p></div>';
+    cut(document.getElementById('t')!);
+    fireEvent.focusIn(document.getElementById('d')!);
+    expect(tip()).toBeNull();
+  });
+
+  it('a mouse click that focuses a card isn’t keyboard focus: no tooltip pops up', () => {
+    document.body.innerHTML = '<div role="button" tabindex="0" id="c"><div class="line-clamp-2" id="t">Replace the cracked expansion joint on the north ramp before the inspection</div></div>';
+    cut(document.getElementById('t')!, 'tall');
+    fireEvent.pointerDown(document.getElementById('c')!);
+    fireEvent.focusIn(document.getElementById('c')!);
+    expect(tip()).toBeNull();
+    // From the keyboard it does.
+    fireEvent.keyDown(document, { key: 'Tab' });
+    fireEvent.focusIn(document.getElementById('c')!);
+    expect(tip()).toHaveTextContent('Replace the cracked expansion joint');
+  });
+
+  it('under a card-wide click area (a button’s overlay), hover and a long press find the cut words beneath the pointer', () => {
+    document.body.innerHTML = '<div class="relative"><button id="b">Open</button><p class="truncate" id="t">Collect the site photos from Omar and the signed delivery notes</p></div>';
+    const words = cut(document.getElementById('t')!);
+    const button = document.getElementById('b')!;
+    const before = document.elementsFromPoint;
+    document.elementsFromPoint = () => [button, words, document.body];
+    try {
+      fireEvent.pointerOver(button, { pointerType: 'mouse', clientX: 60, clientY: 108 });
+      vi.advanceTimersByTime(HOVER_DELAY_MS);
+      expect(tip()).toHaveTextContent('Collect the site photos from Omar');
+      fireEvent.pointerOut(button, { relatedTarget: document.body });
+      fireEvent.touchStart(button, { touches: [{ clientX: 60, clientY: 108 }] });
+      vi.advanceTimersByTime(LONG_PRESS_MS);
+      expect(tip()).toHaveTextContent('Collect the site photos from Omar');
+    } finally {
+      document.elementsFromPoint = before;
+    }
+  });
+});

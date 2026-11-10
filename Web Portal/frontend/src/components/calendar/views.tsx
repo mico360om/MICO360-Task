@@ -356,7 +356,7 @@ export function AgendaView({
   return (
     <div className="flex flex-col gap-4">
       {overdue.length > 0 ? (
-        <section aria-label={`Overdue (${overdue.length})`} className={`rounded-xl border ${OVERDUE_CLASS.edge}/30 ${OVERDUE_CLASS.soft}/40 p-3`}>
+        <section aria-label={`Overdue (${overdue.length})`} className="rounded-xl border border-overdue/30 bg-overdue-soft/40 p-3">
           <h3 className={`mb-2 text-sm font-bold ${OVERDUE_CLASS.text}`}>Overdue · {overdue.length}</h3>
           <ul className="grid gap-1.5 sm:grid-cols-2">{overdueShown.map(chip)}</ul>
           {overdue.length > OVERDUE_PREVIEW ? (

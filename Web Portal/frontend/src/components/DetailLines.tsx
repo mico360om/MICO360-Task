@@ -18,13 +18,32 @@ export function descriptionFirstLine(description: string | null | undefined): st
   return line.length > 200 ? `${line.slice(0, 199).trimEnd()}…` : line;
 }
 
-export function DescriptionLine({ description, className = '' }: { description: string | null | undefined; className?: string }) {
+/** `as="span"`: inside a button (a row that is one button), where only inline content may go. */
+type LineTag = 'p' | 'span';
+
+export function DescriptionLine({ description, className = '', as: Tag = 'p' }: { description: string | null | undefined; className?: string; as?: LineTag }) {
   const line = descriptionFirstLine(description);
   if (!line) return null;
   return (
-    <p data-testid="card-description" dir="auto" className={`truncate text-start text-xs text-ink-2 ${className}`}>
+    <Tag data-testid="card-description" dir="auto" className={`block truncate text-start text-xs text-ink-2 ${className}`}>
       {line}
-    </p>
+    </Tag>
+  );
+}
+
+/** The checklist's count ("2/5", ticked of all) — said in full to screen readers. */
+export function ChecklistCount({ counts, className = '' }: { counts?: { checklistDone: number; checklistTotal: number } | null; className?: string }) {
+  if (!counts || counts.checklistTotal <= 0) return null;
+  return (
+    <span data-testid="card-checklist" className={`inline-flex items-center gap-1 text-[11px] text-ink-2 ${className}`}>
+      <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="flex-none text-ink-3">
+        <path d="M9 11l3 3L22 4" />
+        <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+      </svg>
+      <span className="sr-only">Checklist: </span>
+      {counts.checklistDone}/{counts.checklistTotal}
+      <span className="sr-only"> done</span>
+    </span>
   );
 }
 
@@ -50,10 +69,10 @@ export function TagChips({ tags, className = '' }: { tags: TagLike[] | null | un
 }
 
 /** Everyone on it, by name (the faces beside it show at most three). */
-export function PeopleLine({ people, className = '', icon }: { people: { id: string; name: string }[] | null | undefined; className?: string; icon?: ReactNode }) {
+export function PeopleLine({ people, className = '', icon, as: Tag = 'p' }: { people: { id: string; name: string }[] | null | undefined; className?: string; icon?: ReactNode; as?: LineTag }) {
   if (!people?.length) return null;
   return (
-    <p data-testid="card-people" className={`flex items-start gap-1 text-[11px] leading-snug text-ink-2 ${className}`}>
+    <Tag data-testid="card-people" className={`flex items-start gap-1 text-[11px] leading-snug text-ink-2 ${className}`}>
       {icon ?? (
         <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="mt-px flex-none text-ink-3">
           <circle cx="9" cy="8" r="3" />
@@ -63,6 +82,6 @@ export function PeopleLine({ people, className = '', icon }: { people: { id: str
       )}
       <span className="sr-only">Assigned to </span>
       <span dir="auto" className="min-w-0">{people.map((p) => p.name).join(', ')}</span>
-    </p>
+    </Tag>
   );
 }

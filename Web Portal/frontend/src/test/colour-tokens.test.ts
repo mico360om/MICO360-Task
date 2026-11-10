@@ -83,6 +83,13 @@ describe('colours come from the scheme (1.23.8)', () => {
     expect(problems).toEqual([]);
   });
 
+  it('no scheme class gets its strength added at run time (Tailwind only makes classes it can read: `${OVERDUE_CLASS.ring}/60` makes none)', () => {
+    const built = SOURCES.flatMap(({ path, lines }) =>
+      lines.map((line, i) => [`${path}:${i + 1}`, line] as const).filter(([, line]) => /\$\{[A-Z_]+_CLASS[^}]*\}\/\d/.test(line)),
+    ).map(([where]) => where);
+    expect(built).toEqual([]);
+  });
+
   it('every allowance is still needed (remove it when its line changes)', () => {
     for (const [file, inc, why] of ALLOWED) {
       const src = SOURCES.find((s) => s.path === file);

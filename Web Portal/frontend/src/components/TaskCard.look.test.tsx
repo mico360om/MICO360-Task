@@ -38,6 +38,8 @@ describe('the card in the one colour scheme (1.23.8)', () => {
     render(<TaskCard task={task} timeZone="Asia/Muscat" />);
     expect(card().querySelector('[data-card-stripe]')).toHaveStyle({ background: 'rgb(var(--c-status-progress))' });
     expect(card()).toHaveClass('border-overdue');
+    // A red ring too — written out, so Tailwind makes it (review I1: a built `ring-overdue/60` fell back to blue).
+    expect(card()).toHaveClass('ring-1', 'ring-overdue/60');
     const date = screen.getByTestId('card-date');
     expect(date).toHaveTextContent('Overdue · 20 Nov 2026');
     expect(date).toHaveClass('bg-overdue-soft', 'text-overdue');

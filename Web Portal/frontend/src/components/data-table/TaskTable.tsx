@@ -38,7 +38,7 @@ import { TOUCH_SQUARE, TOUCH_TALL } from '../../lib/touch';
 import { weightColumns } from './weight-column';
 import { PRIORITY_CLASS, dueTone, statusColour } from '../../lib/colour-classes';
 import { useDensity } from '../../lib/density';
-import { DescriptionLine, TagChips } from '../DetailLines';
+import { ChecklistCount, DescriptionLine, TagChips } from '../DetailLines';
 
 export interface TaskTableProps {
   /** Which page's table (what it remembers for the person: sort, filters, columns). */
@@ -295,6 +295,7 @@ export function TaskTable({
             {/* Detailed (1.23.8, lib/density): the description's first line and the tags under the title. */}
             {detailed ? <DescriptionLine description={t.description} /> : null}
             {detailed && !shown.includes('tags') ? <TagChips tags={t.tags} /> : null}
+            {detailed ? <ChecklistCount counts={t.counts} /> : null}
           </span>
         );
       },

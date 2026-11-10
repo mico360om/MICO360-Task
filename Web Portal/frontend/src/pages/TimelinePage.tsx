@@ -232,7 +232,10 @@ export function TimelinePage() {
   // 1.23.8: on a computer the page is the window's height and the chart takes what is left, scrolling by
   // itself (more rows on a tall screen, no blank page under a short list). A phone lists the projects.
   const pageRef = useRef<HTMLDivElement>(null);
-  const fill = !phone;
+  // Only where the window is tall enough (640px, as the board): the header, the summary cards and the chart
+  // need the room — a phone on its side or a 720px laptop scrolls the page instead.
+  const tall = useMediaQuery('(min-height: 40em)');
+  const fill = !phone && tall;
   const pageTop = useFrameOffset(pageRef, fill);
 
   return (

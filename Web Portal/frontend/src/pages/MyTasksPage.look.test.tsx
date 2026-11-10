@@ -32,6 +32,7 @@ beforeEach(() => {
             task('t3', 'MICO-3', 'A very long title about the crane inspection and the permits that must be renewed before the pour', {
               description: '\n  Ask the crane company for the certificate.\nThen book the inspector.',
               tags: [{ id: 'g1', name: 'Safety', color: '#8B1E1E' }],
+              counts: { comments: 0, attachments: 0, checklistDone: 2, checklistTotal: 5 },
               assignees: [{ id: 'u1', name: 'Ann Lee' }, { id: 'u2', name: 'Bo Chen' }, { id: 'u3', name: 'Cy Dee' }, { id: 'u4', name: 'Di Eve' }],
             }),
           ],
@@ -92,6 +93,8 @@ describe('Detailed rows and cards on My Tasks (1.23.8)', () => {
     expect(row.querySelector('[data-testid="card-description"]')).toHaveTextContent('Ask the crane company for the certificate.');
     expect(row.querySelector('[data-testid="card-tags"]')).toHaveTextContent('Safety');
     expect(row.querySelector('[data-testid="card-people"]')).toHaveTextContent('Ann Lee, Bo Chen, Cy Dee, Di Eve');
+    // The checklist count too (review: the owner's Detailed list names it).
+    expect(row.querySelector('[data-testid="card-checklist"]')).toHaveTextContent('2/5');
   });
 
   it('cards: the same', async () => {
@@ -102,6 +105,7 @@ describe('Detailed rows and cards on My Tasks (1.23.8)', () => {
     expect(card.querySelector('button[dir="auto"]')!.className).not.toContain('line-clamp-2');
     expect(card.querySelector('[data-testid="card-description"]')).toHaveTextContent('Ask the crane company for the certificate.');
     expect(card.querySelector('[data-testid="card-people"]')).toHaveTextContent('Ann Lee, Bo Chen, Cy Dee, Di Eve');
+    expect(card.querySelector('[data-testid="card-checklist"]')).toHaveTextContent('2/5');
   });
 
   it('comfortable: none of that (the title is cut, its tooltip has it all)', async () => {
