@@ -14,6 +14,36 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### New features
+- One colour scheme everywhere — boards, lists, tables, the calendar, the Timeline, the Dashboard, the
+  Client portal, the PDFs and the daily email: statuses are Backlog grey, To do slate, In progress blue,
+  Blocked red, Review purple and Done green; priorities are Urgent red, High orange, Normal blue-grey and
+  Low grey; overdue work has red words and a red edge; work due today or tomorrow is amber ("Due today",
+  "Due tomorrow"); project health is green (on track), amber (at risk) or red (late). Every colour reads
+  well in light and dark mode, and always comes with a word or an icon. A board's columns now wear their
+  status's colour, so every board looks the same (the column colour picker is gone); calendar chips keep
+  their project's colour on the edge and gain a small status dot.
+- Rows: Compact · Comfortable · Detailed, in Settings → Appearance and on the new "Rows" button of every
+  list and table. Detailed shows the description's first line, the tags, the project and everyone on each
+  card and row, and never cuts a title — on phones too.
+- The left menu folds to its icons with one button at its foot (« / »), and remembers your choice on your
+  account. Folded, each icon names itself when you point at it or tab to it, and the Admin pages and your
+  saved searches open as a small list from their icon. On a tablet the menu starts folded and unfolds over
+  the page; the phone's menu slides in and out smoothly.
+- Board column width: Narrow, Normal or Wide, from the board's new button or Settings → Appearance, saved
+  on your account.
+- Words that are cut short — a task, project, person or file name — show in full when you point at them,
+  tab to them, or press and hold on a touch screen.
+
+### Improvements
+- The Timeline fills the window: its chart grows to the window's height and scrolls by itself, with the
+  weeks always in view. The Dashboard places its widgets side by side in one, two or three columns by the
+  room there is, the last of a row stretches, cards in a row end level, and its lists show more rows on a
+  tall screen.
+- One spacing for cards and page headers on every page, the Client portal included; Day | Month on the
+  board keeps its words on a phone; the Client portal's bell count and the Dashboard's welcome band are
+  easier to read in dark mode.
+
 ## [1.23.7] - 2026-11-09
 
 ### New features
