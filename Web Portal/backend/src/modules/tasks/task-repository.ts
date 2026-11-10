@@ -92,6 +92,10 @@ export interface TaskRecord {
   taskGuests?: TaskGuestRecord[];
   /** 1.24: its categories, in its project's order (retired ones marked). */
   categories?: { id: string; name: string; color: string; retired: boolean }[];
+  /** Task archive: when it was archived (null: it isn't) — read-only and hidden from views until unarchived. */
+  archivedAt?: Date | null;
+  /** Who archived it. */
+  archivedById?: string | null;
 }
 
 export interface CreateTaskData {

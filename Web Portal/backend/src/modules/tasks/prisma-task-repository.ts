@@ -85,6 +85,9 @@ function toRecord(t: EnrichedTask): TaskRecord {
     approvalRequestedById: t.approvalRequestedById ?? null,
     approvedAt: t.approvedAt ?? null,
     approvedById: t.approvedById ?? null,
+    // Task archive (absent from an older select: not archived).
+    archivedAt: t.archivedAt ?? null,
+    archivedById: t.archivedById ?? null,
     version: t.version,
     createdAt: t.createdAt,
     updatedAt: t.updatedAt,
@@ -204,6 +207,8 @@ const listScalars = {
   meetingId: true, inspectionFormId: true, inspectionPlace: true, version: true, createdAt: true, updatedAt: true, deletedAt: true,
   needsApproval: true, approvalRequestedAt: true, approvalRequestedById: true, approvedAt: true, approvedById: true,
   clientShowDescription: true, clientAcceptedAt: true, clientAcceptedById: true,
+  // Task archive: list rows of an archived task say so (the project's "Archived tasks" list, search).
+  archivedAt: true, archivedById: true,
 } as const;
 
 /**

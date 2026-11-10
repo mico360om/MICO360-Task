@@ -29,6 +29,8 @@ import { installMergedTaskRedirect, registerTaskMergeRoutes } from './modules/ta
 import { registerBinRoutes } from './modules/recycle-bin/bin-routes';
 import type { BinService } from './modules/recycle-bin/bin-service';
 import { registerTaskDuplicateRoutes } from './modules/tasks/task-duplicate-routes';
+import { registerTaskArchiveRoutes } from './modules/tasks/task-archive-routes';
+import type { TaskArchiveService } from './modules/tasks/task-archive';
 import type { TaskDuplicateService } from './modules/tasks/task-duplicate';
 import type { DuplicateLinks } from './modules/tasks/task-routes';
 import type { TaskMergeService } from './modules/task-merge/merge-service';
@@ -228,6 +230,8 @@ export interface AppDeps extends AuthRouteDeps {
   seriesSize?: (seriesId: string) => Promise<number>;
   /** Duplicate Task: the review form's pre-fill and the copy (GET/POST /tasks/:id/duplicate). */
   taskDuplicateService?: TaskDuplicateService;
+  /** Task archive (bulk lane): archive / unarchive one task (many: POST /tasks/bulk). */
+  taskArchiveService?: TaskArchiveService;
   /** Duplicate Task: copies one person may make a minute (default 20; each copies its files on the server). */
   duplicatesPerMinute?: number;
   /** Duplicate Task: the task a copy was made from, and an original's copies (a task's details; each shown only to whoever may open it). */
@@ -886,6 +890,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       if (deps.binService) {
         // Recycle Bin: staff only (client sessions are refused by the guard's route table).
         await registerBinRoutes(api, { service: deps.binService, guard, pickOf });
+      }
+      if (deps.taskArchiveService && deps.taskService) {
+        // Task archive: staff only (client sessions are refused by the guard's route table).
+        await registerTaskArchiveRoutes(api, { service: deps.taskArchiveService, guard, getTask: (id) => deps.taskService!.getTask(id) });
       }
       if (deps.taskDuplicateService) {
         // Duplicate Task: staff only (client sessions are refused by the guard's route table).

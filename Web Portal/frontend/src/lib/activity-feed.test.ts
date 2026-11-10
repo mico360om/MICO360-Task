@@ -422,6 +422,14 @@ describe('the Recycle Bin in a task’s history', () => {
   });
 });
 
+describe('the task archive in a task’s history', () => {
+  const line = (action: string) => buildTimeline([e('a1', action, 'Sara Al Balushi', 1)])[0]!;
+  it('archived and unarchived', () => {
+    expect(line('ARCHIVED')).toMatchObject({ kind: 'other', text: 'archived this task' });
+    expect(line('UNARCHIVED').text).toBe('unarchived this task');
+  });
+});
+
 describe('Duplicate Task in a task’s history', () => {
   const line = (action: string, meta?: Record<string, unknown>) => buildTimeline([e('a1', action, 'Aisha Khan', 1, meta)])[0]!;
   it('the copy: duplicated from the original; the original: duplicated as the copy', () => {

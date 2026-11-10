@@ -7,6 +7,7 @@ import { TaskChangedConflictError, TaskMovedConflictError, type MovableTask, typ
 import { matchingColumn, namesText, notOnTeamMessage } from './task-move';
 import { isAwaitingApproval, type ApprovalEvent } from './task-approval';
 import { projectArchived } from '../companies/project-archive';
+import { TASK_ARCHIVED_CODE, TASK_ARCHIVED_MESSAGE } from '../companies/archive-guard';
 
 /** What happens to people assigned to a task who aren't on the new project's team. */
 export type AssigneeChoice = 'ADD_TO_TEAM' | 'UNASSIGN';
@@ -209,6 +210,8 @@ export function createTaskMoveService(deps: TaskMoveServiceDeps) {
 
   /** The task's own refusals: it is already there, or the actor may not move tasks out of its project. */
   async function source(scope: Set<string> | null, task: MovableTask, to: MoveProject, find: FindProject): Promise<MoveProject> {
+    // Task archive: read-only until it is unarchived (before anything else is said about it).
+    if (task.archivedAt) throw new TaskRefusal(TASK_ARCHIVED_MESSAGE, TASK_ARCHIVED_CODE, 409, 'Archived: unarchive it first.');
     if (task.projectId === to.id) throw new TaskRefusal(`This task is already in ${to.name}.`, 'SAME_PROJECT', 400, `Already in ${to.name}.`);
     const from = await find(task.projectId);
     if (!from) throw new NotFoundError('Task not found.');

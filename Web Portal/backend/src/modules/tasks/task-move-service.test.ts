@@ -509,3 +509,21 @@ describe('Moving a task: the new team stays inside its project’s companies', (
     expect((await w.service.preview(aisha, ['t8'], 'ops')).outsiders).toEqual([{ ...SARA, canJoin: true }, { ...ZAID, canJoin: true }]);
   });
 });
+
+// tbk: task archive — an archived task is read-only: it isn't moved (the others of a bulk move are).
+describe('Moving an archived task', () => {
+  it('is refused, task by task, with the plain sentence (unarchive it first)', async () => {
+    const w = world();
+    w.state.tasks.find((t) => t.id === 't1')!.archivedAt = new Date('2026-10-23T08:00:00Z');
+    const one = await refusal(w.service.moveTask(aisha, 't1', { projectId: 'ops' }));
+    expect(one.code).toBe('TASK_ARCHIVED');
+    expect(one.message).toBe('This task is archived — unarchive it first.');
+    const many = await w.service.moveTasks(aisha, ['t1', 't3'], { projectId: 'ops' });
+    expect(many.results.map((r) => [r.taskId, r.ok])).toEqual([
+      ['t1', false],
+      ['t3', true],
+    ]);
+    const preview = await w.service.preview(aisha, ['t1'], 'ops');
+    expect(preview.tasks[0]).toMatchObject({ canMove: false, reason: 'Archived: unarchive it first.' });
+  });
+});

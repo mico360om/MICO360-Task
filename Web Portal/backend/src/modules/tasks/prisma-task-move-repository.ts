@@ -31,7 +31,7 @@ export function createPrismaTaskMoveRepository(prisma: PrismaClient): TaskMoveRe
         where: { id: { in: ids }, ...liveTaskWhere },
         select: {
           id: true, key: true, title: true, projectId: true, columnId: true, isMilestone: true, clientVisible: true, dueDate: true, startDate: true, boardDate: true,
-          completedAt: true, recurrenceRule: true, recurrenceParentId: true, version: true,
+          completedAt: true, recurrenceRule: true, recurrenceParentId: true, version: true, archivedAt: true,
           needsApproval: true, approvalRequestedAt: true, approvalRequestedById: true, approvedAt: true,
           column: { select: { category: true } },
           assignees: { select: { user: { select: { id: true, username: true, firstName: true, lastName: true } } }, orderBy: { assignedAt: 'asc' } },
@@ -60,6 +60,7 @@ export function createPrismaTaskMoveRepository(prisma: PrismaClient): TaskMoveRe
         inSeries: t.recurrenceRule !== null || t.recurrenceParentId !== null,
         assignees: t.assignees.map((a) => ({ id: a.user.id, name: displayName(a.user) })),
         guestCount: t._count.externalContacts,
+        archivedAt: t.archivedAt,
       }));
     },
 

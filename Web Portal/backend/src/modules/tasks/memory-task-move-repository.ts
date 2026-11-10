@@ -64,6 +64,7 @@ export function createMemoryTaskMoveRepository(state: MemoryMoveState): TaskMove
           repeats: Boolean(t.repeats ?? t.recurrenceRule),
           inSeries: Boolean(t.recurrenceRule || t.recurrenceParentId),
           assignees: t.assigneeList,
+          archivedAt: t.archivedAt ?? null,
         }));
     },
     async findProject(id) {

@@ -39,6 +39,8 @@ import { createProjectNotices } from './modules/projects/project-notices';
 import { createProjectAccess } from './modules/projects/project-access';
 import { createCompanyAccess, fallbackProjectCompanyId, isAdminRoles, readMyProjectsOnly } from './modules/companies/company-access';
 import { createPrismaArchiveLookup } from './modules/companies/archive-guard';
+import { createTaskArchiveService } from './modules/tasks/task-archive';
+import { createPrismaTaskArchiveStore } from './modules/tasks/prisma-task-archive-store';
 import { createBinService } from './modules/recycle-bin/bin-service';
 import { createPrismaBinStore } from './modules/recycle-bin/prisma-bin-store';
 import { createCompanyService, mailFromName, type OnCompanyAccessChanged } from './modules/companies/company-service';
@@ -1377,6 +1379,24 @@ async function main(): Promise<void> {
     onError: (err, what, taskId) => logger.error(`recycle bin: ${what} failed`, { err, taskId }),
   });
 
+  // Task archive (bulk lane): administrators and the people who run a project archive its tasks — hidden
+  // but kept, read-only (archive-guard), back with Unarchive. Open boards hear an archived task leave
+  // (task:deleted) and an unarchived one come back (task:created); search re-reads it.
+  const taskArchiveService = createTaskArchiveService({
+    ...createPrismaTaskArchiveStore(prisma),
+    canViewTask: (actor, taskId) => projectAccess.canViewTask(actor.id, actor.roles, taskId),
+    runsProject: (actor, projectId) => projectAuthz.canManageProject(actor.id, actor.roles, projectId),
+    isProjectArchived: (projectId) => binArchive.isArchived(projectId),
+    recordActivity: recordTaskActivity,
+    audit: (entry) => auditService.record(entry),
+    onChanged: async (t, archived) => {
+      await taskSearchIndex.taskChanged(t.id);
+      if (archived) broadcast(t.projectId, 'task:deleted', { id: t.id, archived: true });
+      else broadcast(t.projectId, 'task:created', await taskService.getTask(t.id));
+    },
+    onError: (err, what) => logger.error(`task archive: ${what} failed`, { err }),
+  });
+
   const settingsService = createSettingsService({ settings: createPrismaSettingsRepository(prisma) });
   collectSetting = () => settingsService.collectBrowserErrors(); // the Error log's "Collect browser errors"
   // companies: System → Companies and each person's companies (GET /me/companies). A company inherits
@@ -2331,6 +2351,7 @@ async function main(): Promise<void> {
     taskMoveService,
     taskMergeService,
     binService, // Recycle Bin
+    taskArchiveService, // Task archive (bulk lane)
     // The delete question names the series' size: "the entire series (12 tasks)".
     seriesSize: (seriesId) => prisma.task.count({ where: { deletedAt: null, OR: [{ id: seriesId }, { recurrenceParentId: seriesId }] } }),
     // Duplicate Task: the review form's pre-fill, the copy, and each task's "Duplicated from" / "Copies".

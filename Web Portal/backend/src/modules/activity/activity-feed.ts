@@ -403,6 +403,9 @@ function lineOf(kind: TimelineKind, entries: FeedEntry[]): TimelineItem | null {
         return { ...base, text: `moved this task to the Recycle Bin${batch}` };
       }
       if (newest.action === 'RESTORED') return { ...base, text: 'restored this task from the Recycle Bin' };
+      // Task archive: hidden but kept, and brought back.
+      if (newest.action === 'ARCHIVED') return { ...base, text: 'archived this task' };
+      if (newest.action === 'UNARCHIVED') return { ...base, text: 'unarchived this task' };
       // Duplicate Task: on the copy, and on the original (a task the reader can't open isn't named: the server leaves its number out).
       if (newest.action === 'DUPLICATED_FROM') return { ...base, text: `duplicated this task from ${str(newest.meta?.fromKey) ?? 'another task'}` };
       if (newest.action === 'DUPLICATED') return { ...base, text: str(newest.meta?.copyKey) ? `duplicated this task as ${str(newest.meta?.copyKey)}` : 'duplicated this task' };

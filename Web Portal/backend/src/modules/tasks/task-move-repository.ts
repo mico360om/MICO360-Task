@@ -59,6 +59,8 @@ export interface MovableTask {
   assignees: MovePerson[];
   /** 1.24: how many guests it has (a task with guests keeps a team member). */
   guestCount?: number;
+  /** Task archive: archived tasks are read-only (never moved). */
+  archivedAt?: Date | null;
 }
 
 /** What a move writes, in one transaction. */

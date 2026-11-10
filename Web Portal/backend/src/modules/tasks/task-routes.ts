@@ -21,7 +21,7 @@ import { DELETE_NOT_ALLOWED, DELETE_NOT_ALLOWED_CODE, DELETE_SERIES_NOT_ALLOWED,
 import { NO_PICK, type PickOf } from '../companies/company-pick';
 import { isMonthKey } from './board-month';
 import { inMonth, monthWindow } from './month-list';
-import { NeedsTeamMemberError, type GuestService } from '../guests/guest-service';
+import type { GuestService } from '../guests/guest-service';
 import type { CategoryService } from '../categories/category-service';
 
 const priorityEnum = z.enum(['LOW', 'NORMAL', 'HIGH', 'URGENT']);

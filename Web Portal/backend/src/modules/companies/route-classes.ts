@@ -544,4 +544,8 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   // Manager View (owner, 10 Nov 2026): an administrator's own switch, never refused by Manager View itself.
   'GET /users/me/manager-view': 'own',
   'PUT /users/me/manager-view': 'own',
+  // Task archive (bulk lane): one task archived or unarchived (administrators and its project's managers,
+  // checked by the service on the task); many at once, and their Undo, task by task (bulk service).
+  'POST /tasks/:id/archive': 'object',
+  'POST /tasks/:id/unarchive': 'object',
 };
