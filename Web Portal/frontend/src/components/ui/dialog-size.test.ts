@@ -39,6 +39,8 @@ describe('the one window size scale (1.22)', () => {
 // bottom sheets.
 const NOT_ON_THE_SCALE = new Set([
   'components/AppShell.tsx',
+  // 1.23.8: the phone's menu and a tablet's unfolded menu, sliding in from the left (a side panel).
+  'components/MenuDrawer.tsx',
   'components/chat/parts.tsx',
   'components/management/ItemsSheet.tsx',
   'components/task-drawer/attachments.tsx',

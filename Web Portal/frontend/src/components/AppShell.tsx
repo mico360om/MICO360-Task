@@ -19,7 +19,7 @@ import { flushOfflineQueue } from '../lib/offline-replay';
 import { useInspectionOutboxSync } from '../lib/inspection-sync';
 import { invalidateTaskQueries } from '../lib/task-cache';
 import { useAuthStore } from '../stores/auth-store';
-import { useDialog } from '../hooks/useDialog';
+import { MenuDrawer } from './MenuDrawer';
 import { ShortcutProvider } from './shortcuts/ShortcutProvider';
 import { AppFooter } from './AppFooter';
 import { useChatBadge } from '../lib/useChatBadge';
@@ -45,36 +45,30 @@ const opensWhenArchived = (path: string) => OPEN_WHEN_ARCHIVED.some((p) => path 
  * plain panel: Escape did nothing and Tab went to the page hidden behind it.)
  */
 function MobileMenu({ isAdmin, canLead, chatUnread, onClose }: { isAdmin: boolean; canLead: boolean; chatUnread: number; onClose: () => void }) {
-  const dialogRef = useDialog<HTMLDivElement>(onClose, { initialFocus: 'container' });
+  // 1.23.8: it slides in and out (components/MenuDrawer), as a tablet's unfolded menu does.
   return (
-    <div className="fixed inset-0 z-50 md:hidden">
-      <div className="absolute inset-0 bg-scrim animate-fade-in" onClick={onClose} aria-hidden="true" />
-      <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Menu"
-        tabIndex={-1}
-        className="absolute left-0 top-0 flex h-full w-64 max-w-[85vw] flex-col border-r border-line bg-surface shadow-lift outline-none animate-slide-in-right"
-      >
-        {/* Centred on the logo row (56px, like the top bar). */}
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close menu"
-          className="absolute end-2 top-2.5 z-10 grid h-9 w-9 place-items-center rounded-lg text-ink-2 transition-colors hover:bg-ground hover:text-ink [@media(pointer:coarse)]:top-1.5 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
-        >
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-            <path d="M6 6l12 12M18 6L6 18" />
-          </svg>
-        </button>
-        <nav aria-label="Main" className="flex min-h-0 flex-1 flex-col">
-          <SidebarBody isAdmin={isAdmin} canLead={canLead} chatUnread={chatUnread} onNavigate={onClose} />
-        </nav>
-        {/* Companies: on the smallest phones the top bar has no room for the picker — it is here. */}
-        <CompanyPicker place="menu" />
-      </div>
-    </div>
+    <MenuDrawer className="md:hidden" onClose={onClose}>
+      {(close) => (
+        <>
+          {/* Centred on the logo row (56px, like the top bar). */}
+          <button
+            type="button"
+            onClick={close}
+            aria-label="Close menu"
+            className="absolute end-2 top-2.5 z-10 grid h-9 w-9 place-items-center rounded-lg text-ink-2 transition-colors hover:bg-ground hover:text-ink [@media(pointer:coarse)]:top-1.5 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
+          >
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
+          <nav aria-label="Main" className="flex min-h-0 flex-1 flex-col">
+            <SidebarBody isAdmin={isAdmin} canLead={canLead} chatUnread={chatUnread} onNavigate={close} />
+          </nav>
+          {/* Companies: on the smallest phones the top bar has no room for the picker — it is here. */}
+          <CompanyPicker place="menu" />
+        </>
+      )}
+    </MenuDrawer>
   );
 }
 

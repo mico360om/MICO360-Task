@@ -1,4 +1,4 @@
-import { useContext, useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useContext, useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, NavLink, useLocation } from 'react-router-dom';
 import { QueryClientContext } from '@tanstack/react-query';
@@ -10,6 +10,7 @@ import { BrandLogo } from './ui/BrandLogo';
 import { Logo } from './ui/Logo';
 import { useMediaQuery } from '../lib/useMediaQuery';
 import { useSetAppearance, useSidebarCollapsed } from '../lib/appearance';
+import { MenuDrawer } from './MenuDrawer';
 
 interface NavItem {
   label: string;
@@ -284,7 +285,199 @@ function ChatBadge({ count, active }: { count: number; active: boolean }) {
   );
 }
 
-function NavGroup({ label, items, onNavigate, chatUnread = 0, rail, first = false }: { label: string; items: NavItem[]; onNavigate?: () => void; chatUnread?: number; rail: boolean; first?: boolean }) {
+/** 1.23.8 The Admin group's icon on the rail (kept out of `I`, the icon set the Android app copies). */
+const ADMIN_GROUP_ICON = (
+  <>
+    <rect x="3" y="7" width="18" height="13" rx="2" />
+    <path d="M8.5 7V5.5a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2V7M3 12.5h18M10.5 12.5v2h3v-2" />
+  </>
+);
+const SAVED_ICON = <path d="M6.5 4h11v16l-5.5-3.8L6.5 20z" />;
+
+interface FlyoutItem {
+  key: string;
+  to: string;
+  label: string;
+  /** Said in full (a saved search's count). */
+  name?: string;
+  /** Marked as the page you are on (a saved search; plain links say it themselves). */
+  current?: boolean;
+  icon: ReactNode;
+}
+
+/**
+ * 1.23.8 A group on the rail (the menu folded, or a tablet): one icon that opens a small list beside it — by hover,
+ * a click, or Enter / Space / Down arrow — so every item stays one step away while the rail stays short (owner, 10
+ * Nov: the Admin items; the pinned searches, which share one icon). The arrow keys move through it, Home and End
+ * go to its ends, Escape (or Tab, or a click elsewhere) closes it and gives focus back to the icon; choosing an
+ * item goes there and closes it. Drawn in <body> (the rail's list scrolls and would cut it off).
+ */
+function FlyoutGroup({ label, icon, items, onNavigate }: { label: string; icon: ReactNode; items: FlyoutItem[]; onNavigate?: () => void }) {
+  const { pathname } = useLocation();
+  const [open, setOpen] = useState(false);
+  const [place, setPlace] = useState<{ top: number; left: number } | null>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+  const focusFirst = useRef(false);
+  /** Opened by the pointer resting on the icon (a click then keeps it open and moves into it). */
+  const byHover = useRef(false);
+  const leave = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const id = useId();
+  const current = items.some((i) => i.current || pathname === i.to || pathname.startsWith(`${i.to}/`));
+
+  const show = (withFocus: boolean) => {
+    if (leave.current) clearTimeout(leave.current);
+    byHover.current = !withFocus;
+    if (open) {
+      if (withFocus) menu.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+      return;
+    }
+    const r = button.current?.getBoundingClientRect();
+    const height = 48 + items.length * 40;
+    const top = Math.max(8, Math.min(r?.top ?? 0, window.innerHeight - height - 8));
+    setPlace({ top, left: (r?.right ?? 64) + 6 });
+    focusFirst.current = withFocus;
+    setOpen(true);
+  };
+  const hide = (refocus: boolean) => {
+    setOpen(false);
+    if (refocus) button.current?.focus();
+  };
+  // Hover: closes a moment after the pointer leaves both the icon and the list (time to cross the gap).
+  const pointerLeft = () => {
+    if (leave.current) clearTimeout(leave.current);
+    leave.current = setTimeout(() => {
+      if (!menu.current?.contains(document.activeElement)) setOpen(false);
+    }, 180);
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    if (focusFirst.current) menu.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+    const onDown = (e: MouseEvent | TouchEvent) => {
+      const t = e.target as Node;
+      if (!menu.current?.contains(t) && !button.current?.contains(t)) setOpen(false);
+    };
+    const onScroll = (e: Event) => {
+      if (!(e.target instanceof Node && menu.current?.contains(e.target))) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('touchstart', onDown, { passive: true });
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onScroll);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('touchstart', onDown);
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onScroll);
+    };
+  }, [open]);
+  useEffect(() => () => {
+    if (leave.current) clearTimeout(leave.current);
+  }, []);
+
+  const onMenuKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    const all = Array.from(menu.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []);
+    const at = all.indexOf(document.activeElement as HTMLElement);
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      hide(true);
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      all[e.key === 'ArrowDown' ? (at + 1) % all.length : (at - 1 + all.length) % all.length]?.focus();
+    } else if (e.key === 'Home' || e.key === 'End') {
+      e.preventDefault();
+      all[e.key === 'Home' ? 0 : all.length - 1]?.focus();
+    } else if (e.key === 'Tab') {
+      setOpen(false);
+    }
+  };
+
+  return (
+    <>
+      <button
+        ref={button}
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls={open ? id : undefined}
+        aria-label={label}
+        data-rail-label={label}
+        data-flyout
+        data-current={current ? 'true' : undefined}
+        onClick={() => (open && !byHover.current ? hide(false) : show(true))}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+            e.preventDefault();
+            show(true);
+          }
+        }}
+        onPointerEnter={(e) => {
+          if (e.pointerType !== 'touch') show(false);
+        }}
+        onPointerLeave={pointerLeft}
+        className={`${linkClass(true)({ isActive: current })} w-full`}
+      >
+        <NavIcon>{icon}</NavIcon>
+        <span className={labelClass(true)}>{label}</span>
+      </button>
+      {open && place
+        ? createPortal(
+            <div
+              ref={menu}
+              id={id}
+              role="menu"
+              aria-label={label}
+              onKeyDown={onMenuKey}
+              onPointerEnter={() => leave.current && clearTimeout(leave.current)}
+              onPointerLeave={pointerLeft}
+              style={{ top: place.top, left: place.left }}
+              className="fixed z-[60] w-60 max-w-[calc(100vw-5rem)] overflow-hidden rounded-xl border border-line bg-surface py-1 shadow-lift animate-scale-in"
+            >
+              <p aria-hidden="true" className="px-3 pb-1 pt-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink-3">
+                {label}
+              </p>
+              {items.map((item) => (
+                <NavLink
+                  key={item.key}
+                  to={item.to}
+                  role="menuitem"
+                  aria-label={item.name}
+                  aria-current={item.current ? 'page' : undefined}
+                  onClick={() => {
+                    setOpen(false);
+                    onNavigate?.();
+                  }}
+                  className={({ isActive }) =>
+                    `flex items-center gap-2.5 px-3 py-2 text-sm outline-none transition-colors [@media(pointer:coarse)]:min-h-11 ${
+                      isActive || item.current ? 'bg-brand/10 font-semibold text-brand' : 'text-ink hover:bg-ground focus-visible:bg-ground'
+                    }`
+                  }
+                >
+                  <NavIcon>{item.icon}</NavIcon>
+                  <span dir="auto" className="min-w-0 truncate">{item.label}</span>
+                </NavLink>
+              ))}
+            </div>,
+            document.body,
+          )
+        : null}
+    </>
+  );
+}
+
+function NavGroup({ label, items, onNavigate, chatUnread = 0, rail, first = false, flyout }: { label: string; items: NavItem[]; onNavigate?: () => void; chatUnread?: number; rail: boolean; first?: boolean; /** 1.23.8: on the rail, one icon with a fly-out list (the Admin group). */ flyout?: ReactNode }) {
+  const onRail = useOnRail();
+  if (rail && flyout && onRail) {
+    return (
+      <>
+        <div data-rail-divider aria-hidden="true" className="mx-1.5 my-2 hidden border-t border-line rail:block" />
+        <SectionLabel rail={rail}>{label}</SectionLabel>
+        <FlyoutGroup label={label} icon={flyout} items={items.map((i) => ({ key: i.to, to: i.to, label: i.label, icon: i.icon }))} onNavigate={onNavigate} />
+      </>
+    );
+  }
   return (
     <>
       {/* On the rail the group names give way to a thin line between the groups. */}
@@ -324,8 +517,34 @@ function SavedNav({ onNavigate, rail }: { onNavigate?: () => void; rail: boolean
   const { pinned } = useSavedSearches();
   const counts = useSavedCounts(pinned.map((s) => s.id));
   const { pathname, search } = useLocation();
+  const onRail = useOnRail();
   if (pinned.length === 0) return null;
   const here = pathname === '/search' ? everythingFilters(new URLSearchParams(search)) : null;
+  // 1.23.8: on the rail the pinned searches (one icon for all) are one Saved icon with a fly-out list.
+  if (rail && onRail) {
+    return (
+      <>
+        <div data-rail-divider aria-hidden="true" className="mx-1.5 my-2 hidden border-t border-line rail:block" />
+        <SectionLabel rail={rail}>Saved</SectionLabel>
+        <FlyoutGroup
+          label="Saved"
+          icon={SAVED_ICON}
+          onNavigate={onNavigate}
+          items={pinned.map((s) => {
+            const count = countLabel(counts.data?.[s.id]);
+            return {
+              key: s.id,
+              to: `/search?${savedAddress(s)}`,
+              label: count ? `${s.name} · ${count}` : s.name,
+              name: count ? `${s.name}, ${count} ${count === '1' ? 'result' : 'results'}` : s.name,
+              current: here ? isSavedSearch(here, s) : false,
+              icon: SAVED_ICON,
+            };
+          })}
+        />
+      </>
+    );
+  }
   return (
     <>
       {rail ? <div data-rail-divider aria-hidden="true" className="mx-1.5 my-2 hidden border-t border-line rail:block" /> : null}
@@ -397,7 +616,9 @@ function RailTooltip({ root }: { root: RefObject<HTMLElement> }) {
       setTip({ label: link.dataset.railLabel ?? '', top: box.top + box.height / 2, left: box.right });
     };
     const over = (e: PointerEvent) => {
-      if (e.pointerType !== 'touch') show(linkOf(e.target));
+      const link = linkOf(e.target);
+      // A group's icon opens its fly-out list on hover instead (it says the group's name).
+      if (e.pointerType !== 'touch' && !link?.hasAttribute('data-flyout')) show(link);
     };
     const out = (e: PointerEvent) => {
       if (!linkOf(e.relatedTarget) && !onTip(e.relatedTarget)) setTip(null);
@@ -450,20 +671,30 @@ function RailTooltip({ root }: { root: RefObject<HTMLElement> }) {
  * icon rail and back, saved on the person's account. Desktop only — a tablet always has the rail. On the
  * rail it names itself beside it like the links (data-rail-label).
  */
-function FoldButton() {
+function FoldButton({ onTabletOpen, tabletOpen = false }: { onTabletOpen?: () => void; tabletOpen?: boolean }) {
   const folded = useSidebarCollapsed();
   const { change } = useSetAppearance();
-  const label = folded ? 'Expand the menu' : 'Collapse the menu';
+  // A tablet (owner, 10 Nov): folded by default; unfolding opens the whole menu over the page (not saved).
+  const tablet = useMediaQuery(RAIL_WIDTHS);
+  const label = tablet || folded ? 'Expand the menu' : 'Collapse the menu';
+  const toggle = () => {
+    if (tablet) return onTabletOpen?.();
+    change({ sidebarCollapsed: !folded });
+    // Once the menu has its new width (200 ms), the page measures again: the board, Timeline and Calendar
+    // fit the room they now have.
+    setTimeout(() => window.dispatchEvent(new Event('resize')), 220);
+  };
   return (
     <button
       type="button"
-      onClick={() => change({ sidebarCollapsed: !folded })}
-      aria-expanded={!folded}
-      aria-controls="main-menu"
+      onClick={toggle}
+      aria-expanded={tablet ? tabletOpen : !folded}
+      aria-controls={tablet ? undefined : 'main-menu'}
+      aria-haspopup={tablet ? 'dialog' : undefined}
       data-rail-label={label}
-      className={`${linkClass(true)({ isActive: false })} hidden w-full lg:flex`}
+      className={`${linkClass(true)({ isActive: false })} hidden w-full md:flex`}
     >
-      <NavIcon>{folded ? <path d="M6 7l5 5-5 5M13 7l5 5-5 5" /> : <path d="M18 7l-5 5 5 5M11 7l-5 5 5 5" />}</NavIcon>
+      <NavIcon>{tablet || folded ? <path d="M6 7l5 5-5 5M13 7l5 5-5 5" /> : <path d="M18 7l-5 5 5 5M11 7l-5 5 5 5" />}</NavIcon>
       <span className={labelClass(true)}>{label}</span>
     </button>
   );
@@ -477,16 +708,33 @@ function FoldButton() {
  */
 export function Sidebar({ isAdmin, chatUnread = 0, canLead = false }: SidebarProps) {
   const nav = useRef<HTMLElement>(null);
+  // 1.23.8 A tablet's unfolded menu: over the page, until a page is chosen, a tap outside or Escape.
+  const tablet = useMediaQuery(RAIL_WIDTHS);
+  const [overlay, setOverlay] = useState(false);
+  useEffect(() => {
+    if (!tablet) setOverlay(false);
+  }, [tablet]);
   return (
+    <>
     <nav
       ref={nav}
       id="main-menu"
       aria-label="Main"
-      className="sticky top-0 hidden h-screen w-16 flex-none flex-col border-r border-line bg-surface/95 transition-[width] duration-200 md:flex lg:w-60 rail:w-16 supports-[height:100dvh]:h-dvh"
+      className="sticky top-0 hidden h-screen w-16 flex-none flex-col overflow-hidden border-r border-line bg-surface/95 transition-[width] duration-200 ease-out md:flex lg:w-60 rail:w-16 supports-[height:100dvh]:h-dvh"
     >
-      <SidebarBody isAdmin={isAdmin} chatUnread={chatUnread} canLead={canLead} rail />
+      <SidebarBody isAdmin={isAdmin} chatUnread={chatUnread} canLead={canLead} rail onTabletOpen={() => setOverlay(true)} tabletOpen={overlay} />
       <RailTooltip root={nav} />
     </nav>
+    {overlay ? (
+      <MenuDrawer className="hidden md:block lg:hidden" onClose={() => setOverlay(false)}>
+        {(close) => (
+          <nav aria-label="Main" className="flex min-h-0 flex-1 flex-col">
+            <SidebarBody isAdmin={isAdmin} chatUnread={chatUnread} canLead={canLead} onNavigate={close} onCollapse={close} />
+          </nav>
+        )}
+      </MenuDrawer>
+    ) : null}
+    </>
   );
 }
 
@@ -494,7 +742,24 @@ export function Sidebar({ isAdmin, chatUnread = 0, canLead = false }: SidebarPro
  * The sidebar's inner content — reused by the desktop menu and the phone's menu. `rail`: may become
  * the tablet rail (the desktop menu only; the phone's menu never does).
  */
-export function SidebarBody({ isAdmin, onNavigate, chatUnread = 0, canLead = false, rail = false }: SidebarProps & { onNavigate?: () => void; rail?: boolean }) {
+export function SidebarBody({
+  isAdmin,
+  onNavigate,
+  chatUnread = 0,
+  canLead = false,
+  rail = false,
+  onTabletOpen,
+  tabletOpen,
+  onCollapse,
+}: SidebarProps & {
+  onNavigate?: () => void;
+  rail?: boolean;
+  /** 1.23.8: a tablet's rail opens the whole menu over the page. */
+  onTabletOpen?: () => void;
+  tabletOpen?: boolean;
+  /** 1.23.8: the menu over the page (a tablet) closes with its own "Collapse the menu". */
+  onCollapse?: () => void;
+}) {
   const { pathname } = useLocation();
   const list = useRef<HTMLDivElement>(null);
   // 1.23.6: the pinned saved searches need the app's data layer (absent in a bare test render).
@@ -536,7 +801,7 @@ export function SidebarBody({ isAdmin, onNavigate, chatUnread = 0, canLead = fal
         <NavGroup label="Workspace" items={WORKSPACE.filter((i) => (isAdmin || !i.adminOnly) && (isAdmin || canLead || !i.leadsOnly))} onNavigate={onNavigate} rail={rail} first />
         {withData ? <SavedNav onNavigate={onNavigate} rail={rail} /> : null}
         <NavGroup label="Communication" items={COMMUNICATION} onNavigate={onNavigate} chatUnread={chatUnread} rail={rail} />
-        {isAdmin ? <NavGroup label="Admin" items={ADMIN} onNavigate={onNavigate} rail={rail} /> : null}
+        {isAdmin ? <NavGroup label="Admin" items={ADMIN} onNavigate={onNavigate} rail={rail} flyout={ADMIN_GROUP_ICON} /> : null}
       </div>
 
       <div className={`border-t border-line px-3 py-2 ${rail ? 'rail:px-2.5' : ''}`}>
@@ -544,7 +809,15 @@ export function SidebarBody({ isAdmin, onNavigate, chatUnread = 0, canLead = fal
           <NavIcon>{I.settings}</NavIcon>
           <span className={labelClass(rail)}>Settings</span>
         </NavLink>
-        {rail && withData ? <FoldButton /> : null}
+        {rail && withData ? <FoldButton onTabletOpen={onTabletOpen} tabletOpen={tabletOpen} /> : null}
+        {onCollapse ? (
+          <button type="button" onClick={onCollapse} className={`${linkClass(false)({ isActive: false })} w-full`}>
+            <NavIcon>
+              <path d="M18 7l-5 5 5 5M11 7l-5 5 5 5" />
+            </NavIcon>
+            <span className={labelClass(false)}>Collapse the menu</span>
+          </button>
+        ) : null}
         <div className={`px-3 pt-2 text-[11px] text-ink-3 ${rail ? 'rail:px-0 rail:text-center' : ''}`}>
           <span data-rail-version-brand className={rail ? 'rail:hidden' : ''}>
             <span className="gradient-text font-semibold">MICO360</span> ·{' '}

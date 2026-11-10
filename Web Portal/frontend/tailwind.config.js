@@ -113,6 +113,10 @@ export default {
         shimmer: { '0%': { backgroundPosition: '-200% 0' }, '100%': { backgroundPosition: '200% 0' } },
         float: { '0%,100%': { transform: 'translateY(0)' }, '50%': { transform: 'translateY(-6px)' } },
         'bar-grow': { '0%': { transform: 'scaleY(0)' }, '100%': { transform: 'scaleY(1)' } },
+        // 1.23.8 The menu sliding in and out from the left (components/MenuDrawer): transform only.
+        'menu-in': { '0%': { transform: 'translateX(-100%)' }, '100%': { transform: 'none' } },
+        'menu-out': { '0%': { transform: 'none' }, '100%': { transform: 'translateX(-100%)' } },
+        'scrim-out': { '0%': { opacity: '1' }, '100%': { opacity: '0' } },
       },
       animation: {
         'fade-in': 'fade-in 0.4s ease both',
@@ -122,6 +126,9 @@ export default {
         shimmer: 'shimmer 1.6s linear infinite',
         float: 'float 6s ease-in-out infinite',
         'bar-grow': 'bar-grow 0.7s cubic-bezier(0.22,1,0.36,1) both',
+        'menu-in': 'menu-in 0.2s cubic-bezier(0.22,1,0.36,1) both',
+        'menu-out': 'menu-out 0.2s cubic-bezier(0.4,0,1,1) both',
+        'scrim-out': 'scrim-out 0.2s ease both',
       },
     },
   },

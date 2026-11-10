@@ -167,7 +167,8 @@ describe('folding the menu on a desktop (1.23.8)', () => {
     renderWithData();
     const fold = screen.getByRole('button', { name: 'Collapse the menu' });
     expect(fold).toHaveAttribute('aria-expanded', 'true');
-    expect(fold).toHaveClass('hidden', 'lg:flex');
+    // 1.23.8: tablets have it too (it opens the menu over the page there).
+    expect(fold).toHaveClass('hidden', 'md:flex');
     await userEvent.setup().click(fold);
     expect(document.documentElement.getAttribute('data-sidebar')).toBe('collapsed');
     const unfold = screen.getByRole('button', { name: 'Expand the menu' });

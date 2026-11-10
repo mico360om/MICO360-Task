@@ -162,20 +162,31 @@ describe('AppShell', () => {
       expect(menu.contains(document.activeElement)).toBe(true);
 
       await userEvent.keyboard('{Escape}');
-      expect(screen.queryByRole('dialog', { name: 'Menu' })).not.toBeInTheDocument();
+      // 1.23.8: it slides away (200 ms), then is gone and focus is back on its button.
+      expect(menu).toHaveAttribute('data-state', 'closing');
+      expect(menu.className).toContain('animate-menu-out');
+      await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Menu' })).not.toBeInTheDocument());
       expect(opener).toHaveFocus();
+    });
+
+    it('slides in from the left (1.23.8)', async () => {
+      renderShell();
+      await userEvent.click(screen.getByRole('button', { name: 'Open menu' }));
+      const menu = screen.getByRole('dialog', { name: 'Menu' });
+      expect(menu).toHaveAttribute('data-state', 'open');
+      expect(menu.className).toContain('animate-menu-in');
     });
 
     it('has a Close button, and closes when a page is chosen', async () => {
       renderShell();
       await userEvent.click(screen.getByRole('button', { name: 'Open menu' }));
       await userEvent.click(screen.getByRole('button', { name: 'Close menu' }));
-      expect(screen.queryByRole('dialog', { name: 'Menu' })).not.toBeInTheDocument();
+      await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Menu' })).not.toBeInTheDocument());
 
       await userEvent.click(screen.getByRole('button', { name: 'Open menu' }));
       const menu = screen.getByRole('dialog', { name: 'Menu' });
       await userEvent.click(menu.querySelector('a[href="/dashboard"]')!);
-      expect(screen.queryByRole('dialog', { name: 'Menu' })).not.toBeInTheDocument();
+      await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Menu' })).not.toBeInTheDocument());
     });
   });
 
