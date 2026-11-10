@@ -23,7 +23,7 @@ import { useCompanyTimeZone } from '../lib/company-clock';
 import { useDialog } from '../hooks/useDialog';
 import { useAuthStore } from '../stores/auth-store';
 import { TaskDrawer, type DrawerTaskRef, type TaskStepper } from './TaskDrawer';
-import { TaskFormDialog } from './task-form/TaskFormDialog';
+import { TaskFormDialog, categoriesKey } from './task-form/TaskFormDialog';
 import { MoveTaskDialog, useMoveTargets } from './MoveTaskDialog';
 import { SaveTaskTemplateDialog } from './templates/SaveAsTemplate';
 import { useProjectsWith } from '../lib/useProjectsWith';
@@ -31,7 +31,8 @@ import { clientSharesApi } from '../api/client-shares';
 import { TaskInspections } from './inspections/TaskInspections';
 import { moveAvailability, movedText } from '../lib/task-move';
 import { TaskApproval } from './approvals/TaskApproval';
-import { TaskExternalContacts } from './task-drawer/TaskExternalContacts';
+import { guestsApi } from '../api/guests';
+import { categoriesApi } from '../api/categories';
 import { approvalNotice } from '../lib/approvals';
 import { DELETE_NOT_ALLOWED, DELETE_NOT_ALLOWED_CODE, DELETE_SERIES_NOT_ALLOWED, mayDeleteSeries, mayDeleteTask } from '../lib/task-delete-rule';
 import { isProjectArchived, projectReadOnly } from '../lib/project-archive';
@@ -227,6 +228,15 @@ function TaskDrawerPanel({ taskId, onClose, stepper, mergeNotice, focusItemId }:
     void invalidateMergeQueries(queryClient);
   };
 
+  // 1.24: the project's categories (the Categories box picks from them; the task form shares the cache).
+  const categoriesQ = useQuery({
+    queryKey: categoriesKey(projectId ?? ''),
+    queryFn: () => categoriesApi(apiClient).forProject(projectId as string),
+    enabled: !!projectId,
+    staleTime: 30_000,
+  });
+  const projectCategories = categoriesQ.data && Array.isArray(categoriesQ.data.categories) ? categoriesQ.data : null;
+
   const activityQ = useQuery({ queryKey: ['task-activity', taskId], queryFn: () => activityApi(apiClient).forTask(taskId) });
   const watchStatusQ = useQuery({ queryKey: ['task-watch', taskId], queryFn: () => watchersApi(apiClient).status(taskId) });
   const watchersQ = useQuery({ queryKey: ['task-watchers', taskId], queryFn: () => watchersApi(apiClient).list(taskId) });
@@ -283,6 +293,26 @@ function TaskDrawerPanel({ taskId, onClose, stepper, mergeNotice, focusItemId }:
     mutationFn: (id: string) => attachmentsApi(apiClient).remove(id),
     onSuccess: invalidateAttachments,
   });
+
+  /**
+   * 1.24 Guests and categories: saved one change at a time, then the task (its Assigned list, its
+   * chips), its history and every view showing its card line or chips are read again. A guest someone
+   * else took off meanwhile (404) refreshes the task too, so it goes.
+   */
+  const refreshTask = () => {
+    void queryClient.invalidateQueries({ queryKey: ['task', taskId] });
+    refreshTaskViews();
+  };
+  const saveTaskPart = (write: () => Promise<unknown>, fallback: string) =>
+    attempt(async () => {
+      try {
+        await write();
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 404) refreshTask();
+        throw e;
+      }
+      refreshTask();
+    }, fallback);
 
   const invalidateDeps = () => {
     void queryClient.invalidateQueries({ queryKey: ['dependencies', taskId] });
@@ -632,10 +662,12 @@ function TaskDrawerPanel({ taskId, onClose, stepper, mergeNotice, focusItemId }:
                 onSendBack={(reason) => attempt(() => sendBackM.mutateAsync(reason), 'Couldn’t send it back.').then(() => undefined)}
               />
             }
-            externalContacts={
-              // Older servers don't send them: no section then.
-              projectId && taskQ.data.externalContacts ? <TaskExternalContacts taskId={taskId} projectId={projectId} contacts={taskQ.data.externalContacts} /> : undefined
-            }
+            onAddGuest={(guestId) => saveTaskPart(() => guestsApi(apiClient).addToTask(taskId, guestId), 'Couldn’t add the guest.')}
+            onRemoveGuest={(guestId) => saveTaskPart(() => guestsApi(apiClient).removeFromTask(taskId, guestId), 'Couldn’t remove the guest.')}
+            onSetGuestNote={(guestId, note) => saveTaskPart(() => guestsApi(apiClient).setNote(taskId, guestId, note), 'Couldn’t save the note.')}
+            categoryChoices={projectCategories?.categories ?? null}
+            requireCategory={projectCategories?.requireCategory === true}
+            onSetCategories={(ids) => saveTaskPart(() => categoriesApi(apiClient).setForTask(taskId, ids), 'Couldn’t save the categories.')}
             inspections={
               projectId ? (
                 <TaskInspections

@@ -1,4 +1,4 @@
-import { useEffect, useId, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import type { ApiTask, Priority, RecurrenceRule } from '../../api/tasks';
 import { statusMeta } from '../../lib/taskStatus';
 import { dueInputValue, formatDueDay, isTaskLate } from '../../lib/due-display';
@@ -9,6 +9,10 @@ import { ComboPicker } from './combo-picker';
 import { SaveIndicator, failureMessage, useSaveState } from './save-state';
 import { weightChoices } from '../../lib/project-health';
 import { OVERDUE_CLASS } from '../../lib/colour-classes';
+import { markFound } from '../../lib/useFoundAnchor';
+import { GUEST_WORDS } from '../../lib/guest-contacts';
+import { AssignModeSwitch, GuestBadge, GuestPicker, guestChipText, type AssignMode } from '../task-form/guest-picker';
+import { GuestDetailsDialog, guestChipName, type DrawerGuest } from './guests';
 
 export interface DrawerAssignee {
   id: string;
@@ -49,7 +53,7 @@ const Dot = ({ color }: { color: string }) => (
 );
 
 /** One labelled property: label on the left (above it on a narrow card), control and its save state. */
-function Row({ label, labelFor, children }: { label: string; labelFor?: string; children: ReactNode }) {
+function Row({ label, labelFor, children, below }: { label: string; labelFor?: string; children: ReactNode; /** Shown under the label and value at the row's full width (a picker that needs the room). */ below?: ReactNode }) {
   const name = labelFor ? (
     <label htmlFor={labelFor} className="text-xs font-medium text-ink-2">
       {label}
@@ -63,6 +67,7 @@ function Row({ label, labelFor, children }: { label: string; labelFor?: string; 
     <div className="flex flex-wrap items-start gap-x-3 gap-y-1 py-1.5">
       <div className="w-24 flex-none pt-2.5 sm:pt-2">{name}</div>
       <div className="min-w-[10rem] flex-1">{children}</div>
+      {below ? <div className="min-w-0 basis-full">{below}</div> : null}
     </div>
   );
 }
@@ -364,58 +369,72 @@ function RepeatField({ task, timeZone, onSet }: { task: ApiTask; timeZone: strin
   );
 }
 
+const NO_GUESTS: DrawerGuest[] = [];
+
+/**
+ * Who is on the task (1.24 "Assigned"): its team members, then its guests ("Ahmed Al Harthy · OXY ·
+ * Guest" — open for their details). Add assignee picks an "Internal user" from the project's team or,
+ * with the switch, a "Guest" from the company's guest list (or a new one). Taking off the last team
+ * member of a task with guests is refused by the server, whose reason is shown.
+ */
 function AssigneesField({
   assignees,
   assignable,
   onAssign,
   onUnassign,
+  guests = NO_GUESTS,
+  projectId,
+  onAddGuest,
+  onRemoveGuest,
+  onSetGuestNote,
 }: {
   assignees: DrawerAssignee[];
   assignable: DrawerAssignee[];
   onAssign?: (userId: string) => Promise<void> | void;
   onUnassign?: (userId: string) => Promise<void> | void;
+  guests?: DrawerGuest[];
+  /** The task's project: its company's guest list is searched. */
+  projectId?: string;
+  onAddGuest?: (guestId: string) => Promise<void> | void;
+  onRemoveGuest?: (guestId: string) => Promise<void> | void;
+  onSetGuestNote?: (guestId: string, note: string | null) => Promise<void> | void;
 }) {
   const save = useSaveState();
   const [picking, setPicking] = useState(false);
+  const [mode, setMode] = useState<AssignMode>('internal');
   const [query, setQuery] = useState('');
+  const [shown, setShown] = useState<string | null>(null);
+  const listRef = useRef<HTMLUListElement>(null);
   const assigned = new Set(assignees.map((a) => a.id));
   const q = query.trim().toLowerCase();
   const matches = assignable.filter((u) => !assigned.has(u.id) && (!q || u.name.toLowerCase().includes(q)));
-  return (
-    <Row label="Assignees">
-      <div className="flex flex-wrap items-center gap-1.5 pt-1">
-        {assignees.length === 0 ? <span className="text-sm text-ink-3">Unassigned</span> : null}
-        {assignees.map((a) => (
-          <span key={a.id} className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-line bg-surface py-0.5 ps-0.5 pe-1 text-xs text-ink">
-            <Avatar name={a.name} size="sm" src={a.avatarUrl} />
-            <span dir="auto" className="truncate">
-              {a.name}
-            </span>
-            {onUnassign ? (
-              <button
-                type="button"
-                onClick={() => void save.run(() => onUnassign(a.id))}
-                aria-label={`Remove ${a.name}`}
-                title={`Remove ${a.name}`}
-                className="grid h-7 w-7 flex-none place-items-center rounded-full text-ink-3 transition-colors hover:bg-danger-soft hover:text-danger sm:h-5 sm:w-5 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11 [@media(pointer:coarse)]:-my-2 [@media(pointer:coarse)]:-me-2.5"
-              >
-                ×
-              </button>
-            ) : null}
-          </span>
-        ))}
-        {onAssign && !picking ? (
-          <button
-            type="button"
-            onClick={() => setPicking(true)}
-            className="inline-flex h-8 items-center gap-1 rounded-full border border-dashed border-line px-2.5 text-xs font-medium text-ink-2 transition-colors hover:border-brand hover:text-brand sm:h-7 [@media(pointer:coarse)]:h-11"
-          >
-            <span aria-hidden="true">+</span> Add assignee
-          </button>
-        ) : null}
-      </div>
-      {picking && onAssign ? (
-        <div className="mt-2 rounded-lg border border-line bg-ground/50 p-2">
+  const canGuest = Boolean(onAddGuest && projectId);
+  const canAdd = Boolean(onAssign || canGuest);
+  const open = shown ? (guests.find((g) => g.guestId === shown) ?? null) : null;
+  // 1.23.6: a search result opened this task at one of its contacts — now a guest (…&contact=<id>):
+  // it comes into view, marked (once).
+  const marked = useRef<string | null>(null);
+  useEffect(() => {
+    const named = typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('contact');
+    if (!named || marked.current === named) return;
+    const chip = listRef.current?.querySelector(`[data-contact-id="${CSS.escape(named)}"]`);
+    if (chip) {
+      marked.current = named;
+      markFound(chip);
+    }
+  }, [guests]);
+  const closePicker = () => {
+    setPicking(false);
+    setQuery('');
+    setMode('internal');
+  };
+  const pickingBox =
+    picking && canAdd ? (
+      <div className="mt-1 flex flex-col gap-2 rounded-lg border border-line bg-ground/50 p-2">
+        {canGuest ? <AssignModeSwitch mode={mode} onChange={setMode} /> : null}
+        {mode === 'guest' && canGuest ? (
+          <GuestPicker projectId={projectId!} exclude={guests.map((g) => g.guestId)} alwaysOpen onClose={closePicker} onPick={(g) => void save.run(() => onAddGuest!(g.id))} />
+        ) : onAssign ? (
           <ComboPicker
             label="Find a teammate"
             placeholder="Search by name…"
@@ -431,17 +450,80 @@ function AssigneesField({
             }}
             onClose={() => setPicking(false)}
           />
-          <button type="button" onClick={() => { setPicking(false); setQuery(''); }} className="mt-1.5 h-8 rounded-md px-2 text-xs font-medium text-ink-2 hover:bg-ground [@media(pointer:coarse)]:h-11">
-            Done
-          </button>
-        </div>
+        ) : null}
+        <button type="button" onClick={closePicker} className="h-8 self-start rounded-md px-2 text-xs font-medium text-ink-2 hover:bg-ground [@media(pointer:coarse)]:h-11">
+          Done
+        </button>
+      </div>
+    ) : null;
+  return (
+    <Row label="Assigned" below={pickingBox}>
+      {assignees.length === 0 ? <p className="pt-2 text-sm text-ink-3 sm:pt-1.5">Unassigned</p> : null}
+      {assignees.length > 0 || guests.length > 0 ? (
+        <ul ref={listRef} aria-label="Assigned" className="flex flex-wrap items-center gap-1.5 pt-1">
+          {assignees.map((a) => (
+            <li key={a.id} className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-line bg-surface py-0.5 ps-0.5 pe-1 text-xs text-ink">
+              <Avatar name={a.name} size="sm" src={a.avatarUrl} />
+              <span dir="auto" className="truncate">
+                {a.name}
+              </span>
+              {onUnassign ? (
+                <button
+                  type="button"
+                  onClick={() => void save.run(() => onUnassign(a.id))}
+                  aria-label={`Remove ${a.name}`}
+                  title={`Remove ${a.name}`}
+                  className="grid h-7 w-7 flex-none place-items-center rounded-full text-ink-3 transition-colors hover:bg-danger-soft hover:text-danger sm:h-5 sm:w-5 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11 [@media(pointer:coarse)]:-my-2 [@media(pointer:coarse)]:-me-2.5"
+                >
+                  ×
+                </button>
+              ) : null}
+            </li>
+          ))}
+          {guests.map((g) => (
+            <li key={g.guestId} className="inline-flex max-w-full">
+              <button
+                type="button"
+                data-contact-id={g.linkId}
+                onClick={() => setShown(g.guestId)}
+                aria-label={guestChipName(g)}
+                aria-haspopup="dialog"
+                title={g.retired ? `${guestChipText(g)} (${GUEST_WORDS.retired})` : guestChipText(g)}
+                className="inline-flex min-h-7 max-w-full items-center gap-1.5 rounded-full border border-dashed border-line bg-surface py-0.5 pe-1.5 ps-2.5 text-xs text-ink transition-colors hover:border-brand [@media(pointer:coarse)]:!min-h-11"
+              >
+                <span dir="auto" className="min-w-0 truncate">
+                  {guestChipText(g)}
+                </span>
+                <GuestBadge />
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {canAdd && !picking ? (
+        <button
+          type="button"
+          onClick={() => setPicking(true)}
+          className="mt-1.5 inline-flex h-8 items-center gap-1 rounded-full border border-dashed border-line px-2.5 text-xs font-medium text-ink-2 transition-colors hover:border-brand hover:text-brand sm:h-7 [@media(pointer:coarse)]:h-11"
+        >
+          <span aria-hidden="true">+</span> Add assignee
+        </button>
       ) : null}
       <SaveIndicator state={save.state} />
+      {open ? (
+        <GuestDetailsDialog
+          key={open.guestId}
+          guest={open}
+          onClose={() => setShown(null)}
+          onSetNote={onSetGuestNote ? (note) => onSetGuestNote(open.guestId, note) : undefined}
+          onRemove={onRemoveGuest ? () => onRemoveGuest(open.guestId) : undefined}
+        />
+      ) : null}
     </Row>
   );
 }
 
-/** The task's properties card: status, priority, due date, repeat and assignees, each saved as it changes. */
+/** The task's properties card: status, priority, due date, repeat and who is on it (team and guests), each saved as it changes. */
 export function PropertiesPanel({
   task,
   timeZone,
@@ -458,6 +540,10 @@ export function PropertiesPanel({
   scope,
   onScope,
   weightDefaults,
+  guests,
+  onAddGuest,
+  onRemoveGuest,
+  onSetGuestNote,
 }: {
   task: ApiTask;
   timeZone: string;
@@ -475,6 +561,11 @@ export function PropertiesPanel({
   onScope: (scope: 'one' | 'series') => void;
   /** 1.23.5: its project counts completion by weight — its defaults by priority (absent: no Weight field). */
   weightDefaults?: Record<Priority, number> | null;
+  /** 1.24: its guests (shown under Assigned, after the team) and how they are changed. */
+  guests?: DrawerGuest[];
+  onAddGuest?: (guestId: string) => Promise<void> | void;
+  onRemoveGuest?: (guestId: string) => Promise<void> | void;
+  onSetGuestNote?: (guestId: string, note: string | null) => Promise<void> | void;
 }) {
   return (
     <section aria-labelledby="task-props-heading" className="rounded-2xl border border-line bg-surface p-3 sm:p-4">
@@ -501,7 +592,19 @@ export function PropertiesPanel({
         {weightDefaults ? <WeightField weight={task.weight ?? null} defaultWeight={weightDefaults[task.priority]} onSave={onSaveField ? (weight) => onSaveField({ weight }) : undefined} /> : null}
         <DueDateField task={task} timeZone={timeZone} onSave={onSaveField ? (dueDate) => onSaveField({ dueDate }) : undefined} />
         {onSetRecurrence ? <RepeatField task={task} timeZone={timeZone} onSet={onSetRecurrence} /> : null}
-        {assignees ? <AssigneesField assignees={assignees} assignable={assignableUsers} onAssign={onAssignUser} onUnassign={onUnassignUser} /> : null}
+        {assignees || guests?.length ? (
+          <AssigneesField
+            assignees={assignees ?? []}
+            assignable={assignableUsers}
+            onAssign={onAssignUser}
+            onUnassign={onUnassignUser}
+            guests={guests}
+            projectId={task.projectId}
+            onAddGuest={onAddGuest}
+            onRemoveGuest={onRemoveGuest}
+            onSetGuestNote={onSetGuestNote}
+          />
+        ) : null}
       </div>
     </section>
   );

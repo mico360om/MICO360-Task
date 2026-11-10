@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { composeBoard, resolveDrop, moveTaskInBoard, reorderColumnInBoard, dropIndex, composeAllProjectsBoard, statusOfBoardColumn, targetColumnFor, boardProjects, boardCompanies, filterBoardByCompany, fullColumnIndex } from './board';
+import { composeBoard, resolveDrop, moveTaskInBoard, reorderColumnInBoard, dropIndex, composeAllProjectsBoard, statusOfBoardColumn, targetColumnFor, boardProjects, boardFilterRows, filterBoard, markNeedsCategory, fullColumnIndex } from './board';
+import { EMPTY_GUEST_CATEGORY_FILTERS } from './guest-category-filter';
 import type { ApiProject } from '../api/projects';
 import type { ApiColumn } from '../api/columns';
 import type { ApiTask } from '../api/tasks';
@@ -252,24 +253,44 @@ describe('targetColumnFor (where a card dropped on a status lands in its own pro
   });
 });
 
-describe('external contacts on the board', () => {
+// tgc: 1.24 — external contacts are guests now: cards carry their guests (and their contacts in short,
+// for an older server's rows) and their categories; the board's "External company" filter became the
+// Guest, Guest company and Category filters (lib/guest-category-filter).
+describe('guests and categories on the board', () => {
   const oxy = { count: 2, name: 'Ahmed Al Said', company: 'OXY', names: ['Ahmed Al Said', 'Sara Nasser'], companies: ['OXY', 'PDO'] };
-  const withContacts = [{ ...tasks[0]!, externalSummary: oxy }, { ...tasks[1]!, externalSummary: null }];
+  const guests = [{ id: 'g1', name: 'Ahmed Al Said', company: 'OXY' }, { id: 'g2', name: 'Sara Nasser', company: 'PDO' }];
+  const categories = [{ id: 'k1', name: 'Electrical', color: 'teal', retired: false }];
+  const withContacts = [{ ...tasks[0]!, externalSummary: oxy, guests, categories }, { ...tasks[1]!, externalSummary: null, guests: [], categories: [] }];
   const projects = [{ id: 'p1', code: 'MICO', name: 'MICO360', status: 'ACTIVE', color: null }] as unknown as ApiProject[];
 
-  it('every card carries its contacts in short (the card line), on a project’s board and on All projects', () => {
-    expect(composeBoard(columns, withContacts)[0]!.tasks[0]!.external).toEqual(oxy);
-    expect(composeBoard(columns, withContacts)[1]!.tasks[0]!.external).toBeNull();
+  it('every card carries its guests, categories and contacts in short, on a project’s board and on All projects', () => {
+    const board = composeBoard(columns, withContacts);
+    expect(board[0]!.tasks[0]!).toMatchObject({ external: oxy, guests, categories });
+    expect(board[1]!.tasks[0]!).toMatchObject({ external: null, guests: [], categories: [] });
     const all = composeAllProjectsBoard(withContacts, projects);
-    expect(all.flatMap((c) => c.tasks).find((t) => t.key === 'MICO-1')!.external).toEqual(oxy);
+    expect(all.flatMap((c) => c.tasks).find((t) => t.key === 'MICO-1')!).toMatchObject({ external: oxy, guests, categories });
   });
 
-  it('lists the companies on the board and keeps only the cards with a contact from the one chosen', () => {
+  it('the cards as rows for the filters’ choices (with their project’s name), and only the cards that pass', () => {
     const board = composeBoard(columns, withContacts);
-    expect(boardCompanies(board)).toEqual(['OXY', 'PDO']);
-    const pdo = filterBoardByCompany(board, 'pdo');
+    expect(boardFilterRows(board)).toEqual([
+      { guests, categories, externalSummary: oxy },
+      { guests: [], categories: [], externalSummary: null },
+    ]);
+    const all = composeAllProjectsBoard(withContacts, projects);
+    expect(boardFilterRows(all).find((r) => r.guests?.length)).toMatchObject({ projectName: 'MICO360' });
+    const pdo = filterBoard(board, { ...EMPTY_GUEST_CATEGORY_FILTERS, guestCompany: 'pdo' });
     expect(pdo.map((c) => c.tasks.map((t) => t.key))).toEqual([['MICO-1'], []]);
-    expect(filterBoardByCompany(board, '')).toBe(board);
+    expect(filterBoard(board, { ...EMPTY_GUEST_CATEGORY_FILTERS, category: 'k1' }).map((c) => c.tasks.length)).toEqual([1, 0]);
+    expect(filterBoard(board, { ...EMPTY_GUEST_CATEGORY_FILTERS, guest: 'g9' }).map((c) => c.tasks.length)).toEqual([0, 0]);
+    expect(filterBoard(board, EMPTY_GUEST_CATEGORY_FILTERS)).toBe(board);
+  });
+
+  it('“Needs a category” on the cards without one, only when the project asks every task for one', () => {
+    const board = composeBoard(columns, withContacts);
+    expect(markNeedsCategory(board, false)).toBe(board);
+    const marked = markNeedsCategory(board, true);
+    expect(marked.map((c) => c.tasks.map((t) => Boolean(t.needsCategory)))).toEqual([[false], [true]]);
   });
 });
 

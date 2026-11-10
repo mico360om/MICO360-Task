@@ -146,3 +146,20 @@ describe('myTasksSortLabel: a header sort shown in the Sort menu', () => {
     expect(myTasksSortLabel('start')).toBe('Start date');
   });
 });
+
+describe('1.24 the Guests and Categories columns', () => {
+  const t = (patch: Partial<ApiTask>) => ({ ...tasks[0]!, ...patch }) as ApiTask;
+  it('sort by the first guest (name (company); an older server’s first contact) and the first category', () => {
+    expect(taskSortValue(t({ guests: [{ id: 'g', name: 'Sara', company: 'PDO' }, { id: 'h', name: 'Ali', company: null }] }), 'guests', ctx)).toBe('Sara (PDO)');
+    expect(taskSortValue(t({ guests: [], externalSummary: { count: 1, name: 'Salim', company: null, names: ['Salim'], companies: [] } }), 'guests', ctx)).toBe('Salim');
+    expect(taskSortValue(t({ guests: [] }), 'guests', ctx)).toBe('');
+    expect(taskSortValue(t({ categories: [{ id: 'k', name: 'HSE', color: 'pink', retired: false }] }), 'categories', ctx)).toBe('HSE');
+    expect(taskSortValue(t({}), 'categories', ctx)).toBe('');
+  });
+  it('My Tasks: a header sort on them is kept and named in the Sort menu', () => {
+    expect(myTasksSort('guests')).toEqual({ column: 'guests', dir: 'asc' });
+    expect(myTasksSort('categories:desc')).toEqual({ column: 'categories', dir: 'desc' });
+    expect(myTasksSortLabel('guests')).toBe('Guests (A–Z)');
+    expect(myTasksSortLabel('categories:desc')).toBe('Categories (Z–A)');
+  });
+});

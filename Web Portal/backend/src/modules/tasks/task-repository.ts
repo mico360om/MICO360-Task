@@ -5,6 +5,7 @@ import type { CarryLogEntry } from './board-date';
 import type { ProjectTaskSettings } from '../projects/project-task-settings';
 import type { ExternalContactFields, ExternalContactSummary } from './external-contacts';
 import type { ExternalContactRecord } from './external-contact-repository';
+import type { TaskGuestRecord } from '../guests/guest-store';
 
 export type Priority = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
 
@@ -85,6 +86,12 @@ export interface TaskRecord {
   externalSummary?: ExternalContactSummary | null;
   /** Its external contacts in full, in order (a single task). */
   externalContacts?: ExternalContactRecord[];
+  /** 1.24: its guests in short, in order — id, name and company (cards, the Guest filters). */
+  guests?: { id: string; name: string; company: string | null }[];
+  /** 1.24: its guests in full, with the task's own note (a single task). */
+  taskGuests?: TaskGuestRecord[];
+  /** 1.24: its categories, in its project's order (retired ones marked). */
+  categories?: { id: string; name: string; color: string; retired: boolean }[];
 }
 
 export interface CreateTaskData {
@@ -127,6 +134,10 @@ export interface CreateTaskData {
   checklists?: ChecklistTree;
   /** External contacts (already checked), in order, written in the same write as the task. */
   externalContacts?: ExternalContactFields[];
+  /** 1.24: guests picked from the company's list (already checked), written in the same write as the task. */
+  guestLinks?: { guestId: string; note: string | null }[];
+  /** 1.24: its categories (already checked), written in the same write as the task. */
+  categoryIds?: string[];
 }
 
 /** Thrown by `TaskRepository.create` when the generated key is already taken (a concurrent create). */

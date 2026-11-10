@@ -5,6 +5,11 @@ import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { searchEverythingApi } from '../api/search';
 import { projectsApi } from '../api/projects';
+import { categoriesApi } from '../api/categories';
+import { guestsApi } from '../api/guests';
+import { projectCategoriesKey } from '../lib/useProjectCategories';
+import { GUEST_WORDS, guestLabel } from '../lib/guest-contacts';
+import { CATEGORY_WORDS } from '../lib/task-categories';
 import { usersApi } from '../api/users';
 import { PageHeader } from '../components/ui/PageHeader';
 import { EmptyState } from '../components/ui/EmptyState';
@@ -119,6 +124,13 @@ export function SearchPage({ debounceMs = 300 }: { debounceMs?: number }) {
     enabled: searching,
   });
   const projectsQ = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi(apiClient).list() });
+  // 1.24: a picked project's categories and its company's guests (the Category, Guest and Guest company filters).
+  const pickedProject = filters.projectId;
+  const categoriesQ = useQuery({ queryKey: projectCategoriesKey(pickedProject), queryFn: () => categoriesApi(apiClient).forProject(pickedProject!), enabled: !!pickedProject, retry: false });
+  const guestsQ = useQuery({ queryKey: ['guests', 'project', pickedProject], queryFn: () => guestsApi(apiClient).forProject(pickedProject!), enabled: !!pickedProject, retry: false });
+  const categoryChoices = Array.isArray(categoriesQ.data?.categories) ? categoriesQ.data!.categories : [];
+  const guestChoices = Array.isArray(guestsQ.data) ? guestsQ.data : [];
+  const guestCompanies = [...new Map(guestChoices.filter((g) => g.company).map((g) => [g.company!.toLowerCase(), g.company!])).values()].sort((a, b) => a.localeCompare(b, 'en'));
   const peopleQ = useQuery({ queryKey: ['directory'], queryFn: () => usersApi(apiClient).directory() });
 
   const hits = useMemo(() => {
@@ -179,7 +191,7 @@ export function SearchPage({ debounceMs = 300 }: { debounceMs?: number }) {
     update({ archived: on || undefined, ...(!on && chosen && isProjectArchived(chosen) ? { projectId: undefined } : {}) });
   };
   // "All" with a type the reader read takes its chip off; a type chosen wins over it (the server leaves its chip out).
-  const chooseType = (type: SearchKind | undefined) => update({ type, ...(type !== 'task' ? { status: undefined } : {}), ...(!type && understood?.kinds?.length ? { off: withOff('kind') } : {}) });
+  const chooseType = (type: SearchKind | undefined) => update({ type, ...(type !== 'task' ? { status: undefined, category: undefined, guest: undefined, guestCompany: undefined } : {}), ...(!type && understood?.kinds?.length ? { off: withOff('kind') } : {}) });
 
   const chip = (active: boolean) =>
     `rounded-full px-3 py-1 text-xs font-medium transition-colors [@media(pointer:coarse)]:!min-h-11 ${active ? 'bg-brand text-white shadow-brand' : 'border border-line text-ink-2 hover:bg-ground'}`;
@@ -246,7 +258,7 @@ export function SearchPage({ debounceMs = 300 }: { debounceMs?: number }) {
         <div className={`grid gap-2 ${activeType === 'task' ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
           <label className="flex flex-col gap-1 text-xs font-medium text-ink-2">
             Project
-            <select value={filters.projectId ?? ''} onChange={(e) => update({ projectId: e.target.value || undefined })} className={select}>
+            <select value={filters.projectId ?? ''} onChange={(e) => update({ projectId: e.target.value || undefined, category: undefined, guest: undefined, guestCompany: undefined })} className={select}>
               <option value="">All projects</option>
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>
@@ -281,6 +293,49 @@ export function SearchPage({ debounceMs = 300 }: { debounceMs?: number }) {
             </select>
           </label>
         </div>
+        {pickedProject && (categoryChoices.length > 0 || guestChoices.length > 0) ? (
+          <div className="grid gap-2 sm:grid-cols-3">
+            {categoryChoices.length > 0 ? (
+              <label className="flex flex-col gap-1 text-xs font-medium text-ink-2">
+                {CATEGORY_WORDS.filter}
+                <select value={filters.category ?? ''} onChange={(e) => update({ category: e.target.value || undefined, ...(filters.type ? {} : { type: 'task' as const }) })} className={select}>
+                  <option value="">{CATEGORY_WORDS.anyCategory}</option>
+                  {categoryChoices.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.retired ? `${c.name} (retired)` : c.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+            {guestChoices.length > 0 ? (
+              <>
+                <label className="flex flex-col gap-1 text-xs font-medium text-ink-2">
+                  {GUEST_WORDS.filter}
+                  <select value={filters.guest ?? ''} onChange={(e) => update({ guest: e.target.value || undefined, ...(filters.type ? {} : { type: 'task' as const }) })} className={select}>
+                    <option value="">{GUEST_WORDS.anyGuest}</option>
+                    {guestChoices.map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {guestLabel(g)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1 text-xs font-medium text-ink-2">
+                  {GUEST_WORDS.filterCompany}
+                  <select value={filters.guestCompany ?? ''} onChange={(e) => update({ guestCompany: e.target.value || undefined, ...(filters.type ? {} : { type: 'task' as const }) })} className={select}>
+                    <option value="">{GUEST_WORDS.anyCompany}</option>
+                    {guestCompanies.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </>
+            ) : null}
+          </div>
+        ) : null}
         <div className="grid grid-cols-2 gap-2 sm:max-w-md">
           <label className="flex flex-col gap-1 text-xs font-medium text-ink-2">
             From
@@ -308,7 +363,7 @@ export function SearchPage({ debounceMs = 300 }: { debounceMs?: number }) {
             <span aria-hidden="true">Include archived projects</span>
           </span>
           {hasEverythingFilters(filters) ? (
-            <Button variant="secondary" size="sm" onClick={() => update({ type: undefined, projectId: undefined, status: undefined, person: undefined, from: undefined, to: undefined, done: undefined, archived: undefined })}>
+            <Button variant="secondary" size="sm" onClick={() => update({ type: undefined, projectId: undefined, status: undefined, person: undefined, from: undefined, to: undefined, done: undefined, archived: undefined, category: undefined, guest: undefined, guestCompany: undefined })}>
               Clear filters
             </Button>
           ) : null}

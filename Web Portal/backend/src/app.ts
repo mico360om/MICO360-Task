@@ -39,6 +39,10 @@ import { registerChecklistRoutes } from './modules/tasks/checklist-routes';
 import type { ChecklistService } from './modules/tasks/checklist-service';
 import { registerExternalContactRoutes } from './modules/tasks/external-contact-routes';
 import type { ExternalContactService } from './modules/tasks/external-contact-service';
+import { registerGuestRoutes } from './modules/guests/guest-routes';
+import type { GuestService } from './modules/guests/guest-service';
+import { registerCategoryRoutes } from './modules/categories/category-routes';
+import type { CategoryService } from './modules/categories/category-service';
 import { registerCommentRoutes } from './modules/tasks/comment-routes';
 import type { CommentService } from './modules/tasks/comment-service';
 import { registerChatRoutes } from './modules/chat/chat-routes';
@@ -228,6 +232,10 @@ export interface AppDeps extends AuthRouteDeps {
   namesOfUsers?: (userIds: string[]) => Promise<Map<string, string>>;
   /** External contacts on tasks: the people outside the company responsible for a task. */
   externalContactService?: ExternalContactService;
+  /** 1.24: the company guest lists and a task's guests (record only: never users, never emailed). */
+  guestService?: GuestService;
+  /** 1.24: each project's task categories and a task's categories. */
+  categoryService?: CategoryService;
   commentService?: CommentService;
   chatService?: MessageService;
   /** Deliver a chat event to one user across their sockets (their DMs). */
@@ -816,6 +824,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           projectOwnerOf: deps.projectService
             ? async (projectId) => (await deps.projectService!.getProject(projectId)).ownerId
             : undefined,
+          // 1.24: a new task's guests and categories are checked by their own rules.
+          guestService: deps.guestService,
+          categoryService: deps.categoryService,
         });
       }
       if (deps.taskService && deps.approvalSource) {
@@ -915,6 +926,30 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           broadcast: deps.onTaskEvent,
           taskOf: deps.taskService ? (taskId) => deps.taskService!.getTask(taskId) : undefined,
           recordActivity: deps.recordTaskActivity,
+        });
+      }
+      if (deps.guestService) {
+        await registerGuestRoutes(api, {
+          service: deps.guestService,
+          guard,
+          canViewTask,
+          // The task's own edit rule (as PUT /tasks/:id): whoever can see the task may change it.
+          canEditTask: canViewTask,
+          canViewProject,
+          broadcast: deps.onTaskEvent,
+          taskOf: deps.taskService ? (taskId) => deps.taskService!.getTask(taskId) : undefined,
+        });
+      }
+      if (deps.categoryService) {
+        await registerCategoryRoutes(api, {
+          service: deps.categoryService,
+          guard,
+          canViewProject,
+          canManageProject: (u, r, p) => projectAuthz.canManageProject(u, r, p),
+          canViewTask,
+          canEditTask: canViewTask,
+          broadcast: deps.onTaskEvent,
+          taskOf: deps.taskService ? (taskId) => deps.taskService!.getTask(taskId) : undefined,
         });
       }
       if (deps.commentService) {

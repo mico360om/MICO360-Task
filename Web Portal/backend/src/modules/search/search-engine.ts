@@ -66,6 +66,14 @@ export interface SearchAllInput {
   priorities?: string[];
   /** 1.23.6: tasks waiting for approval (tasks only). */
   approval?: boolean;
+  /** 1.24: tasks with one of these categories (ids; the page's Category filter — tasks only). */
+  categoryIds?: string[];
+  /** 1.24: tasks with a category of one of these names, as compared (categoryNameKey; "category:Electrical"). */
+  categoryKeys?: string[];
+  /** 1.24: tasks with one of these guests (the page's Guest filter — tasks only). */
+  guestIds?: string[];
+  /** 1.24: tasks with a guest from this company (spaces aside; the collation ignores case). */
+  guestCompany?: string;
   /** 1.23.6: assigned to any of these people — tasks and checklist items only; `unassigned`: to nobody. */
   assigneeIds?: string[];
   unassigned?: boolean;
@@ -256,6 +264,15 @@ export function createSearchEngine({
     if (input.due?.open) where.push(Prisma.sql`NOT ${done}`);
     if (input.priorities?.length) where.push(Prisma.sql`t.priority IN (${Prisma.join(input.priorities)})`);
     if (input.approval) where.push(Prisma.sql`t.approvalRequestedAt IS NOT NULL`);
+    // 1.24: a task's categories and guests (plain EXISTS: portable to MariaDB).
+    if (input.categoryIds?.length) where.push(Prisma.sql`EXISTS (SELECT 1 FROM task_categories tc WHERE tc.taskId = t.id AND tc.categoryId IN (${Prisma.join(input.categoryIds)}))`);
+    if (input.categoryKeys?.length) {
+      where.push(Prisma.sql`EXISTS (SELECT 1 FROM task_categories tc INNER JOIN project_categories pc ON pc.id = tc.categoryId WHERE tc.taskId = t.id AND pc.nameKey IN (${Prisma.join(input.categoryKeys)}))`);
+    }
+    if (input.guestIds?.length) where.push(Prisma.sql`EXISTS (SELECT 1 FROM task_external_contacts gx WHERE gx.taskId = t.id AND gx.guestId IN (${Prisma.join(input.guestIds)}))`);
+    if (input.guestCompany?.trim()) {
+      where.push(Prisma.sql`EXISTS (SELECT 1 FROM task_external_contacts gx WHERE gx.taskId = t.id AND REPLACE(gx.company, ' ', '') = ${input.guestCompany.replace(/\s+/g, '')})`);
+    }
     if (input.assigneeIds?.length) where.push(Prisma.sql`EXISTS (SELECT 1 FROM task_assignees a WHERE a.taskId = t.id AND ${anyIds(Prisma.sql`a.userId`, input.assigneeIds)})`);
     if (input.unassigned) where.push(Prisma.sql`NOT EXISTS (SELECT 1 FROM task_assignees a WHERE a.taskId = t.id)`);
     if (input.creatorIds?.length) where.push(anyIds(Prisma.sql`t.createdById`, input.creatorIds));
@@ -287,6 +304,8 @@ export function createSearchEngine({
     if (input.taskStatuses?.length) return null; // a task status: tasks only
     // 1.23.6: a priority or approval is a task's; a due date or an assignee a task's or a checklist item's.
     if (input.priorities?.length || input.approval) return null;
+    // 1.24: a category or a guest is a task's.
+    if (input.categoryIds?.length || input.categoryKeys?.length || input.guestIds?.length || input.guestCompany?.trim()) return null;
     let wanted = (input.kinds ?? [...SEARCH_KINDS]).filter((k): k is Exclude<SearchKind, 'task'> => k !== 'task').flatMap((k) => INDEX_KINDS_OF[k]);
     const keep = (allowed: IndexKind[]) => (wanted = wanted.filter((k) => allowed.includes(k)));
     if (input.due || input.assigneeIds?.length || input.unassigned) keep(['checklist']);
@@ -563,7 +582,7 @@ export function createSearchEngine({
     return withExtras(input, exact, terms, limit, offset, byNumber);
   }
 
-  const narrowed = (input: SearchAllInput) => Boolean(input.kinds?.length || input.taskStatuses?.length);
+  const narrowed = (input: SearchAllInput) => Boolean(input.kinds?.length || input.taskStatuses?.length || input.categoryIds?.length || input.categoryKeys?.length || input.guestIds?.length || input.guestCompany?.trim());
   const unnarrowed = (input: SearchAllInput): SearchAllInput => ({ ...input, kinds: undefined, taskStatuses: undefined });
 
   /**

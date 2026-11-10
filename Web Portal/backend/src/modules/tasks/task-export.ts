@@ -12,7 +12,8 @@ import { BRAND, formatDateTime, formatDay, priorityLabel, wallClock } from '../.
 import { dueDayKey, isOverdue } from '../../lib/due-date';
 import { projectIconPaths, projectInitials } from '../projects/project-icons';
 import { projectAudienceIds } from './prisma-assignee-repository';
-import { buildTimeline } from '../activity/activity-feed';
+import { buildTaskTimeline } from '../activity/task-history-extra';
+import { guestLabel } from './guest-contacts';
 import { mentionTokens } from './mentions';
 import { recurrenceSummary } from './recurrence-summary';
 import type { RecurrenceRule } from './recurrence';
@@ -94,8 +95,10 @@ export interface TaskExportData {
    * and start are null for a reader who may not see that meeting (the export route checks), as on the website.
    */
   meeting: { id: string; title: string | null; startAt: Date | null } | null;
-  /** The people outside the company responsible for it (all six fields), in order. */
+  /** The people outside the company responsible for it (all six fields), in order — 1.24: its guests (remarks = the task's note). */
   externalContacts: ExternalContactFields[];
+  /** 1.24: its categories' names, in its project's order. */
+  categories?: string[];
   /**
    * Its checklist items in order. 1.23.3: each with its checklist's title (`list`), its level (`depth`, 0 =
    * top) and whether it is a real to-do item (`leaf`: no sub-items) — counts use those only.
@@ -139,7 +142,7 @@ export interface TaskExportSource {
  */
 export function describeActivity(action: string, meta: unknown): string {
   const details = meta && typeof meta === 'object' && !Array.isArray(meta) ? (meta as Record<string, unknown>) : null;
-  const [item] = buildTimeline([{ id: 'entry', action, actorName: '', meta: details }]);
+  const [item] = buildTaskTimeline([{ id: 'entry', action, actorName: '', meta: details }]);
   if (!item) return 'Updated this task'; // an edit that changed nothing it can name
   const text = item.text.charAt(0).toUpperCase() + item.text.slice(1);
   return item.path && item.path.length > 1 ? `${text}: ${item.path.join(' → ')}` : text;
@@ -172,6 +175,8 @@ function detailRows(t: TaskExportData, tz: string): [string, string][] {
     ['Assignees', t.assignees.join(', ') || 'Unassigned'],
     ['Watchers', t.watchers.join(', ')],
     ['Tags', t.tags.join(', ')],
+    ['Categories', (t.categories ?? []).join(', ')],
+    ['Guests', t.externalContacts.map(guestLabel).join(', ')],
     ['Start', day(t.startDate, tz)],
     ['Due', due && t.overdue ? `${due} · Overdue` : due],
     ['Completed', t.completedAt ? formatDateTime(t.completedAt, tz) : ''],
@@ -203,10 +208,10 @@ export function taskSheets(t: TaskExportData, ctx: TaskExportContext): XlsxSheet
       rows: [...detailRows(t, tz).filter(([, v]) => v !== ''), ['Description', t.description ?? '']],
     },
     {
-      name: 'External contacts',
+      name: 'Guests',
       title,
       notes,
-      columns: [{ header: 'Name' }, { header: 'Company' }, { header: 'Designation' }, { header: 'Email' }, { header: 'Phone' }, { header: 'Remarks', wrap: true }],
+      columns: [{ header: 'Name' }, { header: 'Company' }, { header: 'Designation' }, { header: 'Email' }, { header: 'Phone' }, { header: 'Note for this task', wrap: true }],
       rows: t.externalContacts.map((c) => [c.name, c.company ?? '', c.designation ?? '', c.email ?? '', c.phone ?? '', c.remarks ?? '']),
     },
     checklistSheet(t.checklist, title, notes),
@@ -386,6 +391,7 @@ export function taskPdf(t: TaskExportData, ctx: TaskExportContext): Buffer {
       ['Assignees', names(t.assignees) || 'Unassigned'],
       ['Watchers', names(t.watchers)],
       ['Tags', names(t.tags)],
+      ['Categories', names(t.categories ?? [])],
       ['Milestone', t.isMilestone ? 'Yes, a key date of this project' : ''],
       ['From meeting', meetingText(t.meeting, tz)],
     ]),
@@ -401,8 +407,8 @@ export function taskPdf(t: TaskExportData, ctx: TaskExportContext): Buffer {
     { size: 9.5 },
   );
 
-  // External contacts: the people outside the company responsible for it, each with every detail
-  // given — name; company and designation; email and phone; remarks — kept on one page.
+  // Guests (1.24; the external contacts before): the people outside the company named on it, each with every
+  // detail given — name; company and designation; email and phone; this task's note — kept on one page.
   const contactLines = (c: ExternalContactFields): Array<TextOptions & { text: string }> => {
     const role = [c.company, c.designation].filter((v): v is string => Boolean(v)).map(isolate).join(' · ');
     const reach = [c.email ? `Email ${c.email}` : null, c.phone ? `Phone ${c.phone}` : null].filter(Boolean).join(' · ');
@@ -414,8 +420,8 @@ export function taskPdf(t: TaskExportData, ctx: TaskExportContext): Buffer {
     ];
   };
   const contactHeight = (c: ExternalContactFields) => contactLines(c).reduce((h, { text, ...l }) => h + doc.textHeight(text, l), 0) + 6;
-  doc.heading('External contacts', { keepWith: t.externalContacts.length ? contactHeight(t.externalContacts[0]!) : 0 });
-  if (t.externalContacts.length === 0) none('No external contacts.');
+  doc.heading('Guests', { keepWith: t.externalContacts.length ? contactHeight(t.externalContacts[0]!) : 0 });
+  if (t.externalContacts.length === 0) none('No guests.');
   for (const c of t.externalContacts) {
     doc.keepTogether(contactHeight(c));
     const lines = contactLines(c);
@@ -544,6 +550,8 @@ export function createPrismaTaskExportSource(prisma: PrismaClient, timeZone: str
           checklistLists: { where: { deletedAt: null } },
           checklist: { where: { deletedAt: null } },
           externalContacts: { orderBy: { position: 'asc' }, select: { name: true, company: true, designation: true, email: true, phone: true, remarks: true } },
+          // 1.24: its categories.
+          categories: { select: { category: { select: { name: true, position: true } } } },
           // Linked tasks that are deleted, or in a deleted project, are left out.
           dependencies: { where: { dependsOn: live }, include: { dependsOn: { select: link } } },
           dependedOnBy: { where: { task: live }, include: { task: { select: link } } },
@@ -593,6 +601,7 @@ export function createPrismaTaskExportSource(prisma: PrismaClient, timeZone: str
         isMilestone: t.isMilestone,
         meeting: t.meeting && !t.meeting.deletedAt ? { id: t.meeting.id, title: t.meeting.title, startAt: t.meeting.startAt } : null,
         externalContacts: t.externalContacts,
+        categories: t.categories.map((c) => c.category).sort((a, b) => a.position - b.position || a.name.localeCompare(b.name, 'en')).map((c) => c.name),
         checklist: exportChecklist(t.checklistLists as ListRow[], t.checklist as ItemRow[]),
         blockedBy: t.dependencies.map((d) => linked(d.dependsOn)),
         blocks: t.dependedOnBy.map((d) => linked(d.task)),

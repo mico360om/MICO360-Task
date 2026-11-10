@@ -194,3 +194,20 @@ describe('the built-in reader: safety', () => {
     expect(readQuery('before 2026-13-45', ctx).chips).toEqual([]);
   });
 });
+
+describe('1.24 category:… reads as a Category chip', () => {
+  it('category:Electrical and category:"Civil works" — tasks of that category, the rest left as words', () => {
+    const r = readQuery('category:Electrical pump', ctx);
+    expect(r.chips.map((c) => [c.key, c.label])).toEqual([['category', 'Category: Electrical']]);
+    expect(r.filters.categories).toEqual(['Electrical']);
+    expect(r.words).toBe('pump');
+    const two = readQuery('overdue category:"Civil works" categories:HSE', ctx);
+    expect(two.chips.map((c) => c.label)).toEqual(['Overdue', 'Category: Civil works or HSE']);
+    expect(two.filters).toMatchObject({ due: 'overdue', categories: ['Civil works', 'HSE'] });
+    expect(two.words).toBe('');
+  });
+  it('taken off ("Show 2 hidden filters") it stays words; a plain "category" word is a word', () => {
+    expect(readQuery('category:Electrical', ctx, { off: ['category'] })).toMatchObject({ chips: [], words: 'category:Electrical' });
+    expect(readQuery('category review', ctx)).toMatchObject({ chips: [], words: 'category review' });
+  });
+});

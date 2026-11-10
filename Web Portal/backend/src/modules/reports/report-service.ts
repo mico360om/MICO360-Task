@@ -23,6 +23,9 @@ export interface ReportTask {
   approvalRequestedAt?: Date | null;
   /** 1.23.1: the numbers of the tasks merged into it (merged tasks themselves are never rows). */
   mergedFrom?: string[];
+  /** 1.24: its guests ("Ahmed (OXY)") and its categories' names, in order (the task list exports). */
+  guests?: string[];
+  categories?: string[];
   /** 1.23.5: the weight it counts with (its own, else its project's default for its priority)… */
   weight?: number;
   /** …and whether its project counts completion by weight. */
@@ -53,6 +56,9 @@ export interface TaskListRow {
   overdue: boolean;
   /** 1.23.1: "Merged from: MICO-14, MICO-15" — the tasks merged into it. */
   mergedFrom?: string[];
+  /** 1.24: its guests and categories. */
+  guests?: string[];
+  categories?: string[];
 }
 
 /** The on-screen report filters; every report and export applies the same ones. */
@@ -241,6 +247,8 @@ export function createReportService({ data, timeZone = defaultCompanyTimeZone(),
         done,
         overdue: isOverdueOpen(t, timeZone, at),
         mergedFrom: t.mergedFrom ?? [],
+        guests: t.guests ?? [],
+        categories: t.categories ?? [],
       };
     });
     return rows.sort(

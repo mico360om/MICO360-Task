@@ -375,7 +375,8 @@ describe('Kanban Board: month view review fixes', () => {
   it('“No date (N)” counts what it would add: the company filter applies to it', async () => {
     renderPage('/board?project=p1&month=2026-11');
     expect(await screen.findByRole('button', { name: 'No date (2)' })).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Filter by external company' }));
+    // tgc: 1.24 — "External company" is "Guest company" now (these rows are an older server's: contacts in short).
+    await userEvent.click(screen.getByRole('button', { name: 'Filter by guest company' }));
     await userEvent.click(await screen.findByRole('option', { name: 'OXY' }));
     expect(await screen.findByRole('button', { name: 'No date (1)' })).toBeInTheDocument();
   });

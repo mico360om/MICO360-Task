@@ -219,10 +219,15 @@ export function createPrismaMicoAiData({ prisma, projectAccess, meetingAccess, c
         prisma.taskDependency.findMany({ where: { dependsOnTaskId: taskId }, select: { task: { select: linkSelect } } }),
       ]);
       const meeting = task?.meetingId ? await prisma.meeting.findFirst({ where: { id: task.meetingId, deletedAt: null }, select: { id: true, title: true, startAt: true } }) : null;
+      const categories = (await prisma.taskCategory.findMany({ where: { taskId }, select: { category: { select: { name: true, position: true } } } }))
+        .map((c) => c.category)
+        .sort((a, b) => a.position - b.position || a.name.localeCompare(b.name, 'en'))
+        .map((c) => c.name);
       return {
         description: task?.description ?? null,
         checklist,
         externalContacts,
+        categories,
         comments,
         activity: activity.map((a): AiActivityRec => ({ id: a.id, taskId: a.taskId, projectId: a.projectId, userId: a.userId, action: a.action, meta: a.meta, createdAt: a.createdAt, task: a.task })),
         blockedBy: blockedBy.map((d) => d.dependsOn).filter((t) => !t.deletedAt).map(link),

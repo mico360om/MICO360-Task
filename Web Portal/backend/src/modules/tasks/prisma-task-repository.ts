@@ -17,6 +17,8 @@ import { paletteColorFor } from './tag-repository';
 import { highestKeyNumberIn } from './task-keys';
 import { summarizeExternalContacts } from './external-contacts';
 import { toExternalContactRecord } from './prisma-external-contact-repository';
+import { companyOfProject, findOrCreateGuest, guestColumns, guestIdsOnProject, seesWholeList, toTaskGuestRecord } from '../guests/guest-store';
+import { GUEST_LIMITS } from './guest-contacts';
 import { LIVE_PROJECT_WHERE } from '../companies/company-access';
 import { currentAcceptance } from '../clients/sign-off';
 import { checklistTreeOf, leafCounts } from './checklist-tree';
@@ -37,7 +39,9 @@ type EnrichedTask = Omit<Task, 'carryForwardLog' | 'mergedIntoId' | 'mergedAt' |
   checklist?: { id: string; parentId: string | null; done: boolean }[];
   _count?: { comments: number; attachments: number };
   /** Its external contacts, in order: names and companies on list rows, every field for a single task. */
-  externalContacts?: { name: string; company: string | null }[];
+  externalContacts?: { id?: string; name: string; company: string | null; guestId?: string | null }[];
+  /** 1.24: its categories. */
+  categories?: { category: { id: string; name: string; color: string; retiredAt: Date | null; position: number } }[];
 };
 const displayName = (u: AssigneeRelation['user']): string => [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username;
 
@@ -95,7 +99,14 @@ function toRecord(t: EnrichedTask): TaskRecord {
           },
         }
       : {}),
-    ...(t.externalContacts ? { externalSummary: summarizeExternalContacts(t.externalContacts) } : {}),
+    ...(t.externalContacts
+      ? {
+          externalSummary: summarizeExternalContacts(t.externalContacts),
+          // 1.24: its guests in short (cards, filters): a row not converted yet stands for itself.
+          guests: t.externalContacts.map((c) => ({ id: c.guestId ?? c.id ?? '', name: c.name, company: c.company })),
+        }
+      : {}),
+    ...(t.categories ? { categories: categoriesOf(t.categories) } : {}),
   };
 }
 
@@ -103,6 +114,14 @@ function toRecord(t: EnrichedTask): TaskRecord {
 function binData(mark: BinMark | undefined): Prisma.TaskUncheckedUpdateManyInput {
   if (!mark) return { deletedAt: new Date() };
   return { deletedAt: mark.at, deletedById: mark.by, binExpiresAt: mark.expiresAt, deleteBatchId: mark.batchId };
+}
+
+/** 1.24: a task's categories as rows show them, in their project's order. */
+function categoriesOf(rows: NonNullable<EnrichedTask['categories']>): { id: string; name: string; color: string; retired: boolean }[] {
+  return rows
+    .map((r) => r.category)
+    .sort((a, b) => a.position - b.position || a.name.localeCompare(b.name))
+    .map((c) => ({ id: c.id, name: c.name, color: c.color, retired: c.retiredAt !== null }));
 }
 
 /** Live tasks only: not deleted, and not in a deleted project. */
@@ -186,16 +205,57 @@ const listScalars = {
   clientShowDescription: true, clientAcceptedAt: true, clientAcceptedById: true,
 } as const;
 
+/**
+ * 1.24: a new task's guests — guests picked on the website (already checked: its company's, not retired), and
+ * contacts sent the old way (the Android app, the extension), each linked to the company's guest with those
+ * details by the duplicate rule (or a new guest). One row per guest: the same guest twice keeps one, with both
+ * remarks.
+ */
+async function writeGuests(
+  tx: Prisma.TransactionClient,
+  taskId: string,
+  projectId: string,
+  createdById: string,
+  contacts: NonNullable<CreateTaskData['externalContacts']>,
+  picked: NonNullable<CreateTaskData['guestLinks']>,
+): Promise<void> {
+  const companyId = await companyOfProject(tx, projectId);
+  const taskKey = (await tx.task.findUnique({ where: { id: taskId }, select: { key: true } }))?.key;
+  // 1.24: another company's person on a shared project is matched only among the guests on its tasks.
+  const onlyAmong = contacts.length && !(await seesWholeList(tx, { id: createdById }, companyId)) ? await guestIdsOnProject(tx, projectId) : null;
+  type Guest = { name: string; company: string | null; designation: string | null; email: string | null; phone: string | null };
+  const byGuest = new Map<string, { guest: Guest; remarks: string[] }>();
+  for (const p of picked) {
+    const guest = await tx.guestContact.findUniqueOrThrow({ where: { id: p.guestId } });
+    const seen = byGuest.get(guest.id) ?? { guest, remarks: [] };
+    if (p.note) seen.remarks.push(p.note);
+    byGuest.set(guest.id, seen);
+  }
+  for (const c of contacts) {
+    const guest = await findOrCreateGuest(tx, companyId, { name: c.name, company: c.company, designation: c.designation, email: c.email, phone: c.phone }, createdById, { taskKey, onlyAmong });
+    const seen = byGuest.get(guest.id) ?? { guest, remarks: [] };
+    if (c.remarks) seen.remarks.push(c.remarks);
+    byGuest.set(guest.id, seen);
+  }
+  let position = 0;
+  for (const [guestId, { guest, remarks }] of byGuest) {
+    const note = remarks.join('\n').slice(0, GUEST_LIMITS.note) || null;
+    await tx.taskExternalContact.create({ data: { taskId, guestId, position: position++, createdById, remarks: note, ...guestColumns(guest) } });
+  }
+}
+
 export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository {
   // Always join the column's category (Kanban stage) and the task's tags so every
   // task payload carries them (used for status classification, tag filtering + display).
   const withColumn = {
     column: { select: { category: true, enabled: true } },
     tags: { include: { tag: true } },
-    // Its external contacts in short (the card line, search and the company filter).
-    externalContacts: { select: { name: true, company: true }, orderBy: { position: 'asc' } },
+    // Its external contacts in short (the card line, search and the company filter) — 1.24: its guests.
+    externalContacts: { select: { id: true, name: true, company: true, guestId: true }, orderBy: { position: 'asc' } },
+    // 1.24: its categories.
+    categories: { select: { category: { select: { id: true, name: true, color: true, retiredAt: true, position: true } } } },
   } as const;
-  const contactsInFull = { orderBy: { position: 'asc' } } as const;
+  const contactsInFull = { orderBy: { position: 'asc' }, include: { guest: { select: { retiredAt: true } } } } as const;
   return {
     async create(data: CreateTaskData) {
       const tagNames = data.tagNames ?? [];
@@ -203,6 +263,8 @@ export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository
       // 1.23.3: its checklists (the tree the New task form and templates send; an old flat list is one "Checklist").
       const tree = data.checklists ?? checklistTreeOf(data.checklist ?? []);
       const externalContacts = data.externalContacts ?? [];
+      const guestLinks = data.guestLinks ?? [];
+      const categoryIds = [...new Set(data.categoryIds ?? [])];
       // A key a task had before it moved project still finds that task: never give it to another one.
       if (await isOldKey(prisma, data.key)) throw new TaskKeyConflictError(data.key);
       try {
@@ -245,19 +307,20 @@ export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository
                 }
               : {}),
             ...(assigneeIds.length ? { assignees: { create: assigneeIds.map((userId) => ({ userId })) } } : {}),
-            ...(externalContacts.length
-              ? { externalContacts: { create: externalContacts.map((c, position) => ({ ...c, position, createdById: data.createdById })) } }
-              : {}),
           },
         });
-        if (tree.length === 0) return toRecord(await write(prisma));
-        // With its checklists, one transaction: all of it lands or none of it does.
+        if (tree.length === 0 && externalContacts.length === 0 && guestLinks.length === 0 && categoryIds.length === 0) return toRecord(await write(prisma));
+        // With its checklists, guests or categories, one transaction: all of it lands or none of it does.
         const t = await prisma.$transaction(async (tx) => {
           const made = await write(tx);
-          const rows = rowsFromTree(made.id, tree, data.createdById, new Date());
-          await tx.checklistList.createMany({ data: rows.lists });
-          if (rows.items.length) await tx.checklistItem.createMany({ data: rows.items });
-          return made;
+          if (tree.length) {
+            const rows = rowsFromTree(made.id, tree, data.createdById, new Date());
+            await tx.checklistList.createMany({ data: rows.lists });
+            if (rows.items.length) await tx.checklistItem.createMany({ data: rows.items });
+          }
+          if (externalContacts.length || guestLinks.length) await writeGuests(tx, made.id, data.projectId, data.createdById, externalContacts, guestLinks);
+          if (categoryIds.length) await tx.taskCategory.createMany({ data: categoryIds.map((categoryId) => ({ taskId: made.id, categoryId, addedById: data.createdById })), skipDuplicates: true });
+          return externalContacts.length || guestLinks.length || categoryIds.length ? tx.task.findUniqueOrThrow({ where: { id: made.id }, include: withColumn }) : made;
         });
         return toRecord(t);
       } catch (err) {
@@ -281,6 +344,8 @@ export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository
         recurrenceNextId: next?.id ?? null,
         formerKeys: (t.keyAliases ?? []).map((a) => a.key),
         externalContacts: (t.externalContacts ?? []).map(toExternalContactRecord),
+        // 1.24: its guests in full (the task panel's Assigned box).
+        taskGuests: (t.externalContacts ?? []).map(toTaskGuestRecord),
       };
     },
     async list(filter) {

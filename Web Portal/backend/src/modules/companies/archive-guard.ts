@@ -56,7 +56,9 @@ export type ArchiveTarget =
   /** 1.23: `:id` is a meeting series (its project's). */
   | 'series'
   /** 1.23: "New series…": `body.meetingId`, the meeting it is made with. */
-  | 'seriesMeeting';
+  | 'seriesMeeting'
+  /** 1.24: `:categoryId`, one of a project's task categories. */
+  | 'category';
 
 /** Write routes an archived project refuses. Keys as in route-classes.ts. */
 export const ARCHIVE_REFUSED: Readonly<Record<string, ArchiveTarget>> = {
@@ -130,6 +132,14 @@ export const ARCHIVE_REFUSED: Readonly<Record<string, ArchiveTarget>> = {
   'POST /meeting-series/:id/merge': 'series',
   // 1.23: Make Teams link writes the meeting's online link.
   'POST /meetings/:id/teams-link': 'meeting',
+  // 1.24: a task's guests and categories, and the project's category list (like its board's columns).
+  'POST /tasks/:id/guests': 'task',
+  'PATCH /tasks/:id/guests/:guestId': 'task',
+  'PUT /tasks/:id/categories': 'task',
+  'POST /projects/:id/categories': 'project',
+  'PUT /projects/:id/categories/order': 'project',
+  'PUT /projects/:id/category-settings': 'project',
+  'PUT /project-categories/:categoryId': 'category',
 };
 
 /** Write routes (one project's, task's or meeting's) an archived project does not refuse, and why. */
@@ -212,6 +222,11 @@ export const ARCHIVE_ALLOWED: Readonly<Record<string, string>> = {
   // project first" — recycle-bin/bin-service); deleting forever is deleting, as today.
   'POST /recycle-bin/restore': 'restore refuses archived projects itself, for each task (recycle-bin/bin-service)',
   'POST /recycle-bin/erase': 'deleting, as today',
+  // 1.24 Guests: the list is the company's, not the project's (a guest made there is for every project).
+  'POST /projects/:projectId/guests': 'a guest on the company’s list, not a change to this project',
+  'POST /projects/:projectId/guests/check': 'a read: the duplicate check',
+  'DELETE /tasks/:id/guests/:guestId': 'deleting, as today',
+  'DELETE /project-categories/:categoryId': 'deleting, as today',
 };
 
 /** What a refused write is about: a project, and the meeting when it is one (its people may see it without the project). */
@@ -225,7 +240,7 @@ export interface ArchiveSubject {
 /** At most this many tasks are looked at in one bulk move (the route itself takes at most 500). */
 export const MAX_GUARDED_TASKS = 1000;
 
-export type ArchiveKind = 'task' | 'comment' | 'checklistItem' | 'checklistList' | 'externalContact' | 'column' | 'meeting' | 'actionItem' | 'series';
+export type ArchiveKind = 'task' | 'comment' | 'checklistItem' | 'checklistList' | 'externalContact' | 'column' | 'meeting' | 'actionItem' | 'series' | 'category';
 
 /** The facts the guard reads (Prisma: createPrismaArchiveLookup). */
 export interface ArchiveLookup {
@@ -287,6 +302,8 @@ export function createArchiveGuard(deps: ArchiveGuardDeps) {
         return of('series', p.id);
       case 'seriesMeeting':
         return of('meeting', b.meetingId);
+      case 'category':
+        return of('category', p.categoryId);
       case 'taskToProject':
         return [...(await of('task', p.id)), ...project(b.projectId)];
       case 'tasksToProject': {
@@ -373,6 +390,10 @@ export function createPrismaArchiveLookup(prisma: PrismaClient): ArchiveLookup {
         case 'series': {
           const s = await prisma.meetingSeries.findUnique({ where: { id }, select: { projectId: true } });
           return s ? { projectId: s.projectId } : null;
+        }
+        case 'category': {
+          const c = await prisma.projectCategory.findUnique({ where: { id }, select: { projectId: true } });
+          return c ? { projectId: c.projectId } : null;
         }
         case 'actionItem': {
           const a = await prisma.actionItem.findUnique({ where: { id }, select: { projectId: true, meetingId: true, assigneeId: true, createdById: true, meeting: { select: { projectId: true } } } });

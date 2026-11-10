@@ -101,6 +101,8 @@ export interface StartingContent {
   boardDate: Date;
   /** The template's name, noted on each task's "created" line in its history. */
   templateName: string;
+  /** 1.24: the template's task categories, in order. */
+  categories?: { name: string; color: string }[];
 }
 
 /** A person put on a new project's team. */

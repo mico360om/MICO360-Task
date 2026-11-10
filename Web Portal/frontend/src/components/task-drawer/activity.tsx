@@ -1,6 +1,7 @@
 import { dateTimeText } from '../../lib/day-words';
 import { useMemo, useState } from 'react';
-import { buildTimeline, type FeedEntry, type TimelineKind } from '../../lib/activity-feed';
+import { type FeedEntry, type TimelineKind } from '../../lib/activity-feed';
+import { buildTaskTimeline } from '../../lib/task-history-extra';
 import { relativeTime } from './comments';
 
 export type DrawerActivity = FeedEntry;
@@ -45,7 +46,8 @@ export function ActivityTimeline({
   restorable?: ReadonlySet<string>;
   onRestore?: (batchId: string) => Promise<void> | void;
 }) {
-  const items = useMemo(() => buildTimeline(activity), [activity]);
+  // 1.24: the shared timeline plus the guest ("assigned guest Ahmed (OXY)") and category lines.
+  const items = useMemo(() => buildTaskTimeline(activity), [activity]);
   const [shown, setShown] = useState(FIRST);
   const [restoring, setRestoring] = useState<string | null>(null);
   const [problem, setProblem] = useState<{ batchId: string; text: string } | null>(null);

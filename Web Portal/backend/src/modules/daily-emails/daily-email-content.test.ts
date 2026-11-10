@@ -525,3 +525,12 @@ describe('one company: the email pinned byte for byte (checked by eye when it ch
     await expect(e.text).toMatchFileSnapshot('__snapshots__/daily-email.text.snap');
   });
 });
+
+describe('1.24 guests and categories on a task’s card', () => {
+  it('“with guest Ahmed (OXY)” and its categories, in the email and its plain text — never the guests’ addresses', () => {
+    const e = build({ tasks: [task('RIG-1', { guests: [{ name: 'Ahmed', company: 'OXY' }, { name: 'Sara', company: null }], categories: ['Civil', 'HSE'] })] });
+    expect(e.text).toContain('with guests Ahmed (OXY) and Sara');
+    expect(e.text).toContain('Categories: Civil, HSE');
+    expect(e.html).toContain('with guests Ahmed (OXY) and Sara');
+  });
+});

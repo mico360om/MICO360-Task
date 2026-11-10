@@ -6,7 +6,7 @@ import type { DailyRecipient } from './daily-email-service';
 import { liveProjectWhere } from '../companies/project-archive';
 import { hasActiveCompany, sharedCompanyWhere } from '../companies/company-access';
 import { managedProjectsWhere } from '../projects/project-managers';
-import { buildTimeline } from '../activity/activity-feed';
+import { buildTaskTimeline as buildTimeline } from '../activity/task-history-extra';
 import { STAFF_ONLY_WHERE } from '../clients/client-kind';
 
 const personSelect = {
@@ -56,6 +56,9 @@ const taskSelect = {
   comments: { where: { deletedAt: null }, orderBy: { createdAt: 'desc' }, take: 1, select: { body: true, createdAt: true, user: { select: nameSelect } } },
   activities: { where: { action: { notIn: NOT_AN_UPDATE } }, orderBy: { createdAt: 'desc' }, take: 1, select: { id: true, action: true, meta: true, createdAt: true, user: { select: nameSelect } } },
   dependencies: { select: { dependsOn: { select: { completedAt: true, deletedAt: true, column: { select: { category: true } } } } } },
+  // 1.24: its guests (name and company only) and categories.
+  externalContacts: { select: { name: true, company: true }, orderBy: { position: 'asc' } },
+  categories: { select: { category: { select: { name: true, position: true } } } },
   project: {
     select: {
       id: true,
@@ -117,6 +120,8 @@ const toTask = (t: TaskRow): DailyTask => ({
   latest: latestOf(t),
   // Blocked: a task it depends on isn't done yet.
   blocked: t.dependencies.some((d) => !d.dependsOn.deletedAt && !d.dependsOn.completedAt && d.dependsOn.column.category !== 'DONE'),
+  guests: t.externalContacts.map((g) => ({ name: g.name, company: g.company })),
+  categories: t.categories.map((c) => c.category).sort((a, b) => a.position - b.position || a.name.localeCompare(b.name, 'en')).map((c) => c.name),
 });
 
 /** At most this many meetings in one person's day. */

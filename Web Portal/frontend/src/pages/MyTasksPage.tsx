@@ -17,8 +17,11 @@ import { FirstStepsActions, FirstStepsIcon, useNoProjectsYet } from '../componen
 import { Avatar } from '../components/ui/Avatar';
 import { PriorityBadge } from '../components/ui/PriorityBadge';
 import { SearchableSelect } from '../components/ui/SearchableSelect';
-import { ExternalContactsLine } from '../components/ExternalContactsLine';
-import { EXTERNAL_CONTACT_WORDS, externalCompanyOptions, hasExternalCompany } from '../lib/external-contacts';
+import { GuestsLine } from '../components/GuestsLine';
+import { CategoryChips } from '../components/CategoryChip';
+import { RowCategoryChips } from '../components/RowCategoryChips';
+import { GuestCategoryFilterBoxes, type GuestCategoryFilterState } from '../components/GuestCategoryFilters';
+import { EMPTY_GUEST_CATEGORY_FILTERS, guestCategoryFiltersActive, matchesGuestCategory } from '../lib/guest-category-filter';
 import { NewTaskButton } from '../components/NewTaskButton';
 import { statusMeta, STATUS_ORDER } from '../lib/taskStatus';
 import { runBulk, type BulkAction, type BulkDeps } from '../lib/bulkActions';
@@ -53,7 +56,7 @@ import { useMediaQuery } from '../lib/useMediaQuery';
 import { TaskTable } from '../components/data-table/TaskTable';
 import { useTableMemory } from '../components/data-table/hooks';
 import { sortRows, type SortValue } from '../lib/data-table';
-import { myTasksSort, myTasksSortLabel, myTasksSortValue } from '../lib/task-table';
+import { firstGuestLabel, myTasksSort, myTasksSortLabel, myTasksSortValue } from '../lib/task-table';
 import { StatusPill as SchemeStatusPill } from '../components/ui/StatusPill';
 import { OVERDUE_CLASS, STATUS_CLASS, dueTone } from '../lib/colour-classes';
 import { useDensity } from '../lib/density';
@@ -123,8 +126,8 @@ export function MyTasksPage() {
   const [priority, setPriority] = useState('');
   const [assignee, setAssignee] = useState('');
   const [due, setDue] = useState('');
-  // External company: only tasks with a contact from it (not part of saved views).
-  const [company, setCompany] = useState('');
+  // 1.24 Guest, Guest company and Category (in place of "External company"; like it, not part of saved views).
+  const [picked, setPicked] = useState<GuestCategoryFilterState>(EMPTY_GUEST_CATEGORY_FILTERS);
   const [sort, setSort] = useState<Sort>('due');
   const [view, setView] = useState<View>(() => {
     const saved = readUserValue(useAuthStore.getState().user?.id, 'mytasks.view') as View | null;
@@ -187,11 +190,8 @@ export function MyTasksPage() {
     { value: 'NORMAL', label: 'Normal' },
     { value: 'LOW', label: 'Low' },
   ];
-  const companyOptions = useMemo(() => {
-    const found = externalCompanyOptions(tasks);
-    const choices = company && !found.includes(company) ? [company, ...found] : found;
-    return [{ value: '', label: `${EXTERNAL_CONTACT_WORDS.filter}: ${EXTERNAL_CONTACT_WORDS.anyCompany}` }, ...choices.map((c) => ({ value: c, label: c }))];
-  }, [tasks, company]);
+  // The Category filter's choices are each project's own: named by project.
+  const projectNameOf = useMemo(() => (id: string) => projectById.get(id)?.name, [projectById]);
   const assigneeOptions = useMemo(() => {
     const m = new Map<string, string>();
     for (const t of tasks) for (const a of t.assignees ?? []) m.set(a.id, a.name);
@@ -210,10 +210,10 @@ export function MyTasksPage() {
       if (due === 'today' && !e.dueToday) return false;
       if (due === 'week' && !(e.dueKey && e.dueKey >= tK && e.dueKey <= wK)) return false;
       if (due === 'none' && e.task.dueDate) return false;
-      if (company && !hasExternalCompany(e.task.externalSummary, company)) return false;
+      if (!matchesGuestCategory(e.task, picked)) return false;
       return true;
     });
-  }, [enriched, project, status, priority, assignee, due, company, timeZone]);
+  }, [enriched, project, status, priority, assignee, due, picked, timeZone]);
 
   // The Sort menu's choice — or a table header's (the same sort): due date with undated last, priority
   // most urgent first, progress most done first, title A–Z, and each the other way round.
@@ -229,6 +229,9 @@ export function MyTasksPage() {
         case 'project': return e.projectName ?? '';
         case 'assignee': return e.task.assignees?.[0]?.name ?? '';
         case 'start': return dueDayKey(e.task.startDate, timeZone);
+        // 1.24: the first guest and the first category (the table's headers).
+        case 'guests': return firstGuestLabel(e.task);
+        case 'categories': return e.task.categories?.[0]?.name ?? '';
         default: return null;
       }
     };
@@ -244,8 +247,8 @@ export function MyTasksPage() {
     return { total: enriched.length, open, overdue, done };
   }, [enriched]);
 
-  const filtersActive = !!(project || status || priority || assignee || due || company);
-  const clearFilters = () => { setProject(''); setStatus(''); setPriority(''); setAssignee(''); setDue(''); setCompany(''); };
+  const filtersActive = !!(project || status || priority || assignee || due) || guestCategoryFiltersActive(picked) > 0;
+  const clearFilters = () => { setProject(''); setStatus(''); setPriority(''); setAssignee(''); setDue(''); setPicked(EMPTY_GUEST_CATEGORY_FILTERS); };
 
   // Saved views: snapshot the filter state and apply a preset back onto it — 1.23.0: with the table's
   // columns (a view saved before keeps the columns as they are).
@@ -334,7 +337,7 @@ export function MyTasksPage() {
     : undefined;
 
   // The toolbar's parts: laid out in a row (tablet and up), or behind "Filters" on a phone.
-  const activeFilters = [project, status, priority, assignee, due, company].filter(Boolean).length;
+  const activeFilters = [project, status, priority, assignee, due].filter(Boolean).length + guestCategoryFiltersActive(picked);
   const filterBoxes = (box: string) => (
     <>
       <div className={box}><SearchableSelect ariaLabel="Filter by project" value={project} onChange={setProject} options={projectOptions} /></div>
@@ -342,9 +345,8 @@ export function MyTasksPage() {
       <div className={box}><SearchableSelect ariaLabel="Filter by priority" value={priority} onChange={setPriority} options={priorityOptions} /></div>
       <div className={box}><SearchableSelect ariaLabel="Filter by assignee" value={assignee} onChange={setAssignee} options={assigneeOptions} /></div>
       <div className={box}><SearchableSelect ariaLabel="Filter by due date" value={due} onChange={setDue} options={DUE_OPTIONS} /></div>
-      {companyOptions.length > 1 ? (
-        <div className={box}><SearchableSelect ariaLabel={`Filter by ${EXTERNAL_CONTACT_WORDS.filter.toLowerCase()}`} value={company} onChange={setCompany} options={companyOptions} /></div>
-      ) : null}
+      {/* 1.24: each only when the tasks give it a choice; categories named by project (they are each project's own). */}
+      <GuestCategoryFilterBoxes rows={tasks} value={picked} onChange={setPicked} projectName={projectNameOf} box={box} />
     </>
   );
   const clearButton = filtersActive ? (
@@ -660,7 +662,8 @@ function SelectBox({ taskKey, checked, onChange }: { taskKey: string; checked: b
 function MyTaskCard({ e, onOpen, selected, onToggleSelect }: { e: Enriched; onOpen: () => void; selected?: boolean; onToggleSelect?: () => void }) {
   const t = e.task;
   // Detailed (1.23.8, lib/density): the whole title, the description's first line, tags and everyone on it.
-  const detailed = useDensity() === 'detailed';
+  const density = useDensity();
+  const detailed = density === 'detailed';
   return (
     // The title button opens the task; its ::after covers the card, so a click anywhere works, while
     // the select checkbox sits above it as a separate control (never one control inside another).
@@ -696,7 +699,9 @@ function MyTaskCard({ e, onOpen, selected, onToggleSelect }: { e: Enriched; onOp
         {t.title}
       </button>
       {detailed ? <DescriptionLine description={t.description} className="-mt-1" /> : null}
-      <ExternalContactsLine summary={t.externalSummary} />
+      {/* 1.24: its categories (Compact 1, Comfortable 2, Detailed all) and its guests. */}
+      <CategoryChips categories={t.categories} density={density} />
+      <GuestsLine guests={t.guests} summary={t.externalSummary} />
       {detailed ? <TagChips tags={t.tags} /> : null}
 
       <div className="mt-auto flex flex-col gap-2 pt-1 compact:gap-1.5 compact:pt-0">
@@ -722,7 +727,8 @@ function MyTaskRow({ e, onOpen, selected, onToggleSelect }: { e: Enriched; onOpe
   const t = e.task;
   const m = statusMeta(e.cat);
   // Detailed (1.23.8): the title wraps, and the description's first line, tags and everyone on it go under it.
-  const detailed = useDensity() === 'detailed';
+  const density = useDensity();
+  const detailed = density === 'detailed';
   return (
     <div
       data-task-key={t.key}
@@ -756,8 +762,10 @@ function MyTaskRow({ e, onOpen, selected, onToggleSelect }: { e: Enriched; onOpe
             <InspectionChip />
           </span>
         ) : null}
+        {/* 1.24: its categories beside the title (the title gives way; Detailed: all, wrapping). */}
+        <RowCategoryChips categories={t.categories} density={density} />
         {detailed ? <DescriptionLine description={t.description} className="basis-full" /> : null}
-        <ExternalContactsLine summary={t.externalSummary} className="basis-full" />
+        <GuestsLine guests={t.guests} summary={t.externalSummary} className="basis-full" />
         {detailed ? <TagChips tags={t.tags} className="mt-1 basis-full" /> : null}
         {detailed && (t.assignees?.length ?? 0) > 0 ? <PeopleLine people={t.assignees} className="mt-1 basis-full" /> : null}
         {detailed ? <ChecklistCount counts={t.counts} className="mt-1" /> : null}

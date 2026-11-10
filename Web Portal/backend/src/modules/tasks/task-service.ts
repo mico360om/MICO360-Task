@@ -67,6 +67,10 @@ export interface NewTask {
   checklists?: ChecklistTree;
   /** External contacts (already checked), in order, written in the same write as the task. */
   externalContacts?: ExternalContactFields[];
+  /** 1.24: guests picked from the company's list (already checked), written in the same write as the task. */
+  guestLinks?: { guestId: string; note: string | null }[];
+  /** 1.24: its categories (already checked: the project's, not retired), written in the same write. */
+  categoryIds?: string[];
   /** Needs approval before it counts as done; left out, the project's "New tasks need approval" decides. */
   needsApproval?: boolean;
 }

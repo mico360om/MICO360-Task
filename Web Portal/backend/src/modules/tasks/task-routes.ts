@@ -21,6 +21,8 @@ import { DELETE_NOT_ALLOWED, DELETE_NOT_ALLOWED_CODE, DELETE_SERIES_NOT_ALLOWED,
 import { NO_PICK, type PickOf } from '../companies/company-pick';
 import { isMonthKey } from './board-month';
 import { inMonth, monthWindow } from './month-list';
+import { NeedsTeamMemberError, type GuestService } from '../guests/guest-service';
+import type { CategoryService } from '../categories/category-service';
 
 const priorityEnum = z.enum(['LOW', 'NORMAL', 'HIGH', 'URGENT']);
 
@@ -44,6 +46,12 @@ const listQuerySchema = z.object({
   overdue: queryBoolean.optional(),
   /** Only tasks with an external contact from this company (case and extra spaces aside). */
   externalCompany: z.string().max(120).optional(),
+  /** 1.24: only tasks with one of these guests (ids, comma-separated). */
+  guestId: z.string().max(2000).optional(),
+  /** 1.24: only tasks with a guest from this company. */
+  guestCompany: z.string().max(120).optional(),
+  /** 1.24: only tasks with one of these task categories (ids, comma-separated). `category` is a column stage. */
+  categoryId: z.string().max(2000).optional(),
   boardDate: calendarDay.optional(),
   /** Month view (YYYY-MM): only the tasks that show in that month (board-month.ts); meta says how many have no dates. */
   month: z.string().refine(isMonthKey, { message: 'Expected a month (YYYY-MM).' }).optional(),
@@ -108,6 +116,10 @@ const createSchema = z.object({
   checklists: checklistTreeSchema.optional(),
   /** Its external contacts, in order, written with the task (checked by the shared rules; at most 20). */
   externalContacts: z.array(externalContactSchema).max(100).optional(),
+  /** 1.24: guests picked from the company's list, with the task's note for each (the website's New task form). */
+  guests: z.array(z.object({ guestId: idString, note: z.string().max(5000).nullable().optional() })).max(100).optional(),
+  /** 1.24: its categories. Present (even []) they are checked — a project that asks for one refuses none; absent (the app) nothing is set. */
+  categoryIds: z.array(idString).max(100).optional(),
   /** The inspection form it is carried out with (a scheduled check, or a one-off task with a form). */
   inspectionFormId: idString.nullable().optional(),
   /** Where the check is done ("Rig 3"): trimmed, blank means none. */
@@ -209,6 +221,10 @@ export interface TaskRouteDeps {
   seriesSize?: (seriesId: string) => Promise<number>;
   /** Recycle Bin: a deleted task opened — 'TASK_DELETED' for its project's people, null for anyone else. */
   binNotice?: (viewer: { id: string; roles: string[] }, taskId: string) => Promise<'TASK_DELETED' | null>;
+  /** 1.24: a new task's guests (and the person who looks after them). */
+  guestService?: GuestService;
+  /** 1.24: a new task's categories (the project's rule). */
+  categoryService?: CategoryService;
 }
 
 /** Recycle Bin: what opening a deleted task answers its project's people (the app and extension read any 404 as gone). */
@@ -257,6 +273,9 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
       dueAfter: params.dueAfter,
       overdue: params.overdue,
       externalCompany: params.externalCompany,
+      guestIds: csv(params.guestId),
+      guestCompany: params.guestCompany,
+      categoryIds: csv(params.categoryId),
       sort: params.sort,
       order: params.order,
       timeZone: taskService.timeZone,
@@ -407,7 +426,7 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
   });
 
   app.post('/tasks', { preHandler: guard.authenticate }, async (req, reply) => {
-    const { tags, assigneeIds, boardDate, externalContacts: contactDrafts, ...body } = createSchema.parse(req.body);
+    const { tags, assigneeIds, boardDate, externalContacts: contactDrafts, guests: guestPicks, categoryIds, ...body } = createSchema.parse(req.body);
     // Object-level authorization: a non-admin may only create tasks in projects they belong to.
     const allowed = await scopeOf(req);
     if (allowed && !allowed.includes(body.projectId)) return reply.status(403).send(forbidden);
@@ -417,6 +436,9 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
     // only a request without `assigneeIds` falls back to the project owner.
     const tagNames = tags && tags.length > 0 ? normalizeTagNames(tags) : [];
     const externalContacts = checkNewTaskContacts(contactDrafts);
+    // 1.24: guests from the project's company list; categories by the project's rule (sent = checked).
+    const guestLinks = guestPicks?.length && deps.guestService ? await deps.guestService.checkNewTaskGuests(body.projectId, guestPicks) : [];
+    const categories = categoryIds !== undefined && deps.categoryService ? await deps.categoryService.checkForTask(body.projectId, categoryIds) : [];
     let assignees: string[] = [];
     if (assigneeIds !== undefined) {
       assignees = deps.assigneeService ? await deps.assigneeService.assertAssignable(body.projectId, assigneeIds) : [...new Set(assigneeIds)];
@@ -425,19 +447,30 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
       if (ownerId) assignees = await deps.assigneeService.eligibleAssignees(body.projectId, [ownerId]);
     }
 
-    // The task, its tags, its assignees and its external contacts are created in one write.
-    const created = await taskService.createTask({
+    // 1.24: a task with guests needs a person from the team — the website's form says so first.
+    if (guestLinks.length > 0 && assignees.length === 0) throw new NeedsTeamMemberError();
+
+    // The task, its tags, its assignees, its guests and its categories are created in one write.
+    let created = await taskService.createTask({
       ...body,
       ...(boardDate ? { boardDate: boardDateFromKey(boardDate) } : {}),
       createdById: req.user!.id,
       tagNames,
       assigneeIds: assignees,
       ...(externalContacts.length ? { externalContacts } : {}),
+      ...(guestLinks.length ? { guestLinks } : {}),
+      ...(categories.length ? { categoryIds: categories } : {}),
     });
     let appliedAssignees;
     if (deps.assigneeService && assignees.length > 0) {
       await deps.assigneeService.notifyAssigned(created.id, assignees, req.user!.id);
       appliedAssignees = await deps.assigneeService.listAssignees(created.id);
+    } else if (externalContacts.length > 0 && deps.guestService) {
+      // The old way in (the app, the extension) with contacts and nobody assigned: the person responsible.
+      if (await deps.guestService.ensureResponsible(created.id, req.user!.id)) {
+        created = await taskService.getTask(created.id);
+        if (deps.assigneeService) appliedAssignees = await deps.assigneeService.listAssignees(created.id);
+      }
     }
     deps.broadcast?.(created.projectId, 'task:created', created);
     const data = {

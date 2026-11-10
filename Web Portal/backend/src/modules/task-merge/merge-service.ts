@@ -35,6 +35,8 @@ import {
 } from './merge-rules';
 import { TEXT_MAX } from '../tasks/checklist-tree';
 import { displayName, joinableOf, loadCounts, loadMergeTasks, teamOf, type Db, type MergeCounts, type MergeTask } from './merge-facts';
+import { alignTaskGuests, companyOfProject, findOrCreateGuest, guestColumns } from '../guests/guest-store';
+import { categoryPlanFor, setTaskCategories, taskCategoryNames } from '../categories/category-store';
 
 /** 1.23.3: a merged task's checklist on the main task: "From MICO-14 · Electrical" (fits the title's 191 characters). */
 export function mergedListTitle(key: string, title: string): string {
@@ -292,7 +294,7 @@ interface RowsAround {
   /** 1.23.3: the tasks' checklists (deleted ones too: they move with their items, still restorable). */
   lists: { id: string; taskId: string; title: string; position: number; deletedAt: Date | null }[];
   files: { id: string; taskId: string; filename: string; sizeBytes: number; storageKey: string }[];
-  contacts: ({ id: string; taskId: string; position: number } & ContactValues)[];
+  contacts: ({ id: string; taskId: string; position: number; guestId?: string | null } & ContactValues)[];
   assignees: { taskId: string; userId: string; name: string }[];
   watchers: { taskId: string; userId: string }[];
   tags: { taskId: string; tagId: string }[];
@@ -308,7 +310,7 @@ async function rowsAround(db: Db, ids: string[]): Promise<RowsAround> {
     db.attachment.findMany({ where: { taskId: { in: ids } }, select: { id: true, taskId: true, filename: true, sizeBytes: true, storageKey: true }, orderBy: { createdAt: 'asc' } }),
     db.taskExternalContact.findMany({
       where: { taskId: { in: ids } },
-      select: { id: true, taskId: true, position: true, name: true, company: true, designation: true, email: true, phone: true, remarks: true },
+      select: { id: true, taskId: true, position: true, guestId: true, name: true, company: true, designation: true, email: true, phone: true, remarks: true },
       orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
     }),
     db.taskAssignee.findMany({ where: { taskId: { in: ids } }, select: { taskId: true, userId: true, user: { select: { username: true, firstName: true, lastName: true } } }, orderBy: { assignedAt: 'asc' } }),
@@ -410,13 +412,15 @@ async function planRows(
   }
 
   // External contacts: the same email or phone is one person — the kept copy gets the missing fields.
+  // 1.24: rows linked to guests are the same person only when they are the same guest (its details are the
+  // guest's, so only the task's note can be filled in).
   const keptContacts: (RowsAround['contacts'][number] & { filled: Partial<ContactValues> })[] = ofTask(rows.contacts, main.id).map((c) => ({ ...c, filled: {} }));
   let nextContact = Math.max(-1, ...ofTask(rows.contacts, main.id).map((c) => c.position)) + 1;
   for (const t of others) {
     const mine = ofTask(rows.contacts, t.id);
     const keptBefore = keptContacts.slice();
     for (const c of mine) {
-      const match = keptBefore.find((k) => sameContact(k, c));
+      const match = keptBefore.find((k) => (k.guestId && c.guestId ? k.guestId === c.guestId : sameContact(k, c)));
       if (!match) {
         plan.contacts.push({ id: c.id, fromTaskId: t.id, position: c.position, newPosition: nextContact++ });
         keptContacts.push({ ...c, filled: {} });
@@ -425,6 +429,7 @@ async function planRows(
       plan.contactDupes.push({ id: c.id, fromTaskId: t.id });
       const values = { ...match, ...match.filled };
       const fill = contactFill(values, c);
+      if (match.guestId && c.guestId) for (const f of Object.keys(fill) as (keyof typeof fill)[]) if (f !== 'remarks') delete fill[f];
       if (Object.keys(fill).length > 0) {
         Object.assign(match.filled, fill);
         plan.fills.push({ contactId: match.id, fromTaskId: t.id, fill });
@@ -965,9 +970,21 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
     }
     for (const c of plan.checklist) item('checklist', c.id, c.fromTaskId, { position: c.position });
     if (plan.checklist.length) await tx.checklistItem.updateMany({ where: { id: { in: plan.checklist.map((c) => c.id) } }, data: { taskId: main.id } });
+    // 1.24: a guest of another company's list is the main task's company's guest with the same details (copied
+    // there when there is none): one the main task has already stays on its merged task (Undo gives it back),
+    // as the same guest does.
+    const mainCompany = await companyOfProject(tx, projectId);
+    const guestsOnMain = new Set((await tx.taskExternalContact.findMany({ where: { taskId: main.id }, select: { guestId: true } })).map((x) => x.guestId).filter((x): x is string => !!x));
     for (const c of plan.contacts) {
-      item('contact', c.id, c.fromTaskId, { position: c.position });
-      await tx.taskExternalContact.update({ where: { id: c.id }, data: { taskId: main.id, position: c.newPosition } });
+      const row = await tx.taskExternalContact.findUnique({ where: { id: c.id }, include: { guest: true } });
+      const guest = row?.guest && row.guest.companyId !== mainCompany ? await findOrCreateGuest(tx, mainCompany, guestColumns(row.guest), actor.id, { taskKey: main.key }) : row?.guest ?? null;
+      if (guest && guestsOnMain.has(guest.id)) {
+        item('keepContact', c.id, c.fromTaskId);
+        continue;
+      }
+      if (guest) guestsOnMain.add(guest.id);
+      item('contact', c.id, c.fromTaskId, { position: c.position, ...(guest && row?.guestId !== guest.id ? { guestId: row?.guestId } : {}) });
+      await tx.taskExternalContact.update({ where: { id: c.id }, data: { taskId: main.id, position: c.newPosition, ...(guest && row?.guestId !== guest.id ? { guestId: guest.id, ...guestColumns(guest) } : {}) } });
     }
     for (const f of plan.fills) {
       item('contactFill', f.contactId, f.fromTaskId, { fill: f.fill });
@@ -985,6 +1002,27 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
       item('tag', t.tagId, t.fromTaskId);
       await tx.taskTag.update({ where: { taskId_tagId: { taskId: t.fromTaskId, tagId: t.tagId } }, data: { taskId: main.id } });
     }
+    // 1.24 Categories: the union, in the main task's project — another project's by name (the rest left
+    // off). The merged tasks keep their own; Undo takes off what was added and gives back what was dropped.
+    {
+      const before = await taskCategoryNames(tx, main.id);
+      const own = await categoryPlanFor(tx, before, projectId);
+      const final = [...own.keep];
+      const from = new Map<string, string>(own.keep.map((id) => [id, main.id]));
+      for (const t of others) {
+        for (const id of (await categoryPlanFor(tx, await taskCategoryNames(tx, t.id), projectId)).keep) {
+          if (from.has(id)) continue;
+          from.set(id, t.id);
+          final.push(id);
+        }
+      }
+      const had = new Set(before.map((c) => c.id));
+      for (const id of final) if (!had.has(id)) item('category', id, from.get(id)!);
+      for (const c of before) if (!final.includes(c.id)) item('categoryDropped', c.id, main.id);
+      await setTaskCategories(tx, main.id, final, actor.id);
+    }
+    // 1.24 Guests: the rows that came from another company's task are linked to the main task's company list.
+    await alignTaskGuests(tx, [main.id], actor.id);
     for (const m of plan.links.move) {
       item('dependency', m.edge.id, m.fromTaskId, { side: m.side });
       await tx.taskDependency.update({ where: { id: m.edge.id }, data: m.side === 'blocked' ? { taskId: main.id } : { dependsOnTaskId: main.id } });
@@ -1404,8 +1442,11 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
       if (Object.keys(clear).length) await tx.taskExternalContact.update({ where: { id: i.rowId }, data: clear as Prisma.TaskExternalContactUncheckedUpdateInput });
     }
     for (const i of of('contact')) {
-      const position = (i.data as { position?: number } | null)?.position ?? 0;
-      await tx.taskExternalContact.updateMany({ where: { id: i.rowId, taskId: main.id }, data: { taskId: i.fromTaskId, position } });
+      const was = (i.data as { position?: number; guestId?: string | null } | null) ?? {};
+      const position = was.position ?? 0;
+      // 1.24: a row the merge linked to the main task's company's guest goes back to its own guest (while it is there).
+      const own = was.guestId ? await tx.guestContact.findFirst({ where: { id: was.guestId, mergedIntoId: null } }) : null;
+      await tx.taskExternalContact.updateMany({ where: { id: i.rowId, taskId: main.id }, data: { taskId: i.fromTaskId, position, ...(own ? { guestId: own.id, ...guestColumns(own) } : {}) } });
     }
     for (const i of of('dependency')) {
       const side = (i.data as { side?: string } | null)?.side;
@@ -1438,6 +1479,11 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
     await links('assignee');
     await links('watcher');
     await links('tag');
+    // 1.24 Categories: the ones the merge added to the main task go; the ones it dropped come back.
+    for (const i of of('category')) await tx.taskCategory.deleteMany({ where: { taskId: main.id, categoryId: i.rowId } });
+    for (const i of of('categoryDropped')) {
+      if (await tx.projectCategory.findUnique({ where: { id: i.rowId }, select: { id: true } })) await tx.taskCategory.createMany({ data: [{ taskId: main.id, categoryId: i.rowId }], skipDuplicates: true });
+    }
     // Numbers: the merged tasks' own numbers are theirs again (and the old ones they had).
     await backTo('alias', (from, rowIds) => tx.taskKeyAlias.updateMany({ where: { id: { in: rowIds } }, data: { taskId: from } }));
     if (ids('aliasNew').length) await tx.taskKeyAlias.deleteMany({ where: { id: { in: ids('aliasNew') } } });
@@ -1462,6 +1508,8 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
     }
     const statusChange: StatusChange | null = typeof patch.columnId === 'string' && patch.columnId !== main.columnId ? { prevColumnId: main.columnId, approval: null, requestedById: null } : null;
 
+    // 1.24 Guests: rows given back to a task of another company are linked to its company's list.
+    await alignTaskGuests(tx, [main.id, ...tasks.map((t) => t.id)], actor.id);
     await tx.taskMerge.update({ where: { id: mergeId }, data: { undoneAt: at, undoneById: actor.id } });
     const keys = tasks.map((t) => t.key);
     let tick = 0;
