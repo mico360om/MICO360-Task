@@ -166,6 +166,7 @@ model User {
   approvalsGiven     Task[]         @relation("TaskApprover")
   /// External contacts this person added to tasks (the contact belongs to its task).
   externalContacts TaskExternalContact[] @relation("ExternalContactCreator")
+  guestsCreated    GuestContact[]        @relation("GuestCreator")
   assignments      TaskAssignee[]
   watching         TaskWatcher[]
   comments         Comment[]
@@ -262,6 +263,8 @@ model Company {
   mainOf    Project[]        @relation("ProjectMainCompany")
   primaryOf User[]           @relation("UserPrimaryCompany")
   meetings  Meeting[]
+  /// 1.24: the company's reusable guest list (people outside the company named on tasks).
+  guests    GuestContact[]
 
   @@index([status])
   @@map("companies")
@@ -326,6 +329,8 @@ model Project {
   weightHigh   Int @default(3)
   weightNormal Int @default(2)
   weightLow    Int @default(1)
+  /// 1.24: "Every task needs a category" — new saves (and edits of a task's categories) must keep one.
+  requireCategory Boolean @default(false)
   createdById String
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
@@ -351,6 +356,8 @@ model Project {
   clientNotices  ClientNotice[]
   /// 1.23.6: saved searches shared with this project's team.
   savedSearches  SavedSearch[]
+  /// 1.24: its own task categories (name + colour), in order.
+  categories     ProjectCategory[]
 
   @@index([status])
   @@index([managerId])
@@ -470,8 +477,11 @@ model Task {
   checklist    ChecklistItem[]
   /// 1.23.3: its checklists (each item is in one).
   checklistLists ChecklistList[]
-  /// People outside the company responsible for this task (kept apart from its assignees).
+  /// People outside the company responsible for this task (kept apart from its assignees). 1.24: each row
+  /// is the task's link to a guest of its project's company (guestId), with a copy of the guest's details.
   externalContacts TaskExternalContact[]
+  /// 1.24: its categories (from its project's list).
+  categories   TaskCategory[]
   attachments  Attachment[]
   dependencies TaskDependency[] @relation("DependentTask")
   dependedOnBy TaskDependency[] @relation("BlockingTask")
@@ -863,10 +873,85 @@ model TaskExternalContact {
   updatedAt   DateTime @updatedAt
   task        Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
   createdBy   User?    @relation("ExternalContactCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  /// 1.24: the guest (of the task's project's company) this row links the task to; null until a row made
+  /// before 1.24 (or by an older server) is converted. name…phone are kept equal to the guest's.
+  guestId     String?
+  guest       GuestContact? @relation(fields: [guestId], references: [id], onDelete: SetNull)
 
   @@index([taskId, position])
   @@index([createdById])
+  @@index([guestId])
   @@map("task_external_contacts")
+}
+
+/// 1.24 Guests: a company's reusable list of people outside it, named on tasks for the record only. A guest
+/// never signs in, has no account, takes no licence and gets no email or notice; clients never see one.
+model GuestContact {
+  id           String    @id @default(cuid())
+  companyId    String
+  name         String    @db.VarChar(120)
+  company      String?   @db.VarChar(120)
+  designation  String?   @db.VarChar(120)
+  email        String?   @db.VarChar(191)
+  phone        String?   @db.VarChar(40)
+  /// Admins' notes, and details the conversion found on other copies of the same person.
+  notes        String?   @db.VarChar(2000)
+  /// The name as compared (guest-contacts.ts guestTextKey), for the duplicate check.
+  nameKey      String    @db.VarChar(191)
+  createdById  String?
+  /// Retired: hidden from picking, kept on the tasks that have it.
+  retiredAt    DateTime?
+  /// Merged into another guest by an admin (every task link moved there); hidden.
+  mergedIntoId String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  owner     Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy User?                 @relation("GuestCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  links     TaskExternalContact[]
+
+  @@index([companyId, nameKey])
+  @@index([companyId, retiredAt])
+  @@index([createdById])
+  @@map("guest_contacts")
+}
+
+/// 1.24 Task categories: a project's own labels for its tasks (name + one of 12 colours), in order.
+model ProjectCategory {
+  id          String    @id @default(cuid())
+  projectId   String
+  name        String    @db.VarChar(40)
+  /// The name as compared (task-categories.ts categoryNameKey): one per project.
+  nameKey     String    @db.VarChar(160)
+  color       String    @db.VarChar(20)
+  position    Int       @default(0)
+  /// Retired: hidden from picking, kept on tasks and in filters.
+  retiredAt   DateTime?
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  project Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tasks   TaskCategory[]
+
+  @@unique([projectId, nameKey])
+  @@index([projectId, position])
+  @@map("project_categories")
+}
+
+/// 1.24: a task's categories.
+model TaskCategory {
+  taskId     String
+  categoryId String
+  addedById  String?
+  addedAt    DateTime @default(now())
+
+  task     Task            @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  category ProjectCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, categoryId])
+  @@index([categoryId])
+  @@map("task_categories")
 }
 
 model TaskDependency {
@@ -1993,6 +2078,8 @@ model ProjectTemplate {
   description String?               @db.Text
   /// Its board, in order: [{ name, category, color }].
   columns     Json
+  /// 1.24: its task categories, in order: [{ name, color }] (a project made from it starts with them).
+  categories  Json?
   /// Who made it: they can change and delete it (administrators can change any). Kept when they're gone.
   createdById String?
   updatedById String?

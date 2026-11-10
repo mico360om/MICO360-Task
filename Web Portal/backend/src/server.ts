@@ -76,6 +76,9 @@ import { createPrismaChecklistStore, checklistPercentOf } from './modules/tasks/
 import { createPrismaChecklistQueries } from './modules/tasks/prisma-checklist-queries';
 import { createExternalContactService } from './modules/tasks/external-contact-service';
 import { createPrismaExternalContactRepository } from './modules/tasks/prisma-external-contact-repository';
+import { createGuestService, type GuestService } from './modules/guests/guest-service';
+import { runGuestConversion } from './modules/guests/guest-conversion';
+import { createCategoryService } from './modules/categories/category-service';
 import { createCommentService } from './modules/tasks/comment-service';
 import { createPrismaCommentRepository } from './modules/tasks/prisma-comment-repository';
 import { createMessageService } from './modules/chat/message-service';
@@ -502,7 +505,11 @@ async function main(): Promise<void> {
     taskLookup: createPrismaTaskLookup(prisma),
     onAssigned: (taskId, userIds, actorId) => onTaskAssigned(taskId, userIds, actorId),
     onUnassigned: (taskId, userId, actorId) => onTaskUnassigned(taskId, userId, actorId),
+    // 1.24: a task with guests keeps at least one team member (late-bound: the guest service is made below).
+    beforeUnassign: async (taskId, userIds) => guestServiceRef?.assertTeamStays(taskId, userIds),
   });
+  // 1.24 Guests: made once the task history is (below); the services above reach it through this.
+  let guestServiceRef: GuestService | null = null;
 
   const watcherRepo = createPrismaWatcherRepository(prisma);
   const watcherService = createWatcherService({ repo: watcherRepo, taskLookup: createPrismaTaskLookup(prisma) });
@@ -574,6 +581,8 @@ async function main(): Promise<void> {
     repo: createPrismaExternalContactRepository(prisma),
     taskLookup: createPrismaTaskLookup(prisma),
     onChanged: (taskId) => taskSearchIndex.taskChanged(taskId),
+    // 1.24: contacts are guests; a task left with guests and no team member gets the person responsible.
+    ensureResponsible: async (taskId, actorId) => guestServiceRef?.ensureResponsible(taskId, actorId),
   });
 
   // Late-bound so a comment @mention can notify the mentioned users once notifications exist (below).
@@ -982,6 +991,12 @@ async function main(): Promise<void> {
     }
     await activityService.record({ taskId, projectId: task?.projectId ?? null, userId, action, meta: details });
   };
+
+  // 1.24 Guests on tasks (each company's reusable list; record only — never a user, never emailed) and task
+  // categories (each project's own list). Both change the task's words, so search re-reads the task.
+  const guestService = createGuestService({ prisma, recordActivity: recordTaskActivity, onTaskChanged: (taskId) => taskSearchIndex.taskChanged(taskId) });
+  guestServiceRef = guestService;
+  const categoryService = createCategoryService({ prisma, recordActivity: recordTaskActivity, onTaskChanged: (taskId) => taskSearchIndex.taskChanged(taskId) });
 
   /** Which task a notification is about ("MICO-12 · Title"), so the rows in the bell can be told apart. */
   const taskNotice = async (taskId: string): Promise<string | null> =>
@@ -2235,6 +2250,8 @@ async function main(): Promise<void> {
     checklistDue: (opts) => checklistQueries.due(opts),
     namesOfUsers,
     externalContactService,
+    guestService,
+    categoryService,
     commentService,
     attachmentService,
     chatAttachmentStorage: attachmentStorage,
@@ -2538,6 +2555,16 @@ async function main(): Promise<void> {
       if (gone.groups || gone.events) logger.info('Error log: old entries removed', { ...gone });
     }).catch(sweepFailed('error-log-retention', 'error log clean-up'));
   jobs.every(24 * 60 * 60 * 1000, runErrorLogRetention);
+
+  // 1.24 Guests: today's external contacts (and any an older server added after a rollback) become guests of
+  // their task's company list — once the database answers, then every minute (nothing to do on most runs).
+  const runGuestConversionJob = () =>
+    runExclusive(jobLock, 'guest-conversion', SWEEP_LEASE_MS, () => new Date(), async () => {
+      const done = await runGuestConversion(prisma, (taskId, actorId, opts) => guestService.ensureResponsible(taskId, actorId, opts));
+      if (done.rows) logger.info('Guests: external contacts linked to guests', { rows: done.rows, guestsMade: done.guestsMade, responsible: done.responsible });
+      for (const taskId of done.tasks) await taskSearchIndex.taskChanged(taskId);
+    }).catch(sweepFailed('guest-conversion', 'guests from external contacts'));
+  jobs.every(60 * 1000, runGuestConversionJob);
 
   // 1.23.3 nested checklists: a deleted checklist or item can be restored for 30 days; once a day (and at
   // start-up), on one instance, what was deleted before that goes for good.

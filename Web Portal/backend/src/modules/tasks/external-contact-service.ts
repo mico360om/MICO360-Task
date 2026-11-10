@@ -37,9 +37,14 @@ export interface ExternalContactServiceDeps {
   taskLookup: TaskLookup;
   /** After a change to the words of a task (the task search index re-reads it). */
   onChanged?: (taskId: string) => void | Promise<void>;
+  /**
+   * 1.24: a contact is a guest, and a task with guests needs a team member — this old way in (the Android app,
+   * the extension) is accepted and the person responsible is added (guest-service's ensureResponsible).
+   */
+  ensureResponsible?: (taskId: string, actorId: string) => Promise<unknown>;
 }
 
-export function createExternalContactService({ repo, taskLookup, onChanged }: ExternalContactServiceDeps) {
+export function createExternalContactService({ repo, taskLookup, onChanged, ensureResponsible }: ExternalContactServiceDeps) {
   async function ensureTask(taskId: string): Promise<void> {
     if (!(await taskLookup.exists(taskId))) throw new NotFoundError('Task not found.');
   }
@@ -62,6 +67,7 @@ export function createExternalContactService({ repo, taskLookup, onChanged }: Ex
     await ensureTask(taskId);
     const added = await repo.add(taskId, fields, userId, MAX_EXTERNAL_CONTACTS);
     if (!added) throw new ConflictError(TOO_MANY, 'TOO_MANY_EXTERNAL_CONTACTS');
+    await ensureResponsible?.(taskId, userId);
     await onChanged?.(taskId);
     return added;
   }
