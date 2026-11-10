@@ -579,11 +579,11 @@ export function CommentsSection({
   const empty = visible.length === 0 && sending.pending.length === 0;
   return (
     <section ref={sectionRef} aria-labelledby="task-comments-heading">
-      <h3 id="task-comments-heading" className="eyebrow mb-2">
+      <h3 id="task-comments-heading" className="eyebrow">
         Comments{count > 0 ? <span className="ms-1.5 font-normal normal-case tracking-normal text-ink-3">{count}</span> : null}
       </h3>
       {/* The write box stays in view at the top while the comments under it scroll. */}
-      <div ref={formRef} data-comments-box={onAdd ? true : undefined} className="sticky top-0 z-10 -mx-1 bg-surface px-1 pb-3">
+      <div ref={formRef} data-comments-box={onAdd ? true : undefined} className="sticky top-0 z-10 -mx-1 bg-surface px-1 pb-3 pt-2">
         {onAdd ? (
           <form
             className="flex flex-col gap-2"

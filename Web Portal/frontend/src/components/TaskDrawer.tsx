@@ -639,7 +639,10 @@ export function TaskDrawer({
         ) : null}
       </div>
 
-      <div className="keyboard-flow-body flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6 sm:py-5">
+      <div className="keyboard-flow-body flex-1 overflow-y-auto overscroll-contain px-4 pb-4 sm:px-6 sm:pb-5">
+        {/* The top space is a spacer, not padding: the comments' write box sticks flush under the header
+            (a scroller's top padding would leave a strip where the comments show through above it). */}
+        <div aria-hidden="true" className="h-4 sm:h-5" />
         {mergeNotice ? (
           <p role="status" className="mb-4 rounded-lg bg-info-soft px-3 py-2 text-sm text-info">
             {mergeNotice}
