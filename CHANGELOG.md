@@ -15,6 +15,21 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 ## [Unreleased]
 
 ### New features
+- Search on the Kanban board: a search box at the top of the board (one project, All projects and a
+  project's Board tab) shows only the matching cards as you type — by task number (MICO-12, mico 12 or
+  just 12), title, description, person, project or tag, Arabic in any spelling. The words found are
+  marked on each card, each column says how many of its cards match ("3 of 12"), and ✕ or Escape clears
+  it ("/" jumps to it). It works with the company filter, Day and Month and the Table view, cards can
+  still be dragged to another column, and the words stay in the page's link. When nothing matches,
+  "Search all tasks" opens the full search with the same words.
+- Project details on the Kanban board: with one project chosen, a slim line above the columns shows its
+  picture, name and number, client, project manager, dates with the days left (or late), health, progress,
+  open and overdue tasks, and "Open project". Fold it away with its arrow (remembered); on a phone it shows
+  the short version with "Details".
+
+## [1.23.9] - 2026-11-10
+
+### New features
 - One colour scheme everywhere — boards, lists, tables, the calendar, the Timeline, the Dashboard, the
   Client portal, the PDFs and the daily email: statuses are Backlog grey, To do slate, In progress blue,
   Blocked red, Review purple and Done green; priorities are Urgent red, High orange, Normal blue-grey and
@@ -34,17 +49,6 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   on your account.
 - Words that are cut short — a task, project, person or file name — show in full when you point at them,
   tab to them, or press and hold on a touch screen.
-- Search on the Kanban board: a search box at the top of the board (one project, All projects and a
-  project's Board tab) shows only the matching cards as you type — by task number (MICO-12, mico 12 or
-  just 12), title, description, person, project or tag, Arabic in any spelling. The words found are
-  marked on each card, each column says how many of its cards match ("3 of 12"), and ✕ or Escape clears
-  it ("/" jumps to it). It works with the company filter, Day and Month and the Table view, cards can
-  still be dragged to another column, and the words stay in the page's link. When nothing matches,
-  "Search all tasks" opens the full search with the same words.
-- Project details on the Kanban board: with one project chosen, a slim line above the columns shows its
-  picture, name and number, client, project manager, dates with the days left (or late), health, progress,
-  open and overdue tasks, and "Open project". Fold it away with its arrow (remembered); on a phone it shows
-  the short version with "Details".
 
 ### Improvements
 - The Timeline fills the window: its chart grows to the window's height and scrolls by itself, with the
@@ -53,8 +57,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   room there is, the last of a row stretches, cards in a row end level, and its lists show more rows on a
   tall screen.
 - One spacing for cards and page headers on every page, the Client portal included; Day | Month on the
-  board keeps its words on a phone; the Client portal's bell count and the Dashboard's welcome band are
-  easier to read in dark mode.
+  board keeps its words on a phone; the Client portal's bell count, the Dashboard's welcome band and the
+  brand-coloured buttons when you point at them (Comment, Send) are easier to read in dark mode.
 
 ## [1.23.8] - 2026-11-10
 
