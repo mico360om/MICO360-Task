@@ -77,6 +77,7 @@ import { createPrismaChecklistQueries } from './modules/tasks/prisma-checklist-q
 import { createExternalContactService } from './modules/tasks/external-contact-service';
 import { createPrismaExternalContactRepository } from './modules/tasks/prisma-external-contact-repository';
 import { createCommentService } from './modules/tasks/comment-service';
+import { createCommentNotifier } from './modules/tasks/comment-notifier';
 import { createPrismaCommentRepository } from './modules/tasks/prisma-comment-repository';
 import { createMessageService } from './modules/chat/message-service';
 import {
@@ -579,7 +580,7 @@ async function main(): Promise<void> {
   // Late-bound so a comment @mention can notify the mentioned users once notifications exist (below).
   let onCommentMention: (taskId: string, authorId: string, usernames: string[], body?: string) => Promise<void> = async () => {};
   // Late-bound so any comment notifies the task's assignees once notifications exist (below).
-  let onComment: (taskId: string, authorId: string, commentId: string) => Promise<void> = async () => {};
+  let onComment: (taskId: string, authorId: string, commentId: string, info?: import('./modules/tasks/comment-service').CommentNoticeInfo) => Promise<void> = async () => {};
   // 1.23: a reply marked "Visible to client" emails the client whose comment it answers (late-bound: email is made below).
   let onClientReply: (reply: import('./modules/tasks/comment-repository').CommentRecord) => Promise<void> = async () => {};
   // 1.23.7: client accounts' notices — the portal bell and their emails (late-bound: email is made below).
@@ -589,7 +590,7 @@ async function main(): Promise<void> {
     repo: createPrismaCommentRepository(prisma),
     taskLookup: createPrismaTaskLookup(prisma),
     onMention: (taskId, authorId, usernames, body) => onCommentMention(taskId, authorId, usernames, body),
-    onComment: (taskId, authorId, commentId) => onComment(taskId, authorId, commentId),
+    onComment: (taskId, authorId, commentId, info) => onComment(taskId, authorId, commentId, info),
     onChanged: (taskId) => taskSearchIndex.taskChanged(taskId),
     onClientReply: (reply) => onClientReply(reply),
   });
@@ -1220,20 +1221,19 @@ async function main(): Promise<void> {
     logger,
   });
 
-  // Any comment notifies the task's assignees + watchers (except the comment's author).
-  onComment = async (taskId, authorId) => {
-    const about = await taskNotice(taskId);
-    for (const userId of await taskRecipientIds(taskId, authorId)) {
-      await notificationService.notify({
-        userId,
-        type: 'TASK_COMMENT',
-        title: 'New comment on your task',
-        body: about,
-        entityType: 'task',
-        entityId: taskId,
-      });
-    }
-  };
+  // Any comment notifies the task's assignees + watchers (except the comment's author); owner, 10 Nov 2026: a reply
+  // tells the person whose comment it answers ("Sara Ali replied to your comment"), once (comment-notifier.ts).
+  onComment = createCommentNotifier({
+    recipients: (taskId, authorId) => taskRecipientIds(taskId, authorId),
+    visibleRecipients: (taskId, userIds, authorId) => visibleTaskRecipients(taskId, userIds, authorId),
+    userIdsByUsername: async (usernames) => (await prisma.user.findMany({ where: { username: { in: usernames } }, select: { id: true } })).map((u) => u.id),
+    taskNotice,
+    authorName: async (authorId) => {
+      const u = await prisma.user.findUnique({ where: { id: authorId }, select: { firstName: true, lastName: true, username: true } });
+      return u ? `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim() || u.username : 'A teammate';
+    },
+    notify: (n) => notificationService.notify(n),
+  });
 
   // A task moved to another project: the people following it (assignees and watchers who can still
   // open it) hear where it went — never the person who moved it.
@@ -2094,6 +2094,8 @@ async function main(): Promise<void> {
       const [watchers, runners] = await Promise.all([watcherRepo.listWatcherIds(taskId), projectRunnerIds(prisma, [t.projectId])]);
       return visibleTaskRecipients(taskId, [...t.assignees.map((a) => a.userId), ...watchers, ...(runners.get(t.projectId) ?? [])], actorId);
     },
+    // Owner, 10 Nov 2026: the team member a client's reply answers hears it while they can open the task.
+    visibleTeam: (taskId, userIds, actorId) => visibleTaskRecipients(taskId, userIds, actorId),
     notify: async (n) => {
       for (const userId of n.userIds) await notificationService.notify({ userId, type: n.type, title: n.title, body: n.body, entityType: 'task', entityId: n.taskId });
     },

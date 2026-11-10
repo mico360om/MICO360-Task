@@ -14,12 +14,22 @@ export interface CommentServiceDeps {
    * lists who can open the task, only those users are ever passed here.
    */
   onMention?: (taskId: string, authorId: string, usernames: string[], body?: string) => void | Promise<void>;
-  /** Fired on every new comment (used to notify the task's assignees, excluding the author). */
-  onComment?: (taskId: string, authorId: string, commentId: string) => void | Promise<void>;
+  /**
+   * Fired on every new comment (used to notify the task's assignees, excluding the author). `info`: for a reply, the
+   * team member whose comment it answers (never the writer, never a client — clients have their own notices), and the
+   * usernames @mentioned in it (so nobody is told twice).
+   */
+  onComment?: (taskId: string, authorId: string, commentId: string, info: CommentNoticeInfo) => void | Promise<void>;
   /** After a change to the words of a task (the task search index re-reads it). */
   onChanged?: (taskId: string) => void | Promise<void>;
   /** 1.23: a team reply marked "Visible to client" was added to a client's comment (their email). */
   onClientReply?: (reply: CommentRecord) => void | Promise<void>;
+}
+
+/** Who a new comment answers and mentions (owner, 10 Nov 2026: the person replied to gets a notice). */
+export interface CommentNoticeInfo {
+  repliedToUserId: string | null;
+  mentioned: string[];
 }
 
 /** 1.23: why a comment can't be shown to the client. */
@@ -37,16 +47,22 @@ export function createCommentService({ repo, taskLookup, onMention, onComment, o
 
   async function addComment(taskId: string, userId: string, body: string, parentId?: string | null, opts: { clientVisible?: boolean } = {}): Promise<CommentRecord> {
     await ensureTask(taskId);
-    let parent: CommentRecord | null = null;
+    // A reply's comment must exist (not deleted) and belong to the same task. Owner, 10 Nov 2026: any comment may be
+    // answered, one level deep — a reply to a reply goes in the same thread (under its comment, even one deleted
+    // since: the thread stays readable).
+    let answered: CommentRecord | null = null;
+    let threadId: string | null = null;
+    let root: CommentRecord | null = null;
     if (parentId) {
-      // A reply's parent must exist and belong to the same task.
-      parent = await repo.findById(parentId);
-      if (!parent || parent.taskId !== taskId) throw new NotFoundError('Parent comment not found.');
+      answered = await repo.findById(parentId);
+      if (!answered || answered.taskId !== taskId) throw new NotFoundError('Parent comment not found.');
+      threadId = answered.parentId ?? answered.id;
+      root = answered.parentId ? await repo.findById(answered.parentId) : answered;
     }
-    // 1.23: "Visible to client" only on a reply to a client's comment (the client sees it under theirs).
+    // 1.23: "Visible to client" only in a client's thread (the client sees it under their comment).
     const clientVisible = opts.clientVisible === true;
-    if (clientVisible && !parent?.fromClient) throw new ValidationError(NOT_A_CLIENT_REPLY, { field: 'clientVisible' });
-    const comment = await repo.create(taskId, userId, body, parentId ?? null, clientVisible ? { clientVisible: true } : undefined);
+    if (clientVisible && !root?.fromClient) throw new ValidationError(NOT_A_CLIENT_REPLY, { field: 'clientVisible' });
+    const comment = await repo.create(taskId, userId, body, threadId, clientVisible ? { clientVisible: true } : undefined);
     await onChanged?.(taskId);
     // Match mentions against the real usernames of people who can open this task, so a partial
     // name, an email address or an outsider never gets notified.
@@ -57,7 +73,8 @@ export function createCommentService({ repo, taskLookup, onMention, onComment, o
         : parseMentions(body);
     }
     if (mentions.length > 0) await onMention?.(taskId, userId, mentions, body);
-    await onComment?.(taskId, userId, comment.id);
+    const repliedToUserId = answered && !answered.fromClient && answered.userId !== userId ? answered.userId : null;
+    await onComment?.(taskId, userId, comment.id, { repliedToUserId, mentioned: mentions });
     if (clientVisible) await onClientReply?.(comment);
     return comment;
   }

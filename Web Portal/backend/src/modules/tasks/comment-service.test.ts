@@ -204,3 +204,80 @@ describe('CommentService — Visible to client', () => {
     expect(replies).toEqual([reply.id]);
   });
 });
+
+// Comments, newest first (owner addition, 10 Nov 2026): replies on every comment, one level deep.
+describe('CommentService — replies on every comment', () => {
+  it('a reply to a team comment is allowed', async () => {
+    const svc = createCommentService(inMemory(['t1']));
+    const root = await svc.addComment('t1', 'u1', 'Root');
+    const reply = await svc.addComment('t1', 'u2', 'Answer', root.id);
+    expect(reply.parentId).toBe(root.id);
+  });
+
+  it('a reply to a reply is filed in the same thread (one level deep)', async () => {
+    const svc = createCommentService(inMemory(['t1']));
+    const root = await svc.addComment('t1', 'u1', 'Root');
+    const first = await svc.addComment('t1', 'u2', 'First answer', root.id);
+    const second = await svc.addComment('t1', 'u3', '@b thanks', first.id);
+    expect(second.parentId).toBe(root.id);
+  });
+
+  it('a reply to a reply whose comment was deleted stays in that thread', async () => {
+    const mem = inMemory(['t1']);
+    const svc = createCommentService(mem);
+    const root = await svc.addComment('t1', 'u1', 'Root');
+    const first = await svc.addComment('t1', 'u2', 'First answer', root.id);
+    await mem.repo.delete(root.id);
+    const second = await svc.addComment('t1', 'u3', 'Still here', first.id);
+    expect(second.parentId).toBe(root.id);
+  });
+
+  it('a reply to a deleted (or another task’s) comment is refused', async () => {
+    const mem = inMemory(['t1', 't2']);
+    const svc = createCommentService(mem);
+    const other = await svc.addComment('t2', 'u1', 'Elsewhere');
+    await expect(svc.addComment('t1', 'u2', 'x', other.id)).rejects.toBeInstanceOf(NotFoundError);
+    const gone = await svc.addComment('t1', 'u1', 'Gone');
+    await mem.repo.delete(gone.id);
+    await expect(svc.addComment('t1', 'u2', 'x', gone.id)).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  it('"Visible to client" only in a client’s thread — also on a reply to a reply there', async () => {
+    const mem = inMemory(['t1']);
+    const svc = createCommentService(mem);
+    const client = await mem.repo.create('t1', 'client-1', 'Is it fitted?', null, { fromClient: true });
+    const team = await svc.addComment('t1', 'u1', 'Checking', client.id);
+    const shown = await svc.addComment('t1', 'u2', 'Fitted', team.id, { clientVisible: true });
+    expect(shown).toMatchObject({ parentId: client.id, clientVisible: true });
+    const root = await svc.addComment('t1', 'u1', 'Team only');
+    await expect(svc.addComment('t1', 'u2', 'x', root.id, { clientVisible: true })).rejects.toThrow(/client/);
+  });
+
+  it('tells who was answered (for their notice) — never the writer, never a client (they have their own notices)', async () => {
+    const mem = inMemory(['t1']);
+    const told: unknown[] = [];
+    const svc = createCommentService({ ...mem, onComment: (_t, _a, _id, info) => void told.push(info) });
+    const root = await svc.addComment('t1', 'u1', 'Root');
+    await svc.addComment('t1', 'u2', 'Answer', root.id);
+    const mine = await svc.addComment('t1', 'u1', 'My own thread', root.id);
+    const client = await mem.repo.create('t1', 'client-1', 'Question', null, { fromClient: true });
+    await svc.addComment('t1', 'u2', 'For the team', client.id);
+    expect(told).toEqual([
+      { repliedToUserId: null, mentioned: [] },
+      { repliedToUserId: 'u1', mentioned: [] },
+      { repliedToUserId: null, mentioned: [] },
+      { repliedToUserId: null, mentioned: [] },
+    ]);
+    expect(mine.parentId).toBe(root.id);
+  });
+
+  it('a reply to a reply answers that reply’s writer; the people @mentioned are passed along (no double notice)', async () => {
+    const mem = inMemory(['t1']);
+    const told: unknown[] = [];
+    const svc = createCommentService({ ...mem, onComment: (_t, _a, _id, info) => void told.push(info) });
+    const root = await svc.addComment('t1', 'u1', 'Root');
+    const first = await svc.addComment('t1', 'u2', 'First', root.id);
+    await svc.addComment('t1', 'u3', '@sara and @omar see this', first.id);
+    expect(told.at(-1)).toEqual({ repliedToUserId: 'u2', mentioned: ['sara', 'omar'] });
+  });
+});
