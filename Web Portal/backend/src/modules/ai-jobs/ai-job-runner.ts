@@ -54,9 +54,12 @@ export const WATCH_FRESH_MS = 6_000;
 const WATCH_EVERY_MS = 2_000;
 const INTERRUPTED: AiJobError = { message: 'This was interrupted. Try again.', code: 'AI_JOB_INTERRUPTED', status: 500 };
 
-/** Is this failure worth another try later? Time-outs, a busy service (429, ours or theirs) and the provider's 5xx. */
+/**
+ * Is this failure worth another try later? Time-outs, a busy service (429, ours or theirs) and the
+ * provider's 5xx — not a used-up quota (MICO360 AI's 429 "Quota exceeded"), which lasts past every try.
+ */
 export function isRetryable(err: unknown): boolean {
-  if (err instanceof ProviderRefusedError) return err.providerStatus === 429 || err.providerStatus >= 500;
+  if (err instanceof ProviderRefusedError) return (err.providerStatus === 429 && !err.quota) || err.providerStatus >= 500;
   return err instanceof AiTimeoutError || err instanceof AiBusyError;
 }
 

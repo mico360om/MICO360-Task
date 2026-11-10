@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { complete, extractText, type ChatModel } from './ai-completion';
 import { AiCallStoppedError } from './ai-network';
+import { isRetryable } from '../ai-jobs/ai-job-runner';
 
 describe('extractText', () => {
   it('reads Anthropic messages content', () => {
@@ -181,16 +182,44 @@ describe('MICO360 AI (the company’s platform, per its API guide)', () => {
     expect(waits).toEqual([1000]);
   });
 
-  it('a longer wait (a quota, the minute’s rate limit) is not waited out: the person is told the service is busy', async () => {
+  it('a longer wait (the minute’s rate limit) is not waited out: the person is told the service is busy', async () => {
     let calls = 0;
     const fetchImpl = (async () => {
       calls++;
-      return reply('Quota exceeded', 429, { 'retry-after': '40' });
+      return reply('Rate limit exceeded for this API key.', 429, { 'retry-after': '40' });
     }) as unknown as typeof fetch;
     const err = await complete(mico(), { prompt: 'hi' }, fetchImpl, { allowPrivateHosts: true, sleep: async () => {} }).catch((e: unknown) => e);
     expect(calls).toBe(1);
     expect((err as Error).message).toBe('The AI service is busy right now (HTTP 429). Try again in a moment.');
-    expect((err as { detail?: string }).detail).toBe('Quota exceeded');
+    expect((err as { detail?: string }).detail).toBe('Rate limit exceeded for this API key.');
+    expect(err).toMatchObject({ quota: false });
+    expect(isRetryable(err)).toBe(true);
+  });
+
+  // Its guide (§2, §8): a quota (requests per hour, tokens per day or month…) is a 429 "Quota exceeded: …"
+  // with a Retry-After until the period resets — not "busy, try again in a moment".
+  it('a used-up quota is said as one, and background work does not try it again', async () => {
+    for (const [message, retryAfter] of [['Quota exceeded: tokens per day (200000).', '41000'], ['Too many requests.', '3600']] as const) {
+      let calls = 0;
+      const fetchImpl = (async () => {
+        calls++;
+        return reply(message, 429, { 'retry-after': retryAfter });
+      }) as unknown as typeof fetch;
+      const err = await complete(mico(), { prompt: 'hi' }, fetchImpl, { allowPrivateHosts: true, sleep: async () => {} }).catch((e: unknown) => e);
+      expect(calls, message).toBe(1);
+      expect((err as Error).message, message).toBe(
+        'The AI service’s usage allowance is used up for now (HTTP 429). It starts again when its period resets — an admin can check the key’s quota in MICO360 Connect.',
+      );
+      expect(err).toMatchObject({ providerStatus: 429, quota: true, detail: message });
+      expect(isRetryable(err), message).toBe(false);
+    }
+  });
+
+  it('other providers: a 429 is “busy” and tried again later, as before', async () => {
+    const groq: ChatModel = { provider: { kind: 'custom', preset: 'groq', apiBaseUrl: 'https://api.groq.com/openai/v1', apiKey: 'k' }, modelKey: 'm' };
+    const err = await complete(groq, { prompt: 'hi' }, (async () => reply('Quota exceeded', 429, { 'retry-after': '41000' })) as unknown as typeof fetch).catch((e: unknown) => e);
+    expect((err as Error).message).toBe('The AI service is busy right now (HTTP 429). Try again in a moment.');
+    expect(isRetryable(err)).toBe(true);
   });
 
   it('plain messages for no model available, too slow and too long; the platform’s reason stays for admins', async () => {

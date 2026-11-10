@@ -16,9 +16,32 @@ export class ProviderRefusedError extends ValidationError {
   constructor(
     public readonly providerStatus: number,
     public readonly detail: string | null,
+    /** A 429 for a used-up quota (MICO360 AI), not a busy moment: trying again soon won't help. */
+    public readonly quota = false,
   ) {
-    super(refusalMessage(providerStatus));
+    super(quota ? QUOTA_MESSAGE : refusalMessage(providerStatus));
   }
+}
+
+const QUOTA_MESSAGE =
+  'The AI service’s usage allowance is used up for now (HTTP 429). It starts again when its period resets — an admin can check the key’s quota in MICO360 Connect.';
+
+/**
+ * MICO360 AI's 429 is one of three (its guide, §2, §5, §8): the key's concurrency (Retry-After: 1), its
+ * rate limit (until the minute ends) or a quota — "Quota exceeded: …", with a Retry-After until the
+ * period resets (an hour, a day, a month). A quota is said as one; the others are "busy".
+ */
+const QUOTA_RETRY_AFTER_SECONDS = 60;
+
+/** The provider's refusal, read from its answer: the reason it gives, and (MICO360 AI) whether it is a quota. */
+export async function providerRefusal(res: Response, preset: string | null | undefined): Promise<ProviderRefusedError> {
+  const detail = await providerErrorDetail(res);
+  const retryAfter = Number(res.headers.get('retry-after'));
+  const quota =
+    preset === 'mico360' &&
+    res.status === 429 &&
+    (/^\s*quota exceeded/i.test(detail ?? '') || (Number.isFinite(retryAfter) && retryAfter > QUOTA_RETRY_AFTER_SECONDS));
+  return new ProviderRefusedError(res.status, detail, quota);
 }
 
 /** What a person is told for a provider's answer: the plain cause where the status says it. */
@@ -176,7 +199,7 @@ export async function complete(
     await (opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms))))(wait);
     res = await send();
   }
-  if (!res.ok) throw new ProviderRefusedError(res.status, await providerErrorDetail(res));
+  if (!res.ok) throw await providerRefusal(res, model.provider.preset);
   const json = await readProviderJson(res);
   const text = extractText(model.provider.kind, json);
   if (!text) throw new ValidationError('The AI provider returned an empty response.');

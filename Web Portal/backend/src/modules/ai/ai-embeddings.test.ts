@@ -107,6 +107,11 @@ describe('embedTexts', () => {
       const other: ChatModel = { provider: { kind: 'custom', apiBaseUrl: 'https://api.example.com/v1', apiKey: 'k', preset: 'custom' }, modelKey: 'embed-v1' };
       expect(await embedTexts(other, ['pump'], answer('embed-v1-2026-01'))).toEqual([[0.1, 0.2]]);
     });
+
+    it('a used-up quota is said as one (as for chat)', async () => {
+      const quota = (async () => new Response(JSON.stringify({ error: { message: 'Quota exceeded: requests per hour (500).', type: 'rate_limit_exceeded', code: null } }), { status: 429, headers: { 'retry-after': '1800' } })) as unknown as typeof fetch;
+      await expect(embedTexts(mico(), ['pump'], quota)).rejects.toMatchObject({ providerStatus: 429, quota: true });
+    });
   });
 
   it('refuses a provider without embeddings (Anthropic) and an answer of the wrong shape', async () => {

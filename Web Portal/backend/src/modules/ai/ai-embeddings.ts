@@ -1,6 +1,6 @@
 import { ValidationError } from '../../lib/http-errors';
-import { ProviderRefusedError, type ChatModel } from './ai-completion';
-import { createSafeFetch, providerErrorDetail, providerFetch, readProviderJson } from './ai-network';
+import { providerRefusal, type ChatModel } from './ai-completion';
+import { createSafeFetch, providerFetch, readProviderJson } from './ai-network';
 
 /**
  * 1.23 meaning ("semantic") search: turn texts into vectors with the provider's embedding model —
@@ -97,7 +97,7 @@ async function embedBatch(model: ChatModel, texts: string[], fetchImpl: typeof f
     allowPrivateHosts: opts.allowPrivateHosts,
     signal: opts.signal,
   });
-  if (!res.ok) throw new ProviderRefusedError(res.status, await providerErrorDetail(res));
+  if (!res.ok) throw await providerRefusal(res, model.provider.preset);
   const json = (await readProviderJson(res)) as { model?: unknown; data?: { index?: number; embedding?: unknown }[]; embeddings?: unknown[] } | null;
   if (model.provider.preset === 'mico360') {
     // Another embedding model answered (the named one was unavailable): its vectors can't be compared
