@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.23.8] - 2026-11-10
+
 ### New features
 - Replies on every comment: every comment on a task now has Reply, not only a client's. Replies sit indented
   under their comment, oldest first, so a thread reads like a conversation; replying to a reply answers the
