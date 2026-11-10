@@ -4,6 +4,7 @@ import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import multipart from '@fastify/multipart';
+import './lib/zod-messages';
 import { ZodError } from 'zod';
 import { validationErrorBody } from './lib/validation-errors';
 import { HttpError, NotFoundError } from './lib/http-errors';

@@ -14,6 +14,9 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### Security
+- Updated server libraries to fix 11 known vulnerabilities (zod 4, @fastify/static, fast-uri, typescript-eslint).
+
 ## [1.23.11] - 2026-11-10
 
 ### Improvements

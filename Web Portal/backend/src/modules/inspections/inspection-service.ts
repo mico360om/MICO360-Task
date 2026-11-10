@@ -1,4 +1,4 @@
-import { z, ZodError, type ZodTypeAny } from 'zod';
+import { z, ZodError } from 'zod';
 import { ConflictError, ForbiddenError, HttpError, NotFoundError, ValidationError } from '../../lib/http-errors';
 import { validationDetails } from '../../lib/validation-errors';
 import { imageDimensions } from '../../lib/image-dimensions';
@@ -169,7 +169,7 @@ const CLAIM_STALE_MS = 2 * MINUTE;
 const SIGNATURE_MAX_BYTES = 512 * 1024;
 const SIGNATURE_MAX_SIDE = { width: 3000, height: 1500 };
 
-const iso = z.string().datetime({ offset: true });
+const iso = z.iso.datetime({ offset: true });
 const startBody = z.object({
   formId: z.string().min(1).max(191),
   taskId: z.string().min(1).max(191).nullish(),
@@ -221,7 +221,7 @@ function validated<T>(check: () => T): T {
     throw err;
   }
 }
-const parse = <S extends ZodTypeAny>(schema: S, body: unknown): z.infer<S> => validated(() => schema.parse(body));
+const parse = <S extends z.ZodType>(schema: S, body: unknown): z.output<S> => validated(() => schema.parse(body));
 
 const gone = () => new HttpError('This inspection isn’t there any more: it was deleted, or the link is wrong.', 'INSPECTION_GONE', 404);
 const alreadyFinished = () => new ConflictError('This inspection was already finished (on another device, or by another finish).', 'ALREADY_FINISHED');

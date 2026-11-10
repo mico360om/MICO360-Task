@@ -7,6 +7,8 @@ export default defineConfig({
     include: ['tests/integration/**/*.test.ts'],
     exclude: ['node_modules/**', 'dist/**'],
     fileParallelism: false,
+    // zod 4 keeps the API's words for a failed check (src/lib/zod-messages.ts; the server loads it too).
+    setupFiles: ['./src/lib/zod-messages.ts'],
     hookTimeout: 30000,
     testTimeout: 30000,
   },

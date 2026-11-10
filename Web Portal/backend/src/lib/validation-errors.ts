@@ -1,4 +1,5 @@
-import type { ZodError } from 'zod';
+import { z, type ZodError } from 'zod';
+import './zod-messages';
 
 /**
  * The API's answer to a request whose body, query or address doesn't pass its checks (400).
@@ -14,7 +15,7 @@ export interface ValidationDetails {
 
 /** Every problem in a failed check, grouped as `details` carries them. */
 export function validationDetails(err: ZodError): ValidationDetails {
-  return err.flatten() as ValidationDetails;
+  return z.flattenError(err) as ValidationDetails;
 }
 
 /** The whole 400 body for a failed check. */

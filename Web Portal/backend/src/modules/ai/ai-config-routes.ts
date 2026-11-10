@@ -27,7 +27,7 @@ const providerUpdate = z.object({
   apiKey: apiKey.optional(),
   enabled: z.boolean().optional(),
 });
-const parameters = z.record(z.unknown()).refine((p) => Object.keys(p).length <= 20, 'Too many parameters.');
+const parameters = z.record(z.string(), z.unknown()).refine((p) => Object.keys(p).length <= 20, 'Too many parameters.');
 const modelCreate = z.object({
   providerId: z.string().min(1).max(100),
   modelKey: z.string().min(1).max(200),

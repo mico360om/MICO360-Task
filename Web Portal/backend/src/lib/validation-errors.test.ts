@@ -13,7 +13,7 @@ import { validationErrorBody } from './validation-errors';
  * fix GHSA-mrhx-c7xc-m3w5) changes nothing anyone sees.
  */
 
-const failure = (schema: z.ZodTypeAny, input: unknown) => {
+const failure = (schema: z.ZodType, input: unknown) => {
   const r = schema.safeParse(input);
   if (r.success) throw new Error('expected the check to fail');
   return validationErrorBody(r.error);
@@ -21,7 +21,7 @@ const failure = (schema: z.ZodTypeAny, input: unknown) => {
 const details = (formErrors: string[], fieldErrors: Record<string, string[]>) => ({ error: { code: 'VALIDATION', message: 'Invalid input.', details: { formErrors, fieldErrors } } });
 
 describe('400 VALIDATION body — shape and words (pinned from 1.23.11)', () => {
-  const cases: Array<[string, () => z.ZodTypeAny, unknown, ReturnType<typeof details>]> = [
+  const cases: Array<[string, () => z.ZodType, unknown, ReturnType<typeof details>]> = [
     ['a missing field', () => z.object({ title: z.string() }), {}, details([], { title: ['Required'] })],
     ['a missing nullable field', () => z.object({ title: z.string().nullable() }), {}, details([], { title: ['Required'] })],
     ['a wrong type', () => z.object({ title: z.string() }), { title: 5 }, details([], { title: ['Expected string, received number'] })],
@@ -47,7 +47,7 @@ describe('400 VALIDATION body — shape and words (pinned from 1.23.11)', () => 
     ['a pattern with its own words', () => z.object({ day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD') }), { day: 'x' }, details([], { day: ['Use YYYY-MM-DD'] })],
     ['an email address', () => z.object({ email: z.string().trim().email().max(191) }), { email: 'nope' }, details([], { email: ['Invalid email'] })],
     ['a web address', () => z.object({ url: z.string().url() }), { url: 'nope' }, details([], { url: ['Invalid url'] })],
-    ['a timestamp', () => z.object({ at: z.string().datetime({ offset: true }) }), { at: 'today' }, details([], { at: ['Invalid datetime'] })],
+    ['a timestamp', () => z.object({ at: z.iso.datetime({ offset: true }) }), { at: 'today' }, details([], { at: ['Invalid datetime'] })],
     ['fields it doesn’t take (strict)', () => z.object({ a: z.string() }).strict(), { a: 'x', b: 1, c: 2 }, details(["Unrecognized key(s) in object: 'b', 'c'"], {})],
     ['a rule with its own words and field', () => z.object({ a: z.number(), b: z.number() }).refine((v) => v.a < v.b, { message: 'a before b', path: ['b'] }), { a: 2, b: 1 }, details([], { b: ['a before b'] })],
     ['a rule without words', () => z.object({ a: z.string() }).refine(() => false), { a: 'x' }, details(['Invalid input'], {})],
@@ -63,6 +63,24 @@ describe('400 VALIDATION body — shape and words (pinned from 1.23.11)', () => 
       expect(failure(schema(), input)).toEqual(expected);
     });
   }
+});
+
+// 1.23.13: the security fix itself (GHSA-mrhx-c7xc-m3w5, zod >= 4.6.6). A list longer than its limit is refused on
+// its length alone, before any of its items are checked — a huge list can no longer make the server check every
+// item first. (zod 3 also listed each bad item; the words of the length problem are the same.)
+describe('an oversized list is refused before its items are checked', () => {
+  it('says only that it is too long', () => {
+    const schema = z.object({ ids: z.array(z.string().min(1)).max(2) });
+    expect(failure(schema, { ids: ['', 'a', ''] })).toEqual(details([], { ids: ['Array must contain at most 2 element(s)'] }));
+  });
+  it('does not look at the items of a list over its limit', () => {
+    let looked = 0;
+    const schema = z.object({ ids: z.array(z.string().refine(() => (looked++, true))).max(100) });
+    expect(schema.safeParse({ ids: Array.from({ length: 100_000 }, () => 'x') }).success).toBe(false);
+    expect(looked).toBe(0);
+    expect(schema.safeParse({ ids: ['x', 'y'] }).success).toBe(true);
+    expect(looked).toBe(2);
+  });
 });
 
 describe('400 VALIDATION through the server (the real error handler)', () => {
