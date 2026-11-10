@@ -361,7 +361,7 @@ export function PrioritiesWidget({ onOpenTask, list }: { onOpenTask: (taskId: st
                     chip === c ? 'border-brand bg-brand text-white' : 'border-line bg-surface text-ink-2 hover:border-brand/30 hover:text-ink'
                   }`}
                 >
-                  {CHIP_LABEL[c]} <span className={chip === c ? 'text-white/80' : 'text-ink-3'}>{count}</span>
+                  {CHIP_LABEL[c]} <span className={chip === c ? 'text-white' : 'text-ink-3'}>{count}</span>
                 </button>
               );
             })}

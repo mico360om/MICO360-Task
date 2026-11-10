@@ -325,17 +325,22 @@ function FlyoutGroup({ label, icon, items, onNavigate }: { label: string; icon: 
   const id = useId();
   const current = items.some((i) => i.current || pathname === i.to || pathname.startsWith(`${i.to}/`));
 
-  const show = (withFocus: boolean) => {
-    if (leave.current) clearTimeout(leave.current);
-    byHover.current = !withFocus;
-    if (open) {
-      if (withFocus) menu.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
-      return;
-    }
+  /** Beside the icon, inside the window. */
+  const measure = () => {
     const r = button.current?.getBoundingClientRect();
     const height = 48 + items.length * 40;
     const top = Math.max(8, Math.min(r?.top ?? 0, window.innerHeight - height - 8));
     setPlace({ top, left: (r?.right ?? 64) + 6 });
+  };
+  const show = (withFocus: boolean) => {
+    if (leave.current) clearTimeout(leave.current);
+    byHover.current = !withFocus;
+    // Already drawn (read from the page, not from this render: a click right after the hover that opened it).
+    if (menu.current) {
+      if (withFocus) menu.current.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+      return;
+    }
+    measure();
     focusFirst.current = withFocus;
     setOpen(true);
   };
@@ -358,8 +363,12 @@ function FlyoutGroup({ label, icon, items, onNavigate }: { label: string; icon: 
       const t = e.target as Node;
       if (!menu.current?.contains(t) && !button.current?.contains(t)) setOpen(false);
     };
+    // The menu (or the page) scrolled: the list follows its icon, and goes once the icon is out of sight.
     const onScroll = (e: Event) => {
-      if (!(e.target instanceof Node && menu.current?.contains(e.target))) setOpen(false);
+      if (e.target instanceof Node && menu.current?.contains(e.target)) return;
+      const r = button.current?.getBoundingClientRect();
+      if (!r || r.bottom < 0 || r.top > window.innerHeight || r.width === 0) setOpen(false);
+      else measure();
     };
     // Escape closes it wherever the focus is (a list opened by hover has none of it).
     const onEscape = (e: globalThis.KeyboardEvent) => {

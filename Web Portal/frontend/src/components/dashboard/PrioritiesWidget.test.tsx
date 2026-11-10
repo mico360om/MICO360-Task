@@ -304,3 +304,13 @@ describe('quick actions', () => {
     expect(screen.getByRole('button', { name: 'Open RIG-9' })).toBeInTheDocument();
   });
 });
+
+describe('contrast (1.23.8 page walk)', () => {
+  it('the chosen chip’s count is full white on the brand fill (white/80 was 4.0:1 in dark mode)', async () => {
+    current = answer([taskRow({ reason: { code: 'blocking', count: 2 }, chips: ['today'], group: 3 })]);
+    show();
+    await screen.findByText('Pump check');
+    const chosen = screen.getAllByRole('button').find((b) => b.getAttribute('aria-pressed') === 'true')!;
+    expect(chosen.querySelector('span')).toHaveClass('text-white');
+  });
+});
