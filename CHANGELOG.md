@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.23.9] - 2026-11-10
+
 ### New features
 - One colour scheme everywhere — boards, lists, tables, the calendar, the Timeline, the Dashboard, the
   Client portal, the PDFs and the daily email: statuses are Backlog grey, To do slate, In progress blue,
