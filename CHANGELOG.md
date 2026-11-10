@@ -41,6 +41,10 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   it ("/" jumps to it). It works with the company filter, Day and Month and the Table view, cards can
   still be dragged to another column, and the words stay in the page's link. When nothing matches,
   "Search all tasks" opens the full search with the same words.
+- Project details on the Kanban board: with one project chosen, a slim line above the columns shows its
+  picture, name and number, client, project manager, dates with the days left (or late), health, progress,
+  open and overdue tasks, and "Open project". Fold it away with its arrow (remembered); on a phone it shows
+  the short version with "Details".
 
 ### Improvements
 - The Timeline fills the window: its chart grows to the window's height and scrolls by itself, with the

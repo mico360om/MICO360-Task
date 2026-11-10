@@ -50,6 +50,8 @@ import { boardSearchDocs, readBoardSearch, searchBoard } from '../../lib/board-s
 import { everythingAddress } from '../../lib/search-everything';
 import { BoardSearchBox } from './BoardSearchBox';
 import { useBoardSearchWords, useLeavingCards } from './useBoardSearch';
+import { ProjectStrip } from './ProjectStrip';
+import { projectHealthKey } from '../../api/project-health';
 
 /** The board's columns and cards — and (1.23.0, for its Table view) the project's columns and tasks as the server sent them. */
 type BoardData = { columns: KanbanColumnData[]; idByKey: Record<string, string>; apiColumns?: ApiColumn[]; tasks?: ApiTask[] };
@@ -94,6 +96,11 @@ export interface BoardProps {
    * project page's Board tab's ('project-board'); its table remembers its sort, filters and columns there too.
    */
   viewPlace?: 'board' | 'project-board';
+  /**
+   * The Kanban Board page (owner, 10 Nov): a slim line of the chosen project's basics above the columns
+   * (components/board/ProjectStrip). Not on All projects; a project page's Board tab has the project's own header.
+   */
+  projectStrip?: boolean;
 }
 
 /**
@@ -102,7 +109,7 @@ export interface BoardProps {
  * task panel (Previous / Next follow the columns), the people strip, column management, live
  * updates and the N shortcut — or, on the Board page, All projects under six shared statuses.
  */
-export function Board({ projectId, projects, list, linking = false, hiddenProjects = NO_PROJECTS, header, onRemoved, readOnly = null, viewPlace = 'board' }: BoardProps) {
+export function Board({ projectId, projects, list, linking = false, hiddenProjects = NO_PROJECTS, header, onRemoved, readOnly = null, viewPlace = 'board', projectStrip = false }: BoardProps) {
   const qc = useQueryClient();
   const isAdmin = useAuthStore((s) => s.isAdmin());
   // A card's task opens in the app shell's task panel, through ?task= in the address (reload, Back, a shared link).
@@ -476,6 +483,8 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
         return;
       }
       void qc.invalidateQueries({ queryKey: ['board', projectId] });
+      // The project strip's health and figures follow the board.
+      if (projectId && projectId !== ALL_PROJECTS) void qc.invalidateQueries({ queryKey: projectHealthKey(projectId) });
       const p = (payload ?? {}) as { id?: string; taskId?: string };
       // A deleted/changed task open in a drawer refetches (and shows "not found" once deleted).
       if (p.id && event !== 'task:created') void qc.invalidateQueries({ queryKey: ['task', p.id] });
@@ -643,6 +652,8 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
           {header ? null : <div className={`flex flex-wrap items-center gap-2 ${!isAll && project ? '' : 'ms-auto'}`}>{actions}</div>}
         </div>
       ) : null}
+
+      {projectStrip && project && !listLoading && !linking ? <ProjectStrip project={project} today={todayKey} timeZone={timeZone} /> : null}
 
       {manageColumns && projectId && !isAll && !locked ? (
         <div className="card mb-4 p-5">
