@@ -109,7 +109,8 @@ describe('RecycleBinPage', () => {
     expect(listCalls()[0]!.url).toContain('project=p1');
     await userEvent.type(screen.getByRole('searchbox', { name: 'Search deleted tasks' }), 'pump');
     await waitFor(() => expect(listCalls().some((c) => c.url.includes('q=pump'))).toBe(true), { timeout: 2000 });
-    expect(where).toContain('q=pump');
+    // The address catches up (Back returns to the same search).
+    await waitFor(() => expect(where).toContain('q=pump'));
     const soon = screen.getByRole('checkbox', { name: '7 days or less left' });
     await userEvent.click(soon);
     // Ticked at once (the address catches up after).
