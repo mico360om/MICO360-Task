@@ -36,7 +36,7 @@ describe('kindsFor and sinceFor: the page’s filters', () => {
     expect(kindsFor('errors')).toEqual(['ERROR', 'NETWORK']);
     expect(kindsFor('blocked')).toEqual(['BLOCKED']);
     expect(kindsFor('slow')).toEqual(['SLOW']);
-    expect(kindsFor('server')).toEqual(['SERVER']);
+    expect(kindsFor('server')).toEqual(['SERVER', 'UPDATE']); // 1.23.14: update restarts are the server's too
   });
   it('Today starts at midnight in the company time zone; 7 and 30 days count back from now', () => {
     const now = new Date('2026-11-05T06:30:00Z'); // 10:30 in Muscat
@@ -99,5 +99,27 @@ describe('describeReport: what a row says, and what it is grouped by', () => {
   it('the key is a sha-256 in hex', () => {
     expect(fingerprintOf(['a', 'b'])).toMatch(/^[0-9a-f]{64}$/);
     expect(fingerprintOf(['a', 'b'])).not.toBe(fingerprintOf(['ab', '']));
+  });
+});
+
+// 1.23.14: an update restart is not an error: its own calm rows, with the Server chip, never brought back.
+describe('update restarts', () => {
+  it('are listed with the Server chip', () => {
+    expect(kindsFor('server')).toEqual(['SERVER', 'UPDATE']);
+  });
+  it('one row per kind: the database briefly away (handled), a request cut, a request held up', () => {
+    const db = describeReport({ kind: 'UPDATE', detail: 'request', route: 'GET /api/v1/conversations', blip: 'P1001' });
+    expect(db.groupTitle).toBe('During an update: the database was briefly unreachable — handled');
+    expect(describeReport({ kind: 'UPDATE', detail: 'job', job: 'daily-task-emails', blip: 'P1017' }).key).toBe(db.key);
+    const cut = describeReport({ kind: 'UPDATE', detail: 'api', resource: 'GET /api/v1/tasks' });
+    expect(cut.title).toBe('During an update: a request was cut off while the server restarted');
+    const held = describeReport({ kind: 'UPDATE', detail: 'slow', value: 29_750, resource: 'GET /api/v1/projects/:id/columns' });
+    expect(held.groupTitle).toBe('During an update: requests waited for the server to start');
+    expect(held.title).toBe('During an update: GET /api/v1/projects/:id/columns waited 29.8 s for the server to start');
+    expect(new Set([db.key, cut.key, held.key, describeReport({ kind: 'UPDATE', detail: 'slow', value: 1, resource: 'GET /api/v1/x' }).key]).size).toBe(3);
+  });
+  it('a row marked fixed never comes back (they happen at every update)', () => {
+    expect(comesBack({ kind: 'UPDATE', fixedInVersion: '1.23.13', fixedAt: new Date('2026-11-11T00:00:00Z') }, { version: '1.23.14', at: new Date('2026-11-12T00:00:00Z') })).toBe(false);
+    expect(comesBack({ kind: 'SERVER', fixedInVersion: '1.23.13', fixedAt: new Date('2026-11-11T00:00:00Z') }, { version: '1.23.14', at: new Date('2026-11-12T00:00:00Z') })).toBe(true);
   });
 });
