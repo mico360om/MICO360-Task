@@ -161,7 +161,7 @@ export interface DuplicatePrefill {
 }
 
 /** Duplicate Task: the reviewed form (the New task form's fields, the column optional) and the files tick. */
-export type DuplicateInput = Omit<NewTaskInput, 'columnId'> & {
+export type DuplicateInput = Omit<NewTaskInput, 'columnId' | 'startDate'> & {
   columnId?: string;
   /** 'YYYY-MM-DD'; null: none of its own. Left out: the original's. */
   startDate?: string | null;
@@ -183,6 +183,8 @@ export interface NewTaskInput {
   description?: string;
   priority?: Priority;
   dueDate?: string;
+  /** Its start day ('YYYY-MM-DD'). Later than today, the task waits on that day's board (unless a board day is sent). */
+  startDate?: string;
   /** Board day (YYYY-MM-DD) for per-date boards; defaults to today server-side. */
   boardDate?: string;
   /** A key date or deliverable of the project. */
@@ -331,10 +333,12 @@ export function tasksApi(client: ApiClient) {
         .then((r) => r.data),
     update: (
       id: string,
-      patch: Omit<Partial<NewTaskInput>, 'dueDate' | 'externalContacts'> & {
+      patch: Omit<Partial<NewTaskInput>, 'dueDate' | 'startDate' | 'externalContacts'> & {
         progress?: number;
         columnId?: string;
         dueDate?: string | null;
+        /** A not-started task whose start moves later waits on that day's board; earlier (or cleared), today's. */
+        startDate?: string | null;
         recurrenceRule?: RecurrenceRule | null;
         /** 'series' applies the edit to every occurrence of a recurring task. */
         scope?: 'one' | 'series';

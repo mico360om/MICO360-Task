@@ -125,3 +125,20 @@ describe('planChecklistReminders (1.23.3, design call 4)', () => {
     expect(reminderKey(task, '2026-09-08')).not.toBe(reminderKey(n!, '2026-09-08'));
   });
 });
+
+describe('planReminders: tasks scheduled for the future (owner, 10 Nov)', () => {
+  // 16:00 on 8 Sep in Muscat (the default company time zone is passed explicitly).
+  const TZ = 'Asia/Muscat';
+  it('a task waiting for its start day gets no reminder before that day — not even “due soon”', () => {
+    // Starts (and is due) tomorrow: on tomorrow's board, it waits today.
+    const waiting = { id: 'w', title: 'Starts tomorrow', dueDate: new Date('2026-09-09T00:00:00Z'), boardDate: new Date('2026-09-09T12:00:00Z'), assigneeIds: ['u1'] };
+    expect(planReminders([waiting], { now, timeZone: TZ })).toEqual([]);
+    // On its day it is like any task: due today, so due soon.
+    expect(planReminders([waiting], { now: new Date('2026-09-09T06:00:00Z'), timeZone: TZ }).map((n) => n.type)).toEqual(['TASK_DUE_SOON']);
+  });
+
+  it('a task on today’s (or a past) board is reminded as before', () => {
+    const today = { id: 'n', title: 'Due tomorrow', dueDate: new Date('2026-09-09T00:00:00Z'), boardDate: new Date('2026-09-08T12:00:00Z'), assigneeIds: ['u1'] };
+    expect(planReminders([today], { now, timeZone: TZ }).map((n) => n.type)).toEqual(['TASK_DUE_SOON']);
+  });
+});

@@ -20,6 +20,7 @@ import { namedProjectOption } from '../components/project-option';
 import { daysUntilDue } from '../lib/due-date';
 import { useOpenTask } from '../lib/useOpenTask';
 import { isTaskDone } from '../lib/due-display';
+import { waitingDay } from '../lib/scheduled-start';
 import { useCompanyTimeZone } from '../lib/company-clock';
 import { LoadError } from '../components/ui/LoadError';
 import { STATUS_META, STATUS_ORDER } from '../lib/taskStatus';
@@ -211,12 +212,13 @@ export function DashboardPage() {
   const dueSoon = useMemo(
     () =>
       [...(allTasksQ.data ?? [])]
-        .filter((t) => t.dueDate && !isTaskDone(t))
+        // Tasks scheduled for the future: one waiting for a later start day isn't today's (My Tasks' Upcoming).
+        .filter((t) => t.dueDate && !isTaskDone(t) && !waitingDay(t, timeZone))
         .sort((a, b) => (a.dueDate ?? '').localeCompare(b.dueDate ?? '', 'en'))
         .slice(0, rowsForHeight(6, windowHeight)),
-    [allTasksQ.data, windowHeight],
+    [allTasksQ.data, windowHeight, timeZone],
   );
-  const openTasks = useMemo(() => (myTasksQ.data ?? []).filter((t) => !isTaskDone(t)), [myTasksQ.data]);
+  const openTasks = useMemo(() => (myTasksQ.data ?? []).filter((t) => !isTaskDone(t) && !waitingDay(t, timeZone)), [myTasksQ.data, timeZone]);
   // Everyone else's Overdue and Due this week: their own tasks (already loaded for "Your open tasks"),
   // in company days and the company's week (its week start; Sunday until an administrator sets one).
   const companyWeekStart = useCompanyWeekStart();

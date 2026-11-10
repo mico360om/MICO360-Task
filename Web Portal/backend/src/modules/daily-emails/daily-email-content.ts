@@ -48,6 +48,11 @@ export interface DailyTask {
   blocked?: boolean;
   /** Who it is assigned to (shown in "In your projects" only: everyone else's tasks are their own). */
   assignees?: string[];
+  /**
+   * Its board day ('YYYY-MM-DD'). Tasks scheduled for the future (owner, 10 Nov): while it is later than
+   * today the task waits for its start day — listed under "Coming up", not with today's tasks.
+   */
+  boardDay?: string | null;
 }
 
 /** A meeting on the person's day: one they organize or are invited to and haven't declined. */
@@ -165,12 +170,13 @@ interface Limits {
   projects: number;
   managed: number;
   completed: number;
+  comingUp: number;
 }
 const LADDER: Limits[] = [
-  { schedule: 15, urgent: 10, perProject: 8, projectTasks: 25, projects: 8, managed: 8, completed: 10 },
-  { schedule: 12, urgent: 6, perProject: 5, projectTasks: 15, projects: 6, managed: 5, completed: 6 },
-  { schedule: 8, urgent: 4, perProject: 3, projectTasks: 8, projects: 4, managed: 3, completed: 4 },
-  { schedule: 5, urgent: 2, perProject: 2, projectTasks: 4, projects: 3, managed: 2, completed: 2 },
+  { schedule: 15, urgent: 10, perProject: 8, projectTasks: 25, projects: 8, managed: 8, completed: 10, comingUp: 8 },
+  { schedule: 12, urgent: 6, perProject: 5, projectTasks: 15, projects: 6, managed: 5, completed: 6, comingUp: 5 },
+  { schedule: 8, urgent: 4, perProject: 3, projectTasks: 8, projects: 4, managed: 3, completed: 4, comingUp: 3 },
+  { schedule: 5, urgent: 2, perProject: 2, projectTasks: 4, projects: 3, managed: 2, completed: 2, comingUp: 2 },
 ];
 /** Well under Gmail's ~102 KB: the email's own size, with room for what the email provider adds. */
 const BUDGET_BYTES = 95_000;
@@ -229,13 +235,21 @@ function classify(input: DailyEmailInput) {
   const { parts, timeZone: tz, now } = input;
   const today = zonedDayKey(now, tz);
   const days = (t: DailyTask) => daysUntilDue(t.dueDate, tz, now);
+  const dueKeyOf = (t: DailyTask) => dueDayKey(t.dueDate, tz) ?? '9999';
   const waiting = (t: DailyTask) => Boolean(t.waitingSince);
-  const open = input.tasks.filter((t) => !waiting(t));
+  // Tasks scheduled for the future: one on a later day's board waits for its start day ("Coming up").
+  const startsOn = (t: DailyTask): string | null => (t.boardDay && t.boardDay > today && !waiting(t) ? t.boardDay : null);
+  const todays = input.tasks.filter((t) => !startsOn(t));
+  const comingUp = parts.pending
+    ? input.tasks.filter((t) => startsOn(t)).sort((a, b) => startsOn(a)!.localeCompare(startsOn(b)!) || dueKeyOf(a).localeCompare(dueKeyOf(b)) || byKey(a, b))
+    : [];
+  const open = todays.filter((t) => !waiting(t));
   const isOverdue = (t: DailyTask) => !waiting(t) && (days(t) ?? 0) < 0;
   const overdue = open.filter(isOverdue).length;
   const dueToday = open.filter((t) => days(t) === 0).length;
-  const upcoming = open.filter((t) => (days(t) ?? -1) > 0).length;
-  const handedIn = input.tasks.length - open.length;
+  // "Upcoming": due on a later day — and the tasks coming up (they start later).
+  const upcoming = open.filter((t) => (days(t) ?? -1) > 0).length + input.tasks.filter((t) => startsOn(t)).length;
+  const handedIn = todays.length - open.length;
   const completed = parts.completed ? [...input.completed].sort((a, b) => (b.completedAt?.getTime() ?? 0) - (a.completedAt?.getTime() ?? 0) || byKey(a, b)) : [];
 
   // Today's schedule: meetings, and the person's tasks due at a time today.
@@ -264,7 +278,7 @@ function classify(input: DailyEmailInput) {
     return 4;
   };
   const rest = parts.pending
-    ? input.tasks
+    ? todays
         .filter((t) => !inUrgent.has(t.id))
         .sort((a, b) => rank(a) - rank(b) || dueKey(a).localeCompare(dueKey(b)) || PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] || byKey(a, b))
     : [];
@@ -284,7 +298,7 @@ function classify(input: DailyEmailInput) {
     : [];
 
   const approvals = parts.urgent || parts.pending || parts.managed ? input.awaitingApproval : 0;
-  const hasContent = schedule.length > 0 || urgent.length > 0 || rest.length > 0 || managed.length > 0 || completed.length > 0 || approvals > 0;
+  const hasContent = schedule.length > 0 || urgent.length > 0 || rest.length > 0 || comingUp.length > 0 || managed.length > 0 || completed.length > 0 || approvals > 0;
 
   const numbers = [
     { label: 'Pending', word: 'pending', n: open.length, danger: false },
@@ -308,10 +322,12 @@ function classify(input: DailyEmailInput) {
           ? `${plural(completed.length, 'task')} completed recently`
           : managed.length
             ? `${plural(managed.length, 'task')} to check in your projects`
-            : 'your day';
+            : comingUp.length
+              ? `${plural(comingUp.length, 'task')} coming up`
+              : 'your day';
   const subject = `Today: ${subjectWhat} — ${subjectDay}`;
 
-  return { today, days, waiting, isOverdue, numbers, summaryText, handedIn, schedule, urgent, projectGroups, managed, completed, approvals, hasContent, subject };
+  return { today, days, waiting, startsOn, isOverdue, numbers, summaryText, handedIn, schedule, urgent, projectGroups, comingUp, managed, completed, approvals, hasContent, subject };
 }
 
 /** The tasks of each project, the projects in the order their first task comes. */
@@ -399,6 +415,16 @@ function blocksFor(input: DailyEmailInput, m: Model, limits: Limits, brand: Bran
     blocks.push(...moreLine(left));
   }
 
+  // ── Coming up: tasks scheduled for the future, soonest first ──
+  if (m.comingUp.length) {
+    const shown = m.comingUp.slice(0, limits.comingUp);
+    const intro = 'Tasks that start on a later day. Each joins your list on its start day.';
+    blocks.push({ kind: 'heading', text: `Coming up (${m.comingUp.length})` });
+    blocks.push(markup({ html: `<p class="email-muted" style="margin:0 0 10px;font-size:13px;line-height:1.5;color:${c.ink2}">${intro}</p>`, text: intro }));
+    blocks.push(markup(listBox(shown.map((t, i) => card(t, { flat: true, first: i === 0 })))));
+    blocks.push(...moreLine(m.comingUp.length - shown.length));
+  }
+
   // ── In your projects ──
   if (m.managed.length) {
     const shown = m.managed.slice(0, limits.managed);
@@ -471,12 +497,14 @@ function cardMaker(input: DailyEmailInput, m: Model, c: Brand['colors']) {
     const key = dueDayKey(t.dueDate, tz);
     const at = t.dueDate && hasDueTime(t.dueDate) ? `, ${clock(t.dueDate, tz)}` : '';
     let due: EmailChip | null = null;
+    const starts = m.startsOn(t);
     if (key && d !== null) {
       if (d < 0 && !m.waiting(t)) due = { text: `${plural(-d, 'day')} overdue`, tone: 'danger' };
       else if (d === 0) due = { text: `Due today${at}`, tone: 'warning' };
       else due = { text: `Due ${dayLabel(key)}${at}`, tone: d < 0 ? 'muted' : 'info' };
     }
     const chips = [
+      starts ? ({ text: `Starts ${dayLabel(starts)}`, tone: 'info' } as EmailChip) : null,
       due,
       PRIORITY_CHIP[t.priority],
       { text: t.statusLabel, tone: 'outline' } as EmailChip,

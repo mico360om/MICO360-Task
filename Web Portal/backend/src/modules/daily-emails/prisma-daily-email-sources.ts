@@ -51,6 +51,8 @@ const taskSelect = {
   // 1.22: the card's details.
   description: true,
   startDate: true,
+  // Tasks scheduled for the future: a later day's board means it is "Coming up".
+  boardDate: true,
   // 1.23.3: the live items; the count is of the real to-do items (no sub-items).
   checklist: { where: { deletedAt: null }, select: { id: true, parentId: true, done: true } },
   comments: { where: { deletedAt: null }, orderBy: { createdAt: 'desc' }, take: 1, select: { body: true, createdAt: true, user: { select: nameSelect } } },
@@ -113,6 +115,8 @@ const toTask = (t: TaskRow): DailyTask => ({
   waitingSince: t.approvalRequestedAt,
   description: t.description,
   startDate: t.startDate,
+  // Board days are noon-UTC anchors: their UTC date is the day.
+  boardDay: t.boardDate ? t.boardDate.toISOString().slice(0, 10) : null,
   checklist: t.checklist.length ? leafCounts(t.checklist) : null,
   latest: latestOf(t),
   // Blocked: a task it depends on isn't done yet.

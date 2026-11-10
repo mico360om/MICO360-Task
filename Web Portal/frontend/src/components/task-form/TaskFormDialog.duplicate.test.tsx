@@ -139,8 +139,9 @@ describe('Duplicate: the New task form, filled in from the task', () => {
     expect(screen.getByText('Ahmed Al Said')).toBeInTheDocument();
     // No template or Describe for a copy.
     expect(screen.queryByRole('button', { name: 'Task template' })).toBeNull();
-    // What the form has no field for.
-    expect(screen.getByText(/^Also copied: start date 3 Nov( 2026)?, tags safety and rig, 1 watcher and 4 h estimate\.$/)).toBeInTheDocument();
+    // The start date is in the form's Start date field (future tasks); what the form has no field for is listed.
+    expect(screen.getByLabelText(/^start date/i)).toHaveValue('2026-11-03');
+    expect(screen.getByText('Also copied: tags safety and rig, 1 watcher and 4 h estimate.')).toBeInTheDocument();
     // The files tick, on by default.
     expect(screen.getByRole('checkbox', { name: /copy files \(3\)/i })).toBeChecked();
   });
@@ -209,13 +210,16 @@ describe('Duplicate: the New task form, filled in from the task', () => {
     expect(posts()[0]!.body).toMatchObject({ projectId: 'p2', columnId: 'd1', assigneeIds: ['u7'] });
   });
 
-  it('a due date before the original’s start date: the start date isn’t carried (and isn’t listed)', async () => {
+  it('a due date before the copied start date: the form says so before sending; the start date cleared, the copy has none of its own', async () => {
     renderDialog();
     await ready();
     const due = screen.getByLabelText(/^due date/i);
     await userEvent.clear(due);
     await userEvent.type(due, '2026-11-02');
-    expect(screen.getByText('Also copied: tags safety and rig, 1 watcher and 4 h estimate.')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Create task' }));
+    expect(await screen.findByText('The start date must be on or before the due date.')).toBeInTheDocument();
+    expect(posts()).toHaveLength(0);
+    await userEvent.clear(screen.getByLabelText(/^start date/i));
     await userEvent.click(screen.getByRole('button', { name: 'Create task' }));
     await waitFor(() => expect(posts()).toHaveLength(1));
     expect(posts()[0]!.body).toMatchObject({ startDate: null, dueDate: '2026-11-02' });

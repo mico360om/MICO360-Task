@@ -117,6 +117,7 @@ import { createPrismaHealthSource } from './modules/project-health/prisma-health
 import { createMentionNotifier } from './modules/tasks/mention-notifier';
 import { planEscalations } from './modules/notifications/escalation';
 import { runExclusive, createPrismaJobLockStore } from './lib/job-lock';
+import { assignedNoticeTitle, createPrismaStartingTasksSource, createStartDayReminders } from './modules/tasks/start-day-reminders';
 import { createJobGate } from './lib/job-gate';
 import { databaseConnectionCode } from './lib/db-connection';
 import { createShutdown } from './lib/shutdown';
@@ -994,12 +995,14 @@ async function main(): Promise<void> {
   onTaskAssigned = async (taskId, userIds, actorId) => {
     await taskSearchIndex.taskChanged(taskId);
     const about = await taskNotice(taskId);
+    // Tasks scheduled for the future: "You were assigned a task — starts 20 Nov" while it waits.
+    const title = assignedNoticeTitle(await prisma.task.findUnique({ where: { id: taskId }, select: { boardDate: true, completedAt: true } }), companyTz, new Date());
     // Self-assignment isn't news to the person who did it.
     for (const userId of await visibleTaskRecipients(taskId, userIds, actorId)) {
       await notificationService.notify({
         userId,
         type: 'TASK_ASSIGNED',
-        title: 'You were assigned a task',
+        title,
         body: about,
         entityType: 'task',
         entityId: taskId,
@@ -1139,7 +1142,7 @@ async function main(): Promise<void> {
     // Tasks of deleted projects are gone for everyone — no more reminders for them.
     const tasks = await prisma.task.findMany({
       where: { deletedAt: null, dueDate: { not: null }, project: { is: { deletedAt: null } } },
-      select: { id: true, key: true, title: true, dueDate: true, completedAt: true, approvalRequestedAt: true, column: { select: { category: true } }, watchers: { select: { userId: true } }, ...taskAudienceSelect },
+      select: { id: true, key: true, title: true, dueDate: true, boardDate: true, completedAt: true, approvalRequestedAt: true, column: { select: { category: true } }, watchers: { select: { userId: true } }, ...taskAudienceSelect },
     });
     // Each user's reminder lead time comes from their notification preferences (default window otherwise).
     const { users, activeIds, adminIds, companiesOf } = await sweepAudience();
@@ -1157,6 +1160,8 @@ async function main(): Promise<void> {
         completedAt: t.completedAt,
         // Waiting for approval: no reminders until it is sent back (owner, 30 Oct).
         approvalRequestedAt: t.approvalRequestedAt,
+        // Waiting for its start day (a later day's board): none before that day (owner, 10 Nov).
+        boardDate: t.boardDate,
         columnCategory: t.column?.category ?? null,
         // Watchers get due/overdue reminders too (deduped with assignees) — while they can still see the task.
         assigneeIds: filterTaskRecipients([...t.assignees.map((a) => a.userId), ...t.watchers.map((w) => w.userId)], toAudienceFacts(t), { activeIds, adminIds, companiesOf }),
@@ -1660,12 +1665,12 @@ async function main(): Promise<void> {
     if (hour < DIGEST_HOUR) return; // wait until the morning; a later sweep sends it
     const tasks = await prisma.task.findMany({
       where: { deletedAt: null, dueDate: { not: null }, project: { is: { deletedAt: null } } },
-      select: { id: true, key: true, title: true, dueDate: true, completedAt: true, approvalRequestedAt: true, column: { select: { category: true } }, watchers: { select: { userId: true } }, ...taskAudienceSelect },
+      select: { id: true, key: true, title: true, dueDate: true, boardDate: true, completedAt: true, approvalRequestedAt: true, column: { select: { category: true } }, watchers: { select: { userId: true } }, ...taskAudienceSelect },
     });
     const { users, activeIds, adminIds, companiesOf } = await sweepAudience();
     const digests = buildDigests(
       tasks.map((t) => ({
-        id: t.id, key: t.key, title: t.title, dueDate: t.dueDate, completedAt: t.completedAt, approvalRequestedAt: t.approvalRequestedAt,
+        id: t.id, key: t.key, title: t.title, dueDate: t.dueDate, boardDate: t.boardDate, completedAt: t.completedAt, approvalRequestedAt: t.approvalRequestedAt,
         columnCategory: t.column?.category ?? null,
         // Someone who has left the project no longer gets its tasks in their digest.
         recipientIds: filterTaskRecipients([...t.assignees.map((a) => a.userId), ...t.watchers.map((w) => w.userId)], toAudienceFacts(t), { activeIds, adminIds, companiesOf }),
@@ -1717,6 +1722,21 @@ async function main(): Promise<void> {
     );
     await dispatchReminders(planned, { period: day, store: reminderLogStore, notify: (n) => notificationService.notify(n) });
   }
+
+  // Tasks scheduled for the future: the morning a waiting task starts, its people are told once
+  // (start-day-reminders.ts; hourly like the digest, from 07:00 company time).
+  const startDayReminders = createStartDayReminders({
+    source: createPrismaStartingTasksSource(prisma),
+    visibleRecipients: (taskId, ids) => visibleTaskRecipients(taskId, ids),
+    store: reminderLogStore,
+    notify: (n) => notificationService.notify(n),
+    timeZone: companyTz,
+  });
+  const runStartDay = () =>
+    runExclusive(jobLock, 'start-day-reminders', SWEEP_LEASE_MS, () => new Date(), async () => {
+      await startDayReminders.run();
+    }).catch(sweepFailed('start-day-reminders', 'start-day reminder sweep'));
+  jobs.every(60 * 60 * 1000, runStartDay);
 
   const runDigest = () => runExclusive(jobLock, 'daily-digest', SWEEP_LEASE_MS, () => new Date(), runDigestSweep).catch(sweepFailed('daily-digest', 'daily digest sweep'));
   const runEscalation = () => runExclusive(jobLock, 'escalation-sweep', SWEEP_LEASE_MS, () => new Date(), runEscalationSweep).catch(sweepFailed('escalation-sweep', 'escalation sweep'));

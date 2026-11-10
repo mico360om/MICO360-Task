@@ -42,7 +42,7 @@ export async function writeStartingTasks(
     priority: t.priority,
     startDate: t.startDate,
     dueDate: t.dueDate,
-    boardDate: start.boardDate,
+    boardDate: t.boardDate ?? start.boardDate,
     createdById: project.createdById,
     // "New tasks in this project need approval": the template's tasks are new tasks too.
     needsApproval: project.newTasksNeedApproval ?? false,

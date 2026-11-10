@@ -13,6 +13,7 @@ import { ApiError } from '../../lib/api-client';
 import { todayKey } from '../../lib/due-date';
 import { dueInputValue } from '../../lib/due-display';
 import { defaultDueDay, defaultDueNote } from '../../lib/default-due';
+import { formBoardDate, scheduledNote, waitingDay } from '../../lib/scheduled-start';
 import { recurrenceSummary } from '../../lib/recurrence-summary';
 import { useCompanyTimeZone } from '../../lib/company-clock';
 import { enqueueOffline } from '../../lib/offline-replay';
@@ -91,6 +92,8 @@ interface Draft {
   description: string;
   priority: Priority;
   dueDate: string;
+  /** Its start day ('' = none: the server starts it now). Later than today, a new task waits for it (future tasks). */
+  startDate: string;
   rule: RecurrenceRule | null;
   assigneeIds: string[];
   milestone: boolean;
@@ -178,7 +181,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
   const duplicating = !editing && !!duplicateOfId;
   const qc = useQueryClient();
   const timeZone = useCompanyTimeZone();
-  const ids = { title: useId(), desc: useId(), due: useId(), dueNote: useId(), titleErr: useId(), untilErr: useId(), owner: useId(), place: useId(), formNote: useId(), approvalHint: useId(), approvalLocked: useId(), copyNote: useId() };
+  const ids = { title: useId(), desc: useId(), due: useId(), dueNote: useId(), start: useId(), startNote: useId(), startErr: useId(), titleErr: useId(), untilErr: useId(), owner: useId(), place: useId(), formNote: useId(), approvalHint: useId(), approvalLocked: useId(), copyNote: useId() };
 
   // One empty checklist draft for how the form opened and the form itself (so an untouched form isn't "changed").
   const [blankChecklists] = useState(emptyDraft);
@@ -191,6 +194,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
           description: task.description ?? '',
           priority: task.priority,
           dueDate: dueInputValue(task.dueDate, timeZone),
+          startDate: dueInputValue(task.startDate, timeZone),
           rule: task.recurrenceRule ?? null,
           assigneeIds: [],
           milestone: !!task.isMilestone,
@@ -200,7 +204,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
           approval: !!task.needsApproval,
           contacts: (task.externalContacts ?? []).map((c) => formContact(c, c.id)),
         }
-      : { projectId: fixedProjectId ?? '', columnId: defaultColumnId ?? '', title: '', description: '', priority: 'NORMAL', dueDate: defaultDueDate ?? '', rule: null, assigneeIds: [], milestone: false, checklists: blankChecklists, formId: '', place: '', approval: false, contacts: [] };
+      : { projectId: fixedProjectId ?? '', columnId: defaultColumnId ?? '', title: '', description: '', priority: 'NORMAL', dueDate: defaultDueDate ?? '', startDate: '', rule: null, assigneeIds: [], milestone: false, checklists: blankChecklists, formId: '', place: '', approval: false, contacts: [] };
   // `saved` is what the server has (or, for a new task, how the form opened); `draft` is the form.
   const [saved, setSaved] = useState<Draft>(start);
   const [draft, setDraft] = useState<Draft>(start);
@@ -347,6 +351,9 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
       description: t.description ?? '',
       priority: t.priority,
       dueDate: t.dueDate ?? '',
+      // Its start date in the form's Start date field (when it still fits the due date): the field and its
+      // "Scheduled for …" note show it, and it can be changed or cleared like any new task's.
+      startDate: carriedStart(t.startDate, t.dueDate) ?? '',
       rule: null,
       assigneeIds: t.assigneeIds,
       milestone: t.isMilestone,
@@ -432,12 +439,32 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
   // is added to when that is later, else today. An edit never does — a date cleared on purpose stays
   // cleared. `dueWhen` is the date the task will have, which the repeat preview works from.
   const today = todayKey(timeZone);
-  const autoDue = editing ? null : defaultDueDay(project, draft.dueDate, boardDate, today);
+  // Tasks scheduled for the future: a Start date later than today puts a new task on its start day's
+  // board (the server does it) — so the board's own day is sent only without one (lib/scheduled-start),
+  // and the project's "due today" gives the start day, as the server will.
+  const sentBoard = editing ? undefined : formBoardDate(boardDate, draft.startDate, today);
+  const landsOn = sentBoard ?? (draft.startDate > today ? draft.startDate : undefined);
+  const autoDue = editing ? null : defaultDueDay(project, draft.dueDate, landsOn, today);
   const dueWhen = draft.dueDate || autoDue || '';
-  // A copy: the original's start date when it fits the due date it will have, its files, and what is copied without a field here.
-  const carried = prefill ? carriedStart(prefill.task.startDate, dueWhen) : null;
+  // A copy: its files, and what is copied without a field here (its start date is in the Start date field).
   const originalFiles = prefill?.files ?? [];
-  const alsoCopied = prefill ? alsoCopiedText({ startDate: carried, tags: prefill.task.tags, watchers: prefill.watchers.length, estimatedHours: prefill.task.estimatedHours }, today) : null;
+  const alsoCopied = prefill ? alsoCopiedText({ tags: prefill.task.tags, watchers: prefill.watchers.length, estimatedHours: prefill.task.estimatedHours }, today) : null;
+  // The server's rule, said before anything is sent (an edit: only once a date changes, as the server).
+  const datesChanged = !editing || draft.startDate !== saved.startDate || draft.dueDate !== saved.dueDate;
+  const startProblem = datesChanged && draft.startDate && draft.dueDate && draft.startDate > draft.dueDate ? 'The start date must be on or before the due date.' : null;
+  // "Scheduled for 20 Nov" under the Start date while it waits — never for a task already under way (it stays).
+  const startNote = (() => {
+    if (startProblem) return null;
+    if (!editing) return scheduledNote(draft.startDate, today);
+    if (draft.startDate === saved.startDate) {
+      const waits = task ? waitingDay(task, timeZone) : null;
+      return waits ? scheduledNote(waits, today) : null;
+    }
+    const kind = columns.find((c) => c.id === draft.columnId)?.category ?? task?.columnCategory ?? 'TODO';
+    const notStarted = (kind === 'BACKLOG' || kind === 'TODO') && !task?.completedAt && !task?.approvalRequestedAt;
+    if (!notStarted) return draft.startDate > today ? 'It’s already under way, so it stays where it is.' : null;
+    return scheduledNote(draft.startDate, today);
+  })();
 
   // ── An inspection form (a check): finishing its inspection completes the task ──
   const formsQ = useQuery({ queryKey: ['inspection-forms'], queryFn: () => inspectionsApi(apiClient).listForms(), staleTime: 30_000 });
@@ -471,6 +498,10 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
     }
     if (untilProblem) {
       untilRef.current?.querySelector<HTMLElement>('input[aria-label="End date"]')?.focus();
+      return;
+    }
+    if (startProblem) {
+      document.getElementById(ids.start)?.focus();
       return;
     }
     if (contactOpen) {
@@ -509,6 +540,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
       ...(countsByWeight(project) && weight ? { weight: Number(weight) } : {}),
       ...(draft.description.trim() ? { description: draft.description.trim() } : {}),
       ...(draft.dueDate ? { dueDate: draft.dueDate } : {}),
+      ...(draft.startDate ? { startDate: draft.startDate } : {}),
       ...(draft.rule ? { recurrenceRule: draft.rule } : {}),
       ...(draft.milestone ? { isMilestone: true } : {}),
       // Ticked: needs approval. Unticked where the project ticks new tasks: says it doesn't.
@@ -518,7 +550,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
       // Only when someone was picked — otherwise the project's default (its owner) applies.
       ...(draft.assigneeIds.length ? { assigneeIds: draft.assigneeIds } : {}),
       ...(draft.contacts.length ? { externalContacts: draft.contacts.map(fieldsOnly) } : {}),
-      ...(boardDate ? { boardDate } : {}),
+      ...(sentBoard ? { boardDate: sentBoard } : {}),
       ...(draft.formId ? { inspectionFormId: draft.formId, inspectionPlace: draft.place.trim() || null } : {}),
     };
     // One key per attempt: the offline queue reuses it, so a create that did reach the server is never duplicated.
@@ -576,8 +608,8 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
       weight: weight ? Number(weight) : null,
       ...(draft.description.trim() ? { description: draft.description.trim() } : {}),
       ...(draft.dueDate ? { dueDate: draft.dueDate } : {}),
-      // The original's start date when it fits the due date; else none of its own (the automatic one).
-      startDate: carried,
+      // The Start date field (filled in with the original's when it fit its due date); empty = none of its own (the automatic one).
+      startDate: draft.startDate || null,
       ...(draft.rule ? { recurrenceRule: draft.rule } : {}),
       isMilestone: draft.milestone,
       ...(draft.approval ? { needsApproval: true } : projectWantsApproval ? { needsApproval: false } : {}),
@@ -648,6 +680,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
       if (draft.description.trim() !== done.description.trim()) fields.description = draft.description.trim();
       if (draft.priority !== done.priority) fields.priority = draft.priority;
       if (draft.dueDate !== done.dueDate) fields.dueDate = draft.dueDate || null;
+      if (draft.startDate !== done.startDate) fields.startDate = draft.startDate || null;
       if (draft.milestone !== done.milestone) fields.isMilestone = draft.milestone;
       if (weight !== savedWeight) fields.weight = weight ? Number(weight) : null;
       if (draft.approval !== done.approval) fields.needsApproval = draft.approval;
@@ -664,7 +697,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
       if (Object.keys(fields).length) {
         latest = await tasksApi(apiClient).update(t.id, { ...fields, ...(version.current != null ? { expectedVersion: version.current } : {}), ...(series ? { scope: 'series' } : {}) });
         version.current = latest.version ?? version.current;
-        keep({ title: draft.title, description: draft.description, priority: draft.priority, dueDate: draft.dueDate, milestone: draft.milestone, approval: draft.approval, formId: draft.formId, place: draft.formId ? draft.place : '', ...(moveWithTick ? { columnId: draft.columnId } : {}), ...(ruleChanged && !series ? { rule: draft.rule } : {}) });
+        keep({ title: draft.title, description: draft.description, priority: draft.priority, dueDate: draft.dueDate, startDate: draft.startDate, milestone: draft.milestone, approval: draft.approval, formId: draft.formId, place: draft.formId ? draft.place : '', ...(moveWithTick ? { columnId: draft.columnId } : {}), ...(ruleChanged && !series ? { rule: draft.rule } : {}) });
         if (fields.weight !== undefined) setSavedWeight(weight);
       }
       // The repeat rule lives on the series' newest copy only: it is never sent "for the whole series".
@@ -911,7 +944,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
   );
   const whenFields = (
     <div className={twoColumns ? 'grid grid-cols-2 gap-4' : 'grid gap-4 sm:grid-cols-3'}>
-      <div className="min-w-0">
+      <div className={twoColumns && !countsByWeight(project) ? 'col-span-2 min-w-0' : 'min-w-0'}>
         <Label>Priority</Label>
         <SearchableSelect size="lg" ariaLabel="Priority" options={priorityOptions()} value={draft.priority} onChange={(v) => set({ priority: v as Priority })} />
       </div>
@@ -922,6 +955,20 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
           <SearchableSelect size="lg" ariaLabel="Weight" options={weightChoices(projectWeights(project)[draft.priority])} value={weight} onChange={setWeight} />
         </div>
       ) : null}
+      <div className="min-w-0">
+        <Label htmlFor={ids.start} optional>Start date</Label>
+        <input
+          id={ids.start}
+          type="date"
+          value={draft.startDate}
+          onChange={(e) => set({ startDate: e.target.value })}
+          aria-invalid={startProblem ? true : undefined}
+          aria-describedby={[startProblem ? ids.startErr : null, startNote ? ids.startNote : null].filter(Boolean).join(' ') || undefined}
+          className={`${fieldClass(!!startProblem)} h-11`}
+        />
+        {startProblem ? <p id={ids.startErr} role="alert" className="mt-1 text-xs font-medium text-danger">{startProblem}</p> : null}
+        {startNote ? <p id={ids.startNote} className="mt-1 text-xs text-ink-2">{startNote}</p> : null}
+      </div>
       <div className="min-w-0">
         <Label htmlFor={ids.due} optional>Due date</Label>
         <input
