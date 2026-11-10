@@ -512,4 +512,7 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   // by the task rule, the chosen project by the new-task rule; staff only — a client account is refused).
   'GET /tasks/:id/duplicate': 'object',
   'POST /tasks/:id/duplicate': 'object',
+  // Manager View (owner, 10 Nov 2026): an administrator's own switch, never refused by Manager View itself.
+  'GET /users/me/manager-view': 'own',
+  'PUT /users/me/manager-view': 'own',
 };

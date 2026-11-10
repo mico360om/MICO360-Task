@@ -146,6 +146,10 @@ model User {
   // the Kanban board's columns are ('narrow' | 'normal' | 'wide'). The density above also takes 'detailed'.
   sidebarCollapsed    Boolean    @default(false)
   boardColumnWidth    String     @default("normal") @db.VarChar(16)
+  // Manager View (an administrator's own, owner 10 Nov 2026): while on, they are treated as a non-administrator
+  // for settings and configuration (the Admin menu's pages, other people's project settings) and stay an
+  // administrator for the work. Means nothing for anyone else. See modules/auth/manager-view.ts.
+  managerView         Boolean    @default(false)
   // 1.23.4 Smarter Dashboard: the person's own widget arrangement ({ widgets: [{ id, hidden, size }] });
   // null = they follow their group's default (administrators' or everyone else's, set by an administrator).
   dashboardLayout     Json?

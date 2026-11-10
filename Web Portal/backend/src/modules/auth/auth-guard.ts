@@ -4,10 +4,12 @@ import { ForbiddenError, UnauthorizedError } from './errors';
 import { HttpError } from '../../lib/http-errors';
 import { CLIENT_WORDS, isClientRoles } from '../clients/client-kind';
 import { clientMayCall, routeKeyOf, staffMayCall } from '../clients/client-route-table';
+import { assertManagerView, inManagerView, type ManagerViewLookup } from './manager-view';
 
 declare module 'fastify' {
   interface FastifyRequest {
-    user?: { id: string; roles: string[] };
+    /** `managerView`: an administrator with Manager View on (manager-view.ts). */
+    user?: { id: string; roles: string[]; managerView?: boolean };
   }
 }
 
@@ -17,6 +19,8 @@ export interface UserState {
   /** ACTIVE and not deleted. */
   active: boolean;
   roles: string[];
+  /** Manager View (users.managerView): only an administrator's counts. */
+  managerView?: boolean;
 }
 
 export type UserStateLookup = (userId: string) => Promise<UserState | null>;
@@ -31,6 +35,11 @@ export interface AuthGuardOptions {
   /** How long a looked-up state is reused in-process. Default 10 seconds. */
   cacheTtlMs?: number;
   now?: () => number;
+  /**
+   * Manager View's project-settings rule (does this person run the project). Absent: an administrator in
+   * Manager View is refused every project-settings route (fails closed).
+   */
+  managerView?: ManagerViewLookup;
 }
 
 const MAX_CACHE_ENTRIES = 10_000;
@@ -51,7 +60,7 @@ function assertRouteFor(req: FastifyRequest, roles: readonly string[]): void {
 
 /** Route guards for JWT auth (T2.2) and role-based access control (T2.4). */
 export function createAuthGuard(tokenService: TokenService, opts: AuthGuardOptions = {}) {
-  const { userState, cacheTtlMs = 10_000, now = () => Date.now() } = opts;
+  const { userState, cacheTtlMs = 10_000, now = () => Date.now(), managerView: managerViewLookup } = opts;
   const cache = new Map<string, { at: number; state: Promise<UserState | null> }>();
 
   function lookup(userId: string, fresh: boolean): Promise<UserState | null> {
@@ -92,8 +101,15 @@ export function createAuthGuard(tokenService: TokenService, opts: AuthGuardOptio
     if (!state || !state.active || state.tokenVersion !== ver) {
       throw new UnauthorizedError('Your session has ended. Please sign in again.');
     }
-    req.user = { id: claims.sub, roles: state.roles };
+    const managerView = inManagerView({ roles: state.roles, managerView: state.managerView });
+    req.user = { id: claims.sub, roles: state.roles, ...(managerView ? { managerView: true } : {}) };
     assertRouteFor(req, state.roles);
+    // Manager View: the one central check (manager-view.ts) — admin pages refused, project settings only for
+    // a project they run, everything else as an administrator.
+    if (managerView) {
+      const key = routeKeyOf(req.method, req.routeOptions?.url ?? req.url);
+      await assertManagerView({ key, userId: claims.sub, params: req.params as Record<string, unknown> | undefined }, managerViewLookup);
+    }
   }
 
   function requireRoles(...roles: string[]) {

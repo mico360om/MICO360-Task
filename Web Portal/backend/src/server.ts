@@ -99,6 +99,8 @@ import { createPrismaDependencyRepository } from './modules/tasks/prisma-depende
 import { createRecurrenceService } from './modules/tasks/recurrence-service';
 import { createPrismaRecurrencePort } from './modules/tasks/prisma-recurrence-port';
 import { createPrismaPreferences } from './modules/users/user-preferences';
+import { createPrismaManagerViewStore } from './modules/users/manager-view-routes';
+import { createPrismaManagerViewLookup } from './modules/auth/prisma-manager-view-lookup';
 import { createUserService } from './modules/users/user-service';
 import { createPrismaUserRepository as createPrismaUserMgmtRepository } from './modules/users/prisma-user-repository';
 import { createNotificationService } from './modules/notifications/notification-service';
@@ -2187,6 +2189,10 @@ async function main(): Promise<void> {
     })(),
     recordTaskActivity,
     userState: userStateLookup,
+    // Manager View (owner, 10 Nov): the switch, and the project-settings rule (does this person run the project:
+    // the team rule — an administrator needn't belong to the project's company).
+    managerViewStore: createPrismaManagerViewStore(prisma),
+    managerViewLookup: createPrismaManagerViewLookup(prisma),
     clientAccounts,
     portal,
     clientMinutes: {

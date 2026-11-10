@@ -14,6 +14,8 @@ import { registerEmailWebhookRoutes } from './modules/email/email-webhook-routes
 import type { EmailWebhookService } from './modules/email/email-webhook-service';
 import { registerAuthRoutes, type AuthRouteDeps } from './modules/auth/auth-routes';
 import { createAuthGuard, type UserStateLookup } from './modules/auth/auth-guard';
+import type { ManagerViewLookup } from './modules/auth/manager-view';
+import { registerManagerViewRoutes, type ManagerViewStore } from './modules/users/manager-view-routes';
 import { registerProjectRoutes } from './modules/projects/project-routes';
 import type { ProjectOverviewSource } from './modules/projects/project-overview';
 import type { ProjectService } from './modules/projects/project-service';
@@ -184,6 +186,10 @@ export interface AppDeps extends AuthRouteDeps {
    * suspended / deleted / demoted user loses access at once instead of when their token expires.
    */
   userState?: UserStateLookup;
+  /** Manager View (owner, 10 Nov): an administrator's own switch — GET/PUT /users/me/manager-view. */
+  managerViewStore?: ManagerViewStore;
+  /** Manager View's project-settings rule: does this person run the project (absent: refused, fails closed). */
+  managerViewLookup?: ManagerViewLookup;
   projectService?: ProjectService;
   /** The Projects page's figures in grouped queries (GET /projects/overview). */
   projectOverview?: ProjectOverviewSource;
@@ -604,7 +610,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   // Process metrics for monitoring (T19.3). Admin-only: pid, Node version and memory are
   // internal details that anonymous callers shouldn't see (uptime checks use /health).
   // One guard for every route, so its short account-state cache is shared.
-  const guard = createAuthGuard(deps.tokenService, { userState: deps.userState });
+  const guard = createAuthGuard(deps.tokenService, { userState: deps.userState, ...(deps.managerViewLookup ? { managerView: deps.managerViewLookup } : {}) });
   app.get('/api/v1/metrics', { preHandler: guard.requireRoles('ADMIN') }, async () => {
     const mem = process.memoryUsage();
     return {
@@ -718,6 +724,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         await registerProjectRoutes(api, {
           projectService: deps.projectService,
           guard,
+          // Manager View: an administrator's "may change it" — the projects they run.
+          managerView: deps.managerViewLookup,
           listProjectTasks: deps.taskService ? (projectId) => deps.taskService!.listTasks({ projectId }) : undefined,
           timeZone: deps.appConfig?.timeZone,
           overview: deps.projectOverview,
@@ -965,6 +973,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       if (deps.userPreferences) {
         // A static path, so /users/me/preferences is never read as the admin route /users/:id.
         await registerPreferenceRoutes(api, { repo: deps.userPreferences, guard });
+      }
+      if (deps.managerViewStore) {
+        // Manager View's switch: a static path too (never the admin route /users/:id), and never refused by it.
+        await registerManagerViewRoutes(api, { store: deps.managerViewStore, guard, audit: deps.auditService });
       }
       if (deps.userService) {
         await registerUserRoutes(api, {
