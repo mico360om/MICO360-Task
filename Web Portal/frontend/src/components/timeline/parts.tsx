@@ -109,7 +109,7 @@ const CHIP = 'grid h-5 min-w-[1.25rem] place-items-center rounded-full bg-ground
 /** One person's chip: their photo (avatar hotfix), else — none, or it doesn't load — their initials. */
 function Face({ person }: { person: { name: string; avatarUrl?: string | null } }) {
   const photo = usePersonPhoto(person.avatarUrl);
-  if (photo.url) return <img src={photo.url} alt="" aria-hidden="true" onError={photo.onError} className="h-5 w-5 flex-none rounded-full object-cover" />;
+  if (photo.url) return <img src={photo.url} alt="" aria-hidden="true" loading="lazy" decoding="async" onError={photo.onError} className="h-5 w-5 flex-none rounded-full object-cover" />;
   return (
     <span aria-hidden="true" className={CHIP}>
       {initialsOf(person.name)}

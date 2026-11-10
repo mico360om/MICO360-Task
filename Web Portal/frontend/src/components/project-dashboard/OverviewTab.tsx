@@ -231,7 +231,7 @@ export function OverviewTab(p: OverviewProps) {
           {managers.length ? (
             <ul className="mt-1.5 flex flex-col gap-1.5">
               {managers.map((m) => (
-                <li key={m.id} className="flex items-center gap-2 text-sm font-medium text-ink"><Avatar name={m.name} src={m.avatarUrl} size="sm" /><bdi>{m.name}</bdi></li>
+                <li key={m.id} className="flex items-center gap-2 text-sm font-medium text-ink"><Avatar name={m.name} src={m.avatarUrl} size="sm" decorative /><bdi>{m.name}</bdi></li>
               ))}
             </ul>
           ) : (

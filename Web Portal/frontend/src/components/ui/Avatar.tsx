@@ -10,6 +10,8 @@ export interface AvatarProps {
   src?: string | null;
   /** A face in a row of a list, table or board: 20px in compact rows (1.23.0, lib/density). */
   dense?: boolean;
+  /** The person's name is written right beside the face: hide the face from screen readers (no name said twice). */
+  decorative?: boolean;
 }
 
 const SIZE: Record<NonNullable<AvatarProps['size']>, string> = {
@@ -28,15 +30,19 @@ export function usePersonPhoto(src: string | null | undefined): { url: string | 
   return { url: url && url !== failed ? url : null, onError: () => setFailed(url) };
 }
 
-export function Avatar({ name, size = 'md', src, dense = false }: AvatarProps) {
+export function Avatar({ name, size = 'md', src, dense = false, decorative = false }: AvatarProps) {
   const sizing = dense ? `${SIZE[size]} ${DENSE_FACE}` : SIZE[size];
   const photo = usePersonPhoto(src);
   if (photo.url) {
     return (
       <img
         src={photo.url}
-        alt={name}
+        alt={decorative ? '' : name}
+        aria-hidden={decorative || undefined}
         title={name}
+        // Faces fill long lists (a board, Activity): fetched as they come into view, decoded off the main thread.
+        loading="lazy"
+        decoding="async"
         onError={photo.onError}
         className={`inline-block flex-none rounded-full border border-surface object-cover ${sizing}`}
       />
@@ -49,7 +55,8 @@ export function Avatar({ name, size = 'md', src, dense = false }: AvatarProps) {
   return (
     <span
       title={name}
-      aria-label={name}
+      aria-label={decorative ? undefined : name}
+      aria-hidden={decorative || undefined}
       // The brand tint over a solid card-coloured backing: it looks the same on a card, but avatars
       // stacked over each other no longer show the letters behind through the tint.
       className={`inline-flex flex-none items-center justify-center rounded-full border border-surface bg-surface bg-[linear-gradient(rgb(var(--c-brand)/0.1),rgb(var(--c-brand)/0.1))] font-semibold text-brand ${sizing}`}

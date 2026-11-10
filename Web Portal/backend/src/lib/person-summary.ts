@@ -21,7 +21,7 @@ interface NameParts {
 }
 
 /** First and last name, else the username. */
-export const personName = (u: NameParts): string => [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username;
+export const personName = (u: NameParts): string => [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || u.username;
 
 /** A photo path, or null for none (blank counts as none). */
 export const photoOf = (avatarUrl: string | null | undefined): string | null => (avatarUrl && avatarUrl.trim() ? avatarUrl : null);

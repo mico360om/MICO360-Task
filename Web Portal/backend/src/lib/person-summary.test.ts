@@ -25,5 +25,6 @@ describe('person summary', () => {
     expect(personName({ username: 'omar', firstName: 'Omar', lastName: '' })).toBe('Omar');
     expect(personName({ username: 'omar', firstName: '', lastName: '' })).toBe('omar');
     expect(personName({ username: 'z', firstName: null, lastName: 'Malik' })).toBe('Malik');
+    expect(personName({ username: 'pad', firstName: ' ', lastName: '' })).toBe('pad'); // blanks: the username
   });
 });

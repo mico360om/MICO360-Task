@@ -44,6 +44,27 @@ describe('Avatar', () => {
     expect(screen.getByAltText('Khurram Mian').getAttribute('src')).toMatch(/new\.png$/);
   });
 
+  it('loads the photo lazily and off the main thread (faces fill long lists)', () => {
+    render(<Avatar name="Khurram Mian" src="/uploads/avatars/km.png" />);
+    expect(screen.getByAltText('Khurram Mian')).toHaveAttribute('loading', 'lazy');
+    expect(screen.getByAltText('Khurram Mian')).toHaveAttribute('decoding', 'async');
+  });
+
+  it('a face beside the written name is decorative: screen readers hear the name once', () => {
+    const { container } = render(
+      <>
+        <Avatar name="Khurram Mian" src="/uploads/avatars/km.png" decorative />
+        <Avatar name="Omar Al Said" decorative />
+      </>,
+    );
+    const [img, initials] = [container.querySelector('img')!, container.querySelector('span')!];
+    expect(img).toHaveAttribute('alt', '');
+    expect(img).toHaveAttribute('aria-hidden', 'true');
+    expect(initials).toHaveAttribute('aria-hidden', 'true');
+    expect(initials).not.toHaveAttribute('aria-label');
+    expect(initials).toHaveTextContent('OA');
+  });
+
   it('with no photo (null, empty or missing) it shows the initials', () => {
     render(
       <>
