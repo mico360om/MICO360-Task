@@ -214,7 +214,7 @@ function ErrorRow({ group: g, open, isNew, timeZone, onToggle, onChanged }: { gr
         </span>
         <span dir="auto" className="line-clamp-2 break-words font-medium text-ink">{g.title}</span>
         {/* 1.23.3: a slow request — where the last time's wait went (the server, the database or the network). */}
-        {g.timing ? <span className="break-words text-xs text-ink-2">{lastTimeText(g.timing)}</span> : null}
+        {g.timing ? <span className="break-words text-xs text-ink-2">{lastTimeText(g.timing, g.kind)}</span> : null}
         {note ? (
           <span role="note" className="break-words text-xs text-ink-3">
             {note}
@@ -316,7 +316,7 @@ function Occurrence({ e, timeZone }: { e: ErrorOccurrence; timeZone: string }) {
         <span dir="auto" className="text-ink-2">{personText(e)}</span>
       </span>
       {e.kind !== 'ERROR' && e.kind !== 'SERVER' ? <span dir="auto" className="break-words text-ink-2">{e.message}</span> : null}
-      {e.timing ? <span className="break-words text-ink-2">{slowTimingText(e.timing)}</span> : null}
+      {e.timing ? <span className="break-words text-ink-2">{slowTimingText(e.timing, e.kind)}</span> : null}
       {/* 1.23.14: each part of the request's time, from the browser's own timing. */}
       {partsText(e.timing) ? <span className="break-words text-ink-3">{partsText(e.timing)}</span> : null}
       {/* 1.23.14: what a slow click or key press was on, in words. */}

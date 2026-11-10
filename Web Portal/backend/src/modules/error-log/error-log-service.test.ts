@@ -19,8 +19,9 @@ let collecting: boolean;
 let warned: string[];
 let service: ErrorLogService;
 let serverVersion: string | null;
-/** 1.23.14: whether the server is stopping or just started (an update restart). */
+/** 1.23.14: whether the server is stopping or just started (an update restart), and which. */
 let inUpdateWindow: boolean;
+let updatePhase: 'stopping' | 'starting';
 
 function make(opts: { webRoot?: string | null; perAddress?: number; serverPerMinute?: number; reportsPerAddress?: number; reportsPerMinute?: number; newRowsPerHour?: number } = {}) {
   service = createErrorLogService({
@@ -39,7 +40,7 @@ function make(opts: { webRoot?: string | null; perAddress?: number; serverPerMin
       newRowsPerHour: opts.newRowsPerHour ?? 300,
     },
     userNames: async (ids) => new Map(ids.filter((id) => id !== 'gone').map((id) => [id, `Name of ${id}`])),
-    updateWindow: () => inUpdateWindow,
+    updateWindow: () => (inUpdateWindow ? updatePhase : null),
   });
 }
 
@@ -50,6 +51,7 @@ beforeEach(() => {
   warned = [];
   serverVersion = '1.22.4';
   inUpdateWindow = false;
+  updatePhase = 'starting';
   make();
 });
 
@@ -572,22 +574,26 @@ describe('update restarts (1.23.14)', () => {
 
   it('a database blip while the server stops or starts: one calm Update row (its page, person and code kept)', async () => {
     inUpdateWindow = true;
+    updatePhase = 'stopping';
     service.recordServer('request failed', { method: 'GET', route: '/api/v1/conversations', status: 503, err: blip('P1001'), userId: 'u1' });
+    updatePhase = 'starting';
     service.recordServer('request failed', { method: 'GET', route: '/api/v1/tasks', status: 503, err: blip('P1017'), userId: 'u2' });
     service.recordServer('daily task emails failed', { err: blip('P1001'), job: 'daily-task-emails' });
     await service.settled();
     expect(repo.groups).toHaveLength(1);
     expect(repo.groups[0]).toMatchObject({ kind: 'UPDATE', title: 'During an update: the database was briefly unreachable — handled', count: 3, peopleCount: 2 });
     const d = await service.detail(repo.groups[0]!.id);
+    // Each occurrence says which side of the restart it was: the old server stopping, or a new one starting.
     expect(d!.events.map((e) => [e.detail, e.page ?? e.job]).sort()).toEqual([
-      ['job', 'daily-task-emails'],
-      ['request', 'GET /api/v1/conversations'],
-      ['request', 'GET /api/v1/tasks'],
+      ['starting', 'GET /api/v1/tasks'],
+      ['starting', 'daily-task-emails'],
+      ['stopping', 'GET /api/v1/conversations'],
     ]);
     expect(d!.events.find((e) => e.page === 'GET /api/v1/tasks')!.database).toMatch(/^P1017 · /);
-    // With the Server chip, and counted there.
-    const server = await all('open', 'server');
+    // With the Server chip, and counted there; an older page (that doesn't ask for them) sees a Server row.
+    const server = await service.list({ kind: 'server', range: '30d', q: null, status: 'open', before: null, updateKind: true });
     expect(server.groups.map((g) => g.kind)).toEqual(['UPDATE']);
+    expect((await all('open', 'server')).groups.map((g) => g.kind)).toEqual(['SERVER']);
     expect(server.counts).toMatchObject({ server: 1, all: 1 });
   });
 
@@ -634,7 +640,7 @@ describe('update restarts (1.23.14)', () => {
       userId: 'u1',
     });
     await service.settled();
-    const server = await all('open', 'server');
+    const server = await service.list({ kind: 'server', range: '30d', q: null, status: 'open', before: null, updateKind: true });
     expect(server.groups.map((g) => [g.kind, g.title]).sort()).toEqual([
       ['UPDATE', 'During an update: a request was cut off while the server restarted'],
       ['UPDATE', 'During an update: requests waited for the server to start'],

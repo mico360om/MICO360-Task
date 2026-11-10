@@ -104,6 +104,8 @@ export interface RequestWatchWorld {
   online(): boolean;
   /** The page is being left (or hidden now): the older rule, for requests without a start mark. */
   leaving(): boolean;
+  /** The page is being left (not merely hidden): asking the server about a failed request stops then. */
+  gone?(): boolean;
   report(r: ErrorReport): void;
   setTimeout(fn: () => void, ms: number): unknown;
   clearTimeout(timer: unknown): void;
@@ -121,7 +123,12 @@ interface Pending {
   url: string;
   limit: number;
   timer: unknown;
+  /** When the request was told (the page's clock): kept for matching from then. */
+  doneAt: number;
 }
+
+/** An entry this close after a request's start is its own (fetch is called right after the start is taken). */
+const MATCH_MS = 100;
 
 export function createRequestWatch(world: RequestWatchWorld) {
   const pending: Pending[] = [];
@@ -177,17 +184,19 @@ export function createRequestWatch(world: RequestWatchWorld) {
     let best: ResourceTimingLike | null = null;
     for (const e of entries) {
       const d = e.startTime - at;
-      if (e.name !== p.url || d < -2 || d > 1000) continue;
+      if (e.name !== p.url || d < -2 || d > MATCH_MS) continue;
       if (!best || Math.abs(d) < Math.abs(best.startTime - at)) best = e;
     }
     if (best) entries.splice(entries.indexOf(best), 1);
     return best;
   }
 
+  /** Old requests and entries go; a slow request still waiting for its entry (its timer armed) never does. */
   function prune(): void {
     const old = world.mono() - KEEP_MS;
-    for (const p of [...pending]) if ((p.info.startedAt ?? 0) < old) forget(p);
-    while (pending.length > MAX_KEPT) forget(pending[0]!);
+    for (const p of [...pending]) if (p.doneAt < old && !p.timer) forget(p);
+    const unarmed = pending.filter((p) => !p.timer);
+    while (unarmed.length && pending.length > MAX_KEPT) forget(unarmed.shift()!);
     for (let i = entries.length - 1; i >= 0; i--) if (entries[i]!.startTime < old) entries.splice(i, 1);
     if (entries.length > MAX_KEPT) entries.splice(0, entries.length - MAX_KEPT);
   }
@@ -200,9 +209,10 @@ export function createRequestWatch(world: RequestWatchWorld) {
     }
     const waiting = [info];
     probing = waiting;
+    const left = () => (world.gone ? world.gone() : world.leaving());
     const settle = (serverStartedAt: number | null) => {
       probing = null;
-      if (world.leaving() || !world.online()) return;
+      if (left() || !world.online()) return;
       for (const i of waiting) {
         const restarted = serverStartedAt !== null && i.wallStart !== undefined && serverStartedAt > i.wallStart - RESTART_SLACK_MS;
         world.report({ kind: restarted ? 'UPDATE' : 'NETWORK', detail: 'api', resource: resourceOf(i) });
@@ -210,7 +220,8 @@ export function createRequestWatch(world: RequestWatchWorld) {
     };
     const attempt = (n: number) => {
       world.setTimeout(() => {
-        if (world.leaving()) {
+        // Only a page being left stops it: the failure happened on screen, whatever the person does next.
+        if (left()) {
           probing = null;
           return;
         }
@@ -245,7 +256,7 @@ export function createRequestWatch(world: RequestWatchWorld) {
           return;
         }
         prune();
-        const p: Pending = { info, url: world.absolute(info.url), limit: isAiRequest(info.method, info.path) ? SLOW.aiApiMs : SLOW.apiMs, timer: null };
+        const p: Pending = { info, url: world.absolute(info.url), limit: isAiRequest(info.method, info.path) ? SLOW.aiApiMs : SLOW.apiMs, timer: null, doneAt: world.mono() };
         const seen = entryFor(p);
         if (seen) return judge(p, seen);
         pending.push(p);
@@ -271,7 +282,7 @@ export function createRequestWatch(world: RequestWatchWorld) {
           let match: Pending | null = null;
           for (const p of pending) {
             const d = e.startTime - (p.info.startedAt ?? NaN);
-            if (p.url !== e.name || d < -2 || d > 1000) continue;
+            if (p.url !== e.name || d < -2 || d > MATCH_MS) continue;
             if (!match || Math.abs(d) < Math.abs(e.startTime - (match.info.startedAt ?? 0))) match = p;
           }
           if (match) {

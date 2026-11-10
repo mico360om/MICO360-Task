@@ -116,7 +116,8 @@ export interface ErrorLogQuery {
 export function errorLogApi(client: ApiClient) {
   return {
     list: (query: ErrorLogQuery) => {
-      const params = new URLSearchParams({ kind: query.kind, range: query.range, status: query.status });
+      // 1.23.14 updates=1: this page knows the Update restart kind (an older page gets those rows as Server rows).
+      const params = new URLSearchParams({ kind: query.kind, range: query.range, status: query.status, updates: '1' });
       if (query.q.trim()) params.set('q', query.q.trim().slice(0, 100));
       if (query.before) params.set('before', query.before);
       return client.get<{ data: ErrorLogPage }>(`/error-log?${params}`).then((r) => r.data);

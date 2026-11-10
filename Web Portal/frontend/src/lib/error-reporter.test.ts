@@ -285,3 +285,16 @@ describe('the error reporter', () => {
     expect(chat).not.toHaveProperty('dbMs');
   });
 });
+
+describe('update restarts: one report per kind a page load, counted (1.23.14 review)', () => {
+  it('requests cut on several addresses add up in one report', async () => {
+    const w = fakeWorld();
+    const r = createErrorReporter(w.world);
+    r.report({ kind: 'UPDATE', detail: 'api', resource: 'GET /api/v1/tasks' });
+    r.report({ kind: 'UPDATE', detail: 'api', resource: 'GET /api/v1/projects' });
+    r.report({ kind: 'UPDATE', detail: 'slow', value: 12_000, resource: 'GET /api/v1/tasks' });
+    r.report({ kind: 'UPDATE', detail: 'slow', value: 13_000, resource: 'GET /api/v1/version' });
+    await w.advance(10_000);
+    expect(w.sent[0]!.body.reports.map((x) => [x.detail, x.count])).toEqual([['api', 2], ['slow', 2]]);
+  });
+});

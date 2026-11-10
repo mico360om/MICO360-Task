@@ -188,3 +188,30 @@ describe('the first time the page was hidden, and stretches of time away', () =>
     expect(life.firstHiddenTime()).toBe(Infinity);
   });
 });
+
+// Review fixes (1.23.14).
+describe('edges of a stretch away', () => {
+  it('a request starting at the very moment the page came back is not counted as away (a coarse clock)', () => {
+    hide();
+    later(5000);
+    show(); // the stretch ends at this moment…
+    const start = life.mark(); // …and the refetch-on-return request starts at the same one
+    expect(life.awayBetween(mono, mono + 10_000)).toBe(false);
+    later(10_000);
+    expect(life.awaySince(start)).toBe(false);
+  });
+
+  it('a prerendered page: the browser’s entries from before its activation are not "hidden" (web-vitals)', () => {
+    life.stop();
+    Object.defineProperty(document, 'prerendering', { value: true, configurable: true });
+    setVisibility('hidden');
+    life = createPageLifecycle(window, { clock, activationStart: () => 0, visibilityEntries: () => [{ name: 'hidden', startTime: 0 }] });
+    expect(life.firstHiddenTime()).toBe(Infinity);
+    Object.defineProperty(document, 'prerendering', { value: undefined, configurable: true });
+    // Activated before this script ran: only entries after the activation count.
+    life.stop();
+    setVisibility('visible');
+    life = createPageLifecycle(window, { clock, activationStart: () => 7000, visibilityEntries: () => [{ name: 'hidden', startTime: 0 }, { name: 'visible', startTime: 7000 }] });
+    expect(life.firstHiddenTime()).toBe(Infinity);
+  });
+});

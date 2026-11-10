@@ -325,7 +325,7 @@ async function main(): Promise<void> {
     },
     warn: (message, meta) => baseLogger.warn(message, meta),
     userNames: (ids) => resolveUserNames(ids),
-    updateWindow: () => updateWindow.isOpen(),
+    updateWindow: () => updateWindow.phase(),
   });
   const logger = withErrorLog(baseLogger, (message, ctx) => errorLog.recordServer(message, ctx));
   // 1.23.1 (lib/job-gate): background jobs start once the database first answered (a deploy restart

@@ -102,10 +102,11 @@ export interface ErrorLogServiceDeps {
   /** People's names for the details' latest occurrences. */
   userNames?: (ids: string[]) => Promise<Map<string, string>>;
   /**
-   * 1.23.14: the server is stopping (SIGTERM — an update) or in its first minute after starting: a database
-   * blip then is the update's (answered 503 and tried again), recorded as a calm Update row.
+   * 1.23.14: the server is stopping (SIGTERM — an update) or in its first minute after starting (an update,
+   * or another restart): a database blip then is the restart's (answered 503 and tried again), recorded as a
+   * calm Update row whose occurrence says which side ('stopping' / 'starting'); null outside that window.
    */
-  updateWindow?: () => boolean;
+  updateWindow?: () => 'stopping' | 'starting' | null;
   limits?: {
     /** Requests a minute from one address (a page sends a batch at most every 10 seconds). */
     perAddressPerMinute?: number;
@@ -139,6 +140,11 @@ export interface GroupListItem {
 
 export interface ListQuery {
   kind: KindFilter;
+  /**
+   * 1.23.14: the page knows the Update restart kind (it asks with updates=1). An older page's code, open
+   * across the deploy or after a rollback, knows no such kind: it is shown those rows as Server rows.
+   */
+  updateKind?: boolean;
   range: RangeFilter;
   q: string | null;
   status: 'open' | 'fixed';
@@ -348,9 +354,11 @@ export function createErrorLogService(deps: ErrorLogServiceDeps) {
       const version = clip(versionOf(null), 32);
       // 1.23.14: a database blip while the server stops or has just started is the update's (handled), not an error.
       const updateBlip = databaseConnectionCode(thrown);
-      if (updateBlip && deps.updateWindow?.()) {
+      const phase = updateBlip ? (deps.updateWindow?.() ?? null) : null;
+      if (updateBlip && phase) {
         const page = request ? clip(`${method ?? ''} ${route ?? '(no route)'}`.trim(), 300) : null;
-        const detail = request ? 'request' : job ? 'job' : 'background';
+        // Which side of the restart (the page or job is said beside it).
+        const detail = phase;
         const d = describeReport({ kind: 'UPDATE', detail, job, route: page, blip: updateBlip });
         background('an update restart', async () => {
           await store({
@@ -449,7 +457,10 @@ export function createErrorLogService(deps: ErrorLogServiceDeps) {
       return e ? slowTiming({ kind: g.kind, value: e.value, stack: e.stack }) : null;
     };
     return {
-      groups: shown.map((g) => ({ ...toItem(g, pages.get(g.id) ?? null), timing: timingOf(g) })),
+      groups: shown.map((g) => {
+        const item = { ...toItem(g, pages.get(g.id) ?? null), timing: timingOf(g) };
+        return item.kind === 'UPDATE' && !q.updateKind ? { ...item, kind: 'SERVER' as const } : item;
+      }),
       next: rows.length > limit && last ? `${last.lastSeenAt.toISOString()}|${last.id}` : null,
       counts: { all: n('ERROR') + n('NETWORK') + n('BLOCKED') + n('SLOW') + n('SERVER') + n('UPDATE'), errors: n('ERROR') + n('NETWORK'), blocked: n('BLOCKED'), slow: n('SLOW'), server: n('SERVER') + n('UPDATE') },
     };

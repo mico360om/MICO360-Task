@@ -274,6 +274,8 @@ describe('Error log — update restarts, page times and where the time went (1.2
     renderPage();
     const update = (await screen.findByText(ROWS[0]!.title)).closest('li')!;
     expect(within(update).getByText('Update restart')).toBeInTheDocument();
+    // This page knows the kind (an older page's code would be sent a Server row instead).
+    expect(vi.mocked(fetch).mock.calls.some(([u]) => String(u).includes('/error-log?') && new URL(String(u), 'http://x').searchParams.get('updates') === '1')).toBe(true);
     expect(within(update).getByText('No one in particular')).toBeInTheDocument();
     await user.click(within(update).getByRole('button', { expanded: false }));
     expect((await within(update).findAllByText(/Database said:/)).length).toBeGreaterThan(0);

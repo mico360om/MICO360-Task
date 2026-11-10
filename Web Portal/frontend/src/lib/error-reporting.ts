@@ -16,13 +16,18 @@ let requests: ReturnType<typeof createRequestWatch> | null = null;
 
 /** 1.23.14: how long the server has been up (ms), from /health — null when it doesn't answer. Never throws. */
 export async function serverUptimeMs(baseUrl: string): Promise<number | null> {
+  // Never waits for ever (a dead connection): after 10 s it counts as not answered.
+  const stop = typeof AbortController === 'function' ? new AbortController() : null;
+  const timer = setTimeout(() => stop?.abort(), 10_000);
   try {
-    const res = await fetch(`${baseUrl}/health`, { cache: 'no-store' });
+    const res = await fetch(`${baseUrl}/health`, { cache: 'no-store', ...(stop ? { signal: stop.signal } : {}) });
     if (!res.ok) return null;
     const seconds = Number(((await res.json()) as { data?: { uptimeSeconds?: unknown } })?.data?.uptimeSeconds);
     return Number.isFinite(seconds) && seconds >= 0 ? seconds * 1000 : null;
   } catch {
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -82,6 +87,7 @@ export function installErrorReporting(opts: { baseUrl: string; getToken: () => s
       lifecycle: life,
       online: () => navigator.onLine !== false,
       leaving: goingOrHidden,
+      gone: isLeaving,
       report: (report) => r.report(report),
       setTimeout: (fn, ms) => window.setTimeout(fn, ms),
       clearTimeout: (t) => window.clearTimeout(t as number),

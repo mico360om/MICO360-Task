@@ -13,6 +13,11 @@ export interface UpdateWindow {
   markStopping(): void;
   /** Stopping, or started less than a minute ago. */
   isOpen(): boolean;
+  /**
+   * Which side of the restart: the old server stopping (SIGTERM — an update), or a new one starting (an
+   * update, or any other restart: a crash, the hosting restarting it); null outside the window.
+   */
+  phase(): 'stopping' | 'starting' | null;
 }
 
 export function createUpdateWindow(opts: { now?: () => number; startedAt?: number; settleMs?: number } = {}): UpdateWindow {
@@ -26,6 +31,10 @@ export function createUpdateWindow(opts: { now?: () => number; startedAt?: numbe
     },
     isOpen() {
       return stopping || now() - startedAt < settleMs;
+    },
+    phase() {
+      if (stopping) return 'stopping';
+      return now() - startedAt < settleMs ? 'starting' : null;
     },
   };
 }

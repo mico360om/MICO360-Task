@@ -132,7 +132,8 @@ export function createErrorReporter(world: ReporterWorld) {
       if (message && NOISE.test(message)) return;
       if (isExtensionSource(stack) || isExtensionSource(resource) || isExtensionSource(message)) return;
       const page = pagePattern(String(r.page ?? world.page()));
-      const key = [r.kind, r.detail, message ?? '', firstFrame(stack), r.kind === 'NETWORK' ? '' : (resource ?? ''), r.directive ?? '', r.kind === 'ERROR' ? '' : page].join('|');
+      // A network problem, or an update restart (1.23.14), is one report a page load whatever the request: counted.
+      const key = [r.kind, r.detail, message ?? '', firstFrame(stack), r.kind === 'NETWORK' || r.kind === 'UPDATE' ? '' : (resource ?? ''), r.directive ?? '', r.kind === 'ERROR' ? '' : page].join('|');
       if (done.has(key)) return;
       const waiting = queue.get(key);
       if (waiting) {

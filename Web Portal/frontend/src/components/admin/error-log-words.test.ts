@@ -112,3 +112,13 @@ describe('Error log words: update restarts and page times (1.23.14)', () => {
     expect(interactionWords({ detail: 'api', resource: 'GET /api/v1/tasks' })).toBe('');
   });
 });
+
+describe('Error log words: a request held up by an update restart (1.23.14 review)', () => {
+  it('says the server was starting, not a hold-up on the way', () => {
+    const t = { totalMs: 15_900, serverMs: 7, dbMs: 4, queueMs: 0, connectMs: 0, waitMs: 15_900, downloadMs: 0 };
+    expect(slowTimingText(t, 'UPDATE')).toBe('waited 15.9 s while the server started; the server itself then took under 0.1 s');
+    expect(lastTimeText(t, 'UPDATE')).toBe('Last time 15.9 s: waited 15.9 s while the server started; the server itself then took under 0.1 s');
+    expect(detailText('stopping')).toBe('While the server stopped');
+    expect(detailText('starting')).toBe('While the server started (an update or a restart)');
+  });
+});

@@ -90,9 +90,13 @@ export function createPageLifecycle(win: Window, opts: PageLifecycleOptions = {}
   const spans: { start: number; end: number | null }[] = away ? [{ start: 0, end: null }] : [];
   let firstHidden = hiddenNow() && !prerenderingNow() ? 0 : Infinity;
   try {
-    // What the browser saw before this script ran (a tab switched away and back while it loaded).
+    // What the browser saw before this script ran (a tab switched away and back while it loaded). Not
+    // while prerendering, and only after a prerendered page's activation (web-vitals): before it, the page
+    // was being prepared, not hidden from someone.
     let open: number | null = null;
-    for (const e of (opts.visibilityEntries ?? (() => browserVisibilityEntries(win)))()) {
+    const activatedAt = prerenderingNow() ? Infinity : activation();
+    const seenEntries = prerenderingNow() ? [] : (opts.visibilityEntries ?? (() => browserVisibilityEntries(win)))();
+    for (const e of seenEntries.filter((x) => activatedAt <= 0 || x.startTime > activatedAt)) {
       if (e.name === 'hidden') {
         firstHidden = Math.min(firstHidden, e.startTime);
         if (open === null) open = e.startTime;
@@ -187,7 +191,8 @@ export function createPageLifecycle(win: Window, opts: PageLifecycleOptions = {}
     },
     awayBetween(from, to) {
       update();
-      return spans.some((s) => s.start <= to && (s.end ?? Infinity) >= from);
+      // Strictly inside: a request that starts at the very moment the page came back (a coarse clock) is not away.
+      return spans.some((s) => s.start < to && (s.end ?? Infinity) > from);
     },
     firstHiddenTime: () => firstHidden,
     activationStart: () => {

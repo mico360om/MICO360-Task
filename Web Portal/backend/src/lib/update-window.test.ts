@@ -26,3 +26,18 @@ describe('createUpdateWindow: is the server in an update restart?', () => {
     expect(w.isOpen()).toBe(true);
   });
 });
+
+// 1.23.14 review: which side of the restart — the old server stopping, or a new one starting (an update,
+// or any other restart: a crash, the hosting restarting it).
+describe('createUpdateWindow: phase', () => {
+  it('starting for its first minute, stopping from SIGTERM on (even in its first minute), none between', () => {
+    let t = 0;
+    const w = createUpdateWindow({ now: () => t, startedAt: 0 });
+    expect(w.phase()).toBe('starting');
+    t = 120_000;
+    expect(w.phase()).toBeNull();
+    const young = createUpdateWindow({ now: () => t, startedAt: t });
+    young.markStopping();
+    expect(young.phase()).toBe('stopping');
+  });
+});

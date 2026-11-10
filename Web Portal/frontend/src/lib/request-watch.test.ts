@@ -46,7 +46,9 @@ function make() {
   watch = createRequestWatch({
     lifecycle: life,
     online: () => online,
-    leaving: () => leaving,
+    // As on the page: being left, or hidden now (the older rule); gone: only being left.
+    leaving: () => leaving || document.visibilityState === 'hidden',
+    gone: () => leaving,
     report: (r) => reports.push(r),
     setTimeout: (fn, ms) => {
       const id = Math.random();
@@ -348,5 +350,48 @@ describe('breakdownOf and serverUpMs', () => {
     expect(serverUpMs('app;dur=4')).toBeNull();
     expect(serverUpMs('up;dur=-1')).toBeNull();
     expect(serverUpMs(undefined)).toBeNull();
+  });
+});
+
+// Review fixes (1.23.14).
+describe('review fixes', () => {
+  it('a request sent at the very moment the tab came back is judged (not dropped as away)', () => {
+    setVisibility('hidden');
+    document.dispatchEvent(new Event('visibilitychange'));
+    mono += 5000;
+    wall += 5000;
+    setVisibility('visible');
+    document.dispatchEvent(new Event('visibilitychange'));
+    const r = request(); // same moment
+    watch.requestDone(r.done(10_600));
+    watch.resources([entry(r.started.startedAt, { wait: 10_500 })]);
+    expect(reports).toMatchObject([{ kind: 'SLOW', value: 10_500 }]);
+  });
+
+  it('a failed request is still judged when the person switches tabs while the server is asked', async () => {
+    uptimes = [null, 3_600_000];
+    watch.requestDone(request().done(10, { status: 0 }));
+    await advance(10);
+    setVisibility('hidden');
+    document.dispatchEvent(new Event('visibilitychange'));
+    await advance(PROBE_DELAYS_MS[1]! + 10);
+    expect(reports).toEqual([{ kind: 'NETWORK', detail: 'api', resource: 'GET /api/v1/tasks' }]);
+  });
+
+  it('a slow request waiting for its entry is never pruned (an AI request of 4.5 minutes; many others meanwhile)', async () => {
+    const r = request({ method: 'POST', path: '/ai/parse-task' });
+    watch.requestDone(r.done(270_000));
+    for (let i = 0; i < 70; i++) watch.requestDone(request({ path: `/x${i}` }).done(10));
+    await advance(20_000);
+    expect(reports).toMatchObject([{ kind: 'SLOW', resource: 'POST /api/v1/ai/parse-task', value: 270_000 }]);
+  });
+
+  it('an entry that started 300 ms after the request is another request’s', () => {
+    const r = request();
+    watch.requestDone(r.done(11_000));
+    watch.resources([entry(r.started.startedAt + 300, { wait: 100 })]);
+    expect(reports).toEqual([]);
+    watch.resources([entry(r.started.startedAt, { wait: 10_900 })]); // its own
+    expect(reports).toMatchObject([{ kind: 'SLOW', value: 10_900 }]);
   });
 });

@@ -38,12 +38,26 @@ describe('serverUptimeMs: how long the server has been up, from /health', () => 
     const answer = vi.fn(async () => new Response(JSON.stringify({ data: { status: 'ok', uptimeSeconds: 42 } })));
     vi.stubGlobal('fetch', answer);
     expect(await serverUptimeMs('/api/v1')).toBe(42_000);
-    expect(answer).toHaveBeenCalledWith('/api/v1/health', { cache: 'no-store' });
+    expect(answer).toHaveBeenCalledWith('/api/v1/health', expect.objectContaining({ cache: 'no-store' }));
     vi.stubGlobal('fetch', vi.fn(async () => new Response('<html>503</html>', { status: 503 })));
     expect(await serverUptimeMs('/api/v1')).toBeNull();
     vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
     expect(await serverUptimeMs('/api/v1')).toBeNull();
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ data: { uptimeSeconds: -3 } }))));
     expect(await serverUptimeMs('/api/v1')).toBeNull();
+  });
+});
+
+describe('serverUptimeMs: never waits for ever (1.23.14 review)', () => {
+  it('gives up after 10 s', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.stubGlobal('fetch', vi.fn((_url: string, init?: RequestInit) => new Promise((_resolve, reject) => init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))))));
+      const answer = serverUptimeMs('/api/v1');
+      await vi.advanceTimersByTimeAsync(10_001);
+      expect(await answer).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

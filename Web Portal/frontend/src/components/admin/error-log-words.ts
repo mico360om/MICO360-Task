@@ -61,6 +61,9 @@ const DETAIL_WORDS: Record<string, string> = {
   cls: 'Layout jumping',
   request: 'Request on the server',
   slow: 'Request held up while the server started',
+  // 1.23.14: an update restart the server saw itself — while it stopped, or while it started.
+  stopping: 'While the server stopped',
+  starting: 'While the server started (an update or a restart)',
   job: 'Background job',
   background: 'Background step on the server',
 };
@@ -94,8 +97,12 @@ const secondsText = (ms: number) => (ms < 50 ? 'under 0.1 s' : `${(ms / 1000).to
  * 9.7 s", or "server 0.1 s · the rest was the network". The database's part is said when the server's
  * part matters (a second or more); the network when the server's part is under half of the whole wait.
  */
-export function slowTimingText(t: SlowTiming | null | undefined): string {
+export function slowTimingText(t: SlowTiming | null | undefined, kind?: ErrorKind): string {
   if (!t) return '';
+  // 1.23.14: a request held up by an update restart waited for the server to start.
+  if (kind === 'UPDATE' && t.waitMs !== undefined) {
+    return `waited ${secondsText(t.waitMs)} while the server started${t.serverMs === null ? '' : `; the server itself then took ${secondsText(t.serverMs)}`}`;
+  }
   if (t.waitMs !== undefined) return breakdownText(t);
   if (t.serverMs === null) return '';
   const parts = [`server ${secondsText(t.serverMs)}`];
@@ -154,9 +161,9 @@ export function interactionWords(e: Pick<ErrorOccurrence, 'detail' | 'resource'>
 }
 
 /** A slow request's row: where the last time's wait went ("Last time 10.2 s: server 9.9 s · …"). */
-export function lastTimeText(t: SlowTiming | null | undefined): string {
+export function lastTimeText(t: SlowTiming | null | undefined, kind?: ErrorKind): string {
   if (!t) return '';
-  return `Last time${t.totalMs !== null ? ` ${secondsText(t.totalMs)}` : ''}: ${slowTimingText(t)}`;
+  return `Last time${t.totalMs !== null ? ` ${secondsText(t.totalMs)}` : ''}: ${slowTimingText(t, kind)}`;
 }
 
 /** A database error's diagnosis (1.22.5), as an occurrence shows it. */
