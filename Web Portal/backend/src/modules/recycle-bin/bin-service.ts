@@ -179,7 +179,8 @@ export function createBinService(deps: BinServiceDeps) {
     const number = readTaskNumber(q);
     if (number) {
       const keys = [row.key, ...row.formerKeys];
-      if (number.keys.length && keys.some((k) => number.keys.includes(k.toUpperCase()))) return true;
+      // "RIG-12" however typed is that task only; a bare "12" is any task numbered …-12, or words.
+      if (number.keys.length) return keys.some((k) => number.keys.includes(k.toUpperCase()));
       if (number.number && keys.some((k) => k.endsWith(`-${number.number}`))) return true;
     }
     const words = normalizeForSearch(q).split(' ').filter(Boolean);

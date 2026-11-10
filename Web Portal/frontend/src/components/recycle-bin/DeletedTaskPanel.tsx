@@ -140,7 +140,7 @@ export function DeletedTaskPanel({ taskId, onClose, closeButton }: { taskId: str
               </Button>
             )}
             {d.bin.canErase ? (
-              <Button size="sm" variant="ghost" onClick={() => setErasing(true)} disabled={busy} className={`text-danger hover:text-danger ${TOUCH_TALL}`}>
+              <Button size="sm" variant="ghost" onClick={() => setErasing(true)} disabled={busy} className={`!text-danger hover:!bg-danger-soft ${TOUCH_TALL}`}>
                 Delete forever
               </Button>
             ) : null}

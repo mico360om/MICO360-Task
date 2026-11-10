@@ -77,7 +77,16 @@ type Filters = ReturnType<typeof filtersFrom>;
  */
 export function RecycleBinPage() {
   const [params, setParams] = useSearchParams();
-  const filters = filtersFrom(params);
+  // The filters live in the address, mirrored here so a tick box or a date answers at once (the router
+  // applies an address change as a transition); Back/forward (the address changing alone) resets them.
+  const fromAddress = filtersFrom(params);
+  const addressKey = JSON.stringify(fromAddress);
+  const [filters, setFilters] = useState<Filters>(fromAddress);
+  const [lastAddress, setLastAddress] = useState(addressKey);
+  if (addressKey !== lastAddress) {
+    setLastAddress(addressKey);
+    setFilters(fromAddress);
+  }
   const queryClient = useQueryClient();
   const timeZone = useCompanyTimeZone();
   const today = todayKey(timeZone);
@@ -88,12 +97,18 @@ export function RecycleBinPage() {
   const [typed, setTyped] = useState(filters.q);
   const settled = useDebouncedValue(typed, 300);
   const set = (patch: Partial<Filters>) => {
-    const next = new URLSearchParams(params);
-    for (const [k, v] of Object.entries(patch)) {
-      if (v === '' || v === false || (k === 'sort' && v === 'deleted')) next.delete(k);
-      else next.set(k, v === true ? '1' : String(v));
-    }
-    setParams(next, { replace: true });
+    setFilters((f) => ({ ...f, ...patch }));
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        for (const [k, v] of Object.entries(patch)) {
+          if (v === '' || v === false || (k === 'sort' && v === 'deleted')) next.delete(k);
+          else next.set(k, v === true ? '1' : String(v));
+        }
+        return next;
+      },
+      { replace: true },
+    );
   };
   useEffect(() => {
     if (settled !== filters.q) set({ q: settled.trim() ? settled : '' });
@@ -196,7 +211,7 @@ export function RecycleBinPage() {
         Restore
       </Button>
       {canErase ? (
-        <Button size="sm" variant="ghost" onClick={() => setAskErase([r])} disabled={busy} aria-label={`Delete forever: ${r.key}`} className={`text-danger hover:text-danger ${TOUCH_TALL}`}>
+        <Button size="sm" variant="ghost" onClick={() => setAskErase([r])} disabled={busy} aria-label={`Delete forever: ${r.key}`} className={`!text-danger hover:!bg-danger-soft ${TOUCH_TALL}`}>
           Delete forever
         </Button>
       ) : null}
@@ -258,7 +273,7 @@ export function RecycleBinPage() {
             type="button"
             onClick={() => {
               setTyped('');
-              setParams(filters.sort === 'daysLeft' ? new URLSearchParams({ sort: 'daysLeft' }) : new URLSearchParams(), { replace: true });
+              set({ q: '', project: '', deletedBy: '', from: '', to: '', soon: false, company: '' });
             }}
             className={`col-span-2 self-center justify-self-start rounded-lg px-2 py-1 text-xs font-medium text-ink-2 transition-colors hover:bg-ground hover:text-ink ${TOUCH_TALL}`}
           >

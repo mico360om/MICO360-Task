@@ -114,6 +114,13 @@ describe('the bin list: search, filters, sort and page', () => {
     expect(await ids('nothing like it')).toEqual([]);
   });
 
+  it('a task number finds that task only — never others whose words happen to hold its letters and digits', async () => {
+    const { service } = storeWith([row('t3', { key: 'BN33R-3', title: 'Close out' }), row('t1', { key: 'BN33R-1', title: 'Order 3 cement trucks' })]);
+    expect((await service.list(admin, null, { q: 'bn33r 3' })).rows.map((r) => r.id)).toEqual(['t3']);
+    // A bare number still finds its words too ("3 cement trucks") as well as any task numbered …-3.
+    expect((await service.list(admin, null, { q: '3' })).rows.map((r) => r.id).sort()).toEqual(['t1', 't3']);
+  });
+
   it('filters by project, who deleted it (Unknown too), the days it was deleted and "7 days or less left"', async () => {
     const { service } = storeWith([
       row('a1', { deletedAt: new Date('2026-09-15T08:00:00Z') }), // 4 days left on 10 Nov (56 days on)
