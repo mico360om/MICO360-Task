@@ -44,6 +44,17 @@ describe('Avatar', () => {
     expect(screen.getByAltText('Khurram Mian').getAttribute('src')).toMatch(/new\.png$/);
   });
 
+  it('loads the photo’s small face copy, then the photo itself if the copy fails, then the initials (avatar thumbnails)', () => {
+    const key = '0b2f6c1e-1d2a-4c3b-9e8f-7a6b5c4d3e2f.jpg';
+    render(<Avatar name="Khurram Mian" src={`/uploads/${key}`} />);
+    expect(screen.getByAltText('Khurram Mian').getAttribute('src')).toMatch(new RegExp(`/uploads/faces/${key.replace(/\./g, '\\.')}\\.webp$`));
+    fireEvent.error(screen.getByAltText('Khurram Mian'));
+    expect(screen.getByAltText('Khurram Mian').getAttribute('src')).toMatch(new RegExp(`/uploads/${key.replace(/\./g, '\\.')}$`));
+    fireEvent.error(screen.getByAltText('Khurram Mian'));
+    expect(document.querySelector('img')).toBeNull();
+    expect(screen.getByLabelText('Khurram Mian')).toHaveTextContent('KM');
+  });
+
   it('loads the photo lazily and off the main thread (faces fill long lists)', () => {
     render(<Avatar name="Khurram Mian" src="/uploads/avatars/km.png" />);
     expect(screen.getByAltText('Khurram Mian')).toHaveAttribute('loading', 'lazy');

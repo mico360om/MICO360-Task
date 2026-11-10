@@ -9,6 +9,9 @@ export interface AuthUser {
   username: string;
   roles: string[];
   avatarUrl?: string | null;
+  /** Their name (GET /users/me fills it in after sign-in): the header's initials are the name's. */
+  firstName?: string;
+  lastName?: string;
 }
 
 export interface Session {

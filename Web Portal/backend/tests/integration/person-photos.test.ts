@@ -10,6 +10,7 @@ import { buildProjectMeetingsOverview } from '../../src/modules/meetings/project
 import { createPrismaInspectionScheduleSource } from '../../src/modules/inspections/prisma-inspection-schedule-source';
 import { createClientAccounts } from '../../src/modules/clients/client-accounts';
 import { createPrismaTimelineSource } from '../../src/modules/planning/prisma-timeline-source';
+import { prismaIsAvatar } from '../../src/modules/users/avatar-faces';
 
 // Avatar hotfix (owner, 10 Nov: "Icon was not showing, fix it."): the payloads behind the website's
 // faces carry each person's photo (avatarUrl, null without one), read in the query each already makes —
@@ -137,6 +138,16 @@ describe('the team’s faces carry their photos (avatar hotfix)', () => {
     const s1 = [...rows.openInRange, ...rows.overdue].find((t) => t.id === w.tasks.S1)!;
     expect(faceOf(s1.assignees, w.people.omar)).toBe(PHOTO.omar);
     expect(faceOf(s1.assignees, plain)).toBeNull();
+  });
+});
+
+describe('a face copy is made only for someone’s current photo (avatar thumbnails)', () => {
+  it('a current photo is one; an old one, another upload or a made-up address is not', async () => {
+    const isAvatar = prismaIsAvatar(prisma);
+    expect(await isAvatar(PHOTO.omar)).toBe(true);
+    expect(await isAvatar(PHOTO.c1)).toBe(true);
+    expect(await isAvatar('/uploads/avatars/zzphoto-nobody.png')).toBe(false);
+    expect(await isAvatar('/uploads/avatars/zzphoto-%')).toBe(false); // no pattern matching: the exact address only
   });
 });
 

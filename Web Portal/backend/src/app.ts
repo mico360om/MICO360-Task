@@ -225,6 +225,8 @@ export interface AppDeps extends AuthRouteDeps {
   onChatUserEvent?: (userId: string, event: string, payload: unknown) => void;
   /** File storage for chat attachments (same adapter as task attachments). */
   chatAttachmentStorage?: import('./modules/tasks/attachment-repository').AttachmentStorage;
+  /** Avatar thumbnails: writes an uploaded photo's face copy (modules/users/avatar-faces.ts). */
+  avatarFaces?: { prepare(url: string, content: Buffer): Promise<void> };
   attachmentService?: AttachmentService;
   attachmentMaxSizeBytes?: number;
   /** Allowed attachment mime types (shared by task + chat uploads); empty means any. */
@@ -963,6 +965,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           audit: deps.auditService,
           storage: deps.chatAttachmentStorage,
           avatarMaxBytes: deps.attachmentMaxSizeBytes,
+          avatarFaces: deps.avatarFaces,
           exportData: deps.dataExporter,
           timeZone: deps.appConfig?.timeZone,
           welcome: deps.welcomeService,

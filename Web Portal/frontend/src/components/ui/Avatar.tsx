@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { assetUrl } from '../../api/client';
+import { faceUrlOf } from '../../lib/person-photo';
 import { personInitials } from '../../lib/initials';
 import { DENSE_FACE } from '../../lib/density-tokens';
 
@@ -21,13 +22,16 @@ const SIZE: Record<NonNullable<AvatarProps['size']>, string> = {
 };
 
 /**
- * A person's photo to show, or null for the initials: none given, or it didn't load (removed, a dead
- * link, offline). A new photo is tried again. Shared by every face that shows a photo (avatar hotfix).
+ * A person's photo to show, or null for the initials. First the photo's small face copy (avatar
+ * thumbnails: a few KB, lib/person-photo), then — if that doesn't load — the photo itself, then none
+ * (removed, a dead link, offline). A new photo is tried again. Shared by every face that shows a photo.
  */
 export function usePersonPhoto(src: string | null | undefined): { url: string | null; onError: () => void } {
-  const url = (src ? (src.startsWith('/') ? assetUrl(src) : src) : null) || null;
-  const [failed, setFailed] = useState<string | null>(null);
-  return { url: url && url !== failed ? url : null, onError: () => setFailed(url) };
+  const resolve = (u: string | null) => (u ? (u.startsWith('/') ? assetUrl(u) : u) || null : null);
+  const tries = [resolve(faceUrlOf(src)), resolve(src ?? null)].filter((u): u is string => !!u);
+  const [failed, setFailed] = useState<string[]>([]);
+  const url = tries.find((u) => !failed.includes(u)) ?? null;
+  return { url, onError: () => setFailed((was) => (url && !was.includes(url) ? [...was, url] : was)) };
 }
 
 export function Avatar({ name, size = 'md', src, dense = false, decorative = false }: AvatarProps) {

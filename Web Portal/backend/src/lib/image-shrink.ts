@@ -1,4 +1,5 @@
 import type SharpType from 'sharp';
+import { FACE_SIDE } from './avatar-face';
 
 /** Pictures are made at most this many pixels on their long side. */
 export const SHRINK_MAX_SIDE = 1920;
@@ -45,6 +46,12 @@ export interface ImageShrinker {
    * null when it can't be read or the library can't load.
    */
   toDocumentPicture(content: Buffer, box: { width: number; height: number }): Promise<Buffer | null>;
+  /**
+   * Avatar thumbnails (11 Nov): a person's photo as the faces show it — upright, cut to a square from its
+   * middle, at most FACE_SIDE pixels (never enlarged), a WebP without its hidden details. Null when it
+   * can't be read or the library can't load (the face then uses the photo itself).
+   */
+  toFace(content: Buffer): Promise<Buffer | null>;
 }
 
 /** A logo in a document is printed small: this many pixels on its long side is plenty. */
@@ -186,8 +193,30 @@ export function createImageShrinker({ load = loadSharp, warn = () => {} }: Image
     }
   }
 
+  async function toFace(content: Buffer): Promise<Buffer | null> {
+    const sharp = await library();
+    if (!sharp) return null;
+    try {
+      const meta = await sharp(content, { limitInputPixels: MAX_INPUT_PIXELS }).metadata();
+      // Upright first (a phone photo's EXIF turn swaps its sides), then a square of the short side at most.
+      const turned = (meta.orientation ?? 1) >= 5;
+      const shortSide = Math.min((turned ? meta.height : meta.width) ?? FACE_SIDE, (turned ? meta.width : meta.height) ?? FACE_SIDE);
+      const side = Math.max(1, Math.min(FACE_SIDE, shortSide));
+      return await sharp(content, { limitInputPixels: MAX_INPUT_PIXELS })
+        .rotate()
+        .resize({ width: side, height: side, fit: 'cover', position: 'attention' })
+        .webp({ quality: 78 })
+        .timeout({ seconds: DOCUMENT_PICTURE_SECONDS })
+        .toBuffer();
+    } catch (err) {
+      warn('A photo could not be made into a face', { err, bytes: content.length });
+      return null;
+    }
+  }
+
   return {
     shrink,
+    toFace,
     check: async () => (await library()) !== null,
     status: () => available,
     toPrintable,
