@@ -30,6 +30,15 @@ describe('policy kinds', () => {
     expect(policyKindOfType('MICO_AI_ANSWER')).toBeNull();
   });
 
+  it('Training Center (R13): one "training" row holds every training notice — bell and push on, email off, not required', () => {
+    expect([...POLICY_KINDS]).toEqual(['assigned', 'dueSoon', 'overdue', 'escalation', 'escalationAdmin', 'approvals', 'approvalWaiting', 'inactivity', 'mentions', 'comments', 'status', 'projectAdded', 'meetings', 'training']);
+    expect(KIND_TYPES.training).toEqual(['TRAINING_ASSIGNED', 'TRAINING_DUE_SOON', 'TRAINING_OVERDUE', 'TRAINING_EXPIRING', 'TRAINING_QUESTION']);
+    for (const t of KIND_TYPES.training) expect(policyKindOfType(t)).toBe('training');
+    expect(DEFAULT_POLICY.channels.training).toEqual({ bell: true, push: true, email: false });
+    expect(DEFAULT_POLICY.required).not.toContain('training');
+    expect(REMINDER_KINDS as readonly string[]).not.toContain('training');
+  });
+
   it('the reminder kinds are the planner’s own', () => {
     expect([...REMINDER_KINDS]).toEqual(['dueSoon', 'overdue', 'escalation', 'escalationAdmin', 'approvalWaiting', 'inactivity']);
   });

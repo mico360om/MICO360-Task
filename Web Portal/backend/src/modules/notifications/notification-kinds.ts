@@ -17,6 +17,8 @@ export const NOTIFICATION_KINDS = {
   // 1.23: a client accepting or sending back a task joins the approvals; and approvals waiting too long.
   approvals: ['TASK_APPROVAL', 'TASK_CLIENT_SIGN_OFF', 'TASK_APPROVAL_WAITING'],
   meetings: ['MEETING_REMINDER'],
+  // Training Center (R13): assigned, due soon, overdue (and escalations), certificates expiring, questions and answers.
+  training: ['TRAINING_ASSIGNED', 'TRAINING_DUE_SOON', 'TRAINING_OVERDUE', 'TRAINING_EXPIRING', 'TRAINING_QUESTION'],
 } as const satisfies Record<string, readonly string[]>;
 
 export type NotificationKind = keyof typeof NOTIFICATION_KINDS;

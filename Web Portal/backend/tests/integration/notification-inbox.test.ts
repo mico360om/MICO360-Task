@@ -101,8 +101,8 @@ describe('Unread, chips, scope and counts', () => {
   it('the companies scope still applies: a row about a project out of scope is hidden from the page and the counts', async () => {
     const scope = { projectIds: [rig], pick: null };
     expect((await svc.listPage(ada, scope)).data.map((n) => n.type)).toEqual(['MEETING_REMINDER', 'TASK_ESCALATION', 'CHAT_MENTION', 'MENTION']);
-    expect(await svc.counts(ada, scope)).toEqual({ unread: 2, kinds: { mentions: 2, assigned: 0, due: 0, comments: 0, approvals: 0, meetings: 0 } });
-    expect(await svc.counts(ada)).toEqual({ unread: 4, kinds: { mentions: 2, assigned: 0, due: 1, comments: 0, approvals: 0, meetings: 0 } });
+    expect(await svc.counts(ada, scope)).toEqual({ unread: 2, kinds: { mentions: 2, assigned: 0, due: 0, comments: 0, approvals: 0, meetings: 0, training: 0 } });
+    expect(await svc.counts(ada)).toEqual({ unread: 4, kinds: { mentions: 2, assigned: 0, due: 1, comments: 0, approvals: 0, meetings: 0, training: 0 } });
     expect((await svc.counts(ada)).unread).toBe(await svc.unreadCount(ada));
   });
 

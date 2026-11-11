@@ -92,9 +92,9 @@ describe('GET /notifications — pages, the Unread tab and the chips', () => {
 
 describe('GET /notifications/counts — unread per chip', () => {
   it('per chip and in all, in the scope', async () => {
-    expect((await get('/notifications/counts')).json().data).toEqual({ unread: 4, kinds: { mentions: 2, assigned: 0, due: 1, comments: 1, approvals: 0, meetings: 0 } });
+    expect((await get('/notifications/counts')).json().data).toEqual({ unread: 4, kinds: { mentions: 2, assigned: 0, due: 1, comments: 1, approvals: 0, meetings: 0, training: 0 } });
     scope = ['p1'];
-    expect((await get('/notifications/counts')).json().data).toEqual({ unread: 3, kinds: { mentions: 2, assigned: 0, due: 0, comments: 1, approvals: 0, meetings: 0 } });
+    expect((await get('/notifications/counts')).json().data).toEqual({ unread: 3, kinds: { mentions: 2, assigned: 0, due: 0, comments: 1, approvals: 0, meetings: 0, training: 0 } });
     expect((await get('/notifications/unread-count')).json().data).toEqual({ count: 3 });
   });
 });

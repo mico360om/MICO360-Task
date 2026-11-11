@@ -3,8 +3,8 @@ import { NOTIFICATION_KINDS, KIND_KEYS, typesOfKinds, kindOfType, unreadByKind, 
 import { ValidationError } from '../../lib/http-errors';
 
 describe('the Notifications page’s type chips (1.22)', () => {
-  it('six chips, in the page’s order, each made of the notification types the server sends', () => {
-    expect(KIND_KEYS).toEqual(['mentions', 'assigned', 'due', 'comments', 'approvals', 'meetings']);
+  it('seven chips, in the page’s order, each made of the notification types the server sends', () => {
+    expect(KIND_KEYS).toEqual(['mentions', 'assigned', 'due', 'comments', 'approvals', 'meetings', 'training']);
     expect(NOTIFICATION_KINDS).toEqual({
       mentions: ['MENTION', 'CHAT_MENTION'],
       assigned: ['TASK_ASSIGNED'],
@@ -13,6 +13,8 @@ describe('the Notifications page’s type chips (1.22)', () => {
       comments: ['TASK_COMMENT'],
       approvals: ['TASK_APPROVAL', 'TASK_CLIENT_SIGN_OFF', 'TASK_APPROVAL_WAITING'],
       meetings: ['MEETING_REMINDER'],
+      // Training Center (R13): assignments, due and overdue training (and escalations), certificates expiring, questions.
+      training: ['TRAINING_ASSIGNED', 'TRAINING_DUE_SOON', 'TRAINING_OVERDUE', 'TRAINING_EXPIRING', 'TRAINING_QUESTION'],
     });
   });
 
@@ -37,9 +39,10 @@ describe('the Notifications page’s type chips (1.22)', () => {
   it('unread counts per type → per chip, and the total over every type', () => {
     expect(unreadByKind({ MENTION: 2, CHAT_MENTION: 1, TASK_OVERDUE: 4, TASK_STATUS: 5, MEETING_REMINDER: 1 })).toEqual({
       unread: 13,
-      kinds: { mentions: 3, assigned: 0, due: 4, comments: 0, approvals: 0, meetings: 1 },
+      kinds: { mentions: 3, assigned: 0, due: 4, comments: 0, approvals: 0, meetings: 1, training: 0 },
     });
-    expect(unreadByKind({})).toEqual({ unread: 0, kinds: { mentions: 0, assigned: 0, due: 0, comments: 0, approvals: 0, meetings: 0 } });
+    expect(unreadByKind({})).toEqual({ unread: 0, kinds: { mentions: 0, assigned: 0, due: 0, comments: 0, approvals: 0, meetings: 0, training: 0 } });
+    expect(unreadByKind({ TRAINING_OVERDUE: 2 }).kinds.training).toBe(2);
   });
 });
 

@@ -103,7 +103,7 @@ describe('the Unread tab and the type chips', () => {
 
   it('unread counts per chip, and the total unread (every type, as the badge)', async () => {
     // unread: i = 0 MENTION, 2 TASK_ASSIGNED, 4 TASK_STATUS, 6 MENTION, 8 TASK_ASSIGNED, 10 TASK_STATUS
-    expect(await svc.counts('u1')).toEqual({ unread: 6, kinds: { mentions: 2, assigned: 2, due: 0, comments: 0, approvals: 0, meetings: 0 } });
+    expect(await svc.counts('u1')).toEqual({ unread: 6, kinds: { mentions: 2, assigned: 2, due: 0, comments: 0, approvals: 0, meetings: 0, training: 0 } });
     expect((await svc.counts('u1')).unread).toBe(await svc.unreadCount('u1'));
   });
 });
