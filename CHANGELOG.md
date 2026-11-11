@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.23.13] - 2026-11-11
+
 ### Bug fixes
 - MICO360 AI connects again: its address is now https://ai.mico360.com:5310/v1. Since MICO360 Connect
   2.6.17 the AI platform answers only on HTTPS, so the old http address got no answer at all. A MICO360 AI
