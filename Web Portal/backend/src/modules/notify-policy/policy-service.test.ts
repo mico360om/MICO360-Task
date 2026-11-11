@@ -123,3 +123,29 @@ describe('reminder schedules', () => {
     expect((await service.rules('c1')).defaultScheduleId).toBe(urgent.id);
   });
 });
+
+describe('set-up at start-up (seen on a live server: several sweeps ask at once)', () => {
+  it('several first reads at once set a company up once', async () => {
+    const store = createMemoryPolicyStore(['c1']);
+    const addSchedules = vi.spyOn(store, 'addSchedules');
+    const addHolidays = vi.spyOn(store, 'addHolidays');
+    const service = createNotifyPolicyService({ store, companyHours: async () => hours, timeZone: 'Asia/Muscat', cacheMs: 0 });
+    await Promise.all([service.rules('c1'), service.rules('c1'), service.ensureAll(), service.schedules('c1')]);
+    expect(addSchedules).toHaveBeenCalledTimes(1);
+    expect(addHolidays).toHaveBeenCalledTimes(1);
+  });
+
+  it('a write conflict or deadlock (another server setting it up too) is tried again', async () => {
+    const store = createMemoryPolicyStore(['c1']);
+    const real = store.addSchedules.bind(store);
+    let calls = 0;
+    store.addSchedules = async (c, rows) => {
+      calls++;
+      if (calls === 1) throw Object.assign(new Error('Transaction failed due to a write conflict or a deadlock. Please retry your transaction'), { code: 'P2034' });
+      return real(c, rows);
+    };
+    const service = createNotifyPolicyService({ store, companyHours: async () => hours, timeZone: 'Asia/Muscat', cacheMs: 0 });
+    expect((await service.rules('c1')).defaultScheduleId).toBeTruthy();
+    expect(calls).toBe(2);
+  });
+});

@@ -86,8 +86,38 @@ export function createNotifyPolicyService(deps: NotifyPolicyServiceDeps) {
   const seeded = new Set<string>();
   const clear = () => cache.clear();
 
-  /** Set a company up once: starter holidays (this year and next) and the two schedules. Safe to run twice. */
-  async function ensureCompany(companyId: string): Promise<void> {
+  /**
+   * Set a company up once: starter holidays (this year and next) and the two schedules. Safe to run twice,
+   * and at once: the first reads at start-up (several sweeps) share one set-up, and a write conflict with
+   * another server setting it up too is tried again (each add skips what is already there).
+   */
+  const setting = new Map<string, Promise<void>>();
+  function ensureCompany(companyId: string): Promise<void> {
+    if (seeded.has(companyId)) return Promise.resolve();
+    let run = setting.get(companyId);
+    if (!run) {
+      run = setUpWithRetry(companyId).finally(() => setting.delete(companyId));
+      setting.set(companyId, run);
+    }
+    return run;
+  }
+
+  const retryable = (err: unknown) => {
+    const e = err as { code?: string; message?: string };
+    return e?.code === 'P2034' || e?.code === 'P2002' || /deadlock|write conflict/i.test(e?.message ?? '');
+  };
+  async function setUpWithRetry(companyId: string): Promise<void> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await setUp(companyId);
+      } catch (err) {
+        if (attempt >= 2 || !retryable(err)) throw err;
+        await new Promise((r) => setTimeout(r, 100 * (attempt + 1)));
+      }
+    }
+  }
+
+  async function setUp(companyId: string): Promise<void> {
     if (seeded.has(companyId)) return;
     const row = await store.getPolicy(companyId);
     const schedules = await store.schedules(companyId);
