@@ -1,0 +1,260 @@
+import { z } from 'zod';
+import { HttpError, NotFoundError, ValidationError } from '../../lib/http-errors';
+import { zonedStartOfDay } from '../../lib/due-date';
+import { formatDay } from '../../lib/export-format';
+import { daysBetween, shiftDay } from '../../lib/working-days';
+import { XLSX_CONTENT_TYPE } from '../../lib/xlsx-writer';
+import { inScope, reportScope } from './training-access';
+import type { TrainingContext } from './training-context';
+import type { PersonRecord } from './prisma-training-store';
+import { loadStates } from './training-read';
+import { aggregateReport, quizQuestionStats, type ReportEnrolment, type ReportPerson } from './training-reports';
+import type { Paper, StoredQuestion } from './training-quiz';
+import { buildTrainingReportPdf, buildTrainingReportXlsx, trainingReportFileName } from './training-export';
+import { REPORT_BY, type QuestionKind, type QuizReport, type ReportBy, type TrainingReport } from './training-types';
+
+/**
+ * The Training Center's Reports (owner request; ruling R5), server-enforced: administrators see everyone
+ * (clients too), a Training manager the people of their companies (and clients of projects in them), a
+ * project manager the teams of the projects they run (read-only, never clients). Anyone else: 403.
+ * The period (from/to) is "who got the training in this period" (the enrolment's day, site zone).
+ */
+
+export type ReportScope = 'ALL' | 'COMPANIES' | 'TEAM';
+
+export interface ReportQuery {
+  by: ReportBy;
+  courseId?: string;
+  from?: string;
+  to?: string;
+}
+
+const NOT_ALLOWED = 'Only Training managers, administrators and project managers can see training reports.';
+const ID = /^[A-Za-z0-9_-]{1,64}$/;
+const blank = (v: unknown) => (v === '' || v === null ? undefined : v);
+const realDay = (s: string) => {
+  const d = new Date(`${s}T12:00:00.000Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
+};
+const day = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Use a day like 2026-11-30.')
+  .refine(realDay, 'That day doesn’t exist.');
+const querySchema = z.object({
+  by: z.preprocess(blank, z.enum(REPORT_BY).optional()),
+  courseId: z.preprocess(blank, z.string().regex(ID, 'Course not found.').optional()),
+  from: z.preprocess(blank, day.optional()),
+  to: z.preprocess(blank, day.optional()),
+});
+
+/** ?by=&courseId=&from=&to= → the report's query (400 for anything it can't be). */
+export function parseReportQuery(raw: unknown): ReportQuery {
+  const q = querySchema.parse(raw ?? {});
+  if (q.from && q.to) {
+    if (q.to < q.from) throw new ValidationError('The period’s first day must be before its last day.', { field: 'from' });
+    if (daysBetween(q.from, q.to) > 366) throw new ValidationError('Choose a period of a year or less.', { field: 'to' });
+  }
+  return { by: q.by ?? 'course', ...(q.courseId ? { courseId: q.courseId } : {}), ...(q.from ? { from: q.from } : {}), ...(q.to ? { to: q.to } : {}) };
+}
+
+/** R5: is this person's training inside the viewer's report scope? */
+export function personInReportScope(scope: ReportScope, viewer: PersonRecord, p: PersonRecord): boolean {
+  if (scope === 'ALL') return true;
+  if (scope === 'COMPANIES') return inScope(viewer.companyIds, p);
+  return !p.client && p.teamProjectIds.some((id) => viewer.runProjectIds.includes(id));
+}
+
+/** The lines a file says its filters with. */
+export function reportFilterLines(q: ReportQuery, courseTitle: string | null): string[] {
+  const out: string[] = [];
+  if (courseTitle) out.push(`Course: ${courseTitle}`);
+  if (q.from && q.to) out.push(`Got it from ${formatDay(q.from)} to ${formatDay(q.to)}`);
+  else if (q.from) out.push(`Got it from ${formatDay(q.from)}`);
+  else if (q.to) out.push(`Got it until ${formatDay(q.to)}`);
+  return out;
+}
+
+const pct = (part: number, whole: number) => (whole ? Math.round((part / whole) * 100) : null);
+const average = (list: readonly number[]) => (list.length ? Math.round(list.reduce((a, b) => a + b, 0) / list.length) : null);
+
+export function createTrainingReports(ctx: TrainingContext) {
+  const { prisma } = ctx;
+
+  /** The viewer and their scope (403 for anyone without one). */
+  async function viewerOf(viewerId: string): Promise<{ viewer: PersonRecord; scope: ReportScope }> {
+    const viewer = await ctx.person(viewerId);
+    const scope = viewer && viewer.active ? reportScope(viewer) : null;
+    if (!viewer || !scope) throw new HttpError(NOT_ALLOWED, 'FORBIDDEN', 403);
+    return { viewer, scope };
+  }
+
+  /** Everyone in the viewer's scope, by id. */
+  async function scopedPeople(viewer: PersonRecord, scope: ReportScope): Promise<Map<string, PersonRecord>> {
+    const all = await ctx.people();
+    return new Map([...all].filter(([, p]) => personInReportScope(scope, viewer, p)));
+  }
+
+  /** The period as instants (from's start, the day after to's start), site zone. */
+  function period(q: ReportQuery): { gte?: Date; lt?: Date } {
+    return {
+      ...(q.from ? { gte: zonedStartOfDay(q.from, ctx.timeZone) } : {}),
+      ...(q.to ? { lt: zonedStartOfDay(shiftDay(q.to, 1), ctx.timeZone) } : {}),
+    };
+  }
+
+  async function report(viewerId: string, raw: unknown): Promise<TrainingReport> {
+    const { viewer, scope } = await viewerOf(viewerId);
+    const q = parseReportQuery(raw);
+    return build(viewer, scope, q);
+  }
+
+  async function build(viewer: PersonRecord, scope: ReportScope, q: ReportQuery): Promise<TrainingReport> {
+    if (q.courseId && !(await prisma.trainingCourse.findUnique({ where: { id: q.courseId }, select: { id: true } }))) throw new NotFoundError('Course not found.');
+    const people = await scopedPeople(viewer, scope);
+    const courses = await prisma.trainingCourse.findMany({
+      where: { status: { in: ['PUBLISHED', 'ARCHIVED'] }, ...(q.courseId ? { id: q.courseId } : {}) },
+      select: { id: true, title: true },
+    });
+    const courseIds = courses.map((c) => c.id);
+    const courseTitle = new Map(courses.map((c) => [c.id, c.title]));
+    const span = period(q);
+    const enrolments = courseIds.length
+      ? (
+          await prisma.trainingEnrolment.findMany({
+            where: { withdrawnAt: null, courseId: { in: courseIds }, ...(span.gte || span.lt ? { createdAt: span } : {}) },
+            select: { userId: true, courseId: true, startedAt: true },
+          })
+        ).filter((e) => people.has(e.userId))
+      : [];
+    const states = await loadStates(ctx, enrolments.map((e) => ({ userId: e.userId, courseId: e.courseId })));
+    const rows: ReportEnrolment[] = [];
+    const today = ctx.today();
+    const overdue: TrainingReport['overdue'] = [];
+    for (const s of states.values()) {
+      const p = people.get(s.userId)!;
+      rows.push({ userId: s.userId, courseId: s.courseId, status: s.state.status, assigned: s.state.assigned, started: !!s.enrolment?.startedAt || s.doneIds.size > 0, overdue: s.state.overdue, bestScore: s.bestScore });
+      if (s.state.overdue && s.state.dueDay) {
+        overdue.push({ userId: s.userId, name: p.name, courseId: s.courseId, courseTitle: courseTitle.get(s.courseId) ?? 'Course', dueDay: s.state.dueDay, daysLate: Math.max(0, daysBetween(s.state.dueDay, today)), mandatory: s.state.mandatory, client: p.client });
+      }
+    }
+    overdue.sort((a, b) => b.daysLate - a.daysLate || a.name.localeCompare(b.name) || a.courseTitle.localeCompare(b.courseTitle));
+
+    // Labels for the groups.
+    const involved = [...new Set(rows.map((r) => r.userId))].map((id) => people.get(id)!);
+    const deptIds = [...new Set(involved.map((p) => p.departmentId).filter((d): d is string => !!d))];
+    const companyIds = [...new Set(involved.flatMap((p) => p.companyIds))];
+    const projectIds = [...new Set(involved.flatMap((p) => p.teamProjectIds))];
+    const [departments, companies, projects] = await Promise.all([
+      deptIds.length ? prisma.department.findMany({ where: { id: { in: deptIds } }, select: { id: true, name: true } }) : [],
+      companyIds.length ? prisma.company.findMany({ where: { id: { in: companyIds } }, select: { id: true, name: true } }) : [],
+      projectIds.length ? prisma.project.findMany({ where: { id: { in: projectIds } }, select: { id: true, name: true } }) : [],
+    ]);
+    const reportPeople: ReportPerson[] = involved.map((p) => ({ id: p.id, name: p.name, client: p.client, admin: p.admin, departmentId: p.departmentId, companyIds: p.companyIds, teamProjectIds: p.teamProjectIds }));
+    const { totals, rows: grouped } = aggregateReport(q.by, rows, reportPeople, {
+      course: courseTitle,
+      department: new Map(departments.map((d) => [d.id, d.name])),
+      company: new Map(companies.map((c) => [c.id, c.name])),
+      project: new Map(projects.map((p) => [p.id, p.name])),
+    });
+
+    // Certificates expiring in the next 30 days (valid ones), soonest first.
+    const now = ctx.clock();
+    const certificates = courseIds.length
+      ? (
+          await prisma.trainingCertificate.findMany({
+            where: { revokedAt: null, courseId: { in: courseIds }, expiresAt: { gt: now, lte: new Date(now.getTime() + 30 * 86_400_000) } },
+            select: { id: true, userId: true, courseId: true, courseTitle: true, expiresAt: true },
+            orderBy: [{ expiresAt: 'asc' }, { id: 'asc' }],
+          })
+        ).filter((c) => people.has(c.userId))
+      : [];
+    const expiring = certificates.map((c) => ({ certificateId: c.id, userId: c.userId, name: people.get(c.userId)!.name, courseId: c.courseId, courseTitle: courseTitle.get(c.courseId) ?? c.courseTitle, expiresAt: c.expiresAt!.toISOString() }));
+
+    // Quizzes of the courses in view: handed-in attempts by people in scope (in the period).
+    const quizLessons = courseIds.length
+      ? await prisma.trainingLesson.findMany({ where: { courseId: { in: courseIds }, kind: 'QUIZ' }, select: { id: true, courseId: true, title: true, position: true }, orderBy: [{ position: 'asc' }, { id: 'asc' }] })
+      : [];
+    const attempts = quizLessons.length
+      ? (
+          await prisma.trainingAttempt.findMany({
+            where: { lessonId: { in: quizLessons.map((l) => l.id) }, submittedAt: { not: null, ...(span.gte ? { gte: span.gte } : {}), ...(span.lt ? { lt: span.lt } : {}) } },
+            select: { userId: true, lessonId: true, scorePct: true, passed: true },
+          })
+        ).filter((a) => people.has(a.userId))
+      : [];
+    const quizzes = quizLessons
+      .map((l) => {
+        const mine = attempts.filter((a) => a.lessonId === l.id);
+        return {
+          lessonId: l.id,
+          courseTitle: courseTitle.get(l.courseId) ?? 'Course',
+          title: l.title,
+          attempts: mine.length,
+          passRate: pct(mine.filter((a) => a.passed).length, mine.length),
+          averageScore: average(mine.map((a) => a.scorePct ?? 0)),
+        };
+      })
+      .sort((a, b) => a.courseTitle.localeCompare(b.courseTitle));
+
+    return { scope, by: q.by, totals, rows: grouped, overdue: overdue.slice(0, 500), expiring: expiring.slice(0, 500), quizzes };
+  }
+
+  async function quizReport(viewerId: string, lessonIdRaw: unknown): Promise<QuizReport> {
+    const { viewer, scope } = await viewerOf(viewerId);
+    if (typeof lessonIdRaw !== 'string' || !ID.test(lessonIdRaw)) throw new NotFoundError('Quiz not found.');
+    const lesson = await prisma.trainingLesson.findUnique({
+      where: { id: lessonIdRaw },
+      select: {
+        id: true,
+        kind: true,
+        title: true,
+        course: { select: { title: true } },
+        quiz: { select: { questions: { select: { id: true, kind: true, prompt: true, explanation: true, position: true, options: { select: { id: true, text: true, correct: true, feedback: true, position: true } } } } } },
+      },
+    });
+    if (!lesson || lesson.kind !== 'QUIZ' || !lesson.quiz) throw new NotFoundError('Quiz not found.');
+    const people = await scopedPeople(viewer, scope);
+    const attempts = (
+      await prisma.trainingAttempt.findMany({ where: { lessonId: lesson.id, submittedAt: { not: null } }, select: { userId: true, scorePct: true, passed: true, paper: true, answers: true } })
+    ).filter((a) => people.has(a.userId));
+    const questions: StoredQuestion[] = lesson.quiz.questions.map((q) => ({ id: q.id, kind: q.kind as QuestionKind, prompt: q.prompt, explanation: q.explanation, position: q.position, options: q.options }));
+    return {
+      lessonId: lesson.id,
+      courseTitle: lesson.course.title,
+      title: lesson.title,
+      attempts: attempts.length,
+      people: new Set(attempts.map((a) => a.userId)).size,
+      passRate: pct(attempts.filter((a) => a.passed).length, attempts.length),
+      averageScore: average(attempts.map((a) => a.scorePct ?? 0)),
+      questions: quizQuestionStats(
+        questions,
+        attempts.map((a) => ({ paper: a.paper as unknown as Paper, answers: (a.answers ?? {}) as Record<string, string[]> })),
+      ),
+    };
+  }
+
+  /** The report as a file: the same query, the same scope. */
+  async function exportFile(viewerId: string, raw: unknown, format: 'xlsx' | 'pdf', generatedBy: string | null): Promise<{ body: Buffer; fileName: string; contentType: string }> {
+    const { viewer, scope } = await viewerOf(viewerId);
+    const q = parseReportQuery(raw);
+    const r = await build(viewer, scope, q);
+    const courseTitle = q.courseId ? ((await prisma.trainingCourse.findUnique({ where: { id: q.courseId }, select: { title: true } }))?.title ?? null) : null;
+    const now = ctx.clock();
+    const company = format === 'pdf' && ctx.pdfBrand ? await ctx.pdfBrand(viewer.primaryCompanyId).catch(() => null) : null;
+    const meta = { generatedBy, timeZone: ctx.timeZone, now, filters: reportFilterLines(q, courseTitle), company };
+    const fileName = trainingReportFileName(r, format, ctx.today());
+    return format === 'xlsx'
+      ? { body: buildTrainingReportXlsx(r, meta), fileName, contentType: XLSX_CONTENT_TYPE }
+      : { body: buildTrainingReportPdf(r, meta), fileName, contentType: 'application/pdf' };
+  }
+
+  /** Whose reports this person may see (null: none). */
+  async function access(viewerId: string): Promise<{ scope: ReportScope | null }> {
+    const viewer = await ctx.person(viewerId);
+    return { scope: viewer && viewer.active ? reportScope(viewer) : null };
+  }
+
+  return { report, quizReport, exportFile, access };
+}
+
+export type TrainingReports = ReturnType<typeof createTrainingReports>;
