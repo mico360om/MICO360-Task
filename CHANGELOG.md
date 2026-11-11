@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.23.19] - 2026-11-11
+
 ### New features
 - Recycle Bin: a deleted task is no longer gone at once. It goes to the Recycle Bin (side menu, for
   administrators and the people who run a project) and can be restored for 60 days with everything it had —
