@@ -22,7 +22,7 @@ const dayKey = z
 const listQuery = z
   .object({
     limit: z.coerce.number().int().min(1).max(200).default(200),
-    before: z.string().datetime({ offset: true }).optional(),
+    before: z.iso.datetime({ offset: true }).optional(),
     module: z.string().trim().min(1).max(100).optional(),
     userId: z.string().trim().min(1).max(100).optional(),
     from: dayKey.optional(),

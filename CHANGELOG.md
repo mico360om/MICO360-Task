@@ -21,6 +21,13 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 ### Improvements
 - Faces load a small copy of each person's photo instead of the full picture, so boards and lists with many people open faster.
 
+## [1.23.12] - 2026-11-11
+
+### Security
+- Updated server libraries to fix 11 known vulnerabilities (zod 4, @fastify/static, fast-uri, typescript-eslint).
+  typescript-eslint has no fixed version yet, so the file-pattern library it uses (minimatch) is pinned to
+  its fixed version instead; it is a development tool only and never runs on the live site.
+
 ## [1.23.11] - 2026-11-10
 
 ### Improvements
