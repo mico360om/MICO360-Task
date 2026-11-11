@@ -50,7 +50,8 @@ describe('embedTexts', () => {
 
     it('splits texts that would pass 32,000 characters together into several calls, answers in order', async () => {
       const { calls, fetchImpl } = perText();
-      const texts = Array.from({ length: 25 }, (_, i) => `${i}`.padEnd(1750, 'x'));
+      // Each a different length, so a vector out of order would show (review minor 10).
+      const texts = Array.from({ length: 25 }, (_, i) => `${i}`.padEnd(1700 + i * 3, 'x'));
       const vectors = await embedTexts(mico, texts, fetchImpl);
       expect(calls.length).toBeGreaterThan(1);
       for (const c of calls) expect(total(c)).toBeLessThanOrEqual(30_000);
@@ -73,6 +74,20 @@ describe('embedTexts', () => {
       expect(sent[0]).toHaveLength(8_000);
       expect(sent[1]!.length).toBeLessThanOrEqual(8_000);
       expect(sent[1]).toBe('b'.repeat(7_999)); // the emoji's two halves are not split
+    });
+
+    // Review I2: a text cut elsewhere (the search sweep's 1,500 characters, a name cut "…") may end on half
+    // a character; sent as "\ud83d" a strict JSON reader refuses the whole request, every run.
+    it('never sends half a character, whatever the text', async () => {
+      const bodies: string[] = [];
+      const fetchImpl = (async (_url: string, init?: RequestInit) => {
+        bodies.push(String(init!.body));
+        const input = JSON.parse(String(init!.body)).input as string[];
+        return new Response(JSON.stringify({ data: input.map((_, index) => ({ index, embedding: [1] })) }), { status: 200 });
+      }) as unknown as typeof fetch;
+      await embedTexts(mico, ['pump \ud83d', '\ude00 valve', 'whole 😀 مضخة'], fetchImpl);
+      expect(bodies[0]).not.toMatch(/\\ud8[0-9a-f]{2}|\\ude[0-9a-f]{2}/i);
+      expect(JSON.parse(bodies[0]!).input).toEqual(['pump �', '� valve', 'whole 😀 مضخة']);
     });
 
     it('never sends a blank text (the platform refuses "input contained no text")', async () => {

@@ -60,21 +60,64 @@ describe('every AI conversation fits MICO360 AI’s 32,000 characters, at the la
     expect(sizes[0]).toBeLessThanOrEqual(FITS);
   });
 
-  it('a typical company’s 300 people and 100 projects are still all listed (the budget bites only at extremes)', async () => {
-    const prompts: string[] = [];
-    const fetchImpl = (async (_url: string, init?: RequestInit) => {
-      prompts.push((JSON.parse(String(init!.body)) as { messages: Array<{ content: string }> }).messages[0]!.content);
-      return new Response(JSON.stringify({ choices: [{ message: { content: '{"title":"t"}' } }] }), { status: 200 });
-    }) as unknown as typeof fetch;
-    const svc = createAiFeatureService({
-      repo: createMemoryAiConfigRepository(mico),
-      fetchImpl,
-      listProjectsFor: async () => projects.slice(0, 100).map((p, i) => ({ ...p, number: `PDO-2026-${i}`, name: `Pump station upgrade phase ${i}` })),
-      listPeople: async () => people.slice(0, 300).map((p, i) => ({ ...p, firstName: `Person${i}`, lastName: 'Al Balushi', username: `person.${i}` })),
+  // Review I1: realistic lengths — project names of ~70 characters, ordinary Omani names.
+  describe('a real company’s lists (100 projects, 300 people)', () => {
+    const FIRST = ['Mohammed', 'Ahmed', 'Said', 'Khalid', 'Fatma', 'Aisha', 'Salim', 'Hamed', 'Maryam', 'Yousuf', 'Badriya', 'Nasser'];
+    const LAST = ['Al Balushi', 'Al Hinai', 'Al Rawahi', 'Al Kindi', 'Al Busaidi', 'Al Harthy', 'Al Lawati', 'Al Mahrouqi', 'Al Siyabi', 'Al Wahaibi'];
+    const realProjects = Array.from({ length: 100 }, (_, i) => ({ id: id(i), code: `SUB${String(i).padStart(3, '0')}`, number: `PDO-2026-${String(i).padStart(4, '0')}`, name: `Construction of 33/11kV Primary Substation at Al Khuwair Block ${i}`, status: 'ACTIVE' }));
+    const realPeople = [
+      ...Array.from({ length: 299 }, (_, i) => ({ id: id(i), firstName: FIRST[i % FIRST.length]!, lastName: `${LAST[i % LAST.length]!}${i}`, username: `${FIRST[i % FIRST.length]!.toLowerCase()}.${i}` })),
+      { id: id(999), firstName: 'Zuhair', lastName: 'Al Zadjali', username: 'zuhair.z' }, // last by name
+    ];
+    const prompted = (config: AiConfig, answer = '{"title":"t"}') => {
+      const prompts: string[] = [];
+      const fetchImpl = (async (_url: string, init?: RequestInit) => {
+        const messages = (JSON.parse(String(init!.body)) as { messages: Array<{ content: string }> }).messages;
+        prompts.push(messages.map((m) => m.content).join('\n'));
+        return new Response(JSON.stringify({ choices: [{ message: { content: answer } }] }), { status: 200 });
+      }) as unknown as typeof fetch;
+      const svc = createAiFeatureService({ repo: createMemoryAiConfigRepository(config), fetchImpl, listProjectsFor: async () => realProjects, listPeople: async () => realPeople });
+      return { prompts, svc };
+    };
+    const listedPeople = (prompt: string) => prompt.split('\n').filter((l) => /^c\d{24} \| /.test(l));
+    const listedProjects = (prompt: string) => prompt.split('\n').filter((l) => /^SUB\d{3} \| /.test(l));
+
+    it('MICO360 AI, describe a task: every project is listed', async () => {
+      const { prompts, svc } = prompted(mico);
+      await svc.parseTask({ text: 'send the monthly report by Friday', today: '2026-11-11' }, me);
+      expect(listedProjects(prompts[0]!)).toHaveLength(100);
+      expect(prompts[0]!.length).toBeLessThanOrEqual(FITS);
     });
-    await svc.parseMeeting({ text: 'meet tomorrow', today: '2026-11-11' }, me);
-    expect(prompts[0]!.split('\n').filter((l) => /^c\d{24} \| /.test(l))).toHaveLength(300);
-    expect(prompts[0]!.split('\n').filter((l) => /^P\d{9} \| /.test(l))).toHaveLength(100);
+
+    it('MICO360 AI, describe a meeting: every project, as many people as fit — the ones the sentence names first', async () => {
+      const { prompts, svc } = prompted(mico);
+      await svc.parseMeeting({ text: 'site meeting with Zuhair Al Zadjali tomorrow at 10', today: '2026-11-11' }, me);
+      expect(listedProjects(prompts[0]!)).toHaveLength(100);
+      expect(listedPeople(prompts[0]!).length).toBeGreaterThan(200);
+      expect(listedPeople(prompts[0]!).some((l) => l.startsWith(`${id(999)} | Zuhair Al Zadjali`))).toBe(true);
+      expect(prompts[0]!.length).toBeLessThanOrEqual(FITS);
+    });
+
+    it('other providers: every person and project, as before (no budget, no cut names)', async () => {
+      const openai: AiConfig = { ...mico, providers: [{ ...mico.providers[0]!, preset: 'openai', kind: 'openai', apiBaseUrl: 'https://api.openai.com/v1' }], models: [{ ...mico.models[0]!, modelKey: 'gpt-4o-mini' }] };
+      const { prompts, svc } = prompted(openai);
+      const long = createAiFeatureService({
+        repo: createMemoryAiConfigRepository(openai),
+        fetchImpl: (async (_u: string, init?: RequestInit) => {
+          prompts.push((JSON.parse(String(init!.body)) as { messages: Array<{ content: string }> }).messages.map((m) => m.content).join('\n'));
+          return new Response(JSON.stringify({ choices: [{ message: { content: '{"title":"t"}' } }] }), { status: 200 });
+        }) as unknown as typeof fetch,
+        listProjectsFor: async () => realProjects.map((p) => ({ ...p, name: s(150, 'P') })),
+        listPeople: async () => realPeople.map((p) => ({ ...p, lastName: s(150, 'L') })),
+      });
+      await svc.parseMeeting({ text: 'meet tomorrow', today: '2026-11-11' }, me);
+      expect(listedPeople(prompts[0]!)).toHaveLength(300);
+      expect(listedProjects(prompts[0]!)).toHaveLength(100);
+      await long.parseMeeting({ text: 'meet tomorrow', today: '2026-11-11' }, me);
+      expect(listedPeople(prompts[1]!)).toHaveLength(300);
+      expect(prompts[1]!).toContain(s(150, 'L')); // names are not cut
+      expect(prompts[1]!).toContain(s(150, 'P'));
+    });
   });
 
   it('draft an agenda (100 people, 30 open tasks, 30 leftovers, the longest texts)', async () => {

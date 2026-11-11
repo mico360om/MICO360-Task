@@ -1,7 +1,8 @@
 import { ValidationError } from '../../lib/http-errors';
 import type { AiModelParameters, AiProvider } from './ai-config';
 import { isReasoningModel } from './ai-model-catalog';
-import { createSafeFetch, providerErrorDetail, providerFetch, readProviderJson } from './ai-network';
+import { createSafeFetch, isMico360Provider, providerErrorDetail, providerFetch, readProviderJson } from './ai-network';
+import { wellFormed } from './ai-text';
 
 /** OpenAI reasoning models think before answering, out of the same token budget: leave them room. */
 const REASONING_MIN_TOKENS = 4096;
@@ -34,11 +35,11 @@ const QUOTA_MESSAGE =
 const QUOTA_RETRY_AFTER_SECONDS = 60;
 
 /** The provider's refusal, read from its answer: the reason it gives, and (MICO360 AI) whether it is a quota. */
-export async function providerRefusal(res: Response, preset: string | null | undefined): Promise<ProviderRefusedError> {
+export async function providerRefusal(res: Response, provider: { preset?: string | null; apiBaseUrl?: string | null }): Promise<ProviderRefusedError> {
   const detail = await providerErrorDetail(res);
   const retryAfter = Number(res.headers.get('retry-after'));
   const quota =
-    preset === 'mico360' &&
+    isMico360Provider(provider) &&
     res.status === 429 &&
     (/^\s*quota exceeded/i.test(detail ?? '') || (Number.isFinite(retryAfter) && retryAfter > QUOTA_RETRY_AFTER_SECONDS));
   return new ProviderRefusedError(res.status, detail, quota);
@@ -121,10 +122,15 @@ export const CONVERSATION_LIMIT = 32_000;
  */
 export async function complete(
   model: ChatModel,
-  input: CompletionInput,
+  given: CompletionInput,
   fetchImpl?: typeof fetch,
   opts: CompletionOptions = {},
 ): Promise<string> {
+  // MICO360 AI's JSON reader refuses half a character ("\ud83d", from a text cut inside an emoji): the
+  // instructions and the prompt are sent well formed (review I2). Other providers get them as given.
+  const input: CompletionInput = isMico360Provider(model.provider)
+    ? { ...given, prompt: wellFormed(given.prompt), ...(given.system !== undefined ? { system: wellFormed(given.system) } : {}) }
+    : given;
   const base = model.provider.apiBaseUrl.replace(/\/+$/, '');
   const maxTokens = input.maxTokens ?? model.parameters?.maxTokens ?? 1024;
   const temperature = model.parameters?.temperature ?? 0.3;
@@ -175,7 +181,7 @@ export async function complete(
       if (model.provider.kind !== 'openai') {
         // Other OpenAI-compatible services still take max_tokens.
         body = { model: model.modelKey, max_tokens: maxTokens, temperature, messages };
-        if (input.json && model.provider.preset === 'mico360') (body as Record<string, unknown>).response_format = { type: 'json_object' };
+        if (input.json && isMico360Provider(model.provider)) (body as Record<string, unknown>).response_format = { type: 'json_object' };
       } else if (isReasoningModel(model.modelKey)) {
         // o-series and GPT-5 refuse max_tokens and any temperature but the default.
         body = { model: model.modelKey, max_completion_tokens: Math.max(maxTokens, REASONING_MIN_TOKENS), reasoning_effort: 'low', messages };
@@ -205,7 +211,7 @@ export async function complete(
     await (opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms))))(wait);
     res = await send();
   }
-  if (!res.ok) throw await providerRefusal(res, model.provider.preset);
+  if (!res.ok) throw await providerRefusal(res, model.provider);
   const json = await readProviderJson(res);
   const text = extractText(model.provider.kind, json);
   if (!text) throw new ValidationError('The AI provider returned an empty response.');

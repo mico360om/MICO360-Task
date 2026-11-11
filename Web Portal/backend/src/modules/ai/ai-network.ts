@@ -86,9 +86,23 @@ export function validateProviderUrl(raw: string, allowPrivateHosts = false): str
 
 /**
  * Hosts that answer nothing on plain http. MICO360 Connect's AI platform: since 2.6.17 (21 Oct 2026)
- * port 5310 speaks only HTTPS, under the certificate for ai.mico360.com (its API guide, §0 and §9).
+ * port 5310 speaks only HTTPS, under the certificate for ai.mico360.com (its API guide, the header and §9).
  */
 const HTTPS_ONLY_HOSTS = new Set(['ai.mico360.com']);
+const MICO360_AI_HOST = 'ai.mico360.com';
+
+/**
+ * Is this provider MICO360 AI (MICO360 Connect's AI platform)? Its preset, or its address — a provider
+ * added as "Other" at ai.mico360.com is the same platform, with the same rules.
+ */
+export function isMico360Provider(provider: { preset?: string | null; apiBaseUrl?: string | null }): boolean {
+  if (provider.preset === 'mico360') return true;
+  try {
+    return new URL(provider.apiBaseUrl ?? '').hostname.replace(/\.$/, '').toLowerCase() === MICO360_AI_HOST;
+  } catch {
+    return false;
+  }
+}
 
 /** Switch an http URL to https when its host speaks only HTTPS; true when it was switched. */
 function upgradeToHttps(url: URL): boolean {

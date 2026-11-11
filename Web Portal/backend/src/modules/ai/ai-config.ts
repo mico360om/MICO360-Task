@@ -1,5 +1,5 @@
 import { NotFoundError, ValidationError } from '../../lib/http-errors';
-import { validateProviderUrl } from './ai-network';
+import { isMico360Provider, validateProviderUrl } from './ai-network';
 import { friendlyModelName, inferCapabilities, pickRecommended, type RemoteModel } from './ai-model-catalog';
 
 /** Capabilities a model can serve. "document" = Document Processing. */
@@ -294,7 +294,7 @@ export function applySync(config: AiConfig, providerId: string, remoteModels: Ar
   const known = new Set(config.models.filter((m) => m.providerId === providerId).map((m) => m.modelKey));
   // MICO360 AI lists only the models of nodes accepting work right now: one left out may be on a busy
   // node, so it stays available for a while (the platform itself then answers with a substitute or a 503).
-  const graceful = provider.preset === 'mico360';
+  const graceful = isMico360Provider(provider);
   const nowMs = Date.parse(meta.now);
 
   // Update availability of known models.

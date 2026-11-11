@@ -1,6 +1,7 @@
 import { ValidationError } from '../../lib/http-errors';
 import { providerRefusal, type ChatModel } from './ai-completion';
-import { createSafeFetch, providerFetch, readProviderJson } from './ai-network';
+import { createSafeFetch, isMico360Provider, providerFetch, readProviderJson } from './ai-network';
+import { cutChars, wellFormed } from './ai-text';
 
 /**
  * 1.23 meaning ("semantic") search: turn texts into vectors with the provider's embedding model —
@@ -39,20 +40,16 @@ export class EmbeddingModelChangedError extends ValidationError {
 /** "nomic-embed-text" and "nomic-embed-text:latest" are the same model (the platform may list either). */
 const sameModel = (a: string, b: string): boolean => a.trim().toLowerCase().replace(/:latest$/, '') === b.trim().toLowerCase().replace(/:latest$/, '');
 
-/** At most `max` characters, never ending on the first half of a character pair (an emoji). */
-function cutChars(text: string, max: number): string {
-  if (text.length <= max) return text;
-  const end = /[\uD800-\uDBFF]/.test(text[max - 1]!) ? max - 1 : max;
-  return text.slice(0, end);
-}
-
-/** The texts as sent, in order, packed into requests within the limits. */
+/**
+ * The texts as sent, in order, packed into requests within the limits. Each is well formed (half a
+ * character — from a cut elsewhere — would make a strict JSON reader refuse the whole request).
+ */
 export function embeddingBatches(texts: readonly string[]): string[][] {
   const batches: string[][] = [];
   let batch: string[] = [];
   let chars = 0;
   for (const raw of texts) {
-    const text = raw.trim() ? cutChars(raw, EMBED_MAX_TEXT_CHARS) : BLANK_TEXT;
+    const text = raw.trim() ? wellFormed(cutChars(raw, EMBED_MAX_TEXT_CHARS)) : BLANK_TEXT;
     if (batch.length && (batch.length >= EMBED_MAX_TEXTS || chars + text.length > EMBED_MAX_TOTAL_CHARS)) {
       batches.push(batch);
       batch = [];
@@ -97,9 +94,9 @@ async function embedBatch(model: ChatModel, texts: string[], fetchImpl: typeof f
     allowPrivateHosts: opts.allowPrivateHosts,
     signal: opts.signal,
   });
-  if (!res.ok) throw await providerRefusal(res, model.provider.preset);
+  if (!res.ok) throw await providerRefusal(res, model.provider);
   const json = (await readProviderJson(res)) as { model?: unknown; data?: { index?: number; embedding?: unknown }[]; embeddings?: unknown[] } | null;
-  if (model.provider.preset === 'mico360') {
+  if (isMico360Provider(model.provider)) {
     // Another embedding model answered (the named one was unavailable): its vectors can't be compared
     // with the ones kept, so none are kept — the search sweep tries again later.
     const answered = typeof json?.model === 'string' ? json.model : null;

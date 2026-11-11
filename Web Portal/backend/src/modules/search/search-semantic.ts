@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { cosine, fromVector, toVector } from '../ai/ai-embeddings';
+import { cutChars } from '../ai/ai-text';
 import type { SearchKind } from './search-types';
 
 /**
@@ -21,7 +22,7 @@ export const MEANING_KINDS = ['project', 'meeting', 'note', 'minutes', 'file', '
 const TEXT_CHARS = 1500;
 /** Items embedded per sweep run. */
 const BATCH = 100;
-/** Texts per embedding call. */
+/** Texts handed to one embed() (stored together); embedTexts splits them further to the provider's limits. */
 const PER_CALL = 25;
 /** Vectors of gone items are removed this often (by the sweep). */
 const PRUNE_EVERY_MS = 30 * 60_000;
@@ -40,7 +41,8 @@ export interface SemanticDeps {
 }
 
 const hash = (text: string) => createHash('sha1').update(text).digest('hex').slice(0, 16);
-const textOf = (head: Buffer | null, body: Buffer | null) => `${(head ?? Buffer.alloc(0)).toString('utf8').trim()}\n${(body ?? Buffer.alloc(0)).toString('utf8').slice(0, TEXT_CHARS)}`.trim();
+// The body is cut whole characters only (never inside an emoji's pair: review I2).
+const textOf = (head: Buffer | null, body: Buffer | null) => `${(head ?? Buffer.alloc(0)).toString('utf8').trim()}\n${cutChars((body ?? Buffer.alloc(0)).toString('utf8'), TEXT_CHARS)}`.trim();
 
 export function createSemanticSearch({ prisma, ai, logger, now = () => new Date() }: SemanticDeps) {
   /** Is meaning search on (an embedding model set up)? */

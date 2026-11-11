@@ -172,6 +172,19 @@ describe('MICO360 AI (the company’s platform, per its API guide)', () => {
     expect(bodies[0]).not.toHaveProperty('response_format');
   });
 
+  // Review I2: half a character (a cut emoji) is sent as "\ud83d", which a strict JSON reader refuses.
+  it('never sends half a character to MICO360 AI (instructions or prompt)', async () => {
+    const raw: string[] = [];
+    const fetchImpl = (async (_url: string, init?: RequestInit) => {
+      raw.push(String(init!.body));
+      return reply('ok');
+    }) as unknown as typeof fetch;
+    await complete(mico(), { system: 'Rules for Sara \ud83d', prompt: 'Notes: pump 😀 then \ude00' }, fetchImpl);
+    expect(raw[0]).not.toMatch(/\\ud8[0-9a-f]{2}|\\ude[0-9a-f]{2}/i);
+    const sent = JSON.parse(raw[0]!) as { messages: Array<{ content: string }> };
+    expect(sent.messages.map((m) => m.content)).toEqual(['Rules for Sara �', 'Notes: pump 😀 then �']);
+  });
+
   it('"busy, try again in a second" (429 with a short Retry-After) is retried once', async () => {
     const waits: number[] = [];
     let calls = 0;

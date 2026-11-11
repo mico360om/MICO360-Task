@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createAiFeatureService, parseStringArray, parseJsonObject } from './ai-feature-service';
+import { createAiFeatureService, matchPeople, parseStringArray, parseJsonObject } from './ai-feature-service';
 import { createMemoryAiConfigRepository } from './ai-config-repository';
 import { emptyConfig, type AiConfig } from './ai-config';
 import { ValidationError } from '../../lib/http-errors';
@@ -726,5 +726,21 @@ describe('AiFeatureService: 1.23 search — OCR, embeddings and AI search questi
     await svc.chat({ system: 's', prompt: 'p', json: true });
     await svc.chat({ system: 's', prompt: 'p', json: true });
     expect(() => svc.startSearchQuestion('u1')).toThrow(/too quickly/);
+  });
+});
+
+// Review I1: on MICO360 AI a long people list may not all fit in the prompt; a person left out can't be
+// named by id, so a name said exactly as one unlisted person's is found by the name.
+describe('matchPeople: someone left out of the prompt', () => {
+  const everyone = [
+    { id: 'u1', firstName: 'Sara', lastName: 'Al Balushi', username: 'sara', name: 'Sara Al Balushi' },
+    { id: 'u9', firstName: 'Zuhair', lastName: 'Al Zadjali', username: 'zuhair.z', name: 'Zuhair Al Zadjali' },
+  ];
+  it('a unique exact name of someone not listed is found', () => {
+    expect(matchPeople([{ said: 'Zuhair Al Zadjali', ids: [] }], everyone, new Set(['u9'])).found.map((f) => f.id)).toEqual(['u9']);
+  });
+  it('someone who was listed, and the model said fits nobody: not found, as before', () => {
+    expect(matchPeople([{ said: 'Zuhair Al Zadjali', ids: [] }], everyone).notFound).toEqual(['Zuhair Al Zadjali']);
+    expect(matchPeople([{ said: 'Zuhair Al Zadjali', ids: [] }], everyone, new Set()).notFound).toEqual(['Zuhair Al Zadjali']);
   });
 });

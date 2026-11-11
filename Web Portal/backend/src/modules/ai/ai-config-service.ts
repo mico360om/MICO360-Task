@@ -4,7 +4,7 @@ import type { AuditService } from '../audit/audit-service';
 import type { AiConfigRepository } from './ai-config-repository';
 import { fetchProviderModels, ProviderHttpError } from './ai-provider-sync';
 import { complete, COMPLETION_TIMEOUT_MS, ProviderRefusedError } from './ai-completion';
-import { createSafeFetch } from './ai-network';
+import { createSafeFetch, isMico360Provider } from './ai-network';
 import type { RemoteModel } from './ai-model-catalog';
 import * as ops from './ai-config';
 import type {
@@ -94,7 +94,7 @@ export function createAiConfigService({
       const models = await fetchProviderModels(provider, providerFetch, { allowPrivateHosts });
       // MICO360 AI lists no models while none of its AI nodes accepts work (busy, draining, offline):
       // that says nothing about which models it has, so every model stays as it was.
-      if (provider.preset === 'mico360' && models.length === 0) return { ok: false, error: new ValidationError(MICO360_EMPTY_LIST), keyRefused: false };
+      if (isMico360Provider(provider) && models.length === 0) return { ok: false, error: new ValidationError(MICO360_EMPTY_LIST), keyRefused: false };
       return { ok: true, models };
     } catch (err) {
       if (!(err instanceof ValidationError)) throw err;
