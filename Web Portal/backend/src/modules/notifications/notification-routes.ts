@@ -12,7 +12,8 @@ import { ValidationError } from '../../lib/http-errors';
 
 const prefsSchema = z.object({
   muted: z.array(z.string()).optional(),
-  reminderLeadMinutes: z.number().int().min(0).max(MAX_REMINDER_LEAD_MINUTES).optional(),
+  // null: no extra reminder (the website clears it alone; older apps send their pair).
+  reminderLeadMinutes: z.number().int().min(0).max(MAX_REMINDER_LEAD_MINUTES).nullable().optional(),
   dailyEmails: z
     .object({
       pending: z.boolean().optional(),
@@ -145,7 +146,8 @@ export async function registerNotificationRoutes(app: FastifyInstance, deps: Not
     const userId = req.user!.id;
     const current = await notificationService.getPreferences(userId);
     const policy = deps.policyOf ? await deps.policyOf(userId) : null;
-    const pair = body.muted !== undefined ? { muted: body.muted, reminderLeadMinutes: body.reminderLeadMinutes } : { muted: current.muted, reminderLeadMinutes: body.reminderLeadMinutes ?? current.reminderLeadMinutes };
+    const lead = body.reminderLeadMinutes === null ? undefined : body.reminderLeadMinutes;
+    const pair = body.muted !== undefined ? { muted: body.muted, reminderLeadMinutes: lead } : { muted: current.muted, reminderLeadMinutes: body.reminderLeadMinutes === null ? undefined : (lead ?? current.reminderLeadMinutes) };
     // Notification & Scheduling centre: an older app's muted list sets the bells it changed; the
     // website's channel choices keep the muted list (what older apps read) in step.
     let muted = pair.muted;

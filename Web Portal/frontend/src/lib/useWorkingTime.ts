@@ -8,10 +8,13 @@ import { dayOffReason, workingDaysLate, type WorkCalendar } from './working-days
 /** One working-time answer per project (or for the page's scope) and range, kept a few minutes. */
 export const WORKING_TIME_KEY = ['working-time'] as const;
 
-/** This year and next (the company's day): the range the task form and the dashboards ask for. */
+/**
+ * Last year, this year and next (the company's day): the range the task form and the dashboards ask for —
+ * last year's holidays too, so a task late since then counts its working days right.
+ */
 export function defaultWorkingRange(today: string): { from: string; to: string } {
   const year = Number(today.slice(0, 4));
-  return { from: `${year}-01-01`, to: `${year + 1}-12-31` };
+  return { from: `${year - 1}-01-01`, to: `${year + 1}-12-31` };
 }
 
 /** The working days and days off of an answer, as the shared working-day rule reads them. */

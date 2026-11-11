@@ -80,3 +80,17 @@ describe('held notices go out at the morning, one message each way', () => {
     expect(bundledPush([row({ title: 'X' }), row({ title: 'Y' })])).toMatchObject({ title: '2 notices while you were away', body: 'X · Y' });
   });
 });
+
+describe('review M7/M8: the daily email takes held emails due by the morning', () => {
+  it('takes only those due by then; nobody else sends them; let go when the email didn’t go', async () => {
+    const { store, sendBundleEmail, release } = setup(false);
+    await store.add(held({ channel: 'EMAIL', title: 'night' }));
+    await store.add(held({ channel: 'EMAIL', title: 'after a long pause', releaseAt: new Date('2026-11-20T04:00:00Z') }));
+    const taken = await store.takeEmails('u1', new Date(MORNING.getTime() + 12 * 3600_000), MORNING);
+    expect(taken.map((t) => t.title)).toEqual(['night']);
+    await release.run(MORNING);
+    expect(sendBundleEmail).not.toHaveBeenCalled();
+    await store.release(taken.map((t) => t.id));
+    expect((await store.openEmails('u1')).map((t) => t.title)).toEqual(['night', 'after a long pause']);
+  });
+});

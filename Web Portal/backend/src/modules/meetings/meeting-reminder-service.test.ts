@@ -108,7 +108,8 @@ describe('the meeting reminder sweep', () => {
       body: '09:00–10:00 · OXY HQ – Meeting room 2 · Join online', entityType: 'meeting', entityId: 'm1',
     });
     // Its own Android channel, gone once the meeting has started, and it replaces the meeting's earlier one.
-    expect(t.notify.mock.calls[0]![1]).toEqual({ push: { channelId: 'meetings', ttlSeconds: 900, tag: 'meeting-m1' } });
+    // Notification & Scheduling: held by quiet hours or Pause past the start, it is dropped (expiresAt).
+    expect(t.notify.mock.calls[0]![1]).toEqual({ push: { channelId: 'meetings', ttlSeconds: 900, tag: 'meeting-m1' }, expiresAt: START });
     expect(t.sendMeetingReminder).not.toHaveBeenCalled();
   });
 

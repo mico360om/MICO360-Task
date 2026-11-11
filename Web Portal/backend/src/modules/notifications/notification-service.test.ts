@@ -302,3 +302,14 @@ describe('Notification & Scheduling centre: delivery by the person’s rules', (
     expect(own).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('review M10: the person’s rules can’t be read', () => {
+  it('the notice still goes (bell + push now), their muted types still apply', async () => {
+    const push = { sendToUser: vi.fn(async () => 1) };
+    const delivery = { decide: vi.fn(async () => { throw new Error('database blip'); }), hold: vi.fn(async () => {}), email: vi.fn(async () => {}) };
+    const svc3 = createNotificationService({ notifications: inMemory(), push, delivery, preferences: { get: async () => ({ muted: ['TASK_COMMENT'] }), set: async (_u, p) => p } });
+    expect(await svc3.notify({ userId: 'u1', type: 'TASK_OVERDUE', title: 'A task is overdue' })).not.toBeNull();
+    expect(push.sendToUser).toHaveBeenCalledTimes(1);
+    expect(await svc3.notify({ userId: 'u1', type: 'TASK_COMMENT', title: 'A comment' })).toBeNull();
+  });
+});

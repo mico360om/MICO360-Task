@@ -5,7 +5,7 @@ const cal = calendarOf({ workingDays: [0, 1, 2, 3, 4], daysOff: [{ day: '2026-11
 
 describe('working time on the website', () => {
   it('asks for this year and next', () => {
-    expect(defaultWorkingRange('2026-11-11')).toEqual({ from: '2026-01-01', to: '2027-12-31' });
+    expect(defaultWorkingRange('2026-11-11')).toEqual({ from: '2025-01-01', to: '2027-12-31' });
   });
 
   it('writes a day the site’s way', () => {

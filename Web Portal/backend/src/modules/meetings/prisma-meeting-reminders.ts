@@ -8,7 +8,11 @@ import type { ReminderPerson } from './meeting-reminders';
 const DUE_MEETINGS_LIMIT = 500;
 
 /** The meetings and people the reminder sweep needs, read from the database. */
-export function createPrismaMeetingReminderSource(prisma: PrismaClient): MeetingReminderSource {
+/**
+ * `mutedFor` (Notification & Scheduling centre): whether a person's meeting reminders are off by their
+ * rules — a kind the company requires is never off. Without it, their muted types decide (as before).
+ */
+export function createPrismaMeetingReminderSource(prisma: PrismaClient, opts: { mutedFor?: (userId: string, prefs: unknown) => Promise<boolean> } = {}): MeetingReminderSource {
   return {
     async dueMeetings(windows) {
       if (windows.length === 0) return [];
@@ -55,17 +59,21 @@ export function createPrismaMeetingReminderSource(prisma: PrismaClient): Meeting
         },
         select: { id: true, firstName: true, lastName: true, username: true, email: true, preferredTimeZone: true, notificationPrefs: true },
       });
+      const mutedOf = async (u: (typeof rows)[number]) =>
+        opts.mutedFor ? opts.mutedFor(u.id, u.notificationPrefs).catch(() => isMuted(normalizePreferences(u.notificationPrefs), MEETING_REMINDER_TYPE)) : isMuted(normalizePreferences(u.notificationPrefs), MEETING_REMINDER_TYPE);
       return new Map(
-        rows.map((u): [string, ReminderPerson] => [
-          u.id,
-          {
-            userId: u.id,
-            name: `${u.firstName} ${u.lastName}`.trim() || u.username,
-            email: u.email || null,
-            timeZone: u.preferredTimeZone ?? null,
-            muted: isMuted(normalizePreferences(u.notificationPrefs), MEETING_REMINDER_TYPE),
-          },
-        ]),
+        await Promise.all(
+          rows.map(async (u): Promise<[string, ReminderPerson]> => [
+            u.id,
+            {
+              userId: u.id,
+              name: `${u.firstName} ${u.lastName}`.trim() || u.username,
+              email: u.email || null,
+              timeZone: u.preferredTimeZone ?? null,
+              muted: await mutedOf(u),
+            },
+          ]),
+        ),
       );
     },
   };

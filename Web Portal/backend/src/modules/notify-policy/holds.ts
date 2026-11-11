@@ -22,8 +22,12 @@ export interface HoldStore {
   dueUsers(now: Date, limit: number): Promise<string[]>;
   /** Take a person's due items of one channel (no one else takes them again); returns them. */
   claimDue(userId: string, channel: 'PUSH' | 'EMAIL', now: Date): Promise<HoldRow[]>;
-  /** A person's open held emails (any release time), for the daily email to fold in. */
-  openEmails(userId: string): Promise<HoldRow[]>;
+  /** A person's open held emails due by `upTo`, for the daily email to fold in (peek: nothing is taken). */
+  openEmails(userId: string, upTo?: Date): Promise<HoldRow[]>;
+  /** Take a person's open held emails due by `upTo` for the daily email (no one else sends them meanwhile). */
+  takeEmails(userId: string, upTo: Date, at: Date): Promise<HoldRow[]>;
+  /** Let taken rows go again (the email they were taken for didn't go). */
+  release(ids: string[]): Promise<void>;
   finish(ids: string[], outcome: HoldOutcome, at: Date): Promise<void>;
   /** Forget finished rows older than this. */
   prune(before: Date): Promise<number>;
@@ -52,8 +56,11 @@ export function createPrismaHoldStore(prisma: PrismaClient): HoldStore {
       });
     },
     async dueUsers(now, limit) {
-      const rows = await prisma.notificationHold.findMany({ where: { doneAt: null, releaseAt: { lte: now } }, select: { userId: true }, distinct: ['userId'], take: limit });
-      return rows.map((r) => r.userId);
+      // Pushes first (they never wait for anything), oldest first; then emails — so people whose held
+      // emails wait for their daily email never crowd out anyone else's pushes.
+      const of = async (channel: 'PUSH' | 'EMAIL', take: number) =>
+        (await prisma.notificationHold.findMany({ where: { doneAt: null, channel, releaseAt: { lte: now } }, select: { userId: true }, distinct: ['userId'], orderBy: [{ releaseAt: 'asc' }, { id: 'asc' }], take })).map((r) => r.userId);
+      return [...new Set([...(await of('PUSH', limit)), ...(await of('EMAIL', limit * 10))])];
     },
     async claimDue(userId, channel, now) {
       // A claim mark of our own (no RETURNING on MariaDB): set it, then read back what carries it.
@@ -61,8 +68,16 @@ export function createPrismaHoldStore(prisma: PrismaClient): HoldStore {
       await prisma.notificationHold.updateMany({ where: { userId, channel, doneAt: null, releaseAt: { lte: now } }, data: { doneAt: now, outcome: mark } });
       return (await prisma.notificationHold.findMany({ where: { userId, outcome: mark }, select, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] })).map(asHold);
     },
-    async openEmails(userId) {
-      return (await prisma.notificationHold.findMany({ where: { userId, channel: 'EMAIL', doneAt: null }, select, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] })).map(asHold);
+    async openEmails(userId, upTo) {
+      return (await prisma.notificationHold.findMany({ where: { userId, channel: 'EMAIL', doneAt: null, ...(upTo ? { releaseAt: { lte: upTo } } : {}) }, select, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] })).map(asHold);
+    },
+    async takeEmails(userId, upTo, at) {
+      const mark = `FOLD:${randomUUID()}`.slice(0, 16);
+      await prisma.notificationHold.updateMany({ where: { userId, channel: 'EMAIL', doneAt: null, releaseAt: { lte: upTo } }, data: { doneAt: at, outcome: mark } });
+      return (await prisma.notificationHold.findMany({ where: { userId, outcome: mark }, select, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] })).map(asHold);
+    },
+    async release(ids) {
+      if (ids.length) await prisma.notificationHold.updateMany({ where: { id: { in: ids } }, data: { doneAt: null, outcome: null } });
     },
     async finish(ids, outcome, at) {
       if (ids.length) await prisma.notificationHold.updateMany({ where: { id: { in: ids } }, data: { doneAt: at, outcome } });
@@ -93,8 +108,16 @@ export function createMemoryHoldStore(): HoldStore & { rows: (HoldRow & { doneAt
       }
       return taken.map((r) => ({ ...r }));
     },
-    async openEmails(userId) {
-      return rows.filter((r) => r.userId === userId && r.channel === 'EMAIL' && !r.doneAt).map((r) => ({ ...r }));
+    async openEmails(userId, upTo) {
+      return rows.filter((r) => r.userId === userId && r.channel === 'EMAIL' && !r.doneAt && (!upTo || r.releaseAt <= upTo)).map((r) => ({ ...r }));
+    },
+    async takeEmails(userId, upTo, at) {
+      const taken = rows.filter((r) => r.userId === userId && r.channel === 'EMAIL' && !r.doneAt && r.releaseAt <= upTo);
+      for (const r of taken) Object.assign(r, { doneAt: at, outcome: 'FOLD' });
+      return taken.map((r) => ({ ...r }));
+    },
+    async release(ids) {
+      for (const r of rows) if (ids.includes(r.id)) Object.assign(r, { doneAt: null, outcome: null });
     },
     async finish(ids, outcome, at) {
       for (const r of rows) if (ids.includes(r.id)) Object.assign(r, { doneAt: at, outcome });

@@ -14,6 +14,11 @@ const dayWithYear = (key: string) => `${shortDay(key)} ${key.slice(0, 4)}`;
  * expected date until confirmed) and the company's own days off, one-off or every year. Reminders wait
  * for the next working morning on them, and they don't count as working days.
  */
+/** Only what changed is sent: moving the day makes an expected date the announced one; a rename doesn't. */
+export function changedOf(h: { day: string; name: string; recurring: boolean }, e: { day: string; name: string; recurring: boolean }): { day?: string; name?: string; recurring?: boolean } {
+  return { ...(e.day !== h.day ? { day: e.day } : {}), ...(e.name !== h.name ? { name: e.name } : {}), ...(e.recurring !== h.recurring ? { recurring: e.recurring } : {}) };
+}
+
 export function HolidaysTab({ companyId, data }: TabProps) {
   const qc = useQueryClient();
   const api = notificationSettingsApi(apiClient);
@@ -132,7 +137,7 @@ export function HolidaysTab({ companyId, data }: TabProps) {
                       <Toggle on={editing.recurring} onChange={() => setEditing({ ...editing, recurring: !editing.recurring })} label="Every year" />
                       <span aria-hidden="true">Every year</span>
                     </div>
-                    <Button size="sm" onClick={() => update.mutate({ id: h.id, patch: { day: editing.day, name: editing.name, recurring: editing.recurring } })} disabled={update.isPending} className="[@media(pointer:coarse)]:!min-h-11">
+                    <Button size="sm" onClick={() => update.mutate({ id: h.id, patch: changedOf(h, editing) })} disabled={update.isPending} className="[@media(pointer:coarse)]:!min-h-11">
                       Save
                     </Button>
                     <Button size="sm" variant="secondary" onClick={() => setEditing(null)} className="[@media(pointer:coarse)]:!min-h-11">

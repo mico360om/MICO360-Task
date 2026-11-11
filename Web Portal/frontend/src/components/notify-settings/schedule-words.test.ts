@@ -26,3 +26,13 @@ describe('reminder schedules in words', () => {
     expect(draftOf({ before: [5, 2], onDue: true, after: [1], repeatEvery: null })).toEqual({ before: '5, 2', onDue: true, after: '1', repeat: '' });
   });
 });
+
+describe('review M12: a holiday edit sends only what changed', async () => {
+  const { changedOf } = await import('./HolidaysTab');
+  it('a rename keeps an expected date expected (no day sent); a move sends the day', () => {
+    const h = { day: '2027-05-16', name: 'Eid al-Adha', recurring: false };
+    expect(changedOf(h, { ...h, name: 'Eid al-Adha (1st day)' })).toEqual({ name: 'Eid al-Adha (1st day)' });
+    expect(changedOf(h, { ...h, day: '2027-05-17' })).toEqual({ day: '2027-05-17' });
+    expect(changedOf(h, { ...h, recurring: true })).toEqual({ recurring: true });
+  });
+});

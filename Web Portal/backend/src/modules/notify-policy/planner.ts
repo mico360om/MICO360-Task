@@ -55,6 +55,8 @@ export interface PlannerTask {
   lastActivityAt: Date | null;
   /** Waiting for another task that isn't done. */
   hasOpenBlocker: boolean;
+  /** Its project is on hold or completed: only its assignees' due dates (no escalations, inactivity, approvals waiting). */
+  projectPaused?: boolean;
 }
 
 /** A dated checklist item of an open task (not waiting for approval), with who it reminds. */
@@ -159,6 +161,7 @@ export function planReminders(input: PlannerInput): PlannedNotice[] {
 
     // Waiting for approval: no deadline reminders (owner, 30 Oct) — the approval steps instead.
     if (t.approvalRequestedAt) {
+      if (t.projectPaused) continue;
       const since = dayOf(t.approvalRequestedAt);
       const waited = workingDaysBetween(since, today, cal);
       const { step1Days, step2Days } = policy.approvals;
@@ -182,6 +185,8 @@ export function planReminders(input: PlannerInput): PlannedNotice[] {
             add({ ...base, dedupeKey: `rem:${t.id}:${dueKey}:${step.key}:${userId}`, userId, kind: step.kind, type: step.kind === 'overdue' ? 'TASK_OVERDUE' : 'TASK_DUE_SOON', title: dueTitle(step, 'task', late) });
         }
       const { step1Days, step2Days } = t.escalation ?? policy.escalation;
+      // An on-hold or completed project: its assignees' due dates only.
+      if (t.projectPaused) continue;
       // Step 1, then weekly — unless Blocked, whose own weekly notice stands for it.
       if (on.escalation && t.columnCategory !== 'BLOCKED' && late >= step1Days) {
         const round = Math.floor((late - step1Days) / weekly);
@@ -193,6 +198,7 @@ export function planReminders(input: PlannerInput): PlannedNotice[] {
           add({ ...base, dedupeKey: `esc2:${t.id}:${dueKey}`, userId, kind: 'escalationAdmin', type: 'TASK_ESCALATION_ADMIN', title: `Escalation: ${t.key} is still overdue after ${plural(late, 'working day')}` });
     }
 
+    if (t.projectPaused) continue;
     // Blocked: one notice when it becomes Blocked, then weekly.
     if (on.escalation && t.columnCategory === 'BLOCKED') {
       const since = dayOf(t.enteredColumnAt ?? input.now);

@@ -132,7 +132,7 @@ describe('Settings → Notifications: quiet hours', () => {
 });
 
 describe('Settings → Notifications: the extra "due soon" reminder', () => {
-  it('saves a lead time alone, and "No extra reminder" as before (with the muted list)', async () => {
+  it('saves a lead time alone, and "No extra reminder" alone (null: nothing else is touched)', async () => {
     prefs = { muted: ['TASK_COMMENT'], reminderLeadMinutes: 1440 };
     renderCard();
     const select = await screen.findByRole('combobox', { name: 'Reminder timing' });
@@ -140,6 +140,6 @@ describe('Settings → Notifications: the extra "due soon" reminder', () => {
     fireEvent.change(select, { target: { value: '2880' } });
     await waitFor(() => expect(bodies).toEqual([{ reminderLeadMinutes: 2880 }]));
     fireEvent.change(select, { target: { value: '' } });
-    await waitFor(() => expect(bodies.at(-1)).toEqual({ muted: ['TASK_COMMENT'] }));
+    await waitFor(() => expect(bodies.at(-1)).toEqual({ reminderLeadMinutes: null }));
   });
 });

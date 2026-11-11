@@ -989,16 +989,18 @@ describe('one daily email per person, grouped by company, with their company’s
 
 describe('Notification & Scheduling centre: working days only, held notices folded in, working days late', () => {
   const MORNING = at('2026-10-21T02:00:00Z'); // Wednesday 06:00 in Muscat
-  function centre(o: { working?: boolean; held?: { id: string; title: string; body: string | null }[]; pending?: DailyTask[] } = {}) {
+  function centre(o: { working?: boolean; held?: { id: string; title: string; body: string | null }[]; pending?: DailyTask[]; fail?: boolean } = {}) {
     const { repo, rows } = memoryRepo(() => clock);
     let clock = MORNING;
     const sent: Array<{ html: string; text: string; subject: string }> = [];
     const folded = vi.fn(async (_ids: string[], _at: Date) => {});
+    const release = vi.fn(async (_ids: string[]) => {});
     const service = createDailyEmailService({
       repo,
       people: { list: async () => [person('ada')], find: async (id) => (id === 'ada' ? person('ada') : null) },
       tasks: { pending: async () => o.pending ?? [task('RIG-1')], completedBetween: async () => [] },
       send: async (_to, content) => {
+        if (o.fail) throw new Error('HTTP 503');
         sent.push({ html: content.html, text: content.text, subject: content.subject });
         return 'sent';
       },
@@ -1008,9 +1010,9 @@ describe('Notification & Scheduling centre: working days only, held notices fold
       now: () => clock,
       workingDay: async () => o.working ?? true,
       lateDays: () => 3,
-      held: { list: async () => o.held ?? [], folded },
+      held: { take: async () => o.held ?? [], peek: async () => o.held ?? [], folded, release },
     });
-    return { service, rows, sent, folded, setNow: (iso: string) => (clock = at(iso)) };
+    return { service, rows, sent, folded, release, setNow: (iso: string) => (clock = at(iso)) };
   }
 
   it('no daily email on a day off: recorded as skipped, saying why', async () => {
@@ -1033,6 +1035,13 @@ describe('Notification & Scheduling centre: working days only, held notices fold
     expect(c.folded).toHaveBeenCalledWith(['h1', 'h2'], expect.any(Date));
     // Gone: nothing else waits for it today.
     expect(await c.service.pendingToday('ada')).toBe(false);
+  });
+
+  it('review M8: an email that didn’t go lets its held notices go again (sent later, never lost)', async () => {
+    const c = centre({ held: [{ id: 'h1', title: 'A task is overdue', body: null }], fail: true });
+    await c.service.runSweep();
+    expect(c.folded).not.toHaveBeenCalled();
+    expect(c.release).toHaveBeenCalledWith(['h1']);
   });
 
   it('held notices alone are enough for an email', async () => {

@@ -118,6 +118,7 @@ import { createHoldRelease, createPrismaHoldStore } from './modules/notify-polic
 import { createPlannerSweep, createPrismaFirstRun, createPrismaReminderKeys, leadDaysOf } from './modules/notify-policy/planner-sweep';
 import type { NotificationDelivery } from './modules/notifications/notification-service';
 import { isWorkingDay, workingDaysLate, type WorkCalendar } from './lib/working-days';
+import { channelsForType } from './modules/notify-policy/policy';
 import { runExclusive, createPrismaJobLockStore } from './lib/job-lock';
 import { createJobGate } from './lib/job-gate';
 import { databaseConnectionCode } from './lib/db-connection';
@@ -1377,6 +1378,8 @@ async function main(): Promise<void> {
   // The daily email's "N working days overdue": each task's company calendar, loaded before an email is built.
   const lateCalendars = new Map<string, WorkCalendar>();
   const EVERY_DAY: WorkCalendar = { workingDays: [0, 1, 2, 3, 4, 5, 6], holidays: [] };
+  /** The daily email folds in held emails due within this time (the night's, not a longer Pause's). */
+  const HELD_FOLD_AHEAD_MS = 12 * 60 * 60 * 1000;
   notificationDelivery = notifyWiring.delivery({ holds: notificationHolds, sendEmail: (userId, input) => noticeEmails.sendNotice(userId, input) });
   notificationPlanner = createPlannerSweep({
     prisma,
@@ -1672,7 +1675,10 @@ async function main(): Promise<void> {
   // minute (leases are held for their whole length) so the sweep really runs every minute.
   const meetingReminderService = createMeetingReminderService({
     settings: () => settingsService.meetingReminders(),
-    source: createPrismaMeetingReminderSource(prisma),
+    // Notification & Scheduling: a person's meeting reminders are off by their rules (never when required).
+    source: createPrismaMeetingReminderSource(prisma, {
+      mutedFor: async (userId, prefs) => !channelsForType(normalizePreferences(prefs), 'MEETING_REMINDER', (await notifyWiring.contextFor(userId, new Date())).rules.policy)!.bell,
+    }),
     store: createPrismaMeetingReminderStore(prisma),
     notify: (input, opts) => notificationService.notify(input, opts),
     email: emailService,
@@ -1776,9 +1782,12 @@ async function main(): Promise<void> {
       for (const id of new Set(['', ...tasks.map((t) => t.project.company?.id ?? '')])) lateCalendars.set(id, (await notifyPolicy.rules(id || null)).calendar);
     },
     lateDays: (task, dueKey, toKey) => workingDaysLate(dueKey, toKey, lateCalendars.get(task.project.company?.id ?? '') ?? lateCalendars.get('') ?? EVERY_DAY),
+    // Held emails due by the end of the morning (not one waiting for a Pause to end) fold in.
     held: {
-      list: async (userId) => (await notificationHolds.openEmails(userId)).map((h) => ({ id: h.id, title: h.title, body: h.body })),
+      take: async (userId, at) => (await notificationHolds.takeEmails(userId, new Date(at.getTime() + HELD_FOLD_AHEAD_MS), at)).map((h) => ({ id: h.id, title: h.title, body: h.body })),
+      peek: async (userId, at) => (await notificationHolds.openEmails(userId, new Date(at.getTime() + HELD_FOLD_AHEAD_MS))).map((h) => ({ id: h.id, title: h.title, body: h.body })),
       folded: (ids, at) => notificationHolds.finish(ids, 'FOLDED', at),
+      release: (ids) => notificationHolds.release(ids),
     },
   });
   // Job leases are held for their whole length (never released), so this one is under a minute or

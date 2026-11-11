@@ -69,8 +69,16 @@ export interface DailyEmailServiceDeps {
   lateDays?(task: DailyTask, dueKey: string, toKey: string): number;
   /** …the companies' calendars that `lateDays` reads, loaded before an email is built. */
   prepareLateDays?(tasks: DailyTask[]): Promise<void>;
-  /** …the notices held for them outside working hours: folded into the email, then marked folded. */
-  held?: { list(userId: string): Promise<{ id: string; title: string; body: string | null }[]>; folded(ids: string[], at: Date): Promise<void> };
+  /**
+   * …the notices held for them outside working hours: `take` claims them for this email (nobody else sends
+   * them meanwhile), `folded` once it went, `release` when it didn't (they go later); `peek` for a test.
+   */
+  held?: {
+    take(userId: string, at: Date): Promise<{ id: string; title: string; body: string | null }[]>;
+    peek(userId: string, at: Date): Promise<{ id: string; title: string; body: string | null }[]>;
+    folded(ids: string[], at: Date): Promise<void>;
+    release(ids: string[]): Promise<void>;
+  };
 }
 
 /** The daily email skipped on a day off (Notification & Scheduling centre). */
@@ -372,7 +380,7 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
       parts.managed && deps.tasks.managed ? deps.tasks.managed(person.id, at) : Promise.resolve([]),
     ]);
     // Notification & Scheduling: the notices held overnight fold in (a test shows them but leaves them).
-    const held = deps.held ? await deps.held.list(person.id).catch(() => []) : [];
+    const held = deps.held ? await (o.test ? deps.held.peek(person.id, at) : deps.held.take(person.id, at)).catch(() => []) : [];
     if (deps.prepareLateDays) await deps.prepareLateDays([...tasks, ...completed, ...managed]).catch(() => {});
     const content = dailyEmail(
       {
@@ -478,19 +486,28 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
     };
 
     let built: { count: number; content: EmailContent | null; fromName?: string; heldIds?: string[] } = { count: 0, content: null };
+    // Held notices taken for an email that didn't go are let go again (the next email, or their own email).
+    const letGo = () => (built.heldIds?.length ? deps.held?.release(built.heldIds).catch(() => {}) : undefined);
     try {
       if (person.email && isOn(dailyEmailPrefs(person.prefs), taken.kind)) built = await build(taken.kind, person, at);
     } catch (err) {
       return failed(err);
     }
-    if (!person.email || !built.content) return skipped(null); // turned off since it was due, or nothing in it
+    if (!person.email || !built.content) {
+      await letGo();
+      return skipped(null); // turned off since it was due, or nothing in it
+    }
     let result: 'sent' | 'suppressed' | void;
     try {
       result = await sendBuilt(person.email, { content: built.content, fromName: built.fromName }, TEMPLATE[taken.kind]);
     } catch (err) {
+      await letGo();
       return failed(err);
     }
-    if (result === 'suppressed') return skipped(BLOCKED_ADDRESS);
+    if (result === 'suppressed') {
+      await letGo();
+      return skipped(BLOCKED_ADDRESS);
+    }
     await recordSent(taken, { status: 'SENT', taskCount: built.count, sentAt: at, nextAttemptAt: null, lastError: null });
     if (built.heldIds?.length) await deps.held?.folded(built.heldIds, at).catch(() => {});
     return { status: 'SENT', error: null, sentAt: at };

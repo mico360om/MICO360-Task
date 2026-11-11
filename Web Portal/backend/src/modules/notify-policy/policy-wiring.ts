@@ -317,6 +317,7 @@ export function createNoticeEmails(deps: {
     if (entityType === 'my-tasks') return `${base}/my-tasks`;
     if (entityType === 'management') return `${base}/management`;
     if (entityType === 'approvals') return `${base}/my-tasks#to-approve`;
+    if (entityType === 'conversation' && entityId) return `${base}/chat?conversation=${encodeURIComponent(entityId)}`;
     return `${base}/notifications`;
   };
   async function addressOf(userId: string): Promise<string | null> {

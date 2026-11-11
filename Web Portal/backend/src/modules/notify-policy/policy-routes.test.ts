@@ -132,7 +132,8 @@ describe('a person’s own rules, working time, a project’s and a task’s rem
     const h = await bearer('u7', ['EMPLOYEE']);
     const res = await app.inject({ method: 'GET', url: '/api/v1/working-time?projectId=p1&from=2026-11-01&to=2026-11-30', headers: h });
     expect(res.json().data).toEqual({ viewer: 'u7', target: { projectId: 'p1', companyId: null, pick: null }, range: { from: '2026-11-01', to: '2026-11-30' } });
-    expect((await app.inject({ method: 'GET', url: '/api/v1/working-time?from=2026-01-01&to=2029-01-01', headers: h })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'GET', url: '/api/v1/working-time?from=2025-01-01&to=2027-12-31', headers: h })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'GET', url: '/api/v1/working-time?from=2026-01-01&to=2030-01-01', headers: h })).statusCode).toBe(400);
     expect((await app.inject({ method: 'GET', url: '/api/v1/working-time?from=2026-12-01&to=2026-11-01', headers: h })).statusCode).toBe(400);
   });
 
@@ -170,6 +171,14 @@ describe('preferences: older apps and the website side by side', () => {
     await app.inject({ method: 'PUT', url: '/api/v1/notifications/preferences', headers: h, payload: { quietHours: null, breakThrough: null } });
     expect(prefsStore.get('web')?.quietHours).toBeUndefined();
     expect(prefsStore.get('web')?.breakThrough).toBeUndefined();
+  });
+
+  it('review M6: “No extra reminder” clears the lead time alone (nothing else is touched)', async () => {
+    const h = await bearer('lead', ['EMPLOYEE']);
+    await app.inject({ method: 'PUT', url: '/api/v1/notifications/preferences', headers: h, payload: { muted: ['TASK_COMMENT'], reminderLeadMinutes: 1440 } });
+    const cleared = (await app.inject({ method: 'PUT', url: '/api/v1/notifications/preferences', headers: h, payload: { reminderLeadMinutes: null } })).json().data;
+    expect(cleared.reminderLeadMinutes).toBeUndefined();
+    expect(prefsStore.get('lead')?.muted).toEqual(['TASK_COMMENT']);
   });
 
   it('Pause: up to two weeks; null resumes', async () => {

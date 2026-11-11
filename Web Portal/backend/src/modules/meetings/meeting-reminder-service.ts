@@ -228,7 +228,8 @@ export function createMeetingReminderService(deps: MeetingReminderServiceDeps) {
           if (channel === 'APP' && recipient.kind === 'user') {
             const stored = await deps.notify(
               { userId: recipient.userId, type: MEETING_REMINDER_TYPE, title: words.title, body: words.body, entityType: 'meeting', entityId: m.id },
-              { push: { channelId: MEETING_PUSH_CHANNEL, ttlSeconds, tag: `meeting-${m.id}` } },
+              // Notification & Scheduling: held by quiet hours or Pause past the start, it is dropped.
+              { push: { channelId: MEETING_PUSH_CHANNEL, ttlSeconds, tag: `meeting-${m.id}` }, expiresAt: m.startAt },
             );
             // Null: they switched meeting reminders off a moment ago.
             outcome = stored ? 'SENT' : 'SKIPPED';

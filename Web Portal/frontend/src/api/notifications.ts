@@ -67,7 +67,9 @@ export interface PersonQuietHours {
 }
 
 /** A save: only what changed; `null` clears quiet hours, break-through or Pause (back to the company's / no pause). */
-export type NotificationPreferencesSave = Partial<Omit<NotificationPreferences, 'quietHours' | 'breakThrough' | 'pauseUntil'>> & {
+export type NotificationPreferencesSave = Partial<Omit<NotificationPreferences, 'quietHours' | 'breakThrough' | 'pauseUntil' | 'reminderLeadMinutes'>> & {
+  /** null: no extra reminder. */
+  reminderLeadMinutes?: number | null;
   quietHours?: PersonQuietHours | null;
   breakThrough?: { meetings?: boolean; mentions?: boolean } | null;
   pauseUntil?: string | null;

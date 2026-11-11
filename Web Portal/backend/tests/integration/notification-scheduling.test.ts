@@ -197,6 +197,17 @@ describe('Notification & Scheduling centre (integration)', () => {
     expect(keys.filter((k) => k.dedupeKey.includes(ids.late!)).length).toBeGreaterThanOrEqual(2);
   });
 
+  it('review I4: an archived project gets nothing; an on-hold one only its assignees’ due dates', async () => {
+    await prisma.systemSetting.create({ data: { key: PLANNER_SINCE_KEY, value: NOW.toISOString() } });
+    await prisma.project.update({ where: { id: ids.project! }, data: { status: 'ARCHIVED' } });
+    const sent: { userId: string; type: string; title: string }[] = [];
+    await sweep(() => NOW, sent).run();
+    expect(sent).toEqual([]);
+    await prisma.project.update({ where: { id: ids.project! }, data: { status: 'ON_HOLD' } });
+    await sweep(() => NOW, sent).run();
+    expect([...new Set(sent.map((x) => x.type))].sort()).toEqual(['TASK_DUE_SOON', 'TASK_OVERDUE']);
+  });
+
   it('the planner’s keys outlive the 35-day clean-up of other reminder markers', async () => {
     const old = new Date(Date.now() - 60 * 86_400_000);
     await prisma.reminderLog.createMany({ data: [{ dedupeKey: `np:esc2:${TAG}`, createdAt: old }, { dedupeKey: `TASK_OVERDUE:${TAG}:x:2026-01-01`, createdAt: old }] });
@@ -220,6 +231,14 @@ describe('Notification & Scheduling centre (integration)', () => {
     expect(emails.map((e) => e.title)).toEqual([`${TAG} email`]);
     await holds.finish(emails.map((e) => e.id), 'FOLDED', NOW);
     expect(await holds.openEmails(ids.ann!)).toEqual([]);
+    // The daily email takes the held emails due by the morning (no one else sends them), or lets them go.
+    await holds.add({ ...base, channel: 'EMAIL', title: `${TAG} night`, releaseAt: NOW });
+    await holds.add({ ...base, channel: 'EMAIL', title: `${TAG} pause`, releaseAt: new Date(NOW.getTime() + 3 * 86_400_000) });
+    const taken = await holds.takeEmails(ids.ann!, new Date(NOW.getTime() + 12 * 3600_000), NOW);
+    expect(taken.map((t) => t.title)).toEqual([`${TAG} night`]);
+    expect((await holds.openEmails(ids.ann!)).map((t) => t.title)).toEqual([`${TAG} pause`]);
+    await holds.release(taken.map((t) => t.id));
+    expect((await holds.openEmails(ids.ann!)).map((t) => t.title).sort()).toEqual([`${TAG} night`, `${TAG} pause`]);
     expect(queries.flatMap((q) => portabilityProblems(q))).toEqual([]);
   });
 });

@@ -6,6 +6,7 @@ import {
   POLICY_KINDS,
   REMINDER_KINDS,
   channelsFor,
+  channelsForType,
   legacyMutedView,
   mergeLegacyMuted,
   normalizePolicy,
@@ -105,6 +106,17 @@ describe('a person’s channels for a kind', () => {
     expect(channelsFor({ muted: ['TASK_OVERDUE'], channels: { overdue: { bell: false, push: false } } }, 'overdue', req)).toEqual({ bell: true, push: true, email: false, required: true });
   });
 
+  it('review I1/I2: chat @mentions never email by default; muting MENTION alone (older apps) keeps mention emails off', () => {
+    expect(channelsForType({ muted: [] }, 'MENTION', policy)!.email).toBe(true);
+    expect(channelsForType({ muted: [] }, 'CHAT_MENTION', policy)!.email).toBe(false);
+    expect(channelsForType({ muted: [], channels: { mentions: { email: true } } }, 'CHAT_MENTION', policy)!.email).toBe(true);
+    const oldApp = { muted: ['MENTION'] };
+    expect(channelsForType(oldApp, 'MENTION', policy)).toMatchObject({ bell: false, email: false });
+    expect(channelsFor(oldApp, 'mentions', policy)).toMatchObject({ bell: false, email: false });
+    // Chat mentions keep their bell (never switchable before).
+    expect(channelsForType(oldApp, 'CHAT_MENTION', policy)!.bell).toBe(true);
+  });
+
   it('a type muted before keeps the bell, push and email off (nothing comes back on)', () => {
     expect(channelsFor({ muted: ['MENTION', 'CHAT_MENTION'] }, 'mentions', policy)).toEqual({ bell: false, push: false, email: false, required: false });
     // …unless the person chose email for it since.
@@ -136,6 +148,29 @@ describe('older apps’ muted list', () => {
     expect(after.muted.sort()).toEqual(['TASK_COMMENT', 'TASK_DUE_SOON']);
     expect(after.channels?.dueSoon?.bell).toBe(false);
     expect(after.channels?.status?.bell).toBe(true);
-    expect(after.channels?.comments?.bell).toBe(false);
+    // Unchanged ones stay as they were (comments: muted by the list).
+    expect(channelsFor(after, 'comments', policy).bell).toBe(false);
+  });
+
+  it('review I5: the website turned Mentions off; Android (MENTION only) turns it back on', () => {
+    const webOff: ChannelPrefs = { muted: ['MENTION', 'CHAT_MENTION'], channels: { mentions: { bell: false } } };
+    const view = legacyMutedView(webOff, policy);
+    expect(view).toEqual(expect.arrayContaining(['MENTION', 'CHAT_MENTION']));
+    const after = mergeLegacyMuted(webOff, view.filter((t) => t !== 'MENTION'), policy);
+    expect(channelsForType(after, 'MENTION', policy)!.bell).toBe(true);
+    expect(legacyMutedView(after, policy)).not.toContain('MENTION');
+  });
+
+  it('review M6: sending back what was shown pins nothing (a company default stays the company’s)', () => {
+    const prefs: ChannelPrefs = { muted: [] };
+    const after = mergeLegacyMuted(prefs, legacyMutedView(prefs, policy), policy);
+    expect(after.muted).toEqual([]);
+    expect(after.channels?.status).toBeUndefined();
+  });
+
+  it('a required kind’s old mutes (not shown to older apps) are kept as they were', () => {
+    const req = { ...policy, required: ['overdue' as const] };
+    const after = mergeLegacyMuted({ muted: ['TASK_OVERDUE'] }, [], req);
+    expect(after.muted).toEqual(['TASK_OVERDUE']);
   });
 });

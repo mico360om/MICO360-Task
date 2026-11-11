@@ -71,7 +71,7 @@ export interface NotifyPolicyRouteDeps {
   };
 }
 
-const MAX_RANGE_DAYS = 800;
+const MAX_RANGE_DAYS = 1200;
 
 export async function registerNotifyPolicyRoutes(app: FastifyInstance, deps: NotifyPolicyRouteDeps): Promise<void> {
   const { guard, service } = deps;

@@ -154,7 +154,15 @@ export function createNotificationService({ notifications, preferences, push, lo
 
   /** Notification & Scheduling centre: the bell, push and email each as the person's rules say. */
   async function deliverByPolicy(input: CreateNotificationData, once: boolean, opts?: NotifyOptions): Promise<NotificationRecord | null> {
-    const d = await delivery!.decide(input.userId, input.type, { expiresAt: opts?.expiresAt ?? null });
+    let d: DeliveryDecision;
+    try {
+      d = await delivery!.decide(input.userId, input.type, { expiresAt: opts?.expiresAt ?? null });
+    } catch (err) {
+      // The person's rules couldn't be read: their muted types still apply, the rest goes now (never lost).
+      logger?.error('notification rules could not be read', { err, userId: input.userId, type: input.type });
+      const muted = preferences ? isMuted(await preferences.get(input.userId).catch(() => null), input.type) : false;
+      d = { kind: null, bell: !muted, push: muted ? 'off' : 'now', email: 'off', releaseAt: null };
+    }
     const record = d.bell ? await store(input, once) : null;
     const held = (channel: 'PUSH' | 'EMAIL') =>
       delivery!

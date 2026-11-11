@@ -2,6 +2,7 @@ import type { PrismaClient } from '@prisma/client';
 import { filterTaskRecipients } from '../notifications/recipient-access';
 import { taskAudienceSelect, toAudienceFacts } from '../notifications/prisma-task-audience';
 import { isTaskDone } from '../tasks/task-status';
+import { LIVE_PROJECT_WHERE } from '../companies/company-access';
 import { bundleNotices, planReminders, type PlannedNotice, type PlannerItem, type PlannerTask } from './planner';
 import type { CompanyRules } from './policy-service';
 
@@ -74,7 +75,7 @@ export interface PlannerSweepDeps {
   /** A person's own "remind me before due" lead, in calendar days (from their preferences). */
   leadDays(prefs: unknown): number | undefined;
   now?: () => Date;
-  logger?: { info(msg: string, meta?: Record<string, unknown>): void };
+  logger?: { info(msg: string, meta?: Record<string, unknown>): void; error?(msg: string, meta?: Record<string, unknown>): void };
 }
 
 const chunk = <T>(list: T[], size = 1000): T[][] => {
@@ -113,8 +114,9 @@ const later = (...ds: (Date | null | undefined)[]): Date | null => ds.reduce<Dat
 /** Everything the planner needs, read from the database (also for the panel's "Preview for a person"). */
 export async function loadPlannerFacts(deps: Pick<PlannerSweepDeps, 'prisma' | 'audience' | 'runners' | 'approvers' | 'checklistItems' | 'rules' | 'leadDays'>, now: Date) {
   const { prisma } = deps;
+  // Archived projects (their own status, or all their companies archived) are locked: nothing about them.
   const rows = await prisma.task.findMany({
-    where: { deletedAt: null, completedAt: null, project: { is: { deletedAt: null } } },
+    where: { deletedAt: null, completedAt: null, project: { is: { deletedAt: null, ...LIVE_PROJECT_WHERE } } },
     select: {
       id: true,
       key: true,
@@ -139,7 +141,7 @@ export async function loadPlannerFacts(deps: Pick<PlannerSweepDeps, 'prisma' | '
     (projectIds.length
       ? await prisma.project.findMany({
           where: { id: { in: projectIds } },
-          select: { id: true, mainCompanyId: true, reminderScheduleId: true, escalationDays: true, companies: { select: { companyId: true }, orderBy: [{ addedAt: 'asc' }, { companyId: 'asc' }], take: 1 } },
+          select: { id: true, status: true, mainCompanyId: true, reminderScheduleId: true, escalationDays: true, companies: { select: { companyId: true }, orderBy: [{ addedAt: 'asc' }, { companyId: 'asc' }], take: 1 } },
         })
       : []
     ).map((p) => [p.id, p]),
@@ -205,6 +207,7 @@ export async function loadPlannerFacts(deps: Pick<PlannerSweepDeps, 'prisma' | '
       enteredColumnAt: entered.get(t.id) ?? t.createdAt,
       lastActivityAt: later(worked.get(t.id), dueMoved.get(t.id), t.createdAt),
       hasOpenBlocker: t.dependencies.some((d) => !d.dependsOn.deletedAt && !isTaskDone({ columnCategory: d.dependsOn.column?.category ?? null, completedAt: d.dependsOn.completedAt })),
+      projectPaused: project?.status === 'ON_HOLD' || project?.status === 'COMPLETED',
     });
   }
 
@@ -256,7 +259,13 @@ export function createPlannerSweep(deps: PlannerSweepDeps & { firstRun: { done()
     }
     let sent = 0;
     for (const out of bundleNotices(fresh)) {
-      await deps.notify(out.notice);
+      // One person's notice failing (their rules can't be read) never stops everyone else's: it is tried next hour.
+      try {
+        await deps.notify(out.notice);
+      } catch (err) {
+        deps.logger?.error?.('a reminder could not be sent', { err, userId: out.userId, kind: out.kind });
+        continue;
+      }
       await deps.keys.addMany(out.dedupeKeys.map((k) => `${PLANNER_KEY_PREFIX}${k}`));
       sent++;
     }

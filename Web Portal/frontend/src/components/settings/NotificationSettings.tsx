@@ -240,7 +240,7 @@ export function NotificationSettings() {
             <select
               aria-label="Reminder timing"
               value={prefs.reminderLeadMinutes ?? ''}
-              onChange={(e) => (e.target.value === '' ? save.mutate({ muted: prefs.muted }) : save.mutate({ reminderLeadMinutes: Number(e.target.value) }))}
+              onChange={(e) => save.mutate({ reminderLeadMinutes: e.target.value === '' ? null : Number(e.target.value) })}
               className={field}
             >
               {LEAD_OPTIONS.map((o) => (

@@ -208,3 +208,13 @@ describe('never a burst', () => {
     expect(bundleNotices(plan(many.slice(0, 3), '2026-11-15')).filter((b) => b.kind === 'overdue')).toHaveLength(3);
   });
 });
+
+describe('review I4: a project on hold or completed', () => {
+  it('only its assignees’ due dates — no escalations, Blocked notices, inactivity or approvals waiting', () => {
+    const paused = { projectPaused: true };
+    expect(brief(plan([task(paused)], '2026-11-25'))).toEqual(['a1 TASK_OVERDUE rem:t1:2026-11-12:7:a1']);
+    expect(plan([task({ ...paused, columnCategory: 'BLOCKED', enteredColumnAt: at('2026-11-15') })], '2026-11-23').filter((n) => n.kind !== 'overdue')).toEqual([]);
+    expect(plan([task({ ...paused, columnCategory: 'IN_PROGRESS', dueDate: null, lastActivityAt: at('2026-11-01') })], '2026-11-23')).toEqual([]);
+    expect(plan([task({ ...paused, approvalRequestedAt: at('2026-11-01') })], '2026-11-23')).toEqual([]);
+  });
+});

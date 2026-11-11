@@ -247,27 +247,35 @@ export interface ChannelPrefs {
   channels?: ChannelChoices;
 }
 
-const allMuted = (prefs: ChannelPrefs, kind: PolicyKind) => KIND_TYPES[kind].every((t) => prefs.muted.includes(t));
+/** Any of the kind's types muted (older apps mute one type of a kind — "Mentions" was MENTION only). */
+const anyMuted = (prefs: ChannelPrefs, kind: PolicyKind) => KIND_TYPES[kind].some((t) => prefs.muted.includes(t));
 
-/** A kind's channels for a person (the settings table): a kind is off on the bell once all its types are muted. */
+/**
+ * Types whose email is never on by default, only when the person chose it: a chat @mention never had an
+ * email (the task-comment @mention's email carries over).
+ */
+const EMAIL_ONLY_WHEN_CHOSEN = new Set(['CHAT_MENTION']);
+
+/** A kind's channels for a person (the settings table): a kind shows off on the bell once any of its types is muted. */
 export function channelsFor(prefs: ChannelPrefs, kind: PolicyKind, policy: NotificationPolicy): Channels & { required: boolean } {
-  return channelsOf(prefs, kind, policy, allMuted(prefs, kind));
+  return channelsOf(prefs, kind, policy, anyMuted(prefs, kind), null);
 }
 
 /** One notice type's channels for a person (delivery): that type muted = its bell off. */
 export function channelsForType(prefs: ChannelPrefs, type: string, policy: NotificationPolicy): (Channels & { required: boolean }) | null {
   const kind = policyKindOfType(type);
-  return kind ? channelsOf(prefs, kind, policy, prefs.muted.includes(type)) : null;
+  return kind ? channelsOf(prefs, kind, policy, prefs.muted.includes(type), type) : null;
 }
 
-function channelsOf(prefs: ChannelPrefs, kind: PolicyKind, policy: NotificationPolicy, muted: boolean): Channels & { required: boolean } {
+function channelsOf(prefs: ChannelPrefs, kind: PolicyKind, policy: NotificationPolicy, muted: boolean, type: string | null): Channels & { required: boolean } {
   const choice = prefs.channels?.[kind] ?? {};
   const def = policy.channels[kind];
   const required = policy.required.includes(kind);
   const bell = required || (!muted && (choice.bell ?? def.bell));
   const push = bell && (required || (choice.push ?? def.push));
-  // A kind muted before the upgrade stays off by email too, unless the person chose email since.
-  const email = NO_EMAIL_CHANNEL.includes(kind) ? false : (choice.email ?? (allMuted(prefs, kind) ? false : def.email));
+  // A kind any of whose types was muted before stays off by email too, unless the person chose email since.
+  const fallback = anyMuted(prefs, kind) || (type !== null && EMAIL_ONLY_WHEN_CHOSEN.has(type)) ? false : def.email;
+  const email = NO_EMAIL_CHANNEL.includes(kind) ? false : (choice.email ?? fallback);
   return { bell, push, email, required };
 }
 
@@ -284,17 +292,28 @@ export function legacyMutedView(prefs: ChannelPrefs, policy: NotificationPolicy)
 }
 
 /**
- * An older app saved its `muted` list (what legacyMutedView showed, with its changes): store it, and
- * read each kind's bell from it — all of a kind's types on the list = off, none = on.
+ * An older app saved its `muted` list (what legacyMutedView showed, with its changes). Only the changes
+ * count: a type taken off the list turns its kind's bell on (the person's choice; any other type still on
+ * the list stays muted); a type put on it is muted (all of a kind's types = the kind off). What the app
+ * was only shown — off by the company's default or the person's website choice — is never pinned as a
+ * mute, and what it wasn't shown (a required kind's old mutes) stays as it was.
  */
 export function mergeLegacyMuted<P extends ChannelPrefs>(prefs: P, muted: string[], policy: NotificationPolicy): P {
+  const before = new Set(legacyMutedView(prefs, policy));
+  const next = new Set(muted);
   const channels: ChannelChoices = { ...(prefs.channels ?? {}) };
-  const next = { ...prefs, muted: [...new Set(muted)] };
+  const stored = new Set<string>();
+  for (const t of next) if (prefs.muted.includes(t) || !before.has(t)) stored.add(t);
+  for (const t of prefs.muted) if (!before.has(t)) stored.add(t);
   for (const kind of POLICY_KINDS) {
-    const listed = KIND_TYPES[kind].filter((t) => next.muted.includes(t)).length;
-    const wasOn = channelsFor(prefs, kind, policy).bell;
-    if (listed === KIND_TYPES[kind].length) channels[kind] = { ...channels[kind], bell: false };
-    else if (listed === 0 && (!wasOn || channels[kind]?.bell === false)) channels[kind] = { ...channels[kind], bell: true };
+    const types = KIND_TYPES[kind];
+    const turnedOn = types.filter((t) => before.has(t) && !next.has(t));
+    if (turnedOn.length) {
+      channels[kind] = { ...channels[kind], bell: true };
+      for (const t of turnedOn) stored.delete(t);
+    } else if (types.some((t) => !before.has(t) && next.has(t)) && types.every((t) => next.has(t))) {
+      channels[kind] = { ...channels[kind], bell: false };
+    }
   }
-  return { ...next, channels };
+  return { ...prefs, muted: [...stored], channels };
 }
