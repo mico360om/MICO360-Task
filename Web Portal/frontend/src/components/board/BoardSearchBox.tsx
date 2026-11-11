@@ -69,7 +69,7 @@ export function BoardSearchBox({
           data-page-search
           dir="auto"
           aria-label="Search this board"
-          title="Search by number, title, description, person, project or tag"
+          title="Search by number, title, description, person, project, tag, guest or category"
           placeholder="Search this board…"
           maxLength={MAX_QUERY_LETTERS}
           value={text}

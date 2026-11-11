@@ -47,6 +47,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   category and each guest once (Undo gives them back); repeating copies keep both; "Save as template"
   keeps a project's categories, and a project made from that template starts with them.
 - The task history says "assigned guest Ahmed (OXY)", "removed guest …", "added category Electrical".
+- Search this board also finds a card by its guests (name or company) and its categories. Duplicate copies
+  a task's guests (with their notes for the task) and its categories, never retired ones.
 
 ## [1.23.18] - 2026-11-11
 
