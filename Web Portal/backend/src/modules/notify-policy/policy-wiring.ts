@@ -304,6 +304,7 @@ export function createNoticeEmails(deps: {
     if (entityType === 'project' && entityId) return `${base}/projects/${encodeURIComponent(entityId)}`;
     if (entityType === 'my-tasks') return `${base}/my-tasks`;
     if (entityType === 'management') return `${base}/management`;
+    if (entityType === 'approvals') return `${base}/my-tasks#to-approve`;
     return `${base}/notifications`;
   };
   async function addressOf(userId: string): Promise<string | null> {

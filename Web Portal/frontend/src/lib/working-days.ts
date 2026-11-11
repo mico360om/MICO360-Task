@@ -100,7 +100,7 @@ export function holidaysInRange(from: string, to: string, cal: Pick<WorkCalendar
       if (day >= from && day <= to && day >= h.day) out.push({ day, name: h.name });
     }
   }
-  return out.sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : a.name.localeCompare(b.name)));
+  return out.sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : a.name.localeCompare(b.name, 'en')));
 }
 
 /** Working weekdays among the `count` days after `from` (not counting holidays). */

@@ -10,11 +10,12 @@ import { ValidationError } from '../../lib/http-errors';
 export const NOTIFICATION_KINDS = {
   mentions: ['MENTION', 'CHAT_MENTION'],
   assigned: ['TASK_ASSIGNED'],
-  // An escalation is a task ≥3 days overdue (or Blocked), sent to whoever runs its project.
-  due: ['TASK_DUE_SOON', 'TASK_OVERDUE', 'TASK_ESCALATION'],
+  // An escalation is a task overdue for N working days (or Blocked), sent to whoever runs its project;
+  // Notification & Scheduling: step 2 to the admins, and started tasks with no activity.
+  due: ['TASK_DUE_SOON', 'TASK_OVERDUE', 'TASK_ESCALATION', 'TASK_ESCALATION_ADMIN', 'TASK_INACTIVE'],
   comments: ['TASK_COMMENT'],
-  // 1.23: a client accepting or sending back a task joins the approvals.
-  approvals: ['TASK_APPROVAL', 'TASK_CLIENT_SIGN_OFF'],
+  // 1.23: a client accepting or sending back a task joins the approvals; and approvals waiting too long.
+  approvals: ['TASK_APPROVAL', 'TASK_CLIENT_SIGN_OFF', 'TASK_APPROVAL_WAITING'],
   meetings: ['MEETING_REMINDER'],
 } as const satisfies Record<string, readonly string[]>;
 

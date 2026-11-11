@@ -180,7 +180,7 @@ describe('the companies scope reaches every list and count (unchanged rule)', ()
     const readAll = vi.spyOn(repo, 'markAllRead');
     const scope = { projectIds: ['p1'], pick: 'A' };
     await svc.listPage('u1', scope, { limit: 50, unread: true, kinds: ['due'] });
-    expect(list).toHaveBeenLastCalledWith('u1', ['p1'], { limit: 51, unreadOnly: true, types: ['TASK_DUE_SOON', 'TASK_OVERDUE', 'TASK_ESCALATION'] });
+    expect(list).toHaveBeenLastCalledWith('u1', ['p1'], { limit: 51, unreadOnly: true, types: ['TASK_DUE_SOON', 'TASK_OVERDUE', 'TASK_ESCALATION', 'TASK_ESCALATION_ADMIN', 'TASK_INACTIVE'] });
     await svc.counts('u1', scope);
     expect(byType).toHaveBeenLastCalledWith('u1', ['p1']);
     await svc.markAllRead('u1', undefined, scope, ['comments']);
