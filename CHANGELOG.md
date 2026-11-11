@@ -50,8 +50,12 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - Search this board also finds a card by its guests (name or company) and its categories. Duplicate copies
   a task's guests (with their notes for the task) and its categories, never retired ones.
 - A task in the Recycle Bin keeps its guests and categories: its categories count as in use (they can be
-  retired, not deleted) and its guests stay on the list until it is erased; its read-only view shows both,
-  and Restore brings them back as they were.
+  retired, not deleted) and its guests stay on the list until it is erased; its read-only view shows both
+  (its history words them as the task panel does), and Restore brings them back as they were.
+
+### Bug fixes
+- Recycle Bin: a deleted task's details can be scrolled with the keyboard too (on a phone they scroll and
+  have no buttons of their own).
 
 ## [1.23.19] - 2026-11-11
 
