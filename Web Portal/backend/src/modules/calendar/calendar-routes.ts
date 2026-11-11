@@ -122,9 +122,17 @@ export async function registerCalendarRoutes(app: FastifyInstance, deps: Calenda
     if (problem) throw new ValidationError(problem);
   };
 
+  /** Whose time the asker may plan (blocks) or remind (reminders) on this task: the task panel's "For" choice. */
+  async function forPeople(req: FastifyRequest, task: CalendarTaskFacts, what: 'blocks' | 'reminders'): Promise<string[]> {
+    const v = viewer(req);
+    const runs = v.id === task.createdById || (await deps.runsProject(v.id, v.roles, task.projectId));
+    if (what === 'blocks') return task.assigneeIds.filter((id) => id === v.id || runs);
+    return [v.id, ...(runs ? task.assigneeIds.filter((id) => id !== v.id) : [])];
+  }
+
   app.get('/tasks/:id/work-blocks', { preHandler: guard.authenticate }, async (req) => {
     const task = await visibleTask(req);
-    return { data: await blockView(await store.blocksOfTask(task.id), req, task) };
+    return { data: await blockView(await store.blocksOfTask(task.id), req, task), meta: { forPeople: await forPeople(req, task, 'blocks') } };
   });
 
   app.post('/tasks/:id/work-blocks', { preHandler: guard.authenticate }, async (req, reply) => {
@@ -219,7 +227,7 @@ export async function registerCalendarRoutes(app: FastifyInstance, deps: Calenda
   app.get('/tasks/:id/reminders', { preHandler: guard.authenticate }, async (req) => {
     const task = await visibleTask(req);
     const rows = await store.remindersOfTask(task.id, req.user!.id);
-    return { data: await reminderView(rows, req, task) };
+    return { data: await reminderView(rows, req, task), meta: { forPeople: await forPeople(req, task, 'reminders') } };
   });
 
   app.post('/tasks/:id/reminders', { preHandler: guard.authenticate }, async (req, reply) => {

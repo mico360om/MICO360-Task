@@ -70,6 +70,12 @@ describe('work blocks on a task', () => {
     expect(list.statusCode).toBe(200);
     expect(list.json().data).toHaveLength(1);
     expect(list.json().data[0].canChange).toBe(false); // visible to whoever sees the task, changed by few
+    // Who the asker may plan for: only themselves when on the task; its people too for its creator / whoever runs it.
+    expect(list.json().meta).toEqual({ forPeople: [] });
+    expect((await call('ali', 'GET', '/tasks/t1/work-blocks')).json().meta).toEqual({ forPeople: ['ali'] });
+    expect((await call('boss', 'GET', '/tasks/t1/work-blocks')).json().meta).toEqual({ forPeople: ['ali', 'mona'] });
+    expect((await call('kim', 'GET', '/tasks/t1/reminders')).json().meta).toEqual({ forPeople: ['kim'] });
+    expect((await call('sara', 'GET', '/tasks/t1/reminders')).json().meta).toEqual({ forPeople: ['sara', 'ali', 'mona'] });
   });
 
   it('the creator or whoever runs the project plans time for an assignee ("planned by Sara"); nobody else, and never for someone not on it', async () => {

@@ -1,10 +1,9 @@
-import { useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { CalItem } from '../../lib/calendar-model';
 import type { CalMeeting } from '../../lib/calendar-meetings';
 import type { CalendarChecklistItem } from '../../lib/calendar-checklist';
 import { monthOf, monthWeeks, weekDays, weekdayLabels, type WeekStart } from '../../lib/calendar';
 import { ChecklistChip, MeetingChip, STATUS_META, TaskChip, dayLabel } from './calendar-ui';
-import { chipSlots, isTouchScreen } from '../../lib/calendar-fit';
 import { OVERDUE_CLASS, statusClass } from '../../lib/colour-classes';
 
 /** Overdue tasks listed before "Show all" in the agenda. */
@@ -66,139 +65,6 @@ function useDropTarget(day: string, onDrop: ViewProps['onDrop']) {
       },
     },
   };
-}
-
-/** An element's height as it changes (undefined where it can't be measured, or while `enabled` is false). */
-function useHeight(ref: RefObject<HTMLElement | null>, enabled: boolean): number | undefined {
-  const [height, setHeight] = useState<number>();
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!enabled || !el || typeof ResizeObserver === 'undefined') {
-      setHeight(undefined);
-      return;
-    }
-    const observer = new ResizeObserver((entries) => {
-      const h = entries[0]?.contentRect.height;
-      if (h !== undefined) setHeight(Math.floor(h));
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [ref, enabled]);
-  return height;
-}
-
-/**
- * A day of the month. Sized to the window (`rowHeight` known), it shows as many one-line entries
- * as fit and "+N more" for the rest; otherwise three.
- */
-function MonthCell({ cellKey, dayNumber, outside, p, rowHeight }: { cellKey: string; dayNumber: number; outside: boolean; p: ViewProps; rowHeight?: number }) {
-  const items = p.byDay.get(cellKey) ?? [];
-  const meetings = meetingsOf(p, cellKey);
-  const steps = stepsOf(p, cellKey);
-  const max = chipSlots(rowHeight, items.length + meetings.length + steps.length, isTouchScreen());
-  const shownMeetings = meetings.slice(0, max);
-  const shown = items.slice(0, Math.max(0, max - shownMeetings.length));
-  const shownSteps = steps.slice(0, Math.max(0, max - shownMeetings.length - shown.length));
-  const hiddenMeetings = meetings.length - shownMeetings.length;
-  const hiddenTasks = items.length - shown.length;
-  const hiddenSteps = steps.length - shownSteps.length;
-  const more = hiddenTasks + hiddenMeetings + hiddenSteps;
-  const moreNoun =
-    hiddenTasks === more ? (more === 1 ? 'task' : 'tasks') : hiddenMeetings === more ? (more === 1 ? 'meeting' : 'meetings') : hiddenSteps === more ? (more === 1 ? 'checklist item' : 'checklist items') : 'items';
-  const isToday = cellKey === p.today;
-  const drop = useDropTarget(cellKey, p.onDrop);
-  return (
-    <div
-      role="cell"
-      data-day={cellKey}
-      data-outside={outside ? 'true' : undefined}
-      {...drop.props}
-      className={`flex min-w-0 flex-col gap-0.5 overflow-hidden border-b border-e border-line p-1 transition-colors ${rowHeight ? 'min-h-0' : 'min-h-[7.5rem]'} ${outside ? 'bg-ground/60' : 'bg-surface'} ${isToday ? 'bg-brand/[0.06]' : ''} ${drop.over ? 'bg-brand/10 ring-2 ring-inset ring-brand/50' : ''}`}
-    >
-      {/* 24px tall (see lib/calendar-fit.ts). */}
-      <div className="flex h-6 flex-none items-center justify-between ps-1">
-        {isToday ? <span className="text-[11px] font-bold uppercase tracking-wide text-brand">Today</span> : <span />}
-        <button
-          type="button"
-          onClick={() => p.onOpenDay(cellKey)}
-          aria-label={`${dayLabel(cellKey)}${countLabel(items.length, meetings.length, steps.length)}`}
-          aria-current={isToday ? 'date' : undefined}
-          className={`grid h-6 min-w-6 place-items-center rounded-full px-1 text-[13px] font-semibold tabular-nums transition-colors hover:bg-ground ${
-            isToday ? 'bg-brand text-white hover:bg-brand' : outside ? 'text-ink-3' : 'text-ink'
-          }`}
-        >
-          {dayNumber}
-        </button>
-      </div>
-      <ul className="flex min-w-0 flex-col gap-0.5">
-        {shownMeetings.map((m) => (
-          <li key={m.key} className="min-w-0">
-            <MeetingChip meeting={m} color={m.projectId ? p.colorOf(m.projectId) : undefined} />
-          </li>
-        ))}
-        {shown.map((item) => (
-          <li key={item.key} className="min-w-0">
-            <TaskChip item={item} color={p.colorOf(item.task.projectId)} draggable={p.canDrag(item)} onOpen={p.onOpen} lines={1} />
-          </li>
-        ))}
-        {shownSteps.map((s) => (
-          <li key={`cl:${s.id}`} className="min-w-0">
-            <StepChip p={p} item={s} lines={1} />
-          </li>
-        ))}
-      </ul>
-      {more > 0 ? (
-        <button
-          type="button"
-          onClick={() => p.onOpenDay(cellKey)}
-          aria-label={`${more} more ${moreNoun} on ${dayLabel(cellKey)}`}
-          className="flex h-6 flex-none items-center self-start rounded px-1.5 text-[11px] font-semibold text-brand hover:bg-brand/[0.06] hover:underline [@media(pointer:coarse)]:h-[28px] [@media(pointer:coarse)]:min-h-[28px]"
-        >
-          +{more} more
-        </button>
-      ) : null}
-    </div>
-  );
-}
-
-/**
- * The month as a grid: a few tasks per day, the rest one click away. With `fit`, it fills the
- * height it is given, every week sharing it, and each day shows as many tasks as fit.
- */
-export function MonthView({ cursor, p, label, fit = false }: { cursor: string; p: ViewProps; label: string; fit?: boolean }) {
-  const { year, month0 } = monthOf(cursor);
-  const weeks = monthWeeks(year, month0, p.weekStart);
-  const labels = weekdayLabels(p.weekStart);
-  const bodyRef = useRef<HTMLDivElement>(null);
-  const bodyHeight = useHeight(bodyRef, fit);
-  const rowHeight = bodyHeight ? bodyHeight / weeks.length : undefined;
-  return (
-    <div role="table" aria-label={label} className={`overflow-hidden rounded-xl border border-line bg-surface ${fit ? 'flex h-full min-h-0 flex-col' : ''}`}>
-      <div role="rowgroup" className="flex-none">
-        <div role="row" className="grid grid-cols-7 border-b border-line bg-ground">
-          {labels.map((l, i) => (
-            <div key={l} role="columnheader" className="px-2 py-1.5 text-center text-[11px] font-semibold uppercase tracking-wide text-ink-2">
-              <abbr title={FULL_DAY[(p.weekStart + i) % 7]} className="no-underline">{l}</abbr>
-            </div>
-          ))}
-        </div>
-      </div>
-      <div
-        ref={bodyRef}
-        role="rowgroup"
-        className={`[&>div:last-child>div]:border-b-0 ${fit ? 'grid min-h-0 flex-1' : ''}`}
-        style={fit ? { gridTemplateRows: `repeat(${weeks.length}, minmax(0, 1fr))` } : undefined}
-      >
-        {weeks.map((week) => (
-          <div key={week[0]!.key} role="row" className="grid min-h-0 grid-cols-7 [&>div:last-child]:border-e-0">
-            {week.map((cell) => (
-              <MonthCell key={cell.key} cellKey={cell.key} dayNumber={cell.day} outside={!cell.inMonth} p={p} rowHeight={rowHeight} />
-            ))}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
 }
 
 /** A phone's month: small days with dots, and the chosen day's tasks as a list underneath. */
@@ -333,6 +199,8 @@ export function AgendaView({
   overdue,
   meta,
   empty,
+  extraDays = [],
+  renderExtras,
 }: {
   from: string;
   to: string;
@@ -340,11 +208,15 @@ export function AgendaView({
   overdue: CalItem[];
   meta: (item: CalItem) => ReactNode;
   empty: ReactNode;
+  /** Calendar scheduling: days with only planned time or reminders are listed too. */
+  extraDays?: string[];
+  /** Calendar scheduling: a day's planned time and reminders, after its tasks. */
+  renderExtras?: (day: string) => ReactNode;
 }) {
   const [showEarlier, setShowEarlier] = useState(false);
   const [allOverdue, setAllOverdue] = useState(false);
   const overdueShown = allOverdue ? overdue : overdue.slice(0, OVERDUE_PREVIEW);
-  const days = [...new Set([...p.byDay.keys(), ...(p.meetingsByDay?.keys() ?? []), ...(p.checklistByDay?.keys() ?? [])])].filter((d) => d >= from && d <= to).sort();
+  const days = [...new Set([...p.byDay.keys(), ...(p.meetingsByDay?.keys() ?? []), ...(p.checklistByDay?.keys() ?? []), ...extraDays])].filter((d) => d >= from && d <= to).sort();
   const hasToday = p.today >= from && p.today <= to;
   const earlier = hasToday ? days.filter((d) => d < p.today) : [];
   const listed = hasToday && !showEarlier ? days.filter((d) => d >= p.today) : days;
@@ -394,6 +266,7 @@ export function AgendaView({
                   <StepChip p={p} item={s} />
                 </li>
               ))}
+              {renderExtras?.(d)}
             </ul>
           </section>
         );

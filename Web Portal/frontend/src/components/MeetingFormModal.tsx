@@ -47,6 +47,8 @@ export interface MeetingFormModalProps {
   prefill?: SeriesPrefill;
   /** 1.23: a new meeting starts with "Create a Teams link" ticked (e.g. the next meeting of a series whose link Teams made). */
   defaultTeamsLink?: boolean;
+  /** Calendar scheduling: a new meeting at this time (an hour long) — "New meeting at 10:00" from an hour of the calendar. */
+  defaultStart?: string;
   onClose: () => void;
   onSaved?: (id: string) => void;
 }
@@ -72,7 +74,7 @@ const RepeatIcon = () => (
  * meetings or on a date); editing a meeting of a series asks whether the change is for this
  * meeting only or for all its upcoming meetings.
  */
-export function MeetingFormModal({ meeting, defaultProjectId, prefill, defaultTeamsLink = false, onClose, onSaved }: MeetingFormModalProps) {
+export function MeetingFormModal({ meeting, defaultProjectId, prefill, defaultTeamsLink = false, defaultStart, onClose, onSaved }: MeetingFormModalProps) {
   const qc = useQueryClient();
   const dialogRef = useDialog(onClose);
   const timeZone = useCompanyTimeZone();
@@ -87,9 +89,17 @@ export function MeetingFormModal({ meeting, defaultProjectId, prefill, defaultTe
   const [opened] = useState(meeting);
   const fill = !meeting ? prefill : undefined;
   const [title, setTitle] = useState(meeting?.title ?? fill?.title ?? '');
-  const [start, setStart] = useState(() => (meeting ? toLocalInputValue(meeting.startAt, timeZone) : nextHourInputValue(timeZone)));
+  const [start, setStart] = useState(() => (meeting ? toLocalInputValue(meeting.startAt, timeZone) : defaultStart ? toLocalInputValue(defaultStart, timeZone) : nextHourInputValue(timeZone)));
   // "New meeting in this series": the latest meeting's length (the person picks the day).
-  const [end, setEnd] = useState(() => (meeting ? toLocalInputValue(meeting.endAt, timeZone) : fill?.durationMinutes ? endAfter(nextHourInputValue(timeZone), fill.durationMinutes, timeZone) : ''));
+  const [end, setEnd] = useState(() =>
+    meeting
+      ? toLocalInputValue(meeting.endAt, timeZone)
+      : defaultStart
+        ? endAfter(toLocalInputValue(defaultStart, timeZone), fill?.durationMinutes ?? 60, timeZone)
+        : fill?.durationMinutes
+          ? endAfter(nextHourInputValue(timeZone), fill.durationMinutes, timeZone)
+          : '',
+  );
   const [location, setLocation] = useState(meeting?.location ?? fill?.location ?? '');
   const [onlineLink, setOnlineLink] = useState(meeting?.onlineLink ?? fill?.onlineLink ?? '');
   // 1.23 "Create a Teams link": ticked for a meeting whose link Teams made (or is to make).

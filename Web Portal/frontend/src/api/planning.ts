@@ -125,6 +125,8 @@ export interface WorkloadCell {
   over: number;
   /** Suggested ones first. */
   tasks: WorkloadTask[];
+  /** Calendar scheduling: minutes of work planned on this day (work blocks); older servers leave it out. */
+  plannedMinutes?: number;
 }
 
 export interface WorkloadPerson {
@@ -135,6 +137,8 @@ export interface WorkloadPerson {
   overdue: number;
   total: number;
   weekLimit: number;
+  /** Calendar scheduling: minutes of work planned this week (work blocks); older servers leave it out. */
+  plannedMinutes?: number;
   days: WorkloadCell[];
 }
 

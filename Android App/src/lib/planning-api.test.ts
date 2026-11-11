@@ -20,6 +20,9 @@ it('sends each request as the person it is for, and returns what the server sent
   expect(opts.map((o) => o.asUser)).toEqual(['u1', 'u1']);
 });
 describe.skipIf(!hasWeb('frontend/src/api/planning.ts'))('the website’s types', () => {
-  it('have the same fields', () => { for (const n of ['TimelineProject', 'TimelineData', 'TimelineTask', 'TimelineTasksData', 'WorkloadTask', 'WorkloadCell', 'WorkloadPerson', 'WorkloadData']) expect(interfaceFields(src('lib/planning-api.ts'), n), n).toEqual(interfaceFields(readWeb('frontend/src/api/planning.ts'), n)); });
+  // tcal: calendar scheduling (website + server only): Workload's cells and people gain an optional `plannedMinutes`
+  // tcal: (work blocks); the app (unchanged) leaves it out — older and newer websites both accepted.
+  const WEB_ONLY = new Set(['plannedMinutes']); // tcal:
+  it('have the same fields', () => { for (const n of ['TimelineProject', 'TimelineData', 'TimelineTask', 'TimelineTasksData', 'WorkloadTask', 'WorkloadCell', 'WorkloadPerson', 'WorkloadData']) expect(interfaceFields(src('lib/planning-api.ts'), n), n).toEqual(interfaceFields(readWeb('frontend/src/api/planning.ts'), n).filter((f: string) => !WEB_ONLY.has(f))); });
 });
 it('planning hooks ask as the person, keyed by them, never from the offline copy', () => { const s = src('core/planning-queries.ts'); expect(s).toMatch(/asUser: userId/); expect(s).toMatch(/timelineKey\(userId,/); expect(s).not.toMatch(/reads\.read|readCache|queueOnOffline/); });

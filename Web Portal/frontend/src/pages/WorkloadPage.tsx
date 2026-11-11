@@ -24,6 +24,7 @@ import {
   dayHeading,
   filterPeople,
   limitOptions,
+  plannedWords,
   sortPeople,
   problemText,
   summaryLine,
@@ -303,6 +304,8 @@ export function WorkloadPage() {
                               <span className="mt-0.5 block text-[11px] text-ink-2">
                                 {bar.text} · <span className={bar.tone === 'over' ? 'font-bold text-danger' : ''}>{bar.note}</span>
                               </span>
+                              {/* Calendar scheduling: the week's planned work time (work blocks). */}
+                              {p.plannedMinutes ? <span data-planned-week className="block text-[11px] text-ink-2">{plannedWords(p.plannedMinutes)}</span> : null}
                             </span>
                           </span>
                         </th>
@@ -315,7 +318,7 @@ export function WorkloadPage() {
                               {tone === 'off' ? (
                                 <span className={`${CELL} hatch-off text-[11.5px] text-ink-3`}>Off</span>
                               ) : tone === 'none' ? (
-                                <span className={`${CELL} text-ink-3`}>0</span>
+                                <span className={`${CELL} text-ink-3`} {...(c.plannedMinutes ? { role: 'img', 'aria-label': cellLabel(p.name, c) } : {})}>0</span>
                               ) : (
                                 <button
                                   type="button"
@@ -332,6 +335,11 @@ export function WorkloadPage() {
                                   ) : null}
                                 </button>
                               )}
+                              {c.plannedMinutes ? (
+                                <span aria-hidden="true" data-planned={c.plannedMinutes} className="mt-0.5 block text-[10px] leading-tight text-ink-2">
+                                  {plannedWords(c.plannedMinutes)}
+                                </span>
+                              ) : null}
                               {isOpen && openPerson && openCell ? (
                                 <WorkloadPopover
                                   person={openPerson}

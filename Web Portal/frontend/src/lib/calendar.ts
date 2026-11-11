@@ -90,10 +90,12 @@ export function monthOf(dateKey: string): { year: number; month0: number } {
   return { year: y, month0: m - 1 };
 }
 
-export type CalendarView = 'month' | 'week' | 'agenda';
+/** Calendar scheduling adds 'day' (one day's hours). */
+export type CalendarView = 'month' | 'week' | 'day' | 'agenda';
 
 /** The days a view shows — and asks the server for: the month's grid, the week, or the month as a list. */
 export function visibleRange(view: CalendarView, cursor: string, weekStart: WeekStart = 0): { from: string; to: string } {
+  if (view === 'day') return { from: cursor, to: cursor };
   if (view === 'week') {
     const days = weekDays(cursor, weekStart);
     return { from: days[0]!, to: days[6]! };
