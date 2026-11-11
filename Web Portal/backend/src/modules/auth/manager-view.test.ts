@@ -67,10 +67,11 @@ describe('Manager View — the routes it refuses (scanned from the source)', () 
     expect(open).toEqual([]);
   });
 
-  it('the allowed list is exactly the reviewed one (Reports — the owner: they still see Reports), each with a reason, each a real admin-only route', () => {
+  it('the allowed list is exactly the reviewed one (Reports — the owner: they still see Reports; the Recycle Bin’s Delete forever — they keep the bin), each with a reason, each a real admin-only route', () => {
     const allowed = Object.keys(MANAGER_VIEW_ALLOWED).sort();
-    expect(allowed.every((k) => k.startsWith('GET /reports/'))).toBe(true);
-    expect(allowed).toEqual(adminOnly.filter((k) => k.startsWith('GET /reports/')));
+    const recycleBin = ['POST /recycle-bin/erase'];
+    expect(allowed.every((k) => k.startsWith('GET /reports/') || recycleBin.includes(k))).toBe(true);
+    expect(allowed).toEqual(adminOnly.filter((k) => k.startsWith('GET /reports/') || recycleBin.includes(k)).sort());
     for (const [k, why] of Object.entries(MANAGER_VIEW_ALLOWED)) {
       expect(why.length, k).toBeGreaterThan(5);
       expect(managerViewRule(k), k).toBe('open');
@@ -120,6 +121,11 @@ describe('Manager View — the routes it refuses (scanned from the source)', () 
   it('the work stays an administrator’s: every project’s tasks, boards, meetings, Reports, Management, their own settings', () => {
     for (const k of ['GET /projects', 'GET /projects/:id', 'POST /projects', 'GET /tasks', 'POST /tasks', 'PUT /tasks/:id', 'DELETE /tasks/:id', 'GET /reports/status', 'GET /management/overview', 'GET /meetings', 'PUT /columns/:columnId/tasks/reorder', 'GET /projects/:id/members', 'GET /projects/:id/columns']) {
       if (scanned.includes(k)) expect(managerViewRule(k), k).toBe('open');
+    }
+    // The Recycle Bin (owner: an administrator in Manager View keeps it) — Delete forever included.
+    for (const k of ['GET /recycle-bin', 'GET /recycle-bin/tasks/:id', 'POST /recycle-bin/restore', 'POST /recycle-bin/erase']) {
+      expect(scanned, k).toContain(k);
+      expect(managerViewRule(k), k).toBe('open');
     }
   });
 });
