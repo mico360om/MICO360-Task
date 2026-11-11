@@ -35,6 +35,26 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   are locked on), your own quiet hours, whether meeting reminders and @mentions come through them, and
   "Pause everything except required" for an hour, the rest of today or until the week starts.
 - A due date on a holiday or weekend gets a warning in the task form (the date is never moved).
+- **Project KPIs** (a project's new KPIs tab): on-time completion, overdue, average days late, progress
+  against time used, tasks finished per week, start to done, approval turnaround and open blocked tasks —
+  each with its target, a green / amber / red light in words ("On target", "Close", "Off target"), the facts
+  behind it and a 6-month trend (12 weeks when you look at a week). Pick this month, a week, a quarter or a
+  custom range; click a number to see the tasks behind it; download the KPIs as a one-page PDF or Excel.
+- **On time is judged against the agreed due date**: the date set when the task was assigned. A new date
+  set by whoever runs the project or an administrator is an agreed extension; a change by the assignee
+  doesn't move it. A task needing approval counts as done when it is handed in. Days late are working days.
+- **A project's own KPIs**: whoever runs a project adds KPIs that tasks can't show ("Safety incidents",
+  "Budget used %") with a unit, a target and which way is better, and enters each month's value with a
+  note; they get a reminder on the first working morning of the month when last month's value is missing.
+- **KPI targets**: administrators set each company's default targets (System Settings → KPI targets, e.g.
+  on time 85%, days late at most 2); whoever runs a project can set the project's own.
+- **My performance** (sidebar): your own KPIs — tasks completed, on time, days late, overdue now, workload
+  (planned hours against the hours you have, less your meetings), approval turnaround, how quickly you
+  answer comments and @mentions, and meeting action items closed. Only you, the managers of your projects
+  (counting only their projects) and administrators can see them; colleagues never see each other's.
+  Managers and administrators open a person's from the Workload page or a project's Team tab.
+- **Management page**: a KPI table across the projects you see, sortable by any KPI (the furthest off
+  target first), with Excel and a PDF with a page per project.
 
 ### Improvements
 - Quiet hours (outside working hours and on days off, unless changed): the bell still fills, but phone
