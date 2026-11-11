@@ -50,7 +50,8 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
 
 /**
  * Does this address send the API key and the prompts across a network unencrypted? Plain http to
- * anything but this computer or a private (office) address does.
+ * anything but this computer or a private (office) address does — except MICO360 AI's, which the
+ * server always calls on https (that host speaks nothing else since Connect 2.6.17).
  */
 export function sendsUnencrypted(url: string): boolean {
   let u: URL;
@@ -61,6 +62,7 @@ export function sendsUnencrypted(url: string): boolean {
   }
   if (u.protocol !== 'http:') return false;
   const h = u.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  if (h.replace(/\.$/, '') === 'ai.mico360.com') return false;
   if (h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local') || h === '::1') return false;
   const m = /^(\d{1,3})\.(\d{1,3})\.\d{1,3}\.\d{1,3}$/.exec(h);
   if (!m) return true;

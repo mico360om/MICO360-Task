@@ -380,7 +380,7 @@ describe('AiFeatureService on MICO360 AI (its API guide)', () => {
       expect(await run('mico360', (svc) => svc.embed(['a', 'b'], { background: true }))).toEqual([120_000]);
     });
 
-    it('MICO360 AI: what a person waits for keeps its own wait (the minutes on the page 180 s, a question 30 s)', async () => {
+    it('MICO360 AI: what is not a background job keeps its own wait (the minutes MICO AI drafts 180 s, a question 30 s)', async () => {
       expect(await run('mico360', (svc) => svc.draftMinutes('Meeting: X', { userId: 'u1' }))).toEqual([180_000]);
       expect(await run('mico360', (svc) => svc.embed(['a question']))).toEqual([30_000]);
     });

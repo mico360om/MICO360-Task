@@ -38,7 +38,9 @@ export interface AiConfigServiceDeps {
 export const MODEL_LIST_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 /** MICO360 AI answered an empty model list (its guide, §9: busy or draining nodes' models are left out). */
-const MICO360_EMPTY_LIST = 'MICO360 AI listed no models right now — its AI nodes may be busy or offline. The models stay as they were; they load again later.';
+const MICO360_EMPTY_LIST = 'MICO360 AI listed no models right now — its AI nodes may be busy or offline. Any models already here stay as they were; the list is loaded again within the hour (or press Refresh models).';
+/** …so it is loaded again at the next hourly check, not a day later (review minor 6). */
+const EMPTY_LIST_RETRY_MS = 60 * 60 * 1000;
 
 /** The outcome of asking a provider for its models. */
 type Listing = { ok: true; models: RemoteModel[] } | { ok: false; error: ValidationError; keyRefused: boolean };
@@ -239,12 +241,18 @@ export function createAiConfigService({
     return { ...result, config: ops.redactConfig(config) };
   }
 
-  /** Reload the model list of every switched-on provider not checked in the last day (the regular job). */
+  /**
+   * Reload the model list of every switched-on provider not checked in the last day (the regular job);
+   * MICO360 AI's after an hour when it last listed no models (its nodes were busy).
+   */
   async function refreshDueProviders(): Promise<{ refreshed: number; failed: number }> {
     const at = Date.parse(now());
-    const due = (await repo.load()).providers.filter(
-      (p) => p.enabled && (!p.lastSyncAttemptAt || at - Date.parse(p.lastSyncAttemptAt) >= MODEL_LIST_MAX_AGE_MS),
-    );
+    const due = (await repo.load()).providers.filter((p) => {
+      if (!p.enabled) return false;
+      if (!p.lastSyncAttemptAt) return true;
+      const age = at - Date.parse(p.lastSyncAttemptAt);
+      return age >= MODEL_LIST_MAX_AGE_MS || (p.lastSyncError === MICO360_EMPTY_LIST && age >= EMPTY_LIST_RETRY_MS);
+    });
     let refreshed = 0;
     let failed = 0;
     for (const p of due) {

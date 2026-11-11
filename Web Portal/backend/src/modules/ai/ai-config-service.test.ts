@@ -208,6 +208,23 @@ describe('AiConfigService: connecting loads the models', () => {
     expect(cfg.providers[0]!.lastSyncError).toMatch(/listed no models right now/);
   });
 
+  // Review minor 6: an empty list (busy nodes) is tried again at the next hourly check, not a day later.
+  it('MICO360 AI: after an empty list the models load again at the next hourly refresh', async () => {
+    const clock = { now: '2026-11-11T08:00:00.000Z' };
+    const answer = { models: [] as string[] };
+    const fetchImpl = vi.fn(async () => json({ object: 'list', data: answer.models.map((id) => ({ id, object: 'model', created: 1, owned_by: 'mico360' })) }));
+    const { svc } = make(fetchImpl as unknown as typeof fetch, clock);
+    await svc.addProvider(mico, actor);
+    clock.now = '2026-11-11T08:30:00.000Z';
+    expect(await svc.refreshDueProviders()).toEqual({ refreshed: 0, failed: 0 }); // not yet an hour
+    answer.models = ['llama3.1:latest'];
+    clock.now = '2026-11-11T09:00:00.000Z';
+    expect(await svc.refreshDueProviders()).toEqual({ refreshed: 1, failed: 0 });
+    const cfg = await svc.getConfig();
+    expect(cfg.models.map((m) => [m.modelKey, m.enabled])).toEqual([['llama3.1:latest', true]]);
+    expect(cfg.providers[0]!.lastSyncError ?? null).toBeNull();
+  });
+
   it('other providers: an empty list is still an empty list', async () => {
     const answer = { models: ['gpt-4o-mini'] };
     const fetchImpl = vi.fn(async () => json({ data: answer.models.map((id) => ({ id })) }));

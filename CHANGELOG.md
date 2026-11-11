@@ -22,21 +22,28 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   platform accepts (at most 64 texts, 8,000 characters each, 32,000 together), instead of one batch it
   refused, which stopped the search sweep at the same place every minute.
 - Meaning search never mixes two embedding models: when MICO360 AI answers with another model than the
-  one chosen (the chosen one was unavailable), those vectors are not kept and it tries again later.
+  one chosen (the chosen one was unavailable), those vectors are not kept; meaning search pauses for 15
+  minutes and tries again, and the Error log notes it once instead of every minute.
+- Text cut in the middle of an emoji is no longer sent to MICO360 AI: half a character could make it turn
+  the whole request down, again and again.
 - AI keeps working while MICO360 AI's computers are busy: a model the platform leaves out of its list for
-  a while (a busy or restarting AI node) stays available for 3 days, and an empty list changes nothing —
-  before, a refresh at such a moment switched AI off for a day ("AI is not configured yet").
+  a while (a busy or restarting AI node) stays available for 3 days, and an empty list changes nothing and
+  is loaded again within the hour — before, a refresh at such a moment switched AI off for a day ("AI is
+  not configured yet").
 - Describe a meeting works at large companies too: with hundreds of people and projects its request could
-  be longer than the 32,000 characters MICO360 AI reads, and was refused as "too long". Every AI feature
-  now stays within that size at its largest.
+  be longer than the 32,000 characters MICO360 AI reads, and was refused as "too long". On MICO360 AI the
+  lists now fit the room left — the people and projects the sentence names come first — and every AI
+  feature, MICO AI's chat summaries included, stays within that size at its largest.
 
 ### Improvements
-- Reading scanned files and pictures, and the Final MOM drafted in the background, now wait as long as
-  MICO360 AI itself does (just over 5 minutes) instead of giving up after 2–3 minutes and running the work
-  again; making meaning-search vectors waits 2 minutes instead of 30 seconds.
+- Reading scanned files and pictures, and the Final MOM drafted with AI, now wait as long as MICO360 AI
+  itself does (just over 5 minutes) instead of giving up after 2–3 minutes and running the work again;
+  making meaning-search vectors waits 2 minutes instead of 30 seconds. Reading scans starts no new file
+  after 2 minutes in one go, so the rest of search keeps up to date.
 - When MICO360 AI's usage allowance (its quota) is used up, people are told so — "the usage allowance is
   used up for now… an admin can check the key's quota in MICO360 Connect" — instead of "busy, try again in
-  a moment", and background work no longer retries it.
+  a moment". Background work tries again only when the allowance resets within a few minutes; files
+  waiting to be read wait until it resets instead of being given up.
 - AI Management: MICO360 AI says it uses the AI API of MICO360 Connect 2.6.28 (https on port 5310, under
   /v1) and which capabilities its key needs — Chat, plus Vision to read scanned files and pictures and
   Embedding for meaning search. The setup guide (docs/AI-MICO360.md) is updated to match.

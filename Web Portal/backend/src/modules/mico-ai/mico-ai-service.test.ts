@@ -248,6 +248,25 @@ describe('MICO AI service: context', () => {
     expect(last).not.toContain('"Question 0"');
     expect(last).toContain('Question 14');
   });
+
+  // Review minor 5: summaries that keep failing leave a growing backlog; the summary request still fits
+  // MICO360 AI's 32,000 characters a conversation (the newest messages are kept).
+  it('the running summary’s request stays within 32,000 characters, however long the backlog', async () => {
+    const sizes: number[] = [];
+    const { svc } = setup([
+      (req: ModelRequest) => {
+        if (/running summary/i.test(req.system)) {
+          sizes.push(req.system.length + req.prompt.length);
+          throw new Error('the AI service is busy');
+        }
+        return { action: 'answer', text: 'A'.repeat(3000) };
+      },
+    ]);
+    const chat = (await svc.createChat(OMAR, {})).id;
+    for (let i = 0; i < 40; i++) await askAndWait(svc, OMAR, `Question ${i} ${'q'.repeat(1700)}`, chat);
+    expect(sizes.length).toBeGreaterThan(5);
+    expect(Math.max(...sizes)).toBeLessThanOrEqual(31_500);
+  });
 });
 
 describe('MICO AI service: chats are private', () => {

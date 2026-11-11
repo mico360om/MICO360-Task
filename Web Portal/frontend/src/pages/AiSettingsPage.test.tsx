@@ -204,6 +204,9 @@ describe('AI Management: connecting a provider', () => {
     expect(screen.queryByText(/plain http/i)).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText(/^Address/), { target: { value: 'http://ai.example.com/v1' } });
     expect(screen.getByText(/plain http/i)).toBeInTheDocument();
+    // MICO360 AI's address is always used on https (the server upgrades it): no warning (review minor 11).
+    fireEvent.change(screen.getByLabelText(/^Address/), { target: { value: 'http://ai.mico360.com:5310/v1' } });
+    expect(screen.queryByText(/plain http/i)).not.toBeInTheDocument();
   });
 
   it('asks for the key before connecting a service that needs one', async () => {

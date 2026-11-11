@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { Prisma, type PrismaClient } from '@prisma/client';
-import { cosine, fromVector, toVector } from '../ai/ai-embeddings';
+import { cosine, EmbeddingModelChangedError, fromVector, toVector } from '../ai/ai-embeddings';
+import { ProviderRefusedError } from '../ai/ai-completion';
 import { cutChars } from '../ai/ai-text';
 import type { SearchKind } from './search-types';
 
@@ -26,6 +27,8 @@ const BATCH = 100;
 const PER_CALL = 25;
 /** Vectors of gone items are removed this often (by the sweep). */
 const PRUNE_EVERY_MS = 30 * 60_000;
+/** The sweep rests this long after another embedding model answered or the quota was used up. */
+const PAUSE_MS = 15 * 60_000;
 /** A question is compared with at most this many items (the most recently embedded). */
 export const MAX_COMPARED = 30_000;
 
@@ -50,8 +53,14 @@ export function createSemanticSearch({ prisma, ai, logger, now = () => new Date(
     return (await ai.embeddingModel().catch(() => null)) !== null;
   }
 
+  // Review minor 9: another embedding model answering (MICO360 AI) or a used-up quota lasts a while; the
+  // sweep pauses PAUSE_MS instead of trying — and logging an error — every minute, and says so once.
+  let pausedUntil = 0;
+  let pauseLogged = false;
+
   /** The sweep: items without a vector of the current model, or indexed since theirs was made. Returns how many. */
   async function embedPending(limit = BATCH): Promise<number> {
+    if (now().getTime() < pausedUntil) return 0;
     const model = await ai.embeddingModel().catch(() => null);
     if (!model) return 0;
     if (now().getTime() - prunedAt > PRUNE_EVERY_MS) await prune().catch((err: unknown) => logger?.error('search: removing old meaning vectors failed', { err }));
@@ -77,8 +86,13 @@ export function createSemanticSearch({ prisma, ai, logger, now = () => new Date(
           chunk.map((c, k) => Prisma.sql`(${c.kind}, ${c.id}, ${used}, ${vectors[k]!.length}, ${toVector(vectors[k]!)}, ${hash(c.text)}, ${at})`),
         )} ON DUPLICATE KEY UPDATE model = VALUES(model), dims = VALUES(dims), vector = VALUES(vector), textHash = VALUES(textHash), embeddedAt = VALUES(embeddedAt)`;
         done += chunk.length;
+        pauseLogged = false;
       } catch (err) {
-        logger?.error('search: making meaning vectors failed', { err });
+        if (err instanceof EmbeddingModelChangedError || (err instanceof ProviderRefusedError && err.quota)) {
+          pausedUntil = now().getTime() + PAUSE_MS;
+          if (!pauseLogged) logger?.error('search: meaning vectors paused for 15 minutes', { err });
+          pauseLogged = true;
+        } else logger?.error('search: making meaning vectors failed', { err });
         break;
       }
     }
