@@ -54,6 +54,13 @@ describe('Training Center → Reports', () => {
     expect(within(quizzes).getByText('Check yourself').closest('li')).toHaveTextContent(/9 attempts · 78% passed · average 81%/);
   });
 
+  it('a quiz nobody has handed in yet says so', async () => {
+    api.report.mockResolvedValue(report({ quizzes: [{ lessonId: 'l-new', courseTitle: 'Tasks basics', title: 'New quiz', attempts: 0, passRate: null, averageScore: null }] }));
+    renderManage(<ReportsTab />);
+    const quizzes = await screen.findByRole('region', { name: 'Quiz results' });
+    expect(within(quizzes).getByText('New quiz').closest('li')).toHaveTextContent('No attempts yet');
+  });
+
   it('group by, course and period are sent to the server', async () => {
     renderManage(<ReportsTab />);
     await screen.findByRole('table', { name: 'By course' });

@@ -100,7 +100,7 @@ export function PublishPanel({ course }: { course: ManageCourse }) {
             </ul>
           </div>
         ) : null}
-        {course.status === 'PUBLISHED' && !course.unpublishedChanges ? <p className="text-sm text-ink-2">Published. Lesson changes reach learners at once; publish them to say whether they were a minor fix or a major change.</p> : null}
+        {course.status === 'PUBLISHED' && !course.unpublishedChanges && !done ? <p className="text-sm text-ink-2">Published. Lesson changes reach learners at once; publish them to say whether they were a minor fix or a major change.</p> : null}
         <div className="flex flex-wrap gap-2">
           {label ? (
             <Button

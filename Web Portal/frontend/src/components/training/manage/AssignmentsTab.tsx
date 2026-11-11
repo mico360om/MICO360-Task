@@ -150,7 +150,7 @@ export function AssignmentsTab() {
                   setWithdrawing(null);
                   setParams({ tab: 'rules' }, { replace: true });
                 }}
-                className="mt-1 font-semibold underline [@media(pointer:coarse)]:min-h-11"
+                className="mt-1 font-semibold underline [@media(pointer:coarse)]:!min-h-11"
               >
                 Open onboarding rules
               </button>

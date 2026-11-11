@@ -113,7 +113,7 @@ export function LessonsEditor({ course }: { course: ManageCourse }) {
                   <span className="w-6 flex-none text-sm font-semibold text-ink-2" aria-hidden="true">{`${i + 1}.`}</span>
                   <span className="grid h-8 w-8 flex-none place-items-center rounded-lg bg-brand/10 text-brand" aria-hidden="true">{LESSON_GLYPH[l.kind]}</span>
                   <div className="min-w-0 flex-1">
-                    <button type="button" aria-expanded={isOpen} aria-controls={panelId} onClick={() => toggle(l.id)} className="block max-w-full text-left text-sm font-semibold text-ink [overflow-wrap:anywhere] hover:text-brand [@media(pointer:coarse)]:min-h-11">
+                    <button type="button" aria-expanded={isOpen} aria-controls={panelId} onClick={() => toggle(l.id)} className="block max-w-full text-left text-sm font-semibold text-ink [overflow-wrap:anywhere] hover:text-brand [@media(pointer:coarse)]:!min-h-11">
                       {l.title}
                     </button>
                     <p className="text-xs text-ink-2">{`${LESSON_KIND_LABELS[l.kind]} · ${minutesText(l.minutes)}`}</p>

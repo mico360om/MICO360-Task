@@ -217,7 +217,7 @@ export function ReportsTab({ readOnly = false }: { readOnly?: boolean }) {
                     <div className="min-w-0 flex-1">
                       <span dir="auto" className="font-medium text-ink">{z.title}</span>
                       <p dir="auto" className="text-sm text-ink-2 [overflow-wrap:anywhere]">{z.courseTitle}</p>
-                      <p className="text-xs text-ink-2">{`${count(z.attempts, 'attempt')} · ${pct(z.passRate)} passed · average ${pct(z.averageScore)}`}</p>
+                      <p className="text-xs text-ink-2">{z.attempts ? `${count(z.attempts, 'attempt')} · ${pct(z.passRate)} passed · average ${pct(z.averageScore)}` : 'No attempts yet'}</p>
                     </div>
                     <Button variant="secondary" size="sm" aria-label={`Questions in “${z.title}”`} onClick={() => setDrill({ lessonId: z.lessonId, title: z.title, courseTitle: z.courseTitle })} className="[@media(pointer:coarse)]:!min-h-11">
                       Questions
