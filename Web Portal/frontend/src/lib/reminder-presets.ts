@@ -5,6 +5,7 @@
  */
 import type { ReminderTiming } from '../api/scheduling';
 import { zonedClock, zonedInstant } from './working-days';
+import { chosenStart } from './calendar-span';
 
 export interface ReminderChoice {
   key: string;
@@ -43,10 +44,8 @@ export function reminderChoices(task: { startDate: string | null; dueDate: strin
     if (isTimed(task.dueDate)) for (const m of [15, 60, 120, DAY]) add('due', m, true);
     else for (const m of [0, DAY, 2 * DAY, 7 * DAY]) add('due', m, false);
   }
-  if (task.startDate) {
-    const timed = isTimed(task.startDate);
-    for (const m of [0, DAY]) add('start', m, timed);
-  }
+  // Before its start: only a start someone chose (R11).
+  if (chosenStart(task.startDate)) for (const m of [0, DAY]) add('start', m, false);
   return out;
 }
 

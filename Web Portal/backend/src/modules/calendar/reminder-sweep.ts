@@ -40,6 +40,8 @@ export interface ReminderSweepTask {
   archivedAt?: Date | null;
   /** Its project is archived (its own status, or all its companies): nothing is sent, as for the planner. */
   projectArchived: boolean;
+  /** Who is on it now (one set for someone by a manager stops when they are taken off it). */
+  assigneeIds: string[];
 }
 
 export interface ReminderSweepStore {
@@ -48,8 +50,10 @@ export interface ReminderSweepStore {
   /** Reminders before a start or due whose task changed since `since` (null: all of them, of live tasks). */
   relativeChangedSince(since: Date | null): Promise<ReminderSweepRow[]>;
   tasks(ids: string[]): Promise<Map<string, ReminderSweepTask>>;
-  setNextAt(id: string, nextAt: Date | null): Promise<void>;
-  markSent(id: string, p: { sentFor: Date | null; sentAt: Date; clearSnooze: boolean; nextAt: Date | null }): Promise<void>;
+  /** Only while its `nextAt` is still `expect` (a change made meanwhile wins). */
+  setNextAt(id: string, nextAt: Date | null, expect: Date | null): Promise<void>;
+  /** Only while its `nextAt` is still `expectNextAt` (a change made meanwhile wins). */
+  markSent(id: string, p: { sentFor: Date | null; sentAt: Date; clearSnooze: boolean; nextAt: Date | null; expectNextAt: Date | null }): Promise<void>;
 }
 
 export interface ReminderSweepDeps {
@@ -80,8 +84,10 @@ export function createReminderSweep(deps: ReminderSweepDeps) {
     for (const r of rows) {
       const t = tasks.get(r.taskId);
       if (!t) continue;
-      const next = r.snoozedUntil ?? fireAtOf(r, t, clock);
-      if (!same(next, r.nextAt)) await deps.store.setNextAt(r.id, next);
+      const fire = r.snoozedUntil ?? fireAtOf(r, t, clock);
+      // Already sent for that time: nothing left to go (null), until the time changes again.
+      const next = fire && same(fire, r.sentFor) ? null : fire;
+      if (!same(next, r.nextAt)) await deps.store.setNextAt(r.id, next, r.nextAt);
     }
     void now;
   }
@@ -99,6 +105,8 @@ export function createReminderSweep(deps: ReminderSweepDeps) {
     for (const r of rows) {
       const t = tasks.get(r.taskId);
       if (!t || t.projectArchived) continue;
+      // One a manager set for someone stops once they are no longer on the task (their own keep going).
+      if (r.setById !== r.userId && !t.assigneeIds.includes(r.userId)) continue;
       const { state, fireAt } = reminderState(r, t, now, clock);
       if (state !== 'send' || !fireAt) continue;
       if (!(await deps.canView(r.userId, r.taskId))) continue;
@@ -106,7 +114,9 @@ export function createReminderSweep(deps: ReminderSweepDeps) {
       const snoozed = !!r.snoozedUntil;
       // After a snoozed send its own time counts as sent too, when that was not later.
       const sentFor = snoozed ? (base && base.getTime() <= fireAt.getTime() ? base : r.sentFor) : fireAt;
-      const mark = () => deps.store.markSent(r.id, { sentFor, sentAt: now, clearSnooze: snoozed, nextAt: snoozed ? base : fireAt });
+      // Sent: nothing left to go — unless snoozed early, then its own time is still to come.
+      const nextAt = snoozed && base && base.getTime() > fireAt.getTime() ? base : null;
+      const mark = () => deps.store.markSent(r.id, { sentFor, sentAt: now, clearSnooze: snoozed, nextAt, expectNextAt: r.nextAt });
       if (!(await deps.keys.claim(`${REMINDER_KEY_PREFIX}${r.id}:${fireAt.getTime()}`))) {
         await mark();
         continue;

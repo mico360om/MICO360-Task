@@ -17,6 +17,7 @@ import {
   type ReminderClock,
 } from './task-reminders';
 import { normalizeCalendarPrefs } from './calendar-prefs';
+import { chosenStart } from './calendar-span';
 
 /**
  * Calendar scheduling routes (all staff routes; a client session is refused by the auth guard).
@@ -161,6 +162,7 @@ export async function registerCalendarRoutes(app: FastifyInstance, deps: Calenda
     if (!mayChangeBlock({ viewerId: v.id, block, runsProject: await deps.runsProject(v.id, v.roles, task.projectId) })) {
       throw new ForbiddenError('Only its person, whoever planned it or whoever runs the project changes this planned time.');
     }
+    notDone(task, 'change its planned time');
     checkTimes(body.startAt, body.endAt);
     const row = await store.updateBlock(block.id, { startAt: body.startAt, endAt: body.endAt });
     return { data: (await blockView([row], req, task))[0] };
@@ -215,7 +217,7 @@ export async function registerCalendarRoutes(app: FastifyInstance, deps: Calenda
     const spec = { at: body.at ?? null, anchor: (body.anchor ?? null) as ReminderAnchor | null, offsetMinutes: body.offsetMinutes ?? null };
     const problem = reminderSpecProblem(spec);
     if (problem) throw new ValidationError(problem);
-    if (spec.anchor && !(spec.anchor === 'start' ? task.startDate : task.dueDate)) {
+    if (spec.anchor && !(spec.anchor === 'start' ? chosenStart(task.startDate) : task.dueDate)) {
       throw new ValidationError(spec.anchor === 'start' ? 'This task has no start date.' : 'This task has no due date.');
     }
     const timing = spec.at ? { at: spec.at, anchor: null, offsetMinutes: null } : { at: null, anchor: spec.anchor, offsetMinutes: spec.offsetMinutes };
@@ -285,6 +287,8 @@ export async function registerCalendarRoutes(app: FastifyInstance, deps: Calenda
     else if (body.until) until = body.until;
     if (until && (until.getTime() <= Date.now() || until.getTime() > Date.now() + 60 * 24 * 60 * MINUTE)) throw new ValidationError('Snooze to a time in the next 60 days.');
     const base = fireAtOf(r, task, await deps.clock());
+    // Snooze is for a reminder that has gone: one still to come would go early (and again at its time).
+    if (until && base && base.getTime() > Date.now()) throw new ValidationError('This reminder hasn’t gone yet — mute it, or ask whoever set it to change its time.');
     const row = await store.updateReminder(r.id, { snoozedUntil: until, nextAt: until ?? base });
     return { data: (await reminderView([row], req, task))[0] };
   });

@@ -209,6 +209,7 @@ export function MeetingMoveDialog({
   invitesSent,
   people,
   timeZone,
+  series = false,
   onClose,
   onConfirm,
 }: {
@@ -216,6 +217,8 @@ export function MeetingMoveDialog({
   startAt: string;
   endAt: string;
   invitesSent: boolean;
+  /** One meeting of a repeating series: only this one moves. */
+  series?: boolean;
   people: number;
   timeZone: string;
   onClose: () => void;
@@ -254,6 +257,7 @@ export function MeetingMoveDialog({
           {dayLabel(minutesAt(newStart, timeZone).day)} {timeLabel(minutesAt(newStart, timeZone).minutes)}–{timeLabel(minutesAt(newEnd, timeZone).minutes)}.{' '}
           {invitesSent ? <strong>Send the updated invitation to {who}?</strong> : 'Invitations haven’t gone out yet, so nobody is emailed.'}
         </p>
+        {series ? <p className="text-xs text-ink-2">Only this meeting of the series moves; the others keep their times.</p> : null}
         {past ? <p role="alert" className="text-sm text-danger">Choose a time still to come.</p> : null}
         <div className="flex flex-col-reverse gap-2 border-t border-line pt-3 sm:flex-row sm:justify-end">
           <button type="button" onClick={onClose} className={secondary}>Cancel</button>
@@ -269,7 +273,14 @@ export function SlotMenu({ at, day, minutes, onMeeting, onPlan, onClose }: { at:
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     ref.current?.querySelector<HTMLButtonElement>('button')?.focus();
-    const key = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    const key = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') return onClose();
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+      const items = [...(ref.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? [])];
+      const at = items.indexOf(document.activeElement as HTMLButtonElement);
+      e.preventDefault();
+      items[(at + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length]?.focus();
+    };
     const click = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && onClose();
     document.addEventListener('keydown', key);
     const t = setTimeout(() => document.addEventListener('mousedown', click), 0);
@@ -360,7 +371,7 @@ export function ReminderEditor({ task, timeZone, people, onChanged, compact = fa
                   {r.muted ? 'Unmute' : 'Mute'}
                 </button>
               ) : null}
-              {r.userId && (r.canMute || (r.canChange && r.setById === r.userId)) && !r.muted ? (
+              {(r.canMute || (r.canChange && r.setById === r.userId)) && !r.muted && (r.state === 'sent' || r.state === 'send' || r.snoozedUntil) ? (
                 <button type="button" disabled={busy} onClick={() => run(() => api.snooze(task.id, r.id, r.snoozedUntil ? { until: null } : { minutes: 60 }), r.snoozedUntil ? 'Snooze cleared.' : 'Snoozed for an hour.')} className="rounded-md border border-line px-2 py-1 text-xs font-semibold text-ink-2 hover:text-ink [@media(pointer:coarse)]:min-h-11">
                   {r.snoozedUntil ? 'Unsnooze' : 'Snooze 1 h'}
                 </button>

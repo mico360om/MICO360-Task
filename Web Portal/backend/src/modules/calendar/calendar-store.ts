@@ -42,6 +42,8 @@ export interface CalTaskBrief {
   completedAt: Date | null;
   deletedAt: Date | null;
   archivedAt?: Date | null;
+  /** Its project is archived (its own status, or all its companies): read-only, its reminders not sent. */
+  projectArchived?: boolean;
 }
 
 export type NewReminder = Pick<ReminderRow, 'taskId' | 'userId' | 'setById' | 'at' | 'anchor' | 'offsetMinutes' | 'nextAt'>;

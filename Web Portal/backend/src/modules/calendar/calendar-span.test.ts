@@ -26,9 +26,12 @@ describe('a task across the calendar: from its start to its due day (owner, 11 N
     expect(spanOf({ startDate: day('2026-11-01'), dueDate: day('2026-11-23') }, TZ)!.mode).toBe('markers'); // 22 days
   });
 
-  it('a timed start or due is read on its company day', () => {
-    // 22:00 UTC on the 2nd is 02:00 on the 3rd in Muscat.
-    expect(spanOf({ startDate: new Date('2026-11-02T22:00:00.000Z'), dueDate: new Date('2026-11-05T09:00:00.000Z') }, TZ)).toEqual({ start: '2026-11-03', due: '2026-11-05', mode: 'bar' });
+  it('only a start someone chose (a day) draws a bar: the automatic one — the moment the task was made — does not', () => {
+    // The server fills an unchosen start with the creation time (an instant): such a task is due-only.
+    expect(spanOf({ startDate: new Date('2026-11-02T22:13:41.512Z'), dueDate: day('2026-11-05') }, TZ)).toEqual({ start: null, due: '2026-11-05', mode: 'due' });
+    expect(spanOf({ startDate: new Date('2026-11-02T09:00:00.000Z'), dueDate: null }, TZ)).toBeNull();
+    // A due date kept from older data with a time is read on its company day (22:00 UTC on the 4th is the 5th in Muscat).
+    expect(spanOf({ startDate: day('2026-11-03'), dueDate: new Date('2026-11-04T22:00:00.000Z') }, TZ)).toEqual({ start: '2026-11-03', due: '2026-11-05', mode: 'bar' });
   });
 
   it('shown by its span in a range it is not due in: a bar crossing in, a start inside; never a long task passing through', () => {

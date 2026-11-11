@@ -53,6 +53,12 @@ CREATE TABLE `calendar_preferences` (
     PRIMARY KEY (`userId`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
+-- CreateIndex (the tasks a calendar range shows by their start; the reminder sweep's "tasks changed since")
+CREATE INDEX `tasks_startDate_idx` ON `tasks`(`startDate`);
+
+-- CreateIndex
+CREATE INDEX `tasks_updatedAt_idx` ON `tasks`(`updatedAt`);
+
 -- AddForeignKey
 ALTER TABLE `task_work_blocks` ADD CONSTRAINT `task_work_blocks_taskId_fkey` FOREIGN KEY (`taskId`) REFERENCES `tasks`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 

@@ -173,12 +173,12 @@ export function TaskBar({
           onOpen(item);
           return;
         }
-        const move = draggable ? keyMoveOf(e) : null;
-        if (move && move.days && onKeyMove) {
-          e.preventDefault();
-          onKeyMove(item, move);
-        }
+        const move = keyMoveOf(e);
+        // Alt + arrows move a calendar item — never the browser's Back / Forward.
+        if (move) e.preventDefault();
+        if (move && draggable && move.days && onKeyMove) onKeyMove(item, move);
       }}
+      aria-keyshortcuts={draggable ? 'Alt+ArrowLeft Alt+ArrowRight Alt+Shift+ArrowLeft Alt+Shift+ArrowRight' : undefined}
       style={color ? { borderInlineStartColor: color } : undefined}
       className={`group/bar flex w-full min-w-0 items-center gap-1 rounded-md border border-s-[3px] text-start text-xs leading-4 transition-colors hover:brightness-[0.97] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brand ${detailed ? 'min-h-6 py-[3px]' : lines === 3 ? 'h-[52px] py-[2px]' : lines === 2 ? 'h-[38px] py-[2px]' : 'h-6'} [@media(pointer:coarse)]:min-h-[28px] ${s.chip} ${draggable ? 'cursor-grab active:cursor-grabbing' : ''}`}
     >
@@ -224,7 +224,7 @@ export function blockName(b: CalBlock, timeZone: string): string {
 }
 
 /** Planned time (a work block) in a list or a month day: hatched, "Planned · 09:00–10:00 RIG-12 …". */
-export function BlockChip({ block, timeZone, onOpen, draggable, onKeyMove }: { block: CalBlock; timeZone: string; onOpen: (b: CalBlock) => void; draggable: boolean; onKeyMove?: (b: CalBlock, m: KeyMove) => void }) {
+export function BlockChip({ block, timeZone, onOpen, draggable, onKeyMove, tall = false }: { block: CalBlock; timeZone: string; onOpen: (b: CalBlock) => void; draggable: boolean; onKeyMove?: (b: CalBlock, m: KeyMove) => void; tall?: boolean }) {
   return (
     <button
       type="button"
@@ -234,16 +234,14 @@ export function BlockChip({ block, timeZone, onOpen, draggable, onKeyMove }: { b
       onDragEnd={endDrag}
       onClick={() => onOpen(block)}
       onKeyDown={(e) => {
-        const m = draggable ? keyMoveOf(e) : null;
-        if (m && onKeyMove) {
-          e.preventDefault();
-          onKeyMove(block, m);
-        }
+        const m = keyMoveOf(e);
+        if (m) e.preventDefault();
+        if (m && draggable && onKeyMove) onKeyMove(block, m);
       }}
       aria-label={blockName(block, timeZone)}
       title={blockName(block, timeZone)}
       style={HATCH_STYLE}
-      className={`flex h-6 w-full min-w-0 items-center gap-1 rounded-md border border-dashed border-brand/50 bg-surface px-1.5 text-start text-[11px] leading-4 text-ink transition-colors hover:border-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brand [@media(pointer:coarse)]:min-h-[28px] ${block.done ? 'opacity-60' : ''} ${draggable ? 'cursor-grab' : ''}`}
+      className={`flex h-6 w-full min-w-0 items-center gap-1 rounded-md border border-dashed border-brand/50 bg-surface px-1.5 text-start text-[11px] leading-4 text-ink transition-colors hover:border-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brand ${tall ? '[@media(pointer:coarse)]:!h-11' : '[@media(pointer:coarse)]:min-h-[28px]'} ${block.done ? 'opacity-60' : ''} ${draggable ? 'cursor-grab' : ''}`}
     >
       <span className="flex-none font-semibold text-brand">Planned</span>
       <span className="flex-none tabular-nums text-ink-2">{blockTimes(block, timeZone).split('–')[0]}</span>

@@ -110,6 +110,8 @@ describe('work blocks on a task', () => {
     const done = await call('ali', 'POST', '/tasks/t1/work-blocks', slot);
     expect(done.statusCode).toBe(409);
     expect(done.json().error.message).toMatch(/done/);
+    // A done task's planned time isn't moved either (it would vanish from the calendar).
+    expect((await call('ali', 'PUT', `/tasks/t1/work-blocks/${id}`, slot)).statusCode).toBe(409);
   });
 });
 
@@ -127,6 +129,9 @@ describe('personal reminders on a task', () => {
 
   it('refuses a time already passed, a date the task doesn’t have, and nonsense', async () => {
     expect((await call('kim', 'POST', '/tasks/t1/reminders', { at: '2026-11-12T05:00:00.000Z' })).json().error.message).toMatch(/already passed/);
+    expect((await call('zed', 'POST', '/tasks/t2/reminders', { anchor: 'start', offsetMinutes: 0 })).json().error.message).toMatch(/no start date/);
+    // An automatic start (when the task was made) is no start date anyone chose.
+    facts.t2!.startDate = new Date('2026-11-10T07:12:33.000Z');
     expect((await call('zed', 'POST', '/tasks/t2/reminders', { anchor: 'start', offsetMinutes: 0 })).json().error.message).toMatch(/no start date/);
     expect((await call('kim', 'POST', '/tasks/t1/reminders', {})).statusCode).toBe(400);
     expect((await call('kim', 'POST', '/tasks/t1/reminders', { anchor: 'due', offsetMinutes: 99_999_999 })).statusCode).toBe(400);
@@ -161,9 +166,15 @@ describe('personal reminders on a task', () => {
     expect((await call('sara', 'POST', `/tasks/t1/reminders/${id}/mute`, { muted: true })).statusCode).toBe(403);
     const seen = (await call('sara', 'GET', '/tasks/t1/reminders')).json().data[0];
     expect(seen).toMatchObject({ muted: true, userName: 'Ali' });
+    // Snooze is for a reminder that has gone: one still to come is changed (by its setter) or muted instead.
+    const early = await call('ali', 'POST', `/tasks/t1/reminders/${id}/snooze`, { minutes: 60 });
+    expect(early.statusCode).toBe(400);
+    expect(early.json().error.message).toMatch(/hasn’t gone yet/);
+    vi.setSystemTime(new Date('2026-11-20T05:00:00.000Z')); // after its time (the 20th, 08:00 Muscat)
     const snoozed = await call('ali', 'POST', `/tasks/t1/reminders/${id}/snooze`, { minutes: 60 });
     expect(snoozed.statusCode).toBe(200);
-    expect(snoozed.json().data.snoozedUntil).toBe('2026-11-12T07:00:00.000Z');
+    expect(snoozed.json().data.snoozedUntil).toBe('2026-11-20T06:00:00.000Z');
+    vi.setSystemTime(NOW);
     const changed = await call('sara', 'PUT', `/tasks/t1/reminders/${id}`, { anchor: 'due', offsetMinutes: 120 });
     expect(changed.statusCode).toBe(200);
     expect(changed.json().data.snoozedUntil).toBeNull();

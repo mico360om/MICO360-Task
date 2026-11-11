@@ -26,6 +26,7 @@ let meetings: Array<Record<string, unknown>>;
 let prefs: { layout: 'split' | 'full'; show: { tasks: boolean; meetings: boolean; blocks: boolean; reminders: boolean }; team: boolean };
 let requests: { url: string; method: string; body?: unknown }[];
 let daysOff: { day: string; name: string }[];
+let overdue: ApiTask[];
 
 const inRange = (d: string | null, from: string, to: string) => !!d && d.slice(0, 10) >= from && d.slice(0, 10) <= to;
 
@@ -40,6 +41,7 @@ beforeEach(() => {
   reminders = [];
   meetings = [];
   daysOff = [];
+  overdue = [];
   prefs = { layout: 'split', show: { tasks: true, meetings: true, blocks: true, reminders: true }, team: false };
   tasks = [
     task({ id: 'bar', key: 'MICO-1', title: 'Pour the slab', startDate: '2026-10-12T00:00:00.000Z', dueDate: '2026-10-14T00:00:00.000Z' }),
@@ -72,7 +74,7 @@ beforeEach(() => {
       return json({ data: { from, to, timeZone: 'Asia/Muscat', tasks: due, spanning, occurrences: [], series: [], workBlocks: blocks, reminders, team: { available: false, on: false } } });
     }
     if (/\/meetings\?/.test(u)) return json({ data: meetings });
-    if (u.includes('/tasks?overdue=true')) return json({ data: [] });
+    if (u.includes('/tasks?overdue=true')) return json({ data: overdue });
     const put = /\/tasks\/([^/?]+)$/.exec(u);
     if (put && method === 'PUT') {
       const t = tasks.find((x) => x.id === put[1])!;
@@ -177,6 +179,55 @@ describe('a task from its start to its due day (owner 1)', () => {
     const moved = await screen.findByRole('button', { name: /Pour the slab.*from Tue 13 Oct/ });
     fireEvent.keyDown(moved, { key: 'ArrowRight', altKey: true, shiftKey: true });
     await waitFor(() => expect(puts().at(-1)!.body).toEqual({ dueDate: '2026-10-16', expectedVersion: 4 }));
+  });
+});
+
+describe('reviewer fixes and rulings', () => {
+  it('R11: the automatic start (the moment a task was made) draws no bar — the task sits on its due day', async () => {
+    tasks = [task({ id: 'auto', key: 'MICO-9', title: 'Made last week', startDate: '2026-10-05T07:13:41.512Z', dueDate: '2026-10-14T00:00:00.000Z' })];
+    renderPage();
+    const chip = await screen.findByRole('button', { name: /Made last week/ });
+    expect(chip).toHaveAttribute('data-role', 'single');
+    expect(day('2026-10-14')).toContainElement(chip);
+  });
+
+  it('R12: a ⚑ dropped on an hour sets the due day (due dates are days on this site)', async () => {
+    renderPage('/calendar?view=week&date=2026-10-13');
+    const bar = await screen.findByRole('button', { name: /Pour the slab/ });
+    fireEvent.dragStart(bar.querySelector('[data-grip="due"]')!, { dataTransfer: { setData: () => {}, effectAllowed: 'move' } });
+    fireEvent.drop(hours('2026-10-15'), { clientY: 15 * HOUR_PX, dataTransfer: { getData: () => '' } });
+    await waitFor(() => expect(puts().at(-1)!.body).toEqual({ dueDate: '2026-10-15', expectedVersion: 3 }));
+  });
+
+  it('a late task dragged from today’s list moves from its own due day (also one due before the month)', async () => {
+    wide();
+    overdue = [task({ id: 'late', key: 'MICO-7', title: 'Late report', dueDate: '2026-09-28T00:00:00.000Z' })];
+    tasks = [...tasks, task({ id: 'late2', key: 'MICO-8', title: 'Late too', dueDate: '2026-10-05T00:00:00.000Z' })];
+    overdue.push(tasks.at(-1)!);
+    renderPage();
+    const aside = await screen.findByRole('complementary', { name: 'The chosen day' });
+    await screen.findAllByRole('button', { name: /Pour the slab/ });
+    const row = (await within(aside).findByRole('button', { name: /Late report/ })).closest('li')!;
+    fireEvent.dragStart(row, { dataTransfer: { setData: () => {}, effectAllowed: 'move' } });
+    fireEvent.drop(day('2026-10-14'), { dataTransfer: { getData: () => '' } });
+    await waitFor(() => expect(puts().at(-1)).toMatchObject({ url: expect.stringContaining('/tasks/late'), body: { dueDate: '2026-10-14', expectedVersion: 3 } }));
+    const row2 = within(aside).getByRole('button', { name: /Late too/ }).closest('li')!;
+    fireEvent.dragStart(row2, { dataTransfer: { setData: () => {}, effectAllowed: 'move' } });
+    fireEvent.drop(day('2026-10-15'), { dataTransfer: { getData: () => '' } });
+    await waitFor(() => expect(puts().at(-1)).toMatchObject({ url: expect.stringContaining('/tasks/late2'), body: { dueDate: '2026-10-15', expectedVersion: 3 } }));
+  });
+
+  it('a task’s “Starts” copy in a phone’s week list is not dragged (it would move by the days from its due day)', async () => {
+    const mm = vi.fn((q: string) => ({ matches: q.includes('max-width'), media: q, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {}, onchange: null, dispatchEvent: () => false }));
+    vi.stubGlobal('matchMedia', mm);
+    Object.defineProperty(window, 'matchMedia', { value: mm, configurable: true, writable: true });
+    renderPage('/calendar?view=week&date=2026-10-13');
+    const copies = await screen.findAllByRole('button', { name: /Pour the slab/ });
+    const starts = copies.filter((c) => c.closest('[data-day="2026-10-12"]'));
+    const dues = copies.filter((c) => c.closest('[data-day="2026-10-14"]'));
+    expect(starts.length).toBe(1);
+    expect(starts[0]).not.toHaveAttribute('draggable', 'true');
+    expect(dues[0]).toHaveAttribute('draggable', 'true');
   });
 });
 

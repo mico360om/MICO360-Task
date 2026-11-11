@@ -509,6 +509,10 @@ model Task {
   @@index([recurrenceParentId])
   @@index([priority])
   @@index([boardDate])
+  /// Calendar scheduling: the tasks a range shows by their start (GET /calendar), and the reminder sweep's
+  /// "tasks changed since" (a moved date moves a reminder).
+  @@index([startDate])
+  @@index([updatedAt])
   /// The tasks waiting for approval (To approve lists, the daily email, Management).
   @@index([approvalRequestedAt])
   @@index([approvalRequestedById])

@@ -17,10 +17,23 @@ export type SpanMode = 'bar' | 'markers' | 'due' | 'start';
 
 const daysApart = (a: string, b: string) => Math.round((Date.parse(`${b}T12:00:00Z`) - Date.parse(`${a}T12:00:00Z`)) / 86_400_000);
 
+/**
+ * A start someone chose: a day (every form, the calendar and templates send days). The server fills a start
+ * nobody chose with the moment the task was made (an instant) — that one draws nothing (ruling R11), so the
+ * task shows on its due day, as before. The server's copy: modules/calendar/calendar-span.ts.
+ */
+export function chosenStart(value: string | null | undefined): string | null {
+  if (!value) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.getUTCHours() === 0 && d.getUTCMinutes() === 0 && d.getUTCSeconds() === 0 && d.getUTCMilliseconds() === 0 ? value : null;
+}
+
 /** A task's start and due days and how it is drawn (null: no dates at all). */
 export function spanOf(task: Pick<ApiTask, 'startDate' | 'dueDate'>, timeZone: string): { start: string | null; due: string | null; mode: SpanMode } | null {
   const due = dueDayKey(task.dueDate, timeZone);
-  const start = dueDayKey(task.startDate, timeZone);
+  const start = dueDayKey(chosenStart(task.startDate), timeZone);
   if (!due) return start ? { start, due: null, mode: 'start' } : null;
   if (!start || start >= due) return { start: null, due, mode: 'due' };
   return { start, due, mode: daysApart(start, due) > MAX_SPAN_DAYS ? 'markers' : 'bar' };

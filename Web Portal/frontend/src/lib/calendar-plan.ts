@@ -2,8 +2,8 @@
  * Calendar scheduling's drags as changes to save (beside calendar-reschedule.ts, whose due-only planMove /
  * planUndo the Android app's drift tests compare — call 5):
  *  - a task's bar moved: its start and due shift together (its length kept; a timed due keeps its time);
- *  - one end dragged: the start or the due date alone (never past the other);
- *  - its ⚑ dropped on an hour: due then (call 4);
+ *  - one end dragged: the start or the due date alone (never past the other) — a ⚑ dropped on an hour sets
+ *    the due day (the server keeps due dates as days: ruling R12);
  *  - Undo: both dates (and the repeat) as they were;
  *  - work blocks and meetings moved (their length kept) or a block resized from its end.
  * A repeating task's newest copy asks "this occurrence / the series" as before (shiftRule).
@@ -12,6 +12,7 @@ import type { ApiTask, RecurrenceRule } from '../api/tasks';
 import { dueDayKey, shiftDayKey } from './due-date';
 import { zonedClock, zonedInstant } from './working-days';
 import { shiftRule, type MoveScope } from './calendar-reschedule';
+import { chosenStart } from './calendar-span';
 
 export interface DatesPayload {
   startDate?: string | null;
@@ -45,9 +46,11 @@ function ruleFor(task: ApiTask, fromDue: string | null, toDue: string | null, sc
 /** The bar moved `byDays`: start and due together. */
 export function planShift(task: ApiTask, byDays: number, scope: MoveScope, timeZone: string): DatesPayload {
   const due = dueDayKey(task.dueDate, timeZone);
-  const start = dueDayKey(task.startDate, timeZone);
+  // Only a start someone chose moves with it (the automatic one — when the task was made — stays: R11).
+  const chosen = chosenStart(task.startDate);
+  const start = dueDayKey(chosen, timeZone);
   return {
-    ...(task.startDate && start ? { startDate: onDay(task.startDate, shiftDayKey(start, byDays), timeZone) } : {}),
+    ...(chosen && start ? { startDate: onDay(chosen, shiftDayKey(start, byDays), timeZone) } : {}),
     ...(task.dueDate && due ? { dueDate: onDay(task.dueDate, shiftDayKey(due, byDays), timeZone) } : {}),
     ...versioned(task),
     ...ruleFor(task, due, due ? shiftDayKey(due, byDays) : null, scope),
@@ -57,20 +60,13 @@ export function planShift(task: ApiTask, byDays: number, scope: MoveScope, timeZ
 /** One end dragged to `toDay`: that date alone; null when the start would come after the due day. */
 export function planEdge(task: ApiTask, edge: 'start' | 'due', toDay: string, timeZone: string, scope: MoveScope = 'occurrence'): DatesPayload | null {
   const due = dueDayKey(task.dueDate, timeZone);
-  const start = dueDayKey(task.startDate, timeZone);
+  const start = dueDayKey(chosenStart(task.startDate), timeZone);
   if (edge === 'start') {
     if (due && toDay > due) return null;
-    return { startDate: task.startDate ? onDay(task.startDate, toDay, timeZone) : toDay, ...versioned(task) };
+    return { startDate: toDay, ...versioned(task) };
   }
   if (start && toDay < start) return null;
   return { dueDate: task.dueDate ? onDay(task.dueDate, toDay, timeZone) : toDay, ...versioned(task), ...ruleFor(task, due, toDay, scope) };
-}
-
-/** The ⚑ dropped on an hour: due at that time (null when that day is before the start). */
-export function planDueAt(task: ApiTask, day: string, minutes: number, timeZone: string, scope: MoveScope = 'occurrence'): DatesPayload | null {
-  const start = dueDayKey(task.startDate, timeZone);
-  if (start && day < start) return null;
-  return { dueDate: zonedInstant(day, hhmm(minutes), timeZone).toISOString(), ...versioned(task), ...ruleFor(task, dueDayKey(task.dueDate, timeZone), day, scope) };
 }
 
 /** A stored date as it is sent back: a day as 'YYYY-MM-DD', an instant as it was. */

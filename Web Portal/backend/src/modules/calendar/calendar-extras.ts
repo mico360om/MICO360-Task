@@ -89,7 +89,8 @@ export function createCalendarExtras(deps: CalendarExtrasDeps) {
 
     const clock = await deps.clock();
     const reminders = (await deps.store.remindersForCalendar({ userId: me, ...window }))
-      .filter((r) => ownScope(r.task.projectId))
+      // An archived project's reminders are not sent (as the planner's): not shown either.
+      .filter((r) => ownScope(r.task.projectId) && !r.task.projectArchived)
       .map((r) => ({ r, s: reminderState(r, r.task, now, clock) }))
       .filter(({ s }) => s.fireAt && s.state !== 'hidden' && s.state !== 'none' && s.fireAt >= window.from && s.fireAt < window.to)
       .sort((a, b) => a.s.fireAt!.getTime() - b.s.fireAt!.getTime() || a.r.id.localeCompare(b.r.id, 'en'));
@@ -110,7 +111,8 @@ export function createCalendarExtras(deps: CalendarExtrasDeps) {
         startAt: b.startAt.toISOString(),
         endAt: b.endAt.toISOString(),
         mine: b.userId === me,
-        canChange: b.userId === me || b.plannedById === me || runs(b.task.projectId),
+        // A done task's (past) block is history and an archived project is read-only: neither changes here.
+        canChange: !b.task.completedAt && !b.task.projectArchived && (b.userId === me || b.plannedById === me || runs(b.task.projectId)),
         done: !!b.task.completedAt,
       })),
       reminders: reminders.map(({ r, s }) => ({

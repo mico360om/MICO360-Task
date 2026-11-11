@@ -2,7 +2,7 @@ import type { Prisma, PrismaClient } from '@prisma/client';
 import type { BlockRow, CalendarStore, CalTaskBrief, ReminderRow } from './calendar-store';
 import type { CalendarTaskFacts } from './calendar-routes';
 import type { ReminderSweepStore, ReminderSweepTask } from './reminder-sweep';
-import { REMINDER_GRACE_MS, type ReminderAnchor } from './task-reminders';
+import type { ReminderAnchor } from './task-reminders';
 import { ARCHIVE_SELECT, archivedOf } from '../companies/project-archive';
 import { managedVisibleWhere } from '../projects/project-managers';
 
@@ -13,6 +13,12 @@ import { managedVisibleWhere } from '../projects/project-managers';
  */
 
 const TASK_BRIEF = { id: true, key: true, title: true, projectId: true, startDate: true, dueDate: true, completedAt: true, deletedAt: true } as const satisfies Prisma.TaskSelect;
+/** The task as the calendar names it, with whether its project is archived (read-only, reminders not sent). */
+const TASK_WITH_PROJECT = { ...TASK_BRIEF, project: { select: ARCHIVE_SELECT } } as const satisfies Prisma.TaskSelect;
+const briefOf = (t: Prisma.TaskGetPayload<{ select: typeof TASK_WITH_PROJECT }>): CalTaskBrief => {
+  const { project, ...rest } = t;
+  return { ...rest, projectArchived: archivedOf(project) };
+};
 /** Live: not deleted, in a live project. (After the task archive lands, archived tasks are hidden by `archivedAt` in the rules.) */
 const LIVE_TASK: Prisma.TaskWhereInput = { deletedAt: null, project: { is: { deletedAt: null } } };
 
@@ -92,12 +98,12 @@ export function createPrismaCalendarStore(prisma: PrismaClient): CalendarStore {
           ...(q.userId ? { userId: q.userId } : {}),
           task: { is: { ...LIVE_TASK, ...(q.projectIds ? { projectId: { in: q.projectIds } } : {}) } },
         },
-        include: { task: { select: TASK_BRIEF } },
+        include: { task: { select: TASK_WITH_PROJECT } },
         orderBy: [{ startAt: 'asc' }, { id: 'asc' }],
         // A busy month of a large team stays bounded.
         take: 3000,
       });
-      return rows.map((b) => ({ ...blockOf(b), task: b.task as CalTaskBrief }));
+      return rows.map((b) => ({ ...blockOf(b), task: briefOf(b.task) }));
     },
     async remindersForCalendar(q) {
       const rows = await prisma.taskReminder.findMany({
@@ -111,10 +117,11 @@ export function createPrismaCalendarStore(prisma: PrismaClient): CalendarStore {
             { anchor: { not: null }, task: { is: { completedAt: null } } },
           ],
         },
-        include: { task: { select: TASK_BRIEF } },
+        include: { task: { select: TASK_WITH_PROJECT } },
+        orderBy: [{ nextAt: 'asc' }, { id: 'asc' }],
         take: 2000,
       });
-      return rows.map((r) => ({ ...reminderOf(r), task: r.task as CalTaskBrief }));
+      return rows.map((r) => ({ ...reminderOf(r), task: briefOf(r.task) }));
     },
     async prefs(userId) {
       return (await prisma.calendarPreference.findUnique({ where: { userId } }))?.prefs ?? null;
@@ -149,17 +156,22 @@ export function createPrismaReminderSweepStore(prisma: PrismaClient): ReminderSw
   const SELECT = { id: true, taskId: true, userId: true, setById: true, at: true, anchor: true, offsetMinutes: true, nextAt: true, mutedAt: true, snoozedUntil: true, sentFor: true, sentAt: true, createdAt: true } as const;
   return {
     async dueBetween(from, to) {
-      const rows = await prisma.taskReminder.findMany({ where: { nextAt: { gte: from, lte: to }, mutedAt: null, task: { is: { deletedAt: null, completedAt: null } } }, select: SELECT, take: 5000 });
+      // Only ones still to go: a sent one's nextAt is cleared (until its time changes again).
+      const rows = await prisma.taskReminder.findMany({
+        where: { nextAt: { gte: from, lte: to }, mutedAt: null, task: { is: { deletedAt: null, completedAt: null } } },
+        select: SELECT,
+        orderBy: [{ nextAt: 'asc' }, { id: 'asc' }],
+        take: 5000,
+      });
       return rows.map(reminderOf);
     },
     async relativeChangedSince(since) {
       const rows = await prisma.taskReminder.findMany({
         where: {
           anchor: { not: null },
-          // Every one of an open task at first; then only those whose task (or itself) changed since.
+          // Every one of an open task at first (so after a restart a date moved meanwhile is caught); then only
+          // those whose task changed since.
           task: { is: { deletedAt: null, completedAt: null, ...(since ? { updatedAt: { gte: since } } : {}) } },
-          // Long past and sent: nothing left to keep in step (a moved date changes the task, read above).
-          ...(since ? {} : { OR: [{ nextAt: null }, { nextAt: { gte: new Date(Date.now() - REMINDER_GRACE_MS) } }, { sentFor: null }] }),
         },
         select: SELECT,
         take: 20_000,
@@ -170,20 +182,24 @@ export function createPrismaReminderSweepStore(prisma: PrismaClient): ReminderSw
       if (ids.length === 0) return new Map();
       const rows = await prisma.task.findMany({
         where: { id: { in: ids } },
-        select: { ...TASK_BRIEF, project: { select: { deletedAt: true, ...ARCHIVE_SELECT } } },
+        select: { ...TASK_BRIEF, project: { select: { deletedAt: true, ...ARCHIVE_SELECT } }, assignees: { select: { userId: true } } },
       });
       return new Map(
         rows.map((t): [string, ReminderSweepTask] => {
-          const { project, ...rest } = t;
-          return [t.id, { ...rest, deletedAt: rest.deletedAt ?? project.deletedAt, projectArchived: archivedOf(project) }];
+          const { project, assignees, ...rest } = t;
+          return [t.id, { ...rest, deletedAt: rest.deletedAt ?? project.deletedAt, projectArchived: archivedOf(project), assigneeIds: assignees.map((a) => a.userId) }];
         }),
       );
     },
-    async setNextAt(id, nextAt) {
-      await prisma.taskReminder.updateMany({ where: { id }, data: { nextAt } });
+    async setNextAt(id, nextAt, expect) {
+      await prisma.taskReminder.updateMany({ where: { id, nextAt: expect }, data: { nextAt } });
     },
     async markSent(id, p) {
-      await prisma.taskReminder.updateMany({ where: { id }, data: { sentFor: p.sentFor, sentAt: p.sentAt, nextAt: p.nextAt, ...(p.clearSnooze ? { snoozedUntil: null } : {}) } });
+      // Only if nobody changed its time meanwhile (that change wins; the next run reads it).
+      await prisma.taskReminder.updateMany({
+        where: { id, nextAt: p.expectNextAt },
+        data: { sentFor: p.sentFor, sentAt: p.sentAt, nextAt: p.nextAt, ...(p.clearSnooze ? { snoozedUntil: null } : {}) },
+      });
     },
   };
 }

@@ -16,6 +16,8 @@ describe('a task from its start to its due day (owner, 11 Nov) — the same rule
     expect(spanOf(task({ startDate: '2026-11-06', dueDate: '2026-11-06' }), TZ)!.mode).toBe('due');
     expect(spanOf(task({ startDate: '2026-11-03' }), TZ)).toEqual({ start: '2026-11-03', due: null, mode: 'start' });
     expect(spanOf(task({}), TZ)).toBeNull();
+    // R11: the automatic start (the moment the task was made, an instant) draws nothing: due-only.
+    expect(spanOf(task({ startDate: '2026-11-02T07:13:41.512Z', dueDate: '2026-11-06' }), TZ)).toEqual({ start: null, due: '2026-11-06', mode: 'due' });
   });
 
   it('builds each task once (due ones and those shown by their span), with its due time when it has one, and projected repeats', () => {

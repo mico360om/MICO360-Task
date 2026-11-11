@@ -14,6 +14,8 @@ describe('“Remind me” choices (owner 3: a date and time, or a time before th
       '1 day before it starts',
     ]);
     expect(reminderChoices({ startDate: null, dueDate: '2026-11-20' }, TZ)[1]!.timing).toEqual({ anchor: 'due', offsetMinutes: 1440 });
+    // The automatic start (when the task was made) offers nothing.
+    expect(reminderChoices({ startDate: '2026-11-02T07:13:00.000Z', dueDate: '2026-11-20' }, TZ).map((c) => c.key)).toEqual(['due-0', 'due-1440', 'due-2880', 'due-10080']);
   });
 
   it('a due time: 15 minutes, an hour, two hours or a day before it', () => {

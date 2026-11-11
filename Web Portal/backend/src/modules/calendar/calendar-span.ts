@@ -19,10 +19,22 @@ export interface SpanDates {
 
 const daysApart = (a: string, b: string) => Math.round((Date.parse(`${b}T12:00:00Z`) - Date.parse(`${a}T12:00:00Z`)) / 86_400_000);
 
+/**
+ * A start someone chose: a day (every form, the calendar and templates send days). The server fills a start
+ * nobody chose with the moment the task was made (an instant) — that one draws nothing (ruling R11): the task
+ * shows on its due day, as before.
+ */
+export function chosenStart(value: Date | string | null | undefined): Date | null {
+  if (!value) return null;
+  const d = value instanceof Date ? value : new Date(/^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T00:00:00.000Z` : value);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.getUTCHours() === 0 && d.getUTCMinutes() === 0 && d.getUTCSeconds() === 0 && d.getUTCMilliseconds() === 0 ? d : null;
+}
+
 /** A task's start and due days and how it is drawn (null: no dates at all). */
 export function spanOf(task: SpanDates, timeZone: string): { start: string | null; due: string | null; mode: SpanMode } | null {
   const due = dueDayKey(task.dueDate ?? null, timeZone);
-  const start = dueDayKey(task.startDate ?? null, timeZone);
+  const start = dueDayKey(chosenStart(task.startDate), timeZone);
   if (!due) return start ? { start, due: null, mode: 'start' } : null;
   // A start on (or, by a slip, after) the due day adds nothing: the task sits on its due day.
   if (!start || start >= due) return { start: null, due, mode: 'due' };

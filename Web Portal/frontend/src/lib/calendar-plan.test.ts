@@ -6,7 +6,6 @@ import {
   canDragMeeting,
   meetingMovePlan,
   planDatesUndo,
-  planDueAt,
   planEdge,
   planShift,
   waitWords,
@@ -44,8 +43,10 @@ describe('dragging one end: the start or the due date alone', () => {
     expect(planEdge(task({ dueDate: '2026-11-06T10:30:00.000Z' }), 'due', '2026-11-08', TZ)).toEqual({ dueDate: '2026-11-08T10:30:00.000Z', expectedVersion: 4 });
   });
 
-  it('the ⚑ dropped on an hour: due then (call 4)', () => {
-    expect(planDueAt(task({ dueDate: '2026-11-06' }), '2026-11-06', 15 * 60, TZ)).toEqual({ dueDate: '2026-11-06T11:00:00.000Z', expectedVersion: 4 });
+  it('the automatic start (when the task was made) neither moves nor limits (R11)', () => {
+    const auto = task({ startDate: '2026-11-01T07:12:00.000Z', dueDate: '2026-11-06' });
+    expect(planShift(auto, 2, 'occurrence', TZ)).toEqual({ dueDate: '2026-11-08', expectedVersion: 4 });
+    expect(planEdge(auto, 'start', '2026-11-03', TZ)).toEqual({ startDate: '2026-11-03', expectedVersion: 4 });
   });
 
   it('Undo puts back what moved (both dates, or the one), as it was, and the repeat', () => {

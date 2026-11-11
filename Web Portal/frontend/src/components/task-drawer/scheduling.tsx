@@ -4,6 +4,7 @@ import { apiClient } from '../../api/client';
 import { schedulingApi } from '../../api/scheduling';
 import type { ApiTask } from '../../api/tasks';
 import { minutesAt, timeLabel } from '../../lib/calendar-hours';
+import { dueDayKey, todayKey } from '../../lib/due-date';
 import { dayLabel } from '../calendar/calendar-ui';
 import { PlanTimeDialog, ReminderEditor, reasonOf } from '../calendar/scheduling-dialogs';
 import { HATCH_STYLE } from '../calendar/schedule-chips';
@@ -117,7 +118,7 @@ export function TaskScheduling({ task, timeZone }: { task: ApiTask; timeZone: st
         <PlanTimeDialog
           task={{ id: task.id, key: task.key, title: task.title }}
           options={[]}
-          day={task.dueDate ? task.dueDate.slice(0, 10) : new Date().toISOString().slice(0, 10)}
+          day={dueDayKey(task.dueDate, timeZone) ?? todayKey(timeZone)}
           minutes={9 * 60}
           timeZone={timeZone}
           people={people}

@@ -18,7 +18,7 @@ import { shiftMonth, visibleRange, weekDays, type CalendarView } from '../lib/ca
 import { applyFilters, buildItems, filtersFromParams, filtersToParams, activeFilterCount, DEFAULT_FILTERS, type CalendarFilters, type CalItem } from '../lib/calendar-model';
 import { buildSpanItems, type SpanItem } from '../lib/calendar-span';
 import { canReschedule, needsSeriesChoice, type MoveScope } from '../lib/calendar-reschedule';
-import { blockMovePlan, blockResizePlan, canDragMeeting, meetingMovePlan, planDatesUndo, planDueAt, planEdge, planShift, waitWords, type DatesPayload } from '../lib/calendar-plan';
+import { blockMovePlan, blockResizePlan, canDragMeeting, meetingMovePlan, planDatesUndo, planEdge, planShift, waitWords, type DatesPayload } from '../lib/calendar-plan';
 import { instantAt, minutesAt, timeLabel } from '../lib/calendar-hours';
 import type { DragPayload } from '../lib/calendar-dnd';
 import { useDateSettings } from '../lib/useDatePrefs';
@@ -166,7 +166,8 @@ export function CalendarPage() {
   const { from, to } = visibleRange(view, cursor, weekStart);
   const team = prefs.team;
   const rangeKey = useMemo(() => ['calendar', from, to, team ? 'team' : 'mine'] as const, [from, to, team]);
-  const rangeQ = useQuery({ queryKey: rangeKey, queryFn: () => calendarApi(apiClient).range(from, to, { team }), placeholderData: keepPreviousData });
+  // Asked once the person's choices are known (their Team view changes the answer).
+  const rangeQ = useQuery({ queryKey: rangeKey, queryFn: () => calendarApi(apiClient).range(from, to, { team }), placeholderData: keepPreviousData, enabled: !prefsQ.isLoading });
   const overdueQ = useQuery({ queryKey: ['calendar', 'overdue'], queryFn: () => calendarApi(apiClient).overdue(), enabled: view === 'agenda' || split || compactMonth });
   const span = meetingRange(from, to, timeZone);
   const meetingsQ = useQuery({
@@ -199,6 +200,12 @@ export function CalendarPage() {
   // ── What is shown (filters, and the person's Show choices) ──
   const show = prefs.show;
   const items = useMemo(() => buildSpanItems(range, { today, timeZone, projectStatus }), [range, today, timeZone, projectStatus]);
+  // Overdue work from before the visible days (today's list shows it): found for opening and dragging too.
+  const overdueSpan = useMemo(
+    () => (Array.isArray(overdueQ.data) ? buildSpanItems({ tasks: overdueQ.data, occurrences: [], series: [] }, { today, timeZone, projectStatus }) : []),
+    [overdueQ.data, today, timeZone, projectStatus],
+  );
+  const taskItem = useCallback((id: string) => items.find((i) => i.kind === 'task' && i.task.id === id) ?? overdueSpan.find((i) => i.task.id === id) ?? null, [items, overdueSpan]);
   const shown = useMemo(() => (show.tasks ? applyFilters(items, filters, { myId }) : []), [items, filters, myId, show.tasks]);
   // The lists by day (phone month, agenda, phone week): a task on its due day, and on its start day too.
   const byDay = useMemo(() => {
@@ -218,6 +225,7 @@ export function CalendarPage() {
   const meetingById = useMemo(() => new Map(rawMeetings.map((m) => [m.id, m])), [rawMeetings]);
   const shownMeetings = useMemo(() => (show.meetings ? filterCalendarMeetings(meetingItems(rawMeetings, timeZone), filters, { myId }) : []), [rawMeetings, timeZone, filters, myId, show.meetings]);
   const meetingsByDay = useMemo(() => groupMeetingsByDay(shownMeetings), [shownMeetings]);
+  const meetingEnd = useCallback((id: string) => meetingById.get(id)?.endAt ?? null, [meetingById]);
   const checklistByDay = useMemo(
     () => (show.tasks ? checklistItemsByDay(range.checklistItems, filters, { myId, today, projectStatus }) : new Map<string, never[]>()),
     [range, filters, myId, today, projectStatus, show.tasks],
@@ -226,8 +234,10 @@ export function CalendarPage() {
   // Planned time and reminders follow the project filter and the words (they belong to a task).
   const matchesExtra = useCallback(
     (x: { projectId: string; taskKey: string; taskTitle: string }) =>
-      (!filters.projectId || x.projectId === filters.projectId) && (!q || x.taskTitle.toLocaleLowerCase('en').includes(q) || x.taskKey.toLocaleLowerCase('en').includes(q)),
-    [filters.projectId, q],
+      (!filters.projectId || x.projectId === filters.projectId) &&
+      (filters.showArchived || projectStatus(x.projectId) !== 'ARCHIVED') &&
+      (!q || x.taskTitle.toLocaleLowerCase('en').includes(q) || x.taskKey.toLocaleLowerCase('en').includes(q)),
+    [filters.projectId, filters.showArchived, projectStatus, q],
   );
   const blocks = useMemo(() => (show.blocks ? (range.workBlocks ?? []).filter(matchesExtra) : []), [range, show.blocks, matchesExtra]);
   const reminders = useMemo(() => (show.reminders ? (range.reminders ?? []).filter(matchesExtra) : []), [range, show.reminders, matchesExtra]);
@@ -272,7 +282,7 @@ export function CalendarPage() {
   const [plan, setPlan] = useState<{ day: string; minutes: number; task: TaskOption | null } | null>(null);
   const [remind, setRemind] = useState<Pick<ApiTask, 'id' | 'key' | 'title' | 'startDate' | 'dueDate'> | null>(null);
   const [blockOpen, setBlockOpen] = useState<CalBlock | null>(null);
-  const [meetingMove, setMeetingMove] = useState<{ m: CalMeeting; startAt: string; endAt: string } | null>(null);
+  const [meetingMove, setMeetingMove] = useState<{ m: CalMeeting; startAt: string; endAt: string; hasEnd: boolean } | null>(null);
   const openTask = useOpenTask();
   const [choice, setChoice] = useState<{ item: SpanItem; to: string; run: (scope: MoveScope) => void } | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
@@ -281,7 +291,10 @@ export function CalendarPage() {
     const t = setTimeout(() => setToast(null), toast.tone === 'error' ? 9000 : 8000);
     return () => clearTimeout(t);
   }, [toast]);
-  const itemByKey = useCallback((key: string) => items.find((i) => i.key === key.replace(/:start$/, '')) ?? null, [items]);
+  const itemByKey = useCallback((key: string) => {
+    const k = key.replace(/:start$/, '');
+    return items.find((i) => i.key === k) ?? overdueSpan.find((i) => i.key === k) ?? null;
+  }, [items, overdueSpan]);
   const preview = previewKey ? itemByKey(previewKey) : null;
   const fail = (text: string) => setToast({ tone: 'error', text });
 
@@ -302,6 +315,8 @@ export function CalendarPage() {
   };
 
   async function saveDates(task: ApiTask, payload: DatesPayload, words: { done: string; back: string }, opts: { undoable?: boolean } = {}) {
+    // A refetch still running (from the last move) must not paint the old dates back over this one.
+    await qc.cancelQueries({ queryKey: rangeKey });
     const snapshot = qc.getQueryData<CalendarRange>(rangeKey);
     patchRange(task.id, payload);
     try {
@@ -321,7 +336,7 @@ export function CalendarPage() {
       });
     } catch (err) {
       if (snapshot) qc.setQueryData(rangeKey, snapshot);
-      fail(`Couldn’t move ${task.key} — ${reasonOf(err)}. It’s back where it was.`);
+      fail(opts.undoable === false ? `Couldn’t undo the move of ${task.key} — ${reasonOf(err)}.` : `Couldn’t move ${task.key} — ${reasonOf(err)}. It’s back where it was.`);
     }
   }
 
@@ -356,14 +371,6 @@ export function CalendarPage() {
       const payload = planEdge(item.task, edge, toDay, timeZone, scope);
       if (!payload) return fail(edge === 'start' ? 'The start can’t be after the due date.' : 'The due date can’t be before the start.');
       void saveDates(item.task, payload, { done: movedWords(item, payload, scope), back: backWords(item) });
-    });
-  }
-  function moveDueAt(item: SpanItem, day: string, minutes: number) {
-    if (!canReschedule(item)) return;
-    withScope(item, day, (scope) => {
-      const payload = planDueAt(item.task, day, minutes, timeZone, scope);
-      if (!payload) return fail('The due date can’t be before the start.');
-      void saveDates(item.task, payload, { done: `${item.task.key} is now due ${dayLabel(day)} at ${timeLabel(minutes)}.`, back: backWords(item) });
     });
   }
 
@@ -407,6 +414,7 @@ export function CalendarPage() {
   }
   async function moveBlock(b: CalBlock, next: { startAt: string; endAt: string }, opts: { quiet?: boolean } = {}) {
     if (!b.canChange) return;
+    await qc.cancelQueries({ queryKey: rangeKey });
     const snapshot = qc.getQueryData<CalendarRange>(rangeKey);
     qc.setQueryData<CalendarRange>(rangeKey, (old) => (old ? { ...old, workBlocks: (old.workBlocks ?? []).map((x) => (x.id === b.id ? { ...x, ...next } : x)) } : old));
     try {
@@ -451,21 +459,24 @@ export function CalendarPage() {
   }
 
   // ── Meetings (their organizer): a new time, the updated invitation sent by the meeting's own update ──
-  async function moveMeeting(m: CalMeeting, next: { startAt: string; endAt: string }, opts: { undo?: boolean } = {}) {
+  async function moveMeeting(m: CalMeeting, next: { startAt: string; endAt: string | null }, opts: { undo?: boolean } = {}) {
     const full = meetingById.get(m.id);
-    const before = { startAt: m.startAt, endAt: full?.endAt ?? new Date(Date.parse(m.startAt) + 3600_000).toISOString() };
+    // A meeting without an end keeps none (it moves by its start alone, and Undo puts back exactly that).
+    const hadEnd = !!full?.endAt;
+    const before = { startAt: m.startAt, endAt: full?.endAt ?? null };
     try {
-      await meetingsApi(apiClient).update(m.id, next);
+      await meetingsApi(apiClient).update(m.id, hadEnd && next.endAt ? next : { startAt: next.startAt });
       void qc.invalidateQueries({ queryKey: ['meetings'] });
       const count = full?.attendeeCount ?? 0;
       const sent = full?.invitesSentAt ? ` The updated invitation went to ${count} ${count === 1 ? 'person' : 'people'}.` : '';
-      if (opts.undo) return setToast({ tone: 'moved', text: `${m.title} is back at ${blockWords(next)}.${sent}` });
+      const when = (x: { startAt: string; endAt: string | null }) => (x.endAt ? blockWords({ startAt: x.startAt, endAt: x.endAt }) : `${dayLabel(minutesAt(x.startAt, timeZone).day)}, ${timeLabel(minutesAt(x.startAt, timeZone).minutes)}`);
+      if (opts.undo) return setToast({ tone: 'moved', text: `${m.title} is back at ${when(next)}.${sent}` });
       setToast({
         tone: 'moved',
-        text: `Moved ${m.title} to ${blockWords(next)}.${sent}`,
+        text: `Moved ${m.title} to ${when(next)}.${sent}`,
         undo: () => {
           setToast(null);
-          void moveMeeting({ ...m, startAt: next.startAt }, before, { undo: true });
+          void moveMeeting({ ...m, startAt: next.startAt }, hadEnd ? before : { startAt: before.startAt, endAt: null }, { undo: true });
         },
       });
     } catch (err) {
@@ -474,15 +485,16 @@ export function CalendarPage() {
   }
   const askMeetingMove = (m: CalMeeting, startAt: string) => {
     if (!canDragMeeting(m, myId, now)) return;
-    const next = meetingMovePlan({ startAt: m.startAt, endAt: meetingById.get(m.id)?.endAt ?? null }, startAt);
+    const end = meetingById.get(m.id)?.endAt ?? null;
+    const next = meetingMovePlan({ startAt: m.startAt, endAt: end }, startAt);
     if (Date.parse(next.startAt) <= Date.now()) return fail('A meeting moves to a time still to come.');
-    setMeetingMove({ m, ...next });
+    setMeetingMove({ m, startAt: next.startAt, endAt: next.endAt, hasEnd: !!end });
   };
 
   // ── Drops ──
   function dropOnDay(payload: DragPayload, day: string) {
     if (payload.kind === 'task') {
-      const item = items.find((i) => i.kind === 'task' && i.task.id === payload.id);
+      const item = taskItem(payload.id);
       if (!item) return;
       if (payload.grip === 'start') return moveEdge(item, 'start', day);
       if (payload.grip === 'due') return moveEdge(item, 'due', day);
@@ -502,9 +514,10 @@ export function CalendarPage() {
   }
   function dropOnSlot(payload: DragPayload, day: string, minutes: number) {
     if (payload.kind === 'task') {
-      const item = items.find((i) => i.kind === 'task' && i.task.id === payload.id);
+      const item = taskItem(payload.id);
       if (!item) return;
-      if (payload.grip === 'due') return moveDueAt(item, day, minutes);
+      // R12: due dates are days on this site — a ⚑ dropped on an hour sets the due day.
+      if (payload.grip === 'due') return moveEdge(item, 'due', day);
       if (payload.grip === 'start') return moveEdge(item, 'start', day);
       if (item.status === 'done' || item.projectArchived) return;
       return planFromDrop(item.task, day, minutes);
@@ -527,12 +540,8 @@ export function CalendarPage() {
 
   // ── Keyboard moves (Alt + arrows), with the same Undo ──
   const keyMoveTask = (item: SpanItem, move: KeyMove) => {
-    if (move.minutes && item.dueMinutes !== null && item.due) return moveDueAt(item, item.due, Math.max(0, Math.min(24 * 60 - 15, item.dueMinutes + move.minutes)));
     if (!move.days) return;
-    if (move.edge === 'due' && item.due) {
-      if (item.dueMinutes !== null) return moveDueAt(item, shiftDayKey(item.due, move.days), item.dueMinutes);
-      return moveEdge(item, 'due', shiftDayKey(item.due, move.days));
-    }
+    if (move.edge === 'due' && item.due) return moveEdge(item, 'due', shiftDayKey(item.due, move.days));
     shiftTask(item, move.days);
   };
   const keyMoveBlock = (b: CalBlock, move: KeyMove) => {
@@ -599,8 +608,7 @@ export function CalendarPage() {
     () =>
       items
         .filter((i) => i.kind === 'task' && i.status !== 'done' && !i.projectArchived)
-        .map((i) => ({ id: i.task.id, key: i.task.key, title: i.task.title }))
-        .filter((o, n, all) => all.findIndex((x) => x.id === o.id) === n),
+        .map((i) => ({ id: i.task.id, key: i.task.key, title: i.task.title })),
     [items],
   );
 
@@ -614,11 +622,12 @@ export function CalendarPage() {
     weekStart,
     byDay,
     colorOf,
-    canDrag: canReschedule,
+    // A task's "Starts" copy in a day list isn't dragged (it would move by the days from its due day).
+    canDrag: (item) => !item.key.endsWith(':start') && canReschedule(item),
     onOpen: (item) => setPreviewKey(item.key),
     onOpenDay: selectDay,
     onDrop: (taskId, day) => {
-      const item = items.find((i) => i.kind === 'task' && i.task.id === taskId);
+      const item = taskItem(taskId);
       if (item) shiftTask(item, daysBetween(item.date, day));
     },
     meetingsByDay,
@@ -747,7 +756,7 @@ export function CalendarPage() {
     now,
     items: shown,
     meetingsByDay,
-    meetingEnd: (id: string) => meetingById.get(id)?.endAt ?? null,
+    meetingEnd,
     checklistByDay,
     blocks,
     reminders,
@@ -774,7 +783,8 @@ export function CalendarPage() {
     fit,
   };
 
-  const calendar = rangeQ.isLoading ? (
+  // Pending: loading, or waiting for the person's choices (the Team view changes what is asked).
+  const calendar = rangeQ.isPending ? (
     <div role="status" aria-label="Loading the calendar" className={`grid grid-cols-7 gap-1.5 ${fit ? 'min-h-0 flex-1 grid-rows-5' : ''}`}>
       {Array.from({ length: 35 }).map((_, i) => <div key={i} className={`skeleton rounded-lg ${fit ? 'min-h-0' : 'h-24'}`} />)}
     </div>
@@ -1038,10 +1048,11 @@ export function CalendarPage() {
           people={meetingById.get(meetingMove.m.id)?.attendeeCount ?? 0}
           timeZone={timeZone}
           onClose={() => setMeetingMove(null)}
+          series={meetingMove.m.recurring}
           onConfirm={(startAt, endAt) => {
-            const m = meetingMove.m;
+            const { m, hasEnd } = meetingMove;
             setMeetingMove(null);
-            void moveMeeting(m, { startAt, endAt });
+            void moveMeeting(m, { startAt, endAt: hasEnd ? endAt : null });
           }}
         />
       ) : null}

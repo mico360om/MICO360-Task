@@ -29,6 +29,8 @@ describe('personal reminders on tasks (owner, 11 Nov)', () => {
     expect(fireAtOf({ at: null, anchor: 'due', offsetMinutes: 0 }, { startDate: null, dueDate: day('2026-11-20') }, ctx)).toEqual(at('2026-11-20T04:00:00Z'));
     // No such date on the task (any more): no time.
     expect(fireAtOf({ at: null, anchor: 'start', offsetMinutes: 60 }, { startDate: null, dueDate: day('2026-11-20') }, ctx)).toBeNull();
+    // The automatic start (the moment the task was made) is not a start anyone chose: no time.
+    expect(fireAtOf({ at: null, anchor: 'start', offsetMinutes: 0 }, { startDate: at('2026-11-10T07:12:33.000Z'), dueDate: day('2026-11-20') }, ctx)).toBeNull();
   });
 
   it('checks what is asked: one time, or an anchor with up to 60 days before it', () => {

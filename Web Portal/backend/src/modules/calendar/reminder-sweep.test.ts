@@ -19,11 +19,14 @@ function memory(rows: ReminderSweepRow[], tasks: ReminderSweepTask[]) {
     async tasks(ids) {
       return new Map(ids.filter((id) => taskById.has(id)).map((id) => [id, { ...taskById.get(id)! }]));
     },
-    async setNextAt(id, nextAt) {
-      byId.get(id)!.nextAt = nextAt;
+    async setNextAt(id, nextAt, expect) {
+      const r = byId.get(id)!;
+      if ((r.nextAt?.getTime() ?? null) !== (expect?.getTime() ?? null)) return;
+      r.nextAt = nextAt;
     },
     async markSent(id, p) {
       const r = byId.get(id)!;
+      if ((r.nextAt?.getTime() ?? null) !== (p.expectNextAt?.getTime() ?? null)) return;
       r.sentFor = p.sentFor;
       r.sentAt = p.sentAt;
       if (p.clearSnooze) r.snoozedUntil = null;
@@ -69,6 +72,7 @@ const task = (extra: Partial<ReminderSweepTask> = {}): ReminderSweepTask => ({
   completedAt: null,
   deletedAt: null,
   projectArchived: false,
+  assigneeIds: ['ali'],
   ...extra,
 });
 
@@ -93,8 +97,40 @@ describe('the personal reminder sweep (every minute, one instance)', () => {
     await s.run();
     expect(m.sent).toEqual([{ userId: 'ali', type: 'TASK_REMINDER', title: 'Reminder: RIG-12 Pour the slab', body: 'Due Fri 20 Nov.', entityType: 'task', entityId: 't1' }]);
     expect(m.byId.get('r1')!.sentFor).toEqual(at('2026-11-20T04:00:00Z'));
+    // Sent: nothing left to go (the next minute reads nothing), until its time changes.
+    expect(m.byId.get('r1')!.nextAt).toBeNull();
     await s.run();
     expect(m.sent).toHaveLength(1);
+  });
+
+  it('a sent reminder stays put after a restart (its first run reads every one before a start or due)', async () => {
+    const fire = at('2026-11-20T04:00:00Z');
+    const m = memory([row({ sentFor: fire, sentAt: fire, nextAt: null })], [task()]);
+    await sweep(m, at('2026-11-20T06:00:00Z')).run();
+    expect(m.sent).toHaveLength(0);
+    expect(m.byId.get('r1')!.nextAt).toBeNull();
+  });
+
+  it('one set for someone by a manager stops when they are no longer on the task (their own keeps going)', async () => {
+    const m = memory([row({ setById: 'sara' }), row({ id: 'r2', userId: 'zed', setById: 'zed' })], [task({ assigneeIds: ['mona'] })]);
+    await sweep(m, at('2026-11-20T04:00:00Z')).run();
+    expect(m.sent.map((n) => n.userId)).toEqual(['zed']);
+  });
+
+  it('never overwrites a change made while it was sending (its time changed meanwhile)', async () => {
+    const m = memory([row({})], [task()]);
+    const s = createReminderSweep({
+      store: { ...m.store, async markSent(id, p) { m.byId.get(id)!.nextAt = at('2026-11-25T04:00:00Z'); return m.store.markSent(id, p); } },
+      keys: m.keys,
+      notify: m.notify,
+      canView: async () => true,
+      names: async () => new Map(),
+      clock: async () => ({ timeZone: TZ, dayStart: '08:00' }),
+      now: () => at('2026-11-20T04:00:00Z'),
+    });
+    await s.run();
+    expect(m.byId.get('r1')!.nextAt).toEqual(at('2026-11-25T04:00:00Z'));
+    expect(m.byId.get('r1')!.sentFor).toBeNull();
   });
 
   it('keeps a reminder before the start or due in step with the task’s dates (a moved due date moves it)', async () => {
@@ -137,6 +173,7 @@ describe('the personal reminder sweep (every minute, one instance)', () => {
     const r = snoozed.byId.get('r1')!;
     expect(r.snoozedUntil).toBeNull();
     expect(r.sentFor).toEqual(fire);
+    expect(r.nextAt).toBeNull();
     await sweep(snoozed, at('2026-11-20T05:01:00Z')).run();
     expect(snoozed.sent).toHaveLength(1);
   });

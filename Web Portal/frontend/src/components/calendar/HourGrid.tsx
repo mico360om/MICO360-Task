@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { CalMeeting } from '../../lib/calendar-meetings';
 import type { CalendarChecklistItem } from '../../lib/calendar-checklist';
@@ -101,24 +101,37 @@ export function HourGrid(p: HourGridProps) {
     return p.days[columnAt(clientX, rect, n, rtl)]!;
   };
 
-  // ── Timed, per day ──
-  const timedOf = (day: string): Timed[] => {
-    const out: Timed[] = [];
-    for (const m of p.meetingsByDay.get(day) ?? []) {
-      const end = p.meetingEnd(m.id) ?? new Date(Date.parse(m.startAt) + 3600_000).toISOString();
-      const c = clipToDay({ startAt: m.startAt, endAt: end }, day, p.timeZone);
-      if (c) out.push({ id: m.key, kind: 'meeting', m, start: c.start, end: Math.max(c.end, c.start + 20) });
+  // ── Timed, per day: worked out once per change of the data (not on every drag-over or minute tick) ──
+  const { meetingsByDay, meetingEnd, blocks, items, reminders, timeZone } = p;
+  const daysKey = p.days.join(',');
+  const perDay = useMemo(() => {
+    const days = daysKey.split(',');
+    const timed = new Map<string, Timed[]>(days.map((d) => [d, []]));
+    const bells = new Map<string, CalReminder[]>(days.map((d) => [d, []]));
+    for (const day of days) {
+      for (const m of meetingsByDay.get(day) ?? []) {
+        const end = meetingEnd(m.id) ?? new Date(Date.parse(m.startAt) + 3600_000).toISOString();
+        const c = clipToDay({ startAt: m.startAt, endAt: end }, day, timeZone);
+        if (c) timed.get(day)!.push({ id: m.key, kind: 'meeting', m, start: c.start, end: Math.max(c.end, c.start + 20) });
+      }
     }
-    for (const b of p.blocks) {
-      const c = clipToDay(b, day, p.timeZone);
-      if (c) out.push({ id: `b:${b.id}`, kind: 'block', b, start: c.start, end: Math.max(c.end, c.start + 15) });
+    // A block on its start day and (past midnight) its end day — each block read once.
+    for (const b of blocks) {
+      const first = minutesAt(b.startAt, timeZone).day;
+      const last = minutesAt(new Date(Date.parse(b.endAt) - 1).toISOString(), timeZone).day;
+      for (const day of first === last ? [first] : [first, last]) {
+        if (!timed.has(day)) continue;
+        const c = clipToDay(b, day, timeZone);
+        if (c) timed.get(day)!.push({ id: `b:${b.id}`, kind: 'block', b, start: c.start, end: Math.max(c.end, c.start + 15) });
+      }
     }
-    for (const item of p.items) {
-      if (item.due === day && item.dueMinutes !== null) out.push({ id: `due:${item.key}`, kind: 'due', item, start: item.dueMinutes, end: item.dueMinutes + 30 });
+    for (const item of items) {
+      if (item.due && item.dueMinutes !== null && timed.has(item.due)) timed.get(item.due)!.push({ id: `due:${item.key}`, kind: 'due', item, start: item.dueMinutes, end: item.dueMinutes + 30 });
     }
-    return out;
-  };
-  const remindersOf = (day: string) => p.reminders.filter((r) => minutesAt(r.fireAt, p.timeZone).day === day);
+    for (const r of reminders) bells.get(minutesAt(r.fireAt, timeZone).day)?.push(r);
+    return { laid: new Map([...timed].map(([d, list]) => [d, layoutColumns(list)])), bells };
+  }, [daysKey, meetingsByDay, meetingEnd, blocks, items, reminders, timeZone]);
+  const remindersOf = (day: string) => perDay.bells.get(day) ?? [];
   const nowAt = minutesAt(p.now.toISOString(), p.timeZone);
 
   const slotFromEvent = (e: React.DragEvent | React.MouseEvent, offsetMinutes = 0) => {
@@ -219,7 +232,7 @@ export function HourGrid(p: HourGridProps) {
                 aria-expanded={allDayOpen}
                 className="flex h-6 items-center rounded px-1.5 text-[11px] font-semibold text-brand hover:bg-brand/[0.06] hover:underline [@media(pointer:coarse)]:h-[28px]"
               >
-                {allDayOpen ? 'Show fewer' : `+${view.more.reduce((a, b) => a + b, 0)} more all day`}
+                {allDayOpen ? 'Show fewer' : `+${placed.filter((x) => x.lane >= view.lanes).length} more all day`}
               </button>
             </div>
           ) : null}
@@ -238,7 +251,7 @@ export function HourGrid(p: HourGridProps) {
           </div>
           {p.days.map((day, col) => {
             const off = p.dayOff(day);
-            const laid = layoutColumns(timedOf(day));
+            const laid = perDay.laid.get(day) ?? [];
             const bells = remindersOf(day);
             return (
               <div
@@ -343,12 +356,11 @@ function MeetingBlock({ m, end, color, draggable, grabOffset, onKeyMove }: { m: 
       }}
       onDragEnd={endDrag}
       onKeyDown={(e) => {
-        const move = draggable ? keyMoveOf(e) : null;
-        if (move && move.edge === 'body') {
-          e.preventDefault();
-          onKeyMove(m, move);
-        }
+        const move = keyMoveOf(e);
+        if (move) e.preventDefault();
+        if (move && draggable && move.edge === 'body') onKeyMove(m, move);
       }}
+      aria-keyshortcuts={draggable ? 'Alt+ArrowUp Alt+ArrowDown Alt+ArrowLeft Alt+ArrowRight' : undefined}
       style={color ? { borderInlineStartColor: color } : undefined}
       className={`flex h-full w-full min-w-0 flex-col overflow-hidden rounded-md border border-s-[3px] border-brand/50 bg-brand/[0.14] px-1.5 py-0.5 text-start text-[11px] leading-4 text-ink transition-colors hover:bg-brand/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brand ${m.cancelled ? 'opacity-60' : ''} ${draggable ? 'cursor-grab' : ''}`}
     >
@@ -394,12 +406,11 @@ function WorkBlock({
             onRemove(b);
             return;
           }
-          const move = draggable ? keyMoveOf(e) : null;
-          if (move) {
-            e.preventDefault();
-            onKeyMove(b, move);
-          }
+          const move = keyMoveOf(e);
+          if (move) e.preventDefault();
+          if (move && draggable) onKeyMove(b, move);
         }}
+        aria-keyshortcuts={draggable ? 'Alt+ArrowUp Alt+ArrowDown Alt+ArrowLeft Alt+ArrowRight Alt+Shift+ArrowUp Alt+Shift+ArrowDown Delete' : undefined}
         aria-label={blockName(b, timeZone)}
         title={`${blockName(b, timeZone)}${b.canChange ? ' — drag to move, its lower edge to resize' : ''}`}
         className={`flex min-w-0 flex-1 flex-col px-1.5 py-0.5 text-start text-[11px] leading-4 text-ink focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand ${draggable ? 'cursor-grab' : ''}`}
@@ -459,11 +470,9 @@ function DueFlag({ item, color, draggable, onOpen, onKeyMove }: { item: SpanItem
           onOpen(item);
           return;
         }
-        const move = draggable ? keyMoveOf(e) : null;
-        if (move) {
-          e.preventDefault();
-          onKeyMove(item, { ...move, edge: 'due' });
-        }
+        const move = keyMoveOf(e);
+        if (move) e.preventDefault();
+        if (move && draggable && move.days) onKeyMove(item, { ...move, edge: 'due' });
       }}
       aria-label={`${item.task.key} ${item.task.title}, due at ${timeLabel(item.dueMinutes ?? 0)}${overdue ? ', overdue' : ''}`}
       title={`${item.task.key} · ${item.task.title} — due ${timeLabel(item.dueMinutes ?? 0)}`}

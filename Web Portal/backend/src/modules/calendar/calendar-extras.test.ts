@@ -16,6 +16,7 @@ async function setup() {
     ['t2', task('t2', 'p2')],
     ['t3', task('t3', 'p1', { completedAt: at('2026-11-11T00:00:00Z') })],
     ['t4', task('t4', 'p1', { deletedAt: at('2026-11-11T00:00:00Z') })],
+    ['t5', task('t5', 'p9', { projectArchived: true })],
   ]);
   const mem = createMemoryCalendarStore(tasks);
   const block = (taskId: string, userId: string, startIso: string, plannedById = userId) =>
@@ -32,6 +33,9 @@ async function setup() {
   await mem.store.addReminder({ taskId: 't2', userId: 'ali', setById: 'sara', at: at('2026-11-13T10:00:00Z'), anchor: null, offsetMinutes: null, nextAt: null });
   await mem.store.addReminder({ taskId: 't3', userId: 'ali', setById: 'ali', at: at('2026-11-13T10:00:00Z'), anchor: null, offsetMinutes: null, nextAt: null });
   await mem.store.addReminder({ taskId: 't1', userId: 'mona', setById: 'mona', at: at('2026-11-13T10:00:00Z'), anchor: null, offsetMinutes: null, nextAt: null });
+  // An archived project's: planned time shown but not changeable, reminders not shown (they aren't sent).
+  await block('t5', 'ali', '2026-11-15T05:00:00Z');
+  await mem.store.addReminder({ taskId: 't5', userId: 'ali', setById: 'ali', at: at('2026-11-14T10:00:00Z'), anchor: null, offsetMinutes: null, nextAt: null });
   const extras = createCalendarExtras({
     store: mem.store,
     names: async (ids) => new Map(ids.map((id) => [id, id === 'sara' ? 'Sara Ali' : id])),
@@ -47,8 +51,11 @@ describe('GET /calendar’s work blocks, reminders and Team view', () => {
   it('a person sees their own blocks in the range — not a binned task’s, nor a done task’s still to come', async () => {
     const { extras } = await setup();
     const out = await extras({ viewer: { id: 'ali', roles: ['EMPLOYEE'] }, ...range, own: null, list: null, team: false });
-    expect(out.workBlocks.map((b) => `${b.taskId} ${b.startAt}`)).toEqual(['t3 2026-11-10T05:00:00.000Z', 't1 2026-11-12T05:00:00.000Z', 't2 2026-11-13T05:00:00.000Z']);
+    expect(out.workBlocks.map((b) => `${b.taskId} ${b.startAt}`)).toEqual(['t3 2026-11-10T05:00:00.000Z', 't1 2026-11-12T05:00:00.000Z', 't2 2026-11-13T05:00:00.000Z', 't5 2026-11-15T05:00:00.000Z']);
     expect(out.workBlocks[1]).toMatchObject({ taskKey: 'K-t1', taskTitle: 'Task t1', projectId: 'p1', userId: 'ali', mine: true, canChange: true });
+    // A done task's past block is history, an archived project's read-only: neither changeable.
+    expect(out.workBlocks[0]).toMatchObject({ taskId: 't3', canChange: false, done: true });
+    expect(out.workBlocks[3]).toMatchObject({ taskId: 't5', canChange: false });
     expect(out.team).toEqual({ available: false, on: false });
   });
 
@@ -56,6 +63,7 @@ describe('GET /calendar’s work blocks, reminders and Team view', () => {
     const { extras } = await setup();
     const out = await extras({ viewer: { id: 'ali', roles: ['EMPLOYEE'] }, ...range, own: ['p1'], list: ['p1'], team: false });
     expect(out.workBlocks.map((b) => b.taskId)).toEqual(['t3', 't1']);
+    expect(out.reminders.map((r) => r.taskId)).toEqual(['t1']);
   });
 
   it('Team: whoever runs projects sees the blocks of people on them — only those projects; others never get it', async () => {

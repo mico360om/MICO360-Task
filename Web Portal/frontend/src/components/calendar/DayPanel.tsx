@@ -52,6 +52,9 @@ export interface DayPanelProps {
   bare?: boolean;
 }
 
+/** Late tasks from before today listed before "Show all". */
+const LATE_PREVIEW = 8;
+
 const RESPONSE_WORDS: Record<string, string> = { ACCEPTED: 'Going', TENTATIVE: 'Maybe', DECLINED: 'Not going', PENDING: 'No answer yet' };
 
 function Section({ id, title, icon, count, children, startOpen = true }: { id: string; title: string; icon?: ReactNode; count: number; children: ReactNode; startOpen?: boolean }) {
@@ -65,7 +68,7 @@ function Section({ id, title, icon, count, children, startOpen = true }: { id: s
           onClick={() => setOpen((o) => !o)}
           aria-expanded={open}
           aria-controls={`${id}-list`}
-          className="flex w-full items-center gap-1.5 rounded-md px-1 py-1 text-start text-xs font-bold uppercase tracking-wide text-ink-2 hover:bg-ground [@media(pointer:coarse)]:min-h-11"
+          className="flex w-full items-center gap-1.5 rounded-md px-1 py-1 text-start text-xs font-bold uppercase tracking-wide text-ink-2 hover:bg-ground [@media(pointer:coarse)]:!min-h-11"
         >
           <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true" className={`flex-none transition-transform ${open ? 'rotate-90' : ''} rtl:-scale-x-100`}>
             <path d="M9 6l6 6-6 6" />
@@ -101,7 +104,11 @@ export function DayPanel(p: DayPanelProps) {
   const due = byRank(p.items.filter((i) => i.kind === 'task' && i.due === day));
   const ongoing = byRank(p.items.filter((i) => i.kind === 'task' && i.mode === 'bar' && i.start! < day && i.due! > day));
   const repeats = p.items.filter((i) => i.kind === 'projected' && i.date === day);
-  const lateBefore = day === p.today ? p.overdueBefore.filter((i) => !p.items.some((x) => x.key === i.key && x.due === day)) : [];
+  const dueToday = new Set(p.items.filter((x) => x.due === day).map((x) => x.key));
+  const allLate = day === p.today ? p.overdueBefore.filter((i) => !dueToday.has(i.key)) : [];
+  // Today's list shows the first few late tasks, the rest on request (as the Agenda).
+  const [allLateShown, setAllLateShown] = useState(false);
+  const lateBefore = allLateShown ? allLate : allLate.slice(0, LATE_PREVIEW);
   const total = p.meetings.length + starting.length + due.length + lateBefore.length + ongoing.length + p.blocks.length + p.reminders.length + repeats.length + p.steps.length;
   const heading = dayLabel(day, { weekday: 'long', day: 'numeric', month: 'long' });
 
@@ -116,13 +123,14 @@ export function DayPanel(p: DayPanelProps) {
       <li
         key={key}
         draggable={draggable || undefined}
-        onDragStart={(e) => startDrag(e, { kind: 'task', id: t.id, grip: 'body', grabDay: day })}
+        // A due row moves by the days from its due day (a late one is listed on today); others from this day.
+        onDragStart={(e) => startDrag(e, { kind: 'task', id: t.id, grip: 'body', grabDay: mark === 'due' ? item.date : day })}
         onDragEnd={endDrag}
         style={{ borderInlineStartColor: p.colorOf(t.projectId) }}
         className={`flex items-start gap-2 rounded-lg border border-s-[3px] px-2 py-1.5 text-sm ${late ? 'border-overdue/50 bg-overdue-soft/50' : 'border-line bg-surface'} ${draggable ? 'cursor-grab' : ''}`}
       >
         <span className={`mt-0.5 flex-none ${late ? 'text-overdue' : '[&_svg]:text-ink-2'}`}>{mark === 'start' ? <StartIcon size={12} /> : mark === 'due' ? <DueIcon size={13} /> : s.icon}</span>
-        <button type="button" data-item={item.key} onClick={() => p.onOpenItem(item)} aria-label={itemName(item)} className="min-w-0 flex-1 text-start">
+        <button type="button" data-item={item.key} onClick={() => p.onOpenItem(item)} aria-label={itemName(item)} className="min-w-0 flex-1 text-start [@media(pointer:coarse)]:!min-h-11">
           <span className="flex min-w-0 flex-wrap items-center gap-1">
             {item.kind === 'task' ? <TaskKey value={t.key} dense /> : null}
             <span dir="auto" className="min-w-0 font-medium text-ink [overflow-wrap:anywhere]">{t.title}</span>
@@ -209,8 +217,15 @@ export function DayPanel(p: DayPanelProps) {
           <Section id={`dp-${day}-s`} title="Starting" icon={<StartIcon size={11} />} count={starting.length}>
             {starting.map((i) => taskRow(i, 'start', `s:${i.key}`))}
           </Section>
-          <Section id={`dp-${day}-d`} title={day === p.today && lateBefore.length ? 'Due today and overdue' : 'Due'} icon={<DueIcon size={12} />} count={due.length + lateBefore.length}>
+          <Section id={`dp-${day}-d`} title={day === p.today && allLate.length ? 'Due today and overdue' : 'Due'} icon={<DueIcon size={12} />} count={due.length + allLate.length}>
             {[...due.filter((i) => i.status === 'overdue'), ...lateBefore, ...due.filter((i) => i.status !== 'overdue')].map((i) => taskRow(i, 'due', `d:${i.key}`))}
+            {allLate.length > LATE_PREVIEW ? (
+              <li>
+                <button type="button" onClick={() => setAllLateShown((v) => !v)} aria-expanded={allLateShown} className="text-xs font-semibold text-overdue underline-offset-2 hover:underline [@media(pointer:coarse)]:!min-h-11">
+                  {allLateShown ? 'Show fewer' : `Show all ${allLate.length} overdue tasks`}
+                </button>
+              </li>
+            ) : null}
           </Section>
           <Section id={`dp-${day}-o`} title="Under way" count={ongoing.length} startOpen={false}>
             {ongoing.map((i) => taskRow(i, 'none', `o:${i.key}`))}
@@ -218,14 +233,14 @@ export function DayPanel(p: DayPanelProps) {
           <Section id={`dp-${day}-b`} title="Planned time" count={p.blocks.length}>
             {p.blocks.map((b) => (
               <li key={b.id}>
-                <BlockChip block={b} timeZone={p.timeZone} onOpen={p.onOpenBlock} draggable={false} />
+                <BlockChip block={b} timeZone={p.timeZone} onOpen={p.onOpenBlock} draggable={false} tall />
               </li>
             ))}
           </Section>
           <Section id={`dp-${day}-r`} title="My reminders" icon={<BellIcon size={11} />} count={p.reminders.length}>
             {p.reminders.map((r) => (
               <li key={r.id}>
-                <button type="button" onClick={() => p.onOpenReminder(r)} className={`flex w-full items-start gap-2 rounded-lg border border-line bg-surface px-2 py-1.5 text-start text-sm hover:border-brand/60 ${r.state === 'muted' || r.state === 'missed' ? 'opacity-70' : ''}`}>
+                <button type="button" onClick={() => p.onOpenReminder(r)} className={`flex w-full items-start gap-2 rounded-lg border border-line bg-surface px-2 py-1.5 text-start text-sm hover:border-brand/60 [@media(pointer:coarse)]:!min-h-11 ${r.state === 'muted' || r.state === 'missed' ? 'opacity-70' : ''}`}>
                   <span className="mt-0.5 text-warning"><BellIcon size={13} muted={r.state === 'muted'} /></span>
                   <span className="min-w-0 flex-1">
                     <span className="flex flex-wrap items-center gap-1">

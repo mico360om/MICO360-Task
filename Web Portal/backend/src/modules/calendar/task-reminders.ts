@@ -1,6 +1,7 @@
 import { dueDayKey } from '../../lib/due-date';
 import { zonedClock, zonedInstant } from '../../lib/working-days';
 import { formatDay } from '../../lib/export-format';
+import { chosenStart } from './calendar-span';
 
 /**
  * Personal reminders on tasks (Calendar scheduling, owner 11 Nov 2026): anyone who can see a task adds
@@ -67,7 +68,8 @@ export function anchorInstant(value: Date | null, clock: ReminderClock): Date | 
 export function fireAtOf(r: ReminderTiming, task: ReminderTaskDates, clock: ReminderClock): Date | null {
   if (r.at) return r.at;
   if (!r.anchor) return null;
-  const base = anchorInstant(r.anchor === 'start' ? task.startDate : task.dueDate, clock);
+  // Before its start: only a start someone chose (the automatic one is when the task was made — R11).
+  const base = anchorInstant(r.anchor === 'start' ? chosenStart(task.startDate) : task.dueDate, clock);
   return base ? new Date(base.getTime() - (r.offsetMinutes ?? 0) * 60_000) : null;
 }
 
