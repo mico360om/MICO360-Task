@@ -7,6 +7,7 @@
  * the current week is the last one (partial). "Today" is the company day.
  */
 import { shiftDayKey, todayKey, zonedDayKey, zonedStartOfDay } from '../../lib/due-date';
+import { holidayOn, type Holiday } from '../../lib/working-days';
 import { formatDay } from '../../lib/export-format';
 import { daysBetween, weekOf, type WeekStart } from '../planning/timeline';
 import { BLOCKED_RED } from '../project-health/health-facts';
@@ -162,13 +163,14 @@ export function passRate(passed: number, failed: number): number | null {
 }
 
 const weekdayOf = (key: string) => new Date(`${key}T12:00:00.000Z`).getUTCDay();
-/** The first working day (0 = Sunday … 6 = Saturday) of the week starting on `weekStartKey`. */
-export function firstWorkingDay(weekStartKey: string, workingDays: number[]): string {
-  for (let i = 0; i < 7; i++) {
-    const day = shiftDayKey(weekStartKey, i);
-    if (workingDays.includes(weekdayOf(day))) return day;
-  }
-  return weekStartKey;
+/**
+ * The first working day (0 = Sunday … 6 = Saturday) of the week starting on `weekStartKey` — skipping
+ * the company's holidays (Notification & Scheduling centre); a week of holidays falls back to its first
+ * working weekday.
+ */
+export function firstWorkingDay(weekStartKey: string, workingDays: number[], holidays: readonly Holiday[] = []): string {
+  const days = Array.from({ length: 7 }, (_, i) => shiftDayKey(weekStartKey, i)).filter((d) => workingDays.includes(weekdayOf(d)));
+  return days.find((d) => !holidayOn(d, { holidays })) ?? days[0] ?? weekStartKey;
 }
 
 /** One company week of the trends. */

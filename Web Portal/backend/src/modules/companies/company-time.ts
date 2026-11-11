@@ -1,4 +1,5 @@
 import type { PrismaClient } from '@prisma/client';
+import type { Holiday } from '../../lib/working-days';
 import type { WorkingHours } from '../settings/settings-service';
 import type { CompanyBrand, CompanyBranding } from './company-branding';
 import type { Viewer } from './company-access';
@@ -20,6 +21,8 @@ export type WeekStart = 0 | 1 | 6;
 export interface CompanyCalendar {
   weekStart: WeekStart;
   workingDays: number[];
+  /** Notification & Scheduling centre: the company's holidays (the weekly summary skips them). */
+  holidays?: Holiday[];
 }
 
 /** What working hours are asked for; the first of these that is given decides. */

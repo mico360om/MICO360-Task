@@ -240,3 +240,65 @@ describe('NotificationService — client accounts', () => {
     expect(push.sendToUser).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('Notification & Scheduling centre: delivery by the person’s rules', () => {
+  const decision = (d: Partial<import('../notify-policy/delivery').DeliveryDecision>) => ({ kind: null, bell: true, push: 'now' as const, email: 'off' as const, releaseAt: null, ...d });
+  const setup = (d: Partial<import('../notify-policy/delivery').DeliveryDecision>) => {
+    const push = { sendToUser: vi.fn(async () => 1) };
+    const delivery = { decide: vi.fn(async () => decision(d)), hold: vi.fn(async () => {}), email: vi.fn(async () => {}) };
+    const svc2 = createNotificationService({ notifications: inMemory(), push, delivery });
+    return { svc2, push, delivery };
+  };
+  const input = { userId: 'u1', type: 'TASK_OVERDUE', title: 'A task is overdue', body: 'MICO-1 · Pour slab', entityType: 'task', entityId: 't1' };
+
+  it('working time: the bell, the push now, no email', async () => {
+    const { svc2, push, delivery } = setup({});
+    expect(await svc2.notify(input)).not.toBeNull();
+    expect(push.sendToUser).toHaveBeenCalledTimes(1);
+    expect(delivery.hold).not.toHaveBeenCalled();
+    expect(delivery.email).not.toHaveBeenCalled();
+  });
+
+  it('quiet hours: the bell fills, the push and email are held until the morning', async () => {
+    const releaseAt = new Date('2026-11-16T04:00:00Z');
+    const { svc2, push, delivery } = setup({ push: 'hold', email: 'hold', releaseAt });
+    const n = (await svc2.notify(input, { expiresAt: null }))!;
+    expect(push.sendToUser).not.toHaveBeenCalled();
+    expect(delivery.hold.mock.calls.map((c) => (c as unknown as [{ channel: string; notificationId: string; releaseAt: Date }])[0])).toEqual([
+      expect.objectContaining({ channel: 'PUSH', notificationId: n.id, releaseAt }),
+      expect.objectContaining({ channel: 'EMAIL', notificationId: n.id, releaseAt, title: 'A task is overdue' }),
+    ]);
+  });
+
+  it('bell off: nothing stored and no push — an email-only choice still emails', async () => {
+    const { svc2, push, delivery } = setup({ bell: false, push: 'off', email: 'now' });
+    expect(await svc2.notify(input)).toBeNull();
+    expect(await svc2.unreadCount('u1')).toBe(0);
+    expect(push.sendToUser).not.toHaveBeenCalled();
+    expect(delivery.email).toHaveBeenCalledWith('u1', input);
+  });
+
+  it('a notice’s own email (an @mention) is used instead of the plain one', async () => {
+    const own = vi.fn(async () => {});
+    const { svc2, delivery } = setup({ email: 'now' });
+    await svc2.notify({ ...input, type: 'MENTION' }, { email: own });
+    expect(own).toHaveBeenCalledTimes(1);
+    expect(delivery.email).not.toHaveBeenCalled();
+  });
+
+  it('passes a meeting’s start so a held reminder after it is dropped', async () => {
+    const { svc2, delivery } = setup({});
+    const expiresAt = new Date('2026-11-15T18:00:00Z');
+    await svc2.notify({ ...input, type: 'MEETING_REMINDER' }, { expiresAt });
+    expect(delivery.decide).toHaveBeenCalledWith('u1', 'MEETING_REMINDER', { expiresAt });
+  });
+
+  it('without the centre (older wiring) a notice’s own email goes whenever the bell does', async () => {
+    const own = vi.fn(async () => {});
+    const legacy = createNotificationService({ notifications: inMemory(), preferences: { get: async () => ({ muted: ['MENTION'] }), set: async (_u, p) => p } });
+    await legacy.notify({ ...input, type: 'MENTION' }, { email: own });
+    expect(own).not.toHaveBeenCalled();
+    await legacy.notify({ ...input, type: 'TASK_COMMENT' }, { email: own });
+    expect(own).toHaveBeenCalledTimes(1);
+  });
+});

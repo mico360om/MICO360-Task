@@ -130,6 +130,9 @@ export const ARCHIVE_REFUSED: Readonly<Record<string, ArchiveTarget>> = {
   'POST /meeting-series/:id/merge': 'series',
   // 1.23: Make Teams link writes the meeting's online link.
   'POST /meetings/:id/teams-link': 'meeting',
+  // Notification & Scheduling centre: a project's reminder schedule and escalation numbers, a task's schedule.
+  'PUT /projects/:id/reminders': 'project',
+  'PUT /tasks/:id/reminder-schedule': 'task',
 };
 
 /** Write routes (one project's, task's or meeting's) an archived project does not refuse, and why. */

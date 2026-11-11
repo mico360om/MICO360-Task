@@ -262,6 +262,10 @@ model Company {
   mainOf    Project[]        @relation("ProjectMainCompany")
   primaryOf User[]           @relation("UserPrimaryCompany")
   meetings  Meeting[]
+  /// Notification & Scheduling centre: its notification rules, holidays and reminder schedules.
+  notificationPolicy NotificationPolicy?
+  holidays           CompanyHoliday[]
+  reminderSchedules  ReminderSchedule[]
 
   @@index([status])
   @@map("companies")
@@ -321,6 +325,10 @@ model Project {
   newTasksNeedApproval Boolean @default(false)
   /// 1.23.5: how its completion is counted — the number of tasks (COUNT, as before) or their weight.
   completionMode CompletionMode @default(COUNT)
+  /// Notification & Scheduling: the project's reminder schedule (null: the company's default) and its own
+  /// escalation numbers ({ step1Days, step2Days } in working days; null: the company's).
+  reminderScheduleId String? @db.VarChar(191)
+  escalationDays     Json?
   /// 1.23.5: a task's weight when it has none of its own, by its priority (1–10 points each).
   weightUrgent Int @default(4)
   weightHigh   Int @default(3)
@@ -412,6 +420,8 @@ model Task {
   progress       Int       @default(0)
   /// 1.23.5: its weight in its project's completion (1–10 points); null = the project's default for its priority.
   weight         Int?
+  /// Notification & Scheduling: its own reminder schedule (null: its project's).
+  reminderScheduleId String? @db.VarChar(191)
   /// A milestone: a key date or deliverable of its project (shown on the project dashboard).
   isMilestone    Boolean   @default(false)
   /// Shown on its project's client page (title, status and due date only). Off unless someone who runs
@@ -1022,6 +1032,88 @@ model ReminderLog {
 
   @@index([createdAt])
   @@map("reminder_logs")
+}
+
+/// Notification & Scheduling centre: a company's notification rules (reminder kinds on, required kinds,
+/// escalation / approvals / inactivity numbers, quiet hours, channel defaults) as one JSON document. No
+/// row = the defaults (today's behaviour carried over). `holidaysSeededAt`: when the starter public
+/// holidays were added (once per company, at start-up or when the company is made).
+model NotificationPolicy {
+  companyId        String    @id @db.VarChar(191)
+  policy           Json
+  holidaysSeededAt DateTime?
+  updatedById      String?   @db.VarChar(191)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  company          Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@map("notification_policies")
+}
+
+/// A company's day off: a public holiday (from the starter list, or added) or a company day off, one-off
+/// or every year (`recurring`: the same month and day each year from `day`'s year on). `expected`: a
+/// date not yet announced (an Islamic holiday), shown with "Confirm".
+model CompanyHoliday {
+  id          String   @id @default(cuid())
+  companyId   String   @db.VarChar(191)
+  day         String   @db.VarChar(10)
+  name        String   @db.VarChar(120)
+  recurring   Boolean  @default(false)
+  source      String   @default("ADMIN") @db.VarChar(16)
+  expected    Boolean  @default(false)
+  createdById String?  @db.VarChar(191)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, day, name])
+  @@index([companyId, day])
+  @@map("company_holidays")
+}
+
+/// A named reminder schedule ("reminder template"): when a task's assignees are reminded, in working days
+/// around its due day ({ before, onDue, after, repeatEvery }). Every company starts with Standard (its
+/// default) and Critical (`builtIn`); admins add more. Projects and tasks point at one by id (no foreign
+/// key: a removed schedule falls back to the company's default).
+model ReminderSchedule {
+  id        String   @id @default(cuid())
+  companyId String   @db.VarChar(191)
+  name      String   @db.VarChar(80)
+  steps     Json
+  builtIn   String?  @db.VarChar(16)
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@map("reminder_schedules")
+}
+
+/// A phone push or email held by quiet hours or Pause (the bell already has the notice). At `releaseAt`
+/// each person's held pushes go as ONE push, their held emails fold into the morning's daily email (or go
+/// as one email). `outcome`: SENT, FOLDED (into the daily email) or DROPPED (past `expiresAt`, e.g. a
+/// meeting that started). `userId` has no foreign key (like the minutes send log).
+model NotificationHold {
+  id             String    @id @default(cuid())
+  userId         String    @db.VarChar(191)
+  notificationId String?   @db.VarChar(191)
+  channel        String    @db.VarChar(8)
+  type           String    @db.VarChar(64)
+  title          String    @db.VarChar(300)
+  body           String?   @db.Text
+  entityType     String?   @db.VarChar(40)
+  entityId       String?   @db.VarChar(191)
+  releaseAt      DateTime
+  expiresAt      DateTime?
+  doneAt         DateTime?
+  outcome        String?   @db.VarChar(16)
+  createdAt      DateTime  @default(now())
+
+  @@index([doneAt, releaseAt])
+  @@index([userId, doneAt])
+  @@map("notification_holds")
 }
 
 /// Lease-based lock so a scheduled sweep (reminders, carry-forward) runs on only ONE instance

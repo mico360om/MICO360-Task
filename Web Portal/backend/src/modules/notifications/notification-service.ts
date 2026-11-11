@@ -2,6 +2,7 @@ import { NotFoundError, ValidationError } from '../../lib/http-errors';
 import type { Logger } from '../../lib/logger';
 import type { CreateNotificationData, ListScope, NotificationBulkAction, NotificationProject, NotificationRecord, NotificationRepository } from './notification-repository';
 import { decodeNotificationCursor, encodeNotificationCursor, typesOfKinds, unreadByKind, type NotificationCounts, type NotificationKind } from './notification-kinds';
+import type { DeliveryDecision } from '../notify-policy/delivery';
 import {
   emptyPreferences,
   isMuted,
@@ -47,6 +48,34 @@ export const MAX_BULK_NOTIFICATIONS = 200;
 export interface NotifyOptions {
   /** How the phone push is shown (meeting reminders: their own channel, out of date at the start). */
   push?: NotificationPushOptions;
+  /** A held push or email is pointless after this (a meeting's start): it is dropped instead. */
+  expiresAt?: Date | null;
+  /** This notice's own email (an @mention quotes the comment); sent when the person's email channel says so. */
+  email?: () => Promise<void>;
+}
+
+/** A push or email held by quiet hours or Pause (Notification & Scheduling centre). */
+export interface HeldNotice {
+  userId: string;
+  notificationId: string | null;
+  channel: 'PUSH' | 'EMAIL';
+  type: string;
+  title: string;
+  body: string | null;
+  entityType: string | null;
+  entityId: string | null;
+  releaseAt: Date;
+  expiresAt: Date | null;
+}
+
+/**
+ * Notification & Scheduling centre: what happens to each notice for its person (bell, push, email —
+ * now, held for quiet hours, or off), where held ones wait, and the plain notice email.
+ */
+export interface NotificationDelivery {
+  decide(userId: string, type: string, opts?: { expiresAt?: Date | null }): Promise<DeliveryDecision>;
+  hold(entry: HeldNotice): Promise<void>;
+  email(userId: string, input: CreateNotificationData): Promise<void>;
 }
 
 export interface NotificationServiceDeps {
@@ -61,9 +90,11 @@ export interface NotificationServiceDeps {
   onDelivered?: (record: NotificationRecord) => void;
   /** 1.23: is this person a client account? Client accounts never get a notification (no bell, no push). */
   isClient?: (userId: string) => Promise<boolean>;
+  /** Notification & Scheduling centre: channels, required kinds, quiet hours, Pause. Absent: muted types only (as before). */
+  delivery?: NotificationDelivery;
 }
 
-export function createNotificationService({ notifications, preferences, push, logger, onDelivered, isClient }: NotificationServiceDeps) {
+export function createNotificationService({ notifications, preferences, push, logger, onDelivered, isClient, delivery }: NotificationServiceDeps) {
   /** Create a notification unless the recipient has muted this type. Returns null when suppressed. */
   async function notify(input: CreateNotificationData, opts?: NotifyOptions): Promise<NotificationRecord | null> {
     return deliver(input, false, opts);
@@ -109,12 +140,53 @@ export function createNotificationService({ notifications, preferences, push, lo
   async function deliverNow(input: CreateNotificationData, once: boolean, opts?: NotifyOptions): Promise<NotificationRecord | null> {
     // 1.23: a client account hears through the essentials' emails only, never the bell.
     if (isClient && (await isClient(input.userId))) return null;
+    if (delivery) return deliverByPolicy(input, once, opts);
     if (preferences) {
       const prefs = await preferences.get(input.userId);
       if (isMuted(prefs, input.type)) return null;
     }
+    const record = await store(input, once);
+    sendPush(input, record, opts);
+    if (opts?.email) await opts.email().catch((err) => logger?.error('notice email failed', { err, userId: input.userId, type: input.type }));
+    live(input, record);
+    return record;
+  }
+
+  /** Notification & Scheduling centre: the bell, push and email each as the person's rules say. */
+  async function deliverByPolicy(input: CreateNotificationData, once: boolean, opts?: NotifyOptions): Promise<NotificationRecord | null> {
+    const d = await delivery!.decide(input.userId, input.type, { expiresAt: opts?.expiresAt ?? null });
+    const record = d.bell ? await store(input, once) : null;
+    const held = (channel: 'PUSH' | 'EMAIL') =>
+      delivery!
+        .hold({
+          userId: input.userId,
+          notificationId: record?.id ?? null,
+          channel,
+          type: input.type,
+          title: input.title,
+          body: input.body ?? null,
+          entityType: input.entityType ?? null,
+          entityId: input.entityId ?? null,
+          releaseAt: d.releaseAt!,
+          expiresAt: opts?.expiresAt ?? null,
+        })
+        .catch((err) => logger?.error('holding a notice failed', { err, userId: input.userId, type: input.type }));
+    // The push is the bell's copy on the phone: only for a stored notice.
+    if (record && d.push === 'now') sendPush(input, record, opts);
+    else if (record && d.push === 'hold') await held('PUSH');
+    if (d.email === 'now') {
+      await (opts?.email ? opts.email() : delivery!.email(input.userId, input)).catch((err) => logger?.error('notice email failed', { err, userId: input.userId, type: input.type }));
+    } else if (d.email === 'hold') await held('EMAIL');
+    if (record) live(input, record);
+    return record;
+  }
+
+  async function store(input: CreateNotificationData, once: boolean): Promise<NotificationRecord> {
     const waiting = once && input.entityType && input.entityId ? await notifications.findUnread(input.userId, input.type, input.entityType, input.entityId) : null;
-    const record = waiting ? await notifications.refresh(waiting.id, { title: input.title, body: input.body ?? null }) : await notifications.create(input);
+    return waiting ? notifications.refresh(waiting.id, { title: input.title, body: input.body ?? null }) : notifications.create(input);
+  }
+
+  function sendPush(input: CreateNotificationData, record: NotificationRecord, opts?: NotifyOptions): void {
     // Muted types never reach the phone either — the push goes out only for a stored notification.
     if (push) {
       push
@@ -129,12 +201,14 @@ export function createNotificationService({ notifications, preferences, push, lo
         })
         .catch((err) => logger?.error('push notification failed', { err, userId: input.userId, type: input.type }));
     }
+  }
+
+  function live(input: CreateNotificationData, record: NotificationRecord): void {
     try {
       onDelivered?.(record);
     } catch (err) {
       logger?.error('live notification failed', { err, userId: input.userId, type: input.type });
     }
-    return record;
   }
 
   /** companies: `scope` limits the list to rows about no project or about its projects (the bell's company filter). */

@@ -50,6 +50,8 @@ import { registerPreferenceRoutes, type PreferencesRepository } from './modules/
 import type { UserService } from './modules/users/user-service';
 import type { WelcomeService } from './modules/users/welcome-service';
 import { registerNotificationRoutes } from './modules/notifications/notification-routes';
+import { registerNotifyPolicyRoutes, type NotifyPolicyRouteDeps } from './modules/notify-policy/policy-routes';
+import type { NotificationPolicy } from './modules/notify-policy/policy';
 import { registerDailyEmailRoutes, type DailyEmailRouteDeps } from './modules/daily-emails/daily-email-routes';
 import type { NotificationService } from './modules/notifications/notification-service';
 import { registerDeviceTokenRoutes } from './modules/device-tokens/device-token-routes';
@@ -252,6 +254,10 @@ export interface AppDeps extends AuthRouteDeps {
   /** PDFs a client may download a minute from the portal (default 10). */
   portalPdfsPerMinute?: number;
   notificationService?: NotificationService;
+  /** Notification & Scheduling centre: the admin panel, the person's rules, working time, project/task reminders. */
+  notifyPolicy?: Omit<NotifyPolicyRouteDeps, 'guard' | 'pickOf'>;
+  /** …and a person's company rules, for older apps' muted list. */
+  notificationPolicyOf?: (userId: string) => Promise<NotificationPolicy>;
   /** Free times for Schedule meeting (busy meetings, working hours, names). */
   meetingFreeTimes?: import('./modules/meetings/meeting-routes').FreeTimesDeps;
   /** Is this an existing, active user? Checks the people sent with a new meeting. */
@@ -985,7 +991,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         const companies = deps.companyAccess;
         const noticeScope = companies ? (u: string, r: string[], pick?: string | null) => companies.companyProjectIds({ id: u, roles: r }, pick ?? null) : accessibleProjectIds;
         // 1.22.3 review: …but a task notice names the task's number now only when the reader may open the task.
-        await registerNotificationRoutes(api, { notificationService: deps.notificationService, guard, accessibleProjectIds: noticeScope, pickOf, visibleProjectIds: openableProjectIds });
+        await registerNotificationRoutes(api, { notificationService: deps.notificationService, guard, accessibleProjectIds: noticeScope, pickOf, visibleProjectIds: openableProjectIds, policyOf: deps.notificationPolicyOf });
+      }
+      if (deps.notifyPolicy) {
+        await registerNotifyPolicyRoutes(api, { ...deps.notifyPolicy, guard, pickOf });
       }
       if (deps.dailyEmails) {
         await registerDailyEmailRoutes(api, { ...deps.dailyEmails, guard, audit: deps.auditService });

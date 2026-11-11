@@ -12,7 +12,11 @@ function deps(over: Partial<MentionNotifierDeps> = {}) {
     usersByUsername: vi.fn(async (names: string[]) => names.map((n) => people[n]).filter((p): p is { id: string; email: string | null } => !!p)),
     // The outsider can't open the task; the author never hears about their own comment.
     visibleRecipients: vi.fn(async (_taskId: string, ids: string[], authorId: string) => ids.filter((id) => id !== 'u-out' && id !== authorId)),
-    notify: vi.fn(async (input: { userId: string }) => ({ id: `n-${input.userId}` })),
+    // As the notification service does: the notice's own email goes whenever the bell does.
+    notify: vi.fn(async (input: { userId: string }, opts?: { email?: () => Promise<void> }) => {
+      await opts?.email?.();
+      return { id: `n-${input.userId}` };
+    }),
     task: vi.fn(async () => ({ key: 'FAL-7', title: 'Book the venue' })),
     authorName: vi.fn(async () => 'Aisha Khan'),
     sendMentionEmail: vi.fn(async () => {}),
@@ -27,7 +31,7 @@ describe('mention notifier', () => {
     const d = deps();
     await createMentionNotifier(d)('t1', 'u-author', ['omar', 'sara', 'outsider'], 'Please check @omar and @sara');
     expect((d.notify as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0].userId)).toEqual(['u-omar', 'u-sara']);
-    expect(d.notify).toHaveBeenCalledWith(expect.objectContaining({ type: 'MENTION', entityType: 'task', entityId: 't1' }));
+    expect(d.notify).toHaveBeenCalledWith(expect.objectContaining({ type: 'MENTION', entityType: 'task', entityId: 't1' }), expect.objectContaining({ email: expect.any(Function) }));
     const mails = (d.sendMentionEmail as ReturnType<typeof vi.fn>).mock.calls;
     expect(mails.map((c) => c[0])).toEqual(['omar@x.co', 'sara@x.co']);
     expect(mails[0]![1]).toEqual({ mentionedBy: 'Aisha Khan', taskKey: 'FAL-7', taskTitle: 'Book the venue', snippet: 'Please check @omar and @sara', link: 'https://app.example.com/my-tasks?task=t1' });
@@ -36,7 +40,13 @@ describe('mention notifier', () => {
   });
 
   it('sends no email to someone who muted mentions (no notification was kept)', async () => {
-    const d = deps({ notify: vi.fn(async (input: { userId: string }) => (input.userId === 'u-omar' ? null : { id: 'n' })) });
+    const d = deps({
+      notify: vi.fn(async (input: { userId: string }, opts?: { email?: () => Promise<void> }) => {
+        if (input.userId === 'u-omar') return null;
+        await opts?.email?.();
+        return { id: 'n' };
+      }),
+    });
     await createMentionNotifier(d)('t1', 'u-author', ['omar', 'sara'], 'hi @omar @sara');
     expect((d.sendMentionEmail as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0])).toEqual(['sara@x.co']);
   });

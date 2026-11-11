@@ -59,7 +59,22 @@ export interface DailyEmailServiceDeps {
    * it, only this server's own memory.
    */
   checks?: { record(at: Date): Promise<void>; last(): Promise<Date | null> };
+  /**
+   * Notification & Scheduling centre: is `day` a working day for the person (their primary company's
+   * working days and holidays)? The daily email goes on working days only — the first working morning
+   * covers everything since. Absent: every day.
+   */
+  workingDay?(userId: string, day: string): Promise<boolean>;
+  /** …working days late of a task (its company's calendar), for the email's "N working days overdue". */
+  lateDays?(task: DailyTask, dueKey: string, toKey: string): number;
+  /** …the companies' calendars that `lateDays` reads, loaded before an email is built. */
+  prepareLateDays?(tasks: DailyTask[]): Promise<void>;
+  /** …the notices held for them outside working hours: folded into the email, then marked folded. */
+  held?: { list(userId: string): Promise<{ id: string; title: string; body: string | null }[]>; folded(ids: string[], at: Date): Promise<void> };
 }
+
+/** The daily email skipped on a day off (Notification & Scheduling centre). */
+export const NOT_A_WORKING_DAY = 'Not a working day: the next working morning’s email covers it.';
 
 /** Longer than this without a check while emails are due: the server isn't checking (asleep, stopped). */
 export const CHECK_LATE_MS = 5 * 60_000;
@@ -338,7 +353,7 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
    * The person's daily email as of `at` (null: nothing in it). `test`: "Send me a test" —
    * with every part turned off it shows them the whole email.
    */
-  async function build(kind: DailyEmailKind, person: DailyRecipient, at: Date, o: { test?: boolean } = {}): Promise<{ count: number; content: EmailContent | null; fromName?: string }> {
+  async function build(kind: DailyEmailKind, person: DailyRecipient, at: Date, o: { test?: boolean } = {}): Promise<{ count: number; content: EmailContent | null; fromName?: string; heldIds?: string[] }> {
     if (kind !== 'PENDING') return { count: 0, content: null };
     const timeZone = zoneOf(person);
     // The person's day as it is now (not the record's): a retry after midnight is about the new day,
@@ -356,6 +371,9 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
       parts.completed ? deps.tasks.completedBetween(person.id, since, at) : Promise.resolve([]),
       parts.managed && deps.tasks.managed ? deps.tasks.managed(person.id, at) : Promise.resolve([]),
     ]);
+    // Notification & Scheduling: the notices held overnight fold in (a test shows them but leaves them).
+    const held = deps.held ? await deps.held.list(person.id).catch(() => []) : [];
+    if (deps.prepareLateDays) await deps.prepareLateDays([...tasks, ...completed, ...managed]).catch(() => {});
     const content = dailyEmail(
       {
         name: person.name,
@@ -372,10 +390,12 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
         awaitingApproval,
         managed,
         groupByCompany: inSeveralCompanies([...tasks, ...managed, ...completed]),
+        ...(deps.lateDays ? { lateDays: deps.lateDays } : {}),
+        ...(held.length ? { held } : {}),
       },
       brand ?? undefined,
     );
-    return { count: tasks.filter((t) => !t.waitingSince).length, content, ...sender };
+    return { count: tasks.filter((t) => !t.waitingSince).length, content, ...sender, ...(held.length && !o.test ? { heldIds: held.map((h) => h.id) } : {}) };
   }
 
   /** Sends a built email (with the company's sender name when it has one; as before without). */
@@ -457,7 +477,7 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
       return { status: 'SKIPPED', error, sentAt: again ? taken.sentAt : null, ...(error === BLOCKED_ADDRESS ? { blocked: true } : {}) };
     };
 
-    let built: { count: number; content: EmailContent | null; fromName?: string } = { count: 0, content: null };
+    let built: { count: number; content: EmailContent | null; fromName?: string; heldIds?: string[] } = { count: 0, content: null };
     try {
       if (person.email && isOn(dailyEmailPrefs(person.prefs), taken.kind)) built = await build(taken.kind, person, at);
     } catch (err) {
@@ -472,6 +492,7 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
     }
     if (result === 'suppressed') return skipped(BLOCKED_ADDRESS);
     await recordSent(taken, { status: 'SENT', taskCount: built.count, sentAt: at, nextAttemptAt: null, lastError: null });
+    if (built.heldIds?.length) await deps.held?.folded(built.heldIds, at).catch(() => {});
     return { status: 'SENT', error: null, sentAt: at };
   }
 
@@ -500,6 +521,12 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
         if (!isOn(prefs, kind)) continue;
         const row = await deps.repo.claim(person.id, today, kind);
         if (!row) continue;
+        // Notification & Scheduling: working days only (recorded as skipped, so the log says why).
+        if (deps.workingDay && !(await deps.workingDay(person.id, today).catch(() => true))) {
+          await deps.repo.finish(row, { status: 'SKIPPED', taskCount: 0, nextAttemptAt: null, lastError: NOT_A_WORKING_DAY });
+          count('SKIPPED');
+          continue;
+        }
         if (kind === 'PENDING' && (await hadOldEmailToday(person.id, today))) {
           await deps.repo.finish(row, { status: 'SKIPPED', taskCount: 0, nextAttemptAt: null, lastError: UPGRADE_NOTE });
           count('SKIPPED');
@@ -817,7 +844,24 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
     return { day: day ?? null, lastCheckedAt: checked, checkLate, nextSendAt, run: latestRun ? snapshot(latestRun) : null, summary, people: out };
   }
 
-  return { runSweep, sendTest, startSendNow, sendFor, preview, overview, lastCheckedAt };
+  /**
+   * Notification & Scheduling centre: will the person's daily email still go today (so the notices held
+   * for them overnight wait to fold into it)? Yes while today is a working day for them, their email is
+   * on and hasn't gone, and its time is still to come (or came less than half an hour ago).
+   */
+  async function pendingToday(userId: string, at: Date = now()): Promise<boolean> {
+    if (!deps.isConfigured()) return false;
+    const person = await deps.people.find(userId);
+    if (!person?.email) return false;
+    const t = timing(person, at);
+    if (!isOn(t.prefs, 'PENDING') || t.joinedLate) return false;
+    if (deps.workingDay && !(await deps.workingDay(userId, t.today).catch(() => true))) return false;
+    const row = await deps.repo.find(userId, t.today, 'PENDING');
+    if (row && row.status !== 'SENDING' && row.status !== 'RETRY') return false;
+    return !!row || at.getTime() < t.dueAt.getTime() + 30 * 60_000;
+  }
+
+  return { runSweep, sendTest, startSendNow, sendFor, preview, overview, lastCheckedAt, pendingToday };
 }
 
 export type DailyEmailService = ReturnType<typeof createDailyEmailService>;

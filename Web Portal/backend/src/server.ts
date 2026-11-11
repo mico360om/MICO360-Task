@@ -102,8 +102,6 @@ import { createPrismaUserRepository as createPrismaUserMgmtRepository } from './
 import { createNotificationService } from './modules/notifications/notification-service';
 import { createPrismaNotificationRepository, createPrismaPreferenceStore, createPrismaReminderLogStore, pruneReminderLog } from './modules/notifications/prisma-notification-repository';
 import type { NotificationRecord } from './modules/notifications/notification-repository';
-import { planChecklistReminders, planReminders } from './modules/notifications/reminder';
-import { dispatchReminders } from './modules/notifications/reminder-dispatch';
 import { buildDigests } from './modules/notifications/notification-digest';
 import { createDailyEmailService } from './modules/daily-emails/daily-email-service';
 import { createPrismaDailyEmailCheckStore, createPrismaDailyEmailRepository } from './modules/daily-emails/prisma-daily-email-repository';
@@ -113,7 +111,13 @@ import { createProjectHealthService, type ProjectHealthService } from './modules
 import { projectChecklistItems } from './modules/project-health/checklist-next-actions';
 import { createPrismaHealthSource } from './modules/project-health/prisma-health-source';
 import { createMentionNotifier } from './modules/tasks/mention-notifier';
-import { planEscalations } from './modules/notifications/escalation';
+import { createNotifyPolicyService } from './modules/notify-policy/policy-service';
+import { createPrismaPolicyStore } from './modules/notify-policy/policy-store';
+import { createNoticeEmails, createPolicyWiring } from './modules/notify-policy/policy-wiring';
+import { createHoldRelease, createPrismaHoldStore } from './modules/notify-policy/holds';
+import { createPlannerSweep, createPrismaFirstRun, createPrismaReminderKeys, leadDaysOf } from './modules/notify-policy/planner-sweep';
+import type { NotificationDelivery } from './modules/notifications/notification-service';
+import { isWorkingDay, workingDaysLate, type WorkCalendar } from './lib/working-days';
 import { runExclusive, createPrismaJobLockStore } from './lib/job-lock';
 import { createJobGate } from './lib/job-gate';
 import { databaseConnectionCode } from './lib/db-connection';
@@ -128,7 +132,6 @@ import { createPrismaDeviceTokenRepository } from './modules/device-tokens/prism
 import { createPushSender, type PushSender } from './modules/device-tokens/push-sender';
 import { createFcmTransport, parseServiceAccount } from './modules/device-tokens/fcm-transport';
 import { createPrismaUserStateLookup } from './modules/auth/prisma-user-state-lookup';
-import { todayKey } from './lib/due-date';
 import { createClientAccessService } from './modules/client-view/client-access-service';
 import { createPrismaClientShareStore } from './modules/client-view/prisma-client-share-store';
 import { createPrismaClientViewSource } from './modules/client-view/client-view-source';
@@ -753,6 +756,9 @@ async function main(): Promise<void> {
   // Each stored notification also reaches the person's open pages at once (the website's live
   // pop-up for meeting reminders); late-bound to the realtime server, created further down.
   let onNotificationDelivered: (record: NotificationRecord) => void = () => {};
+  // Notification & Scheduling centre: each notice's bell, push and email by its person's rules (channels,
+  // required kinds, quiet hours, Pause) — bound further down, once the company rules exist.
+  let notificationDelivery: NotificationDelivery | undefined = undefined;
   const notificationService = createNotificationService({
     notifications: createPrismaNotificationRepository(prisma),
     preferences: createPrismaPreferenceStore(prisma),
@@ -761,6 +767,11 @@ async function main(): Promise<void> {
     onDelivered: (record) => onNotificationDelivered(record),
     // 1.23: client accounts never get a notification (no bell, no phone push).
     isClient: createIsClient(prisma),
+    delivery: {
+      decide: (userId, type, opts) => notificationDelivery!.decide(userId, type, opts),
+      hold: (entry) => notificationDelivery!.hold(entry),
+      email: (userId, input) => notificationDelivery!.email(userId, input),
+    },
   });
   const deviceTokenService = createDeviceTokenService({ deviceTokens: deviceTokenRepository });
 
@@ -1133,59 +1144,14 @@ async function main(): Promise<void> {
     };
   };
 
+  // Notification & Scheduling centre: the one reminder planner (due soon / overdue by each project's
+  // schedule, escalation steps, Blocked, approvals waiting, inactivity — in working days), bound below.
+  let notificationPlanner: { run(): Promise<unknown> } | undefined = undefined;
   async function runReminderSweep(): Promise<void> {
-    const period = todayKey(companyTz); // company-local yyyy-mm-dd
+    if (!notificationPlanner) return; // the server is still starting: the next run sends
     await pruneReminderLog(prisma).catch(() => {}); // keep the marker table bounded
     await pruneClientAccess().catch(() => {}); // client view: old codes and expired sessions
-    // Tasks of deleted projects are gone for everyone — no more reminders for them.
-    const tasks = await prisma.task.findMany({
-      where: { deletedAt: null, dueDate: { not: null }, project: { is: { deletedAt: null } } },
-      select: { id: true, key: true, title: true, dueDate: true, completedAt: true, approvalRequestedAt: true, column: { select: { category: true } }, watchers: { select: { userId: true } }, ...taskAudienceSelect },
-    });
-    // Each user's reminder lead time comes from their notification preferences (default window otherwise).
-    const { users, activeIds, adminIds, companiesOf } = await sweepAudience();
-    const leadByUser = new Map<string, number>();
-    for (const u of users) {
-      const lead = normalizePreferences(u.notificationPrefs).reminderLeadMinutes;
-      if (lead != null) leadByUser.set(u.id, lead);
-    }
-    const planned = planReminders(
-      tasks.map((t) => ({
-        id: t.id,
-        key: t.key, // 1.22.3: "MICO-142 · Title"
-        title: t.title,
-        dueDate: t.dueDate,
-        completedAt: t.completedAt,
-        // Waiting for approval: no reminders until it is sent back (owner, 30 Oct).
-        approvalRequestedAt: t.approvalRequestedAt,
-        columnCategory: t.column?.category ?? null,
-        // Watchers get due/overdue reminders too (deduped with assignees) — while they can still see the task.
-        assigneeIds: filterTaskRecipients([...t.assignees.map((a) => a.userId), ...t.watchers.map((w) => w.userId)], toAudienceFacts(t), { activeIds, adminIds, companiesOf }),
-      })),
-      { leadMinutesFor: (id) => leadByUser.get(id), timeZone: companyTz },
-    );
-    await dispatchReminders(planned, {
-      period,
-      store: reminderLogStore,
-      notify: (n) => notificationService.notify(n),
-    });
-    // 1.23.3 (design call 4): dated checklist items of open tasks — an item's person, else the task's
-    // assignees (those who may still open it); de-duplicated by item, person and day.
-    const items = await checklistQueries.forReminders();
-    const itemTaskIds = [...new Set(items.map((i) => i.taskId))];
-    const audience = new Map(
-      (itemTaskIds.length ? await prisma.task.findMany({ where: { id: { in: itemTaskIds } }, select: { id: true, ...taskAudienceSelect } }) : []).map((t) => [t.id, t]),
-    );
-    const plannedItems = planChecklistReminders(
-      items.flatMap((i) => {
-        const t = audience.get(i.taskId);
-        if (!t) return [];
-        const people = i.assigneeId ? [i.assigneeId] : i.taskAssigneeIds;
-        return [{ ...i, assigneeId: null, taskAssigneeIds: filterTaskRecipients(people, toAudienceFacts(t), { activeIds, adminIds, companiesOf }) }];
-      }),
-      { leadMinutesFor: (id) => leadByUser.get(id), timeZone: companyTz },
-    );
-    await dispatchReminders(plannedItems, { period, store: reminderLogStore, notify: (n) => notificationService.notify(n) });
+    await notificationPlanner.run();
   }
   // One instance at a time runs each sweep (lease lock) — no duplicate notifications / double
   // carry-forward across a multi-instance deployment. The lease expires so a crash never deadlocks it.
@@ -1205,7 +1171,8 @@ async function main(): Promise<void> {
   };
   const runReminders = () =>
     runExclusive(jobLock, 'reminder-sweep', SWEEP_LEASE_MS, () => new Date(), runReminderSweep).catch(sweepFailed('reminder-sweep', 'deadline reminder sweep'));
-  jobs.every(6 * 60 * 60 * 1000, runReminders);
+  // Hourly, so each working morning's reminders come in the morning (their pushes wait for working hours).
+  jobs.every(60 * 60 * 1000, runReminders, { firstAfterMs: 60 * 1000 });
 
   // A comment @mention notifies each mentioned user who can open the task (never the author): in
   // the app and, unless they muted mentions, by email quoting the comment (best-effort).
@@ -1350,6 +1317,85 @@ async function main(): Promise<void> {
   const documentBrands = createDocumentBrands(companyBranding, prisma);
   // companies: each company's week start and working days and hours (MC1 Task 15); System Settings' until set.
   const companyTime = createCompanyTime(companyBranding, prisma);
+
+  // ── Notification & Scheduling centre ──────────────────────────────────────
+  // Each company's rules (System Settings → Notification & Scheduling): working time, holidays, reminder
+  // schedules, escalation / approvals / inactivity numbers, quiet hours, channels and required kinds.
+  const notifyPolicy = createNotifyPolicyService({
+    store: createPrismaPolicyStore(prisma),
+    companyHours: async (companyId) => {
+      const b = companyId ? await companyBranding.forCompany(companyId) : await companyBranding.siteBrand();
+      return { weekStart: b.weekStart, hours: b.workingHours };
+    },
+    timeZone: companyTz,
+    audit: (e) => auditService.record({ userId: e.userId, module: 'notifications', action: e.action, entityId: e.entityId, oldValue: e.oldValue ?? null, newValue: e.newValue ?? null }).then(() => {}),
+  });
+  const notifyWiring = createPolicyWiring({
+    prisma,
+    service: notifyPolicy,
+    timeZone: companyTz,
+    personCompany: async (userId) => (await companyBranding.forPerson(userId)).companyId,
+    projectCompany: async (projectId) => (await companyBranding.forProject(projectId)).companyId,
+    canViewProject: (u, r, p) => projectAccess.canViewProject(u, r, p),
+    canViewTask: (u, r, t) => projectAccess.canViewTask(u, r, t),
+    canManageProject: (u, r, p) => projectAuthz.canManageProject(u, r, p),
+    site: {
+      weekStart: () => settingsService.companyWeekStart(),
+      workingHours: () => settingsService.workingHours(),
+      async save(weekStart, hours, actor, ip) {
+        const [oldWeek, oldHours] = await Promise.all([settingsService.get('company.weekStart'), settingsService.get('meetings.workingHours')]);
+        const week = await settingsService.set('company.weekStart', weekStart);
+        const saved = await settingsService.set('meetings.workingHours', hours);
+        await auditService.record({ userId: actor.id, ip, module: 'settings', action: 'setting.update', entityId: 'company.weekStart', oldValue: oldWeek ?? null, newValue: week.value });
+        await auditService.record({ userId: actor.id, ip, module: 'settings', action: 'setting.update', entityId: 'meetings.workingHours', oldValue: oldHours ?? null, newValue: saved.value });
+      },
+    },
+    companyOwn: (companyId) => prisma.company.findUnique({ where: { id: companyId }, select: { weekStart: true, workingHours: true } }),
+    saveCompany: async (companyId, patch, actor, ip) => {
+      await companyService.update(companyId, patch, actor, ip);
+    },
+    meetingReminders: () => settingsService.meetingReminders(),
+    audit: (e) => auditService.record({ userId: e.userId, ip: e.ip ?? null, module: 'notifications', action: e.action, entityId: e.entityId, oldValue: e.oldValue ?? null, newValue: e.newValue ?? null }).then(() => {}),
+    planner: {
+      prisma,
+      audience: () => sweepAudience(),
+      runners: (ids) => projectRunnerIds(prisma, ids),
+      approvers: (projectId, exceptId) => approvalSource.approvers(projectId, exceptId),
+      checklistItems: () => checklistQueries.forReminders(),
+      leadDays: leadDaysOf,
+    },
+    preferences: createPrismaPreferenceStore(prisma),
+  });
+  // The email channel (a plain notice email, under the person's company brand) and held notices' one email.
+  const noticeEmails = createNoticeEmails({
+    prisma,
+    appUrl: env.APP_URL,
+    isConfigured: () => emailService.isConfigured(),
+    send: async (to, params, userId) => emailService.sendNotification(to, params, await documentBrands.email.person(userId).catch(() => undefined)),
+  });
+  const notificationHolds = createPrismaHoldStore(prisma);
+  // The daily email's "N working days overdue": each task's company calendar, loaded before an email is built.
+  const lateCalendars = new Map<string, WorkCalendar>();
+  const EVERY_DAY: WorkCalendar = { workingDays: [0, 1, 2, 3, 4, 5, 6], holidays: [] };
+  notificationDelivery = notifyWiring.delivery({ holds: notificationHolds, sendEmail: (userId, input) => noticeEmails.sendNotice(userId, input) });
+  notificationPlanner = createPlannerSweep({
+    prisma,
+    timeZone: companyTz,
+    rules: (companyId) => notifyPolicy.rules(companyId),
+    audience: () => sweepAudience(),
+    runners: (ids) => projectRunnerIds(prisma, ids),
+    approvers: (projectId, exceptId) => approvalSource.approvers(projectId, exceptId),
+    checklistItems: () => checklistQueries.forReminders(),
+    keys: createPrismaReminderKeys(prisma),
+    notify: (n) => notificationService.notify(n),
+    leadDays: leadDaysOf,
+    firstRun: createPrismaFirstRun(prisma),
+    logger: logger.job('reminder-sweep'),
+  });
+  // Every company set up once (starter holidays this year and next, Standard + Critical schedules).
+  jobs.every(6 * 60 * 60 * 1000, () =>
+    runExclusive(jobLock, 'notification-setup', SWEEP_LEASE_MS, () => new Date(), () => notifyPolicy.ensureAll()).catch(sweepFailed('notification-setup', 'notification set-up')),
+  );
   // The Management page (and its weekly summary) runs on the scope's week and working days: the picked
   // company's, else the reader's primary company's (Ruling 15).
   const managementSettings = {
@@ -1695,37 +1741,10 @@ async function main(): Promise<void> {
     }
   }
 
-  async function runEscalationSweep(): Promise<void> {
-    const { day } = companyDayHour();
-    const tasks = await prisma.task.findMany({
-      where: { deletedAt: null, project: { is: { deletedAt: null } } },
-      select: { id: true, key: true, title: true, dueDate: true, completedAt: true, approvalRequestedAt: true, projectId: true, column: { select: { category: true } } },
-    });
-    const plans = planEscalations(
-      tasks.map((t) => ({ id: t.id, key: t.key, title: t.title, dueDate: t.dueDate, completedAt: t.completedAt, approvalRequestedAt: t.approvalRequestedAt, projectId: t.projectId, columnCategory: t.column?.category ?? null })),
-      { timeZone: companyTz },
-    );
-    if (plans.length === 0) return;
-    // Recipients = whoever runs each project: its owner, its named manager and its MANAGER members.
-    const recipientsByProject = await projectRunnerIds(prisma, Array.from(new Set(plans.map((p) => p.projectId))));
-    const planned = plans.flatMap((plan) =>
-      (recipientsByProject.get(plan.projectId) ?? []).map((userId) => ({
-        userId,
-        type: 'TASK_ESCALATION',
-        title: plan.reason === 'blocked' ? `Escalation: ${plan.key} is Blocked` : `Escalation: ${plan.key} is ${plan.overdueDays} day${plan.overdueDays === 1 ? '' : 's'} overdue`,
-        body: plan.title,
-        entityType: 'task',
-        entityId: plan.taskId,
-      })),
-    );
-    await dispatchReminders(planned, { period: day, store: reminderLogStore, notify: (n) => notificationService.notify(n) });
-  }
-
   const runDigest = () => runExclusive(jobLock, 'daily-digest', SWEEP_LEASE_MS, () => new Date(), runDigestSweep).catch(sweepFailed('daily-digest', 'daily digest sweep'));
-  const runEscalation = () => runExclusive(jobLock, 'escalation-sweep', SWEEP_LEASE_MS, () => new Date(), runEscalationSweep).catch(sweepFailed('escalation-sweep', 'escalation sweep'));
+  // Escalations are the reminder planner's now (two steps in working days; Notification & Scheduling).
   jobs.every(60 * 60 * 1000, () => {
     void runDigest();
-    void runEscalation();
   });
 
   // ── The daily email (1.22: one email, in parts), every morning ──
@@ -1750,6 +1769,17 @@ async function main(): Promise<void> {
     logger: logger.job('daily-task-emails'),
     // When the sweep last checked: in the database, so a restart or another server still knows it.
     checks: createPrismaDailyEmailCheckStore(prisma),
+    // Notification & Scheduling centre: working days only, "N working days overdue", and the notices
+    // held overnight folded into the morning's email (no second email).
+    workingDay: async (userId, day) => isWorkingDay(day, (await notifyWiring.contextFor(userId, new Date())).rules.calendar),
+    prepareLateDays: async (tasks) => {
+      for (const id of new Set(['', ...tasks.map((t) => t.project.company?.id ?? '')])) lateCalendars.set(id, (await notifyPolicy.rules(id || null)).calendar);
+    },
+    lateDays: (task, dueKey, toKey) => workingDaysLate(dueKey, toKey, lateCalendars.get(task.project.company?.id ?? '') ?? lateCalendars.get('') ?? EVERY_DAY),
+    held: {
+      list: async (userId) => (await notificationHolds.openEmails(userId)).map((h) => ({ id: h.id, title: h.title, body: h.body })),
+      folded: (ids, at) => notificationHolds.finish(ids, 'FOLDED', at),
+    },
   });
   // Job leases are held for their whole length (never released), so this one is under a minute or
   // the sweep would only run every 10 minutes. Overlapping runs are harmless: each email is claimed
@@ -1760,6 +1790,27 @@ async function main(): Promise<void> {
       await dailyEmailService.runSweep();
     }).catch(sweepFailed('daily-task-emails', 'daily task email sweep'));
   jobs.every(60 * 1000, runDailyEmails);
+
+  // Notification & Scheduling centre: pushes and emails held by quiet hours or Pause go at the next
+  // working morning — each person's pushes as ONE push, their emails folded into that morning's daily
+  // email (else ONE email). Every minute, one lease-locked instance; each held item is claimed once.
+  const holdRelease = createHoldRelease({
+    store: notificationHolds,
+    push: pushSender,
+    sendBundleEmail: (userId, items) => noticeEmails.sendBundle(userId, items),
+    dailyEmailPending: (userId, at) => dailyEmailService.pendingToday(userId, at),
+    logger: logger.job('notification-holds'),
+  });
+  let holdsPrunedAt = 0;
+  const runHoldRelease = () =>
+    runExclusive(jobLock, 'notification-holds', DAILY_EMAIL_LEASE_MS, () => new Date(), async () => {
+      await holdRelease.run();
+      if (Date.now() - holdsPrunedAt > 60 * 60 * 1000) {
+        holdsPrunedAt = Date.now();
+        await notificationHolds.prune(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)).catch(() => {});
+      }
+    }).catch(sweepFailed('notification-holds', 'held notices'));
+  jobs.every(60 * 1000, runHoldRelease);
 
   // ── The Management page, and its weekly summary email ──────────────────────
   // Admins see every project; the people who run a project see the projects they run. The summary
@@ -1793,8 +1844,13 @@ async function main(): Promise<void> {
     appUrl: env.APP_URL,
     logger: logger.job('weekly-management-summary'),
     // companies: each person's summary goes on their primary company's first working day.
-    calendarOf: (userId) => companyTime.calendarOf(userId),
-    calendars: () => companyTime.calendars(),
+    // Notification & Scheduling centre: the first WORKING day (holidays skipped).
+    calendarOf: async (userId) => ({ ...(await companyTime.calendarOf(userId)), holidays: [...(await notifyWiring.contextFor(userId, new Date())).rules.calendar.holidays] }),
+    calendars: async () =>
+      Promise.all([null, ...(await prisma.company.findMany({ where: { status: 'ACTIVE' }, select: { id: true } })).map((c) => c.id)].map(async (id) => {
+        const r = await notifyPolicy.rules(id);
+        return { weekStart: r.weekStart, workingDays: [...r.calendar.workingDays], holidays: [...r.calendar.holidays] };
+      })),
   });
   const runWeeklySummary = () =>
     runExclusive(jobLock, 'weekly-management-summary', DAILY_EMAIL_LEASE_MS, () => new Date(), async () => {
@@ -2253,6 +2309,9 @@ async function main(): Promise<void> {
     userService,
     welcomeService,
     notificationService,
+    // Notification & Scheduling centre: the panel, the person's rules, working time, project/task reminders.
+    notifyPolicy: { service: notifyPolicy, timeZone: companyTz, ...notifyWiring.routes },
+    notificationPolicyOf: async (userId) => (await notifyWiring.contextFor(userId, new Date())).rules.policy,
     dailyEmails: { service: dailyEmailService, log: dailyEmailRepository, isConfigured: () => emailService.isConfigured() },
     deviceTokenService,
     reportService,

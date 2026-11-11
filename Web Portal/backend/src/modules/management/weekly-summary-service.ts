@@ -1,4 +1,5 @@
 import { shiftDayKey, zonedDayKey } from '../../lib/due-date';
+import type { Holiday } from '../../lib/working-days';
 import { instantOf } from '../meetings/meeting-series';
 import type { EmailContent, TemplateOptions } from '../email/email-templates';
 import { dailyEmailPrefs, weeklySummaryOn, type NotificationPreferences } from '../notifications/notification-preferences';
@@ -48,9 +49,9 @@ export interface WeeklySummaryDeps {
    * The company week's first day and the working days — companies: a person's own are their primary
    * company's (without a person: the site's).
    */
-  calendar(person?: WeeklyRecipient): Promise<{ weekStart: WeekStart; workingDays: number[] }>;
+  calendar(person?: WeeklyRecipient): Promise<{ weekStart: WeekStart; workingDays: number[]; holidays?: Holiday[] }>;
   /** Companies: every distinct calendar in use (the site's and each company's); absent: only `calendar()`. */
-  calendars?(): Promise<Array<{ weekStart: WeekStart; workingDays: number[] }>>;
+  calendars?(): Promise<Array<{ weekStart: WeekStart; workingDays: number[]; holidays?: Holiday[] }>>;
   companyTimeZone: string;
   appUrl: string;
   now?: () => Date;
@@ -89,11 +90,12 @@ export function createWeeklySummaryService(deps: WeeklySummaryDeps) {
   const now = deps.now ?? (() => new Date());
   let warnedNotConfigured = false;
 
-  function timing(person: WeeklyRecipient, at: Date, cal: { weekStart: WeekStart; workingDays: number[] }) {
+  function timing(person: WeeklyRecipient, at: Date, cal: { weekStart: WeekStart; workingDays: number[]; holidays?: Holiday[] }) {
     const timeZone = validZone(person.timeZone, deps.companyTimeZone);
     const today = zonedDayKey(at, timeZone);
     const week = weekOf(today, cal.weekStart);
-    const sendDay = firstWorkingDay(week, cal.workingDays);
+    // Notification & Scheduling: the first WORKING day of the week (holidays skipped).
+    const sendDay = firstWorkingDay(week, cal.workingDays, cal.holidays);
     const dueAt = instantOf(new Date(`${sendDay}T${dailyEmailPrefs(person.prefs).time}:00.000Z`), timeZone);
     const joinedLate = person.createdAt.getTime() > dueAt.getTime();
     return { week, due: today === sendDay && !joinedLate && at.getTime() >= dueAt.getTime() };
@@ -209,7 +211,7 @@ export function createWeeklySummaryService(deps: WeeklySummaryDeps) {
     const companyDay = zonedDayKey(at, deps.companyTimeZone);
     const sendDayNear = [-1, 0, 1]
       .map((n) => shiftDayKey(companyDay, n))
-      .some((d) => cals.some((cal) => firstWorkingDay(weekOf(d, cal.weekStart), cal.workingDays) === d));
+      .some((d) => cals.some((cal) => firstWorkingDay(weekOf(d, cal.weekStart), cal.workingDays, cal.holidays) === d));
     const candidates = (sendDayNear ? await deps.people.list() : []).filter((p) => p.email && weeklySummaryOn(p.prefs) && canSee(p));
     // Each person's week is their primary company's (one calendar for everyone without companies).
     const timed = await Promise.all(candidates.map(async (p) => ({ p, ...timing(p, at, deps.calendars ? await deps.calendar(p) : cals[0]!) })));

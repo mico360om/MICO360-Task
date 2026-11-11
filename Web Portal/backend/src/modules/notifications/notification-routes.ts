@@ -6,6 +6,9 @@ import type { ListScope } from './notification-repository';
 import { NO_PICK, type PickOf } from '../companies/company-pick';
 import type { AuthGuard } from '../auth/auth-guard';
 import { dailyEmailOn, dailyEmailPrefs, normalizePreferences, weeklySummaryOn, DAILY_EMAIL_TIME, MAX_REMINDER_LEAD_MINUTES, type DailyEmailPrefs, type NotificationPreferences } from './notification-preferences';
+import { legacyMutedView, mergeLegacyMuted, type NotificationPolicy } from '../notify-policy/policy';
+import { cleanBreakThrough, cleanChannels, cleanPauseUntil, cleanQuietHours, syncMutedWithChannels } from '../notify-policy/person-prefs';
+import { ValidationError } from '../../lib/http-errors';
 
 const prefsSchema = z.object({
   muted: z.array(z.string()).optional(),
@@ -22,6 +25,14 @@ const prefsSchema = z.object({
     })
     .optional(),
   weeklySummary: z.boolean().optional(),
+  // Notification & Scheduling centre (the website; older apps never send these and keep them as they are).
+  channels: z.unknown().optional(),
+  quietHours: z
+    .object({ mode: z.enum(['company', 'custom', 'off']), start: z.string().max(5).optional(), end: z.string().max(5).optional(), daysOff: z.boolean().optional() })
+    .nullable()
+    .optional(),
+  breakThrough: z.object({ meetings: z.boolean().optional(), mentions: z.boolean().optional() }).nullable().optional(),
+  pauseUntil: z.string().max(40).nullable().optional(),
 });
 
 const kindsSchema = z.array(z.enum(KIND_KEYS)).max(KIND_KEYS.length * 2);
@@ -80,6 +91,11 @@ export interface NotificationRouteDeps {
    * notice names the task's number now only when the task is in one of them. Absent: the list's scope decides.
    */
   visibleProjectIds?: (userId: string, roles: string[]) => Promise<string[] | null>;
+  /**
+   * Notification & Scheduling centre: the person's company rules. With them, `muted` reads as every
+   * type whose bell is off (older apps show the truth) and an older app's save sets the bells it changed.
+   */
+  policyOf?: (userId: string) => Promise<NotificationPolicy>;
 }
 
 export async function registerNotificationRoutes(app: FastifyInstance, deps: NotificationRouteDeps): Promise<void> {
@@ -110,9 +126,15 @@ export async function registerNotificationRoutes(app: FastifyInstance, deps: Not
     return { data: await notificationService.counts(req.user!.id, await scopeOf(req)) };
   });
 
+  /** As the apps read them: older apps' `muted` = every type whose bell is off (the company's defaults included). */
+  async function readable(userId: string, prefs: NotificationPreferences): Promise<NotificationPreferences> {
+    const view = deps.policyOf ? { ...prefs, muted: legacyMutedView(prefs, await deps.policyOf(userId)) } : prefs;
+    return withDailyEmails(view);
+  }
+
   // Per-user notification preferences (muted types, reminder lead time, daily task emails).
   app.get('/notifications/preferences', { preHandler: guard.authenticate }, async (req) => {
-    return { data: withDailyEmails(await notificationService.getPreferences(req.user!.id)) };
+    return { data: await readable(req.user!.id, await notificationService.getPreferences(req.user!.id)) };
   });
 
   // The muted types and the reminder time are saved together, as the apps always have (the time left
@@ -120,14 +142,39 @@ export async function registerNotificationRoutes(app: FastifyInstance, deps: Not
   // they are sent, so an app that doesn't know them (an older phone app) never wipes them.
   app.put('/notifications/preferences', { preHandler: guard.authenticate }, async (req) => {
     const body = prefsSchema.parse(req.body);
-    const current = await notificationService.getPreferences(req.user!.id);
+    const userId = req.user!.id;
+    const current = await notificationService.getPreferences(userId);
+    const policy = deps.policyOf ? await deps.policyOf(userId) : null;
     const pair = body.muted !== undefined ? { muted: body.muted, reminderLeadMinutes: body.reminderLeadMinutes } : { muted: current.muted, reminderLeadMinutes: body.reminderLeadMinutes ?? current.reminderLeadMinutes };
+    // Notification & Scheduling centre: an older app's muted list sets the bells it changed; the
+    // website's channel choices keep the muted list (what older apps read) in step.
+    let muted = pair.muted;
+    let channels = current.channels;
+    if (body.muted !== undefined && body.channels === undefined && policy) ({ muted, channels } = mergeLegacyMuted({ muted: current.muted, channels: current.channels }, body.muted, policy));
+    if (body.channels !== undefined) {
+      const sent = cleanChannels(body.channels) ?? {};
+      channels = { ...(current.channels ?? {}) };
+      for (const [k, v] of Object.entries(sent)) channels[k as keyof typeof channels] = { ...(channels[k as keyof typeof channels] ?? {}), ...v };
+      muted = syncMutedWithChannels(muted, sent);
+    }
+    let pauseUntil = current.pauseUntil;
+    if (body.pauseUntil === null) pauseUntil = undefined;
+    else if (body.pauseUntil !== undefined) {
+      pauseUntil = cleanPauseUntil(body.pauseUntil);
+      if (!pauseUntil) throw new ValidationError('Pause for up to two weeks.');
+    }
+    const keep = <T>(sent: T | null | undefined, now: T | undefined, clean: (v: unknown) => T | undefined) => (sent === null ? undefined : sent !== undefined ? clean(sent) : now);
     const merged = {
       ...pair,
+      muted,
       ...(body.dailyEmails !== undefined ? { dailyEmails: dailyEmailsSaved(dailyEmailPrefs(current), body.dailyEmails) } : current.dailyEmails ? { dailyEmails: current.dailyEmails } : {}),
       ...(body.weeklySummary !== undefined ? { weeklySummary: body.weeklySummary } : current.weeklySummary !== undefined ? { weeklySummary: current.weeklySummary } : {}),
+      channels,
+      quietHours: keep(body.quietHours, current.quietHours, cleanQuietHours),
+      breakThrough: keep(body.breakThrough, current.breakThrough, cleanBreakThrough),
+      pauseUntil,
     };
-    return { data: withDailyEmails(await notificationService.setPreferences(req.user!.id, normalizePreferences(merged))) };
+    return { data: await readable(userId, await notificationService.setPreferences(userId, normalizePreferences(merged))) };
   });
 
   app.get('/notifications/unread-count', { preHandler: guard.authenticate }, async (req) => {

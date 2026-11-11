@@ -57,6 +57,8 @@ beforeAll(async () => {
     finalMinutesRepository: untouched('finalMinutesRepository'),
     finalMinutesAi: untouched('finalMinutesAi'), // 1.22 Lane AI: the AI's offered draft (Use it)
     noteTaskService: untouched('noteTaskService'),
+    // Notification & Scheduling centre: a project's reminders and a task's schedule.
+    notifyPolicy: untouched('notifyPolicy'),
     // 1.23: Make Teams link (the Teams routes).
     microsoft: { connections: null, teams: untouched('microsoft.teams'), appUrl: 'http://x', canEditMeeting: untouched('microsoft').canEdit, getMeeting: untouched('microsoft').getMeeting },
     authService,

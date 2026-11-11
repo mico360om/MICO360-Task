@@ -149,8 +149,13 @@ export function createPrismaReminderLogStore(prisma: PrismaClient): ReminderLogS
   };
 }
 
-/** Drop reminder markers older than `days` (only the current period's markers matter) to bound the table. */
-export async function pruneReminderLog(prisma: PrismaClient, days = 35): Promise<void> {
+/**
+ * Drop reminder markers older than `days` (only the current period's markers matter) to bound the table.
+ * Notification & Scheduling centre: the planner's markers (`np:`) say a once-only step was sent, so they
+ * are kept a year.
+ */
+export async function pruneReminderLog(prisma: PrismaClient, days = 35, plannerDays = 400): Promise<void> {
   const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
-  await prisma.reminderLog.deleteMany({ where: { createdAt: { lt: cutoff } } });
+  await prisma.reminderLog.deleteMany({ where: { createdAt: { lt: cutoff }, NOT: { dedupeKey: { startsWith: 'np:' } } } });
+  await prisma.reminderLog.deleteMany({ where: { createdAt: { lt: new Date(Date.now() - plannerDays * 24 * 60 * 60 * 1000) }, dedupeKey: { startsWith: 'np:' } } });
 }

@@ -94,6 +94,13 @@ export interface DailyEmailInput {
   managed: DailyTask[];
   /** Companies: tasks in 2+ companies — the project sections are grouped under each company's name. */
   groupByCompany?: boolean;
+  /**
+   * Notification & Scheduling centre: working days late (the task's company's working days and
+   * holidays) from its due day to `to`. Absent: calendar days, as before.
+   */
+  lateDays?: (task: DailyTask, dueKey: string, toKey: string) => number;
+  /** …and the notices held for them outside working hours, folded into this email (no second email). */
+  held?: { title: string; body: string | null }[];
 }
 
 const PRIORITY_CHIP: Record<DailyTask['priority'], EmailChip | null> = {
@@ -284,7 +291,8 @@ function classify(input: DailyEmailInput) {
     : [];
 
   const approvals = parts.urgent || parts.pending || parts.managed ? input.awaitingApproval : 0;
-  const hasContent = schedule.length > 0 || urgent.length > 0 || rest.length > 0 || managed.length > 0 || completed.length > 0 || approvals > 0;
+  const held = input.held ?? [];
+  const hasContent = schedule.length > 0 || urgent.length > 0 || rest.length > 0 || managed.length > 0 || completed.length > 0 || approvals > 0 || held.length > 0;
 
   const numbers = [
     { label: 'Pending', word: 'pending', n: open.length, danger: false },
@@ -311,7 +319,7 @@ function classify(input: DailyEmailInput) {
             : 'your day';
   const subject = `Today: ${subjectWhat} — ${subjectDay}`;
 
-  return { today, days, waiting, isOverdue, numbers, summaryText, handedIn, schedule, urgent, projectGroups, managed, completed, approvals, hasContent, subject };
+  return { today, days, waiting, isOverdue, numbers, summaryText, handedIn, schedule, urgent, projectGroups, managed, completed, approvals, held, hasContent, subject };
 }
 
 /** The tasks of each project, the projects in the order their first task comes. */
@@ -357,6 +365,23 @@ function blocksFor(input: DailyEmailInput, m: Model, limits: Limits, brand: Bran
 
   const card = cardMaker(input, m, c);
   const moreLine = (left: number): Block[] => (left > 0 ? [markup(moreToDashboard(left, app, c))] : []);
+
+  // ── While you were away (Notification & Scheduling: notices held outside working hours) ──
+  if (m.held.length) {
+    const shown = m.held.slice(0, 10);
+    blocks.push({ kind: 'heading', text: `While you were away (${m.held.length})` });
+    blocks.push(
+      markup(
+        listBox(
+          shown.map((h, i) => ({
+            html: `<tr><td class="email-card" style="${rowStyle(c, i === 0).replace('12px 14px', '10px 14px')}"><div class="email-text" dir="auto" style="font-size:14px;font-weight:600;line-height:1.4;color:${c.ink}">${escapeHtml(h.title)}</div>${h.body ? mutedLine(h.body.split('\n')[0]!, c) : ''}</td></tr>`,
+            text: `- ${h.title}${h.body ? ` — ${h.body.split('\n')[0]}` : ''}`,
+          })),
+        ),
+      ),
+    );
+    if (m.held.length > shown.length) blocks.push(markup({ html: `<p class="email-muted" style="margin:0 0 16px;font-size:13px;color:${c.ink2}">and ${m.held.length - shown.length} more in your notifications.</p>`, text: `and ${m.held.length - shown.length} more in your notifications.` }));
+  }
 
   // ── Today's schedule ──
   if (m.schedule.length) {
@@ -472,7 +497,9 @@ function cardMaker(input: DailyEmailInput, m: Model, c: Brand['colors']) {
     const at = t.dueDate && hasDueTime(t.dueDate) ? `, ${clock(t.dueDate, tz)}` : '';
     let due: EmailChip | null = null;
     if (key && d !== null) {
-      if (d < 0 && !m.waiting(t)) due = { text: `${plural(-d, 'day')} overdue`, tone: 'danger' };
+      // Notification & Scheduling: overdue counts working days (a task due Thursday is 1 working day late on Sunday).
+      const late = input.lateDays ? input.lateDays(t, key, m.today) : -d;
+      if (d < 0 && !m.waiting(t)) due = { text: late > 0 ? `${plural(late, input.lateDays ? 'working day' : 'day')} overdue` : 'Overdue', tone: 'danger' };
       else if (d === 0) due = { text: `Due today${at}`, tone: 'warning' };
       else due = { text: `Due ${dayLabel(key)}${at}`, tone: d < 0 ? 'muted' : 'info' };
     }
@@ -607,10 +634,11 @@ function completedRow(t: DailyTask, input: DailyEmailInput, c: Brand['colors'], 
   const due = dueDayKey(t.dueDate, tz);
   const doneDay = t.completedAt ? zonedDayKey(t.completedAt, tz) : null;
   const onTime = completedOnTime(t.dueDate, t.completedAt, tz);
-  const lateDays = due && doneDay ? Math.round((Date.parse(`${doneDay}T12:00:00Z`) - Date.parse(`${due}T12:00:00Z`)) / 864e5) : 0;
+  const lateDays = due && doneDay ? (input.lateDays ? input.lateDays(t, due, doneDay) : Math.round((Date.parse(`${doneDay}T12:00:00Z`) - Date.parse(`${due}T12:00:00Z`)) / 864e5)) : 0;
+  const lateText = lateDays > 0 ? `${plural(lateDays, input.lateDays ? 'working day' : 'day')} late` : 'Late';
   const chips: EmailChip[] = [
     ...(t.completedAt ? [{ text: `Completed ${momentLabel(t.completedAt, tz)}`, tone: 'neutral' } as EmailChip] : []),
-    ...(onTime === true ? [{ text: 'On time', tone: 'success' } as EmailChip] : onTime === false && lateDays > 0 ? [{ text: `${plural(lateDays, 'day')} late`, tone: 'warning' } as EmailChip] : []),
+    ...(onTime === true ? [{ text: 'On time', tone: 'success' } as EmailChip] : onTime === false && (lateDays > 0 || input.lateDays) ? [{ text: lateText, tone: 'warning' } as EmailChip] : []),
   ];
   const href = taskLink(input.appUrl, t.id);
   const meta = projectLine(t.project, input.groupByCompany);

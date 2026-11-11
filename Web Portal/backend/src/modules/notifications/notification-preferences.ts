@@ -1,5 +1,10 @@
-/** A user's notification preferences: muted types, how early to remind before a due date, daily emails. */
-export interface NotificationPreferences {
+import { cleanDeliveryPrefs, type DeliveryPrefFields } from '../notify-policy/person-prefs';
+
+/**
+ * A user's notification preferences: muted types, how early to remind before a due date, daily emails —
+ * and (Notification & Scheduling centre) channels per kind, quiet hours, break-through and Pause.
+ */
+export interface NotificationPreferences extends DeliveryPrefFields {
   muted: string[];
   /** Minutes before a task's due date to send a "due soon" reminder; omitted = use the default. */
   reminderLeadMinutes?: number;
@@ -93,6 +98,8 @@ export function normalizePreferences(input: unknown): NotificationPreferences {
     });
   }
   if (typeof raw.weeklySummary === 'boolean') out.weeklySummary = raw.weeklySummary;
+  // Notification & Scheduling centre: the person's channels, quiet hours, break-through and Pause.
+  Object.assign(out, cleanDeliveryPrefs(raw as Record<string, unknown>));
   return out;
 }
 
