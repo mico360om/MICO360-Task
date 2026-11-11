@@ -47,6 +47,13 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - More than three reminders of one kind for one person at once arrive as one notice listing them; after the
   upgrade nobody gets a burst of reminders for what was already due.
 
+## [1.23.12] - 2026-11-11
+
+### Security
+- Updated server libraries to fix 11 known vulnerabilities (zod 4, @fastify/static, fast-uri, typescript-eslint).
+  typescript-eslint has no fixed version yet, so the file-pattern library it uses (minimatch) is pinned to
+  its fixed version instead; it is a development tool only and never runs on the live site.
+
 ## [1.23.11] - 2026-11-10
 
 ### Improvements

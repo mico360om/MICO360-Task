@@ -5,7 +5,7 @@ import type { AuthGuard } from '../auth/auth-guard';
 import type { AuditService } from '../audit/audit-service';
 
 // `value` must be present (a missing value used to reach the database and fail with a 500).
-const setSchema = z.object({ value: z.unknown() }).refine((b) => b.value !== undefined, { message: 'value is required', path: ['value'] });
+const setSchema = z.object({ value: z.unknown().optional() }).refine((b) => b.value !== undefined, { message: 'value is required', path: ['value'] });
 
 export interface SettingsRouteDeps {
   settingsService: SettingsService;
