@@ -31,6 +31,14 @@ describe('notificationTarget', () => {
   });
 });
 
+describe('notificationTarget — several reminders in one notice (Notification & Scheduling)', () => {
+  it('opens My Tasks, its To approve list, or Management', () => {
+    expect(notificationTarget({ entityType: 'my-tasks', entityId: null })).toEqual({ kind: 'path', to: '/my-tasks' });
+    expect(notificationTarget({ entityType: 'approvals', entityId: null })).toEqual({ kind: 'path', to: '/my-tasks#to-approve' });
+    expect(notificationTarget({ entityType: 'management', entityId: null })).toEqual({ kind: 'path', to: '/management' });
+  });
+});
+
 describe('Mark all read: only what the reader was shown (5c review)', () => {
   it('sends the newest notification’s time as upTo; nothing shown, no time', async () => {
     const { newestShown } = await import('./notification-links');

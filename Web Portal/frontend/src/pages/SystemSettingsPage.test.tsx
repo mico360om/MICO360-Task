@@ -41,10 +41,12 @@ describe('SystemSettingsPage — backups', () => {
 });
 
 describe('SystemSettingsPage — meeting reminders', () => {
-  it('has the meeting reminders card, beside the meeting hours', async () => {
+  // Notification & Scheduling centre: the card keeps its heading and links to the panel's Channels tab
+  // (where the reminder times and their switch are now).
+  it('has the meeting reminders card, which links to Notification & Scheduling → Channels', async () => {
     renderPage();
     expect(await screen.findByRole('heading', { name: 'Meeting reminders' })).toBeInTheDocument();
-    expect(screen.getByRole('switch', { name: 'Meeting reminders' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Now in Notification & Scheduling → Channels' })).toHaveAttribute('href', '/admin/settings/notifications?tab=channels');
   });
 
   it('lists the reminder times among the current settings, in words (a broken value is not shown)', () => {
@@ -57,9 +59,15 @@ describe('SystemSettingsPage — meeting reminders', () => {
 });
 
 describe('SystemSettingsPage — meeting hours', () => {
-  it('has the meeting hours card', async () => {
+  it('has the meeting hours card, which links to Notification & Scheduling → Working time', async () => {
     renderPage();
     expect(await screen.findByRole('heading', { name: 'Meeting hours' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Now in Notification & Scheduling → Working time' })).toHaveAttribute('href', '/admin/settings/notifications?tab=working-time');
+  });
+
+  it('opens Notification & Scheduling from the top of the page', async () => {
+    renderPage();
+    expect(await screen.findByRole('link', { name: 'Open Notification & Scheduling' })).toHaveAttribute('href', '/admin/settings/notifications');
   });
 
   it('lists the meeting hours among the current settings, in words', () => {

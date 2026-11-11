@@ -33,6 +33,7 @@ export const NAV_COMMANDS: NavCommand[] = [
   { id: 'admin-companies', label: 'Companies', to: '/admin/companies', keywords: ['company', 'companies', 'logo', 'admin'], admin: true },
   { id: 'admin-ai', label: 'AI Management', to: '/admin/ai', keywords: ['ai', 'models', 'providers', 'admin'], admin: true },
   { id: 'admin-settings', label: 'System Settings', to: '/admin/settings', keywords: ['system', 'admin', 'config'], admin: true },
+  { id: 'admin-notifications', label: 'Notification & Scheduling', to: '/admin/settings/notifications', keywords: ['reminders', 'holidays', 'working days', 'working hours', 'quiet hours', 'escalation', 'schedule', 'admin'], admin: true },
   { id: 'admin-audit', label: 'Audit Logs', to: '/admin/audit', keywords: ['audit', 'logs', 'admin'], admin: true },
 ];
 

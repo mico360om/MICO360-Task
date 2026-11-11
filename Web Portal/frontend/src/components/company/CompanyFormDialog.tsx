@@ -1,5 +1,7 @@
 import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link, useInRouterContext } from 'react-router-dom';
+import { notificationSettingsPath } from '../../lib/notification-settings-path';
 import { apiClient } from '../../api/client';
 import { companiesApi, type ApiCompany, type CompanyInput, type CompanyWeekStart, type CompanyWorkingHours } from '../../api/companies';
 import { configApi } from '../../api/config';
@@ -57,6 +59,8 @@ function hoursProblem(h: CompanyWorkingHours): string | null {
  * follow the site's.
  */
 export function CompanyFormDialog({ company, initialTab = 'details', onClose, onSaved }: CompanyFormDialogProps) {
+  // The panel link (a dialog can open outside the router in tests).
+  const inRouter = useInRouterContext();
   const qc = useQueryClient();
   const dialogRef = useDialog(onClose);
   const uid = useId();
@@ -288,6 +292,19 @@ export function CompanyFormDialog({ company, initialTab = 'details', onClose, on
           </div>
         </>
       )}
+      <p className="text-xs text-ink-2">
+        Holidays, reminders and quiet hours for this company are in{' '}
+        {inRouter ? (
+          <Link to={notificationSettingsPath('working-time', company?.id)} className="font-semibold text-brand hover:underline">
+            Notification &amp; Scheduling
+          </Link>
+        ) : (
+          <a href={notificationSettingsPath('working-time', company?.id)} className="font-semibold text-brand hover:underline">
+            Notification &amp; Scheduling
+          </a>
+        )}
+        .
+      </p>
     </fieldset>
   );
   const senderField = (

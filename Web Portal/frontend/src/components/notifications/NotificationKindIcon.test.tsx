@@ -24,3 +24,14 @@ describe('the client sign-off notice’s icon', () => {
     expect(icon?.querySelector('svg path')).not.toBeNull();
   });
 });
+
+// Notification & Scheduling centre: the new reminders have their own names.
+describe('the Notification & Scheduling notices’ icons', () => {
+  it('escalation to admins, approval waiting, no activity', () => {
+    expect(notificationKindLook('TASK_ESCALATION_ADMIN')).toEqual({ id: 'overdue', name: 'Escalation to admins' });
+    expect(notificationKindLook('TASK_APPROVAL_WAITING')).toEqual({ id: 'approval', name: 'Approval waiting' });
+    expect(notificationKindLook('TASK_INACTIVE')).toEqual({ id: 'inactive', name: 'No activity' });
+    const { container } = render(<NotificationKindIcon type="TASK_INACTIVE" />);
+    expect(container.querySelector('[data-kind-icon="inactive"] svg path')).not.toBeNull();
+  });
+});

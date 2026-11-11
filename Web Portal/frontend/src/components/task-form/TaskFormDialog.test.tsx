@@ -1091,3 +1091,50 @@ describe('1.23.5 the task’s weight (projects counting completion by weight)', 
     expect(calls.find((c) => c.method === 'PUT')!.body).toEqual({ weight: null, expectedVersion: 7 });
   });
 });
+
+// Notification & Scheduling centre: a due date on a day off is said (never moved); a task's own reminder schedule.
+describe('Task form — days off and reminders', () => {
+  const workingTime = { companyId: 'c1', timeZone: 'Asia/Muscat', weekStart: 0, workingDays: [0, 1, 2, 3, 4], hours: { start: '08:00', end: '17:00' }, from: '2026-01-01', to: '2027-12-31', daysOff: [{ day: '2026-11-20', name: 'National Day' }] };
+  const schedules = [
+    { id: 's1', name: 'Standard', isDefault: true, steps: { before: [2], onDue: true, after: [1], repeatEvery: 2 } },
+    { id: 's2', name: 'Critical', isDefault: false, steps: { before: [5, 2, 1], onDue: true, after: [], repeatEvery: 1 } },
+  ];
+
+  it('warns when the due date is a holiday or a weekend of the project’s company, and keeps the date', async () => {
+    override = (url) => (url.includes('/working-time') ? json({ data: workingTime }) : undefined);
+    renderDialog({ projectId: 'p1' });
+    await ready();
+    const due = screen.getByLabelText(/^due date/i);
+    fireEvent.change(due, { target: { value: '2026-11-20' } });
+    expect(await screen.findByText('Fri 20 Nov is National Day — a day off.')).toBeInTheDocument();
+    expect(due).toHaveValue('2026-11-20');
+    expect(due.getAttribute('aria-describedby')).toContain(screen.getByText('Fri 20 Nov is National Day — a day off.').id);
+    fireEvent.change(due, { target: { value: '2026-11-14' } });
+    expect(await screen.findByText('Sat 14 Nov is a weekend day.')).toBeInTheDocument();
+    fireEvent.change(due, { target: { value: '2026-11-15' } });
+    await waitFor(() => expect(screen.queryByText(/a day off|a weekend day/)).toBeNull());
+    expect(calls.some((c) => c.url.includes('/working-time?') && c.url.includes('projectId=p1'))).toBe(true);
+  });
+
+  it('an edit can give the task its own reminder schedule (saved after the task)', async () => {
+    override = (url, method) => {
+      if (url.endsWith('/tasks/t1/reminder-schedule') && method === 'GET') return json({ data: { scheduleId: null, projectScheduleId: null, inUseId: 's1', schedules, canEdit: true } });
+      if (url.endsWith('/tasks/t1/reminder-schedule') && method === 'PUT') return json({ data: { scheduleId: 's2', projectScheduleId: null, inUseId: 's2', schedules, canEdit: true } });
+      return undefined;
+    };
+    const { onSaved } = renderDialog({ task: TASK });
+    await screen.findByRole('button', { name: 'Remove Omar A' });
+    expect(await screen.findByRole('button', { name: 'Reminders' })).toHaveTextContent('The project’s (Standard)');
+    await pick('Reminders', 'Critical');
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(calls.find((c) => c.method === 'PUT' && c.url.endsWith('/tasks/t1/reminder-schedule'))!.body).toEqual({ scheduleId: 's2' });
+  });
+
+  it('no reminders choice for someone who can’t change it', async () => {
+    override = (url) => (url.endsWith('/tasks/t1/reminder-schedule') ? json({ data: { scheduleId: null, projectScheduleId: null, inUseId: 's1', schedules, canEdit: false } }) : undefined);
+    renderDialog({ task: TASK });
+    await screen.findByRole('button', { name: 'Remove Omar A' });
+    expect(screen.queryByRole('button', { name: 'Reminders' })).toBeNull();
+  });
+});

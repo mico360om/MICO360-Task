@@ -42,6 +42,7 @@ const PAGES: [pattern: RegExp, title: string, indexable?: boolean][] = [
   [/^\/about$/, 'About'],
   [/^\/reports$/, 'Reports'],
   [/^\/admin\/settings$/, 'System Settings'],
+  [/^\/admin\/settings\/notifications$/, 'Notification & Scheduling'],
   [/^\/admin\/ai$/, 'AI Management'],
   [/^\/admin\/audit$/, 'Audit Logs'],
   [/^\/admin\/error-log$/, 'Error Log'],

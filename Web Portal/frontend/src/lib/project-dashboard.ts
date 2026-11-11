@@ -6,6 +6,7 @@
 import type { ApiTask, Priority } from '../api/tasks';
 import { dueDayKey } from './due-date';
 import { isWaitingForApproval } from './approvals';
+import { workingDaysLate, type WorkCalendar } from './working-days';
 
 export type TaskPhase = 'completed' | 'overdue' | 'ongoing' | 'pending';
 
@@ -54,14 +55,20 @@ export function taskStats(tasks: ApiTask[], today: string, timeZone = 'UTC') {
 /** `waiting`: finished and waiting for approval — never late while it waits. */
 export type MilestoneState = 'done' | 'waiting' | 'overdue' | 'upcoming' | 'undated';
 
-/** The project's milestones by date (undated last), with where each stands. */
-export function milestones(tasks: ApiTask[], today: string, timeZone = 'UTC') {
+/**
+ * The project's milestones by date (undated last), with where each stands. `lateDays`: how late an
+ * overdue one is — in working days of the project's company with its calendar (Notification &
+ * Scheduling: the same count as Management and the daily email), else in days.
+ */
+export function milestones(tasks: ApiTask[], today: string, timeZone = 'UTC', cal: WorkCalendar | null = null) {
   return tasks
     .filter((t) => t.isMilestone)
     .map((t) => {
       const due = dueDay(t.dueDate, timeZone);
       const state: MilestoneState = isFinished(t) ? 'done' : isWaitingForApproval(t) ? 'waiting' : !due ? 'undated' : due < today ? 'overdue' : 'upcoming';
-      return { task: t, due, state, daysLeft: due && state !== 'done' ? daysBetween(today, due) : null };
+      const daysLeft = due && state !== 'done' ? daysBetween(today, due) : null;
+      const lateDays = state === 'overdue' && due ? (cal ? workingDaysLate(due, today, cal) : daysBetween(due, today)) : null;
+      return { task: t, due, state, daysLeft, lateDays, workingDays: !!cal };
     })
     .sort((a, b) => (a.due ?? '9999').localeCompare(b.due ?? '9999', 'en') || a.task.title.localeCompare(b.task.title, 'en'));
 }
