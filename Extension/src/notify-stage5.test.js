@@ -23,6 +23,17 @@ describe('notification preferences: the web’s list', () => {
   const page = resolve(__dirname, '../../Web Portal/frontend/src/pages/SettingsPage.tsx');
   it.skipIf(!existsSync(page))('the same as the web’s Settings page (pages/SettingsPage.tsx)', () => {
     const src = readFileSync(page, 'utf8');
+    // tnt: 1.24 (Notification & Scheduling centre): the website shows a kind × channel table instead of one switch
+    // tnt: per type (components/settings/NotificationSettings.tsx); the extension (unchanged) keeps its switches,
+    // tnt: which the server still reads as each type's bell. Older website: the same list; newer: every switched
+    // tnt: type is one the server knows, and the lead times are the website's (its "none" now "No extra reminder").
+    if (!src.includes('NOTIF_TYPES')) { // tnt:
+      const server = readFileSync(resolve(__dirname, '../../Web Portal/backend/src/modules/notify-policy/policy.ts'), 'utf8'); // tnt:
+      for (const t of NOTIFICATION_TYPES) expect(server, t.type).toContain(`'${t.type}'`); // tnt:
+      const settings = readFileSync(resolve(__dirname, '../../Web Portal/frontend/src/components/settings/NotificationSettings.tsx'), 'utf8'); // tnt:
+      for (const o of REMINDER_OPTIONS.filter((x) => x.value !== null)) expect(settings, o.label).toContain(`value: ${o.value} }`); // tnt:
+      return; // tnt:
+    }
     for (const t of NOTIFICATION_TYPES) expect(src, t.type).toContain(`{ type: '${t.type}', label: '${t.label}', desc: '${t.desc}' }`);
     for (const o of REMINDER_OPTIONS) expect(src, o.label).toContain(`{ label: '${o.label}', value: ${o.value === null ? 'null' : o.value} }`);
   });

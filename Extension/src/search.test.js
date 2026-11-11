@@ -160,7 +160,8 @@ const web = existsSync(WEB_COMMANDS) ? await import(pathToFileURL(WEB_COMMANDS).
 
 describe.skipIf(!web)('search: the same pages and ranking as the web’s command palette (lib/commands.ts)', () => {
   it('has every page the web’s palette has, with the same name and words', () => {
-    for (const c of web.NAV_COMMANDS) {
+    // tnt: the website's own admin page the extension doesn't open (System Settings → Notification & Scheduling, 1.24).
+    for (const c of web.NAV_COMMANDS.filter((x) => x.id !== 'admin-notifications')) { // tnt:
       const mine = PAGES.find((p) => p.id === c.id);
       expect(mine, c.id).toBeTruthy();
       expect(mine.label, c.id).toBe(c.label);
