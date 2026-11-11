@@ -178,7 +178,19 @@ describe('typing the daily emails’ time on an Android keyboard (6a review)', (
 const oneLine = (s: string) => s.replace(/\s+/g, ' ');
 
 describe.skipIf(!hasWeb('frontend/src/pages/SettingsPage.tsx', 'frontend/src/components/settings/WeeklySummarySettings.tsx'))('the website’s notification switches', () => {
+  // tnt: 1.24 (Notification & Scheduling centre): the website shows a kind × channel table instead of one switch
+  // tnt: per type; the app (unchanged) keeps its switches, which the server still reads as the bell of each type.
+  // tnt: With the older website: the same list; with the newer: every app switch is a type of one of its kinds.
+  const newerWebsite = () => !readWeb('frontend/src/pages/SettingsPage.tsx').includes('NOTIF_TYPES'); // tnt:
   it('same types, order, labels and descriptions', () => {
+    if (newerWebsite()) {
+      // tnt: the website's kinds (lib/notify-kinds.ts) name every type the app switches.
+      const kinds = readWeb('frontend/src/lib/notify-kinds.ts'); // tnt:
+      expect(kinds).toContain('KIND_WORDS'); // tnt:
+      const server = readWeb('backend/src/modules/notify-policy/policy.ts'); // tnt:
+      for (const n of NOTIFICATION_TYPES) expect(server, n.type).toContain(`'${n.type}'`); // tnt:
+      return;
+    }
     const { NOTIF_TYPES } = loadWebTsx('frontend/src/pages/SettingsPage.tsx', { expose: ['NOTIF_TYPES'] }).__exposed as { NOTIF_TYPES: Array<{ type: string; label: string; desc: string }> };
     expect(NOTIF_TYPES.length).toBeGreaterThan(6);
     expect(NOTIFICATION_TYPES.map((n) => [n.type, n.label, n.description])).toEqual(NOTIF_TYPES.map((n) => [n.type, n.label, n.desc]));
@@ -187,5 +199,9 @@ describe.skipIf(!hasWeb('frontend/src/pages/SettingsPage.tsx', 'frontend/src/com
     const w = oneLine(readWeb('frontend/src/components/settings/WeeklySummarySettings.tsx'));
     for (const t of Object.values(WEEKLY_SUMMARY_TEXT)) expect(w, t).toContain(t);
   });
-  it('the switch’s TalkBack label is the website’s “Notify me: …”', () => expect(readWeb('frontend/src/pages/SettingsPage.tsx')).toContain('label={`Notify me: ${n.label}`}'));
+  it('the switch’s TalkBack label is the website’s “Notify me: …”', () => {
+    // tnt: the newer website names each channel's switch "<kind>: in the app / phone push / email".
+    if (newerWebsite()) expect(readWeb('frontend/src/components/settings/NotificationSettings.tsx')).toContain('label={`${words.label}: ${c.word}`}'); // tnt:
+    else expect(readWeb('frontend/src/pages/SettingsPage.tsx')).toContain('label={`Notify me: ${n.label}`}');
+  });
 });

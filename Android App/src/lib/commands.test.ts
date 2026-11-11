@@ -34,16 +34,23 @@ describe.skipIf(!existsSync(web))('the same as the website', () => {
   const inputs = ['', 'b', 'board', 'Kanban', 'home', 'tasks', 'admin', 'users', 'ai', 'what’s new', 'changelog', 'zzz', 'MICO-7', 'open web-12', 'go to calendar',
     'goto settings', 'navigate to audit', 'open reports', 'assign MICO-7 to Sara Ali', 'move MICO-7 to In Progress', 'done A1-2', 'close x-1', 'complete', '  MICO-7  '];
 
+  // tnt: the website's own admin pages the app doesn't open (System Settings → Notification & Scheduling,
+  // tnt: 1.24) are left out of the comparison; with or without them the rest must match.
+  const WEB_ONLY = new Set(['admin-notifications']); // tnt:
+  const appPages = (list: unknown) => (Array.isArray(list) ? list.filter((c: { id?: string }) => !WEB_ONLY.has(c?.id ?? '')) : list); // tnt:
+  const webOnlyTarget = (r: unknown) => !!r && typeof r === 'object' && (r as { to?: string }).to === '/admin/settings/notifications'; // tnt:
+
   it('the pages', async () => {
-    expect(NAV_COMMANDS).toEqual((await load()).NAV_COMMANDS);
+    expect(NAV_COMMANDS).toEqual(appPages((await load()).NAV_COMMANDS)); // tnt:
   });
 
   it('the matching and the commands', async () => {
     const w = await load();
     for (const admin of [true, false]) {
       for (const q of inputs) {
-        expect(matchNavCommands(q, admin), q).toEqual(w.matchNavCommands(q, admin));
-        expect(parseCommand(q, admin), q).toEqual(w.parseCommand(q, admin));
+        expect(matchNavCommands(q, admin), q).toEqual(appPages(w.matchNavCommands(q, admin))); // tnt:
+        const web = w.parseCommand(q, admin); // tnt:
+        if (!webOnlyTarget(web)) expect(parseCommand(q, admin), q).toEqual(web); // tnt:
       }
     }
   });
