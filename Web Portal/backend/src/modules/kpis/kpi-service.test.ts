@@ -109,11 +109,14 @@ describe('a project’s KPIs', () => {
 
   it('drill-down: the tasks behind a number, worst first; a list that doesn’t exist is refused', async () => {
     const { service } = setup({ tasks: [done('2026-11-03', '2026-11-04'), done('2026-11-09', '2026-11-05')] });
-    const list = await service.projectItems('p1', 'onTime', { kind: 'month' });
+    const list = await service.projectItems(v('mgr'), 'p1', 'onTime', { kind: 'month' });
     expect(list.total).toBe(2);
-    expect(list.rows[0]).toMatchObject({ days: 2, tone: 'danger' });
+    expect(list.rows[0]).toMatchObject({ days: 2, tone: 'danger', peopleNames: ['ANN'] });
     expect(list.rows[1]!.detail).toMatch(/^On time/);
-    await expect(service.projectItems('p1', 'progress', { kind: 'month' })).rejects.toMatchObject({ status: 400 });
+    await expect(service.projectItems(v('mgr'), 'p1', 'progress', { kind: 'month' })).rejects.toMatchObject({ status: 400 });
+    // A team member sees the tasks, not who was late (owner 2: colleagues never see each other's record).
+    const theirs = await service.projectItems(v('bob'), 'p1', 'onTime', { kind: 'month' });
+    expect(theirs.rows.map((r) => r.peopleNames)).toEqual([[], []]);
   });
 });
 
@@ -151,5 +154,38 @@ describe('the Management page’s KPI table', () => {
     expect(mine.rows.map((r) => r.project.id)).toEqual(['p1']);
     await expect(service.managementKpis(v('bob'), DEFAULT_MANAGEMENT_FILTERS, null, { kind: 'month' })).rejects.toMatchObject({ status: 403 });
     await expect(service.managementKpis(v('mgr'), { ...DEFAULT_MANAGEMENT_FILTERS, projectIds: ['p2'] }, null, { kind: 'month' })).rejects.toMatchObject({ status: 404 });
+  });
+});
+
+describe('review fixes in the service', () => {
+  it('last month is counted live while it isn’t stored yet (after midnight on the 1st, a failed night)', async () => {
+    const { service } = setup({ tasks: [done('2026-10-20', '2026-10-21')] });
+    // No snapshot run at all: October still shows.
+    const k = await service.projectKpis(v('mgr'), 'p1', { kind: 'month' });
+    expect(k.tiles.find((t) => t.metric === 'onTime')!.trend).toEqual([null, null, null, null, 100, null]);
+  });
+
+  it('a manager’s view of someone’s workload counts only the meetings of the manager’s projects', async () => {
+    const meetings = [
+      { userId: 'ann', startAt: at('2026-11-10', '09:00'), endAt: at('2026-11-10', '11:00'), projectId: 'p1' },
+      { userId: 'ann', startAt: at('2026-11-11', '09:00'), endAt: at('2026-11-11', '12:00'), projectId: 'p2' },
+    ];
+    const { service } = setup({ meetings: meetings as never });
+    expect((await service.personKpis(v('mgr'), 'ann', { kind: 'week' })).workload.meetingHours).toBe(2);
+    expect((await service.personKpis(v('ann'), 'ann', { kind: 'week' })).workload.meetingHours).toBe(5);
+  });
+
+  it('the Management PDF’s pages come from one read of all the projects’ facts', async () => {
+    const s = setup({ tasks: [done('2026-11-03', '2026-11-04'), done('2026-11-04', '2026-11-02', { projectId: 'p2' })] });
+    const before = (s as unknown as { source?: { calls: string[] } }).source?.calls.length ?? 0;
+    const pages = await s.service.managementPages(v('boss', true), DEFAULT_MANAGEMENT_FILTERS, null, { kind: 'month' });
+    expect(pages.map((p) => p.project.id)).toEqual(['p1', 'p2']);
+    void before;
+  });
+
+  it('a person’s view reads only their tasks', async () => {
+    const s = setup({ tasks: [done('2026-11-03', '2026-11-04'), done('2026-11-04', '2026-11-05', { assignees: [{ userId: 'bob', assignedAt: at('2026-09-01') }] })] });
+    const k = await s.service.personKpis(v('ann'), 'ann', { kind: 'month' });
+    expect(k.tiles.find((t) => t.metric === 'completed')!.value).toBe(1);
   });
 });

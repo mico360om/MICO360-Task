@@ -76,7 +76,9 @@ export interface KpiSource {
    * The tasks of these projects a window needs: made before its end, and open or done since its start
    * (plus every one still in a Done column without a completion time), with their history.
    */
-  windowTasks(projectIds: string[], from: Date, to: Date): Promise<KpiTask[]>;
+  windowTasks(projectIds: string[], from: Date, to: Date, opts?: { onlyIds?: string[] }): Promise<KpiTask[]>;
+  /** The tasks a person's KPIs need in these projects (review I7): on them now, ever assigned by a line, or decided by them since `from`. */
+  personTaskIds(userId: string, projectIds: string[], from: Date): Promise<string[]>;
   /** These tasks with their history (not deleted). */
   tasksById(ids: string[]): Promise<KpiTask[]>;
   /** Per project: tasks completed before `before` (made before it), counted and weighed — completion at a past moment. */
@@ -87,8 +89,8 @@ export interface KpiSource {
   closedActionItems(userIds: string[] | null, projectIds: string[] | null, from: Date, to: Date): Promise<ClosedActionItem[]>;
   /** These projects' open tasks in a Blocked column now. */
   blocked(projectIds: string[]): Promise<BlockedTask[]>;
-  /** Meetings this person attends (not declined, not cancelled) starting from `from` to `to`. */
-  meetings(userId: string, from: Date, to: Date): Promise<MeetingSpan[]>;
+  /** Meetings this person attends (not declined, not cancelled) starting from `from` to `to` (of these projects, when given). */
+  meetings(userId: string, from: Date, to: Date, projectIds?: string[]): Promise<MeetingSpan[]>;
   /** Open tasks each of these people is on now, in these projects (all when null). */
   openTaskCounts(userIds: string[], projectIds: string[] | null): Promise<Map<string, number>>;
   /** Administrators (active or not): their due-date changes always re-baseline. */

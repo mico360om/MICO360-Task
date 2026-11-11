@@ -7,7 +7,7 @@ const CAL = { workingDays: [0, 1, 2, 3, 4], holidays: [{ day: '2026-11-01', name
 
 function setup(nowAt: Date, due: DueProject[]) {
   let now = nowAt;
-  const sent: { userId: string; type: string; title: string; body: string | null; entityType: string | null; entityId: string | null }[] = [];
+  const sent: { userId: string; type: string; title: string; body: string | null; entityType: string | null; entityId: string | null; projectId: string | null }[] = [];
   const keys = new Set<string>();
   const reminder = createKpiValuesReminder({
     projectsDue: async () => due,
@@ -30,7 +30,7 @@ describe('the monthly "enter your KPI values" reminder (through Notification & S
     expect(await s.reminder.run()).toBe(0);
     s.setNow(at('2026-11-02', '08:05'));
     expect(await s.reminder.run()).toBe(2);
-    expect(s.sent[0]).toMatchObject({ userId: 'mgr', type: 'KPI_VALUES_DUE', title: 'Time to enter October’s KPI values', body: 'Rig 3: Safety incidents, Budget used', entityType: 'project-kpis', entityId: 'p1' });
+    expect(s.sent[0]).toMatchObject({ userId: 'mgr', type: 'KPI_VALUES_DUE', title: 'Time to enter October’s KPI values', body: 'Rig 3: Safety incidents, Budget used', entityType: 'project-kpis', entityId: 'p1', projectId: 'p1' });
   });
 
   it('once per person, project and month — later runs and later days send nothing more', async () => {

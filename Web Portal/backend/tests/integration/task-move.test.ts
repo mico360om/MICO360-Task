@@ -161,7 +161,8 @@ describe('Moving a task to another project (integration)', () => {
     expect(moved.task.dueDate).toEqual(TODAY);
     expect(moved.dueDateSet).toBe('2026-10-24');
     const line = await prisma.activity.findFirstOrThrow({ where: { taskId: task.id, action: 'UPDATED' } });
-    expect(line.meta).toEqual({ changes: [{ field: 'dueDate', from: null, to: '2026-10-24' }] });
+    // KPIs: a date the new project filled in is marked automatic (no one's commitment).
+    expect(line.meta).toEqual({ changes: [{ field: 'dueDate', from: null, to: '2026-10-24', auto: true }] });
   });
 
   it('the project’s owner and its named manager manage it too (as do MANAGER members and administrators)', async () => {

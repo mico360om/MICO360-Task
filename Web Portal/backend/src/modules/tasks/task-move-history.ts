@@ -10,8 +10,10 @@ export interface MoveHistoryLine {
 
 /**
  * The history a move writes, oldest first — every repository writes these lines, in this order:
- * - each assignee taken off the task (UNASSIGNED, as when someone is unassigned);
- * - what the move changed (UPDATED: the due date the new project gave it, the milestone cleared);
+ * - each assignee taken off the task (UNASSIGNED, as when someone is unassigned — `released`: whoever moves it
+ *   runs both projects, so the KPIs no longer hold them answerable for it);
+ * - what the move changed (UPDATED: the due date the new project gave it — `auto`, no one's commitment for the
+ *   KPIs — the milestone cleared);
  * - the move itself (PROJECT_CHANGED), the task's newest line;
  * - for the old project, which no longer lists the task's history: where it went
  *   (PROJECT_MOVED_OUT, on no task — people there may not be able to open it any more).
@@ -19,12 +21,12 @@ export interface MoveHistoryLine {
 export function moveHistory(w: ProjectMoveWrite, newKey: string): MoveHistoryLine[] {
   const onTask = (action: string, meta: Record<string, unknown>): MoveHistoryLine => ({ taskId: w.taskId, projectId: w.to.projectId, action, meta });
   const changes = [
-    ...(w.dueDateSet ? [{ field: 'dueDate', from: null, to: w.dueDateSet }] : []),
+    ...(w.dueDateSet ? [{ field: 'dueDate', from: null, to: w.dueDateSet, auto: true }] : []),
     ...(w.patch.isMilestone === false ? [{ field: 'milestone', from: true, to: false }] : []),
     ...(w.patch.clientVisible === false ? [{ field: 'clientVisible', from: true, to: false, reason: 'moved' }] : []),
   ];
   return [
-    ...w.unassign.map((p) => onTask('UNASSIGNED', { assigneeId: p.id, assignee: p.name })),
+    ...w.unassign.map((p) => onTask('UNASSIGNED', { assigneeId: p.id, assignee: p.name, released: true })),
     ...(changes.length > 0 ? [onTask('UPDATED', { changes })] : []),
     onTask('PROJECT_CHANGED', { fromProjectId: w.from.projectId, fromProject: w.from.name, fromKey: w.from.key, toProjectId: w.to.projectId, toProject: w.to.name, toKey: newKey }),
     {

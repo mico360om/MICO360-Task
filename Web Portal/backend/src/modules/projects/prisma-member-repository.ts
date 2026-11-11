@@ -61,8 +61,16 @@ export function createPrismaMemberRepository(prisma: PrismaClient): MemberReposi
         else await tx.projectMember.update({ where: { projectId_userId: { projectId, userId } }, data: { role: change.role as ProjectMemberRole } });
       });
     },
-    async removeTaskLinks(projectId, userId) {
+    async removeTaskLinks(projectId, userId, actorId) {
+      const [on, person] = await Promise.all([
+        prisma.taskAssignee.findMany({ where: { userId, task: { projectId } }, select: { taskId: true } }),
+        prisma.user.findUnique({ where: { id: userId }, select: { firstName: true, lastName: true, username: true } }),
+      ]);
+      const assignee = person ? [person.firstName, person.lastName].filter(Boolean).join(' ').trim() || person.username : userId;
       await prisma.$transaction([
+        ...(on.length
+          ? [prisma.activity.createMany({ data: on.map((a) => ({ taskId: a.taskId, projectId, userId: actorId ?? userId, action: 'UNASSIGNED', meta: { assigneeId: userId, assignee, released: true } })) })]
+          : []),
         prisma.taskAssignee.deleteMany({ where: { userId, task: { projectId } } }),
         prisma.taskWatcher.deleteMany({ where: { userId, task: { projectId } } }),
       ]);

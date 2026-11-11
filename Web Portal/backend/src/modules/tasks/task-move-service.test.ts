@@ -262,7 +262,7 @@ describe('Moving one task', () => {
     expect(r.addedToTeam).toEqual([]);
     expect(w.state.teams.get('ops')!.has('sara')).toBe(false);
     expect(w.find('RIG-4').assigneeList).toEqual([OMAR]);
-    expect(w.state.activity.filter((a) => a.action === 'UNASSIGNED')).toEqual([{ taskId: 't4', projectId: 'ops', userId: 'aisha', action: 'UNASSIGNED', meta: { assigneeId: 'sara', assignee: 'Sara Al Balushi' } }]);
+    expect(w.state.activity.filter((a) => a.action === 'UNASSIGNED')).toEqual([{ taskId: 't4', projectId: 'ops', userId: 'aisha', action: 'UNASSIGNED', meta: { assigneeId: 'sara', assignee: 'Sara Al Balushi', released: true } }]);
   });
 
   it('needs no choice when everyone assigned is on the new team (a choice sent anyway changes nobody)', async () => {
@@ -453,8 +453,8 @@ describe('Numbering, history and changes made meanwhile — as the database does
     w.state.projects.find((p) => p.id === 'ops')!.defaultDueToday = true;
     await w.service.moveTask(aisha, 't4', { projectId: 'ops', assignees: 'UNASSIGN' });
     expect(w.state.activity).toEqual([
-      { taskId: 't4', projectId: 'ops', userId: 'aisha', action: 'UNASSIGNED', meta: { assigneeId: 'sara', assignee: 'Sara Al Balushi' } },
-      { taskId: 't4', projectId: 'ops', userId: 'aisha', action: 'UPDATED', meta: { changes: [{ field: 'dueDate', from: null, to: '2026-10-24' }, { field: 'milestone', from: true, to: false }] } },
+      { taskId: 't4', projectId: 'ops', userId: 'aisha', action: 'UNASSIGNED', meta: { assigneeId: 'sara', assignee: 'Sara Al Balushi', released: true } },
+      { taskId: 't4', projectId: 'ops', userId: 'aisha', action: 'UPDATED', meta: { changes: [{ field: 'dueDate', from: null, to: '2026-10-24', auto: true }, { field: 'milestone', from: true, to: false }] } },
       { taskId: 't4', projectId: 'ops', userId: 'aisha', action: 'PROJECT_CHANGED', meta: { fromProjectId: 'rig', fromProject: 'Rig Inspection', fromKey: 'RIG-4', toProjectId: 'ops', toProject: 'Operations', toKey: 'OPS-17' } },
       // Filed under the old project, not the task (its people may not be able to open it any more).
       { taskId: null, projectId: 'rig', userId: 'aisha', action: 'PROJECT_MOVED_OUT', meta: { key: 'RIG-4', title: 'Inspect the rig', fromProjectId: 'rig', fromProject: 'Rig Inspection', toProjectId: 'ops', toProject: 'Operations', toKey: 'OPS-17' } },

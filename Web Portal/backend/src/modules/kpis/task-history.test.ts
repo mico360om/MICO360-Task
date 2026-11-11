@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { approvalCycles, assignedAt, assignedDuring, baselineAsOf, doneMoment, isDoneNow, judgedPeople, type HistoryEvent, type KpiTask } from './task-history';
+import { approvalCycles, assignedAt, assignedDuring, baselineAsOf, completedMoment, doneMoment, isDoneNow, judgedPeople, responsibleAt, type HistoryEvent, type KpiTask } from './task-history';
 
 const TZ = 'Asia/Muscat';
 const at = (day: string, hhmm = '10:00') => new Date(`${day}T${hhmm}:00+04:00`);
@@ -176,17 +176,17 @@ describe('judgedPeople — on time / late counts for everyone assigned on its du
       assignees: [{ userId: 'bob', assignedAt: at('2026-10-12') }],
       events: [ev('2026-10-01', 'ASSIGNED', 'mgr', { assigneeId: 'ann' }, '08:00'), ev('2026-10-12', 'UNASSIGNED', 'mgr', { assigneeId: 'ann' }), ev('2026-10-12', 'ASSIGNED', 'mgr', { assigneeId: 'bob' })],
     });
-    expect(judgedPeople(t, '2026-10-10', at('2026-10-14'), TZ)).toEqual(['ann']);
+    expect(judgedPeople(t, '2026-10-10', at('2026-10-14'), TZ, RULES)).toEqual(['ann']);
   });
 
   it('finished before its due day: whoever was on it when it was finished', () => {
     const t = task({ assignees: [{ userId: 'ann', assignedAt: at('2026-10-01', '09:00') }] });
-    expect(judgedPeople(t, '2026-10-10', at('2026-10-05'), TZ)).toEqual(['ann']);
+    expect(judgedPeople(t, '2026-10-10', at('2026-10-05'), TZ, RULES)).toEqual(['ann']);
   });
 
   it('several assignees each count', () => {
     const t = task({ assignees: [{ userId: 'ann', assignedAt: at('2026-10-01', '09:00') }, { userId: 'bob', assignedAt: at('2026-10-01', '09:00') }] });
-    expect(judgedPeople(t, '2026-10-10', at('2026-10-11'), TZ).sort()).toEqual(['ann', 'bob']);
+    expect(judgedPeople(t, '2026-10-10', at('2026-10-11'), TZ, RULES).sort()).toEqual(['ann', 'bob']);
   });
 });
 
@@ -213,5 +213,80 @@ describe('approvalCycles', () => {
       ['SENT_BACK', 'mgr'],
       ['APPROVED', 'mgr'],
     ]);
+  });
+});
+
+describe('review fixes: the decision is stamped when the date changes (I1)', () => {
+  const assigned = { assignees: [{ userId: 'ann', assignedAt: at('2026-10-01', '09:00') }] };
+  const stamped = (by: string, agreed: boolean) => ({ changes: [{ field: 'dueDate', from: '2026-10-10', to: '2026-10-20', agreed }] });
+
+  it('a stamped "agreed" stands whatever the roles are today (a PM who later left still extended it)', () => {
+    const t = task({ ...assigned, dueDate: dueAt('2026-10-20'), events: [ev('2026-10-08', 'UPDATED', 'exmgr', stamped('exmgr', true))] });
+    expect(baselineAsOf(t, at('2026-10-25'), RULES, TZ)).toBe('2026-10-20');
+  });
+
+  it('a stamped "not agreed" stays out even if that person runs the project today', () => {
+    const t = task({ ...assigned, dueDate: dueAt('2026-10-20'), events: [ev('2026-10-08', 'UPDATED', 'mgr', stamped('mgr', false))] });
+    expect(baselineAsOf(t, at('2026-10-25'), RULES, TZ)).toBe('2026-10-10');
+  });
+
+  it('older lines (no stamp): a runner who was ever on the task can’t extend it — unassign, change, reassign doesn’t work', () => {
+    const t = task({
+      assignees: [{ userId: 'mgr', assignedAt: at('2026-10-09') }],
+      dueDate: dueAt('2026-10-20'),
+      events: [
+        ev('2026-10-01', 'ASSIGNED', 'mgr', { assigneeId: 'mgr' }, '08:00'),
+        ev('2026-10-08', 'UNASSIGNED', 'mgr', { assigneeId: 'mgr' }, '09:00'),
+        ev('2026-10-08', 'UPDATED', 'mgr', { changes: [{ field: 'dueDate', from: '2026-10-10', to: '2026-10-20' }] }, '09:05'),
+        ev('2026-10-09', 'ASSIGNED', 'mgr', { assigneeId: 'mgr' }),
+      ],
+    });
+    expect(baselineAsOf(t, at('2026-10-25'), RULES, TZ)).toBe('2026-10-10');
+  });
+});
+
+describe('review fixes: taking yourself off doesn’t escape (I2)', () => {
+  it('someone who removed themselves stays responsible: judged on the due day, overdue at the end', () => {
+    const t = task({ dueDate: dueAt('2026-10-10'), events: [ev('2026-10-01', 'ASSIGNED', 'mgr', { assigneeId: 'ann' }, '08:00'), ev('2026-10-09', 'UNASSIGNED', 'ann', { assigneeId: 'ann' })] });
+    expect(responsibleAt(t, at('2026-10-15'), RULES)).toEqual(['ann']);
+    expect(judgedPeople(t, '2026-10-10', at('2026-10-14'), TZ, RULES)).toEqual(['ann']);
+    // …but nobody "completed" it for her.
+    expect(assignedAt(t, at('2026-10-14'))).toEqual([]);
+  });
+
+  it('a colleague taking them off doesn’t release them either; whoever runs the project does (stamped or not)', () => {
+    const off = (by: string, meta: Record<string, unknown> = {}) =>
+      task({ dueDate: dueAt('2026-10-10'), events: [ev('2026-10-01', 'ASSIGNED', 'mgr', { assigneeId: 'ann' }, '08:00'), ev('2026-10-09', 'UNASSIGNED', by, { assigneeId: 'ann', ...meta })] });
+    expect(responsibleAt(off('bob'), at('2026-10-15'), RULES)).toEqual(['ann']);
+    expect(responsibleAt(off('mgr'), at('2026-10-15'), RULES)).toEqual([]);
+    expect(responsibleAt(off('bob', { released: true }), at('2026-10-15'), RULES)).toEqual([]);
+    expect(responsibleAt(off('mgr', { released: false }), at('2026-10-15'), RULES)).toEqual(['ann']);
+  });
+});
+
+describe('review fixes: automatic due dates are not a commitment (I6)', () => {
+  const assigned = { assignees: [{ userId: 'ann', assignedAt: at('2026-10-01', '09:00') }] };
+  it('a date filled in when the task was made ("new tasks due today"): the first date someone sets replaces it', () => {
+    const t = task({ ...assigned, dueDate: dueAt('2026-10-15'), events: [ev('2026-10-01', 'CREATED', 'ann', { title: 'x', autoDue: true }, '08:00'), ev('2026-10-02', 'UPDATED', 'ann', { changes: [{ field: 'dueDate', from: '2026-10-01', to: '2026-10-15' }] })] });
+    expect(baselineAsOf(t, at('2026-10-20'), RULES, TZ)).toBe('2026-10-15');
+  });
+  it('left as it was, the automatic date stands', () => {
+    const t = task({ ...assigned, dueDate: dueAt('2026-10-01'), events: [ev('2026-10-01', 'CREATED', 'ann', { title: 'x', autoDue: true }, '08:00')] });
+    expect(baselineAsOf(t, at('2026-10-20'), RULES, TZ)).toBe('2026-10-01');
+  });
+  it('a date a move gave it (auto) is replaced by the next one set', () => {
+    const t = task({
+      ...assigned,
+      dueDate: dueAt('2026-10-12'),
+      events: [ev('2026-10-03', 'UPDATED', 'mgr', { changes: [{ field: 'dueDate', from: null, to: '2026-10-03', auto: true }] }), ev('2026-10-04', 'UPDATED', 'ann', { changes: [{ field: 'dueDate', from: '2026-10-03', to: '2026-10-12' }] })],
+    });
+    expect(baselineAsOf(t, at('2026-10-20'), RULES, TZ)).toBe('2026-10-12');
+  });
+});
+
+describe('review fixes: completion counts what is completed, not handed in', () => {
+  it('completedMoment ignores a hand-in; a waiting task is not completed', () => {
+    expect(completedMoment(task({ columnCategory: 'REVIEW', approvalRequestedAt: at('2026-10-04') }))).toBeNull();
+    expect(completedMoment(task({ columnCategory: 'DONE', completedAt: at('2026-10-09'), events: [ev('2026-10-04', 'APPROVAL_REQUESTED', 'ann')] }))).toEqual(at('2026-10-09'));
   });
 });

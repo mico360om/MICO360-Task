@@ -87,15 +87,23 @@ export function createKpiEngine(deps: KpiEngineDeps) {
   /**
    * The facts of these projects from `from` to `to`. `people`: also comments and status changes (update
    * responsiveness) and closed action items (of these projects, and without one when `unprojected`).
+   * `onlyPerson` (review I7): only what one person's KPIs need — the tasks they were ever on or decided,
+   * and the conversations on those tasks or @mentioning them; no project completion.
    */
-  async function load(projects: KpiProjectRow[], from: Date, to: Date, opts: { people?: boolean; actionItemsOf?: string[] | null; unprojected?: boolean } = {}): Promise<Facts> {
+  async function load(projects: KpiProjectRow[], from: Date, to: Date, opts: { people?: boolean; actionItemsOf?: string[] | null; unprojected?: boolean; onlyPerson?: string } = {}): Promise<Facts> {
     const ids = projects.map((p) => p.id);
-    const [tasks, doneBefore, ctx] = await Promise.all([source.windowTasks(ids, from, to), source.doneBefore(ids, from), contextFor(projects)]);
+    const onlyIds = opts.onlyPerson ? await source.personTaskIds(opts.onlyPerson, ids, new Date(from.getTime() - PROMPT_LOOKBACK_DAYS * 86_400_000)) : null;
+    const [tasks, doneBefore, ctx] = await Promise.all([
+      onlyIds ? (onlyIds.length ? source.windowTasks(ids, from, to, { onlyIds }) : Promise.resolve([])) : source.windowTasks(ids, from, to),
+      onlyIds ? Promise.resolve([]) : source.doneBefore(ids, from),
+      contextFor(projects),
+    ]);
     let conversations: Conversation[] = [];
     let actionItems: ClosedActionItem[] = [];
     if (opts.people && ids.length) {
       const lookback = new Date(from.getTime() - PROMPT_LOOKBACK_DAYS * 86_400_000);
-      const items = await source.conversations(ids, lookback, to);
+      const mine = onlyIds ? new Set(onlyIds) : null;
+      const items = (await source.conversations(ids, lookback, to)).filter((i) => !mine || !opts.onlyPerson || mine.has(i.taskId) || i.mentions.includes(opts.onlyPerson));
       const byTask = new Map(tasks.map((t) => [t.id, t]));
       const missing = [...new Set(items.map((i) => i.taskId))].filter((id) => !byTask.has(id));
       for (const t of missing.length ? await source.tasksById(missing) : []) byTask.set(t.id, t);
@@ -108,6 +116,8 @@ export function createKpiEngine(deps: KpiEngineDeps) {
         c.items.push({ at: it.at, userId: it.userId, kind: it.kind, mentions: it.mentions });
       }
       conversations = [...grouped.values()];
+    }
+    if (opts.people && (ids.length || opts.unprojected)) {
       const inScope = new Set(ids);
       actionItems = (await source.closedActionItems(opts.actionItemsOf ?? null, opts.unprojected ? null : ids, from, to)).filter((a) => (a.projectId ? inScope.has(a.projectId) : !!opts.unprojected));
     }

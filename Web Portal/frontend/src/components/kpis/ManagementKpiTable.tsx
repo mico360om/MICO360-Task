@@ -24,7 +24,7 @@ const LIGHT_RANK = { red: 0, amber: 1, green: 2, none: 3, nodata: 4 } as const;
 export function ManagementKpiTable({ filters, today }: { filters: ManagementFilters; today: string }) {
   const [period, setPeriod] = usePeriodParam();
   const [customOpen, setCustomOpen] = useState(false);
-  const q = useQuery({ queryKey: managementKpisKey(filters, period), queryFn: () => kpisApi(apiClient).management(filters, period), placeholderData: keepPreviousData });
+  const q = useQuery({ queryKey: managementKpisKey(filters, period), queryFn: () => kpisApi(apiClient).management(filters, period), placeholderData: keepPreviousData, staleTime: 60_000 });
   // A table only when the answer is one (never a half-read page).
   const data: ManagementKpis | undefined = q.data && Array.isArray(q.data.rows) && q.data.period ? q.data : undefined;
   const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({ key: 'name', desc: false });
@@ -123,10 +123,15 @@ export function ManagementKpiTable({ filters, today }: { filters: ManagementFilt
                     const look = LIGHT_LOOK[f.light];
                     return (
                       <td key={m.metric} className="py-2 pe-3 text-right tabular-nums">
-                        <span className="inline-flex items-center justify-end gap-1.5" title={f.words}>
-                          {f.light === 'green' || f.light === 'amber' || f.light === 'red' ? <span aria-hidden="true" className={`h-2 w-2 flex-none rounded-full ${look.dot}`} /> : null}
+                        {/* Review I8: the light in words under the figure — never colour alone. */}
+                        <span className="inline-flex flex-col items-end">
                           <span className={f.value === null ? 'text-ink-3' : f.light === 'red' || f.light === 'amber' ? `font-semibold ${look.text}` : 'text-ink'}>{formatKpiValue(m.metric, m.unit, f.value)}</span>
-                          {f.words && f.light !== 'nodata' ? <span className="sr-only">, {f.words}</span> : null}
+                          {f.light === 'green' || f.light === 'amber' || f.light === 'red' ? (
+                            <span className={`inline-flex items-center gap-1 text-[11px] font-semibold ${look.text}`}>
+                              <span aria-hidden="true" className={`h-1.5 w-1.5 flex-none rounded-full ${look.dot}`} />
+                              {f.words}
+                            </span>
+                          ) : null}
                         </span>
                       </td>
                     );
@@ -135,6 +140,7 @@ export function ManagementKpiTable({ filters, today }: { filters: ManagementFilt
               ))}
             </tbody>
           </table>
+          <p className="mt-2 text-xs text-ink-2">On target: at or better than the target. Close: within its amber band (10% of the target unless set). Off target: further off. Targets are the company’s unless a project sets its own.</p>
         </div>
       )}
     </section>

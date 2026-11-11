@@ -226,8 +226,8 @@ export interface SnapshotRow {
 export interface SnapshotStore {
   /** Project rows ('' user) or people's rows, of these projects, in these months (or weeks). */
   read(q: { projectIds: string[] | null; userId: string; months?: string[]; weekStarts?: string[] }): Promise<SnapshotRow[]>;
-  /** Replace these projects' rows for these slice days. */
-  replace(projectIds: string[], days: string[], rows: SnapshotRow[]): Promise<void>;
+  /** Replace these projects' rows of these whole months (review I5: whatever weeks they were cut into before). */
+  replace(projectIds: string[], months: string[], rows: SnapshotRow[]): Promise<void>;
   count(): Promise<number>;
 }
 
@@ -246,10 +246,10 @@ export function createPrismaSnapshotStore(prisma: PrismaClient): SnapshotStore {
       const rows = await prisma.kpiSnapshot.findMany({ where, select: { projectId: true, userId: true, day: true, endDay: true, weekStart: true, month: true, metrics: true, rebuilt: true } });
       return rows.map((r) => ({ ...r, metrics: (r.metrics ?? {}) as Record<string, unknown> }));
     },
-    async replace(projectIds, days, rows) {
-      if (projectIds.length === 0 || days.length === 0) return;
+    async replace(projectIds, months, rows) {
+      if (projectIds.length === 0 || months.length === 0) return;
       await prisma.$transaction(async (tx) => {
-        await tx.kpiSnapshot.deleteMany({ where: { projectId: { in: projectIds }, day: { in: days } } });
+        await tx.kpiSnapshot.deleteMany({ where: { projectId: { in: projectIds }, month: { in: months } } });
         for (let i = 0; i < rows.length; i += SNAP_CHUNK) {
           await tx.kpiSnapshot.createMany({
             data: rows.slice(i, i + SNAP_CHUNK).map((r) => ({ ...r, metrics: r.metrics as Prisma.InputJsonValue })),
@@ -272,8 +272,8 @@ export function createMemorySnapshotStore(): SnapshotStore & { all: SnapshotRow[
         (r) => r.userId === q.userId && (!q.projectIds || q.projectIds.includes(r.projectId)) && (!q.months || q.months.includes(r.month)) && (!q.weekStarts || q.weekStarts.includes(r.weekStart)),
       );
     },
-    async replace(projectIds, days, rows) {
-      for (let i = all.length - 1; i >= 0; i--) if (projectIds.includes(all[i]!.projectId) && days.includes(all[i]!.day)) all.splice(i, 1);
+    async replace(projectIds, months, rows) {
+      for (let i = all.length - 1; i >= 0; i--) if (projectIds.includes(all[i]!.projectId) && months.includes(all[i]!.month)) all.splice(i, 1);
       all.push(...rows);
     },
     async count() {

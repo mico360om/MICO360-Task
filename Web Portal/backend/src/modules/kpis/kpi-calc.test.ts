@@ -220,3 +220,28 @@ describe('countResponses — update responsiveness (call 3)', () => {
     expect(countResponses([c], NOV, ctx).get('p1')?.get('ann') ?? []).toEqual([]);
   });
 });
+
+describe('review fixes in the counting', () => {
+  it('a task due Thursday finished on Friday (a day off) is not late; overdue waits for the next working day', () => {
+    const p = countWindow([done('2026-11-06', { dueDate: dueAt('2026-11-05') })], NOV, ctx).projects.get('p1')!;
+    expect([p.onTime, p.lateCount]).toEqual([1, 0]);
+    const sat = windowOf('2026-11-01', '2026-11-07', TZ, at('2026-11-11'));
+    expect(countWindow([task({ dueDate: dueAt('2026-11-05') })], sat, ctx).projects.get('p1')!.overdue).toBe(0);
+  });
+
+  it('completion counts completed tasks, not ones waiting for approval (as the project’s own figure)', () => {
+    const p = countWindow([task({ columnCategory: 'REVIEW', approvalRequestedAt: at('2026-11-04') }), done('2026-11-03')], NOV, ctx).projects.get('p1')!;
+    expect([p.total, p.done, p.completed]).toEqual([2, 1, 2]);
+  });
+
+  it('taking yourself off an overdue task doesn’t hide it from your "Overdue now"', () => {
+    const t = task({ dueDate: dueAt('2026-11-02'), assignees: [], events: [ev('2026-10-01', 'ASSIGNED', 'mgr', { assigneeId: 'ann' }, '08:00'), ev('2026-11-08', 'UNASSIGNED', 'ann', { assigneeId: 'ann' })] });
+    expect(countWindow([t], NOV, ctx).people.get('p1')!.get('ann')).toMatchObject({ openDue: 1, overdue: 1 });
+  });
+
+  it('an answer counts only for a prompt at most 30 days before the window (live and snapshots alike)', () => {
+    const t = task();
+    const c: Conversation = { task: t, items: [{ at: at('2026-09-20'), userId: 'bob', kind: 'comment', mentions: [] }, { at: at('2026-11-02'), userId: 'ann', kind: 'comment', mentions: [] }] };
+    expect(countResponses([c], NOV, ctx).get('p1')?.get('ann') ?? []).toEqual([]);
+  });
+});

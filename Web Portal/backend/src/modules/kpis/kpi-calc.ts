@@ -21,7 +21,7 @@
 import { workingDaysBetween, workingDaysLate, type WorkCalendar, type WorkHours } from '../../lib/working-days';
 import { dueDayKey, shiftDayKey, zonedDayKey, zonedStartOfDay } from '../../lib/due-date';
 import { effectiveWeight, type WeightDefaults } from '../project-health/completion';
-import { approvalCycles, assignedAt, baselineAsOf, doneMoment, judgedPeople, type BaselineRules, type KpiTask } from './task-history';
+import { approvalCycles, assignedAt, baselineAsOf, completedMoment, doneMoment, judgedPeople, responsibleAt, type BaselineRules, type KpiTask } from './task-history';
 import { median, workingHoursBetween } from './working-time';
 import { countsInKpis } from './kpi-task-scope';
 
@@ -132,15 +132,17 @@ export function countWindow(tasks: readonly KpiTask[], w: CalcWindow, ctx: CalcC
       const doneDay = zonedDayKey(doneAt, tz);
       const baseline = baselineAsOf(t, doneAt, pc.rules, tz);
       if (baseline) {
+        // Late = finished one working day or more after the agreed day (a Thursday task finished on Friday,
+        // a day off, is not late — days late count working days).
         const late = doneDay > baseline ? workingDaysLate(baseline, doneDay, pc.calendar) : 0;
-        const onTime = doneDay <= baseline;
+        const onTime = late === 0;
         p.dueDone += 1;
         if (onTime) p.onTime += 1;
         else {
           p.lateCount += 1;
           p.lateDays += late;
         }
-        for (const u of judgedPeople(t, baseline, doneAt, tz)) {
+        for (const u of judgedPeople(t, baseline, doneAt, tz, pc.rules)) {
           const c = person(t.projectId, u);
           c.dueDone += 1;
           if (onTime) c.onTime += 1;
@@ -166,22 +168,25 @@ export function countWindow(tasks: readonly KpiTask[], w: CalcWindow, ctx: CalcC
       c.approvalHours += hours;
     }
 
-    // At the window's end: existing tasks, open or done by then.
+    // At the window's end: existing tasks, completed by then (the project's own completion rule: a task
+    // waiting for approval is not complete), and open work (a handed-in task is no work in hand).
     if (ms(t.createdAt) >= ms(w.to)) continue;
     const weight = effectiveWeight(t, pc.weights);
     p.total += 1;
     p.weightTotal += weight;
-    if (doneByEnd) {
+    const completed = completedMoment(t);
+    if (completed && ms(completed) < ms(w.to)) {
       p.done += 1;
       p.weightDone += weight;
-      continue;
     }
+    if (doneByEnd) continue;
     const baseline = baselineAsOf(t, endAt, pc.rules, tz);
     if (!baseline) continue;
-    const overdue = baseline < endDay;
+    const overdue = baseline < endDay && workingDaysLate(baseline, endDay, pc.calendar) > 0;
     p.openDue += 1;
     if (overdue) p.overdue += 1;
-    for (const u of assignedAt(t, endAt)) {
+    // Everyone answerable for it then: taking yourself off doesn't hide overdue work (review I2).
+    for (const u of responsibleAt(t, endAt, pc.rules)) {
       const c = person(t.projectId, u);
       c.openDue += 1;
       if (overdue) c.overdue += 1;
@@ -203,8 +208,12 @@ export interface Conversation {
  * @mention of them or someone else's comment on a task assigned to them; a response is their next
  * comment or status change on that task. Prompts while one is waiting don't restart the clock.
  */
+/** A prompt this long before a window may still be answered inside it (the same for live figures and snapshots). */
+export const PROMPT_LOOKBACK_MS = 30 * 86_400_000;
+
 export function countResponses(conversations: readonly Conversation[], w: CalcWindow, ctx: CalcContext): Map<string, Map<string, number[]>> {
   const out = new Map<string, Map<string, number[]>>();
+  const earliest = ms(w.from) - PROMPT_LOOKBACK_MS;
   for (const { task, items } of conversations) {
     const pc = ctx.project(task.projectId);
     const pending = new Map<string, Date>();
@@ -213,7 +222,7 @@ export function countResponses(conversations: readonly Conversation[], w: CalcWi
       const waiting = pending.get(it.userId);
       if (waiting) {
         pending.delete(it.userId);
-        if (inWindow(it.at, w)) {
+        if (inWindow(it.at, w) && ms(waiting) >= earliest) {
           let m = out.get(task.projectId);
           if (!m) out.set(task.projectId, (m = new Map()));
           m.set(it.userId, [...(m.get(it.userId) ?? []), workingHoursBetween(waiting, it.at, ctx.timeZone, pc.calendar, pc.hours)]);

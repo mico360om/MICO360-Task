@@ -66,18 +66,22 @@ export function isDoneNow(t: Pick<KpiTask, 'columnCategory' | 'completedAt'>): b
   return t.columnCategory === 'DONE' || t.completedAt !== null;
 }
 
+/** When it was completed (its completion time, else its last move into Done, else its last change); null unless done now. */
+export function completedMoment(t: KpiTask): Date | null {
+  if (!isDoneNow(t)) return null;
+  if (t.completedAt) return t.completedAt;
+  // A Done column without a completion time (older rows): its last move into Done, else its last change.
+  const last = [...t.events].reverse().find((e) => e.action === 'COMPLETED' || e.action === 'MOVED' || e.action === 'APPROVED');
+  return last?.at ?? t.updatedAt;
+}
+
 /**
  * When the task counted as done for the people doing it: its hand-in for approval (the last one that
  * led to its completion, or the one it is waiting on), else when it was completed. Null while open.
  */
 export function doneMoment(t: KpiTask): Date | null {
-  if (!isDoneNow(t)) return t.approvalRequestedAt;
-  let completed = t.completedAt;
-  if (!completed) {
-    // A Done column without a completion time (older rows): its last move into Done, else its last change.
-    const last = [...t.events].reverse().find((e) => e.action === 'COMPLETED' || e.action === 'MOVED' || e.action === 'APPROVED');
-    completed = last?.at ?? t.updatedAt;
-  }
+  const completed = completedMoment(t);
+  if (!completed) return t.approvalRequestedAt;
   let handIn: Date | null = null;
   for (const e of t.events) {
     if (ms(e.at) > ms(completed)) break;
@@ -89,53 +93,92 @@ export function doneMoment(t: KpiTask): Date | null {
 
 type Interval = { start: number; end: number | null };
 
-/** Worked out once per task (a snapshot rebuild asks about the same task for every slice). */
-const intervalCache = new WeakMap<KpiTask, Map<string, Interval[]>>();
+const who = (e: HistoryEvent) => {
+  const id = (e.meta as { assigneeId?: unknown } | null)?.assigneeId;
+  return typeof id === 'string' ? id : null;
+};
 
-/** Each person's spells on the task (start inclusive, end exclusive; null: still on it). */
-export function assignmentIntervals(t: KpiTask): Map<string, Interval[]> {
-  const hit = intervalCache.get(t);
-  if (hit) return hit;
+/**
+ * Was this taking-off a release (review I2)? Stamped when it happened (`released`); for older lines:
+ * only whoever runs the project or an administrator taking someone ELSE off releases them — someone
+ * taking themselves off, or a colleague taking them off, leaves them answerable for the task.
+ */
+function releases(e: HistoryEvent, rules: BaselineRules): boolean {
+  const stamped = (e.meta as { released?: unknown } | null)?.released;
+  if (typeof stamped === 'boolean') return stamped;
+  return who(e) !== e.userId && (rules.isAdmin(e.userId) || rules.runsProject(e.userId));
+}
+
+/** Spells from the history; `sticky`: a taking-off that isn't a release keeps the spell open. */
+function buildIntervals(t: KpiTask, sticky: ((e: HistoryEvent) => boolean) | null): Map<string, Interval[]> {
   const out = new Map<string, Interval[]>();
-  intervalCache.set(t, out);
   const open = new Map<string, number>();
+  const held = new Set<string>();
   const push = (userId: string, iv: Interval) => out.set(userId, [...(out.get(userId) ?? []), iv]);
-  const who = (e: HistoryEvent) => {
-    const id = (e.meta as { assigneeId?: unknown } | null)?.assigneeId;
-    return typeof id === 'string' ? id : null;
-  };
   for (const e of t.events) {
     if (e.action !== 'ASSIGNED' && e.action !== 'UNASSIGNED') continue;
     const userId = who(e);
     if (!userId) continue;
     if (e.action === 'ASSIGNED') {
       if (!open.has(userId)) open.set(userId, ms(e.at));
+    } else if (sticky && sticky(e)) {
+      // Still answerable: the spell stays open (from its start, else the task's creation).
+      if (!open.has(userId)) open.set(userId, ms(t.createdAt));
+      held.add(userId);
     } else {
       push(userId, { start: open.get(userId) ?? ms(t.createdAt), end: ms(e.at) });
       open.delete(userId);
+      held.delete(userId);
     }
   }
   const current = new Map(t.assignees.map((a) => [a.userId, ms(a.assignedAt)]));
   for (const [userId, start] of open) {
-    // Still on it: from the recorded assignment (or its row's time, if earlier). Taken off without a line: until its last change.
+    // On it now: from the recorded assignment (or its row's time, if earlier). Held by a non-release: open.
+    // Taken off without a line: until its last change.
     if (current.has(userId)) push(userId, { start: Math.min(start, current.get(userId)!), end: null });
+    else if (held.has(userId)) push(userId, { start, end: null });
     else push(userId, { start, end: ms(t.updatedAt) });
   }
   for (const [userId, assignedAtMs] of current) if (!open.has(userId)) push(userId, { start: assignedAtMs, end: null });
   return out;
 }
 
+/** Worked out once per task (a snapshot rebuild asks about the same task for every slice). */
+const intervalCache = new WeakMap<KpiTask, Map<string, Interval[]>>();
+const responsibleCache = new WeakMap<KpiTask, WeakMap<BaselineRules, Map<string, Interval[]>>>();
+
+/** Each person's spells on the task (start inclusive, end exclusive; null: still on it). */
+export function assignmentIntervals(t: KpiTask): Map<string, Interval[]> {
+  let hit = intervalCache.get(t);
+  if (!hit) intervalCache.set(t, (hit = buildIntervals(t, null)));
+  return hit;
+}
+
+/** Each person's spells of being answerable for the task: as assigned, but taking yourself off (or a colleague taking you off) doesn't end it. */
+export function responsibilityIntervals(t: KpiTask, rules: BaselineRules): Map<string, Interval[]> {
+  let byRules = responsibleCache.get(t);
+  if (!byRules) responsibleCache.set(t, (byRules = new WeakMap()));
+  let hit = byRules.get(rules);
+  if (!hit) byRules.set(rules, (hit = buildIntervals(t, (e) => !releases(e, rules))));
+  return hit;
+}
+
+const onAt = (ivs: Map<string, Interval[]>, x: number) => [...ivs].filter(([, list]) => list.some((iv) => iv.start <= x && (iv.end === null || x < iv.end))).map(([u]) => u);
+const onDuring = (ivs: Map<string, Interval[]>, a: number, b: number) => [...ivs].filter(([, list]) => list.some((iv) => iv.start <= b && (iv.end === null || iv.end > a))).map(([u]) => u);
+
 /** The people on the task at an instant. */
 export function assignedAt(t: KpiTask, instant: Date): string[] {
-  const x = ms(instant);
-  return [...assignmentIntervals(t)].filter(([, ivs]) => ivs.some((iv) => iv.start <= x && (iv.end === null || x < iv.end))).map(([u]) => u);
+  return onAt(assignmentIntervals(t), ms(instant));
 }
 
 /** The people on the task at any moment from `from` to `to` (both included). */
 export function assignedDuring(t: KpiTask, from: Date, to: Date): string[] {
-  const a = ms(from);
-  const b = ms(to);
-  return [...assignmentIntervals(t)].filter(([, ivs]) => ivs.some((iv) => iv.start <= b && (iv.end === null || iv.end > a))).map(([u]) => u);
+  return onDuring(assignmentIntervals(t), ms(from), ms(to));
+}
+
+/** The people answerable for the task at an instant (overdue counts for them). */
+export function responsibleAt(t: KpiTask, instant: Date, rules: BaselineRules): string[] {
+  return onAt(responsibilityIntervals(t, rules), ms(instant));
 }
 
 /** The first moment anyone was put on the task (null: never). */
@@ -145,12 +188,23 @@ function firstAssigned(t: KpiTask): number | null {
   return first;
 }
 
+/** Was this person ever on the task up to an instant? */
+function everOn(t: KpiTask, userId: string, instant: Date): boolean {
+  return (assignmentIntervals(t).get(userId) ?? []).some((iv) => iv.start <= ms(instant));
+}
+
 export interface DueChange {
   at: Date;
   by: string;
   from: string | null;
   to: string | null;
+  /** Stamped when it was made: an agreed change (an extension) or not; absent on older lines. */
+  agreed?: boolean;
+  /** A date the system filled in (a move to a project whose tasks are due today), not someone's commitment. */
+  auto?: boolean;
 }
+
+const DAY_KEY = /^\d{4}-\d{2}-\d{2}$/;
 
 /** The task's recorded due-date changes, oldest first. */
 export function dueChanges(t: KpiTask): DueChange[] {
@@ -159,12 +213,21 @@ export function dueChanges(t: KpiTask): DueChange[] {
     if (e.action !== 'UPDATED') continue;
     const changes = (e.meta as { changes?: unknown } | null)?.changes;
     if (!Array.isArray(changes)) continue;
-    const c = changes.find((x) => (x as { field?: unknown } | null)?.field === 'dueDate') as { from?: unknown; to?: unknown } | undefined;
+    const c = changes.find((x) => (x as { field?: unknown } | null)?.field === 'dueDate') as { from?: unknown; to?: unknown; agreed?: unknown; auto?: unknown } | undefined;
     if (!c) continue;
-    const day = (v: unknown) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null);
-    out.push({ at: e.at, by: e.userId, from: day(c.from), to: day(c.to) });
+    const day = (v: unknown) => (typeof v === 'string' && DAY_KEY.test(v) ? v : null);
+    out.push({ at: e.at, by: e.userId, from: day(c.from), to: day(c.to), ...(typeof c.agreed === 'boolean' ? { agreed: c.agreed } : {}), ...(c.auto === true ? { auto: true } : {}) });
   }
   return out;
+}
+
+/**
+ * Is this due-date change an agreed one (re-baselines)? As stamped when it was made (review I1); for
+ * older lines: an administrator's, or one by whoever runs the project who has never been on the task.
+ */
+export function agreedChange(t: KpiTask, c: DueChange, rules: BaselineRules): boolean {
+  if (c.agreed !== undefined) return c.agreed;
+  return rules.isAdmin(c.by) || (rules.runsProject(c.by) && !everOn(t, c.by, c.at));
 }
 
 /** The agreed due day ('YYYY-MM-DD', company time) as of an instant; null when none was agreed by then. */
@@ -173,29 +236,36 @@ export function baselineAsOf(t: KpiTask, instant: Date, rules: BaselineRules, ti
   if (changes.length === 0) return dueDayKey(t.dueDate, timeZone);
   const assignedFrom = firstAssigned(t);
   let baseline = changes[0]!.from;
+  // A date filled in when the task was made ("new tasks due today") is no one's commitment (review I6).
+  let provisional = t.events.some((e) => e.action === 'CREATED' && (e.meta as { autoDue?: unknown } | null)?.autoDue === true);
   for (const c of changes) {
     if (ms(c.at) > ms(instant)) break;
-    if (assignedFrom === null || ms(c.at) < assignedFrom || baseline === null) {
-      // Planning before anyone was on it, or the first date anyone committed to.
+    if (c.auto) {
       baseline = c.to;
+      provisional = true;
       continue;
     }
-    const agreed = rules.isAdmin(c.by) || (rules.runsProject(c.by) && !assignedAt(t, c.at).includes(c.by));
-    if (agreed) baseline = c.to;
+    if (assignedFrom === null || ms(c.at) < assignedFrom || baseline === null || provisional) {
+      // Planning before anyone was on it, the first date anyone committed to, or the first set after an automatic one.
+      baseline = c.to;
+      provisional = false;
+      continue;
+    }
+    if (agreedChange(t, c, rules)) baseline = c.to;
   }
   return baseline;
 }
 
 /**
- * Who an on-time or late finish counts for (call 2): everyone on the task at any moment of its agreed
- * due day (up to its finish) — so a late task can't be escaped by handing it on; a task finished before
- * its due day counts for whoever was on it when it was finished.
+ * Who an on-time or late finish counts for (call 2): everyone answerable for the task at any moment of
+ * its agreed due day (up to its finish) — so a late task can't be escaped by handing it on or taking
+ * yourself off; a task finished before its due day counts for whoever was on it when it was finished.
  */
-export function judgedPeople(t: KpiTask, baselineDay: string, doneAt: Date, timeZone: string): string[] {
+export function judgedPeople(t: KpiTask, baselineDay: string, doneAt: Date, timeZone: string, rules: BaselineRules): string[] {
   const dayStart = zonedStartOfDay(baselineDay, timeZone);
   if (ms(doneAt) < ms(dayStart)) return assignedAt(t, doneAt);
   const dayEnd = new Date(ms(zonedStartOfDay(shiftDayKey(baselineDay, 1), timeZone)) - 1);
-  return assignedDuring(t, dayStart, ms(doneAt) < ms(dayEnd) ? doneAt : dayEnd);
+  return onDuring(responsibilityIntervals(t, rules), ms(dayStart), Math.min(ms(doneAt), ms(dayEnd)));
 }
 
 export interface ApprovalCycle {

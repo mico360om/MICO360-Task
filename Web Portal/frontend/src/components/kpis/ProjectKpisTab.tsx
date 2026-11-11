@@ -77,7 +77,7 @@ export function ProjectKpisTab({ projectId, onOpenTask }: { projectId: string; o
   const [period, setPeriod] = usePeriodParam();
   const [customOpen, setCustomOpen] = useState(false);
   const timeZone = useCompanyTimeZone();
-  const q = useQuery({ queryKey: projectKpisKey(projectId, period), queryFn: () => kpisApi(apiClient).project(projectId, period), placeholderData: keepPreviousData, refetchOnWindowFocus: true });
+  const q = useQuery({ queryKey: projectKpisKey(projectId, period), queryFn: () => kpisApi(apiClient).project(projectId, period), placeholderData: keepPreviousData, refetchOnWindowFocus: true, staleTime: 30_000 });
   const data = q.data;
   const [sheet, setSheet] = useState<KpiTile | null>(null);
   const opener = useRef<HTMLElement | null>(null);

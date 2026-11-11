@@ -28,7 +28,7 @@ async function main(): Promise<void> {
     const holidays: Holiday[] = companyId ? await prisma.companyHoliday.findMany({ where: { companyId }, select: { day: true, name: true, recurring: true } }) : [];
     return { calendar: { workingDays: hours.days, holidays }, hours: { start: hours.start, end: hours.end } };
   };
-  const source = createPrismaKpiSource(prisma);
+  const source = createPrismaKpiSource(prisma, timeZone);
   const engine = createKpiEngine({ source, timeZone, rules });
   const job = createSnapshotJob({
     engine,

@@ -4,7 +4,8 @@ import type { ProjectStatus } from '../management/management-rules';
 import { weightDefaultsOf, type CompletionMode } from '../project-health/completion';
 import { matchMentions } from '../tasks/mentions';
 import { STAFF_ONLY_WHERE } from '../clients/client-kind';
-import { KPI_TASK_WHERE } from './kpi-task-scope';
+import { KPI_OPEN_TASK_WHERE, KPI_TASK_WHERE } from './kpi-task-scope';
+import { dueDayKey } from '../../lib/due-date';
 import type { ConversationItem, KpiPerson, KpiProjectRow, KpiSource } from './kpi-source';
 import type { HistoryEvent, KpiPriority, KpiTask } from './task-history';
 
@@ -17,7 +18,7 @@ import type { HistoryEvent, KpiPriority, KpiTask } from './task-history';
  */
 
 /** The timeline lines a task's KPIs read: due-date edits, people on and off it, approvals and moves. */
-export const KPI_ACTIONS = ['UPDATED', 'ASSIGNED', 'UNASSIGNED', 'APPROVAL_REQUESTED', 'APPROVED', 'SENT_BACK', 'APPROVAL_WITHDRAWN', 'COMPLETED', 'REOPENED', 'MOVED'] as const;
+export const KPI_ACTIONS = ['CREATED', 'UPDATED', 'ASSIGNED', 'UNASSIGNED', 'APPROVAL_REQUESTED', 'APPROVED', 'SENT_BACK', 'APPROVAL_WITHDRAWN', 'COMPLETED', 'REOPENED', 'MOVED'] as const;
 /** A status change by someone answers what was waiting for them (update responsiveness). */
 export const STATUS_ACTIONS = ['MOVED', 'COMPLETED', 'REOPENED', 'APPROVAL_REQUESTED', 'APPROVED', 'SENT_BACK', 'APPROVAL_WITHDRAWN'] as const;
 const MOVES = ['MOVED', 'REOPENED', 'SENT_BACK'];
@@ -79,10 +80,27 @@ export function kpiReads(prisma: PrismaClient) {
         },
       });
     },
-    windowTasks(ids: string[], from: Date, to: Date) {
+    windowTasks(ids: string[], from: Date, to: Date, onlyIds?: string[]) {
       return prisma.task.findMany({
-        where: { ...KPI_TASK_WHERE, projectId: { in: ids }, createdAt: { lt: to }, OR: [{ completedAt: null }, { completedAt: { gte: from } }] },
+        where: { ...KPI_TASK_WHERE, projectId: { in: ids }, ...(onlyIds ? { id: { in: onlyIds } } : {}), createdAt: { lt: to }, OR: [{ completedAt: null }, { completedAt: { gte: from } }] },
         select: taskSelect,
+      });
+    },
+    /** A person's tasks in these projects: on them now, or named in their ASSIGNED / UNASSIGNED lines. */
+    assignedNow(userId: string, ids: string[]) {
+      return prisma.taskAssignee.findMany({ where: { userId, task: { ...KPI_TASK_WHERE, projectId: { in: ids } } }, select: { taskId: true } });
+    },
+    assignmentLines(ids: string[]) {
+      return prisma.activity.findMany({ where: { projectId: { in: ids }, action: { in: ['ASSIGNED', 'UNASSIGNED'] }, taskId: { not: null } }, select: { taskId: true, meta: true } });
+    },
+    decided(userId: string, ids: string[], from: Date) {
+      return prisma.activity.findMany({ where: { userId, projectId: { in: ids }, action: { in: ['APPROVED', 'SENT_BACK', 'COMPLETED'] }, createdAt: { gte: from }, taskId: { not: null } }, select: { taskId: true } });
+    },
+    /** Merges into these tasks (not undone): the lines and people they moved over, and what they changed. */
+    merges(taskIds: string[]) {
+      return prisma.taskMerge.findMany({
+        where: { mainTaskId: { in: taskIds }, undoneAt: null },
+        select: { mainTaskId: true, mergedAt: true, mergedById: true, changes: true, items: { where: { kind: { in: ['activity', 'assignee'] } }, select: { kind: true, rowId: true } } },
       });
     },
     tasksById(ids: string[]) {
@@ -91,7 +109,7 @@ export function kpiReads(prisma: PrismaClient) {
     events(taskIds: string[]) {
       return prisma.activity.findMany({
         where: { taskId: { in: taskIds }, action: { in: [...KPI_ACTIONS] } },
-        select: { taskId: true, action: true, userId: true, meta: true, createdAt: true },
+        select: { id: true, taskId: true, action: true, userId: true, meta: true, createdAt: true },
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       });
     },
@@ -131,16 +149,16 @@ export function kpiReads(prisma: PrismaClient) {
     },
     blocked(ids: string[]) {
       return prisma.task.findMany({
-        where: { ...KPI_TASK_WHERE, projectId: { in: ids }, completedAt: null, approvalRequestedAt: null, column: { category: 'BLOCKED' } },
+        where: { ...KPI_OPEN_TASK_WHERE, projectId: { in: ids }, completedAt: null, approvalRequestedAt: null, column: { category: 'BLOCKED' } },
         select: { id: true, key: true, title: true, projectId: true, updatedAt: true, assignees: { select: { userId: true } } },
       });
     },
     lastMoves(taskIds: string[]) {
       return prisma.activity.groupBy({ by: ['taskId'], where: { taskId: { in: taskIds }, action: { in: MOVES } }, _max: { createdAt: true } });
     },
-    meetings(userId: string, from: Date, to: Date) {
+    meetings(userId: string, from: Date, to: Date, projectIds?: string[]) {
       return prisma.meetingAttendee.findMany({
-        where: { userId, response: { not: 'DECLINED' }, meeting: { deletedAt: null, status: { not: 'CANCELLED' }, startAt: { gte: from, lt: to } } },
+        where: { userId, response: { not: 'DECLINED' }, meeting: { deletedAt: null, status: { not: 'CANCELLED' }, startAt: { gte: from, lt: to }, ...(projectIds ? { projectId: { in: projectIds } } : {}) } },
         select: { meeting: { select: { startAt: true, endAt: true } } },
       });
     },
@@ -149,7 +167,7 @@ export function kpiReads(prisma: PrismaClient) {
         by: ['userId'],
         where: {
           userId: { in: userIds },
-          task: { ...KPI_TASK_WHERE, completedAt: null, approvalRequestedAt: null, column: { category: { not: 'DONE' } }, ...(projectIds ? { projectId: { in: projectIds } } : {}) },
+          task: { ...KPI_OPEN_TASK_WHERE, completedAt: null, approvalRequestedAt: null, column: { category: { not: 'DONE' } }, ...(projectIds ? { projectId: { in: projectIds } } : {}) },
         },
         _count: { _all: true },
       });
@@ -170,6 +188,11 @@ export async function kpiProbe(prisma: PrismaClient, nowhere: string): Promise<v
   const to = new Date('2026-02-01T00:00:00.000Z');
   await r.projects([nowhere]);
   await r.windowTasks([nowhere], from, to);
+  await r.windowTasks([nowhere], from, to, [nowhere]);
+  await r.assignedNow(nowhere, [nowhere]);
+  await r.assignmentLines([nowhere]);
+  await r.decided(nowhere, [nowhere], from);
+  await r.merges([nowhere]);
   await r.tasksById([nowhere]);
   await r.events([nowhere]);
   await r.doneBefore([nowhere], to);
@@ -180,6 +203,7 @@ export async function kpiProbe(prisma: PrismaClient, nowhere: string): Promise<v
   await r.blocked([nowhere]);
   await r.lastMoves([nowhere]);
   await r.meetings(nowhere, from, to);
+  await r.meetings(nowhere, from, to, [nowhere]);
   await r.openTaskCounts([nowhere], [nowhere]);
   await prisma.kpiSnapshot.findFirst({ where: { projectId: nowhere }, select: { id: true } });
   await prisma.kpiTarget.findFirst({ where: { scopeKey: nowhere }, select: { id: true } });
@@ -188,19 +212,41 @@ export async function kpiProbe(prisma: PrismaClient, nowhere: string): Promise<v
 
 type TaskRow = Prisma.TaskGetPayload<{ select: typeof taskSelect }>;
 
-export function createPrismaKpiSource(prisma: PrismaClient): KpiSource {
+export function createPrismaKpiSource(prisma: PrismaClient, timeZone = 'Asia/Muscat'): KpiSource {
   const r = kpiReads(prisma);
 
   async function withHistory(rows: TaskRow[]): Promise<KpiTask[]> {
     const byTask = new Map<string, HistoryEvent[]>();
+    // Review I4: a merge moved the merged tasks' lines and people onto the main task — they are not the
+    // main task's own history: its lines are left out, its people start at the merge, and the due date
+    // the merge chose is a change by whoever merged, at that moment.
+    const movedLines = new Set<string>();
+    const joinedAt = new Map<string, Map<string, Date>>();
+    const merged = new Map<string, HistoryEvent[]>();
     for (const ids of chunks(rows.map((t) => t.id))) {
+      for (const m of await r.merges(ids)) {
+        for (const it of m.items) {
+          if (it.kind === 'activity') movedLines.add(it.rowId);
+          else {
+            const people = joinedAt.get(m.mainTaskId) ?? new Map<string, Date>();
+            people.set(it.rowId, m.mergedAt);
+            joinedAt.set(m.mainTaskId, people);
+          }
+        }
+        const due = (m.changes as Record<string, { before?: unknown; after?: unknown } | undefined> | null)?.dueDate;
+        if (due) {
+          const day = (v: unknown) => (v === null || v === undefined ? null : dueDayKey(v as string, timeZone));
+          merged.set(m.mainTaskId, [...(merged.get(m.mainTaskId) ?? []), { at: m.mergedAt, action: 'UPDATED', userId: m.mergedById, meta: { changes: [{ field: 'dueDate', from: day(due.before), to: day(due.after) }] } }]);
+        }
+      }
       for (const e of await r.events(ids)) {
-        if (!e.taskId) continue;
+        if (!e.taskId || movedLines.has(e.id)) continue;
         const list = byTask.get(e.taskId) ?? [];
         list.push({ at: e.createdAt, action: e.action, userId: e.userId, meta: e.meta });
         byTask.set(e.taskId, list);
       }
     }
+    for (const [taskId, extra] of merged) byTask.set(taskId, [...(byTask.get(taskId) ?? []), ...extra].sort((a, b) => a.at.getTime() - b.at.getTime()));
     return rows.map((t) => ({
       id: t.id,
       key: t.key,
@@ -215,7 +261,10 @@ export function createPrismaKpiSource(prisma: PrismaClient): KpiSource {
       approvalRequestedAt: t.approvalRequestedAt,
       priority: t.priority as KpiPriority,
       weight: t.weight,
-      assignees: t.assignees.map((a) => ({ userId: a.userId, assignedAt: a.assignedAt })),
+      assignees: t.assignees.map((a) => {
+        const joined = joinedAt.get(t.id)?.get(a.userId);
+        return { userId: a.userId, assignedAt: joined && joined > a.assignedAt ? joined : a.assignedAt };
+      }),
       events: byTask.get(t.id) ?? [],
     }));
   }
@@ -247,10 +296,22 @@ export function createPrismaKpiSource(prisma: PrismaClient): KpiSource {
       }
       return out;
     },
-    async windowTasks(projectIds, from, to) {
+    async windowTasks(projectIds, from, to, opts) {
       const rows: TaskRow[] = [];
-      for (const part of chunks([...new Set(projectIds)], 100)) rows.push(...(await r.windowTasks(part, from, to)));
+      if (opts?.onlyIds) {
+        for (const part of chunks([...new Set(opts.onlyIds)])) rows.push(...(await r.windowTasks([...new Set(projectIds)], from, to, part)));
+      } else for (const part of chunks([...new Set(projectIds)], 100)) rows.push(...(await r.windowTasks(part, from, to)));
       return withHistory(rows);
+    },
+    async personTaskIds(userId, projectIds, from) {
+      if (projectIds.length === 0) return [];
+      const out = new Set<string>();
+      for (const part of chunks([...new Set(projectIds)], 100)) {
+        for (const a of await r.assignedNow(userId, part)) out.add(a.taskId);
+        for (const l of await r.assignmentLines(part)) if (l.taskId && (l.meta as { assigneeId?: unknown } | null)?.assigneeId === userId) out.add(l.taskId);
+        for (const d of await r.decided(userId, part, from)) if (d.taskId) out.add(d.taskId);
+      }
+      return [...out];
     },
     async tasksById(ids) {
       const rows: TaskRow[] = [];
@@ -293,8 +354,9 @@ export function createPrismaKpiSource(prisma: PrismaClient): KpiSource {
       for (const part of chunks(rows.map((t) => t.id))) for (const m of await r.lastMoves(part)) if (m.taskId && m._max.createdAt) moved.set(m.taskId, m._max.createdAt);
       return rows.map((t) => ({ id: t.id, key: t.key, title: t.title, projectId: t.projectId, since: moved.get(t.id) ?? t.updatedAt, assigneeIds: t.assignees.map((a) => a.userId) }));
     },
-    async meetings(userId, from, to) {
-      return (await r.meetings(userId, from, to)).map((a) => ({ userId, startAt: a.meeting.startAt, endAt: a.meeting.endAt }));
+    async meetings(userId, from, to, projectIds) {
+      if (projectIds && projectIds.length === 0) return [];
+      return (await r.meetings(userId, from, to, projectIds)).map((a) => ({ userId, startAt: a.meeting.startAt, endAt: a.meeting.endAt }));
     },
     async openTaskCounts(userIds, projectIds) {
       if (userIds.length === 0 || (projectIds && projectIds.length === 0)) return new Map();

@@ -65,7 +65,7 @@ export async function registerMemberRoutes(app: FastifyInstance, deps: MemberRou
   app.delete('/projects/:id/members/:userId', { preHandler: guard.authenticate }, async (req, reply) => {
     const { id, userId } = req.params as { id: string; userId: string };
     await requireManage(req, id);
-    await memberService.removeMember(id, userId, { byAdmin: (req.user!.roles ?? []).includes('ADMIN') });
+    await memberService.removeMember(id, userId, { byAdmin: (req.user!.roles ?? []).includes('ADMIN'), actorId: req.user!.id });
     await logAudit(req, 'member.remove', id, { userId });
     return reply.status(204).send();
   });

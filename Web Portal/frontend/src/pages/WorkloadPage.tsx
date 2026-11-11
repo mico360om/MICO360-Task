@@ -299,7 +299,10 @@ export function WorkloadPage() {
                             <span className="hidden flex-none sm:block"><Avatar name={p.name} src={p.avatarUrl} size="md" /></span>
                             <span className="min-w-0 max-sm:w-[7.5rem]">
                               {/* Project KPIs: the person's performance (yours, or as their manager or an administrator — the rows shown are those you may see). */}
-                              <Link data-person-name to={p.id === myId ? '/performance' : `/performance/${encodeURIComponent(p.id)}`} title={`${p.name}: performance`} className="block truncate font-bold text-ink hover:text-brand hover:underline">{p.name}</Link>
+                              <Link to={p.id === myId ? '/performance' : `/performance/${encodeURIComponent(p.id)}`} title={`${p.name}: performance`} className="block truncate font-bold text-ink hover:text-brand hover:underline [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:leading-[2.75rem]">
+                                <span data-person-name>{p.name}</span>
+                                <span className="sr-only">, open performance</span>
+                              </Link>
                               <span aria-hidden="true" className="mt-1 block h-1.5 w-full overflow-hidden rounded-full bg-ground sm:w-36">
                                 <span className={`block h-full rounded-full ${BAR[bar.tone]}`} style={{ width: `${bar.pct}%` }} />
                               </span>

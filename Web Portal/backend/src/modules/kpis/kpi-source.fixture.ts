@@ -46,9 +46,15 @@ export function createMemoryKpiSource(world: MemoryKpiWorld): KpiSource & { call
       calls.push('projects');
       return world.projects.filter((p) => ids.includes(p.id));
     },
-    async windowTasks(projectIds, from, to) {
+    async windowTasks(projectIds, from, to, opts) {
       calls.push('windowTasks');
-      return world.tasks.filter((t) => projectIds.includes(t.projectId) && ms(t.createdAt) < ms(to) && (t.completedAt === null || ms(t.completedAt) >= ms(from)));
+      return world.tasks.filter((t) => projectIds.includes(t.projectId) && (!opts?.onlyIds || opts.onlyIds.includes(t.id)) && ms(t.createdAt) < ms(to) && (t.completedAt === null || ms(t.completedAt) >= ms(from)));
+    },
+    async personTaskIds(userId, projectIds) {
+      calls.push('personTaskIds');
+      return world.tasks
+        .filter((t) => projectIds.includes(t.projectId) && (t.assignees.some((a) => a.userId === userId) || t.events.some((e) => ((e.meta as { assigneeId?: unknown } | null)?.assigneeId === userId) || ((e.action === 'APPROVED' || e.action === 'SENT_BACK') && e.userId === userId))))
+        .map((t) => t.id);
     },
     async tasksById(ids) {
       return world.tasks.filter((t) => ids.includes(t.id));
@@ -77,8 +83,8 @@ export function createMemoryKpiSource(world: MemoryKpiWorld): KpiSource & { call
     async blocked(projectIds) {
       return (world.blocked ?? []).filter((b) => projectIds.includes(b.projectId));
     },
-    async meetings(userId, from, to) {
-      return (world.meetings ?? []).filter((m) => m.userId === userId && ms(m.startAt) >= ms(from) && ms(m.startAt) < ms(to));
+    async meetings(userId, from, to, projectIds) {
+      return (world.meetings ?? []).filter((m) => m.userId === userId && ms(m.startAt) >= ms(from) && ms(m.startAt) < ms(to) && (!projectIds || projectIds.includes((m as { projectId?: string }).projectId ?? '')));
     },
     async openTaskCounts(userIds, projectIds) {
       const out = new Map<string, number>();

@@ -120,7 +120,7 @@ export async function registerKpiRoutes(app: FastifyInstance, deps: KpiRouteDeps
   app.get('/kpis/projects/:id/items', auth, async (req) => {
     read(req);
     const id = await visibleProject(req);
-    return { data: await service.projectItems(id, metricOf(req), parsePeriod(req.query)) };
+    return { data: await service.projectItems(viewer(req), id, metricOf(req), parsePeriod(req.query)) };
   });
 
   app.get('/kpis/projects/:id/export.pdf', auth, async (req, reply) => {
@@ -194,8 +194,8 @@ export async function registerKpiRoutes(app: FastifyInstance, deps: KpiRouteDeps
     const pick = await pickOf(req);
     const period = parsePeriod(req.query);
     const t = await service.managementKpis(v, filters, pick, period);
-    const pages = [];
-    for (const r of t.rows) pages.push(await service.projectKpis(v, r.project.id, period));
+    // One read of every project's facts for all the pages (review I7), never one per project.
+    const pages = await service.managementPages(v, filters, pick, period);
     const one = t.rows.length === 1 ? t.rows[0]!.project.id : null;
     const pdf = buildManagementKpiPdf(t, pages, { generatedBy: await nameOf(req), company: await brandOf(req, one) });
     return reply.header('Content-Type', 'application/pdf').header('Content-Disposition', `attachment; filename="${managementKpiFileName(t, 'pdf')}"`).header('Cache-Control', 'no-store').send(pdf);

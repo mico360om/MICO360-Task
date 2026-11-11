@@ -123,3 +123,22 @@ describe('KPI snapshots', () => {
     expect(sep.filter((x) => x.day < '2026-09-15').every((x) => x.rebuilt)).toBe(true);
   });
 });
+
+describe('review fixes in the snapshots', () => {
+  it('a week start changed between runs: the months are replaced whole, never doubled (I5)', async () => {
+    const s = setup('2026-11-11', [done('2026-10-05', '2026-10-06'), done('2026-10-20', '2026-10-21')]);
+    await s.job.run();
+    const before = sumSlices(s.store.all.filter((x) => x.month === '2026-10' && x.userId === '')).counters.completed;
+    // Monday weeks from now on: the nightly run cuts October differently.
+    const job = createSnapshotJob({ engine: s.engine, source: s.source, store: s.store, state: { get: async () => s.state(), set: async () => {} }, projectIds: async () => ['p1'], weekStart: async () => 1, timeZone: TZ, now: () => at('2026-11-12', '02:00') });
+    await job.run();
+    expect(sumSlices(s.store.all.filter((x) => x.month === '2026-10' && x.userId === '')).counters.completed).toBe(before);
+    expect(new Set(s.store.all.filter((x) => x.month === '2026-10' && x.userId === '').map((x) => x.weekStart)).size).toBeGreaterThan(0);
+  });
+
+  it('a person with nothing open at a month’s last slice has nothing overdue then (sumSlices with the last slice day)', () => {
+    const rows = [{ projectId: 'p1', userId: 'ann', day: '2026-10-04', endDay: '2026-10-10', weekStart: '2026-10-04', month: '2026-10', rebuilt: false, metrics: { openDue: 1, overdue: 1 } }];
+    expect(sumSlices(rows).counters.overdue).toBe(1);
+    expect(sumSlices(rows, '2026-10-25').counters.overdue).toBe(0);
+  });
+});

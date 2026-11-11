@@ -28,7 +28,7 @@ export interface KpiReminderDeps {
   projectsDue(month: string): Promise<DueProject[]>;
   rules(companyId: string | null): Promise<{ calendar: WorkCalendar; hours: WorkHours }>;
   keys: { existing(keys: string[]): Promise<Set<string>>; addMany(keys: string[]): Promise<void> };
-  notify(n: { userId: string; type: string; title: string; body: string | null; entityType: string | null; entityId: string | null }): Promise<unknown>;
+  notify(n: { userId: string; type: string; title: string; body: string | null; entityType: string | null; entityId: string | null; projectId: string | null }): Promise<unknown>;
   timeZone: string;
   now?: () => Date;
 }
@@ -55,7 +55,7 @@ export function createKpiValuesReminder(deps: KpiReminderDeps) {
         // Recorded first: a notice that fails is not tried again and again.
         await deps.keys.addMany(due.map((u) => `np:kpi-values:${p.projectId}:${month}:${u}`));
         for (const userId of due) {
-          await deps.notify({ userId, type: KPI_VALUES_TYPE, title: `Time to enter ${MONTH_NAMES[Number(month.slice(5, 7)) - 1]}’s KPI values`, body: `${p.name}: ${listWords(p.missing)}`, entityType: 'project-kpis', entityId: p.projectId });
+          await deps.notify({ userId, type: KPI_VALUES_TYPE, title: `Time to enter ${MONTH_NAMES[Number(month.slice(5, 7)) - 1]}’s KPI values`, body: `${p.name}: ${listWords(p.missing)}`, entityType: 'project-kpis', entityId: p.projectId, projectId: p.projectId });
           sent += 1;
         }
       }

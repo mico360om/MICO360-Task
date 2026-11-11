@@ -170,6 +170,7 @@ export function PeriodPicker({ value, onChange, today, customOpen, onCustomOpen 
 /** One KPI: its figure, light in words, target, the facts behind it and its trend; a button when a list is behind it. */
 export function KpiTileCard({ tile, points, onOpen }: { tile: KpiTile; points: TrendPoint[]; onOpen?: (tile: KpiTile, from: HTMLElement) => void }) {
   const value = kpiValue(tile);
+  const describedBy = useId();
   const body = (
     <>
       <span className="flex items-start justify-between gap-2">
@@ -177,8 +178,10 @@ export function KpiTileCard({ tile, points, onOpen }: { tile: KpiTile; points: T
         <LightMark light={tile.light} words={tile.words} />
       </span>
       <span className={`mt-1 block font-display text-2xl font-bold tabular-nums ${tile.value === null ? 'text-ink-3' : 'text-ink'}`}>{value}</span>
-      <span className="block text-xs text-ink-2">{tile.target !== null || tile.targetSource !== 'default' || tile.light !== 'none' ? `Target: ${kpiTarget(tile)}` : tile.help}</span>
-      {tile.detail ? <span className="mt-0.5 block text-xs text-ink-2">{tile.detail}</span> : null}
+      <span id={describedBy} className="block">
+        <span className="block text-xs text-ink-2">{tile.target !== null || tile.targetSource !== 'default' || tile.light !== 'none' ? `Target: ${kpiTarget(tile)}` : tile.help}</span>
+        {tile.detail ? <span className="mt-0.5 block text-xs text-ink-2">{tile.detail}</span> : null}
+      </span>
       <span className="mt-2 block" title={trendWords(tile, points)}>
         <Sparkline values={tile.trend} light={tile.light === 'none' || tile.light === 'nodata' ? 'none' : tile.light} />
         <span className="sr-only">{trendWords(tile, points)}</span>
@@ -188,7 +191,7 @@ export function KpiTileCard({ tile, points, onOpen }: { tile: KpiTile; points: T
   const cls = 'card flex h-full min-w-0 flex-col p-4 text-start';
   if (tile.list && onOpen) {
     return (
-      <button type="button" data-kpi={tile.metric} className={`${cls} transition-shadow hover:shadow-lift focus-visible:ring-2 focus-visible:ring-brand/40`} onClick={(e) => onOpen(tile, e.currentTarget)} aria-label={`${tile.label}: ${value}${tile.words ? `, ${tile.words}` : ''}. Show the list`}>
+      <button type="button" data-kpi={tile.metric} className={`${cls} transition-shadow hover:shadow-lift focus-visible:ring-2 focus-visible:ring-brand/40`} onClick={(e) => onOpen(tile, e.currentTarget)} aria-label={`${tile.label}: ${value}${tile.words ? `, ${tile.words}` : ''}. Show the list`} aria-describedby={describedBy}>
         {body}
       </button>
     );

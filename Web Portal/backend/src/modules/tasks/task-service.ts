@@ -111,7 +111,8 @@ export interface TaskServiceDeps {
    */
   onMoved?: (task: TaskRecord, prevColumnId: string, actorId?: string, extra?: MoveExtra) => void | Promise<void>;
   /** Fired after a task is created (activity feed). */
-  onCreated?: (task: TaskRecord) => void | Promise<void>;
+  /** `autoDue`: its due date was filled in by the project's "new tasks due today" (KPIs: no one's commitment). */
+  onCreated?: (task: TaskRecord, info?: { autoDue: boolean }) => void | Promise<void>;
   /** Fired after an edit, with the task before and after it and who made it (activity: what changed). */
   onUpdated?: (before: TaskRecord, after: TaskRecord, actorId?: string) => void | Promise<void>;
   /** Fired before a single task is deleted, while it still exists (a recurring series makes its next copy). */
@@ -267,7 +268,7 @@ export function createTaskService({ tasks, projects, now = () => new Date(), tim
       const key = `${code}-${count + 1 + attempt}`;
       try {
         const created = await tasks.create({ ...data, key });
-        await onCreated?.(created);
+        await onCreated?.(created, { autoDue: !toDueDay(input.dueDate) && !!dueDate });
         // Created waiting (into Done by someone who can't approve): its approvers are told.
         if (waits) await moved(created, created.columnId, input.createdById, { approval: 'REQUESTED' });
         return created;

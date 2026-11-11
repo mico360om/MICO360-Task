@@ -11,7 +11,7 @@ import type { MetricKey } from './kpi-defs';
 import type { Facts } from './kpi-engine';
 import type { BlockedTask } from './kpi-source';
 import { countsInKpis } from './kpi-task-scope';
-import { approvalCycles, assignedAt, baselineAsOf, doneMoment, judgedPeople } from './task-history';
+import { approvalCycles, assignedAt, baselineAsOf, doneMoment, judgedPeople, responsibleAt } from './task-history';
 import { workingHoursBetween } from './working-time';
 
 export interface KpiItemRow {
@@ -67,6 +67,7 @@ export function itemsFor(metric: MetricKey, f: Facts, w: CalcWindow, opts: { per
     }
   } else if (metric === 'approvalTurnaround') {
     for (const t of f.tasks) {
+      if (!countsInKpis(t, doneMoment(t) !== null)) continue;
       const pc = f.ctx.project(t.projectId);
       for (const c of approvalCycles(t)) {
         if (!inWindow(c.decidedAt) || (me && c.decidedBy !== me)) continue;
@@ -84,8 +85,9 @@ export function itemsFor(metric: MetricKey, f: Facts, w: CalcWindow, opts: { per
         if (ms(t.createdAt) >= ms(w.to) || (doneAt && ms(doneAt) < ms(w.to))) continue;
         const due = baselineAsOf(t, endAt, pc.rules, tz);
         if (!due || due >= endDay) continue;
-        if (me && !assignedAt(t, endAt).includes(me)) continue;
         const late = workingDaysLate(due, endDay, pc.calendar);
+        if (late === 0) continue;
+        if (me && !responsibleAt(t, endAt, pc.rules).includes(me)) continue;
         rows.push({ ...base(t), due, doneDay: null, days: late, hours: null, detail: `Due ${formatDay(due)} · ${plural(late, 'working day')} late`, tone: 'danger', sort: -late });
         continue;
       }
@@ -101,9 +103,9 @@ export function itemsFor(metric: MetricKey, f: Facts, w: CalcWindow, opts: { per
       } else if (metric === 'onTime' || metric === 'daysLate') {
         const due = baselineAsOf(t, doneAt, pc.rules, tz);
         if (!due) continue;
-        if (me && !judgedPeople(t, due, doneAt, tz).includes(me)) continue;
+        if (me && !judgedPeople(t, due, doneAt, tz, pc.rules).includes(me)) continue;
         const late = doneDay > due ? workingDaysLate(due, doneDay, pc.calendar) : 0;
-        const onTime = doneDay <= due;
+        const onTime = late === 0;
         if (metric === 'daysLate' && onTime) continue;
         rows.push({
           ...base(t),

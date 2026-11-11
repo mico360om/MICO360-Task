@@ -1,6 +1,7 @@
 import type { PrismaClient } from '@prisma/client';
 import { managedVisibleWhere } from '../projects/project-managers';
 import { STAFF_ONLY_WHERE } from '../clients/client-kind';
+import { onlyActiveCompanyId } from '../companies/company-access';
 import type { ProjectAccess } from '../projects/project-access';
 import type { ProjectAuthz } from '../projects/project-authz';
 import type { KpiAccess } from './kpi-service';
@@ -25,14 +26,22 @@ export function createPrismaKpiAccess(prisma: PrismaClient, deps: { projectAcces
       return (await prisma.project.findMany({ where: { deletedAt: null, ...managedVisibleWhere(userId) }, select: { id: true } })).map((p) => p.id);
     },
     async personProjectIds(userId) {
-      const rows = await prisma.project.findMany({
-        where: {
-          deletedAt: null,
-          OR: [{ ownerId: userId }, { managerId: userId }, { members: { some: { userId } } }, { tasks: { some: { deletedAt: null, assignees: { some: { userId } } } } }],
-        },
-        select: { id: true },
-      });
-      return rows.map((p) => p.id);
+      // Review I3: someone taken off a project keeps their record there — where they worked (their own
+      // timeline lines) and where their KPIs were stored count too. A manager still sees only their own projects.
+      const [on, worked, stored] = await Promise.all([
+        prisma.project.findMany({
+          where: {
+            deletedAt: null,
+            OR: [{ ownerId: userId }, { managerId: userId }, { members: { some: { userId } } }, { tasks: { some: { deletedAt: null, assignees: { some: { userId } } } } }],
+          },
+          select: { id: true },
+        }),
+        prisma.activity.groupBy({ by: ['projectId'], where: { userId, projectId: { not: null }, taskId: { not: null } } }),
+        prisma.kpiSnapshot.groupBy({ by: ['projectId'], where: { userId } }),
+      ]);
+      const extra = [...worked.map((w) => w.projectId), ...stored.map((s) => s.projectId)].filter((id): id is string => !!id);
+      const live = extra.length ? (await prisma.project.findMany({ where: { id: { in: [...new Set(extra)] }, deletedAt: null }, select: { id: true } })).map((p) => p.id) : [];
+      return [...new Set([...on.map((p) => p.id), ...live])];
     },
     async person(userId) {
       const u = await prisma.user.findFirst({
@@ -40,7 +49,9 @@ export function createPrismaKpiAccess(prisma: PrismaClient, deps: { projectAcces
         select: { id: true, firstName: true, lastName: true, username: true, avatarUrl: true, status: true, primaryCompanyId: true, companies: { select: { companyId: true }, orderBy: [{ addedAt: 'asc' }, { companyId: 'asc' }], take: 1 } },
       });
       if (!u) return null;
-      return { id: u.id, name: nameOf(u), avatarUrl: u.avatarUrl, companyId: u.primaryCompanyId ?? u.companies[0]?.companyId ?? null, active: u.status === 'ACTIVE' };
+      // Targets: their primary company's, else their first company's, else (one company on the site) that one's.
+      const companyId = u.primaryCompanyId ?? u.companies[0]?.companyId ?? (await onlyActiveCompanyId(prisma));
+      return { id: u.id, name: nameOf(u), avatarUrl: u.avatarUrl, companyId, active: u.status === 'ACTIVE' };
     },
   };
 }

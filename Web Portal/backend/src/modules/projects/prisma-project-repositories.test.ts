@@ -67,14 +67,18 @@ describe('createPrismaProjectRepository.create', () => {
 
 describe('createPrismaMemberRepository', () => {
   it('removes a leaver’s assignments and watches in that project only, in one transaction', async () => {
-    const taskAssignee = { deleteMany: vi.fn((a: unknown) => a) };
+    const taskAssignee = { deleteMany: vi.fn((a: unknown) => a), findMany: vi.fn(async () => [{ taskId: 't1' }]) };
     const taskWatcher = { deleteMany: vi.fn((a: unknown) => a) };
+    const activity = { createMany: vi.fn((a: unknown) => a) };
+    const user = { findUnique: vi.fn(async () => ({ firstName: 'Sara', lastName: 'Ali', username: 'sara' })) };
     const $transaction = vi.fn(async (ops: unknown[]) => ops);
-    const repo = createPrismaMemberRepository({ taskAssignee, taskWatcher, $transaction } as unknown as PrismaClient);
-    await repo.removeTaskLinks!('p1', 'u1');
+    const repo = createPrismaMemberRepository({ taskAssignee, taskWatcher, activity, user, $transaction } as unknown as PrismaClient);
+    await repo.removeTaskLinks!('p1', 'u1', 'mgr');
     expect($transaction).toHaveBeenCalledTimes(1);
     expect(taskAssignee.deleteMany).toHaveBeenCalledWith({ where: { userId: 'u1', task: { projectId: 'p1' } } });
     expect(taskWatcher.deleteMany).toHaveBeenCalledWith({ where: { userId: 'u1', task: { projectId: 'p1' } } });
+    // KPIs: each task they were on says who took them off, and that it released them.
+    expect(activity.createMany).toHaveBeenCalledWith({ data: [{ taskId: 't1', projectId: 'p1', userId: 'mgr', action: 'UNASSIGNED', meta: { assigneeId: 'u1', assignee: 'Sara Ali', released: true } }] });
   });
 
   it('sees implicit access for the owner/manager or an admin — not the creator as such', async () => {

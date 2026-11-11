@@ -28,6 +28,7 @@ import {
   USER_METRICS,
   amberBandOf,
   lightOf,
+  monthEnd,
   monthLabel,
   monthsBack,
   periodOf,
@@ -44,7 +45,7 @@ import {
   type TargetSource,
   type Unit,
 } from './kpi-defs';
-import type { Facts, KpiEngine, SliceCounts } from './kpi-engine';
+import type { KpiEngine, SliceCounts } from './kpi-engine';
 import { ITEMS_LIMIT, LISTED, itemsFor, type KpiItemRow } from './kpi-items';
 import type { KpiPerson, KpiProjectRow, KpiSource, PlannedHoursSource } from './kpi-source';
 import type { CustomDirection, CustomKpi, CustomKpiStore, SnapshotRow, SnapshotStore, TargetStore } from './kpi-stores';
@@ -281,20 +282,6 @@ export function createKpiService(deps: KpiServiceDeps) {
     return weeksBack(today, weekStart, 12).map((w, i, a) => ({ key: w, label: `${Number(w.slice(8))} ${monthLabel(w.slice(0, 7), today).split(' ')[0]}`, current: i === a.length - 1 }));
   }
 
-  /**
-   * Live counts of the current month's slices (and the period), from one read of the facts. The facts
-   * span from the earliest of the period's start and this month's start, up to now.
-   */
-  async function liveFacts(projects: KpiProjectRow[], period: Period, today: string, opts: { people?: boolean; actionItemsOf?: string[] | null; unprojected?: boolean } = {}): Promise<Facts> {
-    const monthStart = `${today.slice(0, 7)}-01`;
-    const from = zonedStartOfDay(period.from < monthStart ? period.from : monthStart, tz);
-    return deps.engine.load(projects, from, now(), opts);
-  }
-
-  function currentMonthSlices(today: string, weekStart: number) {
-    return slicesOf(`${today.slice(0, 7)}-01`, today, weekStart);
-  }
-
   async function targetsFor(companyId: string | null, projectId: string | null): Promise<ResolvedTargets> {
     const keys = ['site', ...(companyId ? [`company:${companyId}`] : []), ...(projectId ? [`project:${projectId}`] : [])];
     return resolveTargets(await deps.targets.rows(keys), { companyId, projectId });
@@ -337,64 +324,92 @@ export function createKpiService(deps: KpiServiceDeps) {
     return projectFigures(c, { weeks, blocked: extra.blocked, progress: extra.progress });
   }
 
-  async function projectKpis(viewer: KpiViewer, projectId: string, ask: PeriodAsk): Promise<ProjectKpis> {
-    const p = await projectRow(projectId);
+  /** The trend's live part starts here: this month, and last month too while it isn't stored yet (the hour after midnight, a failed night). */
+  async function liveStartFor(projectIds: string[], today: string): Promise<string> {
+    const current = today.slice(0, 7);
+    const last = prevMonth(current);
+    const stored = await deps.snapshots.read({ projectIds, userId: '', months: [last] });
+    const missing = projectIds.some((id) => !stored.some((r) => r.projectId === id));
+    return `${missing && projectIds.length ? last : current}-01`;
+  }
+
+  /** The last slice day of a trend point (a month's or a week's), for the point-in-time figures. */
+  function lastSliceDay(kind: 'month' | 'week', key: string, weekStart: number): string {
+    const slices = kind === 'month' ? slicesOf(`${key}-01`, monthEnd(key), weekStart) : slicesOf(key, shiftDay(key, 6), weekStart);
+    return slices.at(-1)!.day;
+  }
+
+  /** Several projects' KPI pages from one read of their facts (the Management PDF: a page each). */
+  async function projectKpisMany(viewer: KpiViewer, projects: KpiProjectRow[], ask: PeriodAsk): Promise<ProjectKpis[]> {
+    if (projects.length === 0) return [];
     const { at, today, weekStart, period } = await periodFor(ask);
     const kind = period.kind === 'week' ? 'week' : 'month';
     const points = trendPoints(kind, today, weekStart);
-    const [facts, blocked, targets, manage] = await Promise.all([
-      liveFacts([p], period, today),
-      deps.source.blocked([p.id]),
-      targetsFor(p.companyId, p.id),
-      deps.access.canManageProject(viewer.id, viewer.roles, p.id),
+    const ids = projects.map((p) => p.id);
+    const liveStart = await liveStartFor(ids, today);
+    const liveMonth = liveStart.slice(0, 7);
+    const [facts, blocked, stored, allTargets, custom] = await Promise.all([
+      deps.engine.load(projects, zonedStartOfDay(period.from < liveStart ? period.from : liveStart, tz), at),
+      deps.source.blocked(ids),
+      deps.snapshots.read({ projectIds: ids, userId: '', ...(kind === 'month' ? { months: points.map((x) => x.key) } : { weekStarts: points.map((x) => x.key) }) }),
+      deps.targets.rows(['site', ...unique(projects.map((p) => p.companyId).filter((c): c is string => !!c)).map((c) => `company:${c}`), ...ids.map((id) => `project:${id}`)]),
+      customViews(ids, today),
     ]);
     const w = windowOf(period.from, period.to, tz, at);
-    const counts = deps.engine.counts(facts, w).projects.get(p.id)!;
-    const oldest = blocked.reduce<Date | null>((a, b) => (!a || b.since < a ? b.since : a), null);
-    const extra = { blocked: blocked.length, oldestDays: oldest ? Math.max(0, Math.round((ms(at) - ms(oldest)) / DAY_MS)) : null, completionPct: counts.completionPct, timeUsedPct: counts.timeUsedPct };
-    const figures = figuresOf(counts, w, { progress: counts.progress, blocked: blocked.length });
-
-    // The trend: stored slices for closed months, the current month's slices live.
-    const live = currentMonthSlices(today, weekStart).map((s) => ({ s, c: deps.engine.counts(facts, windowOf(s.day, s.end, tz, at)).projects.get(p.id)! }));
-    const stored = await deps.snapshots.read({ projectIds: [p.id], userId: '', ...(kind === 'month' ? { months: points.map((x) => x.key) } : { weekStarts: points.map((x) => x.key) }) });
-    const currentMonth = today.slice(0, 7);
-    const trendFigures = points.map((pt) => {
-      const rows = stored.filter((r) => r.month !== currentMonth && (kind === 'month' ? r.month === pt.key : r.weekStart === pt.key));
-      const mine = live.filter((x) => (kind === 'month' ? x.s.month === pt.key : x.s.weekStart === pt.key));
-      if (rows.length === 0 && mine.length === 0) return { rebuilt: false, figures: null as ReturnType<typeof figuresOf> | null };
-      const summed = sumSlices(rows);
-      let c = summed.counters;
-      let days = summed.days;
-      let progress = (summed.last?.progress as number | null | undefined) ?? null;
-      for (const x of mine) {
-        c = addCounters(c, x.c);
-        days += Math.round((Date.parse(`${x.s.end}T12:00:00Z`) - Date.parse(`${x.s.day}T12:00:00Z`)) / DAY_MS) + 1;
-        progress = x.c.progress;
-      }
-      const span = { from: new Date(0), to: new Date(days * DAY_MS) } as CalcWindow;
-      return { rebuilt: summed.rebuilt, figures: figuresOf(c, span, { progress, blocked: pt.current ? blocked.length : null }) };
-    });
-
-    const custom = await customViews([p.id], today);
-    return {
-      project: { ...projectOf(p), status: p.status, archived: p.archived, companyId: p.companyId },
-      period,
-      today,
-      timeZone: tz,
-      generatedAt: at.toISOString(),
-      trend: { kind, points: points.map((pt, i) => ({ ...pt, rebuilt: trendFigures[i]!.rebuilt })) },
-      tiles: PROJECT_METRICS.map((m) =>
-        tile(
-          m,
-          figures[m as keyof typeof figures] as number | null,
-          targets,
-          projectDetail(m, counts, extra),
-          trendFigures.map((t) => (t.figures ? (t.figures[m as keyof typeof t.figures] as number | null) : null)),
+    const periodCounts = deps.engine.counts(facts, w);
+    const live = slicesOf(liveStart, today, weekStart).map((s) => ({ s, counts: deps.engine.counts(facts, windowOf(s.day, s.end, tz, at)) }));
+    const out: ProjectKpis[] = [];
+    for (const p of projects) {
+      const mineBlocked = blocked.filter((b) => b.projectId === p.id);
+      const counts = periodCounts.projects.get(p.id)!;
+      const oldest = mineBlocked.reduce<Date | null>((a, b) => (!a || b.since < a ? b.since : a), null);
+      const extra = { blocked: mineBlocked.length, oldestDays: oldest ? Math.max(0, Math.round((ms(at) - ms(oldest)) / DAY_MS)) : null, completionPct: counts.completionPct, timeUsedPct: counts.timeUsedPct };
+      const figures = figuresOf(counts, w, { progress: counts.progress, blocked: mineBlocked.length });
+      const targets = resolveTargets(allTargets, { companyId: p.companyId, projectId: p.id });
+      // The trend: stored slices before the live part, then the live slices.
+      const trendFigures = points.map((pt) => {
+        const rows = stored.filter((r) => r.projectId === p.id && r.month < liveMonth && (kind === 'month' ? r.month === pt.key : r.weekStart === pt.key));
+        const mine = live.filter((x) => (kind === 'month' ? x.s.month === pt.key : x.s.weekStart === pt.key));
+        if (rows.length === 0 && mine.length === 0) return { rebuilt: false, figures: null as ReturnType<typeof figuresOf> | null };
+        const summed = sumSlices(rows);
+        let c = summed.counters;
+        let days = summed.days;
+        let progress = (summed.last?.progress as number | null | undefined) ?? null;
+        for (const x of mine) {
+          c = addCounters(c, x.counts.projects.get(p.id)!);
+          days += Math.round((Date.parse(`${x.s.end}T12:00:00Z`) - Date.parse(`${x.s.day}T12:00:00Z`)) / DAY_MS) + 1;
+          progress = x.counts.projects.get(p.id)!.progress;
+        }
+        const span = { from: new Date(0), to: new Date(days * DAY_MS) } as CalcWindow;
+        return { rebuilt: summed.rebuilt, figures: figuresOf(c, span, { progress, blocked: pt.current ? mineBlocked.length : null }) };
+      });
+      const manage = await deps.access.canManageProject(viewer.id, viewer.roles, p.id);
+      out.push({
+        project: { ...projectOf(p), status: p.status, archived: p.archived, companyId: p.companyId },
+        period,
+        today,
+        timeZone: tz,
+        generatedAt: at.toISOString(),
+        trend: { kind, points: points.map((pt, i) => ({ ...pt, rebuilt: trendFigures[i]!.rebuilt })) },
+        tiles: PROJECT_METRICS.map((m) =>
+          tile(
+            m,
+            figures[m as keyof typeof figures] as number | null,
+            targets,
+            projectDetail(m, counts, extra),
+            trendFigures.map((t) => (t.figures ? (t.figures[m as keyof typeof t.figures] as number | null) : null)),
+          ),
         ),
-      ),
-      custom: custom.get(p.id) ?? [],
-      can: { manage: manage && !p.archived },
-    };
+        custom: custom.get(p.id) ?? [],
+        can: { manage: manage && !p.archived },
+      });
+    }
+    return out;
+  }
+
+  async function projectKpis(viewer: KpiViewer, projectId: string, ask: PeriodAsk): Promise<ProjectKpis> {
+    const [answer] = await projectKpisMany(viewer, [await projectRow(projectId)], ask);
+    return answer!;
   }
 
   async function customViews(projectIds: string[], today: string): Promise<Map<string, CustomKpiView[]>> {
@@ -464,14 +479,18 @@ export function createKpiService(deps: KpiServiceDeps) {
     return m;
   }
 
-  async function projectItems(projectId: string, metric: string, ask: PeriodAsk): Promise<KpiItems> {
+  async function projectItems(viewer: KpiViewer, projectId: string, metric: string, ask: PeriodAsk): Promise<KpiItems> {
     const m = listedMetric(metric, 'project');
     const p = await projectRow(projectId);
+    // Who was late is for whoever runs the project and administrators (owner 2: colleagues never see each
+    // other's record); everyone else who may see the project sees the tasks without names.
+    const named = await deps.access.canManageProject(viewer.id, viewer.roles, p.id);
     const { at, period } = await periodFor(ask);
     const facts = await deps.engine.load([p], zonedStartOfDay(period.from, tz), at);
     const blocked = m === 'blocked' ? await deps.source.blocked([p.id]) : [];
     const w = windowOf(period.from, period.to, tz, at);
-    return itemsAnswer(m, itemsFor(m === 'throughput' ? 'completed' : m, facts, w, { blocked, now: at }), [p]);
+    const rows = itemsFor(m === 'throughput' ? 'completed' : m, facts, w, { blocked, now: at });
+    return itemsAnswer(m, named ? rows : rows.map((r) => ({ ...r, people: [] })), [p]);
   }
 
   // ── The Management page's KPI table ──────────────────────────────────────
@@ -525,9 +544,12 @@ export function createKpiService(deps: KpiServiceDeps) {
     };
   }
 
-  /** The projects for the Management PDF (one page each), in the reader's scope. */
-  async function managementProjectIds(viewer: KpiViewer, f: ManagementFiltersLite, pick: string | null): Promise<string[]> {
-    return (await managementScope(viewer, f, pick)).ids;
+  /** The Management PDF's pages: each project in the reader's scope, from one read of their facts. */
+  async function managementPages(viewer: KpiViewer, f: ManagementFiltersLite, pick: string | null, ask: PeriodAsk): Promise<ProjectKpis[]> {
+    const { ids } = await managementScope(viewer, f, pick);
+    const projects = await deps.source.projects(ids);
+    const collator = new Intl.Collator('en', { numeric: true, sensitivity: 'base' });
+    return projectKpisMany(viewer, projects.sort((a, b) => collator.compare(a.name, b.name)), ask);
   }
 
   // ── A person's KPIs (owner 2) ────────────────────────────────────────────
@@ -548,8 +570,11 @@ export function createKpiService(deps: KpiServiceDeps) {
     return { scope: 'manager', projectIds: shared, unprojected: false, person };
   }
 
-  /** Hours they have in the period: working hours × working days (holidays off), less their meetings. */
-  async function capacity(userId: string, companyId: string | null, period: Period): Promise<{ capacityHours: number; meetingHours: number }> {
+  /**
+   * Hours they have in the period: working hours × working days (holidays off), less their meetings. A
+   * manager's view counts only the meetings of the projects they run (nothing about the rest leaks).
+   */
+  async function capacity(userId: string, companyId: string | null, period: Period, meetingProjects: string[] | null): Promise<{ capacityHours: number; meetingHours: number }> {
     const r = await deps.rules(companyId);
     const dayMinutes = Math.max(0, minutesOfDay(r.hours.end) - minutesOfDay(r.hours.start));
     let days = 0;
@@ -557,7 +582,7 @@ export function createKpiService(deps: KpiServiceDeps) {
     const from = zonedStartOfDay(period.from, tz);
     const to = zonedStartOfDay(shiftDayKey(period.end, 1), tz);
     let meetingMinutes = 0;
-    for (const m of await deps.source.meetings(userId, from, to)) {
+    for (const m of await deps.source.meetings(userId, from, to, meetingProjects ?? undefined)) {
       const end = m.endAt && ms(m.endAt) > ms(m.startAt) ? m.endAt : new Date(ms(m.startAt) + 60 * 60_000);
       meetingMinutes += workingMinutesBetween(m.startAt, end, tz, r.calendar, r.hours);
     }
@@ -573,7 +598,10 @@ export function createKpiService(deps: KpiServiceDeps) {
     const projects = await deps.source.projects(projectIds);
     const ids = projects.map((p) => p.id);
     const inScope = new Set(ids);
-    const facts = await liveFacts(projects, period, today, { people: true, actionItemsOf: [userId], unprojected });
+    const liveStart = await liveStartFor(ids, today);
+    const liveMonth = liveStart.slice(0, 7);
+    // Only what this person's KPIs need (review I7): their tasks, approvals and conversations.
+    const facts = await deps.engine.load(projects, zonedStartOfDay(period.from < liveStart ? period.from : liveStart, tz), at, { people: true, actionItemsOf: [userId], unprojected, onlyPerson: userId });
     const w = windowOf(period.from, period.to, tz, at);
     const mine = sumPeople(deps.engine.counts(facts, w), userId, inScope);
     const periodFrom = zonedStartOfDay(period.from, tz);
@@ -581,23 +609,23 @@ export function createKpiService(deps: KpiServiceDeps) {
     const [openTasks, planned, cap, targets] = await Promise.all([
       deps.source.openTaskCounts([userId], ids),
       deps.planned.plannedHours(userId, scope === 'manager' ? ids : null, periodFrom, periodEnd),
-      capacity(userId, person.companyId, period),
+      capacity(userId, person.companyId, period, scope === 'manager' ? ids : null),
       targetsFor(person.companyId, null),
     ]);
     const workload = { openTasks: openTasks.get(userId) ?? 0, plannedHours: planned === null ? null : Math.round(planned * 10) / 10, capacityHours: cap.capacityHours, meetingHours: cap.meetingHours };
     const workloadPct = planned === null || cap.capacityHours <= 0 ? null : (planned / cap.capacityHours) * 100;
     const figures = userFigures(mine.counters, { responses: mine.responses, actionItems: mine.actionItems, workload: workloadPct });
 
-    // Trend: the person's stored rows in the projects counted; the current month live.
-    const live = currentMonthSlices(today, weekStart).map((s) => ({ s, x: sumPeople(deps.engine.counts(facts, windowOf(s.day, s.end, tz, at)), userId, inScope) }));
-    const stored = await deps.snapshots.read({ projectIds: ids, userId, ...(kind === 'month' ? { months: points.map((x) => x.key) } : { weekStarts: points.map((x) => x.key) }) });
-    const currentMonth = today.slice(0, 7);
+    // Trend: the person's stored rows in the projects counted (and without a project for themselves and
+    // administrators), then the live part.
+    const live = slicesOf(liveStart, today, weekStart).map((s) => ({ s, x: sumPeople(deps.engine.counts(facts, windowOf(s.day, s.end, tz, at)), userId, inScope) }));
+    const stored = await deps.snapshots.read({ projectIds: unprojected ? [...ids, ''] : ids, userId, ...(kind === 'month' ? { months: points.map((x) => x.key) } : { weekStarts: points.map((x) => x.key) }) });
     const trend = points.map((pt) => {
-      const rows: SnapshotRow[] = stored.filter((r) => r.month !== currentMonth && (kind === 'month' ? r.month === pt.key : r.weekStart === pt.key));
+      const rows: SnapshotRow[] = stored.filter((r) => r.month < liveMonth && (kind === 'month' ? r.month === pt.key : r.weekStart === pt.key));
       const lives = live.filter((x) => (kind === 'month' ? x.s.month === pt.key : x.s.weekStart === pt.key));
       if (rows.length === 0 && lives.length === 0) return { rebuilt: false, figures: null as ReturnType<typeof userFigures> | null };
-      // Point in time per project: each project's last slice; summed (sumSlices sums the last day's rows).
-      const summed = sumSlices(rows);
+      // Point in time: the rows of the point's last slice (no row there = nothing open then).
+      const summed = sumSlices(rows, lastSliceDay(kind, pt.key, weekStart));
       let c = summed.counters;
       const responses = [...summed.responses];
       let actionItems = summed.actionItems;
@@ -630,7 +658,7 @@ export function createKpiService(deps: KpiServiceDeps) {
     const { projectIds, unprojected } = await personScope(viewer, userId);
     const { at, period } = await periodFor(ask);
     const projects = await deps.source.projects(projectIds);
-    const facts = await deps.engine.load(projects, zonedStartOfDay(period.from, tz), at, { people: m === 'actionItems', actionItemsOf: [userId], unprojected });
+    const facts = await deps.engine.load(projects, zonedStartOfDay(period.from, tz), at, { people: m === 'actionItems', actionItemsOf: [userId], unprojected, onlyPerson: userId });
     const w = windowOf(period.from, period.to, tz, at);
     return itemsAnswer(m, itemsFor(m, facts, w, { personId: userId, now: at }), projects);
   }
@@ -788,7 +816,7 @@ export function createKpiService(deps: KpiServiceDeps) {
     projectKpis,
     projectItems,
     managementKpis,
-    managementProjectIds,
+    managementPages,
     personKpis,
     personItems,
     personScope,

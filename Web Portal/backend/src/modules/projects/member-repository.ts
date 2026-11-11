@@ -23,8 +23,12 @@ export interface MemberRepository {
    * project's row, so two managers stepping down at once can't both go.
    */
   changeGuarded?(projectId: string, userId: string, change: { remove: true } | { role: ProjectMemberRole }): Promise<void>;
-  /** Drop the user's task assignments and watches in the project, in one transaction. */
-  removeTaskLinks?(projectId: string, userId: string): Promise<void>;
+  /**
+   * Drop the user's task assignments and watches in the project, in one transaction. KPIs: each task they
+   * were on gets an UNASSIGNED line (by `actorId`, else themselves), `released` — whoever runs the project took
+   * them off, so they are no longer answerable for it.
+   */
+  removeTaskLinks?(projectId: string, userId: string, actorId?: string): Promise<void>;
 }
 
 export interface ProjectExistsLookup {

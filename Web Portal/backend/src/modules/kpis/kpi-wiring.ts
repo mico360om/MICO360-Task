@@ -1,6 +1,9 @@
 import type { PrismaClient } from '@prisma/client';
 import type { WorkCalendar, WorkHours } from '../../lib/working-days';
 import { LIVE_PROJECT_WHERE } from '../companies/company-access';
+import { zonedStartOfDay } from '../../lib/due-date';
+import { managedVisibleWhere } from '../projects/project-managers';
+import { nextMonth } from './kpi-defs';
 import { STAFF_ONLY_WHERE } from '../clients/client-kind';
 import { createPrismaManagementSource } from '../management/prisma-management-source';
 import type { ProjectAccess } from '../projects/project-access';
@@ -26,14 +29,14 @@ export interface KpiWiringDeps {
   /** The Calendar's work blocks (planned hours); absent: none yet. */
   planned?: PlannedHoursSource;
   /** A notice through the notification service (Notification & Scheduling delivery). */
-  notify(n: { userId: string; type: string; title: string; body: string | null; entityType: string | null; entityId: string | null }): Promise<unknown>;
+  notify(n: { userId: string; type: string; title: string; body: string | null; entityType: string | null; entityId: string | null; projectId: string | null }): Promise<unknown>;
   logger?: { info(msg: string, meta?: Record<string, unknown>): void };
   now?: () => Date;
 }
 
 /** Project KPIs and User KPIs wired to the database: the service, the snapshot job and the monthly reminder. */
 export function createKpisFromPrisma(prisma: PrismaClient, d: KpiWiringDeps) {
-  const source = createPrismaKpiSource(prisma);
+  const source = createPrismaKpiSource(prisma, d.timeZone);
   const engine = createKpiEngine({ source, timeZone: d.timeZone, rules: d.rules, ...(d.now ? { now: d.now } : {}) });
   const snapshots = createPrismaSnapshotStore(prisma);
   const management = createPrismaManagementSource(prisma, d.timeZone);
@@ -79,7 +82,8 @@ export function createKpisFromPrisma(prisma: PrismaClient, d: KpiWiringDeps) {
   const reminder = createKpiValuesReminder({
     async projectsDue(month): Promise<DueProject[]> {
       const kpis = await prisma.projectKpi.findMany({
-        where: { project: { deletedAt: null, AND: [LIVE_PROJECT_WHERE, { status: { in: ['PLANNING', 'ACTIVE', 'ON_HOLD'] } }] } },
+        // A KPI added this month isn't asked about last month (review minor).
+        where: { createdAt: { lt: zonedStartOfDay(`${nextMonth(month)}-01`, d.timeZone) }, project: { deletedAt: null, AND: [LIVE_PROJECT_WHERE, { status: { in: ['PLANNING', 'ACTIVE', 'ON_HOLD'] } }] } },
         select: {
           name: true,
           projectId: true,
@@ -108,10 +112,22 @@ export function createKpisFromPrisma(prisma: PrismaClient, d: KpiWiringDeps) {
       }
       const due = [...byProject.values()].filter((p) => p.missing.length > 0);
       const everyone = [...new Set(due.flatMap((p) => p.candidates))];
-      const active = new Set(
-        everyone.length ? (await prisma.user.findMany({ where: { id: { in: everyone }, deletedAt: null, status: 'ACTIVE', ...STAFF_ONLY_WHERE }, select: { id: true } })).map((u) => u.id) : [],
-      );
-      return due.map(({ candidates, ...p }) => ({ ...p, runnerIds: candidates.filter((u) => active.has(u)) }));
+      const people = everyone.length
+        ? await prisma.user.findMany({ where: { id: { in: everyone }, deletedAt: null, status: 'ACTIVE', ...STAFF_ONLY_WHERE }, select: { id: true, roles: { select: { role: { select: { name: true } } } } } })
+        : [];
+      const admins = new Set(people.filter((u) => u.roles.some((r) => r.role.name === 'ADMIN')).map((u) => u.id));
+      const active = new Set(people.map((u) => u.id));
+      // Only people who still run AND can see the project (a shared active company), or administrators.
+      const out: DueProject[] = [];
+      for (const { candidates, ...p } of due) {
+        const runners: string[] = [];
+        for (const u of candidates) {
+          if (!active.has(u)) continue;
+          if (admins.has(u) || (await prisma.project.count({ where: { id: p.projectId, ...managedVisibleWhere(u) } })) > 0) runners.push(u);
+        }
+        out.push({ ...p, runnerIds: runners });
+      }
+      return out;
     },
     rules: d.rules,
     keys: {

@@ -55,13 +55,13 @@ export function createMemberService({ repo, projects, onMemberRemoved, people, w
    * taken off its tasks — assignments and watches — so they stop seeing and hearing about its
    * work. Then `onMemberRemoved` cuts access held elsewhere.
    */
-  async function removeMember(projectId: string, userId: string, opts: { byAdmin?: boolean } = {}): Promise<void> {
+  async function removeMember(projectId: string, userId: string, opts: { byAdmin?: boolean; actorId?: string } = {}): Promise<void> {
     await ensureProject(projectId);
     // Someone other than an admin can't take the last person running it off (only an admin could run it then).
     if (!opts.byAdmin && repo.changeGuarded) await repo.changeGuarded(projectId, userId, { remove: true });
     else await repo.remove(projectId, userId);
     const keepsAccess = repo.hasImplicitAccess ? await repo.hasImplicitAccess(projectId, userId) : false;
-    if (!keepsAccess) await repo.removeTaskLinks?.(projectId, userId);
+    if (!keepsAccess) await (opts.actorId ? repo.removeTaskLinks?.(projectId, userId, opts.actorId) : repo.removeTaskLinks?.(projectId, userId));
     await onMemberRemoved?.(projectId, userId);
   }
 

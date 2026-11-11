@@ -263,3 +263,35 @@ describe('MariaDB-safe SQL', () => {
     }
   });
 });
+
+describe('review fixes on the database', () => {
+  it('a merge’s moved-over lines are not the main task’s own history (I4)', async () => {
+    // tB's history: a PM extension 30 days out. Merged into a new main task tA (due -6, finished -2): still late.
+    const tA = await task({ assignee: w.people.ana, due: -6, done: -2, title: 'KPI merge main' });
+    const tB = await task({ assignee: w.people.ana, due: 20, merged: tA, title: 'KPI merge merged' });
+    const moved = await prisma.activity.create({ data: { taskId: tA, projectId: P, userId: w.people.amy, action: 'UPDATED', meta: { changes: [{ field: 'dueDate', from: shiftDayKey(today, -7), to: shiftDayKey(today, 25) }] }, createdAt: at(-15) } });
+    const m = await prisma.taskMerge.create({
+      data: { mainTaskId: tA, mainKeyBefore: 'A', mainKeyAfter: 'A', mainProjectBefore: P, mainProjectAfter: P, taskIds: [{ id: tB, key: 'B' }], changes: {}, summary: {}, mergedById: w.people.amy, mergedAt: at(-3), items: { create: [{ kind: 'activity', rowId: moved.id, fromTaskId: tB }] } },
+    });
+    try {
+      const list = (await app.get(w.as.amy, `/kpis/projects/${P}/items?metric=onTime&${range}`)) as { rows: { id: string; days: number }[] };
+      expect(list.rows.find((r) => r.id === tA)).toMatchObject({ days: 4 });
+    } finally {
+      await prisma.taskMerge.deleteMany({ where: { id: m.id } });
+    }
+  });
+
+  it('someone taken off the project keeps their record there for administrators and its managers (I3); the lines say who released them', async () => {
+    const t = await task({ assignee: w.people.cat, due: -1, title: 'KPI leaver' });
+    await prisma.activity.create({ data: { taskId: t, projectId: P, userId: w.people.cat, action: 'MOVED', meta: {}, createdAt: at(-1) } });
+    const members = (await import('../../src/modules/projects/prisma-member-repository')).createPrismaMemberRepository(prisma);
+    await prisma.projectMember.delete({ where: { projectId_userId: { projectId: P, userId: w.people.cat } } });
+    await members.removeTaskLinks!(P, w.people.cat, w.people.amy);
+    const line = await prisma.activity.findFirst({ where: { taskId: t, action: 'UNASSIGNED' } });
+    expect(line).toMatchObject({ userId: w.people.amy, meta: { assigneeId: w.people.cat, released: true } });
+    const asAdmin = (await app.get(w.as.admin, `/kpis/people/${w.people.cat}?${range}`)) as { projects: { id: string }[] };
+    expect(asAdmin.projects.map((p) => p.id)).toContain(P);
+    const asManager = (await app.get(w.as.amy, `/kpis/people/${w.people.cat}?${range}`)) as { scope: string };
+    expect(asManager.scope).toBe('manager');
+  });
+});

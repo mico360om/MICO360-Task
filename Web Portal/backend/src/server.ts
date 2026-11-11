@@ -101,6 +101,7 @@ import { createUserService } from './modules/users/user-service';
 import { createPrismaUserRepository as createPrismaUserMgmtRepository } from './modules/users/prisma-user-repository';
 import { createNotificationService } from './modules/notifications/notification-service';
 import { createKpisFromPrisma } from './modules/kpis/kpi-wiring';
+import { releaseOf, stampDueChange, type StampDeps } from './modules/kpis/kpi-stamps';
 import { createPrismaNotificationRepository, createPrismaPreferenceStore, createPrismaReminderLogStore, pruneReminderLog } from './modules/notifications/prisma-notification-repository';
 import type { NotificationRecord } from './modules/notifications/notification-repository';
 import { buildDigests } from './modules/notifications/notification-digest';
@@ -417,7 +418,7 @@ async function main(): Promise<void> {
   // Late-bound so moving a task to a DONE column can spawn the next recurring instance (below).
   type TaskRec = import('./modules/tasks/task-repository').TaskRecord;
   let onTaskMoved: (task: TaskRec, prevColumnId: string, actorId?: string, extra?: MoveExtra) => Promise<void> = async () => {};
-  let onTaskCreated: (task: TaskRec) => Promise<void> = async () => {};
+  let onTaskCreated: (task: TaskRec, info?: { autoDue: boolean }) => Promise<void> = async () => {};
   let onTaskDeleting: (task: TaskRec) => Promise<void> = async () => {};
   let onTaskUpdated: (before: TaskRec, after: TaskRec, actorId?: string) => Promise<void> = async () => {};
 
@@ -466,7 +467,7 @@ async function main(): Promise<void> {
     onError: (err, taskId) => logger.error('task approvals: a step after the decision failed', { err, taskId }),
     // A re-opened task goes back to what its checklist says (it was forced to 100% when completed).
     checklistPercent: (taskId) => checklistPercentOf(prisma, taskId),
-    onCreated: (task) => onTaskCreated(task),
+    onCreated: (task, info) => onTaskCreated(task, info),
     onUpdated: (before, after, actorId) => onTaskUpdated(before, after, actorId),
     onDeleting: (task) => onTaskDeleting(task),
     // A task can carry an inspection form (a scheduled check): only a form that is there.
@@ -984,6 +985,18 @@ async function main(): Promise<void> {
   const resolveTaskKeys = createPrismaTaskKeyResolver(prisma);
 
   const activityService = createActivityService({ activities: createPrismaActivityRepository(prisma) });
+  // KPIs (review I1/I2): whether a due-date change is an agreed extension, and whether taking someone off a
+  // task releases them, are decided when it happens (kpis/kpi-stamps) — never by later roles.
+  const kpiManagers = createPrismaProjectManagerLookup(prisma);
+  const kpiStamps: StampDeps = {
+    isAdmin: async (userId) => (await prisma.userRole.count({ where: { userId, role: { name: 'ADMIN' } } })) > 0,
+    runsProject: (userId, projectId) => kpiManagers.managesProject(userId, projectId),
+    everOnTask: async (taskId, userId) => {
+      if ((await prisma.taskAssignee.count({ where: { taskId, userId } })) > 0) return true;
+      const lines = await prisma.activity.findMany({ where: { taskId, action: 'ASSIGNED' }, select: { meta: true } });
+      return lines.some((l) => (l.meta as { assigneeId?: unknown } | null)?.assigneeId === userId);
+    },
+  };
   // Timeline lines from the task's checklist, comment, file and blocker routes: filed under the
   // task's project (so project feeds see them), a blocker named by its key and title.
   const recordTaskActivity: RecordTaskActivity = async ({ taskId, userId, action, meta }) => {
@@ -1042,7 +1055,9 @@ async function main(): Promise<void> {
       prisma.user.findUnique({ where: { id: userId }, select: { username: true, firstName: true, lastName: true } }),
     ]);
     const assignee = u ? [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username : userId;
-    await activityService.record({ taskId, projectId: t?.projectId ?? null, userId: actorId, action: 'UNASSIGNED', meta: { assigneeId: userId, assignee } });
+    // KPIs (review I2): whether this releases them from the task — taking yourself off doesn't.
+    const released = t?.projectId ? await releaseOf({ actorId, assigneeId: userId, projectId: t.projectId }, kpiStamps).catch(() => undefined) : undefined;
+    await activityService.record({ taskId, projectId: t?.projectId ?? null, userId: actorId, action: 'UNASSIGNED', meta: { assigneeId: userId, assignee, ...(released !== undefined ? { released } : {}) } });
   };
 
   // An edit: one activity row listing what changed (old → new), so the timeline can say it.
@@ -1052,14 +1067,17 @@ async function main(): Promise<void> {
     const series = after.recurrenceParentId ?? (after.recurrenceRule ? after.id : null);
     if (series && (before.title !== after.title || before.description !== after.description)) await taskSearchIndex.refreshSeries(series).catch((err) => logger.error('task search: indexing a series failed', { err, taskId: after.id }));
     if (!actorId) return;
-    const meta = updateActivity(before, after, companyTz);
-    if (!meta) return;
+    const updated = updateActivity(before, after, companyTz);
+    if (!updated) return;
+    // KPIs (review I1): a due-date change says, when it is made, whether it is an agreed extension.
+    const meta = await stampDueChange(updated, { actorId, taskId: after.id, projectId: after.projectId }, kpiStamps).catch(() => updated);
     await activityService.record({ taskId: after.id, projectId: after.projectId, userId: actorId, action: 'UPDATED', meta: { ...meta } });
   };
 
-  onTaskCreated = async (task) => {
+  onTaskCreated = async (task, info) => {
     await taskSearchIndex.taskChanged(task.id);
-    await activityService.record({ taskId: task.id, projectId: task.projectId, userId: task.createdById, action: 'CREATED', meta: { title: task.title } });
+    // KPIs: a due date the project filled in ("new tasks due today") is marked — no one's commitment.
+    await activityService.record({ taskId: task.id, projectId: task.projectId, userId: task.createdById, action: 'CREATED', meta: { title: task.title, ...(info?.autoDue ? { autoDue: true } : {}) } });
   };
 
   // On a real stage change: the next copy of a repeating task when it is completed, meeting action
@@ -1862,12 +1880,22 @@ async function main(): Promise<void> {
     notify: (n) => notificationService.notify(n),
     logger: logger.job('kpi-snapshots'),
   });
-  const runKpis = () =>
-    runExclusive(jobLock, 'kpi-snapshots', 30 * 60 * 1000, () => new Date(), async () => {
-      await kpis.job.run();
-      const sent = await kpis.reminder.run();
-      if (sent) logger.job('kpi-snapshots').info('KPIs: monthly value reminders sent', { sent });
-    }).catch(sweepFailed('kpi-snapshots', 'KPI snapshots'));
+  let kpisRunning = false;
+  const runKpis = async () => {
+    if (kpisRunning) return; // a long launch rebuild is still going: never two at once here
+    kpisRunning = true;
+    try {
+      await runExclusive(jobLock, 'kpi-snapshots', 2 * 60 * 60 * 1000, () => new Date(), async () => {
+        await kpis.job.run().catch((err) => {
+          sweepFailed('kpi-snapshots', 'KPI snapshots')(err);
+        });
+        const sent = await kpis.reminder.run();
+        if (sent) logger.job('kpi-snapshots').info('KPIs: monthly value reminders sent', { sent });
+      }).catch(sweepFailed('kpi-snapshots', 'KPI values reminder'));
+    } finally {
+      kpisRunning = false;
+    }
+  };
   jobs.every(60 * 60 * 1000, runKpis, { firstAfterMs: 3 * 60 * 1000 });
 
   const weeklySummaryService = createWeeklySummaryFromPrisma(prisma, {

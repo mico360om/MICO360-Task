@@ -41,8 +41,10 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   behind it and a 6-month trend (12 weeks when you look at a week). Pick this month, a week, a quarter or a
   custom range; click a number to see the tasks behind it; download the KPIs as a one-page PDF or Excel.
 - **On time is judged against the agreed due date**: the date set when the task was assigned. A new date
-  set by whoever runs the project or an administrator is an agreed extension; a change by the assignee
-  doesn't move it. A task needing approval counts as done when it is handed in. Days late are working days.
+  set by whoever runs the project or an administrator is an agreed extension (decided when it is made); a
+  change by the assignee doesn't move it, and taking yourself off a task doesn't take it off your record. A
+  date filled in automatically ("new tasks due today") counts until someone sets the real one. A task needing
+  approval counts as done when it is handed in. Days late are working days.
 - **A project's own KPIs**: whoever runs a project adds KPIs that tasks can't show ("Safety incidents",
   "Budget used %") with a unit, a target and which way is better, and enters each month's value with a
   note; they get a reminder on the first working morning of the month when last month's value is missing.

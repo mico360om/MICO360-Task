@@ -39,6 +39,7 @@ export function PerformancePage() {
     queryKey: personKpisKey(userId, period),
     queryFn: () => (self ? kpisApi(apiClient).me(period) : kpisApi(apiClient).person(userId, period)),
     placeholderData: keepPreviousData,
+    staleTime: 30_000,
     retry: (n, err) => !(err instanceof ApiError && (err.status === 403 || err.status === 404)) && n < 2,
   });
   const data = q.data;

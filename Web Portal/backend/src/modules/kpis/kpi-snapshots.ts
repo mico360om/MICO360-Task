@@ -69,7 +69,7 @@ function personMetrics(c: PersonSlice): Record<string, unknown> | null {
 }
 
 /** Slices summed (counts add; the point-in-time figures are the last slice's). */
-export function sumSlices(rows: readonly SnapshotRow[]): { counters: Counters; last: Record<string, unknown> | null; responses: number[]; actionItems: number; rebuilt: boolean; days: number } {
+export function sumSlices(rows: readonly SnapshotRow[], lastSliceDay?: string): { counters: Counters; last: Record<string, unknown> | null; responses: number[]; actionItems: number; rebuilt: boolean; days: number } {
   const counters = Object.fromEntries(COUNTER_KEYS.map((k) => [k, 0])) as unknown as Counters;
   const sorted = [...rows].sort((a, b) => a.day.localeCompare(b.day));
   const responses: number[] = [];
@@ -81,8 +81,9 @@ export function sumSlices(rows: readonly SnapshotRow[]): { counters: Counters; l
     if (Array.isArray(m.responses)) responses.push(...(m.responses as unknown[]).map(Number));
     actionItems += Number(m.actionItems ?? 0);
   }
-  // Point in time: the last slice's (summed over the rows of that day — several projects).
-  const lastDay = sorted.at(-1)?.day;
+  // Point in time: the last slice's (summed over the rows of that day — several projects). A person's rows
+  // are stored only when something counted: with `lastSliceDay`, no row on that day means nothing then.
+  const lastDay = lastSliceDay ?? sorted.at(-1)?.day;
   for (const r of sorted.filter((x) => x.day === lastDay)) {
     counters.openDue += Number(r.metrics.openDue ?? 0);
     counters.overdue += Number(r.metrics.overdue ?? 0);
@@ -108,7 +109,7 @@ export function createSnapshotJob(deps: SnapshotJobDeps) {
     const from = zonedStartOfDay(slices[0]!.day, tz);
     const to = zonedStartOfDay(shiftDayKey(slices.at(-1)!.end, 1), tz);
     const at = now();
-    const days = slices.map((s) => s.day);
+    const months = [...new Set(slices.map((s) => s.month))];
     for (let i = 0; i < ids.length; i += size) {
       const projects = await deps.source.projects(ids.slice(i, i + size));
       if (projects.length === 0) continue;
@@ -126,8 +127,19 @@ export function createSnapshotJob(deps: SnapshotJobDeps) {
           }
         }
       }
-      await deps.store.replace(projects.map((p) => p.id), days, rows);
+      await deps.store.replace(projects.map((p) => p.id), months, rows);
     }
+    // Meeting action items without a project: one row per person and slice under project '' (a person's own
+    // and an administrator's view count them; a manager's never does).
+    const loose = (await deps.source.closedActionItems(null, null, from, to)).filter((a) => a.projectId === null);
+    const looseRows: SnapshotRow[] = [];
+    for (const s of slices) {
+      const w = windowOf(s.day, s.end, tz, at);
+      const byPerson = new Map<string, number>();
+      for (const a of loose) if (a.completedAt >= w.from && a.completedAt < w.to) byPerson.set(a.assigneeId, (byPerson.get(a.assigneeId) ?? 0) + 1);
+      for (const [userId, n] of byPerson) looseRows.push({ projectId: '', userId, day: s.day, endDay: s.end, weekStart: s.weekStart, month: s.month, rebuilt: s.day < launchDay, metrics: { actionItems: n } });
+    }
+    await deps.store.replace([''], months, looseRows);
     return { projects: ids.length };
   }
 
