@@ -44,6 +44,8 @@ import { GuestIcon } from '../GuestsLine';
 import { GUEST_WORDS, guestLabel } from '../../lib/guest-contacts';
 import { CATEGORY_WORDS } from '../../lib/task-categories';
 import { TaskFormDialog } from '../task-form/TaskFormDialog';
+import { SelectAllBox, shiftHeld } from '../bulk/select-boxes';
+import { selectBoxName } from '../../lib/bulk-selection';
 
 export interface TaskTableProps {
   /** Which page's table (what it remembers for the person: sort, filters, columns). */
@@ -69,8 +71,12 @@ export interface TaskTableProps {
   /** My Tasks: the shown columns, kept with its saved views. */
   shown?: string[];
   onShownChange?: (ids: string[]) => void;
-  /** My Tasks: the selection boxes. */
-  selection?: { selected: ReadonlySet<string>; onToggle: (id: string) => void };
+  /**
+   * Bulk changes: the selection boxes — a row's (with Shift, the range from the last one clicked, in the
+   * rows' order as shown) and the header's "Select all N matching" (every row the filters leave, not only
+   * the hundred drawn).
+   */
+  selection?: TaskTableSelection;
   /** Open a task in the task panel, with the rows as shown for its Previous / Next. */
   onOpen: (taskId: string, ids: string[]) => void;
   /** Before the Columns menu (when there is no filter bar). */
@@ -79,6 +85,15 @@ export interface TaskTableProps {
   empty?: ReactNode;
   /** A hundred rows at a time (the default); false: all of them (My Tasks). */
   paged?: boolean;
+}
+
+/** The table's selection boxes (bulk changes): the page keeps the selection (lib/bulk-selection). */
+export interface TaskTableSelection {
+  selected: ReadonlySet<string>;
+  /** A row's box; `order`: the rows as shown, for a Shift-click's range. */
+  onToggle: (task: ApiTask, opts: { shift: boolean; order: ApiTask[] }) => void;
+  /** The header's box: every matching row on, or off. */
+  onSelectAll?: (tasks: ApiTask[], on: boolean) => void;
 }
 
 const PRIORITIES: Priority[] = ['URGENT', 'HIGH', 'NORMAL', 'LOW'];
@@ -247,18 +262,37 @@ export function TaskTable({
   const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
   const rowButton = `inline-grid h-8 w-8 place-items-center rounded-lg text-ink-2 transition-colors compact:h-7 compact:w-7 hover:bg-ground hover:text-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand ${TOUCH_SQUARE}`;
 
+  // The header's "Select all N matching": every row the filters leave (all pages, not only the drawn).
+  const selectedRows = selection ? rows.filter((t) => selection.selected.has(t.id)).length : 0;
+  const allState: 'all' | 'some' | 'none' = selectedRows === 0 ? 'none' : selectedRows === rows.length ? 'all' : 'some';
   const tableColumns: DataColumn<ApiTask>[] = [
     ...(selection
       ? [
           {
             id: 'select',
             label: 'Select',
-            hideLabel: true,
+            hideLabel: !selection.onSelectAll,
+            header: selection.onSelectAll ? (
+              <label className="mx-auto grid h-8 w-8 cursor-pointer place-items-center compact:h-7 compact:w-7 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11">
+                <SelectAllBox
+                  state={allState}
+                  label={`Select all ${rows.length}${filterBar && tableFiltersActive(filters) ? ' matching' : ''}`}
+                  onChange={() => selection.onSelectAll?.(rows, allState !== 'all')}
+                  className="h-4 w-4 cursor-pointer accent-brand"
+                />
+              </label>
+            ) : undefined,
             pin: true,
             className: 'w-11 !px-0 text-center',
             cell: (t: ApiTask) => (
               <label className="mx-auto grid h-8 w-8 cursor-pointer place-items-center compact:h-7 compact:w-7 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11">
-                <input type="checkbox" aria-label={`Select ${t.key}`} checked={selection.selected.has(t.id)} onChange={() => selection.onToggle(t.id)} className="h-4 w-4 cursor-pointer accent-brand" />
+                <input
+                  type="checkbox"
+                  aria-label={selectBoxName(t)}
+                  checked={selection.selected.has(t.id)}
+                  onChange={(e) => selection.onToggle(t, { shift: shiftHeld(e.nativeEvent), order: rows })}
+                  className="h-4 w-4 cursor-pointer accent-brand"
+                />
               </label>
             ),
           },
