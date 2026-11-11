@@ -29,7 +29,7 @@ import { createPrismaProjectOverviewSource } from './modules/projects/prisma-pro
 import { createPrismaTimelineSource } from './modules/planning/prisma-timeline-source';
 import { createPrismaWorkloadStore } from './modules/planning/prisma-workload-store';
 import { createColumnService } from './modules/projects/column-service';
-import { createPrismaColumnRepository } from './modules/projects/prisma-column-repository';
+import { countWaitingTasksIn, createPrismaColumnRepository } from './modules/projects/prisma-column-repository';
 import { createMemberService } from './modules/projects/member-service';
 import { createPrismaMemberRepository, createPrismaProjectExistsLookup, createPrismaProjectManagerLookup, projectRunnerIds } from './modules/projects/prisma-member-repository';
 import { createProjectAuthz } from './modules/projects/project-authz';
@@ -389,8 +389,8 @@ async function main(): Promise<void> {
   const columnService = createColumnService({
     columns: createPrismaColumnRepository(prisma),
     // A column with tasks waiting for approval can't become a Done column (they would count as done).
-    // Task archive: an archived task waits for nobody (it is parked when its column goes).
-    waitingTasksIn: (columnId) => prisma.task.count({ where: { columnId, deletedAt: null, archivedAt: null, approvalRequestedAt: { not: null } } }),
+    // Task archive: an archived task waiting for approval still keeps it from becoming a Done column.
+    waitingTasksIn: (columnId) => countWaitingTasksIn(prisma, columnId),
   });
 
   // Late-bound (chat + realtime are created further down): a removed member leaves the project's

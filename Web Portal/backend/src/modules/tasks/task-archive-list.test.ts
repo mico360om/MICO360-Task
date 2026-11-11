@@ -37,6 +37,8 @@ const ROWS: TaskRecord[] = [
   row('Archived first', { archivedAt: new Date('2026-11-01T08:00:00Z'), archivedById: 'u9' }),
   row('Archived later', { archivedAt: new Date('2026-11-09T08:00:00Z'), archivedById: 'u9' }),
   row('Other project archived', { projectId: 'p2', archivedAt: new Date('2026-11-05T08:00:00Z') }),
+  // A weekly series whose newest copy (it carries the repeat) is archived: the series goes on.
+  row('Archived weekly head', { archivedAt: new Date('2026-11-10T08:00:00Z'), dueDate: new Date('2026-11-10T00:00:00Z'), recurrenceRule: { freq: 'WEEKLY', interval: 1 } as never }),
 ];
 
 const filters: TaskListFilter[] = [];
@@ -46,7 +48,8 @@ const repo = {
     filters.push(filter);
     const a = filter.archived ?? 'exclude';
     return ROWS.filter((t) => (!filter.projectId || t.projectId === filter.projectId) && (!filter.projectIds || filter.projectIds.includes(t.projectId)))
-      .filter((t) => (a === 'only' ? !!t.archivedAt : a === 'exclude' ? !t.archivedAt : true));
+      .filter((t) => (a === 'only' ? !!t.archivedAt : a === 'exclude' ? !t.archivedAt : true))
+      .filter((t) => (filter.recurring ? !!t.recurrenceRule : true));
   },
 } as unknown as TaskRepository;
 
@@ -87,10 +90,10 @@ describe('GET /tasks and archived tasks', () => {
   it('archived=only lists a project’s archived tasks, newest archived first, each saying when and by whom', async () => {
     const res = await get('/tasks?projectId=p1&archived=only');
     expect(res.statusCode).toBe(200);
-    expect(titles(res)).toEqual(['Archived later', 'Archived first']);
-    expect(res.json().data[0]).toMatchObject({ archivedAt: '2026-11-09T08:00:00.000Z', archivedById: 'u9' });
+    expect(titles(res)).toEqual(['Archived weekly head', 'Archived later', 'Archived first']);
+    expect(res.json().data[1]).toMatchObject({ title: 'Archived later', archivedAt: '2026-11-09T08:00:00.000Z', archivedById: 'u9' });
     // A sort asked for wins.
-    expect(titles(await get('/tasks?projectId=p1&archived=only&sort=title&order=asc'))).toEqual(['Archived first', 'Archived later']);
+    expect(titles(await get('/tasks?projectId=p1&archived=only&sort=title&order=asc'))).toEqual(['Archived first', 'Archived later', 'Archived weekly head']);
   });
 
   it('archived=only needs a project, and only one the person can see', async () => {
@@ -98,6 +101,17 @@ describe('GET /tasks and archived tasks', () => {
     expect((await get('/tasks?projectId=p2&archived=only')).statusCode).toBe(403);
     expect(titles(await get('/tasks?projectId=p2&archived=only', 'admin'))).toEqual(['Other project archived']);
     expect((await get('/tasks?projectId=p1&archived=all')).statusCode).toBe(400);
+  });
+});
+
+describe('GET /calendar and an archived series head', () => {
+  it('archiving the newest copy doesn’t stop its series: its days are still projected; the copy itself isn’t listed', async () => {
+    const res = await get('/calendar?from=2026-11-12&to=2026-12-02');
+    expect(res.statusCode).toBe(200);
+    const data = res.json().data as { tasks: { title: string }[]; occurrences: { taskId: string; date: string }[]; series: { title: string }[] };
+    expect(data.series.map((s) => s.title)).toEqual(['Archived weekly head']);
+    expect(data.occurrences.map((o) => o.date)).toEqual(['2026-11-17', '2026-11-24', '2026-12-01']);
+    expect(data.tasks.map((t) => t.title)).not.toContain('Archived weekly head');
   });
 });
 

@@ -5,9 +5,10 @@ import { filterSummary, loadReportBundle, reportSheets } from './report-export';
 import { createTokenService } from '../auth/token-service';
 import { createAuthService } from '../auth/auth-service';
 
-// Task archive (bulk lane): reports leave archived tasks out unless "Include archived" is ticked
-// (?includeArchived=true on every /reports/* page and export); then they are counted and listed, each
-// marked "Archived" in the task list (Excel, PDF).
+// Task archive (bulk lane; lead's ruling 11 Nov): report FIGURES follow the figures rule by default — an
+// archived Done task still counts as done (archiving finished work never lowers a %), an archived open task
+// leaves them; no archived task is listed. "Include archived" (?includeArchived=true on every /reports/* page
+// and export) adds the archived open ones too and lists every archived task, marked "Archived" (Excel, PDF).
 const ARCHIVED_AT = new Date('2026-11-02T08:00:00Z');
 const tasks: ReportTask[] = [
   { id: '1', projectId: 'p1', projectName: 'MICO', columnCategory: 'DONE', columnName: 'Done', key: 'MICO-1', title: 'Live done', createdAt: new Date('2026-10-01'), dueDate: null, completedAt: new Date('2026-10-05'), assigneeIds: ['u1'] },
@@ -17,9 +18,9 @@ const tasks: ReportTask[] = [
 ];
 
 describe('reports and archived tasks', () => {
-  it('leaves archived tasks out by default, and keeps them when asked', () => {
-    expect(applyReportFilter(tasks).map((t) => t.id)).toEqual(['1', '2']);
-    expect(applyReportFilter(tasks, { includeArchived: false }).map((t) => t.id)).toEqual(['1', '2']);
+  it('figures keep an archived Done task by default (never an archived open one); Include archived keeps them all', () => {
+    expect(applyReportFilter(tasks).map((t) => t.id)).toEqual(['1', '2', '3']);
+    expect(applyReportFilter(tasks, { includeArchived: false }).map((t) => t.id)).toEqual(['1', '2', '3']);
     expect(applyReportFilter(tasks, { includeArchived: true }).map((t) => t.id)).toEqual(['1', '2', '3', '4']);
   });
 
@@ -34,7 +35,9 @@ describe('reports and archived tasks', () => {
     // An archived open task is never overdue (it is in nobody's open lists) but is counted when asked.
     expect(all.find((r) => r.key === 'MICO-4')).toMatchObject({ archived: true, overdue: false, status: 'To do · Archived' });
     expect((await svc.completionReport({ includeArchived: true })).total).toBe(4);
-    expect((await svc.completionReport({})).total).toBe(2);
+    // By default the archived Done task still counts (3), though it isn't listed.
+    expect((await svc.completionReport({})).total).toBe(3);
+    expect((await svc.projectPerformanceReport({}))[0]).toMatchObject({ total: 3, completed: 2, completionPct: 67 });
   });
 
   it('the Excel task sheet shows the mark, and the filters line says archived tasks are in', async () => {
@@ -68,18 +71,19 @@ describe('report routes: ?includeArchived', () => {
   });
   const get = async (url: string) => app.inject({ method: 'GET', url: `/api/v1${url}`, headers: { authorization: `Bearer ${(await tokenService.issueTokens({ id: 'admin', roles: ['ADMIN'] })).accessToken}` } });
 
-  it('every report page leaves archived tasks out unless asked', async () => {
-    expect((await get('/reports/completion')).json().data.total).toBe(2);
+  it('every report page counts an archived Done task, and an archived open one only when asked', async () => {
+    expect((await get('/reports/completion')).json().data.total).toBe(3);
     expect((await get('/reports/completion?includeArchived=true')).json().data.total).toBe(4);
+    expect((await get('/reports/projects')).json().data[0]).toMatchObject({ total: 3, completed: 2 });
     expect((await get('/reports/projects?includeArchived=true')).json().data[0].total).toBe(4);
-    expect((await get('/reports/status?includeArchived=false')).json().data).toEqual({ DONE: 1, TODO: 1 });
+    expect((await get('/reports/status?includeArchived=false')).json().data).toEqual({ DONE: 2, TODO: 1 });
     expect((await get('/reports/workload?includeArchived=true')).json().data[0].assigned).toBe(4);
     expect((await get('/reports/completion?includeArchived=maybe')).statusCode).toBe(400);
   });
 
   it('the exports follow it too', async () => {
     const plain = await get('/reports/projects.csv');
-    expect(plain.body).toContain(',2,');
+    expect(plain.body).toContain(',3,2,');
     const all = await get('/reports/projects.csv?includeArchived=true');
     expect(all.body).toContain(',4,');
     expect((await get('/reports/export.xlsx?includeArchived=true&sections=tasks')).statusCode).toBe(200);

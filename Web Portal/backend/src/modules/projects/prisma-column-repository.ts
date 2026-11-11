@@ -6,6 +6,14 @@ function toRecord(c: KanbanColumn) {
   return { id: c.id, projectId: c.projectId, name: c.name, category: c.category, position: c.position, color: c.color, enabled: c.enabled };
 }
 
+/**
+ * The live tasks of a column waiting for approval (a column holding one can't become a Done column: they
+ * would count as done unapproved). Task archive (lead's ruling, 11 Nov): an archived one counts too.
+ */
+export function countWaitingTasksIn(prisma: PrismaClient, columnId: string): Promise<number> {
+  return prisma.task.count({ where: { columnId, deletedAt: null, approvalRequestedAt: { not: null } } });
+}
+
 export function createPrismaColumnRepository(prisma: PrismaClient): ColumnRepository {
   return {
     async listForProject(projectId) {

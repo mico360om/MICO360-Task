@@ -47,15 +47,18 @@ const toCheck = (t: Row): CheckRow => ({
  * (task archive: an archived check is no one's open or late check; an archived done one still counts as done).
  */
 const openWhere = { archivedAt: null, completedAt: null, column: { category: { not: 'DONE' } } } satisfies Prisma.TaskWhereInput;
+/** A project's live tasks that carry a form, archived or not. */
+const withFormOf = (projectId: string) => ({ projectId, deletedAt: null, project: { is: { deletedAt: null } }, inspectionFormId: { not: null } }) satisfies Prisma.TaskWhereInput;
 /** A project's checks: its live tasks that carry a form (task archive: never an archived one). */
-const checksOf = (projectId: string) => ({ projectId, deletedAt: null, archivedAt: null, project: { is: { deletedAt: null } }, inspectionFormId: { not: null } }) satisfies Prisma.TaskWhereInput;
+const checksOf = (projectId: string) => ({ ...withFormOf(projectId), archivedAt: null }) satisfies Prisma.TaskWhereInput;
 
 /** Scheduled inspections read from the tasks table: a check is a live task with `inspectionFormId` set. */
 export function createPrismaInspectionScheduleSource(prisma: PrismaClient, opts: { workingDays: () => Promise<number[]> }): InspectionScheduleSource {
   return {
     async schedules(projectId) {
       const rows = await prisma.task.findMany({
-        where: { ...checksOf(projectId), NOT: [{ recurrenceRule: { equals: Prisma.DbNull } }] },
+        // Task archive (lead's ruling, 11 Nov): archiving its newest copy doesn't stop a schedule — it still shows.
+        where: { ...withFormOf(projectId), NOT: [{ recurrenceRule: { equals: Prisma.DbNull } }] },
         select: checkSelect,
         orderBy: [{ title: 'asc' }, { createdAt: 'asc' }],
       });
@@ -108,10 +111,11 @@ export function createPrismaInspectionScheduleSource(prisma: PrismaClient, opts:
     async formUsage(formId, projectIds) {
       if ((await prisma.inspectionForm.count({ where: { id: formId, deletedAt: null } })) === 0) return null;
       // companies: only the projects the person sees (in the picked company) when they are given.
-      // Task archive: an archived task doesn't use the form (it is on no list).
-      const live = { inspectionFormId: formId, deletedAt: null, archivedAt: null, project: { is: { deletedAt: null } }, ...(projectIds ? { projectId: { in: [...projectIds] } } : {}) } satisfies Prisma.TaskWhereInput;
+      const live = { inspectionFormId: formId, deletedAt: null, project: { is: { deletedAt: null } }, ...(projectIds ? { projectId: { in: [...projectIds] } } : {}) } satisfies Prisma.TaskWhereInput;
       const [schedules, openChecks] = await Promise.all([
+        // Task archive: a schedule whose newest copy is archived is still alive (it uses the form).
         prisma.task.count({ where: { ...live, NOT: [{ recurrenceRule: { equals: Prisma.DbNull } }] } }),
+        // …but an archived check is on no list (openWhere leaves it out).
         prisma.task.count({ where: { ...live, ...openWhere } }),
       ]);
       return { schedules, openChecks };

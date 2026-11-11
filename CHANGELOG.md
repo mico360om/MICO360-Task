@@ -23,8 +23,11 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   "RIG-12 archived · Undo" for a few seconds. A finished task you archive still counts as done in every
   figure (completion %, health, Management, the client's page), so archiving finished work never lowers a %;
   an unfinished one leaves the figures until it is unarchived.
-- Reports: "Include archived" (off by default) adds archived tasks to every chart, tile and export, each
-  marked "Archived" in the task list.
+- Reports: a finished task you archive still counts as done in every chart, tile and export (so archiving
+  never lowers a %). "Include archived" (off by default) also counts the unfinished archived tasks and lists
+  every archived task in the exports, marked "Archived".
+- A repeating task whose newest copy is archived keeps going: its future days still show on the calendar and
+  its schedule on the project's Inspections tab.
 - Recycle Bin: a deleted task is no longer gone at once. It goes to the Recycle Bin (side menu, for
   administrators and the people who run a project) and can be restored for 60 days with everything it had —
   details, people, contacts, followers, tags, comments and replies, files, checklists, blockers and history.

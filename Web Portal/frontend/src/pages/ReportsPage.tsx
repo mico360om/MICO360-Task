@@ -332,9 +332,10 @@ export function ReportsPage() {
                 {teamFilter ? ` · ${teamLabel(teamFilter)}’s tasks` : ''} — charts, tiles and exports
               </span>
             ) : null}
-            {/* Task archive: archived tasks join every chart, tile and export only when ticked. */}
+            {/* Task archive: a finished archived task always counts (archiving never lowers a %); ticked, the unfinished
+                archived ones count too and every archived task is listed in the exports, marked Archived. */}
             <label
-              title="Add archived tasks to every chart, tile and export (each marked Archived in the task list)"
+              title="Finished archived tasks always count. Tick to count unfinished archived tasks too, and list every archived task in the exports (marked Archived)."
               className={`col-span-2 flex cursor-pointer items-center gap-2 rounded-lg px-1 text-sm text-ink sm:col-span-1 ${TOUCH_TALL}`}
             >
               <input type="checkbox" checked={includeArchived} onChange={(e) => setIncludeArchived(e.target.checked)} className="h-4 w-4 flex-none accent-brand" />

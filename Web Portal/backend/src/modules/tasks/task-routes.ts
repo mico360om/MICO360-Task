@@ -369,7 +369,9 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
     const today = todayKey(tz);
     const occurrences: { taskId: string; seriesId: string; date: string }[] = [];
     const series = [];
-    for (const head of visible(await taskService.listTasks({ ...scope, recurring: true }))) {
+    // Task archive (lead's ruling, 11 Nov): archiving a copy doesn't stop its series — an archived newest copy
+    // still projects the series' days (it is in `series`, never in `tasks`).
+    for (const head of visible(await taskService.listTasks({ ...scope, recurring: true, archived: 'include' }))) {
       if (!head.recurrenceRule) continue;
       const seriesId = head.recurrenceParentId ?? head.id;
       const existing = head.recurrenceRule.count != null && deps.countSeries ? await deps.countSeries(seriesId) : 1;

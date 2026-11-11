@@ -77,15 +77,22 @@ export interface ReportFilter {
    * scope (null/absent = everyone).
    */
   peopleIds?: string[] | null;
-  /** Task archive: "Include archived" (off by default: archived tasks are left out of every report). */
+  /**
+   * Task archive (lead's ruling, 11 Nov): off (the default), the figures keep an archived Done task (archiving
+   * finished work never lowers a %) and leave an archived open one, and no archived task is listed; on, the
+   * archived open ones count too and every archived task is listed, marked "Archived".
+   */
   includeArchived?: boolean;
 }
+
+/** Task archive: counted in a report's figures — not archived, archived and done, or any with Include archived. */
+const counted = (t: ReportTask, filter: ReportFilter) => filter.includeArchived === true || !t.archivedAt || isTaskDone(t);
 
 export function applyReportFilter(tasks: ReportTask[], filter: ReportFilter = {}): ReportTask[] {
   const inPick = filter.projectIds ? new Set(filter.projectIds) : null;
   return tasks.filter(
     (t) =>
-      (filter.includeArchived === true || !t.archivedAt) &&
+      counted(t, filter) &&
       (!filter.projectId || t.projectId === filter.projectId) &&
       (!filter.userId || t.assigneeIds.includes(filter.userId)) &&
       (!inPick || inPick.has(t.projectId)),
@@ -237,7 +244,9 @@ export function createReportService({ data, timeZone = defaultCompanyTimeZone(),
   }
   /** The filtered tasks with readable details: open tasks first, soonest due first. */
   async function taskListReport(filter?: ReportFilter): Promise<TaskListRow[]> {
-    const [tasks, users] = await Promise.all([tasksFor(filter), data.getUsers()]);
+    const [counted, users] = await Promise.all([tasksFor(filter), data.getUsers()]);
+    // Task archive: the list shows archived tasks only with Include archived (the figures count an archived Done one anyway).
+    const tasks = filter?.includeArchived ? counted : counted.filter((t) => !t.archivedAt);
     const nameOf = new Map(users.map((u) => [u.id, u.name?.trim() || u.username]));
     const at = now();
     const rows = tasks.map((t): TaskListRow => {

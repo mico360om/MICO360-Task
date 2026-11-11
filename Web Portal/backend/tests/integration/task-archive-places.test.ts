@@ -16,7 +16,8 @@ import { createPrismaManagementSource } from '../../src/modules/management/prism
 import { createPrismaHealthSource } from '../../src/modules/project-health/prisma-health-source';
 import { createCompletionCounts } from '../../src/modules/project-health/completion-counts';
 import { createPrismaProjectOverviewSource } from '../../src/modules/projects/prisma-project-overview-source';
-import { createPrismaColumnRepository } from '../../src/modules/projects/prisma-column-repository';
+import { countWaitingTasksIn, createPrismaColumnRepository } from '../../src/modules/projects/prisma-column-repository';
+import { createPrismaInspectionScheduleSource } from '../../src/modules/inspections/prisma-inspection-schedule-source';
 import { priorityReads } from '../../src/modules/dashboard/prisma-priority-sources';
 import { createPrismaDailyEmailSources } from '../../src/modules/daily-emails/prisma-daily-email-sources';
 import { createPrismaAgendaSources } from '../../src/modules/meetings/prisma-agenda-sources';
@@ -27,7 +28,7 @@ import { createSearchEngine } from '../../src/modules/search/search-engine';
 import { createPrismaMicoAiData } from '../../src/modules/mico-ai/prisma-mico-ai-data';
 import { createTaskMergeService } from '../../src/modules/task-merge/merge-service';
 import { createInspectionPorts } from '../../src/modules/inspections/prisma-inspection-ports';
-import { todayKey } from '../../src/lib/due-date';
+import { shiftDayKey, todayKey } from '../../src/lib/due-date';
 import { buildCompanyWorld, dropCompanyWorld, type CompanyWorld } from './company-world';
 import { buildCompanyApp, type CompanyApp } from './company-app';
 import type { Viewer } from '../../src/modules/companies/company-access';
@@ -49,6 +50,8 @@ let doneCol = '';
 /** live: open, overdue, a milestone, blocked by `open`; open: archived open overdue; done: archived Done milestone; waiting: archived, waiting for approval. */
 const T = { live: '', open: '', done: '', waiting: '' };
 const KEYS = { live: '', open: '', done: '', waiting: '' };
+/** Inspection forms the tests make (erased after). */
+const formIds: string[] = [];
 const mine = (ids: string[]) => ids.filter((id) => Object.values(T).includes(id));
 
 type Figures = { health: { total: number; done: number }; mgmt: { total: number; done: number; open: number; late: number }; overview: number; timeline: { total: number; milestones: number }; progress: { total: number; completed: number }; client: { total: number; done: number } };
@@ -132,6 +135,7 @@ afterAll(async () => {
     await prisma.searchIndex.deleteMany({ where: { OR: [{ taskId: { in: taskIds } }, { projectId: { in: Object.values(w.projects) } }] } });
     await prisma.taskMerge.deleteMany({ where: { mainTaskId: { in: taskIds } } });
     await dropCompanyWorld(prisma, w);
+    await prisma.inspectionForm.deleteMany({ where: { id: { in: formIds } } });
   }
   await prisma.$disconnect();
 });
@@ -257,11 +261,13 @@ describe('search finds archived tasks and says so; reports add them only when as
     expect(rows.find((t) => t.id === T.live)!.archivedAt).toBeNull();
   });
 
-  it('reports and their task list: left out unless Include archived; then marked', async () => {
+  it('reports: figures keep the archived Done task (never the open ones) unless Include archived; then all, listed and marked', async () => {
     const plain = (await api.get(w.as.admin, `/reports/projects?projectId=${PA}`)) as { total: number; completed: number }[];
     const all = (await api.get(w.as.admin, `/reports/projects?projectId=${PA}&includeArchived=true`)) as { total: number; completed: number }[];
-    expect(all[0]!.total - plain[0]!.total).toBe(3);
-    expect(all[0]!.completed - plain[0]!.completed).toBe(1);
+    // By default the archived Done task counts as done, as before it was archived: the same figures as health's.
+    expect(plain[0]).toMatchObject({ total: before.health.total - 2, completed: before.health.done });
+    expect(all[0]!.total - plain[0]!.total).toBe(2);
+    expect(all[0]!.completed - plain[0]!.completed).toBe(0);
     const xlsx = await api.getRaw(w.as.admin, `/reports/export.xlsx?projectId=${PA}&includeArchived=true&sections=tasks`);
     expect(xlsx.statusCode).toBe(200);
   });
@@ -300,6 +306,33 @@ describe('other places keep to the rules (integration)', () => {
     expect(await columns.countLiveTasks(spare)).toBe(0);
     expect(await columns.remove(spare)).toEqual({ projectId: PA });
     expect((await prisma.task.findUniqueOrThrow({ where: { id: parked.id } })).columnId).toBe(todo);
+  });
+
+  it('a column holding an archived task that waits for approval can’t become a Done column (it would be done unapproved)', async () => {
+    expect(await countWaitingTasksIn(prisma, todo)).toBe(1); // T.waiting: archived, still waiting
+  });
+
+  it('an archived newest copy keeps its series alive: projected on the calendar, its schedule on the Inspections tab — never listed itself', async () => {
+    const form = await prisma.inspectionForm.create({ data: { title: `Deck check ${w.tag}`, sections: [], createdById: w.people.admin } });
+    formIds.push(form.id);
+    const today = todayKey(TZ);
+    const head = await prisma.task.create({
+      data: {
+        key: `ARC${w.tag.toUpperCase()}-40`, title: 'Weekly deck check', projectId: PA, columnId: todo, createdById: w.people.ana, assignees: { create: { userId: w.people.ana } },
+        dueDate: day(today), recurrenceRule: { freq: 'WEEKLY', interval: 1 }, inspectionFormId: form.id, archivedAt: new Date(), archivedById: w.people.admin,
+      },
+    });
+    const to = shiftDayKey(today, 27);
+    const cal = (await api.get(w.as.ana, `/calendar?from=${today}&to=${to}`)) as { tasks: { id: string }[]; occurrences: { taskId: string }[]; series: { id: string }[] };
+    expect(cal.occurrences.filter((o) => o.taskId === head.id).length).toBeGreaterThanOrEqual(3);
+    expect(cal.series.map((s) => s.id)).toContain(head.id);
+    expect(cal.tasks.map((t) => t.id)).not.toContain(head.id);
+    const source = createPrismaInspectionScheduleSource(prisma, { workingDays: async () => [0, 1, 2, 3, 4] });
+    expect((await source.schedules(PA)).map((s) => s.id)).toContain(head.id);
+    expect((await source.openChecks(PA, 50)).rows.map((r) => r.id)).not.toContain(head.id);
+    expect(await source.formUsage(form.id, null)).toEqual({ schedules: 1, openChecks: 0 });
+    // Not on the board or any list.
+    expect(ids(await api.get(w.as.ana, `/tasks?projectId=${PA}`))).not.toContain(head.id);
   });
 });
 
