@@ -132,6 +132,13 @@ export const ARCHIVE_REFUSED: Readonly<Record<string, ArchiveTarget>> = {
   'POST /meetings/:id/teams-link': 'meeting',
   // Notification & Scheduling centre: a project's reminder schedule and escalation numbers, a task's schedule.
   'PUT /projects/:id/reminders': 'project',
+  // Project KPIs: its target overrides and its own KPIs and their monthly values.
+  'PUT /kpis/projects/:id/targets': 'project',
+  'POST /kpis/projects/:id/custom': 'project',
+  'PATCH /kpis/projects/:id/custom/:kpiId': 'project',
+  'DELETE /kpis/projects/:id/custom/:kpiId': 'project',
+  'PUT /kpis/projects/:id/custom/:kpiId/values/:month': 'project',
+  'DELETE /kpis/projects/:id/custom/:kpiId/values/:month': 'project',
   'PUT /tasks/:id/reminder-schedule': 'task',
 };
 

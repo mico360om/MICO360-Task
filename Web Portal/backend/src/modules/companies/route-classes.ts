@@ -529,4 +529,27 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   'PUT /projects/:id/reminders': 'object',
   'GET /tasks/:id/reminder-schedule': 'object',
   'PUT /tasks/:id/reminder-schedule': 'object',
+  // Project KPIs and User KPIs: one project's KPIs, their lists and files, its targets and its own KPIs
+  // (who may see the project; changes by whoever runs it); the Management page's KPI table and its files
+  // (the reader's Management scope ∩ the pick); a person's KPIs (themselves; administrators; whoever runs a
+  // project they are on — those projects only); the company default targets (administrators).
+  'GET /kpis/projects/:id': 'object',
+  'GET /kpis/projects/:id/items': 'object',
+  'GET /kpis/projects/:id/export.pdf': 'object',
+  'GET /kpis/projects/:id/export.xlsx': 'object',
+  'GET /kpis/projects/:id/targets': 'object',
+  'PUT /kpis/projects/:id/targets': 'object',
+  'POST /kpis/projects/:id/custom': 'object',
+  'PATCH /kpis/projects/:id/custom/:kpiId': 'object',
+  'DELETE /kpis/projects/:id/custom/:kpiId': 'object',
+  'PUT /kpis/projects/:id/custom/:kpiId/values/:month': 'object',
+  'DELETE /kpis/projects/:id/custom/:kpiId/values/:month': 'object',
+  'GET /kpis/management': 'list',
+  'GET /kpis/management.xlsx': 'list',
+  'GET /kpis/management.pdf': 'list',
+  'GET /kpis/people/me': 'own',
+  'GET /kpis/people/:userId': 'people',
+  'GET /kpis/people/:userId/items': 'people',
+  'GET /kpis/targets': 'admin',
+  'PUT /kpis/targets': 'admin',
 };

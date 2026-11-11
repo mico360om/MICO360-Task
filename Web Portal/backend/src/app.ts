@@ -111,6 +111,7 @@ import { registerTemplateRoutes } from './modules/templates/template-routes';
 import type { TemplateService } from './modules/templates/template-service';
 import { registerInspectionRoutes, type InspectionRouteDeps } from './modules/inspections/inspection-routes';
 import { registerManagementRoutes, type ManagementRouteDeps } from './modules/management/management-routes';
+import { registerKpiRoutes, type KpiRouteDeps } from './modules/kpis/kpi-routes';
 import { registerBackupRoutes, type BackupRouteDeps } from './modules/backups/backup-routes';
 import { registerMicrosoftRoutes, type MicrosoftRouteDeps } from './modules/integrations/microsoft/microsoft-routes';
 import type { MeetingTeamsLinks } from './modules/meetings/meeting-routes';
@@ -377,6 +378,8 @@ export interface AppDeps extends AuthRouteDeps {
   inspections?: Omit<InspectionRouteDeps, 'guard' | 'broadcast'>;
   /** The Management page: every project's health, inspections, people and trends; its lists and its PDF. */
   management?: Omit<ManagementRouteDeps, 'guard'>;
+  /** Project KPIs and User KPIs (staff only; the project routes check who may see the project). */
+  kpis?: Omit<KpiRouteDeps, 'guard' | 'pickOf' | 'pdfBrand' | 'canViewProject'>;
   /** System Settings → Backups: the copies, "Back up now", downloads and Google Drive (administrators only). */
   backups?: Omit<BackupRouteDeps, 'guard' | 'audit'>;
   /**
@@ -1160,6 +1163,11 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       }
       if (deps.management) {
         await registerManagementRoutes(api, { ...deps.management, guard, pickOf, pdfBrand: scopeBrand }); // companies: follows the pick; pdfBrand
+      }
+      if (deps.kpis && canViewProject) {
+        // Project KPIs and User KPIs: one project (who may see it), the Management table (follows the pick),
+        // a person's (themselves, administrators, their projects' managers), the company targets (admins).
+        await registerKpiRoutes(api, { ...deps.kpis, guard, canViewProject, pickOf, pdfBrand: scopeBrand });
       }
       if (deps.inspections) {
         // companies: a form's usage counts follow the person's projects and the pick.
