@@ -158,14 +158,32 @@ export function packLanes<S extends { startCol: number; endCol: number; order: n
 }
 
 /**
- * How many lanes a week shows in `rows` rows: all when they fit (or the height isn't known); else all but
- * the last row, which says "+N more" on each day with more.
+ * How many lanes a week shows in `rows` rows: all when they fit (or the height isn't known). Else each
+ * day its own (`shown`): a crowded day all but the last row, which says "+N more"; a day with room all
+ * `rows`. `lanes` is the fewest (the Week / Day All day row uses it for the whole row).
  */
-export function laneView(placed: readonly { startCol: number; endCol: number; lane: number }[], rows: number | undefined, days = 7): { lanes: number; more: number[] } {
+export function laneView(placed: readonly { startCol: number; endCol: number; lane: number }[], rows: number | undefined, days = 7): { lanes: number; more: number[]; shown: number[] } {
   const total = placed.reduce((n, p) => Math.max(n, p.lane + 1), 0);
   const more = Array.from({ length: days }, () => 0);
-  if (rows === undefined || total <= rows) return { lanes: total, more };
-  const lanes = Math.max(0, rows - 1);
-  for (const p of placed) if (p.lane >= lanes) for (let c = p.startCol; c <= p.endCol; c++) more[c]! += 1;
-  return { lanes, more };
+  if (rows === undefined || total <= rows) return { lanes: total, more, shown: Array.from({ length: days }, () => total) };
+  const last = Math.max(0, rows - 1);
+  const cols = (p: { startCol: number; endCol: number }) => Array.from({ length: p.endCol - p.startCol + 1 }, (_, k) => p.startCol + k);
+  // A crowded day (more than `rows` lanes) gives its last row to "+N more"; a day with room shows all.
+  const crowded = new Set<number>();
+  for (const p of placed) if (p.lane >= rows) cols(p).forEach((c) => crowded.add(c));
+  // A bar in the last row is never cut: crossing a crowded day, it is hidden on all its days (each says "+N more").
+  for (let changed = true; changed; ) {
+    changed = false;
+    for (const p of placed) {
+      if (p.lane !== last || p.endCol === p.startCol) continue;
+      const cs = cols(p);
+      if (cs.some((c) => crowded.has(c)) && cs.some((c) => !crowded.has(c))) {
+        cs.forEach((c) => crowded.add(c));
+        changed = true;
+      }
+    }
+  }
+  const shown = Array.from({ length: days }, (_, c) => (crowded.has(c) ? last : rows));
+  for (const p of placed) for (const c of cols(p)) if (p.lane >= shown[c]!) more[c]! += 1;
+  return { lanes: last, more, shown };
 }

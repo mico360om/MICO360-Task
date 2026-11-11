@@ -143,7 +143,12 @@ function MonthWeek({ p, week, last, rowHeight, open, onToggle }: { p: MonthGridP
   const rows = rowHeight ? Math.max(1, Math.floor((rowHeight - CHROME + 2) / pitch)) : 4;
   const closed = laneView(placed, rows);
   const allLanes = placed.reduce((n, e) => Math.max(n, e.lane + 1), 0);
-  const lanesShown = open ? allLanes : closed.lanes;
+  // Closed, each day shows its own rows: a crowded day gives its last to "+N more".
+  const lanesOn = (col: number) => (open ? allLanes : (closed.shown[col] ?? closed.lanes));
+  const shownHere = (e: { startCol: number; endCol: number; lane: number }) => {
+    for (let c = e.startCol; c <= e.endCol; c++) if (e.lane >= lanesOn(c)) return false;
+    return true;
+  };
   const anyMore = closed.more.some((n) => n > 0);
   const height = HEAD + (allLanes + (anyMore ? 1 : 0)) * pitch + 6;
   const colOf = (clientX: number, el: HTMLElement) => {
@@ -199,7 +204,7 @@ function MonthWeek({ p, week, last, rowHeight, open, onToggle }: { p: MonthGridP
           .join('');
         const offWords = off?.kind === 'holiday' ? `, ${off.name} (a day off)` : off ? ', a day off' : '';
         const more = closed.more[col] ?? 0;
-        const hiddenKinds = new Set(placed.filter((x) => x.lane >= closed.lanes && x.startCol <= col && x.endCol >= col).map((x) => x.kind));
+        const hiddenKinds = new Set(placed.filter((x) => x.lane >= lanesOn(col) && x.startCol <= col && x.endCol >= col).map((x) => x.kind));
         const one = more === 1;
         const moreNoun =
           hiddenKinds.size !== 1 ? 'items' : hiddenKinds.has('task') ? (one ? 'task' : 'tasks') : hiddenKinds.has('meeting') ? (one ? 'meeting' : 'meetings') : hiddenKinds.has('block') ? 'planned blocks' : one ? 'checklist item' : 'checklist items';
@@ -239,7 +244,7 @@ function MonthWeek({ p, week, last, rowHeight, open, onToggle }: { p: MonthGridP
             </div>
             <ul className="contents">
               {placed
-                .filter((e) => e.startCol === col && e.lane < lanesShown)
+                .filter((e) => e.startCol === col && shownHere(e))
                 .map((e) => {
                   const span = e.endCol - e.startCol + 1;
                   const style = {
@@ -286,7 +291,7 @@ function MonthWeek({ p, week, last, rowHeight, open, onToggle }: { p: MonthGridP
                 aria-expanded={open}
                 aria-label={open ? `Show fewer on ${dayLabel(day)}` : `${more} more ${moreNoun} on ${dayLabel(day)}`}
                 className="absolute z-10 flex h-6 items-center rounded px-1.5 text-[11px] font-semibold text-brand hover:bg-brand/[0.06] hover:underline [@media(pointer:coarse)]:h-[28px]"
-                style={{ top: HEAD + lanesShown * pitch, insetInlineStart: 2 }}
+                style={{ top: HEAD + lanesOn(col) * pitch, insetInlineStart: 2 }}
               >
                 {open ? 'Show fewer' : `+${more} more`}
               </button>

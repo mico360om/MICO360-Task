@@ -76,13 +76,23 @@ describe('a week of the month: each item as a segment, packed in lanes', () => {
     expect(lane('long')).toBe(1);
   });
 
-  it('with room for fewer lanes: the last lane says “+N more” on each day with more', () => {
+  it('with room for fewer lanes: a crowded day gives its last row to “+N more”; a day that fits shows all', () => {
     const placed = packLanes(weekSegments(week, items).map((s, i) => ({ ...s, order: i })));
-    // Room for 2 rows: lane 0 shown, the second row is "+N more" on each day with more.
-    expect(laneView(placed, 2)).toEqual({ lanes: 1, more: [0, 1, 2, 1, 1, 0, 0] });
+    // Room for 2 rows. Tuesday (col 2) needs three: one row shown and "+2 more". "inside" (cols 1–3)
+    // is in the last row and crosses Tuesday, so it is hidden on all its days (a bar is never cut).
+    // Thursday (col 4) needs only two: its start ▶ ("long", lane 1) shows — no "+1 more" for a day with room.
+    expect(laneView(placed, 2)).toEqual({ lanes: 1, more: [0, 1, 2, 1, 0, 0, 0], shown: [2, 1, 1, 1, 2, 2, 2] });
     // Room for all three: every lane, nothing hidden.
-    expect(laneView(placed, 3)).toEqual({ lanes: 3, more: [0, 0, 0, 0, 0, 0, 0] });
+    expect(laneView(placed, 3)).toEqual({ lanes: 3, more: [0, 0, 0, 0, 0, 0, 0], shown: [3, 3, 3, 3, 3, 3, 3] });
     // Unknown height: everything.
     expect(laneView(placed, undefined).lanes).toBe(3);
+  });
+
+  it('one crowded day doesn’t cost the other days of its week a row (one-day entries)', () => {
+    const one = (lane: number, col: number) => ({ startCol: col, endCol: col, lane });
+    // Sunday holds three entries, Monday two; room for two rows.
+    const view = laneView([one(0, 0), one(1, 0), one(2, 0), one(0, 1), one(1, 1)], 2);
+    expect(view.shown.slice(0, 2)).toEqual([1, 2]);
+    expect(view.more.slice(0, 2)).toEqual([2, 0]);
   });
 });
