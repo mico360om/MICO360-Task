@@ -77,6 +77,18 @@ const PortalMeetingPage = lazyPage(loadPortal, 'PortalMeetingPage');
 const PortalMeetingLink = lazyPage(loadPortal, 'PortalMeetingLink');
 const PortalNotificationsPage = lazyPage(loadPortal, 'PortalNotificationsPage');
 const PortalSettingsPage = lazyPage(loadPortal, 'PortalSettingsPage');
+// Training Center: the portal's Help & training (courses for clients).
+const PortalTrainingPage = lazyPage(loadPortal, 'PortalTrainingPage');
+const PortalTrainingCoursePage = lazyPage(loadPortal, 'PortalTrainingCoursePage');
+const PortalTrainingLessonPage = lazyPage(loadPortal, 'PortalTrainingLessonPage');
+// Training Center: My training, a course and a lesson (staff); the Training Center itself (Training managers and
+// administrators; people who run a project: their team's reports); the public certificate check.
+const MyTrainingPage = lazyPage(() => import('./pages/training/MyTrainingPage'), 'MyTrainingPage');
+const CoursePage = lazyPage(() => import('./pages/training/CoursePage'), 'CoursePage');
+const LessonPage = lazyPage(() => import('./pages/training/LessonPage'), 'LessonPage');
+const TrainingCenterPage = lazy(loadWithRecovery(() => import('./pages/training/TrainingCenterPage')));
+const CourseEditorPage = lazy(loadWithRecovery(() => import('./pages/training/CourseEditorPage')));
+const VerifyPage = lazyPage(() => import('./pages/training/VerifyPage'), 'VerifyPage');
 
 /** Lightweight fallback while a route chunk loads — no layout shift, respects reduced motion. */
 function RouteFallback() {
@@ -148,6 +160,9 @@ export function App() {
         <Route path="/privacy/client" element={<ClientPrivacyPage />} />
         {/* A shared client follows one project: outside the staff sign-in and the app shell. */}
         <Route path="/client/:token" element={<ClientViewPage />} />
+        {/* Training Center: anyone with a certificate's code checks it here (no sign-in, no shell). */}
+        <Route path="/verify" element={<VerifyPage />} />
+        <Route path="/verify/:code" element={<VerifyPage />} />
         <Route element={<ProtectedRoute />}>
           {/* 1.23 The Client portal: a client account sees only these pages, in their own shell. */}
           <Route element={<ClientRoute />}>
@@ -156,6 +171,10 @@ export function App() {
               {/* 1.23.7 The bell's Notifications and the client's notification switches. */}
               <Route path="/portal/notifications" element={<PortalNotificationsPage />} />
               <Route path="/portal/settings" element={<PortalSettingsPage />} />
+              {/* Training Center: Help & training. */}
+              <Route path="/portal/training" element={<PortalTrainingPage />} />
+              <Route path="/portal/training/courses/:id" element={<PortalTrainingCoursePage />} />
+              <Route path="/portal/training/courses/:courseId/lessons/:lessonId" element={<PortalTrainingLessonPage />} />
               {/* An invitation email's meeting (/meetings/<id>, sent here by StaffRoute). */}
               <Route path="/portal/meetings/:meetingId" element={<PortalMeetingLink />} />
               <Route path="/portal/projects/:projectId" element={<PortalProjectLayout />}>
@@ -200,6 +219,12 @@ export function App() {
             {/* Inspection forms live on the Templates page; the early address still opens them. */}
             <Route path="/inspection-forms" element={<Navigate to="/templates?tab=inspections" replace />} />
             <Route path="/inspections/:id" element={<InspectionPage />} />
+            {/* Training Center: My training, courses and lessons; the Training Center (the server decides who). */}
+            <Route path="/training" element={<MyTrainingPage />} />
+            <Route path="/training/courses/:id" element={<CoursePage />} />
+            <Route path="/training/courses/:courseId/lessons/:lessonId" element={<LessonPage />} />
+            <Route path="/training/manage" element={<TrainingCenterPage />} />
+            <Route path="/training/manage/courses/:id" element={<CourseEditorPage />} />
             <Route element={<AdminRoute />}>
               <Route path="/reports" element={<ReportsPage />} />
               <Route path="/admin/settings" element={<SystemSettingsPage />} />

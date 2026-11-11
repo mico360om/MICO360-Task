@@ -49,6 +49,14 @@ const PAGES: [pattern: RegExp, title: string, indexable?: boolean][] = [
   [/^\/admin\/users$/, 'User Management'],
   [/^\/admin\/companies$/, 'Companies'],
   [/^\/admin\/clients$/, 'Clients'],
+  // Training Center (staff): My training, a course, a lesson; the Training Center and a course's editor.
+  [/^\/training$/, 'My training'],
+  [/^\/training\/courses\/[^/]+$/, 'Course'],
+  [/^\/training\/courses\/[^/]+\/lessons\/[^/]+$/, 'Lesson'],
+  [/^\/training\/manage$/, 'Training Center'],
+  [/^\/training\/manage\/courses\/[^/]+$/, 'Edit course'],
+  // The public certificate check (anyone with a code; not listed).
+  [/^\/verify(\/[^/]+)?$/, 'Check a certificate'],
   // 1.23 The Client portal (client accounts; private, never listed).
   [/^\/portal$/, 'Your projects'],
   [/^\/portal\/projects\/[^/]+\/tasks\/[^/]+$/, 'Shared task'],
@@ -56,6 +64,10 @@ const PAGES: [pattern: RegExp, title: string, indexable?: boolean][] = [
   [/^\/portal\/projects\/[^/]+\/meetings$/, 'Meetings & minutes'],
   [/^\/portal\/projects\/[^/]+(\/progress)?$/, 'Progress & tasks'],
   [/^\/portal\/meetings\/[^/]+$/, 'Shared meeting'],
+  // Training Center: the portal's Help & training.
+  [/^\/portal\/training$/, 'Help & training'],
+  [/^\/portal\/training\/courses\/[^/]+$/, 'Course'],
+  [/^\/portal\/training\/courses\/[^/]+\/lessons\/[^/]+$/, 'Lesson'],
   // A client's page: its address is a private link, so it is never listed.
   [/^\/client\/[^/]+$/, 'Shared project'],
   // The clients' privacy notice: open to anyone, but only clients need it (not listed).

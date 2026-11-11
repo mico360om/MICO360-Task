@@ -8,6 +8,7 @@ import { PortalProgressTab } from './PortalProgressTab';
 import { PortalProjectIndex, PortalProjectLayout } from './PortalProjectLayout';
 import { PortalSettingsPage } from './PortalSettingsPage';
 import { PortalTaskPage } from './PortalTaskPage';
+import { PortalTrainingCoursePage, PortalTrainingLessonPage, PortalTrainingPage } from './PortalTrainingPage';
 
 /**
  * 1.23.7 The Client portal's pages for Preview as client (inside its own memory router): the same pages
@@ -21,6 +22,9 @@ export function PortalPreviewRoutes() {
         <Route path="/portal" element={<PortalHomePage />} />
         <Route path="/portal/notifications" element={<PortalNotificationsPage />} />
         <Route path="/portal/settings" element={<PortalSettingsPage />} />
+        <Route path="/portal/training" element={<PortalTrainingPage />} />
+        <Route path="/portal/training/courses/:id" element={<PortalTrainingCoursePage />} />
+        <Route path="/portal/training/courses/:courseId/lessons/:lessonId" element={<PortalTrainingLessonPage />} />
         <Route path="/portal/projects/:projectId" element={<PortalProjectLayout />}>
           <Route index element={<PortalProjectIndex />} />
           <Route path="progress" element={<PortalProgressTab />} />

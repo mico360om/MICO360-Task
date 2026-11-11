@@ -6,7 +6,10 @@ import { BrandLogo } from '../ui/BrandLogo';
 import { Button } from '../ui/Button';
 import { ChangePasswordDialog } from './ChangePasswordDialog';
 import { usePortalPreview, usePreviewOff } from './portal-context';
-import { usePortalMe, usePortalNotices } from './portal-queries';
+import { usePortalMe, usePortalNotices, usePortalTrainingSummary } from './portal-queries';
+import { BookIcon } from '../training/training-ui';
+import { OVERDUE_CLASS } from '../../lib/colour-classes';
+import { PortalTour } from '../training/Tour';
 import { Loading, TOUCH } from './portal-ui';
 
 /**
@@ -77,7 +80,8 @@ export function PortalShell() {
                 ) : null}
               </div>
             ) : null}
-            <NoticeBell className="max-md:ms-auto" />
+            <TrainingLink className="max-md:ms-auto" />
+            <NoticeBell />
             <Button
               type="button"
               variant="secondary"
@@ -133,6 +137,8 @@ export function PortalShell() {
       </footer>
 
       {changing && !preview ? <ChangePasswordDialog onClose={() => setChanging(false)} /> : null}
+      {/* Training Center: the first-time tour (3 steps), by itself once for a new client; again from Help & training. */}
+      {preview ? null : <PortalTour />}
     </div>
   );
 }
@@ -149,6 +155,7 @@ function NoticeBell({ className = '' }: { className?: string }) {
       to="/portal/notifications"
       aria-label={unread ? `Notifications, ${unread} unread` : 'Notifications'}
       aria-current={here ? 'page' : undefined}
+      data-tour="portal-notifications"
       className={`${TOUCH} relative inline-flex min-w-11 flex-none items-center justify-center rounded-xl outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand/40 ${
         here ? 'bg-brand/10 text-brand' : 'text-ink-2 hover:bg-ground hover:text-ink'
       } ${className}`}
@@ -160,6 +167,41 @@ function NoticeBell({ className = '' }: { className?: string }) {
       {unread ? (
         <span aria-hidden="true" className="absolute end-0.5 top-0.5 min-w-[1.25rem] rounded-full bg-brand px-1 text-center text-[11px] font-bold leading-5 text-white ring-2 ring-surface">
           {countWords(unread)}
+        </span>
+      ) : null}
+    </Link>
+  );
+}
+
+/**
+ * Training Center: Help & training in the header, with how many courses wait for the client (red when one is
+ * overdue) — owner call 1: badges and counts only, no emails. Just the book on a phone (its name stays whole).
+ */
+function TrainingLink({ className = '' }: { className?: string }) {
+  const s = usePortalTrainingSummary().data;
+  const here = useLocation().pathname.startsWith('/portal/training');
+  const waiting = typeof s?.assigned === 'number' ? s.assigned : 0;
+  const overdue = typeof s?.overdue === 'number' ? s.overdue : 0;
+  const words = [waiting ? `${waiting} to do` : null, overdue ? `${overdue} overdue` : null].filter(Boolean).join(', ');
+  return (
+    <Link
+      to="/portal/training"
+      aria-label={words ? `Help & training, ${words}` : 'Help & training'}
+      aria-current={here ? 'page' : undefined}
+      data-tour="portal-training"
+      className={`${TOUCH} relative inline-flex min-w-11 flex-none items-center justify-center gap-1.5 rounded-xl px-2 text-sm font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand/40 ${
+        here ? 'bg-brand/10 text-brand' : 'text-ink-2 hover:bg-ground hover:text-ink'
+      } ${className}`}
+    >
+      <BookIcon size={20} />
+      <span className="hidden lg:inline">Help &amp; training</span>
+      {waiting || overdue ? (
+        <span
+          aria-hidden="true"
+          data-training-badge={overdue ? 'overdue' : 'waiting'}
+          className={`absolute end-0.5 top-0.5 min-w-[1.25rem] rounded-full px-1 text-center text-[11px] font-bold leading-5 text-white ring-2 ring-surface lg:static lg:ring-0 ${overdue ? OVERDUE_CLASS.dot : 'bg-brand'}`}
+        >
+          {countWords(overdue || waiting)}
         </span>
       ) : null}
     </Link>

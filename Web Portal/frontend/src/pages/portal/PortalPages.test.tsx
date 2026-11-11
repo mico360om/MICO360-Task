@@ -9,7 +9,9 @@ import { App } from '../../App';
 import { useAuthStore } from '../../stores/auth-store';
 import { ApiError } from '../../lib/api-client';
 import { card, home, meetingItem, meetingView, notice, notices, noticeSettings, portalFile, projectView, taskView } from './portal-fixtures';
-import { PREVIEW_ONLY, type PortalApi } from '../../api/portal';
+import { EMPTY_PORTAL_TRAINING, PREVIEW_ONLY, type PortalApi } from '../../api/portal';
+import { useTourStore } from '../../components/training/tour-store';
+import { card as courseCard, detail as courseDetail, lesson as courseLesson, mine as courseMine, myTraining } from '../../components/training/training-fixtures';
 import { PortalApiProvider } from '../../components/portal/portal-context';
 import { PortalPreviewRoutes } from './PortalPreviewRoutes';
 
@@ -36,6 +38,22 @@ const api = vi.hoisted(() => ({
   readAllNotices: vi.fn(),
   settings: vi.fn(),
   setSettings: vi.fn(),
+  // Training Center: Help & training.
+  training: vi.fn(),
+  trainingSummary: vi.fn(),
+  trainingCourse: vi.fn(),
+  trainingStart: vi.fn(),
+  trainingLesson: vi.fn(),
+  trainingProgress: vi.fn(),
+  trainingComplete: vi.fn(),
+  trainingStartAttempt: vi.fn(),
+  trainingSaveAnswers: vi.fn(),
+  trainingSubmit: vi.fn(),
+  trainingResult: vi.fn(),
+  trainingFile: vi.fn(),
+  trainingCertificatePdf: vi.fn(),
+  trainingFeedback: vi.fn(),
+  trainingTourDone: vi.fn(),
 }));
 vi.mock('../../api/portal', async (importOriginal) => ({ ...(await importOriginal<typeof import('../../api/portal')>()), portal: api }));
 
@@ -82,6 +100,9 @@ beforeEach(() => {
   api.meeting.mockResolvedValue(meetingView());
   api.notices.mockResolvedValue(notices());
   api.settings.mockResolvedValue(noticeSettings());
+  api.training.mockResolvedValue(EMPTY_PORTAL_TRAINING);
+  api.trainingSummary.mockResolvedValue({ assigned: 0, overdue: 0, inProgress: 0, tour: { show: false } });
+  useTourStore.setState({ open: false, autoShown: false });
   // Anything else the page asks the server (it must ask nothing else) is recorded.
   calls = [];
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
@@ -793,6 +814,8 @@ function otherApi() {
     meeting: vi.fn(async () => meetingView()),
     notices: vi.fn(async () => notices([notice()])),
     settings: vi.fn(async () => noticeSettings()),
+    training: vi.fn(async () => EMPTY_PORTAL_TRAINING),
+    trainingSummary: vi.fn(async () => ({ assigned: 0, overdue: 0, inProgress: 0, tour: { show: false } })),
     comment: vi.fn(),
     accept: vi.fn(),
     sendBack: vi.fn(),
@@ -807,10 +830,26 @@ function otherApi() {
     readNotice: vi.fn(),
     readAllNotices: vi.fn(),
     setSettings: vi.fn(),
+    trainingCourse: vi.fn(),
+    trainingStart: vi.fn(),
+    trainingLesson: vi.fn(),
+    trainingProgress: vi.fn(),
+    trainingComplete: vi.fn(),
+    trainingStartAttempt: vi.fn(),
+    trainingSaveAnswers: vi.fn(),
+    trainingSubmit: vi.fn(),
+    trainingResult: vi.fn(),
+    trainingFile: vi.fn(),
+    trainingCertificatePdf: vi.fn(),
+    trainingFeedback: vi.fn(),
+    trainingTourDone: vi.fn(),
   };
 }
 type OtherApi = ReturnType<typeof otherApi>;
-const WRITES = ['comment', 'accept', 'sendBack', 'taskListPdf', 'respond', 'minutesPdf', 'markDone', 'whereIs', 'changePassword', 'upload', 'file', 'readNotice', 'readAllNotices', 'setSettings'] as const;
+const WRITES = [
+  'comment', 'accept', 'sendBack', 'taskListPdf', 'respond', 'minutesPdf', 'markDone', 'whereIs', 'changePassword', 'upload', 'file', 'readNotice', 'readAllNotices', 'setSettings',
+  'trainingStart', 'trainingProgress', 'trainingComplete', 'trainingStartAttempt', 'trainingSaveAnswers', 'trainingSubmit', 'trainingFeedback', 'trainingTourDone',
+] as const;
 
 /** The portal's pages as Preview as client shows them: through the given API, read-only. */
 function renderPreview(path: string, given: OtherApi, preview = true) {
@@ -1028,5 +1067,96 @@ describe('Client portal: signing in', () => {
     await signInWithPassword();
     expect(await screen.findByRole('heading', { level: 2, name: 'Paint the walls' })).toBeInTheDocument();
     expect(screen.getByTestId('where')).toHaveTextContent('/portal/projects/p1/tasks/t2');
+  });
+});
+
+describe('Training Center: Help & training in the Client portal', () => {
+  const PORTAL_COURSE = courseCard({ id: 'pc1', title: 'Client portal basics', moduleKey: 'portal', audience: 'CLIENTS', mine: courseMine({ dueDay: '2026-11-04', overdue: true }) });
+
+  it('the header’s Help & training (44px) with how many courses wait, red when one is overdue; the home page’s card says so too', async () => {
+    api.trainingSummary.mockResolvedValue({ assigned: 2, overdue: 1, inProgress: 1, tour: { show: false } });
+    renderAt('/portal');
+    const link = await screen.findByRole('link', { name: 'Help & training, 2 to do, 1 overdue' });
+    expect(link).toHaveAttribute('href', '/portal/training');
+    expect(link.className).toContain('!min-h-11');
+    expect(link.querySelector('[data-training-badge="overdue"]')).toHaveTextContent('1');
+    const cardLink = await screen.findByRole('link', { name: /Help & training 2 courses for you to do/ });
+    expect(within(cardLink).getByText('1 overdue')).toBeInTheDocument();
+    expect(calls).toEqual([]);
+  });
+
+  it('nothing waiting: no count', async () => {
+    renderAt('/portal');
+    expect(await screen.findByRole('link', { name: 'Help & training' })).toBeInTheDocument();
+    expect(document.querySelector('[data-training-badge]')).toBeNull();
+  });
+
+  it('Learn this feature on the home page: the portal’s course (through the portal’s API)', async () => {
+    api.training.mockResolvedValue({ ...EMPTY_PORTAL_TRAINING, catalogue: [PORTAL_COURSE] });
+    renderAt('/portal');
+    expect(await screen.findByRole('link', { name: 'Learn this feature' })).toHaveAttribute('href', '/portal/training/courses/pc1?module=portal');
+    expect(calls).toEqual([]);
+  });
+
+  it('/portal/training: their training (overdue in red), certificates and the courses for clients — all through the portal’s API', async () => {
+    api.training.mockResolvedValue({ ...myTraining({ assigned: [PORTAL_COURSE], inProgress: [], completed: [] }), catalogue: [PORTAL_COURSE], tour: { show: false } });
+    renderAt('/portal/training');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Help & training' })).toBeInTheDocument();
+    const assigned = (await screen.findByRole('heading', { name: /Assigned to you/ })).closest('section')!;
+    const cardLink = within(assigned).getByRole('link', { name: /Client portal basics/ });
+    expect(cardLink).toHaveAttribute('href', '/portal/training/courses/pc1');
+    expect(within(cardLink).getByText('Overdue')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /Certificates/ })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /Courses \(1\)/ })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Help & training' })).toHaveAttribute('aria-current', 'page');
+    expect(calls).toEqual([]);
+    expect(io).not.toHaveBeenCalled();
+  });
+
+  it('a course and its lesson: the staff pages’ parts, through the portal’s API', async () => {
+    api.trainingCourse.mockResolvedValue(courseDetail({ id: 'pc1', title: 'Client portal basics', moduleKey: 'portal', audience: 'CLIENTS', mine: courseMine({ enrolled: false, status: 'NOT_STARTED', progressPct: 0 }), resumeLessonId: 'l2' }));
+    api.trainingStart.mockResolvedValue(courseDetail({ id: 'pc1', resumeLessonId: 'l2' }));
+    api.trainingLesson.mockResolvedValue(courseLesson({ courseId: 'pc1', courseTitle: 'Client portal basics', steps: [{ id: 's1', position: 0, title: 'Open a project', body: null, image: null }] }));
+    api.trainingComplete.mockResolvedValue({ courseProgressPct: 50, courseCompleted: false, certificateId: null, nextLessonId: 'l3' });
+    renderAt('/portal/training/courses/pc1');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Client portal basics' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Back to Help & training' })).toHaveAttribute('href', '/portal/training');
+    await userEvent.click(screen.getByRole('button', { name: 'Start course' }));
+    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('/portal/training/courses/pc1/lessons/l2'));
+    expect(api.trainingStart).toHaveBeenCalledWith('pc1');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Make a task' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Done' }));
+    await waitFor(() => expect(api.trainingComplete).toHaveBeenCalledWith('l2'));
+    expect(calls).toEqual([]);
+  });
+
+  it('the first-time tour (3 steps) opens by itself for a new client; Skip tells the server', async () => {
+    api.trainingSummary.mockResolvedValue({ assigned: 0, overdue: 0, inProgress: 0, tour: { show: true } });
+    api.trainingTourDone.mockResolvedValue({ ok: true });
+    renderAt('/portal');
+    expect(await screen.findByRole('dialog', { name: 'Your projects' })).toBeInTheDocument();
+    expect(screen.getByText('Step 1 of 3')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Next' }));
+    expect(screen.getByRole('dialog', { name: 'Notifications' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Skip tour' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await waitFor(() => expect(api.trainingTourDone).toHaveBeenCalledTimes(1));
+    expect(calls).toEqual([]);
+  });
+
+  it('Take the tour again from Help & training', async () => {
+    renderAt('/portal/training');
+    await userEvent.click(await screen.findByRole('button', { name: 'Take the tour' }));
+    expect(await screen.findByRole('dialog', { name: 'Your projects' })).toBeInTheDocument();
+  });
+
+  it('in a Preview as client: Help & training is shown empty, and nothing is sent', async () => {
+    const other = otherApi();
+    renderPreview('/portal/training', other);
+    expect(await screen.findByText('Preview — the client’s courses aren’t shown here.')).toBeInTheDocument();
+    off(screen.getByRole('button', { name: 'Take the tour' }));
+    expect(other.training).toHaveBeenCalled();
+    for (const w of WRITES) expect(other[w], w).not.toHaveBeenCalled();
+    for (const fn of Object.values(api)) expect(fn).not.toHaveBeenCalled();
   });
 });

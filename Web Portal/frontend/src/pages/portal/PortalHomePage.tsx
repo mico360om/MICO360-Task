@@ -2,16 +2,22 @@ import { Link } from 'react-router-dom';
 import type { PortalProjectCard } from '../../api/portal';
 import { ProjectAvatar } from '../../components/ProjectAvatar';
 import { EmptyState } from '../../components/ui/EmptyState';
-import { usePortalMe } from '../../components/portal/portal-queries';
-import { CompanyMark, LoadFailed, Loading, ProgressBar, StatusBadge } from '../../components/portal/portal-ui';
+import { usePortalMe, usePortalTraining, usePortalTrainingSummary } from '../../components/portal/portal-queries';
+import { CompanyMark, LoadFailed, Loading, ProgressBar, StatusBadge, TOUCH } from '../../components/portal/portal-ui';
+import { LearnLinkView } from '../../components/training/LearnLink';
+import { BookIcon } from '../../components/training/training-ui';
+import { OVERDUE_CLASS } from '../../lib/colour-classes';
 
 /** 1.23 The Client portal's home: the projects shared with this client, as cards. */
 export function PortalHomePage() {
   const q = usePortalMe();
   return (
     <div className="flex flex-col gap-5">
-      <div>
-        <h1 className="font-display text-2xl font-bold text-ink sm:text-3xl">Your projects</h1>
+      <div data-tour="portal-projects">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <h1 className="font-display text-2xl font-bold text-ink sm:text-3xl">Your projects</h1>
+          <PortalLearnLink />
+        </div>
         <p className="mt-1 text-sm text-ink-2">The projects the team has shared with you. Open one to follow its progress.</p>
       </div>
       {q.isPending ? (
@@ -33,7 +39,40 @@ export function PortalHomePage() {
           ))}
         </ul>
       )}
+      <TrainingCard />
     </div>
+  );
+}
+
+/** Training Center: "Learn this feature" for the portal — its course (or Help & training when there are several). */
+function PortalLearnLink() {
+  const courses = (usePortalTraining().data?.catalogue ?? []).filter((c) => c.moduleKey === 'portal');
+  if (!courses.length) return null;
+  const to = courses.length === 1 ? `/portal/training/courses/${encodeURIComponent(courses[0]!.id)}?module=portal` : '/portal/training';
+  return <LearnLinkView to={to} />;
+}
+
+/** Help & training on the home page: how many courses wait (red when one is overdue) — badges only, no emails. */
+function TrainingCard() {
+  const s = usePortalTrainingSummary().data;
+  const waiting = typeof s?.assigned === 'number' ? s.assigned : 0;
+  const overdue = typeof s?.overdue === 'number' ? s.overdue : 0;
+  return (
+    <Link
+      to="/portal/training"
+      className={`card card-hover card-pad flex items-center gap-3 outline-none focus-visible:ring-2 focus-visible:ring-brand/40 ${TOUCH}`}
+    >
+      <span className="grid h-10 w-10 flex-none place-items-center rounded-xl bg-brand/10 text-brand">
+        <BookIcon size={20} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block font-display text-base font-bold text-ink">Help &amp; training</span>
+        <span className="block text-sm text-ink-2">
+          {waiting ? `${waiting} ${waiting === 1 ? 'course' : 'courses'} for you to do` : 'Short courses on using the portal.'}
+          {overdue ? <span className={`ms-2 inline-flex rounded-md px-2 py-0.5 text-xs font-semibold ${OVERDUE_CLASS.chip}`}>{overdue} overdue</span> : null}
+        </span>
+      </span>
+    </Link>
   );
 }
 

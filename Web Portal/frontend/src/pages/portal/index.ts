@@ -14,3 +14,5 @@ export { PortalMeetingLink } from './PortalMeetingLink';
 export { PortalNotificationsPage } from './PortalNotificationsPage';
 export { PortalSettingsPage } from './PortalSettingsPage';
 export { PortalPreviewRoutes } from './PortalPreviewRoutes';
+// Training Center: Help & training (courses for clients), a course and a lesson.
+export { PortalTrainingPage, PortalTrainingCoursePage, PortalTrainingLessonPage } from './PortalTrainingPage';
