@@ -37,6 +37,27 @@ async function finished(store: ReturnType<typeof createMemoryAiJobStore>, ago: n
   return job.id;
 }
 
+describe('Final MOM AI draft: the AI call', () => {
+  it('is background work (MICO360 AI is then waited for as long as it waits itself), with the job’s stop', async () => {
+    const store = createMemoryAiJobStore();
+    const seen: Array<{ signal?: AbortSignal; background?: boolean; jobId?: string }> = [];
+    const ai = createFinalMinutesAi({
+      jobs: createAiJobRunner({ store, owner: 'srv-1' }),
+      store,
+      finalMinutes: createMemoryFinalMinutesRepository(),
+      draftMinutesWithAi: async (_facts, _requester, opts) => {
+        seen.push(opts);
+        return aiContent;
+      },
+      notify: async () => undefined,
+    });
+    const stop = new AbortController();
+    await ai.handler.run({ id: 'job_77', input: { facts: 'Meeting: X', roles: [] }, requestedById: 'u1' } as unknown as AiJobRecord, stop.signal);
+    // MICO360 AI (b2): the job's id scopes its Idempotency-Key, so its tries of one request are one piece of work.
+    expect(seen).toEqual([{ signal: stop.signal, background: true, jobId: 'job_77' }]);
+  });
+});
+
 describe('Final MOM AI draft: the moment between finishing and keeping', () => {
   it('reads as still drafting, and Use it / Discard wait for it', async () => {
     const s = setup();

@@ -15,38 +15,6 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 ## [Unreleased]
 
 ### New features
-- Task archive: a task you no longer need on the boards can be archived ("Archive" in the task's ⋯ menu, for
-  administrators and the people who run its project). It leaves every board, list, My Tasks, the calendar,
-  the Timeline, Workload, dashboards, reminders and the daily email, and is read-only, but nothing is lost:
-  search still finds it (marked "Archived"), its panel says "Archived on 3 Nov by Ali — read-only" with
-  Unarchive, and the project page's "Archived tasks" lists them for anyone on the project. Archiving shows
-  "RIG-12 archived · Undo" for a few seconds. A finished task you archive still counts as done in every
-  figure (completion %, health, Management, the client's page), so archiving finished work never lowers a %;
-  an unfinished one leaves the figures until it is unarchived.
-- Reports: a finished task you archive still counts as done in every chart, tile and export (so archiving
-  never lowers a %). "Include archived" (off by default) also counts the unfinished archived tasks and lists
-  every archived task in the exports, marked "Archived".
-- A repeating task whose newest copy is archived keeps going: its future days still show on the calendar and
-  its schedule on the project's Inspections tab.
-- Recycle Bin: a deleted task is no longer gone at once. It goes to the Recycle Bin (side menu, for
-  administrators and the people who run a project) and can be restored for 60 days with everything it had —
-  details, people, contacts, followers, tags, comments and replies, files, checklists, blockers and history.
-  The bin shows who deleted each task, when, and the days left before it is erased ("12 days left", amber at
-  7 or less, red at 2 or less, "Erased tonight" on its last day); search by number, title or description;
-  filter by project, who deleted it, the days it was deleted, "7 days or less left" and (with several
-  companies) company; sort by days left or by when it was deleted; select several to restore together.
-  Administrators see every deleted task and may also delete one forever; the people who run a project see
-  and restore that project's deleted tasks. A project's page has "Deleted tasks", the bin filtered to it.
-- Delete asks first — "Move to the Recycle Bin? You (or an admin) can restore it for 60 days." (a repeating
-  task: this copy, or the entire series with how many tasks it has) — and offers Undo for a few seconds.
-  A series deleted as a whole comes back as a whole (or just one copy, if you choose).
-- Opening a deleted task (an old notification, an email link) shows it read-only under "In the Recycle Bin —
-  deleted by Ali on 3 Nov · 53 days left" with Restore, for the people who may restore it; anyone else on the
-  project sees "This task was deleted".
-- After its 60 days a task is erased for good, with its files; the Audit log keeps a line saying which task
-  was erased and when. Inspections carried out for it are kept and still say which task they were for, and
-  its number is never given to another task. Tasks deleted before this version get a full 60 days from the
-  upgrade ("Deleted by: Unknown", as it was never recorded).
 - Guests on tasks: people outside the company — a client's engineer, a supplier's site lead — can be named
   on a task for the record. The Assign box (New task, Edit task and the task panel) has a switch
   **Internal user | Guest**: pick a guest from your company's list, or add a new one (name required;
@@ -72,6 +40,123 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   task PDF, Excel, the report and the daily email, with a **Category** filter on the board, My Tasks, the
   Tasks tab, the Table view and Search results — and searching "category:Electrical" finds them too. The
   project's Overview shows its open tasks **By category**. Tags stay as they are.
+- Task archive: a task you no longer need on the boards can be archived ("Archive" in the task's ⋯ menu, for
+  administrators and the people who run its project). It leaves every board, list, My Tasks, the calendar,
+  the Timeline, Workload, dashboards, reminders and the daily email, and is read-only, but nothing is lost:
+  search still finds it (marked "Archived"), its panel says "Archived on 3 Nov by Ali — read-only" with
+  Unarchive, and the project page's "Archived tasks" lists them for anyone on the project. Archiving shows
+  "RIG-12 archived · Undo" for a few seconds. A finished task you archive still counts as done in every
+  figure (completion %, health, Management, the client's page), so archiving finished work never lowers a %;
+  an unfinished one leaves the figures until it is unarchived.
+- Reports: a finished task you archive still counts as done in every chart, tile and export (so archiving
+  never lowers a %). "Include archived" (off by default) also counts the unfinished archived tasks and lists
+  every archived task in the exports, marked "Archived".
+- A repeating task whose newest copy is archived keeps going: its future days still show on the calendar and
+  its schedule on the project's Inspections tab.
+- Change many tasks at once: tick tasks on My Tasks (Grid, List and Table), a project's Tasks tab, any Table
+  view, or on the Kanban board after pressing **Select** (a box on each card and on each column; Shift-click
+  ticks a range; Escape leaves). "Select all 143 matching" ticks every task the filters leave, and ticked
+  tasks stay ticked when the filters change ("12 selected (3 hidden by filters)"). The bar at the foot of the
+  window (a sheet on a phone) changes their status, priority, people (assign, reassign, unassign), due date
+  (set, clear, or move by days), project, categories and guests, duplicates them, archives or unarchives them,
+  moves them to the Recycle Bin or merges them — up to 500 tasks at a time (20 for Duplicate). Each change is
+  confirmed first ("Move 12 tasks to Done? 2 will be skipped: you can’t move tasks in Rig 3."), then summed up
+  ("18 updated · 2 not changed", the skipped ones listed with why, "Select the 2 skipped" to try again) with
+  Undo for 15 seconds.
+- Everyone can use bulk changes, and each task is changed only as its own rules allow — who may see it,
+  its project's team, approvals (a task that needs approval moved to Done waits for approval), the delete
+  rule, archive and the guests rule (a task with guests always keeps someone from the team); a task you
+  can't open is never named. Undo puts back only what nobody changed since, gives a moved task its old
+  number back, and erases copies made by Duplicate at once. The people on the tasks get one notice for the
+  whole change ("Sara assigned you 12 tasks in Rig 3"), open boards refresh once, and the Audit log keeps
+  one line for it.
+
+### Improvements
+- Moving a task to another project keeps the categories that project has by name and says which it drops;
+  a guest of another company is copied onto the new project's company list. Merging tasks keeps every
+  category and each guest once (Undo gives them back); repeating copies keep both; "Save as template"
+  keeps a project's categories, and a project made from that template starts with them.
+- The task history says "assigned guest Ahmed (OXY)", "removed guest …", "added category Electrical".
+- Search this board also finds a card by its guests (name or company) and its categories. Duplicate copies
+  a task's guests (with their notes for the task) and its categories, never retired ones.
+- A task in the Recycle Bin keeps its guests and categories: its categories count as in use (they can be
+  retired, not deleted) and its guests stay on the list until it is erased; its read-only view shows both
+  (its history words them as the task panel does), and Restore brings them back as they were.
+
+### Bug fixes
+- Recycle Bin: a deleted task's details can be scrolled with the keyboard too (on a phone they scroll and
+  have no buttons of their own).
+
+## [1.23.19] - 2026-11-11
+
+### New features
+- Recycle Bin: a deleted task is no longer gone at once. It goes to the Recycle Bin (side menu, for
+  administrators and the people who run a project) and can be restored for 60 days with everything it had —
+  details, people, contacts, followers, tags, comments and replies, files, checklists, blockers and history.
+  The bin shows who deleted each task, when, and the days left before it is erased ("12 days left", amber at
+  7 or less, red at 2 or less, "Erased tonight" on its last day); search by number, title or description;
+  filter by project, who deleted it, the days it was deleted, "7 days or less left" and (with several
+  companies) company; sort by days left or by when it was deleted; select several to restore together.
+  Administrators see every deleted task and may also delete one forever; the people who run a project see
+  and restore that project's deleted tasks. A project's page has "Deleted tasks", the bin filtered to it.
+- Delete asks first — "Move to the Recycle Bin? You (or an admin) can restore it for 60 days." (a repeating
+  task: this copy, or the entire series with how many tasks it has) — and offers Undo for a few seconds.
+  A series deleted as a whole comes back as a whole (or just one copy, if you choose).
+- Opening a deleted task (an old notification, an email link) shows it read-only under "In the Recycle Bin —
+  deleted by Ali on 3 Nov · 53 days left" with Restore, for the people who may restore it; anyone else on the
+  project sees "This task was deleted".
+- After its 60 days a task is erased for good, with its files; the Audit log keeps a line saying which task
+  was erased and when. Inspections carried out for it are kept and still say which task they were for, and
+  its number is never given to another task. Tasks deleted before this version get a full 60 days from the
+  upgrade ("Deleted by: Unknown", as it was never recorded).
+
+### Improvements
+- A task's history and the Activity page say who moved a task to the Recycle Bin and who restored it; every
+  delete, restore and erase is in the Audit log.
+- Restoring a task whose board column was deleted meanwhile puts it in the project's first column of the same
+  kind; a task of an archived project waits until the project is unarchived. Undo of a task MICO AI has just
+  made removes it at once (it never goes to the Recycle Bin).
+
+## [1.23.18] - 2026-11-11
+
+### New features
+- MICO AI's answers appear as they are written: on MICO360 AI the words show on the page while the model
+  writes them (bold and lists as the finished answer has them), and the finished answer then replaces them.
+  Stop still stops it at once.
+- Scanned files are read whole on MICO360 AI: every page of a scanned PDF (black-and-white scanner PDFs
+  too, which could not be read before) and pictures go to MICO360 AI's document reader, which turns pages
+  upright first and reads them in Arabic or English when the task's words say which. Scans that could not
+  be read before are read again by themselves. If the key may not read documents, scans are read as
+  pictures as before, and AI Management says why and what to allow.
+- AI Management shows more about MICO360 AI on its card: the version of MICO360 Connect it runs, how many
+  requests its key may run at once, a note when no AI node offers reading documents, pictures or meaning
+  search, a note when scans were read as pictures, and which models stood in for others. Test now says
+  which model answered.
+
+### Improvements
+- MICO360 AI's answers to Describe a task, Describe a meeting, Suggest priority, Draft agenda, the Final
+  MOM and MICO AI are held to the exact form Tasks reads, so fewer answers come back unreadable. If the
+  MICO360 Connect doesn't accept that, or an answer doesn't come back in that form, Tasks asks once more
+  the way it did before, and keeps asking that way for a day (or until the models are next refreshed);
+  AI Management's card says so.
+- Tasks keeps within MICO360 AI's limit on how many requests a key may run at once — one budget for every
+  AI feature together — so busy moments wait their turn instead of being refused.
+- Work in the background is never done twice on MICO360 AI: when the Final MOM, a MICO AI answer or a scan
+  is tried again, the platform answers from the first try's work; and an answer the platform finished after
+  its 5-minute wait is collected instead of asked for again.
+- The first AI search of the day waits for MICO360 AI to load its model (up to 90 seconds, instead of
+  giving up after 20), and opening search starts loading it.
+- "Automatic" picks MICO360 AI's models by what they are, no longer preferring one only because it
+  appeared in the platform's list later.
+- Clearer words when MICO360 AI refuses: a key it doesn't accept, a key not allowed to do something (and
+  where to allow it), or a model that failed while answering.
+- The Error log shows MICO360 AI's correlation and job ids for an AI failure, to look up in MICO360 Connect
+  or quote to its support. Each request also tells MICO360 AI which Tasks user it is for (MICO360 Connect
+  keeps only a pseudonym).
+
+## [1.23.17] - 2026-11-11
+
+### New features
 - Duplicate a task: "Duplicate…" in the task's ⋯ menu (task panel and board cards) and beside Open in
   every Table view. The New task form opens filled in from it — title, description, project, assignees,
   priority, dates, tags, checklists (every item unticked, sub-items kept), external contacts, the
@@ -103,35 +188,98 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   to it too — for the website, the Android app and the Chrome extension alike. Turning it off gives
   everything back at once (no signing out), and it can always be turned off. Each switch is recorded in
   the audit log.
-- Change many tasks at once: tick tasks on My Tasks (Grid, List and Table), a project's Tasks tab, any Table
-  view, or on the Kanban board after pressing **Select** (a box on each card and on each column; Shift-click
-  ticks a range; Escape leaves). "Select all 143 matching" ticks every task the filters leave, and ticked
-  tasks stay ticked when the filters change ("12 selected (3 hidden by filters)"). The bar at the foot of the
-  window (a sheet on a phone) changes their status, priority, people (assign, reassign, unassign), due date
-  (set, clear, or move by days), project, categories and guests, duplicates them, archives or unarchives them,
-  moves them to the Recycle Bin or merges them — up to 500 tasks at a time (20 for Duplicate). Each change is
-  confirmed first ("Move 12 tasks to Done? 2 will be skipped: you can’t move tasks in Rig 3."), then summed up
-  ("18 updated · 2 not changed", the skipped ones listed with why, "Select the 2 skipped" to try again) with
-  Undo for 15 seconds.
-- Everyone can use bulk changes, and each task is changed only as its own rules allow — who may see it,
-  its project's team, approvals (a task that needs approval moved to Done waits for approval), the delete
-  rule, archive and the guests rule (a task with guests always keeps someone from the team); a task you
-  can't open is never named. Undo puts back only what nobody changed since, gives a moved task its old
-  number back, and erases copies made by Duplicate at once. The people on the tasks get one notice for the
-  whole change ("Sara assigned you 12 tasks in Rig 3"), open boards refresh once, and the Audit log keeps
-  one line for it.
+
+### Bug fixes
+- A tab left open on an older version no longer shows an error when a newer tab updates your profile details.
+- A board card's ⋯ menu near the bottom of the screen (on a phone, or low in a long column) opens above the
+  card, so all of its items can be reached.
+
+## [1.23.16] - 2026-11-11
+
+### New features
+- Search on the Kanban board: a search box at the top of the board (one project, All projects and a
+  project's Board tab) shows only the matching cards as you type — by task number (MICO-12, mico 12 or
+  just 12), title, description, person, project or tag, Arabic in any spelling. The words found are
+  marked on each card, each column says how many of its cards match ("3 of 12"), and ✕ or Escape clears
+  it ("/" jumps to it). It works with the company filter, Day and Month and the Table view, cards can
+  still be dragged to another column, and the words stay in the page's link. When nothing matches,
+  "Search all tasks" opens the full search with the same words.
+- Project details on the Kanban board: with one project chosen, a slim line above the columns shows its
+  picture, name and number, client, project manager, dates with the days left (or late), health, progress,
+  open and overdue tasks, and "Open project". Fold it away with its arrow (remembered); on a phone it shows
+  the short version with "Details".
+
+## [1.23.15] - 2026-11-11
+
+### Bug fixes
+- The Error log no longer counts time a page spent in the background as "slow": a page opened in a
+  background tab, prerendered, restored with the Back button or left on a sleeping computer is no longer
+  "slow to show" (the 986 s and 3386 s rows), and a request that waited in a frozen tab or on a sleeping
+  laptop is no longer a slow request (the bell's "15 times in one visit" at night). A slow click or key
+  press while the page was hidden doesn't count either, and the Error log now says what it was on ("a
+  click on a button"). "Slow to show the page" rows say that their times count only while the page is
+  on screen.
+- Slow requests on the Error log now say where the time went, from the browser's own timing: waiting
+  for a free connection, connecting, waiting for the server to start answering, or downloading the
+  answer — with the server's own time, so a hold-up between the browser and the server (the hosting's
+  front door or the connection) is told apart from a slow server.
+- Update restarts show as handled: while the server stops or starts for an update, the database being
+  briefly unreachable is a calm "Update restart" row ("During an update: the database was briefly
+  unreachable — handled"), no longer a red Server error, and it never brings back a row marked as
+  fixed. A request cut off or held up while the server restarted is listed there too, instead of "A
+  request didn't reach the server (blocked on the way?)" or a slow request.
+
+## [1.23.14] - 2026-11-11
+
+### Bug fixes
+- People's photos show on Kanban cards, My Tasks, project pages, meetings, Activity and the Dashboard (they showed only initials).
+- The picture at the top right shows your current photo and your own name's initials (it showed the username's, and a new photo only after signing in again).
 
 ### Improvements
-- A task's history and the Activity page say who moved a task to the Recycle Bin and who restored it; every
-  delete, restore and erase is in the Audit log.
-- Restoring a task whose board column was deleted meanwhile puts it in the project's first column of the same
-  kind; a task of an archived project waits until the project is unarchived. Undo of a task MICO AI has just
-  made removes it at once (it never goes to the Recycle Bin).
-- Moving a task to another project keeps the categories that project has by name and says which it drops;
-  a guest of another company is copied onto the new project's company list. Merging tasks keeps every
-  category and each guest once (Undo gives them back); repeating copies keep both; "Save as template"
-  keeps a project's categories, and a project made from that template starts with them.
-- The task history says "assigned guest Ahmed (OXY)", "removed guest …", "added category Electrical".
+- Faces load a small copy of each person's photo instead of the full picture, so boards and lists with many people open faster.
+
+## [1.23.13] - 2026-11-11
+
+### Bug fixes
+- MICO360 AI connects again: its address is now https://ai.mico360.com:5310/v1. Since MICO360 Connect
+  2.6.17 the AI platform answers only on HTTPS, so the old http address got no answer at all. A MICO360 AI
+  provider saved with the old address is used on https by itself — nothing to re-enter.
+- Meaning search on MICO360 AI fills in again: the texts it turns into vectors are sent in batches the
+  platform accepts (at most 64 texts, 8,000 characters each, 32,000 together), instead of one batch it
+  refused, which stopped the search sweep at the same place every minute.
+- Meaning search never mixes two embedding models: when MICO360 AI answers with another model than the
+  one chosen (the chosen one was unavailable), those vectors are not kept; meaning search pauses for 15
+  minutes and tries again, and the Error log notes it once instead of every minute.
+- Text cut in the middle of an emoji is no longer sent to MICO360 AI: half a character could make it turn
+  the whole request down, again and again.
+- AI keeps working while MICO360 AI's computers are busy: a model the platform leaves out of its list for
+  a while (a busy or restarting AI node) stays available for 3 days, and an empty list changes nothing and
+  is loaded again within the hour — before, a refresh at such a moment switched AI off for a day ("AI is
+  not configured yet").
+- Describe a meeting works at large companies too: with hundreds of people and projects its request could
+  be longer than the 32,000 characters MICO360 AI reads, and was refused as "too long". On MICO360 AI the
+  lists now fit the room left — the people and projects the sentence names come first — and every AI
+  feature, MICO AI's chat summaries included, stays within that size at its largest.
+
+### Improvements
+- Reading scanned files and pictures, and the Final MOM drafted with AI, now wait as long as MICO360 AI
+  itself does (just over 5 minutes) instead of giving up after 2–3 minutes and running the work again;
+  making meaning-search vectors waits 2 minutes instead of 30 seconds. Reading scans starts no new file
+  after 2 minutes in one go, so the rest of search keeps up to date.
+- When MICO360 AI's usage allowance (its quota) is used up, people are told so — "the usage allowance is
+  used up for now… an admin can check the key's quota in MICO360 Connect" — instead of "busy, try again in
+  a moment". Background work tries again only when the allowance resets within a few minutes; files
+  waiting to be read wait until it resets instead of being given up.
+- AI Management: MICO360 AI says it uses the AI API of MICO360 Connect 2.6.28 (https on port 5310, under
+  /v1) and which capabilities its key needs — Chat, plus Vision to read scanned files and pictures and
+  Embedding for meaning search. The setup guide (docs/AI-MICO360.md) is updated to match.
+
+## [1.23.12] - 2026-11-11
+
+### Security
+- Updated server libraries to fix 11 known vulnerabilities (zod 4, @fastify/static, fast-uri, typescript-eslint).
+  typescript-eslint has no fixed version yet, so the file-pattern library it uses (minimatch) is pinned to
+  its fixed version instead; it is a development tool only and never runs on the live site.
 
 ## [1.23.11] - 2026-11-10
 

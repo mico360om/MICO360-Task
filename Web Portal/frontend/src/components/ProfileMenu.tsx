@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { assetUrl } from '../api/client';
+import { personInitials } from '../lib/initials';
+import { ownName, useOwnUserRefresh } from '../lib/own-user';
+import { usePersonPhoto } from './ui/Avatar';
 import { useAuthStore } from '../stores/auth-store';
 import { useSignOut } from '../lib/useSignOut';
 import { SignOutWarning } from './SignOutWarning';
@@ -15,7 +17,11 @@ export function ProfileMenu() {
   // Changes still on this device are discarded on sign-out, so ask first when there are any.
   const { signOut: signOutNow, unsent, cancel } = useSignOut();
   const ref = useRef<HTMLDivElement>(null);
-  const initials = (user?.username ?? '?').slice(0, 2).toUpperCase();
+  // Their own name's initials ("Aisha Khan" → AK, never the username's), and their current photo: the
+  // copy saved at sign-in is refreshed on every load and when the photo changes (lib/own-user).
+  useOwnUserRefresh();
+  const initials = personInitials(ownName(user) || '?');
+  const photo = usePersonPhoto(user?.avatarUrl);
   const admin = isAdmin();
   // Manager View (owner, 10 Nov): an administrator's own switch, saved on their account.
   const managerView = useManagerView();
@@ -45,8 +51,8 @@ export function ProfileMenu() {
   }, [open]);
 
   const avatar = (size: string) =>
-    user?.avatarUrl ? (
-      <img src={assetUrl(user.avatarUrl)} alt="" className={`${size} rounded-full border border-line object-cover`} />
+    photo.url ? (
+      <img src={photo.url} alt="" onError={photo.onError} className={`${size} rounded-full border border-line object-cover`} />
     ) : (
       <span className={`${size} grid place-items-center rounded-full bg-brand-gradient text-xs font-bold text-white`}>{initials}</span>
     );

@@ -126,8 +126,11 @@ describe('the cards follow the website’s card rules (drift)', () => {
     expect(card).toMatch(/const overdue = !task\.done && !task\.awaitingApproval && isOverdue\(task\.dueDate, timeZone\);/);
     expect(card).toMatch(/const dueText = formatDueDay\(task\.dueDate, timeZone\) \|\| 'No due date';/);
     expect(card).toMatch(/\{overdue \? `Overdue · \$\{dueText\}` : dueText\}/);
-    // 1.23.8 (website only): Detailed cards show everyone; otherwise three faces and +N, as here.
-    expect(card).toMatch(/const shownAssignees = (detailed \? task\.assignees : )?task\.assignees\.slice\(0, 3\);/);
+    // 1.23.8 (website only): Detailed cards show everyone; otherwise three faces and +N, as here. Board search
+    // (website only, 10 Nov): the same people, those the search found first — still three faces and +N.
+    expect(card).toMatch(/const people = found\?\.people\.length \? \[\.\.\.task\.assignees\]\.sort\(.*\) : task\.assignees;/);
+    expect(card).toMatch(/const shownAssignees = (detailed \? (task\.assignees|people) : )?(task\.assignees|people)\.slice\(0, 3\);/);
+    expect(card).toMatch(/const extra = task\.assignees\.length - shownAssignees\.length;/);
     expect(card).toMatch(/c && c\.checklistTotal > 0 \?/);
     expect(card).toMatch(/c && c\.comments > 0 \?/);
     expect(card).toMatch(/c && c\.attachments > 0 \?/);

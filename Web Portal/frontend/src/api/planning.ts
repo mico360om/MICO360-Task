@@ -82,7 +82,8 @@ export interface TimelineTask {
   overdue: boolean;
   priority: Priority;
   isMilestone: boolean;
-  assignees: { id: string; name: string }[];
+  /** Each with their photo (null, or left out by an older server: initials). */
+  assignees: { id: string; name: string; avatarUrl?: string | null }[];
   /** Finished but waiting for approval (task approvals). Missing from an older server = no. */
   waiting?: boolean;
 }

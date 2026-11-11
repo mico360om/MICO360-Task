@@ -1001,6 +1001,7 @@ describe('TaskDrawerContainer — a task in the Recycle Bin', () => {
     assignees: [{ id: 'u1', name: 'Ada L' }],
     tags: [{ name: 'pumps', color: '#333' }],
     contacts: [],
+    categories: [],
     checklists: [{ title: 'Steps', items: [{ text: 'Drain', done: true, depth: 0 }, { text: 'Close valve', done: false, depth: 1 }] }],
     comments: [{ id: 'c1', author: { id: 'u2', name: 'Omar A' }, body: 'Ordered the part', deleted: false, fromClient: false, createdAt: '2026-11-02T06:00:00.000Z', editedAt: null, replies: [{ id: 'c2', author: { id: 'u1', name: 'Ada L' }, body: 'Thanks', deleted: false, fromClient: false, createdAt: '2026-11-02T07:00:00.000Z', editedAt: null }] }],
     files: [{ filename: 'pump.pdf', sizeBytes: 2048, createdAt: '2026-11-02T06:00:00.000Z', uploadedBy: null }],
@@ -1060,6 +1061,39 @@ describe('TaskDrawerContainer — a task in the Recycle Bin', () => {
     expect(posts).toEqual([{ taskIds: ['tx'], wholeBatch: false }]);
     // Back: the task itself shows.
     await waitFor(() => expect(screen.queryByText(/In the Recycle Bin/)).toBeNull());
+  });
+
+  // tgc: 1.24 — a deleted task's guests show under "Guests" (no "External contacts" any more), its categories as chips.
+  it('1.24: shows its guests and its categories', async () => {
+    openDeleted(() => json({ data: { ...detail, contacts: [{ name: 'Ahmed Al Harthy', company: 'OXY' }, { name: 'Sara', company: null }], categories: [{ id: 'k1', name: 'Electrical', color: 'blue', retired: false }, { id: 'k2', name: 'Old works', color: 'grey', retired: true }] } }));
+    await screen.findByText(/In the Recycle Bin — deleted by Ali Hassan/);
+    expect(screen.getByRole('region', { name: 'Guests' })).toHaveTextContent('Ahmed Al Harthy (OXY), Sara');
+    expect(screen.queryByRole('region', { name: 'External contacts' })).toBeNull();
+    const cats = screen.getByRole('region', { name: 'Categories' });
+    expect(within(cats).getByRole('img', { name: 'Category: Electrical' })).toBeInTheDocument();
+    expect(within(cats).getByRole('img', { name: 'Category: Old works (retired)' })).toBeInTheDocument();
+  });
+
+  // tgc: 1.24 — its history words guests and categories as the task panel does.
+  it('1.24: its history says "assigned guest …" and "added category …"', async () => {
+    const history = [
+      { id: 'h3', taskId: 'tx', projectId: 'p1', userId: 'u2', action: 'DELETED', meta: {}, createdAt: '2026-11-03T09:00:00.000Z', actor: { id: 'u2', name: 'Ali Hassan' } },
+      { id: 'h2', taskId: 'tx', projectId: 'p1', userId: 'u2', action: 'CATEGORY_ADDED', meta: { name: 'Electrical' }, createdAt: '2026-11-02T08:00:00.000Z', actor: { id: 'u2', name: 'Ali Hassan' } },
+      { id: 'h1', taskId: 'tx', projectId: 'p1', userId: 'u2', action: 'EXTERNAL_CONTACT_ADDED', meta: { name: 'Ahmed Al Harthy', company: 'OXY' }, createdAt: '2026-11-01T06:00:00.000Z', actor: { id: 'u2', name: 'Ali Hassan' } },
+    ];
+    openDeleted(() => json({ data: { ...detail, history } }));
+    await screen.findByText(/In the Recycle Bin — deleted by Ali Hassan/);
+    expect(screen.getByText(/assigned guest Ahmed Al Harthy \(OXY\)/)).toBeInTheDocument();
+    expect(screen.getByText(/added category Electrical/)).toBeInTheDocument();
+    expect(screen.queryByText(/external contact/)).toBeNull();
+  });
+
+  // tgc: gate browser check (375, axe serious "scrollable-region-focusable"): the read-only body scrolls, and a
+  // keyboard must reach it — it holds no buttons or links of its own.
+  it('its scrolling body can be reached by keyboard', async () => {
+    openDeleted(() => json({ data: detail }));
+    await screen.findByText(/In the Recycle Bin — deleted by Ali Hassan/);
+    expect(screen.getByRole('region', { name: 'The deleted task, read-only' })).toHaveAttribute('tabindex', '0');
   });
 
   it('anyone else on the project: "This task was deleted"', async () => {

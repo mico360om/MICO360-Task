@@ -18,6 +18,7 @@ import { binExpiryOf } from '../../src/modules/recycle-bin/bin-rules';
 import { portabilityProblems } from '../../src/lib/sql-portability';
 import { createPrismaRecurrencePort } from '../../src/modules/tasks/prisma-recurrence-port';
 import { createPrismaInspectionStore } from '../../src/modules/inspections/prisma-inspection-store';
+import { createPrismaTaskDuplicateSource } from '../../src/modules/tasks/prisma-task-duplicate-source';
 import { runBackfill } from './company-helpers';
 
 // The Recycle Bin on a real database (TEST_DATABASE_URL, migrations applied): delete → bin with who and
@@ -420,5 +421,33 @@ describe('review fixes', () => {
     await bin.erase(admin, [t.id]);
     const record = await createPrismaInspectionStore(prisma).findInspection(insp.id);
     expect(record).toMatchObject({ taskId: null, erasedTask: `${t.key} 'Inspect rig 3'` });
+  });
+});
+
+describe('with 1.23.17: Duplicate and tasks for the future', () => {
+  it('a copy keeps "Duplicated from" through the bin; the original lists it again once it is restored', async () => {
+    const links = createPrismaTaskDuplicateSource(prisma).links;
+    const original = await make('Original');
+    const copy = await make('Copy', { duplicatedFromId: original.id });
+    expect((await links(original.id)).copies.map((c) => c.id)).toEqual([copy.id]);
+    await del(copy.id, 'one', ids.manager!);
+    expect((await links(original.id)).copies).toEqual([]);
+    await bin.restore(manager, [copy.id], {});
+    expect((await links(original.id)).copies.map((c) => c.id)).toEqual([copy.id]);
+    expect((await prisma.task.findUniqueOrThrow({ where: { id: copy.id } })).duplicatedFromId).toBe(original.id);
+    // The original in the bin and back: the copy names it again.
+    await del(original.id, 'one', ids.manager!);
+    expect((await links(copy.id)).from).toBeNull();
+    await bin.restore(manager, [original.id], {});
+    expect((await links(copy.id)).from?.id).toBe(original.id);
+  });
+
+  it('a task scheduled for a later day keeps that day’s board when it is restored', async () => {
+    const later = await make('Starts later', { startDate: new Date('2026-11-20T00:00:00.000Z') });
+    const day = (await prisma.task.findUniqueOrThrow({ where: { id: later.id } })).boardDate;
+    expect(day?.toISOString().slice(0, 10)).toBe('2026-11-20');
+    await del(later.id, 'one', ids.manager!);
+    await bin.restore(manager, [later.id], {});
+    expect((await prisma.task.findUniqueOrThrow({ where: { id: later.id } })).boardDate).toEqual(day);
   });
 });

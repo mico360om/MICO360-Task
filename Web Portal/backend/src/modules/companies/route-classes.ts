@@ -26,6 +26,8 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   'GET /releases': 'public',
   'GET /version': 'public',
   'POST /auth/login': 'public',
+  // Avatar thumbnails (11 Nov): a photo's face copy — public like every upload, made only for a current photo.
+  'GET /uploads/faces/:file': 'public',
   'POST /auth/logout': 'public',
   'POST /auth/refresh': 'public',
   'POST /auth/otp/request': 'public',
@@ -53,6 +55,7 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   'GET /backups/google/callback': 'public',
 
   // ---- own ------------------------------------------------------------------------------------
+  'GET /users/me': 'own',
   'GET /users/me/export': 'own',
   'POST /users/me/password': 'own',
   'POST /users/me/avatar': 'own',
@@ -508,13 +511,6 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   'GET /projects/:id/health': 'object',
   'GET /projects/:id/next-actions': 'object',
   'GET /projects/:id/activity': 'object',
-  // Recycle Bin: the bin lists the deleted tasks of the projects the person runs (an administrator's:
-  // every project) in the picked company; one deleted task, restore
-  // and Delete forever are checked task by task (Delete forever: administrators only).
-  'GET /recycle-bin': 'list',
-  'GET /recycle-bin/tasks/:id': 'object',
-  'POST /recycle-bin/restore': 'object',
-  'POST /recycle-bin/erase': 'admin',
   // 1.24 Guests on tasks: the company list through a project, a task's guests (object), the admin page (admin).
   'GET /projects/:projectId/guests': 'object',
   'POST /projects/:projectId/guests/check': 'object',
@@ -537,6 +533,13 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   'PUT /project-categories/:categoryId': 'object',
   'DELETE /project-categories/:categoryId': 'object',
   'PUT /tasks/:id/categories': 'object',
+  // Recycle Bin: the bin lists the deleted tasks of the projects the person runs (an administrator's:
+  // every project) in the picked company; one deleted task, restore
+  // and Delete forever are checked task by task (Delete forever: administrators only).
+  'GET /recycle-bin': 'list',
+  'GET /recycle-bin/tasks/:id': 'object',
+  'POST /recycle-bin/restore': 'object',
+  'POST /recycle-bin/erase': 'admin',
   // Duplicate Task: the review form's pre-fill (the original by the task rule) and the copy (the original
   // by the task rule, the chosen project by the new-task rule; staff only — a client account is refused).
   'GET /tasks/:id/duplicate': 'object',

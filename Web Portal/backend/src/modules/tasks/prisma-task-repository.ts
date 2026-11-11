@@ -24,9 +24,10 @@ import { currentAcceptance } from '../clients/sign-off';
 import { checklistTreeOf, leafCounts } from './checklist-tree';
 import { rowsFromTree } from './checklist-service';
 import { NOT_ARCHIVED, archivedWhere } from './task-archive-where';
+import { PERSON_SUMMARY_SELECT, personSummary } from '../../lib/person-summary';
 
 type TagRelation = { tag: { id: string; name: string; color: string } };
-type AssigneeRelation = { user: { id: string; username: string; firstName: string | null; lastName: string | null } };
+type AssigneeRelation = { user: { id: string; username: string; firstName: string | null; lastName: string | null; avatarUrl: string | null } };
 // 1.23.1: a merged task's merge columns aren't read here (merged tasks aren't live tasks), nor the
 // Recycle Bin's (deleted tasks aren't live tasks either). Duplicate Task: nor the task a copy was made
 // from (single-task details read it on their own; never list rows).
@@ -45,7 +46,6 @@ type EnrichedTask = Omit<Task, 'carryForwardLog' | 'mergedIntoId' | 'mergedAt' |
   /** 1.24: its categories. */
   categories?: { category: { id: string; name: string; color: string; retiredAt: Date | null; position: number } }[];
 };
-const displayName = (u: AssigneeRelation['user']): string => [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username;
 
 function toRecord(t: EnrichedTask): TaskRecord {
   return {
@@ -92,7 +92,8 @@ function toRecord(t: EnrichedTask): TaskRecord {
     version: t.version,
     createdAt: t.createdAt,
     updatedAt: t.updatedAt,
-    ...(t.assignees ? { assignees: t.assignees.map((a) => ({ id: a.user.id, name: displayName(a.user) })) } : {}),
+    // Avatar hotfix (owner, 10 Nov): each face's photo too (null: initials), read with the row.
+    ...(t.assignees ? { assignees: t.assignees.map((a) => personSummary(a.user)) } : {}),
     ...(t._count || t.checklist
       ? {
           counts: {
@@ -115,18 +116,18 @@ function toRecord(t: EnrichedTask): TaskRecord {
   };
 }
 
-/** What a delete writes: the Recycle Bin's marks (an older caller without one: just when). */
-function binData(mark: BinMark | undefined): Prisma.TaskUncheckedUpdateManyInput {
-  if (!mark) return { deletedAt: new Date() };
-  return { deletedAt: mark.at, deletedById: mark.by, binExpiresAt: mark.expiresAt, deleteBatchId: mark.batchId };
-}
-
 /** 1.24: a task's categories as rows show them, in their project's order. */
 function categoriesOf(rows: NonNullable<EnrichedTask['categories']>): { id: string; name: string; color: string; retired: boolean }[] {
   return rows
     .map((r) => r.category)
     .sort((a, b) => a.position - b.position || a.name.localeCompare(b.name))
     .map((c) => ({ id: c.id, name: c.name, color: c.color, retired: c.retiredAt !== null }));
+}
+
+/** What a delete writes: the Recycle Bin's marks (an older caller without one: just when). */
+function binData(mark: BinMark | undefined): Prisma.TaskUncheckedUpdateManyInput {
+  if (!mark) return { deletedAt: new Date() };
+  return { deletedAt: mark.at, deletedById: mark.by, binExpiresAt: mark.expiresAt, deleteBatchId: mark.batchId };
 }
 
 /** Live tasks only: not deleted, and not in a deleted project. */
@@ -386,7 +387,7 @@ export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository
         select: {
           ...listScalars,
           ...withColumn,
-          assignees: { select: { user: { select: { id: true, username: true, firstName: true, lastName: true } } } },
+          assignees: { select: { user: { select: PERSON_SUMMARY_SELECT } } },
           checklist: { where: { deletedAt: null }, select: { id: true, parentId: true, done: true } },
           _count: { select: { comments: true, attachments: true } },
         },

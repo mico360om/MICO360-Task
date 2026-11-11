@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { useAuthStore } from '../stores/auth-store';
+import { ME_KEY, updateOwnUser } from '../lib/own-user';
 import { useSignOut } from '../lib/useSignOut';
 import { SignOutWarning } from '../components/SignOutWarning';
 import { PageHeader } from '../components/ui/PageHeader';
@@ -60,7 +61,6 @@ export function SettingsPage() {
   const remembered = useAuthStore((st) => st.remember);
   const [photoProblem, setPhotoProblem] = useState<string | null>(null);
   const [saveProblem, setSaveProblem] = useState<string | null>(null);
-  const setSession = useAuthStore((s) => s.setSession);
   async function onAvatarPick(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = '';
@@ -69,15 +69,10 @@ export function SettingsPage() {
     setPhotoProblem(null);
     try {
       const updated = await usersApi(apiClient).uploadAvatar(file);
-      const { accessToken, refreshToken } = useAuthStore.getState();
-      if (accessToken && refreshToken) {
-        setSession({
-          user: { id: updated.id, email: updated.email, username: updated.username, roles: updated.roles, avatarUrl: updated.avatarUrl },
-          accessToken,
-          refreshToken,
-        });
-      }
+      // Only what changed: their name stays (the header's initials are the name's), and it shows at once.
+      updateOwnUser({ id: updated.id, email: updated.email, username: updated.username, roles: updated.roles, avatarUrl: updated.avatarUrl, ...(updated.firstName !== undefined ? { firstName: updated.firstName, lastName: updated.lastName } : {}) });
       void qc.invalidateQueries({ queryKey: ['users'] });
+      void qc.invalidateQueries({ queryKey: ME_KEY });
     } catch (err) {
       // A refused file (not a picture, too large) must say so — it used to change nothing, silently.
       setPhotoProblem(photoUploadProblem(err));
@@ -90,15 +85,10 @@ export function SettingsPage() {
     setPhotoProblem(null);
     try {
       const updated = await usersApi(apiClient).removeAvatar();
-      const { accessToken, refreshToken } = useAuthStore.getState();
-      if (accessToken && refreshToken) {
-        setSession({
-          user: { id: updated.id, email: updated.email, username: updated.username, roles: updated.roles, avatarUrl: updated.avatarUrl },
-          accessToken,
-          refreshToken,
-        });
-      }
+      // Only what changed: their name stays (the header's initials are the name's), and it shows at once.
+      updateOwnUser({ id: updated.id, email: updated.email, username: updated.username, roles: updated.roles, avatarUrl: updated.avatarUrl, ...(updated.firstName !== undefined ? { firstName: updated.firstName, lastName: updated.lastName } : {}) });
       void qc.invalidateQueries({ queryKey: ['users'] });
+      void qc.invalidateQueries({ queryKey: ME_KEY });
     } catch {
       setPhotoProblem('Couldn’t remove the photo. Please try again.');
     } finally {

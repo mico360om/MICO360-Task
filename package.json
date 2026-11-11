@@ -1,6 +1,6 @@
 {
   "name": "mico360-tasks",
-  "version": "1.23.11",
+  "version": "1.23.19",
   "private": true,
   "description": "MICO360 Tasks — Kanban task & project management (web app + Chrome extension + Node/TS API + MySQL).",
   "workspaces": [
@@ -25,7 +25,10 @@
   },
   "overrides": {
     "vite": "^7.3.7",
-    "postcss-selector-parser": "^7.1.7"
+    "postcss-selector-parser": "^7.1.7",
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "^11.0.1"
+    }
   },
   "devDependencies": {
     "tailwindcss": "^3.4.19"

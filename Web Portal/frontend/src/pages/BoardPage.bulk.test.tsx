@@ -126,13 +126,15 @@ describe('the Kanban board: Select mode (bulk changes)', () => {
     expect(screen.getByRole('region', { name: 'Bulk actions' })).toHaveTextContent('1 selected');
   });
 
-  it('the Table view’s own filters count as filters: "(3 hidden by filters)"', async () => {
+  // tbk: since board search (1.23.16) the board's Table view is filtered by the board's search box (its own words box
+  // is off on a board); what it hides still counts as "hidden by filters".
+  it('the board’s search (over its Table view) counts as a filter: "(3 hidden by filters)"', async () => {
     const user = userEvent.setup();
     localStorage.setItem(userStorageKey('u1', 'board.view'), 'table');
     renderPage();
     const table = await screen.findByRole('table');
     await user.click(within(table).getByRole('checkbox', { name: 'Select all 4' }));
-    await user.type(screen.getByRole('searchbox', { name: 'Filter rows' }), 'pumps');
+    await user.type(screen.getByRole('searchbox', { name: 'Search this board' }), 'pumps');
     await waitFor(() => expect(screen.getByRole('region', { name: 'Bulk actions' })).toHaveTextContent('4 selected (3 hidden by filters)'));
   });
 

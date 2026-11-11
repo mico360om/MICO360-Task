@@ -273,6 +273,24 @@ describe('MICO AI page', () => {
     await waitFor(() => expect(calls.some((c) => c.url.endsWith('/messages/a3/report.pdf'))).toBe(true));
   });
 
+  // MICO360 AI (b) bundles, b15: the answer's words appear while MICO AI writes them.
+  it('the answer’s words appear as they are written, then the whole answer replaces them', async () => {
+    renderPage();
+    await screen.findByRole('heading', { name: 'How can I help, Khurram?' });
+    await userEvent.type(box(), 'Which tasks are overdue?{Enter}');
+    expect(await screen.findByText('Checking tasks in Rig Inspection…')).toBeInTheDocument();
+    next = { draft: 'Two tasks in Rig' };
+    expect(await screen.findByText('Two tasks in Rig')).toBeInTheDocument();
+    expect(screen.getByText('Writing…')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeInTheDocument();
+    next = { draft: 'Two tasks in Rig Inspection are overdue' };
+    expect(await screen.findByText('Two tasks in Rig Inspection are overdue')).toBeInTheDocument();
+    next = tableAnswer;
+    expect(await screen.findByRole('table', { name: 'Overdue tasks' })).toBeInTheDocument();
+    expect(screen.queryByText('Writing…')).not.toBeInTheDocument();
+    expect(screen.queryByText('Two tasks in Rig Inspection are overdue')).not.toBeInTheDocument();
+  });
+
   it('Stop ends an answer', async () => {
     renderPage();
     await screen.findByRole('heading', { name: 'How can I help, Khurram?' });

@@ -187,6 +187,53 @@ describe('AiConfigService: connecting loads the models', () => {
     expect(cfg.providers[0]!.lastSyncError).toMatch(/HTTP 503/);
     expect(cfg.models[0]!.available).toBe(true); // nothing changed
   });
+
+  // MICO360 AI lists no models while none of its nodes is accepting work (busy, draining) — not "none exist".
+  const mico = { name: 'MICO360 AI', kind: 'custom' as const, preset: 'mico360' as const, apiBaseUrl: 'https://ai.mico360.com:5310/v1', apiKey: 'mico_k' };
+  it('MICO360 AI: an empty list keeps every model as it was and says why', async () => {
+    const answer = { models: ['llama3.1:latest'] };
+    const fetchImpl = vi.fn(async () => json({ object: 'list', data: answer.models.map((id) => ({ id, object: 'model', created: 1, owned_by: 'mico360' })) }));
+    const { svc } = make(fetchImpl as unknown as typeof fetch);
+    await svc.addProvider(mico, actor);
+    answer.models = [];
+    await expect(svc.syncProvider('id1', actor)).rejects.toThrow(/listed no models right now/);
+    const cfg = await svc.getConfig();
+    expect(cfg.models[0]).toMatchObject({ modelKey: 'llama3.1:latest', enabled: true, available: true });
+    expect(cfg.providers[0]!.lastSyncError).toMatch(/AI nodes may be busy or offline/);
+  });
+
+  it('MICO360 AI: connecting while it lists no models saves it with that note', async () => {
+    const { svc } = make(vi.fn(async () => json({ object: 'list', data: [] })) as unknown as typeof fetch);
+    const cfg = await svc.addProvider(mico, actor);
+    expect(cfg.providers[0]!.lastSyncError).toMatch(/listed no models right now/);
+  });
+
+  // Review minor 6: an empty list (busy nodes) is tried again at the next hourly check, not a day later.
+  it('MICO360 AI: after an empty list the models load again at the next hourly refresh', async () => {
+    const clock = { now: '2026-11-11T08:00:00.000Z' };
+    const answer = { models: [] as string[] };
+    const fetchImpl = vi.fn(async () => json({ object: 'list', data: answer.models.map((id) => ({ id, object: 'model', created: 1, owned_by: 'mico360' })) }));
+    const { svc } = make(fetchImpl as unknown as typeof fetch, clock);
+    await svc.addProvider(mico, actor);
+    clock.now = '2026-11-11T08:30:00.000Z';
+    expect(await svc.refreshDueProviders()).toEqual({ refreshed: 0, failed: 0 }); // not yet an hour
+    answer.models = ['llama3.1:latest'];
+    clock.now = '2026-11-11T09:00:00.000Z';
+    expect(await svc.refreshDueProviders()).toEqual({ refreshed: 1, failed: 0 });
+    const cfg = await svc.getConfig();
+    expect(cfg.models.map((m) => [m.modelKey, m.enabled])).toEqual([['llama3.1:latest', true]]);
+    expect(cfg.providers[0]!.lastSyncError ?? null).toBeNull();
+  });
+
+  it('other providers: an empty list is still an empty list', async () => {
+    const answer = { models: ['gpt-4o-mini'] };
+    const fetchImpl = vi.fn(async () => json({ data: answer.models.map((id) => ({ id })) }));
+    const { svc } = make(fetchImpl as unknown as typeof fetch);
+    await svc.addProvider(openai, actor);
+    answer.models = [];
+    await svc.syncProvider('id1', actor);
+    expect((await svc.getConfig()).models[0]!.available).toBe(false);
+  });
 });
 
 describe('AiConfigService: daily refresh', () => {
@@ -271,3 +318,79 @@ describe('AiConfigService: testing a model', () => {
     await expect(svc.testModel('nope')).rejects.toThrow(/not found/);
   });
 });
+
+describe('AiConfigService: MICO360 AI platform facts (b5, b7, b11, b12)', () => {
+  const mico = { name: 'MICO360 AI', kind: 'custom' as const, preset: 'mico360' as const, apiBaseUrl: 'https://ai.mico360.com:5310/v1', apiKey: 'mico_k' };
+  const platform = (over: { chat?: () => Response } = {}) => {
+    const calls: Array<{ url: string; key: string | null; auth: string | null }> = [];
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+      const h = new Headers(init?.headers);
+      calls.push({ url: String(url), key: h.get('x-mico-api-key'), auth: h.get('authorization') });
+      const path = String(url).replace('https://ai.mico360.com:5310', '');
+      if (path === '/api/status') return json({ product: 'MICO360 Connect Relay', version: '2.6.28', commit: '0383615', status: 'online' });
+      if (path === '/api/v1/models') return json({ models: ['llama3.1:latest', 'nomic-embed-text'], capabilities: ['Chat', 'Embedding'] });
+      if (path === '/api/v1/status') return json({ application: 'Tasks', status: 'online', concurrency: { limit: 6, inFlight: 0, available: 6 }, priority: 2, nodesOnline: 2 });
+      if (path === '/v1/chat/completions') return over.chat ? over.chat() : json({ id: 'JOB-T', model: 'llama3.1:latest', choices: [{ message: { content: 'OK' } }] });
+      return json({ object: 'list', data: [{ id: 'llama3.1:latest', object: 'model', created: 1, owned_by: 'mico360' }] });
+    });
+    return { calls, fetchImpl: fetchImpl as unknown as typeof fetch };
+  };
+
+  it('connecting reads the Connect version, what the fleet can do and how much the key may run at once', async () => {
+    const p = platform();
+    const { svc } = make(p.fetchImpl);
+    const cfg = await svc.addProvider(mico, actor);
+    expect(cfg.providers[0]!.platform).toMatchObject({ version: '2.6.28', commit: '0383615', capabilities: ['Chat', 'Embedding'], concurrencyLimit: 6 });
+    // The native routes take the key only as X-Mico-Api-Key; /api/status takes none.
+    for (const c of p.calls.filter((x) => x.url.includes('/api/v1/'))) expect(c).toMatchObject({ key: 'mico_k', auth: null });
+    expect(p.calls.find((x) => x.url.endsWith('/api/status'))).toMatchObject({ key: null, auth: null });
+  });
+
+  it('the facts are read again with the models (Refresh models, the daily refresh)', async () => {
+    const p = platform();
+    const { svc } = make(p.fetchImpl);
+    await svc.addProvider(mico, actor);
+    const before = p.calls.filter((c) => c.url.endsWith('/api/status')).length;
+    await svc.syncProvider('id1', actor);
+    expect(p.calls.filter((c) => c.url.endsWith('/api/status')).length).toBe(before + 1);
+  });
+
+  it('other providers are asked for nothing new', async () => {
+    const fetchImpl = vi.fn(async () => json({ data: [{ id: 'gpt-4o-mini' }] }));
+    const { svc } = make(fetchImpl as unknown as typeof fetch);
+    const cfg = await svc.addProvider(openai, actor);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(cfg.providers[0]!.platform).toBeUndefined();
+  });
+
+  it('b5: Test says which model answered, and a stand-in is logged on the provider', async () => {
+    const p = platform({
+      chat: () => json({ id: 'JOB-T', model: 'qwen2.5:0.5b', warning: "Requested model 'llama3.1:latest' is unavailable; processing on 'qwen2.5:0.5b' instead.", choices: [{ message: { content: 'OK' } }] }),
+    });
+    const { svc } = make(p.fetchImpl);
+    const cfg = await svc.addProvider(mico, actor);
+    const res = await svc.testModel(cfg.models[0]!.id);
+    expect(res).toMatchObject({ ok: true, reply: 'OK', model: 'qwen2.5:0.5b', substituted: "Requested model 'llama3.1:latest' is unavailable; processing on 'qwen2.5:0.5b' instead." });
+    expect((await svc.getConfig()).providers[0]!.platform!.substitutions).toEqual([expect.objectContaining({ asked: 'llama3.1:latest', answered: 'qwen2.5:0.5b', count: 1 })]);
+  });
+
+  it('b5: Test names the model that answered when it is the one asked for', async () => {
+    const { svc } = make(platform().fetchImpl);
+    const cfg = await svc.addProvider(mico, actor);
+    expect(await svc.testModel(cfg.models[0]!.id)).toMatchObject({ ok: true, model: 'llama3.1:latest', substituted: null });
+  });
+
+  // Review minor 5: 20 wrong keys a minute from one address block every key from it (guide §2), so a
+  // refused key costs one call, not three.
+  it('a key the platform refuses costs one call (the facts are read only once the models load)', async () => {
+    const urls: string[] = [];
+    const fetchImpl = vi.fn(async (url: string) => {
+      urls.push(String(url));
+      return json({ error: { message: "Invalid or missing API key. Send it as 'Authorization: Bearer <key>'." } }, 401);
+    });
+    const { svc } = make(fetchImpl as unknown as typeof fetch);
+    await expect(svc.addProvider(mico, actor)).rejects.toThrow(/did not accept the API key/);
+    expect(urls).toEqual(['https://ai.mico360.com:5310/v1/models']);
+  });
+});
+

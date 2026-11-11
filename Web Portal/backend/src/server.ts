@@ -101,6 +101,7 @@ import { createAttachmentService } from './modules/tasks/attachment-service';
 import { createTaskDuplicateService } from './modules/tasks/task-duplicate';
 import { createPrismaTaskDuplicateSource } from './modules/tasks/prisma-task-duplicate-source';
 import { createImageShrinker } from './lib/image-shrink';
+import { createAvatarFaces, prismaIsAvatar, registerAvatarFaceRoute } from './modules/users/avatar-faces';
 import { createPrismaAttachmentRepository } from './modules/tasks/prisma-attachment-repository';
 import { createLocalDiskStorage } from './modules/tasks/local-disk-storage';
 import { createDependencyService } from './modules/tasks/dependency-service';
@@ -133,6 +134,7 @@ import { assignedNoticeTitle, createPrismaStartingTasksSource, createStartDayRem
 import { createJobGate } from './lib/job-gate';
 import { databaseConnectionCode } from './lib/db-connection';
 import { createShutdown } from './lib/shutdown';
+import { createUpdateWindow } from './lib/update-window';
 import { createDatabaseCheck, prismaDatabaseReads } from './modules/error-log/database-check';
 import { databaseProbes } from './modules/error-log/database-probes';
 import { isMuted, normalizePreferences } from './modules/notifications/notification-preferences';
@@ -295,6 +297,9 @@ import { createFirstPassword, createPrismaFirstPasswordRepo } from './modules/au
 import { createPrismaIdentityLookup } from './modules/users/identity-check';
 
 async function main(): Promise<void> {
+  // 1.23.14: the process's first minute and its stop (SIGTERM) are an update restart's: a database blip then
+  // is a calm "Update restart" row in the Error log, not a red Server error (lib/update-window).
+  const updateWindow = createUpdateWindow({ startedAt: Date.now() - process.uptime() * 1000 });
   const env = getEnv();
   const baseLogger = createLogger({ service: 'mico360-api', level: env.NODE_ENV === 'production' ? 'info' : 'debug' });
   // ── The Error log (1.22.4, System Settings → Error log) ──────────────────────
@@ -336,6 +341,7 @@ async function main(): Promise<void> {
     },
     warn: (message, meta) => baseLogger.warn(message, meta),
     userNames: (ids) => resolveUserNames(ids),
+    updateWindow: () => updateWindow.phase(),
   });
   const logger = withErrorLog(baseLogger, (message, ctx) => errorLog.recordServer(message, ctx));
   // 1.23.1 (lib/job-gate): background jobs start once the database first answered (a deploy restart
@@ -645,6 +651,19 @@ async function main(): Promise<void> {
   // Attached pictures (tasks and chat) are stored smaller; if the picture library won't load on
   // this server they are kept at full size, which the log and /health say.
   const imageShrinker = createImageShrinker({ warn: (msg, meta) => logger.warn(msg, meta) });
+  // Avatar thumbnails (11 Nov): every face loads a small copy of the photo, kept beside the uploads.
+  const avatarFaces = createAvatarFaces({
+    dir: env.UPLOAD_DIR,
+    readOriginal: async (key) => {
+      if (!attachmentStorage.read) throw new Error('uploads can’t be read back');
+      return attachmentStorage.read(key);
+    },
+    isAvatar: prismaIsAvatar(prisma),
+    toFace: (content) => imageShrinker.toFace(content),
+    // The picture library didn't load: faces use the photos themselves, with no work per view.
+    canMake: () => imageShrinker.status() !== false,
+    warn: (msg, meta) => logger.warn(msg, meta),
+  });
   /** 1.23.11: a project's picture at 200 dpi for the PDF header's 26 pt badge. */
   const fitProjectImage = (raw: Buffer) => imageShrinker.toDocumentPicture(raw, PDF_PICTURE_BOX.mark);
   void imageShrinker.check().then((on) => {
@@ -1481,6 +1500,8 @@ async function main(): Promise<void> {
     timeZone: companyTz,
     allowPrivateHosts: env.AI_ALLOW_PRIVATE_HOSTS,
     limits: { perMinute: env.AI_USER_REQUESTS_PER_MINUTE, perDay: env.AI_USER_REQUESTS_PER_DAY },
+    // MICO360 AI (b10): a failure worth an admin's look reaches the Error log with its correlation and job ids.
+    logger,
   });
 
   // MICO AI: each person's private chats with the assistant. Its tools read with the app's own rules
@@ -2133,7 +2154,13 @@ async function main(): Promise<void> {
     prisma,
     storage: { read: (key) => (attachmentStorage.read ? attachmentStorage.read(key) : Promise.reject(new Error('no storage reader'))) },
     index: searchIndex,
-    ocr: { ready: () => aiFeatureService.ocrReady(), read: (images) => aiFeatureService.readPictures(images) },
+    ocr: {
+      ready: () => aiFeatureService.ocrReady(),
+      read: (images) => aiFeatureService.readPictures(images),
+      // MICO360 AI (b4): the whole document, falling back to the pictures; scans no picture could carry are read again.
+      readDocument: (doc, opts) => aiFeatureService.readDocument(doc, opts),
+      wholeDocuments: () => aiFeatureService.readsWholeDocuments(),
+    },
     logger,
   });
   const searchScope = createSearchScope({
@@ -2184,7 +2211,11 @@ async function main(): Promise<void> {
     // 1.23.6 the built-in reader: the person's projects and people, today and their company's week.
     reader: createReaderContext({ prisma, timeZone: companyTz, weekStart: (viewer, pick) => companyTime.weekStartOfScope(viewer, pick) }),
     ai: {
-      status: async () => ({ ready: await aiFeatureService.chatReady().catch(() => false), semantic: await searchSemantic.ready() }),
+      // b13: someone is about to search — a cold MICO360 AI chat model is warmed up (never waited for).
+      status: async () => {
+        aiFeatureService.warmUp();
+        return { ready: await aiFeatureService.chatReady().catch(() => false), semantic: await searchSemantic.ready() };
+      },
       ask: aiSearch.ask,
     },
     timeZone: companyTz,
@@ -2429,6 +2460,7 @@ async function main(): Promise<void> {
     commentService,
     attachmentService,
     chatAttachmentStorage: attachmentStorage,
+    avatarFaces,
     attachmentAllowedMime,
     attachmentMaxSizeBytes: env.UPLOAD_MAX_BYTES,
     shrinkImage: imageShrinker.shrink,
@@ -2620,6 +2652,8 @@ async function main(): Promise<void> {
   const { resolve } = await import('node:path');
   const uploadsRoot = resolve(process.cwd(), env.UPLOAD_DIR);
   mkdirSync(uploadsRoot, { recursive: true });
+  // Avatar thumbnails: /uploads/faces/<photo key>.webp, made on first request for a photo from before.
+  await registerAvatarFaceRoute(app, avatarFaces);
   await app.register(fastifyStatic, {
     root: uploadsRoot,
     prefix: '/uploads/',
@@ -2779,6 +2813,7 @@ async function main(): Promise<void> {
   // then the other timers, the server and the Error log's writes, and the database client last — so a
   // restart records nothing in the Error log (lib/shutdown).
   const shutdown = createShutdown({
+    markStopping: () => updateWindow.markStopping(),
     stopJobs: () => jobs.stop(),
     stopTimers: () => {
       taskSearchSweeps.stop();

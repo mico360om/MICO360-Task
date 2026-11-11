@@ -3,6 +3,7 @@ import { todayKey } from '../../lib/due-date';
 import { formatDay } from '../../lib/export-format';
 import type { Logger } from '../../lib/logger';
 import { AiCallStoppedError } from '../ai/ai-network';
+import type { AnswerSchema } from '../ai/ai-completion';
 import { MicoAiError, runTurn, type HistoryTurn, type ModelRequest } from './mico-ai-loop';
 import type { MicoAiTools } from './mico-ai-tools';
 import type { Viewer } from './mico-ai-data';
@@ -52,6 +53,8 @@ export const HISTORY_WINDOW = 20;
 export const PAGE_SIZE = 50;
 /** Older messages are folded into the running summary this many at a time. */
 const SUMMARY_BATCH = 10;
+/** At most this much of the messages being folded is sent (the newest), so the request stays small. */
+const SUMMARY_INPUT_CHARS = 20_000;
 /** Results of recent turns the model may still cite and tabulate. */
 const EARLIER_RESULTS = 8;
 /** The longest an answer may take, start to finish (1.22: each try). */
@@ -61,6 +64,9 @@ export const MICO_AI_JOB: AiJobKind = 'mico-ai';
 export const MICO_AI_ANSWER = 'MICO_AI_ANSWER';
 export const MICO_AI_FAILED = 'MICO_AI_FAILED';
 const MAX_CHATS = 200;
+/** b15: the words being written are kept at most this often, and at most this long. */
+const DRAFT_EVERY_MS = 300;
+const MAX_DRAFT_CHARS = 8000;
 
 export class MicoAiNotReadyError extends HttpError {
   constructor() {
@@ -71,8 +77,14 @@ export class MicoAiNotReadyError extends HttpError {
 /** The model MICO AI talks to: the AI features service's chatReady(), chat() and startMicoAiQuestion(). */
 export interface MicoAiModel {
   ready(): Promise<boolean>;
-  /** One call, counted against the person's shared daily AI limit. */
-  chat(req: { system: string; prompt: string; maxTokens?: number; json?: boolean; signal?: AbortSignal }, userId: string): Promise<string>;
+  /**
+   * One call, counted against the person's shared daily AI limit. MICO360 AI: held to `schema` (b1), the
+   * words handed to `onText` as they are written (b15), `idempotencyKey` the background job's scope (b2).
+   */
+  chat(
+    req: { system: string; prompt: string; maxTokens?: number; json?: boolean; schema?: AnswerSchema; signal?: AbortSignal; onText?: (text: string) => void; idempotencyKey?: string },
+    userId: string,
+  ): Promise<string>;
   /** A question starts: counted once against the per-minute limit; throws (429) when the minute or the day is used up. */
   startQuestion(userId: string): void;
 }
@@ -89,6 +101,8 @@ export interface MicoAiServiceDeps {
   logger?: Pick<Logger, 'error'>;
   /** The longest an answer may take. Default 3 minutes. */
   answerTimeoutMs?: number;
+  /** b15: the words being written are kept on the pending answer at most this often. Default 300 ms. */
+  draftEveryMs?: number;
   /** MICO AI's changes: without them it stays read-only. */
   actions?: Pick<MicoAiActions, 'prepare' | 'applyEdits' | 'carryOut' | 'revert'>;
   /**
@@ -125,6 +139,8 @@ export interface MessageView {
   createdAt: string;
   /** While pending: what MICO AI is doing. */
   step: string | null;
+  /** b15, while pending: the answer's words as far as they are written (MICO360 AI's live stream). */
+  draft?: string | null;
   answer?: Omit<AssistantContent, 'results' | 'text' | 'proposal' | 'proposalId'> & { proposal?: ProposalView };
   error?: string;
 }
@@ -183,6 +199,7 @@ export function createMicoAiService(deps: MicoAiServiceDeps) {
   const { repo, tools, model, timeZone, actions } = deps;
   const now = deps.now ?? (() => new Date());
   const answerTimeoutMs = deps.answerTimeoutMs ?? ANSWER_TIMEOUT_MS;
+  const draftEveryMs = deps.draftEveryMs ?? DRAFT_EVERY_MS;
   /** A pending answer untouched this long has no live run behind it (a restart cut it off). */
   const staleMs = answerTimeoutMs + 30_000;
   const staleBefore = () => new Date(now().getTime() - staleMs);
@@ -263,7 +280,10 @@ export function createMicoAiService(deps: MicoAiServiceDeps) {
     const base = { id: m.id, role: m.role, text: m.text, createdAt: m.createdAt.toISOString(), step: null as string | null };
     if (m.role === 'user') return { ...base, status: 'done' };
     if (isStale(m, working)) return { ...base, text: '', status: 'error', error: INTERRUPTED };
-    if (m.status === 'PENDING') return { ...base, status: 'pending', step: m.step };
+    if (m.status === 'PENDING') {
+      const draft = (m.content as { draft?: unknown } | null)?.draft;
+      return { ...base, status: 'pending', step: m.step, ...(typeof draft === 'string' && draft ? { draft } : {}) };
+    }
     if (m.status === 'STOPPED') return { ...base, status: 'stopped' };
     if (m.status === 'ERROR') {
       const e = (m.content as { error?: unknown } | null)?.error;
@@ -343,10 +363,18 @@ export function createMicoAiService(deps: MicoAiServiceDeps) {
     if (upTo - fresh.summarizedCount < SUMMARY_BATCH) return;
     const older = await repo.messageRange(chat.id, fresh.summarizedCount, upTo - fresh.summarizedCount);
     const cards = await cardsOf(older);
-    const lines = older
+    const all = older
       .map((m) => historyTurn(m, cards))
       .filter((h): h is HistoryTurn => !!h)
       .map((h) => `${h.role === 'user' ? 'User' : 'MICO AI'}: ${JSON.stringify(h.text.slice(0, 1500)).replace(/</g, '\\u003c')}`);
+    // Review minor 5: summaries that failed leave a backlog; only its newest messages, within
+    // SUMMARY_INPUT_CHARS, are sent (MICO360 AI reads at most 32,000 characters a conversation).
+    const lines: string[] = [];
+    let size = 0;
+    for (let i = all.length - 1; i >= 0 && size + all[i]!.length + 1 <= SUMMARY_INPUT_CHARS; i--) {
+      lines.unshift(all[i]!);
+      size += all[i]!.length + 1;
+    }
     const raw = await model.chat(
       {
         system:
@@ -379,8 +407,47 @@ export function createMicoAiService(deps: MicoAiServiceDeps) {
     }
   }
 
-  /** The AI's answer to a question (it calls the tools and the model; it keeps nothing). */
-  async function computeAnswer(viewer: Viewer, chat: ChatRecord, question: string, answerId: string, signal: AbortSignal) {
+  /**
+   * b15: the words being written, kept on the pending answer (any server's poll shows them) — at most
+   * every `draftEveryMs`, in order, the latest one always; null clears them. Only while it is pending.
+   */
+  function draftKeeper(answerId: string) {
+    let latest: string | null = null;
+    let written: string | null = null;
+    let lastAt = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let chain: Promise<unknown> = Promise.resolve();
+    const write = () => {
+      timer = null;
+      if (latest === written) return;
+      const text = latest;
+      written = text;
+      lastAt = Date.now();
+      chain = chain
+        .then(() => repo.updateMessage(answerId, { content: text === null ? null : { draft: text.slice(0, MAX_DRAFT_CHARS) } }, 'PENDING'))
+        .catch((err) => log('MICO AI could not keep the words being written', err));
+    };
+    return {
+      set(text: string | null) {
+        latest = text;
+        if (timer) return;
+        const wait = text === null ? 0 : Math.max(0, lastAt + draftEveryMs - Date.now());
+        if (wait === 0) write();
+        else {
+          timer = setTimeout(write, wait);
+          timer.unref?.();
+        }
+      },
+      async done() {
+        if (timer) clearTimeout(timer);
+        timer = null;
+        await chain;
+      },
+    };
+  }
+
+  /** The AI's answer to a question (it calls the tools and the model; it keeps nothing). `jobId`: its background job (b2). */
+  async function computeAnswer(viewer: Viewer, chat: ChatRecord, question: string, answerId: string, signal: AbortSignal, jobId?: string) {
     // The recent turns (with their results) before this question: the new question and answer are the last two.
     const window = (await repo.recentMessages(chat.id, HISTORY_WINDOW + 2)).filter((m) => m.id !== answerId).slice(0, -1);
     const cards = await cardsOf(window);
@@ -391,9 +458,12 @@ export function createMicoAiService(deps: MicoAiServiceDeps) {
     const at = now();
     const today = todayKey(timeZone, at);
     const weekday = new Intl.DateTimeFormat('en-GB', { timeZone, weekday: 'short' }).format(at);
+    const draft = draftKeeper(answerId);
     const out = await runTurn(
       {
-        complete: (req: ModelRequest) => model.chat(req, viewer.userId),
+        // b2: a job's tries of the same step are one piece of work on MICO360 AI.
+        complete: (req: ModelRequest) => model.chat({ ...req, ...(jobId ? { idempotencyKey: `tasks-ai-${jobId}` } : {}) }, viewer.userId),
+        onDraft: (text) => draft.set(text),
         tools: tools.catalogue,
         runTool: (name, args) => tools.run(viewer, name, args),
         onStep: async (step) => {
@@ -403,7 +473,7 @@ export function createMicoAiService(deps: MicoAiServiceDeps) {
         ...(actions ? { propose: (changes: Array<Record<string, unknown>>, opts: { final: boolean }) => actions.prepare(viewer, changes, opts) } : {}),
       },
       { question, history, summary: chat.summary, earlier, signal },
-    );
+    ).finally(() => draft.done());
     if (signal.aborted) throw new AiCallStoppedError();
     return out;
   }
@@ -701,8 +771,8 @@ export function createMicoAiService(deps: MicoAiServiceDeps) {
       }, answerTimeoutMs);
       timer.unref?.();
       try {
-        if (job.attempts > 1) await repo.updateMessage(job.subjectId, { step: 'Thinking…' }, 'PENDING');
-        return await computeAnswer(viewer, chat, question, job.subjectId, controller.signal);
+        if (job.attempts > 1) await repo.updateMessage(job.subjectId, { step: 'Thinking…', content: null }, 'PENDING');
+        return await computeAnswer(viewer, chat, question, job.subjectId, controller.signal, job.id);
       } catch (err) {
         if (timedOut) throw new MicoAiError(TOO_LONG);
         throw err;
@@ -725,7 +795,8 @@ export function createMicoAiService(deps: MicoAiServiceDeps) {
     },
     async waiting(job, at) {
       const step = `The AI service didn’t answer, so MICO AI will try again in ${inWords(at)} (try ${job.attempts + 1} of ${MAX_ATTEMPTS}).`;
-      await repo.updateMessage(job.subjectId, { step }, 'PENDING');
+      // Review I1: the words a failed try had shown go (nothing is being written while it waits).
+      await repo.updateMessage(job.subjectId, { step, content: null }, 'PENDING');
     },
     async notify(job, end) {
       if (!deps.notify) return;

@@ -117,7 +117,8 @@ export function createPrismaTimelineSource(prisma: PrismaClient): TimelineSource
         done: t.completedAt !== null || t.column.category === 'DONE',
         priority: t.priority,
         isMilestone: t.isMilestone,
-        assignees: t.assignees.map((a) => ({ id: a.user.id, name: toPerson(a.user).name })),
+        // Avatar hotfix: the lane's faces show the photos (already read with the row).
+        assignees: t.assignees.map((a) => toPerson(a.user)),
         waiting: t.approvalRequestedAt !== null,
       });
       // Due from `from` on, and due (or started) before `to`: in or reaching into the shown weeks.

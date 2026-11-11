@@ -119,7 +119,7 @@ const sectionsQuery = z.object({
       if (!v) return ALL_SECTIONS;
       const picked = v.split(',').map((x) => x.trim()).filter(Boolean);
       if (picked.length === 0 || picked.some((x) => !ALL_SECTIONS.includes(x as ReportSection))) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, message: `sections: choose from ${ALL_SECTIONS.join(', ')}` });
+        ctx.addIssue({ code: 'custom', message: `sections: choose from ${ALL_SECTIONS.join(', ')}` });
         return z.NEVER;
       }
       return ALL_SECTIONS.filter((x) => picked.includes(x));

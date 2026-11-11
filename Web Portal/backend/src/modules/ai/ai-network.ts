@@ -1,5 +1,6 @@
 import { lookup as dnsLookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
+import { Readable } from 'node:stream';
 import { ValidationError } from '../../lib/http-errors';
 
 /**
@@ -80,7 +81,49 @@ export function validateProviderUrl(raw: string, allowPrivateHosts = false): str
   if (!allowPrivateHosts && isPrivateHostname(url.hostname)) {
     throw new ValidationError('The API base URL must be a public address. Local or internal model servers need AI_ALLOW_PRIVATE_HOSTS=true.');
   }
+  upgradeToHttps(url);
   return url.href.replace(/[?#].*$/, '').replace(/\/+$/, '');
+}
+
+/**
+ * Hosts that answer nothing on plain http. MICO360 Connect's AI platform: since 2.6.17 (21 Oct 2026)
+ * port 5310 speaks only HTTPS, under the certificate for ai.mico360.com (its API guide, the header and §9).
+ */
+const HTTPS_ONLY_HOSTS = new Set(['ai.mico360.com']);
+const MICO360_AI_HOST = 'ai.mico360.com';
+
+/**
+ * Is this provider MICO360 AI (MICO360 Connect's AI platform)? Its preset, or its address — a provider
+ * added as "Other" at ai.mico360.com is the same platform, with the same rules.
+ */
+export function isMico360Provider(provider: { preset?: string | null; apiBaseUrl?: string | null }): boolean {
+  if (provider.preset === 'mico360') return true;
+  try {
+    return new URL(provider.apiBaseUrl ?? '').hostname.replace(/\.$/, '').toLowerCase() === MICO360_AI_HOST;
+  } catch {
+    return false;
+  }
+}
+
+/** Switch an http URL to https when its host speaks only HTTPS; true when it was switched. */
+function upgradeToHttps(url: URL): boolean {
+  if (url.protocol !== 'http:' || !HTTPS_ONLY_HOSTS.has(url.hostname.replace(/\.$/, '').toLowerCase())) return false;
+  url.protocol = 'https:';
+  return true;
+}
+
+/**
+ * A saved address as it must be called: http to an HTTPS-only host (a MICO360 AI provider saved before
+ * Connect 2.6.17) is read as https. Anything else — and anything that isn't an address — is unchanged.
+ */
+export function httpsOnlyAddress(address: string): string {
+  let url: URL;
+  try {
+    url = new URL(address);
+  } catch {
+    return address;
+  }
+  return upgradeToHttps(url) ? address.replace(/^\s*http:/i, 'https:') : address;
 }
 
 export type LookupAll = (hostname: string) => Promise<Array<{ address: string }>>;
@@ -118,9 +161,19 @@ export function pinnedFetch(opts: { allowPrivateHosts?: boolean; lookup?: Lookup
     const { request } = url.protocol === 'https:' ? await import('node:https') : await import('node:http');
     const headers: Record<string, string> = {};
     new Headers(init.headers).forEach((value, key) => (headers[key] = value));
-    const body = init.body == null ? undefined : typeof init.body === 'string' ? init.body : Buffer.from(await new Response(init.body).arrayBuffer());
+    // A Buffer (a document for MICO360 AI, up to 64 MB) is sent as it is, not copied twice more (review minor 9).
+    const body =
+      init.body == null
+        ? undefined
+        : typeof init.body === 'string'
+          ? init.body
+          : Buffer.isBuffer(init.body)
+            ? init.body
+            : Buffer.from(await new Response(init.body).arrayBuffer());
     if (body !== undefined) headers['content-length'] = String(Buffer.byteLength(body));
 
+    // b15: an event stream (MICO360 AI's live text) is handed over as it arrives; anything else whole.
+    const streaming = /text\/event-stream/i.test(headers['accept'] ?? '');
     return new Promise<Response>((resolve, reject) => {
       const req = request(url, { method: init.method ?? 'GET', headers, lookup: connectLookup as never, signal: init.signal ?? undefined }, (res) => {
         const status = res.statusCode ?? 0;
@@ -128,17 +181,24 @@ export function pinnedFetch(opts: { allowPrivateHosts?: boolean; lookup?: Lookup
           res.resume();
           return reject(new ValidationError('The AI provider tried to redirect the request, which is not allowed.'));
         }
-        const chunks: Buffer[] = [];
-        res.on('data', (c: Buffer) => chunks.push(c));
-        res.on('error', reject);
-        res.on('end', () => {
+        const responseHeaders = () => {
           const out = new Headers();
           for (const [k, v] of Object.entries(res.headers)) {
             if (v === undefined) continue;
             for (const one of Array.isArray(v) ? v : [v]) out.append(k, one);
           }
+          return out;
+        };
+        if (streaming && status >= 200 && status < 300) {
+          // An abort (the caller's stop, a time-out) destroys the request, which ends this body with an error.
+          return resolve(new Response(Readable.toWeb(res) as ReadableStream<Uint8Array>, { status, statusText: res.statusMessage, headers: responseHeaders() }));
+        }
+        const chunks: Buffer[] = [];
+        res.on('data', (c: Buffer) => chunks.push(c));
+        res.on('error', reject);
+        res.on('end', () => {
           const noBody = status === 204 || status === 304 || init.method === 'HEAD';
-          resolve(new Response(noBody ? null : Buffer.concat(chunks), { status, statusText: res.statusMessage, headers: out }));
+          resolve(new Response(noBody ? null : Buffer.concat(chunks), { status, statusText: res.statusMessage, headers: responseHeaders() }));
         });
       });
       req.on('error', reject);
@@ -194,7 +254,11 @@ export class AiCallStoppedError extends Error {
  * work running in the background (1.22) knows to try again later.
  */
 export class AiTimeoutError extends ValidationError {
-  constructor() {
+  /** MICO360 AI (b3, b10): the job the platform kept running, when it said which. */
+  constructor(
+    public readonly jobId: string | null = null,
+    public readonly correlationId: string | null = null,
+  ) {
     super('The AI provider did not respond in time. Try again later.');
   }
 }
@@ -227,22 +291,44 @@ export async function readProviderJson(res: Response): Promise<unknown> {
   }
 }
 
+/** A MICO360 AI id as the platform writes them (letters, digits and - _ : .), else null. */
+export function micoId(value: unknown, max = 100): string | null {
+  return typeof value === 'string' && value.length <= max && /^[A-Za-z0-9][A-Za-z0-9_:.-]*$/.test(value) ? value : null;
+}
+
+/**
+ * A refusal's body, read once (bounded): the provider's explanation, if there is a readable one, and —
+ * MICO360 AI — the job a 504 left running and the request's correlation id (its guide, §5, §8): the
+ * native surface says `{ error, jobId, correlationId }`, the OpenAI one names the job in its message
+ * ("… (job JOB-…, correlation id REQ-…)"). An empty body (a native 400 or 415) is no reason.
+ */
+export async function readRefusal(res: Response): Promise<{ detail: string | null; jobId: string | null; correlationId: string | null }> {
+  let text = '';
+  try {
+    text = (await res.text()).slice(0, 4000);
+  } catch {
+    text = '';
+  }
+  let msg: unknown = text;
+  let jobId: string | null = null;
+  let correlationId = micoId(res.headers.get('x-mico-correlation-id'), 64);
+  try {
+    const j = JSON.parse(text) as { error?: unknown; message?: unknown; detail?: unknown; jobId?: unknown; correlationId?: unknown };
+    const e = j.error;
+    msg = (e && typeof e === 'object' ? (e as { message?: unknown }).message : e) ?? j.message ?? j.detail;
+    jobId = micoId(j.jobId);
+    correlationId = micoId(j.correlationId, 64) ?? correlationId;
+  } catch {
+    // not JSON: the text itself, if it isn't a web page
+    if (/^\s*</.test(text)) msg = null;
+  }
+  // eslint-disable-next-line no-control-regex
+  const detail = typeof msg === 'string' && msg.trim() ? msg.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, 300) : null;
+  if (!jobId && detail) jobId = micoId(/\(job ([A-Za-z0-9][A-Za-z0-9_:.-]{2,99})[,)]/.exec(detail)?.[1]);
+  return { detail, jobId, correlationId };
+}
+
 /** The provider's explanation in an error body, if there is a readable one (bounded). */
 export async function providerErrorDetail(res: Response): Promise<string | null> {
-  try {
-    const text = (await res.text()).slice(0, 4000);
-    let msg: unknown = text;
-    try {
-      const j = JSON.parse(text) as { error?: unknown; message?: unknown; detail?: unknown };
-      const e = j.error;
-      msg = (e && typeof e === 'object' ? (e as { message?: unknown }).message : e) ?? j.message ?? j.detail;
-    } catch {
-      // not JSON: the text itself, if it isn't a web page
-      if (/^\s*</.test(text)) msg = null;
-    }
-    // eslint-disable-next-line no-control-regex
-    return typeof msg === 'string' && msg.trim() ? msg.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, 300) : null;
-  } catch {
-    return null;
-  }
+  return (await readRefusal(res)).detail;
 }

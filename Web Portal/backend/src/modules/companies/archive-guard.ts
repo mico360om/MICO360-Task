@@ -235,15 +235,15 @@ export const ARCHIVE_ALLOWED: Readonly<Record<string, string>> = {
   'POST /task-merges/:mergeId/undo': 'Undo refuses archived projects itself, for every task involved (merge-service)',
   // 1.23.6: a saved search shared with a project's team changes nothing in the project (its owner's search).
   'PUT /search/saved/:id/share': 'the owner’s saved search shown to a team: nothing in the project changes',
-  // Recycle Bin: restoring refuses an archived project's tasks itself, task by task ("Unarchive the
-  // project first" — recycle-bin/bin-service); deleting forever is deleting, as today.
-  'POST /recycle-bin/restore': 'restore refuses archived projects itself, for each task (recycle-bin/bin-service)',
-  'POST /recycle-bin/erase': 'deleting, as today',
   // 1.24 Guests: the list is the company's, not the project's (a guest made there is for every project).
   'POST /projects/:projectId/guests': 'a guest on the company’s list, not a change to this project',
   'POST /projects/:projectId/guests/check': 'a read: the duplicate check',
   'DELETE /tasks/:id/guests/:guestId': 'deleting, as today',
   'DELETE /project-categories/:categoryId': 'deleting, as today',
+  // Recycle Bin: restoring refuses an archived project's tasks itself, task by task ("Unarchive the
+  // project first" — recycle-bin/bin-service); deleting forever is deleting, as today.
+  'POST /recycle-bin/restore': 'restore refuses archived projects itself, for each task (recycle-bin/bin-service)',
+  'POST /recycle-bin/erase': 'deleting, as today',
   // Task archive (bulk lane): archiving and unarchiving refuse an archived project's tasks themselves
   // (task-archive.ts, task by task) — an archived task must be unarchivable, so the task rule can't apply.
   'POST /tasks/:id/archive': 'the archive refuses archived projects itself (task-archive)',

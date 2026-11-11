@@ -122,3 +122,37 @@ describe('loadEnv', () => {
     expect(loadEnv({ ...base, BACKUP_GOOGLE_TEST_BASE_URL: 'http://127.0.0.1:9999' } as NodeJS.ProcessEnv).BACKUP_GOOGLE_TEST_BASE_URL).toBe('http://127.0.0.1:9999');
   });
 });
+
+// Pinned before the zod 4 upgrade (1.23.12): the defaults, the switches and the address checks read as before.
+describe('loadEnv — defaults and checks', () => {
+  it('fills the defaults', () => {
+    const env = loadEnv({ ...base } as NodeJS.ProcessEnv);
+    expect(env).toMatchObject({
+      NODE_ENV: 'development',
+      PORT: 4000,
+      API_BASE_URL: 'http://localhost:4000',
+      APP_URL: 'http://localhost:5173',
+      RATE_LIMIT_MAX: 600,
+      OTP_LENGTH: 6,
+      SECRETS_ENCRYPTION_KEY: '',
+      AI_ALLOW_PRIVATE_HOSTS: false,
+      BACKUP_NIGHTLY: false,
+      BACKUP_WARN_GB: 5,
+      UPLOAD_MAX_BYTES: 10 * 1024 * 1024,
+    });
+    expect(env.UPLOAD_ALLOWED_MIME.split(',')).toContain('application/pdf');
+  });
+  it('reads numbers, switches and blanks', () => {
+    const env = loadEnv({ ...base, PORT: '4971', AI_ALLOW_PRIVATE_HOSTS: ' Yes ', BACKUP_NIGHTLY: 'off', BACKUP_WARN_GB: ' ', OTP_LENGTH: '8' } as NodeJS.ProcessEnv);
+    expect(env).toMatchObject({ PORT: 4971, AI_ALLOW_PRIVATE_HOSTS: true, BACKUP_NIGHTLY: false, BACKUP_WARN_GB: 5, OTP_LENGTH: 8 });
+    expect(loadEnv({ ...base, BACKUP_NIGHTLY: '' } as NodeJS.ProcessEnv).BACKUP_NIGHTLY).toBe(false);
+    expect(loadEnv({ ...base, BACKUP_WARN_GB: '2.5' } as NodeJS.ProcessEnv).BACKUP_WARN_GB).toBe(2.5);
+  });
+  it('refuses a bad address, a bad number and an unknown mode, naming each', () => {
+    expect(() => loadEnv({ ...base, API_BASE_URL: 'not a url' } as NodeJS.ProcessEnv)).toThrow('API_BASE_URL: Invalid url');
+    expect(() => loadEnv({ ...base, PORT: 'abc' } as NodeJS.ProcessEnv)).toThrow('PORT: Expected number, received nan');
+    expect(() => loadEnv({ ...base, OTP_LENGTH: '3' } as NodeJS.ProcessEnv)).toThrow('OTP_LENGTH: Number must be greater than or equal to 4');
+    expect(() => loadEnv({ ...base, NODE_ENV: 'staging' } as NodeJS.ProcessEnv)).toThrow("NODE_ENV: Invalid enum value. Expected 'development' | 'test' | 'production', received 'staging'");
+    expect(() => loadEnv({ ...base, BACKUP_WARN_GB: '0' } as NodeJS.ProcessEnv)).toThrow('BACKUP_WARN_GB: Number must be greater than 0');
+  });
+});

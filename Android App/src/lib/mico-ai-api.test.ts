@@ -29,8 +29,14 @@ it('every other request, with its ids encoded, unwrapped and sent as the person'
 
 it('the resources carry MICO AI', () => expect(src('lib/resources.ts')).toMatch(/micoAi: micoAiApi\(client\)/));
 
+/**
+ * Fields only the website reads. MICO360 AI (b) bundles, b15: the website shows MICO AI's words as they are
+ * written (`draft`, while an answer is pending); the app shows the finished answer, as before.
+ */
+const WEB_ONLY: Record<string, string[]> = { MicoAiMessage: ['draft'] };
+
 describe.skipIf(!hasWeb('frontend/src/api/mico-ai.ts'))('the website’s types', () => {
-  it('same fields', () => { for (const n of ['MicoAiMessage', 'MicoAiAnswer', 'MicoAiProposal', 'MicoAiTable', 'MicoAiChat', 'CreateTaskFields', 'MeetingFields', 'UpdateTaskChange']) expect(interfaceFields(src('lib/mico-ai-api.ts'), n), n).toEqual(interfaceFields(readWeb('frontend/src/api/mico-ai.ts'), n)); });
+  it('same fields', () => { for (const n of ['MicoAiMessage', 'MicoAiAnswer', 'MicoAiProposal', 'MicoAiTable', 'MicoAiChat', 'CreateTaskFields', 'MeetingFields', 'UpdateTaskChange']) expect(interfaceFields(src('lib/mico-ai-api.ts'), n), n).toEqual(interfaceFields(readWeb('frontend/src/api/mico-ai.ts'), n).filter((f) => !WEB_ONLY[n]?.includes(f))); });
   it('every type the website has', () => {
     const web = readWeb('frontend/src/api/mico-ai.ts');
     for (const n of [...web.matchAll(/export (?:interface|type) (\w+)/g)].map((m) => m[1]!)) expect(src('lib/mico-ai-api.ts'), n).toMatch(new RegExp(`export (?:interface|type) ${n}\\b`));

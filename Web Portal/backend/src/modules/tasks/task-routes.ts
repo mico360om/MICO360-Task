@@ -229,16 +229,16 @@ export interface TaskRouteDeps {
   duplicateLinks?: (taskId: string) => Promise<DuplicateLinks>;
   /** 1.23.3: dated checklist items for the calendar, in the caller's scope (see prisma-checklist-queries). */
   checklistDue?: (opts: { from: string; to: string; userId: string; ownIds: string[] | null; listIds: string[] | null }) => Promise<unknown[]>;
+  /** 1.24: a new task's guests (and the person who looks after them). */
+  guestService?: GuestService;
+  /** 1.24: a new task's categories (the project's rule). */
+  categoryService?: CategoryService;
   /** Recycle Bin: after a delete — the history line on each task and the audit log's (who deleted it). */
   binDeleted?: (e: { actorId: string; taskIds: string[]; batchId: string | null; ip?: string | null }) => Promise<void>;
   /** How many live tasks a repeating series has (a copy's details say so: "the entire series (12 tasks)"). */
   seriesSize?: (seriesId: string) => Promise<number>;
   /** Recycle Bin: a deleted task opened — 'TASK_DELETED' for its project's people, null for anyone else. */
   binNotice?: (viewer: { id: string; roles: string[] }, taskId: string) => Promise<'TASK_DELETED' | null>;
-  /** 1.24: a new task's guests (and the person who looks after them). */
-  guestService?: GuestService;
-  /** 1.24: a new task's categories (the project's rule). */
-  categoryService?: CategoryService;
 }
 
 /** Recycle Bin: what opening a deleted task answers its project's people (the app and extension read any 404 as gone). */
@@ -252,6 +252,7 @@ export function newTaskPipeline(deps: Pick<TaskRouteDeps, 'taskService' | 'acces
     assigneeService: deps.assigneeService,
     projectOwnerOf: deps.projectOwnerOf,
     broadcast: deps.broadcast,
+    // 1.24: a new task's guests and categories (POST /tasks and Duplicate alike).
     guestService: deps.guestService,
     categoryService: deps.categoryService,
   };

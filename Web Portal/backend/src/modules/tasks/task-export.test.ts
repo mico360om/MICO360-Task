@@ -285,12 +285,12 @@ describe('taskPdf: external contacts', () => {
     expect(text.indexOf('Guests')).toBeLessThan(text.indexOf('Description'));
   });
 
-  // tpdf: 1.23.11 (design call 1) — an optional section with nothing in it is left out (was "No guests."; before 1.24 "No external contacts.").
+  // tpdf: 1.23.11 (design call 1) — an optional section with nothing in it is left out (was "No external contacts.").
   it('leaves the section out when a task has none', () => {
     const text = textOf(taskPdf(task({ externalContacts: [] }), ctx));
+    // tgc: 1.24 — external contacts are guests now.
     expect(text).not.toContain('Guests');
     expect(text).not.toContain('No guests.');
-    expect(text).not.toContain('External contacts');
   });
 });
 

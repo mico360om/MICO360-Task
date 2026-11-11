@@ -1,3 +1,4 @@
+import type { PersonSummary } from '../../lib/person-summary';
 import type { ChecklistTree } from './checklist-tree';
 import type { MonthWindow } from './month-list';
 import type { RecurrenceRule } from './recurrence';
@@ -76,8 +77,8 @@ export interface TaskRecord {
   updatedAt: Date;
   /** The task's tags (present on list/get; used for tag filtering + display). */
   tags?: { id: string; name: string; color: string }[];
-  /** The task's assignees (present on list; used for card avatars). */
-  assignees?: { id: string; name: string }[];
+  /** The task's assignees (present on list; used for card avatars): name and photo (null: initials). */
+  assignees?: PersonSummary[];
   /** Lightweight aggregate counts for card badges (present on list). */
   counts?: { comments: number; attachments: number; checklistDone: number; checklistTotal: number };
   /**

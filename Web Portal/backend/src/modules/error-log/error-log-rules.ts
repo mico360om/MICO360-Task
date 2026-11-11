@@ -3,9 +3,13 @@ import { todayKey, zonedStartOfDay } from '../../lib/due-date';
 import { normalizeMessage } from './error-redact';
 import { chunkName } from './stack';
 
-/** What a row of the Error log is about. Errors include Network (a request or the live connection blocked on the way). */
-export type ErrorKind = 'ERROR' | 'NETWORK' | 'BLOCKED' | 'SLOW' | 'SERVER';
-export const ERROR_KINDS: readonly ErrorKind[] = ['ERROR', 'NETWORK', 'BLOCKED', 'SLOW', 'SERVER'];
+/**
+ * What a row of the Error log is about. Errors include Network (a request or the live connection blocked on
+ * the way). 1.23.14 UPDATE: an update restart — the database briefly away while the server stopped or
+ * started (handled: 503 and tried again), or a request cut or held up by it — calm rows, never errors.
+ */
+export type ErrorKind = 'ERROR' | 'NETWORK' | 'BLOCKED' | 'SLOW' | 'SERVER' | 'UPDATE';
+export const ERROR_KINDS: readonly ErrorKind[] = ['ERROR', 'NETWORK', 'BLOCKED', 'SLOW', 'SERVER', 'UPDATE'];
 
 /** The page's filter chips. */
 export type KindFilter = 'all' | 'errors' | 'blocked' | 'slow' | 'server';
@@ -21,7 +25,8 @@ export function kindsFor(filter: KindFilter): ErrorKind[] | null {
     case 'slow':
       return ['SLOW'];
     case 'server':
-      return ['SERVER'];
+      // 1.23.14: update restarts are the server's too.
+      return ['SERVER', 'UPDATE'];
     default:
       return null;
   }
@@ -58,7 +63,9 @@ export function isNewerVersion(a: string | null | undefined, b: string | null | 
  * it was fixed in (a tab still open on the old version keeps reporting it); fixed without a known
  * version, any later occurrence does.
  */
-export function comesBack(group: { fixedInVersion: string | null; fixedAt: Date | null }, occurrence: { version: string | null; at: Date }): boolean {
+export function comesBack(group: { kind?: ErrorKind; fixedInVersion: string | null; fixedAt: Date | null }, occurrence: { version: string | null; at: Date }): boolean {
+  // 1.23.14: an update restart happens at every update — once marked fixed (seen), it stays down.
+  if (group.kind === 'UPDATE') return false;
   if (group.fixedInVersion) return isNewerVersion(occurrence.version, group.fixedInVersion);
   return !group.fixedAt || occurrence.at > group.fixedAt;
 }
@@ -120,6 +127,23 @@ export function describeReport(r: ReportFacts): { title: string; groupTitle: str
       const [groupTitle, title] = words[r.detail ?? ''] ?? ['Slow', `Slow: ${value}`];
       const where = r.detail === 'api' ? (r.resource ?? '') : page;
       return { title, groupTitle, key: fingerprintOf(['SLOW', r.detail ?? '', where]) };
+    }
+    case 'UPDATE': {
+      // 1.23.14: as the page saw it (a request cut, or held up while the server started), else the
+      // server's own (the database briefly away while it stopped or started, answered 503 and tried again).
+      if (r.detail === 'api') {
+        const title = 'During an update: a request was cut off while the server restarted';
+        return { title, groupTitle: title, key: fingerprintOf(['UPDATE', 'api']) };
+      }
+      if (r.detail === 'slow') {
+        return {
+          title: `During an update: ${r.resource ?? 'a request'} waited ${seconds(value)} for the server to start`,
+          groupTitle: 'During an update: requests waited for the server to start',
+          key: fingerprintOf(['UPDATE', 'slow']),
+        };
+      }
+      const title = 'During an update: the database was briefly unreachable — handled';
+      return { title, groupTitle: title, key: fingerprintOf(['UPDATE', 'database']) };
     }
     case 'NETWORK': {
       const title = r.detail === 'socket' ? 'The live connection couldn’t connect for over a minute' : 'A request didn’t reach the server (blocked on the way?)';

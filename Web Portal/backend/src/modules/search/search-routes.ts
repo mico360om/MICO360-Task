@@ -101,12 +101,15 @@ const taskQuerySchema = z.object({
   cursor: z.string().max(40).optional(),
 });
 
+/** A cursor the API can't read: a 400 VALIDATION naming `cursor` (a real Error, like a failed check's). */
+export const badCursor = (): z.ZodError => new z.ZodRealError([{ code: 'custom', path: ['cursor'], message: 'Invalid cursor.' }]);
+
 /** The next page's cursor: where it starts, opaque to clients. */
 export const encodeCursor = (offset: number): string => Buffer.from(`o:${offset}`, 'utf8').toString('base64url');
 function decodeCursor(cursor: string | undefined): number {
   if (!cursor) return 0;
   const m = /^o:(\d{1,7})$/.exec(Buffer.from(cursor, 'base64url').toString('utf8'));
-  if (!m) throw new z.ZodError([{ code: 'custom', path: ['cursor'], message: 'Invalid cursor.' }]);
+  if (!m) throw badCursor();
   return Number(m[1]);
 }
 
@@ -536,6 +539,6 @@ function decodeAllCursor(cursor: string | undefined): { offset: number; extra: b
   if (!cursor) return { offset: 0, extra: false };
   const m = /^([ox]):(\d{1,7})$/.exec(Buffer.from(cursor, 'base64url').toString('utf8'));
   // At most MAX_ALL_OFFSET deep (review M11): a page further on would make every match be sorted.
-  if (!m || Number(m[2]) > MAX_ALL_OFFSET) throw new z.ZodError([{ code: 'custom', path: ['cursor'], message: 'Invalid cursor.' }]);
+  if (!m || Number(m[2]) > MAX_ALL_OFFSET) throw badCursor();
   return { offset: Number(m[2]), extra: m[1] === 'x' };
 }
