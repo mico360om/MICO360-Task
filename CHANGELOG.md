@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.23.17] - 2026-11-11
+
 ### New features
 - Duplicate a task: "Duplicate…" in the task's ⋯ menu (task panel and board cards) and beside Open in
   every Table view. The New task form opens filled in from it — title, description, project, assignees,
