@@ -61,6 +61,59 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   Managers and administrators open a person's from the Workload page or a project's Team tab.
 - **Management page**: a KPI table across the projects you see, sortable by any KPI (the furthest off
   target first), with Excel and a PDF with a page per project.
+- **Learning Hub** (side menu): learn how to use the site without leaving it. **My learning** shows the
+  courses assigned to you (mandatory first, with due days and a red "Overdue"), the ones you started with
+  their progress, what you finished and your certificates; the **Catalogue** lists the courses for the parts
+  of the site you can use, with search and filters by module and difficulty.
+- **Courses and lessons**: each course is a sequence of lessons with estimated times — videos (YouTube or
+  Vimeo links, played inside the lesson), step-by-step guides with a picture for each step, documents
+  (PDFs open in the page) and quizzes — plus downloads. Your place is saved as you go (the video position,
+  the guide step, quiz answers) and "Resume" takes you back to where you stopped.
+- **Quizzes**: single choice, multiple choice, true/false and "put the steps in order", with a pass mark,
+  retakes (a number or unlimited), feedback on each answer, an optional time limit, random question order
+  and an optional question bank (a fresh draw of questions for each attempt).
+- **Certificates**: where a course gives one, an A4 PDF with the company logo, your name, the course, the
+  date, your score, "Issued by" (a Training manager or administrator, with their title and signature) and a
+  code anyone can check on the public page /verify (it shows only the course, the name, the dates and
+  whether it is valid). A course can make certificates expire (e.g. after 12 months): you are reminded
+  beforehand and retake it.
+- **Manage** (Learning Hub, for administrators and Training managers): create, edit, publish, unpublish and
+  archive courses by module, audience (staff or clients), role and difficulty; choose what completes a
+  course (every lesson, or passing the quizzes) and whether lessons go in order. A change to a published
+  course is a "Minor fix" (nothing else changes) or a "Major change" (people who finished it review the
+  changed lessons by a new due date; their certificate stays valid meanwhile).
+- **Assignments**: assign courses to people, groups (everyone, administrators, employees, clients, people
+  who run a project, Training managers), departments, companies or projects — mandatory or optional, due on
+  a day or N days after assigned — with a preview of who it reaches first. Group assignments follow
+  membership: people who join later get it with their own due date, and people who leave keep what they
+  finished. **Onboarding rules** give new accounts their courses automatically ("every new employee: Tasks
+  basics and Meetings, due in 14 days").
+- **Reminders through Notification & Scheduling**: due soon, due today and overdue reminders on working
+  days; overdue mandatory training escalates to the person's "Reports to", else the Training managers; a
+  reminder before a certificate expires. Nothing is blocked by overdue training. A "Training" row in
+  Settings → Notifications and a "Training" filter on the Notifications page.
+- **Reports** (Learning Hub): participation, completion rates, quiz results (down to each question),
+  overdue training and certificates expiring, by course, person, department, role, company or project, as
+  Excel or PDF. Administrators see everyone, Training managers the people in their companies, and people who
+  run a project their team.
+- **Feedback**: rate a course (1–5 stars), ask a question (Training managers answer it in the course and
+  you are told), or report a lesson as outdated (Training managers see the list and mark it fixed).
+- **Learn this feature**: a small link in the header of Tasks, the Kanban board, Meetings, Calendar,
+  Projects, Reports, Management, Chat, MICO AI and the admin pages opens the course for that page (shown only
+  when there is one you can see).
+- **Starter courses**: a ready-made course for each main part of the site (Tasks, Kanban board, Meetings &
+  minutes, Calendar, Projects, Reports, Chat, MICO AI, Admin settings and the Client portal) with
+  step-by-step guides, pictures of the real screens and a short quiz — marked "Starter" so administrators can
+  edit or unpublish them. The Tasks and Meetings how-to slides are attached as downloads, and three video
+  courses are ready for the how-to videos' YouTube or Vimeo links.
+- **Learning Hub in the Client portal**: clients see only the courses made for clients (never staff
+  courses), with their progress and certificates; badges on the portal show what is waiting (no emails).
+- **First-time tour**: a short tour of the side menu, My Tasks, New task, the Kanban board, notifications
+  and the Learning Hub for new staff accounts (three steps for clients in the portal); skip it any time and
+  replay it from the Learning Hub. Administrators can switch it off per company.
+- **User Management**: a staff account can have a "Reports to" person, a Department and the **Training
+  manager** permission (create, publish and assign training and see its reports, with no other
+  administrator powers).
 
 ### Improvements
 - Quiet hours (outside working hours and on days off, unless changed): the bell still fills, but phone
@@ -72,6 +125,15 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   risks, late milestones and the Management page.
 - More than three reminders of one kind for one person at once arrive as one notice listing them; after the
   upgrade nobody gets a burst of reminders for what was already due.
+- The dashboard shows "Overdue learning" when a course assigned to you is past its due day.
+
+### Security
+- Training files (documents, downloads, step pictures, signatures) are kept in a private folder, never at
+  the public uploads address, and are sent only to people who may see the course (they are in backups).
+- Quiz answers are never sent to the browser before a quiz is handed in; the right answers are shown once
+  you pass or have no attempts left.
+- The site's security policy allows exactly YouTube's privacy-enhanced player and Vimeo's player to show
+  lesson videos (no other site, no outside scripts).
 
 ## [1.23.15] - 2026-11-11
 
