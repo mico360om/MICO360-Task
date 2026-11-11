@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.23.18] - 2026-11-11
+
 ### New features
 - MICO AI's answers appear as they are written: on MICO360 AI the words show on the page while the model
   writes them (bold and lists as the finished answer has them), and the finished answer then replaces them.
