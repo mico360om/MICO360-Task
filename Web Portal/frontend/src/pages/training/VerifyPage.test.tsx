@@ -79,6 +79,14 @@ describe('Check a certificate (/verify, public)', () => {
     expect(await screen.findByText('No certificate has this code.')).toBeInTheDocument();
   });
 
+  it('a code with a percent sign in the address doesn’t break the page (it is read once, never decoded twice)', async () => {
+    answer = () => json({ error: { code: 'NOT_FOUND', message: 'Not found.' } }, 404);
+    renderAt('/verify/%25');
+    expect(await screen.findByText('No certificate has this code.')).toBeInTheDocument();
+    expect(calls.filter((u) => u.includes('/training/verify/'))).toEqual([expect.stringMatching(/\/training\/verify\/%25$/)]);
+    expect(screen.getByLabelText('Certificate code')).toHaveValue('%');
+  });
+
   it('/verify: a box for the code (tidied: capitals, no spaces) that opens its check', async () => {
     answer = () => json({ data: { ...FACTS, status: 'VALID' } });
     renderAt('/verify');

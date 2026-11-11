@@ -66,9 +66,17 @@ describe('a video lesson: YouTube through its embed’s messages (no YouTube scr
     expect(api.saveProgress).toHaveBeenLastCalledWith('l2', { videoSeconds: 15, videoDuration: 100, watchedPct: 5 });
     expect(screen.getByText('Watched 5% — the lesson is done at 90%.')).toBeInTheDocument();
 
-    // Messages from anywhere else are ignored.
+    // Messages from anywhere else are ignored: another origin, or YouTube's origin from another window (or none).
     send({ event: 'infoDelivery', info: { currentTime: 16 } }, 'https://evil.example');
     expect(screen.getByText('Watched 5% — the lesson is done at 90%.')).toBeInTheDocument();
+    const other = document.createElement('iframe');
+    document.body.appendChild(other);
+    for (const source of [other.contentWindow, null, window]) {
+      act(() => void window.dispatchEvent(new MessageEvent('message', { data: JSON.stringify({ event: 'infoDelivery', info: { currentTime: 16 } }), origin: 'https://www.youtube-nocookie.com', source })));
+    }
+    other.remove();
+    expect(screen.getByText('Watched 5% — the lesson is done at 90%.')).toBeInTheDocument();
+    expect(api.saveProgress).toHaveBeenCalledTimes(2);
 
     // A jump to the end doesn't count as watching.
     send({ event: 'infoDelivery', info: { currentTime: 99 } });

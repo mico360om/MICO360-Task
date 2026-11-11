@@ -28,7 +28,8 @@ const TONE: Record<CertificateStatus, string> = {
  */
 export function VerifyPage() {
   const { code: raw = '' } = useParams();
-  const code = tidyCode(decodeURIComponent(raw));
+  // Review M12: the router has decoded the address already (decoding again broke on /verify/%25).
+  const code = tidyCode(raw);
   const navigate = useNavigate();
   const signedIn = useAuthStore((s) => s.isAuthenticated);
   const [typed, setTyped] = useState(code);

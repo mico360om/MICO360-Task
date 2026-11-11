@@ -102,8 +102,9 @@ export function VideoLesson({ lesson, onDone }: { lesson: LessonView; onDone: (d
     }, LISTEN_EVERY_MS);
     say();
     const onMessage = (e: MessageEvent) => {
-      if (!YOUTUBE_ORIGIN.test(e.origin)) return;
-      if (e.source && frame.current?.contentWindow && e.source !== frame.current.contentWindow) return;
+      // Review M14: YouTube's origin AND this lesson's own frame (never another window, never no window).
+      const own = frame.current?.contentWindow;
+      if (!YOUTUBE_ORIGIN.test(e.origin) || !own || e.source !== own) return;
       const m = readYouTubeMessage(e.data);
       if (!m) return;
       answered = true;
