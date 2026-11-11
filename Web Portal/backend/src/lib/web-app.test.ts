@@ -59,7 +59,7 @@ describe('webAppCsp', () => {
     const frame = csp.split('; ').find((d) => d.startsWith('frame-src '));
     expect(frame).toBe("frame-src 'self' blob: https://www.youtube-nocookie.com https://player.vimeo.com");
     expect(csp).toContain("script-src 'self';");
-    expect(csp).not.toMatch(/youtube\.com(?!-)|ytimg|vimeocdn|www\.youtube\.com/);
+    expect(csp.replace(' https://www.youtube-nocookie.com https://player.vimeo.com', '')).not.toMatch(/youtube|ytimg|vimeo/);
   });
 
   it('never echoes an unsafe Host header', () => {
