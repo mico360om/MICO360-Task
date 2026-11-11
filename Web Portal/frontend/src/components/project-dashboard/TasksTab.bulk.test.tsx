@@ -94,6 +94,30 @@ describe('project Tasks tab: bulk selection', () => {
     ]);
   });
 
+  it('a change that empties the project keeps its summary (and Undo) on screen', async () => {
+    const user = userEvent.setup();
+    const qc = new QueryClient();
+    const tab = (g: typeof groups) => (
+      <QueryClientProvider client={qc}>
+        <MemoryRouter>
+          <TasksTab groups={g} today="2026-11-05" timeZone="UTC" loading={false} filter="all" onFilter={vi.fn()} onOpen={vi.fn()} project={PROJECT} columns={COLUMNS} />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    const view = render(tab(groups));
+    await user.click(screen.getByRole('checkbox', { name: 'Select all 4' }));
+    await user.click(screen.getByRole('button', { name: 'More actions' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Archive' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Archive 4 tasks?' });
+    await user.click(await within(dialog).findByRole('button', { name: 'Apply' }));
+    expect(await screen.findByText('4 archived')).toBeInTheDocument();
+    // The refetch: no tasks left in the project.
+    view.rerender(tab([]));
+    expect(screen.getByText('No tasks in this project yet')).toBeInTheDocument();
+    expect(screen.getByText('4 archived')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Undo/ })).toBeInTheDocument();
+  });
+
   it('an archived or completed project has no boxes', () => {
     show({ readOnly: 'archived' });
     expect(screen.queryByRole('checkbox', { name: /^Select / })).toBeNull();

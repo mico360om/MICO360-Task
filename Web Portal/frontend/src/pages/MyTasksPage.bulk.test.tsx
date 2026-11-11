@@ -29,6 +29,7 @@ beforeEach(() => {
     'fetch',
     vi.fn(async (url: string, init?: RequestInit) => {
       const u = String(url);
+      if (init?.method === 'POST' && u.endsWith('/tasks/bulk/b1/undo')) return json({ data: { restored: [{ id: 't2', key: 'RIG-2', title: 'Set out', projectId: 'p1' }], skipped: [] } });
       if (init?.method === 'POST' && u.endsWith('/tasks/bulk')) {
         const body = JSON.parse(String(init.body));
         posts.push({ url: u, body });
@@ -113,7 +114,8 @@ describe('My Tasks: bulk selection (owner, 10 Nov)', () => {
     await waitFor(() => expect(dialog).toHaveTextContent('1 will be skipped: you can’t move tasks in Rig 3.'));
     expect(posts[0]!.body).toEqual({ taskIds: ['t1', 't2'], action: { type: 'status', status: 'DONE' }, dryRun: true });
     await user.click(within(dialog).getByRole('button', { name: 'Apply' }));
-    expect(await screen.findByText('1 updated · 1 not changed')).toBeInTheDocument();
+    // The bar and the dialog are gone: keyboard focus is on the summary.
+    expect(await screen.findByText('1 updated · 1 not changed')).toHaveFocus();
     expect(posts[1]!.body).toEqual({ taskIds: ['t1', 't2'], action: { type: 'status', status: 'DONE' } });
     expect(screen.queryByRole('region', { name: 'Bulk actions' })).not.toBeInTheDocument();
     expect(box('Select RIG-1 Pour the slab')).not.toBeChecked();
@@ -124,6 +126,11 @@ describe('My Tasks: bulk selection (owner, 10 Nov)', () => {
     // Known as before (its project): one project's Category is offered.
     await user.click(screen.getByRole('button', { name: 'More actions' }));
     expect(screen.getByRole('menuitem', { name: 'Category' })).not.toHaveAttribute('aria-disabled');
+    await user.keyboard('{Escape}');
+    // Undo puts them back, and lets the selection go.
+    await user.click(screen.getByRole('button', { name: /^Undo/ }));
+    expect(await screen.findByText('1 put back')).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Bulk actions' })).not.toBeInTheDocument();
   });
 
   it('Archive and Delete only when the person runs a selected task’s project', async () => {

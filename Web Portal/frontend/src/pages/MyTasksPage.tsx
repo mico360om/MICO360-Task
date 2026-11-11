@@ -21,8 +21,8 @@ import { GuestCategoryFilterBoxes, type GuestCategoryFilterState } from '../comp
 import { EMPTY_GUEST_CATEGORY_FILTERS, guestCategoryFiltersActive, matchesGuestCategory } from '../lib/guest-category-filter';
 import { NewTaskButton } from '../components/NewTaskButton';
 import { statusMeta, STATUS_ORDER } from '../lib/taskStatus';
-import { selectBoxName, taskRef, useBulkSelection, type SelRef } from '../lib/bulk-selection';
-import { SelectAllBox, shiftHeld } from '../components/bulk/select-boxes';
+import { taskRef, useBulkSelection, type SelRef } from '../lib/bulk-selection';
+import { SelectAllBox, TaskSelectBox } from '../components/bulk/select-boxes';
 import { OPEN_STATUS, type TaskFilters } from '../lib/savedViews';
 import { dueDayKey, shiftDayKey, todayKey as companyTodayKey } from '../lib/due-date';
 import { formatDueDay, isTaskDone } from '../lib/due-display';
@@ -536,19 +536,6 @@ function Assignees({ list, all = false }: { list: { id: string; name: string }[]
   );
 }
 
-/**
- * The "select this task" checkbox of a card or row. It sits above the row's click area, and its
- * label pads the 16px box out to a 28px target so it can be hit with a finger.
- */
-function SelectBox({ task, checked, onChange }: { task: ApiTask; checked: boolean; onChange: (shift: boolean) => void }) {
-  return (
-    <label className="relative z-10 -m-1.5 grid h-7 w-7 flex-none cursor-pointer place-items-center [@media(pointer:coarse)]:-m-2.5 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11">
-      {/* Shift-click: every task from the last one clicked to this one. */}
-      <input type="checkbox" aria-label={selectBoxName(task)} checked={checked} onChange={(e) => onChange(shiftHeld(e.nativeEvent))} className="h-4 w-4 cursor-pointer accent-brand" />
-    </label>
-  );
-}
-
 /** "Select all 12" — "Select all 12 matching" while filters narrow the list. */
 const selectAllWords = (n: number, filtered: boolean) => `Select all ${n}${filtered ? ' matching' : ''}`;
 
@@ -572,7 +559,7 @@ function MyTaskCard({ e, today, onOpen, selected, onToggleSelect }: { e: Enriche
     >
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
-          {onToggleSelect ? <SelectBox task={t} checked={!!selected} onChange={onToggleSelect} /> : null}
+          {onToggleSelect ? <TaskSelectBox task={t} checked={!!selected} onChange={onToggleSelect} className="-m-1.5 [@media(pointer:coarse)]:-m-2.5" /> : null}
           {e.project ? (
             <span className="flex min-w-0 items-center gap-1.5">
               <ProjectAvatar project={e.project} size="xs" />
@@ -634,7 +621,7 @@ function MyTaskRow({ e, today, onOpen, selected, onToggleSelect }: { e: Enriched
       // Compact rows (1.23.0, lib/density): a third less padding, the title a step smaller.
       className={`relative flex items-center gap-3 px-4 py-2.5 transition-colors compact:py-1.5 hover:bg-ground/60 ${selected ? 'bg-brand/5' : ''} ${e.overdue ? 'border-l-2 border-l-overdue' : 'border-l-2 border-l-transparent'}`}
     >
-      {onToggleSelect ? <SelectBox task={t} checked={!!selected} onChange={onToggleSelect} /> : null}
+      {onToggleSelect ? <TaskSelectBox task={t} checked={!!selected} onChange={onToggleSelect} className="-m-1.5 [@media(pointer:coarse)]:-m-2.5" /> : null}
       {/* The status: a named dot (its word on the phone line below, and in a column on a wide screen). */}
       <span role="img" aria-label={m.label} title={m.label} className="hidden h-2.5 w-2.5 flex-none rounded-full sm:block 2xl:hidden" style={{ background: m.color }} />
       {/* At least the usual width, so the titles line up; a longer number widens its row's column, never cut. */}

@@ -35,6 +35,7 @@ beforeEach(() => {
           { id: 'c-ip', projectId: 'p1', name: 'In Progress', category: 'IN_PROGRESS', position: 1, color: '#C98A1B', enabled: true },
         ] });
       }
+      if (u.includes('/members')) return json({ data: [{ id: 'u2', username: 'omar', email: 'o@x', firstName: 'Omar', lastName: 'A', role: 'MEMBER' }] });
       if (u.includes('/tasks/move-targets')) return json({ data: { managesAll: false, managedProjectIds: ['p1'], projects: [] } });
       if (u.includes('/tasks')) {
         return json({ data: [task('t1', 'MICO-1', 'Prepare report'), task('t2', 'MICO-2', 'Check pumps'), task('t3', 'MICO-3', 'Paint rails'), task('t4', 'MICO-4', 'Order valves', 'c-ip')] });
@@ -110,6 +111,29 @@ describe('the Kanban board: Select mode (bulk changes)', () => {
     expect(screen.queryByRole('checkbox', { name: /^Select MICO-/ })).toBeNull();
     expect(screen.getByRole('button', { name: 'Select' })).toHaveAttribute('aria-pressed', 'false');
     expect(card('MICO-1')).toHaveAttribute('aria-roledescription', 'sortable');
+  });
+
+  it('Escape that closes a popover (the people strip) leaves Select mode alone', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('Prepare report');
+    await user.click(screen.getByRole('button', { name: 'Select' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Select MICO-2 Check pumps' }));
+    await user.click(await screen.findByRole('button', { name: /^People on this project/ }));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Bulk actions' })).toHaveTextContent('1 selected');
+  });
+
+  it('the Table view’s own filters count as filters: "(3 hidden by filters)"', async () => {
+    const user = userEvent.setup();
+    localStorage.setItem(userStorageKey('u1', 'board.view'), 'table');
+    renderPage();
+    const table = await screen.findByRole('table');
+    await user.click(within(table).getByRole('checkbox', { name: 'Select all 4' }));
+    await user.type(screen.getByRole('searchbox', { name: 'Filter rows' }), 'pumps');
+    await waitFor(() => expect(screen.getByRole('region', { name: 'Bulk actions' })).toHaveTextContent('4 selected (3 hidden by filters)'));
   });
 
   it('the board’s Table view has the boxes and "Select all 4"', async () => {

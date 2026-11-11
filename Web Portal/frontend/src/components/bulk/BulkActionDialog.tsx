@@ -116,6 +116,21 @@ export function BulkActionDialog({ type, taskIds, projectIds, assigned = [], tod
   const dry = check.data;
   const title = action ? confirmTitle(action, n, names) : chooseTitle(type, n);
   const nothing = dry ? dry.changed.length === 0 : false;
+  const checking = Boolean(action) && (check.isPending || (!dry && !check.isError));
+  const stage = !action ? 'choose' : checking ? 'checking' : check.isError ? 'error' : nothing ? 'nothing' : 'confirm';
+  // Each step replaces the button that was used: focus goes on to the step's own (the safe way out once
+  // the check is in, as every question here), never lost to the page.
+  const firstStage = useRef(true);
+  useEffect(() => {
+    if (firstStage.current) {
+      firstStage.current = false;
+      return;
+    }
+    const panel = dialogRef.current;
+    if (!panel) return;
+    const target = panel.querySelector<HTMLElement>('[data-bulk-focus]') ?? (stage === 'choose' ? panel.querySelector<HTMLElement>('input, button') : null) ?? panel;
+    target.focus();
+  }, [stage, dialogRef]);
   const footer = 'flex flex-none flex-col-reverse gap-2 border-t border-line px-5 py-3 sm:flex-row sm:justify-end';
 
   let body: ReactNode;
@@ -123,7 +138,7 @@ export function BulkActionDialog({ type, taskIds, projectIds, assigned = [], tod
   if (!action) {
     body = <Choose type={type} projectIds={projectIds} assigned={assigned} onGo={go} onCancel={onClose} />;
     foot = null;
-  } else if (check.isPending || (!dry && !check.isError)) {
+  } else if (checking) {
     body = (
       <p role="status" className="text-sm text-ink-2">
         Checking what will change…
@@ -131,7 +146,7 @@ export function BulkActionDialog({ type, taskIds, projectIds, assigned = [], tod
     );
     foot = (
       <div className={footer}>
-        <Button variant="secondary" onClick={onClose}>
+        <Button variant="secondary" onClick={onClose} data-bulk-focus>
           Cancel
         </Button>
       </div>
@@ -147,7 +162,7 @@ export function BulkActionDialog({ type, taskIds, projectIds, assigned = [], tod
         <Button variant="secondary" onClick={onClose}>
           Close
         </Button>
-        <Button variant="secondary" onClick={() => check.mutate(action)}>
+        <Button variant="secondary" onClick={() => check.mutate(action)} data-bulk-focus>
           Try again
         </Button>
       </div>
@@ -172,7 +187,9 @@ export function BulkActionDialog({ type, taskIds, projectIds, assigned = [], tod
     );
     foot = nothing ? (
       <div className={footer}>
-        <Button onClick={onClose}>Close</Button>
+        <Button onClick={onClose} data-bulk-focus>
+          Close
+        </Button>
       </div>
     ) : (
       <div className={footer}>
@@ -190,7 +207,7 @@ export function BulkActionDialog({ type, taskIds, projectIds, assigned = [], tod
             Back
           </Button>
         ) : null}
-        <Button variant="secondary" onClick={onClose} disabled={busy}>
+        <Button variant="secondary" onClick={onClose} disabled={busy} data-bulk-focus>
           Cancel
         </Button>
         <Button variant={type === 'delete' ? 'danger' : 'primary'} loading={busy} onClick={() => apply.mutate(action)}>
@@ -210,7 +227,8 @@ export function BulkActionDialog({ type, taskIds, projectIds, assigned = [], tod
           aria-modal="true"
           aria-labelledby={titleId}
           aria-describedby={dry ? bodyId : undefined}
-          className={`card relative flex ${dialogPanel('small')} animate-scale-in flex-col overflow-hidden`}
+          tabIndex={-1}
+          className={`card relative flex outline-none ${dialogPanel('small')} animate-scale-in flex-col overflow-hidden`}
         >
           <h2 id={titleId} className="flex-none px-5 pb-2 pt-4 font-display text-lg font-semibold text-ink">
             {title}

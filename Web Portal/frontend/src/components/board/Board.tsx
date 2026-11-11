@@ -450,9 +450,11 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
   const selecting = !locked && Boolean(projectId) && (selectMode || sel.count > 0);
   const taskByKey = useMemo(() => new Map((isAll ? allQ.data ?? [] : boardQ.data?.tasks ?? []).map((t) => [t.key, t])), [isAll, allQ.data, boardQ.data]);
   const taskById = useMemo(() => new Map([...taskByKey.values()].map((t) => [t.id, t])), [taskByKey]);
+  // The rows the Table view shows after its own filters too (it says them), else the board's cards.
+  const [tableShown, setTableShown] = useState<string[] | null>(null);
   const visibleIds = useMemo(
-    () => (view === 'table' ? tableTasks.map((t) => t.id) : boardColumns.flatMap((c) => c.tasks.map((t) => idByKey[t.key]).filter((x): x is string => Boolean(x)))),
-    [view, tableTasks, boardColumns, idByKey],
+    () => (view === 'table' ? (tableShown ?? tableTasks.map((t) => t.id)) : boardColumns.flatMap((c) => c.tasks.map((t) => idByKey[t.key]).filter((x): x is string => Boolean(x)))),
+    [view, tableShown, tableTasks, boardColumns, idByKey],
   );
   const columnRefs = (columnId: string) =>
     (boardColumns.find((c) => c.id === columnId)?.tasks ?? []).map((c) => taskByKey.get(c.key)).filter((t): t is ApiTask => Boolean(t)).map(taskRef);
@@ -483,7 +485,8 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
     if (!selecting || view !== 'board') return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || e.defaultPrevented) return;
-      if (document.querySelector("[aria-modal='true'], [role='menu'], [role='listbox']")) return;
+      // (A popover such as the people strip is a dialog without aria-modal: its Escape is its own.)
+      if (document.querySelector("[role='dialog'], [role='alertdialog'], [aria-modal='true'], [role='menu'], [role='listbox']")) return;
       leaveSelect();
     };
     document.addEventListener('keydown', onKey);
@@ -808,6 +811,7 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
             filterBar
             onOpen={(id, ids) => openTask(id, ids)}
             empty={<span />}
+            onRowsShown={setTableShown}
             selection={
               locked
                 ? undefined

@@ -84,6 +84,7 @@ export function BulkTools({ selection, visibleIds, projects, assignedOf, merge =
     if (result.action === 'delete') void qc.invalidateQueries({ queryKey: BIN_KEY });
   }
   function refreshAfterUndo() {
+    selection.clear();
     void invalidateTaskQueries(qc);
     void qc.invalidateQueries({ queryKey: BIN_KEY });
   }
@@ -109,6 +110,8 @@ export function BulkTools({ selection, visibleIds, projects, assignedOf, merge =
               onOpenTask={(id) => openTask(id)}
               onDismiss={() => setSummary(null)}
               onUndone={refreshAfterUndo}
+              // The bar and the dialog it came from are gone: keyboard focus comes to the summary.
+              autoFocus
             />
           ) : null}
           {bar ? (

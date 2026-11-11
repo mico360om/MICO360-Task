@@ -16,6 +16,11 @@ export interface BulkSummaryProps {
   onDismiss: () => void;
   /** Undo put tasks back: the views refresh. */
   onUndone: () => void;
+  /**
+   * Just applied: keyboard focus comes here (the bar and the dialog it came from are gone) — on its words,
+   * so the countdown still runs; Tab reaches Undo (which holds it).
+   */
+  autoFocus?: boolean;
 }
 
 /** How long Undo's answer stays (it can be dismissed sooner). */
@@ -29,12 +34,18 @@ const linkButton = `rounded-full px-2 font-semibold text-brand hover:underline d
  * try, and Undo for 15 seconds (counting down; pointed at or focused, it waits) — then what Undo did
  * ("12 put back · 1 left as it was: changed since"). A duplicate's copies can be opened from it.
  */
-export function BulkSummary({ result, onSelectSkipped, onOpenTask, onDismiss, onUndone }: BulkSummaryProps) {
+export function BulkSummary({ result, onSelectSkipped, onOpenTask, onDismiss, onUndone, autoFocus = false }: BulkSummaryProps) {
   const [seconds, setSeconds] = useState(BULK_UNDO_SECONDS);
   const [held, setHeld] = useState(false);
   const [phase, setPhase] = useState<'result' | 'undoing' | 'undone'>('result');
   const [undone, setUndone] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
+  // Undo was refused (too late, or the connection): it is gone, and the summary stays to say why.
+  const [undoClosed, setUndoClosed] = useState(false);
+  const words = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    if (autoFocus) words.current?.focus();
+  }, [autoFocus]);
   const [open, setOpen] = useState<'skipped' | 'copies' | null>(null);
   const listId = useId();
   const dismiss = useRef(onDismiss);
@@ -42,7 +53,7 @@ export function BulkSummary({ result, onSelectSkipped, onOpenTask, onDismiss, on
 
   const skipped = result.skipped;
   const copies = result.changed.flatMap((c) => (c.copy ? [c.copy] : []));
-  const stays = skipped.length > 0 || copies.length > 1;
+  const stays = skipped.length > 0 || copies.length > 1 || problem !== null;
 
   // Undo's 15 seconds, one at a time (waiting while pointed at or focused).
   useEffect(() => {
@@ -71,27 +82,32 @@ export function BulkSummary({ result, onSelectSkipped, onOpenTask, onDismiss, on
       setPhase('undone');
       setOpen(null);
       onUndone();
+      // The Undo button (focused) is gone: focus stays in the summary, on its answer.
+      setTimeout(() => words.current?.focus(), 0);
     } catch (e) {
       setProblem(e instanceof ApiError && e.message ? e.message : 'Couldn’t undo it. Check your connection and try again.');
       setPhase('result');
-      setSeconds(0);
+      setUndoClosed(true);
     }
   }
 
-  const canUndo = phase !== 'undone' && result.undo !== null && seconds > 0;
+  const canUndo = phase !== 'undone' && result.undo !== null && seconds > 0 && !undoClosed;
   return (
     <div
       data-bulk-summary
       onMouseEnter={() => setHeld(true)}
       onMouseLeave={() => setHeld(false)}
-      onFocus={() => setHeld(true)}
+      // Its words taking focus don't hold it (only its buttons do, as the pointer does).
+      onFocus={(e) => {
+        if (e.target !== words.current) setHeld(true);
+      }}
       onBlur={(e) => {
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setHeld(false);
       }}
       className="pointer-events-auto flex w-full max-w-xl flex-col gap-1 rounded-2xl border border-line bg-surface py-2 pe-2 ps-4 text-sm text-ink shadow-lift"
     >
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <p role="status" className="me-auto font-semibold">
+        <p ref={words} role="status" tabIndex={-1} className="me-auto font-semibold outline-none focus-visible:ring-2 focus-visible:ring-brand/40">
           {undone ?? summaryText(result)}
         </p>
         {canUndo ? (

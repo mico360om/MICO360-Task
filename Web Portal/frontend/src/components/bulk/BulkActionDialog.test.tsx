@@ -79,6 +79,8 @@ describe('BulkActionDialog: confirm before applying', () => {
     expect(dialog).toHaveTextContent('2 tasks will change.');
     expect(dialog).toHaveTextContent('1 will be skipped: you can’t move tasks in Rig 3.');
     expect(dialog).toHaveTextContent('1 will wait for approval.');
+    // Focus follows the steps: on the safe way out once the check is in (never lost to the page).
+    expect(within(dialog).getByRole('button', { name: 'Cancel' })).toHaveFocus();
     await userEvent.click(within(dialog).getByRole('button', { name: 'Apply' }));
     await waitFor(() => expect(onApplied).toHaveBeenCalled());
     expect(posts[1]!.body).toEqual({ taskIds: IDS, action: { type: 'status', status: 'DONE' } });
@@ -93,6 +95,7 @@ describe('BulkActionDialog: confirm before applying', () => {
     expect(dialog).toHaveTextContent('Nothing would change.');
     expect(dialog).toHaveTextContent('3 will be skipped: already High.');
     expect(within(dialog).queryByRole('button', { name: 'Apply' })).toBeNull();
+    expect(within(dialog).getByRole('button', { name: 'Close' })).toHaveFocus();
     await userEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
     expect(onClose).toHaveBeenCalled();
     expect(posts).toHaveLength(1);

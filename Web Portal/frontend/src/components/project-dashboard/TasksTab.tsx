@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import type { ApiTask } from '../../api/tasks';
 import { PriorityBadge } from '../ui/PriorityBadge';
 import { Avatar } from '../ui/Avatar';
@@ -197,18 +197,20 @@ export function TasksTab({
   const allState = sel.allState(shownIds);
   const narrowed = filter !== 'all' || Boolean(words) || guestCategoryFiltersActive(picked) > 0;
 
-  if (loading) return <div className="skeleton h-40 rounded-xl" role="status" aria-label="Loading tasks" />;
-  if (all.length === 0) {
-    return (
+  // The bulk bar and a change's summary stay put whatever the tab shows: a change that empties the
+  // project (all of it moved, archived or deleted) keeps its summary and Undo.
+  const tools = selecting && project ? <BulkTools selection={sel} visibleIds={shownIds} projects={[project]} assignedOf={(id) => all.find((t) => t.id === id)?.assignees} merge /> : null;
+  let body: ReactNode;
+  if (loading) body = <div className="skeleton h-40 rounded-xl" role="status" aria-label="Loading tasks" />;
+  else if (all.length === 0) {
+    body = (
       <EmptyState
         title="No tasks in this project yet"
         description="Tasks are the work to be done: each has its people, a due date and a place on the board."
         action={onNew ? <Button onClick={onNew} className={TOUCH_TALL}>+ New task</Button> : undefined}
       />
     );
-  }
-
-  return (
+  } else body = (
     <div className="space-y-4">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div role="group" aria-label="Show tasks" className="flex max-w-full gap-1 overflow-x-auto rounded-xl bg-ground p-1">
@@ -312,7 +314,12 @@ export function TasksTab({
           </section>
         ))
       )}
-      {selecting && project ? <BulkTools selection={sel} visibleIds={shownIds} projects={[project]} assignedOf={(id) => all.find((t) => t.id === id)?.assignees} /> : null}
     </div>
+  );
+  return (
+    <>
+      {body}
+      {tools}
+    </>
   );
 }

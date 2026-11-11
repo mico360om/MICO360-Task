@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../../api/client';
 import { tasksApi, type ApiTask, type Priority } from '../../api/tasks';
@@ -85,6 +85,8 @@ export interface TaskTableProps {
   empty?: ReactNode;
   /** A hundred rows at a time (the default); false: all of them (My Tasks). */
   paged?: boolean;
+  /** Told the rows its own filters leave (every page), as they change — "(3 hidden by filters)". */
+  onRowsShown?: (ids: string[]) => void;
 }
 
 /** The table's selection boxes (bulk changes): the page keeps the selection (lib/bulk-selection). */
@@ -134,6 +136,7 @@ export function TaskTable({
   toolbar,
   empty,
   paged = true,
+  onRowsShown,
 }: TaskTableProps) {
   const qc = useQueryClient();
   const myId = useAuthStore((s) => s.user?.id);
@@ -223,6 +226,12 @@ export function TaskTable({
   const filtered = filterBar ? filterTaskRows(withEdits, filters, ctx) : withEdits;
   const rows = presorted ? filtered : sortRows(filtered, shownSort, (t, c) => taskSortValue(t, c, ctx));
   const ids = rows.map((t) => t.id);
+  const idsKey = ids.join(',');
+  const told = useRef(onRowsShown);
+  told.current = onRowsShown;
+  useEffect(() => {
+    told.current?.(idsKey ? idsKey.split(',') : []);
+  }, [idsKey]);
 
   const save = (t: ApiTask, patch: Partial<ApiTask>, run: () => Promise<Partial<ApiTask> | void>) => {
     const base = rawById.get(t.id);

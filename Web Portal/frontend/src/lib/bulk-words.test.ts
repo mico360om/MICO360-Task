@@ -99,6 +99,23 @@ describe('the confirmation’s words', () => {
     expect(confirmLines(r)).toEqual(['10 tasks will change.', '2 will be skipped: you can’t move tasks in Rig 3.', '2 will wait for approval.']);
   });
 
+  it('a reason starting with a name is shown as the server wrote it (only an ordinary first word is lowered)', () => {
+    const r = dry({
+      changed: changed(1),
+      skipped: [
+        { id: 'a', code: 'PROJECT_ARCHIVED', reason: 'Rig 3 is archived — reopen it first.' },
+        { id: 'b', code: 'NOT_ON_TEAM', reason: 'Sara isn’t on the Rig 3 team.' },
+        { id: 'c', code: 'UNCHANGED', reason: 'Already Done.' },
+      ],
+    });
+    expect(confirmLines(r)).toEqual([
+      '1 task will change.',
+      '1 will be skipped: Rig 3 is archived — reopen it first.',
+      '1 will be skipped: Sara isn’t on the Rig 3 team.',
+      '1 will be skipped: already Done.',
+    ]);
+  });
+
   it('everything changes: says so plainly; nothing would change: says so', () => {
     expect(confirmLines(dry({ total: 1, changed: changed(1) }))).toEqual(['1 task will change.']);
     expect(confirmLines(dry({ total: 2, skipped: [{ id: 'a', code: 'UNCHANGED', reason: 'Already Done.' }, { id: 'b', code: 'UNCHANGED', reason: 'Already Done.' }] }))).toEqual([

@@ -19,8 +19,6 @@ export interface BulkBarProps {
   actions: BarAction[];
   onAction: (id: BulkBarActionId) => void;
   onClear: () => void;
-  /** A change is being worked out or applied. */
-  busy?: boolean;
 }
 
 const buttonClass =
@@ -33,10 +31,9 @@ const buttonClass =
  * 44px row. An action that can't be used now is shown unavailable, saying why. The selection's count is
  * said to screen readers by the page (BulkTools), not here.
  */
-export function BulkBar({ count, hidden, actions, onAction, onClear, busy = false }: BulkBarProps) {
+export function BulkBar({ count, hidden, actions, onAction, onClear }: BulkBarProps) {
   const phone = useMediaQuery(PHONE_QUERY);
   const [sheet, setSheet] = useState(false);
-  const opener = useRef<HTMLButtonElement>(null);
   const words = selectedText(count, hidden);
   const over = count > BULK_MAX;
 
@@ -44,11 +41,9 @@ export function BulkBar({ count, hidden, actions, onAction, onClear, busy = fals
     return (
       <div role="region" aria-label="Bulk actions" className="pointer-events-auto flex w-full max-w-md items-center gap-2 rounded-2xl border border-line bg-surface/95 py-1.5 pe-1.5 ps-4 shadow-lift backdrop-blur">
         <span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink">
-          {busy ? <Spinner /> : null}
           {words}
         </span>
         <button
-          ref={opener}
           type="button"
           onClick={() => setSheet(true)}
           aria-haspopup="dialog"
@@ -81,15 +76,14 @@ export function BulkBar({ count, hidden, actions, onAction, onClear, busy = fals
   return (
     <div role="region" aria-label="Bulk actions" className="pointer-events-auto flex max-w-full flex-wrap items-center gap-2 rounded-2xl border border-line bg-surface/95 px-3 py-2 shadow-lift backdrop-blur">
       <span className="flex items-center gap-2 pe-1 text-sm font-semibold text-ink">
-        {busy ? <Spinner /> : null}
         {words}
       </span>
       {over ? <span data-bulk-limit className="text-xs font-medium text-danger">{BULK_LIMIT_TEXT}</span> : null}
       <span className="h-5 w-px bg-line" aria-hidden />
       {main.map((a) => (
-        <BarButton key={a.id} action={a} disabled={busy} onAction={onAction} />
+        <BarButton key={a.id} action={a} onAction={onAction} />
       ))}
-      {more.length ? <MoreMenu actions={more} disabled={busy} onAction={onAction} /> : null}
+      {more.length ? <MoreMenu actions={more} onAction={onAction} /> : null}
       <span className="h-5 w-px bg-line" aria-hidden />
       <button type="button" onClick={onClear} aria-label="Clear selection" className={`rounded-lg px-2 py-1 text-xs font-medium text-ink-2 transition-colors hover:bg-ground hover:text-ink ${TOUCH_TALL}`}>
         Clear
@@ -98,21 +92,16 @@ export function BulkBar({ count, hidden, actions, onAction, onClear, busy = fals
   );
 }
 
-function Spinner() {
-  return <span className="me-2 inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-brand/30 border-t-brand align-[-2px]" aria-hidden />;
-}
-
 /** One of the bar's own buttons; unavailable: aria-disabled, saying why. */
-function BarButton({ action, disabled, onAction }: { action: BarAction; disabled: boolean; onAction: (id: BulkBarActionId) => void }) {
+function BarButton({ action, onAction }: { action: BarAction; onAction: (id: BulkBarActionId) => void }) {
   const whyId = useId();
   return (
     <>
       <button
         type="button"
         onClick={() => {
-          if (!action.unavailable && !disabled) onAction(action.id);
+          if (!action.unavailable) onAction(action.id);
         }}
-        disabled={disabled}
         aria-disabled={action.unavailable ? 'true' : undefined}
         aria-describedby={action.unavailable ? whyId : undefined}
         title={action.unavailable ?? undefined}
@@ -133,7 +122,7 @@ function BarButton({ action, disabled, onAction }: { action: BarAction; disabled
 const itemClass = 'flex w-full items-start gap-2 px-3 py-2 text-start text-sm text-ink outline-none hover:bg-ground focus-visible:bg-ground sm:py-1.5';
 
 /** "More actions": the other actions as a menu above the bar (arrow keys, Escape back to its button). */
-function MoreMenu({ actions, disabled, onAction }: { actions: BarAction[]; disabled: boolean; onAction: (id: BulkBarActionId) => void }) {
+function MoreMenu({ actions, onAction }: { actions: BarAction[]; onAction: (id: BulkBarActionId) => void }) {
   const [place, setPlace] = useState<{ bottom: number; left: number } | null>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
@@ -176,7 +165,7 @@ function MoreMenu({ actions, disabled, onAction }: { actions: BarAction[]; disab
   };
   return (
     <>
-      <button ref={trigger} type="button" onClick={toggle} disabled={disabled} aria-haspopup="menu" aria-expanded={open} className={`${buttonClass} ${TOUCH_TALL}`}>
+      <button ref={trigger} type="button" onClick={toggle} aria-haspopup="menu" aria-expanded={open} className={`${buttonClass} ${TOUCH_TALL}`}>
         More actions
         <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="m6 15 6-6 6 6" />

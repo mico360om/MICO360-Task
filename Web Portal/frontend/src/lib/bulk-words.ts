@@ -149,10 +149,16 @@ export function confirmTitle(action: BulkAction, count: number, names: ConfirmNa
   }
 }
 
-/** "You can’t …" → "you can’t …" (a word in capitals, like "RIG", stays as it is). */
+/** Ordinary first words a reason may start with: lowered after "2 will be skipped:". */
+const ORDINARY = new Set(['you', 'your', 'already', 'task', 'tasks', 'this', 'it', 'its', 'it’s', 'no', 'not', 'the', 'a', 'an', 'only', 'someone', 'changed', 'nothing', 'there', 'there’s']);
+
+/**
+ * The server's sentence after a colon: "You can’t …" → "you can’t …". A reason that starts with a name
+ * ("Rig 3 is archived…", "Sara isn’t on…") is shown as the server wrote it.
+ */
 function lowerFirst(s: string): string {
-  if (s.length > 1 && s[1] === s[1]!.toUpperCase() && s[1] !== s[1]!.toLowerCase()) return s;
-  return s.charAt(0).toLowerCase() + s.slice(1);
+  const first = s.split(/\s/, 1)[0] ?? '';
+  return ORDINARY.has(first.toLocaleLowerCase('en')) ? s.charAt(0).toLocaleLowerCase('en') + s.slice(1) : s;
 }
 
 /** The skipped tasks grouped by their reason, in the order first met: [reason, how many]. */

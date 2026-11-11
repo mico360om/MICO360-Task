@@ -38,9 +38,9 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function show(result: BulkResult = RESULT) {
+function show(result: BulkResult = RESULT, extra: { autoFocus?: boolean } = {}) {
   const props = { onSelectSkipped: vi.fn(), onOpenTask: vi.fn(), onDismiss: vi.fn(), onUndone: vi.fn() };
-  render(<BulkSummary result={result} {...props} />);
+  render(<BulkSummary result={result} {...props} {...extra} />);
   return props;
 }
 
@@ -107,6 +107,29 @@ describe('BulkSummary', () => {
     show();
     await userEvent.click(screen.getByRole('button', { name: /^Undo/ }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Undo is no longer available.');
+  });
+
+  it('Undo too late, with nothing skipped: the summary stays to say so (it isn’t dismissed when the time is up)', async () => {
+    undoAnswer = () => json({ error: { code: 'UNDO_EXPIRED', message: 'Undo is no longer available.' } }, 409);
+    const p = show({ ...RESULT, skipped: [] });
+    await userEvent.click(screen.getByRole('button', { name: /^Undo/ }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Undo is no longer available.');
+    await new Promise((r) => setTimeout(r, 50));
+    expect(p.onDismiss).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: /^Undo/ })).not.toBeInTheDocument();
+  });
+
+  it('opened after a change, it takes keyboard focus (on its words, so the countdown still runs); after Undo, focus stays in it', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    show(RESULT, { autoFocus: true });
+    const status = screen.getByRole('status');
+    expect(status).toHaveFocus();
+    act(() => vi.advanceTimersByTime(3000));
+    expect(screen.getByRole('button', { name: /^Undo \(12 s\)/ })).toBeInTheDocument();
+    vi.useRealTimers();
+    await userEvent.click(screen.getByRole('button', { name: /^Undo/ }));
+    expect(await screen.findByText('1 put back · 1 left as it was: changed since')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveFocus();
   });
 
   it('no Undo when the server offers none', () => {
