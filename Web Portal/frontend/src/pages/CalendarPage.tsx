@@ -166,8 +166,9 @@ export function CalendarPage() {
   const { from, to } = visibleRange(view, cursor, weekStart);
   const team = prefs.team;
   const rangeKey = useMemo(() => ['calendar', from, to, team ? 'team' : 'mine'] as const, [from, to, team]);
-  // Asked once the person's choices are known (their Team view changes the answer).
-  const rangeQ = useQuery({ queryKey: rangeKey, queryFn: () => calendarApi(apiClient).range(from, to, { team }), placeholderData: keepPreviousData, enabled: !prefsQ.isLoading });
+  // Asked once the person's choices are known (their Team view changes the answer) — or as soon as reading
+  // them has failed once: then with the defaults, while they are tried again (no waiting out their retries).
+  const rangeQ = useQuery({ queryKey: rangeKey, queryFn: () => calendarApi(apiClient).range(from, to, { team }), placeholderData: keepPreviousData, enabled: !prefsQ.isLoading || prefsQ.failureCount > 0 });
   const overdueQ = useQuery({ queryKey: ['calendar', 'overdue'], queryFn: () => calendarApi(apiClient).overdue(), enabled: view === 'agenda' || split || compactMonth });
   const span = meetingRange(from, to, timeZone);
   const meetingsQ = useQuery({

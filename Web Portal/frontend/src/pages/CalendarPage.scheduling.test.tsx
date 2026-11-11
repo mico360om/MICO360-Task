@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { shouldRetryQuery } from '../lib/queryRetry';
 import { MemoryRouter } from 'react-router-dom';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -103,8 +104,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function renderPage(path = '/calendar') {
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+function renderPage(path = '/calendar', qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
   return render(
     <QueryClientProvider client={qc}>
       <MemoryRouter initialEntries={[path]}>
@@ -306,6 +306,24 @@ describe('week and day hours, planned time, meetings (owner 2)', () => {
     expect(within(row).getAllByRole('button', { name: /Thursday job/ })).toHaveLength(3);
     await userEvent.click(within(row).getByRole('button', { name: 'Show fewer' }));
     expect(within(row).getAllByRole('button', { name: /Thursday job/ })).toHaveLength(1);
+  });
+
+  it('when the person’s choices can’t be read, the calendar is asked anyway (the defaults) and its error shows — no waiting for their retries', async () => {
+    const base = globalThis.fetch;
+    const down = () => json({ error: { code: 'INTERNAL', message: 'Simulated server failure' } }, 500);
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const u = String(url);
+      if (u.endsWith('/calendar/preferences')) return down();
+      if (u.includes('/calendar?')) {
+        requests.push({ url: u, method: 'GET' });
+        return json({ error: { code: 'NOT_FOUND', message: 'Gone' } }, 404);
+      }
+      return base(url, init);
+    }));
+    // The app's retry rule (server errors 3 more times), with a long wait between tries.
+    renderPage('/calendar', new QueryClient({ defaultOptions: { queries: { retry: shouldRetryQuery, retryDelay: 60_000 } } }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Couldn’t load the calendar.');
+    expect(requests.some((r) => r.url.includes('/calendar?'))).toBe(true);
   });
 
   it('the Day view: one day’s hours', async () => {
