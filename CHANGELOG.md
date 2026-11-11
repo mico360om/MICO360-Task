@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.23.15] - 2026-11-11
+
 ### Bug fixes
 - The Error log no longer counts time a page spent in the background as "slow": a page opened in a
   background tab, prerendered, restored with the Back button or left on a sleeping computer is no longer
