@@ -4,6 +4,7 @@ import type { WorkloadStore } from './workload-service';
 import { managedVisibleWhere } from '../projects/project-managers';
 import { liveProjectWhere } from '../companies/project-archive';
 import { STAFF_ONLY_WHERE } from '../clients/client-kind';
+import { blocksForWorkload } from '../calendar/prisma-calendar-store';
 
 const personFields = { id: true, firstName: true, lastName: true, username: true, avatarUrl: true } as const;
 // 1.23: client accounts are never on the Workload page.
@@ -73,6 +74,10 @@ export function createPrismaWorkloadStore(prisma: PrismaClient): WorkloadStore {
       return groups.map((g) => ({ userId: g.userId, count: g._count._all }));
     },
 
+    async plannedBlocks(q) {
+      // Calendar scheduling: work blocks on open tasks of live tasks (blocksForWorkload).
+      return blocksForWorkload(prisma, q);
+    },
     async openDue({ projectIds, userIds, windows }) {
       if (userIds.length === 0 || windows.length === 0 || (projectIds && projectIds.length === 0)) return [];
       const rows = await prisma.taskAssignee.findMany({

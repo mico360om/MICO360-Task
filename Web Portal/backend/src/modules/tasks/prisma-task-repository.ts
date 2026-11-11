@@ -284,6 +284,8 @@ export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository
       if (filter.tagIds?.length) and.push({ tags: { some: { tagId: { in: filter.tagIds } } } });
       if (filter.dueBefore) and.push({ dueDate: { lte: filter.dueBefore } });
       if (filter.dueAfter) and.push({ dueDate: { gte: filter.dueAfter } });
+      if (filter.startBefore) and.push({ startDate: { lte: filter.startBefore } });
+      if (filter.startAfter) and.push({ startDate: { gte: filter.startAfter } });
       if (filter.recurring) and.push({ recurrenceRule: { not: Prisma.DbNull } });
       if (filter.awaitingApproval) and.push({ approvalRequestedAt: { not: null } });
       if (filter.month) and.push(monthWindowWhere(filter.month));

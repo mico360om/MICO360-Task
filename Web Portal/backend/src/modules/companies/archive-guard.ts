@@ -133,6 +133,11 @@ export const ARCHIVE_REFUSED: Readonly<Record<string, ArchiveTarget>> = {
   // Notification & Scheduling centre: a project's reminder schedule and escalation numbers, a task's schedule.
   'PUT /projects/:id/reminders': 'project',
   'PUT /tasks/:id/reminder-schedule': 'task',
+  // Calendar scheduling: planning time on one of its tasks and adding or changing reminders about one.
+  'POST /tasks/:id/work-blocks': 'task',
+  'PUT /tasks/:id/work-blocks/:blockId': 'task',
+  'POST /tasks/:id/reminders': 'task',
+  'PUT /tasks/:id/reminders/:reminderId': 'task',
 };
 
 /** Write routes (one project's, task's or meeting's) an archived project does not refuse, and why. */
@@ -211,6 +216,12 @@ export const ARCHIVE_ALLOWED: Readonly<Record<string, string>> = {
   'POST /task-merges/:mergeId/undo': 'Undo refuses archived projects itself, for every task involved (merge-service)',
   // 1.23.6: a saved search shared with a project's team changes nothing in the project (its owner's search).
   'PUT /search/saved/:id/share': 'the owner’s saved search shown to a team: nothing in the project changes',
+  // Calendar scheduling: removing planned time or a reminder is deleting, as today; muting or snoozing a
+  // reminder set for you is the person's own (an archived project's reminders aren't sent anyway).
+  'DELETE /tasks/:id/work-blocks/:blockId': 'deleting, as today',
+  'DELETE /tasks/:id/reminders/:reminderId': 'deleting, as today',
+  'POST /tasks/:id/reminders/:reminderId/mute': 'the person’s own reminder choice, not a change to its project',
+  'POST /tasks/:id/reminders/:reminderId/snooze': 'the person’s own reminder choice, not a change to its project',
 };
 
 /** What a refused write is about: a project, and the meeting when it is one (its people may see it without the project). */

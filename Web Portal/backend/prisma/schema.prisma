@@ -494,6 +494,9 @@ model Task {
   inspectionFollowUp InspectionFollowUp? @relation("InspectionFollowUpTask")
   /// Its entry in the task search index (derived; rebuilt by `npm run search:rebuild`).
   searchIndex        TaskSearchIndex?
+  /// Calendar scheduling: time planned to work on it (work blocks) and people's own reminders about it.
+  workBlocks         TaskWorkBlock[]
+  reminders          TaskReminder[]
 
   @@index([projectId])
   /// A project's checks (scheduled inspections): its tasks that carry a form.
@@ -748,6 +751,66 @@ model TaskWatcher {
   @@id([taskId, userId])
   @@index([userId])
   @@map("task_watchers")
+}
+
+/// Calendar scheduling: time planned to work on a task (a "work on it" block) — one person's time, booked
+/// by them (an assignee) or planned for them by the task's creator or whoever runs its project. Never
+/// changes the task's dates. Kept (hidden) while the task is binned or archived; removed with it by the
+/// nightly erase. `userId` / `plannedById` have no foreign key (like the other "by" columns of history).
+model TaskWorkBlock {
+  id          String   @id @default(cuid())
+  taskId      String
+  userId      String   @db.VarChar(191)
+  plannedById String   @db.VarChar(191)
+  startAt     DateTime
+  endAt       DateTime
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  task        Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([userId, startAt])
+  @@index([taskId])
+  @@index([startAt])
+  @@map("task_work_blocks")
+}
+
+/// Calendar scheduling: a person's own reminder about a task — at a date and time (`at`), or a time before
+/// its start or due (`anchor` + `offsetMinutes`). `userId` gets it, `setById` set it (themselves, or the
+/// task's creator / whoever runs its project for an assignee). `nextAt`: when it goes next (kept in step
+/// with the task's dates by the reminder sweep); `sentFor`: the time it was last sent for (it goes again
+/// only when that changes). `mutedAt` / `snoozedUntil`: its person's own, for one someone else set.
+model TaskReminder {
+  id            String    @id @default(cuid())
+  taskId        String
+  userId        String    @db.VarChar(191)
+  setById       String    @db.VarChar(191)
+  at            DateTime?
+  anchor        String?   @db.VarChar(8)
+  offsetMinutes Int?
+  nextAt        DateTime?
+  mutedAt       DateTime?
+  snoozedUntil  DateTime?
+  sentFor       DateTime?
+  sentAt        DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  task          Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([userId, nextAt])
+  @@index([taskId])
+  @@index([setById])
+  @@index([nextAt])
+  @@map("task_reminders")
+}
+
+/// Calendar scheduling: a person's own Calendar choices (Split | Full, what it shows, the Team blocks).
+/// `userId` has no foreign key (a person's own setting, like the minutes send log).
+model CalendarPreference {
+  userId    String   @id @db.VarChar(191)
+  prefs     Json
+  updatedAt DateTime @updatedAt
+
+  @@map("calendar_preferences")
 }
 
 model Tag {

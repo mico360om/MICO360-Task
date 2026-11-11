@@ -18,6 +18,8 @@
 export const POLICY_KINDS = [
   'assigned',
   'dueSoon',
+  // Calendar scheduling: a person's own reminders on tasks (and those their manager set for them).
+  'reminders',
   'overdue',
   'escalation',
   'escalationAdmin',
@@ -36,6 +38,7 @@ export type PolicyKind = (typeof POLICY_KINDS)[number];
 export const KIND_TYPES: Record<PolicyKind, readonly string[]> = {
   assigned: ['TASK_ASSIGNED'],
   dueSoon: ['TASK_DUE_SOON'],
+  reminders: ['TASK_REMINDER'],
   overdue: ['TASK_OVERDUE'],
   // Step 1 (and Blocked tasks): to whoever runs the project.
   escalation: ['TASK_ESCALATION'],

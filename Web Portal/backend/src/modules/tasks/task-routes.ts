@@ -11,6 +11,7 @@ import { filterAndSortTasks, SORT_FIELDS, type TaskFilterCriteria } from './task
 import { boardDateFromKey } from './board-date';
 import { calendarDay, dateInput, hours, idString, inspectionPlace, longText, queryBoolean, requiredText, VARCHAR_MAX } from './validation';
 import { projectOccurrences } from './calendar-projection';
+import { shownBySpan } from '../calendar/calendar-span';
 import { dueDayKey, shiftDayKey, todayKey } from '../../lib/due-date';
 import type { TaskRecord } from './task-repository';
 import type { ApprovalViewer, TaskApprovalDetails } from './task-approval-routes';
@@ -74,7 +75,9 @@ const recurrenceSchema = z.object({
 
 /** The calendar asks for one visible range at a time (a month grid is 42 days). */
 const MAX_CALENDAR_DAYS = 100;
-const calendarQuerySchema = z.object({ from: calendarDay, to: calendarDay });
+const calendarQuerySchema = z.object({ from: calendarDay, to: calendarDay, team: queryBoolean.optional() });
+/** Calendar scheduling: a bar is at most three weeks, so one crossing into a range starts at most 22 days before it. */
+const SPAN_LOOKBACK_DAYS = 23;
 
 /** 1.23.5: a task's weight — whole points, 1–10 (the live database would keep anything: the server checks). */
 const taskWeight = z.number().int().min(WEIGHT_MIN, `A weight is ${WEIGHT_MIN} to ${WEIGHT_MAX} points.`).max(WEIGHT_MAX, `A weight is ${WEIGHT_MIN} to ${WEIGHT_MAX} points.`);
@@ -202,6 +205,11 @@ export interface TaskRouteDeps {
   mergedFrom?: (taskId: string) => Promise<{ id: string; key: string; mergeId: string }[]>;
   /** 1.23.3: dated checklist items for the calendar, in the caller's scope (see prisma-checklist-queries). */
   checklistDue?: (opts: { from: string; to: string; userId: string; ownIds: string[] | null; listIds: string[] | null }) => Promise<unknown[]>;
+  /**
+   * Calendar scheduling: the person's work blocks (and, with `team`, those of people on projects they run),
+   * their reminders, and whether they have the Team view — added to GET /calendar (see modules/calendar).
+   */
+  calendarExtras?: (q: { viewer: { id: string; roles: string[] }; from: string; to: string; own: string[] | null; list: string[] | null; team: boolean }) => Promise<Record<string, unknown>>;
 }
 
 export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDeps): Promise<void> {
@@ -282,7 +290,7 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
   // The calendar: tasks due in one visible range (projects the caller can see), plus the days the
   // repeating ones among them will be copied to — computed, never stored ("projected").
   app.get('/calendar', { preHandler: guard.authenticate }, async (req, reply) => {
-    const { from, to } = calendarQuerySchema.parse(req.query);
+    const { from, to, team } = calendarQuerySchema.parse(req.query);
     const span = Math.round((Date.parse(`${to}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 86_400_000);
     if (span < 0 || span > MAX_CALENDAR_DAYS) {
       return reply.status(400).send({ error: { code: 'VALIDATION', message: `Ask for 1 to ${MAX_CALENDAR_DAYS + 1} days, ending on or after the start.` } });
@@ -304,6 +312,10 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
       const key = dueDayKey(t.dueDate, tz);
       return key !== null && key >= from && key <= to;
     });
+    // Calendar scheduling (additive): tasks the range shows by their start or their bar (start → due) while
+    // not due in it — the app reads `tasks` alone and keeps placing tasks by their due day.
+    const starting = await taskService.listTasks({ ...scope, startAfter: dayStart(shiftDayKey(from, -SPAN_LOOKBACK_DAYS)), startBefore: dayStart(shiftDayKey(to, 2)) });
+    const spanning = visible(starting).filter((t) => shownBySpan(t, { from, to }, tz));
     const today = todayKey(tz);
     const occurrences: { taskId: string; seriesId: string; date: string }[] = [];
     const series = [];
@@ -318,7 +330,10 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
     }
     // 1.23.3: dated checklist items, on their day (the website shows mine, or a viewed project's).
     const checklistItems = deps.checklistDue ? await deps.checklistDue({ from, to, userId: me, ownIds, listIds: allowedIds }) : [];
-    return { data: { from, to, timeZone: tz, tasks, occurrences, series, checklistItems } };
+    const extras = deps.calendarExtras
+      ? await deps.calendarExtras({ viewer: { id: me, roles: req.user!.roles ?? [] }, from, to, own: ownIds, list: allowedIds, team: team === true })
+      : {};
+    return { data: { from, to, timeZone: tz, tasks, spanning, occurrences, series, checklistItems, ...extras } };
   });
 
   // Tasks assigned to the current user (My Tasks) — only in projects they can still see. 1.22 (owner,

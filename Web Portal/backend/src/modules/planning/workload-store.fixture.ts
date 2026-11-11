@@ -9,6 +9,8 @@ export interface FakeCompany {
   projects: { id: string; name?: string; status?: string; archived?: boolean; ownerId?: string | null; managerId?: string | null }[];
   members: { projectId: string; userId: string; role?: 'MEMBER' | 'MANAGER' }[];
   tasks: { id: string; projectId: string; due: string | Date; assignees: string[]; open?: boolean; priority?: Priority; key?: string; version?: number; waiting?: boolean }[];
+  /** Calendar scheduling: work blocks (on an open task of `projectId`). */
+  planned?: { userId: string; projectId: string; start: string; end: string }[];
 }
 
 const LIVE = (p?: { status?: string; archived?: boolean }) => p?.status !== 'COMPLETED' && !projectArchived({ status: p?.status ?? 'ACTIVE', archived: p?.archived });
@@ -56,6 +58,12 @@ export function fakeWorkloadStore(c: FakeCompany): WorkloadStore & { calls: { na
         for (const a of t.assignees) if (userIds.includes(a)) counts.set(a, (counts.get(a) ?? 0) + 1);
       }
       return [...counts].map(([userId, count]) => ({ userId, count }));
+    },
+    async plannedBlocks({ projectIds, userIds, from, to }) {
+      log('plannedBlocks', { projectIds, userIds, from, to });
+      return (c.planned ?? [])
+        .filter((b) => projectIds.includes(b.projectId) && userIds.includes(b.userId) && new Date(b.start) < to && new Date(b.end) > from)
+        .map((b) => ({ userId: b.userId, startAt: new Date(b.start), endAt: new Date(b.end) }));
     },
     async openDue({ projectIds, userIds, windows }) {
       log('openDue', { projectIds, userIds, windows });

@@ -116,6 +116,10 @@ import { createPrismaPolicyStore } from './modules/notify-policy/policy-store';
 import { createNoticeEmails, createPolicyWiring } from './modules/notify-policy/policy-wiring';
 import { createHoldRelease, createPrismaHoldStore } from './modules/notify-policy/holds';
 import { createPlannerSweep, createPrismaFirstRun, createPrismaReminderKeys, leadDaysOf } from './modules/notify-policy/planner-sweep';
+import { blocksForWorkload, calendarTaskFacts, createPrismaCalendarStore, createPrismaReminderClaims, createPrismaReminderSweepStore, teamProjectIds } from './modules/calendar/prisma-calendar-store';
+import { createCalendarExtras } from './modules/calendar/calendar-extras';
+import { createReminderSweep } from './modules/calendar/reminder-sweep';
+import { withWorkBlocks } from './modules/calendar/busy-blocks';
 import type { NotificationDelivery } from './modules/notifications/notification-service';
 import { isWorkingDay, workingDaysLate, type WorkCalendar } from './lib/working-days';
 import { channelsForType } from './modules/notify-policy/policy';
@@ -1822,6 +1826,32 @@ async function main(): Promise<void> {
     }).catch(sweepFailed('notification-holds', 'held notices'));
   jobs.every(60 * 1000, runHoldRelease);
 
+  // ── Calendar scheduling: personal reminders on tasks ───────────────────────
+  // Every minute one lease-locked instance sends the reminders whose time has come, through the
+  // notification service (each person's channels, quiet hours and Pause) — each claimed once in
+  // reminder_logs, so overlapping runs and several servers never send one twice.
+  const calendarStore = createPrismaCalendarStore(prisma);
+  /** A date-only start or due counts from the start of the site's working day (System Settings → working hours). */
+  const calendarClock = async () => ({ timeZone: companyTz, dayStart: (await settingsService.workingHours().catch(() => null))?.start ?? '08:00' });
+  const personalReminders = createReminderSweep({
+    store: createPrismaReminderSweepStore(prisma),
+    keys: createPrismaReminderClaims(prisma),
+    notify: (n) => notificationService.notify(n),
+    canView: async (userId, taskId) => {
+      const roles = await roleNamesOf(userId); // [] for someone deactivated or deleted
+      return roles.length > 0 && projectAccess.canViewTask(userId, roles, taskId);
+    },
+    names: resolveUserNames,
+    clock: calendarClock,
+    logger: logger.job('personal-reminders'),
+  });
+  const PERSONAL_REMINDER_LEASE_MS = 55 * 1000;
+  const runPersonalReminders = () =>
+    runExclusive(jobLock, 'personal-reminders', PERSONAL_REMINDER_LEASE_MS, () => new Date(), async () => {
+      await personalReminders.run();
+    }).catch(sweepFailed('personal-reminders', 'personal reminder sweep'));
+  jobs.every(60 * 1000, runPersonalReminders);
+
   // ── The Management page, and its weekly summary email ──────────────────────
   // Admins see every project; the people who run a project see the projects they run. The summary
   // goes on the first working morning of the company week, at each person's daily-email time, to
@@ -2306,6 +2336,22 @@ async function main(): Promise<void> {
     },
     checklistMine: (userId, projectIds) => checklistQueries.mine(userId, projectIds),
     checklistDue: (opts) => checklistQueries.due(opts),
+    // Calendar scheduling: a task's planned time and reminders, each person's Calendar choices, and
+    // GET /calendar's blocks, reminders and Team view.
+    calendarScheduling: {
+      store: calendarStore,
+      task: (taskId) => calendarTaskFacts(prisma, taskId),
+      canViewTask: (userId, roles, taskId) => projectAccess.canViewTask(userId, roles, taskId),
+      runsProject: (userId, roles, projectId) => projectAuthz.canManageProject(userId, roles, projectId),
+      names: resolveUserNames,
+      clock: calendarClock,
+    },
+    calendarExtras: createCalendarExtras({
+      store: calendarStore,
+      names: resolveUserNames,
+      clock: calendarClock,
+      teamProjects: (viewer, list) => teamProjectIds(prisma, viewer, list),
+    }),
     namesOfUsers,
     externalContactService,
     commentService,
@@ -2370,7 +2416,8 @@ async function main(): Promise<void> {
       ),
     // Schedule meeting's free times: who is busy, inside the company's meeting hours.
     meetingFreeTimes: {
-      busy: meetingRepository,
+      // Calendar scheduling: planned work time (work blocks) is busy too, shown as "Busy".
+      busy: withWorkBlocks(meetingRepository, (userIds, from, to) => blocksForWorkload(prisma, { userIds, from, to, projectIds: null })),
       // companies: the hours of the meeting's project / company / the meeting — only ones the asker may
       // use (else theirs): a project they can see, one of their companies, a meeting they can open.
       workingHours: async (target) =>

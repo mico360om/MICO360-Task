@@ -24,6 +24,8 @@ export interface WorkloadStore {
    * project); `waiting`: the task waits for approval (left out by older stores = no).
    */
   openDue(q: { projectIds: string[] | null; userIds: string[]; windows: { from: Date; to: Date }[] }): Promise<{ userId: string; dueDate: Date | null; waiting?: boolean }[]>;
+  /** Calendar scheduling: these people's work blocks on open tasks of these projects overlapping [from, to) (absent: none). */
+  plannedBlocks?(q: { projectIds: string[]; userIds: string[]; from: Date; to: Date }): Promise<{ userId: string; startAt: Date; endAt: Date }[]>;
 }
 
 const utcDay = (key: string) => new Date(`${key}T00:00:00.000Z`);
@@ -73,6 +75,16 @@ export async function loadWorkload(
     ownExtra.length && ownRow.length ? store.openTasks({ projectIds: ownExtra, assigneeIds: ownRow, ...show }) : Promise.resolve([]),
   ]);
   const tasks: WorkloadTaskRow[] = [...main, ...own.map((t) => ({ ...t, rowsFor: ownRow }))];
+  // Calendar scheduling: planned work time (work blocks) — the shown people's on the projects shown, and
+  // a manager's own elsewhere (as their own tasks are), counted as planned hours.
+  const planned = store.plannedBlocks
+    ? (
+        await Promise.all([
+          mainProjects.length && assignees.length ? store.plannedBlocks({ projectIds: mainProjects, userIds: assignees, ...show }) : Promise.resolve([]),
+          ownExtra.length && ownRow.length ? store.plannedBlocks({ projectIds: ownExtra, userIds: ownRow, ...show }) : Promise.resolve([]),
+        ])
+      ).flat()
+    : [];
 
   // Overdue: due before today's company day, and not waiting for approval (owner, 30 Oct). Counted in
   // the database up to the earlier of today's UTC and company-time midnight; the few due in between
@@ -101,6 +113,7 @@ export async function loadWorkload(
       overdue: [...overdue].map(([userId, count]) => ({ userId, count })),
       teams,
       loads,
+      planned,
     },
     projectId,
   };
