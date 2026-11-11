@@ -124,7 +124,12 @@ export function createPrismaTaskMoveRepository(prisma: PrismaClient): TaskMoveRe
       try {
         await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
           // The next number, read in this transaction: a task that beat an earlier try is counted now.
-          key = await firstFreeKey(tx, w.to.code, (await highestKeyNumber(tx, w.to.projectId)) + 1);
+          // Bulk lane (Undo of a bulk move): its own old number there, when it still is one.
+          const own = w.reclaimKey ? await tx.taskKeyAlias.findUnique({ where: { key: w.reclaimKey }, select: { taskId: true, projectId: true } }) : null;
+          if (w.reclaimKey && own && own.taskId === w.taskId && own.projectId === w.to.projectId) {
+            await tx.taskKeyAlias.delete({ where: { key: w.reclaimKey } });
+            key = w.reclaimKey;
+          } else key = await firstFreeKey(tx, w.to.code, (await highestKeyNumber(tx, w.to.projectId)) + 1);
           // The old key keeps finding the task (it is already kept when the task moved away before and back).
           const kept = await tx.taskKeyAlias.findUnique({ where: { key: w.from.key }, select: { taskId: true } });
           if (!kept) await tx.taskKeyAlias.create({ data: { key: w.from.key, taskId: w.taskId, projectId: w.from.projectId } });

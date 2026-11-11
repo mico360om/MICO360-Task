@@ -24,6 +24,11 @@ export interface MoveInput {
   columnId?: string;
   /** Required when someone assigned isn't on the new project's team. */
   assignees?: AssigneeChoice;
+  /**
+   * Bulk lane (Undo of a bulk move, never from a request body): take back this number — only when it is
+   * this task's own old key there (else the next free number, as always).
+   */
+  reclaimKey?: string;
 }
 
 export type MoveProjectSummary = Pick<MoveProject, 'id' | 'code' | 'name' | 'status' | 'color' | 'icon' | 'imageUrl'>;
@@ -365,6 +370,7 @@ export function createTaskMoveService(deps: TaskMoveServiceDeps) {
           unassign: unassigned,
           actorId: actor.id,
           dueDateSet,
+          ...(input.reclaimKey ? { reclaimKey: input.reclaimKey } : {}),
         });
       } catch (err) {
         if (err instanceof TaskMovedConflictError) throw new ConflictError('Someone else moved this task just now. Reload it and try again.', 'TASK_MOVED');

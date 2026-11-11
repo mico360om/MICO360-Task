@@ -527,3 +527,22 @@ describe('Moving an archived task', () => {
     expect(preview.tasks[0]).toMatchObject({ canMove: false, reason: 'Archived: unarchive it first.' });
   });
 });
+
+// tbk: bulk lane — Undo of a bulk move puts a task back with the number it had (still its own alias).
+describe('Moving a task back with its old number (Undo of a bulk move)', () => {
+  it('takes back the number it had there, which then stops being an old key; the new one is kept as an old key', async () => {
+    const w = world();
+    const there = await w.service.moveTask(aisha, 't1', { projectId: 'ops' });
+    expect(there.task.key).toBe('OPS-17');
+    const back = await w.service.moveTask(aisha, 't1', { projectId: 'rig', columnId: 'r-todo', reclaimKey: 'RIG-1' });
+    expect(back.task.key).toBe('RIG-1');
+    expect(w.state.aliases.has('RIG-1')).toBe(false);
+    expect(w.state.aliases.get('OPS-17')).toMatchObject({ taskId: 't1' });
+  });
+  it('a number that isn’t its own old key is never taken: the next free one is used', async () => {
+    const w = world();
+    await w.service.moveTask(aisha, 't1', { projectId: 'ops' });
+    const back = await w.service.moveTask(aisha, 't1', { projectId: 'rig', reclaimKey: 'RIG-2' });
+    expect(back.task.key).not.toBe('RIG-2');
+  });
+});

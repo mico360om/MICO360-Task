@@ -113,6 +113,13 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   confirmed first ("Move 12 tasks to Done? 2 will be skipped: you can’t move tasks in Rig 3."), then summed up
   ("18 updated · 2 not changed", the skipped ones listed with why, "Select the 2 skipped" to try again) with
   Undo for 15 seconds.
+- Everyone can use bulk changes, and each task is changed only as its own rules allow — who may see it,
+  its project's team, approvals (a task that needs approval moved to Done waits for approval), the delete
+  rule, archive and the guests rule (a task with guests always keeps someone from the team); a task you
+  can't open is never named. Undo puts back only what nobody changed since, gives a moved task its old
+  number back, and erases copies made by Duplicate at once. The people on the tasks get one notice for the
+  whole change ("Sara assigned you 12 tasks in Rig 3"), open boards refresh once, and the Audit log keeps
+  one line for it.
 
 ### Improvements
 - A task's history and the Activity page say who moved a task to the Recycle Bin and who restored it; every

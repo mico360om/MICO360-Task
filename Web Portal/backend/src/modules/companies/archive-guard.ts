@@ -248,6 +248,9 @@ export const ARCHIVE_ALLOWED: Readonly<Record<string, string>> = {
   // (task-archive.ts, task by task) — an archived task must be unarchivable, so the task rule can't apply.
   'POST /tasks/:id/archive': 'the archive refuses archived projects itself (task-archive)',
   'POST /tasks/:id/unarchive': 'unarchiving refuses archived projects itself (task-archive)',
+  // Bulk changes (bulk lane): each task is checked on its own — an archived project's tasks (and archived
+  // tasks) are skipped with the reason, like every other refusal (tasks/bulk/task-bulk.ts).
+  'POST /tasks/bulk': 'bulk changes skip an archived project’s tasks themselves, task by task (task-bulk)',
 };
 
 /** What a refused write is about: a project, and the meeting when it is one (its people may see it without the project). */

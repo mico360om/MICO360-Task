@@ -94,6 +94,8 @@ export interface ProjectMoveWrite {
   unassign: MovePerson[];
   /** Who moved it (the activity lines are theirs). */
   actorId: string;
+  /** Bulk lane (Undo of a bulk move): its own old key in the new project, taken back instead of a new number. */
+  reclaimKey?: string;
   /** The due day the move gave the task ('YYYY-MM-DD'), for its activity line. */
   dueDateSet?: string | null;
 }

@@ -471,6 +471,25 @@ export function createTaskService({ tasks, projects, now = () => new Date(), tim
     return after;
   }
 
+  /**
+   * Bulk lane (Undo of a bulk "Done" that left a task waiting where it was): its approval request is taken
+   * back — saved only from the version just read; its people are told as for a request withdrawn by a move.
+   * A task that isn't waiting is left as it is.
+   */
+  async function withdrawApproval(id: string, actorId: string): Promise<TaskRecord> {
+    const current = await getTask(id);
+    if (!isAwaitingApproval(current)) return current;
+    let updated: TaskRecord;
+    try {
+      updated = await tasks.update(id, { approvalRequestedAt: null, approvalRequestedById: null }, { expectedVersion: current.version });
+    } catch (err) {
+      if (err instanceof TaskVersionConflictError) throw new ConflictError('This task was changed by someone else. Reload and try again.', 'VERSION_CONFLICT');
+      throw err;
+    }
+    await moved(updated, current.columnId, actorId, { approval: 'WITHDRAWN', requestedById: current.approvalRequestedById ?? null });
+    return updated;
+  }
+
   /** An approver's refusals, in order: may they (403), does it still wait (409), the version they saw (409). */
   async function waitingForApprover(id: string, actorId: string, expectedVersion?: number): Promise<TaskRecord> {
     const current = await getTask(id);
@@ -572,7 +591,7 @@ export function createTaskService({ tasks, projects, now = () => new Date(), tim
     await tasks.reorderInColumn(columnId, orderedIds);
   }
 
-  return { createTask, listTasks, getTask, getColumn, updateTask, moveTask, approveTask, sendBackTask, deleteTask, reorderColumn, timeZone };
+  return { createTask, listTasks, getTask, getColumn, updateTask, moveTask, approveTask, sendBackTask, withdrawApproval, deleteTask, reorderColumn, timeZone };
 }
 
 export type TaskService = ReturnType<typeof createTaskService>;

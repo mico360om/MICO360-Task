@@ -41,6 +41,8 @@ import { createCompanyAccess, fallbackProjectCompanyId, isAdminRoles, readMyProj
 import { createPrismaArchiveLookup } from './modules/companies/archive-guard';
 import { createTaskArchiveService } from './modules/tasks/task-archive';
 import { createPrismaTaskArchiveStore } from './modules/tasks/prisma-task-archive-store';
+import { createTaskBulkService } from './modules/tasks/bulk/task-bulk';
+import { createBulkPorts } from './modules/tasks/bulk/bulk-wiring';
 import { createBinService } from './modules/recycle-bin/bin-service';
 import { createPrismaBinStore } from './modules/recycle-bin/prisma-bin-store';
 import { createCompanyService, mailFromName, type OnCompanyAccessChanged } from './modules/companies/company-service';
@@ -2020,6 +2022,41 @@ async function main(): Promise<void> {
     onError: (err, what) => logger.error(`duplicating a task: ${what} failed`, { err }),
   });
 
+  // Bulk task changes (bulk lane): one change to up to 500 tasks, each through its single-task service (so
+  // each keeps its rules and history lines), a dry run for the confirmation, a short Undo, one combined
+  // notice per person, one live update per project, one audit line.
+  const taskBulkService = createTaskBulkService(
+    createBulkPorts({
+      prisma,
+      timeZone: companyTz,
+      taskService,
+      assigneeService,
+      categoryService,
+      guestService,
+      taskMoveService,
+      taskDuplicateService,
+      taskArchiveService,
+      binService,
+      canViewProject: (userId, roles, projectId) => projectAccess.canViewProject(userId, roles, projectId),
+      canManageProject: (userId, roles, projectId) => projectAuthz.canManageProject(userId, roles, projectId),
+      isProjectArchived: (projectId) => binArchive.isArchived(projectId),
+      notify: (n) => notificationService.notify(n),
+      audit: (entry) => auditService.record(entry),
+      broadcast: (projectId, event, payload) => broadcast(projectId, event, payload),
+      // As the move route (task-move-routes announce): people put on a team, a task off a client page.
+      afterMove: async (actorId, move) => {
+        if (move.clientHidden) {
+          await auditService.record({ userId: actorId, ip: null, module: 'client-view', action: 'client-view.task.hidden', entityId: move.task.id, newValue: { projectId: move.from.projectId, reason: 'moved', toProjectId: move.to.projectId } });
+        }
+        if (move.addedToTeam.length) {
+          await auditService.record({ userId: actorId, ip: null, module: 'members', action: 'member.add', entityId: move.to.projectId, newValue: { userIds: move.addedToTeam.map((p) => p.id), taskId: move.task.id, reason: `task moved from ${move.from.name}` } });
+        }
+      },
+      taskChanged: (taskId) => taskSearchIndex.taskChanged(taskId),
+      onError: (err, what) => logger.error(`bulk task change: ${what} failed`, { err }),
+    }),
+  );
+
   logger.info('Release', { version: release.build.version, builtAt: release.build.builtAt, commit: release.build.commit, source: release.source });
 
   // The hosted Android app lives in a folder deploys keep (made here, so it is there to upload into).
@@ -2353,6 +2390,7 @@ async function main(): Promise<void> {
     taskMergeService,
     binService, // Recycle Bin
     taskArchiveService, // Task archive (bulk lane)
+    taskBulkService, // Bulk task changes (bulk lane)
     // The delete question names the series' size: "the entire series (12 tasks)".
     seriesSize: (seriesId) => prisma.task.count({ where: { deletedAt: null, OR: [{ id: seriesId }, { recurrenceParentId: seriesId }] } }),
     // Duplicate Task: the review form's pre-fill, the copy, and each task's "Duplicated from" / "Copies".

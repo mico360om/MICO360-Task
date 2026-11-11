@@ -30,6 +30,8 @@ import { registerBinRoutes } from './modules/recycle-bin/bin-routes';
 import type { BinService } from './modules/recycle-bin/bin-service';
 import { registerTaskDuplicateRoutes } from './modules/tasks/task-duplicate-routes';
 import { registerTaskArchiveRoutes } from './modules/tasks/task-archive-routes';
+import { registerTaskBulkRoutes } from './modules/tasks/bulk/task-bulk-routes';
+import type { TaskBulkService } from './modules/tasks/bulk/task-bulk';
 import type { TaskArchiveService } from './modules/tasks/task-archive';
 import type { TaskDuplicateService } from './modules/tasks/task-duplicate';
 import type { DuplicateLinks } from './modules/tasks/task-routes';
@@ -232,6 +234,10 @@ export interface AppDeps extends AuthRouteDeps {
   taskDuplicateService?: TaskDuplicateService;
   /** Task archive (bulk lane): archive / unarchive one task (many: POST /tasks/bulk). */
   taskArchiveService?: TaskArchiveService;
+  /** Bulk task changes (bulk lane): one change to up to 500 tasks, its dry run and its Undo. */
+  taskBulkService?: TaskBulkService;
+  /** Bulk changes one person may send a minute (default 30). */
+  bulkPerMinute?: number;
   /** Duplicate Task: copies one person may make a minute (default 20; each copies its files on the server). */
   duplicatesPerMinute?: number;
   /** Duplicate Task: the task a copy was made from, and an original's copies (a task's details; each shown only to whoever may open it). */
@@ -895,6 +901,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       if (deps.taskArchiveService && deps.taskService) {
         // Task archive: staff only (client sessions are refused by the guard's route table).
         await registerTaskArchiveRoutes(api, { service: deps.taskArchiveService, guard, getTask: (id) => deps.taskService!.getTask(id) });
+      }
+      if (deps.taskBulkService) {
+        // Bulk changes: staff only (client sessions are refused by the guard's route table).
+        await registerTaskBulkRoutes(api, { service: deps.taskBulkService, guard, ...(deps.bulkPerMinute ? { perMinute: deps.bulkPerMinute } : {}) });
       }
       if (deps.taskDuplicateService) {
         // Duplicate Task: staff only (client sessions are refused by the guard's route table).

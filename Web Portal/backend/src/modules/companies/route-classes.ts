@@ -548,4 +548,6 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   // checked by the service on the task); many at once, and their Undo, task by task (bulk service).
   'POST /tasks/:id/archive': 'object',
   'POST /tasks/:id/unarchive': 'object',
+  'POST /tasks/bulk': 'object',
+  'POST /tasks/bulk/:bulkId/undo': 'own',
 };
