@@ -37,6 +37,9 @@ import { TaskKey } from './TaskKey';
 import { mergedFromKeys } from '../lib/task-merge';
 import { StatusPill as SchemeStatusPill } from './ui/StatusPill';
 import { OVERDUE_CLASS } from '../lib/colour-classes';
+import { archivedBannerText } from '../lib/task-archive';
+import { ArchivedBadge } from './task-archive/ArchivedBadge';
+import { ArchivedBanner } from './task-archive/ArchivedBanner';
 
 /** A carried-forward day ('YYYY-MM-DD') in words — "20 Oct 2026" — as the rest of the panel writes days. */
 const carriedDay = (key: string) => dayText(key) || key;
@@ -203,6 +206,15 @@ export interface TaskDrawerProps {
   /** Checklist items and history lines that came with a merged task, by id ("From MICO-14"). */
   checklistFromKeys?: Record<string, string>;
   activityFromKeys?: Record<string, string>;
+  /**
+   * Task archive: "Archive" in More actions (administrators and the people who run its project; only for a
+   * task that isn't archived). An archived task's panel is read-only: the container passes no editing actions.
+   */
+  onArchive?: () => void;
+  /** Task archive: Unarchive on an archived task's banner (the same people); rejects with the reason to show. */
+  onUnarchive?: () => Promise<void> | void;
+  /** Task archive: who archived it, for the banner ("Archived on 3 Nov by Ali — read-only"). */
+  archivedByName?: string | null;
   onClose: () => void;
 }
 
@@ -415,6 +427,9 @@ export function TaskDrawer({
   mergeNotice,
   checklistFromKeys,
   activityFromKeys,
+  onArchive,
+  onUnarchive,
+  archivedByName,
   onClose,
 }: TaskDrawerProps) {
   // Escape / focus trapping live in TaskDrawerContainer, so they also work while loading or on errors.
@@ -464,6 +479,8 @@ export function TaskDrawer({
 
   // Calendar-day rule in the company zone; a finished task is never overdue, nor one waiting for approval.
   const overdue = isTaskLate(task, timeZone);
+  // Task archive: an archived task's banner (when, by whom, read-only).
+  const archivedText = task.archivedAt ? archivedBannerText(task, archivedByName, timeZone) : '';
   const dueText = formatDueDay(task.dueDate, timeZone);
   const carried = task.carryForwardLog && task.carryForwardLog.length > 0 ? task.carryForwardLog : null;
 
@@ -533,6 +550,7 @@ export function TaskDrawer({
               </span>
             ) : null}
             <StatusPill category={task.columnCategory} />
+            {task.archivedAt ? <ArchivedBadge title={archivedText} /> : null}
             {task.clientAcceptedAt ? <ClientAcceptedMark at={task.clientAcceptedAt} timeZone={timeZone} /> : null}
             <PriorityBadge priority={task.priority} />
             {task.isMilestone ? (
@@ -626,7 +644,8 @@ export function TaskDrawer({
               onSaveAsTemplate={onSaveAsTemplate}
               onMerge={onMerge}
               mergeUnavailable={mergeUnavailable}
-              className={onDuplicate || onMoveToProject || onSaveAsTemplate || onMerge ? '' : 'sm:hidden'}
+              onArchive={task.archivedAt ? undefined : onArchive}
+              className={onDuplicate || onMoveToProject || onSaveAsTemplate || onMerge || (onArchive && !task.archivedAt) ? '' : 'sm:hidden'}
             />
             <button
               type="button"
@@ -667,6 +686,7 @@ export function TaskDrawer({
         {/* The top space is a spacer, not padding: the comments' write box sticks flush under the header
             (a scroller's top padding would leave a strip where the comments show through above it). */}
         <div aria-hidden="true" className="h-4 sm:h-5" />
+        {task.archivedAt ? <ArchivedBanner text={archivedText} onUnarchive={onUnarchive} /> : null}
         {mergeNotice ? (
           <p role="status" className="mb-4 rounded-lg bg-info-soft px-3 py-2 text-sm text-info">
             {mergeNotice}

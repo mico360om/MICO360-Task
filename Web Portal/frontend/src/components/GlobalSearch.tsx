@@ -27,6 +27,7 @@ import { FoundTaskKey } from './TaskKey';
 import { KindIcon } from './search/KindIcon';
 import { KIND_META, everythingAddress, savedAddress, targetLink, type SearchHit } from '../lib/search-everything';
 import { countLabel, useSavedCounts, useSavedSearches } from '../lib/useSavedSearches';
+import { ArchivedBadge } from './task-archive/ArchivedBadge';
 
 /** "open …" typed (the open command, or a page: "open calendar"). */
 const OPEN_VERB = /^open\s/i;
@@ -44,6 +45,8 @@ interface PaletteItem {
   secondary?: React.ReactNode;
   /** 1.23.6: how many it finds, at the end of the row ("→ 7"). */
   count?: string;
+  /** Task archive: a found task that is archived says so. */
+  archived?: boolean;
   run: () => void | Promise<void>;
 }
 
@@ -266,7 +269,7 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
 
     const r = colleaguesOnly(q.data, Array.isArray(directoryQ.data) ? directoryQ.data : []);
     if (searchEnabled && r) {
-      for (const t of r.tasks.slice(0, 5)) out.push({ id: `task-${t.id}`, group: 'Tasks', primary: <Highlighted text={t.title} ranges={t.titleRanges} />, taskKey: { value: t.key, ...(t.formerKeys ? { former: t.formerKeys } : {}) }, secondary: whereMatched(t), run: () => openTask(t.id) });
+      for (const t of r.tasks.slice(0, 5)) out.push({ id: `task-${t.id}`, group: 'Tasks', primary: <Highlighted text={t.title} ranges={t.titleRanges} />, taskKey: { value: t.key, ...(t.formerKeys ? { former: t.formerKeys } : {}) }, secondary: whereMatched(t), ...(t.archived ? { archived: true } : {}), run: () => openTask(t.id) });
       const looks = Array.isArray(projectsQ.data) ? projectsQ.data : [];
       for (const p of r.projects.slice(0, 5)) {
         const look = looks.find((x) => x.id === p.id);
@@ -409,7 +412,10 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
                         {it.taskKey ? <FoundTaskKey value={it.taskKey.value} former={it.taskKey.former} /> : null}
                         {it.hint ? <span className="font-mono text-xs text-ink-2">{it.hint}</span> : null}
                         <span className="min-w-0 flex-1">
-                          <span dir="auto" className="block truncate text-start">{it.primary}</span>
+                          <span className="flex min-w-0 items-center gap-1.5">
+                            <span dir="auto" className="block min-w-0 truncate text-start">{it.primary}</span>
+                            {it.archived ? <ArchivedBadge /> : null}
+                          </span>
                           {it.secondary ? <span dir="auto" className="block text-start text-xs text-ink-3 line-clamp-2 [overflow-wrap:anywhere]">{it.secondary}</span> : null}
                         </span>
                         {it.count !== undefined ? (

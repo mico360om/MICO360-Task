@@ -344,3 +344,25 @@ describe('ReportsPage with little or no data', () => {
     expect(screen.getByText('No task was overdue in these days.')).toBeInTheDocument();
   });
 });
+
+describe('ReportsPage: Include archived (task archive)', () => {
+  it('is off by default: no request asks for archived tasks', async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getAllByText('MICO360').length).toBeGreaterThan(0));
+    const box = screen.getByRole('checkbox', { name: /include archived/i });
+    expect(box).not.toBeChecked();
+    expect(urls.some((u) => u.includes('includeArchived'))).toBe(false);
+  });
+
+  it('ticked, every chart, tile and export asks for them too', async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getAllByText('MICO360').length).toBeGreaterThan(0));
+    await userEvent.click(screen.getByRole('checkbox', { name: /include archived/i }));
+    for (const path of ['/reports/status', '/reports/completion', '/reports/projects', '/reports/workload', '/reports/timeseries']) {
+      await waitFor(() => expect(urls.some((u) => u.includes(path) && u.includes('includeArchived=true'))).toBe(true));
+    }
+    await pick(/report to export/i, /project performance/i);
+    await userEvent.click(screen.getByRole('button', { name: /^CSV$/ }));
+    await waitFor(() => expect(urls.some((u) => u.includes('/reports/projects.csv') && u.includes('includeArchived=true'))).toBe(true));
+  });
+});

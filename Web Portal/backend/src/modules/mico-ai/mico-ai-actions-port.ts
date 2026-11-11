@@ -17,7 +17,7 @@ import type { MeetingNotifyService } from '../meetings/meeting-notify-service';
 import type { ActionMeetingStamp, ActionTaskState, MicoAiWritePort } from './mico-ai-actions';
 import type { Viewer } from './mico-ai-data';
 import type { Priority } from './mico-ai-actions-types';
-import { assertProjectOpen, createPrismaArchiveLookup } from '../companies/archive-guard';
+import { assertProjectOpen, createPrismaArchiveLookup, TaskArchivedError } from '../companies/archive-guard';
 import { binExpiryOf } from '../recycle-bin/bin-rules';
 import { createPrismaBinStore } from '../recycle-bin/prisma-bin-store';
 
@@ -98,7 +98,10 @@ export function createMicoAiActionsPort(deps: MicoAiActionsPortDeps): MicoAiWrit
   const archive = createPrismaArchiveLookup(prisma);
   async function mayChangeTask(viewer: Viewer, taskId: string): Promise<void> {
     if (!(await projectAccess.canViewTask(viewer.userId, viewer.roles, taskId))) throw new ForbiddenError(NO_TASK);
-    await assertProjectOpen(archive, await archive.subjectOf('task', taskId));
+    const subject = await archive.subjectOf('task', taskId);
+    await assertProjectOpen(archive, subject);
+    // Task archive: an archived task is read-only, as on the routes (unarchive it first).
+    if (subject?.taskArchived) throw new TaskArchivedError();
   }
   async function mayChangeMeeting(viewer: Viewer, meetingId: string): Promise<void> {
     if (!(await meetingService.canEditMeeting(viewer.userId, viewer.roles, meetingId))) throw new ForbiddenError(NO_MEETING);

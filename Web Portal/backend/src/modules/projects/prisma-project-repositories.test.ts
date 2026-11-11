@@ -117,10 +117,10 @@ describe('createPrismaColumnRepository.remove', () => {
     return { repo: createPrismaColumnRepository(prisma), tx };
   }
 
-  it('re-points soft-deleted tasks to another column, then deletes the column', async () => {
+  it('re-points soft-deleted (and, task archive, archived) tasks to another column, then deletes the column', async () => {
     const { repo, tx } = fake({ live: 0, all: 3 }, { id: 'c0' });
     expect(await repo.remove('c9')).toEqual({ projectId: 'p1' });
-    expect(tx.task.updateMany).toHaveBeenCalledWith({ where: { columnId: 'c9', deletedAt: { not: null } }, data: { columnId: 'c0' } });
+    expect(tx.task.updateMany).toHaveBeenCalledWith({ where: { columnId: 'c9', OR: [{ deletedAt: { not: null } }, { archivedAt: { not: null } }] }, data: { columnId: 'c0' } });
     expect(tx.kanbanColumn.delete).toHaveBeenCalledWith({ where: { id: 'c9' } });
   });
 

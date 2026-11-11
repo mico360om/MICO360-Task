@@ -21,9 +21,10 @@ const dayStart = (key: string) => new Date(`${key}T00:00:00.000Z`);
 const projectSelect = { id: true, code: true, name: true, color: true, icon: true, imageUrl: true } as const;
 const personSelect = { id: true, firstName: true, lastName: true, username: true } as const;
 
-/** Open: not deleted, not done, not waiting for approval, in a live project (not deleted or archived). */
+/** Open: not deleted, not archived (task archive), not done, not waiting for approval, in a live project (not deleted or archived). */
 const OPEN_TASK: Prisma.TaskWhereInput = {
   deletedAt: null,
+  archivedAt: null,
   completedAt: null,
   approvalRequestedAt: null,
   column: { category: { not: 'DONE' } },
@@ -47,7 +48,7 @@ const taskSelect = {
   assignees: { select: { user: { select: personSelect } }, orderBy: [{ assignedAt: 'asc' as const }, { userId: 'asc' as const }] },
 } satisfies Prisma.TaskSelect;
 type TaskPick = Prisma.TaskGetPayload<{ select: typeof taskSelect }>;
-const depSelect = { id: true, key: true, projectId: true, deletedAt: true, completedAt: true, column: { select: { category: true } }, project: { select: { deletedAt: true } } } as const;
+const depSelect = { id: true, key: true, projectId: true, deletedAt: true, archivedAt: true, completedAt: true, column: { select: { category: true } }, project: { select: { deletedAt: true } } } as const;
 
 /** What the task source needs to know about the person's reach (wired as the task lists are). */
 export interface PriorityTaskScopes {
@@ -173,7 +174,8 @@ export function createPrismaTaskPrioritySource(prisma: PrismaClient, scopes: Pri
       // Dependencies either way, with the other task's state; the Done columns a Complete moves to.
       const [edges, doneColumns] = await Promise.all([reads.edges(ids), reads.doneColumns(projectIds)]);
       type Other = (typeof edges)[number]['task'];
-      const isOpenVisible = (o: Other) => !o.deletedAt && !o.completedAt && o.column.category !== 'DONE' && !o.project.deletedAt && mayOpen(o.projectId);
+      // Task archive: an archived task neither blocks nor waits (it is out of every open list).
+      const isOpenVisible = (o: Other) => !o.deletedAt && !o.archivedAt && !o.completedAt && o.column.category !== 'DONE' && !o.project.deletedAt && mayOpen(o.projectId);
       const blockers = new Map<string, { id: string; key: string; projectId: string }[]>();
       const dependents = new Map<string, number>();
       const wanted = new Set(ids);

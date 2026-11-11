@@ -33,6 +33,7 @@ import { DatabaseBusyNotice } from './DatabaseBusyNotice';
 import { ArchivedCompanyState } from './company/ArchivedCompanyState';
 import { TaskNoticeToast } from './TaskNoticeToast';
 import { BinUndoToast } from './recycle-bin/BinUndoToast';
+import { ArchiveUndoToast } from './task-archive/ArchiveUndoToast';
 import { useDensitySync } from '../lib/density';
 import { useAppearanceSync } from '../lib/appearance';
 import { ManagerViewBadge } from './ManagerViewBadge';
@@ -242,6 +243,8 @@ export function AppShell() {
       <TaskNoticeToast />
       {/* Recycle Bin: "RIG-12 moved to the Recycle Bin · Undo" for a few seconds after a delete. */}
       <BinUndoToast />
+      {/* Task archive: "RIG-12 archived · Undo" after an archive (the panel has closed). */}
+      <ArchiveUndoToast />
     </div>
     </CurrentProjectProvider>
     </ShortcutProvider>

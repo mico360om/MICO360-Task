@@ -55,6 +55,8 @@ export interface AiTaskRec {
   assigneeIds: string[];
   /** Waiting for approval since then (task approvals): not overdue while it waits (owner, 30 Oct). */
   approvalRequestedAt?: Date | null;
+  /** Task archive: when it was archived (null/absent: it isn't) — found by search, marked; out of open lists; figures keep it only when done. */
+  archivedAt?: Date | null;
 }
 
 export interface AiTaskLink {

@@ -129,6 +129,7 @@ export function createPrismaStartingTasksSource(prisma: PrismaClient): StartDayR
         where: {
           deletedAt: null,
           mergedIntoId: null,
+          archivedAt: null, // task archive: an archived task sends no start-day reminder
           completedAt: null,
           approvalRequestedAt: null,
           startDate: { gte: w.startFrom, lt: w.startBefore },

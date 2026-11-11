@@ -82,7 +82,9 @@ export function buildTimeSeries(tasks: ReportTask[], from: string, to: string, t
         // current wait is known from the task: an earlier wait that ended (approved, sent back)
         // still counts on its days.
         const waiting = t.approvalRequestedAt ? t.approvalRequestedAt.getTime() < boundary : false;
-        if (due && due < date && !waiting) overdue += 1;
+        // Task archive (with "Include archived"): never overdue from the day it was archived.
+        const archived = t.archivedAt ? t.archivedAt.getTime() < boundary : false;
+        if (due && due < date && !waiting && !archived) overdue += 1;
       }
     }
     return { date, created, completed, overdue, remaining, ideal: 0 };

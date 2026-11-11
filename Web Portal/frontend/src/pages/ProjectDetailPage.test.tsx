@@ -648,3 +648,37 @@ describe('ProjectDetailPage: Clients with access (1.23)', () => {
     expect(screen.queryByRole('region', { name: 'Clients with access' })).toBeNull();
   });
 });
+
+describe('ProjectDetailPage: archived tasks (task archive)', () => {
+  /** The project's archived tasks (GET /tasks?projectId=&archived=only). */
+  function withArchived(rows: Record<string, unknown>[]) {
+    const base = fetch;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => (String(url).includes('archived=only') ? json({ data: rows }) : base(url, init))));
+  }
+
+  it('an “Archived tasks” link next to the header’s actions, for anyone on the project', async () => {
+    memberRole = 'MEMBER';
+    projectExtra = { canManage: false };
+    renderPage();
+    const link = await screen.findByRole('link', { name: /Archived tasks/ });
+    expect(link).toHaveAttribute('href', '/projects/p1/archived');
+  });
+
+  it('figures: an archived Done task still counts as done (1 of 4 open… 2 of 5 done); an archived open task doesn’t count', async () => {
+    withArchived([
+      task('t8', { columnId: 'c2', columnCategory: 'DONE', archivedAt: '2026-09-20T06:00:00.000Z' }),
+      task('t9', { archivedAt: '2026-09-20T06:00:00.000Z' }),
+    ]);
+    renderPage();
+    // 4 listed (1 done) + the archived Done one = 2 of 5 = 40%; the archived open one is in no figure.
+    await waitFor(() => expect(screen.getByText('Completion').previousElementSibling).toHaveTextContent('40%'));
+    expect(screen.getByText('Total tasks').previousElementSibling).toHaveTextContent('5');
+    expect(screen.getByText('Completed').previousElementSibling).toHaveTextContent('2');
+    expect(await screen.findByText(/^2 of 5 tasks/)).toHaveTextContent('2 of 5 tasks · 40% done');
+    // It is in no list: the Overdue tile is the listed tasks' only.
+    expect(screen.getByText('Overdue').previousElementSibling).toHaveTextContent('1');
+    // The Tasks tab counts what it lists (4), never an archived task.
+    expect(screen.getByRole('tab', { name: /^Tasks/ })).toHaveTextContent(/4/);
+    expect(screen.getByRole('tab', { name: /^Tasks/ })).not.toHaveTextContent(/5/);
+  });
+});

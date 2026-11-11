@@ -70,6 +70,10 @@ export interface ApiTask {
   version?: number;
   /** A milestone: a key date or deliverable of its project (older servers leave it out). */
   isMilestone?: boolean;
+  /** Task archive: when it was archived (null/absent: it isn't) — read-only and out of every board and list until unarchived. */
+  archivedAt?: string | null;
+  /** Who archived it. */
+  archivedById?: string | null;
   /** 1.23.5: its weight in its project's completion (1–10 points); null = the project's default for its priority. */
   weight?: number | null;
   /** Shown on the project's client page and in the Client portal (its title, status and due date). */
@@ -354,6 +358,11 @@ export function tasksApi(client: ApiClient) {
       if (projectId) qs.set('projectId', projectId);
       return client.get<{ data: ApiTask[] }>(`/tasks?${qs.toString()}`).then((r) => r.data);
     },
+    /** Task archive: a project's archived tasks (its "Archived tasks" list), newest archived first. */
+    listArchived: (projectId: string) => client.get<{ data: ApiTask[] }>(`/tasks?${new URLSearchParams({ projectId, archived: 'only' }).toString()}`).then((r) => r.data),
+    /** Task archive: archive / unarchive one task (administrators and the people who run its project); answers the task. */
+    archive: (id: string) => client.post<{ data: ApiTask }>(`/tasks/${id}/archive`, {}).then((r) => r.data),
+    unarchive: (id: string) => client.post<{ data: ApiTask }>(`/tasks/${id}/unarchive`, {}).then((r) => r.data),
     mine: () => client.get<{ data: ApiTask[] }>('/tasks/mine').then((r) => r.data),
     get: (id: string) => client.get<{ data: ApiTask }>(`/tasks/${id}`).then((r) => r.data),
     create: (input: NewTaskInput, opts?: CreateTaskOptions) =>

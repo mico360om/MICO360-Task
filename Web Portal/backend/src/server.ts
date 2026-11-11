@@ -29,7 +29,7 @@ import { createPrismaProjectOverviewSource } from './modules/projects/prisma-pro
 import { createPrismaTimelineSource } from './modules/planning/prisma-timeline-source';
 import { createPrismaWorkloadStore } from './modules/planning/prisma-workload-store';
 import { createColumnService } from './modules/projects/column-service';
-import { createPrismaColumnRepository } from './modules/projects/prisma-column-repository';
+import { countWaitingTasksIn, createPrismaColumnRepository } from './modules/projects/prisma-column-repository';
 import { createMemberService } from './modules/projects/member-service';
 import { createPrismaMemberRepository, createPrismaProjectExistsLookup, createPrismaProjectManagerLookup, projectRunnerIds } from './modules/projects/prisma-member-repository';
 import { createProjectAuthz } from './modules/projects/project-authz';
@@ -135,7 +135,7 @@ import { createDatabaseCheck, prismaDatabaseReads } from './modules/error-log/da
 import { databaseProbes } from './modules/error-log/database-probes';
 import { isMuted, normalizePreferences } from './modules/notifications/notification-preferences';
 import { filterTaskRecipients } from './modules/notifications/recipient-access';
-import { activeCompaniesOf, taskAudienceSelect, toAudienceFacts } from './modules/notifications/prisma-task-audience';
+import { activeCompaniesOf, DATED_SWEEP_TASKS, ESCALATION_SWEEP_TASKS, taskAudienceSelect, toAudienceFacts } from './modules/notifications/prisma-task-audience';
 import { createDeviceTokenService } from './modules/device-tokens/device-token-service';
 import { createPrismaDeviceTokenRepository } from './modules/device-tokens/prisma-device-token-repository';
 import { createPushSender, type PushSender } from './modules/device-tokens/push-sender';
@@ -389,7 +389,8 @@ async function main(): Promise<void> {
   const columnService = createColumnService({
     columns: createPrismaColumnRepository(prisma),
     // A column with tasks waiting for approval can't become a Done column (they would count as done).
-    waitingTasksIn: (columnId) => prisma.task.count({ where: { columnId, deletedAt: null, approvalRequestedAt: { not: null } } }),
+    // Task archive: an archived task waiting for approval still keeps it from becoming a Done column.
+    waitingTasksIn: (columnId) => countWaitingTasksIn(prisma, columnId),
   });
 
   // Late-bound (chat + realtime are created further down): a removed member leaves the project's
@@ -1170,9 +1171,9 @@ async function main(): Promise<void> {
     const period = todayKey(companyTz); // company-local yyyy-mm-dd
     await pruneReminderLog(prisma).catch(() => {}); // keep the marker table bounded
     await pruneClientAccess().catch(() => {}); // client view: old codes and expired sessions
-    // Tasks of deleted projects are gone for everyone — no more reminders for them.
+    // Tasks of deleted projects are gone for everyone — no more reminders for them (nor for archived tasks).
     const tasks = await prisma.task.findMany({
-      where: { deletedAt: null, dueDate: { not: null }, project: { is: { deletedAt: null } } },
+      where: DATED_SWEEP_TASKS,
       select: { id: true, key: true, title: true, dueDate: true, boardDate: true, completedAt: true, approvalRequestedAt: true, column: { select: { category: true } }, watchers: { select: { userId: true } }, ...taskAudienceSelect },
     });
     // Each user's reminder lead time comes from their notification preferences (default window otherwise).
@@ -1750,7 +1751,7 @@ async function main(): Promise<void> {
     const { day, hour } = companyDayHour();
     if (hour < DIGEST_HOUR) return; // wait until the morning; a later sweep sends it
     const tasks = await prisma.task.findMany({
-      where: { deletedAt: null, dueDate: { not: null }, project: { is: { deletedAt: null } } },
+      where: DATED_SWEEP_TASKS, // task archive: never an archived task
       select: { id: true, key: true, title: true, dueDate: true, boardDate: true, completedAt: true, approvalRequestedAt: true, column: { select: { category: true } }, watchers: { select: { userId: true } }, ...taskAudienceSelect },
     });
     const { users, activeIds, adminIds, companiesOf } = await sweepAudience();
@@ -1786,7 +1787,7 @@ async function main(): Promise<void> {
   async function runEscalationSweep(): Promise<void> {
     const { day } = companyDayHour();
     const tasks = await prisma.task.findMany({
-      where: { deletedAt: null, project: { is: { deletedAt: null } } },
+      where: ESCALATION_SWEEP_TASKS, // task archive: never an archived task
       select: { id: true, key: true, title: true, dueDate: true, completedAt: true, approvalRequestedAt: true, projectId: true, column: { select: { category: true } } },
     });
     const plans = planEscalations(

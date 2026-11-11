@@ -36,6 +36,8 @@ export interface ReportMeta {
   /** The trend period, 'YYYY-MM-DD'. */
   from: string;
   to: string;
+  /** Task archive: "Include archived" was ticked (the filters line says so). */
+  includeArchived?: boolean;
 }
 
 /** The PDF lists at most this many tasks (the Excel file has them all). */
@@ -64,6 +66,7 @@ export function filterSummary(meta: ReportMeta, sections: ReportSection[] = ALL_
     `Project: ${meta.projectName || 'All projects'}`,
     `Team member: ${meta.memberName || 'Everyone'}`,
     ...(sections.some((x) => PERIOD_SECTIONS.includes(x)) ? [`Trend period: ${formatDay(meta.from)} – ${formatDay(meta.to)}`] : []),
+    ...(meta.includeArchived ? ['Archived tasks included'] : []),
   ].join(' · ');
 }
 

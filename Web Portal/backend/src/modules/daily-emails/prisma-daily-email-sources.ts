@@ -59,7 +59,7 @@ const taskSelect = {
   checklist: { where: { deletedAt: null }, select: { id: true, parentId: true, done: true } },
   comments: { where: { deletedAt: null }, orderBy: { createdAt: 'desc' }, take: 1, select: { body: true, createdAt: true, user: { select: nameSelect } } },
   activities: { where: { action: { notIn: NOT_AN_UPDATE } }, orderBy: { createdAt: 'desc' }, take: 1, select: { id: true, action: true, meta: true, createdAt: true, user: { select: nameSelect } } },
-  dependencies: { select: { dependsOn: { select: { completedAt: true, deletedAt: true, column: { select: { category: true } } } } } },
+  dependencies: { select: { dependsOn: { select: { completedAt: true, deletedAt: true, archivedAt: true, column: { select: { category: true } } } } } },
   // 1.24: its guests (name and company only) and categories.
   externalContacts: { select: { name: true, company: true }, orderBy: { position: 'asc' } },
   categories: { select: { category: { select: { name: true, position: true } } } },
@@ -124,8 +124,8 @@ const toTask = (t: TaskRow): DailyTask => ({
   boardDay: t.boardDate ? t.boardDate.toISOString().slice(0, 10) : null,
   checklist: t.checklist.length ? leafCounts(t.checklist) : null,
   latest: latestOf(t),
-  // Blocked: a task it depends on isn't done yet.
-  blocked: t.dependencies.some((d) => !d.dependsOn.deletedAt && !d.dependsOn.completedAt && d.dependsOn.column.category !== 'DONE'),
+  // Blocked: a task it depends on isn't done yet (task archive: an archived one no longer blocks).
+  blocked: t.dependencies.some((d) => !d.dependsOn.deletedAt && !d.dependsOn.archivedAt && !d.dependsOn.completedAt && d.dependsOn.column.category !== 'DONE'),
   guests: t.externalContacts.map((g) => ({ name: g.name, company: g.company })),
   categories: t.categories.map((c) => c.category).sort((a, b) => a.position - b.position || a.name.localeCompare(b.name, 'en')).map((c) => c.name),
 });
@@ -163,6 +163,7 @@ export function createPrismaDailyEmailSources(prisma: PrismaClient) {
         const rows = await prisma.task.findMany({
           where: {
             deletedAt: null,
+            archivedAt: null, // task archive: never in the daily email
             completedAt: null,
             assignees: { some: { userId } },
             column: { category: { not: 'DONE' } },
@@ -177,7 +178,7 @@ export function createPrismaDailyEmailSources(prisma: PrismaClient) {
       /** Assigned to them and completed in [from, to), whoever completed them — never in an archived project. */
       async completedBetween(userId: string, from: Date, to: Date): Promise<DailyTask[]> {
         const rows = await prisma.task.findMany({
-          where: { deletedAt: null, assignees: { some: { userId } }, completedAt: { gte: from, lt: to }, project: liveProjectWhere({ deletedAt: null, AND: [await companyScope(userId)] }) },
+          where: { deletedAt: null, archivedAt: null, assignees: { some: { userId } }, completedAt: { gte: from, lt: to }, project: liveProjectWhere({ deletedAt: null, AND: [await companyScope(userId)] }) },
           select: taskSelect,
           orderBy: { completedAt: 'asc' },
           take: 500,
@@ -237,6 +238,7 @@ export function createPrismaDailyEmailSources(prisma: PrismaClient) {
         const rows = await prisma.task.findMany({
           where: {
             deletedAt: null,
+            archivedAt: null, // task archive: never in the daily email
             completedAt: null,
             column: { category: { not: 'DONE' } },
             assignees: { none: { userId } },

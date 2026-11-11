@@ -144,11 +144,11 @@ export async function convertExternalContacts(prisma: PrismaClient, opts: { batc
   return result;
 }
 
-/** Of these tasks, the open ones (live, not done): the switch gives them a person responsible. */
+/** Of these tasks, the open ones (live, not done, not archived): the switch gives them a person responsible. */
 export async function openTasksAmong(prisma: PrismaClient, taskIds: string[]): Promise<string[]> {
   if (taskIds.length === 0) return [];
   const rows = await prisma.task.findMany({
-    where: { id: { in: taskIds }, deletedAt: null, completedAt: null, project: { is: { deletedAt: null } }, column: { is: { category: { not: 'DONE' } } } },
+    where: { id: { in: taskIds }, deletedAt: null, archivedAt: null, completedAt: null, project: { is: { deletedAt: null } }, column: { is: { category: { not: 'DONE' } } } },
     select: { id: true },
   });
   return rows.map((r) => r.id);
@@ -168,6 +168,8 @@ export async function runGuestConversion(
   const alone = await prisma.task.findMany({
     where: {
       deletedAt: null,
+      // Task archive: an archived task is read-only — nobody is made responsible for it.
+      archivedAt: null,
       completedAt: null,
       project: { is: { deletedAt: null } },
       column: { is: { category: { not: 'DONE' } } },

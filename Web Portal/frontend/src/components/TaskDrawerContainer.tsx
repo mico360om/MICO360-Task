@@ -47,6 +47,7 @@ import { UndoMergeDialog } from './task-merge/UndoMergeDialog';
 import { DeletedTaskPanel } from './recycle-bin/DeletedTaskPanel';
 import { BIN_KEY } from '../api/recycle-bin';
 import { binNoticeFor, showBinNotice } from '../lib/bin-notice';
+import { archivedTasksKey, mayArchiveTasks, showArchiveNotice } from '../lib/task-archive';
 
 export interface TaskDrawerContainerProps {
   taskId: string;
@@ -219,6 +220,11 @@ function TaskDrawerPanel({ taskId, onClose, stepper, mergeNotice, focusItemId }:
   const canMove = projectId ? moveAvailability(projectId, moveTargets, project?.name) : null;
   // 1.23.1 Merge tasks: administrators and whoever manages the task's project (the server checks every project).
   const readOnly = project ? projectReadOnly(project) : null;
+  // Task archive: an archived task is read-only (no editing actions are passed to the panel); administrators
+  // and the people who run its project archive and unarchive it — never in an archived project.
+  const archived = Boolean(taskQ.data?.archivedAt);
+  // As Delete in this panel: archiving is work, so an administrator in Manager View may still archive (the server agrees).
+  const mayArchive = mayArchiveTasks({ isAdmin, project: project ?? null });
   const canMerge = projectId ? mergeAvailability(projectId, moveTargets, { readOnly: readOnly ? `${project!.name} is ${readOnly} — reopen it first.` : null }) : null;
   const mergesQ = useQuery({
     queryKey: ['task-merges', taskId],
@@ -358,6 +364,29 @@ function TaskDrawerPanel({ taskId, onClose, stepper, mergeNotice, focusItemId }:
     onError: failed('Couldn’t delete the task.'),
   });
 
+  // Task archive: archived, it leaves every board and list — the panel closes and "MICO-1 archived · Undo"
+  // shows at the foot of the window (the app shell: ArchiveUndoToast), as a delete does.
+  const archiveM = useMutation({
+    mutationFn: () => tasksApi(apiClient).archive(taskId),
+    onSuccess: (t) => {
+      const shown = taskQ.data;
+      showArchiveNotice({ id: taskId, key: t?.key ?? shown?.key ?? '' });
+      queryClient.setQueryData(['task', taskId], (old: unknown) => (old && typeof old === 'object' ? { ...old, ...t } : t));
+      if (projectId) void queryClient.invalidateQueries({ queryKey: archivedTasksKey(projectId) });
+      refreshTaskViews();
+      onClose();
+    },
+    onError: failed('Couldn’t archive the task.'),
+  });
+  /** Unarchive from the banner: the task is back on its board, editable again. */
+  const unarchive = () =>
+    attempt(async () => {
+      const t = await tasksApi(apiClient).unarchive(taskId);
+      queryClient.setQueryData(['task', taskId], (old: unknown) => (old && typeof old === 'object' ? { ...old, ...t, archivedAt: null, archivedById: null } : t));
+      if (projectId) void queryClient.invalidateQueries({ queryKey: archivedTasksKey(projectId) });
+      refreshTaskViews();
+    }, 'Couldn’t unarchive the task.');
+
   /** Every view of the checklist refreshed; done once the checklist itself has been read again. */
   const invalidateChecklist = () => {
     void queryClient.invalidateQueries({ queryKey: ['checklist-deleted', taskId] });
@@ -456,7 +485,8 @@ function TaskDrawerPanel({ taskId, onClose, stepper, mergeNotice, focusItemId }:
   for (const q of elsewhereQs) {
     const t = q.data;
     if (t && !taskRefs.has(t.id)) {
-      taskRefs.set(t.id, { id: t.id, key: t.key, title: t.title, statusCategory: t.columnCategory ?? undefined, done: t.columnCategory === 'DONE' || Boolean(t.completedAt) });
+      // Task archive: an archived blocker (read on its own: it is on no list) no longer blocks — marked so.
+      taskRefs.set(t.id, { id: t.id, key: t.key, title: t.title, statusCategory: t.columnCategory ?? undefined, done: t.columnCategory === 'DONE' || Boolean(t.completedAt), ...(t.archivedAt ? { archived: true } : {}) });
     }
   }
   const toRef = (id: string): DrawerTaskRef => taskRefs.get(id) ?? { id, key: id, title: id };
@@ -491,11 +521,11 @@ function TaskDrawerPanel({ taskId, onClose, stepper, mergeNotice, focusItemId }:
             onDismissError={() => setActionError(null)}
             checklist={checklistQ.data?.items ?? []}
             checklistLists={checklistQ.data?.lists ?? []}
-            onToggleChecklistItem={(id, done) => saveChecklist(() => cl.toggle(id, done), 'Couldn’t update the checklist.').then(() => undefined)}
-            onAddChecklistItem={(text, at) => saveChecklist(() => cl.add(taskId, text, placeOf(at)), 'Couldn’t add the checklist item.').then((item) => item.id)}
-            onRenameChecklistItem={(id, text) => saveChecklist(() => cl.rename(id, text), 'Couldn’t rename the checklist item.').then(() => undefined)}
-            onRemoveChecklistItem={(id) => saveChecklist(() => cl.remove(id), 'Couldn’t delete the checklist item.')}
-            checklistActions={{
+            onToggleChecklistItem={archived ? undefined : (id, done) => saveChecklist(() => cl.toggle(id, done), 'Couldn’t update the checklist.').then(() => undefined)}
+            onAddChecklistItem={archived ? undefined : (text, at) => saveChecklist(() => cl.add(taskId, text, placeOf(at)), 'Couldn’t add the checklist item.').then((item) => item.id)}
+            onRenameChecklistItem={archived ? undefined : (id, text) => saveChecklist(() => cl.rename(id, text), 'Couldn’t rename the checklist item.').then(() => undefined)}
+            onRemoveChecklistItem={archived ? undefined : (id) => saveChecklist(() => cl.remove(id), 'Couldn’t delete the checklist item.')}
+            checklistActions={archived ? undefined : {
               addItems: (at, texts) => saveChecklist(() => cl.addMany(taskId, texts, placeOf(at)), 'Couldn’t add the items.').then((r) => (Array.isArray(r?.items) ? r.items.map((i) => i.id) : undefined)),
               duplicate: (id) => saveChecklist(() => cl.duplicate(id), 'Couldn’t duplicate the item.').then(() => undefined),
               move: (id, how) => saveChecklist(() => cl.move(id, how), 'Couldn’t move the item.').then(() => undefined),
@@ -509,8 +539,8 @@ function TaskDrawerPanel({ taskId, onClose, stepper, mergeNotice, focusItemId }:
             }}
             checklistFocusItemId={focusItemId}
             checklistRestorable={restorable}
-            onSuggestChecklist={suggestChecklist}
-            onSuggestPriority={suggestPriority}
+            onSuggestChecklist={archived ? undefined : suggestChecklist}
+            onSuggestPriority={archived ? undefined : suggestPriority}
             commentsLoaded={commentsQ.isSuccess}
             me={myId ? { name: authorName(myId), avatarUrl: avatarOf(myId) } : undefined}
             comments={(Array.isArray(commentsQ.data) ? commentsQ.data : []).map((c) => ({
@@ -533,17 +563,17 @@ function TaskDrawerPanel({ taskId, onClose, stepper, mergeNotice, focusItemId }:
               canEdit: c.userId === myId,
               canDelete: c.userId === myId || isAdmin,
             }))}
-            onAddComment={(body) => attempt(() => addCommentM.mutateAsync({ body }), 'Couldn’t post the comment.').then((saved) => saved?.id)}
-            onReplyComment={(parentId, body, clientVisible) =>
+            onAddComment={archived ? undefined : (body) => attempt(() => addCommentM.mutateAsync({ body }), 'Couldn’t post the comment.').then((saved) => saved?.id)}
+            onReplyComment={archived ? undefined : (parentId, body, clientVisible) =>
               attempt(() => addCommentM.mutateAsync({ body, reply: { parentId, clientVisible } }), 'Couldn’t send the reply.').then(() => undefined)
             }
-            onEditComment={(id, body) => attempt(() => editCommentM.mutateAsync({ id, body }), 'Couldn’t save the comment.').then(() => undefined)}
-            onDeleteComment={(id) => deleteCommentM.mutate(id)}
+            onEditComment={archived ? undefined : (id, body) => attempt(() => editCommentM.mutateAsync({ id, body }), 'Couldn’t save the comment.').then(() => undefined)}
+            onDeleteComment={archived ? undefined : (id) => deleteCommentM.mutate(id)}
             mentionable={mentionable}
             assignees={(assigneesQ.data ?? []).map((a) => ({ id: a.id, name: fullName(a), avatarUrl: avatarOf(a.id) }))}
             assignableUsers={members.map((u) => ({ id: u.id, name: fullName(u), avatarUrl: avatarOf(u.id) }))}
-            onAssignUser={(userId) => attempt(() => assignM.mutateAsync(userId), 'Couldn’t assign that person.').then(() => undefined)}
-            onUnassignUser={(userId) => attempt(() => unassignM.mutateAsync(userId), 'Couldn’t remove that assignee.').then(() => undefined)}
+            onAssignUser={archived ? undefined : (userId) => attempt(() => assignM.mutateAsync(userId), 'Couldn’t assign that person.').then(() => undefined)}
+            onUnassignUser={archived ? undefined : (userId) => attempt(() => unassignM.mutateAsync(userId), 'Couldn’t remove that assignee.').then(() => undefined)}
             attachments={(attachmentsQ.data ?? []).map((a) => ({
               id: a.id,
               filename: a.filename,
@@ -558,7 +588,7 @@ function TaskDrawerPanel({ taskId, onClose, stepper, mergeNotice, focusItemId }:
             }))}
             // 1.23.7 "Show to client" on a file: the same people as the task's own switch (the server checks too).
             onSetAttachmentClientVisible={
-              runsProject
+              runsProject && !archived
                 ? async (attachmentId, visible) => {
                     try {
                       const updated = await attachmentsApi(apiClient).setClientVisible(taskId, attachmentId, visible);
@@ -573,16 +603,16 @@ function TaskDrawerPanel({ taskId, onClose, stepper, mergeNotice, focusItemId }:
                   }
                 : undefined
             }
-            onUploadFile={(file, onProgress) => attempt(() => uploadM.mutateAsync({ file, onProgress }), 'Couldn’t upload that file.')}
+            onUploadFile={archived ? undefined : (file, onProgress) => attempt(() => uploadM.mutateAsync({ file, onProgress }), 'Couldn’t upload that file.')}
             onPreviewAttachment={(id) => attachmentsApi(apiClient).preview(id)}
-            onDeleteAttachment={(id) => attempt(() => deleteM.mutateAsync(id), 'Couldn’t remove the attachment.').then(() => undefined)}
+            onDeleteAttachment={archived ? undefined : (id) => attempt(() => deleteM.mutateAsync(id), 'Couldn’t remove the attachment.').then(() => undefined)}
             dependencies={dependencies}
             availableTasks={[...taskRefs.values()]}
-            onAddDependency={(id) => attempt(() => addDepM.mutateAsync(id), 'Couldn’t add the blocker.').then(() => undefined)}
-            onRemoveDependency={(id) => attempt(() => removeDepM.mutateAsync(id), 'Couldn’t remove the blocker.').then(() => undefined)}
-            onSetRecurrence={(rule) => attempt(() => recurrenceM.mutateAsync(rule), 'Couldn’t save the repeat rule.').then(() => undefined)}
+            onAddDependency={archived ? undefined : (id) => attempt(() => addDepM.mutateAsync(id), 'Couldn’t add the blocker.').then(() => undefined)}
+            onRemoveDependency={archived ? undefined : (id) => attempt(() => removeDepM.mutateAsync(id), 'Couldn’t remove the blocker.').then(() => undefined)}
+            onSetRecurrence={archived ? undefined : (rule) => attempt(() => recurrenceM.mutateAsync(rule), 'Couldn’t save the repeat rule.').then(() => undefined)}
             statusColumns={columns.map((c) => ({ id: c.id, name: c.name, category: c.category }))}
-            onChangeStatus={(columnId) =>
+            onChangeStatus={archived ? undefined : (columnId) =>
               attempt(() => moveM.mutateAsync(columnId), 'Couldn’t change the status.').then((t) => {
                 // A task that needs approval, finished by someone who can't approve, waits instead.
                 const notice = approvalNotice(columnId, t);
@@ -596,7 +626,7 @@ function TaskDrawerPanel({ taskId, onClose, stepper, mergeNotice, focusItemId }:
               createdAt: a.createdAt,
               meta: a.meta ?? null,
             }))}
-            onSaveEdit={(patch, scope) => attempt(() => editM.mutateAsync({ patch, scope }), 'Couldn’t save your changes.').then(() => undefined)}
+            onSaveEdit={archived ? undefined : (patch, scope) => attempt(() => editM.mutateAsync({ patch, scope }), 'Couldn’t save your changes.').then(() => undefined)}
             // Only admins and this project's managers may delete tasks at all — the others get no button.
             // Of those, someone else's task (not theirs alone) shows it greyed out, saying why.
             onDelete={runsProject ? (scope) => deleteTaskM.mutate(scope) : undefined}
@@ -611,7 +641,7 @@ function TaskDrawerPanel({ taskId, onClose, stepper, mergeNotice, focusItemId }:
               const t = taskQ.data!;
               downloadBlob(fileNameOf(blob) ?? `${t.key}-${fileSlug(t.title)}.${format}`, blob);
             }}
-            onEdit={() => setEditing(true)}
+            onEdit={archived ? undefined : () => setEditing(true)}
             project={
               project
                 ? {
@@ -629,7 +659,7 @@ function TaskDrawerPanel({ taskId, onClose, stepper, mergeNotice, focusItemId }:
                   }
                 : undefined
             }
-            onMoveToProject={canMove ? () => setMoving(true) : undefined}
+            onMoveToProject={canMove && !archived ? () => setMoving(true) : undefined}
             // Duplicate: anyone who can open the task (the form offers the projects they may add tasks to; the server checks).
             onDuplicate={() => setDuplicating(true)}
             moveUnavailable={canMove?.reason}
@@ -637,7 +667,7 @@ function TaskDrawerPanel({ taskId, onClose, stepper, mergeNotice, focusItemId }:
             onSaveAsTemplate={runsProject ? () => setSavingTemplate(true) : undefined}
             // Show to client: whoever runs the project (the server checks too).
             onSetClientVisible={
-              runsProject
+              runsProject && !archived
                 ? async (visible) => {
                     const updated = await clientSharesApi(apiClient).setTaskVisible(taskId, visible);
                     // Hidden: its description is off too (the server says; an older one doesn't).
@@ -650,7 +680,7 @@ function TaskDrawerPanel({ taskId, onClose, stepper, mergeNotice, focusItemId }:
             }
             // 1.23: "Also show its description" — only while it is shown (the server checks too).
             onSetClientDescription={
-              runsProject
+              runsProject && !archived
                 ? (show) =>
                     attempt(async () => {
                       const updated = await clientSharesApi(apiClient).setTaskVisible(taskId, true, show);
@@ -660,39 +690,43 @@ function TaskDrawerPanel({ taskId, onClose, stepper, mergeNotice, focusItemId }:
                 : undefined
             }
             approval={
-              <TaskApproval
+              archived ? undefined : <TaskApproval
                 task={taskQ.data!}
                 onSetNeedsApproval={(on) => attempt(() => tickM.mutateAsync(on), 'Couldn’t change “Needs approval”.').then(() => undefined)}
                 onApprove={() => attempt(() => approveM.mutateAsync(), 'Couldn’t approve it.').then(() => undefined)}
                 onSendBack={(reason) => attempt(() => sendBackM.mutateAsync(reason), 'Couldn’t send it back.').then(() => undefined)}
               />
             }
-            onAddGuest={(guestId) => saveTaskPart(() => guestsApi(apiClient).addToTask(taskId, guestId), 'Couldn’t add the guest.')}
-            onRemoveGuest={(guestId) => saveTaskPart(() => guestsApi(apiClient).removeFromTask(taskId, guestId), 'Couldn’t remove the guest.')}
-            onSetGuestNote={(guestId, note) => saveTaskPart(() => guestsApi(apiClient).setNote(taskId, guestId, note), 'Couldn’t save the note.')}
+            onAddGuest={archived ? undefined : (guestId) => saveTaskPart(() => guestsApi(apiClient).addToTask(taskId, guestId), 'Couldn’t add the guest.')}
+            onRemoveGuest={archived ? undefined : (guestId) => saveTaskPart(() => guestsApi(apiClient).removeFromTask(taskId, guestId), 'Couldn’t remove the guest.')}
+            onSetGuestNote={archived ? undefined : (guestId, note) => saveTaskPart(() => guestsApi(apiClient).setNote(taskId, guestId, note), 'Couldn’t save the note.')}
             categoryChoices={projectCategories?.categories ?? null}
             requireCategory={projectCategories?.requireCategory === true}
-            onSetCategories={(ids) => saveTaskPart(() => categoriesApi(apiClient).setForTask(taskId, ids), 'Couldn’t save the categories.')}
+            onSetCategories={archived ? undefined : (ids) => saveTaskPart(() => categoriesApi(apiClient).setForTask(taskId, ids), 'Couldn’t save the categories.')}
             inspections={
               projectId ? (
                 <TaskInspections
                   taskId={taskId}
                   projectId={projectId}
                   task={{ id: taskId, key: taskQ.data!.key, title: taskQ.data!.title }}
-                  canStart={!project || !isProjectArchived(project)}
+                  canStart={!archived && (!project || !isProjectArchived(project))}
                   form={taskQ.data!.inspectionFormId ? (taskQ.data!.inspectionForm ?? null) : null}
                   place={taskQ.data!.inspectionPlace ?? null}
                 />
               ) : undefined
             }
-            onMerge={canMerge?.show ? () => setMerging(true) : undefined}
+            onMerge={canMerge?.show && !archived ? () => setMerging(true) : undefined}
             mergeUnavailable={canMerge?.reason}
             mergeNotice={mergeNotice}
             checklistFromKeys={labels?.checklist}
             activityFromKeys={labels?.activity}
+            // Task archive: Archive in More actions; an archived task's banner (who, when) with Unarchive.
+            onArchive={mayArchive && !archived ? () => archiveM.mutate() : undefined}
+            onUnarchive={mayArchive && archived ? unarchive : undefined}
+            archivedByName={taskQ.data.archivedById ? authorName(taskQ.data.archivedById) : null}
             mergedFrom={
               mergesQ.data && mergesQ.data.merges.length > 0 ? (
-                <MergedFromPanel panel={mergesQ.data} timeZone={timeZone} today={todayKey(timeZone)} onUndo={(mergeId) => setUndoing(mergeId)} />
+                <MergedFromPanel panel={mergesQ.data} timeZone={timeZone} today={todayKey(timeZone)} onUndo={archived ? undefined : (mergeId) => setUndoing(mergeId)} />
               ) : undefined
             }
             onClose={onClose}

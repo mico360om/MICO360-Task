@@ -107,7 +107,8 @@ export function createPrismaClientViewSource(prisma: PrismaClient): ClientViewSo
     counts: createCompletionCounts(prisma),
     async items(projectId) {
       const rows = await prisma.task.findMany({
-        where: { projectId, deletedAt: null, clientVisible: true },
+        // Task archive: an archived task is never on the client page (its figures follow the counts).
+        where: { projectId, deletedAt: null, archivedAt: null, clientVisible: true },
         select: { key: true, title: true, isMilestone: true, clientVisible: true, dueDate: true, completedAt: true, approvalRequestedAt: true, column: { select: { category: true } } },
       });
       return rows.map((t) => ({

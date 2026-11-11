@@ -7,6 +7,7 @@ import { STATUS_META } from '../../lib/taskStatus';
 import { isOverdue } from '../../lib/due-date';
 import { CONTACT_SUB_LABEL, KIND_META, dateLabel, targetLink, type SearchHit } from '../../lib/search-everything';
 import { DENSE_FACE, DENSE_TEXT } from '../../lib/density-tokens';
+import { ArchivedBadge } from '../task-archive/ArchivedBadge';
 
 /** "Bilal Ahmed +2", or nothing. */
 function peopleLine(hit: SearchHit): string | null {
@@ -43,6 +44,8 @@ export function ResultRow({ hit, timeZone, onOpen, compact = false }: { hit: Sea
             <Highlighted text={hit.title} ranges={hit.titleRanges} />
           </span>
           {hit.match ? <span className="rounded-md bg-ground px-1.5 py-0.5 text-[11px] font-medium text-ink-2">{MATCH_WORDS[hit.match]}</span> : null}
+          {/* Task archive: found, and says so (it opens read-only). */}
+          {hit.kind === 'task' && hit.archived ? <ArchivedBadge /> : null}
         </span>
         {/* A file's or an inspection's task (a note's and the minutes' meeting is their title). */}
         {hit.context && (hit.kind === 'file' || hit.kind === 'inspection') ? (

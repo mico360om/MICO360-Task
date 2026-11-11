@@ -751,7 +751,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           guard,
           // Manager View: an administrator's "may change it" — the projects they run.
           managerView: deps.managerViewLookup,
-          listProjectTasks: deps.taskService ? (projectId) => deps.taskService!.listTasks({ projectId }) : undefined,
+          // Task archive: progress figures keep an archived Done task (counted) and leave an archived open one.
+          listProjectTasks: deps.taskService ? (projectId) => deps.taskService!.listTasks({ projectId, archived: 'counted' }) : undefined,
           timeZone: deps.appConfig?.timeZone,
           overview: deps.projectOverview,
           audit: deps.auditService,

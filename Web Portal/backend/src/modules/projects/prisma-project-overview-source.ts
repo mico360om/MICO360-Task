@@ -1,5 +1,6 @@
 import type { PrismaClient } from '@prisma/client';
 import type { OverviewPerson, ProjectOverviewSource, ProjectOverviewRows } from './project-overview';
+import { COUNTED_TASK, NOT_ARCHIVED } from '../tasks/task-archive-where';
 
 const personFields = { id: true, firstName: true, lastName: true, username: true, avatarUrl: true } as const;
 const toPerson = (u: { id: string; firstName: string; lastName: string; username: string; avatarUrl: string | null }): OverviewPerson => ({
@@ -18,10 +19,11 @@ export function createPrismaProjectOverviewSource(prisma: PrismaClient): Project
     async load(projectIds, ownerIds): Promise<ProjectOverviewRows> {
       if (projectIds.length === 0) return { totals: [], openByDue: [], waitingByDue: [], members: [], owners: [] };
       const inProjects = { deletedAt: null, projectId: { in: projectIds } };
-      // Open = the shared "not done" rule: not in a Done column and no completion time.
-      const open = { ...inProjects, completedAt: null, column: { category: { not: 'DONE' as const } } };
+      // Open = the shared "not done" rule: not in a Done column and no completion time — never archived.
+      const open = { ...inProjects, ...NOT_ARCHIVED, completedAt: null, column: { category: { not: 'DONE' as const } } };
       const [totals, openByDue, waitingByDue, members, owners] = await Promise.all([
-        prisma.task.groupBy({ by: ['projectId'], where: inProjects, _count: { _all: true }, _max: { updatedAt: true } }),
+        // Task archive: the totals keep an archived Done task (still done) and leave an archived open one.
+        prisma.task.groupBy({ by: ['projectId'], where: { ...inProjects, ...COUNTED_TASK }, _count: { _all: true }, _max: { updatedAt: true } }),
         prisma.task.groupBy({ by: ['projectId', 'dueDate'], where: open, _count: { _all: true } }),
         // The open ones waiting for approval: never overdue while they wait.
         prisma.task.groupBy({ by: ['projectId', 'dueDate'], where: { ...open, approvalRequestedAt: { not: null } }, _count: { _all: true } }),

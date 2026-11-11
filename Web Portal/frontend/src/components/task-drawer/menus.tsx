@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { ArchiveIcon } from '../task-archive/ArchivedBadge';
 
 /**
  * A small popup menu's open state: Escape closes it (and only it — not the drawer around it) and
@@ -156,6 +157,7 @@ export function MoreActionsMenu({
   onSaveAsTemplate,
   onMerge,
   mergeUnavailable,
+  onArchive,
   className = '',
 }: {
   watching?: boolean;
@@ -173,12 +175,14 @@ export function MoreActionsMenu({
   onMerge?: () => void;
   /** Why it can't be merged now (the item is shown, unavailable, with this reason). */
   mergeUnavailable?: string | null;
+  /** Task archive: archive it ("Archive": administrators and the people who run its project; it can be undone). */
+  onArchive?: () => void;
   className?: string;
 }) {
   const { open, setOpen, wrap, trigger } = useMenu();
-  if (!onToggleWatch && !onExport && !onDuplicate && !onMoveToProject && !onSaveAsTemplate && !onMerge) return null;
-  // With the duplicate, the move, the template or the merge in it, the menu shows everywhere and these repeat header buttons on wider screens.
-  const headerToo = onDuplicate || onMoveToProject || onSaveAsTemplate || onMerge ? 'sm:hidden' : '';
+  if (!onToggleWatch && !onExport && !onDuplicate && !onMoveToProject && !onSaveAsTemplate && !onMerge && !onArchive) return null;
+  // With the duplicate, the move, the template, the merge or the archive in it, the menu shows everywhere and these repeat header buttons on wider screens.
+  const headerToo = onDuplicate || onMoveToProject || onSaveAsTemplate || onMerge || onArchive ? 'sm:hidden' : '';
   const choose = (act: () => void) => {
     setOpen(false);
     trigger.current?.focus();
@@ -245,6 +249,7 @@ export function MoreActionsMenu({
             )
           ) : null}
           {onSaveAsTemplate ? item('Save as template…', onSaveAsTemplate, <TemplateIcon />) : null}
+          {onArchive ? item('Archive', onArchive, <ArchiveIcon />) : null}
         </div>
       ) : null}
     </div>
