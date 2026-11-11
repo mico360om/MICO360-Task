@@ -12,7 +12,8 @@ import { isExtensionSource, pagePattern, redactText } from './error-redact';
  * Never sent: typed text, form values, tokens, cookies, storage, request bodies (see error-redact).
  */
 
-export type ReportKind = 'ERROR' | 'NETWORK' | 'BLOCKED' | 'SLOW';
+/** 1.23.14 UPDATE: a request cut or held up by an update restart (the server started after it was sent). */
+export type ReportKind = 'ERROR' | 'NETWORK' | 'BLOCKED' | 'SLOW' | 'UPDATE';
 
 export interface ErrorReport {
   kind: ReportKind;
@@ -30,6 +31,14 @@ export interface ErrorReport {
   /** 1.23.3, a slow request: the server's own time and its time in the database (ms, its Server-Timing). */
   serverMs?: number | null;
   dbMs?: number | null;
+  /**
+   * 1.23.14, a slow request: where its time went, from the browser's Resource Timing (ms) — waiting for a
+   * free connection, connecting, waiting for the first byte, downloading the answer.
+   */
+  queueMs?: number | null;
+  connectMs?: number | null;
+  waitMs?: number | null;
+  downloadMs?: number | null;
 }
 
 /** What the reporter needs from the page (a test gives it a fake one). */
@@ -123,7 +132,8 @@ export function createErrorReporter(world: ReporterWorld) {
       if (message && NOISE.test(message)) return;
       if (isExtensionSource(stack) || isExtensionSource(resource) || isExtensionSource(message)) return;
       const page = pagePattern(String(r.page ?? world.page()));
-      const key = [r.kind, r.detail, message ?? '', firstFrame(stack), r.kind === 'NETWORK' ? '' : (resource ?? ''), r.directive ?? '', r.kind === 'ERROR' ? '' : page].join('|');
+      // A network problem, or an update restart (1.23.14), is one report a page load whatever the request: counted.
+      const key = [r.kind, r.detail, message ?? '', firstFrame(stack), r.kind === 'NETWORK' || r.kind === 'UPDATE' ? '' : (resource ?? ''), r.directive ?? '', r.kind === 'ERROR' ? '' : page].join('|');
       if (done.has(key)) return;
       const waiting = queue.get(key);
       if (waiting) {
@@ -153,6 +163,9 @@ export function createErrorReporter(world: ReporterWorld) {
         out.serverMs = serverMs;
         if (dbMs !== null) out.dbMs = dbMs;
       }
+      // 1.23.14: and where its time went (all four, or none).
+      const parts = [ms(r.queueMs), ms(r.connectMs), ms(r.waitMs), ms(r.downloadMs)];
+      if (parts.every((v) => v !== null)) [out.queueMs, out.connectMs, out.waitMs, out.downloadMs] = parts;
       out.count = 1;
       out.version = world.version;
       const size = world.windowSize();

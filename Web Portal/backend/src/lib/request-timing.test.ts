@@ -163,7 +163,7 @@ describe('trackDatabaseTime: the database client tells the request’s timing', 
 describe('registerRequestTiming: the API’s answers carry Server-Timing', () => {
   async function appWith(clock: { t: number; now: () => number }, client: ReturnType<typeof fakeClient>) {
     const app = Fastify({ logger: false });
-    registerRequestTiming(app, { clock: clock.now });
+    registerRequestTiming(app, { clock: clock.now, uptime: () => 86_400_000.4 });
     app.get('/api/v1/slow', async () => {
       await client.query(40);
       clock.t += 10;
@@ -188,7 +188,7 @@ describe('registerRequestTiming: the API’s answers carry Server-Timing', () =>
     const app = await appWith(clock, trackDatabaseTime(fakeClient(clock)));
     const res = await app.inject({ method: 'GET', url: '/api/v1/slow' });
     expect(res.statusCode).toBe(200);
-    expect(res.headers['server-timing']).toBe('app;dur=50, db;dur=40');
+    expect(res.headers['server-timing']).toBe('app;dur=50, db;dur=40, up;dur=86400000'); // 1.23.14: and the server's uptime
   });
 
   it('keeps the request’s timing across reading a body', async () => {
@@ -196,7 +196,7 @@ describe('registerRequestTiming: the API’s answers carry Server-Timing', () =>
     const app = await appWith(clock, trackDatabaseTime(fakeClient(clock)));
     const res = await app.inject({ method: 'POST', url: '/api/v1/save', payload: { n: 7 } });
     expect(res.json()).toEqual({ got: 7 });
-    expect(res.headers['server-timing']).toBe('app;dur=25, db;dur=25');
+    expect(res.headers['server-timing']).toBe('app;dur=25, db;dur=25, up;dur=86400000');
   });
 
   it('a failed request says it too', async () => {
@@ -204,7 +204,7 @@ describe('registerRequestTiming: the API’s answers carry Server-Timing', () =>
     const app = await appWith(clock, trackDatabaseTime(fakeClient(clock)));
     const res = await app.inject({ method: 'GET', url: '/api/v1/boom' });
     expect(res.statusCode).toBe(500);
-    expect(res.headers['server-timing']).toBe('app;dur=5, db;dur=5');
+    expect(res.headers['server-timing']).toBe('app;dur=5, db;dur=5, up;dur=86400000');
   });
 
   it('only for the API (not uploaded files)', async () => {
@@ -233,7 +233,22 @@ describe('registerRequestTiming: the API’s answers carry Server-Timing', () =>
     });
     await app.ready();
     const [a, b] = await Promise.all([app.inject({ url: '/api/v1/a' }), app.inject({ url: '/api/v1/b' })]);
-    expect(String(b.headers['server-timing'])).toMatch(/db;dur=10$/);
-    expect(String(a.headers['server-timing'])).toMatch(/db;dur=30$/);
+    expect(String(b.headers['server-timing'])).toMatch(/db;dur=10, up;dur=\d+$/);
+    expect(String(a.headers['server-timing'])).toMatch(/db;dur=30, up;dur=\d+$/);
+  });
+});
+
+// 1.23.14 — the answering server's uptime (up;dur=…, ms) lets the page tell a request held up while the
+// server started (an update restart: the server started after the request was sent) from a slow one.
+describe('registerRequestTiming: the server’s uptime (1.23.14)', () => {
+  it('by default the process’s own uptime, in whole ms', async () => {
+    const app = Fastify({ logger: false });
+    registerRequestTiming(app);
+    app.get('/api/v1/x', async () => ({}));
+    await app.ready();
+    const res = await app.inject({ method: 'GET', url: '/api/v1/x' });
+    const up = /up;dur=(\d+)$/.exec(String(res.headers['server-timing']))?.[1];
+    expect(Number(up)).toBeGreaterThan(0);
+    expect(Number(up)).toBeLessThanOrEqual(process.uptime() * 1000 + 1);
   });
 });

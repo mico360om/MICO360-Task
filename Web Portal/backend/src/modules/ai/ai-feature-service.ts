@@ -2,9 +2,10 @@ import { ValidationError } from '../../lib/http-errors';
 import { todayKey } from '../../lib/due-date';
 import type { AiConfigRepository } from './ai-config-repository';
 import { effectiveModel, type AiConfig, type AiModel } from './ai-config';
-import { complete, COMPLETION_TIMEOUT_MS, type ChatModel } from './ai-completion';
+import { complete, COMPLETION_TIMEOUT_MS, CONVERSATION_LIMIT, type ChatModel } from './ai-completion';
 import { embedTexts } from './ai-embeddings';
-import { createSafeFetch } from './ai-network';
+import { createSafeFetch, isMico360Provider } from './ai-network';
+import { cutChars } from './ai-text';
 import { createAiUsageLimiter, createConcurrencyGate, type AiUsageLimits } from './ai-limits';
 import { isValidRule, type RecurrenceRule } from '../tasks/recurrence';
 import { projectArchived } from '../companies/project-archive';
@@ -96,23 +97,25 @@ export function createAiFeatureService({
 
   /**
    * One completion with the default chat model. `json`: the answer is parsed as JSON, so a provider
-   * that can hold the model to JSON is asked to (MICO360 AI); `wait` overrides the time allowed.
+   * that can hold the model to JSON is asked to (MICO360 AI); `wait` overrides the time allowed;
+   * `background`: nobody is waiting at a page, so MICO360 AI is waited for as long as it waits itself.
    */
   async function run(
     system: string,
     prompt: string,
     maxTokens: number | undefined,
     requester?: AiRequester,
-    opts: { json?: boolean; wait?: number; signal?: AbortSignal; dailyOnly?: boolean } = {},
+    opts: { json?: boolean; wait?: number; signal?: AbortSignal; dailyOnly?: boolean; background?: boolean } = {},
   ): Promise<string> {
     const { model, chat } = resolveChatModel(await repo.load());
     if (requester) {
       if (opts.dailyOnly) usage.takeDaily(requester.userId);
       else usage.take(requester.userId);
     }
+    const wait = opts.background && isMico360(chat) ? BACKGROUND_WAIT_MS : (opts.wait ?? timeoutMs);
     const release = await gate.acquire(model.id, model.concurrencyLimit);
     try {
-      return await complete(chat, { system, prompt, maxTokens, json: opts.json }, doFetch, { timeoutMs: opts.wait ?? timeoutMs, allowPrivateHosts, signal: opts.signal });
+      return await complete(chat, { system, prompt, maxTokens, json: opts.json }, doFetch, { timeoutMs: wait, allowPrivateHosts, signal: opts.signal });
     } finally {
       release();
     }
@@ -166,6 +169,7 @@ export function createAiFeatureService({
   /**
    * 1.23: the text in pictures (a scanned PDF's pages, a photo), read by the OCR model — work the
    * system does for search, so no person's limit is counted; the model's concurrency limit applies.
+   * Background work: MICO360 AI is waited for as long as it waits itself (a vision job may take 300 s).
    */
   async function readPictures(images: { data: Buffer; mimeType: string }[], opts: { signal?: AbortSignal } = {}): Promise<string> {
     const found = resolveFor(await repo.load(), 'ocr');
@@ -181,7 +185,7 @@ export function createAiFeatureService({
           images,
         },
         doFetch,
-        { timeoutMs: Math.max(timeoutMs, 120_000), allowPrivateHosts, signal: opts.signal },
+        { timeoutMs: isMico360(found.chat) ? BACKGROUND_WAIT_MS : Math.max(timeoutMs, 120_000), allowPrivateHosts, signal: opts.signal },
       );
     } finally {
       release();
@@ -194,13 +198,18 @@ export function createAiFeatureService({
     return found ? { id: found.model.id, modelKey: found.model.modelKey } : null;
   }
 
-  /** 1.23: vectors for texts with the embedding model (and which model made them). */
-  async function embed(texts: string[], opts: { signal?: AbortSignal } = {}): Promise<{ model: string; vectors: number[][] }> {
+  /**
+   * 1.23: vectors for texts with the embedding model (and which model made them). `background`: the
+   * search sweep — MICO360 AI is given 120 s, as its guide asks of every client (a person's question
+   * keeps the short wait).
+   */
+  async function embed(texts: string[], opts: { signal?: AbortSignal; background?: boolean } = {}): Promise<{ model: string; vectors: number[][] }> {
     const found = resolveFor(await repo.load(), 'embedding');
     if (!found) throw new ValidationError('No embedding model is set up in AI Management.');
+    const timeoutMs = opts.background && isMico360(found.chat) ? EMBEDDING_SWEEP_WAIT_MS : undefined;
     const release = await gate.acquire(found.model.id, found.model.concurrencyLimit);
     try {
-      return { model: found.model.id, vectors: await embedTexts(found.chat, texts, doFetch, { allowPrivateHosts, signal: opts.signal }) };
+      return { model: found.model.id, vectors: await embedTexts(found.chat, texts, doFetch, { allowPrivateHosts, signal: opts.signal, timeoutMs }) };
     } finally {
       release();
     }
@@ -228,35 +237,52 @@ export function createAiFeatureService({
    * due date, priority, repeat and project. The project is one the person can add tasks to: the
    * one whose number or code is written in the note, else the one the model names.
    */
-  /** The person's projects for a prompt (not archived ones), and the prompt lines listing them. */
-  async function promptProjects(requester?: AiRequester): Promise<{ projects: DescribableProject[]; projectList: string }> {
-    const projects =
-      listProjectsFor && requester
-        ? (await listProjectsFor({ id: requester.userId, roles: requester.roles ?? [] }, requester.pick ?? null))
-            .filter((p) => !projectArchived(p))
-            .sort((a, b) => a.name.localeCompare(b.name))
-            .slice(0, MAX_PROMPT_PROJECTS)
-        : [];
-    const projectList = projects.length
-      ? `\nProjects (code | number | name), one per line:\n${projects.map((p) => `${p.code} | ${p.number ?? '-'} | ${p.name}`).join('\n')}`
-      : '';
-    return { projects, projectList };
+  /** The person's projects for a prompt (not archived ones, by name, at most MAX_PROMPT_PROJECTS). */
+  async function promptProjects(requester?: AiRequester): Promise<DescribableProject[]> {
+    return listProjectsFor && requester
+      ? (await listProjectsFor({ id: requester.userId, roles: requester.roles ?? [] }, requester.pick ?? null))
+          .filter((p) => !projectArchived(p))
+          .sort((a, b) => a.name.localeCompare(b.name))
+          .slice(0, MAX_PROMPT_PROJECTS)
+      : [];
   }
+
+  /**
+   * MICO360 AI reads at most CONVERSATION_LIMIT characters a conversation, instructions included (its
+   * guide, §5): the room a prompt has there, less some for the platform's own framing. Other providers:
+   * none (their prompts are built as before).
+   */
+  async function promptRoom(): Promise<number | null> {
+    const config = await repo.load();
+    const model = effectiveModel(config, 'chat');
+    const provider = model ? config.providers.find((p) => p.id === model.providerId) : undefined;
+    return provider && isMico360Provider(provider) ? CONVERSATION_LIMIT - FRAMING_ROOM : null;
+  }
+
+  const PROJECTS_HEADER = '\nProjects (code | number | name), one per line:\n';
+  const projectLine = (p: DescribableProject, short: boolean) => `${p.code} | ${p.number ?? '-'} | ${short ? cut(p.name, PROMPT_NAME_CHARS) : p.name}`;
+  /** A project the text names by its code, number or whole name. */
+  const projectNamed = (text: string) => (p: DescribableProject) => matchProject(text, null, [p]) !== null || (normalise(p.name).length > 3 && normalise(text).includes(normalise(p.name)));
 
   async function parseTask(input: { text: string; today?: string }, requester?: AiRequester): Promise<DescribedTask> {
     // "Today" is the company-local date: before 04:00 in Muscat the UTC date is still yesterday.
     const today = input.today ?? todayKey(timeZone, now());
-    const { projects, projectList } = await promptProjects(requester);
+    const projects = await promptProjects(requester);
+    const room = await promptRoom();
+    const instructions = [
+      `Extract a single task from the user's note. Today is ${today}. Reply with ONLY JSON:`,
+      '{"title": string, "description": string|null, "dueDate": string|null, "priority": "LOW"|"NORMAL"|"HIGH"|"URGENT"|null,',
+      ' "repeat": null | {"freq": "DAILY"|"WEEKLY"|"MONTHLY"|"QUARTERLY"|"YEARLY", "interval": number, "weekdays"?: number[] (0=Sunday…6=Saturday, WEEKLY only), "dayOfMonth"?: number (MONTHLY/QUARTERLY), "until"?: "YYYY-MM-DD", "count"?: number},',
+      ' "project": string|null}.',
+      'Title: concise, without date, priority, repeat or project words. Description: only details the note gives beyond the title, in a sentence or two; else null.',
+      'dueDate: YYYY-MM-DD, resolving relative dates like "Friday" or "tomorrow"; null if none. Repeat: only if the note says the task repeats; else null.',
+      projects.length ? 'project: the code of the project from the list the note is about; null if none fits.' : 'project: null.',
+    ].join('\n');
+    // On MICO360 AI the list fits the room the instructions and the note leave (the projects the note
+    // names first); the note's own project number or code still matches any of the person's projects.
+    const { lines } = promptList(projects, projectLine, projectNamed(input.text), room === null ? null : room - instructions.length - PROJECTS_HEADER.length - input.text.length);
     const text = await run(
-      [
-        `Extract a single task from the user's note. Today is ${today}. Reply with ONLY JSON:`,
-        '{"title": string, "description": string|null, "dueDate": string|null, "priority": "LOW"|"NORMAL"|"HIGH"|"URGENT"|null,',
-        ' "repeat": null | {"freq": "DAILY"|"WEEKLY"|"MONTHLY"|"QUARTERLY"|"YEARLY", "interval": number, "weekdays"?: number[] (0=Sunday…6=Saturday, WEEKLY only), "dayOfMonth"?: number (MONTHLY/QUARTERLY), "until"?: "YYYY-MM-DD", "count"?: number},',
-        ' "project": string|null}.',
-        'Title: concise, without date, priority, repeat or project words. Description: only details the note gives beyond the title, in a sentence or two; else null.',
-        'dueDate: YYYY-MM-DD, resolving relative dates like "Friday" or "tomorrow"; null if none. Repeat: only if the note says the task repeats; else null.',
-        projects.length ? 'project: the code of the project from the list the note is about; null if none fits.' : 'project: null.',
-      ].join('\n') + projectList,
+      instructions + (lines.length ? PROJECTS_HEADER + lines.join('\n') : ''),
       input.text,
       600,
       requester,
@@ -282,16 +308,14 @@ export function createAiFeatureService({
    */
   async function parseMeeting(input: { text: string; today?: string }, requester?: AiRequester): Promise<DescribedMeeting> {
     const today = input.today ?? todayKey(timeZone, now());
-    const { projects, projectList } = await promptProjects(requester);
+    const projects = await promptProjects(requester);
+    const room = await promptRoom();
     // Everyone active is checked for shared names; the first 300 (by name) are listed for the model.
     // companies: only the people the requester knows (colleagues, teammates, chat partners).
     const everyone = (listPeople ? await listPeople(requester) : [])
       .map((p) => ({ ...p, name: `${p.firstName} ${p.lastName}`.trim() || p.username }))
       .sort((a, b) => a.name.localeCompare(b.name));
-    const people = everyone.slice(0, MAX_PROMPT_PEOPLE);
-    const peopleList = people.length ? `\nPeople (id | name | username), one per line:\n${people.map((p) => `${p.id} | ${p.name} | ${p.username}`).join('\n')}` : '';
-    const text = await run(
-      [
+    const instructions = [
         `Fill in a meeting from the user's sentence. Today is ${today}; times are company time. Reply with ONLY JSON:`,
         '{"title": string, "description": string|null, "date": "YYYY-MM-DD"|null, "startTime": "HH:MM" (24-hour)|null, "minutes": number|null,',
         ' "repeat": null | {"freq": "DAILY"|"WEEKLY"|"MONTHLY"|"QUARTERLY"|"YEARLY", "interval": number, "weekdays"?: number[] (0=Sunday…6=Saturday, WEEKLY only), "dayOfMonth"?: number (MONTHLY/QUARTERLY), "until"?: "YYYY-MM-DD", "count"?: number},',
@@ -300,12 +324,28 @@ export function createAiFeatureService({
         'Title: concise, without date, time, people or project words. Description: only details the sentence gives beyond the title; else null.',
         'date: resolve relative days like "Monday" or "tomorrow"; null if none. minutes: how long it lasts; null if not said. Repeat: only if the sentence says it repeats; else null.',
         'location: a place written in the sentence; onlineLink: a link written in the sentence; else null.',
-        people.length
+        everyone.length
           ? 'people: each person named, "said" as written; "ids": every id from the people list whose name could be them (several if unsure, none if nobody fits).'
           : 'people: each person named, with "ids": [].',
         'guests: email addresses written in the sentence, each with the name given for it, else "". agenda: the topics the sentence lists; else [].',
         projects.length ? 'project: the code of the project from the list the meeting is about; null if none fits.' : 'project: null.',
-      ].join('\n') + projectList + peopleList,
+      ].join('\n');
+    // On MICO360 AI both lists fit the room the instructions and the sentence leave: the projects first,
+    // then the people — those the sentence names first. Names are still matched against everyone below,
+    // and a unique exact name of someone left out is found by the name.
+    const PEOPLE_HEADER = '\nPeople (id | name | username), one per line:\n';
+    const free = room === null ? null : room - instructions.length - input.text.length - PROJECTS_HEADER.length - PEOPLE_HEADER.length;
+    const projectsOut = promptList(projects, projectLine, projectNamed(input.text), free);
+    const words = new Set(normalise(input.text).split(' '));
+    const personNamed = (p: MeetingCandidate & { name: string }) =>
+      [p.firstName, p.lastName, p.username].some((x) => normalise(x).length > 1 && normalise(x).split(' ').every((w) => words.has(w)));
+    const personLine = (p: MeetingCandidate & { name: string }, short: boolean) => `${p.id} | ${short ? cut(p.name, PROMPT_NAME_CHARS) : p.name} | ${short ? cut(p.username, PROMPT_USERNAME_CHARS) : p.username}`;
+    const peopleOut = promptList(everyone, personLine, personNamed, free === null ? null : free - projectsOut.chars, MAX_PROMPT_PEOPLE);
+    const listed = new Set(peopleOut.listed.map((p) => p.id));
+    const text = await run(
+      instructions +
+        (projectsOut.lines.length ? PROJECTS_HEADER + projectsOut.lines.join('\n') : '') +
+        (peopleOut.lines.length ? PEOPLE_HEADER + peopleOut.lines.join('\n') : ''),
       input.text,
       900,
       requester,
@@ -330,7 +370,7 @@ export function createAiFeatureService({
       project: match ? { id: match.id, code: match.code, number: match.number, name: match.name } : null,
       location: str(obj.location, 200),
       onlineLink: link && /^https?:\/\//i.test(link) && input.text.includes(link) ? link : null,
-      people: matchPeople(obj.people, everyone),
+      people: matchPeople(obj.people, everyone, room === null ? undefined : new Set(everyone.filter((p) => !listed.has(p.id)).map((p) => p.id))),
       guests: guestsIn(input.text, obj.guests),
       agenda: (Array.isArray(obj.agenda) ? obj.agenda : []).map((a) => str(a, 300)).filter((a): a is string => !!a).slice(0, MAX_AGENDA_POINTS),
     };
@@ -342,22 +382,33 @@ export function createAiFeatureService({
    * scaled so the items fit the meeting's length.
    */
   async function draftAgenda(input: DraftAgendaInput, requester?: AiRequester): Promise<DraftedAgendaItem[]> {
-    const lines = [
+    // On MICO360 AI (32,000 characters a conversation) long titles and names are cut and the people fit
+    // the room left by everything else; other providers get the prompt as before.
+    const room = await promptRoom();
+    const short = room !== null;
+    const title = (t: string) => (short ? cut(t, PROMPT_TITLE_CHARS) : t);
+    const system = [
+      'You plan business meetings. Propose up to 12 agenda items for the meeting below, drawing on what the organizer wrote, the open project tasks and what the last meeting left open.',
+      'Write in the language the organizer wrote in. Each title is short (under 10 words); never invent names, dates or numbers.',
+      'Reply with ONLY JSON: {"items": [{"title": string, "ownerId": an id from the people list or null, "minutes": number}]}.',
+      'The minutes of all agenda items together must fit the meeting length.',
+    ].join('\n');
+    const head = [
       `Meeting: ${input.title}`,
       input.description?.trim() ? `Description: ${input.description.trim()}` : '',
       input.text?.trim() ? `What the organizer wrote: ${input.text.trim()}` : '',
       `Length: ${input.minutes} minutes`,
-      input.people.length ? `People (id | name), one per line:\n${input.people.map((p) => `${p.id} | ${p.name}`).join('\n')}` : 'People: none listed',
-      input.tasks.length ? `Open project tasks (key | title | why):\n${input.tasks.map((t) => `${t.key} | ${t.title} | ${t.reason}`).join('\n')}` : '',
-      input.leftovers.length ? `Left open by the last meeting:\n${input.leftovers.map((l) => `${l.kind === 'action' ? 'Action item' : 'Agenda item'}: ${l.title}`).join('\n')}` : '',
     ].filter(Boolean);
+    const tail = [
+      input.tasks.length ? `Open project tasks (key | title | why):\n${input.tasks.map((t) => `${t.key} | ${title(t.title)} | ${t.reason}`).join('\n')}` : '',
+      input.leftovers.length ? `Left open by the last meeting:\n${input.leftovers.map((l) => `${l.kind === 'action' ? 'Action item' : 'Agenda item'}: ${title(l.title)}`).join('\n')}` : '',
+    ].filter(Boolean);
+    const PEOPLE_HEADER = 'People (id | name), one per line:\n';
+    const fixed = system.length + [...head, ...tail].join('\n\n').length + PEOPLE_HEADER.length + 4;
+    const people = promptList(input.people, (p, cutName) => `${p.id} | ${cutName ? cut(p.name, PROMPT_NAME_CHARS) : p.name}`, () => false, room === null ? null : room - fixed).lines;
+    const lines = [...head, people.length ? `${PEOPLE_HEADER}${people.join('\n')}` : 'People: none listed', ...tail];
     const text = await run(
-      [
-        'You plan business meetings. Propose up to 12 agenda items for the meeting below, drawing on what the organizer wrote, the open project tasks and what the last meeting left open.',
-        'Write in the language the organizer wrote in. Each title is short (under 10 words); never invent names, dates or numbers.',
-        'Reply with ONLY JSON: {"items": [{"title": string, "ownerId": an id from the people list or null, "minutes": number}]}.',
-        'The minutes of all agenda items together must fit the meeting length.',
-      ].join('\n'),
+      system,
       lines.join('\n\n'),
       900,
       requester,
@@ -444,8 +495,9 @@ export function createAiFeatureService({
   /**
    * Draft a meeting's final minutes from its facts (see meetings/final-minutes minutesFacts). The
    * model is told to write only what the facts support. Returns its JSON; the caller checks it.
+   * `background`: the Final MOM job (1.22), which nobody waits for at a page.
    */
-  async function draftMinutes(facts: string, requester?: AiRequester, opts: { signal?: AbortSignal } = {}): Promise<Record<string, unknown>> {
+  async function draftMinutes(facts: string, requester?: AiRequester, opts: { signal?: AbortSignal; background?: boolean } = {}): Promise<Record<string, unknown>> {
     const text = await run(
       [
         'You write the final minutes of a business meeting. Use only the facts given: never invent names, dates, numbers or decisions.',
@@ -459,7 +511,7 @@ export function createAiFeatureService({
       2500,
       requester,
       // A long answer: ~2,500 tokens at ~35 a second, after a cold load, is well over 2 minutes.
-      { json: true, wait: Math.max(timeoutMs, MINUTES_TIMEOUT_MS), signal: opts.signal },
+      { json: true, wait: Math.max(timeoutMs, MINUTES_TIMEOUT_MS), signal: opts.signal, background: opts.background },
     );
     const obj = parseJsonObject(text);
     if (Object.keys(obj).length === 0) throw new ValidationError('The AI’s draft couldn’t be read. Try again, or start from the notes.');
@@ -542,9 +594,11 @@ const EMAIL = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
  * The model's people, checked: only ids of active people count. A name more than one person goes by
  * is a choice even when the model picked one of them. So is a one-word name that isn't exactly the
  * person the model picked ("Omer", "عمر" for Omar) when others share that person's first name: that
- * is a guess. One id is found; none is "not found".
+ * is a guess. One id is found; none is "not found". `unlisted` (MICO360 AI, whose prompt may not hold
+ * everyone): people the model could not name by id — a name said exactly as one of them, and nobody
+ * else, is that person.
  */
-function matchPeople(value: unknown, people: Array<MeetingCandidate & { name: string }>): DescribedMeeting['people'] {
+export function matchPeople(value: unknown, people: Array<MeetingCandidate & { name: string }>, unlisted: ReadonlySet<string> = new Set()): DescribedMeeting['people'] {
   const order = new Map(people.map((p, i) => [p.id, i]));
   const out: DescribedMeeting['people'] = { found: [], choices: [], notFound: [] };
   for (const entry of (Array.isArray(value) ? value : []).slice(0, 50)) {
@@ -557,6 +611,7 @@ function matchPeople(value: unknown, people: Array<MeetingCandidate & { name: st
     const named = (p: MeetingCandidate & { name: string }) => [p.firstName, p.lastName, p.username, p.name].some((x) => normalise(x) === n);
     const sameName = people.filter(named).map((p) => p.id);
     let chosen = [...new Set([...ids, ...(sameName.length > 1 ? sameName : [])])];
+    if (chosen.length === 0 && sameName.length === 1 && unlisted.has(sameName[0]!)) chosen = sameName;
     if (chosen.length === 1 && !n.includes(' ')) {
       const only = people[order.get(chosen[0]!)!]!;
       const namesakes = people.filter((p) => normalise(p.firstName) === normalise(only.firstName)).map((p) => p.id);
@@ -595,8 +650,56 @@ function guestsIn(sentence: string, value: unknown): DescribedMeeting['guests'] 
 /** The minutes draft is the one long answer: it gets 3 minutes, as MICO360 AI's guide advises for long text. */
 const MINUTES_TIMEOUT_MS = 180_000;
 
+/**
+ * Background work on MICO360 AI (reading pictures, the Final MOM job): its OpenAI surface waits 300 s and
+ * a vision job may run 300 s on a node (its guide, §5 and §7). Giving up sooner leaves the job running
+ * there and the retry runs it again; just past 300 s, the platform's own 504 (with the job id) comes first.
+ */
+export const BACKGROUND_WAIT_MS = 310_000;
+/** MICO360 AI's meaning-search sweep: at least the 120 s its guide asks of every client (§4, §7). */
+export const EMBEDDING_SWEEP_WAIT_MS = 120_000;
+
+const isMico360 = (chat: ChatModel): boolean => isMico360Provider(chat.provider);
+
 /** At most this many projects are listed in the prompt (each one is a line). */
 const MAX_PROMPT_PROJECTS = 100;
+
+/**
+ * MICO360 AI only (32,000 characters a conversation, its guide §5): room kept for the platform's own
+ * framing ("User: …"), and how long a name or title in a list may be. Every feature stays within the
+ * limit at its largest inputs (ai-prompt-size.test); other providers' prompts are unchanged.
+ */
+const FRAMING_ROOM = 500;
+const PROMPT_NAME_CHARS = 120;
+const PROMPT_USERNAME_CHARS = 60;
+const PROMPT_TITLE_CHARS = 200;
+
+/** At most `n` characters, a cut one ending in "…" (never inside a character pair, such as an emoji). */
+const cut = (s: string, n: number): string => (s.length > n ? `${cutChars(s, n - 1)}…` : s);
+
+/**
+ * A prompt list. With no room (other providers): every item's line, in order, at most `max`, as before.
+ * With room (MICO360 AI): the items the text names first, then the rest, short lines, while they fit —
+ * a line too long for what is left is passed over. Returns the lines, the items listed and their size.
+ */
+export function promptList<T>(items: T[], line: (item: T, short: boolean) => string, named: (item: T) => boolean, room: number | null, max = Infinity): { lines: string[]; listed: T[]; chars: number } {
+  if (room === null) {
+    const listed = items.slice(0, max);
+    const lines = listed.map((x) => line(x, false));
+    return { lines, listed, chars: lines.reduce((n, l) => n + l.length + 1, 0) };
+  }
+  const ordered = [...items.filter(named), ...items.filter((x) => !named(x))];
+  const out: { lines: string[]; listed: T[]; chars: number } = { lines: [], listed: [], chars: 0 };
+  for (const item of ordered) {
+    if (out.listed.length >= max) break;
+    const l = line(item, true);
+    if (out.chars + l.length + 1 > room) continue;
+    out.lines.push(l);
+    out.listed.push(item);
+    out.chars += l.length + 1;
+  }
+  return out;
+}
 const FREQUENCIES = ['DAILY', 'WEEKLY', 'MONTHLY', 'QUARTERLY', 'YEARLY'] as const;
 
 const normalise = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();

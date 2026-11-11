@@ -163,7 +163,7 @@ function ActivityRow({ a, onOpenTask, clockIn }: { a: ApiActivity; onOpenTask: (
       />
       {/* Compact rows (1.23.0, lib/density): less padding, the face and the words a step smaller. */}
       <div className="flex items-start gap-2.5 rounded-lg border border-line bg-surface p-2.5 compact:gap-2 compact:p-2">
-        <Avatar name={a.actor?.name ?? '?'} size="sm" dense />
+        <Avatar name={a.actor?.name ?? '?'} src={a.actor?.avatarUrl} size="sm" dense decorative />
         <div className="min-w-0 flex-1">
           <p className={`text-sm leading-snug text-ink ${DENSE_TEXT}`}>
             <bdi className="font-semibold">{a.actor?.name ?? 'Someone'}</bdi>{' '}

@@ -69,6 +69,71 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - More than three reminders of one kind for one person at once arrive as one notice listing them; after the
   upgrade nobody gets a burst of reminders for what was already due.
 
+## [1.23.15] - 2026-11-11
+
+### Bug fixes
+- The Error log no longer counts time a page spent in the background as "slow": a page opened in a
+  background tab, prerendered, restored with the Back button or left on a sleeping computer is no longer
+  "slow to show" (the 986 s and 3386 s rows), and a request that waited in a frozen tab or on a sleeping
+  laptop is no longer a slow request (the bell's "15 times in one visit" at night). A slow click or key
+  press while the page was hidden doesn't count either, and the Error log now says what it was on ("a
+  click on a button"). "Slow to show the page" rows say that their times count only while the page is
+  on screen.
+- Slow requests on the Error log now say where the time went, from the browser's own timing: waiting
+  for a free connection, connecting, waiting for the server to start answering, or downloading the
+  answer — with the server's own time, so a hold-up between the browser and the server (the hosting's
+  front door or the connection) is told apart from a slow server.
+- Update restarts show as handled: while the server stops or starts for an update, the database being
+  briefly unreachable is a calm "Update restart" row ("During an update: the database was briefly
+  unreachable — handled"), no longer a red Server error, and it never brings back a row marked as
+  fixed. A request cut off or held up while the server restarted is listed there too, instead of "A
+  request didn't reach the server (blocked on the way?)" or a slow request.
+
+## [1.23.14] - 2026-11-11
+
+### Bug fixes
+- People's photos show on Kanban cards, My Tasks, project pages, meetings, Activity and the Dashboard (they showed only initials).
+- The picture at the top right shows your current photo and your own name's initials (it showed the username's, and a new photo only after signing in again).
+
+### Improvements
+- Faces load a small copy of each person's photo instead of the full picture, so boards and lists with many people open faster.
+
+## [1.23.13] - 2026-11-11
+
+### Bug fixes
+- MICO360 AI connects again: its address is now https://ai.mico360.com:5310/v1. Since MICO360 Connect
+  2.6.17 the AI platform answers only on HTTPS, so the old http address got no answer at all. A MICO360 AI
+  provider saved with the old address is used on https by itself — nothing to re-enter.
+- Meaning search on MICO360 AI fills in again: the texts it turns into vectors are sent in batches the
+  platform accepts (at most 64 texts, 8,000 characters each, 32,000 together), instead of one batch it
+  refused, which stopped the search sweep at the same place every minute.
+- Meaning search never mixes two embedding models: when MICO360 AI answers with another model than the
+  one chosen (the chosen one was unavailable), those vectors are not kept; meaning search pauses for 15
+  minutes and tries again, and the Error log notes it once instead of every minute.
+- Text cut in the middle of an emoji is no longer sent to MICO360 AI: half a character could make it turn
+  the whole request down, again and again.
+- AI keeps working while MICO360 AI's computers are busy: a model the platform leaves out of its list for
+  a while (a busy or restarting AI node) stays available for 3 days, and an empty list changes nothing and
+  is loaded again within the hour — before, a refresh at such a moment switched AI off for a day ("AI is
+  not configured yet").
+- Describe a meeting works at large companies too: with hundreds of people and projects its request could
+  be longer than the 32,000 characters MICO360 AI reads, and was refused as "too long". On MICO360 AI the
+  lists now fit the room left — the people and projects the sentence names come first — and every AI
+  feature, MICO AI's chat summaries included, stays within that size at its largest.
+
+### Improvements
+- Reading scanned files and pictures, and the Final MOM drafted with AI, now wait as long as MICO360 AI
+  itself does (just over 5 minutes) instead of giving up after 2–3 minutes and running the work again;
+  making meaning-search vectors waits 2 minutes instead of 30 seconds. Reading scans starts no new file
+  after 2 minutes in one go, so the rest of search keeps up to date.
+- When MICO360 AI's usage allowance (its quota) is used up, people are told so — "the usage allowance is
+  used up for now… an admin can check the key's quota in MICO360 Connect" — instead of "busy, try again in
+  a moment". Background work tries again only when the allowance resets within a few minutes; files
+  waiting to be read wait until it resets instead of being given up.
+- AI Management: MICO360 AI says it uses the AI API of MICO360 Connect 2.6.28 (https on port 5310, under
+  /v1) and which capabilities its key needs — Chat, plus Vision to read scanned files and pictures and
+  Embedding for meaning search. The setup guide (docs/AI-MICO360.md) is updated to match.
+
 ## [1.23.12] - 2026-11-11
 
 ### Security

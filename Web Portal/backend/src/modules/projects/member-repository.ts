@@ -6,6 +6,8 @@ export interface MemberUser {
   email: string;
   firstName: string;
   lastName: string;
+  /** Their profile photo, or null (avatar hotfix: the team list shows it). Optional for older stores. */
+  avatarUrl?: string | null;
   role: ProjectMemberRole;
 }
 

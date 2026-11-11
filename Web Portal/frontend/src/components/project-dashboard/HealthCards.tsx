@@ -217,7 +217,7 @@ function ActivityLine({ a, onOpenTask }: { a: ApiActivity; onOpenTask: (taskId: 
   const title = titleOf(a);
   return (
     <li className="flex gap-2 text-sm">
-      <Avatar name={a.actor?.name ?? '?'} size="sm" />
+      <Avatar name={a.actor?.name ?? '?'} src={a.actor?.avatarUrl} size="sm" decorative />
       <div className="min-w-0 flex-1">
         <p className="leading-snug text-ink">
           <bdi className="font-semibold">{a.actor?.name ?? 'Someone'}</bdi> <span className={ACTION_TONE[a.action] ?? 'text-ink-2'}>{ACTION_VERB[a.action] ?? a.action.toLowerCase().replace(/_/g, ' ')}</span>{' '}

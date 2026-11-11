@@ -2,6 +2,8 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { createTaskSearchIndex } from '../../src/modules/search/task-search-index';
 import { createSemanticSearch } from '../../src/modules/search/search-semantic';
+import { EmbeddingModelChangedError } from '../../src/modules/ai/ai-embeddings';
+import { ProviderRefusedError } from '../../src/modules/ai/ai-completion';
 
 // Requires a running MySQL (TEST_DATABASE_URL) with migrations applied.
 // 1.23 meaning search: vectors made by a sweep (only with an embedding model), nearest items for a
@@ -13,10 +15,13 @@ const WORDS = ['pump', 'valve', 'crane'];
 /** A stand-in embedding model: one number per known word, so "pump" questions are near pump tasks. */
 const vector = (text: string) => WORDS.map((w) => (text.toLowerCase().includes(w) ? 1 : 0.01));
 let embedded: string[] = [];
+/** How each embed call was asked: the sweep is background work (MICO360 AI waits 120 s), a question is not. */
+const asked: Array<{ background?: boolean; question: boolean }> = [];
 let model: { id: string; modelKey: string } | null = { id: `emb-${tag}`, modelKey: 'stand-in' };
 const ai = {
   embeddingModel: async () => model,
-  embed: async (texts: string[]) => {
+  embed: async (texts: string[], opts?: { signal?: AbortSignal; background?: boolean }) => {
+    asked.push({ background: opts?.background, question: texts.some((x) => x.includes('makes noise')) });
     embedded.push(...texts);
     return { model: model!.id, vectors: texts.map(vector) };
   },
@@ -62,6 +67,8 @@ describe('meaning search (database)', () => {
     expect(await prisma.searchEmbedding.count({ where: { model: `emb-${tag}`, recordId: { in: Object.values(t) } } })).toBe(3);
     const near = await semantic.nearest('my pump makes noise', { limit: 2 });
     expect(near[0]).toMatchObject({ kind: 'task', id: t.pump });
+    expect(asked.filter((a) => !a.question).every((a) => a.background === true)).toBe(true);
+    expect(asked.filter((a) => a.question)).toEqual([{ background: undefined, question: true }]);
   });
 
   it('review M3: an item indexed again with the same text is not embedded again; one whose text changed is', async () => {
@@ -80,5 +87,42 @@ describe('meaning search (database)', () => {
     await taskIndex.refresh([t.crane!]);
     await semantic.prune();
     expect(await prisma.searchEmbedding.count({ where: { kind: 'task', recordId: t.crane! } })).toBe(0);
+  });
+
+  // Review minor 9: while MICO360 AI answers with another embedding model, or its quota is used up, the
+  // sweep pauses 15 minutes instead of trying (and logging an error) every minute — and logs it once.
+  it('pauses after another model answered or a used-up quota, and logs it once', async () => {
+    let at = new Date('2026-11-11T08:00:00Z').getTime();
+    let calls = 0;
+    let refuse: Error | null = new EmbeddingModelChangedError('bge-m3:latest');
+    const errors: string[] = [];
+    const paused = createSemanticSearch({
+      prisma,
+      now: () => new Date(at),
+      logger: { error: (m: string) => void errors.push(m) },
+      ai: {
+        embeddingModel: async () => ({ id: `emb2-${tag}`, modelKey: 'stand-in' }),
+        embed: async (texts: string[]) => {
+          calls += 1;
+          if (refuse) throw refuse;
+          return { model: `emb2-${tag}`, vectors: texts.map(vector) };
+        },
+      },
+    });
+    expect(await paused.embedPending(5)).toBe(0);
+    expect(calls).toBe(1);
+    expect(await paused.embedPending(5)).toBe(0); // a minute later: paused, nothing sent
+    at += 60_000;
+    expect(await paused.embedPending(5)).toBe(0);
+    expect(calls).toBe(1);
+    at += 15 * 60_000;
+    refuse = new ProviderRefusedError(429, 'Quota exceeded: tokens per day.', true, 40000);
+    expect(await paused.embedPending(5)).toBe(0); // tried again after 15 minutes: still refused
+    expect(calls).toBe(2);
+    expect(errors.filter((e) => /paused/.test(e))).toHaveLength(1); // one episode, one log
+    at += 15 * 60_000;
+    refuse = null;
+    expect(await paused.embedPending(5)).toBeGreaterThan(0); // the episode is over
+    await prisma.searchEmbedding.deleteMany({ where: { model: `emb2-${tag}` } });
   });
 });

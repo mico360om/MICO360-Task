@@ -110,6 +110,18 @@ describe('SettingsPage — photo', () => {
   });
 });
 
+describe('SettingsPage — a new photo shows in the header at once (11 Nov)', () => {
+  it('takes the new photo and keeps their name', async () => {
+    useAuthStore.getState().setSession({ user: { ...me, firstName: 'Ada', lastName: 'Lovelace' }, accessToken: 'at', refreshToken: 'rt' });
+    photoAnswer = () => json({ data: { ...me, firstName: 'Ada', lastName: 'Lovelace', avatarUrl: '/uploads/new.png' } });
+    renderPage();
+    await screen.findAllByRole('switch');
+    fireEvent.change(document.querySelector('input[type="file"]') as HTMLInputElement, { target: { files: [new File(['x'], 'me.png', { type: 'image/png' })] } });
+    await waitFor(() => expect(useAuthStore.getState().user?.avatarUrl).toBe('/uploads/new.png'));
+    expect(useAuthStore.getState().user).toMatchObject({ firstName: 'Ada', lastName: 'Lovelace' });
+  });
+});
+
 describe('SettingsPage — how long the sign-in lasts', () => {
   it('says 30 days when "Keep me signed in" was chosen', async () => {
     useAuthStore.getState().setSession({ user: me, accessToken: 'at', refreshToken: 'rt' }, { remember: true });

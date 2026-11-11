@@ -102,7 +102,11 @@ const isApi = (url: string) => url.startsWith('/api/');
  * own events: Node 24 with Fastify 5 keeps the request's context across that, and should another Node
  * not, the request is entered again before its route runs (preValidation — nothing to do otherwise).
  */
-export function registerRequestTiming(app: FastifyInstance, opts: { clock?: () => number } = {}): void {
+export function registerRequestTiming(app: FastifyInstance, opts: { clock?: () => number; uptime?: () => number } = {}): void {
+  // 1.23.14: the server's uptime (ms) goes with each answer (up;dur=…): a request answered by a server that
+  // started after the request was sent waited for an update restart, not on a slow server (the website's
+  // Error log tells them apart). /health says the same to anyone already.
+  const uptime = opts.uptime ?? (() => process.uptime() * 1000);
   app.addHook('onRequest', (req, _reply, done) => {
     if (!isApi(req.url)) return done();
     const timing = createRequestTiming(opts.clock);
@@ -116,7 +120,7 @@ export function registerRequestTiming(app: FastifyInstance, opts: { clock?: () =
   });
   app.addHook('onSend', (req, reply, payload, done) => {
     const timing = timings.get(req);
-    if (timing) reply.header('Server-Timing', serverTimingValue(timing.read()));
+    if (timing) reply.header('Server-Timing', `${serverTimingValue(timing.read())}, up;dur=${Math.max(0, Math.round(uptime()))}`);
     done(null, payload);
   });
 }
