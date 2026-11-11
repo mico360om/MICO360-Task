@@ -26,7 +26,7 @@ const MUTED: RGB = [0.42, 0.4, 0.38];
 
 const valueOf = (t: Pick<KpiTile, 'metric' | 'unit' | 'value'>) => formatKpiValue(t.metric, t.unit, t.value);
 const targetOf = (t: Pick<KpiTile, 'metric' | 'unit' | 'direction' | 'target'>) => formatKpiTarget(t.metric, t.unit, t.direction, t.target);
-const lightWord = (t: { light: Light; words: string }) => (t.light === 'green' || t.light === 'amber' || t.light === 'red' ? `• ${t.words}` : t.words || '—');
+const lightWord = (t: { light: Light; words: string }) => (t.light === 'green' || t.light === 'amber' || t.light === 'red' ? `•\u00A0${t.words}` : t.words || '—');
 
 /** project-kpis-<code>-<day>.pdf / .xlsx */
 export function projectKpiFileName(k: Pick<ProjectKpis, 'project' | 'today'>, ext: 'pdf' | 'xlsx'): string {

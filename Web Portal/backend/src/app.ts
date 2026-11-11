@@ -1164,10 +1164,11 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       if (deps.management) {
         await registerManagementRoutes(api, { ...deps.management, guard, pickOf, pdfBrand: scopeBrand }); // companies: follows the pick; pdfBrand
       }
-      if (deps.kpis && canViewProject) {
-        // Project KPIs and User KPIs: one project (who may see it), the Management table (follows the pick),
-        // a person's (themselves, administrators, their projects' managers), the company targets (admins).
-        await registerKpiRoutes(api, { ...deps.kpis, guard, canViewProject, pickOf, pdfBrand: scopeBrand });
+      if (deps.kpis) {
+        // Project KPIs and User KPIs: one project (who may see it — nobody without the project rules), the
+        // Management table (follows the pick), a person's (themselves, administrators, their projects'
+        // managers), the company targets (administrators).
+        await registerKpiRoutes(api, { ...deps.kpis, guard, canViewProject: canViewProject ?? (async () => false), pickOf, pdfBrand: scopeBrand });
       }
       if (deps.inspections) {
         // companies: a form's usage counts follow the person's projects and the pick.
