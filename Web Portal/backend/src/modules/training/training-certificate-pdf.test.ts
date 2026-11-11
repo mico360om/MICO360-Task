@@ -32,9 +32,10 @@ describe('certificate PDF (A4, the PDF standard)', () => {
     const pages = textOf(buf);
     expect(pages).toHaveLength(1);
     const text = pages[0]!;
-    for (const words of ['Certificate of completion', 'This certifies that', 'Ana Alpha', 'has completed', 'Tasks basics', '11 Nov 2026', 'TC-ABCD-EFGH-JKMN', 'https://task.example.com/verify/TC-ABCD-EFGH-JKMN', 'Printed']) {
+    for (const words of ['Certificate of completion', 'This certifies that', 'Ana Alpha', 'has completed', 'Tasks basics', '11 Nov 2026', 'TC-ABCD-EFGH-JKMN', 'https://task.example.com/verify/TC-ABCD-EFGH-JKMN', 'Printed', 'Issued through MICO360 Tasks · Learning Hub']) {
       expect(text).toContain(words);
     }
+    expect(text).not.toContain('Training Center');
     // The verification address is a real link.
     expect(buf.toString('latin1')).toMatch(/\/URI \(https:\/\/task\.example\.com\/verify\/TC-ABCD-EFGH-JKMN\)/);
     // No score, no expiry, nobody named: those lines are left out.

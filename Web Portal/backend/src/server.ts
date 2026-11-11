@@ -1946,14 +1946,14 @@ async function main(): Promise<void> {
   const runTrainingStarter = () =>
     runExclusive(jobLock, 'training-starter', SWEEP_LEASE_MS, () => new Date(), async () => {
       const r = await training.starter.run();
-      if (r.loaded) logger.job('training').info('Training Center: starter courses loaded', { loaded: r.loaded, skipped: r.skipped });
+      if (r.loaded) logger.job('training').info('Learning Hub: starter courses loaded', { loaded: r.loaded, skipped: r.skipped });
     }).catch(sweepFailed('training-starter', 'training starter courses'));
   // At boot, then every 6 hours (a no-op once loaded; tries again when a course could not load).
   jobs.every(6 * 60 * 60 * 1000, runTrainingStarter, { firstAfterMs: 20 * 1000 });
   const runTrainingReminders = () =>
     runExclusive(jobLock, 'training-reminders', SWEEP_LEASE_MS, () => new Date(), async () => {
       const r = await training.sweeps.reminders.run();
-      if (r.sent) logger.job('training').info('Training Center: reminders sent', { sent: r.sent });
+      if (r.sent) logger.job('training').info('Learning Hub: reminders sent', { sent: r.sent });
     }).catch(sweepFailed('training-reminders', 'training reminders'));
   jobs.every(60 * 60 * 1000, runTrainingReminders, { firstAfterMs: 4 * 60 * 1000 });
   const runTrainingMembership = () =>

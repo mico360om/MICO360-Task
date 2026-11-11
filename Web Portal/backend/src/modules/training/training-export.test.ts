@@ -34,7 +34,7 @@ describe('training report as Excel', () => {
     const x = inspectXlsx(buildTrainingReportXlsx(report, meta));
     expect(x.sheets).toEqual(['Summary', 'Overdue', 'Certificates expiring', 'Quizzes']);
     const [summary, overdue, expiring, quizzes] = x.text.map((t) => t.join(' | '));
-    for (const w of ['Training report', 'People in your companies', 'Course: all courses', 'Printed', 'Tariq Training', 'Course', 'Completion rate', 'Average score', 'Tasks basics', 'Meetings & minutes', 'All courses']) expect(summary).toContain(w);
+    for (const w of ['Learning Hub report', 'People in your companies', 'Course: all courses', 'Printed', 'Tariq Training', 'Course', 'Completion rate', 'Average score', 'Tasks basics', 'Meetings & minutes', 'All courses']) expect(summary).toContain(w);
     for (const w of ['Ana Alpha', 'Tasks basics', 'Mandatory', 'Yes', 'No']) expect(overdue).toContain(w);
     expect(expiring).toContain('Ben Beta');
     expect(quizzes).toContain('Tasks quiz');
@@ -59,7 +59,7 @@ describe('training report as a PDF (the PDF standard)', () => {
     const pdf = inspectPdf(buildTrainingReportPdf(report, { ...meta, company: { companyName: 'Alpha LLC', logo: null } }));
     const text = pdf.pages.map((p) => p.join('\n')).join('\n');
     for (const w of [
-      'Training report',
+      'Learning Hub report',
       'By course · People in your companies',
       'Course: all courses',
       'People',
@@ -95,7 +95,7 @@ describe('training report as a PDF (the PDF standard)', () => {
 
 describe('file names', () => {
   it('say what it is grouped by and the day', () => {
-    expect(trainingReportFileName({ by: 'course' }, 'xlsx', '2026-11-11')).toBe('Training report by course 2026-11-11.xlsx');
-    expect(trainingReportFileName({ by: 'department' }, 'pdf', '2026-11-11')).toBe('Training report by department 2026-11-11.pdf');
+    expect(trainingReportFileName({ by: 'course' }, 'xlsx', '2026-11-11')).toBe('Learning Hub report by course 2026-11-11.xlsx');
+    expect(trainingReportFileName({ by: 'department' }, 'pdf', '2026-11-11')).toBe('Learning Hub report by department 2026-11-11.pdf');
   });
 });

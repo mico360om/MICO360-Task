@@ -322,13 +322,13 @@ describe('the files', () => {
     const x = await get('admin', `/training/reports/export.xlsx?by=course&courseId=${C.c1}`);
     expect(x.statusCode).toBe(200);
     expect(x.headers['content-type']).toContain('spreadsheetml');
-    expect(String(x.headers['content-disposition'])).toContain(`Training report by course ${today}.xlsx`);
+    expect(String(x.headers['content-disposition'])).toContain(`Learning Hub report by course ${today}.xlsx`);
     expect(x.headers['cache-control']).toBe('no-store');
     expect(x.rawPayload.subarray(0, 2).toString()).toBe('PK');
     const p = await get('amy', '/training/reports/export.pdf?by=person');
     expect(p.statusCode).toBe(200);
     expect(p.headers['content-type']).toBe('application/pdf');
-    expect(String(p.headers['content-disposition'])).toContain(`Training report by person ${today}.pdf`);
+    expect(String(p.headers['content-disposition'])).toContain(`Learning Hub report by person ${today}.pdf`);
     expect(p.rawPayload.subarray(0, 5).toString()).toBe('%PDF-');
   });
 });

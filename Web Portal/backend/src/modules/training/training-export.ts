@@ -23,13 +23,13 @@ export interface ReportFileMeta {
 const BY_LABEL: Record<ReportBy, string> = { course: 'Course', person: 'Person', department: 'Department', role: 'Role', company: 'Company', project: 'Project' };
 const SCOPE_LABEL: Record<TrainingReport['scope'], string> = { ALL: 'All people', COMPANIES: 'People in your companies', TEAM: 'Your projects’ teams' };
 const MUTED: RGB = [0.42, 0.4, 0.38];
-const TITLE = 'Training report';
+const TITLE = 'Learning Hub report';
 
 const pct = (v: number | null) => (v === null ? '—' : `${v}%`);
 const yesNo = (b: boolean) => (b ? 'Yes' : 'No');
 const expiresDay = (iso: string, timeZone: string) => zonedDayKey(new Date(iso), timeZone);
 
-/** "Training report by course 2026-11-11.xlsx" */
+/** "Learning Hub report by course 2026-11-11.xlsx" */
 export function trainingReportFileName(r: Pick<TrainingReport, 'by'>, ext: 'pdf' | 'xlsx', today: string): string {
   return `${TITLE} by ${r.by} ${today}.${ext}`;
 }

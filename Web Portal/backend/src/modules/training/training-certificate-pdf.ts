@@ -40,11 +40,12 @@ export function buildCertificatePdf(c: CertificatePdf, opts: { printedBy?: strin
   const doc = new PdfDocument({
     title: `Certificate - ${c.courseTitle} - ${c.learnerName}`,
     runningTitle: 'Certificate of completion',
-    footer: { company: companyName, printed: printedLine(opts.now ?? new Date(), c.timeZone, opts.printedBy ?? null) },
+    // Owner, 11 Nov night: the area is the Learning Hub.
+    footer: { company: companyName, printed: printedLine(opts.now ?? new Date(), c.timeZone, opts.printedBy ?? null), extra: [`Issued through ${resolveBrand().productName} · Learning Hub`] },
     palette: { brand: BRAND },
     ...(c.company.logo ? { logo: c.company.logo } : {}),
   });
-  doc.reportHeader({ title: 'Certificate of completion', subtitle: companyName, details: ['Training Center'] });
+  doc.reportHeader({ title: 'Certificate of completion', subtitle: companyName, details: ['Learning Hub'] });
 
   if (c.status === 'REVOKED') doc.statusStrip(c.revokedReason?.trim() ? `Revoked: ${c.revokedReason.trim()}` : 'Revoked', 'warning');
   else if (c.status === 'EXPIRED') doc.statusStrip(c.expiresAt ? `Expired on ${day(c.expiresAt)}` : 'Expired', 'warning');
