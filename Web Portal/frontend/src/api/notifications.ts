@@ -49,7 +49,29 @@ export interface NotificationPreferences {
   dailyEmails?: DailyEmailPrefs;
   /** The weekly management summary (for the people who can see the Management page); the server says true unless turned off. */
   weeklySummary?: boolean;
+  /** Notification & Scheduling centre: the person's own choice per kind and channel (unset = the company's default). */
+  channels?: Partial<Record<string, Partial<{ bell: boolean; push: boolean; email: boolean }>>>;
+  /** Their quiet hours: the company's (outside working hours), their own (in their time zone), or none. */
+  quietHours?: PersonQuietHours;
+  /** Whether meeting reminders and @mentions come through quiet hours (unset: the company's default). */
+  breakThrough?: { meetings?: boolean; mentions?: boolean };
+  /** "Pause everything except required" until this instant. */
+  pauseUntil?: string;
 }
+
+export interface PersonQuietHours {
+  mode: 'company' | 'custom' | 'off';
+  start: string;
+  end: string;
+  daysOff: boolean;
+}
+
+/** A save: only what changed; `null` clears quiet hours, break-through or Pause (back to the company's / no pause). */
+export type NotificationPreferencesSave = Partial<Omit<NotificationPreferences, 'quietHours' | 'breakThrough' | 'pauseUntil'>> & {
+  quietHours?: PersonQuietHours | null;
+  breakThrough?: { meetings?: boolean; mentions?: boolean } | null;
+  pauseUntil?: string | null;
+};
 
 /**
  * The daily email (1.22: one email, in parts). `pending` (your tasks by project) and `completed`
@@ -103,7 +125,7 @@ export function notificationsApi(client: ApiClient) {
       client.post<{ data: { count: number } }>('/notifications/bulk', { ids, action }, opts).then((r) => r.data),
     getPreferences: () => client.get<{ data: NotificationPreferences }>('/notifications/preferences').then((r) => r.data),
     /** Saves what is sent; daily email settings left out are kept as they are. */
-    setPreferences: (prefs: Partial<NotificationPreferences>) =>
+    setPreferences: (prefs: NotificationPreferencesSave) =>
       client.put<{ data: NotificationPreferences }>('/notifications/preferences', prefs).then((r) => r.data),
     sendDailyTest: () => client.post<{ data: DailyEmailTestResult }>('/notifications/daily-emails/test').then((r) => r.data),
   };

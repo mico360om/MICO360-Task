@@ -1,18 +1,17 @@
 import { useRef, useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { useAuthStore } from '../stores/auth-store';
 import { useSignOut } from '../lib/useSignOut';
 import { SignOutWarning } from '../components/SignOutWarning';
 import { PageHeader } from '../components/ui/PageHeader';
 import { apiClient, assetUrl } from '../api/client';
-import { notificationsApi, type NotificationPreferences } from '../api/notifications';
+import { notificationsApi } from '../api/notifications';
+import { NotificationSettings, PREFS_KEY } from '../components/settings/NotificationSettings';
 import { usersApi } from '../api/users';
 import { useThemeChoice, type ThemeChoice } from '../lib/theme';
 import { DatePreferences } from '../components/DatePreferences';
-import { LoadError } from '../components/ui/LoadError';
 import { photoUploadProblem } from '../lib/photo-upload';
-import { Toggle } from '../components/ui/Toggle';
 import { DAILY_EMAIL_ANCHOR, DailyEmailSettings } from '../components/settings/DailyEmailSettings';
 import { useScrollToHash } from '../lib/useScrollToHash';
 import { WeeklySummarySettings } from '../components/settings/WeeklySummarySettings';
@@ -21,31 +20,7 @@ import { MicrosoftTeamsSettings } from '../components/settings/MicrosoftTeamsSet
 import { DensitySetting } from '../components/settings/DensitySetting';
 import { ColumnWidthSetting, SidebarSetting } from '../components/board/ColumnWidthButton';
 
-const NOTIF_TYPES: { type: string; label: string; desc: string }[] = [
-  { type: 'TASK_ASSIGNED', label: 'Task assignments', desc: 'When a task is assigned to you' },
-  { type: 'TASK_STATUS', label: 'Status changes', desc: 'When one of your tasks moves column' },
-  { type: 'TASK_APPROVAL', label: 'Approvals', desc: 'When a task waits for your approval, or yours is approved or sent back' },
-  { type: 'TASK_CLIENT_SIGN_OFF', label: 'Client sign-off', desc: 'When a client accepts a task or sends it back' },
-  { type: 'TASK_COMMENT', label: 'Comments', desc: 'New comments on tasks you’re on' },
-  { type: 'MENTION', label: 'Mentions', desc: 'When someone @mentions you' },
-  { type: 'TASK_DUE_SOON', label: 'Due soon', desc: 'A reminder shortly before a task is due' },
-  { type: 'TASK_OVERDUE', label: 'Overdue', desc: 'When one of your tasks becomes overdue' },
-  { type: 'PROJECT_ADDED', label: 'Added to a project', desc: 'When someone puts you on a project’s team or makes you its owner' },
-  { type: 'MEETING_REMINDER', label: 'Meeting reminders', desc: 'Before each meeting you organize or are invited to' },
-];
-
 const THEME_OPTIONS: ThemeChoice[] = ['light', 'dark', 'system'];
-
-/** "Remind me before a task is due" presets (minutes). `null` = the workspace default. */
-const LEAD_OPTIONS: { label: string; value: number | null }[] = [
-  { label: 'Default (1 day)', value: null },
-  { label: 'At due time', value: 0 },
-  { label: '1 hour before', value: 60 },
-  { label: '4 hours before', value: 240 },
-  { label: '1 day before', value: 1440 },
-  { label: '2 days before', value: 2880 },
-  { label: '1 week before', value: 10080 },
-];
 
 export function SettingsPage() {
   const qc = useQueryClient();
@@ -59,7 +34,6 @@ export function SettingsPage() {
   // "Keep me signed in": the session survives a browser restart; otherwise it ends with this window.
   const remembered = useAuthStore((st) => st.remember);
   const [photoProblem, setPhotoProblem] = useState<string | null>(null);
-  const [saveProblem, setSaveProblem] = useState<string | null>(null);
   const setSession = useAuthStore((s) => s.setSession);
   async function onAvatarPick(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -106,41 +80,13 @@ export function SettingsPage() {
     }
   }
 
-  const prefsQ = useQuery({ queryKey: ['notification-prefs'], queryFn: () => notificationsApi(apiClient).getPreferences() });
+  // Notifications are their own card (Notification & Scheduling centre); it loads its own settings.
+  const prefsQ = useQuery({ queryKey: PREFS_KEY, queryFn: () => notificationsApi(apiClient).getPreferences() });
   // 1.22: the Notifications page's "Notification settings" link (/settings#notifications), and the
   // daily email's links to its settings and to the time zone (/settings#daily-email, #time-zone).
   useScrollToHash('notifications', !prefsQ.isLoading);
   useScrollToHash(DAILY_EMAIL_ANCHOR, !prefsQ.isLoading);
   useScrollToHash('time-zone', !prefsQ.isLoading);
-  const prefs = prefsQ.data ?? { muted: [] };
-  const muted = prefs.muted ?? [];
-
-  const setMut = useMutation({
-    // Only the muted types and the reminder time (the server saves them together and keeps the rest),
-    // so a tab opened earlier can never send back an old daily email or weekly summary choice.
-    mutationFn: (next: { muted: string[]; reminderLeadMinutes?: number }) => notificationsApi(apiClient).setPreferences(next),
-    onMutate: async (next) => {
-      setSaveProblem(null);
-      await qc.cancelQueries({ queryKey: ['notification-prefs'] });
-      const prev = qc.getQueryData<NotificationPreferences>(['notification-prefs']);
-      qc.setQueryData<NotificationPreferences>(['notification-prefs'], { ...prev, ...next });
-      return { prev };
-    },
-    onError: (_e, _v, ctx) => {
-      if (ctx?.prev) qc.setQueryData(['notification-prefs'], ctx.prev);
-      // The switch goes back to what is stored — say why, or it looks like a glitch.
-      setSaveProblem('Couldn’t save that change. Please try again.');
-    },
-    onSettled: () => qc.invalidateQueries({ queryKey: ['notification-prefs'] }),
-  });
-
-  function toggle(type: string) {
-    const isOn = !muted.includes(type);
-    setMut.mutate({ muted: isOn ? [...muted, type] : muted.filter((t) => t !== type), reminderLeadMinutes: prefs.reminderLeadMinutes });
-  }
-  function setLead(minutes: number | undefined) {
-    setMut.mutate({ muted, reminderLeadMinutes: minutes });
-  }
 
   const initials = (user?.username ?? '?').slice(0, 2).toUpperCase();
 
@@ -200,49 +146,8 @@ export function SettingsPage() {
           </dl>
         </section>
 
-        {/* Notifications */}
-        <section id="notifications" className="card scroll-mt-20 p-5">
-          <h2 className="eyebrow mb-4">Notifications</h2>
-          {saveProblem ? <p role="alert" className="mb-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{saveProblem}</p> : null}
-          {prefsQ.isError ? (
-            <LoadError what="your notification preferences" onRetry={() => void prefsQ.refetch()} />
-          ) : (
-            <ul className="flex flex-col divide-y divide-line">
-              {NOTIF_TYPES.map((n) => {
-                const on = !muted.includes(n.type);
-                return (
-                  <li key={n.type} className="flex items-center justify-between gap-4 py-3 first:pt-0 last:pb-0">
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium text-ink">{n.label}</div>
-                      <div className="text-xs text-ink-2">{n.desc}</div>
-                    </div>
-                    <Toggle on={on} onChange={() => toggle(n.type)} label={`Notify me: ${n.label}`} />
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-          {!prefsQ.isError ? (
-            <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4">
-              <div>
-                <div className="text-sm font-medium text-ink">Remind me before due</div>
-                <div className="text-xs text-ink-2">How early a “due soon” reminder is sent for your tasks.</div>
-              </div>
-              <select
-                aria-label="Reminder timing"
-                value={prefs.reminderLeadMinutes ?? ''}
-                onChange={(e) => setLead(e.target.value === '' ? undefined : Number(e.target.value))}
-                className="rounded-lg border border-line bg-surface px-3 py-1.5 text-sm text-ink outline-none transition-colors focus:border-brand focus:ring-2 focus:ring-brand/20"
-              >
-                {LEAD_OPTIONS.map((o) => (
-                  <option key={o.label} value={o.value ?? ''}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          ) : null}
-        </section>
+        {/* Notifications: each kind × channel, quiet hours, Pause (Notification & Scheduling centre) */}
+        <NotificationSettings />
 
         {/* The daily email */}
         <DailyEmailSettings />

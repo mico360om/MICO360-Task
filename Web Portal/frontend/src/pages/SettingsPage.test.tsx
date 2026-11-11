@@ -5,6 +5,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SettingsPage } from './SettingsPage';
 import { useAuthStore } from '../stores/auth-store';
+import { personPolicy } from '../test/notify-policy';
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -25,6 +26,7 @@ beforeEach(() => {
     if (u.includes('/avatar')) return photoAnswer();
     if (u.includes('/notifications/preferences') && method !== 'GET') return saveAnswer();
     if (u.includes('/notifications/preferences')) return json({ data: { muted: [] } });
+    if (u.includes('/notifications/policy')) return json({ data: personPolicy() });
     return json({ data: [] });
   }));
 });
@@ -62,36 +64,21 @@ describe('SettingsPage — the daily email', () => {
   });
 });
 
-describe('SettingsPage — notification switches', () => {
-  it('lets people mute being told they were added to a project', async () => {
-    renderPage();
-    expect(await screen.findByRole('switch', { name: 'Notify me: Added to a project' })).toBeInTheDocument();
-  });
-
-  it('lets people mute the approval notices (waiting for you; yours approved or sent back)', async () => {
-    renderPage();
-    expect(await screen.findByRole('switch', { name: 'Notify me: Approvals' })).toBeInTheDocument();
-    expect(screen.getByText('When a task waits for your approval, or yours is approved or sent back')).toBeInTheDocument();
-  });
-
-  // 1.23: a client accepting a task or sending it back (in the Client portal).
-  it('lets people mute the client sign-off notices', async () => {
-    renderPage();
-    expect(await screen.findByRole('switch', { name: 'Notify me: Client sign-off' })).toBeInTheDocument();
-    expect(screen.getByText('When a client accepts a task or sends it back')).toBeInTheDocument();
-  });
-
-  it('lets people switch off meeting reminders (on until they do)', async () => {
-    renderPage();
-    const sw = await screen.findByRole('switch', { name: 'Notify me: Meeting reminders' });
-    expect(sw).toHaveAttribute('aria-checked', 'true');
-    expect(screen.getByText('Before each meeting you organize or are invited to')).toBeInTheDocument();
+// Notification & Scheduling centre: the old "Notify me: …" switch per type became a kind × channel
+// table (its own tests: components/settings/NotificationSettings.test.tsx).
+describe('SettingsPage — notifications', () => {
+  it('has the Notifications card where the Notifications page’s link opens it', async () => {
+    const { container } = renderPage();
+    expect(await screen.findByRole('switch', { name: 'Added to a project: in the app' })).toBeInTheDocument();
+    expect(container.querySelector('section#notifications')).toHaveTextContent('Notifications');
+    expect(screen.getByRole('switch', { name: 'Approvals and client sign-off: in the app' })).toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: 'Meeting reminders: phone push' })).toHaveAttribute('aria-checked', 'true');
   });
 
   it('says so when a switch could not be saved (it used to flip back without a word)', async () => {
     saveAnswer = () => json({ error: { code: 'INTERNAL', message: 'boom' } }, 500);
     renderPage();
-    const first = (await screen.findAllByRole('switch'))[0]!;
+    const first = await screen.findByRole('switch', { name: 'Assigned to me: in the app' });
     await waitFor(() => expect(first).toHaveAttribute('aria-checked', 'true'));
     fireEvent.click(first);
     expect(await screen.findByRole('alert')).toHaveTextContent(/couldn’t save that change/i);
@@ -102,11 +89,12 @@ describe('SettingsPage — notification switches', () => {
   it('clears the message when the next change is saved', async () => {
     saveAnswer = () => json({ error: { code: 'INTERNAL', message: 'boom' } }, 500);
     renderPage();
-    const first = (await screen.findAllByRole('switch'))[0]!;
+    const first = await screen.findByRole('switch', { name: 'Assigned to me: in the app' });
     await waitFor(() => expect(first).toHaveAttribute('aria-checked', 'true'));
     fireEvent.click(first);
     await screen.findByRole('alert');
     saveAnswer = () => json({ data: { muted: ['TASK_ASSIGNED'] } });
+    await waitFor(() => expect(first).not.toBeDisabled());
     fireEvent.click(first);
     await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
   });
@@ -190,7 +178,7 @@ describe('signing out with inspection changes still on this device', () => {
 });
 
 describe('SettingsPage — a notification switch saves only what it changes (M-4)', () => {
-  it('never sends the weekly summary or the daily email settings back (an older tab can’t turn them on again)', async () => {
+  it('sends only that kind’s channel — never the weekly summary or the daily email settings (an older tab can’t turn them on again)', async () => {
     const bodies: unknown[] = [];
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
       const u = String(url);
@@ -200,14 +188,14 @@ describe('SettingsPage — a notification switch saves only what it changes (M-4
         return json({ data: { muted: ['TASK_ASSIGNED'], reminderLeadMinutes: 120, weeklySummary: false, dailyEmails: { pending: false, completed: true, time: '07:00' } } });
       }
       if (u.includes('/notifications/preferences')) return json({ data: { muted: [], reminderLeadMinutes: 120, weeklySummary: false, dailyEmails: { pending: false, completed: true, time: '07:00' } } });
+      if (u.includes('/notifications/policy')) return json({ data: personPolicy() });
       return json({ data: [] });
     }));
     renderPage();
-    const first = (await screen.findAllByRole('switch', { name: /^Notify me:/ }))[0]!;
+    const first = await screen.findByRole('switch', { name: 'Assigned to me: in the app' });
     await waitFor(() => expect(first).toHaveAttribute('aria-checked', 'true'));
     fireEvent.click(first);
     await waitFor(() => expect(bodies).toHaveLength(1));
-    expect(Object.keys(bodies[0] as object).sort()).toEqual(['muted', 'reminderLeadMinutes']);
-    expect(bodies[0]).toMatchObject({ reminderLeadMinutes: 120 });
+    expect(bodies[0]).toEqual({ channels: { assigned: { bell: false } } });
   });
 });
