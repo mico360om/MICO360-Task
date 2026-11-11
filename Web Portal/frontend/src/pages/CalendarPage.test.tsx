@@ -207,7 +207,8 @@ describe('CalendarPage — how tasks look', () => {
     expect(key).toHaveClass('py-0', 'shrink-0'); // dense: the one-line chip keeps its 24px
     const title = within(c).getByText('Late invoice');
     expect(key.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(title).toHaveClass('truncate');
+    // tcal: calendar scheduling — names not cut (owner): two lines in comfortable rows (one, cut, in compact).
+    expect(title).toHaveClass('line-clamp-2');
     expect(c).toHaveAccessibleName(/^MICO-2 Late invoice, /);
   });
 
@@ -421,6 +422,8 @@ describe('CalendarPage — busy days', () => {
     vi.stubGlobal('ResizeObserver', FakeResizeObserver);
     tasks = Array.from({ length: 6 }, (_, i) => task({ id: `b${i}`, key: `MICO-${10 + i}`, title: `Busy day job ${i + 1}`, dueDate: '2026-10-15T00:00:00.000Z' }));
     renderPage();
+    // Calendar scheduling: two-line bars (comfortable) only where a week has room for three; a 120px day hasn't,
+    // so its bars take one line each.
     const more = await screen.findByRole('button', { name: /4 more tasks on Thu 15 Oct/i });
     expect(more).toHaveTextContent('+4 more');
     expect(within(day('2026-10-15')).getAllByRole('button', { name: /Busy day job/ })).toHaveLength(2);

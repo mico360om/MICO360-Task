@@ -45,6 +45,7 @@ import { isProjectArchived } from '../lib/project-archive';
 import { useWorkingTime } from '../lib/useWorkingTime';
 import { dayOffReason } from '../lib/working-days';
 import { approvalNotice } from '../lib/approvals';
+import { useDensity } from '../lib/density';
 
 const VIEWS: CalendarView[] = ['month', 'week', 'day', 'agenda'];
 const isDay = (s: string | null): s is string => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(`${s}T00:00:00Z`));
@@ -119,6 +120,9 @@ export function CalendarPage() {
   const fit = !compactMonth;
   const pageRef = useRef<HTMLDivElement>(null);
   const pageTop = useFrameOffset(pageRef, fit);
+  // Names not cut (owner): a month bar's title takes one line in compact rows, two in comfortable, three in detailed.
+  const density = useDensity();
+  const lines = density === 'compact' ? 1 : density === 'detailed' ? 3 : 2;
 
   // View, day and filters change at once here, and are copied to the address (see the calendar memory:
   // reading them back from the router made a ticked box flicker).
@@ -801,6 +805,7 @@ export function CalendarPage() {
               colorOf={colorOf}
               dayOff={dayOff}
               selected={split ? selected : null}
+              lines={lines}
               canDragTask={canDragTask}
               canDragBlock={canDragBlock}
               onOpenItem={(item) => setPreviewKey(item.key)}

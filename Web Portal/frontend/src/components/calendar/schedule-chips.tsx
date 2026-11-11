@@ -126,6 +126,7 @@ export function TaskBar({
   onOpen,
   onKeyMove,
   detailed = false,
+  lines = 1,
   showKey = false,
   sub,
 }: {
@@ -141,6 +142,8 @@ export function TaskBar({
   onKeyMove?: (item: SpanItem, move: KeyMove) => void;
   /** Detailed rows: the title wraps to two lines. */
   detailed?: boolean;
+  /** Lines of title (Month: 1 compact, 2 comfortable, 3 detailed — owner: "names not cut"). */
+  lines?: 1 | 2 | 3;
   /** The task's number always (Week and Day); otherwise only where a day is wide enough (2xl). */
   showKey?: boolean;
   /** Words after the title (Week and Day: the project). */
@@ -152,7 +155,6 @@ export function TaskBar({
   const name = barName(item, role);
   const showStart = startsHere && (role === 'bar' || role === 'start');
   const showDue = endsHere && (role === 'bar' || role === 'due' || role === 'single');
-  const due = item.dueMinutes !== null ? ` ${timeLabel(item.dueMinutes)}` : '';
   return (
     <div
       role="button"
@@ -178,7 +180,7 @@ export function TaskBar({
         }
       }}
       style={color ? { borderInlineStartColor: color } : undefined}
-      className={`group/bar flex w-full min-w-0 items-center gap-1 rounded-md border border-s-[3px] text-start text-xs leading-4 transition-colors hover:brightness-[0.97] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brand ${detailed ? 'min-h-6 py-[3px]' : 'h-6'} [@media(pointer:coarse)]:min-h-[28px] ${s.chip} ${draggable ? 'cursor-grab active:cursor-grabbing' : ''}`}
+      className={`group/bar flex w-full min-w-0 items-center gap-1 rounded-md border border-s-[3px] text-start text-xs leading-4 transition-colors hover:brightness-[0.97] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brand ${detailed ? 'min-h-6 py-[3px]' : lines === 3 ? 'h-[52px] py-[2px]' : lines === 2 ? 'h-[38px] py-[2px]' : 'h-6'} [@media(pointer:coarse)]:min-h-[28px] ${s.chip} ${draggable ? 'cursor-grab active:cursor-grabbing' : ''}`}
     >
       {showStart ? (
         draggable ? <Grip edge="start" overdue={false} label="Drag to change the start date" payload={{ kind: 'task', id: item.task.id, grip: 'start', grabDay: item.start ?? '' }} /> : <span className="ps-1"><StartIcon /></span>
@@ -188,11 +190,10 @@ export function TaskBar({
       <span className="flex min-w-0 flex-1 items-center gap-1">
         <span data-status-dot aria-hidden="true" className={`inline-block h-1.5 w-1.5 flex-none rounded-full ${item.kind === 'projected' ? 'border border-dashed border-ink-2' : statusClass(item.task.columnCategory).dot}`} />
         {number ? <TaskKey value={number} dense className={showKey ? '' : 'hidden 2xl:inline-block'} /> : null}
-        <span dir="auto" className={`min-w-0 font-medium ${detailed ? 'line-clamp-2 [overflow-wrap:anywhere]' : 'truncate'}`}>
+        <span dir="auto" className={`min-w-0 font-medium ${detailed || lines === 2 ? 'line-clamp-2 [overflow-wrap:anywhere]' : lines === 3 ? 'line-clamp-3 [overflow-wrap:anywhere]' : 'truncate'}`}>
           {item.task.title}
           {sub ? <span className="font-normal text-ink-2"> · {sub}</span> : null}
         </span>
-        {due ? <span className="flex-none tabular-nums text-[11px] opacity-80">{due.trim()}</span> : null}
         {/* Waiting for approval: an hourglass, as on the board (its words are in the name, and on hover). */}
         {item.kind === 'task' && item.status !== 'done' && isWaitingForApproval(item.task) ? (
           <span data-mark="waiting" className="flex-none [&_svg]:!text-warning" title="Waiting for approval">

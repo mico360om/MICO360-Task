@@ -14,8 +14,9 @@ const FULL_DAY = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Frida
 /** A day's top: padding, its 24px header and the gap under it (see lib/calendar-fit.ts). */
 const HEAD = 28;
 const CHROME = 35;
-const PITCH = 26;
-const PITCH_TOUCH = 30;
+/** One lane: an entry and the gap after it (one, two or three lines of title — owner: "names not cut"). */
+const PITCHES = { 1: 26, 2: 40, 3: 54 } as const;
+const TOUCH_EXTRA = 4;
 
 type Entry =
   | { kind: 'task'; seg: WeekSegment; startCol: number; endCol: number; order: number }
@@ -37,6 +38,8 @@ export interface MonthGridProps {
   colorOf: (projectId: string) => string | undefined;
   dayOff: (day: string) => { kind: 'holiday'; name: string } | { kind: 'weekend' } | null;
   selected: string | null;
+  /** Lines of a title: 1 (compact rows), 2 (comfortable), 3 (detailed). */
+  lines?: 1 | 2 | 3;
   canDragTask: (item: SpanItem) => boolean;
   canDragBlock: (b: CalBlock) => boolean;
   onOpenItem: (item: SpanItem) => void;
@@ -120,7 +123,12 @@ function MonthWeek({ p, week, last, rowHeight, open, onToggle }: { p: MonthGridP
   const keys = week.map((c) => c.key);
   const [overCol, setOverCol] = useState<number | null>(null);
   const touch = isTouchScreen();
-  const pitch = touch ? PITCH_TOUCH : PITCH;
+  // Names not cut (owner): two or three lines where the week has room for at least three lanes of them;
+  // else one line (the whole title in its tooltip and in the day's list).
+  const roomFor = (l: 1 | 2 | 3) => (rowHeight ? Math.floor((rowHeight - CHROME + 2) / PITCHES[l]) : 4);
+  const wanted = p.lines ?? 2;
+  const lines: 1 | 2 | 3 = wanted === 3 && roomFor(3) >= 3 ? 3 : wanted >= 2 && roomFor(2) >= 3 ? 2 : 1;
+  const pitch = PITCHES[lines] + (touch && lines === 1 ? TOUCH_EXTRA : 0);
   // Everything of the week, in lanes: bars first (longest), then one-day entries by kind and order.
   const entries: Entry[] = [];
   const ranked = calendarOrder(p.items);
@@ -258,9 +266,10 @@ function MonthWeek({ p, week, last, rowHeight, open, onToggle }: { p: MonthGridP
                           }}
                           onOpen={p.onOpenItem}
                           onKeyMove={p.onKeyMoveTask}
+                          lines={lines}
                         />
                       ) : e.kind === 'meeting' ? (
-                        <MeetingChip meeting={e.m} color={e.m.projectId ? p.colorOf(e.m.projectId) : undefined} />
+                        <MeetingChip meeting={e.m} color={e.m.projectId ? p.colorOf(e.m.projectId) : undefined} lines={lines === 1 ? 1 : 2} />
                       ) : e.kind === 'block' ? (
                         <BlockChip block={e.b} timeZone={p.timeZone} onOpen={p.onOpenBlock} draggable={p.canDragBlock(e.b)} onKeyMove={p.onKeyMoveBlock} />
                       ) : (

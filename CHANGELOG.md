@@ -35,8 +35,37 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   are locked on), your own quiet hours, whether meeting reminders and @mentions come through them, and
   "Pause everything except required" for an hour, the rest of today or until the week starts.
 - A due date on a holiday or weekend gets a warning in the task form (the date is never moved).
+- **Calendar — tasks from start to due**: a task with a start and a due date shows as one bar across its days,
+  ▶ at the start and ⚑ at the due date (a red ⚑ when overdue); a due-only task stays on its day; a task longer
+  than three weeks shows only its two marks. Titles wrap in Detailed rows and show in full on hover.
+- **Calendar — Week and Day with hours**: the working hours lit (the rest dimmed and scrollable), an "All day"
+  row on top, meetings as blocks with their times and 👥, a task due at a time with its ⚑ at that time, and
+  weekends and holidays shaded with the holiday's name (in Month too).
+- **Calendar — split view** (wide screens): the calendar on the left and the chosen day on the right — its
+  meetings (time, place or online link, your answer), tasks starting, tasks due (overdue first), planned time,
+  your reminders and repeats — each section folds, with Open, Complete, Plan time and Remind me on every task.
+  "Split | Full" is remembered for you; tablets and phones show the day's list under the calendar.
+- **Calendar — drag and drop**: drag a bar to move its start and due together, its ▶ or ⚑ to change that date
+  alone, a ⚑ onto an hour to set the due time, and a task into an hour to plan time on it. Every move has Undo,
+  and the keyboard can do the same (Alt + arrow keys, or "Change dates" in the task's details). Moving a task
+  nobody has started to a later start says "It will wait until 20 Nov".
+- **Planned time**: time booked to work on a task (it never changes the due date) — yours, or planned for the
+  task's people by whoever made it or runs its project ("planned by Sara"); resize it from its lower edge, move
+  it, or remove it with ×. It shows on your calendar (managers can turn on their team's), counts as planned
+  hours on the Workload page, and makes you busy when someone looks for a meeting time.
+- **Personal reminders on tasks**: "Remind me" on a task (the calendar, the day's list or the task panel) — a
+  date and time, or a time before its start or due date. Each person sees only their own (a bell on the
+  calendar); whoever made the task or runs its project can set them for its people, who can mute or snooze
+  those. They arrive by bell, phone and email as you choose in Settings → Notifications ("My reminders"),
+  following your quiet hours.
+- **Meetings on the calendar**: the organizer can drag a meeting to a new time; the calendar asks first —
+  "Send the updated invitation to 6 people?" — and the meeting's own update sends it.
+- Click an empty day to add a task due that day; click an hour for "New meeting at 10:00" or "Plan time for a
+  task…". "Show" chooses what the calendar shows (tasks, meetings, planned time, reminders), remembered for you.
 
 ### Improvements
+- The Android app (unchanged) still moves only a task's due date on its calendar; the website's calendar now
+  moves start and due together.
 - Quiet hours (outside working hours and on days off, unless changed): the bell still fills, but phone
   pushes and emails wait for the next working morning and then come as one message — never a burst. The
   Android app and the Chrome extension follow the same rules and their settings keep working.
