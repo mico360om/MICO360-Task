@@ -80,7 +80,8 @@ export function MessageView({ message, actions, latest }: { message: MicoAiMessa
   if (message.status === 'pending' && message.draft)
     body = (
       <div className="space-y-1.5">
-        <AnswerText text={message.draft} />
+        {/* A list item just begun (only its "- ") waits for its words, so no stray dash shows. */}
+        <AnswerText text={message.draft.replace(/(^|\n)[-*][ \t]*$/, '')} />
         <p className="flex items-center gap-2 text-xs text-ink-3">
           <span aria-hidden="true" className="h-1.5 w-1.5 animate-pulse rounded-full bg-brand motion-reduce:animate-none" />
           <span>Writing…</span>

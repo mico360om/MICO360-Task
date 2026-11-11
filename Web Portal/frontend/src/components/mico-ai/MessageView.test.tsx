@@ -123,4 +123,11 @@ describe('MICO AI message: the words being written', () => {
     expect(screen.getByText('Checking tasks…')).toBeInTheDocument();
     expect(screen.queryByText('Writing…')).not.toBeInTheDocument();
   });
+
+  it('a list item just begun (only its "- ") isn’t shown as a stray dash', () => {
+    renderMessage(pending('Three things:\n- The pump order\n- '));
+    expect(screen.getByText('The pump order')).toBeInTheDocument();
+    expect(screen.queryByText('-')).not.toBeInTheDocument();
+  });
 });
+
