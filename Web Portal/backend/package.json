@@ -26,6 +26,7 @@
     "backup:create": "node dist/src/scripts/backup-create.js",
     "backup:restore": "node dist/src/scripts/backup-restore.js",
     "search:rebuild": "node dist/src/scripts/search-rebuild.js",
+    "kpi:rebuild": "node dist/src/scripts/kpi-rebuild.js",
     "test:e2e": "node e2e/lifecycle.e2e.mjs"
   },
   "dependencies": {

@@ -100,6 +100,7 @@ import { createPrismaPreferences } from './modules/users/user-preferences';
 import { createUserService } from './modules/users/user-service';
 import { createPrismaUserRepository as createPrismaUserMgmtRepository } from './modules/users/prisma-user-repository';
 import { createNotificationService } from './modules/notifications/notification-service';
+import { createKpisFromPrisma } from './modules/kpis/kpi-wiring';
 import { createPrismaNotificationRepository, createPrismaPreferenceStore, createPrismaReminderLogStore, pruneReminderLog } from './modules/notifications/prisma-notification-repository';
 import type { NotificationRecord } from './modules/notifications/notification-repository';
 import { buildDigests } from './modules/notifications/notification-digest';
@@ -1843,6 +1844,32 @@ async function main(): Promise<void> {
     ),
     timeZone: companyTz,
   });
+  // ── Project KPIs and User KPIs ─────────────────────────────────────────────
+  // Counted from tasks and their history with each project's company working days (Notification &
+  // Scheduling); weeks follow the site's week start. Hourly, on one instance: the launch rebuild of the
+  // past six months (once), the nightly recompute of the last two closed months (from 01:00), and the
+  // monthly "enter your KPI values" notice on the first working morning (through the notification service).
+  const kpis = createKpisFromPrisma(prisma, {
+    timeZone: companyTz,
+    projectAccess,
+    projectAuthz,
+    rules: async (companyId) => {
+      const r = await notifyPolicy.rules(companyId);
+      return { calendar: r.calendar, hours: r.hours };
+    },
+    weekStart: () => settingsService.companyWeekStart(),
+    myProjectsOnly: (viewer) => companyAccess.myProjectsOnly(viewer),
+    notify: (n) => notificationService.notify(n),
+    logger: logger.job('kpi-snapshots'),
+  });
+  const runKpis = () =>
+    runExclusive(jobLock, 'kpi-snapshots', 30 * 60 * 1000, () => new Date(), async () => {
+      await kpis.job.run();
+      const sent = await kpis.reminder.run();
+      if (sent) logger.job('kpi-snapshots').info('KPIs: monthly value reminders sent', { sent });
+    }).catch(sweepFailed('kpi-snapshots', 'KPI snapshots'));
+  jobs.every(60 * 60 * 1000, runKpis, { firstAfterMs: 3 * 60 * 1000 });
+
   const weeklySummaryService = createWeeklySummaryFromPrisma(prisma, {
     management: managementService,
     settings: managementSettings,
@@ -2481,6 +2508,10 @@ async function main(): Promise<void> {
     management: {
       service: managementService,
       timeZone: companyTz,
+      userName: async (id) => (await resolveUserNames([id])).get(id) ?? null,
+    },
+    kpis: {
+      service: kpis.service,
       userName: async (id) => (await resolveUserNames([id])).get(id) ?? null,
     },
     backups: backups.routes,

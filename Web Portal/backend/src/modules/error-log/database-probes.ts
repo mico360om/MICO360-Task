@@ -6,6 +6,7 @@ import { createPrismaManagementSource } from '../management/prisma-management-so
 import type { TaskMergeService } from '../task-merge/merge-service';
 import { priorityProbe } from '../dashboard/prisma-priority-sources';
 import { healthProbe } from '../project-health/prisma-health-source';
+import { kpiProbe } from '../kpis/prisma-kpi-source';
 
 /** An id no row has: every probe below looks only there (nothing found, nothing written). */
 export const NOWHERE = '~database-check~';
@@ -121,6 +122,8 @@ export function databaseProbes({
   probes.push({ name: 'the Dashboard priorities', run: () => priorityProbe(prisma, NOWHERE, timeZone) });
   // 1.23.5 Project overview & health: weighted completion, each person's open tasks, attention tasks, links, Blocked moves, due-date groups.
   probes.push({ name: 'the project health', run: () => healthProbe(prisma, NOWHERE) });
+  // Project KPIs and User KPIs: tasks with their history, the weighted done count, comments, action items, Blocked moves, snapshots and targets.
+  probes.push({ name: 'the KPIs', run: () => kpiProbe(prisma, NOWHERE) });
   if (checklists) probes.push({ name: 'checklists (holding a task while it changes)', run: () => checklists.selfCheck(NOWHERE) });
   // Onboarding: the sign-in codes' table and the new account columns (no raw SQL: Prisma's own, checked
   // here so a missed migration shows at start-up, not at someone's sign-in).
