@@ -110,3 +110,15 @@ describe('project dashboard: timeline and workload', () => {
     ]);
   });
 });
+
+// Notification & Scheduling centre: a late milestone counts working days of the project's company.
+describe('milestones — how late, in working days', () => {
+  it('counts working days with the company calendar (weekends and holidays skipped), days without one', () => {
+    // Due Thursday 8 Oct 2026; today Friday 16 Oct; Sun–Thu week; Wednesday 14 Oct a holiday.
+    const cal = { workingDays: [0, 1, 2, 3, 4], holidays: [{ day: '2026-10-14', name: 'Day off' }] };
+    const late = task({ id: 'm', isMilestone: true, columnCategory: 'TODO', dueDate: day('2026-10-08') });
+    expect(milestones([late], TODAY, 'UTC', cal)[0]).toMatchObject({ state: 'overdue', lateDays: 4, workingDays: true });
+    expect(milestones([late], TODAY)[0]).toMatchObject({ state: 'overdue', lateDays: 8, workingDays: false });
+    expect(milestones([task({ id: 'u', isMilestone: true, columnCategory: 'TODO', dueDate: day('2026-10-20') })], TODAY, 'UTC', cal)[0]).toMatchObject({ state: 'upcoming', lateDays: null });
+  });
+});

@@ -1,3 +1,5 @@
+import { useWorkingTime } from '../lib/useWorkingTime';
+import { workingDaysLate, type WorkCalendar } from '../lib/working-days';
 import { dayText, instantDayText } from '../lib/day-words';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -17,7 +19,7 @@ import { TaskKey, TaskKeyButton } from '../components/TaskKey';
 import { PriorityBadge } from '../components/ui/PriorityBadge';
 import { SearchableSelect } from '../components/ui/SearchableSelect';
 import { namedProjectOption } from '../components/project-option';
-import { daysUntilDue } from '../lib/due-date';
+import { daysUntilDue, dueDayKey, todayKey } from '../lib/due-date';
 import { useOpenTask } from '../lib/useOpenTask';
 import { isTaskDone } from '../lib/due-display';
 import { useCompanyTimeZone } from '../lib/company-clock';
@@ -86,10 +88,18 @@ function timeAgo(iso: string): string {
   return `${Math.round(h / 24)}d ago`;
 }
 
-/** How a task's due date reads relative to today — calendar days in the company time zone. */
-function dueMeta(due: string, timeZone: string): { label: string; overdue: boolean } {
-  const days = daysUntilDue(due, timeZone) ?? 0;
-  if (days < 0) return { label: `${-days}d overdue`, overdue: true };
+/**
+ * How a task's due date reads relative to today (company time zone). Overdue counts working days of the
+ * company (Notification & Scheduling: weekends and holidays don't count, as on Management and in the
+ * daily email) once its calendar is known.
+ */
+export function dueMeta(due: string, timeZone: string, cal: WorkCalendar | null = null, now: Date = new Date()): { label: string; overdue: boolean } {
+  const days = daysUntilDue(due, timeZone, now) ?? 0;
+  if (days < 0) {
+    if (!cal) return { label: `${-days}d overdue`, overdue: true };
+    const n = workingDaysLate(dueDayKey(due, timeZone)!, todayKey(timeZone, now), cal);
+    return { label: n > 0 ? `${n} working day${n === 1 ? '' : 's'} overdue` : 'Overdue', overdue: true };
+  }
   if (days === 0) return { label: 'Due today', overdue: false };
   if (days === 1) return { label: 'Due tomorrow', overdue: false };
   return { label: `Due in ${days}d`, overdue: false };
@@ -504,7 +514,9 @@ export function DashboardPage() {
  * letters between the key and the badge.
  */
 function TaskRow({ task, onOpen, showDue, timeZone, stacked }: { task: ApiTask; onOpen: () => void; showDue?: boolean; timeZone: string; stacked?: boolean }) {
-  const meta = showDue && task.dueDate ? dueMeta(task.dueDate, timeZone) : null;
+  // The scope's working days (one shared answer for every row).
+  const { calendar } = useWorkingTime({ enabled: !!showDue });
+  const meta = showDue && task.dueDate ? dueMeta(task.dueDate, timeZone, calendar) : null;
   // Past its day but waiting for approval: never "overdue" — its badge says it waits (owner, 30 Oct).
   const waitingLate = !!meta?.overdue && isWaitingForApproval(task);
   const due = waitingLate ? null : meta;

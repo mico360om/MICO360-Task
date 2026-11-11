@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { useWorkingTime } from '../../lib/useWorkingTime';
 import { Link } from 'react-router-dom';
 import type { ApiProject } from '../../api/projects';
 import type { ApiTask } from '../../api/tasks';
@@ -30,13 +31,18 @@ const MILESTONE_LOOK: Record<MilestoneState, string> = {
   undated: 'text-ink-3',
 };
 
-function milestoneNote(state: MilestoneState, daysLeft: number | null): string {
+function milestoneNote(state: MilestoneState, daysLeft: number | null, late: { days: number | null; working: boolean } = { days: daysLeft === null ? null : -daysLeft, working: false }): string {
   if (state === 'done') return 'Reached';
   // Finished, waiting for approval: never late while it waits (owner, 30 Oct).
   if (state === 'waiting') return 'Waiting for approval';
   if (state === 'undated') return 'No date set';
   if (daysLeft === null) return '';
-  if (state === 'overdue') return `Late by ${-daysLeft} ${daysLeft === -1 ? 'day' : 'days'}`;
+  // Notification & Scheduling: in working days (weekends and holidays don't count), like Management.
+  if (state === 'overdue') {
+    const n = late.days ?? -daysLeft;
+    const unit = late.working ? 'working day' : 'day';
+    return n > 0 ? `Late by ${n} ${unit}${n === 1 ? '' : 's'}` : 'Late';
+  }
   return daysLeft === 0 ? 'Due today' : `Due ${relativeDays(daysLeft)}`;
 }
 
@@ -82,7 +88,9 @@ export function OverviewTab(p: OverviewProps) {
   const { project, tasks, today, timeZone } = p;
   const stats = taskStats(tasks, today, timeZone);
   const timeline = projectTimeline(project.startDate, project.targetDate, today, timeZone);
-  const marks = milestones(tasks, today, timeZone);
+  // Notification & Scheduling: the project's company's working days and holidays (for "Late by N working days").
+  const workingTime = useWorkingTime({ projectId: project.id });
+  const marks = milestones(tasks, today, timeZone, workingTime.calendar);
   const soon = deadlines(tasks, today, 14, timeZone);
   const people = workload(tasks, today, timeZone);
   // Who runs it besides the owner: the named manager first, then the managers on its team.
@@ -181,7 +189,7 @@ export function OverviewTab(p: OverviewProps) {
                         </button>
                       </span>
                       <span className={`text-xs ${dueTone({ late: m.state === 'overdue' })}`}>
-                        {m.due ? `${dayText(m.due)} · ` : ''}{milestoneNote(m.state, m.daysLeft)}
+                        {m.due ? `${dayText(m.due)} · ` : ''}{milestoneNote(m.state, m.daysLeft, { days: m.lateDays, working: m.workingDays })}
                       </span>
                     </span>
                   </li>
