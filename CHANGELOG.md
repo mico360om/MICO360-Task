@@ -37,7 +37,9 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - A due date on a holiday or weekend gets a warning in the task form (the date is never moved).
 - **Calendar — tasks from start to due**: a task with a start date someone chose and a due date shows as one bar across its days,
   ▶ at the start and ⚑ at the due date (a red ⚑ when overdue); a due-only task stays on its day; a task longer
-  than three weeks shows only its two marks. Titles wrap in Detailed rows and show in full on hover.
+  than three weeks shows only its two marks. Titles wrap in Detailed rows and show in full on hover. Only a
+  crowded day says "+N more" (in Month it opens that week in place; in Week's All day row, the whole row) — the
+  other days of the week keep all of theirs.
 - **Calendar — Week and Day with hours**: the working hours lit (the rest dimmed and scrollable), an "All day"
   row on top with the tasks' bars and ⚑ due marks, meetings as blocks with their times and 👥, planned time and
   your reminders at their times, and weekends and holidays shaded with the holiday's name (in Month too).
