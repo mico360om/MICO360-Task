@@ -125,8 +125,12 @@ export function markPaper(p: Paper, answers: Readonly<Record<string, readonly st
   return { right, scorePct, passed: p.questions.length > 0 && scorePct >= p.passMark };
 }
 
-/** After hand-in: each question with what was chosen, the right answers, feedback and the explanation. */
-export function resultQuestions(p: Paper, answers: Readonly<Record<string, readonly string[]>>): AttemptResultQuestion[] {
+/**
+ * After hand-in: each question right or wrong with what was chosen and the chosen answers' feedback. M9:
+ * which options are right (and an ORDER question's right places) and the explanation only with `reveal`
+ * (the quiz passed, or no attempts left) — before that the positions are the order handed out.
+ */
+export function resultQuestions(p: Paper, answers: Readonly<Record<string, readonly string[]>>, opts: { reveal: boolean } = { reveal: true }): AttemptResultQuestion[] {
   return p.questions.map((q) => {
     const chosen = [...(answers[q.id] ?? [])];
     return {
@@ -135,8 +139,12 @@ export function resultQuestions(p: Paper, answers: Readonly<Record<string, reado
       prompt: q.prompt,
       right: isRight(q, chosen),
       chosen,
-      explanation: q.explanation,
-      options: q.options.map((o) => ({ id: o.id, text: o.text, correct: o.correct, position: o.position, feedback: o.feedback })),
+      explanation: opts.reveal ? q.explanation : null,
+      options: q.options.map((o, i) =>
+        opts.reveal
+          ? { id: o.id, text: o.text, correct: o.correct, position: o.position, feedback: o.feedback }
+          : { id: o.id, text: o.text, correct: false, position: i, feedback: chosen.includes(o.id) ? o.feedback : null },
+      ),
     };
   });
 }

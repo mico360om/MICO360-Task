@@ -509,6 +509,9 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync) 
     let certificateId = extra?.certificateId ?? null;
     const completed = extra?.courseCompleted ?? state.state.status === 'COMPLETED';
     if (!extra && completed) certificateId = (await prisma.trainingCertificate.findFirst({ where: { userId: p.id, courseId: a.courseId, revokedAt: null }, orderBy: [{ issuedAt: 'desc' }], select: { id: true } }))?.id ?? null;
+    const attemptsLeft = max === null ? null : Math.max(0, max - used);
+    // M9: the right answers once the quiz is passed (this cycle) or no attempts are left (unlimited: once passed).
+    const answersShown = !!a.passed || !!state.best.get(a.lessonId)?.passed || attemptsLeft === 0;
     return {
       id: a.id,
       lessonId: a.lessonId,
@@ -517,9 +520,10 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync) 
       scorePct: a.scorePct ?? 0,
       passed: !!a.passed,
       passMark: paper.passMark,
-      attemptsLeft: max === null ? null : Math.max(0, max - used),
+      attemptsLeft,
       timedOut: !!a.deadlineAt && a.submittedAt!.getTime() > a.deadlineAt.getTime() + GRACE_MS,
-      questions: resultQuestions(paper, answers),
+      answersShown,
+      questions: resultQuestions(paper, answers, { reveal: answersShown }),
       courseCompleted: completed,
       certificateId,
     };

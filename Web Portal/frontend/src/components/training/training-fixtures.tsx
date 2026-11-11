@@ -121,6 +121,7 @@ export const result = (over: Partial<AttemptResult> = {}): AttemptResult => ({
   passMark: 75,
   attemptsLeft: 2,
   timedOut: false,
+  answersShown: false,
   questions: [
     {
       id: 'qs',

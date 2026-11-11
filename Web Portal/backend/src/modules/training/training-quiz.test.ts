@@ -82,6 +82,30 @@ describe('marking (all or nothing per question; score rounded down)', () => {
   });
 });
 
+describe('M9 what a hand-in shows before the quiz is passed (or attempts run out)', () => {
+  const p = drawPaper(settings, bank, seededRng(1));
+  it('right or wrong and the chosen answers’ feedback — never which options are right, their order or the explanation', () => {
+    const out = resultQuestions(p, { s: ['s3'], o: ['o2', 'o1', 'o3', 'o4'] }, { reveal: false });
+    expect(out[0]).toEqual({
+      id: 's',
+      kind: 'SINGLE',
+      prompt: 'Prompt s',
+      right: false,
+      chosen: ['s3'],
+      explanation: null,
+      options: [
+        { id: 's1', text: 'Text s1', correct: false, position: 0, feedback: null },
+        { id: 's2', text: 'Text s2', correct: false, position: 1, feedback: null },
+        { id: 's3', text: 'Text s3', correct: false, position: 2, feedback: 'No.' },
+      ],
+    });
+    // ORDER: the positions are the order handed out, not the right one.
+    expect(out[3]!.options.map((o) => o.position)).toEqual([0, 1, 2, 3]);
+    expect(out[3]!.options.map((o) => o.id)).toEqual(p.questions[3]!.options.map((o) => o.id));
+    expect(JSON.stringify(out)).not.toMatch(/Because|"correct":true/);
+  });
+});
+
 describe('answers sent by the browser are checked against the paper', () => {
   const p = drawPaper(settings, bank, seededRng(1));
   it('keeps known questions and options; refuses anything else', () => {

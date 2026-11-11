@@ -33,7 +33,7 @@ export const MODULE_LABELS: Readonly<Record<TrainingModule, string>> = {
   'mico-ai': 'MICO AI',
   admin: 'Admin settings',
   portal: 'Client portal',
-  training: 'Training Center',
+  training: 'Learning Hub',
   general: 'General',
 };
 
@@ -332,7 +332,11 @@ export interface AttemptResultQuestion {
   prompt: string;
   right: boolean;
   chosen: string[];
-  /** In the drawn order; `correct` and feedback are revealed after hand-in. ORDER: position = the right place. */
+  /**
+   * In the drawn order. Always: the chosen answers' feedback. Only when the attempt's `answersShown`: which are
+   * `correct`, the other answers' feedback and (ORDER) position = the right place; before that `correct` is false
+   * and position is the order handed out.
+   */
   options: { id: string; text: string; correct: boolean; position: number; feedback: string | null }[];
   explanation: string | null;
 }
@@ -349,6 +353,8 @@ export interface AttemptResult {
   attemptsLeft: number | null;
   /** Handed in by the server after the time limit. */
   timedOut: boolean;
+  /** M9: the right answers and explanations are shown (the quiz is passed, or no attempts are left). */
+  answersShown: boolean;
   questions: AttemptResultQuestion[];
   courseCompleted: boolean;
   certificateId: string | null;
