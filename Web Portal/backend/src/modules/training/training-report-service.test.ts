@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseReportQuery, personInReportScope, reportFilterLines } from './training-report-service';
+import { foldGroups, OTHER, parseReportQuery, personInReportScope, quizCourseVisible, reportFilterLines } from './training-report-service';
 import type { PersonRecord } from './prisma-training-store';
 
 const P = (id: string, o: Partial<PersonRecord> = {}): PersonRecord => ({
@@ -70,5 +70,36 @@ describe('the file’s filter lines', () => {
     expect(reportFilterLines({ by: 'course', from: '2026-10-01', to: '2026-10-31' }, 'Tasks basics')).toEqual(['Course: Tasks basics', 'Got it from 1 Oct 2026 to 31 Oct 2026']);
     expect(reportFilterLines({ by: 'course', from: '2026-10-01' }, null)).toEqual(['Got it from 1 Oct 2026']);
     expect(reportFilterLines({ by: 'course', to: '2026-10-31' }, null)).toEqual(['Got it until 31 Oct 2026']);
+  });
+});
+
+describe('M6 a group a reader may not see is folded into “Other”', () => {
+  const tm = P('tm', { trainingManager: true, companyIds: ['A'] });
+  const runner = P('run', { runsProject: true, runProjectIds: ['P1'], teamProjectIds: ['P1'], companyIds: ['A'] });
+  const projectCompanies = new Map([
+    ['P1', ['A']],
+    ['P2', ['B']],
+    ['P3', ['A', 'B']],
+  ]);
+  it('administrators see every company and project', () => {
+    expect(foldGroups('ALL', P('admin', { admin: true }), P('x', { companyIds: ['A', 'B'], teamProjectIds: ['P2'] }), projectCompanies)).toEqual({ companyIds: ['A', 'B'], teamProjectIds: ['P2'] });
+  });
+  it('a Training manager: her companies, and projects with one of her companies; the rest is “Other” (once)', () => {
+    expect(foldGroups('COMPANIES', tm, P('cat', { companyIds: ['A', 'B', 'C'], teamProjectIds: ['P1', 'P2', 'P3'] }), projectCompanies)).toEqual({ companyIds: ['A', OTHER], teamProjectIds: ['P1', 'P3', OTHER] });
+    expect(foldGroups('COMPANIES', tm, P('bob', { companyIds: [], teamProjectIds: [] }), projectCompanies)).toEqual({ companyIds: [], teamProjectIds: [] });
+  });
+  it('a project manager: the projects he runs and his companies', () => {
+    expect(foldGroups('TEAM', runner, P('ana', { companyIds: ['A', 'B'], teamProjectIds: ['P1', 'P3'] }), projectCompanies)).toEqual({ companyIds: ['A', OTHER], teamProjectIds: ['P1', OTHER] });
+  });
+});
+
+describe('M7 whose quizzes a reader sees', () => {
+  const course = { audience: 'STAFF', moduleKey: 'admin', roleKeys: null, companyIds: null, status: 'PUBLISHED' };
+  it('managers every course; a project manager only courses he may see', () => {
+    expect(quizCourseVisible(P('tm', { trainingManager: true }), course)).toBe(true);
+    expect(quizCourseVisible(P('admin', { admin: true }), course)).toBe(true);
+    expect(quizCourseVisible(P('run', { runsProject: true }), course)).toBe(false);
+    expect(quizCourseVisible(P('run', { runsProject: true }), { ...course, moduleKey: 'tasks' })).toBe(true);
+    expect(quizCourseVisible(P('run', { runsProject: true }), { ...course, moduleKey: 'portal', audience: 'CLIENTS' })).toBe(false);
   });
 });

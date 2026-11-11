@@ -4,8 +4,8 @@ import { zonedStartOfDay } from '../../lib/due-date';
 import { formatDay } from '../../lib/export-format';
 import { daysBetween, shiftDay } from '../../lib/working-days';
 import { XLSX_CONTENT_TYPE } from '../../lib/xlsx-writer';
-import { inScope, reportScope } from './training-access';
-import type { TrainingContext } from './training-context';
+import { courseVisible, inScope, isManager, reportScope } from './training-access';
+import { courseFacts, type TrainingContext } from './training-context';
 import type { PersonRecord } from './prisma-training-store';
 import { loadStates } from './training-read';
 import { aggregateReport, quizQuestionStats, type ReportEnrolment, type ReportPerson } from './training-reports';
@@ -29,7 +29,7 @@ export interface ReportQuery {
   to?: string;
 }
 
-const NOT_ALLOWED = 'Only Training managers, administrators and project managers can see training reports.';
+const NOT_ALLOWED = 'Only Training managers, administrators and project managers can see Learning Hub reports.';
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
 const blank = (v: unknown) => (v === '' || v === null ? undefined : v);
 const realDay = (s: string) => {
@@ -64,6 +64,31 @@ export function personInReportScope(scope: ReportScope, viewer: PersonRecord, p:
   return !p.client && p.teamProjectIds.some((id) => viewer.runProjectIds.includes(id));
 }
 
+/** M6: the key of the group a reader may not see by name. */
+export const OTHER = 'other';
+
+/**
+ * M6: a person's companies and projects as this reader may see them — administrators every one; a Training
+ * manager her companies and the projects with one of her companies; a project manager his companies and the
+ * projects he runs. The rest is folded into one "Other" group (never named).
+ */
+export function foldGroups(scope: ReportScope, viewer: PersonRecord, p: Pick<PersonRecord, 'companyIds' | 'teamProjectIds'>, projectCompanies: ReadonlyMap<string, readonly string[]>): { companyIds: string[]; teamProjectIds: string[] } {
+  if (scope === 'ALL') return { companyIds: [...p.companyIds], teamProjectIds: [...p.teamProjectIds] };
+  const fold = (ids: readonly string[], seen: (id: string) => boolean) => {
+    const out = ids.filter(seen);
+    if (out.length < ids.length) out.push(OTHER);
+    return out;
+  };
+  const projectSeen =
+    scope === 'COMPANIES' ? (id: string) => (projectCompanies.get(id) ?? []).some((c) => viewer.companyIds.includes(c)) : (id: string) => viewer.runProjectIds.includes(id);
+  return { companyIds: fold(p.companyIds, (id) => viewer.companyIds.includes(id)), teamProjectIds: fold(p.teamProjectIds, projectSeen) };
+}
+
+/** M7: quiz figures only for courses the reader manages (Training managers, administrators) or may see. */
+export function quizCourseVisible(viewer: PersonRecord, course: { audience: string; moduleKey: string; roleKeys: unknown; companyIds: unknown; status: string }): boolean {
+  return isManager(viewer) || courseVisible(courseFacts(course), viewer);
+}
+
 /** The lines a file says its filters with. */
 export function reportFilterLines(q: ReportQuery, courseTitle: string | null): string[] {
   const out: string[] = [];
@@ -76,6 +101,11 @@ export function reportFilterLines(q: ReportQuery, courseTitle: string | null): s
 
 const pct = (part: number, whole: number) => (whole ? Math.round((part / whole) * 100) : null);
 const average = (list: readonly number[]) => (list.length ? Math.round(list.reduce((a, b) => a + b, 0) / list.length) : null);
+function chunks<T>(list: readonly T[], size = 300): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size));
+  return out;
+}
 
 export function createTrainingReports(ctx: TrainingContext) {
   const { prisma } = ctx;
@@ -113,19 +143,19 @@ export function createTrainingReports(ctx: TrainingContext) {
     const people = await scopedPeople(viewer, scope);
     const courses = await prisma.trainingCourse.findMany({
       where: { status: { in: ['PUBLISHED', 'ARCHIVED'] }, ...(q.courseId ? { id: q.courseId } : {}) },
-      select: { id: true, title: true },
+      select: { id: true, title: true, audience: true, moduleKey: true, roleKeys: true, companyIds: true, status: true },
     });
     const courseIds = courses.map((c) => c.id);
     const courseTitle = new Map(courses.map((c) => [c.id, c.title]));
     const span = period(q);
-    const enrolments = courseIds.length
-      ? (
-          await prisma.trainingEnrolment.findMany({
-            where: { withdrawnAt: null, courseId: { in: courseIds }, ...(span.gte || span.lt ? { createdAt: span } : {}) },
-            select: { userId: true, courseId: true, startedAt: true },
-          })
-        ).filter((e) => people.has(e.userId))
-      : [];
+    // I3: everyone (administrators) in one read; a scope's people in pieces.
+    const enrolmentWhere = { withdrawnAt: null, courseId: { in: courseIds }, ...(span.gte || span.lt ? { createdAt: span } : {}) };
+    const select = { userId: true, courseId: true } as const;
+    const enrolments = !courseIds.length
+      ? []
+      : scope === 'ALL'
+        ? (await prisma.trainingEnrolment.findMany({ where: enrolmentWhere, select })).filter((e) => people.has(e.userId))
+        : (await Promise.all(chunks([...people.keys()]).map((part) => prisma.trainingEnrolment.findMany({ where: { ...enrolmentWhere, userId: { in: part } }, select })))).flat();
     const states = await loadStates(ctx, enrolments.map((e) => ({ userId: e.userId, courseId: e.courseId })));
     const rows: ReportEnrolment[] = [];
     const today = ctx.today();
@@ -147,14 +177,16 @@ export function createTrainingReports(ctx: TrainingContext) {
     const [departments, companies, projects] = await Promise.all([
       deptIds.length ? prisma.department.findMany({ where: { id: { in: deptIds } }, select: { id: true, name: true } }) : [],
       companyIds.length ? prisma.company.findMany({ where: { id: { in: companyIds } }, select: { id: true, name: true } }) : [],
-      projectIds.length ? prisma.project.findMany({ where: { id: { in: projectIds } }, select: { id: true, name: true } }) : [],
+      projectIds.length ? prisma.project.findMany({ where: { id: { in: projectIds } }, select: { id: true, name: true, companies: { select: { companyId: true } } } }) : [],
     ]);
-    const reportPeople: ReportPerson[] = involved.map((p) => ({ id: p.id, name: p.name, client: p.client, admin: p.admin, departmentId: p.departmentId, companyIds: p.companyIds, teamProjectIds: p.teamProjectIds }));
+    // M6: companies and projects the reader may not see are one "Other" group.
+    const projectCompanies = new Map(projects.map((p) => [p.id, p.companies.map((c) => c.companyId)]));
+    const reportPeople: ReportPerson[] = involved.map((p) => ({ id: p.id, name: p.name, client: p.client, admin: p.admin, departmentId: p.departmentId, ...foldGroups(scope, viewer, p, projectCompanies) }));
     const { totals, rows: grouped } = aggregateReport(q.by, rows, reportPeople, {
       course: courseTitle,
       department: new Map(departments.map((d) => [d.id, d.name])),
-      company: new Map(companies.map((c) => [c.id, c.name])),
-      project: new Map(projects.map((p) => [p.id, p.name])),
+      company: new Map([...companies.map((c) => [c.id, c.name] as [string, string]), [OTHER, 'Other'] as [string, string]]),
+      project: new Map([...projects.map((p) => [p.id, p.name] as [string, string]), [OTHER, 'Other'] as [string, string]]),
     });
 
     // Certificates expiring in the next 30 days (valid ones), soonest first.
@@ -171,8 +203,10 @@ export function createTrainingReports(ctx: TrainingContext) {
     const expiring = certificates.map((c) => ({ certificateId: c.id, userId: c.userId, name: people.get(c.userId)!.name, courseId: c.courseId, courseTitle: courseTitle.get(c.courseId) ?? c.courseTitle, expiresAt: c.expiresAt!.toISOString() }));
 
     // Quizzes of the courses in view: handed-in attempts by people in scope (in the period).
-    const quizLessons = courseIds.length
-      ? await prisma.trainingLesson.findMany({ where: { courseId: { in: courseIds }, kind: 'QUIZ' }, select: { id: true, courseId: true, title: true, position: true }, orderBy: [{ position: 'asc' }, { id: 'asc' }] })
+    // M7: quizzes only of the courses the reader manages or may see.
+    const quizCourseIds = courses.filter((c) => quizCourseVisible(viewer, c)).map((c) => c.id);
+    const quizLessons = quizCourseIds.length
+      ? await prisma.trainingLesson.findMany({ where: { courseId: { in: quizCourseIds }, kind: 'QUIZ' }, select: { id: true, courseId: true, title: true, position: true }, orderBy: [{ position: 'asc' }, { id: 'asc' }] })
       : [];
     const attempts = quizLessons.length
       ? (
@@ -182,9 +216,15 @@ export function createTrainingReports(ctx: TrainingContext) {
           })
         ).filter((a) => people.has(a.userId))
       : [];
+    const attemptsOf = new Map<string, typeof attempts>();
+    for (const a of attempts) {
+      const list = attemptsOf.get(a.lessonId);
+      if (list) list.push(a);
+      else attemptsOf.set(a.lessonId, [a]);
+    }
     const quizzes = quizLessons
       .map((l) => {
-        const mine = attempts.filter((a) => a.lessonId === l.id);
+        const mine = attemptsOf.get(l.id) ?? [];
         return {
           lessonId: l.id,
           courseTitle: courseTitle.get(l.courseId) ?? 'Course',
@@ -208,11 +248,11 @@ export function createTrainingReports(ctx: TrainingContext) {
         id: true,
         kind: true,
         title: true,
-        course: { select: { title: true } },
+        course: { select: { title: true, audience: true, moduleKey: true, roleKeys: true, companyIds: true, status: true } },
         quiz: { select: { questions: { select: { id: true, kind: true, prompt: true, explanation: true, position: true, options: { select: { id: true, text: true, correct: true, feedback: true, position: true } } } } } },
       },
     });
-    if (!lesson || lesson.kind !== 'QUIZ' || !lesson.quiz) throw new NotFoundError('Quiz not found.');
+    if (!lesson || lesson.kind !== 'QUIZ' || !lesson.quiz || !quizCourseVisible(viewer, lesson.course)) throw new NotFoundError('Quiz not found.');
     const people = await scopedPeople(viewer, scope);
     const attempts = (
       await prisma.trainingAttempt.findMany({ where: { lessonId: lesson.id, submittedAt: { not: null } }, select: { userId: true, scorePct: true, passed: true, paper: true, answers: true } })

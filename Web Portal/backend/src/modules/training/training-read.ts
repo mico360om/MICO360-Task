@@ -1,6 +1,6 @@
 import type { TrainingEnrolment } from '@prisma/client';
 import type { TrainingContext } from './training-context';
-import { assignmentTerms, courseState, cycleStart, doneInCycle, retakeActive, type CourseState, type LessonFacts, type Terms } from './training-state';
+import { assignmentTerms, courseState, cycleStart, doneInCycle, lessonSince, retakeActive, type CourseState, type LessonFacts, type Terms } from './training-state';
 import type { LessonKind } from './training-types';
 
 /**
@@ -30,6 +30,19 @@ export interface PairState {
 
 export const pairKey = (userId: string, courseId: string) => `${userId}|${courseId}`;
 
+/** Lists split for `IN (…)` queries. */
+function chunks<T>(list: readonly T[], size = 300): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size));
+  return out;
+}
+
+function push<K, V>(m: Map<K, V[]>, k: K, v: V): void {
+  const list = m.get(k);
+  if (list) list.push(v);
+  else m.set(k, [v]);
+}
+
 export async function loadStates(ctx: TrainingContext, pairs: readonly { userId: string; courseId: string }[]): Promise<Map<string, PairState>> {
   const out = new Map<string, PairState>();
   if (pairs.length === 0) return out;
@@ -37,41 +50,48 @@ export async function loadStates(ctx: TrainingContext, pairs: readonly { userId:
   const userIds = [...new Set(pairs.map((p) => p.userId))];
   const courseIds = [...new Set(pairs.map((p) => p.courseId))];
   const wanted = new Set(pairs.map((p) => pairKey(p.userId, p.courseId)));
-  const [enrolments, lessons, progress, assignees, attempts] = await Promise.all([
-    prisma.trainingEnrolment.findMany({ where: { userId: { in: userIds }, courseId: { in: courseIds } } }),
-    prisma.trainingLesson.findMany({ where: { courseId: { in: courseIds } }, select: { id: true, courseId: true, kind: true, changedVersion: true, position: true, title: true, minutes: true }, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }] }),
-    prisma.trainingProgress.findMany({ where: { userId: { in: userIds }, courseId: { in: courseIds }, doneAt: { not: null } }, select: { userId: true, lessonId: true, doneAt: true } }),
-    prisma.trainingAssignee.findMany({ where: { userId: { in: userIds }, courseId: { in: courseIds }, withdrawnAt: null }, select: { userId: true, courseId: true, mandatory: true, dueDay: true, withdrawnAt: true } }),
-    prisma.trainingAttempt.findMany({ where: { userId: { in: userIds }, courseId: { in: courseIds }, submittedAt: { not: null } }, select: { userId: true, courseId: true, lessonId: true, scorePct: true, passed: true, submittedAt: true } }),
-  ]);
-  const enrolmentOf = new Map(enrolments.map((e) => [pairKey(e.userId, e.courseId), e]));
-  const lessonsOf = new Map<string, PairState['lessons']>();
-  for (const l of lessons) {
-    const list = lessonsOf.get(l.courseId) ?? [];
-    list.push({ id: l.id, kind: l.kind as LessonKind, changedVersion: l.changedVersion, position: l.position, title: l.title, minutes: l.minutes });
-    lessonsOf.set(l.courseId, list);
-  }
+  // I3: every row read once (people in pieces), then indexed by its person × course.
+  const lessons = await prisma.trainingLesson.findMany({ where: { courseId: { in: courseIds } }, select: { id: true, courseId: true, kind: true, changedVersion: true, position: true, title: true, minutes: true }, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }] });
+  const enrolmentOf = new Map<string, TrainingEnrolment>();
   const doneOf = new Map<string, Map<string, Date>>();
-  for (const p of progress) {
-    const m = doneOf.get(p.userId) ?? new Map<string, Date>();
-    m.set(p.lessonId, p.doneAt!);
-    doneOf.set(p.userId, m);
+  const assigneesOf = new Map<string, { mandatory: boolean; dueDay: string | null; withdrawnAt: Date | null }[]>();
+  const attemptsOf = new Map<string, { lessonId: string; scorePct: number | null; passed: boolean | null; submittedAt: Date | null }[]>();
+  for (const part of chunks(userIds)) {
+    const where = { userId: { in: part }, courseId: { in: courseIds } };
+    const [enrolments, progress, assignees, attempts] = await Promise.all([
+      prisma.trainingEnrolment.findMany({ where }),
+      prisma.trainingProgress.findMany({ where: { ...where, doneAt: { not: null } }, select: { userId: true, courseId: true, lessonId: true, doneAt: true } }),
+      prisma.trainingAssignee.findMany({ where: { ...where, withdrawnAt: null }, select: { userId: true, courseId: true, mandatory: true, dueDay: true, withdrawnAt: true } }),
+      prisma.trainingAttempt.findMany({ where: { ...where, submittedAt: { not: null } }, select: { userId: true, courseId: true, lessonId: true, scorePct: true, passed: true, submittedAt: true } }),
+    ]);
+    for (const e of enrolments) enrolmentOf.set(pairKey(e.userId, e.courseId), e);
+    for (const p of progress) {
+      const k = pairKey(p.userId, p.courseId);
+      const m = doneOf.get(k) ?? new Map<string, Date>();
+      m.set(p.lessonId, p.doneAt!);
+      doneOf.set(k, m);
+    }
+    for (const a of assignees) push(assigneesOf, pairKey(a.userId, a.courseId), a);
+    for (const a of attempts) push(attemptsOf, pairKey(a.userId, a.courseId), a);
   }
+  const lessonsOf = new Map<string, PairState['lessons']>();
+  for (const l of lessons) push(lessonsOf, l.courseId, { id: l.id, kind: l.kind as LessonKind, changedVersion: l.changedVersion, position: l.position, title: l.title, minutes: l.minutes });
   const today = ctx.today();
   for (const key of wanted) {
     const [userId, courseId] = key.split('|') as [string, string];
     const enrolment = enrolmentOf.get(key) ?? null;
     const courseLessons = lessonsOf.get(courseId) ?? [];
-    const allDone = doneOf.get(userId) ?? new Map<string, Date>();
-    const done = new Map([...allDone].filter(([lessonId]) => courseLessons.some((l) => l.id === lessonId)));
-    const terms = assignmentTerms(assignees.filter((a) => a.userId === userId && a.courseId === courseId));
+    const byId = new Map(courseLessons.map((l) => [l.id, l]));
+    const done = new Map([...(doneOf.get(key) ?? new Map<string, Date>())].filter(([lessonId]) => byId.has(lessonId)));
+    const terms = assignmentTerms(assigneesOf.get(key) ?? []);
     const retakeDueDay = retakeActive(enrolment) && terms.mandatory ? ctx.dayOf(enrolment!.retakeFrom!) : null;
     const state = courseState({ enrolment, lessons: courseLessons, done, terms, today, retakeDueDay });
-    const since = cycleStart(enrolment);
     const best = new Map<string, { scorePct: number; passed: boolean }>();
     const attemptsUsed = new Map<string, number>();
-    for (const a of attempts) {
-      if (a.userId !== userId || a.courseId !== courseId) continue;
+    for (const a of attemptsOf.get(key) ?? []) {
+      const lesson = byId.get(a.lessonId);
+      // I1: a retake counts from its start; a review counts the changed quiz from the review's start.
+      const since = lesson ? lessonSince(lesson, enrolment) : cycleStart(enrolment);
       if (since && a.submittedAt!.getTime() < since.getTime()) continue;
       attemptsUsed.set(a.lessonId, (attemptsUsed.get(a.lessonId) ?? 0) + 1);
       const b = best.get(a.lessonId);

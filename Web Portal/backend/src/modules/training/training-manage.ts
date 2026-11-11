@@ -267,6 +267,11 @@ type FileRow = { id: string; name: string; mimeType: string; sizeBytes: number; 
 const fileRef = (f: FileRow): FileRef => ({ id: f.id, name: f.name, mimeType: f.mimeType, sizeBytes: f.sizeBytes, kind: f.kind as FileKind });
 const jsonList = (list: readonly string[] | null | undefined) => (list && list.length ? [...list] : Prisma.DbNull);
 const iso = (d: Date | null | undefined) => (d ? d.toISOString() : null);
+function chunks<T>(list: readonly T[], size = 300): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size));
+  return out;
+}
 
 export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
   const { prisma } = ctx;
@@ -404,16 +409,27 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
   }
 
   /** The course fields from an input (create: every field; patch: only what was sent), checked. */
-  async function courseData(input: Partial<CourseInputParsed>, current: { moduleKey: string; audience: string } | null): Promise<Prisma.TrainingCourseUncheckedUpdateInput> {
+  async function courseData(
+    input: Partial<CourseInputParsed>,
+    current: { moduleKey: string; audience: string; issuerUserId: string | null; signatureFileId: string | null } | null,
+    actor: PersonRecord,
+  ): Promise<Prisma.TrainingCourseUncheckedUpdateInput> {
     const shape = { moduleKey: input.moduleKey ?? current?.moduleKey ?? 'general', audience: input.audience ?? current?.audience ?? 'STAFF' };
     checkCourseShape(shape);
+    const issuerAfter = input.issuerUserId !== undefined ? input.issuerUserId : (current?.issuerUserId ?? null);
     if (input.issuerUserId) {
       const issuer = await ctx.person(input.issuerUserId);
       if (!issuer || !issuer.active || issuer.client || !(issuer.trainingManager || issuer.admin)) throw new ValidationError('“Issued by” must be a Training manager or an administrator.', { field: 'issuerUserId' });
+      // M6: a Training manager picks an administrator, herself or a Training manager of her companies.
+      if (!actor.admin && !issuer.admin && issuer.id !== actor.id && !issuer.companyIds.some((c) => actor.companyIds.includes(c))) {
+        throw new ValidationError('Choose an administrator or a Training manager of your companies for “Issued by”.', { field: 'issuerUserId' });
+      }
     }
     if (input.signatureFileId) {
-      const f = await prisma.trainingFile.findUnique({ where: { id: input.signatureFileId }, select: { kind: true } });
+      const f = await prisma.trainingFile.findUnique({ where: { id: input.signatureFileId }, select: { kind: true, uploadedById: true } });
       if (!f || f.kind !== 'SIGNATURE') throw new ValidationError('Upload the signature picture first.', { field: 'signatureFileId' });
+      // M18: the signature is the "Issued by" person's own (nobody attaches one for someone else).
+      if (!issuerAfter || f.uploadedById !== issuerAfter) throw new ValidationError('The signature must be uploaded by the person who issues the certificates (“Issued by”).', { field: 'signatureFileId' });
     }
     if (input.companyIds && input.companyIds.length) {
       const unique = [...new Set(input.companyIds)];
@@ -434,6 +450,11 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
     if (input.issuerUserId !== undefined) data.issuerUserId = input.issuerUserId;
     if (input.issuerTitle !== undefined) data.issuerTitle = input.issuerTitle?.trim() || null;
     if (input.signatureFileId !== undefined) data.signatureFileId = input.signatureFileId;
+    // M18: a new "Issued by" doesn't keep someone else's signature.
+    if (input.issuerUserId !== undefined && input.signatureFileId === undefined && current?.signatureFileId) {
+      const f = await prisma.trainingFile.findUnique({ where: { id: current.signatureFileId }, select: { uploadedById: true } });
+      if (!f || !issuerAfter || f.uploadedById !== issuerAfter) data.signatureFileId = null;
+    }
     if (input.companyIds !== undefined) data.companyIds = jsonList([...new Set(input.companyIds)]);
     return data;
   }
@@ -488,7 +509,7 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
   async function createCourse(actorId: string, body: unknown, meta?: Meta): Promise<ManageCourse> {
     const actor = await managerOf(ctx, actorId);
     const input = courseInputSchema.parse(body ?? {});
-    const data = await courseData(input, null);
+    const data = await courseData(input, null, actor);
     const created = await prisma.trainingCourse.create({
       data: { ...(data as Prisma.TrainingCourseUncheckedCreateInput), title: input.title, moduleKey: input.moduleKey, audience: input.audience, status: 'DRAFT', createdById: actor.id, updatedById: actor.id },
     });
@@ -500,7 +521,7 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
     const actor = await managerOf(ctx, actorId);
     const c = await courseRow(courseId);
     const input = coursePatchSchema.parse(body ?? {});
-    const data = await courseData(input, c);
+    const data = await courseData(input, c, actor);
     await prisma.trainingCourse.update({ where: { id: c.id }, data: { ...data, updatedById: actor.id } });
     await audit(actor, meta, 'training.course.update', c.id, { newValue: input });
     return manageCourse(c.id);
@@ -567,6 +588,30 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
 
   // ── Lessons, steps, quizzes ─────────────────────────────────────────────────────────────────────
 
+  const toProblem = (l: LessonRow): ProblemLesson => ({
+    title: l.title,
+    kind: l.kind,
+    videoId: l.videoId,
+    fileId: l.fileId,
+    stepCount: l.steps.length,
+    quiz: l.quiz ? { passMark: l.quiz.passMark, drawCount: l.quiz.drawCount, questions: l.quiz.questions.map((q) => ({ kind: q.kind, prompt: q.prompt, options: q.options.map((o) => ({ correct: o.correct })) })) } : null,
+  });
+
+  /**
+   * M8: an edit to a PUBLISHED course that would leave it unfinished (a quiz without questions or a right
+   * answer, a guide without steps, a video without its link, no lessons) is refused before it is written.
+   * `change` gives the course's lessons as they would be after the edit.
+   */
+  async function assertStillPublishable(courseId: string, change: (lessons: ProblemLesson[], rows: LessonRow[]) => ProblemLesson[]): Promise<void> {
+    const course = await prisma.trainingCourse.findUnique({ where: { id: courseId }, select: { status: true } });
+    if (course?.status !== 'PUBLISHED') return;
+    const rows = await lessonsOf(courseId);
+    const now = rows.map(toProblem);
+    const before = new Set(publishProblems(now));
+    const fresh = publishProblems(change(now, rows)).filter((x) => !before.has(x));
+    if (fresh.length) throw new HttpError(`This course is published, and this change would leave it unfinished: ${fresh[0]} Unpublish it first to rework it.`, 'WOULD_BREAK_PUBLISHED', 409, { problems: fresh });
+  }
+
   async function lessonFields(courseId: string, kind: string, input: z.infer<typeof lessonPatchSchema>): Promise<Prisma.TrainingLessonUncheckedUpdateInput> {
     const data: Prisma.TrainingLessonUncheckedUpdateInput = {};
     if (input.title !== undefined) data.title = input.title;
@@ -617,6 +662,13 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
     const input = lessonPatchSchema.parse(body ?? {});
     if (input.kind !== undefined && input.kind !== l.kind) throw new ValidationError('A lesson’s kind can’t change: add a new lesson instead.', { field: 'kind' });
     const data = await lessonFields(l.courseId, l.kind, input);
+    await assertStillPublishable(l.courseId, (lessons, rows) =>
+      lessons.map((x, i) =>
+        rows[i]!.id !== l.id
+          ? x
+          : { ...x, ...('videoId' in data ? { videoId: (data.videoId as string | null) ?? null } : {}), ...('fileId' in data ? { fileId: (data.fileId as string | null) ?? null } : {}) },
+      ),
+    );
     await prisma.trainingLesson.update({ where: { id: l.id }, data: { ...data, updatedAt: ctx.clock() } });
     await audit(actor, meta, 'training.lesson.update', l.id, { newValue: { ...input, body: input.body === undefined ? undefined : '(changed)' } });
     return manageLesson(l.id);
@@ -625,6 +677,7 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
   async function deleteLesson(actorId: string, lessonId: unknown, meta?: Meta): Promise<void> {
     const actor = await managerOf(ctx, actorId);
     const l = await lessonRow(lessonId);
+    await assertStillPublishable(l.courseId, (lessons, rows) => lessons.filter((_, i) => rows[i]!.id !== l.id));
     await prisma.trainingLesson.delete({ where: { id: l.id } });
     await touchCourse(l.courseId, actor);
     await audit(actor, meta, 'training.lesson.delete', l.id, { oldValue: { courseId: l.courseId, title: l.title } });
@@ -665,6 +718,7 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
       imageFileId: s.imageFileId ?? null,
       imageAlt: s.imageFileId ? s.imageAlt?.trim() || null : null,
     }));
+    await assertStillPublishable(l.courseId, (lessons, all) => lessons.map((x, i) => (all[i]!.id === l.id ? { ...x, stepCount: rows.length } : x)));
     await prisma.$transaction([prisma.trainingStep.deleteMany({ where: { lessonId: l.id } }), prisma.trainingStep.createMany({ data: rows }), touchLesson(l.id)]);
     await audit(actor, meta, 'training.lesson.steps', l.id, { newValue: { steps: rows.length } });
     return manageLesson(l.id);
@@ -679,6 +733,13 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
       throw new ValidationError(`The quiz draws ${input.drawCount} questions but has only ${input.questions.length}.`, { field: 'drawCount' });
     }
     const questions = normaliseQuestions(input.questions);
+    await assertStillPublishable(l.courseId, (lessons, rows) =>
+      lessons.map((x, i) =>
+        rows[i]!.id === l.id
+          ? { ...x, quiz: { passMark: input.passMark, drawCount: input.drawCount ?? null, questions: questions.map((q) => ({ kind: q.kind, prompt: q.prompt, options: q.options.map((o) => ({ correct: o.correct })) })) } }
+          : x,
+      ),
+    );
     await prisma.$transaction(
       async (tx) => {
         const settings = {
@@ -796,7 +857,10 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
         orderBy: [{ name: 'asc' }, { id: 'asc' }],
       }),
     ]);
-    const issuers = [...(await ctx.people()).values()].filter((p) => p.active && !p.client && (p.trainingManager || p.admin)).sort((a, b) => a.name.localeCompare(b.name));
+    // M6: a Training manager's choice of "Issued by": administrators and the Training managers of her companies.
+    const issuers = [...(await ctx.people()).values()]
+      .filter((p) => p.active && !p.client && (p.admin || (p.trainingManager && (!scope || p.id === actor.id || p.companyIds.some((c) => scope.includes(c))))))
+      .sort((a, b) => a.name.localeCompare(b.name));
     return {
       groups: GROUP_KEYS.map((key) => ({ key, label: GROUP_LABELS[key] })),
       people: people.map((p) => ({ id: p.id, name: p.name, email: p.email, client: p.client })),
@@ -905,15 +969,29 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
     const scope = scopeOf(actor);
     const assignees = await prisma.trainingAssignee.findMany({ where: { assignmentId: { in: rows.map((r) => r.id) }, withdrawnAt: null }, select: { assignmentId: true, userId: true, courseId: true, dueDay: true } });
     const people = await ctx.people([...new Set([...assignees.map((a) => a.userId), ...rows.map((r) => r.createdById).filter((x): x is string => !!x), ...rows.filter((r) => r.targetKind === 'USER').map((r) => r.targetId)])]);
-    const enrolments = assignees.length
-      ? await prisma.trainingEnrolment.findMany({ where: { OR: assignees.map((a) => ({ userId: a.userId, courseId: a.courseId })) }, select: { userId: true, courseId: true, completedAt: true } })
-      : [];
-    const done = new Set(enrolments.filter((e) => e.completedAt).map((e) => `${e.userId}|${e.courseId}`));
+    // I5: finished courses by course IN and people in pieces, matched in memory; assignees grouped once.
+    const done = new Set<string>();
+    const courseIds = [...new Set(assignees.map((a) => a.courseId))];
+    for (const part of chunks([...new Set(assignees.map((a) => a.userId))])) {
+      for (const e of await prisma.trainingEnrolment.findMany({ where: { courseId: { in: courseIds }, userId: { in: part }, completedAt: { not: null } }, select: { userId: true, courseId: true } })) done.add(`${e.userId}|${e.courseId}`);
+    }
+    const byAssignment = new Map<string, typeof assignees>();
+    for (const a of assignees) {
+      if (scope && !(people.get(a.userId) && inScope(scope, people.get(a.userId)!))) continue;
+      const list = byAssignment.get(a.assignmentId);
+      if (list) list.push(a);
+      else byAssignment.set(a.assignmentId, [a]);
+    }
     const courses = new Map((await prisma.trainingCourse.findMany({ where: { id: { in: [...new Set(rows.map((r) => r.courseId))] } }, select: { id: true, title: true } })).map((c) => [c.id, c.title]));
-    const labels = await targetLabels(rows, people);
+    const labels = await targetLabels(rows, people, actor);
     const today = ctx.today();
+    // M6: the creator is named only when an administrator or one of the reader's companies' people.
+    const creator = (id: string | null) => {
+      const p = id ? people.get(id) : undefined;
+      return p && (!scope || p.admin || inScope(scope, p)) ? p.name : null;
+    };
     return rows.map((r) => {
-      const mine = assignees.filter((a) => a.assignmentId === r.id && (!scope || (people.get(a.userId) && inScope(scope, people.get(a.userId)!))));
+      const mine = byAssignment.get(r.id) ?? [];
       const completed = mine.filter((a) => done.has(`${a.userId}|${a.courseId}`)).length;
       const overdue = mine.filter((a) => a.dueDay && a.dueDay < today && !done.has(`${a.userId}|${a.courseId}`)).length;
       return {
@@ -931,36 +1009,70 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
         completed,
         overdue,
         createdAt: r.createdAt.toISOString(),
-        createdByName: r.createdById ? (people.get(r.createdById)?.name ?? null) : null,
+        createdByName: creator(r.createdById),
         frozen: r.frozenAt !== null,
       };
     });
   }
 
-  async function targetLabels(rows: readonly { targetKind: string; targetId: string }[], people: Map<string, PersonRecord>): Promise<Map<string, string>> {
+  /** Each target's label; M6: outside a Training manager's companies people, companies and projects are never named. */
+  async function targetLabels(rows: readonly { targetKind: string; targetId: string }[], people: Map<string, PersonRecord>, actor: PersonRecord): Promise<Map<string, string>> {
+    const scope = scopeOf(actor);
     const ids = (kind: string) => [...new Set(rows.filter((r) => r.targetKind === kind).map((r) => r.targetId))];
     const [deps, cos, projs] = await Promise.all([
       ids('DEPARTMENT').length ? prisma.department.findMany({ where: { id: { in: ids('DEPARTMENT') } }, select: { id: true, name: true } }) : [],
       ids('COMPANY').length ? prisma.company.findMany({ where: { id: { in: ids('COMPANY') } }, select: { id: true, name: true } }) : [],
-      ids('PROJECT').length ? prisma.project.findMany({ where: { id: { in: ids('PROJECT') } }, select: { id: true, name: true } }) : [],
+      ids('PROJECT').length ? prisma.project.findMany({ where: { id: { in: ids('PROJECT') } }, select: { id: true, name: true, companies: { select: { companyId: true } } } }) : [],
     ]);
     const out = new Map<string, string>();
     for (const r of rows) {
       const k = `${r.targetKind}|${r.targetId}`;
-      if (r.targetKind === 'USER') out.set(k, people.get(r.targetId)?.name ?? 'A former account');
+      if (r.targetKind === 'USER') {
+        const p = people.get(r.targetId);
+        out.set(k, !p ? 'A former account' : !scope || inScope(scope, p) ? p.name : 'Someone in another company');
+      }
       if (r.targetKind === 'GROUP') out.set(k, GROUP_LABELS[r.targetId as keyof typeof GROUP_LABELS] ?? r.targetId);
     }
     for (const d of deps) out.set(`DEPARTMENT|${d.id}`, d.name);
-    for (const c of cos) out.set(`COMPANY|${c.id}`, c.name);
-    for (const p of projs) out.set(`PROJECT|${p.id}`, p.name);
+    for (const c of cos) out.set(`COMPANY|${c.id}`, !scope || scope.includes(c.id) ? c.name : 'Another company');
+    for (const p of projs) out.set(`PROJECT|${p.id}`, !scope || p.companies.some((c) => scope.includes(c.companyId)) ? p.name : 'A project in another company');
     return out;
+  }
+
+  /**
+   * M6: the assignments and rules a Training manager may list — made inside her companies, or aimed at
+   * something inside them (a group or a department covers every company). Administrators: all.
+   */
+  async function visibleToManager<T extends { id: string; targetKind: string; targetId: string; scopeCompanyIds: unknown }>(actor: PersonRecord, rows: readonly T[]): Promise<T[]> {
+    const scope = scopeOf(actor);
+    if (!scope) return [...rows];
+    const userIds = [...new Set(rows.filter((r) => r.targetKind === 'USER').map((r) => r.targetId))];
+    const projectIds = [...new Set(rows.filter((r) => r.targetKind === 'PROJECT').map((r) => r.targetId))];
+    const [people, projects] = await Promise.all([
+      ctx.people(userIds),
+      projectIds.length ? prisma.project.findMany({ where: { id: { in: projectIds } }, select: { id: true, companies: { select: { companyId: true } } } }) : [],
+    ]);
+    const projectCompanies = new Map(projects.map((p) => [p.id, p.companies.map((c) => c.companyId)]));
+    const targetInScope = (r: T) => {
+      switch (r.targetKind) {
+        case 'USER':
+          return !!people.get(r.targetId) && inScope(scope, people.get(r.targetId)!);
+        case 'COMPANY':
+          return scope.includes(r.targetId);
+        case 'PROJECT':
+          return (projectCompanies.get(r.targetId) ?? []).some((c) => scope.includes(c));
+        default:
+          return true;
+      }
+    };
+    return rows.filter((r) => mayChange(actor, r.scopeCompanyIds) || targetInScope(r));
   }
 
   async function listAssignments(actorId: string, rawQuery: unknown): Promise<{ assignments: AssignmentRow[] }> {
     const actor = await managerOf(ctx, actorId);
     const q = assignmentListQuery.parse(rawQuery ?? {});
     const rows = await prisma.trainingAssignment.findMany({ where: { withdrawnAt: null, ...(q.courseId ? { courseId: q.courseId } : {}) }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 1000 });
-    return { assignments: await assignmentRows(actor, rows) };
+    return { assignments: await assignmentRows(actor, await visibleToManager(actor, rows)) };
   }
 
   async function assign(actorId: string, body: unknown, meta?: Meta): Promise<{ assignments: AssignmentRow[] }> {
@@ -1026,10 +1138,10 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
     const people = await ctx.people([...new Set(assignees.map((a) => a.userId))]);
     const courseIds = [...new Set(rules.flatMap((r) => stringList(r.courseIds)))];
     const titles = new Map((await prisma.trainingCourse.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true } })).map((c) => [c.id, c.title]));
-    const labels = await targetLabels(rules, new Map());
+    const labels = await targetLabels(rules, new Map(), actor);
     return rules.map((r) => {
       const ids = new Set(assignments.filter((a) => a.ruleId === r.id).map((a) => a.id));
-      const who = new Set(assignees.filter((a) => ids.has(a.assignmentId) && (!scope || (people.get(a.userId) && inScope(scope, people.get(a.userId)!)))).map((a) => a.userId));
+      const who = new Set((ids.size ? assignees : []).filter((a) => ids.has(a.assignmentId) && (!scope || (people.get(a.userId) && inScope(scope, people.get(a.userId)!)))).map((a) => a.userId));
       const cids = stringList(r.courseIds);
       return {
         id: r.id,
@@ -1051,7 +1163,7 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
   async function listRules(actorId: string): Promise<{ rules: RuleRow[] }> {
     const actor = await managerOf(ctx, actorId);
     const rules = await prisma.trainingRule.findMany({ orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 500 });
-    return { rules: await ruleRows(actor, rules) };
+    return { rules: await ruleRows(actor, await visibleToManager(actor, rules)) };
   }
 
   async function ruleOf(actor: PersonRecord, ruleId: unknown) {
@@ -1190,18 +1302,26 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
     return { f, author };
   }
 
+  /** R5: the people (any status) inside a Training manager's companies, by id. */
+  async function scopedUserIds(scope: readonly string[]): Promise<string[]> {
+    return [...(await ctx.people()).values()].filter((p) => inScope(scope, p)).map((p) => p.id);
+  }
+
   async function listFeedback(actorId: string, rawQuery: unknown): Promise<{ items: FeedbackItem[] }> {
     const actor = await managerOf(ctx, actorId);
     const q = feedbackListQuery.parse(rawQuery ?? {});
-    const rows = await prisma.trainingFeedback.findMany({
-      where: { ...(q.kind ? { kind: q.kind } : {}), ...(q.status ? { status: q.status } : {}) },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take: 2000,
-    });
-    const people = await ctx.people([...new Set(rows.map((r) => r.userId))]);
+    const where = { ...(q.kind ? { kind: q.kind } : {}), ...(q.status ? { status: q.status } : {}) };
+    const order = [{ createdAt: 'desc' as const }, { id: 'desc' as const }];
     const scope = scopeOf(actor);
-    const mine = rows.filter((r) => !scope || (people.get(r.userId) && inScope(scope, people.get(r.userId)!))).slice(0, 500);
-    return { items: await feedbackItems(mine, people) };
+    // M15: a Training manager's people are asked for in the query (never the newest N, then filtered).
+    const rows = scope
+      ? (await Promise.all(chunks(await scopedUserIds(scope)).map((part) => prisma.trainingFeedback.findMany({ where: { ...where, userId: { in: part } }, orderBy: order, take: 500 }))))
+          .flat()
+          .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || (a.id < b.id ? 1 : -1))
+          .slice(0, 500)
+      : await prisma.trainingFeedback.findMany({ where, orderBy: order, take: 500 });
+    const people = await ctx.people([...new Set(rows.map((r) => r.userId))]);
+    return { items: await feedbackItems(rows, people) };
   }
 
   async function answerFeedback(actorId: string, feedbackId: unknown, body: unknown, meta?: Meta): Promise<FeedbackItem> {
@@ -1257,15 +1377,17 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
     const actor = await managerOf(ctx, actorId);
     const q = certificateListQuery.parse(rawQuery ?? {});
     const text = q.q?.trim();
-    const rows = await prisma.trainingCertificate.findMany({
-      where: { ...(q.courseId ? { courseId: q.courseId } : {}), ...(text ? { OR: [{ learnerName: { contains: text } }, { code: { contains: text.toUpperCase() } }, { courseTitle: { contains: text } }] } : {}) },
-      orderBy: [{ issuedAt: 'desc' }, { id: 'desc' }],
-      take: 2000,
-    });
+    const where = { ...(q.courseId ? { courseId: q.courseId } : {}), ...(text ? { OR: [{ learnerName: { contains: text } }, { code: { contains: text.toUpperCase() } }, { courseTitle: { contains: text } }] } : {}) };
+    const order = [{ issuedAt: 'desc' as const }, { id: 'desc' as const }];
     const scope = scopeOf(actor);
-    const people = scope ? await ctx.people([...new Set(rows.map((r) => r.userId))]) : new Map<string, PersonRecord>();
-    const mine = rows.filter((r) => !scope || (people.get(r.userId) && inScope(scope, people.get(r.userId)!))).slice(0, 500);
-    return { certificates: mine.map((c) => ({ ...certRef(c), userId: c.userId, learnerName: c.learnerName })) };
+    // M15: filtered by the Training manager's people in the query.
+    const rows = scope
+      ? (await Promise.all(chunks(await scopedUserIds(scope)).map((part) => prisma.trainingCertificate.findMany({ where: { ...where, userId: { in: part } }, orderBy: order, take: 500 }))))
+          .flat()
+          .sort((a, b) => b.issuedAt.getTime() - a.issuedAt.getTime() || (a.id < b.id ? 1 : -1))
+          .slice(0, 500)
+      : await prisma.trainingCertificate.findMany({ where, orderBy: order, take: 500 });
+    return { certificates: rows.map((c) => ({ ...certRef(c), userId: c.userId, learnerName: c.learnerName })) };
   }
 
   async function revokeCertificate(actorId: string, certificateId: unknown, body: unknown, meta?: Meta): Promise<CertificateRef> {

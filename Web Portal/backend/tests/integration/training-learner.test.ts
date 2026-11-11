@@ -415,11 +415,14 @@ describe('progress, order and completion (a course in order, with a certificate)
     // First hand-in: SINGLE right, MULTIPLE half right, ORDER as handed out (never the right order) → 33.
     const wrongMulti = [staff.options.get(multiple)!.find((o) => o.correct)!.id];
     const first = await data<AttemptResult>(call('ana', 'POST', `/training/attempts/${paper.id}/submit`, { answers: { [single]: again.answers[single], [multiple]: wrongMulti, [orderId]: order.options.map((o) => o.id) } }));
-    expect(first).toMatchObject({ scorePct: 33, passed: false, passMark: 60, attemptsLeft: 1, timedOut: false, courseCompleted: false, certificateId: null });
+    expect(first).toMatchObject({ scorePct: 33, passed: false, passMark: 60, attemptsLeft: 1, timedOut: false, courseCompleted: false, certificateId: null, answersShown: false });
     const single1 = first.questions.find((x) => x.id === single)!;
     expect(single1.right).toBe(true);
-    expect(single1.explanation).toBe('Because B is right');
-    expect(single1.options.find((o) => o.correct)?.feedback).toBe('Yes B');
+    // M9: not passed and attempts left — the chosen answer's feedback, never which are right or the explanation.
+    expect(single1.explanation).toBeNull();
+    expect(single1.options.some((o) => o.correct)).toBe(false);
+    expect(single1.options.find((o) => o.text === 'B')?.feedback).toBe('Yes B');
+    expect(single1.options.find((o) => o.text === 'A')?.feedback).toBeNull();
     expect(first.questions.find((x) => x.id === multiple)!.right).toBe(false);
     expect(first.questions.find((x) => x.id === orderId)!.right).toBe(false);
     // Handing in again returns the same result.
@@ -429,7 +432,8 @@ describe('progress, order and completion (a course in order, with a certificate)
     const second = await data<AttemptPaper>(call('ana', 'POST', `/training/lessons/${q.id}/attempts`));
     expect(second.id).not.toBe(paper.id);
     const passed = await data<AttemptResult>(call('ana', 'POST', `/training/attempts/${second.id}/submit`, { answers: rightAnswers(staff, [single, multiple, orderId]) }));
-    expect(passed).toMatchObject({ scorePct: 100, passed: true, attemptsLeft: 0, courseCompleted: true });
+    expect(passed).toMatchObject({ scorePct: 100, passed: true, attemptsLeft: 0, courseCompleted: true, answersShown: true });
+    expect(passed.questions.find((x) => x.id === single)!.explanation).toBe('Because B is right');
     expect(passed.certificateId).toBeTruthy();
     const none = await call('ana', 'POST', `/training/lessons/${q.id}/attempts`);
     expect(none.status).toBe(409);
@@ -501,8 +505,9 @@ describe('certificates', () => {
       expect(r.courseCompleted).toBe(true);
       expect(r.certificateId).not.toBe(anaCert.id);
       const old = await prisma.trainingCertificate.findUniqueOrThrow({ where: { id: anaCert.id } });
-      expect(old.revokedReason).toBe('Replaced after the retake');
-      expect((await data<{ status: string }>(call(null, 'GET', `/training/verify/${anaCert.code}`))).status).toBe('REVOKED');
+      // M10: the old certificate isn't revoked — it stays expired.
+      expect(old.revokedAt).toBeNull();
+      expect((await data<{ status: string }>(call(null, 'GET', `/training/verify/${anaCert.code}`))).status).toBe('EXPIRED');
       expect((await data<CourseDetail>(call('ana', 'GET', `/training/courses/${staff.id}`))).mine.status).toBe('COMPLETED');
     } finally {
       clockAt = null;
@@ -567,7 +572,9 @@ describe('feedback', () => {
     expect((await data<CourseDetail>(call('ben', 'GET', `/training/courses/${staff.id}`))).questions).toEqual([]);
     expect((await data<CourseDetail>(call('ana', 'GET', `/training/courses/${staff.id}`))).questions.map((q) => [q.question, q.mine])).toEqual([['Where is the board?', true]]);
     await prisma.trainingFeedback.update({ where: { id: item.id }, data: { status: 'ANSWERED', answer: 'In the side menu.', answeredAt: new Date() } });
-    const seen = (await data<CourseDetail>(call('ben', 'GET', `/training/courses/${staff.id}`))).questions;
+    // M16: answered questions show to colleagues (Cat shares Alpha with Ana), never across companies (Ben: Beta only).
+    expect((await data<CourseDetail>(call('ben', 'GET', `/training/courses/${staff.id}`))).questions).toEqual([]);
+    const seen = (await data<CourseDetail>(call('cat', 'GET', `/training/courses/${staff.id}`))).questions;
     expect(seen).toHaveLength(1);
     expect(seen[0]).toMatchObject({ question: 'Where is the board?', answer: 'In the side menu.', mine: false });
     expect(JSON.stringify(seen)).not.toMatch(/Ana/);

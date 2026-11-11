@@ -77,6 +77,17 @@ export function doneInCycle(lessons: readonly LessonFacts[], done: ReadonlyMap<s
   }).map((l) => l.id));
 }
 
+/**
+ * I1: the moment a lesson's work counts from — a retake's start for every lesson (R10); a review's start for
+ * the lessons a Major change touched while the review is open (R11: a review is its own cycle, so a changed
+ * quiz gets fresh attempts); otherwise null (any time).
+ */
+export function lessonSince(l: Pick<LessonFacts, 'changedVersion'>, e: EnrolmentFacts | null): Date | null {
+  if (retakeActive(e)) return e!.retakeFrom;
+  if (e?.reviewFrom && !e.reviewDoneAt && e.completedAt && l.changedVersion > (e.completedVersion ?? 0)) return e.reviewFrom;
+  return null;
+}
+
 /** R11: the lessons changed by a Major change since they finished, not done again since the review began. */
 export function reviewPending(lessons: readonly LessonFacts[], e: EnrolmentFacts | null, done: ReadonlyMap<string, Date>): string[] {
   if (!e?.reviewFrom || e.reviewDoneAt || !e.completedAt) return [];
@@ -116,7 +127,8 @@ export function courseState(i: CourseStateInput): CourseState {
   let progressPct = pct;
   if (retakeActive(e)) {
     status = 'RETAKE';
-    dueDay = i.retakeDueDay ?? i.terms.dueDay;
+    // I2: the expiry day when mandatory, else none (never the old assignment's day: overdue at once).
+    dueDay = i.retakeDueDay;
   } else if (e?.completedAt) {
     progressPct = 100;
     if (e.reviewFrom && !e.reviewDoneAt) {

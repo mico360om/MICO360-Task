@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { assignmentTerms, courseState, isCourseComplete, lessonOutline, reviewPending, type EnrolmentFacts, type LessonFacts } from './training-state';
+import { assignmentTerms, courseState, isCourseComplete, lessonOutline, lessonSince, reviewPending, type EnrolmentFacts, type LessonFacts } from './training-state';
 
 const t = (iso: string) => new Date(`${iso}T10:00:00.000Z`);
 const L = (id: string, kind: LessonFacts['kind'] = 'GUIDE', changedVersion = 1): LessonFacts => ({ id, kind, changedVersion });
@@ -90,6 +90,23 @@ describe('the person’s state on a course', () => {
     expect(courseState({ enrolment: e, lessons, done: again, terms: none, today, retakeDueDay: null })).toMatchObject({ status: 'RETAKE', progressPct: 33, dueDay: null, overdue: false });
     // Completed again after the retake moment: completed.
     expect(courseState({ enrolment: { ...e, completedAt: t('2026-11-07') }, lessons, done: again, terms: none, today, retakeDueDay: null }).status).toBe('COMPLETED');
+  });
+
+  it('I2: an optional retake has no due day (never the old assignment’s), so it is never overdue at once', () => {
+    const e = enr({ startedAt: t('2026-01-01'), completedAt: t('2026-01-03'), completedVersion: 1, retakeFrom: t('2026-11-01') });
+    const s = courseState({ enrolment: e, lessons, done: new Map(), terms: { assigned: true, mandatory: false, dueDay: '2026-01-10' }, today, retakeDueDay: null });
+    expect(s).toMatchObject({ status: 'RETAKE', dueDay: null, overdue: false });
+  });
+
+  it('I1: a review is its own cycle for the changed lessons — attempts and lessons count from the review’s start', () => {
+    const e = enr({ completedAt: t('2026-11-03'), completedVersion: 1, reviewFrom: t('2026-11-05'), reviewDueDay: '2026-11-19' });
+    expect(lessonSince(L('q', 'QUIZ', 2), e)).toEqual(t('2026-11-05'));
+    expect(lessonSince(L('a', 'GUIDE', 1), e)).toBeNull();
+    expect(lessonSince(L('q', 'QUIZ', 2), { ...e, reviewDoneAt: t('2026-11-06') })).toBeNull();
+    // A retake counts every lesson from its start.
+    const r = enr({ completedAt: t('2026-01-03'), completedVersion: 1, retakeFrom: t('2026-11-01') });
+    expect(lessonSince(L('a'), r)).toEqual(t('2026-11-01'));
+    expect(lessonSince(L('a'), null)).toBeNull();
   });
 
   it('a withdrawn enrolment keeps its progress (it is only hidden from My training)', () => {

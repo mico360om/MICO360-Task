@@ -255,7 +255,9 @@ describe('rows by course, person, department, role, company and project', () => 
     expect(rowOf(role.rows, 'admins')).toBeUndefined();
     const company = await data<TrainingReport>('amy', '/training/reports?by=company');
     expect(rowOf(company.rows, w.companies.A)).toMatchObject({ label: `Alpha ${w.tag}`, people: 5 });
-    expect(rowOf(company.rows, w.companies.B)).toMatchObject({ people: 1 }); // Cat is in both companies
+    // M6: Beta isn't hers — Cat (in both) counts under “Other”, never named.
+    expect(rowOf(company.rows, w.companies.B)).toBeUndefined();
+    expect(rowOf(company.rows, 'other')).toMatchObject({ label: 'Other', people: 1 });
     const project = await data<TrainingReport>('admin', '/training/reports?by=project');
     expect(rowOf(project.rows, w.projects.PA)).toMatchObject({ people: 3 });
     expect(rowOf(project.rows, w.projects.PB)).toMatchObject({ people: 2 });

@@ -359,6 +359,17 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync) 
 
   // ── Course detail ──
 
+  /** M16: answered questions asked by people sharing a company with the viewer (administrators: all), and their own. */
+  async function colleaguesOnly<T extends { userId: string }>(p: PersonRecord, rows: T[]): Promise<T[]> {
+    if (p.admin) return rows.slice(0, 200);
+    const askers = [...new Set(rows.map((r) => r.userId).filter((id) => id !== p.id))];
+    const colleagues =
+      askers.length && p.companyIds.length
+        ? new Set((await prisma.companyMember.findMany({ where: { userId: { in: askers }, companyId: { in: [...p.companyIds] }, company: { status: 'ACTIVE' } }, select: { userId: true } })).map((m) => m.userId))
+        : new Set<string>();
+    return rows.filter((r) => r.userId === p.id || colleagues.has(r.userId)).slice(0, 200);
+  }
+
   async function detailOf(p: PersonRecord, course: CourseRow, a: 'learn' | 'preview', mode: LearnerMode): Promise<CourseDetail> {
     const state = await loadState(ctx, p.id, course.id);
     const card = (await cardsFor(p, [course], new Map([[pairKey(p.id, course.id), state]]))).get(course.id)!;
@@ -366,11 +377,13 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync) 
     const outline = lessonOutline({ lessons: state.lessons, inOrder: course.inOrder && (a === 'learn' || enrolled), enrolment: state.enrolment, done: state.done });
     const [resources, questions, rating] = await Promise.all([
       prisma.trainingFile.findMany({ where: { courseId: course.id, kind: 'RESOURCE' }, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }] }),
-      prisma.trainingFeedback.findMany({
-        where: { courseId: course.id, kind: 'QUESTION', ...(course.audience === 'STAFF' && mode === 'staff' ? { OR: [{ status: 'ANSWERED' }, { userId: p.id }] } : { userId: p.id }) },
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        take: 200,
-      }),
+      prisma.trainingFeedback
+        .findMany({
+          where: { courseId: course.id, kind: 'QUESTION', ...(course.audience === 'STAFF' && mode === 'staff' ? { OR: [{ status: 'ANSWERED' }, { userId: p.id }] } : { userId: p.id }) },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          take: 500,
+        })
+        .then((rows) => colleaguesOnly(p, rows)),
       prisma.trainingFeedback.findFirst({ where: { courseId: course.id, userId: p.id, kind: 'RATING' }, select: { rating: true } }),
     ]);
     return {
@@ -415,7 +428,11 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync) 
     const now = ctx.clock();
     const companyId = (ctx.companyOfPerson ? await ctx.companyOfPerson(p.id).catch(() => null) : null) ?? p.primaryCompanyId ?? p.companyIds[0] ?? null;
     const issuer = course.issuerUserId ? await prisma.user.findUnique({ where: { id: course.issuerUserId }, select: { firstName: true, lastName: true, username: true } }) : null;
-    await prisma.trainingCertificate.updateMany({ where: { userId: p.id, courseId: course.id, revokedAt: null }, data: { revokedAt: now, revokedReason: 'Replaced after the retake' } });
+    // M10: an expired certificate stays EXPIRED (never revoked); only one still valid is replaced (rare: no retake then).
+    await prisma.trainingCertificate.updateMany({
+      where: { userId: p.id, courseId: course.id, revokedAt: null, OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
+      data: { revokedAt: now, revokedReason: 'Replaced by a new certificate' },
+    });
     const hasQuiz = state.lessons.some((l) => l.kind === 'QUIZ');
     for (let i = 0; ; i++) {
       try {

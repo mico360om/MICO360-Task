@@ -393,10 +393,12 @@ describe('assignments (they follow membership)', () => {
     expect(reached).not.toContain(w.people.bob);
     const adminOne = (await data<{ assignments: AssignmentRow[] }>(call('admin', 'GET', `/training/manage/assignments?courseId=${basics}`))).assignments[0]!;
     expect((await call('amy', 'DELETE', `/training/manage/assignments/${adminOne.id}`)).status).toBe(403);
-    // Her list shows counts of her people only.
+    // M6: her list leaves out what is outside her companies (the PB project, Bob); the rest counts her people only.
     const hers = (await data<{ assignments: AssignmentRow[] }>(call('amy', 'GET', `/training/manage/assignments?courseId=${basics}`))).assignments;
-    const project = hers.find((a) => a.targetKind === 'PROJECT')!;
-    expect(project.people).toBe(1); // cat (A+B); ben is only in B
+    expect(hers.find((a) => a.targetKind === 'PROJECT')).toBeUndefined();
+    expect(hers.find((a) => a.targetKind === 'USER' && a.targetId === w.people.bob)).toBeUndefined();
+    expect(hers.find((a) => a.targetKind === 'COMPANY')!.people).toBe(3);
+    expect(JSON.stringify(hers)).not.toMatch(/Betaonly|Project PB/);
   });
 
   it('the preview: how many it reaches, who can’t see the course, who has it already', async () => {
