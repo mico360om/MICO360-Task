@@ -49,6 +49,22 @@ export const CLIENT_ROUTE_CLASSES: Readonly<Record<string, ClientRouteClass>> = 
   'POST /portal/notifications/read-all': 'client',
   'GET /portal/settings/notifications': 'client',
   'PUT /portal/settings/notifications': 'client',
+  // Training Center: Help & training (CLIENTS-audience published courses only; never staff courses or files).
+  'GET /portal/training': 'client',
+  'GET /portal/training/summary': 'client',
+  'GET /portal/training/courses/:id': 'client',
+  'POST /portal/training/courses/:id/start': 'client',
+  'GET /portal/training/lessons/:id': 'client',
+  'PUT /portal/training/lessons/:id/progress': 'client',
+  'POST /portal/training/lessons/:id/complete': 'client',
+  'POST /portal/training/lessons/:id/attempts': 'client',
+  'PUT /portal/training/attempts/:id': 'client',
+  'POST /portal/training/attempts/:id/submit': 'client',
+  'GET /portal/training/attempts/:id': 'client',
+  'GET /portal/training/files/:id': 'client',
+  'GET /portal/training/certificates/:id/pdf': 'client',
+  'POST /portal/training/courses/:id/feedback': 'client',
+  'PUT /portal/training/tour': 'client',
 };
 
 const API_PREFIX = '/api/v1';

@@ -113,6 +113,7 @@ import type { TemplateService } from './modules/templates/template-service';
 import { registerInspectionRoutes, type InspectionRouteDeps } from './modules/inspections/inspection-routes';
 import { registerManagementRoutes, type ManagementRouteDeps } from './modules/management/management-routes';
 import { registerKpiRoutes, type KpiRouteDeps } from './modules/kpis/kpi-routes';
+import { registerTraining, type TrainingRoutesBundle } from './modules/training/training-wiring';
 import { registerBackupRoutes, type BackupRouteDeps } from './modules/backups/backup-routes';
 import { registerMicrosoftRoutes, type MicrosoftRouteDeps } from './modules/integrations/microsoft/microsoft-routes';
 import type { MeetingTeamsLinks } from './modules/meetings/meeting-routes';
@@ -385,6 +386,8 @@ export interface AppDeps extends AuthRouteDeps {
   management?: Omit<ManagementRouteDeps, 'guard'>;
   /** Project KPIs and User KPIs (staff only; the project routes check who may see the project). */
   kpis?: Omit<KpiRouteDeps, 'guard' | 'pickOf' | 'pdfBrand' | 'canViewProject'>;
+  /** Training Center (owner, 11 Nov 2026): My training, the Client portal's Help & training, the Training Center, reports. */
+  training?: TrainingRoutesBundle;
   /** System Settings → Backups: the copies, "Back up now", downloads and Google Drive (administrators only). */
   backups?: Omit<BackupRouteDeps, 'guard' | 'audit'>;
   /**
@@ -634,7 +637,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       await registerAuthRoutes(api, deps);
       if (deps.about) await registerAboutRoutes(api, { release: deps.about.release, guard });
       // Register multipart ONCE for the whole API (task/chat attachments + avatar/project images use req.file()).
-      if (deps.attachmentService || deps.chatService || deps.chatAttachmentStorage || deps.companyService /* companies: logos */ || deps.portal /* 1.23.7: client uploads */) {
+      if (deps.attachmentService || deps.chatService || deps.chatAttachmentStorage || deps.companyService /* companies: logos */ || deps.portal /* 1.23.7: client uploads */ || deps.training /* Training Center files (25 MB per request) */) {
         await api.register(multipart, { limits: { fileSize: deps.attachmentMaxSizeBytes ?? 10 * 1024 * 1024, files: 1 } });
       }
       // Per-project authorization (T2.7). Defaults to admin-only when no manager lookup is wired.
@@ -1199,6 +1202,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         });
       }
       if (deps.portal) await registerPortalRoutes(api, { service: deps.portal, guard, pdfsPerMinute: deps.portalPdfsPerMinute });
+      // Training Center: staff learning (/training/*), the public certificate check, the portal's Help & training
+      // (/portal/training/*), the Training Center (manage) and its reports — every rule checked by the services.
+      if (deps.training) await registerTraining(api, { ...deps.training, guard });
       // 1.23: Settings → Microsoft Teams and Make Teams link (staff only; the meeting's own view and edit rules).
       if (deps.microsoft) {
         await registerMicrosoftRoutes(api, { ...deps.microsoft, canViewMeeting: deps.microsoft.canViewMeeting ?? canViewMeetingQuietly, guard, audit: deps.auditService });

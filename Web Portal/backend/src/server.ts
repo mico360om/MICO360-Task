@@ -103,6 +103,8 @@ import { createUserService } from './modules/users/user-service';
 import { createPrismaUserRepository as createPrismaUserMgmtRepository } from './modules/users/prisma-user-repository';
 import { createNotificationService } from './modules/notifications/notification-service';
 import { createKpisFromPrisma } from './modules/kpis/kpi-wiring';
+import { createTrainingFromPrisma } from './modules/training/training-wiring';
+import { createTrainingFileStore, trainingFilesDirFor } from './modules/training/training-files';
 import { releaseOf, stampDueChange, type StampDeps } from './modules/kpis/kpi-stamps';
 import { createPrismaNotificationRepository, createPrismaPreferenceStore, createPrismaReminderLogStore, pruneReminderLog } from './modules/notifications/prisma-notification-repository';
 import type { NotificationRecord } from './modules/notifications/notification-repository';
@@ -1918,6 +1920,47 @@ async function main(): Promise<void> {
   };
   jobs.every(60 * 60 * 1000, runKpis, { firstAfterMs: 3 * 60 * 1000 });
 
+  // ── Training Center (owner, 11 Nov 2026) ──────────────────────────────────
+  // Courses, My training and the Client portal's Help & training; files in a private folder beside the
+  // uploads (never /uploads); reminders through Notification & Scheduling (each company's working days and
+  // escalation numbers); certificates under the learner's company brand with a public check at
+  // <APP_URL>/verify/<code>. The starter courses are loaded once (one instance, at boot); the reminders run
+  // hourly and the membership-following sync every 15 minutes, each on one instance at a time.
+  const training = createTrainingFromPrisma(prisma, {
+    files: createTrainingFileStore(trainingFilesDirFor(env, process.cwd())),
+    timeZone: companyTz,
+    appUrl: env.APP_URL,
+    notify: (n) => notificationService.notify(n),
+    rules: async (companyId) => {
+      const r = await notifyPolicy.rules(companyId);
+      return { calendar: r.calendar, step1Days: r.policy.escalation.step1Days, step2Days: r.policy.escalation.step2Days };
+    },
+    shrinkImage: (content, mimeType) => imageShrinker.shrink(content, mimeType),
+    printable: (raw) => imageShrinker.toPrintable(raw),
+    companyOfPerson: async (userId) => (await companyBranding.forPerson(userId)).companyId,
+    pdfBrand: async (companyId) => companyBranding.pdf(await companyBranding.forCompany(companyId)),
+    audit: (e) => auditService.record({ userId: e.userId, ip: e.ip, module: 'training', action: e.action, entityId: e.entityId, oldValue: e.oldValue ?? null, newValue: e.newValue ?? null }).then(() => {}),
+    logger: logger.job('training'),
+  });
+  const runTrainingStarter = () =>
+    runExclusive(jobLock, 'training-starter', SWEEP_LEASE_MS, () => new Date(), async () => {
+      const r = await training.starter.run();
+      if (r.loaded) logger.job('training').info('Training Center: starter courses loaded', { loaded: r.loaded, skipped: r.skipped });
+    }).catch(sweepFailed('training-starter', 'training starter courses'));
+  // At boot, then every 6 hours (a no-op once loaded; tries again when a course could not load).
+  jobs.every(6 * 60 * 60 * 1000, runTrainingStarter, { firstAfterMs: 20 * 1000 });
+  const runTrainingReminders = () =>
+    runExclusive(jobLock, 'training-reminders', SWEEP_LEASE_MS, () => new Date(), async () => {
+      const r = await training.sweeps.reminders.run();
+      if (r.sent) logger.job('training').info('Training Center: reminders sent', { sent: r.sent });
+    }).catch(sweepFailed('training-reminders', 'training reminders'));
+  jobs.every(60 * 60 * 1000, runTrainingReminders, { firstAfterMs: 4 * 60 * 1000 });
+  const runTrainingMembership = () =>
+    runExclusive(jobLock, 'training-membership', SWEEP_LEASE_MS, () => new Date(), async () => {
+      await training.sweeps.membership.run();
+    }).catch(sweepFailed('training-membership', 'training membership sync'));
+  jobs.every(15 * 60 * 1000, runTrainingMembership, { firstAfterMs: 2 * 60 * 1000 });
+
   const weeklySummaryService = createWeeklySummaryFromPrisma(prisma, {
     management: managementService,
     settings: managementSettings,
@@ -2563,6 +2606,13 @@ async function main(): Promise<void> {
     },
     kpis: {
       service: kpis.service,
+      userName: async (id) => (await resolveUserNames([id])).get(id) ?? null,
+    },
+    // Training Center: learning (staff + Client portal), the Training Center, reports.
+    training: {
+      learner: training.learner,
+      manage: training.manage,
+      reports: training.reports,
       userName: async (id) => (await resolveUserNames([id])).get(id) ?? null,
     },
     backups: backups.routes,
