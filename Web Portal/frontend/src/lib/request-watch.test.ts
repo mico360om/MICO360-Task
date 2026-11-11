@@ -395,3 +395,17 @@ describe('review fixes', () => {
     expect(reports).toMatchObject([{ kind: 'SLOW', value: 10_900 }]);
   });
 });
+
+// 1.23.15 (after the avatar photos merge): the top bar's own account request (GET /users/me, on every page)
+// is an ordinary request — slow after 10 s, with where the time went; never the AI's minute.
+describe('GET /users/me', () => {
+  it('slow like any request, with its breakdown; a quick one says nothing', () => {
+    const quick = request({ path: '/users/me' });
+    watch.requestDone(quick.done(200));
+    watch.resources([entry(quick.started.startedAt, { wait: 150 }, { name: `${BASE}/users/me?limit=50` })]);
+    const r = request({ path: '/users/me' });
+    watch.requestDone(r.done(10_700, { serverTiming: 'app;dur=12, db;dur=4, up;dur=3600000' }));
+    watch.resources([entry(r.started.startedAt, { wait: 10_600 }, { name: `${BASE}/users/me?limit=50` })]);
+    expect(reports).toEqual([{ kind: 'SLOW', detail: 'api', value: 10_600, resource: 'GET /api/v1/users/me', serverMs: 12, dbMs: 4, queueMs: 0, connectMs: 0, waitMs: 10_600, downloadMs: 0 }]);
+  });
+});
