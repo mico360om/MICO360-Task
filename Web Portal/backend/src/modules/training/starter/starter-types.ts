@@ -1,0 +1,63 @@
+import type { Audience, CompletionRule, Difficulty, QuestionKind, RoleKey, TrainingModule } from '../training-types';
+
+/**
+ * Starter content (owner answer 3): one English course per main module, loaded once by the server
+ * (training-starter.ts) and marked with its `key` (training_courses.starterKey) so administrators can tell
+ * it apart and edit or unpublish it. Pictures and downloads are files in `backend/assets/training/starter/`
+ * (WebP screenshots taken from the real website; the owner's two Canva PDFs), copied into the private
+ * training folder when loaded.
+ */
+export interface StarterStep {
+  title: string;
+  /** Simple rich text: <p>, <strong>, <em>, <ul>/<ol>/<li> only (the server cleans it again). */
+  body: string;
+  /** A file name in assets/training/starter (e.g. 'tasks-01-my-tasks.webp'); none: a text-only step. */
+  image?: string;
+  /** What the picture shows (screen readers). Required when `image` is set. */
+  alt?: string;
+}
+
+export interface StarterQuestion {
+  kind: QuestionKind;
+  prompt: string;
+  explanation?: string;
+  /** TRUE_FALSE: exactly [{text:'True'},{text:'False'}] with one correct. ORDER: in the right order (all correct: true). */
+  options: { text: string; correct: boolean; feedback?: string }[];
+}
+
+export type StarterLesson =
+  | { kind: 'GUIDE'; title: string; minutes: number; body?: string; steps: StarterStep[] }
+  | { kind: 'VIDEO'; title: string; minutes: number; body?: string; /** Waiting for the owner's YouTube/Vimeo link. */ videoUrl: null }
+  | {
+      kind: 'QUIZ';
+      title: string;
+      minutes: number;
+      body?: string;
+      quiz: { passMark: number; maxAttempts: number | null; shuffle: boolean; timeLimitMinutes: number | null; drawCount: number | null; questions: StarterQuestion[] };
+    };
+
+export interface StarterResource {
+  /** A file name in assets/training/starter. */
+  file: string;
+  /** The name people see and download. */
+  name: string;
+  mimeType: 'application/pdf';
+}
+
+export interface StarterCourse {
+  /** Stable and unique: 'starter:tasks', 'starter:video-tasks', ... (never change once shipped). */
+  key: string;
+  title: string;
+  summary: string;
+  moduleKey: TrainingModule;
+  audience: Audience;
+  roleKeys?: RoleKey[];
+  difficulty: Difficulty;
+  /** The 10 module courses are PUBLISHED; the 3 video courses are DRAFT until the owner adds the links. */
+  status: 'PUBLISHED' | 'DRAFT';
+  completionRule: CompletionRule;
+  certificateOn: boolean;
+  certificateMonths: number | null;
+  resources?: StarterResource[];
+  lessons: StarterLesson[];
+}

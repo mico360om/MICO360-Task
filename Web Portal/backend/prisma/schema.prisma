@@ -88,119 +88,126 @@ enum DevicePlatform {
 // ---------------------------------------------------------------------------
 
 model User {
-  id                  String     @id @default(cuid())
-  email               String     @unique
-  username            String     @unique
-  passwordHash        String
-  firstName           String
-  lastName            String
-  avatarUrl           String?
-  status              UserStatus @default(ACTIVE)
-  lastActiveAt        DateTime? // last time the user held a live socket (drives presence "last active" + chat delivered)
+  id                         String     @id @default(cuid())
+  email                      String     @unique
+  username                   String     @unique
+  passwordHash               String
+  firstName                  String
+  lastName                   String
+  avatarUrl                  String?
+  status                     UserStatus @default(ACTIVE)
+  lastActiveAt               DateTime? // last time the user held a live socket (drives presence "last active" + chat delivered)
   // Last sign-in by password, emailed code or fingerprint (a token refresh doesn't count); null: never.
-  lastLoginAt         DateTime?
+  lastLoginAt                DateTime?
   // When an administrator last sent this person a welcome email (its link is in login_otps, WELCOME).
-  welcomeSentAt       DateTime?
+  welcomeSentAt              DateTime?
   // Onboarding (next release after 1.23.2): when their first invitation (welcome email) went; when the
   // account became theirs (first sign-in, or a password they set with an emailed link); when they proved
   // the mailbox is theirs (an invitation or reset link used, an emailed code entered, or an administrator
   // by hand). Null emailVerifiedAt: not verified — they enter an emailed code at their next sign-in.
-  invitedAt           DateTime?
-  activatedAt         DateTime?
-  emailVerifiedAt     DateTime?
+  invitedAt                  DateTime?
+  activatedAt                DateTime?
+  emailVerifiedAt            DateTime?
   // 1.23.6 Invitation & temporary password security. A temporary password (one an administrator gave them)
   // must be changed at the first sign-in; only a new temporary password sets the flag (nobody else is ever
   // forced). Unused, it stops working at temporaryPasswordExpiresAt. Who set it and when are kept — never
   // the value. invitationCancelledAt: the invitation was cancelled — no way in (link, Forgot password,
   // emailed code) until a new invitation or a temporary password.
-  mustChangePassword         Boolean   @default(false)
+  mustChangePassword         Boolean    @default(false)
   temporaryPasswordSetAt     DateTime?
   temporaryPasswordSetById   String?
-  temporaryPasswordSetBy     User?     @relation("TemporaryPasswordSetBy", fields: [temporaryPasswordSetById], references: [id], onDelete: SetNull)
-  temporaryPasswordsSet      User[]    @relation("TemporaryPasswordSetBy")
+  temporaryPasswordSetBy     User?      @relation("TemporaryPasswordSetBy", fields: [temporaryPasswordSetById], references: [id], onDelete: SetNull)
+  temporaryPasswordsSet      User[]     @relation("TemporaryPasswordSetBy")
   temporaryPasswordExpiresAt DateTime?
   invitationCancelledAt      DateTime?
-  departmentId        String?
+  departmentId               String?
   // Lockout (M2 / T2.11)
-  failedLoginAttempts Int        @default(0)
-  lockedUntil         DateTime?
+  failedLoginAttempts        Int        @default(0)
+  lockedUntil                DateTime?
   // Embedded in access tokens; bumping it revokes every outstanding access token for the user
   // (status / role change, delete, password change).
-  tokenVersion        Int        @default(0)
+  tokenVersion               Int        @default(0)
   // Preferences
-  timezone            String     @default("UTC")
+  timezone                   String     @default("UTC")
   // Calendar: an own time zone (null = the company's) and the week's first day (0 Sun, 1 Mon, 6 Sat).
-  preferredTimeZone   String?    @db.VarChar(64)
-  weekStart           Int?
-  locale              String     @default("en")
-  dateFormat          String     @default("YYYY-MM-DD")
-  theme               Theme      @default(SYSTEM)
-  defaultProjectId    String?
+  preferredTimeZone          String?    @db.VarChar(64)
+  weekStart                  Int?
+  locale                     String     @default("en")
+  dateFormat                 String     @default("YYYY-MM-DD")
+  theme                      Theme      @default(SYSTEM)
+  defaultProjectId           String?
   // "Show my projects only" (an administrator's own): their lists show only the projects they own,
   // manage or are on the team of. Off by default; means nothing for anyone else (they always list so).
-  myProjectsOnly      Boolean    @default(false)
+  myProjectsOnly             Boolean    @default(false)
   // Compact / comfortable rows (1.23.0, anyone's own): 'comfortable' (today's look) | 'compact' — the
   // website's lists, tables and boards denser. Phones and touch screens always stay comfortable.
-  density             String     @default("comfortable") @db.VarChar(16)
+  density                    String     @default("comfortable") @db.VarChar(16)
   // 1.23.8 (anyone's own): the website's side menu folded to its icons on a desktop screen, and how wide
   // the Kanban board's columns are ('narrow' | 'normal' | 'wide'). The density above also takes 'detailed'.
-  sidebarCollapsed    Boolean    @default(false)
-  boardColumnWidth    String     @default("normal") @db.VarChar(16)
+  sidebarCollapsed           Boolean    @default(false)
+  boardColumnWidth           String     @default("normal") @db.VarChar(16)
   // 1.23.4 Smarter Dashboard: the person's own widget arrangement ({ widgets: [{ id, hidden, size }] });
   // null = they follow their group's default (administrators' or everyone else's, set by an administrator).
-  dashboardLayout     Json?
+  dashboardLayout            Json?
   // Per-user notification preferences, e.g. { "muted": ["TASK_COMMENT"] } (null = all enabled).
-  notificationPrefs   Json?
-  createdAt           DateTime   @default(now())
-  updatedAt           DateTime   @updatedAt
-  deletedAt           DateTime?
+  notificationPrefs          Json?
+  // Training Center (owner, 11 Nov 2026): who this person reports to (overdue mandatory training escalates to
+  // them; empty = the Training managers), the Training manager permission (create, edit, publish, assign and
+  // report on training - no other administrator powers) and when they finished or skipped the first-time tour.
+  reportsToId                String?    @db.VarChar(191)
+  trainingManager            Boolean    @default(false)
+  tourDoneAt                 DateTime?
+  createdAt                  DateTime   @default(now())
+  updatedAt                  DateTime   @updatedAt
+  deletedAt                  DateTime?
 
-  department       Department?      @relation(fields: [departmentId], references: [id])
-  roles            UserRole[]
-  memberships      ProjectMember[]
-  managedProjects  Project[]        @relation("ProjectManager")
-  createdProjects  Project[]        @relation("ProjectCreator")
-  createdTasks     Task[]           @relation("TaskCreator")
+  department           Department?           @relation(fields: [departmentId], references: [id])
+  roles                UserRole[]
+  memberships          ProjectMember[]
+  managedProjects      Project[]             @relation("ProjectManager")
+  createdProjects      Project[]             @relation("ProjectCreator")
+  createdTasks         Task[]                @relation("TaskCreator")
   /// Tasks this person finished that are waiting for approval, and tasks they approved last.
-  approvalsRequested Task[]         @relation("TaskApprovalRequester")
-  approvalsGiven     Task[]         @relation("TaskApprover")
+  approvalsRequested   Task[]                @relation("TaskApprovalRequester")
+  approvalsGiven       Task[]                @relation("TaskApprover")
   /// External contacts this person added to tasks (the contact belongs to its task).
-  externalContacts TaskExternalContact[] @relation("ExternalContactCreator")
-  assignments      TaskAssignee[]
-  watching         TaskWatcher[]
-  comments         Comment[]
-  attachments      Attachment[]
-  activities       Activity[]
-  notifications    Notification[]
-  refreshTokens    RefreshToken[]
-  auditLogs        AuditLog[]
-  loginOtps        LoginOtp[]
-  deviceTokens     DeviceToken[]
-  dailyTaskEmails  DailyTaskEmail[]
-  weeklySummaryEmails WeeklySummaryEmail[]
-  settings         UserSetting?
+  externalContacts     TaskExternalContact[] @relation("ExternalContactCreator")
+  assignments          TaskAssignee[]
+  watching             TaskWatcher[]
+  comments             Comment[]
+  attachments          Attachment[]
+  activities           Activity[]
+  notifications        Notification[]
+  refreshTokens        RefreshToken[]
+  auditLogs            AuditLog[]
+  loginOtps            LoginOtp[]
+  deviceTokens         DeviceToken[]
+  dailyTaskEmails      DailyTaskEmail[]
+  weeklySummaryEmails  WeeklySummaryEmail[]
+  settings             UserSetting?
   /// Companies: the ones this person belongs to, and the one whose branding and week their own emails use.
-  primaryCompanyId String?
-  primaryCompany   Company?        @relation("UserPrimaryCompany", fields: [primaryCompanyId], references: [id], onDelete: SetNull)
-  companies        CompanyMember[]
+  primaryCompanyId     String?
+  primaryCompany       Company?              @relation("UserPrimaryCompany", fields: [primaryCompanyId], references: [id], onDelete: SetNull)
+  companies            CompanyMember[]
   /// 1.23 Client accounts (role CLIENT only): their organisation and phone (staff leave them empty).
-  organisation     String?         @db.VarChar(160)
-  phone            String?         @db.VarChar(40)
+  organisation         String?               @db.VarChar(160)
+  phone                String?               @db.VarChar(40)
   /// A client's projects in the Client portal, each with its ticked modules and actions.
-  clientGrants     ClientProjectGrant[]
+  clientGrants         ClientProjectGrant[]
   /// 1.23.7: a client account's bell in the Client portal, and which kinds of notice they want.
   clientNotices        ClientNotice[]
   clientNoticeSettings ClientNoticeSettings?
   /// 1.23.6: the searches this person saved, and the saved searches they pinned to the side menu.
-  savedSearches    SavedSearch[]    @relation("SavedSearchOwner")
-  savedSearchPins  SavedSearchPin[] @relation("SavedSearchPinner")
+  savedSearches        SavedSearch[]         @relation("SavedSearchOwner")
+  savedSearchPins      SavedSearchPin[]      @relation("SavedSearchPinner")
   /// Sign-in challenges (password → emailed code → session): confirming the email address today.
-  signInChallenges SignInChallenge[]
+  signInChallenges     SignInChallenge[]
 
   @@index([status])
   @@index([departmentId])
   @@index([primaryCompanyId])
   @@index([temporaryPasswordSetById])
+  @@index([reportsToId])
   @@map("users")
 }
 
@@ -216,8 +223,8 @@ model Role {
 model UserRole {
   userId String
   roleId String
-  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role   Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
 
   @@id([userId, roleId])
   @@index([roleId])
@@ -257,11 +264,11 @@ model Company {
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 
-  members   CompanyMember[]
-  projects  ProjectCompany[]
-  mainOf    Project[]        @relation("ProjectMainCompany")
-  primaryOf User[]           @relation("UserPrimaryCompany")
-  meetings  Meeting[]
+  members            CompanyMember[]
+  projects           ProjectCompany[]
+  mainOf             Project[]           @relation("ProjectMainCompany")
+  primaryOf          User[]              @relation("UserPrimaryCompany")
+  meetings           Meeting[]
   /// Notification & Scheduling centre: its notification rules, holidays and reminder schedules.
   notificationPolicy NotificationPolicy?
   holidays           CompanyHoliday[]
@@ -301,57 +308,57 @@ model ProjectCompany {
 // ---------------------------------------------------------------------------
 
 model Project {
-  id          String        @id @default(cuid())
-  code        String        @unique
-  number      String?       @db.VarChar(40) // the client's / contract project number, free text (optional)
-  name        String
-  description String?       @db.Text
-  clientName  String?
-  managerId   String?
-  ownerId     String? // project owner — new tasks default-assign to them
-  status      ProjectStatus @default(PLANNING)
-  priority    Priority      @default(NORMAL)
-  color       String        @default("#8B1E1E")
-  icon        String?       @db.VarChar(32) // one of the web app's project icons; null = initials
-  imageUrl    String?
-  startDate   DateTime?
-  targetDate  DateTime?
-  notes       String?       @db.Text
+  id                   String         @id @default(cuid())
+  code                 String         @unique
+  number               String?        @db.VarChar(40) // the client's / contract project number, free text (optional)
+  name                 String
+  description          String?        @db.Text
+  clientName           String?
+  managerId            String?
+  ownerId              String? // project owner — new tasks default-assign to them
+  status               ProjectStatus  @default(PLANNING)
+  priority             Priority       @default(NORMAL)
+  color                String         @default("#8B1E1E")
+  icon                 String?        @db.VarChar(32) // one of the web app's project icons; null = initials
+  imageUrl             String?
+  startDate            DateTime?
+  targetDate           DateTime?
+  notes                String?        @db.Text
   /// Each night, unfinished tasks on past board days move to today's board (when the company-wide switch is on too).
-  carryForward    Boolean   @default(true)
+  carryForward         Boolean        @default(true)
   /// A task created in the project without a due date gets today's date (the company's calendar day).
-  defaultDueToday Boolean   @default(false)
+  defaultDueToday      Boolean        @default(false)
   /// "New tasks in this project need approval": a task created in it without saying gets the tick.
-  newTasksNeedApproval Boolean @default(false)
+  newTasksNeedApproval Boolean        @default(false)
   /// 1.23.5: how its completion is counted — the number of tasks (COUNT, as before) or their weight.
-  completionMode CompletionMode @default(COUNT)
+  completionMode       CompletionMode @default(COUNT)
   /// Notification & Scheduling: the project's reminder schedule (null: the company's default) and its own
   /// escalation numbers ({ step1Days, step2Days } in working days; null: the company's).
-  reminderScheduleId String? @db.VarChar(191)
-  escalationDays     Json?
+  reminderScheduleId   String?        @db.VarChar(191)
+  escalationDays       Json?
   /// 1.23.5: a task's weight when it has none of its own, by its priority (1–10 points each).
-  weightUrgent Int @default(4)
-  weightHigh   Int @default(3)
-  weightNormal Int @default(2)
-  weightLow    Int @default(1)
-  createdById String
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
-  deletedAt   DateTime?
+  weightUrgent         Int            @default(4)
+  weightHigh           Int            @default(3)
+  weightNormal         Int            @default(2)
+  weightLow            Int            @default(1)
+  createdById          String
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+  deletedAt            DateTime?
 
-  manager   User?           @relation("ProjectManager", fields: [managerId], references: [id])
-  createdBy User            @relation("ProjectCreator", fields: [createdById], references: [id])
-  members   ProjectMember[]
-  columns   KanbanColumn[]
-  tasks     Task[]
-  activities Activity[]
+  manager        User?                @relation("ProjectManager", fields: [managerId], references: [id])
+  createdBy      User                 @relation("ProjectCreator", fields: [createdById], references: [id])
+  members        ProjectMember[]
+  columns        KanbanColumn[]
+  tasks          Task[]
+  activities     Activity[]
   taskKeyAliases TaskKeyAlias[]
   clientShares   ClientShare[]
   inspections    Inspection[]
   /// Companies: every project belongs to one or more; the main one (always also a project_companies row)
   /// gives it its branding and week.
   mainCompanyId  String?
-  mainCompany    Company?         @relation("ProjectMainCompany", fields: [mainCompanyId], references: [id], onDelete: SetNull)
+  mainCompany    Company?             @relation("ProjectMainCompany", fields: [mainCompanyId], references: [id], onDelete: SetNull)
   companies      ProjectCompany[]
   /// 1.23: the client accounts that may open this project in the Client portal.
   clientGrants   ClientProjectGrant[]
@@ -377,9 +384,9 @@ model ProjectMember {
   projectId String
   userId    String
   role      ProjectMemberRole @default(MEMBER)
-  addedAt   DateTime @default(now())
-  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  addedAt   DateTime          @default(now())
+  project   Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([projectId, userId])
   @@index([userId])
@@ -407,47 +414,47 @@ model KanbanColumn {
 // ---------------------------------------------------------------------------
 
 model Task {
-  id             String    @id @default(cuid())
-  key            String    @unique // e.g. MICO-142
-  title          String
-  description    String?   @db.Text
-  projectId      String
-  columnId       String
-  position       Int       @default(0)
-  priority       Priority  @default(NORMAL)
-  startDate      DateTime?
-  dueDate        DateTime?
-  estimatedHours Float?
-  actualHours    Float?
-  progress       Int       @default(0)
+  id                    String    @id @default(cuid())
+  key                   String    @unique // e.g. MICO-142
+  title                 String
+  description           String?   @db.Text
+  projectId             String
+  columnId              String
+  position              Int       @default(0)
+  priority              Priority  @default(NORMAL)
+  startDate             DateTime?
+  dueDate               DateTime?
+  estimatedHours        Float?
+  actualHours           Float?
+  progress              Int       @default(0)
   /// 1.23.5: its weight in its project's completion (1–10 points); null = the project's default for its priority.
-  weight         Int?
+  weight                Int?
   /// Notification & Scheduling: its own reminder schedule (null: its project's).
-  reminderScheduleId String? @db.VarChar(191)
+  reminderScheduleId    String?   @db.VarChar(191)
   /// A milestone: a key date or deliverable of its project (shown on the project dashboard).
-  isMilestone    Boolean   @default(false)
+  isMilestone           Boolean   @default(false)
   /// Shown on its project's client page (title, status and due date only). Off unless someone who runs
   /// the project turns it on; moving the task to another project turns it off.
-  clientVisible  Boolean   @default(false)
+  clientVisible         Boolean   @default(false)
   /// 1.23: the Client portal shows its description too (a tick of its own beside "Show to client").
-  clientShowDescription Boolean @default(false)
+  clientShowDescription Boolean   @default(false)
   /// 1.23: a client signed it off ("Client accepted · date"); cleared when it leaves Done or is sent back.
-  clientAcceptedAt   DateTime?
-  clientAcceptedById String?
-  createdById    String
-  completedAt    DateTime?
-  boardDate       DateTime?  // per-date boards: the calendar day this task appears on (noon-UTC anchor)
-  carryForwardLog Json?      // append-only carry-forward history [{ from, to, at }]
-  recurrenceRule     Json?    // RecurrenceRule for a recurring task (null = one-off)
-  recurrenceParentId String?  // links a generated instance back to its series template
-  recurrenceSourceId String?  @unique // the task this copy was made from — unique, so a task never gets two next copies
+  clientAcceptedAt      DateTime?
+  clientAcceptedById    String?
+  createdById           String
+  completedAt           DateTime?
+  boardDate             DateTime? // per-date boards: the calendar day this task appears on (noon-UTC anchor)
+  carryForwardLog       Json? // append-only carry-forward history [{ from, to, at }]
+  recurrenceRule        Json? // RecurrenceRule for a recurring task (null = one-off)
+  recurrenceParentId    String? // links a generated instance back to its series template
+  recurrenceSourceId    String?   @unique // the task this copy was made from — unique, so a task never gets two next copies
   /// The meeting this task was created from (a Live note made into a task); the task links back to it.
-  meetingId      String?
+  meetingId             String?
   /// The inspection form this task is carried out with (a scheduled check, or a one-off task that
   /// carries a form). Copies of a repeating task keep it. Cleared if the form row is ever removed.
-  inspectionFormId String?
+  inspectionFormId      String?
   /// Where the check is done ("Rig 3"); given to the inspection when it starts.
-  inspectionPlace  String? @db.VarChar(200)
+  inspectionPlace       String?   @db.VarChar(200)
   /// Needs approval: the person who runs the project must approve it before it counts as done.
   needsApproval         Boolean   @default(false)
   /// Set while it waits for approval (someone who can't approve finished it): it is NOT done.
@@ -457,45 +464,45 @@ model Task {
   /// Its last approval (history; cleared when it is re-opened).
   approvedAt            DateTime?
   approvedById          String?
-  version        Int       @default(0) // optimistic concurrency (T4.3)
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  deletedAt      DateTime?
+  version               Int       @default(0) // optimistic concurrency (T4.3)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  deletedAt             DateTime?
   /// 1.23.1 Merge tasks: the main task this one was merged into. A merged task is a read-only merged
   /// record: hidden like a deleted one (deletedAt is set with it), its number an alias of the main task.
   /// Undo (task_merges) clears all four.
-  mergedIntoId   String?
-  mergedAt       DateTime?
-  mergedById     String?
+  mergedIntoId          String?
+  mergedAt              DateTime?
+  mergedById            String?
   /// The merge (task_merges) that merged it.
-  mergeId        String?
+  mergeId               String?
 
-  project      Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  column       KanbanColumn     @relation(fields: [columnId], references: [id])
-  createdBy    User             @relation("TaskCreator", fields: [createdById], references: [id])
-  approvalRequestedBy User?     @relation("TaskApprovalRequester", fields: [approvalRequestedById], references: [id], onDelete: SetNull)
-  approvedBy   User?            @relation("TaskApprover", fields: [approvedById], references: [id], onDelete: SetNull)
-  assignees    TaskAssignee[]
-  watchers     TaskWatcher[]
-  tags         TaskTag[]
-  comments     Comment[]
-  checklist    ChecklistItem[]
+  project             Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  column              KanbanColumn          @relation(fields: [columnId], references: [id])
+  createdBy           User                  @relation("TaskCreator", fields: [createdById], references: [id])
+  approvalRequestedBy User?                 @relation("TaskApprovalRequester", fields: [approvalRequestedById], references: [id], onDelete: SetNull)
+  approvedBy          User?                 @relation("TaskApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  assignees           TaskAssignee[]
+  watchers            TaskWatcher[]
+  tags                TaskTag[]
+  comments            Comment[]
+  checklist           ChecklistItem[]
   /// 1.23.3: its checklists (each item is in one).
-  checklistLists ChecklistList[]
+  checklistLists      ChecklistList[]
   /// People outside the company responsible for this task (kept apart from its assignees).
-  externalContacts TaskExternalContact[]
-  attachments  Attachment[]
-  dependencies TaskDependency[] @relation("DependentTask")
-  dependedOnBy TaskDependency[] @relation("BlockingTask")
-  activities   Activity[]
-  meeting      Meeting?         @relation(fields: [meetingId], references: [id], onDelete: SetNull)
-  inspectionForm InspectionForm? @relation("TaskInspectionForm", fields: [inspectionFormId], references: [id], onDelete: SetNull)
-  keyAliases   TaskKeyAlias[]
+  externalContacts    TaskExternalContact[]
+  attachments         Attachment[]
+  dependencies        TaskDependency[]      @relation("DependentTask")
+  dependedOnBy        TaskDependency[]      @relation("BlockingTask")
+  activities          Activity[]
+  meeting             Meeting?              @relation(fields: [meetingId], references: [id], onDelete: SetNull)
+  inspectionForm      InspectionForm?       @relation("TaskInspectionForm", fields: [inspectionFormId], references: [id], onDelete: SetNull)
+  keyAliases          TaskKeyAlias[]
   /// Inspections carried out for this task, and the failed item this task follows up (if any).
-  inspections        Inspection[]        @relation("InspectionTask")
-  inspectionFollowUp InspectionFollowUp? @relation("InspectionFollowUpTask")
+  inspections         Inspection[]          @relation("InspectionTask")
+  inspectionFollowUp  InspectionFollowUp?   @relation("InspectionFollowUpTask")
   /// Its entry in the task search index (derived; rebuilt by `npm run search:rebuild`).
-  searchIndex        TaskSearchIndex?
+  searchIndex         TaskSearchIndex?
 
   @@index([projectId])
   /// A project's checks (scheduled inspections): its tasks that carry a form.
@@ -678,17 +685,17 @@ model SearchEmbedding {
 /// change it). It is read again whenever it runs, for whoever runs it ("me" is them), so its results
 /// always follow each person's own access.
 model SavedSearch {
-  id        String    @id @default(cuid())
+  id        String           @id @default(cuid())
   ownerId   String
-  name      String    @db.VarChar(80)
-  q         String    @db.VarChar(200)
+  name      String           @db.VarChar(80)
+  q         String           @db.VarChar(200)
   /// The page's filters: type, projectId, status, person, from, to, done, archived, off (chips taken off), plain.
   filters   Json?
   /// Shared with this project's team; null: its owner's alone.
   projectId String?
   sharedAt  DateTime?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
   owner     User             @relation("SavedSearchOwner", fields: [ownerId], references: [id], onDelete: Cascade)
   project   Project?         @relation(fields: [projectId], references: [id], onDelete: SetNull)
   pins      SavedSearchPin[]
@@ -744,8 +751,8 @@ model TaskAssignee {
 model TaskWatcher {
   taskId String
   userId String
-  task   Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([taskId, userId])
   @@index([userId])
@@ -764,8 +771,8 @@ model Tag {
 model TaskTag {
   taskId String
   tagId  String
-  task   Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  tag    Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  tag    Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
 
   @@id([taskId, tagId])
   @@index([tagId])
@@ -773,22 +780,22 @@ model TaskTag {
 }
 
 model Comment {
-  id        String    @id @default(cuid())
-  taskId    String
-  userId    String
-  body      String    @db.Text
-  parentId  String?   // set when this comment is a reply to another (threaded replies)
+  id            String    @id @default(cuid())
+  taskId        String
+  userId        String
+  body          String    @db.Text
+  parentId      String? // set when this comment is a reply to another (threaded replies)
   /// 1.23: written by a client account in the Client portal (shown to the team marked "Client").
-  fromClient    Boolean @default(false)
+  fromClient    Boolean   @default(false)
   /// 1.23: a team reply to a client's comment the client may see ("Visible to client").
-  clientVisible Boolean @default(false)
-  editedAt  DateTime?
-  createdAt DateTime  @default(now())
-  deletedAt DateTime?
-  task      Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  user      User      @relation(fields: [userId], references: [id])
-  parent    Comment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
-  replies   Comment[] @relation("CommentReplies")
+  clientVisible Boolean   @default(false)
+  editedAt      DateTime?
+  createdAt     DateTime  @default(now())
+  deletedAt     DateTime?
+  task          Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user          User      @relation(fields: [userId], references: [id])
+  parent        Comment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies       Comment[] @relation("CommentReplies")
 
   @@index([taskId])
   @@index([parentId])
@@ -885,8 +892,8 @@ model TaskDependency {
   id              String @id @default(cuid())
   taskId          String // the dependent (blocked) task
   dependsOnTaskId String // the blocking task
-  task      Task @relation("DependentTask", fields: [taskId], references: [id], onDelete: Cascade)
-  dependsOn Task @relation("BlockingTask", fields: [dependsOnTaskId], references: [id], onDelete: Cascade)
+  task            Task   @relation("DependentTask", fields: [taskId], references: [id], onDelete: Cascade)
+  dependsOn       Task   @relation("BlockingTask", fields: [dependsOnTaskId], references: [id], onDelete: Cascade)
 
   @@unique([taskId, dependsOnTaskId])
   @@index([dependsOnTaskId])
@@ -894,24 +901,24 @@ model TaskDependency {
 }
 
 model Attachment {
-  id           String   @id @default(cuid())
-  taskId       String
-  uploadedById String
-  filename     String
-  mimeType     String
-  sizeBytes    Int
-  storageKey   String
-  url          String
-  createdAt    DateTime @default(now())
-  task       Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  uploadedBy User @relation(fields: [uploadedById], references: [id])
+  id            String          @id @default(cuid())
+  taskId        String
+  uploadedById  String
+  filename      String
+  mimeType      String
+  sizeBytes     Int
+  storageKey    String
+  url           String
+  createdAt     DateTime        @default(now())
+  task          Task            @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  uploadedBy    User            @relation(fields: [uploadedById], references: [id])
   /// 1.23: the text read from it for search (derived).
-  searchText SearchFileText?
+  searchText    SearchFileText?
   /// 1.23.7: uploaded by a client account in the Client portal (the team sees it marked "From client").
-  fromClient    Boolean @default(false)
+  fromClient    Boolean         @default(false)
   /// 1.23.7: "Show to client" — every client of the project who may view tasks sees it in the portal
   /// (a client always sees their own uploads; never on the account-less share-link page).
-  clientVisible Boolean @default(false)
+  clientVisible Boolean         @default(false)
 
   @@index([taskId])
   @@map("task_attachments")
@@ -925,9 +932,9 @@ model Activity {
   action    String
   meta      Json?
   createdAt DateTime @default(now())
-  task    Task?    @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  project Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  user    User     @relation(fields: [userId], references: [id])
+  task      Task?    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id])
 
   @@index([taskId])
   @@index([projectId])
@@ -951,7 +958,7 @@ model Notification {
   projectId  String?
   readAt     DateTime?
   createdAt  DateTime  @default(now())
-  user       User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, readAt])
   @@index([userId, projectId])
@@ -961,11 +968,11 @@ model Notification {
 }
 
 model UserSetting {
-  userId       String  @id
-  notifyInApp  Json?
-  notifyEmail  Json?
-  notifyPush   Json?
-  user         User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      String @id
+  notifyInApp Json?
+  notifyEmail Json?
+  notifyPush  Json?
+  user        User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("user_settings")
 }
@@ -1000,24 +1007,24 @@ model MicrosoftConnection {
 }
 
 model RefreshToken {
-  id        String    @id @default(cuid())
-  userId    String
-  tokenHash String    @unique
-  userAgent String?
-  ip        String?
-  expiresAt DateTime
-  revokedAt DateTime?
+  id           String    @id @default(cuid())
+  userId       String
+  tokenHash    String    @unique
+  userAgent    String?
+  ip           String?
+  expiresAt    DateTime
+  revokedAt    DateTime?
   // Rotation family: every token rotated from the same login shares it, so presenting an
   // already-rotated token (reuse → likely theft) revokes the whole family.
-  familyId  String?
+  familyId     String?
   /// The token this one was rotated to, sealed with the app's secret box — so a phone whose refresh
   /// reply was lost can present this token again (for 2 minutes) and get that same successor back.
-  successorEnc String? @db.Text
+  successorEnc String?   @db.Text
   /// 'biometric' for a phone's fingerprint sign-in key (never refreshes a session; its end moves on
   /// with each use of the app); null for a session's refresh token.
-  purpose   String?   @db.VarChar(16)
-  createdAt DateTime  @default(now())
-  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  purpose      String?   @db.VarChar(16)
+  createdAt    DateTime  @default(now())
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([familyId])
@@ -1158,7 +1165,7 @@ model AuditLog {
   newValue  Json?
   ip        String?
   createdAt DateTime @default(now())
-  user      User? @relation(fields: [userId], references: [id])
+  user      User?    @relation(fields: [userId], references: [id])
 
   @@index([userId])
   @@index([module])
@@ -1191,7 +1198,7 @@ model LoginOtp {
   expiresAt  DateTime
   consumedAt DateTime?
   createdAt  DateTime   @default(now())
-  user       User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@map("login_otps")
@@ -1226,7 +1233,7 @@ model DeviceToken {
   platform   DevicePlatform @default(ANDROID)
   createdAt  DateTime       @default(now())
   lastSeenAt DateTime       @default(now())
-  user       User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@map("device_tokens")
@@ -1252,17 +1259,17 @@ model Conversation {
 }
 
 model ConversationParticipant {
-  conversationId String
-  userId         String
-  lastReadAt     DateTime?
-  addedAt        DateTime     @default(now())
+  conversationId  String
+  userId          String
+  lastReadAt      DateTime?
+  addedAt         DateTime     @default(now())
   /// The person's own settings for this conversation (private to them).
   favorite        Boolean      @default(false)
   archivedAt      DateTime?
   mutedAt         DateTime?
   /// When their app last received the conversation's messages ("delivered").
   lastDeliveredAt DateTime?
-  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
   @@id([conversationId, userId])
   @@index([userId])
@@ -1388,37 +1395,37 @@ enum MinutesStatus {
 }
 
 model Meeting {
-  id                 String        @id @default(cuid())
-  title              String
-  description        String?       @db.Text
-  category           String?
-  status             MeetingStatus @default(DRAFT)
-  projectId          String?
-  organizerId        String
-  location           String?
+  id                    String        @id @default(cuid())
+  title                 String
+  description           String?       @db.Text
+  category              String?
+  status                MeetingStatus @default(DRAFT)
+  projectId             String?
+  organizerId           String
+  location              String?
   /// 1.23: up to 2048 characters (a Teams join link is about 250; the API has always taken 2048).
-  onlineLink         String?       @db.VarChar(2048)
+  onlineLink            String?       @db.VarChar(2048)
   /// 1.23: 'TEAMS' when the online link was (or is to be) made by Microsoft Teams; null for a hand-pasted link.
-  onlineMeetingProvider String?    @db.VarChar(16)
+  onlineMeetingProvider String?       @db.VarChar(16)
   /// 1.23: the Teams meeting's id in Microsoft Graph (null: none made yet). Never sent to the apps.
-  onlineMeetingId    String?       @db.VarChar(512)
+  onlineMeetingId       String?       @db.VarChar(512)
   /// 1.23: whose own Microsoft account made the Teams meeting (only theirs may change or delete it).
-  onlineMeetingOwnerId String?     @db.VarChar(191)
-  startAt            DateTime
-  endAt              DateTime?
-  timeZone           String?
-  recurrenceRule     Json?
-  recurrenceParentId String?
+  onlineMeetingOwnerId  String?       @db.VarChar(191)
+  startAt               DateTime
+  endAt                 DateTime?
+  timeZone              String?
+  recurrenceRule        Json?
+  recurrenceParentId    String?
   /// A series meeting's place in its series: the start the rule gave it (kept when it is moved on its own).
-  recurrenceStart    DateTime?
-  templateId         String?
-  transcript         String?       @db.Text
-  invitesSentAt      DateTime?
-  reminderSentAt     DateTime?
-  createdById        String
-  createdAt          DateTime      @default(now())
-  updatedAt          DateTime      @updatedAt
-  deletedAt          DateTime?
+  recurrenceStart       DateTime?
+  templateId            String?
+  transcript            String?       @db.Text
+  invitesSentAt         DateTime?
+  reminderSentAt        DateTime?
+  createdById           String
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+  deletedAt             DateTime?
 
   attendees     MeetingAttendee[]
   agendaItems   AgendaItem[]
@@ -1432,11 +1439,13 @@ model Meeting {
   aiJobs        AiJob[]
   /// A meeting without a project belongs to a company (null for project meetings: theirs is the project's).
   companyId     String?
-  company       Company?            @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  company       Company?              @relation(fields: [companyId], references: [id], onDelete: SetNull)
   /// 1.23: the named series it is in ("Monthly OXY review"), if any — not its repeat (recurrenceParentId).
   seriesId      String?
-  namedSeries   MeetingSeries?      @relation(fields: [seriesId], references: [id], onDelete: SetNull)
+  namedSeries   MeetingSeries?        @relation(fields: [seriesId], references: [id], onDelete: SetNull)
 
+  // One meeting per place in a series, so a series is never filled in twice.
+  @@unique([recurrenceParentId, recurrenceStart])
   @@index([projectId])
   @@index([organizerId])
   @@index([companyId])
@@ -1444,8 +1453,6 @@ model Meeting {
   @@index([status])
   @@index([startAt])
   @@index([onlineMeetingId])
-  // One meeting per place in a series, so a series is never filled in twice.
-  @@unique([recurrenceParentId, recurrenceStart])
   @@map("meetings")
 }
 
@@ -1532,20 +1539,20 @@ enum MeetingReminderSendStatus {
 }
 
 model MeetingAttendee {
-  id            String           @id @default(cuid())
+  id            String             @id @default(cuid())
   meetingId     String
   userId        String?
   externalName  String?
   externalEmail String?
-  role          AttendeeRole     @default(REQUIRED)
-  attendance    AttendanceStatus @default(INVITED)
+  role          AttendeeRole       @default(REQUIRED)
+  attendance    AttendanceStatus   @default(INVITED)
   response      InvitationResponse @default(PENDING)
   respondedAt   DateTime?
   /// When this person's own invitation was delivered (null = not invited yet).
   invitedAt     DateTime?
   department    String?
-  createdAt     DateTime         @default(now())
-  meeting       Meeting          @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  createdAt     DateTime           @default(now())
+  meeting       Meeting            @relation(fields: [meetingId], references: [id], onDelete: Cascade)
 
   @@index([meetingId])
   @@index([userId])
@@ -1715,22 +1722,22 @@ model DecisionAttachment {
 }
 
 model MeetingMinutes {
-  id           String        @id @default(cuid())
-  meetingId    String        @unique
-  content      String        @db.Text
-  status       MinutesStatus @default(DRAFT)
-  generatedAt  DateTime      @default(now())
-  approvedById String?
-  approvedAt   DateTime?
-  sentAt       DateTime?
+  id                     String        @id @default(cuid())
+  meetingId              String        @unique
+  content                String        @db.Text
+  status                 MinutesStatus @default(DRAFT)
+  generatedAt            DateTime      @default(now())
+  approvedById           String?
+  approvedAt             DateTime?
+  sentAt                 DateTime?
   /// Approved minutes shown on the project's client page. Cleared whenever the minutes go back to a draft
   /// or the meeting is re-filed under another project.
-  clientVisible Boolean      @default(false)
+  clientVisible          Boolean       @default(false)
   /// The project the minutes were shown to the client of: shown only while the meeting is still that project's.
   clientVisibleProjectId String?
   /// The client copy includes "Risks & open issues" (ticked when the minutes were shown).
-  clientShowRisks Boolean    @default(false)
-  meeting      Meeting       @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  clientShowRisks        Boolean       @default(false)
+  meeting                Meeting       @relation(fields: [meetingId], references: [id], onDelete: Cascade)
 
   @@map("meeting_minutes")
 }
@@ -1743,25 +1750,25 @@ model MeetingMinutes {
 /// opens the page, and only with a code emailed to this address. Removing the row ends their access
 /// (codes and sessions go with it).
 model ClientShare {
-  id           String    @id @default(cuid())
-  projectId    String
-  name         String    @db.VarChar(120)
+  id             String             @id @default(cuid())
+  projectId      String
+  name           String             @db.VarChar(120)
   /// Lower-case, trimmed.
-  email        String    @db.VarChar(254)
+  email          String             @db.VarChar(254)
   /// SHA-256 (hex) of the current link's token; the token itself is only in the email. Resend replaces it.
-  linkHash     String    @unique @db.Char(64)
+  linkHash       String             @unique @db.Char(64)
   /// Who shared it (a staff user id; kept when that person is gone).
-  createdById  String?
-  linkSentAt   DateTime?
-  lastViewedAt DateTime?
+  createdById    String?
+  linkSentAt     DateTime?
+  lastViewedAt   DateTime?
   /// When a lockout (too many wrong codes, too many code requests) was last written to the audit log:
   /// at most once an hour per client.
   lockoutNotedAt DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  project      Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  codes        ClientAccessCode[]
-  sessions     ClientSession[]
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  project        Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  codes          ClientAccessCode[]
+  sessions       ClientSession[]
 
   @@unique([projectId, email])
   @@map("client_shares")
@@ -1786,12 +1793,12 @@ model ClientAccessCode {
 /// A device signed in to a client page (30 days): SHA-256 (hex) of the token in its cookie. It opens
 /// only that client's page of that one project, never anything else.
 model ClientSession {
-  id         String      @id @default(cuid())
-  shareId    String
-  tokenHash  String      @unique @db.Char(64)
-  expiresAt  DateTime
-  createdAt  DateTime    @default(now())
-  share      ClientShare @relation(fields: [shareId], references: [id], onDelete: Cascade)
+  id        String      @id @default(cuid())
+  shareId   String
+  tokenHash String      @unique @db.Char(64)
+  expiresAt DateTime
+  createdAt DateTime    @default(now())
+  share     ClientShare @relation(fields: [shareId], references: [id], onDelete: Cascade)
 
   @@index([shareId])
   @@map("client_sessions")
@@ -1811,25 +1818,25 @@ model ClientProjectGrant {
   userId      String
   projectId   String
   /// Modules: "Progress, milestones and tasks" (View tasks), "Meetings and minutes".
-  progress    Boolean  @default(false)
-  meetings    Boolean  @default(false)
+  progress    Boolean     @default(false)
+  meetings    Boolean     @default(false)
   /// Actions: comment on tasks; sign off finished tasks; reply to invites (and their own action items); download PDFs.
-  canComment  Boolean  @default(false)
-  canSignOff  Boolean  @default(false)
-  canRespond  Boolean  @default(false)
-  canDownload Boolean  @default(false)
+  canComment  Boolean     @default(false)
+  canSignOff  Boolean     @default(false)
+  canRespond  Boolean     @default(false)
+  canDownload Boolean     @default(false)
   /// 1.23.7: the role picked in the permission matrix. NULL only on a grant from before 1.23.7 that the
   /// backfill hasn't reached yet (read as CUSTOM); the backfill makes those CUSTOM with notifications on.
   role        ClientRole?
   /// 1.23.7: upload documents to shared tasks (needs View tasks).
-  canUpload   Boolean  @default(false)
+  canUpload   Boolean     @default(false)
   /// 1.23.7: receive notifications (the portal bell and emails) about this project.
-  canNotify   Boolean  @default(false)
+  canNotify   Boolean     @default(false)
   createdById String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project     Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@id([userId, projectId])
   @@index([projectId])
@@ -1972,24 +1979,24 @@ model MicoAiChat {
 
 /// A question (role "user") or MICO AI's answer (role "assistant", its tables and sources as JSON).
 model MicoAiMessage {
-  id        String     @id @default(cuid())
+  id        String          @id @default(cuid())
   chatId    String
-  role      String     @db.VarChar(16)
+  role      String          @db.VarChar(16)
   /// The question, or the answer's words: what searching the chats reads.
-  text      String     @db.MediumText
+  text      String          @db.MediumText
   content   Json?
   /// The tool results an answer's tables were copied from (kept for later questions; only they read it).
   results   Json?
   /// PENDING while MICO AI is writing it, then DONE, ERROR or STOPPED.
-  status    String     @default("DONE") @db.VarChar(16)
+  status    String          @default("DONE") @db.VarChar(16)
   /// While PENDING: what MICO AI is doing ("Checking tasks in Rig Inspection…").
-  step      String?    @db.VarChar(200)
+  step      String?         @db.VarChar(200)
   /// 1.22: a question's id from the page that sent it — sent again (a double click, a retry after a
   /// lost answer), it joins the turn already asked instead of asking twice.
-  clientId  String?    @db.VarChar(64)
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
-  chat      MicoAiChat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  clientId  String?         @db.VarChar(64)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+  chat      MicoAiChat      @relation(fields: [chatId], references: [id], onDelete: Cascade)
   proposal  MicoAiProposal?
   aiJobs    AiJob[]
 
@@ -2516,4 +2523,356 @@ model KpiSnapshot {
   @@index([month])
   @@index([userId, month])
   @@map("kpi_snapshots")
+}
+
+// ── Training Center (owner, 11 Nov 2026) ───────────────────────────────────────────────────────────────
+// Courses are site-wide (like Templates) and may be limited to companies; staff courses for the modules a
+// person can use, client courses in the Client portal only. People are referenced by id (no foreign keys,
+// as the KPI tables): accounts are soft-deleted. Files live in a private folder beside the uploads (never
+// the public /uploads path) and are served after the course's audience check.
+
+/// A course: ordered lessons, optional certificate, its audience and the module it teaches.
+model TrainingCourse {
+  id                String           @id @default(cuid())
+  title             String           @db.VarChar(160)
+  summary           String?          @db.Text
+  /// tasks | board | meetings | calendar | projects | reports | management | chat | mico-ai | admin | portal | training | general
+  moduleKey         String           @db.VarChar(24)
+  /// 'STAFF' | 'CLIENTS'
+  audience          String           @default("STAFF") @db.VarChar(8)
+  /// Staff groups it is for (['admins','employees','project-runners','training-managers']); null or empty: everyone.
+  roleKeys          Json?
+  /// 'BEGINNER' | 'INTERMEDIATE' | 'ADVANCED'
+  difficulty        String           @default("BEGINNER") @db.VarChar(16)
+  /// 'DRAFT' | 'PUBLISHED' | 'ARCHIVED'
+  status            String           @default("DRAFT") @db.VarChar(12)
+  /// 'ALL_LESSONS' (every lesson done; a quiz is done when passed) | 'QUIZZES' (passing every quiz is enough)
+  completionRule    String           @default("ALL_LESSONS") @db.VarChar(16)
+  /// Lessons must be finished in order.
+  inOrder           Boolean          @default(false)
+  certificateOn     Boolean          @default(false)
+  /// A certificate's validity in months; null: it never expires.
+  certificateMonths Int?
+  /// "Issued by" on the certificate: a Training manager or administrator, their title and an optional signature picture.
+  issuerUserId      String?          @db.VarChar(191)
+  issuerTitle       String?          @db.VarChar(120)
+  signatureFileId   String?          @db.VarChar(191)
+  /// Limited to these companies (JSON array of ids); null or empty: every company.
+  companyIds        Json?
+  /// Raised by every publish after the first; a "Major change" also stamps majorAt (completions before it review).
+  version           Int              @default(1)
+  majorAt           DateTime?
+  /// Starter content (loaded once by the server); null for courses people made.
+  starterKey        String?          @unique @db.VarChar(64)
+  position          Int              @default(0)
+  createdById       String?          @db.VarChar(191)
+  updatedById       String?          @db.VarChar(191)
+  publishedAt       DateTime?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  lessons           TrainingLesson[]
+
+  @@index([status])
+  @@index([moduleKey])
+  @@map("training_courses")
+}
+
+/// One lesson of a course: a video (YouTube / Vimeo link), a step-by-step guide, a document or a quiz.
+model TrainingLesson {
+  id             String         @id @default(cuid())
+  courseId       String         @db.VarChar(191)
+  position       Int            @default(0)
+  /// 'VIDEO' | 'GUIDE' | 'DOCUMENT' | 'QUIZ'
+  kind           String         @db.VarChar(12)
+  title          String         @db.VarChar(160)
+  minutes        Int            @default(5)
+  /// An introduction (server-cleaned rich text).
+  body           String?        @db.Text
+  /// VIDEO: 'YOUTUBE' | 'VIMEO', the video's id, an unlisted Vimeo video's hash and the link as entered.
+  videoProvider  String?        @db.VarChar(8)
+  videoId        String?        @db.VarChar(32)
+  videoHash      String?        @db.VarChar(32)
+  videoUrl       String?        @db.VarChar(500)
+  /// DOCUMENT: its file (training_files).
+  fileId         String?        @db.VarChar(191)
+  /// The course version this lesson last changed in by a "Major change" (people who finished before review it).
+  changedVersion Int            @default(1)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  course         TrainingCourse @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  steps          TrainingStep[]
+  quiz           TrainingQuiz?
+
+  @@index([courseId, position])
+  @@map("training_lessons")
+}
+
+/// A guide lesson's numbered step: text and an optional picture.
+model TrainingStep {
+  id          String         @id @default(cuid())
+  lessonId    String         @db.VarChar(191)
+  position    Int            @default(0)
+  title       String?        @db.VarChar(160)
+  body        String?        @db.Text
+  imageFileId String?        @db.VarChar(191)
+  imageAlt    String?        @db.VarChar(200)
+  lesson      TrainingLesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@index([lessonId, position])
+  @@map("training_steps")
+}
+
+/// A training file in the private training folder: a course download, a document lesson's file, a guide
+/// step's picture or a certificate signature.
+model TrainingFile {
+  id           String   @id @default(cuid())
+  /// The course it belongs to; null: a signature picture.
+  courseId     String?  @db.VarChar(191)
+  /// 'RESOURCE' | 'DOCUMENT' | 'IMAGE' | 'SIGNATURE'
+  kind         String   @db.VarChar(12)
+  name         String   @db.VarChar(180)
+  mimeType     String   @db.VarChar(100)
+  sizeBytes    Int
+  storageKey   String   @unique @db.VarChar(200)
+  position     Int      @default(0)
+  starter      Boolean  @default(false)
+  uploadedById String?  @db.VarChar(191)
+  createdAt    DateTime @default(now())
+
+  @@index([courseId, kind])
+  @@map("training_files")
+}
+
+/// A quiz lesson's settings.
+model TrainingQuiz {
+  id               String             @id @default(cuid())
+  lessonId         String             @unique @db.VarChar(191)
+  /// Percent needed to pass.
+  passMark         Int                @default(70)
+  /// Attempts allowed; null: unlimited.
+  maxAttempts      Int?
+  shuffle          Boolean            @default(false)
+  timeLimitMinutes Int?
+  /// Question bank: draw this many questions at random for each attempt; null: every question.
+  drawCount        Int?
+  lesson           TrainingLesson     @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  questions        TrainingQuestion[]
+
+  @@map("training_quizzes")
+}
+
+model TrainingQuestion {
+  id          String           @id @default(cuid())
+  quizId      String           @db.VarChar(191)
+  position    Int              @default(0)
+  /// 'SINGLE' | 'MULTIPLE' | 'TRUE_FALSE' | 'ORDER' (options' positions are the right order)
+  kind        String           @db.VarChar(12)
+  prompt      String           @db.Text
+  /// Said after the attempt (why the answer is right).
+  explanation String?          @db.Text
+  quiz        TrainingQuiz     @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  options     TrainingOption[]
+
+  @@index([quizId, position])
+  @@map("training_questions")
+}
+
+model TrainingOption {
+  id         String           @id @default(cuid())
+  questionId String           @db.VarChar(191)
+  position   Int              @default(0)
+  text       String           @db.VarChar(500)
+  correct    Boolean          @default(false)
+  /// Feedback shown after the attempt when this answer was chosen.
+  feedback   String?          @db.VarChar(500)
+  question   TrainingQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@index([questionId, position])
+  @@map("training_options")
+}
+
+/// An assignment of a course to a person or a group (group assignments follow membership).
+model TrainingAssignment {
+  id              String    @id @default(cuid())
+  courseId        String    @db.VarChar(191)
+  /// 'USER' | 'GROUP' | 'DEPARTMENT' | 'COMPANY' | 'PROJECT'
+  targetKind      String    @db.VarChar(12)
+  /// The person, group key (everyone | admins | employees | clients | project-runners | training-managers),
+  /// department, company or project.
+  targetId        String    @db.VarChar(191)
+  mandatory       Boolean   @default(true)
+  /// A fixed due day ('YYYY-MM-DD') or N days after each person got it; neither: no due date.
+  dueDay          String?   @db.VarChar(10)
+  dueDays         Int?
+  /// An onboarding rule's assignment: only accounts made after it was set up get it.
+  ruleId          String?   @db.VarChar(191)
+  newAccountsOnly Boolean   @default(false)
+  /// A Training manager's companies when they assigned it (only people there get it); null: everyone.
+  scopeCompanyIds Json?
+  /// Stopped following membership (a rule switched off): nobody new gets it, nobody loses it.
+  frozenAt        DateTime?
+  createdById     String?   @db.VarChar(191)
+  createdAt       DateTime  @default(now())
+  withdrawnAt     DateTime?
+  withdrawnById   String?   @db.VarChar(191)
+
+  @@index([courseId])
+  @@index([ruleId])
+  @@index([withdrawnAt])
+  @@map("training_assignments")
+}
+
+/// Who an assignment reached, from when, with their own due day.
+model TrainingAssignee {
+  id           String    @id @default(cuid())
+  assignmentId String    @db.VarChar(191)
+  userId       String    @db.VarChar(191)
+  courseId     String    @db.VarChar(191)
+  mandatory    Boolean   @default(true)
+  assignedAt   DateTime  @default(now())
+  dueDay       String?   @db.VarChar(10)
+  withdrawnAt  DateTime?
+
+  @@unique([assignmentId, userId])
+  @@index([userId, courseId])
+  @@index([courseId])
+  @@map("training_assignees")
+}
+
+/// A person's course: started, progress, completion, a review after a Major change, a retake after expiry.
+model TrainingEnrolment {
+  id               String    @id @default(cuid())
+  userId           String    @db.VarChar(191)
+  courseId         String    @db.VarChar(191)
+  /// Started from the catalogue (kept when assignments are withdrawn).
+  selfStarted      Boolean   @default(false)
+  startedAt        DateTime?
+  completedAt      DateTime?
+  completedVersion Int?
+  progressPct      Int       @default(0)
+  lastLessonId     String?   @db.VarChar(191)
+  lastActivityAt   DateTime?
+  /// After a Major change: review the changed lessons by this day (lessons done since reviewFrom count).
+  reviewFrom       DateTime?
+  reviewDueDay     String?   @db.VarChar(10)
+  reviewDoneAt     DateTime?
+  /// The certificate expired: lessons and quizzes count again only from this moment.
+  retakeFrom       DateTime?
+  /// Unfinished and no assignment left (and not started by themselves): hidden from My training.
+  withdrawnAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@unique([userId, courseId])
+  @@index([courseId])
+  @@map("training_enrolments")
+}
+
+/// Per person per lesson: done, the video position, the guide step (saved automatically).
+model TrainingProgress {
+  id            String    @id @default(cuid())
+  userId        String    @db.VarChar(191)
+  courseId      String    @db.VarChar(191)
+  lessonId      String    @db.VarChar(191)
+  doneAt        DateTime?
+  videoSeconds  Int       @default(0)
+  videoDuration Int?
+  watchedPct    Int       @default(0)
+  stepIndex     Int       @default(0)
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([userId, lessonId])
+  @@index([userId, courseId])
+  @@map("training_progress")
+}
+
+/// One quiz attempt: the paper drawn for it (questions, option order and right answers - never sent to the
+/// browser before it is handed in), the answers, the mark.
+model TrainingAttempt {
+  id          String    @id @default(cuid())
+  userId      String    @db.VarChar(191)
+  courseId    String    @db.VarChar(191)
+  lessonId    String    @db.VarChar(191)
+  quizId      String    @db.VarChar(191)
+  paper       Json
+  answers     Json?
+  startedAt   DateTime  @default(now())
+  deadlineAt  DateTime?
+  submittedAt DateTime?
+  scorePct    Int?
+  passed      Boolean?
+
+  @@index([userId, lessonId])
+  @@index([quizId])
+  @@index([courseId])
+  @@map("training_attempts")
+}
+
+/// A certificate: verifiable by its code (the public page shows only course, name, dates and status).
+model TrainingCertificate {
+  id              String    @id @default(cuid())
+  code            String    @unique @db.VarChar(24)
+  userId          String    @db.VarChar(191)
+  courseId        String    @db.VarChar(191)
+  learnerName     String    @db.VarChar(200)
+  courseTitle     String    @db.VarChar(160)
+  /// The learner's company (its logo and name on the PDF); null: the site's.
+  companyId       String?   @db.VarChar(191)
+  scorePct        Int?
+  issuerName      String?   @db.VarChar(200)
+  issuerTitle     String?   @db.VarChar(120)
+  signatureFileId String?   @db.VarChar(191)
+  issuedAt        DateTime  @default(now())
+  expiresAt       DateTime?
+  revokedAt       DateTime?
+  revokedReason   String?   @db.VarChar(200)
+  revokedById     String?   @db.VarChar(191)
+
+  @@index([userId])
+  @@index([courseId])
+  @@index([expiresAt])
+  @@map("training_certificates")
+}
+
+/// An onboarding rule: new accounts in a group get these courses (one assignment per course, ruleId).
+model TrainingRule {
+  id              String   @id @default(cuid())
+  name            String   @db.VarChar(120)
+  /// 'GROUP' | 'DEPARTMENT' | 'COMPANY'
+  targetKind      String   @db.VarChar(12)
+  targetId        String   @db.VarChar(191)
+  courseIds       Json
+  mandatory       Boolean  @default(true)
+  dueDays         Int?
+  active          Boolean  @default(true)
+  scopeCompanyIds Json?
+  createdById     String?  @db.VarChar(191)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("training_rules")
+}
+
+/// Ratings, questions and "outdated" reports on a course or one of its lessons.
+model TrainingFeedback {
+  id           String    @id @default(cuid())
+  courseId     String    @db.VarChar(191)
+  lessonId     String?   @db.VarChar(191)
+  userId       String    @db.VarChar(191)
+  /// 'RATING' | 'QUESTION' | 'OUTDATED'
+  kind         String    @db.VarChar(12)
+  rating       Int?
+  body         String?   @db.Text
+  /// 'OPEN' | 'ANSWERED' | 'FIXED' (a rating is ANSWERED from the start: nothing to do)
+  status       String    @default("OPEN") @db.VarChar(12)
+  answer       String?   @db.Text
+  answeredById String?   @db.VarChar(191)
+  answeredAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([courseId, kind])
+  @@index([status, kind])
+  @@index([userId])
+  @@map("training_feedback")
 }
