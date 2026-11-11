@@ -58,3 +58,20 @@ describe('TaskDrawer: task archive', () => {
     expect(within(banner).queryByRole('alert')).toBeNull();
   });
 });
+
+describe('TaskDrawer: an archived blocker', () => {
+  it('no longer blocks: marked Archived, not counted as open', () => {
+    render(
+      <TaskDrawer
+        task={task}
+        checklist={[]}
+        comments={[]}
+        dependencies={{ blockedBy: [{ id: 't2', key: 'RIG-2', title: 'Old blocker', statusName: 'To do', statusCategory: 'TODO', done: false, archived: true }, { id: 't3', key: 'RIG-3', title: 'Live blocker', statusName: 'To do', statusCategory: 'TODO', done: false }], blocks: [] }}
+        onClose={vi.fn()}
+      />,
+    );
+    const line = screen.getByText('Old blocker').closest('li')!;
+    expect(within(line).getByText('Archived')).toBeInTheDocument();
+    expect(screen.getByText('Waiting on 1 open task')).toBeInTheDocument();
+  });
+});

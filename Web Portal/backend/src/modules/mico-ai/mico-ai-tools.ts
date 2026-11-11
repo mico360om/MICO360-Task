@@ -2,6 +2,7 @@ import { z, type ZodTypeAny } from 'zod';
 import { dueDayKey, daysUntilDue, shiftDayKey, todayKey, zonedDayKey, zonedStartOfDay } from '../../lib/due-date';
 import { CATEGORY_ORDER, categoryLabel, priorityLabel, wallClock } from '../../lib/export-format';
 import { isTaskDone, isTaskLate } from '../tasks/task-status';
+import { isCountedTask } from '../tasks/task-archive-where';
 import { matchesNormalized, normalizeForSearch } from '../search/text-normalize';
 import { buildTaskTimeline as buildTimeline } from '../activity/task-history-extra';
 import { withoutHiddenBlockers } from '../activity/hidden-blockers';
@@ -304,7 +305,7 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
     approvalRequestedAt: t.approvalRequestedAt ?? null,
   });
   /** Task archive: figures keep an archived Done task (still done) and leave an archived open one. */
-  const counted = (t: AiTaskRec) => !t.archivedAt || isTaskDone({ columnCategory: t.category, completedAt: t.completedAt });
+  const counted = (t: AiTaskRec) => isCountedTask({ archivedAt: t.archivedAt, completedAt: t.completedAt, columnCategory: t.category });
   const dueWithin = (t: AiTaskRec, from?: string, to?: string) => {
     if (!from && !to) return true;
     const due = dueDayKey(t.dueDate, timeZone);

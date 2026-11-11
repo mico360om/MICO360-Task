@@ -26,6 +26,7 @@ import { createTaskSearchEngine } from '../../src/modules/search/task-search-eng
 import { createSearchEngine } from '../../src/modules/search/search-engine';
 import { createPrismaMicoAiData } from '../../src/modules/mico-ai/prisma-mico-ai-data';
 import { createTaskMergeService } from '../../src/modules/task-merge/merge-service';
+import { createInspectionPorts } from '../../src/modules/inspections/prisma-inspection-ports';
 import { todayKey } from '../../src/lib/due-date';
 import { buildCompanyWorld, dropCompanyWorld, type CompanyWorld } from './company-world';
 import { buildCompanyApp, type CompanyApp } from './company-app';
@@ -273,6 +274,13 @@ describe('other places keep to the rules (integration)', () => {
     const preview = await merges.preview(admin, { taskIds: [T.live, T.open] });
     expect(preview.tasks.find((t) => t.id === T.open)).toMatchObject({ canMerge: false, reason: 'It is archived — unarchive it first.' });
     await expect(merges.merge(admin, { taskIds: [T.live, T.open], mainTaskId: T.live })).rejects.toMatchObject({ code: 'TASK_ARCHIVED' });
+  });
+
+  it('finishing an inspection of an archived task never moves it (it stays read-only)', async () => {
+    const moveTask = async () => { throw new Error('an archived task must not be moved'); };
+    const ports = createInspectionPorts({ prisma, access: {} as never, authz: {} as never, tasks: { moveTask } as never, columns: { listColumns: async () => [{ id: doneCol, position: 9, enabled: true, category: 'DONE' }] }, assignees: {} as never, userNames: {} as never, broadcast: () => {} });
+    expect(await ports.completeTask!(T.open, w.people.admin)).toBe(false);
+    expect((await prisma.task.findUniqueOrThrow({ where: { id: T.open } })).columnId).toBe(todo);
   });
 
   it('an archived repeating task keeps making copies, and a new copy is never archived', async () => {

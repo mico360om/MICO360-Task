@@ -677,5 +677,8 @@ describe('ProjectDetailPage: archived tasks (task archive)', () => {
     expect(await screen.findByText(/^2 of 5 tasks/)).toHaveTextContent('2 of 5 tasks · 40% done');
     // It is in no list: the Overdue tile is the listed tasks' only.
     expect(screen.getByText('Overdue').previousElementSibling).toHaveTextContent('1');
+    // The Tasks tab counts what it lists (4), never an archived task.
+    expect(screen.getByRole('tab', { name: /^Tasks/ })).toHaveTextContent(/4/);
+    expect(screen.getByRole('tab', { name: /^Tasks/ })).not.toHaveTextContent(/5/);
   });
 });

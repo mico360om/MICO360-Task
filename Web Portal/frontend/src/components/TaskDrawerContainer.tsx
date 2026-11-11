@@ -48,7 +48,6 @@ import { DeletedTaskPanel } from './recycle-bin/DeletedTaskPanel';
 import { BIN_KEY } from '../api/recycle-bin';
 import { binNoticeFor, showBinNotice } from '../lib/bin-notice';
 import { archivedTasksKey, mayArchiveTasks, showArchiveNotice } from '../lib/task-archive';
-import { useEffectiveAdmin } from '../lib/manager-view';
 
 export interface TaskDrawerContainerProps {
   taskId: string;
@@ -139,8 +138,6 @@ function TaskDrawerPanel({ taskId, onClose, stepper, mergeNotice, focusItemId }:
   const queryClient = useQueryClient();
   const timeZone = useCompanyTimeZone();
   const isAdmin = useAuthStore((s) => s.isAdmin());
-  // Task archive: Manager View's administrator archives only in the projects they run (the server's canManage says which).
-  const effectiveAdmin = useEffectiveAdmin();
   const myId = useAuthStore((s) => s.user?.id);
   // Escape closes, focus moves into the panel and stays there, and returns to the trigger on close —
   // in every state (loading, not found, loaded), so the drawer can always be dismissed.
@@ -226,7 +223,8 @@ function TaskDrawerPanel({ taskId, onClose, stepper, mergeNotice, focusItemId }:
   // Task archive: an archived task is read-only (no editing actions are passed to the panel); administrators
   // and the people who run its project archive and unarchive it — never in an archived project.
   const archived = Boolean(taskQ.data?.archivedAt);
-  const mayArchive = mayArchiveTasks({ isAdmin: effectiveAdmin, project: project ?? null });
+  // As Delete in this panel: archiving is work, so an administrator in Manager View may still archive (the server agrees).
+  const mayArchive = mayArchiveTasks({ isAdmin, project: project ?? null });
   const canMerge = projectId ? mergeAvailability(projectId, moveTargets, { readOnly: readOnly ? `${project!.name} is ${readOnly} — reopen it first.` : null }) : null;
   const mergesQ = useQuery({
     queryKey: ['task-merges', taskId],
@@ -487,7 +485,8 @@ function TaskDrawerPanel({ taskId, onClose, stepper, mergeNotice, focusItemId }:
   for (const q of elsewhereQs) {
     const t = q.data;
     if (t && !taskRefs.has(t.id)) {
-      taskRefs.set(t.id, { id: t.id, key: t.key, title: t.title, statusCategory: t.columnCategory ?? undefined, done: t.columnCategory === 'DONE' || Boolean(t.completedAt) });
+      // Task archive: an archived blocker (read on its own: it is on no list) no longer blocks — marked so.
+      taskRefs.set(t.id, { id: t.id, key: t.key, title: t.title, statusCategory: t.columnCategory ?? undefined, done: t.columnCategory === 'DONE' || Boolean(t.completedAt), ...(t.archivedAt ? { archived: true } : {}) });
     }
   }
   const toRef = (id: string): DrawerTaskRef => taskRefs.get(id) ?? { id, key: id, title: id };
@@ -727,7 +726,7 @@ function TaskDrawerPanel({ taskId, onClose, stepper, mergeNotice, focusItemId }:
             archivedByName={taskQ.data.archivedById ? authorName(taskQ.data.archivedById) : null}
             mergedFrom={
               mergesQ.data && mergesQ.data.merges.length > 0 ? (
-                <MergedFromPanel panel={mergesQ.data} timeZone={timeZone} today={todayKey(timeZone)} onUndo={(mergeId) => setUndoing(mergeId)} />
+                <MergedFromPanel panel={mergesQ.data} timeZone={timeZone} today={todayKey(timeZone)} onUndo={archived ? undefined : (mergeId) => setUndoing(mergeId)} />
               ) : undefined
             }
             onClose={onClose}

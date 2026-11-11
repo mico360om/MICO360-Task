@@ -86,3 +86,12 @@ describe('report routes: ?includeArchived', () => {
     expect((await get('/reports/timeseries?from=2026-10-01&to=2026-10-10&includeArchived=true')).json().data.points[0]).toBeTruthy();
   });
 });
+
+describe('the trend with archived tasks included', () => {
+  it('an archived open task is overdue on its days before it was archived, never after', async () => {
+    const { buildTimeSeries } = await import('./report-timeseries');
+    const t: ReportTask = { id: 'x', projectId: 'p1', projectName: 'MICO', columnCategory: 'TODO', createdAt: new Date('2026-10-01T05:00:00Z'), dueDate: new Date('2026-10-02T00:00:00Z'), completedAt: null, assigneeIds: [], archivedAt: new Date('2026-10-05T05:00:00Z') };
+    const s = buildTimeSeries([t], '2026-10-03', '2026-10-06', 'Asia/Muscat');
+    expect(s.points.map((p) => [p.date, p.overdue])).toEqual([['2026-10-03', 1], ['2026-10-04', 1], ['2026-10-05', 0], ['2026-10-06', 0]]);
+  });
+});

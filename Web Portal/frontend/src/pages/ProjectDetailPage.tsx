@@ -309,12 +309,14 @@ export function ProjectDetailPage() {
     );
   }
 
-  const statsReady = !tasksQ.isLoading && !columnsQ.isLoading;
+  // Task archive: the figures wait for the archived list too (its Done tasks count), so they don't jump.
+  const statsReady = !tasksQ.isLoading && !columnsQ.isLoading && !archivedQ.isLoading;
   // Until its first data is in, the page is one placeholder of about its size; then the header, tiles,
   // tabs and overview appear together, filled. Drawn part by part, each arrival (the owner's and
   // manager's names, a long name wrapping, the overview's lists) pushed everything under it down.
   const firstLoad = !project || directoryQ.isLoading || membersQ.isLoading || !statsReady || meetingsQ.isLoading;
-  const tabCount = (t: Tab) => (t === 'tasks' ? stats.total : t === 'meetings' ? overview?.stats.upcoming ?? 0 : t === 'team' ? members.length : 0);
+  // The Tasks tab counts the tasks it lists (never an archived one; the figures count archived Done ones).
+  const tabCount = (t: Tab) => (t === 'tasks' ? tasks.length : t === 'meetings' ? overview?.stats.upcoming ?? 0 : t === 'team' ? members.length : 0);
 
   return (
     <div>

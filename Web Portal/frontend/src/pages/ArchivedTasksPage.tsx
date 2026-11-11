@@ -9,7 +9,7 @@ import { ApiError } from '../lib/api-client';
 import { archivedLine, archivedTasksKey, mayArchiveTasks } from '../lib/task-archive';
 import { invalidateTaskQueries } from '../lib/task-cache';
 import { useCompanyTimeZone } from '../lib/useCompanyTimeZone';
-import { useEffectiveAdmin } from '../lib/manager-view';
+import { useAuthStore } from '../stores/auth-store';
 import { useOpenTask } from '../lib/useOpenTask';
 import { usePageName } from '../lib/page-meta';
 import { TOUCH_SQUARE, TOUCH_TALL } from '../lib/touch';
@@ -29,7 +29,8 @@ export function ArchivedTasksPage() {
   const { id = '' } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
   const timeZone = useCompanyTimeZone();
-  const effectiveAdmin = useEffectiveAdmin();
+  // As the task panel: archiving is work, so an administrator in Manager View may still unarchive (the server agrees).
+  const isAdmin = useAuthStore((s) => s.isAdmin());
   const openTask = useOpenTask();
   const projectQ = useQuery({ queryKey: ['project', id], queryFn: () => projectsApi(apiClient).get(id), enabled: !!id });
   const listQ = useQuery({ queryKey: archivedTasksKey(id), queryFn: () => tasksApi(apiClient).listArchived(id), enabled: !!id });
@@ -37,7 +38,7 @@ export function ArchivedTasksPage() {
   const project = projectQ.data;
   usePageName(project ? `Archived tasks · ${project.name}` : 'Archived tasks');
   const rows: ApiTask[] = Array.isArray(listQ.data) ? listQ.data : [];
-  const canUnarchive = mayArchiveTasks({ isAdmin: effectiveAdmin, project: project ?? null });
+  const canUnarchive = mayArchiveTasks({ isAdmin, project: project ?? null });
   const nameOf = (userId: string | null | undefined) => {
     const u = userId ? (Array.isArray(directoryQ.data) ? directoryQ.data : []).find((d) => d.id === userId) : undefined;
     return u ? `${u.firstName} ${u.lastName}`.trim() || u.username : null;
