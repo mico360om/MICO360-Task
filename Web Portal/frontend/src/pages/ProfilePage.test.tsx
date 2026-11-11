@@ -129,6 +129,18 @@ describe('ProfilePage — photo', () => {
   });
 });
 
+describe('a new photo shows in the header at once (11 Nov)', () => {
+  it('takes the new photo and keeps their name (the header’s initials are the name’s)', async () => {
+    useAuthStore.getState().setSession({ user: { ...me, firstName: 'Ada', lastName: 'Lovelace' }, accessToken: 'old-at', refreshToken: 'old-rt' });
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => (String(url).includes('/avatar') ? json({ data: { ...me, firstName: 'Ada', lastName: 'Lovelace', avatarUrl: '/uploads/new.png' } }) : json({ data: [] }))));
+    renderPage();
+    fireEvent.change(document.querySelector('input[type="file"]') as HTMLInputElement, { target: { files: [new File(['x'], 'me.png', { type: 'image/png' })] } });
+    await waitFor(() => expect(useAuthStore.getState().user?.avatarUrl).toBe('/uploads/new.png'));
+    expect(useAuthStore.getState().user).toMatchObject({ firstName: 'Ada', lastName: 'Lovelace', username: 'ada' });
+    expect(useAuthStore.getState().accessToken).toBe('old-at');
+  });
+});
+
 describe('the profile picture without a photo', () => {
   it('shows the first letters of the first two names, like every other avatar (Aisha Khan → AK, not AI)', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => (String(url).includes('/users/directory') ? json({ data: [{ id: 'u1', username: 'ada', firstName: 'Aisha', lastName: 'Khan' }] }) : json({ data: [] }))));

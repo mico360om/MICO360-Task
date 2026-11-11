@@ -4,6 +4,17 @@ import type { OnboardingStatus } from '../lib/onboarding';
 
 export type UserStatus = 'ACTIVE' | 'INACTIVE' | 'SUSPENDED';
 
+/** GET /users/me: the signed-in person as the header shows them. */
+export interface OwnUser {
+  id: string;
+  email: string;
+  username: string;
+  firstName: string;
+  lastName: string;
+  roles: string[];
+  avatarUrl: string | null;
+}
+
 export interface ApiUser {
   id: string;
   email: string;
@@ -263,5 +274,7 @@ export function usersApi(client: ApiClient) {
       return client.upload<{ data: ApiUser }>('/users/me/avatar', form).then((r) => r.data);
     },
     removeAvatar: () => client.del<{ data: ApiUser }>('/users/me/avatar').then((r) => r.data),
+    /** The signed-in person's own name and current photo (the header reads it on every load). */
+    me: () => client.get<{ data: OwnUser }>('/users/me').then((r) => r.data),
   };
 }

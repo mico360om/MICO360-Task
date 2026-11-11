@@ -79,7 +79,7 @@ function TaskRow({ task, statusName, phase, dueText, onOpen }: { task: ApiTask; 
         </span>
         {assignees.length ? (
           <span className={`flex items-center -space-x-1.5 ${DENSE_STACK}`} title={assignees.map((a) => a.name).join(', ')}>
-            {assignees.slice(0, 3).map((a) => <Avatar key={a.id} name={a.name} size="sm" dense />)}
+            {assignees.slice(0, 3).map((a) => <Avatar key={a.id} name={a.name} src={a.avatarUrl} size="sm" dense />)}
             {assignees.length > 3 ? <span className={`grid h-6 w-6 place-items-center rounded-full border border-line bg-ground text-[10px] font-semibold text-ink-2 ${DENSE_FACE}`}>+{assignees.length - 3}</span> : null}
           </span>
         ) : (

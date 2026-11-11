@@ -633,13 +633,13 @@ function DueLabel({ e, className = '' }: { e: Enriched; className?: string }) {
   return <span className={`${tone} ${className}`}>{text}</span>;
 }
 
-function Assignees({ list, all = false }: { list: { id: string; name: string }[]; /** Detailed: every face (their names are on the line below). */ all?: boolean }) {
+function Assignees({ list, all = false }: { list: { id: string; name: string; avatarUrl?: string | null }[]; /** Detailed: every face (their names are on the line below). */ all?: boolean }) {
   if (!list.length) return null;
   const shown = all ? list : list.slice(0, 3);
   const extra = list.length - shown.length;
   return (
     <div className={`flex flex-none -space-x-1.5 ${all ? 'flex-wrap justify-end' : ''} ${DENSE_STACK}`}>
-      {shown.map((a) => <Avatar key={a.id} name={a.name} size="sm" dense />)}
+      {shown.map((a) => <Avatar key={a.id} name={a.name} src={a.avatarUrl} size="sm" dense />)}
       {extra > 0 ? <span className={`grid h-6 w-6 place-items-center rounded-full border border-line bg-ground text-[10px] font-semibold text-ink-2 ${DENSE_FACE}`}>+{extra}</span> : null}
     </div>
   );

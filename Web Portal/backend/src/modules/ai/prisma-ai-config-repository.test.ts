@@ -80,6 +80,18 @@ describe('PrismaAiConfigRepository', () => {
     expect(db.stored()!.defaults).toEqual({ vision: 'from-other-admin', chat: 'mine' });
   });
 
+  it('reads a MICO360 AI provider saved with http as https, and saves it so (Connect 2.6.17+ is HTTPS-only)', async () => {
+    const saved = { ...emptyConfig(), providers: [{ id: 'm1', name: 'MICO360 AI', kind: 'custom', preset: 'mico360', apiBaseUrl: 'http://ai.mico360.com:5310/v1', apiKey: '', enabled: true, createdAt: 'x', updatedAt: 'x' }] };
+    const db = fakePrisma(saved);
+    const repo = createPrismaAiConfigRepository(db.prisma, { secrets: box });
+    expect((await repo.load()).providers[0]!.apiBaseUrl).toBe('https://ai.mico360.com:5310/v1');
+    await repo.update((c) => ({ ...c, defaults: { chat: null } }));
+    expect(db.stored()!.providers[0]!.apiBaseUrl).toBe('https://ai.mico360.com:5310/v1');
+    // Any other provider's address is left as it was saved.
+    const other = fakePrisma({ ...emptyConfig(), providers: [{ ...saved.providers[0]!, id: 'o1', preset: 'ollama', kind: 'ollama', apiBaseUrl: 'http://10.0.0.5:11434' }] });
+    expect((await createPrismaAiConfigRepository(other.prisma, { secrets: box }).load()).providers[0]!.apiBaseUrl).toBe('http://10.0.0.5:11434');
+  });
+
   it('creates the document on first update', async () => {
     const db = fakePrisma();
     const repo = createPrismaAiConfigRepository(db.prisma, { secrets: box });

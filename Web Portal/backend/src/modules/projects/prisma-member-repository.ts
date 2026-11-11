@@ -3,16 +3,18 @@ import type { MemberRepository, ProjectExistsLookup } from './member-repository'
 import type { ProjectManagerLookup } from './project-authz';
 import { managedVisibleWhere } from './project-managers';
 import { ConflictError } from '../../lib/http-errors';
+import { PERSON_SUMMARY_SELECT, photoOf } from '../../lib/person-summary';
 
 export function createPrismaMemberRepository(prisma: PrismaClient): MemberRepository {
   return {
     async list(projectId) {
       const rows = await prisma.projectMember.findMany({
         where: { projectId },
-        include: { user: { select: { id: true, username: true, email: true, firstName: true, lastName: true } } },
+        include: { user: { select: { ...PERSON_SUMMARY_SELECT, email: true } } },
         orderBy: { addedAt: 'asc' },
       });
-      return rows.map((r) => ({ ...r.user, role: r.role }));
+      // Avatar hotfix: each member's photo comes with the row (null: initials).
+      return rows.map((r) => ({ ...r.user, avatarUrl: photoOf(r.user.avatarUrl), role: r.role }));
     },
     async add(projectId, userId) {
       await prisma.projectMember.upsert({

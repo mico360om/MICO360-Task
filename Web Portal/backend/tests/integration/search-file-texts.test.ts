@@ -141,4 +141,47 @@ describe('file texts (database)', () => {
     expect(await textRow(other)).toMatchObject({ status: 'FAILED', attempts: 4 });
     expect(OCR_PER_HOUR).toBe(30);
   });
+
+  // Review I3: MICO360 AI's quota (a 429 "Quota exceeded", until its period resets) is not a failure of
+  // the file: it waits for the reset — no try counted — and the run stops sending more files meanwhile.
+  it('a used-up quota: the file waits until it resets (no try counted), and the run stops', async () => {
+    const t = new Date('2026-11-06T08:00:00Z').getTime();
+    const sent: string[] = [];
+    const ocr = {
+      ready: async () => true,
+      read: async (images: { data: Buffer; mimeType: string }[]) => {
+        sent.push(images[0]!.data.toString('hex'));
+        throw new ProviderRefusedError(429, 'Quota exceeded: OCR pages per month (500).', true, 7200);
+      },
+    };
+    const svc = createFileTextService({ prisma, storage, index, ocr, now: () => new Date(t) });
+    const first = await att('quota-1.png', 'image/png', Buffer.from([0x89, 0x50, 0x4e, 0x47, 7]));
+    const second = await att('quota-2.png', 'image/png', Buffer.from([0x89, 0x50, 0x4e, 0x47, 8]));
+    await prisma.searchFileText.create({ data: { fileId: first, status: 'OCR_WAIT', attempts: 1, nextTryAt: null, readAt: new Date(t - 2000) } });
+    await prisma.searchFileText.create({ data: { fileId: second, status: 'OCR_WAIT', attempts: 0, nextTryAt: null, readAt: new Date(t - 1000) } });
+    expect(await svc.readByOcr()).toBe(0);
+    expect(sent).toHaveLength(1); // the second file was not sent into the same quota
+    const row = await textRow(first);
+    expect(row).toMatchObject({ status: 'OCR_WAIT', attempts: 1 });
+    expect(row!.nextTryAt!.getTime()).toBe(t + 7200_000);
+    expect(row!.error).toMatch(/usage allowance is used up/);
+    expect(await textRow(second)).toMatchObject({ status: 'OCR_WAIT', attempts: 0 });
+  });
+
+  // Review minor 8: reading a scan may now take 5 minutes (MICO360 AI); one run starts no new file after
+  // 2 minutes, so the minute's other search steps aren't held up for half an hour.
+  it('one OCR run starts no new file after 2 minutes', async () => {
+    let t = new Date('2026-11-07T08:00:00Z').getTime();
+    let sent = 0;
+    const ocr = { ready: async () => true, read: async () => { sent += 1; t += 3 * 60_000; return `SLOW ${tag}`; } };
+    const svc = createFileTextService({ prisma, storage, index, ocr, now: () => new Date(t) });
+    const a = await att('slow-1.png', 'image/png', Buffer.from([0x89, 0x50, 0x4e, 0x47, 21]));
+    const b = await att('slow-2.png', 'image/png', Buffer.from([0x89, 0x50, 0x4e, 0x47, 22]));
+    await prisma.searchFileText.create({ data: { fileId: a, status: 'OCR_WAIT', nextTryAt: null, readAt: new Date(t - 2000) } });
+    await prisma.searchFileText.create({ data: { fileId: b, status: 'OCR_WAIT', nextTryAt: null, readAt: new Date(t - 1000) } });
+    expect(await svc.readByOcr()).toBe(1);
+    expect(sent).toBe(1);
+    expect(await svc.readByOcr()).toBe(1); // the next run reads the other
+    expect(sent).toBe(2);
+  });
 });

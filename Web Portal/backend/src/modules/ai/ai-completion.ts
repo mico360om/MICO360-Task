@@ -1,7 +1,8 @@
 import { ValidationError } from '../../lib/http-errors';
 import type { AiModelParameters, AiProvider } from './ai-config';
 import { isReasoningModel } from './ai-model-catalog';
-import { createSafeFetch, providerErrorDetail, providerFetch, readProviderJson } from './ai-network';
+import { createSafeFetch, isMico360Provider, providerErrorDetail, providerFetch, readProviderJson } from './ai-network';
+import { wellFormed } from './ai-text';
 
 /** OpenAI reasoning models think before answering, out of the same token budget: leave them room. */
 const REASONING_MIN_TOKENS = 4096;
@@ -16,9 +17,35 @@ export class ProviderRefusedError extends ValidationError {
   constructor(
     public readonly providerStatus: number,
     public readonly detail: string | null,
+    /** A 429 for a used-up quota (MICO360 AI), not a busy moment: trying again soon may not help. */
+    public readonly quota = false,
+    /** The answer's Retry-After in seconds, when it gave one as a number. */
+    public readonly retryAfterSeconds: number | null = null,
   ) {
-    super(refusalMessage(providerStatus));
+    super(quota ? QUOTA_MESSAGE : refusalMessage(providerStatus));
   }
+}
+
+const QUOTA_MESSAGE =
+  'The AI service’s usage allowance is used up for now (HTTP 429). It starts again when its period resets — an admin can check the key’s quota in MICO360 Connect.';
+
+/**
+ * MICO360 AI's 429 is one of three (its guide, §2, §5, §8): the key's concurrency (Retry-After: 1), its
+ * rate limit (until the minute ends) or a quota — "Quota exceeded: …", with a Retry-After until the
+ * period resets (an hour, a day, a month). A quota is said as one; the others are "busy".
+ */
+const QUOTA_RETRY_AFTER_SECONDS = 60;
+
+/** The provider's refusal, read from its answer: the reason it gives, and (MICO360 AI) whether it is a quota. */
+export async function providerRefusal(res: Response, provider: { preset?: string | null; apiBaseUrl?: string | null }): Promise<ProviderRefusedError> {
+  const detail = await providerErrorDetail(res);
+  const header = res.headers.get('retry-after')?.trim();
+  const seconds = header && /^\d+$/.test(header) ? Number(header) : null;
+  const quota =
+    isMico360Provider(provider) &&
+    res.status === 429 &&
+    (/^\s*quota exceeded/i.test(detail ?? '') || (seconds !== null && seconds > QUOTA_RETRY_AFTER_SECONDS));
+  return new ProviderRefusedError(res.status, detail, quota, seconds);
 }
 
 /** What a person is told for a provider's answer: the plain cause where the status says it. */
@@ -86,16 +113,27 @@ export interface CompletionOptions {
 export const COMPLETION_TIMEOUT_MS = 120_000;
 
 /**
+ * The most MICO360 AI reads of one conversation, system messages included (its guide, §5 and §11):
+ * over it, 413. Every feature's prompt is built to fit it (ai-prompt-size.test).
+ */
+export const CONVERSATION_LIMIT = 32_000;
+
+/**
  * Single-turn text completion against a configured provider. Speaks each provider kind's
  * chat API (Anthropic Messages, OpenAI/custom chat-completions, Ollama chat) and returns the
  * assistant's text. `fetchImpl` is injected so features are fully testable without a network.
  */
 export async function complete(
   model: ChatModel,
-  input: CompletionInput,
+  given: CompletionInput,
   fetchImpl?: typeof fetch,
   opts: CompletionOptions = {},
 ): Promise<string> {
+  // MICO360 AI's JSON reader refuses half a character ("\ud83d", from a text cut inside an emoji): the
+  // instructions and the prompt are sent well formed (review I2). Other providers get them as given.
+  const input: CompletionInput = isMico360Provider(model.provider)
+    ? { ...given, prompt: wellFormed(given.prompt), ...(given.system !== undefined ? { system: wellFormed(given.system) } : {}) }
+    : given;
   const base = model.provider.apiBaseUrl.replace(/\/+$/, '');
   const maxTokens = input.maxTokens ?? model.parameters?.maxTokens ?? 1024;
   const temperature = model.parameters?.temperature ?? 0.3;
@@ -146,7 +184,7 @@ export async function complete(
       if (model.provider.kind !== 'openai') {
         // Other OpenAI-compatible services still take max_tokens.
         body = { model: model.modelKey, max_tokens: maxTokens, temperature, messages };
-        if (input.json && model.provider.preset === 'mico360') (body as Record<string, unknown>).response_format = { type: 'json_object' };
+        if (input.json && isMico360Provider(model.provider)) (body as Record<string, unknown>).response_format = { type: 'json_object' };
       } else if (isReasoningModel(model.modelKey)) {
         // o-series and GPT-5 refuse max_tokens and any temperature but the default.
         body = { model: model.modelKey, max_completion_tokens: Math.max(maxTokens, REASONING_MIN_TOKENS), reasoning_effort: 'low', messages };
@@ -176,7 +214,7 @@ export async function complete(
     await (opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms))))(wait);
     res = await send();
   }
-  if (!res.ok) throw new ProviderRefusedError(res.status, await providerErrorDetail(res));
+  if (!res.ok) throw await providerRefusal(res, model.provider);
   const json = await readProviderJson(res);
   const text = extractText(model.provider.kind, json);
   if (!text) throw new ValidationError('The AI provider returned an empty response.');

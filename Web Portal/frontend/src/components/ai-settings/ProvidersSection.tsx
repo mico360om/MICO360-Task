@@ -12,6 +12,12 @@ function UnencryptedNote({ url }: { url: string }) {
   return <p className="text-xs text-warning">Plain http: the API key and what is sent to the AI cross the network unencrypted.</p>;
 }
 
+/** The admin's note for a ready-made service (MICO360 AI: which Connect API it targets, which capabilities). */
+function PresetHelp({ preset }: { preset: string | null | undefined }) {
+  const help = PROVIDER_PRESETS.find((x) => x.id === preset)?.help;
+  return help ? <p className="text-xs leading-snug text-ink-3">{help}</p> : null;
+}
+
 /** The services that supply models: one card each, then the form that connects another. */
 export function ProvidersSection({ config, apply, api }: SectionProps) {
   return (
@@ -96,6 +102,7 @@ function ProviderCard({ provider: p, apply, api }: { provider: RedactedProvider 
           </div>
           <p className="mt-0.5 truncate font-mono text-xs text-ink-2">{p.apiBaseUrl}</p>
           <UnencryptedNote url={p.apiBaseUrl} />
+          <PresetHelp preset={p.preset} />
         </div>
         <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-xs text-ink-2">
           <input
@@ -307,6 +314,7 @@ function ConnectProviderForm({ config, apply, api }: SectionProps) {
           <UnencryptedNote url={url} />
         </div>
       </div>
+      <PresetHelp preset={preset.id} />
       {mAdd.isError ? <FieldError>{errMsg(mAdd.error)}</FieldError> : null}
       {notice ? (
         <p role="status" className="text-sm text-ink-2">{notice}</p>

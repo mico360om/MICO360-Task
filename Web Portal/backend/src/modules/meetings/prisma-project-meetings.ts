@@ -1,20 +1,23 @@
 import type { PrismaClient } from '@prisma/client';
 import type { RecurrenceRule } from './meeting-repository';
 import { buildMeetingListCounts, type ProjectMeetingsData } from './project-meetings';
+import { PERSON_SUMMARY_SELECT, personSummary, type PersonSummary } from '../../lib/person-summary';
 
-const nameOf = (u: { firstName: string | null; lastName: string | null; username: string }) =>
-  [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || u.username;
-
-/** Display names of these people (team members by name; unknown ids are left out). */
-async function namesOf(prisma: PrismaClient, ids: Array<string | null>): Promise<Map<string, string>> {
+/**
+ * These people's names and photos (team members by name; unknown ids are left out) — one query for the
+ * whole list (avatar hotfix: the cards' faces show the photos).
+ */
+async function peopleOf(prisma: PrismaClient, ids: Array<string | null>): Promise<Map<string, PersonSummary>> {
   const userIds = [...new Set(ids.filter((u): u is string => !!u))];
-  const users = userIds.length ? await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, firstName: true, lastName: true, username: true } }) : [];
-  return new Map(users.map((u) => [u.id, nameOf(u)]));
+  const users = userIds.length ? await prisma.user.findMany({ where: { id: { in: userIds } }, select: PERSON_SUMMARY_SELECT }) : [];
+  return new Map(users.map((u) => [u.id, personSummary(u)]));
 }
 
 /** An attendee's display name: a team member's name, or a guest's name or email. */
-const attendeeName = (a: { userId: string | null; externalName: string | null; externalEmail: string | null }, names: Map<string, string>) =>
-  a.userId ? names.get(a.userId) ?? 'A team member' : a.externalName ?? a.externalEmail ?? 'A guest';
+const attendeeName = (a: { userId: string | null; externalName: string | null; externalEmail: string | null }, people: Map<string, PersonSummary>) =>
+  a.userId ? people.get(a.userId)?.name ?? 'A team member' : a.externalName ?? a.externalEmail ?? 'A guest';
+/** An attendee's photo: a team member's own (null without one); a guest has none. */
+const attendeePhoto = (a: { userId: string | null }, people: Map<string, PersonSummary>) => (a.userId ? people.get(a.userId)?.avatarUrl ?? null : null);
 
 /**
  * The meetings list's summary of each meeting — people (the first few by name), minutes,
@@ -30,9 +33,9 @@ export function createPrismaMeetingListCounts(prisma: PrismaClient) {
       prisma.meetingNote.groupBy({ by: ['meetingId'], where: { meetingId: { in: ids }, deletedAt: null, type: 'DECISION' }, _count: { _all: true } }),
       prisma.meetingMinutes.findMany({ where: { meetingId: { in: ids } }, select: { meetingId: true, status: true } }),
     ]);
-    const names = await namesOf(prisma, attendees.map((a) => a.userId));
+    const people = await peopleOf(prisma, attendees.map((a) => a.userId));
     return buildMeetingListCounts(ids, {
-      attendees: attendees.map((a) => ({ meetingId: a.meetingId, userId: a.userId, name: attendeeName(a, names), id: a.id, response: a.response })),
+      attendees: attendees.map((a) => ({ meetingId: a.meetingId, userId: a.userId, name: attendeeName(a, people), avatarUrl: attendeePhoto(a, people), id: a.id, response: a.response })),
       noteCounts: Object.fromEntries(notes.map((n) => [n.meetingId, n._count._all])),
       decisionCounts: Object.fromEntries(decisions.map((n) => [n.meetingId, n._count._all])),
       minutes,
@@ -90,15 +93,15 @@ export function createPrismaProjectMeetingsSource(prisma: PrismaClient) {
           select: { id: true, meetingId: true, description: true, status: true, priority: true, dueDate: true, assigneeId: true, completedAt: true },
         }),
       ]);
-      const names = await namesOf(prisma, [...attendees.map((a) => a.userId), ...items.map((x) => x.assigneeId)]);
+      const people = await peopleOf(prisma, [...attendees.map((a) => a.userId), ...items.map((x) => x.assigneeId)]);
       return {
         meetings: meetings.map((m) => ({ ...m, recurrenceRule: (m.recurrenceRule as RecurrenceRule | null) ?? null })),
         seriesRoots: seriesRoots.map((r) => ({ ...r, recurrenceRule: (r.recurrenceRule as RecurrenceRule | null) ?? null })),
-        attendees: attendees.map((a) => ({ meetingId: a.meetingId, userId: a.userId, name: attendeeName(a, names) })),
+        attendees: attendees.map((a) => ({ meetingId: a.meetingId, userId: a.userId, name: attendeeName(a, people), avatarUrl: attendeePhoto(a, people) })),
         decisions,
         noteCounts: Object.fromEntries(notes.map((n) => [n.meetingId, n._count._all])),
         minutes,
-        actionItems: items.map((x) => ({ ...x, assigneeName: x.assigneeId ? names.get(x.assigneeId) ?? null : null })),
+        actionItems: items.map((x) => ({ ...x, assigneeName: x.assigneeId ? people.get(x.assigneeId)?.name ?? null : null })),
       };
     },
   };

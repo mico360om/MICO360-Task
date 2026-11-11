@@ -229,7 +229,7 @@ export function TaskTable({
     });
   const togglePerson = (t: ApiTask, p: CellPerson, on: boolean) => {
     const now = t.assignees ?? [];
-    const next = on ? [...now.filter((a) => a.id !== p.id), { id: p.id, name: p.name }] : now.filter((a) => a.id !== p.id);
+    const next = on ? [...now.filter((a) => a.id !== p.id), { id: p.id, name: p.name, avatarUrl: p.avatarUrl ?? null }] : now.filter((a) => a.id !== p.id);
     save(t, { assignees: next }, async () => {
       if (on) await assigneesApi(apiClient).assign(t.id, p.id);
       else await assigneesApi(apiClient).unassign(t.id, p.id);

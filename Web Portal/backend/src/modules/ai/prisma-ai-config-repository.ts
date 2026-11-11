@@ -4,6 +4,7 @@ import { getEnv } from '../../config/env';
 import { secretBoxFromEnv, type SecretBox } from '../settings/secret-box';
 import { emptyConfig, type AiConfig, type AiProvider } from './ai-config';
 import type { AiConfigRepository } from './ai-config-repository';
+import { httpsOnlyAddress } from './ai-network';
 
 /** Persists the AI config as a single JSON document in system_settings (no schema change). */
 const KEY = 'ai.config';
@@ -29,7 +30,9 @@ export function createPrismaAiConfigRepository(prisma: PrismaClient, opts: Prism
   function decode(value: unknown): AiConfig {
     const doc = value as Partial<AiConfig> | null | undefined;
     if (!doc || typeof doc !== 'object') return emptyConfig();
-    const providers = (Array.isArray(doc.providers) ? doc.providers : []).map((p: AiProvider): AiProvider => {
+    const providers = (Array.isArray(doc.providers) ? doc.providers : []).map((saved: AiProvider): AiProvider => {
+      // A MICO360 AI provider saved with http before Connect 2.6.17 (HTTPS only) is called on https.
+      const p = typeof saved.apiBaseUrl === 'string' ? { ...saved, apiBaseUrl: httpsOnlyAddress(saved.apiBaseUrl) } : saved;
       if (!p.apiKey) return { ...p, apiKey: '' };
       try {
         const apiKey = secrets().decrypt(p.apiKey); // legacy plaintext passes straight through
