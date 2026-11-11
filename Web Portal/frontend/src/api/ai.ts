@@ -121,8 +121,8 @@ export interface PlatformSubstitution {
 
 /**
  * MICO360 AI's facts about itself: the Connect version it runs, what its fleet can do, how many requests
- * its key may run at once; and what Tasks noticed — scans read as pictures, stand-in models. Mirrors the
- * backend's ProviderPlatform.
+ * its key may run at once; and what Tasks noticed — scans read as pictures, stand-in models, strict
+ * answer shapes refused (JSON mode used instead). Mirrors the backend's ProviderPlatform.
  */
 export interface ProviderPlatform {
   version?: string | null;
@@ -132,6 +132,8 @@ export interface ProviderPlatform {
   checkedAt?: string | null;
   ocrFallback?: { status: number; reason: string | null; at: string } | null;
   substitutions?: PlatformSubstitution[];
+  /** Safety net: this Connect refused answers held to a JSON Schema, so JSON mode is used for 24 hours (or until the next model refresh). */
+  strictJsonRefused?: { status: number; reason: string | null; at: string } | null;
 }
 
 export interface AiModelParameters {

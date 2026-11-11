@@ -45,7 +45,8 @@ export interface PlatformSubstitution {
  * MICO360 AI's facts about itself, read when its models load (and once a day): the server's version
  * (b12, GET /api/status), what the fleet can do (b7, GET /api/v1/models), how many requests the key may
  * run at once (b11, GET /api/v1/status); and what Tasks noticed: whole-document reading refused, so
- * scans were read as pictures (b4), and models that stood in for others (b5).
+ * scans were read as pictures (b4), models that stood in for others (b5), and strict answer shapes
+ * (json_schema) refused, so JSON mode is used (the safety net).
  */
 export interface ProviderPlatform {
   version?: string | null;
@@ -58,9 +59,18 @@ export interface ProviderPlatform {
   ocrFallback?: { status: number; reason: string | null; at: string } | null;
   /** Newest first, at most MAX_SUBSTITUTIONS. */
   substitutions?: PlatformSubstitution[];
+  /**
+   * Safety net: this Connect refused an answer held to a JSON Schema (json_schema, or the stream's schema
+   * `format`), so answers are asked for in JSON mode (json_object) for STRICT_JSON_PAUSE_MS, or until the
+   * next model refresh forgets it.
+   */
+  strictJsonRefused?: { status: number; reason: string | null; at: string } | null;
 }
 
 export const MAX_SUBSTITUTIONS = 10;
+
+/** Safety net: how long a Connect that refused strict answer shapes is asked in JSON mode instead. */
+export const STRICT_JSON_PAUSE_MS = 24 * 60 * 60 * 1000;
 
 export interface AiModelParameters {
   temperature?: number;
@@ -449,16 +459,23 @@ function withPlatform(config: AiConfig, providerId: string, change: (p: Provider
   return { ...config, providers: config.providers.map((p) => (p.id === providerId ? { ...p, platform: change(p.platform ?? {}) } : p)) };
 }
 
-/** b7, b11, b12: the facts just read; one that couldn't be read keeps the last one known. */
+/**
+ * b7, b11, b12: the facts just read; one that couldn't be read keeps the last one known. A model refresh
+ * also forgets a strict-shape refusal (the safety net): the Connect may have been updated since.
+ */
 export function applyPlatform(config: AiConfig, providerId: string, facts: PlatformFacts, now: string): AiConfig {
-  return withPlatform(config, providerId, (p) => ({
-    ...p,
-    version: facts.version ?? p.version ?? null,
-    commit: facts.version ? facts.commit : (p.commit ?? null),
-    capabilities: facts.capabilities ?? p.capabilities ?? null,
-    concurrencyLimit: facts.concurrencyLimit ?? p.concurrencyLimit ?? null,
-    checkedAt: now,
-  }));
+  return withPlatform(config, providerId, (p) => {
+    const next: ProviderPlatform = {
+      ...p,
+      version: facts.version ?? p.version ?? null,
+      commit: facts.version ? facts.commit : (p.commit ?? null),
+      capabilities: facts.capabilities ?? p.capabilities ?? null,
+      concurrencyLimit: facts.concurrencyLimit ?? p.concurrencyLimit ?? null,
+      checkedAt: now,
+    };
+    delete next.strictJsonRefused;
+    return next;
+  });
 }
 
 /** b5: another model answered — counted per pair, newest first, at most MAX_SUBSTITUTIONS. */
@@ -476,6 +493,20 @@ export function recordSubstitution(config: AiConfig, providerId: string, sub: { 
 /** b4: whole-document reading was refused (scans read as pictures instead), or (null) works again. */
 export function recordOcrFallback(config: AiConfig, providerId: string, fallback: { status: number; reason: string | null } | null, now: string): AiConfig {
   return withPlatform(config, providerId, (p) => ({ ...p, ocrFallback: fallback ? { status: fallback.status, reason: fallback.reason?.slice(0, 300) ?? null, at: now } : null }));
+}
+
+/** Safety net: strict answer shapes were refused (status 400/422 and the Connect's reason), or (null) forgotten. */
+export function recordStrictJsonRefusal(config: AiConfig, providerId: string, refusal: { status: number; reason: string | null } | null, now: string): AiConfig {
+  return withPlatform(config, providerId, (p) => ({
+    ...p,
+    strictJsonRefused: refusal ? { status: refusal.status, reason: refusal.reason?.slice(0, 300) ?? null, at: now } : null,
+  }));
+}
+
+/** Safety net: is this provider being asked in JSON mode rather than with a schema (a refusal under 24 hours old)? */
+export function strictJsonPaused(provider: Pick<AiProvider, 'platform'>, nowMs: number): boolean {
+  const at = Date.parse(provider.platform?.strictJsonRefused?.at ?? '');
+  return Number.isFinite(at) && nowMs - at < STRICT_JSON_PAUSE_MS;
 }
 
 // ── small helpers ────────────────────────────────────────────────────────────

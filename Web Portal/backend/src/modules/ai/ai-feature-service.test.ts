@@ -289,6 +289,8 @@ describe('AiFeatureService: drafting final minutes', () => {
 });
 
 describe('AiFeatureService on MICO360 AI (its API guide)', () => {
+  // The answers fit the features' schemas, as MICO360 AI's do under json_schema (else the safety net asks again).
+  const MINUTES_FIT = '"summary":"s","discussion":[],"decisions":[],"risks":[],"nextSteps":[]';
   const micoConfig: AiConfig = {
     providers: [{ id: 'pr1', name: 'MICO360 AI', kind: 'custom', preset: 'mico360', apiBaseUrl: 'https://ai.mico360.com:5310/v1', apiKey: 'mico_x', enabled: true, createdAt: '', updatedAt: '' }],
     models: [{ id: 'm1', providerId: 'pr1', modelKey: 'llama3.1:latest', displayName: 'Llama 3.1', capabilities: ['chat'], parameters: {}, concurrencyLimit: 4, enabled: true, available: true, createdAt: '', updatedAt: '' }],
@@ -304,7 +306,7 @@ describe('AiFeatureService on MICO360 AI (its API guide)', () => {
   };
 
   it('the features that read JSON ask for a JSON answer; the summary (plain text) does not', async () => {
-    const { bodies, svc } = recorder('{"steps":["A","B","C"],"title":"T","priority":"HIGH","reason":"r","summary":"s"}');
+    const { bodies, svc } = recorder(`{"steps":["A","B","C"],"title":"T","description":null,"dueDate":null,"priority":"HIGH","repeat":null,"project":null,"reason":"r",${MINUTES_FIT}}`);
     await svc.breakdownTask({ title: 'X' });
     await svc.parseTask({ text: 'call the bank', today: '2026-10-20' });
     await svc.suggestPriority({ title: 'X' });
@@ -330,7 +332,7 @@ describe('AiFeatureService on MICO360 AI (its API guide)', () => {
       return real(ms);
     });
     try {
-      const { svc } = recorder('{"steps":["A"],"summary":"s"}');
+      const { svc } = recorder(`{"steps":["A"],${MINUTES_FIT}}`);
       await svc.breakdownTask({ title: 'X' });
       await svc.draftMinutes('Meeting: X', { userId: 'u1' });
       expect(waits).toEqual([120_000, 180_000]);
@@ -363,7 +365,7 @@ describe('AiFeatureService on MICO360 AI (its API guide)', () => {
         const body = JSON.parse(String(init!.body));
         const answer = String(url).endsWith('/embeddings')
           ? { model: body.model, data: (body.input as string[]).map((_, index) => ({ index, embedding: [1, 0] })) }
-          : { choices: [{ message: { content: '{"summary":"s"}' } }] };
+          : { choices: [{ message: { content: `{${MINUTES_FIT}}` } }] };
         return new Response(JSON.stringify(answer), { status: 200, headers: { 'content-type': 'application/json' } });
       }) as unknown as typeof fetch;
       try {

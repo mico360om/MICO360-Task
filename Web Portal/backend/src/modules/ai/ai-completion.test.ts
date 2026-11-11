@@ -512,3 +512,124 @@ describe('MICO360 AI (b) bundles: review fixes in complete()', () => {
     expect(urls).toEqual(['https://ai.mico360.com:5310/v1/chat/completions']);
   });
 });
+
+describe('json_schema safety net (MICO360 AI): JSON mode when strict answer shapes are not taken', () => {
+  const mico: ChatModel = { provider: { kind: 'custom', apiBaseUrl: 'https://ai.mico360.com:5310/v1', apiKey: 'mico_key', preset: 'mico360' }, modelKey: 'llama3.1:latest' };
+  const other: ChatModel = { provider: { kind: 'custom', apiBaseUrl: 'https://api.groq.com/openai/v1', apiKey: 'k', preset: 'groq' }, modelKey: 'llama-3.3' };
+  const schema = { name: 'priority', schema: { type: 'object', properties: { priority: { type: 'string', enum: ['LOW', 'HIGH'] }, reason: { type: 'string' } }, required: ['priority', 'reason'] } };
+  const ok = (content: string, extra: Record<string, unknown> = {}) =>
+    new Response(JSON.stringify({ id: 'JOB-S', model: 'llama3.1:latest', choices: [{ message: { content }, ...extra }] }), { status: 200 });
+  const refuse = (status: number, message = 'response_format json_schema is not supported.') => new Response(JSON.stringify({ error: { message, type: 'invalid_request_error' } }), { status });
+  const record = (answer: (body: Record<string, unknown>, n: number, url: string) => Response) => {
+    const calls: { url: string; body: Record<string, unknown>; key: string | null }[] = [];
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      calls.push({ url: String(url), body, key: new Headers(init?.headers).get('idempotency-key') });
+      return answer(body, calls.length, String(url));
+    }) as unknown as typeof fetch;
+    return { calls, fetchImpl };
+  };
+  const strict = (b: Record<string, unknown>) => (b.response_format as { type?: string } | undefined)?.type === 'json_schema';
+  const sse = (text: string) => {
+    const enc = new TextEncoder();
+    return new Response(
+      new ReadableStream({
+        start(c) {
+          c.enqueue(enc.encode(`event: chunk\ndata: ${JSON.stringify({ sequence: 0, text, jobId: 'JOB-T' })}\n\n`));
+          c.enqueue(enc.encode(`event: done\ndata: ${JSON.stringify({ reason: 'completed', chunks: 1, jobId: 'JOB-T', correlationId: 'REQ-T' })}\n\n`));
+          c.close();
+        },
+      }),
+      { status: 200, headers: { 'content-type': 'text/event-stream' } },
+    );
+  };
+
+  for (const status of [400, 422]) {
+    it(`a ${status} refusing json_schema is asked once more with today’s json_object, and the caller is told`, async () => {
+      const seen: { ok: boolean; strictRefused?: unknown }[] = [];
+      const m = record((b) => (strict(b) ? refuse(status) : ok('{"priority":"HIGH","reason":"r"}')));
+      const out = await complete(mico, { prompt: 'p', json: true, schema }, m.fetchImpl, { observe: (i) => seen.push(i), idempotencyKey: 'tasks-mom-j1' });
+      expect(out).toBe('{"priority":"HIGH","reason":"r"}');
+      expect(m.calls.map((c) => c.body.response_format)).toEqual([{ type: 'json_schema', json_schema: schema }, { type: 'json_object' }]);
+      // The same messages, the same user; a different request, so its own Idempotency-Key.
+      expect(m.calls[1]!.body.messages).toEqual(m.calls[0]!.body.messages);
+      expect(m.calls[1]!.key).toMatch(/^tasks-mom-j1-[0-9a-f]{40}$/);
+      expect(m.calls[1]!.key).not.toBe(m.calls[0]!.key);
+      expect(seen.at(-1)).toMatchObject({ ok: true, strictRefused: { status, reason: 'response_format json_schema is not supported.' } });
+    });
+  }
+
+  it('an answer that is not JSON for the schema is asked once more with json_object (not remembered: one answer’s slip)', async () => {
+    const seen: { strictRefused?: unknown }[] = [];
+    const m = record((b) => (strict(b) ? ok('{"priority":"SOMEDAY"}') : ok('{"priority":"LOW","reason":"r"}')));
+    expect(await complete(mico, { prompt: 'p', json: true, schema }, m.fetchImpl, { observe: (i) => seen.push(i) })).toBe('{"priority":"LOW","reason":"r"}');
+    expect(m.calls.map((c) => (c.body.response_format as { type: string }).type)).toEqual(['json_schema', 'json_object']);
+    expect(seen.some((i) => i.strictRefused)).toBe(false);
+  });
+
+  it('only once: a json_object answer that still does not fit goes to the feature’s own check, as today', async () => {
+    const m = record(() => ok('not json at all'));
+    expect(await complete(mico, { prompt: 'p', json: true, schema }, m.fetchImpl)).toBe('not json at all');
+    expect(m.calls).toHaveLength(2);
+  });
+
+  it('an answer cut at its length is not asked again (the same room would cut it again)', async () => {
+    const m = record(() => ok('{"priority":"HI', { finish_reason: 'length' }));
+    expect(await complete(mico, { prompt: 'p', json: true, schema }, m.fetchImpl)).toBe('{"priority":"HI');
+    expect(m.calls).toHaveLength(1);
+  });
+
+  it('a 400 that JSON mode gets too is not about the schema: that refusal is thrown and nothing is remembered', async () => {
+    const seen: { strictRefused?: unknown }[] = [];
+    const m = record(() => refuse(400, 'Idempotency-Key is not valid.'));
+    const err = (await complete(mico, { prompt: 'p', json: true, schema }, m.fetchImpl, { observe: (i) => seen.push(i) }).catch((e: unknown) => e)) as ProviderRefusedError;
+    expect(err).toBeInstanceOf(ProviderRefusedError);
+    expect(err.providerStatus).toBe(400);
+    expect(m.calls).toHaveLength(2);
+    expect(seen.some((i) => i.strictRefused)).toBe(false);
+  });
+
+  it('other refusals (busy, failed, too long) are not retried in JSON mode', async () => {
+    for (const status of [413, 502, 503]) {
+      const m = record(() => refuse(status, 'x'));
+      await complete(mico, { prompt: 'p', json: true, schema }, m.fetchImpl).catch(() => {});
+      expect(m.calls, String(status)).toHaveLength(1);
+    }
+  });
+
+  it('a request without a schema, and other providers, are never asked twice', async () => {
+    const m = record(() => refuse(400));
+    await complete(mico, { prompt: 'p', json: true }, m.fetchImpl).catch(() => {});
+    expect(m.calls).toHaveLength(1);
+    const o = record(() => refuse(400));
+    await complete(other, { prompt: 'p', json: true, schema }, o.fetchImpl).catch(() => {});
+    expect(o.calls).toHaveLength(1);
+    const o2 = record(() => ok('not json'));
+    expect(await complete(other, { prompt: 'p', json: true, schema }, o2.fetchImpl)).toBe('not json');
+    expect(o2.calls).toHaveLength(1);
+  });
+
+  it('the live stream: a 400 refusing the schema as `format` is streamed again with format "json"', async () => {
+    const seen: { strictRefused?: unknown }[] = [];
+    const texts: string[] = [];
+    const m = record((b, _n, url) =>
+      url.endsWith('/chat/stream') && typeof b.format === 'object'
+        ? new Response(JSON.stringify({ error: 'format must be "json", "text" or a JSON Schema object.' }), { status: 400 })
+        : sse('{"priority":"LOW","reason":"r"}'),
+    );
+    const out = await complete(mico, { prompt: 'p', json: true, schema }, m.fetchImpl, { onText: (t) => texts.push(t), observe: (i) => seen.push(i) });
+    expect(out).toBe('{"priority":"LOW","reason":"r"}');
+    expect(m.calls.map((c) => [c.url.replace('https://ai.mico360.com:5310', ''), c.body.format])).toEqual([
+      ['/api/v1/chat/stream', schema.schema],
+      ['/api/v1/chat/stream', 'json'],
+    ]);
+    expect(texts.at(-1)).toBe('{"priority":"LOW","reason":"r"}');
+    expect(seen.at(-1)).toMatchObject({ ok: true, strictRefused: { status: 400, reason: 'format must be "json", "text" or a JSON Schema object.' } });
+  });
+
+  it('the live stream: an answer that does not fit is streamed again with format "json"', async () => {
+    const m = record((b) => (typeof b.format === 'object' ? sse('{"priority":"MAYBE"}') : sse('{"priority":"HIGH","reason":"r"}')));
+    expect(await complete(mico, { prompt: 'p', json: true, schema }, m.fetchImpl, { onText: () => {} })).toBe('{"priority":"HIGH","reason":"r"}');
+    expect(m.calls.map((c) => c.body.format)).toEqual([schema.schema, 'json']);
+  });
+});

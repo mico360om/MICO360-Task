@@ -122,3 +122,60 @@ export const MICO_AI_ACTION_SCHEMA: AnswerSchema = {
 
 /** Every schema a feature sends (the size test reads them all). */
 export const ANSWER_SCHEMAS: AnswerSchema[] = [TASK_SCHEMA, MEETING_SCHEMA, PRIORITY_SCHEMA, AGENDA_SCHEMA, MINUTES_SCHEMA, MICO_AI_ACTION_SCHEMA];
+
+/**
+ * Safety net: does an answer fit the schema it was asked for? Read as the features read it (the first
+ * object, past prose or a code fence), then checked against the keywords the schemas use — `type`
+ * (one or a list), `enum`, `required`, `properties` and `items`. Not a full JSON Schema checker: just
+ * enough to tell a strict answer from one the platform did not hold to the schema.
+ */
+export function fitsSchema(text: string, schema: Record<string, unknown>): boolean {
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  let value: unknown;
+  try {
+    value = JSON.parse(start >= 0 && end > start ? text.slice(start, end + 1) : text);
+  } catch {
+    return false;
+  }
+  return fits(value, schema);
+}
+
+function fits(value: unknown, schema: unknown): boolean {
+  if (!schema || typeof schema !== 'object') return true;
+  const s = schema as { type?: unknown; enum?: unknown; required?: unknown; properties?: unknown; items?: unknown };
+  if (Array.isArray(s.enum) && !s.enum.some((e) => e === value)) return false;
+  if (s.type !== undefined && !(Array.isArray(s.type) ? s.type : [s.type]).some((t) => isType(value, t))) return false;
+  if (isType(value, 'object')) {
+    const o = value as Record<string, unknown>;
+    if (Array.isArray(s.required) && s.required.some((k) => typeof k === 'string' && !Object.prototype.hasOwnProperty.call(o, k))) return false;
+    if (s.properties && typeof s.properties === 'object') {
+      for (const [k, sub] of Object.entries(s.properties as Record<string, unknown>)) {
+        if (Object.prototype.hasOwnProperty.call(o, k) && !fits(o[k], sub)) return false;
+      }
+    }
+  }
+  if (Array.isArray(value) && s.items) return value.every((v) => fits(v, s.items));
+  return true;
+}
+
+function isType(value: unknown, type: unknown): boolean {
+  switch (type) {
+    case 'object':
+      return value !== null && typeof value === 'object' && !Array.isArray(value);
+    case 'array':
+      return Array.isArray(value);
+    case 'string':
+      return typeof value === 'string';
+    case 'number':
+      return typeof value === 'number' && Number.isFinite(value);
+    case 'integer':
+      return Number.isInteger(value);
+    case 'boolean':
+      return typeof value === 'boolean';
+    case 'null':
+      return value === null;
+    default:
+      return true;
+  }
+}

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createAiFeatureService, AI_SEARCH_COLD_BUDGET_MS, AI_SEARCH_WARM_BUDGET_MS } from './ai-feature-service';
 import { createMemoryAiConfigRepository } from './ai-config-repository';
-import type { AiConfig, AiModel } from './ai-config';
+import { applyPlatform, type AiConfig, type AiModel } from './ai-config';
 import { AiTimeoutError } from './ai-network';
 import { AGENDA_SCHEMA, MEETING_SCHEMA, MINUTES_SCHEMA, PRIORITY_SCHEMA, TASK_SCHEMA } from './ai-schemas';
 
@@ -55,10 +55,19 @@ const make = (cfg: AiConfig, answer: (c: Call, n: number) => Response | Promise<
   return { svc, repo, logger, ...p };
 };
 const requester = { userId: 'cuser42', roles: ['ADMIN'] };
+/** An answer that fits each feature's schema, as MICO360 AI's would under json_schema. */
+const FITS: Record<string, string> = {
+  task: '{"title":"T","description":null,"dueDate":null,"priority":"HIGH","repeat":null,"project":null}',
+  meeting: '{"title":"M","description":null,"date":null,"startTime":null,"minutes":null,"repeat":null,"project":null,"location":null,"onlineLink":null,"people":[],"guests":[],"agenda":[]}',
+  priority: '{"priority":"HIGH","reason":"r"}',
+  agenda: '{"items":[{"title":"A","ownerId":null,"minutes":5}]}',
+  minutes: '{"summary":"s","discussion":[],"decisions":[],"risks":[],"nextSteps":[]}',
+};
+const schemaName = (c: Call) => (c.body?.response_format as { json_schema?: { name: string } } | undefined)?.json_schema?.name;
 
 describe('b1: answers held to their JSON Schema on MICO360 AI', () => {
   it('describe a task, describe a meeting, priority, agenda and minutes each send their own schema', async () => {
-    const t = make(micoConfig(), () => chatOk('{"title":"T","priority":"HIGH","reason":"r","items":[{"title":"A","ownerId":null,"minutes":5}],"summary":"s"}'));
+    const t = make(micoConfig(), (c) => chatOk(FITS[schemaName(c) ?? ''] ?? '{}'));
     await t.svc.parseTask({ text: 'call the bank', today: '2026-11-11' }, requester);
     await t.svc.parseMeeting({ text: 'pump review tomorrow', today: '2026-11-11' }, requester);
     await t.svc.suggestPriority({ title: 'X' }, requester);
@@ -98,7 +107,7 @@ describe('b6: the Tasks user goes as `user`', () => {
 
 describe('b2, b3: background work on MICO360 AI', () => {
   it('the Final MOM job’s tries carry the same Idempotency-Key for the same request', async () => {
-    const t = make(micoConfig(), () => chatOk('{"summary":"s"}'));
+    const t = make(micoConfig(), () => chatOk(FITS.minutes!));
     await t.svc.draftMinutes('Meeting: X', requester, { background: true, jobId: 'job_abc' });
     await t.svc.draftMinutes('Meeting: X', requester, { background: true, jobId: 'job_abc' });
     const keys = t.calls.map((c) => c.headers.get('idempotency-key'));
@@ -124,11 +133,11 @@ describe('b2, b3: background work on MICO360 AI', () => {
       (c) =>
         c.path === '/v1/chat/completions'
           ? json(504, { error: { message: 'The request did not complete within 300 seconds (job JOB-GW1-9, correlation id REQ-9).', type: 'timeout', code: null } })
-          : json(200, { jobId: 'JOB-GW1-9', state: 'Completed', output: '{"summary":"collected"}' }),
+          : json(200, { jobId: 'JOB-GW1-9', state: 'Completed', output: FITS.minutes!.replace('"s"', '"collected"') }),
       { sleep: async () => {} },
     );
-    expect(await t.svc.draftMinutes('Meeting: X', requester, { background: true, jobId: 'j1' })).toEqual({ summary: 'collected' });
-    expect(t.calls[1]!.path).toBe('/api/v1/jobs/JOB-GW1-9');
+    expect(await t.svc.draftMinutes('Meeting: X', requester, { background: true, jobId: 'j1' })).toMatchObject({ summary: 'collected' });
+    expect(t.calls.map((c) => c.path)).toEqual(['/v1/chat/completions', '/api/v1/jobs/JOB-GW1-9']);
   });
 });
 
@@ -412,5 +421,64 @@ describe('(b) bundles review fixes', () => {
     expect((await t.svc.suggestPriority({ title: 'Meanwhile' }, requester)).priority).toBe('LOW'); // not waiting for the slot
     finished = true;
     expect(await mom).toEqual({ summary: 'late' });
+  });
+});
+
+describe('safety net: strict answer shapes not accepted by this Connect', () => {
+  const refuse = (c: Call) => (schemaName(c) ? json(400, { error: { message: 'response_format json_schema is not supported.' } }) : chatOk(FITS.priority!));
+
+  it('a refused json_schema falls back to json_object at once, and is remembered on the provider', async () => {
+    const t = make(micoConfig(), refuse, { now: () => new Date('2026-11-11T08:00:00Z') });
+    expect((await t.svc.suggestPriority({ title: 'X' }, requester)).priority).toBe('HIGH');
+    expect(t.calls.map((c) => (c.body!.response_format as { type: string }).type)).toEqual(['json_schema', 'json_object']);
+    await vi.waitFor(async () =>
+      expect((await t.repo.load()).providers[0]!.platform?.strictJsonRefused).toEqual({ status: 400, reason: 'response_format json_schema is not supported.', at: '2026-11-11T08:00:00.000Z' }),
+    );
+    expect(t.logger.error).not.toHaveBeenCalled(); // it worked: nothing for the Error log
+    expect(t.logger.warn).toHaveBeenCalledWith('MICO360 AI: strict answer shapes not accepted by this Connect — using JSON mode', expect.objectContaining({ status: 400 }));
+  });
+
+  it('while remembered (24 h), every feature goes straight to json_object; after it, json_schema is tried again', async () => {
+    let clock = Date.parse('2026-11-11T08:00:00Z');
+    const t = make(micoConfig(), refuse, { now: () => new Date(clock) });
+    await t.svc.suggestPriority({ title: 'X' }, requester);
+    await vi.waitFor(async () => expect((await t.repo.load()).providers[0]!.platform?.strictJsonRefused).toBeTruthy());
+    t.calls.length = 0;
+    clock += 60 * 60_000;
+    await t.svc.suggestPriority({ title: 'Y' }, requester);
+    await t.svc.chat({ system: 's', prompt: 'p', json: true, schema: PRIORITY_SCHEMA }, requester);
+    expect(t.calls.map((c) => c.body!.response_format)).toEqual([{ type: 'json_object' }, { type: 'json_object' }]);
+    t.calls.length = 0;
+    clock += 24 * 60 * 60_000;
+    await t.svc.suggestPriority({ title: 'Z' }, requester);
+    expect(t.calls.map((c) => (c.body!.response_format as { type: string }).type)).toEqual(['json_schema', 'json_object']);
+  });
+
+  it('noted once, not by every call in flight', async () => {
+    const t = make(micoConfig(), refuse);
+    await Promise.all([t.svc.suggestPriority({ title: 'A' }, requester), t.svc.suggestPriority({ title: 'B' }, requester)]);
+    await vi.waitFor(async () => expect((await t.repo.load()).providers[0]!.platform?.strictJsonRefused).toBeTruthy());
+    expect(t.logger.warn.mock.calls.filter(([m]) => String(m).startsWith('MICO360 AI: strict answer shapes'))).toHaveLength(1);
+  });
+
+  // Found by the stand-in e2e: a refusal right after a model refresh forgot the last one is remembered again.
+  it('refused again soon after a model refresh forgot it: remembered again', async () => {
+    const t = make(micoConfig(), refuse);
+    await t.svc.suggestPriority({ title: 'A' }, requester);
+    await vi.waitFor(async () => expect((await t.repo.load()).providers[0]!.platform?.strictJsonRefused).toBeTruthy());
+    await t.repo.update((c) => applyPlatform(c, 'pr1', { version: '2.6.28', commit: null, capabilities: null, concurrencyLimit: null }, new Date().toISOString()));
+    expect((await t.repo.load()).providers[0]!.platform?.strictJsonRefused ?? null).toBeNull();
+    t.calls.length = 0;
+    await t.svc.suggestPriority({ title: 'B' }, requester);
+    expect(t.calls.map((c) => (c.body!.response_format as { type: string }).type)).toEqual(['json_schema', 'json_object']);
+    await vi.waitFor(async () => expect((await t.repo.load()).providers[0]!.platform?.strictJsonRefused).toMatchObject({ status: 400 }));
+  });
+
+  it('an answer that merely did not fit is asked again but not remembered', async () => {
+    const t = make(micoConfig(), (c) => chatOk(schemaName(c) ? '{"priority":"SOMEDAY"}' : FITS.priority!));
+    expect((await t.svc.suggestPriority({ title: 'X' }, requester)).priority).toBe('HIGH');
+    expect(t.calls).toHaveLength(2);
+    await new Promise((r) => setTimeout(r, 20));
+    expect((await t.repo.load()).providers[0]!.platform?.strictJsonRefused ?? null).toBeNull();
   });
 });

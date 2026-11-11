@@ -48,9 +48,19 @@ function ocrFallbackWords(f: NonNullable<ProviderPlatform['ocrFallback']>): stri
   return `Scans and pictures were read as pictures (the first pages only): MICO360 AI refused whole-document reading (HTTP ${f.status}) — ${why}.`;
 }
 
+/** Safety net: how long the server asks in JSON mode after this Connect refused strict answer shapes. */
+const STRICT_JSON_PAUSE_MS = 24 * 60 * 60 * 1000;
+
+/** Safety net: strict answer shapes were refused within the last 24 hours (the server is using JSON mode). */
+function usingJsonMode(f: ProviderPlatform): boolean {
+  const at = Date.parse(f.strictJsonRefused?.at ?? '');
+  return Number.isFinite(at) && Date.now() - at < STRICT_JSON_PAUSE_MS;
+}
+
 /**
  * MICO360 AI's own facts on its card (b4, b5, b7, b11, b12): the Connect version it runs, how many requests
- * its key may run at once, what no AI node offers right now, scans read as pictures, and stand-in models.
+ * its key may run at once, what no AI node offers right now, scans read as pictures, stand-in models, and
+ * (the safety net) JSON mode used because strict answer shapes were refused.
  */
 function PlatformFacts({ provider: p }: { provider: RedactedProvider }) {
   const f = p.platform;
@@ -84,6 +94,11 @@ function PlatformFacts({ provider: p }: { provider: RedactedProvider }) {
         <p role="note" aria-label="Scans read as pictures" className="rounded-lg border border-warning/30 bg-warning-soft px-3 py-2 text-ink">
           {ocrFallbackWords(f.ocrFallback)}
           {f.ocrFallback.reason ? <span className="text-ink-2"> It said: {f.ocrFallback.reason}</span> : null}
+        </p>
+      ) : null}
+      {usingJsonMode(f) ? (
+        <p role="note" aria-label="Using JSON mode" className="text-ink-2">
+          Strict answer shapes not accepted by this Connect — using JSON mode
         </p>
       ) : null}
       {subs.length ? (

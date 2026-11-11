@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { AGENDA_SCHEMA, ANSWER_SCHEMAS, MEETING_SCHEMA, MICO_AI_ACTION_SCHEMA, MINUTES_SCHEMA, PRIORITY_SCHEMA, TASK_SCHEMA } from './ai-schemas';
+import { AGENDA_SCHEMA, ANSWER_SCHEMAS, fitsSchema, MEETING_SCHEMA, MICO_AI_ACTION_SCHEMA, MINUTES_SCHEMA, PRIORITY_SCHEMA, TASK_SCHEMA } from './ai-schemas';
 
 /** The keywords the guide (§5 "JSON output") asks a schema to keep to, plus descriptions. */
 const SIMPLE = new Set(['type', 'properties', 'required', 'enum', 'items', 'description']);
@@ -39,5 +39,38 @@ describe('b1: the answers MICO360 AI is held to', () => {
     expect(Object.keys(props(MINUTES_SCHEMA))).toEqual(['summary', 'discussion', 'decisions', 'risks', 'nextSteps']);
     expect(props(MICO_AI_ACTION_SCHEMA).action!.enum).toEqual(['tool', 'clarify', 'answer', 'propose']);
     expect(MICO_AI_ACTION_SCHEMA.schema.required).toEqual(['action']);
+  });
+});
+
+describe('safety net: does an answer fit its schema?', () => {
+  const task = '{"title":"Call the bank","description":null,"dueDate":"2026-11-12","priority":"HIGH","repeat":null,"project":null}';
+
+  it('an answer as the schema asks fits — prose or a code fence around it too (the features read past them)', () => {
+    expect(fitsSchema(task, TASK_SCHEMA.schema)).toBe(true);
+    expect(fitsSchema('Here it is:\n```json\n' + task + '\n```', TASK_SCHEMA.schema)).toBe(true);
+    expect(fitsSchema('{"priority":"LOW","reason":"r"}', PRIORITY_SCHEMA.schema)).toBe(true);
+    expect(fitsSchema('{"items":[{"title":"A","ownerId":null,"minutes":5}]}', AGENDA_SCHEMA.schema)).toBe(true);
+    expect(fitsSchema('{"action":"answer","text":"Done."}', MICO_AI_ACTION_SCHEMA.schema)).toBe(true);
+    expect(
+      fitsSchema(
+        '{"title":null,"description":null,"date":null,"startTime":null,"minutes":null,"repeat":{"freq":"WEEKLY","interval":1,"weekdays":[1]},"project":null,"location":null,"onlineLink":null,"people":[],"guests":[],"agenda":["A"]}',
+        MEETING_SCHEMA.schema,
+      ),
+    ).toBe(true);
+  });
+
+  it('not JSON, or a list where an object was asked for, does not fit', () => {
+    expect(fitsSchema('I could not decide.', PRIORITY_SCHEMA.schema)).toBe(false);
+    expect(fitsSchema('{"priority":"LOW",', PRIORITY_SCHEMA.schema)).toBe(false);
+    expect(fitsSchema('["LOW"]', PRIORITY_SCHEMA.schema)).toBe(false);
+  });
+
+  it('a missing required field, a value outside the list or of the wrong type does not fit', () => {
+    expect(fitsSchema('{"priority":"LOW"}', PRIORITY_SCHEMA.schema)).toBe(false);
+    expect(fitsSchema('{"priority":"SOMEDAY","reason":"r"}', PRIORITY_SCHEMA.schema)).toBe(false);
+    expect(fitsSchema('{"items":[{"title":"A","ownerId":null,"minutes":"five"}]}', AGENDA_SCHEMA.schema)).toBe(false);
+    expect(fitsSchema('{"items":[{"title":"A","ownerId":null,"minutes":2.5}]}', AGENDA_SCHEMA.schema)).toBe(false);
+    expect(fitsSchema('{"action":"wave"}', MICO_AI_ACTION_SCHEMA.schema)).toBe(false);
+    expect(fitsSchema(task.replace('"repeat":null', '"repeat":{"freq":"DAILY"}'), TASK_SCHEMA.schema)).toBe(false);
   });
 });

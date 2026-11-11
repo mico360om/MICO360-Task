@@ -30,7 +30,10 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ### Improvements
 - MICO360 AI's answers to Describe a task, Describe a meeting, Suggest priority, Draft agenda, the Final
-  MOM and MICO AI are held to the exact form Tasks reads, so fewer answers come back unreadable.
+  MOM and MICO AI are held to the exact form Tasks reads, so fewer answers come back unreadable. If the
+  MICO360 Connect doesn't accept that, or an answer doesn't come back in that form, Tasks asks once more
+  the way it did before, and keeps asking that way for a day (or until the models are next refreshed);
+  AI Management's card says so.
 - Tasks keeps within MICO360 AI's limit on how many requests a key may run at once — one budget for every
   AI feature together — so busy moments wait their turn instead of being refused.
 - Work in the background is never done twice on MICO360 AI: when the Final MOM, a MICO AI answer or a scan

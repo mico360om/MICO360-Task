@@ -381,6 +381,25 @@ describe('AI Management: MICO360 AI’s own facts', () => {
     expect(within(c).getByText(/3 times/)).toBeInTheDocument();
   });
 
+  it('safety net: strict answer shapes refused lately — one line says JSON mode is used', async () => {
+    current = mico({ version: '2.6.28', strictJsonRefused: { status: 400, reason: 'response_format json_schema is not supported.', at: NOW } });
+    renderPage();
+    const note = within(await card()).getByRole('note', { name: /JSON mode/ });
+    expect(note).toHaveTextContent(/^Strict answer shapes not accepted by this Connect — using JSON mode$/);
+  });
+
+  it('safety net: after 24 hours (strict shapes are tried again), no line', async () => {
+    current = mico({ version: '2.6.28', strictJsonRefused: { status: 400, reason: null, at: new Date(Date.now() - 25 * 3600_000).toISOString() } });
+    renderPage();
+    expect(within(await card()).queryByText(/Strict answer shapes/)).not.toBeInTheDocument();
+  });
+
+  it('safety net: no refusal (or forgotten at a model refresh), no line', async () => {
+    current = mico({ version: '2.6.28', strictJsonRefused: null });
+    renderPage();
+    expect(within(await card()).queryByText(/Strict answer shapes/)).not.toBeInTheDocument();
+  });
+
   // Review minor 8: the server treats an ai.mico360.com address as MICO360 AI whatever it was added as.
   it('a provider added as “Other” at MICO360 AI’s address shows its facts too', async () => {
     current = { ...config, providers: [{ ...acme, name: 'Our AI', kind: 'custom', preset: 'custom', apiBaseUrl: 'https://ai.mico360.com:5310/v1', platform: { version: '2.6.28', concurrencyLimit: 4 } } as typeof acme] };

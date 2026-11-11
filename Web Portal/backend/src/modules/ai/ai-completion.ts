@@ -6,6 +6,7 @@ import { ProviderRefusedError, providerRefusal } from './ai-errors';
 import { collectJob, idempotencyKey, micoMeta } from './mico360-native';
 import { NativeStreamUnavailable, streamChat } from './mico360-stream';
 import { wellFormed } from './ai-text';
+import { fitsSchema } from './ai-schemas';
 
 export { ProviderRefusedError, providerRefusal } from './ai-errors';
 
@@ -71,6 +72,11 @@ export interface ProviderCallInfo {
   jobId: string | null;
   /** The key's concurrency (X-Mico-Concurrency-Limit). */
   concurrencyLimit: number | null;
+  /**
+   * Safety net: this answer came in JSON mode after the platform refused the schema (json_schema, or the
+   * stream's schema `format`) with this status and reason — the caller remembers it for the provider.
+   */
+  strictRefused?: { status: number; reason: string | null };
 }
 
 export interface CompletionOptions {
@@ -117,10 +123,19 @@ export const CONVERSATION_LIMIT = 32_000;
 
 const str = (v: unknown, max = 300): string | null => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : null);
 
+/** Safety net: how a platform that does not take strict answer shapes (json_schema) refuses them. */
+const STRICT_REFUSALS = new Set([400, 422]);
+
 /**
  * Single-turn text completion against a configured provider. Speaks each provider kind's
  * chat API (Anthropic Messages, OpenAI/custom chat-completions, Ollama chat) and returns the
  * assistant's text. `fetchImpl` is injected so features are fully testable without a network.
+ *
+ * Safety net (MICO360 AI): strict answer shapes (b1) are new on the platform. A request with a schema
+ * that is refused with 400 or 422, or whose answer does not fit the schema, is asked once more in
+ * today's JSON mode (json_object; on the live stream, format "json"). A refusal is told to `observe`
+ * with that answer (`strictRefused`), so the caller can stop sending schemas to that Connect for a while.
+ * An answer cut at its length is not asked again: the same room would cut it again.
  */
 export async function complete(
   model: ChatModel,
@@ -128,6 +143,29 @@ export async function complete(
   fetchImpl?: typeof fetch,
   opts: CompletionOptions = {},
 ): Promise<string> {
+  if (!given.schema || !isMico360Provider(model.provider)) return (await completeOnce(model, given, fetchImpl, opts)).text;
+  let refused: ProviderRefusedError | null = null;
+  try {
+    const first = await completeOnce(model, given, fetchImpl, opts);
+    if (first.cut || fitsSchema(first.text, given.schema.schema)) return first.text;
+  } catch (err) {
+    if (!(err instanceof ProviderRefusedError) || !STRICT_REFUSALS.has(err.providerStatus)) throw err;
+    refused = err;
+  }
+  const strictRefused = refused ? { status: refused.providerStatus, reason: refused.detail } : null;
+  const observe = opts.observe;
+  const told = strictRefused && observe ? (i: ProviderCallInfo) => observe(i.ok ? { ...i, strictRefused } : i) : observe;
+  const again = await completeOnce(model, { ...given, schema: undefined, json: true }, fetchImpl, { ...opts, observe: told });
+  return again.text;
+}
+
+/** One request (one answer, collected or streamed); `cut`: it stopped at its length (finish_reason "length"). */
+async function completeOnce(
+  model: ChatModel,
+  given: CompletionInput,
+  fetchImpl: typeof fetch | undefined,
+  opts: CompletionOptions,
+): Promise<{ text: string; cut: boolean }> {
   const mico = isMico360Provider(model.provider);
   // MICO360 AI's JSON reader refuses half a character ("\ud83d", from a text cut inside an emoji): the
   // instructions and the prompt are sent well formed (review I2). Other providers get them as given.
@@ -145,7 +183,7 @@ export async function complete(
   // Instructions longer than the native API takes (8,000 characters) go to /v1, where they fit (minor 6).
   if (mico && opts.onText && !input.images?.length && (input.system?.length ?? 0) <= NATIVE_SYSTEM_LIMIT) {
     const stream = await completeLive(model, input, doFetch, { ...opts, timeoutMs }, sleep, keyFor);
-    if (stream !== null) return stream;
+    if (stream !== null) return { text: stream, cut: false };
   }
 
   const base = model.provider.apiBaseUrl.replace(/\/+$/, '');
@@ -245,7 +283,7 @@ export async function complete(
       const text = job.output.trim();
       if (!text) throw new ValidationError('The AI provider returned an empty response.');
       opts.observe?.({ ok: true, model: job.model, substituted: job.warning, correlationId: refusal.correlationId, jobId: refusal.jobId, concurrencyLimit: null });
-      return text;
+      return { text, cut: false };
     }
     throw refusal;
   }
@@ -256,7 +294,14 @@ export async function complete(
   }
   const text = extractText(model.provider.kind, json);
   if (!text) throw new ValidationError('The AI provider returned an empty response.');
-  return text;
+  return { text, cut: finishReason(json) === 'length' };
+}
+
+/** OpenAI-compatible answers say why they stopped (`choices[0].finish_reason`); null when they don't. */
+function finishReason(json: unknown): string | null {
+  const choices = (json && typeof json === 'object' ? (json as { choices?: unknown }).choices : null) as Array<{ finish_reason?: unknown }> | null;
+  const reason = Array.isArray(choices) ? choices[0]?.finish_reason : null;
+  return typeof reason === 'string' ? reason : null;
 }
 
 /**

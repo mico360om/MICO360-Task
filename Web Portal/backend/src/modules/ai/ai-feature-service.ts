@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { ValidationError } from '../../lib/http-errors';
 import { todayKey } from '../../lib/due-date';
 import type { AiConfigRepository } from './ai-config-repository';
-import { effectiveModel, recordOcrFallback, recordSubstitution, type AiConfig, type AiModel, type AiProvider } from './ai-config';
+import { effectiveModel, recordOcrFallback, recordStrictJsonRefusal, recordSubstitution, strictJsonPaused, type AiConfig, type AiModel, type AiProvider } from './ai-config';
 import {
   complete,
   COMPLETION_TIMEOUT_MS,
@@ -174,6 +174,7 @@ export function createAiFeatureService({
   /** What a MICO360 AI answer said about itself: the key's budget, a warm model, a stand-in (b5, b11, b13). */
   function noted(f: Found, info: ProviderCallInfo): void {
     if (info.concurrencyLimit) keyLimits.set(f.provider.id, info.concurrencyLimit);
+    if (info.strictRefused) noteStrictRefusal(f, info.strictRefused);
     if (!info.ok) return;
     answeredAt.set(f.model.id, now().getTime());
     if (!info.substituted || !info.model || sameModel(info.model, f.model.modelKey)) return;
@@ -185,6 +186,28 @@ export function createAiFeatureService({
     void repo
       .update((c) => (c.providers.some((p) => p.id === f.provider.id) ? recordSubstitution(c, f.provider.id, sub, new Date(at).toISOString()) : c))
       .catch((err) => warn('MICO360 AI: a stand-in model could not be noted', { err }));
+  }
+
+  /**
+   * Safety net: this Connect refused strict answer shapes (json_schema), and JSON mode answered instead.
+   * Written on the provider — features use JSON mode for 24 hours or until the next model refresh, and
+   * the provider card says so — once, not by every call in flight: a refusal already noted (and not yet
+   * forgotten by a model refresh) is left as it is.
+   */
+  function noteStrictRefusal(f: Found, refusal: { status: number; reason: string | null }): void {
+    const at = now().getTime();
+    let wrote = false;
+    void repo
+      .update((c) => {
+        const p = c.providers.find((x) => x.id === f.provider.id);
+        if (!p || strictJsonPaused(p, at)) return c;
+        wrote = true;
+        return recordStrictJsonRefusal(c, p.id, refusal, new Date(at).toISOString());
+      })
+      .then(() => {
+        if (wrote) warn('MICO360 AI: strict answer shapes not accepted by this Connect — using JSON mode', { status: refusal.status, reason: refusal.reason });
+      })
+      .catch((err) => warn('MICO360 AI: the refusal of strict answer shapes could not be noted', { err }));
   }
 
   /**
@@ -261,9 +284,11 @@ export function createAiFeatureService({
     }
     const mico = isMico360Provider(f.provider);
     const wait = opts.background && mico ? BACKGROUND_WAIT_MS : (opts.wait ?? timeoutMs);
+    // Safety net: a Connect that refused strict answer shapes lately is asked in JSON mode (the answer is checked as before).
+    const schema = opts.schema && !(mico && strictJsonPaused(f.provider, now().getTime())) ? opts.schema : undefined;
     return invoke(
       f,
-      { system, prompt, maxTokens, json: opts.json || !!opts.schema, schema: opts.schema, user: opts.user ?? requester?.userId },
+      { system, prompt, maxTokens, json: opts.json || !!opts.schema, schema, user: opts.user ?? requester?.userId },
       {
         feature: opts.feature,
         quiet: opts.quiet,

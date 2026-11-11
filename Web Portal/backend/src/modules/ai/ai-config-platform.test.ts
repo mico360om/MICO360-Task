@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { addProvider, applyPlatform, applySync, automaticModels, emptyConfig, recordOcrFallback, recordSubstitution, redactConfig, type AiConfig } from './ai-config';
+import { addProvider, applyPlatform, applySync, automaticModels, emptyConfig, recordOcrFallback, recordStrictJsonRefusal, recordSubstitution, redactConfig, strictJsonPaused, STRICT_JSON_PAUSE_MS, type AiConfig } from './ai-config';
 
 const meta = (id: string, now = '2026-11-11T08:00:00.000Z') => ({ id, now });
 const mico = (): AiConfig => addProvider(emptyConfig(), { name: 'MICO360 AI', kind: 'custom', preset: 'mico360', apiBaseUrl: 'https://ai.mico360.com:5310/v1', apiKey: 'mico_k' }, meta('p1')).config;
@@ -78,5 +78,36 @@ describe('platform facts on the provider (b4, b5, b7, b11, b12)', () => {
     const out = redactConfig(cfg);
     expect(out.providers[0]!.platform).toMatchObject({ version: '2.6.28', capabilities: ['Chat'] });
     expect(JSON.stringify(out)).not.toContain('mico_k');
+  });
+});
+
+describe('safety net: strict answer shapes refused by the Connect', () => {
+  const refusal = { status: 400, reason: 'response_format json_schema is not supported.' };
+
+  it('is remembered on the provider (status, reason, when), and shown to admins', () => {
+    const cfg = recordStrictJsonRefusal(mico(), 'p1', refusal, '2026-11-11T08:00:00.000Z');
+    expect(cfg.providers[0]!.platform!.strictJsonRefused).toEqual({ status: 400, reason: 'response_format json_schema is not supported.', at: '2026-11-11T08:00:00.000Z' });
+    expect(redactConfig(cfg).providers[0]!.platform!.strictJsonRefused).toMatchObject({ status: 400 });
+  });
+
+  it('pauses strict shapes for 24 hours, then they are tried again', () => {
+    const p = recordStrictJsonRefusal(mico(), 'p1', refusal, '2026-11-11T08:00:00.000Z').providers[0]!;
+    expect(STRICT_JSON_PAUSE_MS).toBe(24 * 60 * 60 * 1000);
+    expect(strictJsonPaused(p, Date.parse('2026-11-11T08:00:01.000Z'))).toBe(true);
+    expect(strictJsonPaused(p, Date.parse('2026-11-12T07:59:59.000Z'))).toBe(true);
+    expect(strictJsonPaused(p, Date.parse('2026-11-12T08:00:00.000Z'))).toBe(false);
+    expect(strictJsonPaused(mico().providers[0]!, Date.parse('2026-11-11T08:00:01.000Z'))).toBe(false);
+  });
+
+  it('is forgotten at the next model refresh (the Connect may have been updated)', () => {
+    let cfg = recordStrictJsonRefusal(mico(), 'p1', refusal, '2026-11-11T08:00:00.000Z');
+    cfg = applyPlatform(cfg, 'p1', { version: '2.6.29', commit: null, capabilities: ['Chat'], concurrencyLimit: 4 }, '2026-11-11T09:00:00.000Z');
+    expect(cfg.providers[0]!.platform!.strictJsonRefused ?? null).toBeNull();
+    expect(strictJsonPaused(cfg.providers[0]!, Date.parse('2026-11-11T09:00:01.000Z'))).toBe(false);
+  });
+
+  it('the reason is kept short', () => {
+    const cfg = recordStrictJsonRefusal(mico(), 'p1', { status: 422, reason: 'x'.repeat(1000) }, '2026-11-11T08:00:00.000Z');
+    expect(cfg.providers[0]!.platform!.strictJsonRefused!.reason).toHaveLength(300);
   });
 });
