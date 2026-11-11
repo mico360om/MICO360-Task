@@ -477,7 +477,11 @@ function OrderAnswer({ q, value, onChange }: { q: PaperQuestion; value: string[]
   );
 }
 
-/** The result: score, passed or not, and each question with the right answers, feedback and explanation. */
+/**
+ * The result: score, passed or not, and each question right or wrong with the chosen answers' feedback. Which answers
+ * are right, the other answers' feedback and the explanation only once the server shows them (review M9: passed, or
+ * no attempts left) — before that a plain line says when.
+ */
 function QuizResultView({ result, canTryAgain, busy, error, onTryAgain }: { result: AttemptResult; canTryAgain: boolean; busy: boolean; error: string | null; onTryAgain: () => void }) {
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
@@ -495,6 +499,11 @@ function QuizResultView({ result, canTryAgain, busy, error, onTryAgain }: { resu
             {right} of {result.questions.length} right · pass mark {result.passMark}% · {result.attemptsLeft === null ? 'unlimited attempts' : result.attemptsLeft === 1 ? '1 attempt left' : `${result.attemptsLeft} attempts left`}
           </p>
           {result.timedOut ? <p className="mt-1 text-sm text-warning">Time ran out — your saved answers were handed in.</p> : null}
+          {result.answersShown ? null : (
+            <p className="mt-1 text-sm text-ink-2">
+              {result.attemptsLeft === null ? 'The right answers are shown once you pass.' : 'The right answers are shown once you pass or have no attempts left.'}
+            </p>
+          )}
         </div>
         {canTryAgain ? (
           <Button variant={result.passed ? 'secondary' : 'primary'} className={TOUCH_MIN} loading={busy} onClick={onTryAgain}>
@@ -510,7 +519,7 @@ function QuizResultView({ result, canTryAgain, busy, error, onTryAgain }: { resu
       <ol className="flex flex-col gap-3">
         {result.questions.map((q, i) => (
           <li key={q.id}>
-            <ResultQuestion q={q} index={i} />
+            <ResultQuestion q={q} index={i} shown={result.answersShown} />
           </li>
         ))}
       </ol>
@@ -518,7 +527,7 @@ function QuizResultView({ result, canTryAgain, busy, error, onTryAgain }: { resu
   );
 }
 
-function ResultQuestion({ q, index }: { q: AttemptResultQuestion; index: number }) {
+function ResultQuestion({ q, index, shown }: { q: AttemptResultQuestion; index: number; shown: boolean }) {
   const byId = new Map(q.options.map((o) => [o.id, o]));
   return (
     <article aria-labelledby={`result-${q.id}`} className="card card-pad flex flex-col gap-3">
@@ -539,7 +548,7 @@ function ResultQuestion({ q, index }: { q: AttemptResultQuestion; index: number 
         </div>
       </div>
       {q.kind === 'ORDER' ? (
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className={`grid gap-3 ${shown ? 'sm:grid-cols-2' : ''}`}>
           <div>
             <p className="text-xs font-semibold text-ink-2">Your order</p>
             <ol className="mt-1 list-decimal space-y-0.5 ps-5 text-sm text-ink">
@@ -549,44 +558,45 @@ function ResultQuestion({ q, index }: { q: AttemptResultQuestion; index: number 
             </ol>
             {q.chosen.length === 0 ? <p className="text-sm text-ink-2">Not answered.</p> : null}
           </div>
-          <div>
-            <p className="text-xs font-semibold text-ink-2">The right order</p>
-            <ol className="mt-1 list-decimal space-y-0.5 ps-5 text-sm text-ink">
-              {[...q.options]
-                .sort((a, b) => a.position - b.position)
-                .map((o) => (
-                  <li key={o.id}>{o.text}</li>
-                ))}
-            </ol>
-          </div>
+          {shown ? (
+            <div>
+              <p className="text-xs font-semibold text-ink-2">The right order</p>
+              <ol className="mt-1 list-decimal space-y-0.5 ps-5 text-sm text-ink">
+                {[...q.options]
+                  .sort((a, b) => a.position - b.position)
+                  .map((o) => (
+                    <li key={o.id}>{o.text}</li>
+                  ))}
+              </ol>
+            </div>
+          ) : null}
         </div>
       ) : (
         <ul className="flex flex-col gap-2">
           {q.options.map((o) => {
             const chosen = q.chosen.includes(o.id);
+            // Before the answers are shown: only "your answer" is marked (the question's right/wrong says the rest).
+            const tone = shown ? (o.correct ? 'border-success/50 bg-success-soft/40' : chosen ? 'border-danger/50 bg-danger-soft/40' : 'border-line') : chosen ? 'border-brand/40 bg-brand/5' : 'border-line';
             return (
-              <li
-                key={o.id}
-                className={`rounded-xl border px-3 py-2 text-sm ${o.correct ? 'border-success/50 bg-success-soft/40' : chosen ? 'border-danger/50 bg-danger-soft/40' : 'border-line'}`}
-              >
+              <li key={o.id} className={`rounded-xl border px-3 py-2 text-sm ${tone}`}>
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="min-w-0 break-words text-ink">{o.text}</span>
                   {chosen ? <span className="rounded-md bg-ground px-1.5 py-0.5 text-[11px] font-semibold text-ink-2">Your answer</span> : null}
-                  {o.correct ? (
+                  {shown && o.correct ? (
                     <span className="inline-flex items-center gap-1 rounded-md bg-success-soft px-1.5 py-0.5 text-[11px] font-semibold text-success">
                       <TickIcon size={12} />
                       Right answer
                     </span>
                   ) : null}
                 </div>
-                {o.feedback && (chosen || o.correct) ? <p className="mt-1 text-xs text-ink-2">{o.feedback}</p> : null}
+                {o.feedback && (chosen || (shown && o.correct)) ? <p className="mt-1 text-xs text-ink-2">{o.feedback}</p> : null}
               </li>
             );
           })}
           {q.chosen.length === 0 ? <li className="text-sm text-ink-2">Not answered.</li> : null}
         </ul>
       )}
-      {q.explanation ? (
+      {shown && q.explanation ? (
         <p className="rounded-lg bg-ground px-3 py-2 text-sm text-ink">
           <span className="font-semibold">Why: </span>
           {q.explanation}

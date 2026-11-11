@@ -6,6 +6,18 @@ import { ApiError } from '../../lib/api-client';
 import { QuizLesson } from './QuizLesson';
 import { fakeLearner, lesson, paper, renderOnSide, result } from './training-fixtures';
 
+/** A result before the right answers may be shown (review M9): right/wrong and the chosen answers' feedback only. */
+const hiddenResult = (over: Parameters<typeof result>[0] = {}) =>
+  result({
+    answersShown: false,
+    questions: result().questions.map((q) => ({
+      ...q,
+      explanation: null,
+      options: q.options.map((o, i) => ({ ...o, correct: false, position: i, feedback: q.chosen.includes(o.id) ? o.feedback : null })),
+    })),
+    ...over,
+  });
+
 const QUIZ: QuizInfo = { passMark: 75, maxAttempts: 3, attemptsUsed: 0, timeLimitMinutes: null, questionCount: 4, best: null, openAttemptId: null, lastAttemptId: null, canStart: true, reason: null };
 const quizLesson = (quiz: Partial<QuizInfo> = {}) => lesson({ id: 'l4', kind: 'QUIZ', title: 'Check yourself', quiz: { ...QUIZ, ...quiz } });
 const take = (api: ReturnType<typeof fakeLearner>, onDone = vi.fn(), quiz: Partial<QuizInfo> = {}) => renderOnSide(<QuizLesson lesson={quizLesson(quiz)} onDone={onDone} />, { api });
@@ -67,8 +79,8 @@ describe('a quiz lesson', () => {
     await waitFor(() => expect(api.saveAnswers).toHaveBeenLastCalledWith('a1', { qo: ['p1', 'p2', 'p3'] }), { timeout: 3000 });
   });
 
-  it('handing in with questions unanswered asks first; the result shows right answers, feedback and the explanation; Try again', async () => {
-    const api = fakeLearner();
+  it('handing in with questions unanswered asks first; before passing, right/wrong and your answers’ feedback — not which are right (review M9); Try again', async () => {
+    const api = fakeLearner({ submit: vi.fn(async () => hiddenResult()) });
     const onDone = vi.fn();
     take(api, onDone);
     await userEvent.click(screen.getByRole('button', { name: 'Start quiz' }));
@@ -80,26 +92,52 @@ describe('a quiz lesson', () => {
     const heading = await screen.findByRole('heading', { level: 2, name: 'Not passed this time — 50%' });
     expect(heading).toHaveFocus();
     expect(screen.getByText(/1 of 2 right · pass mark 75% · 2 attempts left/)).toBeInTheDocument();
+    expect(screen.getByText('The right answers are shown once you pass or have no attempts left.')).toBeInTheDocument();
     const first = screen.getByRole('article', { name: 'Where is New task?' });
     expect(within(first).getByText('Right')).toBeInTheDocument();
     expect(within(first).getByText('Your answer')).toBeInTheDocument();
-    expect(within(first).getByText('Right answer')).toBeInTheDocument();
     expect(within(first).getByText('Yes — on every page.')).toBeInTheDocument();
-    // The footer's feedback is for an answer not chosen and not right: not shown.
-    expect(within(first).queryByText('The footer only has the version.')).toBeNull();
+    expect(screen.queryByText('Right answer')).toBeNull();
     const order = screen.getByRole('article', { name: 'Put the steps in order.' });
     expect(within(order).getByText('Wrong')).toBeInTheDocument();
     expect(within(within(order).getByText('Your order').parentElement!).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['Type a title', 'Open the form', 'Save']);
-    expect(within(within(order).getByText('The right order').parentElement!).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['Open the form', 'Type a title', 'Save']);
-    expect(within(order).getByText('Open it first, then type, then save.')).toBeInTheDocument();
+    expect(within(order).queryByText('The right order')).toBeNull();
+    expect(screen.queryByText(/^Why:/)).toBeNull();
     expect(onDone).not.toHaveBeenCalled();
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
     await waitFor(() => expect(api.startAttempt).toHaveBeenCalledTimes(2));
     expect(await screen.findByText('Question 1 of 4')).toBeInTheDocument();
   });
 
+  it('no attempts left: the right answers, every answer’s feedback and the explanation are shown', async () => {
+    const api = fakeLearner({ submit: vi.fn(async () => result({ answersShown: true, attemptsLeft: 0 })) });
+    take(api);
+    await userEvent.click(screen.getByRole('button', { name: 'Start quiz' }));
+    await userEvent.click(await screen.findByRole('radio', { name: 'Footer' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Hand in' }));
+    await userEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Hand in' }));
+    const first = await screen.findByRole('article', { name: 'Where is New task?' });
+    expect(within(first).getByText('Right answer')).toBeInTheDocument();
+    expect(within(first).getByText('Yes — on every page.')).toBeInTheDocument();
+    expect(screen.queryByText('The right answers are shown once you pass or have no attempts left.')).toBeNull();
+    const order = screen.getByRole('article', { name: 'Put the steps in order.' });
+    expect(within(within(order).getByText('The right order').parentElement!).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['Open the form', 'Type a title', 'Save']);
+    expect(within(order).getByText('Open it first, then type, then save.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
+  });
+
+  it('unlimited attempts: the right answers once passed', async () => {
+    const api = fakeLearner({ submit: vi.fn(async () => hiddenResult({ attemptsLeft: null })) });
+    take(api, vi.fn(), { maxAttempts: null });
+    await userEvent.click(screen.getByRole('button', { name: 'Start quiz' }));
+    await userEvent.click(await screen.findByRole('radio', { name: 'Top bar' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Hand in' }));
+    await userEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Hand in' }));
+    expect(await screen.findByText('The right answers are shown once you pass.')).toBeInTheDocument();
+  });
+
   it('passing finishes the lesson (and no Try again once the attempts are used)', async () => {
-    const api = fakeLearner({ submit: vi.fn(async () => result({ scorePct: 100, passed: true, attemptsLeft: 0, courseCompleted: true, certificateId: 'cert1' })) });
+    const api = fakeLearner({ submit: vi.fn(async () => result({ scorePct: 100, passed: true, answersShown: true, attemptsLeft: 0, courseCompleted: true, certificateId: 'cert1' })) });
     const onDone = vi.fn();
     take(api, onDone);
     await userEvent.click(screen.getByRole('button', { name: 'Start quiz' }));
@@ -111,6 +149,8 @@ describe('a quiz lesson', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Hand in' }));
     expect(await screen.findByRole('heading', { level: 2, name: 'You passed — 100%' })).toBeInTheDocument();
     expect(onDone).toHaveBeenCalledWith(expect.objectContaining({ courseCompleted: true, certificateId: 'cert1' }));
+    // Passed: which answers are right is shown.
+    expect(screen.getAllByText('Right answer').length).toBeGreaterThan(0);
     expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
   });
 
