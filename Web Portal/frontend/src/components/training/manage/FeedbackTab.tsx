@@ -35,7 +35,7 @@ export function ratingsByCourse(items: readonly FeedbackItem[]): CourseRatings[]
   }
   return [...by.values()]
     .map((g) => ({ ...g, average: g.items.reduce((s, f) => s + (f.rating ?? 0), 0) / g.items.length }))
-    .sort((a, b) => b.average - a.average || a.courseTitle.localeCompare(b.courseTitle));
+    .sort((a, b) => b.average - a.average || a.courseTitle.localeCompare(b.courseTitle, 'en'));
 }
 
 /**
