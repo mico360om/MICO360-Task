@@ -157,7 +157,11 @@ describe('training reminders through the engine (R13)', () => {
     clockAt = at(2);
     await run();
     expect(learnerNotices(cAna).map((n) => n.userId)).toEqual([w.people.ana]);
-    expect(escalations(cAna)).toEqual([expect.objectContaining({ userId: w.people.amy, type: 'TRAINING_OVERDUE', title: `Overdue training: Ana Alpha ${w.tag} — Over Ana ${w.tag}`, entityId: cAna })]);
+    // M11: Amy (Reports to, a plain employee) can't open the Learning Hub's Reports for Ana — no link on hers.
+    expect(sent.filter((n) => n.userId === w.people.amy && n.title === `Overdue training: Ana Alpha ${w.tag} — Over Ana ${w.tag}`)).toEqual([
+      expect.objectContaining({ type: 'TRAINING_OVERDUE', entityType: null, entityId: null }),
+    ]);
+    expect(escalations(cAna)).toEqual([]);
     // Amy reports to nobody: the Training manager of her company (cat, in A and B).
     expect(escalations(cAmy).map((n) => n.userId)).toEqual([w.people.cat]);
     // Gus's only company is archived: no Training manager shares one with him → administrators.
