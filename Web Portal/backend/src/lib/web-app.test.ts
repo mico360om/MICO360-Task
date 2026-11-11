@@ -43,7 +43,7 @@ describe('webAppCsp', () => {
         "font-src 'self' data:",
         "img-src 'self' data: blob:",
         "connect-src 'self' ws://task.mico360.com wss://task.mico360.com",
-        "frame-src 'self' blob:",
+        "frame-src 'self' blob: https://www.youtube-nocookie.com https://player.vimeo.com",
         "frame-ancestors 'none'",
         "base-uri 'self'",
         "object-src 'none'",
@@ -52,6 +52,14 @@ describe('webAppCsp', () => {
         'report-to mico360-csp',
       ].join('; '),
     );
+  });
+
+  it('Training Center: lesson videos may be framed from exactly YouTube’s privacy embed and Vimeo’s player — no other frame or script source', () => {
+    const csp = webAppCsp('task.mico360.com');
+    const frame = csp.split('; ').find((d) => d.startsWith('frame-src '));
+    expect(frame).toBe("frame-src 'self' blob: https://www.youtube-nocookie.com https://player.vimeo.com");
+    expect(csp).toContain("script-src 'self';");
+    expect(csp).not.toMatch(/youtube\.com(?!-)|ytimg|vimeocdn|www\.youtube\.com/);
   });
 
   it('never echoes an unsafe Host header', () => {

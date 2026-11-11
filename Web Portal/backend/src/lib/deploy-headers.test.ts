@@ -58,7 +58,7 @@ describe.skipIf(!existsSync(resolve(repo, NGINX_SITE)))('deploy configs: the sam
   it('the report endpoint is the server’s, and the policy is the one before 1.22.4 plus the PDF preview’s blob: frames and reporting', () => {
     expect(CSP_REPORT_PATH).toBe('/api/v1/client-errors/csp');
     expect(expected).toBe(
-      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob:; connect-src 'self' wss://task.mico360.com; frame-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'; report-uri /api/v1/client-errors/csp; report-to mico360-csp",
+      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob:; connect-src 'self' wss://task.mico360.com; frame-src 'self' blob: https://www.youtube-nocookie.com https://player.vimeo.com; frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'; report-uri /api/v1/client-errors/csp; report-to mico360-csp",
     );
   });
 

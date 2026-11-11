@@ -102,8 +102,10 @@ export function webAppCsp(host: string | undefined): string {
     "img-src 'self' data: blob:",
     `connect-src 'self'${ws}`,
     // 1.22.4: the task panel's PDF preview is a frame of the site's own blob: copy of the file;
-    // default-src 'self' refused it (scripts stay 'self' only).
-    "frame-src 'self' blob:",
+    // default-src 'self' refused it (scripts stay 'self' only). Training Center (owner, 11 Nov 2026): a lesson's
+    // video plays in YouTube's privacy embed or Vimeo's player — exactly those two hosts, frames only (the
+    // website follows YouTube through the frame's messages and bundles Vimeo's player: no script source added).
+    "frame-src 'self' blob: https://www.youtube-nocookie.com https://player.vimeo.com",
     "frame-ancestors 'none'",
     "base-uri 'self'",
     "object-src 'none'",
