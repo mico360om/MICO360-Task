@@ -47,6 +47,9 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   everything back at once (no signing out), and it can always be turned off. Each switch is recorded in
   the audit log.
 
+### Bug fixes
+- A tab left open on an older version no longer shows an error when a newer tab updates your profile details.
+
 ## [1.23.16] - 2026-11-11
 
 ### New features

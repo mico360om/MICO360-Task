@@ -243,8 +243,27 @@ function adopt(session: { user: AuthUser | null; accessToken: string; refreshTok
   });
 }
 
-/** Apply a message from another tab. Exported for tests. */
-export function handleAuthMessage(msg: AuthMessage): void {
+/**
+ * Shape checks for messages from other tabs: a tab may run another version (older or newer), and a message
+ * it doesn't know — or one that is broken — must never be read as something else (1.23.16 live Error log: a
+ * tab still on 1.23.13 read 1.23.14's { type: 'user' } as a session and failed on `msg.session.user`).
+ */
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+const isText = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
+function isAuthUser(v: unknown): v is AuthUser {
+  return isRecord(v) && isText(v.id) && typeof v.username === 'string' && typeof v.email === 'string' && Array.isArray(v.roles) && v.roles.every((r) => typeof r === 'string');
+}
+function isSession(v: unknown): v is Session {
+  return isRecord(v) && isAuthUser(v.user) && isText(v.accessToken) && isText(v.refreshToken);
+}
+
+/**
+ * Apply a message from another tab. Exported for tests. Only the kinds this version knows, each checked for
+ * its shape; anything else (a newer version's kind, a broken message) is ignored.
+ */
+export function handleAuthMessage(raw: unknown): void {
+  if (!isRecord(raw) || typeof raw.type !== 'string') return;
+  const msg = raw as Record<string, unknown> & { type: string };
   const state = useAuthStore.getState();
   if (msg.type === 'request-session') {
     if (state.isAuthenticated && !state.remember && state.user && state.accessToken && state.refreshToken) {
@@ -253,12 +272,14 @@ export function handleAuthMessage(msg: AuthMessage): void {
     return;
   }
   if (msg.type === 'share-session') {
+    if (!isSession(msg.session)) return;
     if (state.isAuthenticated || Date.now() - requestedSessionAt > SHARE_WINDOW_MS) return;
     writeTo(storageFor(false), msg.session); // this tab's own window-only copy; localStorage untouched
     adopt(msg.session, false);
     return;
   }
   if (msg.type === 'user') {
+    if (!isAuthUser(msg.user)) return;
     if (!state.isAuthenticated || state.user?.id !== msg.user.id) return;
     try {
       storageFor(state.remember)?.setItem(KEYS.user, JSON.stringify(msg.user));
@@ -269,16 +290,21 @@ export function handleAuthMessage(msg: AuthMessage): void {
     return;
   }
   if (msg.type === 'logout') {
-    if (state.isAuthenticated && (!msg.userId || !state.user || state.user.id === msg.userId)) state.logout('remote');
+    if (msg.userId !== null && msg.userId !== undefined && !isText(msg.userId)) return;
+    const userId = (msg.userId as string | null | undefined) ?? null;
+    if (state.isAuthenticated && (!userId || !state.user || state.user.id === userId)) state.logout('remote');
     return;
   }
+  if (msg.type !== 'session') return;
   // A refreshed/rotated session: only share it with tabs signed in as the same person the same way,
   // so a single-use refresh token copied between tabs keeps working in all of them.
-  if (!state.isAuthenticated || state.user?.id !== msg.session.user.id || state.remember !== msg.remember) return;
-  if (state.refreshToken === msg.session.refreshToken && state.accessToken === msg.session.accessToken) return;
+  if (!isSession(msg.session) || typeof msg.remember !== 'boolean') return;
+  const { session, remember } = msg as unknown as { session: Session; remember: boolean };
+  if (!state.isAuthenticated || state.user?.id !== session.user.id || state.remember !== remember) return;
+  if (state.refreshToken === session.refreshToken && state.accessToken === session.accessToken) return;
   // This tab's own sessionStorage copy must follow along (localStorage is already shared).
-  if (!msg.remember) writeTo(storageFor(false), msg.session);
-  adopt(msg.session, msg.remember);
+  if (!remember) writeTo(storageFor(false), session);
+  adopt(session, remember);
 }
 
 /** React to another tab changing the shared (remembered) session in localStorage. Exported for tests. */
@@ -311,8 +337,13 @@ export function initAuthSync(): () => void {
   };
   window.addEventListener('storage', onStorage);
   const ch = getChannel();
-  const onMessage = (e: MessageEvent<AuthMessage>) => {
-    if (e.data && typeof e.data === 'object') handleAuthMessage(e.data);
+  const onMessage = (e: MessageEvent<unknown>) => {
+    // A message this version can't read is ignored, never an error (another tab may run another version).
+    try {
+      handleAuthMessage(e.data);
+    } catch {
+      /* ignored */
+    }
   };
   ch?.addEventListener('message', onMessage);
   // A new tab without its own session: ask the other open tabs for their window-only session.
