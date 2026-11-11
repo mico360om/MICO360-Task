@@ -10,7 +10,8 @@ import { calendarOrder } from '../../lib/calendar-order';
 import { ChecklistChip, dayLabel, meetingName } from './calendar-ui';
 import { BellIcon, DayOffTag, HATCH_STYLE, PeopleIcon, TaskBar, blockName, blockTimes, keyMoveOf, reminderName, type KeyMove } from './schedule-chips';
 
-/** The All day row: Week's narrow days take two lines a task (its number and title readable), two lanes before "+N more"; Day one wide line, three lanes. */
+/** The All day row: Week's narrow days take two lines a task (its number and title readable), two lanes a day before "+N more"; Day one wide line, three lanes. */
+const MORE_BUTTON = 'flex h-6 items-center rounded px-1.5 text-[11px] font-semibold text-brand hover:bg-brand/[0.06] hover:underline [@media(pointer:coarse)]:h-[28px]';
 const ALL_DAY = { week: { lanes: 2, pitch: 40, lines: 2 as const }, day: { lanes: 3, pitch: 26, lines: 1 as const } };
 
 export interface HourGridProps {
@@ -91,9 +92,16 @@ export function HourGrid(p: HourGridProps) {
   const shape = n > 1 ? ALL_DAY.week : ALL_DAY.day;
   const LANE_PITCH = shape.pitch;
   const view = laneView(placed, shape.lanes);
-  const lanes = allDayOpen ? placed.reduce((m, e) => Math.max(m, e.lane + 1), 0) : view.lanes;
+  const total = placed.reduce((m, e) => Math.max(m, e.lane + 1), 0);
   const anyMore = view.more.some((x) => x > 0);
-  const allDayHeight = Math.max(1, lanes + (anyMore ? 1 : 0)) * LANE_PITCH + 6;
+  // Closed, each day shows its own lanes — a crowded day gives its last to "+N more"; open, everything.
+  const lanesOn = (col: number) => (allDayOpen ? total : (view.shown[col] ?? view.lanes));
+  const shownHere = (e: { startCol: number; endCol: number; lane: number }) => {
+    for (let c = e.startCol; c <= e.endCol; c++) if (e.lane >= lanesOn(c)) return false;
+    return true;
+  };
+  const rowsUsed = allDayOpen ? total + (anyMore ? 1 : 0) : anyMore ? shape.lanes : total;
+  const allDayHeight = Math.max(1, rowsUsed) * LANE_PITCH + 6;
   const grabDayAt = (clientX: number, el: HTMLElement) => {
     const row = el.closest('[data-allday]') as HTMLElement | null;
     const rect = (row ?? el).getBoundingClientRect();
@@ -198,7 +206,7 @@ export function HourGrid(p: HourGridProps) {
             ))}
           </div>
           {placed
-            .filter((e) => e.lane < lanes)
+            .filter(shownHere)
             .map((e) => {
               const span = e.endCol - e.startCol + 1;
               const style = { top: 3 + e.lane * LANE_PITCH, insetInlineStart: `calc(${(e.startCol / n) * 100}% + 2px)`, width: `calc(${(span / n) * 100}% - 4px)` };
@@ -225,18 +233,32 @@ export function HourGrid(p: HourGridProps) {
                 </div>
               );
             })}
-          {anyMore ? (
-            <div role="listitem" className="absolute z-10 flex" style={{ top: 3 + lanes * LANE_PITCH, insetInlineStart: 2 }}>
-              <button
-                type="button"
-                onClick={() => setAllDayOpen((o) => !o)}
-                aria-expanded={allDayOpen}
-                className="flex h-6 items-center rounded px-1.5 text-[11px] font-semibold text-brand hover:bg-brand/[0.06] hover:underline [@media(pointer:coarse)]:h-[28px]"
-              >
-                {allDayOpen ? 'Show fewer' : `+${placed.filter((x) => x.lane >= view.lanes).length} more all day`}
+          {anyMore && allDayOpen ? (
+            <div role="listitem" className="absolute z-10 flex" style={{ top: 3 + total * LANE_PITCH, insetInlineStart: 2 }}>
+              <button type="button" onClick={() => setAllDayOpen(false)} aria-expanded className={MORE_BUTTON}>
+                Show fewer
               </button>
             </div>
           ) : null}
+          {anyMore && !allDayOpen
+            ? p.days.map((day, col) => {
+                const more = view.more[col] ?? 0;
+                if (!more) return null;
+                return (
+                  <div key={`more:${day}`} role="listitem" className="absolute z-10 flex" style={{ top: 3 + lanesOn(col) * LANE_PITCH, insetInlineStart: `calc(${(col / n) * 100}% + 2px)` }}>
+                    <button
+                      type="button"
+                      onClick={() => setAllDayOpen(true)}
+                      aria-expanded={false}
+                      aria-label={`${more} more all day on ${dayLabel(day, { weekday: 'long', day: 'numeric', month: 'long' })}`}
+                      className={MORE_BUTTON}
+                    >
+                      +{more} more
+                    </button>
+                  </div>
+                );
+              })
+            : null}
         </div>
       </div>
 

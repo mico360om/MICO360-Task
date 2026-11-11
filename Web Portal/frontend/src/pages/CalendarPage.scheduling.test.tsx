@@ -293,6 +293,21 @@ describe('week and day hours, planned time, meetings (owner 2)', () => {
     expect(await screen.findByRole('link', { name: /Their call/ })).toHaveAttribute('draggable', 'false');
   });
 
+  it('the All day row: a day with room shows all its entries; a crowded day says “+N more” (it opens the row)', async () => {
+    tasks.push(...['A', 'B', 'C'].map((x, i) => task({ id: `thu${i}`, key: `MICO-${10 + i}`, title: `Thursday job ${x}`, dueDate: '2026-10-15T00:00:00.000Z' })));
+    renderPage('/calendar?view=week&date=2026-10-13');
+    const row = await screen.findByRole('list', { name: 'All day' });
+    // Tuesday holds two (the bar and Long survey's ▶): both shown, though Thursday is crowded.
+    expect(await within(row).findByRole('button', { name: /^MICO-2 Long survey/ })).toBeInTheDocument();
+    expect(within(row).getAllByRole('button', { name: /Thursday job/ })).toHaveLength(1);
+    const more = within(row).getByRole('button', { name: '2 more all day on Thursday 15 October' });
+    expect(more).toHaveTextContent('+2 more');
+    await userEvent.click(more);
+    expect(within(row).getAllByRole('button', { name: /Thursday job/ })).toHaveLength(3);
+    await userEvent.click(within(row).getByRole('button', { name: 'Show fewer' }));
+    expect(within(row).getAllByRole('button', { name: /Thursday job/ })).toHaveLength(1);
+  });
+
   it('the Day view: one day’s hours', async () => {
     renderPage('/calendar?view=day&date=2026-10-13');
     expect(await screen.findByRole('heading', { level: 2, name: 'Tuesday 13 October 2026' })).toBeInTheDocument();
