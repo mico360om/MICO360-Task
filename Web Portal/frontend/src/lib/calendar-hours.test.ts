@@ -19,10 +19,13 @@ describe('the week and day hour grids', () => {
     expect(clipToDay(span, '2026-11-14', TZ)).toBeNull();
   });
 
-  it('snaps a pointer to 15 minutes, inside the day', () => {
+  it('a pointer means the 15-minute slot under it, inside the day', () => {
     expect(SNAP_MINUTES).toBe(15);
     expect(snapMinutes((9 * 60 + 7) * (HOUR_PX / 60))).toBe(9 * 60);
-    expect(snapMinutes((9 * 60 + 8) * (HOUR_PX / 60))).toBe(9 * 60 + 15);
+    expect(snapMinutes((9 * 60 + 14) * (HOUR_PX / 60))).toBe(9 * 60);
+    expect(snapMinutes((9 * 60 + 15) * (HOUR_PX / 60))).toBe(9 * 60 + 15);
+    // Moving something grabbed in its middle: the nearest mark.
+    expect(snapMinutes((15 * 60 - 1) * (HOUR_PX / 60), HOUR_PX, true)).toBe(15 * 60);
     expect(snapMinutes(-20)).toBe(0);
     expect(snapMinutes(25 * HOUR_PX)).toBe(24 * 60 - 15);
   });

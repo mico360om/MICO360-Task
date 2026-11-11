@@ -37,11 +37,14 @@ export function clipToDay(span: { startAt: string; endAt: string }, day: string,
   return { start: Math.round((Math.max(s, dayStart) - dayStart) / 60_000), end: Math.round((Math.min(e, dayEnd) - dayStart) / 60_000) };
 }
 
-/** A pointer `offsetPx` below the grid's top → minutes after midnight, on a 15-minute step inside the day. */
-export function snapMinutes(offsetPx: number, hourPx = HOUR_PX): number {
+/**
+ * A pointer `offsetPx` below the grid's top → the 15-minute slot under it (minutes after midnight), inside the
+ * day; `nearest`: the nearest 15-minute mark instead (something moved by where it was grabbed keeps its place).
+ */
+export function snapMinutes(offsetPx: number, hourPx = HOUR_PX, nearest = false): number {
   if (!Number.isFinite(offsetPx)) return 0;
   const raw = (offsetPx / hourPx) * 60;
-  const snapped = Math.round(raw / SNAP_MINUTES) * SNAP_MINUTES;
+  const snapped = (nearest ? Math.round(raw / SNAP_MINUTES) : Math.floor(raw / SNAP_MINUTES)) * SNAP_MINUTES;
   return Math.max(0, Math.min(DAY_MINUTES - SNAP_MINUTES, snapped));
 }
 

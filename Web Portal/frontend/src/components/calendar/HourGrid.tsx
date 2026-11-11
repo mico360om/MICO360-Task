@@ -134,9 +134,10 @@ export function HourGrid(p: HourGridProps) {
   const remindersOf = (day: string) => perDay.bells.get(day) ?? [];
   const nowAt = minutesAt(p.now.toISOString(), p.timeZone);
 
-  const slotFromEvent = (e: React.DragEvent | React.MouseEvent, offsetMinutes = 0) => {
+  const slotFromEvent = (e: React.DragEvent | React.MouseEvent, offsetMinutes: number | null = null) => {
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    return snapMinutes(e.clientY - rect.top - (offsetMinutes / 60) * HOUR_PX);
+    // Grabbed somewhere inside (a block or meeting moved): its top goes to the nearest mark; else the slot under the pointer.
+    return snapMinutes(e.clientY - rect.top - ((offsetMinutes ?? 0) / 60) * HOUR_PX, HOUR_PX, offsetMinutes !== null);
   };
   const grabOffset = (e: React.DragEvent, el: HTMLElement) => Math.max(0, Math.round(((e.clientY - el.getBoundingClientRect().top) / HOUR_PX) * 60));
 
@@ -281,7 +282,7 @@ export function HourGrid(p: HourGridProps) {
                   setOverSlot(null);
                   const payload = readDrag(e);
                   if (!payload) return;
-                  const offset = payload.kind === 'block' && payload.grip === 'body' ? payload.grabOffset : payload.kind === 'meeting' ? payload.grabOffset : 0;
+                  const offset = payload.kind === 'block' && payload.grip === 'body' ? payload.grabOffset : payload.kind === 'meeting' ? payload.grabOffset : null;
                   p.onDropSlot(payload, day, slotFromEvent(e, offset));
                 }}
               >
