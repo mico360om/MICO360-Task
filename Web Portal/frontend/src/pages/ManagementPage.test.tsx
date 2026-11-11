@@ -299,7 +299,8 @@ describe('ManagementPage', () => {
     const sheet = await screen.findByRole('dialog', { name: 'Late tasks · Rig Inspection Portal' });
     expect(calls.some((c) => c.includes('/management/items?') && c.includes('metric=late-tasks') && c.includes('projectId=rig'))).toBe(true);
     expect(await within(sheet).findByText('Daily rig check')).toBeInTheDocument();
-    expect(within(sheet).getByText('5 days late')).toBeInTheDocument();
+    // Notification & Scheduling: the server's days late are working days.
+    expect(within(sheet).getByText('5 working days late')).toBeInTheDocument();
     await user.click(within(sheet).getByRole('button', { name: /Daily rig check/ }));
     await waitFor(() => expect(where).toContain('task=c3'));
     await user.keyboard('{Escape}');

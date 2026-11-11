@@ -57,6 +57,8 @@ export interface RiskFacts {
   /** Company days since the project's last change (its own, or a task's), and that day. */
   idleDays: number;
   lastActivityDay: string;
+  /** Notification & Scheduling centre: `daysLate` are working days (the project's company's). */
+  workingDays?: boolean;
 }
 
 export interface Risk {
@@ -79,6 +81,10 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
 const unique = (ids: (string | null | undefined)[]) => [...new Set(ids.filter((x): x is string => !!x))];
 const dueWords = (daysLeft: number) => (daysLeft < 0 ? `is ${plural(-daysLeft, 'day')} late` : daysLeft === 0 ? 'is due today' : daysLeft === 1 ? 'is due tomorrow' : `is due in ${daysLeft} days`);
 const RANK = { RED: 0, AMBER: 1 } as const;
+/** "3 working days late" (or "late" for a task late only by days off), "3 days late" before the centre. */
+const lateWords = (n: number, working: boolean | undefined) => (working ? (n > 0 ? `${plural(n, 'working day')} late` : 'late') : `${plural(n, 'day')} late`);
+/** Notification & Scheduling: overdue tasks counted in working days cluster at a working week (5), else 7 days. */
+export const OVERDUE_CLUSTER_WORKING_DAYS = 5;
 
 /** Every risk the facts show, worst first. `nameOf` names a person (the workload risk says who). */
 export function projectRisks(f: RiskFacts, nameOf: (userId: string) => string = (id) => id): Risk[] {
@@ -94,7 +100,7 @@ export function projectRisks(f: RiskFacts, nameOf: (userId: string) => string = 
     risks.push({
       code: 'MILESTONE_LATE',
       level: 'RED',
-      title: `Milestone “${m.title}” is ${plural(m.daysLate, 'day')} late`,
+      title: `Milestone “${m.title}” is ${lateWords(m.daysLate, f.workingDays)}`,
       detail: `It was due ${formatDay(m.due, { year: false })} and isn’t finished.`,
       accountable: assigneesOr([m]),
       taskIds: [m.id],
@@ -134,14 +140,15 @@ export function projectRisks(f: RiskFacts, nameOf: (userId: string) => string = 
       taskIds: tasks.map((t) => t.id),
     });
   }
-  const longLate = f.overdue.filter((t) => t.daysLate >= OVERDUE_CLUSTER_DAYS).sort((a, b) => b.daysLate - a.daysLate || a.key.localeCompare(b.key, 'en', { numeric: true }));
+  const clusterDays = f.workingDays ? OVERDUE_CLUSTER_WORKING_DAYS : OVERDUE_CLUSTER_DAYS;
+  const longLate = f.overdue.filter((t) => t.daysLate >= clusterDays).sort((a, b) => b.daysLate - a.daysLate || a.key.localeCompare(b.key, 'en', { numeric: true }));
   if (longLate.length >= OVERDUE_CLUSTER_MIN) {
     const first = longLate[0]!;
     risks.push({
       code: 'OVERDUE',
       level: 'RED',
-      title: `${longLate.length} tasks overdue by ${OVERDUE_CLUSTER_DAYS} days or more`,
-      detail: `The oldest, ${first.key}, is ${plural(first.daysLate, 'day')} late.`,
+      title: `${longLate.length} tasks overdue by ${clusterDays} ${f.workingDays ? 'working days' : 'days'} or more`,
+      detail: `The oldest, ${first.key}, is ${lateWords(first.daysLate, f.workingDays)}.`,
       accountable: unique([...longLate.flatMap((t) => t.assigneeIds), pm]),
       taskIds: longLate.map((t) => t.id),
     });

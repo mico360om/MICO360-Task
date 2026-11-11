@@ -8,6 +8,8 @@
  * Every read below is asked only about those projects.
  */
 import { ForbiddenError, NotFoundError, ValidationError } from '../../lib/http-errors';
+import { workingDaysLate, type WorkCalendar } from '../../lib/working-days';
+import type { ProjectCalendars } from '../project-health/health-extras-loader';
 import { formatDay } from '../../lib/export-format';
 import { daysUntilDue, dueDayKey, shiftDayKey, todayKey, zonedDayKey, zonedStartOfDay } from '../../lib/due-date';
 import { weekOf, type WeekStart } from '../planning/timeline';
@@ -74,6 +76,8 @@ export interface ManagementServiceDeps {
    * (progress against time, blocked work, milestones at risk, workload). Absent: the rule as before.
    */
   healthExtras?: HealthExtrasLoader;
+  /** Notification & Scheduling centre: each project's working days and holidays — "days late" count working days. */
+  projectCalendars?: ProjectCalendars;
 }
 
 export type ManagementScope = 'ALL' | 'RUN';
@@ -99,7 +103,8 @@ export interface HealthRow extends OptionProject {
   /** 1.23.5: how it is counted. */
   completionBy: CompletionMode;
   /** The earliest milestone not reached (a late one first); daysLeft < 0 when past its day — late, unless it is waiting for approval. */
-  nextMilestone: { id: string; key: string; title: string; due: string | null; daysLeft: number | null; waiting: boolean } | null;
+  /** `workingDaysLate`: a late one's working days late (Notification & Scheduling centre). */
+  nextMilestone: { id: string; key: string; title: string; due: string | null; daysLeft: number | null; waiting: boolean; workingDaysLate?: number } | null;
   lateMilestones: number;
   lastActivityAt: string;
   missingChecks: number;
@@ -367,6 +372,8 @@ export function createManagementService(deps: ManagementServiceDeps) {
   /** Each project's figures, mark and reasons, worst first; with the checks they were made from. */
   async function healthOf(projects: MgmtProject[], ctx: Context, done?: Pick<TrendWeek, 'from' | 'to'>) {
     const ids = projects.map((p) => p.id);
+    // Notification & Scheduling: a late milestone's days count its company's working days.
+    const cals = deps.projectCalendars && ids.length ? await deps.projectCalendars(ids) : new Map<string, WorkCalendar>();
     const [figures, milestones, checks, followUps, owners, extras] = await Promise.all([
       source.taskFigures(ids, ctx.today),
       source.openMilestones(ids),
@@ -388,6 +395,8 @@ export function createManagementService(deps: ManagementServiceDeps) {
           .sort((a, b) => (a.day ?? '9999').localeCompare(b.day ?? '9999') || collator.compare(a.m.title, b.m.title));
         // A milestone waiting for approval is handed in: never late while it waits (owner, 30 Oct).
         const lateMarks = marks.filter((x) => !x.m.waiting && x.daysLeft !== null && x.daysLeft < 0);
+        const cal = cals.get(p.id);
+        const lateOf = (x: (typeof marks)[number]) => (cal && x.day ? workingDaysLate(x.day, ctx.today, cal) : -x.daysLeft!);
         const next = marks[0] ?? null;
         const lastActivityAt = f.lastTaskUpdate && f.lastTaskUpdate > p.updatedAt ? f.lastTaskUpdate : p.updatedAt;
         const c = summary.byProject.get(p.id) ?? emptyCounts();
@@ -397,7 +406,7 @@ export function createManagementService(deps: ManagementServiceDeps) {
             status: p.status,
             open: f.open,
             late: f.late,
-            lateMilestones: lateMarks.map((x) => ({ title: x.m.title, daysLate: -x.daysLeft! })),
+            lateMilestones: lateMarks.map((x) => ({ title: x.m.title, daysLate: lateOf(x), ...(cal ? { working: true } : {}) })),
             missingChecks: c.missing,
             lastActivityAt,
             // 1.23.5: progress against time, blocked work, milestones at risk, workload.
@@ -415,7 +424,8 @@ export function createManagementService(deps: ManagementServiceDeps) {
           late: f.late,
           completionPct: x ? x.completion.pct : completionPct(f.done, f.total),
           completionBy: x?.completion.mode ?? 'COUNT',
-          nextMilestone: next ? { id: next.m.id, key: next.m.key, title: next.m.title, due: next.day, daysLeft: next.daysLeft, waiting: !!next.m.waiting } : null,
+          // A late one's days count working days (as the risks do): daysLate beside daysLeft.
+          nextMilestone: next ? { id: next.m.id, key: next.m.key, title: next.m.title, due: next.day, daysLeft: next.daysLeft, waiting: !!next.m.waiting, ...(cal && next.daysLeft !== null && next.daysLeft < 0 ? { workingDaysLate: lateOf(next) } : {}) } : null,
           lateMilestones: lateMarks.length,
           lastActivityAt: lastActivityAt.toISOString(),
           missingChecks: c.missing,
@@ -619,6 +629,12 @@ export function createManagementService(deps: ManagementServiceDeps) {
     const suffix = q.projectId ? ` · ${projectOf.get(q.projectId)!.name}` : person ? ` · ${person.name}` : '';
     const list = (title: string, total: number, rows: ItemRow[]): ItemList => ({ metric, title: `${title}${suffix}`, total, limit: LIST_LIMIT, rows: rows.slice(0, LIST_LIMIT) });
 
+    const cals = deps.projectCalendars ? await deps.projectCalendars(ids) : new Map<string, WorkCalendar>();
+    /** Days late: working days of the project's company (calendar days without its calendar). */
+    const lateDays = (projectId: string, dueKey: string | null, left: number) => {
+      const cal = cals.get(projectId);
+      return cal && dueKey ? workingDaysLate(dueKey, ctx.today, cal) : -left;
+    };
     const taskRow = (t: TaskLine, extra: Partial<ItemRow> = {}): ItemRow => {
       const left = daysUntilDue(t.dueDate, tz, ctx.at);
       return {
@@ -628,7 +644,7 @@ export function createManagementService(deps: ManagementServiceDeps) {
         key: t.key,
         project: projectOf.get(t.projectId) ?? null,
         due: dueDayKey(t.dueDate, tz),
-        daysLate: !isTaskDone(t) && !t.waiting && left !== null && left < 0 ? -left : null,
+        daysLate: !isTaskDone(t) && !t.waiting && left !== null && left < 0 ? lateDays(t.projectId, dueDayKey(t.dueDate, tz), left) : null,
         people: t.assignees,
         ...extra,
       };
@@ -654,8 +670,11 @@ export function createManagementService(deps: ManagementServiceDeps) {
     const lateBy = (r: CheckRow) => {
       const due = dueDayKey(r.dueDate, tz);
       const done = r.completedAt ? zonedDayKey(r.completedAt, tz) : null;
+      const cal = cals.get(r.projectId);
+      if (due && done && cal) return workingDaysLate(due, done, cal);
       return due && done ? Math.round((Date.parse(`${done}T12:00:00Z`) - Date.parse(`${due}T12:00:00Z`)) / 86_400_000) : 0;
     };
+    const lateWord = (r: CheckRow) => (cals.get(r.projectId) ? (lateBy(r) > 0 ? `${plural(lateBy(r), 'working day')} late` : 'late') : `${plural(lateBy(r), 'day')} late`);
 
     switch (metric) {
       case 'late-tasks': {
@@ -675,12 +694,12 @@ export function createManagementService(deps: ManagementServiceDeps) {
       case 'checks-due':
         return checkList('Checks due', inPeriod, (r) => {
           const st = state(r);
-          return st === 'DONE' ? { detail: 'Done', tone: 'success' } : st === 'DONE_LATE' ? { detail: `Done ${plural(lateBy(r), 'day')} late`, tone: 'warning' } : st === 'LATE' ? { detail: 'Missing', tone: 'danger' } : { detail: 'Due', tone: 'neutral' };
+          return st === 'DONE' ? { detail: 'Done', tone: 'success' } : st === 'DONE_LATE' ? { detail: `Done ${lateWord(r)}`, tone: 'warning' } : st === 'LATE' ? { detail: 'Missing', tone: 'danger' } : { detail: 'Due', tone: 'neutral' };
         });
       case 'checks-done':
-        return checkList('Checks done', (r) => inPeriod(r) && isDone(r), (r) => (state(r) === 'DONE_LATE' ? { detail: `Done ${plural(lateBy(r), 'day')} late`, tone: 'warning' } : { detail: 'Done on time', tone: 'success' }));
+        return checkList('Checks done', (r) => inPeriod(r) && isDone(r), (r) => (state(r) === 'DONE_LATE' ? { detail: `Done ${lateWord(r)}`, tone: 'warning' } : { detail: 'Done on time', tone: 'success' }));
       case 'checks-done-late':
-        return checkList('Checks done late', (r) => inPeriod(r) && state(r) === 'DONE_LATE', (r) => ({ detail: `Done ${plural(lateBy(r), 'day')} late`, tone: 'warning' }));
+        return checkList('Checks done late', (r) => inPeriod(r) && state(r) === 'DONE_LATE', (r) => ({ detail: `Done ${lateWord(r)}`, tone: 'warning' }));
       case 'checks-no-report':
         return checkList('Closed without a report', (r) => inPeriod(r) && isDone(r) && !r.hasReport, () => ({ detail: 'No finished inspection', tone: 'warning' }));
       case 'follow-ups': {
@@ -775,7 +794,7 @@ export function createManagementService(deps: ManagementServiceDeps) {
               title: a.description,
               project: projectOf.get(a.projectId) ?? null,
               due: dueDayKey(a.dueDate, tz),
-              daysLate: overdue ? -left! : null,
+              daysLate: overdue ? lateDays(a.projectId, dueDayKey(a.dueDate, tz), left!) : null,
               people: a.assigneeName ? [a.assigneeName] : [],
               detail: a.meetingTitle,
               tone: overdue ? 'danger' : 'neutral',

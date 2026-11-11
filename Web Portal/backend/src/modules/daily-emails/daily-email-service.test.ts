@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createDailyEmailService, type DailyRecipient } from './daily-email-service';
+import { createDailyEmailService, NOT_A_WORKING_DAY, type DailyRecipient } from './daily-email-service';
 import type { DailyEmailRecord, DailyEmailRepository } from './daily-email-repository';
 import type { DailyMeeting, DailyTask } from './daily-email-content';
 import type { EmailContent } from '../email/email-templates';
@@ -984,5 +984,66 @@ describe('one daily email per person, grouped by company, with their company’s
     await t.service.runSweep();
     expect(t.sent[0]!.content.html).not.toContain('Alpha LLC');
     expect(t.sent[0]!.opts).toBeUndefined();
+  });
+});
+
+describe('Notification & Scheduling centre: working days only, held notices folded in, working days late', () => {
+  const MORNING = at('2026-10-21T02:00:00Z'); // Wednesday 06:00 in Muscat
+  function centre(o: { working?: boolean; held?: { id: string; title: string; body: string | null }[]; pending?: DailyTask[] } = {}) {
+    const { repo, rows } = memoryRepo(() => clock);
+    let clock = MORNING;
+    const sent: Array<{ html: string; text: string; subject: string }> = [];
+    const folded = vi.fn(async (_ids: string[], _at: Date) => {});
+    const service = createDailyEmailService({
+      repo,
+      people: { list: async () => [person('ada')], find: async (id) => (id === 'ada' ? person('ada') : null) },
+      tasks: { pending: async () => o.pending ?? [task('RIG-1')], completedBetween: async () => [] },
+      send: async (_to, content) => {
+        sent.push({ html: content.html, text: content.text, subject: content.subject });
+        return 'sent';
+      },
+      isConfigured: () => true,
+      companyTimeZone: TZ,
+      appUrl: 'https://task.example',
+      now: () => clock,
+      workingDay: async () => o.working ?? true,
+      lateDays: () => 3,
+      held: { list: async () => o.held ?? [], folded },
+    });
+    return { service, rows, sent, folded, setNow: (iso: string) => (clock = at(iso)) };
+  }
+
+  it('no daily email on a day off: recorded as skipped, saying why', async () => {
+    const c = centre({ working: false });
+    await c.service.runSweep();
+    expect(c.sent).toEqual([]);
+    expect([...c.rows.values()][0]).toMatchObject({ status: 'SKIPPED', lastError: NOT_A_WORKING_DAY });
+    expect(await c.service.pendingToday('ada', MORNING)).toBe(false);
+  });
+
+  it('the notices held overnight fold into the morning’s email (then marked folded); one email, not two', async () => {
+    const c = centre({ held: [{ id: 'h1', title: 'A task is 1 working day overdue', body: 'RIG-9 · Pour slab' }, { id: 'h2', title: 'Escalation: RIG-7 is Blocked', body: null }] });
+    c.setNow('2026-10-21T01:30:00Z'); // 05:30: before the email's time
+    expect(await c.service.pendingToday('ada')).toBe(true);
+    c.setNow('2026-10-21T02:00:00Z');
+    await c.service.runSweep();
+    expect(c.sent).toHaveLength(1);
+    expect(c.sent[0]!.text).toContain('While you were away (2)');
+    expect(c.sent[0]!.text).toContain('- A task is 1 working day overdue — RIG-9 · Pour slab');
+    expect(c.folded).toHaveBeenCalledWith(['h1', 'h2'], expect.any(Date));
+    // Gone: nothing else waits for it today.
+    expect(await c.service.pendingToday('ada')).toBe(false);
+  });
+
+  it('held notices alone are enough for an email', async () => {
+    const c = centre({ pending: [], held: [{ id: 'h1', title: 'No activity on RIG-3 for 5 working days', body: 'RIG-3 · Wire panel' }] });
+    await c.service.runSweep();
+    expect(c.sent).toHaveLength(1);
+  });
+
+  it('overdue counts working days', async () => {
+    const c = centre({ pending: [task('RIG-1', { dueDate: at('2026-10-15T00:00:00Z') })] });
+    await c.service.runSweep();
+    expect(c.sent[0]!.text).toContain('3 working days overdue');
   });
 });

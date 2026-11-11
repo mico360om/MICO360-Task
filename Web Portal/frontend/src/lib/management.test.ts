@@ -51,3 +51,11 @@ describe('words for the table', () => {
     expect(idleText('2026-10-01T05:00:00.000Z', '2026-10-27', 'Asia/Muscat')).toBe('26 days ago');
   });
 });
+
+describe('milestoneText: working days (Notification & Scheduling centre)', () => {
+  it('a late milestone says the server’s working days, or “Late” when only days off passed', () => {
+    expect(milestoneText({ due: '2026-11-12', daysLeft: -5, workingDaysLate: 3 })).toBe('3 working days late');
+    expect(milestoneText({ due: '2026-11-12', daysLeft: -2, workingDaysLate: 0 })).toBe('Late');
+    expect(milestoneText({ due: '2026-11-12', daysLeft: -2 })).toBe('2 days late');
+  });
+});

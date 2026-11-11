@@ -239,7 +239,12 @@ export function createNotifyPolicyService(deps: NotifyPolicyServiceDeps) {
 
   async function schedules(companyId: string): Promise<ApiSchedule[]> {
     await mustExist(companyId);
-    return (await store.schedules(companyId)).map(toApiSchedule);
+    // Standard, Critical, then the company's own in the order they were made.
+    const rank = (s: ScheduleRow) => (s.builtIn === 'STANDARD' ? 0 : s.builtIn === 'CRITICAL' ? 1 : 2);
+    return (await store.schedules(companyId))
+      .map((s, i) => ({ s, i }))
+      .sort((a, b) => rank(a.s) - rank(b.s) || a.i - b.i)
+      .map(({ s }) => toApiSchedule(s));
   }
 
   function checkSteps(steps: ScheduleSteps): void {

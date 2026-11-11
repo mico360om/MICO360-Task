@@ -59,7 +59,8 @@ export function doneCell(p: { completionPct: number; completionBy?: 'COUNT' | 'W
 export function milestoneCell(m: ManagementOverview['projects'][number]['nextMilestone']): string {
   if (!m) return '—';
   const when = m.due ? formatDay(m.due) : 'no date';
-  const state = m.waiting ? ' (waiting for approval)' : m.daysLeft !== null && m.daysLeft < 0 ? ` (${plural(-m.daysLeft, 'day')} late)` : '';
+  const late = m.workingDaysLate !== undefined ? (m.workingDaysLate > 0 ? `${plural(m.workingDaysLate, 'working day')} late` : 'late') : `${plural(-(m.daysLeft ?? 0), 'day')} late`;
+  const state = m.waiting ? ' (waiting for approval)' : m.daysLeft !== null && m.daysLeft < 0 ? ` (${late})` : '';
   return `${m.key} · ${m.title} · ${when}${state}`;
 }
 

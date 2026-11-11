@@ -50,7 +50,7 @@ export interface HealthRow extends OptionProject {
   late: number;
   completionPct: number;
   /** `waiting`: it waits for approval — never late meanwhile (an older server sends none). */
-  nextMilestone: { id: string; key: string; title: string; due: string | null; daysLeft: number | null; waiting?: boolean } | null;
+  nextMilestone: { id: string; key: string; title: string; due: string | null; daysLeft: number | null; waiting?: boolean; workingDaysLate?: number } | null;
   lateMilestones: number;
   lastActivityAt: string;
   missingChecks: number;

@@ -1,6 +1,6 @@
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { ForbiddenError, NotFoundError, ValidationError } from '../../lib/http-errors';
-import { holidaysInRange, isWorkingDay, shiftDay, zonedDay, zonedInstant } from '../../lib/working-days';
+import { holidaysInRange, isWorkingDay, shiftDay, zonedDay, zonedInstant, type WorkCalendar } from '../../lib/working-days';
 import type { Viewer } from '../companies/company-access';
 import { STAFF_ONLY_WHERE } from '../clients/client-kind';
 import { normalizePreferences, type NotificationPreferences, type PreferenceStore } from '../notifications/notification-preferences';
@@ -277,7 +277,19 @@ export function createPolicyWiring(deps: PolicyWiringDeps) {
     };
   }
 
-  return { routes, delivery, personPolicy, preview, contextFor, clearPeople: () => personCache.clear() };
+  /** Each project's company working days and holidays (Management, project health: "days late" in working days). */
+  async function projectCalendars(projectIds: string[]): Promise<ReadonlyMap<string, WorkCalendar>> {
+    if (projectIds.length === 0) return new Map();
+    const rows = await prisma.project.findMany({
+      where: { id: { in: [...new Set(projectIds)] } },
+      select: { id: true, mainCompanyId: true, companies: { select: { companyId: true }, orderBy: [{ addedAt: 'asc' }, { companyId: 'asc' }], take: 1 } },
+    });
+    const out = new Map<string, WorkCalendar>();
+    for (const p of rows) out.set(p.id, (await service.rules(p.mainCompanyId ?? p.companies[0]?.companyId ?? null)).calendar);
+    return out;
+  }
+
+  return { routes, delivery, personPolicy, preview, contextFor, projectCalendars, clearPeople: () => personCache.clear() };
 }
 
 function validZone(z: string | null | undefined): string | null {

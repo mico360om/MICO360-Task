@@ -116,3 +116,13 @@ describe('automatic risks, each with an explanation and who is accountable (owne
     expect(risks.map((r) => r.code)).toEqual(['MILESTONE_LATE', 'OVERDUE', 'MILESTONE_AT_RISK', 'WORKLOAD', 'BLOCKED', 'UNASSIGNED', 'NO_ACTIVITY']);
   });
 });
+
+describe('Notification & Scheduling centre: working days in the risks', () => {
+  it('overdue tasks cluster at 5 working days, and the words say working days', () => {
+    const overdue = ['a', 'b', 'c'].map((id, i) => ({ ...t(id, ['sara']), daysLate: 5 + i }));
+    const [r] = projectRisks(facts({ overdue, workingDays: true }));
+    expect(r).toMatchObject({ code: 'OVERDUE', title: '3 tasks overdue by 5 working days or more', detail: 'The oldest, C, is 7 working days late.' });
+    // Calendar days (no working days known): 7 as before.
+    expect(projectRisks(facts({ overdue })).find((x) => x.code === 'OVERDUE')).toBeUndefined();
+  });
+});

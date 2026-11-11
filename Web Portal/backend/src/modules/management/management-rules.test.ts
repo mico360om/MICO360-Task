@@ -190,6 +190,12 @@ describe('firstWorkingDay: the first working morning of a company week', () => {
     expect(firstWorkingDay('2026-10-24', SUN_THU)).toBe('2026-10-25'); // Saturday week: Sunday
     expect(firstWorkingDay('2026-10-25', MON_FRI)).toBe('2026-10-26'); // Sunday week, Monday–Friday
   });
+
+  it('Notification & Scheduling: skips the company’s holidays; a week of holidays keeps its first working weekday', () => {
+    expect(firstWorkingDay('2026-10-25', SUN_THU, [{ day: '2026-10-25', name: 'Eid' }, { day: '2026-10-26', name: 'Eid' }])).toBe('2026-10-27');
+    const allWeek = [25, 26, 27, 28, 29].map((d) => ({ day: `2026-10-${d}`, name: 'Eid' }));
+    expect(firstWorkingDay('2026-10-25', SUN_THU, allWeek)).toBe('2026-10-25');
+  });
 });
 
 describe('trendWeeks / periodOf: company weeks in the company time zone, the current one last (partial)', () => {

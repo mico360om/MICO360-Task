@@ -8,14 +8,14 @@ import type { CompanyCalendar } from '../companies/company-time';
 import { createPrismaManagementSource } from './prisma-management-source';
 import { createPrismaCompanyGroups, createPrismaWeeklySummaryPeople, createPrismaWeeklySummaryRepository } from './prisma-weekly-summary';
 import { createWeeklySummaryService, type WeeklySummaryDeps } from './weekly-summary-service';
-import { createHealthExtrasLoader } from '../project-health/health-extras-loader';
+import { createHealthExtrasLoader, type ProjectCalendars } from '../project-health/health-extras-loader';
 import { createPrismaHealthSource } from '../project-health/prisma-health-source';
 
 /** System Settings — companies: the week start and working days may be asked with the reader (their company's). */
 type Settings = Pick<SettingsService, 'dailyLimit' | 'weeklySummaryEnabled'> & ManagementSettings;
 
 /** The Management page's service over the database (the server, and scripts that need it). */
-export function createManagementFromPrisma(prisma: PrismaClient, o: { settings: Settings; timeZone: string; now?: () => Date }): ManagementService {
+export function createManagementFromPrisma(prisma: PrismaClient, o: { settings: Settings; timeZone: string; now?: () => Date; projectCalendars?: ProjectCalendars }): ManagementService {
   return createManagementService({
     source: createPrismaManagementSource(prisma, o.timeZone),
     workload: createPrismaWorkloadStore(prisma),
@@ -25,7 +25,9 @@ export function createManagementFromPrisma(prisma: PrismaClient, o: { settings: 
     // 1.22 "Show my projects only" (an administrator's own; the page and its PDF, not the weekly email).
     myProjectsOnly: (viewer) => (isAdminRoles(viewer.roles) ? readMyProjectsOnly(prisma, viewer.id) : Promise.resolve(false)),
     // 1.23.5 Project overview & health: weighted completion and the new health facts, in the one rule.
-    healthExtras: createHealthExtrasLoader(createPrismaHealthSource(prisma), o.timeZone),
+    healthExtras: createHealthExtrasLoader(createPrismaHealthSource(prisma), o.timeZone, o.projectCalendars),
+    // Notification & Scheduling centre: "days late" in each project's company's working days.
+    ...(o.projectCalendars ? { projectCalendars: o.projectCalendars } : {}),
   });
 }
 

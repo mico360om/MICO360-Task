@@ -65,7 +65,8 @@ export interface HealthFacts {
   /** Open tasks whose due day is before today (company time). */
   late: number;
   /** Open milestones past their due day. */
-  lateMilestones: { title: string; daysLate: number }[];
+  /** `working`: daysLate are working days (Notification & Scheduling centre). */
+  lateMilestones: { title: string; daysLate: number; working?: boolean }[];
   /** Open checks past their due day. */
   missingChecks: number;
   /** The later of the project's own last change and its latest task change. */
@@ -100,7 +101,8 @@ export function projectRag(f: HealthFacts, ctx: { now: Date; timeZone: string })
   const reasons: RagReason[] = [];
   if (f.lateMilestones.length === 1) {
     const m = f.lateMilestones[0]!;
-    reasons.push({ code: 'MILESTONE_LATE', level: 'RED', text: `Milestone “${m.title}” is ${plural(m.daysLate, 'day')} late` });
+    const late = m.working ? (m.daysLate > 0 ? plural(m.daysLate, 'working day') + ' late' : 'late') : `${plural(m.daysLate, 'day')} late`;
+    reasons.push({ code: 'MILESTONE_LATE', level: 'RED', text: `Milestone “${m.title}” is ${late}` });
   } else if (f.lateMilestones.length > 1) {
     reasons.push({ code: 'MILESTONE_LATE', level: 'RED', text: `${f.lateMilestones.length} milestones are late` });
   }

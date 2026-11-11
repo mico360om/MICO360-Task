@@ -42,10 +42,14 @@ export const isDefaultFilters = (f: ManagementFilters) => f.projectIds.length ==
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
-/** "3 days late", "Due today", "Due tomorrow", "In 19 days", "No date" — or "Waiting for approval" (never late while it waits). */
-export function milestoneText(m: { due: string | null; daysLeft: number | null; waiting?: boolean }): string {
+/**
+ * "3 working days late" (the server counts the project's company's working days; "Late" when late only
+ * by days off), "Due today", "Due tomorrow", "In 19 days", "No date" — or "Waiting for approval".
+ */
+export function milestoneText(m: { due: string | null; daysLeft: number | null; waiting?: boolean; workingDaysLate?: number }): string {
   if (m.waiting) return 'Waiting for approval';
   if (!m.due || m.daysLeft === null) return 'No date';
+  if (m.daysLeft < 0 && m.workingDaysLate !== undefined) return m.workingDaysLate > 0 ? `${plural(m.workingDaysLate, 'working day')} late` : 'Late';
   if (m.daysLeft < 0) return `${plural(-m.daysLeft, 'day')} late`;
   if (m.daysLeft === 0) return 'Due today';
   if (m.daysLeft === 1) return 'Due tomorrow';

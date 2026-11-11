@@ -590,3 +590,20 @@ describe('1.23.5 the one health rule with the project health extras', () => {
     expect((await svc.healthFor([])).rows).toEqual([]);
   });
 });
+
+describe('Notification & Scheduling centre: “days late” in the project’s company’s working days', () => {
+  it('late tasks count working days when the project’s calendar is known (Sun–Thu: Fri and Sat don’t count)', async () => {
+    const source = fakeManagementSource(DATA);
+    const svc = createManagementService({
+      source,
+      workload: fakeWorkloadFor(DATA),
+      settings: { companyWeekStart: async () => 0, workingHours: async () => ({ days: [0, 1, 2, 3, 4] }), dailyLimit: async () => 2 },
+      timeZone: TZ,
+      now: () => NOW,
+      projectCalendars: async (ids) => new Map(ids.map((id) => [id, { workingDays: [0, 1, 2, 3, 4], holidays: [] }])),
+    });
+    const rig = await svc.items(ADMIN, filters(), { metric: 'late-tasks', projectId: 'rig' });
+    // Due Thu 22 Oct, today Tue 27 Oct: 5 calendar days, 3 working days.
+    expect(rig.rows[0]).toMatchObject({ key: 'C3', due: '2026-10-22', daysLate: 3 });
+  });
+});

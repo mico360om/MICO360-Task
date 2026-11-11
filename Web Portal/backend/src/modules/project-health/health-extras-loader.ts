@@ -1,4 +1,5 @@
 import { todayKey } from '../../lib/due-date';
+import type { WorkCalendar } from '../../lib/working-days';
 import { WORKLOAD_MIN } from './health-facts';
 import { attentionEdge, buildHealthExtras, type HealthExtras } from './health-extras';
 import type { HealthSource } from './health-source';
@@ -13,7 +14,10 @@ const unique = <T>(xs: T[]) => [...new Set(xs)];
  * projects): their rows, completion figures, open load, attention tasks, those tasks' links and Blocked
  * moves, the due-date groups behind milestones due soon, and the names the risks need.
  */
-export function createHealthExtrasLoader(source: HealthSource, timeZone: string): HealthExtrasLoader {
+/** Notification & Scheduling: each project's company working days and holidays (days late count working days). */
+export type ProjectCalendars = (projectIds: string[]) => Promise<ReadonlyMap<string, WorkCalendar>>;
+
+export function createHealthExtrasLoader(source: HealthSource, timeZone: string, calendars?: ProjectCalendars): HealthExtrasLoader {
   return async (projectIds, at = {}) => {
     const ids = unique(projectIds);
     if (ids.length === 0) return new Map();
@@ -26,11 +30,12 @@ export function createHealthExtrasLoader(source: HealthSource, timeZone: string)
     // A milestone due soon that waits on nothing is judged by the work due before it: only those projects' dates are read.
     const soonMilestoneProjects = unique(tasks.filter((t) => t.isMilestone && !t.waiting && t.dueDate && t.dueDate < edge).map((t) => t.projectId));
     const busy = unique(loads.flatMap((l) => l.people.filter((p) => p.count >= WORKLOAD_MIN).map((p) => p.userId)));
-    const [links, moves, groups, people] = await Promise.all([
+    const [links, moves, groups, people, cals] = await Promise.all([
       source.links(taskIds),
       source.lastMoves(blockedIds),
       soonMilestoneProjects.length ? source.dueGroups(soonMilestoneProjects, edge) : Promise.resolve([]),
       source.people(busy),
+      calendars ? calendars(ids) : Promise.resolve(new Map<string, WorkCalendar>()),
     ]);
     const names = new Map<string, string>(people.map((p) => [p.id, p.name]));
     for (const t of tasks) for (const a of t.assignees) if (!names.has(a.id)) names.set(a.id, a.name);
@@ -53,7 +58,7 @@ export function createHealthExtrasLoader(source: HealthSource, timeZone: string)
             dueGroups: groups.filter((g) => g.projectId === project.id),
             names,
           },
-          ctx,
+          { ...ctx, ...(cals.get(project.id) ? { calendar: cals.get(project.id)! } : {}) },
         ),
       );
     }

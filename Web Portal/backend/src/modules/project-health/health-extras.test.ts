@@ -173,3 +173,22 @@ describe('a project’s health extras (1.23.5)', () => {
     expect(x.actions.find((a) => a.id === blocker.id)).toMatchObject({ dependents: 1, heldByBlockers: false });
   });
 });
+
+describe('Notification & Scheduling centre: days late in the project’s company’s working days', () => {
+  // Sunday to Thursday; Thursday 19 Nov 2026 a holiday. Today (ctx) is Friday 20 Nov.
+  const calendar = { workingDays: [0, 1, 2, 3, 4], holidays: [{ day: '2026-11-19', name: 'Day off' }] };
+
+  it('an overdue task and a late milestone count working days; the risks say so', () => {
+    const late = task({ dueDate: day('2026-11-15'), isMilestone: true, title: 'Handover' });
+    const calendarDays = buildHealthExtras(input({ tasks: [late] }), ctx);
+    expect(calendarDays.risks.find((r) => r.code === 'MILESTONE_LATE')!.title).toBe('Milestone “Handover” is 5 days late');
+    const working = buildHealthExtras(input({ tasks: [late] }), { ...ctx, calendar });
+    // Mon 16, Tue 17, Wed 18 — Thursday is a holiday, Friday a weekend day.
+    expect(working.risks.find((r) => r.code === 'MILESTONE_LATE')!.title).toBe('Milestone “Handover” is 3 working days late');
+  });
+
+  it('a task late only by days off is “late”, not “0 working days late”', () => {
+    const late = task({ dueDate: day('2026-11-18'), isMilestone: true, title: 'Pour' });
+    expect(buildHealthExtras(input({ tasks: [late] }), { ...ctx, calendar }).risks.find((r) => r.code === 'MILESTONE_LATE')!.title).toBe('Milestone “Pour” is late');
+  });
+});

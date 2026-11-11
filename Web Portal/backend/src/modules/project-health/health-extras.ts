@@ -6,6 +6,7 @@
  * `ragFacts`; the Projects page cards, the project page and the Management page all read these.
  */
 import { dueDayKey, shiftDayKey, zonedDayKey } from '../../lib/due-date';
+import { workingDaysLate, type WorkCalendar } from '../../lib/working-days';
 import { daysBetween } from '../planning/timeline';
 import type { HealthFacts } from '../management/management-rules';
 import { completionOf, type Completion, type CompletionFigures } from './completion';
@@ -54,9 +55,11 @@ export interface HealthExtras {
 
 const EMPTY: CompletionFigures = { total: 0, done: 0, weightTotal: 0, weightDone: 0 };
 
-export function buildHealthExtras(input: ExtrasInput, ctx: { today: string; timeZone: string }): HealthExtras {
+export function buildHealthExtras(input: ExtrasInput, ctx: { today: string; timeZone: string; calendar?: WorkCalendar }): HealthExtras {
   const { project: p, tasks } = input;
   const { today, timeZone } = ctx;
+  /** Notification & Scheduling: days late in the project's company's working days (calendar days without it). */
+  const lateBy = (dueKey: string, days: number) => (ctx.calendar ? workingDaysLate(dueKey, today, ctx.calendar) : -days);
   const figures = input.figures ?? { ...EMPTY, projectId: p.id, lastTaskUpdate: null };
   const completion = { ...completionOf(figures, p.completionMode), total: figures.total, done: figures.done, weightTotal: figures.weightTotal, weightDone: figures.weightDone };
   const lastActivityAt = figures.lastTaskUpdate && figures.lastTaskUpdate > p.updatedAt ? figures.lastTaskUpdate : p.updatedAt;
@@ -98,11 +101,11 @@ export function buildHealthExtras(input: ExtrasInput, ctx: { today: string; time
     if (held) holdUps.set(t.id, held);
     if (isLongHoldUp(held)) blockedLong.push({ ...ref(t), days: held!.days });
     const days = daysTo(t.dueDate);
-    if (days !== null && days < 0) overdue.push({ ...ref(t), daysLate: -days });
+    if (days !== null && days < 0) overdue.push({ ...ref(t), daysLate: lateBy(dueDayKey(t.dueDate, timeZone)!, days) });
     if (days !== null && days <= UNASSIGNED_SOON_DAYS && t.assignees.length === 0) unassignedSoon.push({ ...ref(t), daysLeft: days });
     if (t.isMilestone && days !== null) {
       const due = dueDayKey(t.dueDate, timeZone)!;
-      if (days < 0) lateMilestones.push({ ...ref(t), daysLate: -days, due });
+      if (days < 0) lateMilestones.push({ ...ref(t), daysLate: lateBy(due, days), due });
       else {
         const risk = milestoneRisk({ dueDate: t.dueDate, waiting: false, linked: linkedWork(t, due) }, ctx);
         if (risk) atRisk.push({ ...ref(t), ...risk });
@@ -156,6 +159,7 @@ export function buildHealthExtras(input: ExtrasInput, ctx: { today: string; time
     unassignedSoon,
     idleDays: Math.max(0, daysBetween(lastActivityDay, today)),
     lastActivityDay,
+    ...(ctx.calendar ? { workingDays: true } : {}),
   };
   milestones.sort((a, b) => (a.due ?? '9999').localeCompare(b.due ?? '9999') || a.title.localeCompare(b.title, 'en'));
   return {

@@ -47,7 +47,9 @@ function finishedText(at: string, timeZone: string): string {
 }
 
 function RowBody({ row, timeZone }: { row: ItemRow; timeZone: string }) {
-  const due = row.daysLate ? `${plural(row.daysLate, 'day')} late` : row.due ? `Due ${shortDay(row.due)}` : null;
+  // Days late are working days (the server counts the project's company's); late only by days off: "Late".
+  const late = row.daysLate !== null && row.daysLate !== undefined;
+  const due = late ? (row.daysLate! > 0 ? `${plural(row.daysLate!, 'working day')} late` : 'Late') : row.due ? `Due ${shortDay(row.due)}` : null;
   return (
     <>
       <span className="flex min-w-0 items-baseline gap-2">
@@ -58,7 +60,7 @@ function RowBody({ row, timeZone }: { row: ItemRow; timeZone: string }) {
       </span>
       <span className="flex min-w-0 flex-wrap gap-x-2 text-xs text-ink-2">
         {row.project ? <bdi className="truncate" title={row.project.name}>{row.project.name}</bdi> : null}
-        {due ? <span className={row.daysLate ? 'font-semibold text-danger' : ''}>{due}</span> : null}
+        {due ? <span className={late ? 'font-semibold text-danger' : ''}>{due}</span> : null}
         {row.at ? <span>{finishedText(row.at, timeZone)}</span> : null}
         {row.people?.length ? <bdi className="truncate" title={row.people.join(', ')}>{row.people.join(', ')}</bdi> : null}
       </span>

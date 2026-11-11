@@ -17,6 +17,9 @@ describe('Management PDF: the next milestone cell', () => {
   });
   it('says when it is late, or waiting for approval, or has no date', () => {
     expect(milestoneCell({ ...m, daysLeft: -3 })).toBe('RIG-1 · Handover · 24 Oct 2026 (3 days late)');
+    // Notification & Scheduling: the working days the server counted.
+    expect(milestoneCell({ ...m, daysLeft: -5, workingDaysLate: 3 })).toBe('RIG-1 · Handover · 24 Oct 2026 (3 working days late)');
+    expect(milestoneCell({ ...m, daysLeft: -2, workingDaysLate: 0 })).toBe('RIG-1 · Handover · 24 Oct 2026 (late)');
     expect(milestoneCell({ ...m, daysLeft: -3, waiting: true })).toBe('RIG-1 · Handover · 24 Oct 2026 (waiting for approval)');
     expect(milestoneCell({ ...m, due: null, daysLeft: null })).toBe('RIG-1 · Handover · no date');
   });

@@ -1817,7 +1817,7 @@ async function main(): Promise<void> {
   // goes on the first working morning of the company week, at each person's daily-email time, to
   // everyone who can see the page (their own projects only), once a week — the same lease-locked,
   // every-minute sweep and retries as the daily task emails, with a company-wide switch.
-  const managementService = createManagementFromPrisma(prisma, { settings: managementSettings, timeZone: companyTz }); // companies: the reader's week
+  const managementService = createManagementFromPrisma(prisma, { settings: managementSettings, timeZone: companyTz, projectCalendars: (ids) => notifyWiring.projectCalendars(ids) }); // companies: the reader's week
   // 1.23.5 Project overview & health: the cards, the project page's Overview and its Next actions — the
   // Management page's one rule, kept per project for 60 s and read again after any change there (below).
   // 1.23.3 checklist items join Next actions: the person's own items of the project, from the Dashboard's
