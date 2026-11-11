@@ -1,6 +1,6 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../../../api/client';
-import { trainingApi, type CertificateStatus, type CourseStatus, type FeedbackKind, type FeedbackStatus, type ReportQuery, type TrainingModule } from '../../../api/training';
+import { trainingApi, type ManageCourse, type ManageLesson, type CertificateStatus, type CourseStatus, type FeedbackKind, type FeedbackStatus, type ReportQuery, type TrainingModule } from '../../../api/training';
 
 /** The Training Center's calls (one place, so a test can stand in for the server). */
 export const tc = () => trainingApi(apiClient);
@@ -37,4 +37,25 @@ export function useManageOptions(enabled = true) {
 /** Every course, newest change first (a manager's list; filters are applied on the server). */
 export function useManageCourses(f: { status?: CourseStatus | ''; module?: TrainingModule | ''; q?: string } = {}, enabled = true) {
   return useQuery({ queryKey: manageKeys.courses(f), queryFn: () => tc().courses(f), enabled });
+}
+
+/** One course in the editor: put an answer in the cache, then read it again (its publish problems and changes follow). */
+export function useCourseCache(courseId: string) {
+  const qc = useQueryClient();
+  const key = manageKeys.course(courseId);
+  const refresh = () => {
+    void qc.invalidateQueries({ queryKey: key });
+    void qc.invalidateQueries({ queryKey: [...MANAGE_KEY, 'courses'] });
+  };
+  return {
+    setCourse: (c: ManageCourse) => {
+      qc.setQueryData(key, c);
+      refresh();
+    },
+    replaceLesson: (l: ManageLesson) => {
+      qc.setQueryData<ManageCourse>(key, (c) => (c ? { ...c, lessons: c.lessons.map((x) => (x.id === l.id ? l : x)) } : c));
+      refresh();
+    },
+    refresh,
+  };
 }

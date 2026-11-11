@@ -118,15 +118,15 @@ export function SectionCard({ id, title, actions, children, description }: { id:
 }
 
 /** A small square icon button (44px on a touch screen) with its name as tooltip and accessible name. */
-export function IconButton({ label, onClick, disabled, children, tone = 'plain', ...rest }: { label: string; onClick: () => void; disabled?: boolean; children: ReactNode; tone?: 'plain' | 'danger' } & Record<`data-${string}`, string>) {
+export function IconButton({ label, onClick, disabled, children, tone = 'plain', buttonRef }: { label: string; onClick: () => void; disabled?: boolean; children: ReactNode; tone?: 'plain' | 'danger'; buttonRef?: (el: HTMLButtonElement | null) => void }) {
   return (
     <button
+      ref={buttonRef}
       type="button"
       aria-label={label}
       title={label}
       onClick={onClick}
       disabled={disabled}
-      {...rest}
       className={`grid h-8 w-8 flex-none place-items-center rounded-lg transition-colors disabled:opacity-40 ${tone === 'danger' ? 'text-ink-2 hover:bg-danger-soft hover:text-danger' : 'text-ink-2 hover:bg-ground hover:text-ink'} ${TOUCH_SQUARE}`}
     >
       {children}
