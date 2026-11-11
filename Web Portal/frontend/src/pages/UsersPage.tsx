@@ -351,9 +351,19 @@ export function UsersPage() {
     ) : (
       <span data-username>{u.username}</span>
     );
-  /** Their roles: a client's "Client" badge (and organisation), staff as before. */
+  /** Their roles: a client's "Client" badge (and organisation), staff as before (and Training manager, the permission). */
   const roleWords = (u: ApiUser) => {
-    if (!isClientRoles(u.roles)) return <>{u.roles.join(', ') || '—'}</>;
+    if (!isClientRoles(u.roles)) {
+      const roles = u.roles.join(', ') || '—';
+      return u.trainingManager ? (
+        <span className="flex flex-col items-start gap-0.5">
+          <span>{roles}</span>
+          <Badge tone="brand">Training manager</Badge>
+        </span>
+      ) : (
+        <>{roles}</>
+      );
+    }
     const organisation = organisationOf.get(u.id);
     return (
       <span className="flex flex-col items-start gap-0.5">

@@ -60,6 +60,24 @@ describe('UsersPage (admin management)', () => {
     expect(within(cell).getByText('Omar A').tagName).toBe('BDI');
   });
 
+  it('Training Center: a Training manager is marked beside their roles', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        json({
+          data: [
+            { id: 'u9', email: 'omar@x.co', username: 'omar', firstName: 'Omar', lastName: 'A', status: 'ACTIVE', roles: ['EMPLOYEE'], trainingManager: true },
+            { id: 'u8', email: 'sara@x.co', username: 'sara', firstName: 'Sara', lastName: 'B', status: 'ACTIVE', roles: ['EMPLOYEE'], trainingManager: false },
+          ],
+        }),
+      ),
+    );
+    renderPage();
+    const omar = (await screen.findByText('omar')).closest('tr')!;
+    expect(within(omar).getByText('Training manager')).toBeInTheDocument();
+    expect(within(screen.getByText('sara').closest('tr')!).queryByText('Training manager')).toBeNull();
+  });
+
   it('changes a user’s status via the API, after saying what happens (onboarding: with an optional reason)', async () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('omar')).toBeInTheDocument());

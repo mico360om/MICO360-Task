@@ -15,6 +15,7 @@ import { dialogLayer, dialogPanel, useTwoColumns } from './ui/dialog-size';
 import { CompanyChecklist } from './company/CompanyChecklist';
 import { useCompanyChoices } from './company/company-admin';
 import { Toggle } from './ui/Toggle';
+import { SearchableSelect } from './ui/SearchableSelect';
 import { MY_PROJECTS_WORDS } from './settings/MyProjectsSettings';
 import { DATE_PREFS_KEY } from '../lib/useDatePrefs';
 import { resetCompanyScopedQueries } from '../lib/company-scope';
@@ -325,6 +326,9 @@ function StaffAccountDialog({ user, onClose }: EditUserModalProps) {
   const adminInForm = roles.has('ADMIN');
   const mineChanged = adminInForm && mine !== savedMine;
 
+  // Training Center: Reports to, Department and the Training manager permission — each sent only when changed.
+  const training = useTrainingFields(user);
+
   // The header reads your own name and photo again too (you may have just edited yourself).
   const invalidate = () => Promise.all([qc.invalidateQueries({ queryKey: ['users'] }), qc.invalidateQueries({ queryKey: ME_KEY })]);
   const password = usePasswordReset(user, invalidate, isSelf);
@@ -340,6 +344,7 @@ function StaffAccountDialog({ user, onClose }: EditUserModalProps) {
         ...(isSelf ? {} : { roleNames: [...roles] }),
         ...(companiesChanged ? { companyIds, primaryCompanyId } : {}),
         ...(mineChanged ? { myProjectsOnly: mine } : {}),
+        ...training.patch,
       });
       if (!isSelf && status !== user.status) {
         try {
@@ -461,8 +466,8 @@ function StaffAccountDialog({ user, onClose }: EditUserModalProps) {
           {error ? <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{error}</p> : null}
           <AccountColumns
             left={<>{profileFields}{signIn}{password.section}</>}
-            right={<>{companiesField}{accessFields}{projectsField}</>}
-            single={<>{profileFields}{companiesField}{accessFields}{projectsField}{signIn}{password.section}</>}
+            right={<>{companiesField}{accessFields}{projectsField}{training.section}</>}
+            single={<>{profileFields}{companiesField}{accessFields}{projectsField}{training.section}{signIn}{password.section}</>}
           />
         </div>
         <DialogFooter onClose={onClose} saving={saveMut.isPending} />
@@ -470,6 +475,68 @@ function StaffAccountDialog({ user, onClose }: EditUserModalProps) {
       {password.form}
     </AccountDialog>
   );
+}
+
+/** What the Training fields say (and the tests read). */
+export const TRAINING_FIELD_WORDS = {
+  reportsToHint: 'Overdue mandatory training is escalated to this person; empty: the Training managers.',
+  departmentHint: 'Pick one or type a new name. Empty: no department.',
+  managerHint: 'Can create, publish and assign training and see training reports — no other administrator powers.',
+} as const;
+
+/**
+ * Training Center on a staff account (R16; owner 4 and 15): "Reports to" (active staff, never themselves; overdue
+ * mandatory training is escalated to them), "Department" (an existing one or a new name) and the Training manager
+ * permission. `patch` holds only what changed.
+ */
+function useTrainingFields(user: ApiUser) {
+  const savedReportsTo = user.reportsToId ?? '';
+  const savedDepartment = user.departmentName ?? '';
+  const savedManager = user.trainingManager === true;
+  const [reportsTo, setReportsTo] = useState(savedReportsTo);
+  const [department, setDepartment] = useState(savedDepartment);
+  const [manager, setManager] = useState(savedManager);
+  const dirQ = useQuery({ queryKey: ['directory'], queryFn: () => usersApi(apiClient).directory() });
+  const deptQ = useQuery({ queryKey: ['users', 'departments'], queryFn: () => usersApi(apiClient).departments() });
+  const people = (Array.isArray(dirQ.data) ? dirQ.data : []).filter((p) => p.active !== false && p.id !== user.id);
+  const options = [
+    { value: '', label: 'No one' },
+    ...people.map((p) => ({ value: p.id, label: `${p.firstName} ${p.lastName}`.trim() || p.username, hint: `@${p.username}` })),
+    // Someone saved before who is no longer offered (made inactive): still named, so the box doesn't look empty.
+    ...(savedReportsTo && dirQ.data && !people.some((p) => p.id === savedReportsTo) ? [{ value: savedReportsTo, label: 'Someone no longer active' }] : []),
+  ];
+  const departments = Array.isArray(deptQ.data) ? deptQ.data : [];
+  const patch = {
+    ...(reportsTo !== savedReportsTo ? { reportsToId: reportsTo || null } : {}),
+    ...(department.trim() !== savedDepartment ? { departmentName: department.trim() || null } : {}),
+    ...(manager !== savedManager ? { trainingManager: manager } : {}),
+  };
+  const section = (
+    <section aria-labelledby="eu-training-title" className="flex flex-col gap-3">
+      <p id="eu-training-title" className={SECTION}>Training</p>
+      <div className="flex flex-col gap-1.5">
+        <span className="text-sm font-medium text-ink" aria-hidden="true">Reports to</span>
+        <SearchableSelect size="lg" ariaLabel="Reports to" describedBy="eu-reports-to-hint" options={options} value={reportsTo} onChange={setReportsTo} placeholder="No one" />
+        <p id="eu-reports-to-hint" className="text-xs text-ink-2">{TRAINING_FIELD_WORDS.reportsToHint}</p>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <FieldLabel htmlFor="eu-department">Department</FieldLabel>
+        <input id="eu-department" list="eu-department-list" value={department} onChange={(e) => setDepartment(e.target.value)} maxLength={120} autoComplete="off" dir="auto" aria-describedby="eu-department-hint" className={fieldClass(false)} />
+        <datalist id="eu-department-list">
+          {departments.map((d) => <option key={d.id} value={d.name} />)}
+        </datalist>
+        <p id="eu-department-hint" className="text-xs text-ink-2">{TRAINING_FIELD_WORDS.departmentHint}</p>
+      </div>
+      <div className="flex items-center justify-between gap-4 rounded-lg border border-line p-2.5">
+        <div className="min-w-0">
+          <div className="text-sm font-medium text-ink">Training manager</div>
+          <div id="eu-training-manager-hint" className="text-xs text-ink-2">{TRAINING_FIELD_WORDS.managerHint}</div>
+        </div>
+        <Toggle on={manager} onChange={() => setManager((v) => !v)} label="Training manager" describedBy="eu-training-manager-hint" />
+      </div>
+    </section>
+  );
+  return { section, patch };
 }
 
 /** A client account: loads their details and project access (GET /clients/:id), then the form. */

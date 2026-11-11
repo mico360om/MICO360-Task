@@ -56,6 +56,19 @@ export interface ApiUser {
   primaryCompanyId?: string | null;
   /** 1.22.3: an administrator's "Show my projects only" (off by default; an older server sends none). Admin list only. */
   myProjectsOnly?: boolean;
+  /** Training Center: who their overdue mandatory training is escalated to (null: the Training managers). Staff only. */
+  reportsToId?: string | null;
+  /** Training Center: may create, publish and assign training and read its reports (no other administrator powers). */
+  trainingManager?: boolean;
+  /** Their department (Training Center assignments can target one). */
+  departmentId?: string | null;
+  departmentName?: string | null;
+}
+
+/** A department, as User Management's picker lists them (GET /users/departments). */
+export interface Department {
+  id: string;
+  name: string;
 }
 
 /** One of a person's companies, as the user list names it. */
@@ -187,6 +200,12 @@ export interface UserPatch {
   primaryCompanyId?: string | null;
   /** 1.22.3: an administrator's "Show my projects only" (on is refused for anyone else). */
   myProjectsOnly?: boolean;
+  /** Training Center: an active staff account other than themselves; null: none (the Training managers). Staff only. */
+  reportsToId?: string | null;
+  /** Training Center: the Training manager permission. Staff only. */
+  trainingManager?: boolean;
+  /** An existing department's name (matched whatever its capitals) or a new one; null or '': none. */
+  departmentName?: string | null;
 }
 
 /** User Management's list: everyone, the people in one company, or those in none. */
@@ -224,6 +243,8 @@ export function usersApi(client: ApiClient) {
       client.get<{ data: ApiUser[] }>(filter?.companyId ? `/users?companyId=${encodeURIComponent(filter.companyId)}` : '/users').then((r) => r.data),
     /** Admin-only: several people's companies at once; who couldn't be changed comes back with why. */
     assignCompanies: (input: CompanyAssignment) => client.post<{ data: CompanyPeopleChange }>('/users/companies', input).then((r) => r.data),
+    /** Admin-only: the departments, A–Z, for the Department picker. */
+    departments: () => client.get<{ data: Department[] }>('/users/departments').then((r) => r.data),
     /** Minimal people directory available to any signed-in user (chat names, DM picker). */
     directory: () => client.get<{ data: DirectoryUser[] }>('/users/directory').then((r) => r.data),
     /** "Download my data": everything the system holds about the signed-in person (JSON file). */

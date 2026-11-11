@@ -517,3 +517,113 @@ describe('EditUserModal: “Show my projects only” (1.22.3)', () => {
     await waitFor(() => expect(within(settings).getByRole('switch', { name: 'Show my projects only' })).toHaveAttribute('aria-checked', 'true'));
   });
 });
+
+// Training Center (R16, owner 4 and 15): Reports to, Department and the Training manager permission on a staff account.
+describe('EditUserModal: training (Reports to, Department, Training manager)', () => {
+  const directory = {
+    data: [
+      { id: 'u-sam', username: 'sam', firstName: 'Sam', lastName: 'Shared', avatarUrl: null, active: true, colleague: true },
+      { id: 'u-omar', username: 'omar', firstName: 'Omar', lastName: 'Ahmed', avatarUrl: null, active: true, colleague: true },
+      { id: 'u-lina', username: 'lina', firstName: 'Lina', lastName: 'Lee', avatarUrl: null, active: true, colleague: true },
+      { id: 'u-gone', username: 'gone', firstName: 'Old', lastName: 'Leaver', avatarUrl: null, active: false, colleague: true },
+    ],
+  };
+  const departments = { data: [{ id: 'd-ops', name: 'Operations' }, { id: 'd-fin', name: 'Finance' }] };
+  const withTraining = (over: Partial<ListedUser> = {}) => apiUser({ ...sam, reportsToId: 'u-omar', departmentId: 'd-ops', departmentName: 'Operations', trainingManager: false, ...over });
+  const serve = () => {
+    const server = companyServer({ companies: [alpha] });
+    server.answerNext('GET', /^\/users\/directory$/, directory);
+    server.answerNext('GET', /^\/users\/departments$/, departments);
+    return server;
+  };
+  const section = () => within(screen.getByRole('dialog')).getByRole('region', { name: 'Training' });
+
+  it('shows their saved Reports to, Department and Training manager, with what each means', async () => {
+    serve();
+    open(withTraining());
+    const s = section();
+    const reportsTo = within(s).getByRole('button', { name: 'Reports to' });
+    await waitFor(() => expect(reportsTo).toHaveTextContent('Omar Ahmed'));
+    expect(reportsTo).toHaveAccessibleDescription('Overdue mandatory training is escalated to this person; empty: the Training managers.');
+    expect(within(s).getByRole('combobox', { name: 'Department' })).toHaveValue('Operations');
+    const tm = within(s).getByRole('switch', { name: 'Training manager' });
+    expect(tm).toHaveAttribute('aria-checked', 'false');
+    expect(tm).toHaveAccessibleDescription('Can create, publish and assign training and see training reports — no other administrator powers.');
+    // The picker offers active staff, never the person themselves.
+    await userEvent.click(reportsTo);
+    const options = within(screen.getByRole('listbox')).getAllByRole('option').map((o) => o.textContent);
+    expect(options).toEqual(['No one', 'Omar Ahmed@omar', 'Lina Lee@lina']);
+    expect(options.join('|')).not.toMatch(/Sam Shared|Old Leaver/);
+  });
+
+  it('changes are saved — only the ones made', async () => {
+    const server = serve();
+    open(withTraining());
+    const s = section();
+    await waitFor(() => expect(within(s).getByRole('button', { name: 'Reports to' })).toHaveTextContent('Omar Ahmed'));
+    await userEvent.click(within(s).getByRole('button', { name: 'Reports to' }));
+    await userEvent.click(screen.getByRole('option', { name: /^Lina Lee/ }));
+    const dept = within(s).getByRole('combobox', { name: 'Department' });
+    await userEvent.clear(dept);
+    await userEvent.type(dept, 'Site crews');
+    await userEvent.click(within(s).getByRole('switch', { name: 'Training manager' }));
+    await save();
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(server.lastBody('PUT', '/users/u-sam')).toMatchObject({ reportsToId: 'u-lina', departmentName: 'Site crews', trainingManager: true });
+  });
+
+  it('left as they were, none of them is sent (a name change never touches them)', async () => {
+    const server = serve();
+    open(withTraining({ trainingManager: true }));
+    await waitFor(() => expect(within(section()).getByRole('button', { name: 'Reports to' })).toHaveTextContent('Omar Ahmed'));
+    await userEvent.type(screen.getByLabelText(/first name/i), 'm');
+    await save();
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    const body = server.lastBody('PUT', '/users/u-sam') as Record<string, unknown>;
+    expect(body).toMatchObject({ firstName: 'Samm' });
+    expect(body).not.toHaveProperty('reportsToId');
+    expect(body).not.toHaveProperty('departmentName');
+    expect(body).not.toHaveProperty('trainingManager');
+  });
+
+  it('cleared: Reports to “No one” and an empty Department are sent as none; an existing department is picked by its name', async () => {
+    const server = serve();
+    open(withTraining());
+    const s = section();
+    await waitFor(() => expect(within(s).getByRole('button', { name: 'Reports to' })).toHaveTextContent('Omar Ahmed'));
+    await userEvent.click(within(s).getByRole('button', { name: 'Reports to' }));
+    await userEvent.click(screen.getByRole('option', { name: 'No one' }));
+    await userEvent.clear(within(s).getByRole('combobox', { name: 'Department' }));
+    await save();
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(server.lastBody('PUT', '/users/u-sam')).toMatchObject({ reportsToId: null, departmentName: null });
+  });
+
+  it('the existing departments are offered to pick from', async () => {
+    serve();
+    open(withTraining({ departmentId: null, departmentName: null }));
+    const dept = within(section()).getByRole('combobox', { name: 'Department' });
+    expect(dept).toHaveValue('');
+    const list = document.getElementById(dept.getAttribute('list')!)!;
+    await waitFor(() => expect([...list.querySelectorAll('option')].map((o) => o.getAttribute('value'))).toEqual(['Operations', 'Finance']));
+  });
+
+  it('the server’s refusal is shown in its words', async () => {
+    const server = serve();
+    server.refuseNext(400, 'VALIDATION', 'Reports to must be an active staff account.', { method: 'PUT', path: /^\/users\/u-sam$/ });
+    open(withTraining());
+    await userEvent.click(within(section()).getByRole('switch', { name: 'Training manager' }));
+    await save();
+    expect(await screen.findByText('Reports to must be an active staff account.')).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('a client account has none of these', async () => {
+    const huda = apiClientAccount({ id: 'c-huda', username: 'huda', firstName: 'Huda', lastName: 'Saleh', projects: [access(MICO, { modules: { progress: true } })] });
+    clientServer({ clients: [huda] });
+    open(apiUser({ id: 'c-huda', username: 'huda', firstName: 'Huda', lastName: 'Saleh', roles: ['CLIENT'], companies: [] }));
+    expect(await screen.findByLabelText(/organisation/i)).toBeInTheDocument();
+    expect(within(screen.getByRole('dialog')).queryByRole('region', { name: 'Training' })).toBeNull();
+    expect(within(screen.getByRole('dialog')).queryByRole('switch', { name: 'Training manager' })).toBeNull();
+  });
+});
