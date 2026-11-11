@@ -327,11 +327,24 @@ describe('making a project from a template', () => {
     expect(plan.moved).toBe(2);
   });
 
-  it('an undated task follows “New tasks are due today”, as any new task does — not when the project starts later', async () => {
+  it('an undated task follows “New tasks are due today”, as any new task does — on its start day when the project starts later', async () => {
     const soon = await service.prepareProject(templateId, { startKey: '2026-10-25', fillers: {}, defaultDueToday: true });
     expect(soon.startWith.tasks[2]!.dueDate?.toISOString().slice(0, 10)).toBe('2026-10-27');
+    // Tasks scheduled for the future: it waits for its start day, and is due on it (never before it starts).
     const later = await service.prepareProject(templateId, { startKey: '2026-11-15', fillers: {}, defaultDueToday: true });
-    expect(later.startWith.tasks[2]!.dueDate).toBeNull();
+    expect(later.startWith.tasks[2]!.dueDate?.toISOString().slice(0, 10)).toBe('2026-11-15');
+  });
+
+  it('a project that starts later: each task waits on its start day’s board (tasks scheduled for the future)', async () => {
+    // Start Sunday 15 Nov: every task starts that day (Prep's Friday 13 Nov is a day off: Sunday 15 Nov).
+    const later = await service.prepareProject(templateId, { startKey: '2026-11-15', fillers: {}, defaultDueToday: false });
+    for (const t of later.startWith.tasks) {
+      expect(t.boardDate?.toISOString().slice(0, 10)).toBe(t.startDate?.toISOString().slice(0, 10));
+    }
+    expect(later.startWith.tasks[0]!.boardDate?.toISOString()).toBe('2026-11-15T12:00:00.000Z');
+    // A project starting today (or earlier): today's board, as before.
+    const now = await service.prepareProject(templateId, { startKey: '2026-10-04', fillers: {}, defaultDueToday: false });
+    expect(now.startWith.tasks.map((t) => t.boardDate?.toISOString())).toEqual(Array(4).fill('2026-10-27T12:00:00.000Z'));
   });
 
   it('refuses when the template changed after its preview was shown (409, in plain words)', async () => {

@@ -628,6 +628,14 @@ describe('Final minutes (Final MOM)', () => {
     expect(res.json().data).toMatchObject({ status: 'FINAL', content });
   });
 
+  // Pinned before the zod 4 upgrade (1.23.12): a save with no content in the body is refused with the minutes' own words.
+  it('a save with nothing in the body is refused in words', async () => {
+    const { call } = await setup();
+    const res = await call('PUT', '/final-minutes', undefined, {});
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toEqual({ code: 'VALIDATION', message: 'The minutes are not in the expected form.' });
+  });
+
   it('drafts them with the AI from the meeting facts', async () => {
     const { call, aiFacts } = await setup({ ai: async () => ({ summary: ' A short meeting. ', decisions: ['Ship it'], extra: 1 }) });
     const res = await call('POST', '/final-minutes/draft', undefined, { source: 'ai' });
@@ -974,6 +982,6 @@ describe('Minutes PDF route: the meeting’s company (companies)', () => {
     const res = await app.inject({ method: 'GET', url: `/api/v1/meetings/${created.json().data.id}/minutes.pdf`, headers: { authorization: auth } });
     expect(res.statusCode).toBe(200);
     expect(inspectPdf(res.rawPayload).pages.flat().join('\n')).toContain('MICO360');
-    expect(widths(res.rawPayload)).toEqual([]);
+    expect(widths(res.rawPayload)).toEqual([155]); // tpdf: 1.23.11 — the built-in logo (every header carries one; 200 dpi, 155 pixels)
   });
 });

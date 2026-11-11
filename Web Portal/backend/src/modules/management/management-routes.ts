@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { AuthGuard } from '../auth/auth-guard';
 import { HttpError, ValidationError } from '../../lib/http-errors';
+import { validationDetails } from '../../lib/validation-errors';
 import { DEFAULT_STATUSES, PERIOD_WEEKS, PROJECT_STATUSES, type ProjectStatus } from './management-rules';
 import type { ManagementFilters, ManagementService, ManagementViewer } from './management-service';
 import { buildManagementPdf, managementPdfFileName } from './management-pdf';
@@ -43,7 +44,7 @@ const filterQuery = z.object({
 /** The page's filters from the address: chosen projects, owner, project statuses and the period (4, 12 or 26 weeks). */
 export function parseManagementFilters(query: unknown): ManagementFilters {
   const parsed = filterQuery.safeParse(query ?? {});
-  if (!parsed.success) throw new ValidationError('Those filters aren’t right.', parsed.error.flatten());
+  if (!parsed.success) throw new ValidationError('Those filters aren’t right.', validationDetails(parsed.error));
   const q = parsed.data;
   const projectIds = list(q.projectIds);
   if (projectIds.length > MAX_PROJECTS) throw new ValidationError(`Choose at most ${MAX_PROJECTS} projects.`);
@@ -117,7 +118,7 @@ export async function registerManagementRoutes(app: FastifyInstance, deps: Manag
     if (!allowRead(req.user!.id)) throw tooMany();
     const filters = parseManagementFilters(req.query);
     const parsed = itemQuery.safeParse(req.query ?? {});
-    if (!parsed.success) throw new ValidationError('Say which list to show.', parsed.error.flatten());
+    if (!parsed.success) throw new ValidationError('Say which list to show.', validationDetails(parsed.error));
     return { data: await service.items(viewer(req), filters, parsed.data, await pickOf(req)) };
   });
 

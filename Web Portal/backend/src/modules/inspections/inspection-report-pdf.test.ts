@@ -125,7 +125,8 @@ describe('the inspection report PDF', () => {
 
   it('the staff copy names the inspector, the attached task, the follow-up tasks and who made it', () => {
     const text = textOf(data({ staff, generatedBy: 'Olivia Owner' }));
-    for (const s of ['Ivan Inspector (staff account)', 'RIG-12 · Inspect rig 3', 'RIG-41', 'RIG-42', 'Olivia Owner', 'Generated']) expect(text).toContain(s);
+    // tpdf: 1.23.11 — who made it is the footer's "Printed … by …" (was "Generated …").
+    for (const s of ['Ivan Inspector (staff account)', 'RIG-12 · Inspect rig 3', 'RIG-41', 'RIG-42', 'Olivia Owner', 'Printed']) expect(text).toContain(s);
   });
 
   it('the client copy carries no staff names but the signers’, no tasks, no follow-ups, not who made it', () => {

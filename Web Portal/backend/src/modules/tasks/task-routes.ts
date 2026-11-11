@@ -4,7 +4,7 @@ import { checklistTreeSchema } from './checklist-tree-schema';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { TaskService } from './task-service';
 import type { CarryForwardService } from './carry-forward-service';
-import { normalizeTagNames, type TagService } from './tag-service';
+import type { TagService } from './tag-service';
 import type { AssigneeService } from './assignee-service';
 import type { AuthGuard } from '../auth/auth-guard';
 import { filterAndSortTasks, SORT_FIELDS, type TaskFilterCriteria } from './task-filter';
@@ -14,13 +14,13 @@ import { projectOccurrences } from './calendar-projection';
 import { dueDayKey, shiftDayKey, todayKey } from '../../lib/due-date';
 import type { TaskRecord } from './task-repository';
 import type { ApprovalViewer, TaskApprovalDetails } from './task-approval-routes';
-import { checkNewTaskContacts } from './external-contact-service';
+import { createNewTask, type NewTaskPipeline } from './task-create';
 import { externalContactSchema } from './external-contact-routes';
 import { DELETE_NOT_ALLOWED, DELETE_NOT_ALLOWED_CODE, DELETE_SERIES_NOT_ALLOWED, mayDeleteSeries, mayDeleteTask } from './task-delete-rule';
 import { NO_PICK, type PickOf } from '../companies/company-pick';
 import { isMonthKey } from './board-month';
 import { inMonth, monthWindow } from './month-list';
-import { NeedsTeamMemberError, type GuestService } from '../guests/guest-service';
+import type { GuestService } from '../guests/guest-service';
 import type { CategoryService } from '../categories/category-service';
 
 const priorityEnum = z.enum(['LOW', 'NORMAL', 'HIGH', 'URGENT']);
@@ -87,7 +87,8 @@ const calendarQuerySchema = z.object({ from: calendarDay, to: calendarDay });
 /** 1.23.5: a task's weight — whole points, 1–10 (the live database would keep anything: the server checks). */
 const taskWeight = z.number().int().min(WEIGHT_MIN, `A weight is ${WEIGHT_MIN} to ${WEIGHT_MAX} points.`).max(WEIGHT_MAX, `A weight is ${WEIGHT_MIN} to ${WEIGHT_MAX} points.`);
 
-const createSchema = z.object({
+/** The New task form's fields (POST /tasks; Duplicate reads the same, task-duplicate-routes.ts). */
+export const createSchema = z.object({
   title: requiredText,
   description: longText.optional(),
   projectId: idString,
@@ -173,6 +174,12 @@ export interface TaskMeetingLookup {
   canView: (userId: string, roles: string[], meetingId: string) => Promise<boolean>;
 }
 
+/** Duplicate Task: a task's links to the task it was copied from and to its copies (live tasks, oldest copy first). */
+export interface DuplicateLinks {
+  from: { id: string; key: string } | null;
+  copies: { id: string; key: string }[];
+}
+
 export interface TaskRouteDeps {
   taskService: TaskService;
   guard: AuthGuard;
@@ -212,12 +219,28 @@ export interface TaskRouteDeps {
   taskApproval?: (viewer: ApprovalViewer, task: TaskRecord) => Promise<TaskApprovalDetails>;
   /** 1.23.1: the tasks merged into this one (additive `mergedFrom`; its "Merged from" panel opens from them). */
   mergedFrom?: (taskId: string) => Promise<{ id: string; key: string; mergeId: string }[]>;
+  /** Duplicate Task: the task this one was copied from, and its own copies (live tasks; additive `duplicatedFrom`, `copies`). */
+  duplicateLinks?: (taskId: string) => Promise<DuplicateLinks>;
   /** 1.23.3: dated checklist items for the calendar, in the caller's scope (see prisma-checklist-queries). */
   checklistDue?: (opts: { from: string; to: string; userId: string; ownIds: string[] | null; listIds: string[] | null }) => Promise<unknown[]>;
   /** 1.24: a new task's guests (and the person who looks after them). */
   guestService?: GuestService;
   /** 1.24: a new task's categories (the project's rule). */
   categoryService?: CategoryService;
+}
+
+/** POST /tasks' pipeline from the routes' deps (server.ts gives Duplicate the same one: task-duplicate.ts). */
+export function newTaskPipeline(deps: Pick<TaskRouteDeps, 'taskService' | 'accessibleProjectIds' | 'assigneeService' | 'projectOwnerOf' | 'broadcast' | 'guestService' | 'categoryService'>): NewTaskPipeline {
+  return {
+    taskService: deps.taskService,
+    scopeOf: async (actor) => (deps.accessibleProjectIds ? deps.accessibleProjectIds(actor.id, actor.roles) : null),
+    assigneeService: deps.assigneeService,
+    projectOwnerOf: deps.projectOwnerOf,
+    broadcast: deps.broadcast,
+    // 1.24: a new task's guests and categories (POST /tasks and Duplicate alike).
+    guestService: deps.guestService,
+    categoryService: deps.categoryService,
+  };
 }
 
 export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDeps): Promise<void> {
@@ -390,6 +413,18 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
     };
   }
 
+  /**
+   * Duplicate Task: "Duplicated from MSSP-34" and "Copies: MSSP-40, MSSP-41" — only tasks the reader may
+   * open (a copy in a project they can't see is never named or counted).
+   */
+  async function duplicateLinksFor(req: FastifyRequest, taskId: string): Promise<{ duplicatedFrom: DuplicateLinks['from']; copies: DuplicateLinks['copies'] }> {
+    const links = await deps.duplicateLinks!(taskId);
+    const opens = (id: string) => assertTaskView(req, id).catch(() => false);
+    const from = links.from && (await opens(links.from.id)) ? links.from : null;
+    const shown = await Promise.all(links.copies.map((c) => opens(c.id)));
+    return { duplicatedFrom: from, copies: links.copies.filter((_, i) => shown[i]) };
+  }
+
   app.get('/tasks/:id', { preHandler: guard.authenticate }, async (req, reply) => {
     const { id } = req.params as { id: string };
     if (!(await assertTaskView(req, id))) {
@@ -402,62 +437,14 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
     // 1.23.1: the tasks merged into it; and, opened by a merged task's id (an old link), which one that was.
     const merged = deps.mergedFrom ? { mergedFrom: await deps.mergedFrom(task.id) } : {};
     const notice = req.mergedFrom ? { mergeNotice: { key: req.mergedFrom.key, mergedAt: req.mergedFrom.mergedAt, mergedByName: req.mergedFrom.mergedByName } } : {};
-    return { data: { ...task, meeting: await meetingLinkOf(req, task.meetingId ?? null), inspectionForm, ...approval, canDelete, canDeleteSeries, ...merged, ...notice } };
+    const duplicates = deps.duplicateLinks ? await duplicateLinksFor(req, task.id) : {};
+    return { data: { ...task, meeting: await meetingLinkOf(req, task.meetingId ?? null), inspectionForm, ...approval, canDelete, canDeleteSeries, ...merged, ...notice, ...duplicates } };
   });
 
+  // A new task: the shared pipeline (task-create.ts) — the project scope, then tags, contacts and
+  // assignees checked before the task, its tags, assignees and contacts are written in one go.
   app.post('/tasks', { preHandler: guard.authenticate }, async (req, reply) => {
-    const { tags, assigneeIds, boardDate, externalContacts: contactDrafts, guests: guestPicks, categoryIds, ...body } = createSchema.parse(req.body);
-    // Object-level authorization: a non-admin may only create tasks in projects they belong to.
-    const allowed = await scopeOf(req);
-    if (allowed && !allowed.includes(body.projectId)) return reply.status(403).send(forbidden);
-
-    // Everything is validated before anything is written: tag names, and the assignees (who must
-    // be active members of the project). An explicit list — even an empty one — is used as is;
-    // only a request without `assigneeIds` falls back to the project owner.
-    const tagNames = tags && tags.length > 0 ? normalizeTagNames(tags) : [];
-    const externalContacts = checkNewTaskContacts(contactDrafts);
-    // 1.24: guests from the project's company list; categories by the project's rule (sent = checked).
-    const guestLinks = guestPicks?.length && deps.guestService ? await deps.guestService.checkNewTaskGuests(body.projectId, guestPicks) : [];
-    const categories = categoryIds !== undefined && deps.categoryService ? await deps.categoryService.checkForTask(body.projectId, categoryIds) : [];
-    let assignees: string[] = [];
-    if (assigneeIds !== undefined) {
-      assignees = deps.assigneeService ? await deps.assigneeService.assertAssignable(body.projectId, assigneeIds) : [...new Set(assigneeIds)];
-    } else if (deps.assigneeService && deps.projectOwnerOf) {
-      const ownerId = await deps.projectOwnerOf(body.projectId);
-      if (ownerId) assignees = await deps.assigneeService.eligibleAssignees(body.projectId, [ownerId]);
-    }
-
-    // 1.24: a task with guests needs a person from the team — the website's form says so first.
-    if (guestLinks.length > 0 && assignees.length === 0) throw new NeedsTeamMemberError();
-
-    // The task, its tags, its assignees, its guests and its categories are created in one write.
-    let created = await taskService.createTask({
-      ...body,
-      ...(boardDate ? { boardDate: boardDateFromKey(boardDate) } : {}),
-      createdById: req.user!.id,
-      tagNames,
-      assigneeIds: assignees,
-      ...(externalContacts.length ? { externalContacts } : {}),
-      ...(guestLinks.length ? { guestLinks } : {}),
-      ...(categories.length ? { categoryIds: categories } : {}),
-    });
-    let appliedAssignees;
-    if (deps.assigneeService && assignees.length > 0) {
-      await deps.assigneeService.notifyAssigned(created.id, assignees, req.user!.id);
-      appliedAssignees = await deps.assigneeService.listAssignees(created.id);
-    } else if (externalContacts.length > 0 && deps.guestService) {
-      // The old way in (the app, the extension) with contacts and nobody assigned: the person responsible.
-      if (await deps.guestService.ensureResponsible(created.id, req.user!.id)) {
-        created = await taskService.getTask(created.id);
-        if (deps.assigneeService) appliedAssignees = await deps.assigneeService.listAssignees(created.id);
-      }
-    }
-    deps.broadcast?.(created.projectId, 'task:created', created);
-    const data = {
-      ...created,
-      ...(tagNames.length > 0 ? { tags: created.tags ?? [] } : {}),
-      ...(appliedAssignees ? { assignees: appliedAssignees } : {}),
-    };
+    const data = await createNewTask(newTaskPipeline(deps), { id: req.user!.id, roles: req.user!.roles ?? [] }, createSchema.parse(req.body));
     return reply.status(201).send({ data });
   });
 

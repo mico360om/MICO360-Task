@@ -92,7 +92,10 @@ import {
   createPrismaChatMemberLookup,
 } from './modules/chat/prisma-chat-repository';
 import { createAttachmentService } from './modules/tasks/attachment-service';
+import { createTaskDuplicateService } from './modules/tasks/task-duplicate';
+import { createPrismaTaskDuplicateSource } from './modules/tasks/prisma-task-duplicate-source';
 import { createImageShrinker } from './lib/image-shrink';
+import { createAvatarFaces, prismaIsAvatar, registerAvatarFaceRoute } from './modules/users/avatar-faces';
 import { createPrismaAttachmentRepository } from './modules/tasks/prisma-attachment-repository';
 import { createLocalDiskStorage } from './modules/tasks/local-disk-storage';
 import { createDependencyService } from './modules/tasks/dependency-service';
@@ -100,6 +103,9 @@ import { createPrismaDependencyRepository } from './modules/tasks/prisma-depende
 import { createRecurrenceService } from './modules/tasks/recurrence-service';
 import { createPrismaRecurrencePort } from './modules/tasks/prisma-recurrence-port';
 import { createPrismaPreferences } from './modules/users/user-preferences';
+import { createPrismaManagerViewStore } from './modules/users/manager-view-routes';
+import { createPrismaManagerViewLookup } from './modules/auth/prisma-manager-view-lookup';
+import { isEffectiveAdmin } from './modules/auth/manager-view';
 import { createUserService } from './modules/users/user-service';
 import { createPrismaUserRepository as createPrismaUserMgmtRepository } from './modules/users/prisma-user-repository';
 import { createNotificationService } from './modules/notifications/notification-service';
@@ -118,9 +124,11 @@ import { createPrismaHealthSource } from './modules/project-health/prisma-health
 import { createMentionNotifier } from './modules/tasks/mention-notifier';
 import { planEscalations } from './modules/notifications/escalation';
 import { runExclusive, createPrismaJobLockStore } from './lib/job-lock';
+import { assignedNoticeTitle, createPrismaStartingTasksSource, createStartDayReminders } from './modules/tasks/start-day-reminders';
 import { createJobGate } from './lib/job-gate';
 import { databaseConnectionCode } from './lib/db-connection';
 import { createShutdown } from './lib/shutdown';
+import { createUpdateWindow } from './lib/update-window';
 import { createDatabaseCheck, prismaDatabaseReads } from './modules/error-log/database-check';
 import { databaseProbes } from './modules/error-log/database-probes';
 import { isMuted, normalizePreferences } from './modules/notifications/notification-preferences';
@@ -142,6 +150,7 @@ import { createInspectionPorts } from './modules/inspections/prisma-inspection-p
 import { createInspectionScheduleService } from './modules/inspections/inspection-schedules';
 import { createPrismaInspectionScheduleSource } from './modules/inspections/prisma-inspection-schedule-source';
 import { readProjectPicture } from './lib/pdf-image';
+import { PDF_PICTURE_BOX } from './lib/pdf-document';
 import { auditMinutesMovedAway } from './modules/client-view/client-view-events';
 import { createBackupsFromPrisma } from './modules/backups/backup-wiring';
 import { microsoftConfigFromEnv } from './modules/integrations/microsoft/microsoft-config';
@@ -282,6 +291,9 @@ import { createFirstPassword, createPrismaFirstPasswordRepo } from './modules/au
 import { createPrismaIdentityLookup } from './modules/users/identity-check';
 
 async function main(): Promise<void> {
+  // 1.23.14: the process's first minute and its stop (SIGTERM) are an update restart's: a database blip then
+  // is a calm "Update restart" row in the Error log, not a red Server error (lib/update-window).
+  const updateWindow = createUpdateWindow({ startedAt: Date.now() - process.uptime() * 1000 });
   const env = getEnv();
   const baseLogger = createLogger({ service: 'mico360-api', level: env.NODE_ENV === 'production' ? 'info' : 'debug' });
   // ── The Error log (1.22.4, System Settings → Error log) ──────────────────────
@@ -323,6 +335,7 @@ async function main(): Promise<void> {
     },
     warn: (message, meta) => baseLogger.warn(message, meta),
     userNames: (ids) => resolveUserNames(ids),
+    updateWindow: () => updateWindow.phase(),
   });
   const logger = withErrorLog(baseLogger, (message, ctx) => errorLog.recordServer(message, ctx));
   // 1.23.1 (lib/job-gate): background jobs start once the database first answered (a deploy restart
@@ -631,6 +644,21 @@ async function main(): Promise<void> {
   // Attached pictures (tasks and chat) are stored smaller; if the picture library won't load on
   // this server they are kept at full size, which the log and /health say.
   const imageShrinker = createImageShrinker({ warn: (msg, meta) => logger.warn(msg, meta) });
+  // Avatar thumbnails (11 Nov): every face loads a small copy of the photo, kept beside the uploads.
+  const avatarFaces = createAvatarFaces({
+    dir: env.UPLOAD_DIR,
+    readOriginal: async (key) => {
+      if (!attachmentStorage.read) throw new Error('uploads can’t be read back');
+      return attachmentStorage.read(key);
+    },
+    isAvatar: prismaIsAvatar(prisma),
+    toFace: (content) => imageShrinker.toFace(content),
+    // The picture library didn't load: faces use the photos themselves, with no work per view.
+    canMake: () => imageShrinker.status() !== false,
+    warn: (msg, meta) => logger.warn(msg, meta),
+  });
+  /** 1.23.11: a project's picture at 200 dpi for the PDF header's 26 pt badge. */
+  const fitProjectImage = (raw: Buffer) => imageShrinker.toDocumentPicture(raw, PDF_PICTURE_BOX.mark);
   void imageShrinker.check().then((on) => {
     if (on) logger.info('Attached pictures are made smaller to save space');
   });
@@ -1013,12 +1041,14 @@ async function main(): Promise<void> {
   onTaskAssigned = async (taskId, userIds, actorId) => {
     await taskSearchIndex.taskChanged(taskId);
     const about = await taskNotice(taskId);
+    // Tasks scheduled for the future: "You were assigned a task — starts 20 Nov" while it waits.
+    const title = assignedNoticeTitle(await prisma.task.findUnique({ where: { id: taskId }, select: { boardDate: true, completedAt: true } }), companyTz, new Date());
     // Self-assignment isn't news to the person who did it.
     for (const userId of await visibleTaskRecipients(taskId, userIds, actorId)) {
       await notificationService.notify({
         userId,
         type: 'TASK_ASSIGNED',
-        title: 'You were assigned a task',
+        title,
         body: about,
         entityType: 'task',
         entityId: taskId,
@@ -1158,7 +1188,7 @@ async function main(): Promise<void> {
     // Tasks of deleted projects are gone for everyone — no more reminders for them.
     const tasks = await prisma.task.findMany({
       where: { deletedAt: null, dueDate: { not: null }, project: { is: { deletedAt: null } } },
-      select: { id: true, key: true, title: true, dueDate: true, completedAt: true, approvalRequestedAt: true, column: { select: { category: true } }, watchers: { select: { userId: true } }, ...taskAudienceSelect },
+      select: { id: true, key: true, title: true, dueDate: true, boardDate: true, completedAt: true, approvalRequestedAt: true, column: { select: { category: true } }, watchers: { select: { userId: true } }, ...taskAudienceSelect },
     });
     // Each user's reminder lead time comes from their notification preferences (default window otherwise).
     const { users, activeIds, adminIds, companiesOf } = await sweepAudience();
@@ -1176,6 +1206,8 @@ async function main(): Promise<void> {
         completedAt: t.completedAt,
         // Waiting for approval: no reminders until it is sent back (owner, 30 Oct).
         approvalRequestedAt: t.approvalRequestedAt,
+        // Waiting for its start day (a later day's board): none before that day (owner, 10 Nov).
+        boardDate: t.boardDate,
         columnCategory: t.column?.category ?? null,
         // Watchers get due/overdue reminders too (deduped with assignees) — while they can still see the task.
         assigneeIds: filterTaskRecipients([...t.assignees.map((a) => a.userId), ...t.watchers.map((w) => w.userId)], toAudienceFacts(t), { activeIds, adminIds, companiesOf }),
@@ -1361,6 +1393,8 @@ async function main(): Promise<void> {
     settings: settingsService,
     readImage: async (url) => (url.startsWith('/uploads/') && attachmentStorage.read ? attachmentStorage.read(url.slice('/uploads/'.length)) : null),
     printable: (raw) => imageShrinker.toPrintable(raw),
+    // 1.23.11: logos printed at 200 dpi for the 26 pt header, re-encoded once (smaller PDFs).
+    documentPicture: (raw) => imageShrinker.toDocumentPicture(raw, PDF_PICTURE_BOX.logo),
     apiBaseUrl: env.API_BASE_URL,
   });
   const documentBrands = createDocumentBrands(companyBranding, prisma);
@@ -1406,6 +1440,8 @@ async function main(): Promise<void> {
     timeZone: companyTz,
     allowPrivateHosts: env.AI_ALLOW_PRIVATE_HOSTS,
     limits: { perMinute: env.AI_USER_REQUESTS_PER_MINUTE, perDay: env.AI_USER_REQUESTS_PER_DAY },
+    // MICO360 AI (b10): a failure worth an admin's look reaches the Error log with its correlation and job ids.
+    logger,
   });
 
   // MICO AI: each person's private chats with the assistant. Its tools read with the app's own rules
@@ -1679,12 +1715,12 @@ async function main(): Promise<void> {
     if (hour < DIGEST_HOUR) return; // wait until the morning; a later sweep sends it
     const tasks = await prisma.task.findMany({
       where: { deletedAt: null, dueDate: { not: null }, project: { is: { deletedAt: null } } },
-      select: { id: true, key: true, title: true, dueDate: true, completedAt: true, approvalRequestedAt: true, column: { select: { category: true } }, watchers: { select: { userId: true } }, ...taskAudienceSelect },
+      select: { id: true, key: true, title: true, dueDate: true, boardDate: true, completedAt: true, approvalRequestedAt: true, column: { select: { category: true } }, watchers: { select: { userId: true } }, ...taskAudienceSelect },
     });
     const { users, activeIds, adminIds, companiesOf } = await sweepAudience();
     const digests = buildDigests(
       tasks.map((t) => ({
-        id: t.id, key: t.key, title: t.title, dueDate: t.dueDate, completedAt: t.completedAt, approvalRequestedAt: t.approvalRequestedAt,
+        id: t.id, key: t.key, title: t.title, dueDate: t.dueDate, boardDate: t.boardDate, completedAt: t.completedAt, approvalRequestedAt: t.approvalRequestedAt,
         columnCategory: t.column?.category ?? null,
         // Someone who has left the project no longer gets its tasks in their digest.
         recipientIds: filterTaskRecipients([...t.assignees.map((a) => a.userId), ...t.watchers.map((w) => w.userId)], toAudienceFacts(t), { activeIds, adminIds, companiesOf }),
@@ -1736,6 +1772,21 @@ async function main(): Promise<void> {
     );
     await dispatchReminders(planned, { period: day, store: reminderLogStore, notify: (n) => notificationService.notify(n) });
   }
+
+  // Tasks scheduled for the future: the morning a waiting task starts, its people are told once
+  // (start-day-reminders.ts; hourly like the digest, from 07:00 company time).
+  const startDayReminders = createStartDayReminders({
+    source: createPrismaStartingTasksSource(prisma),
+    visibleRecipients: (taskId, ids) => visibleTaskRecipients(taskId, ids),
+    store: reminderLogStore,
+    notify: (n) => notificationService.notify(n),
+    timeZone: companyTz,
+  });
+  const runStartDay = () =>
+    runExclusive(jobLock, 'start-day-reminders', SWEEP_LEASE_MS, () => new Date(), async () => {
+      await startDayReminders.run();
+    }).catch(sweepFailed('start-day-reminders', 'start-day reminder sweep'));
+  jobs.every(60 * 60 * 1000, runStartDay);
 
   const runDigest = () => runExclusive(jobLock, 'daily-digest', SWEEP_LEASE_MS, () => new Date(), runDigestSweep).catch(sweepFailed('daily-digest', 'daily digest sweep'));
   const runEscalation = () => runExclusive(jobLock, 'escalation-sweep', SWEEP_LEASE_MS, () => new Date(), runEscalationSweep).catch(sweepFailed('escalation-sweep', 'escalation sweep'));
@@ -1908,6 +1959,30 @@ async function main(): Promise<void> {
   // a suspended, deleted or demoted user loses access at once, not when their token expires.
   const userStateLookup = createPrismaUserStateLookup(prisma);
 
+  // Duplicate Task: a copy is made as any new task in the chosen project (the same pipeline as POST /tasks:
+  // its scope, tags, contacts and assignee rules), then gets the original's watchers who can see that
+  // project, its files through the upload checks (when ticked), and a history line on both tasks.
+  const duplicateSource = createPrismaTaskDuplicateSource(prisma);
+  const taskDuplicateService = createTaskDuplicateService({
+    ...duplicateSource,
+    canViewTask: (actor, taskId) => projectAccess.canViewTask(actor.id, actor.roles, taskId),
+    readFile: async (storageKey) => (attachmentStorage.read ? attachmentStorage.read(storageKey).catch(() => null) : null),
+    uploadFile: (taskId, uploadedById, file) => attachmentService.upload(taskId, uploadedById, file),
+    recordActivity: recordTaskActivity,
+    pipeline: {
+      taskService,
+      scopeOf: (actor) => projectAccess.accessibleProjectIds(actor.id, actor.roles),
+      assigneeService,
+      projectOwnerOf: async (projectId) => (await projectService.getProject(projectId)).ownerId,
+      broadcast: (projectId, event, payload) => broadcast(projectId, event, payload),
+      // 1.24: a copy's guests and categories go through the same checks as a new task's.
+      guestService,
+      categoryService,
+    },
+    timeZone: companyTz,
+    onError: (err, what) => logger.error(`duplicating a task: ${what} failed`, { err }),
+  });
+
   logger.info('Release', { version: release.build.version, builtAt: release.build.builtAt, commit: release.build.commit, source: release.source });
 
   // The hosted Android app lives in a folder deploys keep (made here, so it is there to upload into).
@@ -1946,9 +2021,11 @@ async function main(): Promise<void> {
     appVersion: release.build.version,
     timeZone: companyTz,
     weekStart: () => settingsService.companyWeekStart(),
+    // An active administrator with Manager View off (a download link made just before turning it on doesn't
+    // work while it is on — review M3).
     isActiveAdmin: async (userId) => {
       const state = await userStateLookup(userId);
-      return Boolean(state?.active && state.roles.includes('ADMIN'));
+      return Boolean(state?.active && isEffectiveAdmin(state));
     },
     // Failures go to every active administrator by email (when email is set up); success is quiet.
     alertAdmins: async ({ title, message }) => {
@@ -1979,7 +2056,13 @@ async function main(): Promise<void> {
     prisma,
     storage: { read: (key) => (attachmentStorage.read ? attachmentStorage.read(key) : Promise.reject(new Error('no storage reader'))) },
     index: searchIndex,
-    ocr: { ready: () => aiFeatureService.ocrReady(), read: (images) => aiFeatureService.readPictures(images) },
+    ocr: {
+      ready: () => aiFeatureService.ocrReady(),
+      read: (images) => aiFeatureService.readPictures(images),
+      // MICO360 AI (b4): the whole document, falling back to the pictures; scans no picture could carry are read again.
+      readDocument: (doc, opts) => aiFeatureService.readDocument(doc, opts),
+      wholeDocuments: () => aiFeatureService.readsWholeDocuments(),
+    },
     logger,
   });
   const searchScope = createSearchScope({
@@ -2030,7 +2113,11 @@ async function main(): Promise<void> {
     // 1.23.6 the built-in reader: the person's projects and people, today and their company's week.
     reader: createReaderContext({ prisma, timeZone: companyTz, weekStart: (viewer, pick) => companyTime.weekStartOfScope(viewer, pick) }),
     ai: {
-      status: async () => ({ ready: await aiFeatureService.chatReady().catch(() => false), semantic: await searchSemantic.ready() }),
+      // b13: someone is about to search — a cold MICO360 AI chat model is warmed up (never waited for).
+      status: async () => {
+        aiFeatureService.warmUp();
+        return { ready: await aiFeatureService.chatReady().catch(() => false), semantic: await searchSemantic.ready() };
+      },
       ask: aiSearch.ask,
     },
     timeZone: companyTz,
@@ -2089,7 +2176,7 @@ async function main(): Promise<void> {
     assetUrl: env.API_BASE_URL,
     timeZone: companyTz,
     audit: auditService,
-    projectImage: (url) => readProjectPicture(url, readStoredProjectImage, imageShrinker.toPrintable),
+    projectImage: (url) => readProjectPicture(url, readStoredProjectImage, imageShrinker.toPrintable, fitProjectImage),
     logger,
     // Finished inspection reports marked "Show to client".
     inspections: {
@@ -2165,6 +2252,10 @@ async function main(): Promise<void> {
     })(),
     recordTaskActivity,
     userState: userStateLookup,
+    // Manager View (owner, 10 Nov): the switch, and the project-settings rule (does this person run the project:
+    // the team rule — an administrator needn't belong to the project's company).
+    managerViewStore: createPrismaManagerViewStore(prisma),
+    managerViewLookup: createPrismaManagerViewLookup(prisma),
     clientAccounts,
     portal,
     clientMinutes: {
@@ -2233,6 +2324,9 @@ async function main(): Promise<void> {
     taskService,
     taskMoveService,
     taskMergeService,
+    // Duplicate Task: the review form's pre-fill, the copy, and each task's "Duplicated from" / "Copies".
+    taskDuplicateService,
+    duplicateLinks: (taskId) => duplicateSource.links(taskId),
     carryForwardService,
     assigneeService,
     watcherService,
@@ -2263,6 +2357,7 @@ async function main(): Promise<void> {
     commentService,
     attachmentService,
     chatAttachmentStorage: attachmentStorage,
+    avatarFaces,
     attachmentAllowedMime,
     attachmentMaxSizeBytes: env.UPLOAD_MAX_BYTES,
     shrinkImage: imageShrinker.shrink,
@@ -2362,6 +2457,8 @@ async function main(): Promise<void> {
       url.startsWith('/uploads/') && attachmentStorage.read ? attachmentStorage.read(url.slice('/uploads/'.length)) : null,
     // …and a WebP, GIF or unusual PNG picture is converted so the logo still prints.
     printableProjectImage: imageShrinker.toPrintable,
+    // 1.23.11: …and every project picture is printed at 200 dpi for its 26 pt badge (smaller PDFs).
+    fitProjectImage,
     activityService,
     auditService,
     settingsService,
@@ -2421,7 +2518,7 @@ async function main(): Promise<void> {
         timeZone: companyTz,
       }),
       timeZone: companyTz,
-      projectImage: (url) => readProjectPicture(url, readStoredProjectImage, imageShrinker.toPrintable),
+      projectImage: (url) => readProjectPicture(url, readStoredProjectImage, imageShrinker.toPrintable, fitProjectImage),
       userName: async (id) => (await resolveUserNames([id])).get(id) ?? null,
       pdfBrand: documentBrands.pdf.inspection, // companies: the inspection's project's company
     },
@@ -2452,6 +2549,8 @@ async function main(): Promise<void> {
   const { resolve } = await import('node:path');
   const uploadsRoot = resolve(process.cwd(), env.UPLOAD_DIR);
   mkdirSync(uploadsRoot, { recursive: true });
+  // Avatar thumbnails: /uploads/faces/<photo key>.webp, made on first request for a photo from before.
+  await registerAvatarFaceRoute(app, avatarFaces);
   await app.register(fastifyStatic, {
     root: uploadsRoot,
     prefix: '/uploads/',
@@ -2594,6 +2693,7 @@ async function main(): Promise<void> {
   // then the other timers, the server and the Error log's writes, and the database client last — so a
   // restart records nothing in the Error log (lib/shutdown).
   const shutdown = createShutdown({
+    markStopping: () => updateWindow.markStopping(),
     stopJobs: () => jobs.stop(),
     stopTimers: () => {
       taskSearchSweeps.stop();

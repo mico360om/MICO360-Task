@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { OCR_MAX_BYTES, ocrPictures } from './file-text-service';
+import { documentLanguage, OCR_MAX_BYTES, ocrPictures } from './file-text-service';
 
 const MB = 1024 * 1024;
 
@@ -24,5 +24,26 @@ describe('ocrPictures — what one OCR request may send', () => {
     expect(sent.reduce((n, p) => n + p.data.length, 0)).toBeLessThanOrEqual(OCR_MAX_BYTES);
     const small = Array.from({ length: 9 }, (_, i) => Buffer.alloc(10, i + 1));
     expect(ocrPictures({ pages: small })).toHaveLength(5);
+  });
+});
+
+// b4: MICO360 AI reads a document in `language` when one is known. No project or company has a language
+// setting, so it comes from the words around the file — the file's own few letters, its name, its task's
+// title and description — else the project's and company's names: Arabic → ar-SA, English → en-US;
+// mixed or none → none (the node reads with its own languages).
+describe('documentLanguage — the language a scan is read in', () => {
+  it('Arabic or English from the task’s own words', () => {
+    expect(documentLanguage(['شهادة الدفاع المدني', 'تجديد الشهادة'], [])).toBe('ar-SA');
+    expect(documentLanguage(['Civil defence certificate', 'scan of the renewal'], [])).toBe('en-US');
+  });
+  it('mixed words name no language', () => {
+    expect(documentLanguage(['Civil defence شهادة الدفاع المدني renewal'], [])).toBeNull();
+  });
+  it('without words of its own, the project’s and company’s names', () => {
+    expect(documentLanguage(['', null], ['IMG_2041', 'مشروع المطار', 'شركة بروليانس'])).toBe('ar-SA'); // a camera's file name is not a language
+    expect(documentLanguage(['12/2026'], ['Rig Inspection', 'Prolens Projects LLC'])).toBe('en-US');
+  });
+  it('no letters at all: none', () => {
+    expect(documentLanguage(['2041', null], ['12'])).toBeNull();
   });
 });

@@ -43,6 +43,7 @@ import { CategoryChips } from '../CategoryChip';
 import { GuestIcon } from '../GuestsLine';
 import { GUEST_WORDS, guestLabel } from '../../lib/guest-contacts';
 import { CATEGORY_WORDS } from '../../lib/task-categories';
+import { TaskFormDialog } from '../task-form/TaskFormDialog';
 
 export interface TaskTableProps {
   /** Which page's table (what it remembers for the person: sort, filters, columns). */
@@ -61,6 +62,11 @@ export interface TaskTableProps {
   readOnly?: ProjectReadOnly | null;
   /** The table's own filter bar (pages without filters of their own). */
   filterBar?: boolean;
+  /**
+   * The filter bar's words box (default). False (board search, 10 Nov): the page's own search box filters the rows
+   * before they get here (the board's), so the table has none — and a word it remembers from before is let go.
+   */
+  wordsBox?: boolean;
   /** My Tasks: the page's own sort (its Sort menu), the rows already in that order. */
   sort?: SortState | null;
   onSortChange?: (next: SortState | null) => void;
@@ -108,6 +114,7 @@ export function TaskTable({
   showProject = false,
   readOnly = null,
   filterBar = false,
+  wordsBox = true,
   sort: pageSort,
   onSortChange,
   presorted = false,
@@ -195,6 +202,7 @@ export function TaskTable({
   // person not among this table's choices is let go here, never an empty table with a blank box.
   const filters = {
     ...remembered,
+    text: wordsBox ? remembered.text : '',
     status: statusOptions.some((o) => o.value === remembered.status) ? remembered.status : '',
     person: personOptions.some((o) => o.value === remembered.person) ? remembered.person : '',
   };
@@ -233,7 +241,7 @@ export function TaskTable({
     });
   const togglePerson = (t: ApiTask, p: CellPerson, on: boolean) => {
     const now = t.assignees ?? [];
-    const next = on ? [...now.filter((a) => a.id !== p.id), { id: p.id, name: p.name }] : now.filter((a) => a.id !== p.id);
+    const next = on ? [...now.filter((a) => a.id !== p.id), { id: p.id, name: p.name, avatarUrl: p.avatarUrl ?? null }] : now.filter((a) => a.id !== p.id);
     save(t, { assignees: next }, async () => {
       if (on) await assigneesApi(apiClient).assign(t.id, p.id);
       else await assigneesApi(apiClient).unassign(t.id, p.id);
@@ -242,6 +250,9 @@ export function TaskTable({
 
   const editable = (t: ApiTask) => taskRowEditable(projectById.get(t.projectId), readOnly);
   const open = (t: ApiTask) => onOpen(t.id, ids);
+  // Duplicate Task: "Duplicate" beside Open — the New task form, filled in from that row's task.
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
+  const rowButton = `inline-grid h-8 w-8 place-items-center rounded-lg text-ink-2 transition-colors compact:h-7 compact:w-7 hover:bg-ground hover:text-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand ${TOUCH_SQUARE}`;
 
   const tableColumns: DataColumn<ApiTask>[] = [
     ...(selection
@@ -464,17 +475,22 @@ export function TaskTable({
       hideLabel: true,
       className: 'w-px !px-1.5 text-end',
       cell: (t) => (
-        <button
-          type="button"
-          onClick={() => open(t)}
-          aria-label={`Open ${t.key}: ${t.title}`}
-          title="Open"
-          className={`inline-grid h-8 w-8 place-items-center rounded-lg text-ink-2 transition-colors compact:h-7 compact:w-7 hover:bg-ground hover:text-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand ${TOUCH_SQUARE}`}
-        >
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M7 17 17 7M9 7h8v8" />
-          </svg>
-        </button>
+        <span className="inline-flex items-center gap-0.5">
+          {/* A table only to look at (an archived or completed project) leaves Duplicate to the task panel. */}
+          {readOnly ? null : (
+            <button type="button" onClick={() => setDuplicatingId(t.id)} aria-label={`Duplicate ${t.key}: ${t.title}`} title="Duplicate" className={rowButton}>
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <rect x="8" y="8" width="13" height="13" rx="2" />
+                <path d="M4 16V5a1 1 0 0 1 1-1h11" />
+              </svg>
+            </button>
+          )}
+          <button type="button" onClick={() => open(t)} aria-label={`Open ${t.key}: ${t.title}`} title="Open" className={rowButton}>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M7 17 17 7M9 7h8v8" />
+            </svg>
+          </button>
+        </span>
       ),
     },
   ];
@@ -486,6 +502,7 @@ export function TaskTable({
       statusOptions={statusOptions}
       personOptions={personOptions}
       personLabel="assignee"
+      words={wordsBox}
       shown={rows.length}
       total={tasks.length}
       noun={['task', 'tasks']}
@@ -501,7 +518,7 @@ export function TaskTable({
     </>
   );
 
-  return (
+  const table = (
     <DataTable
       label={label}
       columns={tableColumns}
@@ -531,6 +548,15 @@ export function TaskTable({
         )
       }
     />
+  );
+  return duplicatingId ? (
+    <>
+      {table}
+      {/* The copy's notice ("Task MSSP-40 created", with Open) comes from the app shell; every view refreshes. */}
+      <TaskFormDialog duplicateOfId={duplicatingId} onClose={() => setDuplicatingId(null)} />
+    </>
+  ) : (
+    table
   );
 }
 

@@ -20,6 +20,8 @@ export interface DrawnLine {
   size: number;
   /** The face of each drawn piece, in drawing order: PostScript names without the subset tag (IBMPlexSans-SemiBold). */
   fonts: string[];
+  /** Drawn inside an /Artifact (a running header or a footer: page furniture, not the document's content). */
+  artifact: boolean;
 }
 
 export interface InspectedPdf {
@@ -122,8 +124,65 @@ function markedTexts(content: string): Array<{ text: string; end: number }> {
   return out;
 }
 
+/**
+ * Where a content stream's /Artifact marked-content runs are (from BDC to its EMC), found by reading
+ * its tokens — strings skipped whole, so words such as "EMC" inside a line's text are never taken
+ * for an operator.
+ */
+function artifactRanges(content: string): Array<[number, number]> {
+  const ranges: Array<[number, number]> = [];
+  const stack: Array<{ tag: string; at: number }> = [];
+  const delimiter = /[\s()<>[\]{}/%]/;
+  let operands: string[] = [];
+  let i = 0;
+  const n = content.length;
+  while (i < n) {
+    const c = content[i]!;
+    if (c === '(') {
+      let depth = 1;
+      i++;
+      while (i < n && depth > 0) {
+        const d = content[i]!;
+        if (d === '\\') i += 2;
+        else {
+          if (d === '(') depth++;
+          else if (d === ')') depth--;
+          i++;
+        }
+      }
+      operands.push('(string)');
+    } else if (c === '<' && content[i + 1] !== '<') {
+      const close = content.indexOf('>', i);
+      i = close < 0 ? n : close + 1;
+      operands.push('<hex>');
+    } else if (c === '<' || c === '>') i += content[i + 1] === c ? 2 : 1;
+    else if (c === '[' || c === ']' || c === '{' || c === '}' || /\s/.test(c)) i++;
+    else if (c === '%') {
+      const nl = content.indexOf('\n', i);
+      i = nl < 0 ? n : nl + 1;
+    } else {
+      let j = i + 1;
+      while (j < n && !delimiter.test(content[j]!)) j++;
+      const token = content.slice(i, j);
+      i = j;
+      if (c === '/' || /^[-+.\d]/.test(token) || token === 'true' || token === 'false' || token === 'null') {
+        operands.push(token);
+        continue;
+      }
+      if (token === 'BDC' || token === 'BMC') stack.push({ tag: operands[0] ?? '', at: i });
+      else if (token === 'EMC') {
+        const top = stack.pop();
+        if (top?.tag === '/Artifact') ranges.push([top.at, i]);
+      }
+      operands = [];
+    }
+  }
+  return ranges;
+}
+
 /** The drawn lines of a content stream; `fonts` names each /F resource of the page. */
 function drawnLines(content: string, fonts: Map<string, string>): DrawnLine[] {
+  const artifacts = artifactRanges(content);
   return markedTexts(content).map(({ text, end }) => {
     const stop = content.indexOf('EMC', end);
     const body = content.slice(end, stop === -1 ? undefined : stop);
@@ -136,6 +195,7 @@ function drawnLines(content: string, fonts: Map<string, string>): DrawnLine[] {
       y: pageHeight - Number(tm?.[2] ?? NaN),
       size: Number(/\/F\d+ ([\d.]+) Tf/.exec(body)?.[1] ?? NaN),
       fonts: [...body.matchAll(/\/(F\d+) [\d.]+ Tf/g)].map((f) => fonts.get(f[1]!) ?? f[1]!),
+      artifact: artifacts.some(([from, to]) => end > from && end < to),
     };
   });
 }

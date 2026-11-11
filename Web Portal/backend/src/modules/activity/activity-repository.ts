@@ -6,8 +6,8 @@ export interface ActivityRecord {
   action: string;
   meta: unknown;
   createdAt: Date;
-  /** The user who performed the action (joined on list; the feed's "who"). */
-  actor?: { id: string; name: string } | null;
+  /** The user who performed the action (joined on list; the feed's "who"), with their photo (null: initials). */
+  actor?: { id: string; name: string; avatarUrl?: string | null } | null;
   /** The task the action was on (joined on list). */
   task?: { id: string; key: string; title: string } | null;
   /** The project the action was in (joined on list). */

@@ -1,4 +1,4 @@
-import { z, type ZodTypeAny } from 'zod';
+import { z } from 'zod';
 import { dueDayKey, daysUntilDue, shiftDayKey, todayKey, zonedDayKey, zonedStartOfDay } from '../../lib/due-date';
 import { CATEGORY_ORDER, categoryLabel, priorityLabel, wallClock } from '../../lib/export-format';
 import { isTaskDone, isTaskLate } from '../tasks/task-status';
@@ -51,7 +51,7 @@ const month = z.string().trim().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'must be a mont
 const lower = <T extends [string, ...string[]]>(values: T) => z.preprocess((v) => (typeof v === 'string' ? v.trim().toLowerCase().replace(/[\s-]+/g, '_') : v), z.enum(values));
 
 const STATUS = ['open', 'done', 'overdue', 'blocked', 'in_progress', 'todo', 'review', 'backlog', 'any'] as const;
-const SCHEMAS: Record<ToolName, ZodTypeAny> = {
+const SCHEMAS: Record<ToolName, z.ZodType> = {
   search_tasks: z.object({
     project: words().optional(),
     assignee: words().optional(),

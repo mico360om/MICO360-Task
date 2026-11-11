@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import { AiCallStoppedError } from '../ai/ai-network';
+import type { AnswerSchema } from '../ai/ai-completion';
+import { MICO_AI_ACTION_SCHEMA } from '../ai/ai-schemas';
 import { MAX_CHANGES, type ProposeOutcome } from './mico-ai-actions-types';
 import {
   refKey,
@@ -54,6 +56,10 @@ export interface ModelRequest {
   json: boolean;
   maxTokens: number;
   signal: AbortSignal;
+  /** b1: the reply's JSON Schema (MICO360 AI holds the model to it; parseAction still checks it). */
+  schema?: AnswerSchema;
+  /** b15: the reply so far, as the model writes it (MICO360 AI's live stream). */
+  onText?: (text: string) => void;
 }
 
 export interface LoopDeps {
@@ -69,6 +75,11 @@ export interface LoopDeps {
    * read-only. `final`: the last try, so problems go on the card instead of back to the model.
    */
   propose?: (changes: Array<Record<string, unknown>>, opts: { final: boolean; signal: AbortSignal }) => Promise<ProposeOutcome>;
+  /**
+   * b15: the words the person may read while a reply is written — an answer's text (or a question's) as
+   * far as it has come; null as each model call starts (a tool step shows nothing). Absent: no live words.
+   */
+  onDraft?: (text: string | null) => void;
 }
 
 /** One earlier message, as the model is shown it. */
@@ -117,7 +128,7 @@ const stringList = (max: number, each: number) =>
     .transform((xs) => xs.filter((x): x is string => typeof x === 'string').map((s) => s.trim().slice(0, each)).filter(Boolean).slice(0, max));
 
 const actionSchema = z.discriminatedUnion('action', [
-  z.object({ action: z.literal('tool'), name: z.string().min(1).max(60), args: z.record(z.unknown()).catch({}).default({}) }),
+  z.object({ action: z.literal('tool'), name: z.string().min(1).max(60), args: z.record(z.string(), z.unknown()).catch({}).default({}) }),
   z.object({ action: z.literal('clarify'), question: text(500).pipe(z.string().min(1)), options: stringList(MAX_OPTIONS, 80).default([]) }),
   z.object({
     action: z.literal('answer'),
@@ -141,7 +152,7 @@ const actionSchema = z.discriminatedUnion('action', [
     action: z.literal('propose'),
     text: text(1500).default(''),
     // Each change is checked by the actions' own schemas; more than a card holds are cut there.
-    changes: z.array(z.record(z.unknown())).min(1).max(200),
+    changes: z.array(z.record(z.string(), z.unknown())).min(1).max(200),
   }),
 ]);
 type Action = z.infer<typeof actionSchema>;
@@ -168,7 +179,8 @@ export function parseAction(raw: string): Action | null {
 export function systemPrompt(tools: ToolInfo[], ctx: LoopDeps['context'], maxSteps = MAX_TOOL_STEPS, canPropose = false): string {
   return [
     'You are MICO AI, the assistant inside MICO360 Tasks. You answer questions about the user’s work: tasks, projects, meetings and minutes, reports and workload, and team chat.',
-    `Today is ${ctx.todayLabel} (${ctx.today}) in the company time zone ${ctx.timeZone}. The user is ${ctx.userName}.`,
+    // The name is cut, so the rules plus PROMPT_BUDGET stay within MICO360 AI's 32,000 characters.
+    `Today is ${ctx.todayLabel} (${ctx.today}) in the company time zone ${ctx.timeZone}. The user is ${cut(ctx.userName, 80)}.`,
     '',
     'Rules:',
     '- Answer only from the tool results in this chat. You see only what this user is allowed to see.',
@@ -332,6 +344,98 @@ function turnPrompt(input: TurnInput, results: ToolResult[], note: string | null
   return buildPrompt(input, results.map((r) => ({ ...r, details: undefined })), note, finalOnly, { ...last, latestRows: 0 });
 }
 
+// ── Live words (b15) ───────────────────────────────────────────────────────────
+
+/** A JSON string from `i` (just after its opening quote): its text so far, and where it ended (-1: not yet). */
+function readString(raw: string, i: number): { text: string; end: number } {
+  let out = '';
+  while (i < raw.length) {
+    const ch = raw[i]!;
+    if (ch === '"') return { text: out, end: i + 1 };
+    if (ch !== '\\') {
+      out += ch;
+      i += 1;
+      continue;
+    }
+    const next = raw[i + 1];
+    if (next === undefined) break; // a half-written escape: wait for the rest
+    if (next === 'u') {
+      const hex = raw.slice(i + 2, i + 6);
+      if (hex.length < 4 || !/^[0-9a-fA-F]{4}$/.test(hex)) break;
+      out += String.fromCharCode(parseInt(hex, 16));
+      i += 6;
+      continue;
+    }
+    out += ({ n: '\n', t: '\t', r: '\r', b: '\b', f: '\f' } as Record<string, string>)[next] ?? next;
+    i += 2;
+  }
+  // Never end on the first half of a character pair (an emoji still coming).
+  return { text: /[\uD800-\uDBFF]$/.test(out) ? out.slice(0, -1) : out, end: -1 };
+}
+
+/** Past one JSON value from `i` (strings, nesting, numbers and words); -1 when it isn't complete yet. */
+function skipValue(raw: string, i: number): number {
+  let depth = 0;
+  while (i < raw.length) {
+    const ch = raw[i]!;
+    if (ch === '"') {
+      const str = readString(raw, i + 1);
+      if (str.end < 0) return -1;
+      i = str.end;
+      if (depth === 0) return i;
+      continue;
+    }
+    if (ch === '{' || ch === '[') depth += 1;
+    else if (ch === '}' || ch === ']') {
+      if (depth === 0) return i;
+      depth -= 1;
+      if (depth === 0) return i + 1;
+    } else if (depth === 0 && ch === ',') return i;
+    i += 1;
+  }
+  return -1;
+}
+
+/**
+ * The words a person may read of a reply still being written: an answer's (or a proposal's) "text", or a
+ * clarifying "question", as far as it has come — read from the top-level keys of the partial JSON, once
+ * its "action" is known. Null for a tool step, or before the words start. `propose: false` (MICO AI is
+ * read-only): a proposal's words are never shown.
+ */
+export function draftOf(raw: string, opts: { propose?: boolean } = {}): string | null {
+  const propose = opts.propose ?? true;
+  let i = raw.indexOf('{');
+  if (i < 0) return null;
+  i += 1;
+  let action: string | null = null;
+  for (;;) {
+    while (i < raw.length && /[\s,]/.test(raw[i]!)) i += 1;
+    if (i >= raw.length || raw[i] !== '"') return null;
+    const key = readString(raw, i + 1);
+    if (key.end < 0) return null;
+    i = key.end;
+    while (i < raw.length && /\s/.test(raw[i]!)) i += 1;
+    if (raw[i] !== ':') return null;
+    i += 1;
+    while (i < raw.length && /\s/.test(raw[i]!)) i += 1;
+    if (i >= raw.length) return null;
+    const words = (action === 'answer' || (action === 'propose' && propose)) && key.text === 'text' ? true : action === 'clarify' && key.text === 'question';
+    if (words) return raw[i] === '"' ? readString(raw, i + 1).text : null;
+    if (key.text === 'action') {
+      if (raw[i] !== '"') return null;
+      const value = readString(raw, i + 1);
+      if (value.end < 0) return null;
+      action = value.text;
+      if (action === 'tool' || (action === 'propose' && !propose)) return null;
+      i = value.end;
+      continue;
+    }
+    const end = skipValue(raw, i);
+    if (end < 0) return null;
+    i = end;
+  }
+}
+
 /** A reply that stops part-way through its JSON (the model ran out of room), as opposed to one that isn't JSON. */
 export function looksCutOff(raw: string): boolean {
   const t = raw.trim().replace(/^```(?:json)?\s*/i, '');
@@ -434,7 +538,29 @@ export async function runTurn(deps: LoopDeps, input: TurnInput): Promise<Assista
   for (;;) {
     stopped();
     const finalOnly = results.length >= maxSteps;
-    const raw = await deps.complete({ system, prompt: turnPrompt(input, results, note, finalOnly), json: true, maxTokens: REPLY_TOKENS, signal: input.signal });
+    // b15: the words written so far reach the page (each call starts empty); b1: held to the action schema.
+    // Review I2: only words that can be kept — an answer with figures and nothing behind them is sent back
+    // once (below), so while that can happen a figure takes its words back off the page; a read-only
+    // MICO AI never shows a proposal.
+    deps.onDraft?.(null);
+    let shown: string | null = null;
+    let withheld = false;
+    const backed = nudged || results.some((r) => !r.error) || input.earlier.length > 0;
+    const live = deps.onDraft
+      ? (text: string) => {
+          if (withheld) return;
+          const words = draftOf(text, { propose: !!deps.propose });
+          if (words === null || words === shown) return;
+          if (!backed && /\d/.test(words)) {
+            withheld = true;
+            if (shown !== null) deps.onDraft!(null);
+            return;
+          }
+          shown = words;
+          deps.onDraft!(words);
+        }
+      : undefined;
+    const raw = await deps.complete({ system, prompt: turnPrompt(input, results, note, finalOnly), json: true, schema: MICO_AI_ACTION_SCHEMA, maxTokens: REPLY_TOKENS, signal: input.signal, onText: live });
     stopped();
     const action = parseAction(raw);
     if (!action || (action.action === 'tool' && finalOnly)) {

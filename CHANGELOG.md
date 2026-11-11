@@ -48,6 +48,199 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   keeps a project's categories, and a project made from that template starts with them.
 - The task history says "assigned guest Ahmed (OXY)", "removed guest …", "added category Electrical".
 
+## [1.23.18] - 2026-11-11
+
+### New features
+- MICO AI's answers appear as they are written: on MICO360 AI the words show on the page while the model
+  writes them (bold and lists as the finished answer has them), and the finished answer then replaces them.
+  Stop still stops it at once.
+- Scanned files are read whole on MICO360 AI: every page of a scanned PDF (black-and-white scanner PDFs
+  too, which could not be read before) and pictures go to MICO360 AI's document reader, which turns pages
+  upright first and reads them in Arabic or English when the task's words say which. Scans that could not
+  be read before are read again by themselves. If the key may not read documents, scans are read as
+  pictures as before, and AI Management says why and what to allow.
+- AI Management shows more about MICO360 AI on its card: the version of MICO360 Connect it runs, how many
+  requests its key may run at once, a note when no AI node offers reading documents, pictures or meaning
+  search, a note when scans were read as pictures, and which models stood in for others. Test now says
+  which model answered.
+
+### Improvements
+- MICO360 AI's answers to Describe a task, Describe a meeting, Suggest priority, Draft agenda, the Final
+  MOM and MICO AI are held to the exact form Tasks reads, so fewer answers come back unreadable. If the
+  MICO360 Connect doesn't accept that, or an answer doesn't come back in that form, Tasks asks once more
+  the way it did before, and keeps asking that way for a day (or until the models are next refreshed);
+  AI Management's card says so.
+- Tasks keeps within MICO360 AI's limit on how many requests a key may run at once — one budget for every
+  AI feature together — so busy moments wait their turn instead of being refused.
+- Work in the background is never done twice on MICO360 AI: when the Final MOM, a MICO AI answer or a scan
+  is tried again, the platform answers from the first try's work; and an answer the platform finished after
+  its 5-minute wait is collected instead of asked for again.
+- The first AI search of the day waits for MICO360 AI to load its model (up to 90 seconds, instead of
+  giving up after 20), and opening search starts loading it.
+- "Automatic" picks MICO360 AI's models by what they are, no longer preferring one only because it
+  appeared in the platform's list later.
+- Clearer words when MICO360 AI refuses: a key it doesn't accept, a key not allowed to do something (and
+  where to allow it), or a model that failed while answering.
+- The Error log shows MICO360 AI's correlation and job ids for an AI failure, to look up in MICO360 Connect
+  or quote to its support. Each request also tells MICO360 AI which Tasks user it is for (MICO360 Connect
+  keeps only a pseudonym).
+
+## [1.23.17] - 2026-11-11
+
+### New features
+- Duplicate a task: "Duplicate…" in the task's ⋯ menu (task panel and board cards) and beside Open in
+  every Table view. The New task form opens filled in from it — title, description, project, assignees,
+  priority, dates, tags, checklists (every item unticked, sub-items kept), external contacts, the
+  inspection form and place, milestone, weight, estimate and watchers — titled "Duplicate of MSSP-34", so
+  you can change anything (or pick another project) before saving. "Copy files (3)" is ticked unless you
+  untick it; a file that can't be copied is named ("2 of 3 files copied — “x.dwg” couldn’t be copied") and
+  the task is still made. The copy gets its own new number and starts in To do; comments, history,
+  completion, approvals and the repeat are never copied. The copy shows "Duplicated from MSSP-34" and the
+  original lists its copies (only the ones you can open), and both histories say so. Duplicating needs
+  the internet connection.
+- Tasks for the future: the New and Edit task form has a Start date. A task that starts on a later day
+  waits until then — it is on that day's board, not today's, and the form says "Scheduled for 20 Nov".
+  Until its day it is under "Upcoming" in My Tasks and in the project's task list, and out of today's
+  lists, the Open and Overdue counts, My Priorities and the due-date reminders; the calendar, the Timeline,
+  Workload and the daily email's new "Coming up" part still show it. On its start day it is like any task.
+  The people on it are told when it is assigned ("You were assigned a task — starts 20 Nov") and again the
+  morning it starts ("A task starts today", once). This works for tasks made on the website, the Android
+  app, the Chrome extension, with MICO AI, from meeting notes and from a project template that starts later.
+  Moving a not-started task's start date to a later day moves it to that day; a task already under way
+  stays where it is; moving the start to today puts it back on today's board. Existing tasks aren't moved.
+- Manager View, for administrators: a switch in your account menu (saved on your account) that hides
+  the settings while you look at the work as a manager does. While it is on, a "Manager View" badge shows
+  in the top bar; the Admin menu (User Management, Clients, Companies, AI Management, System Settings,
+  Error Log, Audit Logs) is gone, and opening one of its pages by its address says "Manager View is on —
+  turn it off to open this page" with a Turn off button; a project's settings (its details, picture,
+  columns, team, client links, archive) open only for the projects you run; the dashboard's default for
+  everyone and the Workload daily limit can't be changed. Everything else stays as an administrator's:
+  every project's tasks, boards and meetings, Reports, Management and your own settings. The server keeps
+  to it too — for the website, the Android app and the Chrome extension alike. Turning it off gives
+  everything back at once (no signing out), and it can always be turned off. Each switch is recorded in
+  the audit log.
+
+### Bug fixes
+- A tab left open on an older version no longer shows an error when a newer tab updates your profile details.
+- A board card's ⋯ menu near the bottom of the screen (on a phone, or low in a long column) opens above the
+  card, so all of its items can be reached.
+
+## [1.23.16] - 2026-11-11
+
+### New features
+- Search on the Kanban board: a search box at the top of the board (one project, All projects and a
+  project's Board tab) shows only the matching cards as you type — by task number (MICO-12, mico 12 or
+  just 12), title, description, person, project or tag, Arabic in any spelling. The words found are
+  marked on each card, each column says how many of its cards match ("3 of 12"), and ✕ or Escape clears
+  it ("/" jumps to it). It works with the company filter, Day and Month and the Table view, cards can
+  still be dragged to another column, and the words stay in the page's link. When nothing matches,
+  "Search all tasks" opens the full search with the same words.
+- Project details on the Kanban board: with one project chosen, a slim line above the columns shows its
+  picture, name and number, client, project manager, dates with the days left (or late), health, progress,
+  open and overdue tasks, and "Open project". Fold it away with its arrow (remembered); on a phone it shows
+  the short version with "Details".
+
+## [1.23.15] - 2026-11-11
+
+### Bug fixes
+- The Error log no longer counts time a page spent in the background as "slow": a page opened in a
+  background tab, prerendered, restored with the Back button or left on a sleeping computer is no longer
+  "slow to show" (the 986 s and 3386 s rows), and a request that waited in a frozen tab or on a sleeping
+  laptop is no longer a slow request (the bell's "15 times in one visit" at night). A slow click or key
+  press while the page was hidden doesn't count either, and the Error log now says what it was on ("a
+  click on a button"). "Slow to show the page" rows say that their times count only while the page is
+  on screen.
+- Slow requests on the Error log now say where the time went, from the browser's own timing: waiting
+  for a free connection, connecting, waiting for the server to start answering, or downloading the
+  answer — with the server's own time, so a hold-up between the browser and the server (the hosting's
+  front door or the connection) is told apart from a slow server.
+- Update restarts show as handled: while the server stops or starts for an update, the database being
+  briefly unreachable is a calm "Update restart" row ("During an update: the database was briefly
+  unreachable — handled"), no longer a red Server error, and it never brings back a row marked as
+  fixed. A request cut off or held up while the server restarted is listed there too, instead of "A
+  request didn't reach the server (blocked on the way?)" or a slow request.
+
+## [1.23.14] - 2026-11-11
+
+### Bug fixes
+- People's photos show on Kanban cards, My Tasks, project pages, meetings, Activity and the Dashboard (they showed only initials).
+- The picture at the top right shows your current photo and your own name's initials (it showed the username's, and a new photo only after signing in again).
+
+### Improvements
+- Faces load a small copy of each person's photo instead of the full picture, so boards and lists with many people open faster.
+
+## [1.23.13] - 2026-11-11
+
+### Bug fixes
+- MICO360 AI connects again: its address is now https://ai.mico360.com:5310/v1. Since MICO360 Connect
+  2.6.17 the AI platform answers only on HTTPS, so the old http address got no answer at all. A MICO360 AI
+  provider saved with the old address is used on https by itself — nothing to re-enter.
+- Meaning search on MICO360 AI fills in again: the texts it turns into vectors are sent in batches the
+  platform accepts (at most 64 texts, 8,000 characters each, 32,000 together), instead of one batch it
+  refused, which stopped the search sweep at the same place every minute.
+- Meaning search never mixes two embedding models: when MICO360 AI answers with another model than the
+  one chosen (the chosen one was unavailable), those vectors are not kept; meaning search pauses for 15
+  minutes and tries again, and the Error log notes it once instead of every minute.
+- Text cut in the middle of an emoji is no longer sent to MICO360 AI: half a character could make it turn
+  the whole request down, again and again.
+- AI keeps working while MICO360 AI's computers are busy: a model the platform leaves out of its list for
+  a while (a busy or restarting AI node) stays available for 3 days, and an empty list changes nothing and
+  is loaded again within the hour — before, a refresh at such a moment switched AI off for a day ("AI is
+  not configured yet").
+- Describe a meeting works at large companies too: with hundreds of people and projects its request could
+  be longer than the 32,000 characters MICO360 AI reads, and was refused as "too long". On MICO360 AI the
+  lists now fit the room left — the people and projects the sentence names come first — and every AI
+  feature, MICO AI's chat summaries included, stays within that size at its largest.
+
+### Improvements
+- Reading scanned files and pictures, and the Final MOM drafted with AI, now wait as long as MICO360 AI
+  itself does (just over 5 minutes) instead of giving up after 2–3 minutes and running the work again;
+  making meaning-search vectors waits 2 minutes instead of 30 seconds. Reading scans starts no new file
+  after 2 minutes in one go, so the rest of search keeps up to date.
+- When MICO360 AI's usage allowance (its quota) is used up, people are told so — "the usage allowance is
+  used up for now… an admin can check the key's quota in MICO360 Connect" — instead of "busy, try again in
+  a moment". Background work tries again only when the allowance resets within a few minutes; files
+  waiting to be read wait until it resets instead of being given up.
+- AI Management: MICO360 AI says it uses the AI API of MICO360 Connect 2.6.28 (https on port 5310, under
+  /v1) and which capabilities its key needs — Chat, plus Vision to read scanned files and pictures and
+  Embedding for meaning search. The setup guide (docs/AI-MICO360.md) is updated to match.
+
+## [1.23.12] - 2026-11-11
+
+### Security
+- Updated server libraries to fix 11 known vulnerabilities (zod 4, @fastify/static, fast-uri, typescript-eslint).
+  typescript-eslint has no fixed version yet, so the file-pattern library it uses (minimatch) is pinned to
+  its fixed version instead; it is a development tool only and never runs on the live site.
+
+## [1.23.11] - 2026-11-10
+
+### Improvements
+- Every PDF — a task, the reports, the minutes of a meeting (and the client's copy), the client's task
+  list, inspection reports, the Management overview and MICO AI reports — now follows one A4 design:
+  narrower margins (14 mm at the sides, 12 mm top and bottom), one font, smaller and tighter type (9.5 pt
+  text, 11 pt headings, a 15.5 pt title), and nothing ever smaller than 7.5 pt.
+- A slim header on every PDF: the project's picture on the left, the company's logo on the right (the
+  built-in logo when the company has none) and the document's title; every later page repeats a slim
+  version of it, and every page ends with the company's name, "Printed 10 Nov 2026, 14:05 by Name" and
+  "Page 2 of 5" (a copy shared with a client says when it was printed, never by whom).
+- A task's status, priority, due date and progress sit in one slim strip in the site's colours, instead of
+  four tall cards; reports, the minutes, inspections and the Management overview use the same strip.
+- Tables fit their columns to what they hold, keep every date whole, line numbers up on the right, repeat
+  their header on every page, never split a row across two pages (a very long one carries on under
+  "(continued)") and never leave one row alone on a last page. A table too wide for an upright page turns
+  its part of the document sideways by itself; everything else stays upright.
+- Headings always stay with what follows them, a small section is never split across pages, no PDF ends
+  on a blank page, and a task's PDF leaves out the sections it has nothing for (no attachments, no
+  checklist, and so on).
+- Much smaller files: pictures and logos are printed at 200 dpi for the size they are shown at. The task
+  in the owner's screenshot went from 83 KB on 2 pages to 26 KB on 1; a sample report from 6 pages to 4
+  and the Management overview from 4 to 2.
+
+## [1.23.10] - 2026-11-10
+
+### Improvements
+- Kanban: overdue cards keep the normal border; the Overdue date shows as a dark-red-on-pale-red badge.
+
 ## [1.23.9] - 2026-11-10
 
 ### New features

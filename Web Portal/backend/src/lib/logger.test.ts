@@ -40,6 +40,15 @@ describe('createLogger', () => {
     expect(entry.err.stack).toContain('kaboom');
   });
 
+  it('MICO360 AI (b10): an error’s correlation and job ids go with it', () => {
+    const out = capture();
+    const log = createLogger({ service: 'api', sink: out.write });
+    log.error('MICO360 AI: x failed', { err: Object.assign(new Error('HTTP 503'), { correlationId: 'REQ-1', jobId: 'JOB-GW1-2', detail: 'not this' }) });
+    const entry = JSON.parse(out.lines[0]!);
+    expect(entry.err).toMatchObject({ message: 'HTTP 503', correlationId: 'REQ-1', jobId: 'JOB-GW1-2' });
+    expect(entry.err).not.toHaveProperty('detail');
+  });
+
   it('respects the minimum level', () => {
     const out = capture();
     const log = createLogger({ service: 'api', sink: out.write, level: 'warn' });

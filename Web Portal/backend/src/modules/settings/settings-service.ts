@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { HttpError, ValidationError } from '../../lib/http-errors';
+import { validationDetails } from '../../lib/validation-errors';
 import type { SettingRecord, SettingsRepository } from './settings-repository';
 
 const CARRY_STATUSES = ['BACKLOG', 'TODO', 'IN_PROGRESS', 'BLOCKED', 'REVIEW'] as const;
@@ -128,7 +129,7 @@ export function createSettingsService({ settings }: SettingsServiceDeps) {
   async function set(key: string, value: unknown): Promise<SettingRecord> {
     if (!isSettingKey(key)) throw new UnknownSettingError(key);
     const parsed = SETTING_SCHEMAS[key].safeParse(value);
-    if (!parsed.success) throw new ValidationError(`Invalid value for ${key}.`, parsed.error.flatten());
+    if (!parsed.success) throw new ValidationError(`Invalid value for ${key}.`, validationDetails(parsed.error));
     return settings.set(key, parsed.data);
   }
 

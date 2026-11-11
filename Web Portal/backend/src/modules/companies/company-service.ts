@@ -145,7 +145,7 @@ function cleanInput(raw: Partial<Record<keyof CompanyInput, unknown>>, whole: bo
     if (raw.workingHours === null) out.workingHours = null;
     else {
       const parsed = SETTING_SCHEMAS['meetings.workingHours'].safeParse(raw.workingHours);
-      if (!parsed.success) fail(parsed.error.issues.find((i) => i.code === 'custom' || i.code === 'invalid_string')?.message ?? W.workingHours);
+      if (!parsed.success) fail(parsed.error.issues.find((i) => i.code === 'custom' || i.code === 'invalid_format')?.message ?? W.workingHours);
       else out.workingHours = parsed.data;
     }
   }

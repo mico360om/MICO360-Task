@@ -209,10 +209,13 @@ export function paginateRows(
     atTop: boolean;
     /** A row split across pages starts on the current page only if this many of its lines fit there (default 2). */
     minLines?: number;
+    /** 1.23.11: lines each later piece of a split row needs for its "(continued)" note (default 0). */
+    continuedLines?: number;
   },
 ): TablePages {
   const { padY, header } = opts;
   const minLines = opts.minLines ?? 2;
+  const note = opts.continuedLines ?? 0;
   const lineHeightOf = (row: number) => opts.lineHeights?.[row] ?? opts.lineHeight;
   const fresh = opts.pageRoom - header;
   const first = lines[0];
@@ -241,11 +244,13 @@ export function paginateRows(
       left -= h;
       return;
     }
-    // Taller than a page: fill what is left (if enough of it fits), then page after page.
+    // Taller than a page: fill what is left (if enough of it fits), then page after page. Each later
+    // piece starts with its "(continued)" note, which takes `note` lines of the room.
     let from = 0;
     while (from < n) {
       const page = pages[pages.length - 1]!;
-      let fit = Math.floor((left - padY * 2) / lh + 1e-9);
+      const extra = from > 0 ? note : 0;
+      let fit = Math.floor((left - padY * 2) / lh + 1e-9) - extra;
       if (fit < Math.min(minLines, n - from) && page.length > 0) {
         turn();
         continue;
@@ -253,11 +258,22 @@ export function paginateRows(
       fit = Math.max(1, fit);
       const to = Math.min(n, from + fit);
       page.push({ row, from, to });
-      left -= height(to - from);
+      left -= height(to - from + extra);
       from = to;
       if (from < n) turn();
     }
   });
+  // 1.23.11 widow control: the table's last page never holds a single row on its own while the page
+  // before has three or more — that page gives it its last row (a "partially displayed section").
+  if (pages.length >= 2) {
+    const last = pages[pages.length - 1]!;
+    const prev = pages[pages.length - 2]!;
+    const whole = (p: RowPiece) => p.from === 0 && p.to === lines[p.row];
+    const height = (p: RowPiece) => (p.to - p.from) * lineHeightOf(p.row) + padY * 2;
+    if (last.length === 1 && whole(last[0]!) && prev.length >= 3 && whole(prev[prev.length - 1]!) && height(prev[prev.length - 1]!) + height(last[0]!) <= fresh) {
+      last.unshift(prev.pop()!);
+    }
+  }
   return { newPage, pages };
 }
 

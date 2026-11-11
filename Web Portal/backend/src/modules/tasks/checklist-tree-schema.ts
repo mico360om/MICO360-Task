@@ -26,12 +26,12 @@ const nodeSchema: z.ZodType<ChecklistNode> = z.lazy(() =>
  * titles, items with sub-items (no people or dates). Trimmed; a blank title becomes "Checklist"; at most
  * 50 checklists, 500 items and 20 levels, each text at most 191 characters.
  */
-export const checklistTreeSchema: z.ZodType<ChecklistTree, z.ZodTypeDef, unknown> = z
+export const checklistTreeSchema: z.ZodType<ChecklistTree, unknown> = z
   .unknown()
   .refine((raw) => depthOf(raw) <= MAX_DEPTH, { message: `A checklist can have at most ${MAX_DEPTH} levels.` })
   .pipe(z.array(z.object({ title: z.string().trim().max(TEXT_MAX), items: z.array(nodeSchema).max(MAX_ITEMS) })).max(MAX_LISTS))
   .transform((tree) => checklistTreeOf(tree))
   .superRefine((tree, ctx) => {
     const why = treeLimits(tree);
-    if (why) ctx.addIssue({ code: z.ZodIssueCode.custom, message: why });
+    if (why) ctx.addIssue({ code: 'custom', message: why });
   });

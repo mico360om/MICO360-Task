@@ -1,9 +1,9 @@
+import { useEffectiveAdmin } from '../../lib/manager-view';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { apiClient } from '../../api/client';
 import { companiesApi, type CompanyPersonOption } from '../../api/companies';
 import type { ApiProject, ApiProjectCompany } from '../../api/projects';
 import { useMyCompanies } from '../../hooks/useMyCompanies';
-import { useAuthStore } from '../../stores/auth-store';
 
 /** A project's companies, main first as the server sends them (`ApiProject.companies`); none from an older payload. */
 export function projectCompaniesOf(project: Pick<ApiProject, 'companies'> | null | undefined): ApiProjectCompany[] {
@@ -32,7 +32,8 @@ export interface TeamCandidates {
  */
 export function useTeamCandidateState(companyIds: readonly string[] | null, opts: { projectId?: string | null } = {}): TeamCandidates {
   const { data, companies, siteCompanyCount } = useMyCompanies();
-  const isAdmin = useAuthStore((s) => s.isAdmin());
+  // Manager View (owner, 10 Nov): adding people is a project setting — as a project's manager then.
+  const isAdmin = useEffectiveAdmin();
   const several = !!data && siteCompanyCount >= 2;
   const mine = new Set(companies.map((c) => c.id));
   // A project that exists, its companies as they are: ask the project — the people of ANY of its

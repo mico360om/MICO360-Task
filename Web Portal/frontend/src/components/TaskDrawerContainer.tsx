@@ -141,6 +141,8 @@ function TaskDrawerPanel({ taskId, onClose, stepper, mergeNotice, focusItemId }:
   const [actionError, setActionError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [moving, setMoving] = useState(false);
+  // Duplicate Task: the New task form, filled in from this task.
+  const [duplicating, setDuplicating] = useState(false);
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   // 1.23.1: the merge dialog, the notice after a merge (with Undo), and the Undo question.
@@ -160,6 +162,7 @@ function TaskDrawerPanel({ taskId, onClose, stepper, mergeNotice, focusItemId }:
     setActionError(null);
     setEditing(false);
     setMoving(false);
+    setDuplicating(false);
     setSavingTemplate(false);
     setToast(null);
     setMerging(false);
@@ -619,6 +622,8 @@ function TaskDrawerPanel({ taskId, onClose, stepper, mergeNotice, focusItemId }:
                 : undefined
             }
             onMoveToProject={canMove ? () => setMoving(true) : undefined}
+            // Duplicate: anyone who can open the task (the form offers the projects they may add tasks to; the server checks).
+            onDuplicate={() => setDuplicating(true)}
             moveUnavailable={canMove?.reason}
             // Save as template: whoever runs the project (the server checks too).
             onSaveAsTemplate={runsProject ? () => setSavingTemplate(true) : undefined}
@@ -711,6 +716,12 @@ function TaskDrawerPanel({ taskId, onClose, stepper, mergeNotice, focusItemId }:
         // Its own layer above the panel; clicks inside it must not reach the panel's backdrop.
         <div onClick={(e) => e.stopPropagation()}>
           <TaskFormDialog task={taskQ.data} onClose={() => setEditing(false)} onSaved={() => setActionError(null)} />
+        </div>
+      ) : null}
+      {duplicating && taskQ.data ? (
+        // Its own layer above the panel; the copy's notice (with Open) comes from the app shell.
+        <div onClick={(e) => e.stopPropagation()}>
+          <TaskFormDialog duplicateOfId={taskQ.data.id} onClose={() => setDuplicating(false)} onCreated={refreshTaskViews} />
         </div>
       ) : null}
       {moving && taskQ.data ? (

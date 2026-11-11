@@ -95,6 +95,31 @@ describe('parseClientBatch: what the page sends, checked report by report', () =
   });
 });
 
+// 1.23.14: where a slow request's time went, from the browser's Resource Timing; and update restarts as
+// the page saw them (a request cut, or held up, while the server restarted).
+describe('parseClientBatch: 1.23.14 where the time went, and update restarts', () => {
+  const slow = { kind: 'SLOW', detail: 'api', value: 10_550, page: '/', resource: 'GET /api/v1/tasks' };
+  const parts = { queueMs: 0, connectMs: 30, waitMs: 10_400, downloadMs: 120 };
+
+  it('a slow request keeps its four parts (with or without the server’s time); all four or none', () => {
+    expect(parseClientBatch({ reports: [{ ...slow, serverMs: 48.2, dbMs: 12.5, ...parts }] })[0]).toMatchObject({ serverMs: 48.2, dbMs: 12.5, ...parts });
+    const [noServer] = parseClientBatch({ reports: [{ ...slow, ...parts }] });
+    expect(noServer).toMatchObject(parts);
+    expect(noServer).not.toHaveProperty('serverMs');
+    const [three] = parseClientBatch({ reports: [{ ...slow, queueMs: 0, connectMs: 30, waitMs: 10_400 }] });
+    expect(three).not.toHaveProperty('waitMs');
+    expect(parseClientBatch({ reports: [{ ...slow, ...parts, waitMs: -5 }] })).toEqual([]);
+    const [load] = parseClientBatch({ reports: [{ kind: 'SLOW', detail: 'load', value: 9000, page: '/', ...parts }] });
+    expect(load).not.toHaveProperty('waitMs');
+  });
+
+  it('an update restart: a request cut (api) or held up (slow, with its times); nothing else', () => {
+    expect(parseClientBatch({ reports: [{ kind: 'UPDATE', detail: 'api', page: '/dashboard', resource: 'GET /api/v1/conversations' }] })[0]).toMatchObject({ kind: 'UPDATE', detail: 'api', resource: 'GET /api/v1/conversations' });
+    expect(parseClientBatch({ reports: [{ kind: 'UPDATE', detail: 'slow', value: 29_750, page: '/board', resource: 'GET /api/v1/tasks/:id', serverMs: 35, ...parts }] })[0]).toMatchObject({ kind: 'UPDATE', detail: 'slow', value: 29_750, serverMs: 35, ...parts });
+    expect(parseClientBatch({ reports: [{ kind: 'UPDATE', detail: 'request', page: '/' }] })).toEqual([]); // the server's own, never a browser's
+  });
+});
+
 describe('parseCspReports: what the browser itself sends for the security policy', () => {
   it('report-uri (application/csp-report)', () => {
     const body = {

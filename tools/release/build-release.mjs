@@ -379,7 +379,37 @@ function writeBackendLock() {
   fs.copyFileSync(path.join(BACKEND, 'package.json'), path.join(lockDir, 'package.json'));
   fs.renameSync(nm, path.join(lockDir, 'node_modules'));
   run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', '--prefer-offline'], { cwd: lockDir });
-  fs.copyFileSync(path.join(lockDir, 'package-lock.json'), path.join(BACKEND, 'package-lock.json'));
+  const lock = readJson(path.join(lockDir, 'package-lock.json'));
+  pinDownloads(lock, readJson(path.join(ROOT, 'package-lock.json')));
+  fs.writeFileSync(path.join(BACKEND, 'package-lock.json'), `${JSON.stringify(lock, null, 2)}\n`);
+}
+
+/**
+ * 1.23.12: every package in the backend's lockfile says where it is downloaded from and its sha512,
+ * as the monorepo lockfile does (npm leaves both out when it records a tree it didn't download, and
+ * `npm ci` would then take whatever the registry serves). The same name and version in the root
+ * lockfile is the same tarball. Only registry.npmjs.org; anything that can't be matched stops the build.
+ */
+function pinDownloads(lock, rootLock) {
+  const nameOf = (key) => key.slice(key.lastIndexOf('node_modules/') + 'node_modules/'.length);
+  const known = new Map();
+  for (const [key, e] of Object.entries(rootLock.packages)) {
+    if (key.includes('node_modules/') && !e.link && e.resolved && e.integrity) known.set(`${nameOf(key)}@${e.version}`, { resolved: e.resolved, integrity: e.integrity });
+  }
+  const problems = [];
+  for (const [key, e] of Object.entries(lock.packages)) {
+    if (!key.includes('node_modules/') || e.link) continue;
+    const pin = known.get(`${nameOf(key)}@${e.version}`);
+    if (!pin) problems.push(`${key}@${e.version} is not in the root lockfile`);
+    else if (!/^https:\/\/registry\.npmjs\.org\//.test(pin.resolved) || !/^sha512-/.test(pin.integrity)) problems.push(`${key}@${e.version} is not a registry.npmjs.org sha512 download`);
+    else if ((e.resolved && e.resolved !== pin.resolved) || (e.integrity && e.integrity !== pin.integrity)) problems.push(`${key}@${e.version} differs from the root lockfile`);
+    else {
+      // npm's own key order: version, resolved, integrity, then the rest.
+      const { version, resolved: _resolved, integrity: _integrity, ...rest } = e;
+      lock.packages[key] = { version, resolved: pin.resolved, integrity: pin.integrity, ...rest };
+    }
+  }
+  if (problems.length) throw new Error(`Web Portal/backend/package-lock.json:\n  ${problems.join('\n  ')}`);
 }
 
 // ------------------------------------------------------------------ Hostinger / Linux package
