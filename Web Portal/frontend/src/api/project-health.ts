@@ -38,6 +38,8 @@ export interface ProjectHealthDetail {
     managers: HealthPerson[];
     milestones: { id: string; key: string; title: string; due: string | null; owners: HealthPerson[] }[];
   };
+  /** Its open tasks and how many are overdue (the Kanban board's project strip, 10 Nov; an older server leaves it out). */
+  counts?: { open: number; overdue: number };
   generatedAt: string;
 }
 

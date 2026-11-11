@@ -20,9 +20,10 @@ import { LIVE_PROJECT_WHERE } from '../companies/company-access';
 import { currentAcceptance } from '../clients/sign-off';
 import { checklistTreeOf, leafCounts } from './checklist-tree';
 import { rowsFromTree } from './checklist-service';
+import { PERSON_SUMMARY_SELECT, personSummary } from '../../lib/person-summary';
 
 type TagRelation = { tag: { id: string; name: string; color: string } };
-type AssigneeRelation = { user: { id: string; username: string; firstName: string | null; lastName: string | null } };
+type AssigneeRelation = { user: { id: string; username: string; firstName: string | null; lastName: string | null; avatarUrl: string | null } };
 // 1.23.1: a merged task's merge columns aren't read here (merged tasks aren't live tasks). Duplicate Task:
 // nor the task a copy was made from (single-task details read it on their own; never list rows).
 type EnrichedTask = Omit<Task, 'carryForwardLog' | 'mergedIntoId' | 'mergedAt' | 'mergedById' | 'mergeId' | 'duplicatedFromId'> & {
@@ -38,7 +39,6 @@ type EnrichedTask = Omit<Task, 'carryForwardLog' | 'mergedIntoId' | 'mergedAt' |
   /** Its external contacts, in order: names and companies on list rows, every field for a single task. */
   externalContacts?: { name: string; company: string | null }[];
 };
-const displayName = (u: AssigneeRelation['user']): string => [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username;
 
 function toRecord(t: EnrichedTask): TaskRecord {
   return {
@@ -82,7 +82,8 @@ function toRecord(t: EnrichedTask): TaskRecord {
     version: t.version,
     createdAt: t.createdAt,
     updatedAt: t.updatedAt,
-    ...(t.assignees ? { assignees: t.assignees.map((a) => ({ id: a.user.id, name: displayName(a.user) })) } : {}),
+    // Avatar hotfix (owner, 10 Nov): each face's photo too (null: initials), read with the row.
+    ...(t.assignees ? { assignees: t.assignees.map((a) => personSummary(a.user)) } : {}),
     ...(t._count || t.checklist
       ? {
           counts: {
@@ -296,7 +297,7 @@ export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository
         select: {
           ...listScalars,
           ...withColumn,
-          assignees: { select: { user: { select: { id: true, username: true, firstName: true, lastName: true } } } },
+          assignees: { select: { user: { select: PERSON_SUMMARY_SELECT } } },
           checklist: { where: { deletedAt: null }, select: { id: true, parentId: true, done: true } },
           _count: { select: { comments: true, attachments: true } },
         },

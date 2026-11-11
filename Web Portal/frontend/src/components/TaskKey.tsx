@@ -11,6 +11,8 @@ export interface TaskKeyProps {
    */
   dense?: boolean | 'compact';
   className?: string;
+  /** Board search (10 Nov): the number is what was searched for — marked as found words are. */
+  marked?: boolean;
 }
 
 /**
@@ -20,7 +22,7 @@ export interface TaskKeyProps {
  * the title beside it truncates. In sentences — toasts, notices, PDFs, emails — the number is plain
  * text instead. `data-task-key` lets tests and the page find it.
  */
-export function TaskKey({ value, size = 'sm', dense = false, className = '' }: TaskKeyProps) {
+export function TaskKey({ value, size = 'sm', dense = false, className = '', marked = false }: TaskKeyProps) {
   if (!value) return null;
   const look = size === 'lg' ? 'rounded-md px-1.5 text-xs font-semibold' : 'rounded px-1.5 text-[11px]';
   return (
@@ -28,7 +30,8 @@ export function TaskKey({ value, size = 'sm', dense = false, className = '' }: T
       data-task-key={value}
       dir="ltr"
       translate="no"
-      className={`inline-block shrink-0 whitespace-nowrap bg-ground font-mono leading-4 text-ink-2 ${look} ${dense === true ? 'py-0' : dense === 'compact' ? 'py-0.5 compact:py-0' : 'py-0.5'} ${className}`}
+      {...(marked ? { 'data-marked': '' } : {})}
+      className={`inline-block shrink-0 whitespace-nowrap font-mono leading-4 ${marked ? 'bg-warning-soft font-semibold text-ink' : 'bg-ground text-ink-2'} ${look} ${dense === true ? 'py-0' : dense === 'compact' ? 'py-0.5 compact:py-0' : 'py-0.5'} ${className}`}
     >
       {value}
     </span>

@@ -1,4 +1,4 @@
-import type { MinutesState } from '../../api/meetings';
+import type { MeetingFace, MinutesState } from '../../api/meetings';
 import type { BadgeTone } from '../ui/Badge';
 import { Avatar } from '../ui/Avatar';
 import { instantDayText } from '../../lib/day-words';
@@ -33,11 +33,16 @@ export function DateLeaf({ iso, timeZone, tone, className = '' }: { iso: string;
   );
 }
 
-/** Who's coming: the first three faces, "+N" for the rest, and how many in words. */
-export function People({ names = [], count, className = '' }: { names?: string[]; count?: number; className?: string }) {
+/**
+ * Who's coming: the first three faces, "+N" for the rest, and how many in words. `faces` (avatar hotfix):
+ * the same people with their photos; an older server sends only `names` (initials).
+ */
+export function People({ names: given = [], faces, count, className = '' }: { names?: string[]; faces?: MeetingFace[]; count?: number; className?: string }) {
+  const people: MeetingFace[] = faces?.length ? faces : given.map((name) => ({ name, avatarUrl: null }));
+  const names = people.map((p) => p.name);
   const total = count ?? names.length;
   if (!total) return <span className={`text-xs leading-6 text-ink-3 ${className}`}>No attendees yet</span>;
-  const shown = names.slice(0, 3);
+  const shown = people.slice(0, 3);
   const more = total - shown.length;
   return (
     <span className={`relative z-10 flex min-w-0 items-center gap-2 text-xs text-ink-2 ${className}`} title={names.length ? `${names.join(', ')}${total > names.length ? ' …' : ''}` : undefined}>
@@ -45,9 +50,9 @@ export function People({ names = [], count, className = '' }: { names?: string[]
         <span className="flex flex-none -space-x-1.5 rtl:space-x-reverse">
           {/* Each face on a solid backing: the initials' tint is see-through, and an overlapped face's
               letters would show through the one in front. */}
-          {shown.map((n, i) => (
-            <span key={`${i}-${n}`} className="flex-none rounded-full bg-surface">
-              <Avatar name={n} size="sm" />
+          {shown.map((p, i) => (
+            <span key={`${i}-${p.name}`} className="flex-none rounded-full bg-surface">
+              <Avatar name={p.name} src={p.avatarUrl} size="sm" />
             </span>
           ))}
           {more > 0 ? (

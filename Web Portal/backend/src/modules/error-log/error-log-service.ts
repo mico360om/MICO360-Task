@@ -42,24 +42,50 @@ const clip = (v: string | null | undefined, n: number): string | null => (v ? v.
  */
 export interface SlowTiming {
   totalMs: number | null;
-  serverMs: number;
+  /** 1.23.14: null when only the browser's parts were said (an answer without the server's time). */
+  serverMs: number | null;
   dbMs: number | null;
+  /**
+   * 1.23.14 — where the time went, from the browser's Resource Timing (ms): waiting for a free connection,
+   * connecting, waiting for the first byte, downloading. Absent when the page didn't say (older pages).
+   */
+  queueMs?: number;
+  connectMs?: number;
+  waitMs?: number;
+  downloadMs?: number;
 }
 
 /**
  * A slow request has no stack: its occurrence keeps the server's and the database's times there, as
  * the Server-Timing it came from ("Server-Timing: app;dur=9912.3, db;dur=9700.1") — no new column.
+ * 1.23.14: and, on a line of its own, the browser's parts ("Request-Timing: queue;dur=0, connect;dur=30,
+ * wait;dur=10400, download;dur=120"); either line may be missing.
  */
-const TIMING = /^Server-Timing: app;dur=(\d+(?:\.\d+)?)(?:, db;dur=(\d+(?:\.\d+)?))?$/;
+const TIMING = /^Server-Timing: app;dur=(\d+(?:\.\d+)?)(?:, db;dur=(\d+(?:\.\d+)?))?$/m;
+const PARTS = /^Request-Timing: queue;dur=(\d+(?:\.\d+)?), connect;dur=(\d+(?:\.\d+)?), wait;dur=(\d+(?:\.\d+)?), download;dur=(\d+(?:\.\d+)?)$/m;
 const tenth = (ms: number) => Math.round(ms * 10) / 10;
-function timingText(r: Pick<ClientReport, 'serverMs' | 'dbMs'>): string | null {
-  if (r.serverMs == null) return null;
-  return `Server-Timing: app;dur=${tenth(r.serverMs)}${r.dbMs == null ? '' : `, db;dur=${tenth(r.dbMs)}`}`;
+function timingText(r: Pick<ClientReport, 'serverMs' | 'dbMs' | 'queueMs' | 'connectMs' | 'waitMs' | 'downloadMs'>): string | null {
+  const lines: string[] = [];
+  if (r.serverMs != null) lines.push(`Server-Timing: app;dur=${tenth(r.serverMs)}${r.dbMs == null ? '' : `, db;dur=${tenth(r.dbMs)}`}`);
+  if (r.queueMs != null && r.connectMs != null && r.waitMs != null && r.downloadMs != null) {
+    lines.push(`Request-Timing: queue;dur=${tenth(r.queueMs)}, connect;dur=${tenth(r.connectMs)}, wait;dur=${tenth(r.waitMs)}, download;dur=${tenth(r.downloadMs)}`);
+  }
+  return lines.length ? lines.join('\n') : null;
 }
-function slowTiming(e: Pick<ErrorEventRow, 'kind' | 'value' | 'stack'>): SlowTiming | null {
-  const m = e.kind === 'SLOW' ? TIMING.exec(e.stack ?? '') : null;
-  return m ? { totalMs: e.value, serverMs: Number(m[1]), dbMs: m[2] === undefined ? null : Number(m[2]) } : null;
+/** A request that can say where its time went: a slow one, or one held up by an update restart (1.23.14). */
+const isTimed = (e: { kind: string; detail?: string | null }) => e.kind === 'SLOW' || (e.kind === 'UPDATE' && e.detail === 'slow');
+function slowTiming(e: Pick<ErrorEventRow, 'kind' | 'value' | 'stack'> & { detail?: string | null }): SlowTiming | null {
+  if (e.kind !== 'SLOW' && e.kind !== 'UPDATE') return null;
+  const text = e.stack ?? '';
+  const m = TIMING.exec(text);
+  const p = PARTS.exec(text);
+  if (!m && !p) return null;
+  const timing: SlowTiming = { totalMs: e.value, serverMs: m ? Number(m[1]) : null, dbMs: m && m[2] !== undefined ? Number(m[2]) : null };
+  if (p) Object.assign(timing, { queueMs: Number(p[1]), connectMs: Number(p[2]), waitMs: Number(p[3]), downloadMs: Number(p[4]) });
+  return timing;
 }
+/** 1.23.14: an update restart the server saw itself (its resource is the database's diagnosis, like a Server error's). */
+const fromServer = (e: { kind: string; detail: string | null }) => e.kind === 'SERVER' || (e.kind === 'UPDATE' && e.detail !== 'api' && e.detail !== 'slow');
 
 export interface ErrorLogServiceDeps {
   repo: ErrorLogRepository;
@@ -75,6 +101,12 @@ export interface ErrorLogServiceDeps {
   warn: (message: string, meta?: Record<string, unknown>) => void;
   /** People's names for the details' latest occurrences. */
   userNames?: (ids: string[]) => Promise<Map<string, string>>;
+  /**
+   * 1.23.14: the server is stopping (SIGTERM — an update) or in its first minute after starting (an update,
+   * or another restart): a database blip then is the restart's (answered 503 and tried again), recorded as a
+   * calm Update row whose occurrence says which side ('stopping' / 'starting'); null outside that window.
+   */
+  updateWindow?: () => 'stopping' | 'starting' | null;
   limits?: {
     /** Requests a minute from one address (a page sends a batch at most every 10 seconds). */
     perAddressPerMinute?: number;
@@ -108,6 +140,11 @@ export interface GroupListItem {
 
 export interface ListQuery {
   kind: KindFilter;
+  /**
+   * 1.23.14: the page knows the Update restart kind (it asks with updates=1). An older page's code, open
+   * across the deploy or after a rollback, knows no such kind: it is shown those rows as Server rows.
+   */
+  updateKind?: boolean;
   range: RangeFilter;
   q: string | null;
   status: 'open' | 'fixed';
@@ -234,8 +271,9 @@ export function createErrorLogService(deps: ErrorLogServiceDeps) {
         count = 0;
       }
     }
-    // 1.23.3: a slow request keeps where its time went in its (otherwise empty) stack.
-    if (r.kind === 'SLOW' && r.detail === 'api') stack = timingText(r);
+    // 1.23.3: a slow request keeps where its time went in its (otherwise empty) stack; 1.23.14: also one held
+    // up by an update restart, with the browser's parts.
+    if (isTimed(r)) stack = r.detail === 'api' || r.detail === 'slow' ? timingText(r) : null;
     const event: NewEvent = {
       at: now(),
       kind: r.kind,
@@ -314,6 +352,27 @@ export function createErrorLogService(deps: ErrorLogServiceDeps) {
       const title = redactText(request ? first || message : first ? `${message}: ${first}` : message, 500);
       const at = now();
       const version = clip(versionOf(null), 32);
+      // 1.23.14: a database blip while the server stops or has just started is the update's (handled), not an error.
+      const updateBlip = databaseConnectionCode(thrown);
+      const phase = updateBlip ? (deps.updateWindow?.() ?? null) : null;
+      if (updateBlip && phase) {
+        const page = request ? clip(`${method ?? ''} ${route ?? '(no route)'}`.trim(), 300) : null;
+        // Which side of the restart (the page or job is said beside it).
+        const detail = phase;
+        const d = describeReport({ kind: 'UPDATE', detail, job, route: page, blip: updateBlip });
+        background('an update restart', async () => {
+          await store({
+            fingerprint: d.key,
+            kind: 'UPDATE',
+            title: d.groupTitle,
+            topFile: null,
+            topLine: null,
+            topFunction: null,
+            event: { at, kind: 'UPDATE', detail, message: d.title, stack: null, page, job: job ? job.slice(0, 100) : null, resource: clip(db?.text, 300), value: null, count: 1, version, browser: null, system: null, screen: null, userId, signedIn: !!userId },
+          });
+        });
+        return;
+      }
       background('a server error', async () => {
         const resolved = frames ? await resolveStack(frames, deps.maps) : { stack: '', top: null };
         // A request by its route pattern (never its address, which can carry a token).
@@ -388,8 +447,8 @@ export function createErrorLogService(deps: ErrorLogServiceDeps) {
       deps.repo.countsByKind(since, status),
     ]);
     const shown = rows.slice(0, limit);
-    // 1.23.3: a slow row shows where its latest request's time went.
-    const slowIds = shown.filter((g) => g.kind === 'SLOW').map((g) => g.id);
+    // 1.23.3: a slow row shows where its latest request's time went (1.23.14: and an update's held-up requests).
+    const slowIds = shown.filter((g) => g.kind === 'SLOW' || g.kind === 'UPDATE').map((g) => g.id);
     const [pages, newest] = await Promise.all([deps.repo.topPages(shown.map((g) => g.id)), slowIds.length ? deps.repo.newest(slowIds) : Promise.resolve(new Map<string, Pick<ErrorEventRow, 'value' | 'stack'>>())]);
     const last = shown[shown.length - 1];
     const n = (k: ErrorKind) => byKind[k] ?? 0;
@@ -398,9 +457,12 @@ export function createErrorLogService(deps: ErrorLogServiceDeps) {
       return e ? slowTiming({ kind: g.kind, value: e.value, stack: e.stack }) : null;
     };
     return {
-      groups: shown.map((g) => ({ ...toItem(g, pages.get(g.id) ?? null), timing: timingOf(g) })),
+      groups: shown.map((g) => {
+        const item = { ...toItem(g, pages.get(g.id) ?? null), timing: timingOf(g) };
+        return item.kind === 'UPDATE' && !q.updateKind ? { ...item, kind: 'SERVER' as const } : item;
+      }),
       next: rows.length > limit && last ? `${last.lastSeenAt.toISOString()}|${last.id}` : null,
-      counts: { all: n('ERROR') + n('NETWORK') + n('BLOCKED') + n('SLOW') + n('SERVER'), errors: n('ERROR') + n('NETWORK'), blocked: n('BLOCKED'), slow: n('SLOW'), server: n('SERVER') },
+      counts: { all: n('ERROR') + n('NETWORK') + n('BLOCKED') + n('SLOW') + n('SERVER') + n('UPDATE'), errors: n('ERROR') + n('NETWORK'), blocked: n('BLOCKED'), slow: n('SLOW'), server: n('SERVER') + n('UPDATE') },
     };
   }
 
@@ -420,13 +482,14 @@ export function createErrorLogService(deps: ErrorLogServiceDeps) {
         detail: e.detail,
         message: e.message,
         // 1.23.3: a slow request's stack holds its timing, shown in words (timing), never as a stack.
-        stack: e.kind === 'SLOW' ? null : e.stack,
+        stack: e.kind === 'SLOW' || e.kind === 'UPDATE' ? null : e.stack,
         timing: slowTiming(e),
         page: e.page,
         job: e.job,
         // A server error's resource is its database diagnosis (1.22.5): the page says "Database said: …".
-        resource: e.kind === 'SERVER' ? null : e.resource,
-        database: e.kind === 'SERVER' ? e.resource : null,
+        // 1.23.14: so is an update restart's the server saw itself.
+        resource: fromServer(e) ? null : e.resource,
+        database: fromServer(e) ? e.resource : null,
         value: e.value,
         count: e.count,
         version: e.version,

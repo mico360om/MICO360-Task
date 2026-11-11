@@ -8,6 +8,8 @@ export interface ApiMember {
   email: string;
   firstName: string;
   lastName: string;
+  /** Their photo (null, or left out by an older server: initials). */
+  avatarUrl?: string | null;
   role: ProjectMemberRole;
   /** companies: false when they're in none of the project's active companies any more, so they can't see it. Missing (older server): they can. */
   hasAccess?: boolean;

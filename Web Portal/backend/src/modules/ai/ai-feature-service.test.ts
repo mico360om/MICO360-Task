@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createAiFeatureService, parseStringArray, parseJsonObject } from './ai-feature-service';
+import { createAiFeatureService, matchPeople, parseStringArray, parseJsonObject } from './ai-feature-service';
 import { createMemoryAiConfigRepository } from './ai-config-repository';
 import { emptyConfig, type AiConfig } from './ai-config';
 import { ValidationError } from '../../lib/http-errors';
@@ -290,7 +290,7 @@ describe('AiFeatureService: drafting final minutes', () => {
 
 describe('AiFeatureService on MICO360 AI (its API guide)', () => {
   const micoConfig: AiConfig = {
-    providers: [{ id: 'pr1', name: 'MICO360 AI', kind: 'custom', preset: 'mico360', apiBaseUrl: 'http://ai.mico360.com:5310/v1', apiKey: 'mico_x', enabled: true, createdAt: '', updatedAt: '' }],
+    providers: [{ id: 'pr1', name: 'MICO360 AI', kind: 'custom', preset: 'mico360', apiBaseUrl: 'https://ai.mico360.com:5310/v1', apiKey: 'mico_x', enabled: true, createdAt: '', updatedAt: '' }],
     models: [{ id: 'm1', providerId: 'pr1', modelKey: 'llama3.1:latest', displayName: 'Llama 3.1', capabilities: ['chat'], parameters: {}, concurrencyLimit: 4, enabled: true, available: true, createdAt: '', updatedAt: '' }],
     defaults: { chat: 'm1' },
   };
@@ -336,6 +336,60 @@ describe('AiFeatureService on MICO360 AI (its API guide)', () => {
     } finally {
       spy.mockRestore();
     }
+  });
+
+  // Its guide (§5, §7): the OpenAI surface waits 300 s and a vision job may run 300 s on a node; a caller
+  // that gives up sooner leaves a running job behind and its retry runs it again. Background work waits
+  // just past the platform's own 300 s, so the platform's 504 comes first; the meaning-search sweep 120 s.
+  describe('background work waits as long as the platform does', () => {
+    const withModels = (preset: 'mico360' | 'custom'): AiConfig => ({
+      providers: [{ ...micoConfig.providers[0]!, preset, apiBaseUrl: preset === 'mico360' ? 'https://ai.mico360.com:5310/v1' : 'https://ai.example.com/v1' }],
+      models: [
+        micoConfig.models[0]!,
+        { ...micoConfig.models[0]!, id: 'ocr', modelKey: 'glm-ocr:latest', capabilities: ['vision', 'ocr', 'document'] },
+        { ...micoConfig.models[0]!, id: 'emb', modelKey: 'nomic-embed-text:latest', capabilities: ['embedding'] },
+      ],
+      defaults: { chat: 'm1' },
+    });
+    const run = async (preset: 'mico360' | 'custom', work: (svc: ReturnType<typeof createAiFeatureService>) => Promise<unknown>) => {
+      const waits: number[] = [];
+      const real = AbortSignal.timeout.bind(AbortSignal);
+      const spy = vi.spyOn(AbortSignal, 'timeout').mockImplementation((ms: number) => {
+        waits.push(ms);
+        return real(ms);
+      });
+      const fetchImpl = (async (url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init!.body));
+        const answer = String(url).endsWith('/embeddings')
+          ? { model: body.model, data: (body.input as string[]).map((_, index) => ({ index, embedding: [1, 0] })) }
+          : { choices: [{ message: { content: '{"summary":"s"}' } }] };
+        return new Response(JSON.stringify(answer), { status: 200, headers: { 'content-type': 'application/json' } });
+      }) as unknown as typeof fetch;
+      try {
+        await work(createAiFeatureService({ repo: createMemoryAiConfigRepository(withModels(preset)), fetchImpl }));
+      } finally {
+        spy.mockRestore();
+      }
+      return waits;
+    };
+    const picture = [{ data: Buffer.from('jpeg'), mimeType: 'image/jpeg' }];
+
+    it('MICO360 AI: reading pictures and the Final MOM in the background wait 310 s; the search sweep 120 s', async () => {
+      expect(await run('mico360', (svc) => svc.readPictures(picture))).toEqual([310_000]);
+      expect(await run('mico360', (svc) => svc.draftMinutes('Meeting: X', { userId: 'u1' }, { background: true }))).toEqual([310_000]);
+      expect(await run('mico360', (svc) => svc.embed(['a', 'b'], { background: true }))).toEqual([120_000]);
+    });
+
+    it('MICO360 AI: what is not a background job keeps its own wait (the minutes MICO AI drafts 180 s, a question 30 s)', async () => {
+      expect(await run('mico360', (svc) => svc.draftMinutes('Meeting: X', { userId: 'u1' }))).toEqual([180_000]);
+      expect(await run('mico360', (svc) => svc.embed(['a question']))).toEqual([30_000]);
+    });
+
+    it('other providers are unchanged', async () => {
+      expect(await run('custom', (svc) => svc.readPictures(picture))).toEqual([120_000]);
+      expect(await run('custom', (svc) => svc.draftMinutes('Meeting: X', { userId: 'u1' }, { background: true }))).toEqual([180_000]);
+      expect(await run('custom', (svc) => svc.embed(['a'], { background: true }))).toEqual([30_000]);
+    });
   });
 });
 
@@ -672,5 +726,21 @@ describe('AiFeatureService: 1.23 search — OCR, embeddings and AI search questi
     await svc.chat({ system: 's', prompt: 'p', json: true });
     await svc.chat({ system: 's', prompt: 'p', json: true });
     expect(() => svc.startSearchQuestion('u1')).toThrow(/too quickly/);
+  });
+});
+
+// Review I1: on MICO360 AI a long people list may not all fit in the prompt; a person left out can't be
+// named by id, so a name said exactly as one unlisted person's is found by the name.
+describe('matchPeople: someone left out of the prompt', () => {
+  const everyone = [
+    { id: 'u1', firstName: 'Sara', lastName: 'Al Balushi', username: 'sara', name: 'Sara Al Balushi' },
+    { id: 'u9', firstName: 'Zuhair', lastName: 'Al Zadjali', username: 'zuhair.z', name: 'Zuhair Al Zadjali' },
+  ];
+  it('a unique exact name of someone not listed is found', () => {
+    expect(matchPeople([{ said: 'Zuhair Al Zadjali', ids: [] }], everyone, new Set(['u9'])).found.map((f) => f.id)).toEqual(['u9']);
+  });
+  it('someone who was listed, and the model said fits nobody: not found, as before', () => {
+    expect(matchPeople([{ said: 'Zuhair Al Zadjali', ids: [] }], everyone).notFound).toEqual(['Zuhair Al Zadjali']);
+    expect(matchPeople([{ said: 'Zuhair Al Zadjali', ids: [] }], everyone, new Set()).notFound).toEqual(['Zuhair Al Zadjali']);
   });
 });

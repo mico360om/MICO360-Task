@@ -3,6 +3,7 @@ import type { PrismaClient } from '@prisma/client';
 import { FILE_TEXT_MAX_CHARS, type FileText } from '../../lib/file-text';
 import { readFileTextOffThread } from '../../lib/file-text-thread';
 import { MAX_ATTEMPTS, RETRY_DELAYS_MS, isRetryable } from '../ai-jobs/ai-job-runner';
+import { ProviderRefusedError } from '../ai/ai-completion';
 
 /**
  * 1.23 search — the text inside task files. A file is read once, in the background (after its upload,
@@ -25,6 +26,12 @@ const OCR_LEASE_MS = 10 * 60_000;
 
 /** At most this many files are sent to OCR per hour on one server. */
 export const OCR_PER_HOUR = 30;
+/** One OCR run starts no new file after this long (a scan may take 5 minutes on MICO360 AI). */
+const OCR_RUN_BUDGET_MS = 2 * 60_000;
+/** A used-up quota: the file waits its Retry-After, held between a minute and a day (an hour when none is given). */
+const QUOTA_WAIT_MIN_MS = 60_000;
+const QUOTA_WAIT_MAX_MS = 24 * 60 * 60_000;
+const QUOTA_WAIT_UNKNOWN_MS = 60 * 60_000;
 /** A scanned PDF's first pages only are sent (pictures). */
 const OCR_MAX_PAGES = 5;
 /** What one OCR request sends at most: a picture file, or a scanned PDF's page pictures together. */
@@ -174,7 +181,11 @@ export function createFileTextService({ prisma, storage, index, ocr, logger, now
     const dueNow = () => ({ status: 'OCR_WAIT', OR: [{ nextTryAt: null }, { nextTryAt: { lte: now() } }] });
     const due = await prisma.searchFileText.findMany({ where: { ...dueNow(), file: { task: { deletedAt: null } } }, orderBy: { readAt: 'asc' }, take: room, select: { fileId: true, attempts: true } });
     let done = 0;
+    const started = now().getTime();
     for (const row of due) {
+      // A slow provider (MICO360 AI may take 5 minutes a scan): no new file after OCR_RUN_BUDGET_MS, so the
+      // minute's other search steps aren't held up (review minor 8). The rest wait for the next run.
+      if (now().getTime() - started >= OCR_RUN_BUDGET_MS) break;
       const file = await prisma.attachment.findUnique({ where: { id: row.fileId }, select: { filename: true, mimeType: true, storageKey: true } });
       if (!file) continue;
       // Claimed first (review I4): another run (or server) at the same moment never sends it again.
@@ -194,6 +205,14 @@ export function createFileTextService({ prisma, storage, index, ocr, logger, now
         await store(row.fileId, { status: text ? 'OCR_DONE' : 'EMPTY', method: 'ocr', text, attempts });
         done += 1;
       } catch (err) {
+        if (err instanceof ProviderRefusedError && err.quota) {
+          // MICO360 AI's usage allowance is used up (review I3): not this file's failure. It waits until the
+          // allowance resets — no try counted — and this run sends no more files into the same quota.
+          const waitMs = Math.min(QUOTA_WAIT_MAX_MS, Math.max(QUOTA_WAIT_MIN_MS, err.retryAfterSeconds !== null ? err.retryAfterSeconds * 1000 : QUOTA_WAIT_UNKNOWN_MS));
+          await store(row.fileId, { status: 'OCR_WAIT', attempts: row.attempts, nextTryAt: new Date(now().getTime() + waitMs), error: err.message });
+          logger?.error('search: OCR waits — the AI service’s usage allowance is used up', { err, fileId: row.fileId, waitMs });
+          break;
+        }
         const retry = isRetryable(err) && attempts < MAX_ATTEMPTS;
         const message = err instanceof Error ? err.message : 'OCR failed';
         await store(row.fileId, retry ? { status: 'OCR_WAIT', attempts, nextTryAt: new Date(now().getTime() + RETRY_DELAYS_MS[attempts - 1]!), error: message } : { status: 'FAILED', method: 'ocr', attempts, error: message });

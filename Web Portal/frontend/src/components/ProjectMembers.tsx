@@ -9,6 +9,8 @@ export interface MemberRef {
   id: string;
   name: string;
   role: ProjectMemberRole;
+  /** Their photo (avatar hotfix; null or left out: initials). */
+  avatarUrl?: string | null;
   /** companies: false when they're in none of the project's companies any more (they can't see it). Missing: they can. */
   hasAccess?: boolean;
 }
@@ -39,7 +41,7 @@ export function ProjectMembers({ members, addableUsers, canManage, onAdd, onRemo
         ) : (
           members.map((m) => (
             <li key={m.id} className="flex min-h-[2.75rem] items-center gap-2 rounded-lg border border-line bg-surface px-3 py-1.5 text-sm">
-              <Avatar name={m.name} size="sm" />
+              <Avatar name={m.name} src={m.avatarUrl} size="sm" decorative />
               <span dir="auto" className="min-w-0 truncate text-ink" title={m.name}>{m.name}</span>
               {m.role === 'MANAGER' ? (
                 <span className="rounded-full bg-brand/10 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-brand">Manager</span>

@@ -26,6 +26,8 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   'GET /releases': 'public',
   'GET /version': 'public',
   'POST /auth/login': 'public',
+  // Avatar thumbnails (11 Nov): a photo's face copy — public like every upload, made only for a current photo.
+  'GET /uploads/faces/:file': 'public',
   'POST /auth/logout': 'public',
   'POST /auth/refresh': 'public',
   'POST /auth/otp/request': 'public',
@@ -53,6 +55,7 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   'GET /backups/google/callback': 'public',
 
   // ---- own ------------------------------------------------------------------------------------
+  'GET /users/me': 'own',
   'GET /users/me/export': 'own',
   'POST /users/me/password': 'own',
   'POST /users/me/avatar': 'own',

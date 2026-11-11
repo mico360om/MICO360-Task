@@ -34,7 +34,7 @@ export interface InspectionRouteDeps {
 const visibleBody = z.object({ visible: z.boolean() });
 /** Due checks are the open ones (the only list there is). */
 const checksQuery = z.object({ state: z.literal('open').optional() });
-const answersBody = z.object({ answers: z.unknown() });
+const answersBody = z.object({ answers: z.unknown().optional() }); // the service says what is missing
 /** A finish carries up to three drawn signatures; a phone sending a whole inspection's answers at once carries long notes. */
 const BIG_BODY_LIMIT = 4 * 1024 * 1024;
 

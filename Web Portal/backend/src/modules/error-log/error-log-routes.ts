@@ -28,6 +28,8 @@ const listQuery = z.object({
   status: z.enum(['open', 'fixed']).default('open'),
   before: z.string().max(120).optional(),
   limit: z.coerce.number().int().min(1).max(100).optional(),
+  /** 1.23.14: the page knows the Update restart kind (an older page's code gets those rows as Server rows). */
+  updates: z.enum(['0', '1']).optional(),
 });
 const idParam = z.object({ id: z.string().min(1).max(64) });
 
@@ -70,7 +72,7 @@ export async function registerErrorLogRoutes(app: FastifyInstance, deps: ErrorLo
 
   app.get('/error-log', admin, async (req) => {
     const q = listQuery.parse(req.query);
-    const page = await service.list({ kind: q.kind, range: q.range, q: q.q ?? null, status: q.status, before: q.before ?? null, limit: q.limit });
+    const page = await service.list({ kind: q.kind, range: q.range, q: q.q ?? null, status: q.status, before: q.before ?? null, limit: q.limit, updateKind: q.updates === '1' });
     // 1.23.1: "Database check: OK (MySQL 8.0.46)" or its problems (administrators only, like the rest).
     return { data: { ...page, databaseCheck: deps.databaseCheck?.latest() ?? null } };
   });

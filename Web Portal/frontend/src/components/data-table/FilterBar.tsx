@@ -15,6 +15,7 @@ export function TableFilterBar({
   personOptions,
   personLabel,
   showDue = true,
+  words = true,
   shown,
   total,
   noun,
@@ -28,6 +29,8 @@ export function TableFilterBar({
   /** "assignee" or "owner": the person filter's name. */
   personLabel: string;
   showDue?: boolean;
+  /** Its own words box (board search, 10 Nov: false on a board, whose search box filters the rows instead). */
+  words?: boolean;
   shown: number;
   total: number;
   /** ["task", "tasks"] — the count's word. */
@@ -38,6 +41,7 @@ export function TableFilterBar({
   const box = 'min-w-0 max-sm:flex-[1_1_calc(50%-0.25rem)] sm:w-40';
   return (
     <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+      {words ? (
       <label className="relative min-w-0 max-sm:basis-full sm:w-56">
         <span className="sr-only">Filter rows</span>
         <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="pointer-events-none absolute start-2.5 top-1/2 -translate-y-1/2 text-ink-3">
@@ -55,6 +59,7 @@ export function TableFilterBar({
           className="h-9 w-full rounded-lg border border-line bg-surface ps-8 pe-2 text-sm text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/20 [@media(pointer:coarse)]:h-11"
         />
       </label>
+      ) : null}
       <div className={box}>
         <SearchableSelect ariaLabel="Filter by status" value={filters.status} onChange={(v) => set({ status: v })} options={statusOptions} />
       </div>

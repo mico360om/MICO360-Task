@@ -95,6 +95,8 @@ export function ProjectDetailPage() {
     const p = new URLSearchParams(params);
     if (next === 'overview') p.delete('tab');
     else p.set('tab', next);
+    // Board search (10 Nov): the board's search words (?q=) are the board's: they go when you leave it.
+    if (next !== 'board') p.delete('q');
     setParams(p, { replace: true });
   };
 
@@ -206,6 +208,8 @@ export function ProjectDetailPage() {
   const ownerName = (ownerId: string | null) => (ownerId ? personById(ownerId) : 'No owner');
   // The named manager runs the project too: shown wherever the owner is.
   const managerName = project?.managerId ? personById(project.managerId) : null;
+  // Avatar hotfix: a person's photo, from the team list or the people list (null: initials).
+  const photoOfPerson = (userId: string) => members.find((m) => m.id === userId)?.avatarUrl ?? directory.find((d) => d.id === userId)?.avatarUrl ?? null;
   // Everyone active (and the current owner, even after they've left).
   const ownerOptions = ownerChoices(directory, project?.ownerId, { allowNone: true });
   const ownerMut = useMutation({
@@ -440,9 +444,9 @@ export function ProjectDetailPage() {
               today={today}
               timeZone={timeZone}
               statsReady={statsReady}
-              members={members.map((m) => ({ id: m.id, name: name(m), role: m.role }))}
+              members={members.map((m) => ({ id: m.id, name: name(m), role: m.role, avatarUrl: m.avatarUrl ?? null }))}
               ownerName={ownerName(project.ownerId)}
-              namedManager={project.managerId && managerName ? { id: project.managerId, name: managerName } : null}
+              namedManager={project.managerId && managerName ? { id: project.managerId, name: managerName, avatarUrl: photoOfPerson(project.managerId) } : null}
               createdByName={project.createdById ? personById(project.createdById) : null}
               ownerControl={
                 canEditProject ? (
@@ -512,7 +516,7 @@ export function ProjectDetailPage() {
               </p>
             ) : null}
             <ProjectMembers
-              members={members.map((m) => ({ id: m.id, name: name(m), role: m.role, hasAccess: m.hasAccess }))}
+              members={members.map((m) => ({ id: m.id, name: name(m), role: m.role, hasAccess: m.hasAccess, avatarUrl: m.avatarUrl ?? null }))}
               addableUsers={canManage ? addable : []}
               canManage={canManage}
               onAdd={(userId) => addM.mutate(userId)}

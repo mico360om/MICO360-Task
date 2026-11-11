@@ -117,7 +117,7 @@ const stringList = (max: number, each: number) =>
     .transform((xs) => xs.filter((x): x is string => typeof x === 'string').map((s) => s.trim().slice(0, each)).filter(Boolean).slice(0, max));
 
 const actionSchema = z.discriminatedUnion('action', [
-  z.object({ action: z.literal('tool'), name: z.string().min(1).max(60), args: z.record(z.unknown()).catch({}).default({}) }),
+  z.object({ action: z.literal('tool'), name: z.string().min(1).max(60), args: z.record(z.string(), z.unknown()).catch({}).default({}) }),
   z.object({ action: z.literal('clarify'), question: text(500).pipe(z.string().min(1)), options: stringList(MAX_OPTIONS, 80).default([]) }),
   z.object({
     action: z.literal('answer'),
@@ -141,7 +141,7 @@ const actionSchema = z.discriminatedUnion('action', [
     action: z.literal('propose'),
     text: text(1500).default(''),
     // Each change is checked by the actions' own schemas; more than a card holds are cut there.
-    changes: z.array(z.record(z.unknown())).min(1).max(200),
+    changes: z.array(z.record(z.string(), z.unknown())).min(1).max(200),
   }),
 ]);
 type Action = z.infer<typeof actionSchema>;
@@ -168,7 +168,8 @@ export function parseAction(raw: string): Action | null {
 export function systemPrompt(tools: ToolInfo[], ctx: LoopDeps['context'], maxSteps = MAX_TOOL_STEPS, canPropose = false): string {
   return [
     'You are MICO AI, the assistant inside MICO360 Tasks. You answer questions about the user’s work: tasks, projects, meetings and minutes, reports and workload, and team chat.',
-    `Today is ${ctx.todayLabel} (${ctx.today}) in the company time zone ${ctx.timeZone}. The user is ${ctx.userName}.`,
+    // The name is cut, so the rules plus PROMPT_BUDGET stay within MICO360 AI's 32,000 characters.
+    `Today is ${ctx.todayLabel} (${ctx.today}) in the company time zone ${ctx.timeZone}. The user is ${cut(ctx.userName, 80)}.`,
     '',
     'Rules:',
     '- Answer only from the tool results in this chat. You see only what this user is allowed to see.',

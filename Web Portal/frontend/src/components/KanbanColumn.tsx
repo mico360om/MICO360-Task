@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { DraggableTaskCard } from './DraggableTaskCard';
-import type { TaskCardTask } from './TaskCard';
+import { TaskCard, type TaskCardTask } from './TaskCard';
 import { CardMenu, type CardMenuItem } from './board/CardMenu';
 
 export interface KanbanColumnData {
@@ -10,6 +10,8 @@ export interface KanbanColumnData {
   name: string;
   color: string;
   tasks: TaskCardTask[];
+  /** Board search (10 Nov): how many cards it has without the search ("3 of 12"); absent while not searching. */
+  total?: number;
 }
 
 export interface KanbanColumnProps {
@@ -30,6 +32,26 @@ export interface KanbanColumnProps {
 
 const PLUS = <path d="M12 5v14M5 12h14" />;
 
+/**
+ * A column's count: how many cards it has, or — while the board is searched — how many of them are
+ * found: "3 of 12" with a mouse, the shorter "3/12" on a touch screen (its 44px buttons leave the
+ * column's name less room), always read out as "3 of 12".
+ */
+function ColumnCount({ shown, total, className }: { shown: number; total: number | undefined; className: string }) {
+  if (total === undefined) return <span data-testid="column-count" className={className}>{shown}</span>;
+  return (
+    <span data-testid="column-count" className={`relative whitespace-nowrap ${className}`}>
+      <span aria-hidden="true">
+        {shown}
+        <span className="[@media(pointer:coarse)]:hidden"> of </span>
+        <span className="hidden [@media(pointer:coarse)]:inline">/</span>
+        {total}
+      </span>
+      <span className="sr-only">{`${shown} of ${total}`}</span>
+    </span>
+  );
+}
+
 /** The "+" that starts a task in this column, in its header (and on its collapsed rail). */
 function AddTaskButton({ name, onAddTask }: { name: string; onAddTask: () => void }) {
   return (
@@ -48,6 +70,10 @@ function AddTaskButton({ name, onAddTask }: { name: string; onAddTask: () => voi
 export function KanbanColumn({ column, onTaskClick, onAddTask, timeZone, cardMenu, dragging = false, fit = false, canDrag = true }: KanbanColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: column.id });
   const [collapsed, setCollapsed] = useState(false);
+  // Board search (10 Nov): the cards found, of all the column's ("3 of 12"); a card fading out (no longer
+  // found after a live change) isn't counted, dragged or opened.
+  const searching = column.total !== undefined;
+  const found = column.tasks.filter((t) => !t.leaving);
 
   // Collapsed: a slim vertical rail (still a drop target) that clicks open again.
   if (collapsed) {
@@ -66,7 +92,7 @@ export function KanbanColumn({ column, onTaskClick, onAddTask, timeZone, cardMen
         >
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6" /></svg>
         </button>
-        <span className="min-w-[1.5rem] rounded-full bg-ground px-1.5 text-center text-xs font-semibold text-ink-2">{column.tasks.length}</span>
+        <ColumnCount shown={found.length} total={column.total} className="min-w-[1.5rem] rounded-full bg-ground px-1.5 text-center text-xs font-semibold text-ink-2" />
         {onAddTask ? <AddTaskButton name={column.name} onAddTask={onAddTask} /> : null}
         <span dir="auto" className="flex-1 whitespace-nowrap text-sm font-bold text-ink [writing-mode:vertical-rl]">{column.name}</span>
         <span className="h-2.5 w-2.5 rounded-full" style={{ background: column.color }} aria-hidden="true" />
@@ -88,7 +114,7 @@ export function KanbanColumn({ column, onTaskClick, onAddTask, timeZone, cardMen
         <div className="flex min-w-0 items-center gap-2">
           <span className="h-2.5 w-2.5 flex-none rounded-full ring-2 ring-surface" style={{ background: column.color }} />
           <span dir="auto" title={column.name} className="line-clamp-2 break-words text-sm font-bold leading-tight text-ink">{column.name}</span>
-          <span className="min-w-[1.25rem] flex-none rounded-full bg-ground px-1.5 text-center text-xs font-semibold tabular-nums text-ink-2">{column.tasks.length}</span>
+          <ColumnCount shown={found.length} total={column.total} className="min-w-[1.25rem] flex-none rounded-full bg-ground px-1.5 text-center text-xs font-semibold tabular-nums text-ink-2" />
         </div>
         <div className="flex flex-none items-center gap-0.5">
           {onAddTask ? <AddTaskButton name={column.name} onAddTask={onAddTask} /> : null}
@@ -108,8 +134,16 @@ export function KanbanColumn({ column, onTaskClick, onAddTask, timeZone, cardMen
         className={fit ? '-mx-1 flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto overscroll-contain px-1 pb-1 pt-0.5 compact:gap-1.5' : 'flex min-h-[80px] flex-col gap-2.5 compact:gap-1.5'}
         {...(fit ? { 'data-column-scroll': '' } : {})}
       >
-        <SortableContext items={column.tasks.map((t) => t.key)} strategy={verticalListSortingStrategy}>
+        <SortableContext items={found.map((t) => t.key)} strategy={verticalListSortingStrategy}>
           {column.tasks.map((task) => {
+            if (task.leaving) {
+              // Fades out where it was, then the board drops it (Board: useLeavingCards).
+              return (
+                <div key={task.key} data-leaving={task.key} aria-hidden="true" className="pointer-events-none animate-scrim-out">
+                  <TaskCard task={task} timeZone={timeZone} interactive={false} />
+                </div>
+              );
+            }
             const items = cardMenu?.(task.key) ?? null;
             if (!items || items.length === 0) return <DraggableTaskCard key={task.key} task={task} timeZone={timeZone} onClick={() => onTaskClick?.(task.key)} disabled={!canDrag} />;
             return (
@@ -129,7 +163,7 @@ export function KanbanColumn({ column, onTaskClick, onAddTask, timeZone, cardMen
               className="group flex flex-1 flex-col items-center justify-start gap-1.5 rounded-xl border border-dashed border-line/70 px-2 py-7 text-center transition-colors max-md:flex-none hover:border-brand/60 hover:bg-brand/5 focus-visible:border-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
             >
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="text-ink-3 group-hover:text-brand"><rect x="3" y="3" width="18" height="18" rx="2.5" /><path d="M12 8v8M8 12h8" /></svg>
-              <span className="text-xs font-medium text-ink-3">No tasks</span>
+              <span className="text-xs font-medium text-ink-3">{searching ? 'No matching cards' : 'No tasks'}</span>
               <span className="text-xs text-ink-3">
                 <span className="font-semibold text-brand">Add a task</span> or drop a card here
               </span>
@@ -137,7 +171,7 @@ export function KanbanColumn({ column, onTaskClick, onAddTask, timeZone, cardMen
           ) : (
             <div className="flex flex-1 flex-col items-center justify-start gap-1.5 rounded-xl border border-dashed border-line/70 px-2 py-7 text-center max-md:flex-none">
               {canDrag ? <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="text-ink-3"><rect x="3" y="3" width="18" height="18" rx="2.5" /><path d="M12 8v8M8 12h8" /></svg> : null}
-              <p className="text-xs font-medium text-ink-3">No tasks</p>
+              <p className="text-xs font-medium text-ink-3">{searching ? 'No matching cards' : 'No tasks'}</p>
               {canDrag ? <p className="text-xs text-ink-3">Drop a card here</p> : null}
             </div>
           )

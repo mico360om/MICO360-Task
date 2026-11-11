@@ -57,7 +57,7 @@ const createSchema = z
     projects: grantsSchema.optional(),
   })
   .superRefine((b, ctx) => {
-    if (!b.sendWelcome && !b.password && !b.generatePassword) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['password'], message: 'Required' });
+    if (!b.sendWelcome && !b.password && !b.generatePassword) ctx.addIssue({ code: 'custom', path: ['password'], message: 'Required' });
   });
 const updateSchema = z.object({
   firstName: name.optional(),

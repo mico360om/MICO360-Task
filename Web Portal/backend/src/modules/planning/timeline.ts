@@ -83,7 +83,8 @@ export interface TimelineTaskRow {
   done: boolean;
   priority: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
   isMilestone: boolean;
-  assignees: { id: string; name: string }[];
+  /** Avatar hotfix: each with their photo (null: initials). */
+  assignees: TimelinePerson[];
   /** Finished but waiting for approval (task approvals); left out by older sources = no. */
   waiting?: boolean;
 }
@@ -136,7 +137,8 @@ export interface TimelineTask {
   overdue: boolean;
   priority: TimelineTaskRow['priority'];
   isMilestone: boolean;
-  assignees: { id: string; name: string }[];
+  /** Avatar hotfix: each with their photo (null: initials). */
+  assignees: TimelinePerson[];
   /** Finished but waiting for approval: the lane marks it (owner, 30 Oct). */
   waiting: boolean;
 }

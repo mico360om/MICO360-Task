@@ -58,6 +58,11 @@ export interface TaskTableProps {
   readOnly?: ProjectReadOnly | null;
   /** The table's own filter bar (pages without filters of their own). */
   filterBar?: boolean;
+  /**
+   * The filter bar's words box (default). False (board search, 10 Nov): the page's own search box filters the rows
+   * before they get here (the board's), so the table has none — and a word it remembers from before is let go.
+   */
+  wordsBox?: boolean;
   /** My Tasks: the page's own sort (its Sort menu), the rows already in that order. */
   sort?: SortState | null;
   onSortChange?: (next: SortState | null) => void;
@@ -105,6 +110,7 @@ export function TaskTable({
   showProject = false,
   readOnly = null,
   filterBar = false,
+  wordsBox = true,
   sort: pageSort,
   onSortChange,
   presorted = false,
@@ -192,6 +198,7 @@ export function TaskTable({
   // person not among this table's choices is let go here, never an empty table with a blank box.
   const filters = {
     ...remembered,
+    text: wordsBox ? remembered.text : '',
     status: statusOptions.some((o) => o.value === remembered.status) ? remembered.status : '',
     person: personOptions.some((o) => o.value === remembered.person) ? remembered.person : '',
   };
@@ -230,7 +237,7 @@ export function TaskTable({
     });
   const togglePerson = (t: ApiTask, p: CellPerson, on: boolean) => {
     const now = t.assignees ?? [];
-    const next = on ? [...now.filter((a) => a.id !== p.id), { id: p.id, name: p.name }] : now.filter((a) => a.id !== p.id);
+    const next = on ? [...now.filter((a) => a.id !== p.id), { id: p.id, name: p.name, avatarUrl: p.avatarUrl ?? null }] : now.filter((a) => a.id !== p.id);
     save(t, { assignees: next }, async () => {
       if (on) await assigneesApi(apiClient).assign(t.id, p.id);
       else await assigneesApi(apiClient).unassign(t.id, p.id);
@@ -473,6 +480,7 @@ export function TaskTable({
       statusOptions={statusOptions}
       personOptions={personOptions}
       personLabel="assignee"
+      words={wordsBox}
       shown={rows.length}
       total={tasks.length}
       noun={['task', 'tasks']}

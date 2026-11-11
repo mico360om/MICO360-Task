@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
-import { createSafeFetch, isPrivateAddress, isPrivateHostname, pinnedFetch, providerFetch, readProviderJson, validateProviderUrl } from './ai-network';
+import { createSafeFetch, httpsOnlyAddress, isMico360Provider, isPrivateAddress, isPrivateHostname, pinnedFetch, providerFetch, readProviderJson, validateProviderUrl } from './ai-network';
 import { ValidationError } from '../../lib/http-errors';
 
 describe('isPrivateAddress', () => {
@@ -40,6 +40,36 @@ describe('validateProviderUrl', () => {
       expect(() => validateProviderUrl(u), u).toThrow(ValidationError);
     }
     expect(validateProviderUrl('http://localhost:11434', true)).toBe('http://localhost:11434');
+  });
+
+  // MICO360 Connect 2.6.17+: port 5310 speaks only HTTPS (plain http gets no answer at all).
+  it('reads a MICO360 AI address typed with http as https (that host speaks only HTTPS)', () => {
+    expect(validateProviderUrl('http://ai.mico360.com:5310/v1')).toBe('https://ai.mico360.com:5310/v1');
+    expect(validateProviderUrl(' HTTP://AI.MICO360.COM.:5310/v1/ ')).toBe('https://ai.mico360.com.:5310/v1');
+    expect(validateProviderUrl('https://ai.mico360.com:5310/v1')).toBe('https://ai.mico360.com:5310/v1');
+    // Other http addresses are left as typed.
+    expect(validateProviderUrl('http://api.example.com/v1')).toBe('http://api.example.com/v1');
+    expect(validateProviderUrl('http://notai.mico360.com:5310/v1')).toBe('http://notai.mico360.com:5310/v1');
+  });
+});
+
+describe('httpsOnlyAddress', () => {
+  it('upgrades only the hosts that answer nothing on plain http', () => {
+    expect(httpsOnlyAddress('http://ai.mico360.com:5310/v1')).toBe('https://ai.mico360.com:5310/v1');
+    expect(httpsOnlyAddress('http://ai.mico360.com:5310')).toBe('https://ai.mico360.com:5310');
+    expect(httpsOnlyAddress('http://example.com/v1')).toBe('http://example.com/v1');
+    expect(httpsOnlyAddress('not a url')).toBe('not a url');
+  });
+});
+
+// Review minor 7: one way to know MICO360 AI — its preset, or a provider added as "Other" at its address.
+describe('isMico360Provider', () => {
+  it('the preset, or the platform’s host', () => {
+    expect(isMico360Provider({ preset: 'mico360', apiBaseUrl: 'https://127.0.0.1:4941/v1' })).toBe(true);
+    expect(isMico360Provider({ preset: 'custom', apiBaseUrl: 'https://AI.mico360.com:5310/v1' })).toBe(true);
+    expect(isMico360Provider({ preset: null, apiBaseUrl: 'https://ai.mico360.com.:5310/v1' })).toBe(true);
+    expect(isMico360Provider({ preset: 'custom', apiBaseUrl: 'https://api.example.com/v1' })).toBe(false);
+    expect(isMico360Provider({ preset: 'openai', apiBaseUrl: 'not a url' })).toBe(false);
   });
 });
 

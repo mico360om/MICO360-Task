@@ -52,6 +52,8 @@ export const HISTORY_WINDOW = 20;
 export const PAGE_SIZE = 50;
 /** Older messages are folded into the running summary this many at a time. */
 const SUMMARY_BATCH = 10;
+/** At most this much of the messages being folded is sent (the newest), so the request stays small. */
+const SUMMARY_INPUT_CHARS = 20_000;
 /** Results of recent turns the model may still cite and tabulate. */
 const EARLIER_RESULTS = 8;
 /** The longest an answer may take, start to finish (1.22: each try). */
@@ -343,10 +345,18 @@ export function createMicoAiService(deps: MicoAiServiceDeps) {
     if (upTo - fresh.summarizedCount < SUMMARY_BATCH) return;
     const older = await repo.messageRange(chat.id, fresh.summarizedCount, upTo - fresh.summarizedCount);
     const cards = await cardsOf(older);
-    const lines = older
+    const all = older
       .map((m) => historyTurn(m, cards))
       .filter((h): h is HistoryTurn => !!h)
       .map((h) => `${h.role === 'user' ? 'User' : 'MICO AI'}: ${JSON.stringify(h.text.slice(0, 1500)).replace(/</g, '\\u003c')}`);
+    // Review minor 5: summaries that failed leave a backlog; only its newest messages, within
+    // SUMMARY_INPUT_CHARS, are sent (MICO360 AI reads at most 32,000 characters a conversation).
+    const lines: string[] = [];
+    let size = 0;
+    for (let i = all.length - 1; i >= 0 && size + all[i]!.length + 1 <= SUMMARY_INPUT_CHARS; i--) {
+      lines.unshift(all[i]!);
+      size += all[i]!.length + 1;
+    }
     const raw = await model.chat(
       {
         system:
