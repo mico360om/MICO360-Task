@@ -49,6 +49,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ### Bug fixes
 - A tab left open on an older version no longer shows an error when a newer tab updates your profile details.
+- A board card's ⋯ menu near the bottom of the screen (on a phone, or low in a long column) opens above the
+  card, so all of its items can be reached.
 
 ## [1.23.16] - 2026-11-11
 
