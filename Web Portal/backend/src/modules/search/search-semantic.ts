@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
 import { Prisma, type PrismaClient } from '@prisma/client';
-import { cosine, fromVector, toVector } from '../ai/ai-embeddings';
+import { cosine, EmbeddingModelChangedError, fromVector, toVector } from '../ai/ai-embeddings';
+import { ProviderRefusedError } from '../ai/ai-completion';
+import { cutChars } from '../ai/ai-text';
 import type { SearchKind } from './search-types';
 
 /**
@@ -21,10 +23,12 @@ export const MEANING_KINDS = ['project', 'meeting', 'note', 'minutes', 'file', '
 const TEXT_CHARS = 1500;
 /** Items embedded per sweep run. */
 const BATCH = 100;
-/** Texts per embedding call. */
+/** Texts handed to one embed() (stored together); embedTexts splits them further to the provider's limits. */
 const PER_CALL = 25;
 /** Vectors of gone items are removed this often (by the sweep). */
 const PRUNE_EVERY_MS = 30 * 60_000;
+/** The sweep rests this long after another embedding model answered or the quota was used up. */
+const PAUSE_MS = 15 * 60_000;
 /** A question is compared with at most this many items (the most recently embedded). */
 export const MAX_COMPARED = 30_000;
 
@@ -32,14 +36,16 @@ export interface SemanticDeps {
   prisma: PrismaClient;
   ai: {
     embeddingModel(): Promise<{ id: string; modelKey: string } | null>;
-    embed(texts: string[], opts?: { signal?: AbortSignal }): Promise<{ model: string; vectors: number[][] }>;
+    /** `background`: the sweep (MICO360 AI is given the 120 s its guide asks for); a question is not. */
+    embed(texts: string[], opts?: { signal?: AbortSignal; background?: boolean }): Promise<{ model: string; vectors: number[][] }>;
   };
   logger?: { error(message: string, meta?: Record<string, unknown>): void };
   now?: () => Date;
 }
 
 const hash = (text: string) => createHash('sha1').update(text).digest('hex').slice(0, 16);
-const textOf = (head: Buffer | null, body: Buffer | null) => `${(head ?? Buffer.alloc(0)).toString('utf8').trim()}\n${(body ?? Buffer.alloc(0)).toString('utf8').slice(0, TEXT_CHARS)}`.trim();
+// The body is cut whole characters only (never inside an emoji's pair: review I2).
+const textOf = (head: Buffer | null, body: Buffer | null) => `${(head ?? Buffer.alloc(0)).toString('utf8').trim()}\n${cutChars((body ?? Buffer.alloc(0)).toString('utf8'), TEXT_CHARS)}`.trim();
 
 export function createSemanticSearch({ prisma, ai, logger, now = () => new Date() }: SemanticDeps) {
   /** Is meaning search on (an embedding model set up)? */
@@ -47,8 +53,14 @@ export function createSemanticSearch({ prisma, ai, logger, now = () => new Date(
     return (await ai.embeddingModel().catch(() => null)) !== null;
   }
 
+  // Review minor 9: another embedding model answering (MICO360 AI) or a used-up quota lasts a while; the
+  // sweep pauses PAUSE_MS instead of trying — and logging an error — every minute, and says so once.
+  let pausedUntil = 0;
+  let pauseLogged = false;
+
   /** The sweep: items without a vector of the current model, or indexed since theirs was made. Returns how many. */
   async function embedPending(limit = BATCH): Promise<number> {
+    if (now().getTime() < pausedUntil) return 0;
     const model = await ai.embeddingModel().catch(() => null);
     if (!model) return 0;
     if (now().getTime() - prunedAt > PRUNE_EVERY_MS) await prune().catch((err: unknown) => logger?.error('search: removing old meaning vectors failed', { err }));
@@ -68,14 +80,19 @@ export function createSemanticSearch({ prisma, ai, logger, now = () => new Date(
     for (let i = 0; i < items.length; i += PER_CALL) {
       const chunk = items.slice(i, i + PER_CALL);
       try {
-        const { model: used, vectors } = await ai.embed(chunk.map((c) => c.text || ' '));
+        const { model: used, vectors } = await ai.embed(chunk.map((c) => c.text), { background: true });
         const at = now();
         await prisma.$executeRaw`INSERT INTO search_embeddings (kind, recordId, model, dims, vector, textHash, embeddedAt) VALUES ${Prisma.join(
           chunk.map((c, k) => Prisma.sql`(${c.kind}, ${c.id}, ${used}, ${vectors[k]!.length}, ${toVector(vectors[k]!)}, ${hash(c.text)}, ${at})`),
         )} ON DUPLICATE KEY UPDATE model = VALUES(model), dims = VALUES(dims), vector = VALUES(vector), textHash = VALUES(textHash), embeddedAt = VALUES(embeddedAt)`;
         done += chunk.length;
+        pauseLogged = false;
       } catch (err) {
-        logger?.error('search: making meaning vectors failed', { err });
+        if (err instanceof EmbeddingModelChangedError || (err instanceof ProviderRefusedError && err.quota)) {
+          pausedUntil = now().getTime() + PAUSE_MS;
+          if (!pauseLogged) logger?.error('search: meaning vectors paused for 15 minutes', { err });
+          pauseLogged = true;
+        } else logger?.error('search: making meaning vectors failed', { err });
         break;
       }
     }
