@@ -15,6 +15,8 @@ import { dueInputValue } from '../../lib/due-display';
 import { defaultDueDay, defaultDueNote } from '../../lib/default-due';
 import { recurrenceSummary } from '../../lib/recurrence-summary';
 import { useCompanyTimeZone } from '../../lib/company-clock';
+import { dueDayWarning, useWorkingTime } from '../../lib/useWorkingTime';
+import { notificationSettingsApi } from '../../api/notification-settings';
 import { enqueueOffline } from '../../lib/offline-replay';
 import { newIdempotencyKey } from '../../lib/offline-queue';
 import { invalidateTaskQueries } from '../../lib/task-cache';
@@ -168,7 +170,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
   const editing = !!task;
   const qc = useQueryClient();
   const timeZone = useCompanyTimeZone();
-  const ids = { title: useId(), desc: useId(), due: useId(), dueNote: useId(), titleErr: useId(), untilErr: useId(), owner: useId(), place: useId(), formNote: useId(), approvalHint: useId(), approvalLocked: useId() };
+  const ids = { title: useId(), desc: useId(), due: useId(), dueNote: useId(), dueWarn: useId(), titleErr: useId(), untilErr: useId(), owner: useId(), place: useId(), formNote: useId(), approvalHint: useId(), approvalLocked: useId() };
 
   // One empty checklist draft for how the form opened and the form itself (so an untouched form isn't "changed").
   const [blankChecklists] = useState(emptyDraft);
@@ -222,7 +224,20 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
   const titleRef = useRef<HTMLInputElement>(null);
   const untilRef = useRef<HTMLDivElement>(null);
 
+  // Notification & Scheduling: the task's own reminder schedule (edits only; a new task uses its project's).
+  const scheduleQ = useQuery({
+    queryKey: ['task-reminder-schedule', task?.id ?? ''],
+    queryFn: () => notificationSettingsApi(apiClient).taskSchedule(task!.id),
+    enabled: !!task?.id,
+    staleTime: 30_000,
+  });
+  const schedule = scheduleQ.data && Array.isArray(scheduleQ.data.schedules) ? scheduleQ.data : null;
+  const [reminderPick, setReminderPick] = useState<string | null>(null);
+  const savedReminder = schedule?.scheduleId ?? '';
+  const reminderChanged = reminderPick !== null && reminderPick !== savedReminder;
+
   const dirty =
+    reminderChanged ||
     placeChosen ||
     files.length > 0 ||
     contactOpen ||
@@ -382,6 +397,9 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
   const today = todayKey(timeZone);
   const autoDue = editing ? null : defaultDueDay(project, draft.dueDate, boardDate, today);
   const dueWhen = draft.dueDate || autoDue || '';
+  // Notification & Scheduling: a due date on a holiday or weekend of the project's company is said (never moved).
+  const workingTime = useWorkingTime({ projectId: draft.projectId || null, enabled: !!draft.projectId });
+  const dueWarning = dueDayWarning(dueWhen, workingTime.calendar);
 
   // ── An inspection form (a check): finishing its inspection completes the task ──
   const formsQ = useQuery({ queryKey: ['inspection-forms'], queryFn: () => inspectionsApi(apiClient).listForms(), staleTime: 30_000 });
@@ -605,6 +623,11 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
         keep({ contacts: [...done.contacts, { ...added, id: made.id }] });
         setDraft((d) => ({ ...d, contacts: d.contacts.map((c) => (c.key === added.key ? { ...c, id: made.id } : c)) }));
       }
+      // Notification & Scheduling: its own reminder schedule ('' = its project's).
+      if (reminderChanged) {
+        await notificationSettingsApi(apiClient).saveTaskSchedule(t.id, reminderPick || null);
+        void qc.invalidateQueries({ queryKey: ['task-reminder-schedule', t.id] });
+      }
       if (lost.length) {
         void invalidateTaskQueries(qc);
         void qc.invalidateQueries({ queryKey: ['task', t.id] });
@@ -782,10 +805,15 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
           type="date"
           value={draft.dueDate}
           onChange={(e) => set({ dueDate: e.target.value })}
-          aria-describedby={autoDue ? ids.dueNote : undefined}
+          aria-describedby={[autoDue ? ids.dueNote : null, dueWarning ? ids.dueWarn : null].filter(Boolean).join(' ') || undefined}
           className={`${fieldClass()} h-11`}
         />
         {autoDue ? <p id={ids.dueNote} className="mt-1 text-xs text-ink-2">{defaultDueNote(autoDue, today)}</p> : null}
+        {dueWarning ? (
+          <p id={ids.dueWarn} aria-live="polite" className="mt-1 text-xs font-medium text-warning">
+            {dueWarning}
+          </p>
+        ) : null}
       </div>
       <div className={twoColumns ? 'col-span-2 min-w-0' : 'min-w-0'}>
         <Label>Repeat</Label>
@@ -803,6 +831,21 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
           </p>
         )}
       </div>
+      {schedule?.canEdit && schedule.schedules.length ? (
+        <div className={twoColumns ? 'col-span-2 min-w-0' : 'min-w-0'}>
+          <Label>Reminders</Label>
+          <SearchableSelect
+            size="lg"
+            ariaLabel="Reminders"
+            options={[
+              { value: '', label: `The project’s (${schedule.schedules.find((x) => x.id === (schedule.projectScheduleId ?? schedule.schedules.find((y) => y.isDefault)?.id))?.name ?? 'default'})` },
+              ...schedule.schedules.map((x) => ({ value: x.id, label: x.name })),
+            ]}
+            value={reminderPick ?? savedReminder}
+            onChange={(v) => setReminderPick(v)}
+          />
+        </div>
+      ) : null}
     </div>
   );
   const repeatSchedule = draft.rule && canRepeat ? (
