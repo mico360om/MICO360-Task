@@ -135,5 +135,5 @@ function StepPicture({ step }: { step: LessonStep }) {
   const pic = useBlobUrl(api.file, step.image?.fileId);
   if (pic.failed) return <p className="rounded-lg bg-ground px-3 py-6 text-center text-sm text-ink-2">The picture couldn’t load.</p>;
   if (!pic.url) return <div role="status" aria-label="Loading the picture" className="aspect-video w-full animate-pulse rounded-xl bg-ground motion-reduce:animate-none" />;
-  return <img src={pic.url} alt={step.image?.alt ?? ''} className="h-auto max-w-full rounded-xl border border-line" />;
+  return <img src={pic.url} alt={step.image?.alt ?? ''} className="h-auto max-w-full self-start rounded-xl border border-line" />;
 }

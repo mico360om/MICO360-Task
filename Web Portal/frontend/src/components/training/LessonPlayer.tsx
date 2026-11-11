@@ -36,9 +36,10 @@ export function LessonPlayer({ courseId, lessonId, renderTitle }: { courseId: st
   const [reporting, setReporting] = useState(false);
   const courseTo = coursePath(side.base, courseId);
 
-  // Another lesson: start afresh.
+  // Another lesson: start afresh, at the top of the page (Next lesson is at the bottom of the one before).
   useEffect(() => {
     setDone(null);
+    document.scrollingElement?.scrollTo?.(0, 0);
   }, [lessonId]);
 
   if (q.isPending) {

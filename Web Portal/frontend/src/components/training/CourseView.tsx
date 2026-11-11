@@ -1,4 +1,4 @@
-import { useId, useState, type ReactNode } from 'react';
+import { useEffect, useId, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { LIMITS, MODULE_LABELS, TRAINING_MODULES, type CertificateRef, type CourseDetail, type TrainingModule } from '../../api/training';
@@ -42,6 +42,10 @@ export function CourseView({ courseId, renderHeader }: { courseId: string; rende
   const side = useLearner();
   const q = useCourse(courseId);
   const [params] = useSearchParams();
+  // A course opened from a card far down a list starts at the top of its page.
+  useEffect(() => {
+    document.scrollingElement?.scrollTo?.(0, 0);
+  }, [courseId]);
   const module = params.get('module');
   const back = isModule(module)
     ? { to: `${side.base}?tab=catalogue&module=${encodeURIComponent(module)}`, label: `Back to ${MODULE_LABELS[module]} courses` }
