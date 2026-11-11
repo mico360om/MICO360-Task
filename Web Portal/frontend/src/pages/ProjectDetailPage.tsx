@@ -29,6 +29,7 @@ import { ownerChoices } from '../components/project-form/owner-options';
 import { Breadcrumbs } from '../components/ui/Breadcrumbs';
 import { ProjectSteps } from '../components/projects/ProjectSteps';
 import { ClientsWithAccess } from '../components/projects/ClientsWithAccess';
+import { ProjectReminders } from '../components/project-dashboard/ProjectReminders';
 import { NewTaskModal } from '../components/NewTaskModal';
 import { useCurrentProject } from '../components/CurrentProject';
 import { ProjectCompanies } from '../components/company/ProjectCompanies';
@@ -519,6 +520,8 @@ export function ProjectDetailPage() {
           </section>
           {/* 1.23: who may open the project in the Client portal (administrators change it on the Clients page). */}
           <ClientsWithAccess projectId={id} />
+          {/* Notification & Scheduling: its reminder schedule and escalation steps (whoever runs it, admins). */}
+          <ProjectReminders projectId={id} readOnly={readOnly !== null} />
           </>
         ) : null}
       </div>
