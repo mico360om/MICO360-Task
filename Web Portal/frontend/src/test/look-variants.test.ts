@@ -54,4 +54,10 @@ describe('the scheme’s colours as classes', () => {
     expect(css).toContain('.border-overdue { --tw-border-opacity: 1; border-color: rgb(var(--c-overdue) / var(--tw-border-opacity, 1)) }');
     expect(css).toContain('background-color: rgb(var(--c-health-risk) /');
   });
+
+  it('the board card’s Overdue badge: the overdue words (text tone) on the overdue tint (owner, 10 Nov)', async () => {
+    const css = await cssFor('bg-overdue-soft text-overdue');
+    expect(css).toContain('.bg-overdue-soft { --tw-bg-opacity: 1; background-color: rgb(var(--c-overdue-soft) / var(--tw-bg-opacity, 1)) }');
+    expect(css).toContain('.text-overdue { --tw-text-opacity: 1; color: rgb(var(--c-overdue-text) / var(--tw-text-opacity, 1)) }');
+  });
 });

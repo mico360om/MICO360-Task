@@ -1,8 +1,8 @@
 import { Prisma, type PrismaClient } from '@prisma/client';
 import type { RecurrenceRule } from '../tasks/recurrence';
 import type { CheckRow, InspectionScheduleSource, SeriesStats } from './inspection-schedules';
+import { PERSON_SUMMARY_SELECT, personSummary } from '../../lib/person-summary';
 
-const displayName = (u: { username: string; firstName: string | null; lastName: string | null }) => [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username;
 
 const checkSelect = {
   id: true,
@@ -19,7 +19,7 @@ const checkSelect = {
   approvalRequestedAt: true,
   column: { select: { category: true } },
   inspectionForm: { select: { id: true, title: true, deletedAt: true } },
-  assignees: { select: { user: { select: { id: true, username: true, firstName: true, lastName: true } } } },
+  assignees: { select: { user: { select: PERSON_SUMMARY_SELECT } } },
 } satisfies Prisma.TaskSelect;
 
 type Row = Prisma.TaskGetPayload<{ select: typeof checkSelect }>;
@@ -38,7 +38,8 @@ const toCheck = (t: Row): CheckRow => ({
   recurrenceParentId: t.recurrenceParentId,
   inspectionPlace: t.inspectionPlace,
   form: { id: t.inspectionForm!.id, title: t.inspectionForm!.title, deleted: t.inspectionForm!.deletedAt !== null },
-  assignees: t.assignees.map((a) => ({ id: a.user.id, name: displayName(a.user) })),
+  // Avatar hotfix: the inspectors' photos (null: initials), read with the row.
+  assignees: t.assignees.map((a) => personSummary(a.user)),
   approvalRequestedAt: t.approvalRequestedAt,
 });
 

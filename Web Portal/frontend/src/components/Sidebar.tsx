@@ -229,6 +229,11 @@ const ADMIN: NavItem[] = [
 
 export interface SidebarProps {
   isAdmin: boolean;
+  /**
+   * The Admin group (User Management … Audit Logs): an administrator's — unless Manager View is on (owner,
+   * 10 Nov), which hides it. Default: `isAdmin`.
+   */
+  adminMenu?: boolean;
   /** Runs a project (or is an admin): the Management page is theirs to see. */
   canLead?: boolean;
   /** Unread chat messages, shown on the Chat icon (none at 0). */
@@ -751,7 +756,7 @@ function FoldButton({ onTabletOpen, tabletOpen = false }: { onTabletOpen?: () =>
  * each with its name for screen readers and as a tooltip; on a phone it folds away behind the ☰ button
  * (MobileMenu in AppShell).
  */
-export function Sidebar({ isAdmin, chatUnread = 0, canLead = false }: SidebarProps) {
+export function Sidebar({ isAdmin, adminMenu = isAdmin, chatUnread = 0, canLead = false }: SidebarProps) {
   const nav = useRef<HTMLElement>(null);
   // 1.23.8 A tablet's unfolded menu: over the page, until a page is chosen, a tap outside or Escape.
   const tablet = useMediaQuery(RAIL_WIDTHS);
@@ -767,14 +772,14 @@ export function Sidebar({ isAdmin, chatUnread = 0, canLead = false }: SidebarPro
       aria-label="Main"
       className="sticky top-0 hidden h-screen w-16 flex-none flex-col overflow-hidden border-r border-line bg-surface/95 transition-[width] duration-200 ease-out md:flex lg:w-60 rail:w-16 supports-[height:100dvh]:h-dvh"
     >
-      <SidebarBody isAdmin={isAdmin} chatUnread={chatUnread} canLead={canLead} rail onTabletOpen={() => setOverlay(true)} tabletOpen={overlay} />
+      <SidebarBody isAdmin={isAdmin} adminMenu={adminMenu} chatUnread={chatUnread} canLead={canLead} rail onTabletOpen={() => setOverlay(true)} tabletOpen={overlay} />
       <RailTooltip root={nav} />
     </nav>
     {overlay ? (
       <MenuDrawer className="hidden md:block lg:hidden" onClose={() => setOverlay(false)}>
         {(close) => (
           <nav aria-label="Main" className="flex min-h-0 flex-1 flex-col">
-            <SidebarBody isAdmin={isAdmin} chatUnread={chatUnread} canLead={canLead} onNavigate={close} onCollapse={close} />
+            <SidebarBody isAdmin={isAdmin} adminMenu={adminMenu} chatUnread={chatUnread} canLead={canLead} onNavigate={close} onCollapse={close} />
           </nav>
         )}
       </MenuDrawer>
@@ -789,6 +794,7 @@ export function Sidebar({ isAdmin, chatUnread = 0, canLead = false }: SidebarPro
  */
 export function SidebarBody({
   isAdmin,
+  adminMenu = isAdmin,
   onNavigate,
   chatUnread = 0,
   canLead = false,
@@ -822,7 +828,7 @@ export function SidebarBody({
     if (at.bottom > view.bottom) box.scrollTop += at.bottom - view.bottom + margin;
     else if (at.top < view.top) box.scrollTop -= view.top - at.top + margin;
     // Again when links come or go above it (Management appears once access is known).
-  }, [pathname, isAdmin, canLead]);
+  }, [pathname, isAdmin, adminMenu, canLead]);
 
   return (
     <>
@@ -846,7 +852,7 @@ export function SidebarBody({
         <NavGroup label="Workspace" items={WORKSPACE.filter((i) => (isAdmin || !i.adminOnly) && (isAdmin || canLead || !i.leadsOnly))} onNavigate={onNavigate} rail={rail} first />
         {withData ? <SavedNav onNavigate={onNavigate} rail={rail} /> : null}
         <NavGroup label="Communication" items={COMMUNICATION} onNavigate={onNavigate} chatUnread={chatUnread} rail={rail} />
-        {isAdmin ? <NavGroup label="Admin" items={ADMIN} onNavigate={onNavigate} rail={rail} flyout={ADMIN_GROUP_ICON} /> : null}
+        {adminMenu ? <NavGroup label="Admin" items={ADMIN} onNavigate={onNavigate} rail={rail} flyout={ADMIN_GROUP_ICON} /> : null}
       </div>
 
       <div className={`border-t border-line px-3 py-2 ${rail ? 'rail:px-2.5' : ''}`}>

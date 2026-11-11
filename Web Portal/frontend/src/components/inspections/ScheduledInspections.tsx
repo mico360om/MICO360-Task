@@ -33,7 +33,7 @@ function Inspectors({ people }: { people: Person[] }) {
     <span role="img" aria-label={`Inspectors: ${listNames(people.map((p) => p.name))}`} className="inline-flex items-center gap-1">
       <span aria-hidden="true" className="flex -space-x-1.5">
         {people.slice(0, 3).map((p) => (
-          <Avatar key={p.id} name={p.name} size="sm" />
+          <Avatar key={p.id} name={p.name} src={p.avatarUrl} size="sm" />
         ))}
       </span>
       <span aria-hidden="true" dir="auto" className="max-w-[10rem] truncate">

@@ -1,3 +1,4 @@
+import { useEffectiveAdmin } from '../lib/manager-view';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -78,7 +79,7 @@ export function ProjectDetailPage() {
   // New task (the header button too) starts in this project.
   useCurrentProject(id);
   const qc = useQueryClient();
-  const isAdmin = useAuthStore((s) => s.isAdmin());
+  const settingsAdmin = useEffectiveAdmin();
   const myId = useAuthStore((s) => s.user?.id);
   const [params, setParams] = useSearchParams();
   const tabParam = params.get('tab') as Tab | null;
@@ -94,6 +95,8 @@ export function ProjectDetailPage() {
     const p = new URLSearchParams(params);
     if (next === 'overview') p.delete('tab');
     else p.set('tab', next);
+    // Board search (10 Nov): the board's search words (?q=) are the board's: they go when you leave it.
+    if (next !== 'board') p.delete('q');
     setParams(p, { replace: true });
   };
 
@@ -177,8 +180,10 @@ export function ProjectDetailPage() {
   // Who runs the project — an admin, or its owner, named manager or a manager on its team — changes
   // its details, picture, status and owner, and runs its team. The server says (canManage); an
   // older one that doesn't let MANAGER members run the team only.
-  const canManage = isAdmin || (project?.canManage ?? members.some((m) => m.id === myId && m.role === 'MANAGER'));
-  const canEditProject = isAdmin || project?.canManage === true;
+  // Manager View (owner, 10 Nov): an administrator with it on changes only the projects they run — the
+  // server's canManage says which.
+  const canManage = settingsAdmin || (project?.canManage ?? members.some((m) => m.id === myId && m.role === 'MANAGER'));
+  const canEditProject = settingsAdmin || project?.canManage === true;
   const [detailsProblem, setDetailsProblem] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   // Share with client: whoever runs the project (the server checks too). Archived: read-only, Remove still there.
@@ -203,6 +208,8 @@ export function ProjectDetailPage() {
   const ownerName = (ownerId: string | null) => (ownerId ? personById(ownerId) : 'No owner');
   // The named manager runs the project too: shown wherever the owner is.
   const managerName = project?.managerId ? personById(project.managerId) : null;
+  // Avatar hotfix: a person's photo, from the team list or the people list (null: initials).
+  const photoOfPerson = (userId: string) => members.find((m) => m.id === userId)?.avatarUrl ?? directory.find((d) => d.id === userId)?.avatarUrl ?? null;
   // Everyone active (and the current owner, even after they've left).
   const ownerOptions = ownerChoices(directory, project?.ownerId, { allowNone: true });
   const ownerMut = useMutation({
@@ -450,9 +457,9 @@ export function ProjectDetailPage() {
               today={today}
               timeZone={timeZone}
               statsReady={statsReady}
-              members={members.map((m) => ({ id: m.id, name: name(m), role: m.role }))}
+              members={members.map((m) => ({ id: m.id, name: name(m), role: m.role, avatarUrl: m.avatarUrl ?? null }))}
               ownerName={ownerName(project.ownerId)}
-              namedManager={project.managerId && managerName ? { id: project.managerId, name: managerName } : null}
+              namedManager={project.managerId && managerName ? { id: project.managerId, name: managerName, avatarUrl: photoOfPerson(project.managerId) } : null}
               createdByName={project.createdById ? personById(project.createdById) : null}
               ownerControl={
                 canEditProject ? (
@@ -522,7 +529,7 @@ export function ProjectDetailPage() {
               </p>
             ) : null}
             <ProjectMembers
-              members={members.map((m) => ({ id: m.id, name: name(m), role: m.role, hasAccess: m.hasAccess }))}
+              members={members.map((m) => ({ id: m.id, name: name(m), role: m.role, hasAccess: m.hasAccess, avatarUrl: m.avatarUrl ?? null }))}
               addableUsers={canManage ? addable : []}
               canManage={canManage}
               onAdd={(userId) => addM.mutate(userId)}

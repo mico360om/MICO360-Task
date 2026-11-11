@@ -525,3 +525,38 @@ describe('one company: the email pinned byte for byte (checked by eye when it ch
     await expect(e.text).toMatchFileSnapshot('__snapshots__/daily-email.text.snap');
   });
 });
+
+describe('Coming up: tasks scheduled for the future (owner, 10 Nov)', () => {
+  // On a later day's board: it waits for its start day (boardDay), so it isn't today's work yet.
+  const later = task('RIG-30', { title: 'Pour the slab', startDate: day('2026-11-10'), dueDate: day('2026-11-12'), boardDay: '2026-11-10' });
+  const today = task('RIG-31', { dueDate: day('2026-11-04') });
+
+  it('not pending, overdue or due today, nor in “Your tasks” — listed under “Coming up” with its start day, soonest first', () => {
+    const sooner = task('RIG-32', { title: 'Set out', startDate: day('2026-11-06'), boardDay: '2026-11-06' });
+    const e = build({ tasks: [later, today, sooner] });
+    expect(e.text).toContain('1 pending · 0 overdue · 1 due today · 2 upcoming');
+    const coming = e.text.indexOf('Coming up (2)');
+    expect(coming).toBeGreaterThan(e.text.indexOf('Your tasks'));
+    expect(e.text.slice(e.text.indexOf('Your tasks'), coming)).not.toContain('RIG-30');
+    expect(e.text.indexOf('Set out (RIG-32)')).toBeLessThan(e.text.indexOf('Pour the slab (RIG-30)'));
+    expect(e.text).toContain('- Pour the slab (RIG-30) — Starts Tue 10 Nov 2026 · Due Thu 12 Nov 2026');
+    expect(e.html).toContain('Coming up (2)');
+  });
+
+  it('a task whose start day is today is today’s work again', () => {
+    const e = build({ tasks: [{ ...later, boardDay: '2026-11-04' }] });
+    expect(e.text).toContain('1 pending');
+    expect(e.text).not.toContain('Coming up');
+  });
+
+  it('only tasks coming up: the email still goes, and its subject says so', () => {
+    const e = build({ tasks: [later] });
+    expect(e.subject).toBe('Today: 1 task coming up — Wed 4 Nov');
+    expect(e.text).toContain('Coming up (1)');
+  });
+
+  it('with “Your tasks” turned off, there is no Coming up either', () => {
+    const off = dailyEmail(input({ parts: { ...DEFAULT_DAILY_EMAILS, pending: false }, tasks: [later] }));
+    expect(off).toBeNull();
+  });
+});

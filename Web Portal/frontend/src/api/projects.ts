@@ -175,6 +175,8 @@ export interface CodeCheck {
 export interface ProjectClient {
   id: string;
   name: string;
+  /** The client's own photo (null, or left out by an older server: initials). */
+  avatarUrl?: string | null;
   organisation: string | null;
   email: string;
   /** ACTIVE, INACTIVE or SUSPENDED. */

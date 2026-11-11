@@ -118,7 +118,7 @@ describe('MICO AI routes', () => {
     expect(pdf.headers['content-type']).toBe('application/pdf');
     const text = inspectPdf(pdf.rawPayload).pages.flat().join('\n');
     expect(text).toContain('5 days');
-    expect(text).toContain('Generated 24 Oct 2026, 12:00 (Asia/Muscat) by Omar Said');
+    expect(text).toContain('Printed 24 Oct 2026, 12:00 by Omar Said'); // tpdf: 1.23.11 footer words (was "Generated … (zone) by …")
 
     // The whole answer as one PDF report: the question, the words, every table, the sources.
     const report = await app.inject({ method: 'GET', url: `/api/v1/mico-ai/chats/${chatId}/messages/${answer.id}/report.pdf`, headers: omar });
@@ -259,6 +259,17 @@ describe('MICO AI routes: confirming, cancelling and undoing a card', () => {
     await app.close();
   });
 
+  // Pinned before the zod 4 upgrade (1.23.12): a Confirm with no body takes every change as proposed (its
+  // items default to none; zod 4's .default({}) would skip that inner default).
+  it('Confirm with no body confirms every change as proposed', async () => {
+    const { app, omar, base, world } = await withCard();
+    const res = await app.inject({ method: 'POST', url: `${base}/confirm`, headers: omar });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.answer.proposal.items.map((i: { result: { status: string } }) => i.result.status)).toEqual(['done', 'done']);
+    expect(world.calls.filter((c) => c.startsWith('createTask'))).toHaveLength(2);
+    await app.close();
+  });
+
   it('Confirm with ticks and edits returns the message with each change’s result; again, the same', async () => {
     const { app, omar, base, world } = await withCard();
     const body = { items: [{ id: 'c1', include: true, edits: { title: 'A, edited' } }, { id: 'c2', include: false }], sendInvites: true };
@@ -312,7 +323,9 @@ describe('MICO AI report PDFs: the reader’s company (companies)', () => {
     for (const path of ['tables/1.pdf', 'report.pdf']) {
       const pdf = await app.inject({ method: 'GET', url: `/api/v1/mico-ai/chats/${chatId}/messages/${answer.id}/${path}`, headers: omar });
       expect(pdf.statusCode, path).toBe(200);
-      expect(inspectPdf(pdf.rawPayload).pages.flat().join('\n')).toContain('Alpha LLC · MICO360 Tasks · MICO AI report');
+      // tpdf: 1.23.11 — the footer names the company on its own; "MICO AI report" is the header's (was one credit line).
+      expect(inspectPdf(pdf.rawPayload).lines.flat().filter((l) => l.artifact).map((l) => l.text)).toContain('Alpha LLC');
+      expect(inspectPdf(pdf.rawPayload).pages.flat()).toContain('MICO AI report');
       expect([...inspectPdf(pdf.rawPayload).objects.values()].some((d) => /\/Subtype \/Image/.test(d) && /\/Width 230\b/.test(d))).toBe(true);
     }
     expect(asked).toEqual([['u-omar', null], ['u-omar', null]]);

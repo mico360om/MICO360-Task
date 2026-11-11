@@ -48,7 +48,7 @@ export const dateInput = z.union([z.string(), z.number(), z.date()]).transform((
   if (value instanceof Date || typeof value === 'number') {
     const d = new Date(value);
     if (Number.isNaN(d.getTime())) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Invalid date.' });
+      ctx.addIssue({ code: 'custom', message: 'Invalid date.' });
       return z.NEVER;
     }
     return d;
@@ -57,7 +57,7 @@ export const dateInput = z.union([z.string(), z.number(), z.date()]).transform((
   if (isCalendarDate(v)) return new Date(`${v}T00:00:00.000Z`);
   const d = new Date(v);
   if (!/^\d{4}-\d{2}-\d{2}T/.test(v) || !isCalendarDate(v.slice(0, 10)) || Number.isNaN(d.getTime())) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Expected a real date (YYYY-MM-DD) or an ISO timestamp.' });
+    ctx.addIssue({ code: 'custom', message: 'Expected a real date (YYYY-MM-DD) or an ISO timestamp.' });
     return z.NEVER;
   }
   return d;

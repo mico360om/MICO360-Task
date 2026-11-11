@@ -403,6 +403,9 @@ function lineOf(kind: TimelineKind, entries: FeedEntry[]): TimelineItem | null {
         return { ...base, text: `moved this task to the Recycle Bin${batch}` };
       }
       if (newest.action === 'RESTORED') return { ...base, text: 'restored this task from the Recycle Bin' };
+      // Duplicate Task: on the copy, and on the original (a task the reader can't open isn't named: the server leaves its number out).
+      if (newest.action === 'DUPLICATED_FROM') return { ...base, text: `duplicated this task from ${str(newest.meta?.fromKey) ?? 'another task'}` };
+      if (newest.action === 'DUPLICATED') return { ...base, text: str(newest.meta?.copyKey) ? `duplicated this task as ${str(newest.meta?.copyKey)}` : 'duplicated this task' };
       // Inspections: one carried out for this task, or the one whose failed item this task follows up.
       if (newest.action === 'INSPECTION_ATTACHED') return { ...base, text: `attached ${inspectionName(newest)}` };
       if (newest.action === 'INSPECTION_FINISHED') return { ...base, text: inspectionFinishedText(newest) };

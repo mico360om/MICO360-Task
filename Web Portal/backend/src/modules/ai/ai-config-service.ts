@@ -4,7 +4,7 @@ import type { AuditService } from '../audit/audit-service';
 import type { AiConfigRepository } from './ai-config-repository';
 import { fetchProviderModels, ProviderHttpError } from './ai-provider-sync';
 import { complete, COMPLETION_TIMEOUT_MS, ProviderRefusedError } from './ai-completion';
-import { createSafeFetch } from './ai-network';
+import { createSafeFetch, isMico360Provider } from './ai-network';
 import type { RemoteModel } from './ai-model-catalog';
 import * as ops from './ai-config';
 import type {
@@ -36,6 +36,11 @@ export interface AiConfigServiceDeps {
 
 /** How old a provider's model list may get before the regular refresh loads it again. */
 export const MODEL_LIST_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+/** MICO360 AI answered an empty model list (its guide, §9: busy or draining nodes' models are left out). */
+const MICO360_EMPTY_LIST = 'MICO360 AI listed no models right now — its AI nodes may be busy or offline. Any models already here stay as they were; the list is loaded again within the hour (or press Refresh models).';
+/** …so it is loaded again at the next hourly check, not a day later (review minor 6). */
+const EMPTY_LIST_RETRY_MS = 60 * 60 * 1000;
 
 /** The outcome of asking a provider for its models. */
 type Listing = { ok: true; models: RemoteModel[] } | { ok: false; error: ValidationError; keyRefused: boolean };
@@ -86,9 +91,13 @@ export function createAiConfigService({
   }
 
   /** Ask a provider for its models. Network and provider problems become a failed listing, not an error. */
-  async function list(provider: Pick<AiProvider, 'kind' | 'apiBaseUrl' | 'apiKey'>): Promise<Listing> {
+  async function list(provider: Pick<AiProvider, 'kind' | 'apiBaseUrl' | 'apiKey' | 'preset'>): Promise<Listing> {
     try {
-      return { ok: true, models: await fetchProviderModels(provider, providerFetch, { allowPrivateHosts }) };
+      const models = await fetchProviderModels(provider, providerFetch, { allowPrivateHosts });
+      // MICO360 AI lists no models while none of its AI nodes accepts work (busy, draining, offline):
+      // that says nothing about which models it has, so every model stays as it was.
+      if (isMico360Provider(provider) && models.length === 0) return { ok: false, error: new ValidationError(MICO360_EMPTY_LIST), keyRefused: false };
+      return { ok: true, models };
     } catch (err) {
       if (!(err instanceof ValidationError)) throw err;
       return { ok: false, error: err, keyRefused: err instanceof ProviderHttpError && (err.providerStatus === 401 || err.providerStatus === 403) };
@@ -232,12 +241,18 @@ export function createAiConfigService({
     return { ...result, config: ops.redactConfig(config) };
   }
 
-  /** Reload the model list of every switched-on provider not checked in the last day (the regular job). */
+  /**
+   * Reload the model list of every switched-on provider not checked in the last day (the regular job);
+   * MICO360 AI's after an hour when it last listed no models (its nodes were busy).
+   */
   async function refreshDueProviders(): Promise<{ refreshed: number; failed: number }> {
     const at = Date.parse(now());
-    const due = (await repo.load()).providers.filter(
-      (p) => p.enabled && (!p.lastSyncAttemptAt || at - Date.parse(p.lastSyncAttemptAt) >= MODEL_LIST_MAX_AGE_MS),
-    );
+    const due = (await repo.load()).providers.filter((p) => {
+      if (!p.enabled) return false;
+      if (!p.lastSyncAttemptAt) return true;
+      const age = at - Date.parse(p.lastSyncAttemptAt);
+      return age >= MODEL_LIST_MAX_AGE_MS || (p.lastSyncError === MICO360_EMPTY_LIST && age >= EMPTY_LIST_RETRY_MS);
+    });
     let refreshed = 0;
     let failed = 0;
     for (const p of due) {

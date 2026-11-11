@@ -74,3 +74,11 @@ describe('buildDigests: tasks waiting for approval (owner, 30 Oct)', () => {
     expect(out).toEqual([{ userId: 'u1', overdue: [{ key: 'MICO-9', title: 'Open, late', dueDate: '2026-03-08' }], dueToday: [] }]);
   });
 });
+
+describe('buildDigests: tasks scheduled for the future (owner, 10 Nov)', () => {
+  it('a task put on a later day’s board isn’t in today’s digest, even with an earlier due date', () => {
+    const waiting: DigestTask = { id: 'w', key: 'MICO-9', title: 'Waits', dueDate: d('2026-03-10T00:00:00Z'), boardDate: d('2026-03-12T12:00:00Z'), columnCategory: 'TODO', recipientIds: ['u1'] };
+    expect(buildDigests([waiting], { now, timeZone: 'Asia/Muscat' })).toEqual([]);
+    expect(buildDigests([{ ...waiting, boardDate: d('2026-03-10T12:00:00Z') }], { now, timeZone: 'Asia/Muscat' })).toHaveLength(1);
+  });
+});

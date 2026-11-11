@@ -1,3 +1,4 @@
+import { isEffectiveAdmin } from '../auth/manager-view';
 import { z } from 'zod';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { AuthGuard } from '../auth/auth-guard';
@@ -151,7 +152,7 @@ export async function registerPlanningRoutes(app: FastifyInstance, deps: Plannin
       // companies: the days off of the shown project's company (only one the reader may see), else of their company.
       const days = deps.workingHoursFor ? (await deps.workingHoursFor(req, projectId)).days : hours.days;
       return {
-        data: buildWorkload(rows, { week, timeZone, now: at, limit, workingDays: days, viewerId: viewer.id, scope, projectId, canChangeLimit: admin }),
+        data: buildWorkload(rows, { week, timeZone, now: at, limit, workingDays: days, viewerId: viewer.id, scope, projectId, canChangeLimit: isEffectiveAdmin(req.user!) }),
       };
     });
   }

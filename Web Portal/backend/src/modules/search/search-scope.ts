@@ -70,7 +70,7 @@ export function createSearchScope(deps: SearchScopeDeps) {
     // A list: the pick named (even null), so an administrator's "Show my projects only" applies.
     const [projectIds, mineOnly] = await Promise.all([deps.accessibleProjectIds(viewer.id, viewer.roles, pick), admin && deps.myProjectsOnly ? deps.myProjectsOnly(viewer) : Promise.resolve(false)]);
     const where = await meetingScopeWhere(deps.prisma, meetingListScope({ userId: viewer.id, projectIds, pick, admin, mineOnly }));
-    if (!where.OR) return { projectIds, ...(admin ? { clientAccounts: true } : {}), meetings: { full: null, invitee: [], editable: admin ? null : [] } };
+    if (!where.OR) return { projectIds, ...(admin && !viewer.managerView ? { clientAccounts: true } : {}), meetings: { full: null, invitee: [], editable: admin ? null : [] } };
     // Every meeting of these projects is in the list, and seen in full: the person's projects (a
     // visible project shares one of their active companies) — and an administrator's picked company's
     // projects and its meetings without a project (meetingScopeWhere's `everyone`).
@@ -102,7 +102,8 @@ export function createSearchScope(deps: SearchScopeDeps) {
       else if (view === 'invitee') invitee.push(m.id);
     }
     const base = { full, fullProjects: [...fullProjects], ...(everyone ? { fullStandaloneCompany: pick! } : {}), invitee };
-    if (admin) return { projectIds, clientAccounts: true, meetings: { ...base, editable: null } };
+    // Client portal accounts are the Clients page's: not while Manager View is on (manager-view.ts).
+    if (admin) return { projectIds, ...(viewer.managerView ? {} : { clientAccounts: true }), meetings: { ...base, editable: null } };
     // Drafts: whoever may change the meeting — its organizer or creator, or whoever runs its project.
     const projectsOf = [...new Set([...fullProjects, ...rows.map((m) => m.projectId).filter((p): p is string => !!p)])];
     const runs = await deps.manageableProjectIds(viewer.id, viewer.roles, projectsOf);

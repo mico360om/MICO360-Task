@@ -20,7 +20,8 @@ export function TaskNoticeToast() {
   }, [notice]);
   if (!notice) return null;
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-6 z-40 flex justify-center px-4">
+    // z-50: above the task panel (z-40), so a copy made from the panel (Duplicate) is seen with its Open.
+    <div className="pointer-events-none fixed inset-x-0 bottom-6 z-50 flex justify-center px-4">
       <p role="status" className="pointer-events-auto flex items-center gap-3 rounded-full border border-line bg-surface py-2 pe-2 ps-4 text-sm font-medium text-ink shadow-lift">
         <span>{notice.text}</span>
         {notice.taskId ? (

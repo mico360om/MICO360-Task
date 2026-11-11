@@ -95,7 +95,7 @@ describe('company branding', () => {
     expect(imageWidths(ma)).toContain(320);
     const mb = await minutesPdf(w.meetings.MB);
     expect(inspectPdf(mb).pages.flat().join('\n')).toContain(`Beta ${w.tag}`);
-    expect(imageWidths(mb)).toEqual([]);
+    expect(imageWidths(mb)).toEqual([155]); // tpdf: 1.23.11 — the built-in logo (every header carries one; 200 dpi, 155 pixels), not company A's
     expect(await branding.pdfLogo(await branding.forProject(w.projects.PB))).toBeNull(); // no logo → built-in
     expect(await branding.pdfLogo(await branding.forProject(w.projects.PAB))).toEqual(alphaPng); // main company A
     expect(branding.emailOptions(await branding.forProject(w.projects.PA)).brand).toMatchObject({ companyName: `Alpha ${w.tag}`, logoUrl: `https://api.test${url}` });

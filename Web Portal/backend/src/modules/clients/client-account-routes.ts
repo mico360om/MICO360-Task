@@ -1,3 +1,4 @@
+import { isEffectiveAdmin } from '../auth/manager-view';
 import { z } from 'zod';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { AuthGuard } from '../auth/auth-guard';
@@ -56,7 +57,7 @@ const createSchema = z
     projects: grantsSchema.optional(),
   })
   .superRefine((b, ctx) => {
-    if (!b.sendWelcome && !b.password && !b.generatePassword) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['password'], message: 'Required' });
+    if (!b.sendWelcome && !b.password && !b.generatePassword) ctx.addIssue({ code: 'custom', path: ['password'], message: 'Required' });
   });
 const updateSchema = z.object({
   firstName: name.optional(),
@@ -180,6 +181,7 @@ export async function registerClientAccountRoutes(app: FastifyInstance, deps: Cl
     const { id } = req.params as { id: string };
     const roles = req.user!.roles ?? [];
     if (!(await deps.canViewProject(req.user!.id, roles, id))) throw new NotFoundError('Project not found.');
-    return { data: { clients: await accounts.forProject(id), canChange: roles.includes('ADMIN') } };
+    // Manager View: the Clients page is closed to them, so they can't change it from here either.
+    return { data: { clients: await accounts.forProject(id), canChange: isEffectiveAdmin(req.user!) } };
   });
 }

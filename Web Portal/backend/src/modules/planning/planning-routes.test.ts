@@ -312,6 +312,15 @@ describe('GET /workload', () => {
     tasks: [{ id: 'r1', projectId: 'rig', due: '2026-10-27', assignees: ['omar'] }],
   };
 
+  it('Manager View (owner, 10 Nov): an administrator still sees everyone, but the limit (a system setting) isn’t theirs to change then', async () => {
+    use(TEAM);
+    const mv = await makeApp({ userState: async (id: string) => (id === 'admin' ? { tokenVersion: 0, active: true, roles: ['ADMIN'], managerView: true } : null) });
+    const res = await mv.inject({ method: 'GET', url, headers: await ADMIN() });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data).toMatchObject({ scope: 'everyone', canChangeLimit: false });
+    await mv.close();
+  });
+
   it('lets an administrator see everyone, with the company limit and working days, and change the limit', async () => {
     use(TEAM);
     stored = { 'workload.dailyLimit': 6, 'meetings.workingHours': { days: [0, 1, 2, 3, 4], start: '08:00', end: '17:00' } };

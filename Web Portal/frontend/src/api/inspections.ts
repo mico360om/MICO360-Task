@@ -7,6 +7,8 @@ import type { RecurrenceRule } from '../lib/recurrence';
 export interface Person {
   id: string;
   name: string;
+  /** Their photo, where a face shows it (null or left out: initials). */
+  avatarUrl?: string | null;
 }
 
 export interface InspectionForm {

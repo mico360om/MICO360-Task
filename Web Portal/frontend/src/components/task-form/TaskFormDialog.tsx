@@ -8,11 +8,12 @@ import { membersApi } from '../../api/members';
 import { usersApi } from '../../api/users';
 import { assigneesApi } from '../../api/assignees';
 import { aiApi } from '../../api/ai';
-import { tasksApi, type ApiTask, type NewTaskInput, type Priority, type RecurrenceRule } from '../../api/tasks';
+import { tasksApi, type ApiTask, type DuplicateFiles, type DuplicateInput, type NewTaskInput, type Priority, type RecurrenceRule } from '../../api/tasks';
 import { ApiError } from '../../lib/api-client';
 import { todayKey } from '../../lib/due-date';
 import { dueInputValue } from '../../lib/due-display';
 import { defaultDueDay, defaultDueNote } from '../../lib/default-due';
+import { formBoardDate, scheduledNote, waitingDay } from '../../lib/scheduled-start';
 import { recurrenceSummary } from '../../lib/recurrence-summary';
 import { useCompanyTimeZone } from '../../lib/company-clock';
 import { enqueueOffline } from '../../lib/offline-replay';
@@ -50,6 +51,8 @@ import { externalContactsApi } from '../../api/external-contacts';
 import { isProjectArchived } from '../../lib/project-archive';
 import { TaskKey } from '../TaskKey';
 import { showTaskNotice, taskCreatedNotice } from '../../lib/task-notice';
+import { alsoCopiedText, carriedStart, duplicatedNotice } from '../../lib/task-duplicate';
+import { formatSize } from '../task-drawer/attachments';
 import { statusColour } from '../../lib/colour-classes';
 
 export interface TaskFormDialogProps {
@@ -74,6 +77,12 @@ export interface TaskFormDialogProps {
   onQueued?: () => void;
   /** Start filled in from this task template (the Templates page's "Use template"). */
   taskTemplateId?: string;
+  /**
+   * Duplicate Task: a copy of this task — the form opens filled in from it (GET /tasks/:id/duplicate), titled
+   * "Duplicate of MSSP-34", to review before saving; saving makes the copy on the server (its files too, when
+   * "Copy files" is ticked). It needs the connection.
+   */
+  duplicateOfId?: string;
 }
 
 interface Draft {
@@ -83,6 +92,8 @@ interface Draft {
   description: string;
   priority: Priority;
   dueDate: string;
+  /** Its start day ('' = none: the server starts it now). Later than today, a new task waits for it (future tasks). */
+  startDate: string;
   rule: RecurrenceRule | null;
   assigneeIds: string[];
   milestone: boolean;
@@ -164,11 +175,13 @@ function Label({ htmlFor, required, optional, children }: { htmlFor?: string; re
  * can be started from a plain-English description. Saving shows progress and is never sent twice;
  * what was entered stays after a failure, and closing with changes asks first.
  */
-export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: fixedProjectId, defaultProjectId, defaultColumnId, defaultColumnCategory, defaultDueDate, boardDate, onQueued, taskTemplateId }: TaskFormDialogProps) {
+export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: fixedProjectId, defaultProjectId, defaultColumnId, defaultColumnCategory, defaultDueDate, boardDate, onQueued, taskTemplateId, duplicateOfId }: TaskFormDialogProps) {
   const editing = !!task;
+  // Duplicate Task: the form for a copy of another task (a new task, filled in from it).
+  const duplicating = !editing && !!duplicateOfId;
   const qc = useQueryClient();
   const timeZone = useCompanyTimeZone();
-  const ids = { title: useId(), desc: useId(), due: useId(), dueNote: useId(), titleErr: useId(), untilErr: useId(), owner: useId(), place: useId(), formNote: useId(), approvalHint: useId(), approvalLocked: useId() };
+  const ids = { title: useId(), desc: useId(), due: useId(), dueNote: useId(), start: useId(), startNote: useId(), startErr: useId(), titleErr: useId(), untilErr: useId(), owner: useId(), place: useId(), formNote: useId(), approvalHint: useId(), approvalLocked: useId(), copyNote: useId() };
 
   // One empty checklist draft for how the form opened and the form itself (so an untouched form isn't "changed").
   const [blankChecklists] = useState(emptyDraft);
@@ -181,6 +194,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
           description: task.description ?? '',
           priority: task.priority,
           dueDate: dueInputValue(task.dueDate, timeZone),
+          startDate: dueInputValue(task.startDate, timeZone),
           rule: task.recurrenceRule ?? null,
           assigneeIds: [],
           milestone: !!task.isMilestone,
@@ -190,7 +204,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
           approval: !!task.needsApproval,
           contacts: (task.externalContacts ?? []).map((c) => formContact(c, c.id)),
         }
-      : { projectId: fixedProjectId ?? '', columnId: defaultColumnId ?? '', title: '', description: '', priority: 'NORMAL', dueDate: defaultDueDate ?? '', rule: null, assigneeIds: [], milestone: false, checklists: blankChecklists, formId: '', place: '', approval: false, contacts: [] };
+      : { projectId: fixedProjectId ?? '', columnId: defaultColumnId ?? '', title: '', description: '', priority: 'NORMAL', dueDate: defaultDueDate ?? '', startDate: '', rule: null, assigneeIds: [], milestone: false, checklists: blankChecklists, formId: '', place: '', approval: false, contacts: [] };
   // `saved` is what the server has (or, for a new task, how the form opened); `draft` is the form.
   const [saved, setSaved] = useState<Draft>(start);
   const [draft, setDraft] = useState<Draft>(start);
@@ -229,9 +243,11 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
     JSON.stringify({ ...draft, projectId: '', columnId: '' }) !== JSON.stringify({ ...saved, projectId: '', columnId: '' }) ||
     draft.columnId !== saved.columnId ||
     weight !== savedWeight;
+  // Duplicate Task: how the copy's files went (said in the notice once the form closes).
+  const copiedFiles = useRef<DuplicateFiles | null>(null);
   const finish = (task: ApiTask) => {
     // 1.22.3: "Task MICO-143 created", with Open — the app shell shows it, wherever the form was opened.
-    showTaskNotice(taskCreatedNotice(task));
+    showTaskNotice(duplicating ? duplicatedNotice(task, copiedFiles.current) : taskCreatedNotice(task));
     onCreated?.(task);
     onClose();
   };
@@ -248,7 +264,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
   const dialogRef = useDialog(requestClose);
 
   // ── Start from a task template (new tasks): it fills in the title, description, priority and checklist ──
-  const templatesQ = useQuery({ queryKey: TASK_TEMPLATES_KEY, queryFn: () => templatesApi(apiClient).listTasks(), enabled: !editing, staleTime: 30_000 });
+  const templatesQ = useQuery({ queryKey: TASK_TEMPLATES_KEY, queryFn: () => templatesApi(apiClient).listTasks(), enabled: !editing && !duplicating, staleTime: 30_000 });
   // Only well-formed templates (a server without templates answers something else, or nothing).
   const taskTemplates = useMemo(
     () => (Array.isArray(templatesQ.data) ? templatesQ.data.filter((t) => t && typeof t.name === 'string' && typeof t.title === 'string' && hasChecklistData(t)) : []),
@@ -274,10 +290,18 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
     setUsedTemplate(t);
   }, [taskTemplates]);
 
+  // ── Duplicate Task: the original, as the form starts from it ──
+  const prefillQ = useQuery({ queryKey: ['task-duplicate', duplicateOfId], queryFn: () => tasksApi(apiClient).duplicatePrefill(duplicateOfId!), enabled: duplicating, staleTime: 0, gcTime: 0 });
+  // (Only a well-formed answer: anything else is said to be a problem below.)
+  const prefillOk = Boolean(prefillQ.data && typeof prefillQ.data === 'object' && prefillQ.data.task && prefillQ.data.original);
+  const prefill = duplicating && prefillOk ? prefillQ.data : undefined;
+  const [copyFiles, setCopyFiles] = useState(true);
+  const [prefillApplied, setPrefillApplied] = useState(false);
+
   // ── Where the task goes ──
   // (1.22: with the page's or the task's own project when an administrator's "Show my projects only"
   // leaves it off the list — a board or task opened by its link.)
-  const { projects: allProjects, listQ: projectsQ, fetchingExtra } = useProjectsWith(task?.projectId ?? fixedProjectId ?? defaultProjectId);
+  const { projects: allProjects, listQ: projectsQ, fetchingExtra } = useProjectsWith(task?.projectId ?? fixedProjectId ?? defaultProjectId ?? prefill?.task.projectId);
   // Archived — or all its companies archived: no new tasks there.
   const openProjects = useMemo(() => allProjects.filter((p) => !isProjectArchived(p)), [allProjects]);
   const project = allProjects.find((p) => p.id === draft.projectId) ?? null;
@@ -302,12 +326,47 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
   useEffect(() => {
     // (Wait for the page's own project when it is being fetched — else another one would be chosen.)
     if (projectFixed || draft.projectId || openProjects.length === 0 || fetchingExtra) return;
+    // A copy starts in its original's project (below); only when that one is closed is another chosen here.
+    if (duplicating && !prefillApplied) return;
     let last: string | null = null;
     try { last = localStorage.getItem(LAST_PROJECT); } catch { /* storage unavailable */ }
     // The page's own project first, then the one used last time, then the first open project.
     const start = [defaultProjectId, last].find((id) => id && openProjects.some((p) => p.id === id)) ?? openProjects[0]!.id;
+    // A copy's people came from its original's project: whoever isn't on this one is taken off (with the notice).
+    if (duplicating) pruneFor.current = start;
     settle({ projectId: start });
-  }, [projectFixed, draft.projectId, openProjects, defaultProjectId, fetchingExtra]);
+  }, [projectFixed, draft.projectId, openProjects, defaultProjectId, fetchingExtra, duplicating, prefillApplied]);
+
+  // A copy: filled in from its original once both it and the projects are here (as how the form opened —
+  // not a change of yours). Its project, unless that one is archived now: then another (above).
+  useEffect(() => {
+    // (Projects that couldn't be read: filled in all the same — the form then asks for a project.)
+    if (!prefill || prefillApplied || !(projectsQ.isSuccess || projectsQ.isError) || fetchingExtra) return;
+    const t = prefill.task;
+    const open = openProjects.some((p) => p.id === t.projectId);
+    settle({
+      projectId: open ? t.projectId : '',
+      columnId: open ? (t.columnId ?? '') : '',
+      title: t.title,
+      description: t.description ?? '',
+      priority: t.priority,
+      dueDate: t.dueDate ?? '',
+      // Its start date in the form's Start date field (when it still fits the due date): the field and its
+      // "Scheduled for …" note show it, and it can be changed or cleared like any new task's.
+      startDate: carriedStart(t.startDate, t.dueDate) ?? '',
+      rule: null,
+      assigneeIds: t.assigneeIds,
+      milestone: t.isMilestone,
+      checklists: draftFromTree(t.checklists),
+      formId: t.inspectionFormId ?? '',
+      place: t.inspectionPlace ?? '',
+      contacts: t.externalContacts.map((c) => formContact(c)),
+    });
+    const w = t.weight != null ? String(t.weight) : '';
+    setWeight(w);
+    setSavedWeight(w);
+    setPrefillApplied(true);
+  }, [prefill, prefillApplied, projectsQ.isSuccess, projectsQ.isError, fetchingExtra, openProjects]);
 
   const columnsQ = useQuery({ queryKey: ['columns', draft.projectId], queryFn: () => columnsApi(apiClient).list(draft.projectId), enabled: !!draft.projectId });
   const columns = useMemo(
@@ -315,7 +374,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
     [columnsQ.data, task?.columnId],
   );
   // After a project change, land in the same kind of column (e.g. "in progress") when the new project has one.
-  const preferKind = useRef<string | null>(defaultColumnCategory ?? null);
+  const preferKind = useRef<string | null>(defaultColumnCategory ?? (duplicateOfId ? 'TODO' : null));
   useEffect(() => {
     if (!columnsQ.isSuccess || columns.length === 0 || columns.some((c) => c.id === draft.columnId)) return;
     const pick = columns.find((c) => preferKind.current && c.category === preferKind.current) ?? columns.find((c) => c.id === defaultColumnId) ?? columns[0]!;
@@ -380,8 +439,32 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
   // is added to when that is later, else today. An edit never does — a date cleared on purpose stays
   // cleared. `dueWhen` is the date the task will have, which the repeat preview works from.
   const today = todayKey(timeZone);
-  const autoDue = editing ? null : defaultDueDay(project, draft.dueDate, boardDate, today);
+  // Tasks scheduled for the future: a Start date later than today puts a new task on its start day's
+  // board (the server does it) — so the board's own day is sent only without one (lib/scheduled-start),
+  // and the project's "due today" gives the start day, as the server will.
+  const sentBoard = editing ? undefined : formBoardDate(boardDate, draft.startDate, today);
+  const landsOn = sentBoard ?? (draft.startDate > today ? draft.startDate : undefined);
+  const autoDue = editing ? null : defaultDueDay(project, draft.dueDate, landsOn, today);
   const dueWhen = draft.dueDate || autoDue || '';
+  // A copy: its files, and what is copied without a field here (its start date is in the Start date field).
+  const originalFiles = prefill?.files ?? [];
+  const alsoCopied = prefill ? alsoCopiedText({ tags: prefill.task.tags, watchers: prefill.watchers.length, estimatedHours: prefill.task.estimatedHours }, today) : null;
+  // The server's rule, said before anything is sent (an edit: only once a date changes, as the server).
+  const datesChanged = !editing || draft.startDate !== saved.startDate || draft.dueDate !== saved.dueDate;
+  const startProblem = datesChanged && draft.startDate && draft.dueDate && draft.startDate > draft.dueDate ? 'The start date must be on or before the due date.' : null;
+  // "Scheduled for 20 Nov" under the Start date while it waits — never for a task already under way (it stays).
+  const startNote = (() => {
+    if (startProblem) return null;
+    if (!editing) return scheduledNote(draft.startDate, today);
+    if (draft.startDate === saved.startDate) {
+      const waits = task ? waitingDay(task, timeZone) : null;
+      return waits ? scheduledNote(waits, today) : null;
+    }
+    const kind = columns.find((c) => c.id === draft.columnId)?.category ?? task?.columnCategory ?? 'TODO';
+    const notStarted = (kind === 'BACKLOG' || kind === 'TODO') && !task?.completedAt && !task?.approvalRequestedAt;
+    if (!notStarted) return draft.startDate > today ? 'It’s already under way, so it stays where it is.' : null;
+    return scheduledNote(draft.startDate, today);
+  })();
 
   // ── An inspection form (a check): finishing its inspection completes the task ──
   const formsQ = useQuery({ queryKey: ['inspection-forms'], queryFn: () => inspectionsApi(apiClient).listForms(), staleTime: 30_000 });
@@ -417,6 +500,10 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
       untilRef.current?.querySelector<HTMLElement>('input[aria-label="End date"]')?.focus();
       return;
     }
+    if (startProblem) {
+      document.getElementById(ids.start)?.focus();
+      return;
+    }
     if (contactOpen) {
       setBanner('Save the external contact you’re working on, or cancel it, first.');
       return;
@@ -438,6 +525,10 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
   }
 
   async function create() {
+    if (duplicating) {
+      await duplicate();
+      return;
+    }
     // With anything typed in an add box and not added yet, where it was typed.
     const checklists = draftToTree(draft.checklists);
     const input: NewTaskInput & { recurrenceRule?: RecurrenceRule } = {
@@ -449,6 +540,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
       ...(countsByWeight(project) && weight ? { weight: Number(weight) } : {}),
       ...(draft.description.trim() ? { description: draft.description.trim() } : {}),
       ...(draft.dueDate ? { dueDate: draft.dueDate } : {}),
+      ...(draft.startDate ? { startDate: draft.startDate } : {}),
       ...(draft.rule ? { recurrenceRule: draft.rule } : {}),
       ...(draft.milestone ? { isMilestone: true } : {}),
       // Ticked: needs approval. Unticked where the project ticks new tasks: says it doesn't.
@@ -458,7 +550,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
       // Only when someone was picked — otherwise the project's default (its owner) applies.
       ...(draft.assigneeIds.length ? { assigneeIds: draft.assigneeIds } : {}),
       ...(draft.contacts.length ? { externalContacts: draft.contacts.map(fieldsOnly) } : {}),
-      ...(boardDate ? { boardDate } : {}),
+      ...(sentBoard ? { boardDate: sentBoard } : {}),
       ...(draft.formId ? { inspectionFormId: draft.formId, inspectionPlace: draft.place.trim() || null } : {}),
     };
     // One key per attempt: the offline queue reuses it, so a create that did reach the server is never duplicated.
@@ -500,6 +592,62 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
     }
   }
 
+  /**
+   * Duplicate Task: the copy, made on the server from the form as reviewed — the New task form's fields, the
+   * original's start date when it still fits, the files tick (what the form has no field for — tags, the
+   * estimate, watchers — the server takes from the original). Never queued offline: its files are copied there.
+   */
+  async function duplicate() {
+    const checklists = draftToTree(draft.checklists);
+    const input: DuplicateInput = {
+      projectId: draft.projectId,
+      columnId: draft.columnId,
+      title: draft.title.trim(),
+      priority: draft.priority,
+      // Its weight as shown (none = the project's default for its priority), whatever the project counts by.
+      weight: weight ? Number(weight) : null,
+      ...(draft.description.trim() ? { description: draft.description.trim() } : {}),
+      ...(draft.dueDate ? { dueDate: draft.dueDate } : {}),
+      // The Start date field (filled in with the original's when it fit its due date); empty = none of its own (the automatic one).
+      startDate: draft.startDate || null,
+      ...(draft.rule ? { recurrenceRule: draft.rule } : {}),
+      isMilestone: draft.milestone,
+      ...(draft.approval ? { needsApproval: true } : projectWantsApproval ? { needsApproval: false } : {}),
+      ...(checklists.length ? { checklists } : {}),
+      // Only when someone is picked — otherwise the project's default (its owner), as for any new task.
+      ...(draft.assigneeIds.length ? { assigneeIds: draft.assigneeIds } : {}),
+      ...(draft.contacts.length ? { externalContacts: draft.contacts.map(fieldsOnly) } : {}),
+      ...(draft.formId ? { inspectionFormId: draft.formId, inspectionPlace: draft.place.trim() || null } : {}),
+      copyFiles: originalFiles.length > 0 && copyFiles,
+    };
+    try {
+      const made = await tasksApi(apiClient).duplicate(duplicateOfId!, input, { idempotencyKey: newIdempotencyKey() });
+      copiedFiles.current = made.files;
+      void invalidateTaskQueries(qc);
+      if (files.length) {
+        const failed = await attachFiles(made.task);
+        void invalidateTaskQueries(qc);
+        void qc.invalidateQueries({ queryKey: ['attachments', made.task.id] });
+        if (failed.length) {
+          setCreated(made.task);
+          setBanner(
+            failed.length === 1
+              ? `The copy was created, but ${failed[0]!.name} wasn’t attached: ${failed[0]!.reason}`
+              : `The copy was created, but these files weren’t attached: ${failed.map((f) => `${f.name} (${f.reason})`).join('; ')}. Add them from the task.`,
+          );
+          return;
+        }
+      }
+      finish(made.task);
+    } catch (err) {
+      if (!(err instanceof ApiError)) {
+        setBanner('You’re offline. Duplicating a task needs the connection — its files are copied on the server. Try again when you’re connected.');
+        return;
+      }
+      setBanner(`Couldn’t duplicate the task. ${reasonOf(err)}`);
+    }
+  }
+
   /** Upload the new task's files one by one, with progress; returns the ones that couldn't go up. */
   async function attachFiles(task: ApiTask): Promise<Array<{ name: string; reason: string }>> {
     const failed: Array<{ name: string; reason: string }> = [];
@@ -532,6 +680,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
       if (draft.description.trim() !== done.description.trim()) fields.description = draft.description.trim();
       if (draft.priority !== done.priority) fields.priority = draft.priority;
       if (draft.dueDate !== done.dueDate) fields.dueDate = draft.dueDate || null;
+      if (draft.startDate !== done.startDate) fields.startDate = draft.startDate || null;
       if (draft.milestone !== done.milestone) fields.isMilestone = draft.milestone;
       if (weight !== savedWeight) fields.weight = weight ? Number(weight) : null;
       if (draft.approval !== done.approval) fields.needsApproval = draft.approval;
@@ -548,7 +697,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
       if (Object.keys(fields).length) {
         latest = await tasksApi(apiClient).update(t.id, { ...fields, ...(version.current != null ? { expectedVersion: version.current } : {}), ...(series ? { scope: 'series' } : {}) });
         version.current = latest.version ?? version.current;
-        keep({ title: draft.title, description: draft.description, priority: draft.priority, dueDate: draft.dueDate, milestone: draft.milestone, approval: draft.approval, formId: draft.formId, place: draft.formId ? draft.place : '', ...(moveWithTick ? { columnId: draft.columnId } : {}), ...(ruleChanged && !series ? { rule: draft.rule } : {}) });
+        keep({ title: draft.title, description: draft.description, priority: draft.priority, dueDate: draft.dueDate, startDate: draft.startDate, milestone: draft.milestone, approval: draft.approval, formId: draft.formId, place: draft.formId ? draft.place : '', ...(moveWithTick ? { columnId: draft.columnId } : {}), ...(ruleChanged && !series ? { rule: draft.rule } : {}) });
         if (fields.weight !== undefined) setSavedWeight(weight);
       }
       // The repeat rule lives on the series' newest copy only: it is never sent "for the whole series".
@@ -630,14 +779,22 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
   // 1.23.8 one colour scheme: a column's colour is its status kind's.
   const columnOptions = columns.map((c) => ({ value: c.id, label: c.name, icon: <span className="h-2.5 w-2.5 rounded-full" style={{ background: statusColour(c.category) }} /> }));
   const repeatOptions = [{ value: 'NONE', label: 'Does not repeat' }, ...REPEAT_FREQUENCIES.map((f) => ({ value: f, label: REPEAT_LABEL[f] }))];
-  const heading = editing ? 'Edit task' : 'New task';
+  const heading = editing ? 'Edit task' : duplicating ? `Duplicate of ${prefill?.original.key ?? '…'}` : 'New task';
+  // A copy waits for its original (or says why it can't be copied).
+  const prefillProblem =
+    duplicating && prefillQ.isSuccess && !prefillOk
+      ? 'Couldn’t open the task to duplicate. Please try again.'
+      : duplicating && prefillQ.isError
+      ? `Couldn’t open the task to duplicate. ${prefillQ.error instanceof ApiError && (prefillQ.error.status === 404 || prefillQ.error.status === 403) ? 'It may have been deleted, or you can’t open it any more.' : reasonOf(prefillQ.error)}`
+      : null;
+  const prefillWaiting = duplicating && !prefillApplied;
 
   // Big form (1.22): 960px and two columns from 1024px — what the task is on the left (template,
   // Describe, project and column, title, description, checklist, files); when, who and how on the
   // right (dates and repeat, assignees, outside contacts, inspection form, milestone, approval).
   // One column below, in the order it always had.
   const twoColumns = useTwoColumns();
-  const templateField = !editing && !noProjects && taskTemplates.length ? (
+  const templateField = !editing && !duplicating && !noProjects && taskTemplates.length ? (
     <div>
       <Label>Start from a template</Label>
       <SearchableSelect
@@ -654,7 +811,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
       {usedTemplate ? <p role="status" className="mt-1 text-xs text-ink-2">Filled in from “{usedTemplate.name}” — change anything before saving.</p> : null}
     </div>
   ) : null;
-  const describeField = !editing && !noProjects ? (
+  const describeField = !editing && !duplicating && !noProjects ? (
     <DescribeTask
       onParse={(text) => aiApi(apiClient).parseTask(text, todayKey(timeZone))}
       current={{ title: draft.title, description: draft.description, dueDate: draft.dueDate, priority: draft.priority, rule: draft.rule, projectId: draft.projectId }}
@@ -697,6 +854,29 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
     </div>
   );
   const noticeLine = notice ? <p role="status" className="-mt-2 text-xs text-ink-2">{notice}</p> : null;
+  // A copy: what goes with it that the form has no field for.
+  const alsoCopiedLine = alsoCopied ? (
+    <p className="flex items-start gap-2 rounded-xl bg-ground px-3.5 py-2.5 text-xs text-ink-2">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="mt-px flex-none text-brand">
+        <rect x="8" y="8" width="13" height="13" rx="2" />
+        <path d="M4 16V5a1 1 0 0 1 1-1h11" />
+      </svg>
+      <span dir="auto">{alsoCopied}</span>
+    </p>
+  ) : null;
+  // A copy: "Copy files (3)", on by default — its files are copied on the server as new files of the copy.
+  const copyFilesField =
+    duplicating && originalFiles.length ? (
+      <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-line px-3.5 py-3 transition-colors hover:border-brand/40">
+        <input type="checkbox" checked={copyFiles} onChange={(e) => setCopyFiles(e.target.checked)} disabled={saving || !!created} aria-describedby={ids.copyNote} className="mt-0.5 h-4 w-4 accent-brand" />
+        <span className="min-w-0">
+          <span className="block text-sm font-semibold text-ink">Copy files ({originalFiles.length})</span>
+          <span id={ids.copyNote} dir="auto" className="block break-words text-xs text-ink-2">
+            {fileNames(originalFiles)} · {formatSize(originalFiles.reduce((n, f) => n + f.sizeBytes, 0))}
+          </span>
+        </span>
+      </label>
+    ) : null;
   const titleField = (
     <div>
       <Label htmlFor={ids.title} required>Task title</Label>
@@ -764,7 +944,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
   );
   const whenFields = (
     <div className={twoColumns ? 'grid grid-cols-2 gap-4' : 'grid gap-4 sm:grid-cols-3'}>
-      <div className="min-w-0">
+      <div className={twoColumns && !countsByWeight(project) ? 'col-span-2 min-w-0' : 'min-w-0'}>
         <Label>Priority</Label>
         <SearchableSelect size="lg" ariaLabel="Priority" options={priorityOptions()} value={draft.priority} onChange={(v) => set({ priority: v as Priority })} />
       </div>
@@ -775,6 +955,20 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
           <SearchableSelect size="lg" ariaLabel="Weight" options={weightChoices(projectWeights(project)[draft.priority])} value={weight} onChange={setWeight} />
         </div>
       ) : null}
+      <div className="min-w-0">
+        <Label htmlFor={ids.start} optional>Start date</Label>
+        <input
+          id={ids.start}
+          type="date"
+          value={draft.startDate}
+          onChange={(e) => set({ startDate: e.target.value })}
+          aria-invalid={startProblem ? true : undefined}
+          aria-describedby={[startProblem ? ids.startErr : null, startNote ? ids.startNote : null].filter(Boolean).join(' ') || undefined}
+          className={`${fieldClass(!!startProblem)} h-11`}
+        />
+        {startProblem ? <p id={ids.startErr} role="alert" className="mt-1 text-xs font-medium text-danger">{startProblem}</p> : null}
+        {startNote ? <p id={ids.startNote} className="mt-1 text-xs text-ink-2">{startNote}</p> : null}
+      </div>
       <div className="min-w-0">
         <Label htmlFor={ids.due} optional>Due date</Label>
         <input
@@ -924,7 +1118,11 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
           <form onSubmit={(e) => void submit(e)} noValidate className="keyboard-flow-body flex min-h-0 flex-1 flex-col">
             <div className="keyboard-flow-body min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6 sm:py-5">
               {banner ? <p role="alert" className="rounded-xl border border-danger/30 bg-danger-soft px-3.5 py-2.5 text-sm text-danger">{banner}</p> : null}
-              {noProjects ? (
+              {prefillProblem ? (
+                <p role="alert" className="rounded-xl border border-danger/30 bg-danger-soft px-3.5 py-2.5 text-sm text-danger">{prefillProblem}</p>
+              ) : prefillWaiting ? (
+                <p role="status" className="py-10 text-center text-sm text-ink-2">Loading the task…</p>
+              ) : noProjects ? (
                 <NoProjectYet />
               ) : (
               <>
@@ -935,9 +1133,11 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
                     {describeField}
                     {placeFields}
                     {noticeLine}
+                    {alsoCopiedLine}
                     {titleField}
                     {descriptionField}
                     {checklistField}
+                    {copyFilesField}
                     {attachmentsField}
                   </div>
                   <div data-form-column="details" className="min-w-0 space-y-5">
@@ -957,6 +1157,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
                   {describeField}
                   {placeFields}
                   {noticeLine}
+                  {alsoCopiedLine}
                   {titleField}
                   {descriptionField}
                   {checklistField}
@@ -965,6 +1166,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
                   {repeatSchedule}
                   {assigneesField}
                   {contactsField}
+                  {copyFilesField}
                   {attachmentsField}
                   {milestoneField}
                   {approvalField}
@@ -984,7 +1186,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
               {noProjects ? (
                 <CreateProjectLink onGo={onClose} />
               ) : (
-              <Button type="submit" shortcut={editing ? 'save' : 'submit'} showShortcut loading={saving} className="!min-h-[44px] flex-[2] sm:flex-none sm:min-w-[9.5rem]">
+              <Button type="submit" shortcut={editing ? 'save' : 'submit'} showShortcut loading={saving} disabled={prefillWaiting} className="!min-h-[44px] flex-[2] sm:flex-none sm:min-w-[9.5rem]">
                 {created
                   ? 'Done'
                   : saving
@@ -1004,7 +1206,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
       </div>
       {confirmClose ? (
         <ConfirmDialog
-          title={editing ? 'Discard your changes?' : 'Discard this task?'}
+          title={editing ? 'Discard your changes?' : duplicating ? 'Discard this copy?' : 'Discard this task?'}
           confirmLabel="Discard"
           keepLabel="Keep editing"
           onConfirm={() => { setConfirmClose(false); onClose(); }}
@@ -1015,6 +1217,13 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
       ) : null}
     </ModalPortal>
   );
+}
+
+/** "plan.pdf, site.dwg and photo.png" — a few names, then how many more. */
+function fileNames(files: { filename: string }[], shown = 3): string {
+  const names = files.map((f) => f.filename);
+  if (names.length <= shown + 1) return names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+  return `${names.slice(0, shown).join(', ')} and ${names.length - shown} more`;
 }
 
 /** Where a new project is made: the Projects page, with its New project form open. */

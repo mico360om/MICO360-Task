@@ -59,7 +59,7 @@ const PEOPLE: Person[] = [
   { id: 'sara', name: 'Sara Khan', avatarUrl: null },
 ];
 const row = (id: string, over: Partial<HealthRow> = {}): HealthRow =>
-  ({ id, rag: 'AMBER', reasons: [{ code: 'LATE_TASKS', level: 'AMBER', text: '1 late task' }], completionPct: 50, completionBy: 'COUNT', ...over }) as HealthRow;
+  ({ id, rag: 'AMBER', reasons: [{ code: 'LATE_TASKS', level: 'AMBER', text: '1 late task' }], completionPct: 50, completionBy: 'COUNT', open: 7, late: 2, ...over }) as HealthRow;
 
 function setup(projects: Record<string, Partial<ExtrasInput>>, checklistItems?: Parameters<typeof createProjectHealthService>[0]['checklistItems']) {
   let clock = NOW.getTime();
@@ -166,6 +166,13 @@ describe('the project page’s Overview', () => {
       milestones: [{ id: m.id, key: m.key, title: 'Handover', due: '2026-11-30', owners: [{ id: 'sara', name: 'Sara Khan', avatarUrl: null }] }],
     });
     expect(await svc.detail('nope')).toBeNull();
+  });
+
+  it('board search lane (10 Nov): its open and overdue task counts, as the Management page counts them (the Kanban board’s project strip)', async () => {
+    const { svc } = setup({ p1: {} });
+    const d = (await svc.detail('p1'))!;
+    // The row the one rule read: open = not done; overdue = open, not waiting for approval, due before today.
+    expect(d.counts).toEqual({ open: 7, overdue: 2 });
   });
 });
 

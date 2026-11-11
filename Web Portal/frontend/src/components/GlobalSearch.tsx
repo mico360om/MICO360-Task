@@ -1,3 +1,4 @@
+import { useEffectiveAdmin } from '../lib/manager-view';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -56,12 +57,15 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
   const [, setSearchParams] = useSearchParams();
   const qc = useQueryClient();
   const isAdmin = useAuthStore((s) => s.isAdmin());
+  // Manager View (owner, 10 Nov): no way to the Admin menu's pages while it is on (Reports stays).
+  const settingsAdmin = useEffectiveAdmin();
+  const settingsOk = (to: string) => settingsAdmin || !to.startsWith('/admin/');
   // The Management page is offered to administrators and the people who run a project.
   const { allowed: canLead } = useManagementAccess();
   const myId = useAuthStore((s) => s.user?.id);
   // Where a person in the results leads: yourself → your profile; an admin → the user list; anyone
   // else → a conversation with that person (the user list is admin-only, so it was a dead end).
-  const personPath = (userId: string) => (userId === myId ? '/profile' : isAdmin ? '/admin/users' : `/chat?dm=${encodeURIComponent(userId)}`);
+  const personPath = (userId: string) => (userId === myId ? '/profile' : settingsAdmin ? '/admin/users' : `/chat?dm=${encodeURIComponent(userId)}`);
 
   const [term, setTerm] = useState('');
   const [debounced, setDebounced] = useState('');
@@ -235,7 +239,9 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
     const lookedUp = OPEN_VERB.test(raw) ? lookupQ.data : searchEnabled ? q.data : undefined;
     const loose = parsed?.type === 'open' && parsed.onlyIfFound ? (lookedUp ? pickByTaskNumber(lookedUp.tasks ?? [], commandTaskKeys(parsed.taskKey)) : null) : undefined;
     if (parsed) {
-      if (parsed.type === 'navigate') out.push({ id: 'cmd-nav', group: 'Command', primary: `Go to ${parsed.label}`, run: () => { navigate(parsed.to); reset(); } });
+      if (parsed.type === 'navigate' && !settingsOk(parsed.to)) {
+        // (An admin page while Manager View is on: no command; the search goes on as a plain search.)
+      } else if (parsed.type === 'navigate') out.push({ id: 'cmd-nav', group: 'Command', primary: `Go to ${parsed.label}`, run: () => { navigate(parsed.to); reset(); } });
       else if (parsed.type === 'open' && loose) out.push({ id: 'cmd-open', group: 'Command', primary: `Open ${loose.key}`, run: () => openTask(loose.id) });
       else if (parsed.type === 'open' && loose === undefined) out.push({ id: 'cmd-open', group: 'Command', primary: `Open ${parsed.taskKey}`, run: async () => { const t = await resolveTask(parsed.taskKey); if (t) openTask(t.id); else setStatus(`No task ${parsed.taskKey}.`); } });
       else if (parsed.type === 'complete') out.push({ id: 'cmd-complete', group: 'Command', primary: `Complete ${parsed.taskKey}`, run: () => completeCmd(parsed.taskKey) });
@@ -254,7 +260,7 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
       });
     }
 
-    for (const nav of matchNavCommands(raw, isAdmin, canLead).slice(0, raw ? 6 : 5)) {
+    for (const nav of matchNavCommands(raw, isAdmin, canLead).filter((c) => settingsOk(c.to)).slice(0, raw ? 6 : 5)) {
       out.push({ id: `nav-${nav.id}`, group: 'Go to', primary: nav.label, run: () => { navigate(nav.to); reset(); } });
     }
 
@@ -292,7 +298,7 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
       out.push({ id: 'ask-mico-ai', group: 'MICO AI', primary: <>Ask MICO AI: “<span dir="auto">{raw}</span>”</>, run: () => { navigate('/mico-ai', { state: { ask: raw } }); reset(); } });
     }
     return out;
-  }, [raw, isAdmin, canLead, myId, q.data, lookupQ.data, searchEnabled, projectsQ.data, aiReady, debounced, savedQ.all, savedQ.pinned, savedCounts.data]);
+  }, [raw, isAdmin, settingsAdmin, canLead, myId, q.data, lookupQ.data, searchEnabled, projectsQ.data, aiReady, debounced, savedQ.all, savedQ.pinned, savedCounts.data]);
 
   useEffect(() => { setActive(0); }, [items.length]);
 

@@ -6,6 +6,7 @@ import { registerSettingsRoutes } from './settings-routes';
 import { createAuthGuard } from '../auth/auth-guard';
 import { createTokenService } from '../auth/token-service';
 import { HttpError } from '../../lib/http-errors';
+import { validationErrorBody } from '../../lib/validation-errors';
 import type { SettingRecord, SettingsRepository } from './settings-repository';
 import type { AuditService } from '../audit/audit-service';
 
@@ -179,6 +180,26 @@ describe('settings routes', () => {
     expect(ai.statusCode).toBe(400);
     expect(ai.json().error.code).toBe('UNKNOWN_SETTING');
     expect(audited).toHaveLength(0);
+    await app.close();
+  });
+
+  // Pinned before the zod 4 upgrade (1.23.12): the 400s keep their words and their details.
+  it('a missing value and a bad value say what is wrong, field by field', async () => {
+    const app = Fastify();
+    app.setErrorHandler((err, _req, reply) => {
+      if (err instanceof ZodError) return reply.status(400).send(validationErrorBody(err));
+      if (err instanceof HttpError) return reply.status(err.status).send({ error: { code: err.code, message: err.message, details: err.details } });
+      return reply.status(500).send({ error: { code: 'INTERNAL' } });
+    });
+    await registerSettingsRoutes(app, { settingsService: createSettingsService({ settings: inMemory() }), guard: createAuthGuard(tokenService) });
+    const admin = { authorization: `Bearer ${(await tokenService.issueTokens({ id: 'admin1', roles: ['ADMIN'] })).accessToken}` };
+    const put = (key: string, payload: unknown) => app.inject({ method: 'PUT', url: `/system-settings/${key}`, headers: admin, payload: payload as never });
+    expect((await put('carryForward.enabled', {})).json()).toEqual({ error: { code: 'VALIDATION', message: 'Invalid input.', details: { formErrors: [], fieldErrors: { value: ['value is required'] } } } });
+    expect((await put('meetings.workingHours', { value: { days: [], start: '8', end: '07:00' } })).json()).toEqual({
+      error: { code: 'VALIDATION', message: 'Invalid value for meetings.workingHours.', details: { formErrors: [], fieldErrors: { days: ['Array must contain at least 1 element(s)'], start: ['Use HH:MM.'], end: ['The day has to end after it starts.'] } } },
+    });
+    expect((await put('workload.dailyLimit', { value: 2.5 })).json().error.details).toEqual({ formErrors: ['Expected integer, received float'], fieldErrors: {} });
+    expect((await put('company.weekStart', { value: 2 })).json().error.details).toEqual({ formErrors: ['Invalid input'], fieldErrors: {} });
     await app.close();
   });
 

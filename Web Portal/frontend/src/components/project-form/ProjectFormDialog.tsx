@@ -1,3 +1,4 @@
+import { useEffectiveAdmin } from '../../lib/manager-view';
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../../api/client';
@@ -227,7 +228,10 @@ export function ProjectFormDialog({ project, onClose, onSaved, templateId }: { p
   const dirQ = useQuery({ queryKey: ['directory'], queryFn: () => usersApi(apiClient).directory() });
   // The company-wide carry-forward switch (System Settings, which only admins can read). Off there,
   // the project's own switch changes nothing for now: say so (to admins; others aren't told).
-  const settingsQ = useQuery({ queryKey: ['system-settings'], queryFn: () => systemSettingsApi(apiClient).list(), enabled: isAdmin, staleTime: 60_000 });
+  // (System Settings are closed while Manager View is on: not asked then — the form keeps an administrator's
+  // other choices, since making a project is work and a project's settings open only where they run it.)
+  const settingsAdmin = useEffectiveAdmin();
+  const settingsQ = useQuery({ queryKey: ['system-settings'], queryFn: () => systemSettingsApi(apiClient).list(), enabled: isAdmin && settingsAdmin, staleTime: 60_000 });
   const carryOffForCompany = companyCarryForwardOff(settingsQ.data);
   const clients = useMemo(() => {
     const names = new Set<string>();
