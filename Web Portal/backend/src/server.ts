@@ -1180,7 +1180,8 @@ async function main(): Promise<void> {
   onCommentMention = createMentionNotifier({
     usersByUsername: (usernames) => prisma.user.findMany({ where: { username: { in: usernames } }, select: { id: true, email: true } }),
     visibleRecipients: visibleTaskRecipients,
-    notify: (input) => notificationService.notify(input),
+    // The notice's own email (the comment quote) goes by the person's email channel (Notification & Scheduling).
+    notify: (input, opts) => notificationService.notify(input, opts),
     task: (taskId) => prisma.task.findUnique({ where: { id: taskId }, select: { key: true, title: true } }),
     authorName: async (authorId) => {
       const u = await prisma.user.findUnique({ where: { id: authorId }, select: { firstName: true, lastName: true, username: true } });
