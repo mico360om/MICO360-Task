@@ -57,16 +57,20 @@ export function NotificationSettings() {
     return () => window.clearInterval(t);
   }, []);
 
+  // One save at a time (a scope): each sends only its change, so two quick flips never overwrite each other.
   const save = useMutation({
+    scope: { id: 'notification-preferences' },
     mutationFn: (body: NotificationPreferencesSave) => notificationsApi(apiClient).setPreferences(body),
     onMutate: () => setProblem(null),
     onSuccess: (data) => {
       qc.setQueryData(PREFS_KEY, data);
     },
     onError: () => setProblem('Couldn’t save that change. Please try again.'),
-    onSettled: async () => {
+    onSettled: async (_data, _err, body) => {
       await Promise.all([qc.invalidateQueries({ queryKey: PREFS_KEY }), qc.invalidateQueries({ queryKey: PERSON_POLICY_KEY })]);
-      setPending({});
+      // Only this save's kinds go back to the server's answer (a later flip still waiting keeps its own).
+      const saved = Object.keys(body?.channels ?? {});
+      if (saved.length) setPending((p) => Object.fromEntries(Object.entries(p).filter(([k]) => !saved.includes(k))));
     },
   });
 
@@ -168,7 +172,8 @@ export function NotificationSettings() {
                       );
                     return (
                       <div role="cell" key={c.key} className="flex justify-center">
-                        <Toggle on={k.on && ch[c.key]} onChange={() => flip(k, c.key)} label={`${words.label}: ${c.word}`} disabled={locked || save.isPending} />
+                        {/* Never disabled while saving: a switch keeps keyboard focus (saves queue one after another). */}
+                        <Toggle on={k.on && ch[c.key]} onChange={() => flip(k, c.key)} label={`${words.label}: ${c.word}`} disabled={locked} />
                       </div>
                     );
                   })}
@@ -226,7 +231,7 @@ export function NotificationSettings() {
             ).map((b) => (
               <div key={b.key} className="flex items-center justify-between gap-3">
                 <span className="text-sm text-ink">{b.label}</span>
-                <Toggle on={breakThrough[b.key]} onChange={() => save.mutate({ breakThrough: { ...breakThrough, [b.key]: !breakThrough[b.key] } })} label={b.label} disabled={save.isPending} />
+                <Toggle on={breakThrough[b.key]} onChange={() => save.mutate({ breakThrough: { ...breakThrough, [b.key]: !breakThrough[b.key] } })} label={b.label} />
               </div>
             ))}
           </div>

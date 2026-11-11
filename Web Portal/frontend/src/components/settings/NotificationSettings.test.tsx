@@ -26,6 +26,9 @@ beforeEach(() => {
       const body = JSON.parse(String(init.body)) as Record<string, unknown>;
       bodies.push(body);
       prefs = { ...prefs, ...(body as Partial<NotificationPreferences>) };
+      // As the server does: the person's rules answer with their channels as saved.
+      const sent = (body.channels ?? {}) as Record<string, Record<string, boolean>>;
+      policy = { ...policy, kinds: policy.kinds.map((k) => (sent[k.key] ? { ...k, current: { ...k.current, ...sent[k.key] } } : k)) };
       if (body.pauseUntil === null) delete prefs.pauseUntil;
       if (body.quietHours === null) delete prefs.quietHours;
       return json({ data: prefs });
@@ -141,5 +144,34 @@ describe('Settings → Notifications: the extra "due soon" reminder', () => {
     await waitFor(() => expect(bodies).toEqual([{ reminderLeadMinutes: 2880 }]));
     fireEvent.change(select, { target: { value: '' } });
     await waitFor(() => expect(bodies.at(-1)).toEqual({ reminderLeadMinutes: null }));
+  });
+});
+
+describe('found by the battery: switches stay usable while a change saves', () => {
+  it('a switch keeps keyboard focus while it saves (it is never disabled meanwhile), so Space then Enter both save', async () => {
+    renderCard();
+    const sw = await screen.findByRole('switch', { name: 'Comments: in the app' });
+    sw.focus();
+    fireEvent.click(sw);
+    expect(sw).not.toBeDisabled();
+    expect(document.activeElement).toBe(sw);
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    fireEvent.click(sw);
+    await waitFor(() => expect(bodies).toHaveLength(2));
+    expect(bodies).toEqual([{ channels: { comments: { bell: false } } }, { channels: { comments: { bell: true } } }]);
+  });
+
+  it('two switches flipped at once are both saved, one after the other', async () => {
+    renderCard();
+    const a = await screen.findByRole('switch', { name: '@mentions: in the app' });
+    const b = screen.getByRole('switch', { name: 'Overdue tasks: in the app' });
+    fireEvent.click(a);
+    fireEvent.click(b);
+    // Both show their new state at once…
+    expect(a).toHaveAttribute('aria-checked', 'false');
+    expect(b).toHaveAttribute('aria-checked', 'false');
+    // …and both reach the server, in order (one save at a time, so neither overwrites the other).
+    await waitFor(() => expect(bodies).toHaveLength(2));
+    expect(bodies).toEqual([{ channels: { mentions: { bell: false } } }, { channels: { overdue: { bell: false } } }]);
   });
 });
