@@ -129,7 +129,7 @@ export function DayPanel(p: DayPanelProps) {
         className={`flex items-start gap-2 rounded-lg border border-s-[3px] px-2 py-1.5 text-sm ${late ? 'border-overdue/50 bg-overdue-soft/50' : 'border-line bg-surface'} ${draggable ? 'cursor-grab' : ''}`}
       >
         <span className={`mt-0.5 flex-none ${late ? 'text-overdue' : '[&_svg]:text-ink-2'}`}>{mark === 'start' ? <StartIcon size={12} /> : mark === 'due' ? <DueIcon size={13} /> : s.icon}</span>
-        <button type="button" data-item={item.key} onClick={() => p.onOpenItem(item)} aria-label={itemName(item)} className="min-w-0 flex-1 text-start [@media(pointer:coarse)]:!min-h-11">
+        <button type="button" data-day-item={item.key} onClick={() => p.onOpenItem(item)} aria-label={itemName(item)} className="min-w-0 flex-1 text-start [@media(pointer:coarse)]:!min-h-11">
           <span className="flex min-w-0 flex-wrap items-center gap-1">
             {item.kind === 'task' ? <TaskKey value={t.key} dense /> : null}
             <span dir="auto" className="min-w-0 font-medium text-ink [overflow-wrap:anywhere]">{t.title}</span>

@@ -891,7 +891,7 @@ export function CalendarPage() {
           compact={phone}
           trailing={
             <div className="flex items-center gap-2">
-              <ShowMenu show={show} onShow={(patch) => savePrefs.mutate({ show: patch })} team={range.team} onTeam={(on) => savePrefs.mutate({ team: on })} />
+              <ShowMenu show={show} onShow={(patch) => savePrefs.mutate({ show: patch })} team={range.team ? { available: range.team.available, on: prefs.team && range.team.available } : undefined} onTeam={(on) => savePrefs.mutate({ team: on })} />
               <LegendButton timeNote={ownTimeZone ? `Dates in ${ownTimeZone} (your setting)` : `Dates in ${timeZone} (company time)`} />
             </div>
           }

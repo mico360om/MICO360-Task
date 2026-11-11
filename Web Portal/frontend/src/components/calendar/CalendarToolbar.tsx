@@ -254,13 +254,30 @@ export function ShowMenu({ show, onShow, team, onTeam }: { show: ShowChoices; on
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   useDismiss(open, () => setOpen(false), rootRef, buttonRef);
+  // A box changes the moment it's clicked; the page's saved choices take over again whenever they
+  // change (the save came back, or failed and was put back).
+  const teamOn = team?.on ?? false;
+  const [mine, setMine] = useState({ show, teamOn });
+  const [seen, setSeen] = useState({ show, teamOn });
+  if (seen.show !== show || seen.teamOn !== teamOn) {
+    setSeen({ show, teamOn });
+    setMine({ show, teamOn });
+  }
+  const pick = (patch: Partial<ShowChoices>) => {
+    setMine((m) => ({ ...m, show: { ...m.show, ...patch } }));
+    onShow(patch);
+  };
+  const pickTeam = (on: boolean) => {
+    setMine((m) => ({ ...m, teamOn: on }));
+    onTeam?.(on);
+  };
   const rows: { key: keyof ShowChoices; label: string }[] = [
     { key: 'tasks', label: 'Tasks' },
     { key: 'meetings', label: 'Meetings' },
     { key: 'blocks', label: 'Planned time' },
     { key: 'reminders', label: 'My reminders' },
   ];
-  const hidden = rows.filter((r) => !show[r.key]).length;
+  const hidden = rows.filter((r) => !mine.show[r.key]).length;
   return (
     <div ref={rootRef} className="relative">
       <button
@@ -269,10 +286,10 @@ export function ShowMenu({ show, onShow, team, onTeam }: { show: ShowChoices; on
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
         aria-controls="calendar-show"
-        className={`${pill} ${open || hidden || team?.on ? 'border-brand/60 text-brand' : 'border-line text-ink'} bg-surface hover:border-brand`}
+        className={`${pill} ${open || hidden || mine.teamOn ? 'border-brand/60 text-brand' : 'border-line text-ink'} bg-surface hover:border-brand`}
       >
         Show{hidden ? ` (${4 - hidden} of 4)` : ''}
-        {team?.on ? ' · Team' : ''}
+        {mine.teamOn ? ' · Team' : ''}
       </button>
       {open ? (
         <div id="calendar-show" className="absolute end-0 top-full z-30 mt-2 w-60 rounded-xl border border-line bg-surface p-2 shadow-lift animate-scale-in">
@@ -280,14 +297,14 @@ export function ShowMenu({ show, onShow, team, onTeam }: { show: ShowChoices; on
             <legend className="mb-1 px-2 text-xs font-bold uppercase tracking-wide text-ink-2">Show</legend>
             <div className="flex flex-col">
               {rows.map((r) => (
-                <Check key={r.key} label={r.label} checked={show[r.key]} onChange={(v) => onShow({ [r.key]: v })} />
+                <Check key={r.key} label={r.label} checked={mine.show[r.key]} onChange={(v) => pick({ [r.key]: v })} />
               ))}
             </div>
           </fieldset>
           {team?.available && onTeam ? (
             <fieldset className="mt-2 border-t border-line pt-2">
               <legend className="mb-1 px-2 text-xs font-bold uppercase tracking-wide text-ink-2">Projects you run</legend>
-              <Check label="Team’s planned time" checked={team.on} onChange={onTeam} />
+              <Check label="Team’s planned time" checked={mine.teamOn} onChange={pickTeam} />
             </fieldset>
           ) : null}
         </div>
