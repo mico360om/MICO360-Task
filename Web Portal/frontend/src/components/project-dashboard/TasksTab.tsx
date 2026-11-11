@@ -28,6 +28,9 @@ import { OVERDUE_CLASS, STATUS_CLASS, dueTone } from '../../lib/colour-classes';
 import { StatusPill } from '../ui/StatusPill';
 import { useDensity } from '../../lib/density';
 import { ChecklistCount, DescriptionLine, PeopleLine, TagChips } from '../DetailLines';
+import { taskRef, useBulkSelection } from '../../lib/bulk-selection';
+import { BulkTools } from '../bulk/BulkTools';
+import { SelectAllBox, TaskSelectBox } from '../bulk/select-boxes';
 
 export type TaskFilter = 'all' | TaskPhase | 'milestones';
 
@@ -52,16 +55,16 @@ export interface TaskGroup {
 /** The list's last group: the tasks waiting for a later start day (tasks scheduled for the future). */
 const UPCOMING_GROUP = 'upcoming';
 
-function TaskRow({ task, statusName, phase, dueText, startsOn, onOpen }: { task: ApiTask; statusName: string; phase: TaskPhase; dueText: string; startsOn?: string | null; onOpen: () => void }) {
+function TaskRow({ task, statusName, phase, dueText, startsOn, onOpen, selected, onToggleSelect }: { task: ApiTask; statusName: string; phase: TaskPhase; dueText: string; startsOn?: string | null; onOpen: () => void; selected?: boolean; onToggleSelect?: (shift: boolean) => void }) {
   const assignees = task.assignees ?? [];
   // Detailed (1.23.8, lib/density): the title wraps; its description's first line, tags and everyone on it.
   const density = useDensity();
   const detailed = density === 'detailed';
   const overdue = phase === 'overdue';
   const progress = phase === 'completed' ? 100 : Math.max(0, Math.min(100, task.progress ?? 0));
-  return (
+  const row = (
     // Compact rows (1.23.0, lib/density): a third less padding, the title a step smaller.
-    <button type="button" onClick={onOpen} className="flex w-full flex-col gap-1.5 px-4 py-2.5 text-start transition-colors compact:py-1.5 hover:bg-ground/60 sm:flex-row sm:items-center sm:gap-3">
+    <button type="button" onClick={onOpen} className={`flex w-full min-w-0 flex-col gap-1.5 py-2.5 text-start transition-colors compact:py-1.5 hover:bg-ground/60 sm:flex-row sm:items-center sm:gap-3 ${onToggleSelect ? 'pe-4 ps-1' : 'px-4'}`}>
       <span className="flex min-w-0 flex-1 items-center gap-2">
         {/* At least 4rem so the titles line up; a longer number (MICO360-10) widens it, never breaks. */}
         <span className="flex min-w-16 flex-none"><TaskKey value={task.key} dense="compact" /></span>
@@ -105,6 +108,15 @@ function TaskRow({ task, statusName, phase, dueText, startsOn, onOpen }: { task:
         </span>
       </span>
     </button>
+  );
+  // Bulk changes: the row's box sits beside its button (never inside it).
+  return onToggleSelect ? (
+    <div className={`flex items-start sm:items-center ${selected ? 'bg-brand/5' : ''}`}>
+      <TaskSelectBox task={task} checked={!!selected} onChange={onToggleSelect} className="ms-2 mt-1.5 sm:mt-0" />
+      {row}
+    </div>
+  ) : (
+    row
   );
 }
 
@@ -175,6 +187,15 @@ export function TasksTab({
     ...groups.map((g) => ({ ...g, tasks: g.tasks.filter((t) => !waiting(t) && keep(t)) })),
     { id: UPCOMING_GROUP, name: 'Upcoming', color: '', tasks: upcoming },
   ].filter((g) => g.tasks.length > 0);
+  // Bulk changes (owner, 10 Nov): ticked tasks stay ticked through the chips, words and filters.
+  // A project that takes no changes (archived or completed) has no boxes.
+  const sel = useBulkSelection(project?.id);
+  const selecting = Boolean(project) && !readOnly;
+  const shownTasks = shown.flatMap((g) => g.tasks);
+  const shownIds = shownTasks.map((t) => t.id);
+  const shownRefs = shownTasks.map(taskRef);
+  const allState = sel.allState(shownIds);
+  const narrowed = filter !== 'all' || Boolean(words) || guestCategoryFiltersActive(picked) > 0;
 
   if (loading) return <div className="skeleton h-40 rounded-xl" role="status" aria-label="Loading tasks" />;
   if (all.length === 0) {
@@ -222,6 +243,13 @@ export function TasksTab({
           </button>
         ) : null}
       </div>
+      {selecting && shownTasks.length > 0 ? (
+        <label className={`flex w-fit items-center gap-1.5 text-xs font-medium text-ink-2 ${TOUCH_TALL}`}>
+          <SelectAllBox state={allState} onChange={() => (allState === 'all' ? sel.deselect(shownIds) : sel.selectAll(shownRefs))} />
+          Select all {shownTasks.length}
+          {narrowed ? ' matching' : ''}
+        </label>
+      ) : null}
       {view === 'table' && project && columns && readOnly ? (
         // An archived or completed project's table is there to look at, and says why (the board's notice).
         <p role="status" data-read-only={readOnly} className="flex items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-sm text-ink-2">
@@ -243,6 +271,8 @@ export function TasksTab({
           readOnly={readOnly}
           onOpen={(id) => onOpen(id)}
           empty={<EmptyNote>No tasks match.</EmptyNote>}
+          // (Its "Select all" is the tab's own, above.)
+          selection={selecting ? { selected: sel.selected, onToggle: (t, { shift, order }) => sel.toggle(taskRef(t), { shift, order: order.map(taskRef) }) } : undefined}
         />
       ) : shown.length === 0 ? (
         <EmptyNote>No tasks match.</EmptyNote>
@@ -273,6 +303,8 @@ export function TasksTab({
                     dueText={formatDueDay(t.dueDate, timeZone)}
                     startsOn={startsOn ? startsText(startsOn, today) : null}
                     onOpen={() => onOpen(t.id)}
+                    selected={sel.has(t.id)}
+                    onToggleSelect={selecting ? (shift) => sel.toggle(taskRef(t), { shift, order: shownRefs }) : undefined}
                   />
                 );
               })}
@@ -280,6 +312,7 @@ export function TasksTab({
           </section>
         ))
       )}
+      {selecting && project ? <BulkTools selection={sel} visibleIds={shownIds} projects={[project]} assignedOf={(id) => all.find((t) => t.id === id)?.assignees} /> : null}
     </div>
   );
 }
