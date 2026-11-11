@@ -41,7 +41,7 @@ const createSchema = z
     primaryCompanyId: idString.nullable().optional(),
   })
   .superRefine((b, ctx) => {
-    if (!b.sendWelcome && !b.password && !b.generatePassword) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['password'], message: 'Required' });
+    if (!b.sendWelcome && !b.password && !b.generatePassword) ctx.addIssue({ code: 'custom', path: ['password'], message: 'Required' });
   });
 /** Welcome emails to several people: at most this many a send. */
 const MAX_WELCOME_BATCH = 100;

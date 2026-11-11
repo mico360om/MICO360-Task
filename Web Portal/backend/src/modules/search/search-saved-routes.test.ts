@@ -123,3 +123,21 @@ describe('saved searches — the routes', () => {
     expect((await app.inject({ method: 'GET', url: `/api/v1/search/saved/counts?ids=${Array.from({ length: 11 }, (_, i) => `s${i}`).join(',')}`, headers: await auth() })).statusCode).toBe(400);
   });
 });
+
+// Pinned before the zod 4 upgrade (1.23.12): what a saved search keeps when only its name is given.
+describe('A saved search’s body', () => {
+  it('a name alone: no words, no filters', async () => {
+    const { savedSearchBody } = await import('./saved-searches');
+    expect(savedSearchBody.parse({ name: '  Overdue  ' })).toEqual({ name: 'Overdue', q: '', filters: {} });
+    expect(savedSearchBody.parse({ name: 'X', q: 'pump', filters: { status: 'TODO', done: false } })).toEqual({ name: 'X', q: 'pump', filters: { status: 'TODO', done: false } });
+  });
+  it('refuses a filter it doesn’t know and an empty name, in words', async () => {
+    const { savedSearchBody } = await import('./saved-searches');
+    const r = savedSearchBody.safeParse({ name: ' ', filters: { colour: 'red' } });
+    expect(r.success).toBe(false);
+    expect(r.error!.issues.map((i) => [i.path.join('.'), i.message])).toEqual([
+      ['name', 'Give the search a name.'],
+      ['filters', "Unrecognized key(s) in object: 'colour'"],
+    ]);
+  });
+});
