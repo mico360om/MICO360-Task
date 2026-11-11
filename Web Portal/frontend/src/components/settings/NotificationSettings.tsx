@@ -68,9 +68,12 @@ export function NotificationSettings() {
     onError: () => setProblem('Couldn’t save that change. Please try again.'),
     onSettled: async (_data, _err, body) => {
       await Promise.all([qc.invalidateQueries({ queryKey: PREFS_KEY }), qc.invalidateQueries({ queryKey: PERSON_POLICY_KEY })]);
-      // Only this save's kinds go back to the server's answer (a later flip still waiting keeps its own).
-      const saved = Object.keys(body?.channels ?? {});
-      if (saved.length) setPending((p) => Object.fromEntries(Object.entries(p).filter(([k]) => !saved.includes(k))));
+      // A kind goes back to the server's answer only when nothing was flipped since this save (a later flip
+      // still waiting keeps showing its own value — never a flicker back).
+      const sent = (body?.channels ?? {}) as Record<string, Partial<Channels>>;
+      setPending((p) =>
+        Object.fromEntries(Object.entries(p).filter(([k, v]) => !(sent[k] && Object.entries(sent[k]!).every(([ch, on]) => v[ch as Channel] === on)))),
+      );
     },
   });
 

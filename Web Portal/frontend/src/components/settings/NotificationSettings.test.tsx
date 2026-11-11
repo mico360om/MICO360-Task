@@ -156,8 +156,15 @@ describe('found by the battery: switches stay usable while a change saves', () =
     expect(sw).not.toBeDisabled();
     expect(document.activeElement).toBe(sw);
     await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(sw).toHaveAttribute('aria-checked', 'false');
+    // Flipped back at once (as the battery does: the moment the first save answers): it shows on, and stays on.
     fireEvent.click(sw);
+    expect(sw).toHaveAttribute('aria-checked', 'true');
     await waitFor(() => expect(bodies).toHaveLength(2));
+    for (let i = 0; i < 5; i++) {
+      await new Promise((r) => setTimeout(r, 20));
+      expect(sw).toHaveAttribute('aria-checked', 'true');
+    }
     expect(bodies).toEqual([{ channels: { comments: { bell: false } } }, { channels: { comments: { bell: true } } }]);
   });
 
