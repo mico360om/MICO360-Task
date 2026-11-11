@@ -451,7 +451,7 @@ describe('Board cards: moving a task to another project', () => {
     await waitFor(() => expect(screen.queryByRole('button', { name: 'MICO-1: Prepare report' })).not.toBeInTheDocument());
   });
 
-  it('for someone who can’t move the task, the card has no ⋯ menu at all', async () => {
+  it('for someone who can’t move the task, the card’s ⋯ menu has Duplicate only (Duplicate Task)', async () => {
     useAuthStore.getState().setSession({ user: { id: 'u1', email: 'a@b.c', username: 'ada', roles: [] }, accessToken: 'at', refreshToken: 'rt' });
     withMoves({ managesAll: false, managed: ['p2'] });
     renderPage();
@@ -459,7 +459,34 @@ describe('Board cards: moving a task to another project', () => {
     // Once it is known where they may move tasks (to Operations, but not out of this project).
     await waitFor(() => expect(calls.some((c) => c.url.endsWith('/tasks/move-targets')) || vi.mocked(fetch).mock.calls.some((c) => String(c[0]).endsWith('/tasks/move-targets'))).toBe(true));
     await new Promise((r) => setTimeout(r, 50));
-    expect(screen.queryByRole('button', { name: 'More actions for MICO-1' })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for MICO-1' }));
+    const menu = await screen.findByRole('menu', { name: 'Actions for MICO-1' });
+    expect(within(menu).getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['Duplicate…']);
+  });
+
+  it('each card’s menu offers “Duplicate…”: the New task form opens filled in from the task (Duplicate Task)', async () => {
+    withMoves();
+    const base = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      if (String(url).endsWith('/tasks/t1/duplicate')) {
+        return json({ data: {
+          original: { id: 't1', key: 'MICO-1', title: 'Prepare report', projectId: 'p1' },
+          task: { title: 'Prepare report', description: null, projectId: 'p1', columnId: 'c-p1', priority: 'NORMAL', startDate: null, dueDate: null, estimatedHours: null, isMilestone: false, weight: null, tags: [], assigneeIds: [], checklists: [], externalContacts: [], inspectionFormId: null, inspectionPlace: null },
+          watchers: [],
+          files: [{ id: 'f1', filename: 'report.pdf', sizeBytes: 2048, mimeType: 'application/pdf' }],
+        } });
+      }
+      return base(url, init);
+    });
+    renderPage();
+    await screen.findByRole('button', { name: 'MICO-1: Prepare report' });
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for MICO-1' }));
+    const menu = await screen.findByRole('menu', { name: 'Actions for MICO-1' });
+    expect(within(menu).getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['Duplicate…', 'Move to another project…']);
+    await userEvent.click(within(menu).getByRole('menuitem', { name: 'Duplicate…' }));
+    const form = await screen.findByRole('dialog', { name: 'Duplicate of MICO-1' });
+    await waitFor(() => expect(within(form).getByLabelText(/^task title/i)).toHaveValue('Prepare report'));
+    expect(within(form).getByRole('checkbox', { name: /copy files \(1\)/i })).toBeChecked();
   });
 
   it('after a move, focus goes to the next card in its column (not lost on the page)', async () => {
@@ -495,7 +522,10 @@ describe('Board cards: moving a task to another project', () => {
     const button = screen.getByRole('button', { name: 'More actions for MICO-1' });
     button.focus();
     await userEvent.keyboard('{Enter}');
-    expect(await screen.findByRole('menuitem', { name: 'Move to another project…' })).toHaveFocus();
+    // Duplicate Task: "Duplicate…" comes first.
+    expect(await screen.findByRole('menuitem', { name: 'Duplicate…' })).toHaveFocus();
+    await userEvent.keyboard('{ArrowDown}');
+    expect(screen.getByRole('menuitem', { name: 'Move to another project…' })).toHaveFocus();
     await userEvent.keyboard('{Escape}');
     expect(screen.queryByRole('menu', { name: 'Actions for MICO-1' })).not.toBeInTheDocument();
     expect(button).toHaveFocus();

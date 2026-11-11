@@ -24,8 +24,9 @@ import { PERSON_SUMMARY_SELECT, personSummary } from '../../lib/person-summary';
 
 type TagRelation = { tag: { id: string; name: string; color: string } };
 type AssigneeRelation = { user: { id: string; username: string; firstName: string | null; lastName: string | null; avatarUrl: string | null } };
-// 1.23.1: a merged task's merge columns aren't read here (merged tasks aren't live tasks).
-type EnrichedTask = Omit<Task, 'carryForwardLog' | 'mergedIntoId' | 'mergedAt' | 'mergedById' | 'mergeId'> & {
+// 1.23.1: a merged task's merge columns aren't read here (merged tasks aren't live tasks). Duplicate Task:
+// nor the task a copy was made from (single-task details read it on their own; never list rows).
+type EnrichedTask = Omit<Task, 'carryForwardLog' | 'mergedIntoId' | 'mergedAt' | 'mergedById' | 'mergeId' | 'duplicatedFromId'> & {
   /** Absent on list rows — the carry-forward history is only returned for a single task. */
   carryForwardLog?: Prisma.JsonValue;
   /** Its old keys (a single task only). */
@@ -225,6 +226,7 @@ export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository
             approvalRequestedById: data.approvalRequestedById ?? undefined,
             approvedAt: data.approvedAt ?? undefined,
             approvedById: data.approvedById ?? undefined,
+            duplicatedFromId: data.duplicatedFromId ?? undefined,
             ...(tagNames.length
               ? {
                   tags: {

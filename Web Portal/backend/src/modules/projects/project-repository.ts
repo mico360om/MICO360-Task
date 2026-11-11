@@ -85,6 +85,8 @@ export interface StartingTask {
   priority: Priority;
   startDate: Date | null;
   dueDate: Date | null;
+  /** Its board day (tasks scheduled for the future: its start day when later than today); absent = `StartingContent.boardDate`. */
+  boardDate?: Date;
   /** Who does it; null = the project's owner (the usual default for a new task), when it has one. */
   assigneeIds: string[] | null;
   /** 1.23.3: its checklists with titles and nesting (none done). */

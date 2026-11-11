@@ -1,3 +1,4 @@
+import { useEffectiveAdmin } from '../../lib/manager-view';
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -27,7 +28,6 @@ import { Button } from '../ui/Button';
 import { SearchableSelect } from '../ui/SearchableSelect';
 import { EXTERNAL_CONTACT_WORDS } from '../../lib/external-contacts';
 import { useBoardRealtime, type BoardEvent } from '../../lib/useBoardRealtime';
-import { useAuthStore } from '../../stores/auth-store';
 import { LoadError } from '../ui/LoadError';
 import { useShortcut } from '../shortcuts/ShortcutProvider';
 import { MoveTaskDialog, useMoveTargets, type MoveTaskRef } from '../MoveTaskDialog';
@@ -113,7 +113,9 @@ export interface BoardProps {
  */
 export function Board({ projectId, projects, list, linking = false, hiddenProjects = NO_PROJECTS, header, onRemoved, readOnly = null, viewPlace = 'board', projectStrip = false }: BoardProps) {
   const qc = useQueryClient();
-  const isAdmin = useAuthStore((s) => s.isAdmin());
+  // Manager View (owner, 10 Nov): the board's settings (columns, team) only for a project they run, and no
+  // carry-forward run from here (the server refuses it then; the nightly one still runs).
+  const settingsAdmin = useEffectiveAdmin();
   // A card's task opens in the app shell's task panel, through ?task= in the address (reload, Back, a shared link).
   const openTask = useOpenTask();
   const navigate = useNavigate();
@@ -130,6 +132,8 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
   // A card's "Move to another project…": the task being moved, then what happened.
   const [movingTask, setMovingTask] = useState<MoveTaskRef | null>(null);
   const [movedToast, setMovedToast] = useState<string | null>(null);
+  // Duplicate Task: a card's "Duplicate…" — the New task form, filled in from that task.
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
   useEffect(() => {
     if (!movedToast) return;
     const t = setTimeout(() => setMovedToast(null), 6000);
@@ -168,13 +172,13 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
   // Auto carry-forward: when an admin opens today's board, run the sweep once so any still-open tasks
   // from previous days appear immediately (the server also sweeps on start-up + hourly for everyone).
   useEffect(() => {
-    if (!isAdmin || boardDate !== todayKey || carriedThisSession) return;
+    if (!settingsAdmin || boardDate !== todayKey || carriedThisSession) return;
     carriedThisSession = true;
     tasksApi(apiClient)
       .runCarryForward()
       .then((res) => { if (res.carried > 0) qc.invalidateQueries({ queryKey: ['board'] }); })
       .catch(() => { carriedThisSession = false; });
-  }, [isAdmin, boardDate, todayKey, qc]);
+  }, [settingsAdmin, boardDate, todayKey, qc]);
 
   const columnsQ = useQuery({
     queryKey: ['columns', projectId],
@@ -368,7 +372,7 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
     statusMoveMut.mutate({ id: t.id, toColumnId: target, taskKey, status });
   }
 
-  // Each card's menu: "Move to another project…", offered to those who may (and saying why to others).
+  // Each card's menu: "Duplicate…" (anyone who sees the card), and "Move to another project…" for those who may move it.
   const moveTargets = useMoveTargets();
   const refByKey = useMemo(() => {
     const refs = new Map<string, MoveTaskRef>();
@@ -384,13 +388,14 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
     }
     return refs;
   }, [isAll, allQ.data, boardQ.data, projectId]);
-  // Only for someone who may move the task: others (members who don't manage it) see no ⋯ at all.
+  // The ⋯ shows whenever there is an item for the person: Duplicate always; Move only for whoever may move it.
   const cardMenu = (key: string): CardMenuItem[] | null => {
     const ref = refByKey.get(key);
     if (!ref) return null;
+    const items: CardMenuItem[] = [{ label: 'Duplicate…', onSelect: () => setDuplicatingId(ref.id) }];
     const name = projects.find((p) => p.id === ref.projectId)?.name;
-    if (!moveAvailability(ref.projectId, moveTargets, name).canMove) return null;
-    return [{ label: 'Move to another project…', onSelect: () => setMovingTask(ref) }];
+    if (moveAvailability(ref.projectId, moveTargets, name).canMove) items.push({ label: 'Move to another project…', onSelect: () => setMovingTask(ref) });
+    return items;
   };
 
   /**
@@ -559,7 +564,7 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
   const actions = projectId && !locked ? (
     <>
       {/* Whoever runs the project (the server says) and admins change its columns. */}
-      {(isAdmin || project?.canManage === true) && !isAll ? (
+      {(settingsAdmin || project?.canManage === true) && !isAll ? (
         <button
           onClick={() => setManageColumns((v) => !v)}
           aria-expanded={manageColumns}
@@ -811,6 +816,10 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
       )}
 
 
+      {duplicatingId ? (
+        // The copy's notice ("Task MSSP-40 created", with Open) comes from the app shell; every view refreshes.
+        <TaskFormDialog duplicateOfId={duplicatingId} onClose={() => setDuplicatingId(null)} />
+      ) : null}
       {movingTask ? (
         <MoveTaskDialog
           tasks={[movingTask]}

@@ -127,6 +127,53 @@ export interface ApiTask {
   mergedFrom?: { id: string; key: string; mergeId: string }[];
   /** 1.23.1: opened by a merged task's id (an old link or notice): which one, when and by whom. */
   mergeNotice?: { key: string; mergedAt: string | null; mergedByName: string | null };
+  /** Duplicate Task (single-task responses): the task it was copied from — null when none, or the reader can't open it. */
+  duplicatedFrom?: { id: string; key: string } | null;
+  /** Duplicate Task (single-task responses): its copies the reader can open, oldest first. */
+  copies?: { id: string; key: string }[];
+}
+
+/** Duplicate Task: the New task form's pre-fill for a copy (GET /tasks/:id/duplicate). */
+export interface DuplicatePrefill {
+  original: { id: string; key: string; title: string; projectId: string };
+  task: {
+    title: string;
+    description: string | null;
+    projectId: string;
+    /** The original project's first To-do column. */
+    columnId: string | null;
+    priority: Priority;
+    /** Company calendar days, 'YYYY-MM-DD'. */
+    startDate: string | null;
+    dueDate: string | null;
+    estimatedHours: number | null;
+    isMilestone: boolean;
+    weight: number | null;
+    tags: string[];
+    assigneeIds: string[];
+    checklists: ChecklistTree;
+    externalContacts: { name: string; company: string | null; designation: string | null; email: string | null; phone: string | null; remarks: string | null }[];
+    inspectionFormId: string | null;
+    inspectionPlace: string | null;
+  };
+  watchers: { id: string; name: string }[];
+  files: { id: string; filename: string; sizeBytes: number; mimeType: string }[];
+}
+
+/** Duplicate Task: the reviewed form (the New task form's fields, the column optional) and the files tick. */
+export type DuplicateInput = Omit<NewTaskInput, 'columnId' | 'startDate'> & {
+  columnId?: string;
+  /** 'YYYY-MM-DD'; null: none of its own. Left out: the original's. */
+  startDate?: string | null;
+  recurrenceRule?: RecurrenceRule | null;
+  copyFiles: boolean;
+};
+
+/** How the copy's files went. */
+export interface DuplicateFiles {
+  total: number;
+  copied: number;
+  failed: { filename: string; reason: string }[];
 }
 
 export interface NewTaskInput {
@@ -136,6 +183,8 @@ export interface NewTaskInput {
   description?: string;
   priority?: Priority;
   dueDate?: string;
+  /** Its start day ('YYYY-MM-DD'). Later than today, the task waits on that day's board (unless a board day is sent). */
+  startDate?: string;
   /** Board day (YYYY-MM-DD) for per-date boards; defaults to today server-side. */
   boardDate?: string;
   /** A key date or deliverable of the project. */
@@ -284,10 +333,12 @@ export function tasksApi(client: ApiClient) {
         .then((r) => r.data),
     update: (
       id: string,
-      patch: Omit<Partial<NewTaskInput>, 'dueDate' | 'externalContacts'> & {
+      patch: Omit<Partial<NewTaskInput>, 'dueDate' | 'startDate' | 'externalContacts'> & {
         progress?: number;
         columnId?: string;
         dueDate?: string | null;
+        /** A not-started task whose start moves later waits on that day's board; earlier (or cleared), today's. */
+        startDate?: string | null;
         recurrenceRule?: RecurrenceRule | null;
         /** 'series' applies the edit to every occurrence of a recurring task. */
         scope?: 'one' | 'series';
@@ -303,6 +354,13 @@ export function tasksApi(client: ApiClient) {
         .then((r) => r.data),
     remove: (id: string, scope?: 'series') =>
       client.del<void>(scope ? `/tasks/${id}?scope=${scope}` : `/tasks/${id}`),
+    /** Duplicate Task: the review form's pre-fill (only what the person may see). */
+    duplicatePrefill: (id: string) => client.get<{ data: DuplicatePrefill }>(`/tasks/${id}/duplicate`).then((r) => r.data),
+    /** Duplicate Task: the copy, and how its files went. One Idempotency-Key per attempt: a double click makes one copy. */
+    duplicate: (id: string, input: DuplicateInput, opts?: CreateTaskOptions) =>
+      client
+        .post<{ data: ApiTask; files: DuplicateFiles }>(`/tasks/${id}/duplicate`, input, opts?.idempotencyKey ? { headers: { 'Idempotency-Key': opts.idempotencyKey } } : undefined)
+        .then((r) => ({ task: r.data, files: r.files })),
     /** Admin: run the per-date carry-forward sweep on demand. */
     runCarryForward: () => client.post<{ data: { carried: number } }>('/tasks/carry-forward', {}).then((r) => r.data),
     /** Where the signed-in person may move tasks to, and whose tasks they may move. */

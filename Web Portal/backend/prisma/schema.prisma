@@ -146,6 +146,10 @@ model User {
   // the Kanban board's columns are ('narrow' | 'normal' | 'wide'). The density above also takes 'detailed'.
   sidebarCollapsed    Boolean    @default(false)
   boardColumnWidth    String     @default("normal") @db.VarChar(16)
+  // Manager View (an administrator's own, owner 10 Nov 2026): while on, they are treated as a non-administrator
+  // for settings and configuration (the Admin menu's pages, other people's project settings) and stay an
+  // administrator for the work. Means nothing for anyone else. See modules/auth/manager-view.ts.
+  managerView         Boolean    @default(false)
   // 1.23.4 Smarter Dashboard: the person's own widget arrangement ({ widgets: [{ id, hidden, size }] });
   // null = they follow their group's default (administrators' or everyone else's, set by an administrator).
   dashboardLayout     Json?
@@ -457,6 +461,10 @@ model Task {
   mergedById     String?
   /// The merge (task_merges) that merged it.
   mergeId        String?
+  /// Duplicate Task: the task this one was copied from ("Duplicated from MSSP-34"); null for any other
+  /// task. No relation: the original may be deleted or merged later (then nothing is found). Single-task
+  /// details only — never in list payloads.
+  duplicatedFromId String?
 
   project      Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
   column       KanbanColumn     @relation(fields: [columnId], references: [id])
@@ -502,6 +510,8 @@ model Task {
   @@index([approvedById])
   /// 1.23.1: the tasks merged into a main task.
   @@index([mergedIntoId])
+  /// Duplicate Task: an original's copies.
+  @@index([duplicatedFromId])
   @@fulltext([title, description])
   @@map("tasks")
 }

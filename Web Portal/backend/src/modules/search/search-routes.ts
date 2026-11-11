@@ -172,7 +172,7 @@ export async function registerSearchRoutes(app: FastifyInstance, deps: SearchRou
     const { q } = querySchema.parse(req.query);
     // Object-level scope: a non-admin only ever finds tasks/projects in projects they belong to —
     // companies: in the picked company; people they may find; an invitation shows no notes.
-    const viewer = { id: req.user!.id, roles: req.user!.roles ?? [] };
+    const viewer = { id: req.user!.id, roles: req.user!.roles ?? [], managerView: req.user!.managerView === true };
     const pick = await pickOf(req);
     const admin = viewer.roles.includes('ADMIN');
     const [{ projectIds: allowedProjectIds }, people, companyIds, mineOnly] = await Promise.all([
@@ -219,7 +219,7 @@ export async function registerSearchRoutes(app: FastifyInstance, deps: SearchRou
    */
   function registerSaved(saved: SavedSearches, everything: SearchEverythingDeps): void {
     const own = { preHandler: guard.authenticate };
-    const viewerOf = (req: FastifyRequest) => ({ id: req.user!.id, roles: req.user!.roles ?? [] });
+    const viewerOf = (req: FastifyRequest) => ({ id: req.user!.id, roles: req.user!.roles ?? [], managerView: req.user!.managerView === true });
     const idParam = z.object({ id: z.string().min(1).max(64) });
     app.get('/search/saved', own, async (req) => ({ data: await saved.list(viewerOf(req)) }));
     // Review I1: the picked company (checked first — a company the person isn't in is refused) narrows it.
@@ -374,7 +374,7 @@ export async function registerSearchRoutes(app: FastifyInstance, deps: SearchRou
       const p = allQuery.parse(req.query);
       const { offset, extra } = decodeAllCursor(p.cursor);
       const first = offset === 0 && !extra;
-      const viewer = { id: req.user!.id, roles: req.user!.roles ?? [] };
+      const viewer = { id: req.user!.id, roles: req.user!.roles ?? [], managerView: req.user!.managerView === true };
       const pick = await pickOf(req);
       const scope = await everything.scope.forViewer(viewer, pick); // companies: the pick
       // 1.23.6: the words as typed are read (unless plain words were asked for); the engine gets what is left.
@@ -424,7 +424,7 @@ export async function registerSearchRoutes(app: FastifyInstance, deps: SearchRou
     app.post('/search/ai', searchRoute, async (req) => {
       const b = askBody.parse(req.body ?? {});
       const type = typeof b.type === 'string' ? z.array(z.enum(SEARCH_KINDS)).parse(b.type.split(',').map((s) => s.trim()).filter(Boolean)) : b.type;
-      const viewer = { id: req.user!.id, roles: req.user!.roles ?? [] };
+      const viewer = { id: req.user!.id, roles: req.user!.roles ?? [], managerView: req.user!.managerView === true };
       const pick = await pickOf(req);
       const scope = await everything.scope.forViewer(viewer, pick);
       // 1.23.6: the AI is given what the reader read as filters (the whole question still goes to it).

@@ -5,6 +5,7 @@ import { isValidRule, withAnchorDay, type RecurrenceRule } from './recurrence';
 import { boardDateFromKey, boardDateKey } from './board-date';
 import { columnEntryChange, defaultCompanyTimeZone } from './task-status';
 import { dueDateOnEntry } from '../projects/project-task-settings';
+import { boardDayAfterStartEdit, newTaskBoardDay } from './scheduled-start';
 import type { ExternalContactFields } from './external-contacts';
 import {
   approvalOnEntry,
@@ -66,6 +67,8 @@ export interface NewTask {
   externalContacts?: ExternalContactFields[];
   /** Needs approval before it counts as done; left out, the project's "New tasks need approval" decides. */
   needsApproval?: boolean;
+  /** Duplicate Task: the task this one is a copy of (task-duplicate.ts). */
+  duplicatedFromId?: string | null;
 }
 
 /** What approvals need to know: who may approve a project's tasks, and its board columns. */
@@ -222,8 +225,10 @@ export function createTaskService({ tasks, projects, now = () => new Date(), tim
     const column = await requireColumn(input.columnId, input.projectId);
     await assertLiveForm(input.inspectionFormId);
     const at = now();
-    // Per-date boards: a new task lands on today's board unless a board day was given.
-    const boardDate = input.boardDate ?? todayAnchor();
+    // Per-date boards: a new task lands on today's board unless a board day was given — or, tasks
+    // scheduled for the future (owner, 10 Nov), its Start date is later than today: then it waits on
+    // its start day's board (scheduled-start.ts). A board day given still wins.
+    const boardDate = newTaskBoardDay(input, timeZone, at);
     // Every way a task is created comes through here (the REST API used by the website, extension and
     // Android app, quick add, meeting notes made into tasks): a project whose new tasks are due today
     // gives an undated one the board day it is added to (when later than today), else today; a date
@@ -374,6 +379,27 @@ export function createTaskService({ tasks, projects, now = () => new Date(), tim
         columnChanged = true;
         event = 'SWITCHED_OFF';
       }
+    }
+
+    // Tasks scheduled for the future (owner, 10 Nov): once its start day changed, a task nobody has
+    // started moves to that day's board (it waits again) — or, waiting, its start now today or earlier
+    // (or cleared), onto today's. One under way, done or handed in stays (scheduled-start.ts). Judged
+    // as this edit leaves it (a move made with it counts).
+    const startDay = (d: Date | null | undefined) => (d ? dayOf(d) : null);
+    if (next.startDate !== undefined && startDay(next.startDate) !== startDay(current.startDate)) {
+      const target = next.columnId !== undefined && next.columnId !== current.columnId ? await tasks.findColumn(next.columnId) : null;
+      const board = boardDayAfterStartEdit(
+        {
+          boardDate: next.boardDate !== undefined ? next.boardDate : (current.boardDate ?? null),
+          columnCategory: target ? target.category : current.columnCategory,
+          completedAt: next.completedAt !== undefined ? next.completedAt : current.completedAt,
+          approvalRequestedAt: next.approvalRequestedAt !== undefined ? next.approvalRequestedAt : current.approvalRequestedAt,
+        },
+        next.startDate ?? null,
+        timeZone,
+        now(),
+      );
+      if (board) next.boardDate = board;
     }
 
     // Saved only if nobody changed the task since `expectedVersion`, in the same statement — the check
