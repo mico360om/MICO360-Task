@@ -9,7 +9,7 @@ import { LoadError } from '../ui/LoadError';
 import { ProjectAvatar } from '../ProjectAvatar';
 import { downloadBlob, fileNameOf } from '../../lib/download';
 import { formatKpiValue } from '../../lib/kpi-format';
-import { TOUCH_TALL } from '../../lib/touch';
+import { TOUCH_SQUARE, TOUCH_TALL } from '../../lib/touch';
 import { LIGHT_LOOK, PeriodPicker, usePeriodParam } from './kpi-ui';
 
 type SortKey = 'name' | KpiMetric;
@@ -90,59 +90,103 @@ export function ManagementKpiTable({ filters, today }: { filters: ManagementFilt
       ) : rows.length === 0 ? (
         <p className="text-sm text-ink-2">No projects match these filters.</p>
       ) : (
-        <div className={`overflow-x-auto transition-opacity ${q.isFetching && q.isPlaceholderData ? 'opacity-60' : ''}`}>
-          <table className="w-full min-w-[56rem] text-sm">
-            <caption className="sr-only">Each project’s KPIs for {data.period.label}, with their lights</caption>
-            <thead>
-              <tr className="border-b border-line text-left text-xs font-semibold text-ink-3">
-                <th scope="col" aria-sort={ariaSort('name')} className="py-2 pe-3">
-                  <button type="button" onClick={() => sortBy('name')} className={`font-semibold hover:text-ink ${TOUCH_TALL}`}>
-                    Project
-                  </button>
-                </th>
-                {data.metrics.map((m) => (
-                  <th key={m.metric} scope="col" aria-sort={ariaSort(m.metric)} className="py-2 pe-3 text-right">
-                    <button type="button" onClick={() => sortBy(m.metric)} className={`text-right font-semibold hover:text-ink ${TOUCH_TALL}`}>
-                      {m.label}
+        <div className={`transition-opacity ${q.isFetching && q.isPlaceholderData ? 'opacity-60' : ''}`}>
+          {/* Below 1280 px: a card per project (every figure in view, as the health cards); the table from 1280 px. */}
+          <label className="mb-3 flex max-w-xs flex-col gap-1 text-xs font-medium text-ink-2 xl:hidden">
+            Sort by
+            <select
+              value={`${sort.key}|${sort.desc ? 'desc' : 'asc'}`}
+              onChange={(e) => {
+                const [key, dir] = e.target.value.split('|') as [SortKey, string];
+                setSort({ key, desc: dir === 'desc' });
+              }}
+              className={`rounded-lg border border-line bg-surface px-3 py-1.5 text-sm text-ink ${TOUCH_TALL}`}
+            >
+              <option value="name|asc">Project name</option>
+              {data.metrics.map((m) => (
+                <option key={m.metric} value={`${m.metric}|asc`}>
+                  {m.label}: furthest off target first
+                </option>
+              ))}
+            </select>
+          </label>
+          <ul className="grid gap-3 sm:grid-cols-2 xl:hidden" aria-label="Project KPIs">
+            {rows.map((r) => (
+              <li key={r.project.id} className="rounded-xl border border-line p-3">
+                <Link to={`/projects/${encodeURIComponent(r.project.id)}?tab=kpis`} className={`flex min-w-0 items-center gap-2 font-semibold text-ink hover:text-brand ${TOUCH_TALL}`}>
+                  <ProjectAvatar project={r.project} size="xs" />
+                  <bdi className="truncate">{r.project.name}</bdi>
+                </Link>
+                <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
+                  {data.metrics.map((m) => (
+                    <div key={m.metric} className="min-w-0">
+                      <dt className="truncate text-xs text-ink-2">{m.label}</dt>
+                      <dd>
+                        <Figure f={r.figures[m.metric]!} metric={m.metric} unit={m.unit} align="start" />
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              </li>
+            ))}
+          </ul>
+          <div className="hidden xl:block">
+            <table className="w-full text-sm">
+              <caption className="sr-only">Each project’s KPIs for {data.period.label}, with their lights</caption>
+              <thead>
+                <tr className="border-b border-line text-left text-xs font-semibold text-ink-3">
+                  <th scope="col" aria-sort={ariaSort('name')} className="py-2 pe-3">
+                    <button type="button" onClick={() => sortBy('name')} className={`font-semibold hover:text-ink ${TOUCH_SQUARE}`}>
+                      Project
                     </button>
                   </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.project.id} className="border-b border-line/70">
-                  <th scope="row" className="py-2 pe-3 text-left font-medium">
-                    <Link to={`/projects/${encodeURIComponent(r.project.id)}?tab=kpis`} className={`inline-flex min-w-0 items-center gap-2 text-ink hover:text-brand ${TOUCH_TALL}`}>
-                      <ProjectAvatar project={r.project} size="xs" />
-                      <bdi className="truncate">{r.project.name}</bdi>
-                    </Link>
-                  </th>
-                  {data.metrics.map((m) => {
-                    const f = r.figures[m.metric]!;
-                    const look = LIGHT_LOOK[f.light];
-                    return (
-                      <td key={m.metric} className="py-2 pe-3 text-right tabular-nums">
-                        {/* Review I8: the light in words under the figure — never colour alone. */}
-                        <span className="inline-flex flex-col items-end">
-                          <span className={f.value === null ? 'text-ink-3' : f.light === 'red' || f.light === 'amber' ? `font-semibold ${look.text}` : 'text-ink'}>{formatKpiValue(m.metric, m.unit, f.value)}</span>
-                          {f.light === 'green' || f.light === 'amber' || f.light === 'red' ? (
-                            <span className={`inline-flex items-center gap-1 text-[11px] font-semibold ${look.text}`}>
-                              <span aria-hidden="true" className={`h-1.5 w-1.5 flex-none rounded-full ${look.dot}`} />
-                              {f.words}
-                            </span>
-                          ) : null}
-                        </span>
-                      </td>
-                    );
-                  })}
+                  {data.metrics.map((m) => (
+                    <th key={m.metric} scope="col" aria-sort={ariaSort(m.metric)} className="py-2 pe-3 text-right align-bottom">
+                      <button type="button" onClick={() => sortBy(m.metric)} className={`text-right font-semibold hover:text-ink ${TOUCH_SQUARE}`}>
+                        {m.label}
+                      </button>
+                    </th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.project.id} className="border-b border-line/70">
+                    <th scope="row" className="py-2 pe-3 text-left font-medium">
+                      <Link to={`/projects/${encodeURIComponent(r.project.id)}?tab=kpis`} className={`inline-flex min-w-0 items-center gap-2 text-ink hover:text-brand ${TOUCH_TALL}`}>
+                        <ProjectAvatar project={r.project} size="xs" />
+                        <bdi className="truncate">{r.project.name}</bdi>
+                      </Link>
+                    </th>
+                    {data.metrics.map((m) => (
+                      <td key={m.metric} className="py-2 pe-3 text-right tabular-nums">
+                        <Figure f={r.figures[m.metric]!} metric={m.metric} unit={m.unit} align="end" />
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
           <p className="mt-2 text-xs text-ink-2">On target: at or better than the target. Close: within its amber band (10% of the target unless set). Off target: further off. Targets are the company’s unless a project sets its own.</p>
         </div>
       )}
     </section>
+  );
+}
+
+/** A KPI's figure with its light in words under it — never colour alone (review I8). */
+function Figure({ f, metric, unit, align }: { f: ManagementKpis['rows'][number]['figures'][string]; metric: string; unit: ManagementKpis['metrics'][number]['unit']; align: 'start' | 'end' }) {
+  const look = LIGHT_LOOK[f.light];
+  return (
+    <span className={`inline-flex flex-col ${align === 'end' ? 'items-end' : 'items-start'}`}>
+      <span className={f.value === null ? 'text-ink-3' : f.light === 'red' || f.light === 'amber' ? `font-semibold ${look.text}` : 'text-ink'}>{formatKpiValue(metric, unit, f.value)}</span>
+      {f.light === 'green' || f.light === 'amber' || f.light === 'red' ? (
+        <span className={`inline-flex items-center gap-1 text-[11px] font-semibold ${look.text}`}>
+          <span aria-hidden="true" className={`h-1.5 w-1.5 flex-none rounded-full ${look.dot}`} />
+          {f.words}
+        </span>
+      ) : null}
+    </span>
   );
 }

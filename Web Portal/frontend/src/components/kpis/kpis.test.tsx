@@ -214,6 +214,16 @@ describe('the Management KPI table', () => {
     expect(names()).toEqual(['/projects/b?tab=kpis', '/projects/a?tab=kpis']);
     expect(within(t).getByRole('link', { name: 'Bravo' })).toHaveAttribute('href', '/projects/b?tab=kpis');
   });
+
+  it('below 1280 px the projects are cards (every figure in view), with "Sort by"', async () => {
+    renderAt('/management', <ManagementKpiTable filters={{ projectIds: [], ownerId: null, statuses: ['ACTIVE'], weeks: 12 }} today="2026-11-11" />);
+    const cards = await screen.findByRole('list', { name: 'Project KPIs' });
+    const order = () => within(cards).getAllByRole('link').map((l) => l.getAttribute('href'));
+    expect(order()).toEqual(['/projects/a?tab=kpis', '/projects/b?tab=kpis']);
+    expect(within(cards).getAllByText('On-time completion')).toHaveLength(2);
+    await userEvent.selectOptions(screen.getByLabelText('Sort by'), 'onTime|asc');
+    expect(order()).toEqual(['/projects/b?tab=kpis', '/projects/a?tab=kpis']);
+  });
 });
 
 describe('My performance and a person’s KPIs', () => {
