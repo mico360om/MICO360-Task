@@ -359,6 +359,8 @@ model Project {
   clientNotices  ClientNotice[]
   /// 1.23.6: saved searches shared with this project's team.
   savedSearches  SavedSearch[]
+  /// Project KPIs: its own KPIs that whoever runs it enters each month ("Safety incidents", "Budget used %").
+  customKpis     ProjectKpi[]
 
   @@index([status])
   @@index([managerId])
@@ -2427,4 +2429,91 @@ model ErrorEvent {
   @@index([groupId, at])
   @@index([at])
   @@map("error_events")
+}
+
+// ---------------------------------------------------------------------------
+// Project KPIs and User KPIs. The automatic KPIs are worked out from tasks and their history
+// (modules/kpis); these tables hold what can't be: a project's own KPIs and their monthly values, the
+// targets (company defaults, project overrides), and weekly snapshots so trends don't change when old
+// tasks are edited.
+// ---------------------------------------------------------------------------
+
+/// A project's own KPI (owner 1: name, unit, target, values entered each month), e.g. "Safety incidents".
+model ProjectKpi {
+  id          String            @id @default(cuid())
+  projectId   String
+  name        String            @db.VarChar(80)
+  /// Free text shown after the value ("%", "incidents", "OMR").
+  unit        String            @default("") @db.VarChar(24)
+  /// 'HIGHER' or 'LOWER' is better.
+  direction   String            @default("HIGHER") @db.VarChar(8)
+  /// Null: no target (no light).
+  target      Float?
+  /// Null: 10% of the target.
+  amberBand   Float?
+  position    Int               @default(0)
+  createdById String?           @db.VarChar(191)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  project     Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  values      ProjectKpiValue[]
+
+  @@index([projectId])
+  @@map("project_kpis")
+}
+
+/// One month's value of a project's own KPI ('YYYY-MM'), with an optional note and who entered it.
+model ProjectKpiValue {
+  id          String     @id @default(cuid())
+  kpiId       String
+  month       String     @db.VarChar(7)
+  value       Float
+  note        String?    @db.VarChar(500)
+  enteredById String?    @db.VarChar(191)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  kpi         ProjectKpi @relation(fields: [kpiId], references: [id], onDelete: Cascade)
+
+  @@unique([kpiId, month])
+  @@map("project_kpi_values")
+}
+
+/// A KPI target: the site's default ('site'), a company's ('company:<id>', administrators) or a project's
+/// override ('project:<id>', whoever runs it). A row with no target means "no target here". No row: the
+/// next level up decides (project → company → site → the built-in default).
+model KpiTarget {
+  id          String   @id @default(cuid())
+  scopeKey    String   @db.VarChar(200)
+  metric      String   @db.VarChar(40)
+  target      Float?
+  /// Null: 10% of the target.
+  amberBand   Float?
+  updatedById String?  @db.VarChar(191)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([scopeKey, metric])
+  @@map("kpi_targets")
+}
+
+/// The KPIs' counters for one slice (a week cut at a month's end) of one project — its own row (userId '')
+/// and one row per person with something counted. Written nightly (the last two closed months again, older
+/// months frozen); at launch the past six months are rebuilt from task dates and history (`rebuilt`).
+model KpiSnapshot {
+  id         String   @id @default(cuid())
+  projectId  String   @db.VarChar(191)
+  userId     String   @default("") @db.VarChar(191)
+  /// The slice's first and last day, its week's first day and its month.
+  day        String   @db.VarChar(10)
+  endDay     String   @db.VarChar(10)
+  weekStart  String   @db.VarChar(10)
+  month      String   @db.VarChar(7)
+  metrics    Json
+  rebuilt    Boolean  @default(false)
+  computedAt DateTime @default(now())
+
+  @@unique([projectId, userId, day])
+  @@index([month])
+  @@index([userId, month])
+  @@map("kpi_snapshots")
 }
