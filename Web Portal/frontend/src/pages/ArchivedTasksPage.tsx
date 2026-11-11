@@ -133,9 +133,10 @@ export function ArchivedTasksPage() {
               </li>
             ))}
           </ul>
-          {sel.count > 0 && project ? <BulkTools selection={sel} visibleIds={ids} projects={[project]} archivedView /> : null}
         </>
       )}
+      {/* Always there once the project is known: after Unarchive empties the list, its summary and Undo stay. */}
+      {project ? <BulkTools selection={sel} visibleIds={ids} projects={[project]} archivedView /> : null}
     </div>
   );
 }

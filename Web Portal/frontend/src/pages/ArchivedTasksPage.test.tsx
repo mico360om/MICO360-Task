@@ -38,6 +38,13 @@ beforeEach(() => {
         archived = archived.filter((t) => t.id !== id);
         return json({ data: { id, key: `RIG-${id.slice(1)}`, archivedAt: null } });
       }
+      // tbk: bulk Unarchive from this page (review M10): the dry run, then the change.
+      if (init?.method === 'POST' && u.endsWith('/tasks/bulk')) {
+        const body = JSON.parse(String(init.body)) as { taskIds: string[]; dryRun?: boolean };
+        const changed = archived.filter((t) => body.taskIds.includes(t.id)).map((t) => ({ id: t.id, key: t.key, title: t.title, projectId: 'p1' }));
+        if (!body.dryRun) archived = archived.filter((t) => !body.taskIds.includes(t.id));
+        return json({ data: { action: 'unarchive', dryRun: Boolean(body.dryRun), total: body.taskIds.length, changed, skipped: [], undo: body.dryRun ? null : { id: 'b1', until: new Date(Date.now() + 30000).toISOString() } } });
+      }
       if (u.includes('archived=only')) return json({ data: archived });
       if (u.endsWith('/projects/p1')) return json({ data: project });
       if (u.includes('/users/directory')) return json({ data: [{ id: 'u2', username: 'ali', firstName: 'Ali', lastName: 'Hassan', avatarUrl: null }] });
@@ -107,5 +114,26 @@ describe('ArchivedTasksPage', () => {
     archived = [];
     open(['ADMIN']);
     expect(await screen.findByText('No archived tasks.')).toBeInTheDocument();
+  });
+});
+
+// tbk: review M10 — several archived tasks are unarchived at once from here; the summary stays when the list empties.
+describe('ArchivedTasksPage — bulk Unarchive', () => {
+  it('tick the tasks, Unarchive, confirm: the summary (with Undo) stays when the list empties', async () => {
+    open(['ADMIN']);
+    await userEvent.click(await screen.findByRole('checkbox', { name: 'Select all 2' }));
+    const bar = await screen.findByRole('region', { name: 'Bulk actions' });
+    expect(within(bar).queryByRole('button', { name: 'Status' })).toBeNull();
+    const more = within(bar).queryByRole('button', { name: 'More actions' });
+    if (more) {
+      await userEvent.click(more);
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Unarchive' }));
+    } else await userEvent.click(within(bar).getByRole('button', { name: 'Unarchive' }));
+    const dialog = await screen.findByRole('dialog');
+    await within(dialog).findByText(/2 tasks will change\./);
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Apply' }));
+    expect(await screen.findByText('2 unarchived')).toBeInTheDocument();
+    expect(await screen.findByText('No archived tasks.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Undo/ })).toBeInTheDocument();
   });
 });
