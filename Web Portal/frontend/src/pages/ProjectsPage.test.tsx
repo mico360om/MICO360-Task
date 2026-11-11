@@ -162,7 +162,8 @@ describe('ProjectsPage', () => {
   it('loads the whole list, figures included, in one request', async () => {
     renderPage();
     await loaded();
-    const api = calls.filter((c) => !c.url.endsWith('/config'));
+    // (Training Center: the header's "Learn this feature" asks once whether a Projects course exists — not the list.)
+    const api = calls.filter((c) => !c.url.endsWith('/config') && !c.url.includes('/training/learn'));
     expect(api.map((c) => c.url.replace(/^.*\/api\/v1/, ''))).toEqual(['/projects/overview']);
   });
 

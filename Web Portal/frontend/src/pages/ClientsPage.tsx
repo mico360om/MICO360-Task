@@ -253,6 +253,7 @@ export function ClientsPage() {
       <PageHeader
         eyebrow="Admin"
         title="Clients"
+        learn="admin"
         subtitle="People outside the company who follow their projects in the Client portal, and what each may see and do."
         actions={newButton}
       />

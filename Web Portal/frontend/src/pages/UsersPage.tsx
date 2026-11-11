@@ -486,6 +486,7 @@ export function UsersPage() {
       <PageHeader
         eyebrow="Admin"
         title="User &amp; Profile Management"
+        learn="admin"
         subtitle="Create and edit accounts, assign roles, control access, reset passwords and send welcome emails."
         actions={<Button onClick={() => setCreating(true)} title="New user" shortcut="new">+ New user</Button>}
       />

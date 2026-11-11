@@ -108,6 +108,7 @@ export function BoardPage() {
         <PageHeader
           eyebrow="Workspace"
           title="Kanban Board"
+          learn="board"
           // The chosen project is in the picker. A subtitle here would squeeze the title (a long project
           // name cut it to "Kanban …"); the All projects hint sits in the date row instead.
           subtitle={projectsQ.isSuccess && !projectId ? 'Drag tasks across columns to update their status.' : undefined}

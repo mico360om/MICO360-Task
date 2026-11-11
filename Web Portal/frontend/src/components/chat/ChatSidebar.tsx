@@ -1,4 +1,5 @@
 import { clockText, instantDayText, weekdayText } from '../../lib/day-words';
+import { LearnLink } from '../training/LearnLink';
 import { useRef, useState, type ReactNode } from 'react';
 import type { ApiMessage, ConversationPrefs } from '../../api/chat';
 import { SearchableSelect, type SelectOption } from '../ui/SearchableSelect';
@@ -168,6 +169,8 @@ export function ChatSidebar(p: ChatSidebarProps) {
     <aside aria-label="Conversations" className={`min-h-0 flex-col border-line bg-surface lg:border-e ${p.hidden ? 'hidden lg:flex' : 'flex'}`}>
       <div className="flex flex-none items-center gap-1 px-3 pb-2 pt-3">
         <h1 className="flex-1 font-display text-xl font-bold text-ink">Chat</h1>
+        {/* Training Center: Chat's course, when there is one. */}
+        <LearnLink module="chat" compact />
         <button
           type="button"
           onClick={p.onToggleSound}

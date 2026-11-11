@@ -272,6 +272,7 @@ export function ReportsPage() {
       <PageHeader
         eyebrow="Admin"
         title="Reports"
+        learn="reports"
         subtitle="Task delivery, project progress and team workload — with exports."
         actions={
           <div className="flex flex-wrap items-center gap-2">

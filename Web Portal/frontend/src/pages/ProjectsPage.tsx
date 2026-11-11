@@ -212,7 +212,7 @@ export function ProjectsPage() {
     <div>
       <div className="relative z-20 mb-4 flex flex-wrap items-center gap-x-4 gap-y-2 animate-fade-in-up">
         <div className="flex min-w-0 flex-[1_1_16rem] flex-wrap items-baseline gap-x-3 gap-y-0.5">
-          <PageTitle eyebrow="Workspace" title="Projects" />
+          <PageTitle eyebrow="Workspace" title="Projects" learn="projects" />
           {summary ? <p className="text-sm text-ink-2">{summary}</p> : loading ? <span className="skeleton inline-block h-4 w-40 self-center" aria-hidden="true" /> : null}
         </div>
         <Button onClick={() => setForm('new')} title="New project" shortcut="new" className="[@media(pointer:coarse)]:!min-h-11">

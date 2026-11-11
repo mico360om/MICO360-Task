@@ -24,6 +24,7 @@ export function AiSettingsPage() {
       <PageHeader
         eyebrow="Admin"
         title="AI Management"
+        learn="admin"
         subtitle="Connect AI providers, choose the models people can use, and the defaults. Changes apply immediately — no restart. Every change is recorded in the audit log."
       />
 

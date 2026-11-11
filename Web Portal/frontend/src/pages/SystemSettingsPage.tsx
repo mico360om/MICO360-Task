@@ -131,7 +131,7 @@ export function SystemSettingsPage() {
 
   return (
     <div>
-      <PageHeader eyebrow="Admin" title="System Settings" subtitle="Company-wide configuration." />
+      <PageHeader eyebrow="Admin" title="System Settings" subtitle="Company-wide configuration." learn="admin" />
 
       <div className="grid gap-4 lg:grid-cols-2">
         {/* Notification & Scheduling: working time, holidays, reminders and notification rules, per company. */}

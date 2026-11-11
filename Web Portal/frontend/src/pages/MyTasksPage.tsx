@@ -371,6 +371,7 @@ export function MyTasksPage() {
       <PageHeader
         eyebrow="Workspace"
         title="My Tasks"
+        learn="tasks"
         subtitle="Everything assigned to you, across every project."
         actions={<NewTaskButton onCreated={() => tasksQ.refetch()} />}
       />

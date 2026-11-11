@@ -1,4 +1,6 @@
 import type { ReactNode } from 'react';
+import type { TrainingModule } from '../../api/training';
+import { LearnLink } from '../training/LearnLink';
 
 export interface PageHeaderProps {
   title: ReactNode;
@@ -8,6 +10,11 @@ export interface PageHeaderProps {
   eyebrow?: ReactNode;
   /** Right-aligned actions (buttons, filters). */
   actions?: ReactNode;
+  /**
+   * Training Center: "Learn this feature" beside the title, opening this module's course (or its courses) — shown
+   * only when there is one for this person.
+   */
+  learn?: TrainingModule;
 }
 
 /**
@@ -16,8 +23,15 @@ export interface PageHeaderProps {
  * (an auto column, which gets its full width before any fr column) only once the description is gone.
  * As flex items they shrank together, and Reports at 1280px read "Re…" beside a description.
  */
-export function PageTitle({ title, subtitle, eyebrow, className = '' }: Omit<PageHeaderProps, 'actions'> & { className?: string }) {
-  const columns = eyebrow ? 'grid-cols-[auto_auto_auto_minmax(0,1fr)]' : 'grid-cols-[auto_minmax(0,1fr)]';
+export function PageTitle({ title, subtitle, eyebrow, learn, className = '' }: Omit<PageHeaderProps, 'actions'> & { className?: string }) {
+  // The Learn link has its own column after the title (empty, 0 wide, while it is hidden).
+  const columns = eyebrow
+    ? learn
+      ? 'grid-cols-[auto_auto_auto_auto_minmax(0,1fr)]'
+      : 'grid-cols-[auto_auto_auto_minmax(0,1fr)]'
+    : learn
+      ? 'grid-cols-[auto_auto_minmax(0,1fr)]'
+      : 'grid-cols-[auto_minmax(0,1fr)]';
   return (
     <div data-page-title className={`grid min-w-0 items-baseline gap-x-2 ${columns} ${className}`}>
       {eyebrow ? (
@@ -27,6 +41,11 @@ export function PageTitle({ title, subtitle, eyebrow, className = '' }: Omit<Pag
         </>
       ) : null}
       <h1 className="min-w-0 truncate font-display text-xl font-extrabold tracking-tightish text-ink sm:text-2xl">{title}</h1>
+      {learn ? (
+        <span data-learn-slot className="flex-none self-center">
+          <LearnLink module={learn} />
+        </span>
+      ) : null}
       {/* contain: inline-size — the description adds nothing to the line's natural width (it only fills
           what is left), so a header's actions make room for the title, not for the description. */}
       {subtitle ? <p className="ms-1 hidden min-w-0 truncate text-sm text-ink-3 [contain:inline-size] xl:block">{subtitle}</p> : null}
@@ -43,10 +62,10 @@ export function PageTitle({ title, subtitle, eyebrow, className = '' }: Omit<Pag
  * The row is at least a button tall (40px; 44px on a touch screen), with or without actions: the
  * title sits at the same height on every page instead of moving a few pixels from page to page.
  */
-export function PageHeader({ title, subtitle, eyebrow, actions }: PageHeaderProps) {
+export function PageHeader({ title, subtitle, eyebrow, actions, learn }: PageHeaderProps) {
   return (
     <div data-page-header className="relative z-20 mb-4 flex min-h-10 flex-wrap items-center justify-between gap-x-4 gap-y-2 animate-fade-in-up [@media(pointer:coarse)]:min-h-11">
-      <PageTitle title={title} subtitle={subtitle} eyebrow={eyebrow} className="flex-[1_1_auto]" />
+      <PageTitle title={title} subtitle={subtitle} eyebrow={eyebrow} learn={learn} className="flex-[1_1_auto]" />
       {actions ? <div className="flex max-w-full flex-wrap items-center gap-2">{actions}</div> : null}
     </div>
   );

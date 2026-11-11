@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { LearnLink } from '../components/training/LearnLink';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { apiClient } from '../api/client';
@@ -599,6 +600,8 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
               </svg>
             </button>
             <ChatTitle key={chat?.id ?? 'new'} chat={chatId ? chat : null} onRename={(t) => chatId && void rename(chatId, t)} />
+            {/* Training Center: MICO AI's course, when there is one. */}
+            <LearnLink module="mico-ai" compact />
             <button type="button" aria-label="New chat" onClick={() => openChat(null)} className={headerButton}>
               <PlusIcon size={18} />
             </button>

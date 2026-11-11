@@ -339,7 +339,7 @@ export function CalendarPage() {
     >
       {/* The title, the period and its controls on one line; the filters and the legend on the next. */}
       <div className="relative z-20 flex flex-none flex-wrap items-center gap-x-4 gap-y-2 animate-fade-in-up">
-        <PageTitle eyebrow="Workspace" title="Calendar" className="flex-none" />
+        <PageTitle eyebrow="Workspace" title="Calendar" learn="calendar" className="flex-none" />
         <CalendarToolbar
           view={view}
           onView={(v) => navigate({ view: v })}

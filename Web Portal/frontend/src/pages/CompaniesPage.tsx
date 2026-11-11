@@ -104,6 +104,7 @@ export function CompaniesPage() {
       <PageHeader
         eyebrow="Admin"
         title="Companies"
+        learn="admin"
         subtitle="Each company’s name, logo, week and working hours, its people and its projects."
         actions={<Button onClick={openNew} title="New company" shortcut="new">+ New company</Button>}
       />

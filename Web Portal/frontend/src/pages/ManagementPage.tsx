@@ -147,6 +147,7 @@ export function ManagementPage() {
       <PageHeader
         eyebrow="Workspace"
         title="Management"
+        learn="management"
         subtitle="Every project’s health, inspections, people and trends."
         actions={
           <Button variant="secondary" size="sm" loading={pdfBusy} disabled={!data} onClick={() => void downloadPdf()} className="[@media(pointer:coarse)]:!min-h-11">
@@ -247,7 +248,7 @@ export function ManagementRoute() {
   if (hadIt.current) {
     return (
       <div>
-        <PageHeader eyebrow="Workspace" title="Management" />
+        <PageHeader eyebrow="Workspace" title="Management" learn="management" />
         <NoLongerRuns />
       </div>
     );
