@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.23.14] - 2026-11-11
+
 ### Bug fixes
 - People's photos show on Kanban cards, My Tasks, project pages, meetings, Activity and the Dashboard (they showed only initials).
 - The picture at the top right shows your current photo and your own name's initials (it showed the username's, and a new photo only after signing in again).
