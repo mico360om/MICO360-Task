@@ -27,6 +27,8 @@ import type { AiJobError, AiJobKind, AiJobRecord, AiJobStore, NewAiJob } from '.
 export const RETRY_DELAYS_MS: readonly number[] = [30_000, 120_000, 300_000];
 /** The first try and one per wait. */
 export const MAX_ATTEMPTS = RETRY_DELAYS_MS.length + 1;
+/** A quota that resets within the longest wait between tries is worth trying again (review I3). */
+const QUOTA_RETRY_WITHIN_MS = Math.max(...RETRY_DELAYS_MS);
 /** How long a try is held without a renewal (a stopped server's job is taken over after this). */
 export const JOB_LEASE_MS = 60_000;
 export const JOB_HEARTBEAT_MS = 20_000;
@@ -56,10 +58,14 @@ const INTERRUPTED: AiJobError = { message: 'This was interrupted. Try again.', c
 
 /**
  * Is this failure worth another try later? Time-outs, a busy service (429, ours or theirs) and the
- * provider's 5xx — not a used-up quota (MICO360 AI's 429 "Quota exceeded"), which lasts past every try.
+ * provider's 5xx. A used-up quota (MICO360 AI's 429 "Quota exceeded") only when it resets within the
+ * waits between tries (a per-minute quota); one that lasts an hour, a day or a month is not.
  */
 export function isRetryable(err: unknown): boolean {
-  if (err instanceof ProviderRefusedError) return (err.providerStatus === 429 && !err.quota) || err.providerStatus >= 500;
+  if (err instanceof ProviderRefusedError) {
+    if (err.providerStatus === 429) return !err.quota || (err.retryAfterSeconds !== null && err.retryAfterSeconds * 1000 <= QUOTA_RETRY_WITHIN_MS);
+    return err.providerStatus >= 500;
+  }
   return err instanceof AiTimeoutError || err instanceof AiBusyError;
 }
 

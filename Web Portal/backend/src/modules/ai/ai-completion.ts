@@ -17,8 +17,10 @@ export class ProviderRefusedError extends ValidationError {
   constructor(
     public readonly providerStatus: number,
     public readonly detail: string | null,
-    /** A 429 for a used-up quota (MICO360 AI), not a busy moment: trying again soon won't help. */
+    /** A 429 for a used-up quota (MICO360 AI), not a busy moment: trying again soon may not help. */
     public readonly quota = false,
+    /** The answer's Retry-After in seconds, when it gave one as a number. */
+    public readonly retryAfterSeconds: number | null = null,
   ) {
     super(quota ? QUOTA_MESSAGE : refusalMessage(providerStatus));
   }
@@ -37,12 +39,13 @@ const QUOTA_RETRY_AFTER_SECONDS = 60;
 /** The provider's refusal, read from its answer: the reason it gives, and (MICO360 AI) whether it is a quota. */
 export async function providerRefusal(res: Response, provider: { preset?: string | null; apiBaseUrl?: string | null }): Promise<ProviderRefusedError> {
   const detail = await providerErrorDetail(res);
-  const retryAfter = Number(res.headers.get('retry-after'));
+  const header = res.headers.get('retry-after')?.trim();
+  const seconds = header && /^\d+$/.test(header) ? Number(header) : null;
   const quota =
     isMico360Provider(provider) &&
     res.status === 429 &&
-    (/^\s*quota exceeded/i.test(detail ?? '') || (Number.isFinite(retryAfter) && retryAfter > QUOTA_RETRY_AFTER_SECONDS));
-  return new ProviderRefusedError(res.status, detail, quota);
+    (/^\s*quota exceeded/i.test(detail ?? '') || (seconds !== null && seconds > QUOTA_RETRY_AFTER_SECONDS));
+  return new ProviderRefusedError(res.status, detail, quota, seconds);
 }
 
 /** What a person is told for a provider's answer: the plain cause where the status says it. */

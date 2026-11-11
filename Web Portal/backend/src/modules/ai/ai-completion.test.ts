@@ -223,9 +223,21 @@ describe('MICO360 AI (the company’s platform, per its API guide)', () => {
       expect((err as Error).message, message).toBe(
         'The AI service’s usage allowance is used up for now (HTTP 429). It starts again when its period resets — an admin can check the key’s quota in MICO360 Connect.',
       );
-      expect(err).toMatchObject({ providerStatus: 429, quota: true, detail: message });
+      expect(err).toMatchObject({ providerStatus: 429, quota: true, detail: message, retryAfterSeconds: Number(retryAfter) });
       expect(isRetryable(err), message).toBe(false);
     }
+  });
+
+  // Review I3: a per-minute quota resets within the background retries (30 s, 2 min, 5 min): tried again.
+  it('a quota that resets within 5 minutes is still tried again in the background', async () => {
+    const fetchImpl = (async () => reply('Quota exceeded: requests per minute (30).', 429, { 'retry-after': '40' })) as unknown as typeof fetch;
+    const err = await complete(mico(), { prompt: 'hi' }, fetchImpl, { allowPrivateHosts: true, sleep: async () => {} }).catch((e: unknown) => e);
+    expect(err).toMatchObject({ quota: true, retryAfterSeconds: 40 });
+    expect(isRetryable(err)).toBe(true);
+    const unknownWait = (async () => reply('Quota exceeded: tokens per month.', 429)) as unknown as typeof fetch;
+    const err2 = await complete(mico(), { prompt: 'hi' }, unknownWait, { allowPrivateHosts: true }).catch((e: unknown) => e);
+    expect(err2).toMatchObject({ quota: true, retryAfterSeconds: null });
+    expect(isRetryable(err2)).toBe(false);
   });
 
   it('other providers: a 429 is “busy” and tried again later, as before', async () => {
