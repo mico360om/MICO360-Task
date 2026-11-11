@@ -686,7 +686,7 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
       });
     }
 
-    const contentBody = z.object({ content: z.unknown() });
+    const contentBody = z.object({ content: z.unknown().optional() }); // normalizeFinalMinutes says what is wrong
     app.put('/meetings/:id/final-minutes', { preHandler: guard.authenticate }, async (req: FastifyRequest, reply: FastifyReply) => {
       const { id } = req.params as { id: string };
       if (!(await canView(req, id))) return reply.status(404).send(notFound);

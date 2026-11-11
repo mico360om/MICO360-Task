@@ -21,7 +21,17 @@ export interface ProviderPreset {
   needsKey: boolean;
   /** Where to get a key. */
   keyUrl?: string;
+  /** A note for the admin about this service, under the form and on its providers' cards. */
+  help?: string;
 }
+
+/**
+ * MICO360 Connect's AI platform, as its API guide describes it for Connect 2.6.28: https only on port
+ * 5310 (plain http has answered nothing since 2.6.17), the OpenAI-compatible API under /v1. Reading
+ * pictures (scanned files) is its Vision capability and meaning search its Embedding capability.
+ */
+export const MICO360_AI_HELP =
+  'Uses the AI API of MICO360 Connect 2.6.28, as its API guide describes: https on port 5310, under /v1. In MICO360 Connect, allow the key Chat — and Vision to read scanned files and pictures, Embedding for meaning search.';
 
 export const PROVIDER_PRESETS: ProviderPreset[] = [
   { id: 'openai', label: 'OpenAI', name: 'OpenAI', kind: 'openai', baseUrl: 'https://api.openai.com/v1', needsKey: true, keyUrl: 'https://platform.openai.com/api-keys' },
@@ -31,16 +41,17 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
   { id: 'groq', label: 'Groq', name: 'Groq', kind: 'custom', baseUrl: 'https://api.groq.com/openai/v1', needsKey: true, keyUrl: 'https://console.groq.com/keys' },
   { id: 'mistral', label: 'Mistral', name: 'Mistral', kind: 'custom', baseUrl: 'https://api.mistral.ai/v1', needsKey: true, keyUrl: 'https://console.mistral.ai/api-keys' },
   { id: 'deepseek', label: 'DeepSeek', name: 'DeepSeek', kind: 'custom', baseUrl: 'https://api.deepseek.com', needsKey: true, keyUrl: 'https://platform.deepseek.com/api_keys' },
-  // MICO360 Connect's AI platform: its OpenAI-compatible API on port 5310 under /v1 (see its API guide);
-  // keys are issued in its console under AI Platform → Applications & keys.
-  { id: 'mico360', label: 'MICO360 AI (our AI platform)', name: 'MICO360 AI', kind: 'custom', baseUrl: 'http://ai.mico360.com:5310/v1', needsKey: true },
+  // MICO360 Connect's AI platform: its OpenAI-compatible API, https on port 5310 under /v1 (see its API
+  // guide); keys are issued in its console under AI Platform → Applications & keys.
+  { id: 'mico360', label: 'MICO360 AI (our AI platform)', name: 'MICO360 AI', kind: 'custom', baseUrl: 'https://ai.mico360.com:5310/v1', needsKey: true, help: MICO360_AI_HELP },
   { id: 'ollama', label: 'Ollama (your own server)', name: 'Ollama', kind: 'ollama', baseUrl: 'http://localhost:11434', needsKey: false },
   { id: 'custom', label: 'Other (OpenAI-compatible)', name: '', kind: 'custom', baseUrl: '', needsKey: false },
 ];
 
 /**
  * Does this address send the API key and the prompts across a network unencrypted? Plain http to
- * anything but this computer or a private (office) address does.
+ * anything but this computer or a private (office) address does — except MICO360 AI's, which the
+ * server always calls on https (that host speaks nothing else since Connect 2.6.17).
  */
 export function sendsUnencrypted(url: string): boolean {
   let u: URL;
@@ -51,6 +62,7 @@ export function sendsUnencrypted(url: string): boolean {
   }
   if (u.protocol !== 'http:') return false;
   const h = u.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  if (h.replace(/\.$/, '') === 'ai.mico360.com') return false;
   if (h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local') || h === '::1') return false;
   const m = /^(\d{1,3})\.(\d{1,3})\.\d{1,3}\.\d{1,3}$/.exec(h);
   if (!m) return true;

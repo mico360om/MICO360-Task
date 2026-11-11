@@ -98,8 +98,9 @@ const tick = z.boolean().optional().default(false);
 export const grantSchema = z.object({
   projectId: idString,
   role: z.enum(CLIENT_ROLES).optional().default('CUSTOM'),
-  modules: z.object({ progress: tick, meetings: tick }).default({}),
-  actions: z.object({ comment: tick, signOff: tick, respond: tick, download: tick, upload: tick, notify: tick }).default({}),
+  // prefault: a missing object is read as {} and gets each tick's own default (false).
+  modules: z.object({ progress: tick, meetings: tick }).prefault({}),
+  actions: z.object({ comment: tick, signOff: tick, respond: tick, download: tick, upload: tick, notify: tick }).prefault({}),
 });
 export const grantsSchema = z.array(grantSchema).max(MAX_CLIENT_PROJECTS);
 

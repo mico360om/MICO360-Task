@@ -204,6 +204,31 @@ describe('ai-config: sync', () => {
     expect(cfg.models.filter((m) => m.enabled).map((m) => m.modelKey)).toEqual(['claude-haiku-4-5-20251001']);
   });
 
+  // MICO360 AI's /v1/models lists only the models of nodes accepting work right now — a busy or draining
+  // node's models are left out for a while (its guide, §5 and §9). Missing once is not gone.
+  it('MICO360 AI: a model missing from the list stays available for 3 days, then is unavailable', () => {
+    const at = (iso: string) => ({ id: 's', now: iso });
+    let cfg = addProvider(emptyConfig(), { name: 'MICO360 AI', kind: 'custom', preset: 'mico360', apiBaseUrl: 'https://ai.mico360.com:5310/v1', apiKey: 'k' }, meta('p1')).config;
+    cfg = applySync(cfg, 'p1', ['llama3.1:latest', 'qwen2.5:0.5b'], at('2026-11-01T08:00:00.000Z'));
+    const llama = () => cfg.models.find((m) => m.modelKey === 'llama3.1:latest')!;
+    cfg = applySync(cfg, 'p1', ['qwen2.5:0.5b'], at('2026-11-02T08:00:00.000Z')); // its node is busy
+    expect(llama()).toMatchObject({ available: true, missingSince: '2026-11-02T08:00:00.000Z' });
+    cfg = applySync(cfg, 'p1', ['qwen2.5:0.5b'], at('2026-11-05T07:59:00.000Z')); // not yet 3 days
+    expect(llama()).toMatchObject({ available: true, missingSince: '2026-11-02T08:00:00.000Z' });
+    cfg = applySync(cfg, 'p1', ['qwen2.5:0.5b'], at('2026-11-05T08:00:00.000Z')); // 3 days: gone
+    expect(llama()).toMatchObject({ available: false, missingSince: '2026-11-02T08:00:00.000Z' });
+    cfg = applySync(cfg, 'p1', ['llama3.1:latest', 'qwen2.5:0.5b'], at('2026-11-06T08:00:00.000Z')); // back
+    expect(llama().available).toBe(true);
+    expect(llama().missingSince).toBeUndefined();
+  });
+
+  it('other providers: a model missing from the list is unavailable at once, as before', () => {
+    let cfg = seed();
+    cfg = applySync(cfg, 'p1', ['o1-mini'], meta('s'));
+    expect(cfg.models.find((m) => m.modelKey === 'gpt-4o')).toMatchObject({ available: false });
+    expect(cfg.models.find((m) => m.modelKey === 'gpt-4o')!.missingSince).toBeUndefined();
+  });
+
   it('never changes on/off choices after that', () => {
     let cfg = addProvider(emptyConfig(), { name: 'Anthropic', kind: 'anthropic', apiBaseUrl: 'https://api.anthropic.com', apiKey: 'k' }, meta('p1')).config;
     cfg = applySync(cfg, 'p1', ['claude-haiku-4-5'], meta('s1'));
@@ -252,8 +277,15 @@ describe('ai-config: provider presets', () => {
   });
 
   it('knows MICO360 AI (the company’s own OpenAI-compatible platform)', () => {
-    const { provider } = addProvider(emptyConfig(), { name: 'MICO360 AI', kind: 'custom', preset: 'mico360', apiBaseUrl: 'http://ai.mico360.com:5310/v1' }, meta('p1'));
+    const { provider } = addProvider(emptyConfig(), { name: 'MICO360 AI', kind: 'custom', preset: 'mico360', apiBaseUrl: 'https://ai.mico360.com:5310/v1' }, meta('p1'));
     expect(provider.preset).toBe('mico360');
+  });
+
+  it('saves a MICO360 AI address typed with http as https, when added or changed (Connect 2.6.17+)', () => {
+    const { config, provider } = addProvider(emptyConfig(), { name: 'MICO360 AI', kind: 'custom', preset: 'mico360', apiBaseUrl: 'http://ai.mico360.com:5310/v1' }, meta('p1'));
+    expect(provider.apiBaseUrl).toBe('https://ai.mico360.com:5310/v1');
+    const changed = updateProvider(config, 'p1', { apiBaseUrl: 'http://ai.mico360.com:5310/v1/' }, 'now');
+    expect(changed.providers[0]!.apiBaseUrl).toBe('https://ai.mico360.com:5310/v1');
   });
 });
 

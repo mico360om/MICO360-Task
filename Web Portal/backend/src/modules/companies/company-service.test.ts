@@ -59,3 +59,30 @@ describe('The sender name of the site', () => {
     expect(mailFromName('info@prolens.om')).toBe('info@prolens.om');
   });
 });
+
+// Pinned before the zod 4 upgrade (1.23.12): a company's working hours are refused with the words of the rule broken.
+describe('A company’s working hours, refused in words', () => {
+  const refusal = async (workingHours: unknown) => {
+    try {
+      await svc.update(alpha, { workingHours } as never, admin);
+    } catch (e) {
+      return (e as Error).message;
+    }
+    return 'saved';
+  };
+  it('a time not like 08:00 says so', async () => {
+    expect(await refusal({ days: [0], start: '8', end: '17:00' })).toBe('Use HH:MM.');
+    expect(await refusal({ days: [0], start: '08:00', end: '1700' })).toBe('Use HH:MM.');
+  });
+  it('an end before the start says so', async () => {
+    expect(await refusal({ days: [0], start: '17:00', end: '08:00' })).toBe('The day has to end after it starts.');
+  });
+  it('no days, or a broken shape: the general words', async () => {
+    expect(await refusal({ days: [], start: '08:00', end: '17:00' })).toBe('Choose at least one working day, and times like 08:00.');
+    expect(await refusal({ days: [9], start: '08:00', end: '17:00' })).toBe('Choose at least one working day, and times like 08:00.');
+    expect(await refusal('9 to 5')).toBe('Choose at least one working day, and times like 08:00.');
+  });
+  it('good hours are kept', async () => {
+    expect(await refusal({ days: [1, 0], start: '07:30', end: '16:00' })).toBe('saved');
+  });
+});

@@ -80,7 +80,49 @@ export function validateProviderUrl(raw: string, allowPrivateHosts = false): str
   if (!allowPrivateHosts && isPrivateHostname(url.hostname)) {
     throw new ValidationError('The API base URL must be a public address. Local or internal model servers need AI_ALLOW_PRIVATE_HOSTS=true.');
   }
+  upgradeToHttps(url);
   return url.href.replace(/[?#].*$/, '').replace(/\/+$/, '');
+}
+
+/**
+ * Hosts that answer nothing on plain http. MICO360 Connect's AI platform: since 2.6.17 (21 Oct 2026)
+ * port 5310 speaks only HTTPS, under the certificate for ai.mico360.com (its API guide, the header and §9).
+ */
+const HTTPS_ONLY_HOSTS = new Set(['ai.mico360.com']);
+const MICO360_AI_HOST = 'ai.mico360.com';
+
+/**
+ * Is this provider MICO360 AI (MICO360 Connect's AI platform)? Its preset, or its address — a provider
+ * added as "Other" at ai.mico360.com is the same platform, with the same rules.
+ */
+export function isMico360Provider(provider: { preset?: string | null; apiBaseUrl?: string | null }): boolean {
+  if (provider.preset === 'mico360') return true;
+  try {
+    return new URL(provider.apiBaseUrl ?? '').hostname.replace(/\.$/, '').toLowerCase() === MICO360_AI_HOST;
+  } catch {
+    return false;
+  }
+}
+
+/** Switch an http URL to https when its host speaks only HTTPS; true when it was switched. */
+function upgradeToHttps(url: URL): boolean {
+  if (url.protocol !== 'http:' || !HTTPS_ONLY_HOSTS.has(url.hostname.replace(/\.$/, '').toLowerCase())) return false;
+  url.protocol = 'https:';
+  return true;
+}
+
+/**
+ * A saved address as it must be called: http to an HTTPS-only host (a MICO360 AI provider saved before
+ * Connect 2.6.17) is read as https. Anything else — and anything that isn't an address — is unchanged.
+ */
+export function httpsOnlyAddress(address: string): string {
+  let url: URL;
+  try {
+    url = new URL(address);
+  } catch {
+    return address;
+  }
+  return upgradeToHttps(url) ? address.replace(/^\s*http:/i, 'https:') : address;
 }
 
 export type LookupAll = (hostname: string) => Promise<Array<{ address: string }>>;

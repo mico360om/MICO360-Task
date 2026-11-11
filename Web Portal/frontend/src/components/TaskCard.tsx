@@ -24,7 +24,8 @@ export interface TaskCardTask {
   priority: Priority;
   dueDate?: string | null;
   progress: number;
-  assignees: { id: string; name: string }[];
+  /** Avatar hotfix (owner, 10 Nov): each face shows their photo; initials without one. */
+  assignees: { id: string; name: string; avatarUrl?: string | null }[];
   counts?: { comments: number; attachments: number; checklistDone: number; checklistTotal: number };
   /**
    * Its status's colour (1.23.8: the column's kind in the one scheme, lib/colour-classes) — drawn as a left
@@ -288,12 +289,12 @@ export function TaskCard({ task, onClick, timeZone = DEFAULT_TIME_ZONE, interact
             <div className={`flex ${detailed ? 'flex-wrap justify-end gap-y-0.5' : ''} -space-x-1.5 ${DENSE_STACK}`}>
               {shownAssignees.map((a) =>
                 foundPerson(a.id) ? (
-                  // Found by this person's name: their face is ringed in the found words' colour.
+                  // Found by this person's name: their face (photo or initials) is ringed in the found words' colour.
                   <span key={a.id} data-marked="" className="relative z-[1] inline-flex rounded-full ring-2 ring-warning">
-                    <Avatar name={a.name} size="sm" dense />
+                    <Avatar name={a.name} src={a.avatarUrl} size="sm" dense />
                   </span>
                 ) : (
-                  <Avatar key={a.id} name={a.name} size="sm" dense />
+                  <Avatar key={a.id} name={a.name} src={a.avatarUrl} size="sm" dense />
                 ),
               )}
               {extra > 0 ? (

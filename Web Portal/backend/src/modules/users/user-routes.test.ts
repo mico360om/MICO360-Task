@@ -623,3 +623,66 @@ describe('User Management and client accounts', () => {
     }
   });
 });
+
+describe('your own account and photo (avatar hotfix follow-ups, 11 Nov)', () => {
+  // A 1×1 PNG: the upload checks the bytes are the picture type they claim to be.
+  const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const BOUNDARY = '----mico360avatarboundary';
+  const upload = (content: Buffer) =>
+    Buffer.concat([
+      Buffer.from(`--${BOUNDARY}\r\nContent-Disposition: form-data; name="file"; filename="me.png"\r\nContent-Type: image/png\r\n\r\n`),
+      content,
+      Buffer.from(`\r\n--${BOUNDARY}--\r\n`),
+    ]);
+
+  async function appWithPhotos() {
+    const saved: Buffer[] = [];
+    const prepared: Array<{ url: string; bytes: number }> = [];
+    mem = createMemoryUserRepository();
+    const userService = createUserService({ users: mem.repo, issueSession: (user) => tokenService.issueTokens(user) });
+    const authService = createAuthService({
+      users: { async findByIdentifier() { return null; }, async findById() { return null; }, async applyFailedAttempt() {}, async resetFailedAttempts() {} },
+      maxAttempts: 5,
+    });
+    const storage = {
+      async save(f: { content: Buffer }) {
+        saved.push(f.content);
+        return { storageKey: '0b2f6c1e-1d2a-4c3b-9e8f-7a6b5c4d3e2f.png', url: '/uploads/0b2f6c1e-1d2a-4c3b-9e8f-7a6b5c4d3e2f.png', sizeBytes: f.content.length };
+      },
+      async remove() {},
+    };
+    const avatarFaces = { async prepare(url: string, content: Buffer) { prepared.push({ url, bytes: content.length }); } };
+    const a = await buildApp({ authService, tokenService, userService, chatAttachmentStorage: storage as never, avatarFaces });
+    return { a, saved, prepared };
+  }
+
+  it('GET /users/me: the signed-in person’s name and current photo (the header’s face reads it on every load)', async () => {
+    const { a } = await appWithPhotos();
+    const admin = { authorization: `Bearer ${await token(['ADMIN'])}` };
+    const sara = (await a.inject({ method: 'POST', url: '/api/v1/users', headers: admin, payload: newUser })).json().data;
+    const headers = { authorization: `Bearer ${await tokenFor(sara.id, ['EMPLOYEE'])}` };
+    const before = await a.inject({ method: 'GET', url: '/api/v1/users/me', headers });
+    expect(before.statusCode).toBe(200);
+    expect(before.json().data).toEqual({ id: sara.id, email: 'sara@x.co', username: 'sara', firstName: 'Sara', lastName: 'A', roles: expect.any(Array), avatarUrl: null });
+    const up = await a.inject({ method: 'POST', url: '/api/v1/users/me/avatar', headers: { ...headers, 'content-type': `multipart/form-data; boundary=${BOUNDARY}` }, payload: upload(PNG) });
+    expect(up.statusCode).toBe(200);
+    expect((await a.inject({ method: 'GET', url: '/api/v1/users/me', headers })).json().data.avatarUrl).toBe('/uploads/0b2f6c1e-1d2a-4c3b-9e8f-7a6b5c4d3e2f.png');
+    expect((await a.inject({ method: 'GET', url: '/api/v1/users/me' })).statusCode).toBe(401);
+  });
+
+  it('an upload keeps the original and also makes its face copy, from the same bytes', async () => {
+    const { a, saved, prepared } = await appWithPhotos();
+    const admin = { authorization: `Bearer ${await token(['ADMIN'])}` };
+    const sara = (await a.inject({ method: 'POST', url: '/api/v1/users', headers: admin, payload: newUser })).json().data;
+    const headers = { authorization: `Bearer ${await tokenFor(sara.id, ['EMPLOYEE'])}`, 'content-type': `multipart/form-data; boundary=${BOUNDARY}` };
+    expect((await a.inject({ method: 'POST', url: '/api/v1/users/me/avatar', headers, payload: upload(PNG) })).statusCode).toBe(200);
+    expect(saved).toEqual([PNG]);
+    expect(prepared).toEqual([{ url: '/uploads/0b2f6c1e-1d2a-4c3b-9e8f-7a6b5c4d3e2f.png', bytes: PNG.length }]);
+  });
+
+  it('a client account’s session can’t read /users/me (clients have the portal’s own)', async () => {
+    const { a } = await appWithPhotos();
+    const res = await a.inject({ method: 'GET', url: '/api/v1/users/me', headers: { authorization: `Bearer ${await tokenFor('cliff', ['CLIENT'])}` } });
+    expect(res.statusCode).toBe(403);
+  });
+});

@@ -101,6 +101,33 @@ describe('auth store', () => {
   });
 });
 
+describe('your own details change without touching the session (11 Nov)', () => {
+  it('setUser takes the new details, saves only them, and tells the other tabs', () => {
+    useAuthStore.getState().setSession(session);
+    const post = vi.spyOn(BroadcastChannel.prototype, 'postMessage');
+    localStorage.setItem('mico360.refreshToken', 'rotated-by-another-tab');
+    useAuthStore.getState().setUser({ ...session.user, firstName: 'Ada', avatarUrl: '/uploads/a.png' });
+    const s = useAuthStore.getState();
+    expect(s.user).toMatchObject({ firstName: 'Ada', avatarUrl: '/uploads/a.png' });
+    expect([s.accessToken, s.refreshToken]).toEqual(['at', 'rt']);
+    expect(JSON.parse(localStorage.getItem('mico360.user')!)).toMatchObject({ avatarUrl: '/uploads/a.png' });
+    expect(localStorage.getItem('mico360.refreshToken')).toBe('rotated-by-another-tab'); // tokens never written back
+    expect(post.mock.calls.some(([m]) => (m as { type: string }).type === 'user')).toBe(true);
+    post.mockRestore();
+  });
+
+  it('another tab signed in as the same person takes them; anyone else ignores them', () => {
+    useAuthStore.getState().setSession(session);
+    handleAuthMessage({ type: 'user', user: { ...session.user, avatarUrl: '/uploads/b.png' } });
+    expect(useAuthStore.getState().user?.avatarUrl).toBe('/uploads/b.png');
+    handleAuthMessage({ type: 'user', user: { ...session.user, id: 'u2', avatarUrl: '/uploads/x.png' } });
+    expect(useAuthStore.getState().user?.avatarUrl).toBe('/uploads/b.png');
+    useAuthStore.getState().logout('remote');
+    handleAuthMessage({ type: 'user', user: { ...session.user, avatarUrl: '/uploads/c.png' } });
+    expect(useAuthStore.getState().user).toBeNull();
+  });
+});
+
 describe('cross-tab session sync', () => {
   it('adopts a refreshed pair another tab broadcast for the same user', () => {
     useAuthStore.getState().setSession(session, { remember: false });

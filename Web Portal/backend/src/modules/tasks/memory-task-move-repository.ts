@@ -114,7 +114,7 @@ export function createMemoryTaskMoveRepository(state: MemoryMoveState): TaskMove
       for (const line of moveHistory(w, key)) state.activity.push({ ...line, userId: w.actorId });
       const formerKeys = [...state.aliases.entries()].filter(([, a]) => a.taskId === task.id).map(([k]) => k);
       const record = Object.fromEntries(Object.entries(task).filter(([k]) => k !== 'assigneeList' && k !== 'repeats')) as unknown as TaskRecord;
-      return { ...record, formerKeys, assignees: task.assigneeList.map((p) => ({ ...p })) };
+      return { ...record, formerKeys, assignees: task.assigneeList.map((p) => ({ avatarUrl: null, ...p })) };
     },
   };
 }

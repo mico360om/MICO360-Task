@@ -19,13 +19,31 @@ describe('meeting list summaries', () => {
   const empty = { attendees: [], noteCounts: {}, decisionCounts: {}, minutes: [], openActionItemCounts: {} };
 
   it('gives a meeting with nothing yet zeros, no names and no minutes', () => {
-    expect(buildMeetingListCounts(['a'], empty)).toEqual({ a: { attendeeCount: 0, openActionItemCount: 0, attendees: [], minutes: 'NONE', decisionCount: 0 } });
+    expect(buildMeetingListCounts(['a'], empty)).toEqual({ a: { attendeeCount: 0, openActionItemCount: 0, attendees: [], attendeeFaces: [], minutes: 'NONE', decisionCount: 0 } });
   });
 
   it('counts everyone but names only the first four, in the order they were added', () => {
     const attendees = ['Aisha', 'Omar', 'Sara', 'Bilal', 'Zara'].map((name, i) => ({ meetingId: 'a', userId: `u${i}`, name }));
     const out = buildMeetingListCounts(['a'], { ...empty, attendees });
     expect(out.a).toMatchObject({ attendeeCount: 5, attendees: ['Aisha', 'Omar', 'Sara', 'Bilal'] });
+  });
+
+  it('gives the same first four as faces — each name with their photo (a guest or no photo: null) (avatar hotfix)', () => {
+    const attendees = [
+      { meetingId: 'a', userId: 'u1', name: 'Aisha', avatarUrl: '/uploads/avatars/aisha.png' },
+      { meetingId: 'a', userId: 'u2', name: 'Omar', avatarUrl: null },
+      { meetingId: 'a', userId: null, name: 'guest@example.com' },
+      { meetingId: 'a', userId: 'u3', name: 'Sara', avatarUrl: '/uploads/avatars/sara.png' },
+      { meetingId: 'a', userId: 'u4', name: 'Bilal', avatarUrl: '/uploads/avatars/bilal.png' },
+    ];
+    const out = buildMeetingListCounts(['a'], { ...empty, attendees });
+    expect(out.a!.attendees).toEqual(['Aisha', 'Omar', 'guest@example.com', 'Sara']);
+    expect(out.a!.attendeeFaces).toEqual([
+      { name: 'Aisha', avatarUrl: '/uploads/avatars/aisha.png' },
+      { name: 'Omar', avatarUrl: null },
+      { name: 'guest@example.com', avatarUrl: null },
+      { name: 'Sara', avatarUrl: '/uploads/avatars/sara.png' },
+    ]);
   });
 
   it('says how far the minutes are: approved or sent is final, any other record a draft, notes alone are notes', () => {
