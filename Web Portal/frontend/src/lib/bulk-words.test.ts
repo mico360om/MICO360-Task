@@ -124,6 +124,7 @@ describe('the summary’s words', () => {
     expect(summaryText(done('delete', 2, 0))).toBe('2 moved to the Recycle Bin');
     expect(summaryText(done('archive', 2, 0))).toBe('2 archived');
     expect(summaryText(done('unarchive', 2, 0))).toBe('2 unarchived');
+    expect(summaryText(done('project', 5, 1))).toBe('5 moved · 1 not moved');
   });
 
   it('a skipped task by its number and title — or "A task you can’t open"', () => {

@@ -121,6 +121,9 @@ describe('My Tasks: bulk selection (owner, 10 Nov)', () => {
     await user.click(screen.getByRole('button', { name: 'Select the 1 skipped' }));
     expect(box('Select RIG-1 Pour the slab')).toBeChecked();
     expect(screen.getByRole('region', { name: 'Bulk actions' })).toHaveTextContent('1 selected');
+    // Known as before (its project): one project's Category is offered.
+    await user.click(screen.getByRole('button', { name: 'More actions' }));
+    expect(screen.getByRole('menuitem', { name: 'Category' })).not.toHaveAttribute('aria-disabled');
   });
 
   it('Archive and Delete only when the person runs a selected task’s project', async () => {

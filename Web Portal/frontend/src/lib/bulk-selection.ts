@@ -80,10 +80,13 @@ export function deselectIds(state: SelectionState, ids: readonly string[]): Sele
   return { refs, anchor: state.anchor };
 }
 
-/** Exactly these ids ("Select the 2 skipped"), keeping what was known of each. */
-export function replaceWith(state: SelectionState, ids: readonly string[]): SelectionState {
+/**
+ * Exactly these ids ("Select the 2 skipped"), keeping what was known of each — from the selection, or
+ * from `known` (the selection the change was applied to, since cleared).
+ */
+export function replaceWith(state: SelectionState, ids: readonly string[], known: readonly SelRef[] = []): SelectionState {
   const refs = new Map<string, SelRef>();
-  for (const id of ids) refs.set(id, state.refs.get(id) ?? { id, projectId: '' });
+  for (const id of ids) refs.set(id, state.refs.get(id) ?? known.find((r) => r.id === id) ?? { id, projectId: '' });
   return { refs, anchor: null };
 }
 
@@ -132,7 +135,7 @@ export interface BulkSelection {
   toggle: (ref: SelRef, opts?: ToggleOptions) => void;
   selectAll: (list: readonly SelRef[]) => void;
   deselect: (ids: readonly string[]) => void;
-  replace: (ids: readonly string[]) => void;
+  replace: (ids: readonly string[], known?: readonly SelRef[]) => void;
   clear: () => void;
   hiddenOf: (visibleIds: Iterable<string>) => number;
   allState: (matchingIds: readonly string[]) => 'all' | 'some' | 'none';
@@ -154,7 +157,7 @@ export function useBulkSelection(scope?: string): BulkSelection {
   const toggle = useCallback((ref: SelRef, opts?: ToggleOptions) => setState((s) => toggleRef(s, ref, opts)), []);
   const selectAll = useCallback((list: readonly SelRef[]) => setState((s) => selectMany(s, list)), []);
   const deselect = useCallback((ids: readonly string[]) => setState((s) => deselectIds(s, ids)), []);
-  const replace = useCallback((ids: readonly string[]) => setState((s) => replaceWith(s, ids)), []);
+  const replace = useCallback((ids: readonly string[], known?: readonly SelRef[]) => setState((s) => replaceWith(s, ids, known)), []);
   const clear = useCallback(() => setState(EMPTY_SELECTION), []);
   return useMemo(() => {
     const refs = [...current.refs.values()];

@@ -384,7 +384,7 @@ describe('MyTasksPage: moving the selected tasks to another project', () => {
     await userEvent.click(within(dialog).getByRole('button', { name: 'Project' }));
     await userEvent.click(await screen.findByRole('option', { name: /Operations/ }));
     await userEvent.click(await within(dialog).findByRole('button', { name: /^Move 2 tasks/ }));
-    expect(await screen.findByText('2 updated')).toBeInTheDocument();
+    expect(await screen.findByText('2 moved')).toBeInTheDocument();
     expect(posts.find((p) => p.url.endsWith('/tasks/bulk'))?.body).toEqual({ taskIds: ['t1', 't2'], action: { type: 'project', projectId: 'p2' } });
     expect(posts.some((p) => p.url.endsWith('/tasks/move-to-project'))).toBe(false);
     expect(screen.queryByRole('dialog', { name: 'Move 2 tasks to another project' })).not.toBeInTheDocument();

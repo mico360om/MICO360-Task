@@ -82,6 +82,8 @@ describe('bulk selection: select all matching, filters, limits', () => {
     expect(ids(s)).toEqual(['t2', 't4', 'zz']);
     expect(s.refs.get('t2')).toEqual(ref(2));
     expect(s.refs.get('zz')).toEqual({ id: 'zz', projectId: '' });
+    // After the change the selection was cleared: what was known comes from the tasks it was applied to.
+    expect(replaceWith(EMPTY_SELECTION, ['t5'], list).refs.get('t5')).toEqual(ref(5));
   });
 
   it('more than 500: every change is unavailable; Duplicate stops at 50', () => {

@@ -5,7 +5,7 @@ import { bulkApi, type BulkResult } from '../../api/bulk';
 import type { ApiProject } from '../../api/projects';
 import type { MergeResult } from '../../api/task-merge';
 import { BIN_KEY } from '../../api/recycle-bin';
-import { selectedSpoken, type BulkSelection } from '../../lib/bulk-selection';
+import { selectedSpoken, type BulkSelection, type SelRef } from '../../lib/bulk-selection';
 import { bulkBarActions, type BulkBarActionId } from '../../lib/bulk-words';
 import { bulkMoveAvailability } from '../../lib/task-move';
 import { bulkMergeAvailability, invalidateMergeQueries } from '../../lib/task-merge';
@@ -49,6 +49,8 @@ export function BulkTools({ selection, visibleIds, projects, assignedOf, merge =
   const openTask = useOpenTask();
   const [open, setOpen] = useState<BulkBarActionId | null>(null);
   const [summary, setSummary] = useState<BulkResult | null>(null);
+  // The selection a change was applied to: "Select the 2 skipped" brings them back as they were known.
+  const [appliedTo, setAppliedTo] = useState<SelRef[]>([]);
   const [merged, setMerged] = useState<MergeResult | null>(null);
   const [undoingMerge, setUndoingMerge] = useState<string | null>(null);
   const [mergeNote, setMergeNote] = useState<string | null>(null);
@@ -75,6 +77,7 @@ export function BulkTools({ selection, visibleIds, projects, assignedOf, merge =
 
   function applied(result: BulkResult) {
     setOpen(null);
+    setAppliedTo(selection.refs);
     selection.clear();
     setSummary(result);
     void invalidateTaskQueries(qc);
@@ -102,7 +105,7 @@ export function BulkTools({ selection, visibleIds, projects, assignedOf, merge =
             <BulkSummary
               key={summary.undo?.id ?? JSON.stringify(summary.changed.map((c) => c.id))}
               result={summary}
-              onSelectSkipped={(skipped) => selection.replace(skipped)}
+              onSelectSkipped={(skipped) => selection.replace(skipped, appliedTo)}
               onOpenTask={(id) => openTask(id)}
               onDismiss={() => setSummary(null)}
               onUndone={refreshAfterUndo}

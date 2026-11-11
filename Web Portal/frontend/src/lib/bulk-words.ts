@@ -12,7 +12,7 @@ import { limitReason } from './bulk-selection';
 /** How long the summary offers Undo (the server keeps it a little longer). */
 export const BULK_UNDO_SECONDS = 15;
 
-export type BulkBarActionId = Exclude<BulkActionType, never> | 'merge';
+export type BulkBarActionId = BulkActionType | 'merge';
 
 export interface BarAction {
   id: BulkBarActionId;
@@ -180,6 +180,7 @@ export function confirmLines(result: BulkResult): string[] {
 }
 
 const DONE_WORD: Partial<Record<BulkActionType, [string, string]>> = {
+  project: ['moved', 'not moved'],
   duplicate: ['copied', 'not copied'],
   delete: ['moved to the Recycle Bin', 'not changed'],
   archive: ['archived', 'not changed'],
