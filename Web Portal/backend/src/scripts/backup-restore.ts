@@ -72,6 +72,8 @@ async function main(): Promise<number> {
   say();
   say(`✔ Restored into the database "${report.database}" in ${Math.round((Date.now() - started) / 1000)} s:`);
   say(`  the copy of ${report.createdAt} (MICO360 Tasks ${report.appVersion}) — ${report.tables} tables, ${report.rows} rows${args.noFiles ? '' : `, ${report.files} files (${formatBytes(report.fileBytes)}) into ${args.filesInto}`}.`);
+  // Training Center: its private files go beside the restored uploads folder (where the app looks for them).
+  for (const x of report.extraFolders) say(`  The ${x.files} file(s) of the ${x.name} folder went into ${x.folder} (beside the uploads folder; set TRAINING_FILES_DIR if you move them elsewhere).`);
   say('  Every table and file was read back and matches the copy.');
   for (const w of report.warnings) say(`  Note: ${w}`);
   say();

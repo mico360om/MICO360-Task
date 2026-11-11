@@ -36,17 +36,35 @@ export interface BackupManifest {
   migrations: string[];
   latestMigration: string | null;
   database: { server: string; tables: ManifestTable[] };
-  files: { count: number; bytes: number; skipped: string[] };
+  /** `extra`: the private folders copied beside the uploads (e.g. 'training-files'), each as `<name>/<file>`. */
+  files: { count: number; bytes: number; skipped: string[]; extra?: string[] };
   /** What is deliberately left out, in words. */
   notIncluded: string[];
 }
 
 export interface FileIndexEntry {
+  /** An upload's path under the uploads folder; a private folder's file is `<root>/<its path>`. */
   path: string;
+  /** The private folder it came from (Training Center files: 'training-files'); absent: an upload. */
+  root?: string;
   size: number;
   sha256: string;
   /** The file changed size while the copy was being made (it was copied as far as it went). */
   changed?: boolean;
+}
+
+/** The archive entry a listed file is in: an upload's `files/<path>`, a private folder's `<root>/<path>`. */
+export const fileEntryName = (f: Pick<FileIndexEntry, 'path' | 'root'>): string => (f.root ? f.path : `files/${f.path}`);
+
+const EXTRA_NAME = /^[a-z][a-z0-9-]{0,40}$/;
+const RESERVED_NAMES = new Set(['files', 'database', 'manifest.json', 'files-index.json']);
+
+/** The private folders a copy holds beside the uploads (none in copies made before them). */
+export const extraNamesOf = (m: Pick<BackupManifest, 'files'>): string[] => (Array.isArray(m.files.extra) ? m.files.extra.filter((n) => EXTRA_NAME.test(n) && !RESERVED_NAMES.has(n)) : []);
+
+/** A private folder's name in the copy: lower-case letters, digits and dashes, never one the copy uses itself. */
+function assertExtraName(name: string): void {
+  if (!EXTRA_NAME.test(name) || RESERVED_NAMES.has(name)) throw new Error(`"${name}" is not a folder name a backup copy can use.`);
 }
 
 export interface ArchiveResult {
@@ -76,6 +94,11 @@ export interface WriteArchiveOptions {
   pauseMs?: number;
   /** Folders under uploadDir to leave out. */
   excludeDirs?: string[];
+  /**
+   * Private folders kept beside the uploads (the Training Center's files): each one's files go into the
+   * copy as `<name>/<path>` and are restored beside the restored uploads folder, never inside it.
+   */
+  extraDirs?: { dir: string; name: string }[];
   now?: () => Date;
   /** Opens a file for writing (tests stand in a disk that fills up). */
   openWrite?: (path: string) => Writable;
@@ -165,7 +188,7 @@ interface FoundFile {
 }
 
 /** Every regular file under `dir` (sorted, forward-slash paths), leaving out `exclude` folders. */
-async function listFiles(dir: string, exclude: string[], skipped: string[]): Promise<FoundFile[]> {
+async function listFiles(dir: string, exclude: string[], skipped: string[], prefix = 'files'): Promise<FoundFile[]> {
   const out: FoundFile[] = [];
   const excluded = new Set(exclude.map((d) => join(d)));
   async function walk(abs: string, rel: string): Promise<void> {
@@ -183,7 +206,7 @@ async function listFiles(dir: string, exclude: string[], skipped: string[]): Pro
       if (excluded.has(join(childAbs))) continue;
       if (e.isDirectory()) await walk(childAbs, childRel);
       else if (e.isFile()) {
-        if (isSafeEntryName(`files/${childRel}`)) out.push({ rel: childRel, abs: childAbs });
+        if (isSafeEntryName(`${prefix}/${childRel}`)) out.push({ rel: childRel, abs: childAbs });
         else skipped.push(childRel);
       }
       // Links and other special files are not copied.
@@ -211,6 +234,7 @@ async function readMigrations(sql: SqlRunner): Promise<string[]> {
  * everything is streamed through gzip (and the encryption, when a key is set) to disk.
  */
 export async function writeBackupArchive(opts: WriteArchiveOptions): Promise<ArchiveResult> {
+  for (const x of opts.extraDirs ?? []) assertExtraName(x.name);
   const now = opts.now ?? (() => new Date());
   const createdAt = now();
   const partial = `${opts.outFile}.partial`;
@@ -267,7 +291,13 @@ export async function writeBackupArchive(opts: WriteArchiveOptions): Promise<Arc
     });
 
     const skipped: string[] = [];
-    const files = await listFiles(opts.uploadDir, [opts.workDir, ...(opts.excludeDirs ?? [])], skipped);
+    const uploaded = await listFiles(opts.uploadDir, [opts.workDir, ...(opts.excludeDirs ?? [])], skipped);
+    // Each file's entry name, and (for a private folder's file) the folder it is restored into.
+    const files: (FoundFile & { entry: string; root?: string })[] = uploaded.map((f) => ({ ...f, entry: `files/${f.rel}` }));
+    for (const x of opts.extraDirs ?? []) {
+      const own = await listFiles(x.dir, [opts.workDir, ...(opts.excludeDirs ?? [])], skipped, x.name);
+      files.push(...own.map((f) => ({ abs: f.abs, rel: `${x.name}/${f.rel}`, entry: `${x.name}/${f.rel}`, root: x.name })));
+    }
     const manifest: BackupManifest = {
       format: BACKUP_FORMAT,
       formatVersion: BACKUP_FORMAT_VERSION,
@@ -277,13 +307,13 @@ export async function writeBackupArchive(opts: WriteArchiveOptions): Promise<Arc
       migrations: db.migrations,
       latestMigration: db.migrations.at(-1) ?? null,
       database: { server: db.server, tables: db.tables.map(({ file: _file, ...t }) => t) },
-      files: { count: 0, bytes: 0, skipped },
+      files: { count: 0, bytes: 0, skipped, ...(opts.extraDirs?.length ? { extra: opts.extraDirs.map((x) => x.name) } : {}) },
       notIncluded: ['The Android app file (downloads folder): it is in every release package.'],
     };
 
     // The file count and size are known only once each file is opened; the manifest has the plan.
     const plannedBytes = await Promise.all(files.map(async (f) => (await stat(f.abs).catch(() => null))?.size ?? 0));
-    manifest.files = { count: files.length, bytes: plannedBytes.reduce((a, b) => a + b, 0), skipped };
+    manifest.files = { ...manifest.files, count: files.length, bytes: plannedBytes.reduce((a, b) => a + b, 0), skipped };
     const index: FileIndexEntry[] = [];
     // The archive, piece by piece. It is pulled by the pipeline below, so when the output fails (a
     // full disk) the pipeline ends this generator where it is, and the copy fails at once.
@@ -301,8 +331,8 @@ export async function writeBackupArchive(opts: WriteArchiveOptions): Promise<Arc
         try {
           const info = await handle.stat();
           const src = info.size > 0 ? handle.createReadStream({ start: 0, end: info.size - 1, autoClose: false }) : Readable.from([]);
-          const res = yield* tarStreamEntry(`files/${f.rel}`, info.size, src, info.mtime);
-          index.push({ path: f.rel, size: info.size, sha256: res.sha256, ...(res.written !== info.size ? { changed: true } : {}) });
+          const res = yield* tarStreamEntry(f.entry, info.size, src, info.mtime);
+          index.push({ path: f.rel, ...(f.root ? { root: f.root } : {}), size: info.size, sha256: res.sha256, ...(res.written !== info.size ? { changed: true } : {}) });
         } finally {
           await handle.close();
         }
@@ -467,17 +497,20 @@ export async function verifyArchive(file: string, key?: string): Promise<Archive
   let manifest: BackupManifest | null = null;
   let index: FileIndexEntry[] | null = null;
   const tablesSeen = new Map<string, { sha256: string; lines: number }>();
+  // Every file entry by its entry name (an upload's `files/<path>`, a private folder's `<root>/<path>`).
   const filesSeen = new Map<string, string>();
+  let extra = new Set<string>();
   for await (const entry of openArchiveEntries(file, key)) {
     if (entry.name === 'manifest.json') {
       manifest = JSON.parse((await readAll(entry.body)).toString('utf8')) as BackupManifest;
       if (manifest.format !== BACKUP_FORMAT) throw new RestoreError('This is not a MICO360 Tasks backup.');
       if (manifest.formatVersion > BACKUP_FORMAT_VERSION) throw new RestoreError('This copy was made by a newer version of MICO360 Tasks. Update the app first, then restore.');
+      extra = new Set(extraNamesOf(manifest));
     } else if (entry.name.startsWith('database/') && entry.name.endsWith('.jsonl')) {
       const h = await hashEntry(entry.body);
       tablesSeen.set(entry.name.slice('database/'.length, -'.jsonl'.length), h);
-    } else if (entry.name.startsWith('files/')) {
-      filesSeen.set(entry.name.slice('files/'.length), (await hashEntry(entry.body)).sha256);
+    } else if (entry.name.startsWith('files/') || extra.has(entry.name.split('/')[0]!)) {
+      filesSeen.set(entry.name, (await hashEntry(entry.body)).sha256);
     } else if (entry.name === 'files-index.json') {
       index = JSON.parse((await readAll(entry.body)).toString('utf8')) as FileIndexEntry[];
     } else entry.body.resume();
@@ -490,7 +523,8 @@ export async function verifyArchive(file: string, key?: string): Promise<Archive
     if (seen.sha256 !== t.sha256 || seen.lines !== t.rows) throw new RestoreError(`The backup file is damaged (table ${t.name} does not match its checksum).`);
   }
   for (const f of index) {
-    const seen = filesSeen.get(f.path);
+    if (f.root !== undefined && !extra.has(f.root)) throw new RestoreError(`The backup file is damaged (file ${f.path} is in no folder it lists).`);
+    const seen = filesSeen.get(fileEntryName(f));
     if (seen === undefined) throw new RestoreError(`The backup file is incomplete (file ${f.path} is missing).`);
     if (seen !== f.sha256) throw new RestoreError(`The backup file is damaged (file ${f.path} does not match its checksum).`);
   }

@@ -6,7 +6,8 @@ import { dirname, join, resolve, sep } from 'node:path';
 import { Transform, type Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { PrismaClient } from '@prisma/client';
-import { MIGRATIONS_TABLE, entryLines, openArchiveEntries, verifyArchive, type BackupManifest, type ManifestTable } from './backup-archive';
+import { MIGRATIONS_TABLE, entryLines, extraNamesOf, fileEntryName, openArchiveEntries, verifyArchive, type BackupManifest, type ManifestTable } from './backup-archive';
+import { isInside } from './backup-config';
 import { RestoreError } from './backup-errors';
 import { dumpRows, insertBatches, listTables, quoteId, type TableInfo } from './db-dump';
 import { prismaSqlRunner, type SqlRunner } from './sql-runner';
@@ -22,6 +23,12 @@ export interface RestoreOptions {
   targetUrl: string;
   /** Where the uploaded files go (empty or new, unless `forceFiles`); null/undefined = leave the files out. */
   filesInto?: string | null;
+  /**
+   * Where each private folder of the copy goes (the Training Center's 'training-files'): by default beside
+   * `filesInto`, named after it (where the app looks for it beside its uploads folder) — never inside the
+   * uploads folder, which the website serves. null = leave that folder's files out.
+   */
+  extraInto?: Record<string, string | null>;
   /** Wipe a database that already holds tables (--force). */
   force?: boolean;
   /** Write into a files folder that already holds files (--force-files): asked for on its own. */
@@ -44,6 +51,8 @@ export interface RestoreReport {
   rows: number;
   files: number;
   fileBytes: number;
+  /** The private folders restored beside the uploads (the Training Center's files), with how many files each. */
+  extraFolders: { name: string; folder: string; files: number }[];
   warnings: string[];
 }
 
@@ -231,6 +240,18 @@ export async function restoreBackup(opts: RestoreOptions): Promise<RestoreReport
   if (filesInto && folderHasFiles(filesInto) && !opts.forceFiles) {
     throw new RestoreError(`The folder ${filesInto} is not empty. Restore the files into a new, empty folder (or add --force-files to write into this one).`);
   }
+  // The copy's private folders (the Training Center's files): beside the uploads folder, never inside it.
+  const extraInto = new Map<string, string>();
+  for (const x of extraNamesOf(manifest)) {
+    const asked = opts.extraInto && x in opts.extraInto ? opts.extraInto[x] : undefined;
+    const dest = asked === null ? null : asked !== undefined ? resolve(asked) : filesInto ? join(dirname(filesInto), x) : null;
+    if (!dest) continue;
+    if (filesInto && isInside(dest, filesInto)) throw new RestoreError(`The folder for the ${x} (${dest}) is inside the uploads folder, which the website serves. Choose a folder beside it.`);
+    if (folderHasFiles(dest) && !opts.forceFiles) {
+      throw new RestoreError(`The folder ${dest} is not empty. Restore the ${x} into a new, empty folder (or add --force-files to write into this one).`);
+    }
+    extraInto.set(x, dest);
+  }
 
   const target = await openTarget(opts.targetUrl, name, opts.createDatabase);
   const writtenFiles = new Map<string, string>();
@@ -245,7 +266,7 @@ export async function restoreBackup(opts: RestoreOptions): Promise<RestoreReport
     try {
       return await loadInto(sql, count);
     } catch (err) {
-      throw partialRestore(err, name, writtenFiles.size ? filesInto : null);
+      throw partialRestore(err, name, writtenFiles.size ? [filesInto, ...extraInto.values()].filter((d): d is string => !!d).join(' and ') : null);
     }
   } finally {
     await target.$disconnect();
@@ -294,10 +315,12 @@ export async function restoreBackup(opts: RestoreOptions): Promise<RestoreReport
         await loadTable(sql, { name: t.name, columns: t.columns, primaryKey: t.primaryKey }, entry.body, digest, typesOf(t));
         loadedTables += 1;
         if (loadedTables % 10 === 0) log(`  ${loadedTables} of ${toLoad.length} tables loaded`);
-      } else if (entry.name.startsWith('files/') && filesInto) {
-        const rel = entry.name.slice('files/'.length);
-        const dest = resolve(filesInto, ...rel.split('/'));
-        if (!isSafeEntryName(entry.name) || !dest.startsWith(filesInto + sep)) {
+      } else if ((entry.name.startsWith('files/') && filesInto) || extraInto.has(entry.name.split('/')[0]!)) {
+        const top = entry.name.split('/')[0]!;
+        const into = top === 'files' ? filesInto! : extraInto.get(top)!;
+        const rel = entry.name.slice(top.length + 1);
+        const dest = resolve(into, ...rel.split('/'));
+        if (!isSafeEntryName(entry.name) || !dest.startsWith(into + sep)) {
           warnings.push(`A file with an unsafe name was left out: ${rel}`);
           entry.body.resume();
           continue;
@@ -314,7 +337,7 @@ export async function restoreBackup(opts: RestoreOptions): Promise<RestoreReport
           }),
           createWriteStream(dest),
         );
-        writtenFiles.set(rel, hash.digest('hex'));
+        writtenFiles.set(entry.name, hash.digest('hex'));
       } else entry.body.resume();
     }
 
@@ -330,11 +353,10 @@ export async function restoreBackup(opts: RestoreOptions): Promise<RestoreReport
     }
     const migrationsHere = (await sql.query<{ m: string }>(`SELECT migration_name AS m FROM \`${MIGRATIONS_TABLE}\` WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL ORDER BY migration_name`)).map((r) => r.m);
     if (migrationsHere.join('|') !== manifest.migrations.join('|')) problems.push('the list of database changes differs from the copy');
-    if (filesInto) {
-      for (const f of check.index) {
-        if (writtenFiles.get(f.path) !== f.sha256) problems.push(`file ${f.path} does not match the copy`);
-        if (f.changed) warnings.push(`${f.path} was being changed while the copy was made; it is restored as far as it went.`);
-      }
+    for (const f of check.index) {
+      if (f.root ? !extraInto.has(f.root) : !filesInto) continue; // left out (no folder given)
+      if (writtenFiles.get(fileEntryName(f)) !== f.sha256) problems.push(`file ${f.path} does not match the copy`);
+      if (f.changed) warnings.push(`${f.path} was being changed while the copy was made; it is restored as far as it went.`);
     }
     if (problems.length) throw new RestoreError(`The restored data does not match the copy:\n- ${problems.slice(0, 10).join('\n- ')}`);
     // The copy's own row in the backup list says "being made" (it was, when the copy was taken). Left in,
@@ -342,7 +364,12 @@ export async function restoreBackup(opts: RestoreOptions): Promise<RestoreReport
     if (made.has('backup_runs') && (await sql.execute("DELETE FROM `backup_runs` WHERE `status` = 'RUNNING'")) > 0) {
       warnings.push('The entry for this copy, which was being made when it was taken, is left out of the restored list of backups.');
     }
-    if (!filesInto && check.files) warnings.push(`The ${check.files} uploaded files were not restored (no folder was given).`);
+    const uploadsInCopy = check.index.filter((f) => !f.root).length;
+    if (!filesInto && uploadsInCopy) warnings.push(`The ${uploadsInCopy} uploaded files were not restored (no folder was given).`);
+    for (const x of extraNamesOf(manifest)) {
+      const n = check.index.filter((f) => f.root === x).length;
+      if (n && !extraInto.has(x)) warnings.push(`The ${n} files of the ${x} folder were not restored (no folder was given).`);
+    }
     if (manifest.files.skipped.length) warnings.push(`${manifest.files.skipped.length} file(s) with unusual names were not in the copy.`);
 
     return {
@@ -352,8 +379,9 @@ export async function restoreBackup(opts: RestoreOptions): Promise<RestoreReport
       latestMigration: manifest.latestMigration,
       tables: toLoad.length,
       rows: toLoad.reduce((n, t) => n + t.rows, 0),
-      files: filesInto ? writtenFiles.size : 0,
-      fileBytes: filesInto ? check.fileBytes : 0,
+      files: writtenFiles.size,
+      fileBytes: check.index.filter((f) => (f.root ? extraInto.has(f.root) : !!filesInto)).reduce((n, f) => n + f.size, 0),
+      extraFolders: [...extraInto].map(([x, folder]) => ({ name: x, folder, files: check.index.filter((f) => f.root === x).length })),
       warnings,
     };
   }

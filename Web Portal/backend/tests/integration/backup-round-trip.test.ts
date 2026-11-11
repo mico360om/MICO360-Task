@@ -383,6 +383,26 @@ describe('Backup → restore round trip (integration)', () => {
     }
   }, 120_000);
 
+  it('Training Center: the private training folder is in the copy and comes back beside the uploads folder, never inside it', async () => {
+    const training = join(work, 'training-files');
+    mkdirSync(training, { recursive: true });
+    writeFileSync(join(training, 'guide-1.pdf'), Buffer.from('%PDF-1.7 a private training guide'));
+    writeFileSync(join(training, 'step-1.webp'), randomBytes(2048));
+    const copy = join(work, 'with-training.tar.gz');
+    const res = await writeBackupArchive({ sql: prismaSqlRunner(prisma), uploadDir: uploads, outFile: copy, workDir: join(work, 'w-tr'), appVersion: 't', trigger: 'manual', extraDirs: [{ dir: training, name: 'training-files' }] });
+    expect(res.files).toBe(6);
+    const restoredUploads = join(work, 'rt-train', 'uploads');
+    const report = await restoreBackup(restoreOpts(copy, { force: true, filesInto: restoredUploads }));
+    expect(report.files).toBe(6);
+    expect(report.extraFolders).toEqual([{ name: 'training-files', folder: join(work, 'rt-train', 'training-files'), files: 2 }]);
+    expect(filesUnder(restoredUploads)).toEqual(filesUnder(uploads));
+    expect(filesUnder(join(work, 'rt-train', 'training-files'))).toEqual(filesUnder(training));
+    // Asked to put them inside the uploads folder (which the website serves): refused before anything changes.
+    await expect(restoreBackup(restoreOpts(copy, { force: true, filesInto: join(work, 'rt-in', 'uploads'), extraInto: { 'training-files': join(work, 'rt-in', 'uploads', 'tf') } }))).rejects.toThrow(/inside the uploads folder/);
+    // The training folder beside it already holds files: --force-files is needed, as for the uploads.
+    await expect(restoreBackup(restoreOpts(copy, { force: true, filesInto: join(work, 'rt-train', 'uploads-2') }))).rejects.toThrow(/not empty/);
+  }, 240_000);
+
   it('checking a copy on its own (no database) confirms it is whole', async () => {
     const check = await verifyArchive(plainCopy);
     expect(check).toMatchObject({ tables: expect.any(Number), files: 4 });

@@ -13,12 +13,14 @@ import { createGoogleDrive, googleUrls } from './google-drive';
 import { createOneTimeTokens } from './one-time-tokens';
 import { createPrismaBackupLock, createPrismaBackupRepository } from './prisma-backup-repository';
 import { prismaSqlRunner } from './sql-runner';
+import { trainingFilesDirFor } from '../training/training-files';
 
 type BackupEnv = Pick<
   Env,
   | 'NODE_ENV'
   | 'BACKUP_DIR'
   | 'UPLOAD_DIR'
+  | 'TRAINING_FILES_DIR'
   | 'WEB_ROOT'
   | 'BACKUP_ENCRYPTION_KEY'
   | 'BACKUP_NIGHTLY'
@@ -56,6 +58,8 @@ export function createBackupsFromPrisma(prisma: PrismaClient, opts: BackupWiring
   const { env, cwd } = opts;
   const backupDir = resolveBackupDir(env, cwd);
   const uploadDir = resolve(cwd, env.UPLOAD_DIR);
+  // Training Center: its private files (beside the uploads, never served) are in every copy too.
+  const extraDirs = [{ dir: trainingFilesDirFor(env, cwd), name: 'training-files' }];
   const webRoot = env.WEB_ROOT ? resolve(cwd, env.WEB_ROOT) : null;
   const appDir = appFolder(cwd);
   const sql = prismaSqlRunner(prisma);
@@ -80,7 +84,7 @@ export function createBackupsFromPrisma(prisma: PrismaClient, opts: BackupWiring
     repo: createPrismaBackupRepository(prisma),
     lock: createPrismaBackupLock(prisma),
     writeArchive: (o) =>
-      writeBackupArchive({ ...o, sql, uploadDir, appVersion: opts.appVersion, encryptionKey: env.BACKUP_ENCRYPTION_KEY || undefined, pauseMs: 5, excludeDirs: [backupDir] }),
+      writeBackupArchive({ ...o, sql, uploadDir, appVersion: opts.appVersion, encryptionKey: env.BACKUP_ENCRYPTION_KEY || undefined, pauseMs: 5, excludeDirs: [backupDir], extraDirs }),
     backupDir,
     // In production a folder inside the app is refused (a deployment replaces it); elsewhere it is warned about.
     dirProblem: backupDirProblem(backupDir, { uploadDir, webRoot, assetsDir: resolve(cwd, 'assets'), appDir, production: env.NODE_ENV === 'production' }),
@@ -90,7 +94,7 @@ export function createBackupsFromPrisma(prisma: PrismaClient, opts: BackupWiring
     timeZone: opts.timeZone,
     weekStart: opts.weekStart,
     freeSpace: diskFree,
-    neededSpace: () => estimateBackupBytes(sql, uploadDir),
+    neededSpace: () => estimateBackupBytes(sql, uploadDir, extraDirs.map((x) => x.dir)),
     alertAdmins: opts.alertAdmins,
     notices: noticesIn(prismaSettingKeyValue(prisma, 'backups.notices')),
     production: env.NODE_ENV === 'production',

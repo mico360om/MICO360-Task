@@ -56,6 +56,9 @@ const EnvSchema = z.object({
   // Optional link for the web app's "Download for Android" button (e.g. a Play Store or file URL).
   ANDROID_APP_URL: z.string().optional().default(''),
   UPLOAD_DIR: z.string().default('uploads'),
+  // Training Center files (private: served only after the course's audience check); blank =
+  // `training-files` beside UPLOAD_DIR. Never inside UPLOAD_DIR, which the website serves to anyone.
+  TRAINING_FILES_DIR: z.string().optional().default(''),
   // Folder for the hosted Android app (MICO360-Tasks.apk) that deploys keep; blank = `downloads`
   // beside UPLOAD_DIR. Served at /downloads/MICO360-Tasks.apk before any copy in WEB_ROOT.
   DOWNLOADS_DIR: z.string().optional().default(''),

@@ -37,8 +37,11 @@ async function folderBytes(dir: string): Promise<number> {
  * About how much room a copy needs while it is made: the uploads, the database twice (its table
  * files in the work folder, then inside the copy — before compression) and 50 MB to spare.
  */
-export async function estimateBackupBytes(sql: SqlRunner, uploadDir: string): Promise<number> {
+export async function estimateBackupBytes(sql: SqlRunner, uploadDir: string, extraDirs: string[] = []): Promise<number> {
   const rows = await sql.query<{ n: bigint | number | string | null }>('SELECT COALESCE(SUM(DATA_LENGTH), 0) AS n FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()');
   const db = Number(rows[0]?.n ?? 0);
-  return (await folderBytes(uploadDir)) + 2 * db + SPARE;
+  // The private folders beside the uploads (the Training Center's files) are in the copy too.
+  let files = await folderBytes(uploadDir);
+  for (const d of extraDirs) files += await folderBytes(d);
+  return files + 2 * db + SPARE;
 }

@@ -97,6 +97,72 @@ describe('writing a copy', () => {
   });
 });
 
+describe('the private training folder (Training Center files, never under the uploads)', () => {
+  let dir: string;
+  let uploads: string;
+  let training: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'mico-bk-extra-'));
+    uploads = join(dir, 'uploads');
+    training = join(dir, 'training-files');
+    mkdirSync(uploads, { recursive: true });
+    writeFileSync(join(uploads, 'note.txt'), 'hello');
+    // An uploads sub-folder that happens to share the name stays an upload.
+    mkdirSync(join(uploads, 'training-files'), { recursive: true });
+    writeFileSync(join(uploads, 'training-files', 'public.txt'), 'an upload');
+    mkdirSync(training, { recursive: true });
+    writeFileSync(join(training, 'a1.pdf'), '%PDF-1.7 private guide');
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  const opts = (over: Partial<WriteArchiveOptions> = {}): WriteArchiveOptions => ({
+    sql: fakeSqlRunner([NOTES]),
+    uploadDir: uploads,
+    outFile: join(dir, 'copy.tar.gz'),
+    workDir: join(dir, '.work'),
+    appVersion: 't',
+    trigger: 'manual',
+    extraDirs: [{ dir: training, name: 'training-files' }],
+    ...over,
+  });
+  const names = async (file: string) => {
+    const out: string[] = [];
+    for await (const e of openArchiveEntries(file)) {
+      out.push(e.name);
+      e.body.resume();
+    }
+    return out;
+  };
+
+  it('copies the folder’s files as training-files/<name>, listed and checked like the uploads', async () => {
+    const res = await writeBackupArchive(opts());
+    expect(res.files).toBe(3);
+    const file = join(dir, 'copy.tar.gz');
+    const all = await names(file);
+    expect(all).toContain('training-files/a1.pdf');
+    expect(all).toContain('files/note.txt');
+    expect(all).toContain('files/training-files/public.txt');
+    const check = await verifyArchive(file);
+    expect(check.files).toBe(3);
+    expect(check.manifest.files).toMatchObject({ count: 3, extra: ['training-files'] });
+    expect(check.index.find((f) => f.root === 'training-files')).toMatchObject({ path: 'training-files/a1.pdf', root: 'training-files' });
+    // The upload whose folder shares the name is an upload (no root), told apart from the private file.
+    expect(check.index.find((f) => f.path === 'training-files/public.txt')?.root).toBeUndefined();
+  });
+
+  it('a folder that doesn’t exist yet (no training files) is fine', async () => {
+    const res = await writeBackupArchive(opts({ extraDirs: [{ dir: join(dir, 'missing'), name: 'training-files' }] }));
+    expect(res.files).toBe(2);
+    expect((await verifyArchive(join(dir, 'copy.tar.gz'))).files).toBe(2);
+  });
+
+  it('refuses a name the copy uses for itself', async () => {
+    for (const name of ['files', 'database', 'manifest.json', 'files-index.json', '../x', 'Training Files']) {
+      await expect(writeBackupArchive(opts({ extraDirs: [{ dir: training, name }] }))).rejects.toThrow(/folder name/);
+    }
+  });
+});
+
 async function lines(chunks: Buffer[]): Promise<string[]> {
   const out: string[] = [];
   for await (const l of entryLines(Readable.from(chunks, { objectMode: false }))) out.push(l);

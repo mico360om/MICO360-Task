@@ -29,4 +29,14 @@ describe('room for a backup', () => {
     expect(await estimateBackupBytes(sql, dir)).toBe(1500 + 2 * 4000 + 50 * 1024 * 1024);
     expect(await estimateBackupBytes(sql, join(dir, 'missing'))).toBe(2 * 4000 + 50 * 1024 * 1024);
   });
+
+  it('counts the private training folder too (it is in the copy)', async () => {
+    dir = mkdtempSync(join(tmpdir(), 'mico-bk-space-'));
+    mkdirSync(join(dir, 'uploads'));
+    mkdirSync(join(dir, 'training-files'));
+    writeFileSync(join(dir, 'uploads', 'a.bin'), Buffer.alloc(1000));
+    writeFileSync(join(dir, 'training-files', 't.pdf'), Buffer.alloc(300));
+    const sql = { query: async () => [{ n: 0 }] } as unknown as SqlRunner;
+    expect(await estimateBackupBytes(sql, join(dir, 'uploads'), [join(dir, 'training-files'), join(dir, 'missing')])).toBe(1300 + 50 * 1024 * 1024);
+  });
 });
