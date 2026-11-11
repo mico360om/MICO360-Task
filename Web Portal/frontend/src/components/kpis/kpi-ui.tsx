@@ -188,7 +188,7 @@ export function KpiTileCard({ tile, points, onOpen }: { tile: KpiTile; points: T
       </span>
     </>
   );
-  const cls = 'card flex h-full min-w-0 flex-col p-4 text-start';
+  const cls = 'card flex h-full w-full min-w-0 flex-col p-4 text-start';
   if (tile.list && onOpen) {
     return (
       <button type="button" data-kpi={tile.metric} className={`${cls} transition-shadow hover:shadow-lift focus-visible:ring-2 focus-visible:ring-brand/40`} onClick={(e) => onOpen(tile, e.currentTarget)} aria-label={`${tile.label}: ${value}${tile.words ? `, ${tile.words}` : ''}. Show the list`} aria-describedby={describedBy}>
