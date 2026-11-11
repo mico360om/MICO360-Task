@@ -273,3 +273,34 @@ describe('pictures for documents get a time limit', () => {
     ]);
   });
 });
+
+describe('a photo as a face (avatar thumbnails, 11 Nov)', () => {
+  it('any photo becomes a 256-pixel square WebP, cut to the middle and far smaller', async () => {
+    const shrinker = createImageShrinker(quiet());
+    const big = await photo(2400, 1600).jpeg({ quality: 95 }).toBuffer();
+    const face = await shrinker.toFace(big);
+    expect(face).not.toBeNull();
+    const meta = await sharp(face!).metadata();
+    expect([meta.format, meta.width, meta.height]).toEqual(['webp', 256, 256]);
+    expect(face!.length).toBeLessThan(big.length / 10);
+  });
+
+  it('a small picture is never made bigger (a square of its short side)', async () => {
+    const shrinker = createImageShrinker(quiet());
+    const small = await photo(120, 80).png().toBuffer();
+    const meta = await sharp((await shrinker.toFace(small))!).metadata();
+    expect([meta.width, meta.height]).toEqual([80, 80]);
+  });
+
+  it('null when it is not a picture or the library can’t load (the face then uses the photo itself), with a time limit', async () => {
+    const shrinker = createImageShrinker(quiet());
+    expect(await shrinker.toFace(Buffer.from('not a picture'))).toBeNull();
+    const broken = createImageShrinker({ ...quiet(), load: async () => { throw new Error('missing libvips'); } });
+    expect(await broken.toFace(await photo(40, 40).png().toBuffer())).toBeNull();
+    const steps: string[] = [];
+    const pipeline: object = new Proxy({}, { get: (_t, name) => (name === 'then' ? undefined : name === 'toBuffer' ? async () => Buffer.from('made') : (...args: unknown[]) => (steps.push(`${String(name)}${name === 'timeout' ? JSON.stringify(args) : ''}`), pipeline)) });
+    const library = Object.assign(() => pipeline, { concurrency: () => 1, cache: () => undefined });
+    await createImageShrinker({ ...quiet(), load: async () => library as never }).toFace(Buffer.from('picture'));
+    expect(steps).toContain('timeout[{"seconds":10}]');
+  });
+});

@@ -19,6 +19,9 @@ let collecting: boolean;
 let warned: string[];
 let service: ErrorLogService;
 let serverVersion: string | null;
+/** 1.23.14: whether the server is stopping or just started (an update restart), and which. */
+let inUpdateWindow: boolean;
+let updatePhase: 'stopping' | 'starting';
 
 function make(opts: { webRoot?: string | null; perAddress?: number; serverPerMinute?: number; reportsPerAddress?: number; reportsPerMinute?: number; newRowsPerHour?: number } = {}) {
   service = createErrorLogService({
@@ -37,6 +40,7 @@ function make(opts: { webRoot?: string | null; perAddress?: number; serverPerMin
       newRowsPerHour: opts.newRowsPerHour ?? 300,
     },
     userNames: async (ids) => new Map(ids.filter((id) => id !== 'gone').map((id) => [id, `Name of ${id}`])),
+    updateWindow: () => (inUpdateWindow ? updatePhase : null),
   });
 }
 
@@ -46,6 +50,8 @@ beforeEach(() => {
   collecting = true;
   warned = [];
   serverVersion = '1.22.4';
+  inUpdateWindow = false;
+  updatePhase = 'starting';
   make();
 });
 
@@ -558,3 +564,117 @@ describe('server errors from MICO360 AI keep their ids', () => {
   });
 });
 
+// 1.23.14 — where a slow request's time went, from the browser's own Resource Timing: waiting for a free
+// connection, connecting, waiting for the first byte, downloading — beside the server's own time.
+describe('a slow request: where the time went, from the browser (1.23.14)', () => {
+  const slow = (over: Record<string, unknown> = {}) => ({ kind: 'SLOW', detail: 'api', value: 10_550, page: '/board', resource: 'GET /api/v1/tasks', ...over });
+  const parts = { queueMs: 0, connectMs: 30, waitMs: 10_400, downloadMs: 120 };
+
+  it('each occurrence keeps its four parts with the server’s time; the row shows the latest', async () => {
+    service.acceptClientBatch({ body: batch(slow({ serverMs: 48.2, dbMs: 12.5, ...parts })), ip: '1', userAgent: CHROME, userId: 'u1' });
+    await service.settled();
+    const [row] = (await service.list({ kind: 'slow', range: '30d', q: null, status: 'open', before: null })).groups;
+    expect(row!.timing).toEqual({ totalMs: 10_550, serverMs: 48.2, dbMs: 12.5, ...parts });
+    const d = await service.detail(row!.id);
+    expect(d!.events[0]).toMatchObject({ stack: null, timing: { totalMs: 10_550, serverMs: 48.2, dbMs: 12.5, ...parts } });
+  });
+
+  it('the parts without the server’s time (an answer from the hosting’s front door): the server’s time unknown', async () => {
+    service.acceptClientBatch({ body: batch(slow(parts)), ip: '1', userAgent: CHROME, userId: 'u1' });
+    await service.settled();
+    const [row] = (await service.list({ kind: 'slow', range: '30d', q: null, status: 'open', before: null })).groups;
+    expect(row!.timing).toEqual({ totalMs: 10_550, serverMs: null, dbMs: null, ...parts });
+  });
+});
+
+// 1.23.14 — an update restart is not an error. The live log's "The database couldn't be reached (P1001)"
+// came at deploy restarts (several that evening), answered 503 and tried again as 1.23.1 designed: while the
+// server is stopping or in its first minute, a database blip is the update's calm row, never a red Server
+// error, and never brings back a row marked fixed.
+describe('update restarts (1.23.14)', () => {
+  const blip = (code = 'P1001') => {
+    const e = new Prisma.PrismaClientKnownRequestError("Can't reach database server at `srv123.hstgr.io`:`3306`", { code, clientVersion: '5.22.0' });
+    e.stack = 'PrismaClientKnownRequestError: x\n    at Object.list (/srv/app/dist/src/modules/chat/chat-service.js:12:5)';
+    return e;
+  };
+  const all = async (status: 'open' | 'fixed' = 'open', kind: 'all' | 'server' = 'all') => service.list({ kind, range: '30d', q: null, status, before: null });
+
+  it('a database blip while the server stops or starts: one calm Update row (its page, person and code kept)', async () => {
+    inUpdateWindow = true;
+    updatePhase = 'stopping';
+    service.recordServer('request failed', { method: 'GET', route: '/api/v1/conversations', status: 503, err: blip('P1001'), userId: 'u1' });
+    updatePhase = 'starting';
+    service.recordServer('request failed', { method: 'GET', route: '/api/v1/tasks', status: 503, err: blip('P1017'), userId: 'u2' });
+    service.recordServer('daily task emails failed', { err: blip('P1001'), job: 'daily-task-emails' });
+    await service.settled();
+    expect(repo.groups).toHaveLength(1);
+    expect(repo.groups[0]).toMatchObject({ kind: 'UPDATE', title: 'During an update: the database was briefly unreachable — handled', count: 3, peopleCount: 2 });
+    const d = await service.detail(repo.groups[0]!.id);
+    // Each occurrence says which side of the restart it was: the old server stopping, or a new one starting.
+    expect(d!.events.map((e) => [e.detail, e.page ?? e.job]).sort()).toEqual([
+      ['starting', 'GET /api/v1/tasks'],
+      ['starting', 'daily-task-emails'],
+      ['stopping', 'GET /api/v1/conversations'],
+    ]);
+    expect(d!.events.find((e) => e.page === 'GET /api/v1/tasks')!.database).toMatch(/^P1017 · /);
+    // With the Server chip, and counted there; an older page (that doesn't ask for them) sees a Server row.
+    const server = await service.list({ kind: 'server', range: '30d', q: null, status: 'open', before: null, updateKind: true });
+    expect(server.groups.map((g) => g.kind)).toEqual(['UPDATE']);
+    expect((await all('open', 'server')).groups.map((g) => g.kind)).toEqual(['SERVER']);
+    expect(server.counts).toMatchObject({ server: 1, all: 1 });
+  });
+
+  it('outside that window it stays a real Server error; an error that isn’t a blip is a Server error in the window too', async () => {
+    service.recordServer('request failed', { method: 'GET', route: '/api/v1/conversations', status: 503, err: blip('P1001'), userId: 'u1' });
+    inUpdateWindow = true;
+    service.recordServer('request failed', { method: 'GET', route: '/api/v1/tasks', status: 500, err: new TypeError('x is undefined'), userId: 'u1' });
+    await service.settled();
+    expect(repo.groups.map((g) => [g.kind, g.title]).sort()).toEqual([
+      ['SERVER', 'The database couldn’t be reached (P1001)'],
+      ['SERVER', 'x is undefined'],
+    ]);
+  });
+
+  it('never brings back a row marked fixed: neither the old Server row nor the Update row itself', async () => {
+    service.recordServer('request failed', { method: 'GET', route: '/api/v1/conversations', status: 503, err: blip('P1001'), userId: 'u1' });
+    await service.settled();
+    const p1001 = repo.groups[0]!;
+    await service.markFixed(p1001.id, 'admin1');
+    serverVersion = '1.23.14';
+    inUpdateWindow = true;
+    clock = new Date('2026-11-12T08:00:00Z');
+    service.recordServer('request failed', { method: 'GET', route: '/api/v1/conversations', status: 503, err: blip('P1001'), userId: 'u1' });
+    await service.settled();
+    expect(repo.groups.find((g) => g.id === p1001.id)).toMatchObject({ status: 'FIXED', count: 1 });
+    const update = repo.groups.find((g) => g.kind === 'UPDATE')!;
+    await service.markFixed(update.id, 'admin1');
+    serverVersion = '1.23.15';
+    clock = new Date('2026-11-13T08:00:00Z');
+    service.recordServer('request failed', { method: 'GET', route: '/api/v1/tasks', status: 503, err: blip('P1001'), userId: 'u2' });
+    await service.settled();
+    expect(repo.groups.find((g) => g.id === update.id)).toMatchObject({ status: 'FIXED', count: 2 }); // counted, not back
+    expect((await all()).groups).toEqual([]);
+  });
+
+  it('as the page saw it: a request cut, or held up while the server started — Update rows too, with the Server chip', async () => {
+    service.acceptClientBatch({
+      body: batch(
+        { kind: 'UPDATE', detail: 'api', page: '/dashboard', resource: 'GET /api/v1/dashboard/priorities' },
+        { kind: 'UPDATE', detail: 'slow', value: 29_750, page: '/board', resource: 'GET /api/v1/projects/clx0p8k2a0000qz8y6j1v3n4r/columns', serverMs: 35, dbMs: 20, queueMs: 0, connectMs: 0, waitMs: 29_750, downloadMs: 0 },
+      ),
+      ip: '1',
+      userAgent: CHROME,
+      userId: 'u1',
+    });
+    await service.settled();
+    const server = await service.list({ kind: 'server', range: '30d', q: null, status: 'open', before: null, updateKind: true });
+    expect(server.groups.map((g) => [g.kind, g.title]).sort()).toEqual([
+      ['UPDATE', 'During an update: a request was cut off while the server restarted'],
+      ['UPDATE', 'During an update: requests waited for the server to start'],
+    ]);
+    const held = server.groups.find((g) => g.title.includes('waited'))!;
+    expect(held.timing).toEqual({ totalMs: 29_750, serverMs: 35, dbMs: 20, queueMs: 0, connectMs: 0, waitMs: 29_750, downloadMs: 0 });
+    const d = await service.detail(held.id);
+    expect(d!.events[0]).toMatchObject({ message: 'During an update: GET /api/v1/projects/:id/columns waited 29.8 s for the server to start', resource: 'GET /api/v1/projects/:id/columns' });
+  });
+});

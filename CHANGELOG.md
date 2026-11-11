@@ -46,6 +46,50 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   or quote to its support. Each request also tells MICO360 AI which Tasks user it is for (MICO360 Connect
   keeps only a pseudonym).
 
+## [1.23.16] - 2026-11-11
+
+### New features
+- Search on the Kanban board: a search box at the top of the board (one project, All projects and a
+  project's Board tab) shows only the matching cards as you type — by task number (MICO-12, mico 12 or
+  just 12), title, description, person, project or tag, Arabic in any spelling. The words found are
+  marked on each card, each column says how many of its cards match ("3 of 12"), and ✕ or Escape clears
+  it ("/" jumps to it). It works with the company filter, Day and Month and the Table view, cards can
+  still be dragged to another column, and the words stay in the page's link. When nothing matches,
+  "Search all tasks" opens the full search with the same words.
+- Project details on the Kanban board: with one project chosen, a slim line above the columns shows its
+  picture, name and number, client, project manager, dates with the days left (or late), health, progress,
+  open and overdue tasks, and "Open project". Fold it away with its arrow (remembered); on a phone it shows
+  the short version with "Details".
+
+## [1.23.15] - 2026-11-11
+
+### Bug fixes
+- The Error log no longer counts time a page spent in the background as "slow": a page opened in a
+  background tab, prerendered, restored with the Back button or left on a sleeping computer is no longer
+  "slow to show" (the 986 s and 3386 s rows), and a request that waited in a frozen tab or on a sleeping
+  laptop is no longer a slow request (the bell's "15 times in one visit" at night). A slow click or key
+  press while the page was hidden doesn't count either, and the Error log now says what it was on ("a
+  click on a button"). "Slow to show the page" rows say that their times count only while the page is
+  on screen.
+- Slow requests on the Error log now say where the time went, from the browser's own timing: waiting
+  for a free connection, connecting, waiting for the server to start answering, or downloading the
+  answer — with the server's own time, so a hold-up between the browser and the server (the hosting's
+  front door or the connection) is told apart from a slow server.
+- Update restarts show as handled: while the server stops or starts for an update, the database being
+  briefly unreachable is a calm "Update restart" row ("During an update: the database was briefly
+  unreachable — handled"), no longer a red Server error, and it never brings back a row marked as
+  fixed. A request cut off or held up while the server restarted is listed there too, instead of "A
+  request didn't reach the server (blocked on the way?)" or a slow request.
+
+## [1.23.14] - 2026-11-11
+
+### Bug fixes
+- People's photos show on Kanban cards, My Tasks, project pages, meetings, Activity and the Dashboard (they showed only initials).
+- The picture at the top right shows your current photo and your own name's initials (it showed the username's, and a new photo only after signing in again).
+
+### Improvements
+- Faces load a small copy of each person's photo instead of the full picture, so boards and lists with many people open faster.
+
 ## [1.23.13] - 2026-11-11
 
 ### Bug fixes

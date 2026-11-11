@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode, type Ref } from 'react';
+import { ME_KEY } from '../lib/own-user';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { CLIENTS_KEY, clientAsUser, clientKey, clientsApi, isClientRoles, type ClientAccount } from '../api/clients';
@@ -324,7 +325,8 @@ function StaffAccountDialog({ user, onClose }: EditUserModalProps) {
   const adminInForm = roles.has('ADMIN');
   const mineChanged = adminInForm && mine !== savedMine;
 
-  const invalidate = () => qc.invalidateQueries({ queryKey: ['users'] });
+  // The header reads your own name and photo again too (you may have just edited yourself).
+  const invalidate = () => Promise.all([qc.invalidateQueries({ queryKey: ['users'] }), qc.invalidateQueries({ queryKey: ME_KEY })]);
   const password = usePasswordReset(user, invalidate, isSelf);
 
   const saveMut = useMutation({

@@ -53,6 +53,11 @@ export interface ApiClientOptions {
    */
   onRequestDone?: (info: RequestDone) => void;
   /**
+   * 1.23.14: a mark of the page taken as each request starts (whether it is on screen — the Error log's
+   * page-lifecycle), told back with the request so it can say whether the page was away meanwhile.
+   */
+  pageMark?: () => unknown;
+  /**
    * 1.23.1: the server answered DATABASE_BUSY (503 — its database was away for a moment, a deploy
    * restart) to a read or a change — just before it is thrown to the caller; the app says so across the
    * page in the server's words.
@@ -68,6 +73,16 @@ export interface RequestDone {
   ms: number;
   /** 1.23.3: the answer's Server-Timing ("app;dur=9912.3, db;dur=9700.1"); absent when it had none. */
   serverTiming?: string;
+  /**
+   * 1.23.14: the address fetched (its Resource Timing entry is named by it), when it started on the page's
+   * clock (performance.now) and the wall clock, the page's mark then (pageMark), and whether it was
+   * aborted on purpose (an AbortError is not "blocked on the way").
+   */
+  url?: string;
+  startedAt?: number;
+  wallStart?: number;
+  mark?: unknown;
+  aborted?: boolean;
 }
 
 /** The code the server answers a database blip with (lib/db-connection.ts there). */
@@ -127,12 +142,25 @@ async function refusesCompany(status: number, text: () => Promise<string>): Prom
   return isCompanyGone(errorFrom(status, await text()));
 }
 
-export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthorized, getHeaders, onCompanyGone, onRefused, onRequestDone, onDatabaseBusy }: ApiClientOptions): ApiClient {
+export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthorized, getHeaders, onCompanyGone, onRefused, onRequestDone, onDatabaseBusy, pageMark }: ApiClientOptions): ApiClient {
   const clock = () => (typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now());
-  /** Tell onRequestDone how a request went (never in its way); `header` reads one of the answer's headers. */
-  const told = (method: string, path: string, status: number, started: number, header?: (name: string) => string | null) => {
+  /** 1.23.14: a request's start — the page's clock and the wall clock, and the page's mark (never in its way). */
+  type Start = { at: number; wall: number; mark?: unknown; url: string };
+  const begin = (url: string): Start => {
+    const start: Start = { at: clock(), wall: Date.now(), url };
     try {
-      const info: RequestDone = { method, path: path.split('?')[0]!, status, ms: Math.max(0, clock() - started) };
+      if (pageMark) start.mark = pageMark();
+    } catch {
+      // Without a mark the request is told as before.
+    }
+    return start;
+  };
+  /** Tell onRequestDone how a request went (never in its way); `header` reads one of the answer's headers. */
+  const told = (method: string, path: string, status: number, started: Start, header?: (name: string) => string | null, failure?: unknown) => {
+    try {
+      const info: RequestDone = { method, path: path.split('?')[0]!, status, ms: Math.max(0, clock() - started.at), url: started.url, startedAt: started.at, wallStart: started.wall };
+      if (started.mark !== undefined) info.mark = started.mark;
+      if (status === 0 && (failure as { name?: unknown } | null)?.name === 'AbortError') info.aborted = true;
       try {
         const serverTiming = header?.('server-timing');
         if (serverTiming) info.serverTiming = serverTiming;
@@ -202,7 +230,7 @@ export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthoriz
     // by Fastify ("Body cannot be empty when content-type is set to 'application/json'").
     if (!opts.form && opts.body !== undefined) headers['Content-Type'] = 'application/json';
     if (token) headers['Authorization'] = `Bearer ${token}`;
-    const started = clock();
+    const started = begin(`${baseUrl}${path}`);
     return fetch(`${baseUrl}${path}`, {
       method,
       headers,
@@ -215,7 +243,7 @@ export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthoriz
         return res;
       },
       (err: unknown) => {
-        told(method, path, 0, started);
+        told(method, path, 0, started, undefined, err);
         throw err;
       },
     );
@@ -270,7 +298,7 @@ export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthoriz
       xhr.upload.onprogress = (e) => {
         if (e.lengthComputable && e.total > 0) onProgress(e.loaded / e.total);
       };
-      const started = clock();
+      const started = begin(`${baseUrl}${path}`);
       xhr.onload = () => {
         told('POST', path, xhr.status, started, (name) => xhr.getResponseHeader(name));
         resolve({ status: xhr.status, text: xhr.responseText });

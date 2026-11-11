@@ -28,6 +28,15 @@ describe('shutdown: jobs stop before the database client disconnects', () => {
     expect(order).toEqual(['jobs', 'timers', 'server', 'error log', 'database', 'exit 0']);
   });
 
+  // 1.23.14: from the first moment of a stop, a database blip is the update's (the Error log's update window).
+  it('says it is stopping before anything else, once', async () => {
+    const marked: string[] = [];
+    const { order, shutdown } = steps({ markStopping: () => void marked.push(`marked before ${order.length} steps`) });
+    await Promise.all([shutdown('SIGTERM'), shutdown('SIGINT')]);
+    expect(marked).toEqual(['marked before 0 steps']);
+    expect(order[0]).toBe('jobs');
+  });
+
   it('a second signal while stopping changes nothing (one stop)', async () => {
     const { order, shutdown } = steps();
     await Promise.all([shutdown('SIGTERM'), shutdown('SIGINT')]);

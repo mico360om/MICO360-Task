@@ -113,7 +113,7 @@ export function MeetingCard({
           of a row) they sit on the right, wrapping downwards — never under the people. */}
       <div data-card-footer className="min-w-0 border-t border-line px-3 py-2.5 [container-type:inline-size] lg:px-4">
         <div className="flex flex-col items-start gap-y-1.5 [@container(min-width:27rem)]:flex-row [@container(min-width:27rem)]:gap-x-3">
-          <People names={m.attendees} count={m.attendeeCount} className="flex-none" />
+          <People names={m.attendees} faces={m.attendeeFaces} count={m.attendeeCount} className="flex-none" />
           {/* py-0.5: a line of chips is as tall as the faces, so beside them it sits level. */}
           <div data-card-chips className="flex min-w-0 flex-wrap items-center gap-1.5 py-0.5 text-xs empty:hidden [@container(min-width:27rem)]:ms-auto [@container(min-width:27rem)]:justify-end">
             {live ? <Badge tone="brand" dot>Under way</Badge> : m.status !== 'SCHEDULED' && statusShown ? <Badge tone={meetingStatusTone(m.status)}>{MEETING_STATUS_LABELS[m.status]}</Badge> : null}

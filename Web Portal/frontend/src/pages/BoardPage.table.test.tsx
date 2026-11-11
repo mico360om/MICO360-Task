@@ -82,8 +82,10 @@ describe('Board page: Board | Table (1.23.0)', () => {
     expect(await screen.findByRole('table', { name: /MICO360 Platform/ })).toBeInTheDocument();
     expect(localStorage.getItem(userStorageKey('u1', 'board.view'))).toBe('table');
     await waitFor(() => expect(titles()).toEqual([expect.stringContaining('Check pumps'), expect.stringContaining('Pour slab B'), expect.stringContaining('Order rebar')]));
-    // It has its own filter bar (the board has none of its own).
-    expect(screen.getByRole('searchbox', { name: 'Filter rows' })).toBeInTheDocument();
+    // Its own filter bar (status, person, priority, due) — its words come from the board's search box (board search, 10 Nov).
+    expect(screen.getByRole('button', { name: 'Filter by status' })).toBeInTheDocument();
+    expect(screen.queryByRole('searchbox', { name: 'Filter rows' })).toBeNull();
+    expect(screen.getByRole('searchbox', { name: 'Search this board' })).toBeInTheDocument();
     expect(screen.queryByRole('columnheader', { name: /Project/ })).toBeNull();
   });
 

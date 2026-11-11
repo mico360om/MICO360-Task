@@ -113,8 +113,8 @@ export interface ApiTask {
   canDelete?: boolean;
   /** May they delete its entire repeating series (only the series' creator; single-task responses). */
   canDeleteSeries?: boolean;
-  /** Assignees (present on list responses; used for card avatars). */
-  assignees?: { id: string; name: string }[];
+  /** Assignees (present on list responses; used for card avatars), each with their photo (null or left out by an older server: initials). */
+  assignees?: { id: string; name: string; avatarUrl?: string | null }[];
   /** Its tags (list and single-task responses; the Table view's optional Tags column). */
   tags?: { id: string; name: string; color: string }[];
   /** Aggregate counts for card badges (present on list responses). */

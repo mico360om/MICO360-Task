@@ -7,6 +7,8 @@
  * A step failing never skips the next; past `deadlineMs` it exits anyway. One stop, however many signals.
  */
 export interface ShutdownSteps {
+  /** 1.23.14: said first, once — from now on a database blip is the update's (lib/update-window). */
+  markStopping?: () => void;
   stopJobs: () => Promise<void>;
   stopTimers?: () => void;
   closeServer: () => Promise<void>;
@@ -24,6 +26,11 @@ export function createShutdown(steps: ShutdownSteps): (signal: string) => Promis
   let stopping: Promise<void> | null = null;
   return (signal: string) => {
     if (stopping) return stopping;
+    try {
+      steps.markStopping?.();
+    } catch {
+      // Saying so can never stop the stop.
+    }
     stopping = (async () => {
       let exited = false;
       const exit = () => {

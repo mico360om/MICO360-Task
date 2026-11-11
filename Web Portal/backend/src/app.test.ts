@@ -105,7 +105,7 @@ describe('where a request’s time went (1.23.3, the Error log’s slow requests
     const app = await buildApp({ authService, tokenService });
     for (const url of ['/api/v1/health', '/api/v1/tasks/mine']) {
       const res = await app.inject({ method: 'GET', url });
-      expect(String(res.headers['server-timing']), url).toMatch(/^app;dur=\d+(\.\d)?, db;dur=\d+(\.\d)?$/);
+      expect(String(res.headers['server-timing']), url).toMatch(/^app;dur=\d+(\.\d)?, db;dur=\d+(\.\d)?, up;dur=\d+$/); // 1.23.14: and the server's uptime
     }
   });
 

@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient, assetUrl } from '../api/client';
 import { usersApi } from '../api/users';
 import { useAuthStore } from '../stores/auth-store';
+import { ME_KEY, updateOwnUser } from '../lib/own-user';
 import { useSignOut } from '../lib/useSignOut';
 import { SignOutWarning } from '../components/SignOutWarning';
 import { PageHeader } from '../components/ui/PageHeader';
@@ -100,7 +101,6 @@ function ChangePasswordCard() {
 export function ProfilePage() {
   const qc = useQueryClient();
   const user = useAuthStore((s) => s.user);
-  const setSession = useAuthStore((s) => s.setSession);
   // Every sign-out asks first when changes are still on this device (see useSignOut).
   const { signOut, unsent, cancel } = useSignOut();
 
@@ -122,16 +122,11 @@ export function ProfilePage() {
   const [busy, setBusy] = useState(false);
   const [photoProblem, setPhotoProblem] = useState<string | null>(null);
 
-  function applyUpdatedUser(updated: { id: string; email: string; username: string; roles: string[]; avatarUrl: string | null }) {
-    const { accessToken, refreshToken } = useAuthStore.getState();
-    if (accessToken && refreshToken) {
-      setSession({
-        user: { id: updated.id, email: updated.email, username: updated.username, roles: updated.roles, avatarUrl: updated.avatarUrl },
-        accessToken,
-        refreshToken,
-      });
-    }
+  function applyUpdatedUser(updated: { id: string; email: string; username: string; roles: string[]; avatarUrl: string | null; firstName?: string; lastName?: string }) {
+    // Only what changed: their name stays (the header's initials are the name's), and it shows at once.
+    updateOwnUser({ id: updated.id, email: updated.email, username: updated.username, roles: updated.roles, avatarUrl: updated.avatarUrl, ...(updated.firstName !== undefined ? { firstName: updated.firstName, lastName: updated.lastName } : {}) });
     void qc.invalidateQueries({ queryKey: ['users'] });
+    void qc.invalidateQueries({ queryKey: ME_KEY });
   }
   async function onPick(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];

@@ -1,9 +1,10 @@
 import type { PrismaClient, Prisma } from '@prisma/client';
 import type { ActivityRecord, ActivityRepository, ActivityScope, CreateActivityData } from './activity-repository';
+import { PERSON_SUMMARY_SELECT, photoOf } from '../../lib/person-summary';
 
 // Join the actor + task + project so the feed reads as "who did what to which task" (no N+1).
 const withContext = {
-  user: { select: { id: true, username: true, firstName: true, lastName: true, roles: { select: { role: { select: { name: true } } } } } },
+  user: { select: { ...PERSON_SUMMARY_SELECT, roles: { select: { role: { select: { name: true } } } } } },
   task: { select: { id: true, key: true, title: true } },
   project: { select: { id: true, name: true } },
 } as const;
@@ -22,7 +23,8 @@ function toRecord(a: Row): ActivityRecord {
     meta: a.meta,
     createdAt: a.createdAt,
     // 1.23: a client account's line reads "Fatma Al Harthy (client)" in the team's history.
-    actor: a.user ? { id: a.user.id, name: a.user.roles.some((r) => r.role.name === 'CLIENT') ? `${displayName(a.user)} (client)` : displayName(a.user) } : null,
+    // Avatar hotfix (owner, 10 Nov): the line's face is their photo (null: initials), read with the row.
+    actor: a.user ? { id: a.user.id, name: a.user.roles.some((r) => r.role.name === 'CLIENT') ? `${displayName(a.user)} (client)` : displayName(a.user), avatarUrl: photoOf(a.user.avatarUrl) } : null,
     task: a.task ? { id: a.task.id, key: a.task.key, title: a.task.title } : null,
     project: a.project ? { id: a.project.id, name: a.project.name } : null,
   };
