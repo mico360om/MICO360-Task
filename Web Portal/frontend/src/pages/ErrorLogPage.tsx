@@ -322,6 +322,7 @@ function Occurrence({ e, timeZone }: { e: ErrorOccurrence; timeZone: string }) {
       {/* 1.23.14: what a slow click or key press was on, in words. */}
       {interactionWords(e) ? <span className="break-words text-ink-2">{interactionWords(e)}</span> : e.resource ? <span className="break-all font-mono text-[11px] text-ink-3">{e.resource}</span> : null}
       {e.database ? <span className="break-all font-mono text-[11px] text-ink-3">{databaseText(e)}</span> : null}
+      {e.ai ? <span className="break-all font-mono text-[11px] text-ink-3">{e.ai}</span> : null}
       <span className="break-words text-ink-3">{facts.join(' · ')}</span>
     </li>
   );

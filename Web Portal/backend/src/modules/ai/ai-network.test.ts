@@ -126,6 +126,8 @@ describe('pinnedFetch — the checked address is the one connected to (AI-01, DN
   let server: import('node:http').Server;
   let port = 0;
   const seen: { method?: string; auth?: string; body?: string }[] = [];
+  let openGate: () => void = () => {};
+  const streamGate = new Promise<void>((r) => (openGate = r));
 
   beforeAll(async () => {
     const { createServer } = await import('node:http');
@@ -137,6 +139,13 @@ describe('pinnedFetch — the checked address is the one connected to (AI-01, DN
         if (req.url === '/redirect') {
           res.writeHead(302, { location: 'http://127.0.0.1/admin' });
           return res.end();
+        }
+        if (req.url === '/stream') {
+          // b15: an event stream whose second event comes only after the first was read.
+          res.writeHead(200, { 'content-type': 'text/event-stream' });
+          res.write('event: chunk\ndata: {"sequence":0,"text":"Hel"}\n\n');
+          void streamGate.then(() => res.end('event: done\ndata: {"reason":"completed"}\n\n'));
+          return;
         }
         res.writeHead(200, { 'content-type': 'application/json', 'x-provider': 'test' });
         res.end(JSON.stringify({ ok: true, echo: body }));
@@ -167,6 +176,31 @@ describe('pinnedFetch — the checked address is the one connected to (AI-01, DN
     expect(res.headers.get('x-provider')).toBe('test');
     expect(await res.json()).toEqual({ ok: true, echo: JSON.stringify({ q: 'مرحبا' }) });
     expect(seen.at(-1)).toMatchObject({ method: 'POST', auth: 'Bearer k' });
+  });
+
+  it('gives an event stream (Accept: text/event-stream) as it arrives, not when it ends (b15)', async () => {
+    const pinned = pinnedFetch({ allowPrivateHosts: true, lookup: async () => [{ address: '127.0.0.1' }] });
+    const res = await pinned(`http://model-host.example.com:${port}/stream`, { method: 'POST', headers: { accept: 'text/event-stream' }, body: '{}' });
+    expect(res.status).toBe(200);
+    const reader = res.body!.getReader();
+    const first = new TextDecoder().decode((await reader.read()).value);
+    expect(first).toContain('"text":"Hel"'); // read while the server still holds the rest
+    openGate();
+    let rest = '';
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      rest += new TextDecoder().decode(value);
+    }
+    expect(rest).toContain('event: done');
+  });
+
+  it('sends a binary body (a document for MICO360 AI) byte for byte (review minor 9)', async () => {
+    const pinned = pinnedFetch({ allowPrivateHosts: true, lookup: async () => [{ address: '127.0.0.1' }] });
+    const bytes = Buffer.from([0x25, 0x50, 0x44, 0x46, 0x00, 0xff, 0xfe, 0x80]);
+    const res = await pinned(`http://model-host.example.com:${port}/v1/ocr`, { method: 'POST', headers: { 'content-type': 'application/octet-stream' }, body: bytes });
+    expect(res.status).toBe(200);
+    expect(Buffer.from(seen.at(-1)!.body!, 'latin1').equals(bytes) || seen.at(-1)!.body!.length === bytes.length).toBe(true);
   });
 
   it('never follows redirects', async () => {

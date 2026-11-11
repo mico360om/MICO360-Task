@@ -178,6 +178,8 @@ export interface MicoAiMessage {
   createdAt: string;
   /** While pending: what MICO AI is doing. */
   step: string | null;
+  /** While pending (MICO360 AI's live stream, b15): the answer's words as far as they are written. */
+  draft?: string | null;
   answer?: MicoAiAnswer;
   error?: string;
 }

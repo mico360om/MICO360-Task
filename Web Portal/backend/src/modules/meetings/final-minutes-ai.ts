@@ -68,7 +68,7 @@ export interface FinalMinutesAiDeps {
    * One try: the AI's JSON for the minutes, from the meeting's facts (the person's AI limits apply).
    * `background`: nobody waits at a page, so MICO360 AI is waited for as long as it waits itself.
    */
-  draftMinutesWithAi: (facts: string, requester: { userId: string; roles?: string[] }, opts: { signal?: AbortSignal; background?: boolean }) => Promise<unknown>;
+  draftMinutesWithAi: (facts: string, requester: { userId: string; roles?: string[] }, opts: { signal?: AbortSignal; background?: boolean; jobId?: string }) => Promise<unknown>;
   /** Is a chat model set up? Asked up front, so AI being off is said at once, as before. */
   ready?: () => Promise<boolean>;
   /** Throws the person's AI limit error (429) when one more request would be over it; counts nothing. */
@@ -100,7 +100,7 @@ export function createFinalMinutesAi(deps: FinalMinutesAiDeps) {
 
   const handler: AiJobHandler = {
     async run(job, signal) {
-      const raw = await deps.draftMinutesWithAi(str(job.input.facts), { userId: job.requestedById, roles: Array.isArray(job.input.roles) ? (job.input.roles as string[]) : [] }, { signal, background: true });
+      const raw = await deps.draftMinutesWithAi(str(job.input.facts), { userId: job.requestedById, roles: Array.isArray(job.input.roles) ? (job.input.roles as string[]) : [] }, { signal, background: true, jobId: job.id });
       const content = normalizeFinalMinutes(raw);
       if (!hasContent(content)) throw new ValidationError(EMPTY);
       return content;

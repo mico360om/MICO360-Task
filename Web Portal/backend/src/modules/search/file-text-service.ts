@@ -60,6 +60,38 @@ export function ocrPictures(source: { picture: { data: Buffer; mimeType: string 
   return out;
 }
 
+/** Letters of the Arabic script, and of the Latin one (accents included). */
+const ARABIC_LETTER = /[\u0620-\u064A\u066E-\u06D3\u06FA-\u06FF\u0750-\u077F\u08A0-\u08C9\uFB50-\uFDFB\uFE70-\uFEFC]/g;
+const LATIN_LETTER = /[A-Za-z\u00C0-\u024F]/g;
+
+/** ar-SA or en-US when these words are (nearly) all in one script; null when mixed or there are none. */
+function languageOfWords(words: Array<string | null | undefined>): string | null | undefined {
+  const text = words.filter(Boolean).join(' ');
+  const arabic = (text.match(ARABIC_LETTER) ?? []).length;
+  const latin = (text.match(LATIN_LETTER) ?? []).length;
+  if (arabic + latin < 3) return undefined; // nothing to go on
+  const share = arabic / (arabic + latin);
+  return share >= 0.8 ? 'ar-SA' : share <= 0.05 ? 'en-US' : null;
+}
+
+/**
+ * b4: the language MICO360 AI reads a scan in (its /ocr `language`). No project or company has a
+ * language setting, so it comes from the words around the file: `own` — what people wrote: the file's own
+ * few letters, its task's title and description — else `wider` — its name (often a camera's "IMG_2041"),
+ * the project's and the company's names. Arabic is ar-SA, English en-US; mixed words, or none, name no
+ * language (the node reads with its own).
+ */
+export function documentLanguage(own: Array<string | null | undefined>, wider: Array<string | null | undefined>): string | null {
+  const first = languageOfWords(own);
+  if (first !== undefined) return first;
+  return languageOfWords(wider) ?? null;
+}
+
+/** b4: a scan with no page pictures we could send is looked at again after this (whole-document reading may be back). */
+const NO_PICTURES_RETRY_MS = 24 * 60 * 60_000;
+/** …at most this many a run (review minor 7: new scans keep their room). */
+const RESCANS_PER_RUN = 3;
+
 export interface FileTextLogger {
   info?(message: string, meta?: Record<string, unknown>): void;
   error(message: string, meta?: Record<string, unknown>): void;
@@ -72,7 +104,20 @@ export interface FileTextDeps {
   /** After a file's text was stored. */
   index: { fileChanged(fileId: string): Promise<void> };
   /** AI OCR, when set up (absent: pictures and scans wait). */
-  ocr?: { ready(): Promise<boolean>; read(images: { data: Buffer; mimeType: string }[]): Promise<string> };
+  ocr?: {
+    ready(): Promise<boolean>;
+    read(images: { data: Buffer; mimeType: string }[]): Promise<string>;
+    /**
+     * b4: the whole document (MICO360 AI's POST /api/v1/ocr, which falls back to `pictures` itself);
+     * `whole`: it was read whole. Absent: the pictures are read, as before.
+     */
+    readDocument?(
+      doc: { data: Buffer; mimeType: string; filename: string },
+      opts: { language: string | null; key: string; pictures: () => Promise<{ data: Buffer; mimeType: string }[]> },
+    ): Promise<{ text: string; whole: boolean }>;
+    /** b4: can whole documents be read now? (Scans whose pages were no pictures we could send are then read again.) */
+    wholeDocuments?(): Promise<boolean>;
+  };
   logger?: FileTextLogger;
   now?: () => Date;
 }
@@ -179,6 +224,20 @@ export function createFileTextService({ prisma, storage, index, ocr, logger, now
     const room = Math.min(limit, OCR_PER_HOUR - sent.length);
     if (room <= 0) return 0;
     const dueNow = () => ({ status: 'OCR_WAIT', OR: [{ nextTryAt: null }, { nextTryAt: { lte: now() } }] });
+    // b4: whole documents can be read: scans that had no page pictures we could send (black-and-white
+    // scanner PDFs) wait for OCR again — once a day at most.
+    // Review minor 7: a few a run (the newest first), so new scans keep their room in every run.
+    if (ocr.readDocument && ocr.wholeDocuments && (await ocr.wholeDocuments())) {
+      const backlog = await prisma.searchFileText.findMany({
+        where: { status: 'EMPTY', method: null, OR: [{ nextTryAt: null }, { nextTryAt: { lte: now() } }], file: { mimeType: 'application/pdf', task: { deletedAt: null } } },
+        orderBy: { readAt: 'desc' },
+        take: RESCANS_PER_RUN,
+        select: { fileId: true },
+      });
+      if (backlog.length) {
+        await prisma.searchFileText.updateMany({ where: { fileId: { in: backlog.map((b) => b.fileId) }, status: 'EMPTY' }, data: { status: 'OCR_WAIT', nextTryAt: null, attempts: 0 } });
+      }
+    }
     const due = await prisma.searchFileText.findMany({ where: { ...dueNow(), file: { task: { deletedAt: null } } }, orderBy: { readAt: 'asc' }, take: room, select: { fileId: true, attempts: true } });
     let done = 0;
     const started = now().getTime();
@@ -186,7 +245,16 @@ export function createFileTextService({ prisma, storage, index, ocr, logger, now
       // A slow provider (MICO360 AI may take 5 minutes a scan): no new file after OCR_RUN_BUDGET_MS, so the
       // minute's other search steps aren't held up (review minor 8). The rest wait for the next run.
       if (now().getTime() - started >= OCR_RUN_BUDGET_MS) break;
-      const file = await prisma.attachment.findUnique({ where: { id: row.fileId }, select: { filename: true, mimeType: true, storageKey: true } });
+      const file = await prisma.attachment.findUnique({
+        where: { id: row.fileId },
+        select: {
+          filename: true,
+          mimeType: true,
+          storageKey: true,
+          searchText: { select: { text: true } },
+          task: { select: { title: true, description: true, project: { select: { name: true, mainCompany: { select: { name: true } } } } } },
+        },
+      });
       if (!file) continue;
       // Claimed first (review I4): another run (or server) at the same moment never sends it again.
       const claimed = await prisma.searchFileText.updateMany({ where: { fileId: row.fileId, ...dueNow() }, data: { nextTryAt: new Date(now().getTime() + OCR_LEASE_MS) } });
@@ -195,13 +263,32 @@ export function createFileTextService({ prisma, storage, index, ocr, logger, now
       const attempts = row.attempts + 1;
       try {
         const content = await storage.read(file.storageKey);
-        const images = /^image\//.test(file.mimeType) ? ocrPictures({ picture: { data: content, mimeType: file.mimeType } }) : ocrPictures({ pages: (await readFileTextOffThread(content, file)).images });
-        if (images.length === 0) {
-          // A scan whose pages aren't pictures we can send: nothing more can be read from it.
-          await store(row.fileId, { status: 'EMPTY', attempts });
+        let pictures: Promise<{ data: Buffer; mimeType: string }[]> | null = null;
+        const picturesOf = () =>
+          (pictures ??= /^image\//.test(file.mimeType)
+            ? Promise.resolve(ocrPictures({ picture: { data: content, mimeType: file.mimeType } }))
+            : readFileTextOffThread(content, file).then((t) => ocrPictures({ pages: t.images })));
+        let text: string;
+        let whole = false;
+        if (ocr.readDocument) {
+          // b4: the whole file, in the language of the words around it (MICO360 AI; it falls back to the pictures).
+          const language = documentLanguage(
+            [file.searchText?.text, file.task?.title, file.task?.description],
+            [file.filename.replace(/\.[A-Za-z0-9]{1,5}$/, '').replace(/[_-]+/g, ' '), file.task?.project?.name, file.task?.project?.mainCompany?.name],
+          );
+          const out = await ocr.readDocument({ data: content, mimeType: file.mimeType, filename: file.filename }, { language, key: `tasks-ocr-${row.fileId}`, pictures: picturesOf });
+          text = out.text.trim();
+          whole = out.whole;
+        } else {
+          const images = await picturesOf();
+          text = images.length ? (await ocr.read(images)).trim() : '';
+        }
+        if (!text && !whole && (await picturesOf()).length === 0) {
+          // A scan whose pages aren't pictures we can send: nothing more can be read from it now — looked at
+          // again in a day, in case whole documents can be read by then (b4).
+          await store(row.fileId, { status: 'EMPTY', attempts, nextTryAt: new Date(now().getTime() + NO_PICTURES_RETRY_MS) });
           continue;
         }
-        const text = (await ocr.read(images)).trim();
         await store(row.fileId, { status: text ? 'OCR_DONE' : 'EMPTY', method: 'ocr', text, attempts });
         done += 1;
       } catch (err) {

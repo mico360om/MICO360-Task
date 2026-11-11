@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { complete, extractText, type ChatModel } from './ai-completion';
+import { complete, extractText, ProviderRefusedError, type ChatModel } from './ai-completion';
 import { AiCallStoppedError } from './ai-network';
 import { isRetryable } from '../ai-jobs/ai-job-runner';
 
@@ -306,5 +306,330 @@ describe('complete with pictures (1.23 OCR)', () => {
     const { calls, fetchImpl } = take({ message: { content: 'ok' } });
     await complete({ provider: { kind: 'ollama', apiBaseUrl: 'http://localhost:11434', apiKey: '' }, modelKey: 'llava' }, { prompt: 'Read it', images: [picture] }, fetchImpl, { allowPrivateHosts: true });
     expect((calls[0]!.body.messages as unknown[]).at(-1)).toEqual({ role: 'user', content: 'Read it', images: [picture.data.toString('base64')] });
+  });
+});
+
+describe('MICO360 AI (b) bundles in complete()', () => {
+  const mico: ChatModel = { provider: { kind: 'custom', apiBaseUrl: 'https://ai.mico360.com:5310/v1', apiKey: 'mico_key', preset: 'mico360' }, modelKey: 'llama3.1:latest' };
+  const other: ChatModel = { provider: { kind: 'custom', apiBaseUrl: 'https://api.groq.com/openai/v1', apiKey: 'k', preset: 'groq' }, modelKey: 'llama-3.3' };
+  const ok = (content: string, extra: Record<string, unknown> = {}, headers: Record<string, string> = {}) =>
+    new Response(JSON.stringify({ id: 'JOB-GW1-1', object: 'chat.completion', model: 'llama3.1:latest', choices: [{ message: { content } }], ...extra }), { status: 200, headers });
+  const record = (answer: (url: string, n: number) => Response) => {
+    const calls: { url: string; headers: Headers; body: Record<string, unknown> | null }[] = [];
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      let body: Record<string, unknown> | null = null;
+      try {
+        body = JSON.parse(String(init?.body));
+      } catch {
+        body = null;
+      }
+      calls.push({ url: String(url), headers: new Headers(init?.headers), body });
+      return answer(String(url), calls.length);
+    }) as unknown as typeof fetch;
+    return { calls, fetchImpl };
+  };
+  const schema = { name: 'priority', schema: { type: 'object', properties: { priority: { type: 'string', enum: ['LOW', 'HIGH'] } }, required: ['priority'] } };
+
+  it('b1: a feature’s JSON Schema is sent as response_format json_schema; other services get none', async () => {
+    const m = record(() => ok('{"priority":"HIGH"}'));
+    await complete(mico, { prompt: 'p', json: true, schema }, m.fetchImpl);
+    expect(m.calls[0]!.body!.response_format).toEqual({ type: 'json_schema', json_schema: schema });
+    const o = record(() => ok('{}'));
+    await complete(other, { prompt: 'p', json: true, schema }, o.fetchImpl);
+    expect(o.calls[0]!.body).not.toHaveProperty('response_format');
+  });
+
+  it('b6: the Tasks user id goes as `user` (MICO360 AI only)', async () => {
+    const m = record(() => ok('x'));
+    await complete(mico, { prompt: 'p', user: 'cuser123' }, m.fetchImpl);
+    expect(m.calls[0]!.body!.user).toBe('cuser123');
+    const o = record(() => ok('x'));
+    await complete(other, { prompt: 'p', user: 'cuser123' }, o.fetchImpl);
+    expect(o.calls[0]!.body).not.toHaveProperty('user');
+  });
+
+  it('b2: a background job’s scope becomes an Idempotency-Key, the same for the same request', async () => {
+    const m = record(() => ok('x'));
+    await complete(mico, { prompt: 'same' }, m.fetchImpl, { idempotencyKey: 'tasks-mom-job1' });
+    await complete(mico, { prompt: 'same' }, m.fetchImpl, { idempotencyKey: 'tasks-mom-job1' });
+    await complete(mico, { prompt: 'changed' }, m.fetchImpl, { idempotencyKey: 'tasks-mom-job1' });
+    const keys = m.calls.map((c) => c.headers.get('idempotency-key'));
+    expect(keys[0]).toMatch(/^tasks-mom-job1-[0-9a-f]{40}$/);
+    expect(keys[1]).toBe(keys[0]);
+    expect(keys[2]).not.toBe(keys[0]);
+    const o = record(() => ok('x'));
+    await complete(other, { prompt: 'same' }, o.fetchImpl, { idempotencyKey: 'tasks-mom-job1' });
+    expect(o.calls[0]!.headers.get('idempotency-key')).toBeNull();
+  });
+
+  it('b5, b11: what the answer says about itself reaches the caller (the model that answered, the key’s concurrency)', async () => {
+    const seen: unknown[] = [];
+    const m = record(() =>
+      ok('x', { model: 'qwen2.5:0.5b', warning: "Requested model 'llama3.1:latest' is unavailable; processing on 'qwen2.5:0.5b' instead." }, { 'x-mico-correlation-id': 'REQ-1', 'x-mico-concurrency-limit': '6', 'x-mico-model-warning': 'sub' }),
+    );
+    await complete(mico, { prompt: 'p' }, m.fetchImpl, { observe: (i) => seen.push(i) });
+    expect(seen).toEqual([
+      { ok: true, model: 'qwen2.5:0.5b', substituted: "Requested model 'llama3.1:latest' is unavailable; processing on 'qwen2.5:0.5b' instead.", correlationId: 'REQ-1', jobId: 'JOB-GW1-1', concurrencyLimit: 6 },
+    ]);
+  });
+
+  it('b3: a 504 that left the job running is collected with the native key until the deadline', async () => {
+    const m = record((url) =>
+      url.endsWith('/chat/completions')
+        ? new Response(JSON.stringify({ error: { message: 'The request did not complete within 300 seconds (job JOB-GW1-77, correlation id REQ-77).', type: 'timeout', code: null } }), { status: 504 })
+        : new Response(JSON.stringify({ jobId: 'JOB-GW1-77', state: 'Completed', output: '{"summary":"done"}' }), { status: 200 }),
+    );
+    const out = await complete(mico, { prompt: 'p' }, m.fetchImpl, { collectUntil: Date.now() + 60_000, sleep: async () => {} });
+    expect(out).toBe('{"summary":"done"}');
+    expect(m.calls[1]!.url).toBe('https://ai.mico360.com:5310/api/v1/jobs/JOB-GW1-77');
+    expect(m.calls[1]!.headers.get('x-mico-api-key')).toBe('mico_key');
+  });
+
+  it('b3: without a deadline a 504 is a refusal naming the job (b10)', async () => {
+    const m = record(() => new Response(JSON.stringify({ error: { message: 'The request did not complete within 300 seconds (job JOB-GW1-78, correlation id REQ-78).' } }), { status: 504, headers: { 'x-mico-correlation-id': 'REQ-78' } }));
+    const err = (await complete(mico, { prompt: 'p' }, m.fetchImpl).catch((e: unknown) => e)) as ProviderRefusedError;
+    expect(err.providerStatus).toBe(504);
+    expect(err.jobId).toBe('JOB-GW1-78');
+    expect(err.correlationId).toBe('REQ-78');
+    expect(m.calls).toHaveLength(1);
+  });
+
+  it('b9: MICO360 AI’s 401, 403 and 502 say who can fix them; other services keep the general words', async () => {
+    for (const [status, words] of [
+      [401, /did not accept the API key \(HTTP 401\)/],
+      [403, /may not be used for this \(HTTP 403\).*Applications & keys/],
+      [502, /model failed while answering \(HTTP 502\)/],
+    ] as const) {
+      const m = record(() => new Response(JSON.stringify({ error: { message: 'x' } }), { status }));
+      expect(((await complete(mico, { prompt: 'p' }, m.fetchImpl).catch((e: unknown) => e)) as Error).message).toMatch(words);
+      const o = record(() => new Response(JSON.stringify({ error: { message: 'x' } }), { status }));
+      expect(((await complete(other, { prompt: 'p' }, o.fetchImpl).catch((e: unknown) => e)) as Error).message).toBe(`The AI provider rejected the request (HTTP ${status}).`);
+    }
+  });
+
+  it('b15: with a listener, MICO360 AI answers on its native live stream (the schema as `format`)', async () => {
+    const enc = new TextEncoder();
+    const event = (name: string, data: unknown) => enc.encode(`event: ${name}\ndata: ${JSON.stringify(data)}\n\n`);
+    const m = record((url) =>
+      url.endsWith('/chat/stream')
+        ? new Response(
+            new ReadableStream({
+              start(c) {
+                c.enqueue(event('chunk', { sequence: 0, text: '{"priority":', jobId: 'JOB-L' }));
+                c.enqueue(event('chunk', { sequence: 1, text: '"HIGH"}', jobId: 'JOB-L' }));
+                c.enqueue(event('done', { reason: 'completed', chunks: 2, jobId: 'JOB-L', correlationId: 'REQ-L' }));
+                c.close();
+              },
+            }),
+            { status: 200, headers: { 'content-type': 'text/event-stream' } },
+          )
+        : ok('never'),
+    );
+    const seen: string[] = [];
+    const out = await complete(mico, { system: 's', prompt: 'p', json: true, schema, user: 'u9' }, m.fetchImpl, { onText: (t) => seen.push(t), idempotencyKey: 'tasks-ai-j' });
+    expect(out).toBe('{"priority":"HIGH"}');
+    expect(seen).toEqual(['{"priority":', '{"priority":"HIGH"}']);
+    expect(m.calls).toHaveLength(1);
+    expect(m.calls[0]!.url).toBe('https://ai.mico360.com:5310/api/v1/chat/stream');
+    expect(m.calls[0]!.body).toMatchObject({ prompt: 'p', system: 's', model: 'llama3.1:latest', user: 'u9', format: schema.schema });
+    expect(m.calls[0]!.headers.get('idempotency-key')).toMatch(/^tasks-ai-j-[0-9a-f]{40}$/);
+  });
+
+  it('b15: a server without the live stream is asked on /v1 as before', async () => {
+    const m = record((url) => (url.endsWith('/chat/stream') ? new Response(null, { status: 404 }) : ok('plain answer')));
+    expect(await complete(mico, { prompt: 'p' }, m.fetchImpl, { onText: () => {} })).toBe('plain answer');
+    expect(m.calls.map((c) => c.url)).toEqual(['https://ai.mico360.com:5310/api/v1/chat/stream', 'https://ai.mico360.com:5310/v1/chat/completions']);
+  });
+
+  it('b15: other providers ignore the listener (no stream)', async () => {
+    const o = record(() => ok('x'));
+    await complete(other, { prompt: 'p' }, o.fetchImpl, { onText: () => {} });
+    expect(o.calls[0]!.url).toBe('https://api.groq.com/openai/v1/chat/completions');
+  });
+});
+
+describe('MICO360 AI (b) bundles: review fixes in complete()', () => {
+  const mico: ChatModel = { provider: { kind: 'custom', apiBaseUrl: 'https://ai.mico360.com:5310/v1', apiKey: 'mico_key', preset: 'mico360' }, modelKey: 'llama3.1:latest' };
+  const ok = (content: string) => new Response(JSON.stringify({ id: 'JOB-1', model: 'llama3.1:latest', choices: [{ message: { content } }] }), { status: 200 });
+  const sseOf = (text: string) => {
+    const enc = new TextEncoder();
+    return new Response(
+      new ReadableStream({
+        start(c) {
+          c.enqueue(enc.encode(`event: chunk\ndata: ${JSON.stringify({ sequence: 0, text, jobId: 'J' })}\n\n`));
+          c.enqueue(enc.encode('event: done\ndata: {"reason":"completed","chunks":1,"jobId":"J"}\n\n'));
+          c.close();
+        },
+      }),
+      { status: 200, headers: { 'content-type': 'text/event-stream' } },
+    );
+  };
+
+  it('minor 3: Stop ends a job being collected at once (the wait between looks hears it)', async () => {
+    const stop = new AbortController();
+    let looks = 0;
+    const fetchImpl = (async (url: string) => {
+      if (String(url).endsWith('/chat/completions')) return new Response(JSON.stringify({ error: { message: 'The request did not complete within 300 seconds (job JOB-9, correlation id REQ-9).' } }), { status: 504 });
+      looks += 1;
+      setTimeout(() => stop.abort(), 20);
+      return new Response(JSON.stringify({ jobId: 'JOB-9', state: 'Running' }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const started = Date.now();
+    const err = await complete(mico, { prompt: 'p' }, fetchImpl, { collectUntil: Date.now() + 60_000, signal: stop.signal }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(AiCallStoppedError);
+    expect(Date.now() - started).toBeLessThan(1500); // not the 2 s wait before the next look
+    expect(looks).toBe(1);
+  });
+
+  it('minor 10: the caller is told before a job is collected (it frees the key’s slot)', async () => {
+    const order: string[] = [];
+    const fetchImpl = (async (url: string) => {
+      order.push(String(url).endsWith('/chat/completions') ? 'ask' : 'look');
+      return String(url).endsWith('/chat/completions')
+        ? new Response(JSON.stringify({ error: { message: 'The request did not complete within 300 seconds (job JOB-8, correlation id REQ-8).' } }), { status: 504 })
+        : new Response(JSON.stringify({ jobId: 'JOB-8', state: 'Completed', output: 'done' }), { status: 200 });
+    }) as unknown as typeof fetch;
+    await complete(mico, { prompt: 'p' }, fetchImpl, { collectUntil: Date.now() + 60_000, sleep: async () => {}, beforeCollect: () => void order.push('free') });
+    expect(order).toEqual(['ask', 'free', 'look']);
+  });
+
+  it('minor 2: on the live stream a "try again in a second" (429) is waited out once, as on /v1', async () => {
+    let n = 0;
+    const waits: number[] = [];
+    const fetchImpl = (async () => (++n === 1 ? new Response(JSON.stringify({ error: 'Concurrency limit reached.' }), { status: 429, headers: { 'retry-after': '1' } }) : sseOf('fine'))) as unknown as typeof fetch;
+    expect(await complete(mico, { prompt: 'p' }, fetchImpl, { onText: () => {}, sleep: async (ms) => void waits.push(ms) })).toBe('fine');
+    expect(n).toBe(2);
+    expect(waits).toEqual([1000]);
+  });
+
+  it('minor 6: instructions over the native 8,000 characters go to /v1 (no stream), where they fit', async () => {
+    const urls: string[] = [];
+    const fetchImpl = (async (url: string) => {
+      urls.push(String(url));
+      return ok('fits');
+    }) as unknown as typeof fetch;
+    expect(await complete(mico, { system: 'x'.repeat(8_001), prompt: 'p' }, fetchImpl, { onText: () => {} })).toBe('fits');
+    expect(urls).toEqual(['https://ai.mico360.com:5310/v1/chat/completions']);
+  });
+});
+
+describe('json_schema safety net (MICO360 AI): JSON mode when strict answer shapes are not taken', () => {
+  const mico: ChatModel = { provider: { kind: 'custom', apiBaseUrl: 'https://ai.mico360.com:5310/v1', apiKey: 'mico_key', preset: 'mico360' }, modelKey: 'llama3.1:latest' };
+  const other: ChatModel = { provider: { kind: 'custom', apiBaseUrl: 'https://api.groq.com/openai/v1', apiKey: 'k', preset: 'groq' }, modelKey: 'llama-3.3' };
+  const schema = { name: 'priority', schema: { type: 'object', properties: { priority: { type: 'string', enum: ['LOW', 'HIGH'] }, reason: { type: 'string' } }, required: ['priority', 'reason'] } };
+  const ok = (content: string, extra: Record<string, unknown> = {}) =>
+    new Response(JSON.stringify({ id: 'JOB-S', model: 'llama3.1:latest', choices: [{ message: { content }, ...extra }] }), { status: 200 });
+  const refuse = (status: number, message = 'response_format json_schema is not supported.') => new Response(JSON.stringify({ error: { message, type: 'invalid_request_error' } }), { status });
+  const record = (answer: (body: Record<string, unknown>, n: number, url: string) => Response) => {
+    const calls: { url: string; body: Record<string, unknown>; key: string | null }[] = [];
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      calls.push({ url: String(url), body, key: new Headers(init?.headers).get('idempotency-key') });
+      return answer(body, calls.length, String(url));
+    }) as unknown as typeof fetch;
+    return { calls, fetchImpl };
+  };
+  const strict = (b: Record<string, unknown>) => (b.response_format as { type?: string } | undefined)?.type === 'json_schema';
+  const sse = (text: string) => {
+    const enc = new TextEncoder();
+    return new Response(
+      new ReadableStream({
+        start(c) {
+          c.enqueue(enc.encode(`event: chunk\ndata: ${JSON.stringify({ sequence: 0, text, jobId: 'JOB-T' })}\n\n`));
+          c.enqueue(enc.encode(`event: done\ndata: ${JSON.stringify({ reason: 'completed', chunks: 1, jobId: 'JOB-T', correlationId: 'REQ-T' })}\n\n`));
+          c.close();
+        },
+      }),
+      { status: 200, headers: { 'content-type': 'text/event-stream' } },
+    );
+  };
+
+  for (const status of [400, 422]) {
+    it(`a ${status} refusing json_schema is asked once more with today’s json_object, and the caller is told`, async () => {
+      const seen: { ok: boolean; strictRefused?: unknown }[] = [];
+      const m = record((b) => (strict(b) ? refuse(status) : ok('{"priority":"HIGH","reason":"r"}')));
+      const out = await complete(mico, { prompt: 'p', json: true, schema }, m.fetchImpl, { observe: (i) => seen.push(i), idempotencyKey: 'tasks-mom-j1' });
+      expect(out).toBe('{"priority":"HIGH","reason":"r"}');
+      expect(m.calls.map((c) => c.body.response_format)).toEqual([{ type: 'json_schema', json_schema: schema }, { type: 'json_object' }]);
+      // The same messages, the same user; a different request, so its own Idempotency-Key.
+      expect(m.calls[1]!.body.messages).toEqual(m.calls[0]!.body.messages);
+      expect(m.calls[1]!.key).toMatch(/^tasks-mom-j1-[0-9a-f]{40}$/);
+      expect(m.calls[1]!.key).not.toBe(m.calls[0]!.key);
+      expect(seen.at(-1)).toMatchObject({ ok: true, strictRefused: { status, reason: 'response_format json_schema is not supported.' } });
+    });
+  }
+
+  it('an answer that is not JSON for the schema is asked once more with json_object (not remembered: one answer’s slip)', async () => {
+    const seen: { strictRefused?: unknown }[] = [];
+    const m = record((b) => (strict(b) ? ok('{"priority":"SOMEDAY"}') : ok('{"priority":"LOW","reason":"r"}')));
+    expect(await complete(mico, { prompt: 'p', json: true, schema }, m.fetchImpl, { observe: (i) => seen.push(i) })).toBe('{"priority":"LOW","reason":"r"}');
+    expect(m.calls.map((c) => (c.body.response_format as { type: string }).type)).toEqual(['json_schema', 'json_object']);
+    expect(seen.some((i) => i.strictRefused)).toBe(false);
+  });
+
+  it('only once: a json_object answer that still does not fit goes to the feature’s own check, as today', async () => {
+    const m = record(() => ok('not json at all'));
+    expect(await complete(mico, { prompt: 'p', json: true, schema }, m.fetchImpl)).toBe('not json at all');
+    expect(m.calls).toHaveLength(2);
+  });
+
+  it('an answer cut at its length is not asked again (the same room would cut it again)', async () => {
+    const m = record(() => ok('{"priority":"HI', { finish_reason: 'length' }));
+    expect(await complete(mico, { prompt: 'p', json: true, schema }, m.fetchImpl)).toBe('{"priority":"HI');
+    expect(m.calls).toHaveLength(1);
+  });
+
+  it('a 400 that JSON mode gets too is not about the schema: that refusal is thrown and nothing is remembered', async () => {
+    const seen: { strictRefused?: unknown }[] = [];
+    const m = record(() => refuse(400, 'Idempotency-Key is not valid.'));
+    const err = (await complete(mico, { prompt: 'p', json: true, schema }, m.fetchImpl, { observe: (i) => seen.push(i) }).catch((e: unknown) => e)) as ProviderRefusedError;
+    expect(err).toBeInstanceOf(ProviderRefusedError);
+    expect(err.providerStatus).toBe(400);
+    expect(m.calls).toHaveLength(2);
+    expect(seen.some((i) => i.strictRefused)).toBe(false);
+  });
+
+  it('other refusals (busy, failed, too long) are not retried in JSON mode', async () => {
+    for (const status of [413, 502, 503]) {
+      const m = record(() => refuse(status, 'x'));
+      await complete(mico, { prompt: 'p', json: true, schema }, m.fetchImpl).catch(() => {});
+      expect(m.calls, String(status)).toHaveLength(1);
+    }
+  });
+
+  it('a request without a schema, and other providers, are never asked twice', async () => {
+    const m = record(() => refuse(400));
+    await complete(mico, { prompt: 'p', json: true }, m.fetchImpl).catch(() => {});
+    expect(m.calls).toHaveLength(1);
+    const o = record(() => refuse(400));
+    await complete(other, { prompt: 'p', json: true, schema }, o.fetchImpl).catch(() => {});
+    expect(o.calls).toHaveLength(1);
+    const o2 = record(() => ok('not json'));
+    expect(await complete(other, { prompt: 'p', json: true, schema }, o2.fetchImpl)).toBe('not json');
+    expect(o2.calls).toHaveLength(1);
+  });
+
+  it('the live stream: a 400 refusing the schema as `format` is streamed again with format "json"', async () => {
+    const seen: { strictRefused?: unknown }[] = [];
+    const texts: string[] = [];
+    const m = record((b, _n, url) =>
+      url.endsWith('/chat/stream') && typeof b.format === 'object'
+        ? new Response(JSON.stringify({ error: 'format must be "json", "text" or a JSON Schema object.' }), { status: 400 })
+        : sse('{"priority":"LOW","reason":"r"}'),
+    );
+    const out = await complete(mico, { prompt: 'p', json: true, schema }, m.fetchImpl, { onText: (t) => texts.push(t), observe: (i) => seen.push(i) });
+    expect(out).toBe('{"priority":"LOW","reason":"r"}');
+    expect(m.calls.map((c) => [c.url.replace('https://ai.mico360.com:5310', ''), c.body.format])).toEqual([
+      ['/api/v1/chat/stream', schema.schema],
+      ['/api/v1/chat/stream', 'json'],
+    ]);
+    expect(texts.at(-1)).toBe('{"priority":"LOW","reason":"r"}');
+    expect(seen.at(-1)).toMatchObject({ ok: true, strictRefused: { status: 400, reason: 'format must be "json", "text" or a JSON Schema object.' } });
+  });
+
+  it('the live stream: an answer that does not fit is streamed again with format "json"', async () => {
+    const m = record((b) => (typeof b.format === 'object' ? sse('{"priority":"MAYBE"}') : sse('{"priority":"HIGH","reason":"r"}')));
+    expect(await complete(mico, { prompt: 'p', json: true, schema }, m.fetchImpl, { onText: () => {} })).toBe('{"priority":"HIGH","reason":"r"}');
+    expect(m.calls.map((c) => c.body.format)).toEqual([schema.schema, 'json']);
   });
 });

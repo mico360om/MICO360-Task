@@ -42,6 +42,43 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   kind; a task of an archived project waits until the project is unarchived. Undo of a task MICO AI has just
   made removes it at once (it never goes to the Recycle Bin).
 
+## [1.23.18] - 2026-11-11
+
+### New features
+- MICO AI's answers appear as they are written: on MICO360 AI the words show on the page while the model
+  writes them (bold and lists as the finished answer has them), and the finished answer then replaces them.
+  Stop still stops it at once.
+- Scanned files are read whole on MICO360 AI: every page of a scanned PDF (black-and-white scanner PDFs
+  too, which could not be read before) and pictures go to MICO360 AI's document reader, which turns pages
+  upright first and reads them in Arabic or English when the task's words say which. Scans that could not
+  be read before are read again by themselves. If the key may not read documents, scans are read as
+  pictures as before, and AI Management says why and what to allow.
+- AI Management shows more about MICO360 AI on its card: the version of MICO360 Connect it runs, how many
+  requests its key may run at once, a note when no AI node offers reading documents, pictures or meaning
+  search, a note when scans were read as pictures, and which models stood in for others. Test now says
+  which model answered.
+
+### Improvements
+- MICO360 AI's answers to Describe a task, Describe a meeting, Suggest priority, Draft agenda, the Final
+  MOM and MICO AI are held to the exact form Tasks reads, so fewer answers come back unreadable. If the
+  MICO360 Connect doesn't accept that, or an answer doesn't come back in that form, Tasks asks once more
+  the way it did before, and keeps asking that way for a day (or until the models are next refreshed);
+  AI Management's card says so.
+- Tasks keeps within MICO360 AI's limit on how many requests a key may run at once — one budget for every
+  AI feature together — so busy moments wait their turn instead of being refused.
+- Work in the background is never done twice on MICO360 AI: when the Final MOM, a MICO AI answer or a scan
+  is tried again, the platform answers from the first try's work; and an answer the platform finished after
+  its 5-minute wait is collected instead of asked for again.
+- The first AI search of the day waits for MICO360 AI to load its model (up to 90 seconds, instead of
+  giving up after 20), and opening search starts loading it.
+- "Automatic" picks MICO360 AI's models by what they are, no longer preferring one only because it
+  appeared in the platform's list later.
+- Clearer words when MICO360 AI refuses: a key it doesn't accept, a key not allowed to do something (and
+  where to allow it), or a model that failed while answering.
+- The Error log shows MICO360 AI's correlation and job ids for an AI failure, to look up in MICO360 Connect
+  or quote to its support. Each request also tells MICO360 AI which Tasks user it is for (MICO360 Connect
+  keeps only a pseudonym).
+
 ## [1.23.17] - 2026-11-11
 
 ### New features
