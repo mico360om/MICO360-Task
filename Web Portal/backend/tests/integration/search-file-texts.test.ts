@@ -184,4 +184,73 @@ describe('file texts (database)', () => {
     expect(await svc.readByOcr()).toBe(1); // the next run reads the other
     expect(sent).toBe(2);
   });
+
+  // (b) bundles, b4: MICO360 AI reads the whole document — every page, black-and-white scans too — in the
+  // language of the words around it; a scan whose pages could not be sent as pictures is read again.
+  const scanOn = async (title: string, name: string, bytes: Buffer) => {
+    const columnId = (await prisma.kanbanColumn.findFirst({ where: { projectId } }))!.id;
+    const task = await prisma.task.create({ data: { key: `FT${tag.toUpperCase()}-${name.length}${Math.floor(Math.random() * 1e6)}`, title, projectId, columnId, createdById: user } });
+    files.set(`${tag}-${name}`, bytes);
+    return (await prisma.attachment.create({ data: { taskId: task.id, uploadedById: user, filename: name, mimeType: 'application/pdf', sizeBytes: bytes.length, storageKey: `${tag}-${name}`, url: `/u/${name}` } })).id;
+  };
+  const settleOthers = () => prisma.searchFileText.updateMany({ where: { status: { in: ['OCR_WAIT', 'EMPTY'] } }, data: { status: 'FAILED' } });
+
+  it('b4: whole documents — the file itself, its language and a key per file; a scan no picture could carry is read again', async () => {
+    await settleOthers(); // the earlier tests' waiting files
+    const t = new Date('2026-11-12T08:00:00Z');
+    const bytes = Buffer.from(`%PDF-1.4 black and white scan ${tag}`);
+    const bw = await scanOn('شهادة الدفاع المدني', 'bw.pdf', bytes);
+    // As an older release left it: a scan with no page pictures it could send.
+    await prisma.searchFileText.create({ data: { fileId: bw, status: 'EMPTY', method: null, attempts: 1, readAt: new Date(t.getTime() - 5000) } });
+    const asked: Array<Record<string, unknown>> = [];
+    const ocr = {
+      ready: async () => true,
+      read: async (): Promise<string> => {
+        throw new Error('pictures are not sent when the whole document is read');
+      },
+      wholeDocuments: async () => true,
+      readDocument: async (doc: { data: Buffer; mimeType: string; filename: string }, opts: { language: string | null; key: string }) => {
+        asked.push({ data: doc.data.toString(), mimeType: doc.mimeType, filename: doc.filename, language: opts.language, key: opts.key });
+        return { text: `نص الشهادة ${tag}`, whole: true };
+      },
+    };
+    const svc = createFileTextService({ prisma, storage, index, ocr, now: () => t });
+    expect(await svc.readByOcr()).toBe(1);
+    expect(asked).toEqual([{ data: bytes.toString(), mimeType: 'application/pdf', filename: 'bw.pdf', language: 'ar-SA', key: `tasks-ocr-${bw}` }]);
+    expect(await textRow(bw)).toMatchObject({ status: 'OCR_DONE', method: 'ocr', text: `نص الشهادة ${tag}` });
+    expect(await svc.readByOcr()).toBe(0); // read once
+  });
+
+  it('b4: when only pictures can be read, a scan without any waits a day before it is looked at again', async () => {
+    await settleOthers();
+    let t = new Date('2026-11-13T08:00:00Z').getTime();
+    let whole = false;
+    let documents = 0;
+    const ocr = {
+      ready: async () => true,
+      read: async () => 'never',
+      wholeDocuments: async () => true,
+      readDocument: async (_doc: unknown, opts: { pictures: () => Promise<unknown[]> }) => {
+        documents += 1;
+        if (whole) return { text: `Inspection record ${tag}`, whole: true };
+        // Whole-document reading refused (the provider fell back to the pictures): this scan has none.
+        expect(await opts.pictures()).toEqual([]);
+        return { text: '', whole: false };
+      },
+    };
+    const svc = createFileTextService({ prisma, storage, index, ocr, now: () => new Date(t) });
+    const scan = await scanOn('Inspection record', 'nopics.pdf', Buffer.from(`%PDF-1.4 no pictures ${tag}`));
+    await prisma.searchFileText.create({ data: { fileId: scan, status: 'OCR_WAIT', nextTryAt: null, readAt: new Date(t - 1000) } });
+    await svc.readByOcr();
+    const row = await textRow(scan);
+    expect(row).toMatchObject({ status: 'EMPTY', method: null });
+    expect(row!.nextTryAt!.getTime()).toBe(t + 24 * 3600_000);
+    t += 3600_000;
+    await svc.readByOcr();
+    expect(documents).toBe(1); // not before the day is over
+    whole = true;
+    t += 24 * 3600_000;
+    await svc.readByOcr();
+    expect(await textRow(scan)).toMatchObject({ status: 'OCR_DONE', text: `Inspection record ${tag}` });
+  });
 });

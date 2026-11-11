@@ -50,7 +50,10 @@ export interface AiSearchDeps {
   ai: {
     chatReady(): Promise<boolean>;
     startSearchQuestion(userId: string): void;
-    chat(input: { system: string; prompt: string; maxTokens?: number; json?: boolean; signal?: AbortSignal }): Promise<string>;
+    /** `user` (b6): who it is for (no limit is counted); `quiet` (b10): failures are logged here, not there too. */
+    chat(input: { system: string; prompt: string; maxTokens?: number; json?: boolean; signal?: AbortSignal; user?: string; quiet?: boolean }): Promise<string>;
+    /** b13: how long this question may take (a cold MICO360 AI model's first answer: longer). */
+    searchBudgetMs?(): Promise<number>;
   };
   /** The person's own results for these words and filters (the standard search's scope and rules). */
   candidates(query: CandidateQuery, viewer: { id: string; roles: string[] }, scope: SearchScopeAll): Promise<SearchHit[]>;
@@ -102,10 +105,11 @@ function readerFilters(f: AiSearchFilters): Partial<AiSearchFilters> {
 
 export function createAiSearch(deps: AiSearchDeps) {
   const now = deps.now ?? (() => new Date());
-  const budget = deps.budgetMs ?? AI_SEARCH_BUDGET_MS;
+  /** The time a question may take: fixed (tests), else what the AI service says (b13), else 20 s. */
+  const budgetFor = async (): Promise<number> => deps.budgetMs ?? (deps.ai.searchBudgetMs ? await deps.ai.searchBudgetMs().catch(() => AI_SEARCH_BUDGET_MS) : AI_SEARCH_BUDGET_MS);
 
   /** Step 1: what the question asks for. A plan that can't be read is the question's own words. */
-  async function understand(q: string, projects: { code: string; name: string }[], signal: AbortSignal): Promise<AiUnderstood> {
+  async function understand(q: string, projects: { code: string; name: string }[], signal: AbortSignal, user: string): Promise<AiUnderstood> {
     const today = todayKey(deps.timeZone, now());
     const text = await deps.ai.chat({
       system: [
@@ -121,6 +125,8 @@ export function createAiSearch(deps: AiSearchDeps) {
       maxTokens: 400,
       json: true,
       signal,
+      user,
+      quiet: true,
     });
     const o = parseJsonObject(text);
     const keywords = strings(o.keywords, 6);
@@ -153,6 +159,7 @@ export function createAiSearch(deps: AiSearchDeps) {
     } catch (err) {
       return { state: 'limit', message: err instanceof HttpError ? err.message : 'You’ve reached your AI limit for now.' };
     }
+    const budget = await budgetFor();
     const stop = new AbortController();
     const timer = setTimeout(() => stop.abort(), budget);
     // Every step races the deadline (review M5): one waiting where the stop can't reach (a model's
@@ -164,7 +171,7 @@ export function createAiSearch(deps: AiSearchDeps) {
       // The person's projects in this search's scope (the picked company's, with a pick).
       const allowed = input.scope.projectIds ? new Set(input.scope.projectIds) : null;
       const projects = (await inTime(deps.projects(input.viewer).catch(() => []))).filter((p) => !allowed || allowed.has(p.id));
-      const plan = await inTime(understand(q, projects.slice(0, 60), stop.signal));
+      const plan = await inTime(understand(q, projects.slice(0, 60), stop.signal, input.viewer.id));
       const f = input.filters;
       const project = plan.project ? projects.find((p) => p.code.toLowerCase() === plan.project!.toLowerCase() || p.name.toLowerCase() === plan.project!.toLowerCase()) : undefined;
       const startOf = (day: string) => zonedStartOfDay(day, deps.timeZone);
@@ -214,6 +221,8 @@ export function createAiSearch(deps: AiSearchDeps) {
         maxTokens: 500,
         json: true,
         signal: stop.signal,
+        user: input.viewer.id,
+        quiet: true,
       }));
       const o = parseJsonObject(text);
       const answer = typeof o.answer === 'string' ? o.answer.trim().slice(0, 800) : '';
@@ -225,7 +234,7 @@ export function createAiSearch(deps: AiSearchDeps) {
         .map((i) => found[i]!);
       return { state: 'ok', answer, hits: best, understood: plan, semantic };
     } catch (err) {
-      if (stop.signal.aborted) return { state: 'slow', message: 'The AI took too long (over 20 seconds). The normal results are below.' };
+      if (stop.signal.aborted) return { state: 'slow', message: `The AI took too long (over ${Math.round(budget / 1000)} seconds). The normal results are below.` };
       deps.logger?.error('search: the AI search failed', { err });
       return { state: 'failed', message: err instanceof HttpError && err.status !== 500 ? err.message : 'The AI couldn’t answer this time. The normal results are below.' };
     } finally {

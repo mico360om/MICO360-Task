@@ -530,3 +530,31 @@ describe('a slow request: where the time went', () => {
     expect((await service.detail(e.id))!.events[0]).toMatchObject({ timing: null, stack: expect.stringContaining('TypeError') });
   });
 });
+
+// MICO360 AI (b) bundles, b10: an AI failure keeps the request's correlation id and the platform's job id
+// (to quote to MICO360 Connect's support, or to look up under AI Platform → Jobs). They are the
+// occurrence's details — never part of the row's key, so one failure each time is still one row.
+describe('server errors from MICO360 AI keep their ids', () => {
+  const aiError = (correlationId: string | null, jobId: string | null) => Object.assign(new Error('The AI service has no model available right now (HTTP 503).'), { correlationId, jobId });
+
+  it('the correlation and job ids are the occurrence’s MICO360 AI line; the same failure again adds up', async () => {
+    service.recordServer('MICO360 AI: suggest priority failed', { err: aiError('REQ-6F2A91C0B4D3', 'JOB-GW1-20261111-7'), feature: 'suggest priority' });
+    service.recordServer('MICO360 AI: suggest priority failed', { err: aiError('REQ-AAAA', null), feature: 'suggest priority' });
+    await service.settled();
+    expect(repo.groups).toHaveLength(1);
+    expect(repo.groups[0]!.count).toBe(2);
+    expect(repo.eventRows.map((e) => e.resource)).toEqual(['MICO360 AI · correlation id REQ-6F2A91C0B4D3 · job JOB-GW1-20261111-7', 'MICO360 AI · correlation id REQ-AAAA']);
+    const shown = await service.detail(repo.groups[0]!.id);
+    expect(shown!.events.map((e) => e.ai).sort()).toEqual(['MICO360 AI · correlation id REQ-6F2A91C0B4D3 · job JOB-GW1-20261111-7', 'MICO360 AI · correlation id REQ-AAAA']);
+    for (const e of shown!.events) expect(e).toMatchObject({ database: null, resource: null });
+  });
+
+  it('only well-formed ids are kept', async () => {
+    service.recordServer('MICO360 AI: x failed', { err: aiError('REQ <script>', 'mico_' + 'ab'.repeat(24)) });
+    await service.settled();
+    // A key-like value is not an id the platform writes (letters, digits, - _ : .) of its length, nor kept.
+    expect(repo.eventRows[0]!.resource ?? '').not.toContain('script');
+    expect(JSON.stringify(repo.eventRows)).not.toContain('abababab');
+  });
+});
+

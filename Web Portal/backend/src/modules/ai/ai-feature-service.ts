@@ -346,6 +346,12 @@ export function createAiFeatureService({
   }
 
   /** 1.23: is an OCR model set up and usable (scanned files and pictures are read by it)? */
+  /** b4: are whole documents read now (the OCR model is MICO360 AI's)? Scans no picture could carry are then read again. */
+  async function readsWholeDocuments(): Promise<boolean> {
+    const f = resolveFor(await repo.load(), 'ocr');
+    return !!f && isMico360Provider(f.provider);
+  }
+
   async function ocrReady(): Promise<boolean> {
     return resolveFor(await repo.load(), 'ocr') !== null;
   }
@@ -450,7 +456,7 @@ export function createAiFeatureService({
   async function readDocument(
     doc: OcrDocument,
     opts: { language?: string | null; key?: string; signal?: AbortSignal; pictures: () => Promise<{ data: Buffer; mimeType: string }[]> },
-  ): Promise<{ text: string; pages: number | null }> {
+  ): Promise<{ text: string; pages: number | null; whole: boolean }> {
     const f = resolveFor(await repo.load(), 'ocr');
     if (!f) throw new ValidationError('No OCR model is set up in AI Management.');
     const at = now().getTime();
@@ -458,7 +464,7 @@ export function createAiFeatureService({
       try {
         const out = await readWhole(f, doc, { language: opts.language ?? null, key: opts.key, signal: opts.signal });
         await noteOcrFallback(f, null);
-        return { text: out.text, pages: out.pages };
+        return { text: out.text, pages: out.pages, whole: true };
       } catch (err) {
         const status = err instanceof ProviderRefusedError ? err.providerStatus : 0;
         const tooBig = status === 502 && /500 pages|50 million pixels|pages|pixels/i.test((err as ProviderRefusedError).detail ?? '');
@@ -471,8 +477,8 @@ export function createAiFeatureService({
       }
     }
     const images = await opts.pictures();
-    if (images.length === 0) return { text: '', pages: null };
-    return { text: await readPictures(images, { signal: opts.signal, key: opts.key }), pages: null };
+    if (images.length === 0) return { text: '', pages: null, whole: false };
+    return { text: await readPictures(images, { signal: opts.signal, key: opts.key }), pages: null, whole: false };
   }
 
   /** 1.23: the embedding model meaning search uses, or null (no meaning search). */
@@ -831,6 +837,7 @@ export function createAiFeatureService({
     searchBudgetMs,
     warmUp,
     ocrReady,
+    readsWholeDocuments,
     readPictures,
     readDocument,
     embeddingModel,

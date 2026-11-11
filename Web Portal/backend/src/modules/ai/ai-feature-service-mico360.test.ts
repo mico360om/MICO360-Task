@@ -287,7 +287,7 @@ describe('b4, b8: reading scans and pictures', () => {
 
   it('MICO360 AI reads the whole document with POST /api/v1/ocr (language, key, the native header)', async () => {
     const t = make(micoConfig(), () => json(200, { jobId: 'JOB-O', text: 'Page one\nPage two', pages: 2 }));
-    expect(await t.svc.readDocument(pdf, { language: 'ar-SA', key: 'tasks-ocr-f1', pictures })).toEqual({ text: 'Page one\nPage two', pages: 2 });
+    expect(await t.svc.readDocument(pdf, { language: 'ar-SA', key: 'tasks-ocr-f1', pictures })).toEqual({ text: 'Page one\nPage two', pages: 2, whole: true });
     expect(t.calls).toHaveLength(1);
     expect(t.calls[0]!.path).toBe('/api/v1/ocr');
     expect(t.calls[0]!.headers.get('x-mico-api-key')).toBe(KEY);

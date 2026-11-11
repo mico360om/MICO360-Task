@@ -1390,6 +1390,8 @@ async function main(): Promise<void> {
     timeZone: companyTz,
     allowPrivateHosts: env.AI_ALLOW_PRIVATE_HOSTS,
     limits: { perMinute: env.AI_USER_REQUESTS_PER_MINUTE, perDay: env.AI_USER_REQUESTS_PER_DAY },
+    // MICO360 AI (b10): a failure worth an admin's look reaches the Error log with its correlation and job ids.
+    logger,
   });
 
   // MICO AI: each person's private chats with the assistant. Its tools read with the app's own rules
@@ -1963,7 +1965,13 @@ async function main(): Promise<void> {
     prisma,
     storage: { read: (key) => (attachmentStorage.read ? attachmentStorage.read(key) : Promise.reject(new Error('no storage reader'))) },
     index: searchIndex,
-    ocr: { ready: () => aiFeatureService.ocrReady(), read: (images) => aiFeatureService.readPictures(images) },
+    ocr: {
+      ready: () => aiFeatureService.ocrReady(),
+      read: (images) => aiFeatureService.readPictures(images),
+      // MICO360 AI (b4): the whole document, falling back to the pictures; scans no picture could carry are read again.
+      readDocument: (doc, opts) => aiFeatureService.readDocument(doc, opts),
+      wholeDocuments: () => aiFeatureService.readsWholeDocuments(),
+    },
     logger,
   });
   const searchScope = createSearchScope({
@@ -2014,7 +2022,11 @@ async function main(): Promise<void> {
     // 1.23.6 the built-in reader: the person's projects and people, today and their company's week.
     reader: createReaderContext({ prisma, timeZone: companyTz, weekStart: (viewer, pick) => companyTime.weekStartOfScope(viewer, pick) }),
     ai: {
-      status: async () => ({ ready: await aiFeatureService.chatReady().catch(() => false), semantic: await searchSemantic.ready() }),
+      // b13: someone is about to search — a cold MICO360 AI chat model is warmed up (never waited for).
+      status: async () => {
+        aiFeatureService.warmUp();
+        return { ready: await aiFeatureService.chatReady().catch(() => false), semantic: await searchSemantic.ready() };
+      },
       ask: aiSearch.ask,
     },
     timeZone: companyTz,
