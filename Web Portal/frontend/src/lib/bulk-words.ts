@@ -36,6 +36,8 @@ export interface BarContext {
   move: { canMove: boolean; reason: string | null } | null;
   /** Merge: today's rule (null or show false: not offered). */
   merge: { show: boolean; reason: string | null } | null;
+  /** A project's Archived tasks page: archived tasks take only Unarchive, Delete and Duplicate (review M10). */
+  archivedView?: boolean;
 }
 
 const LABELS: Record<BulkBarActionId, string> = {
@@ -59,17 +61,25 @@ const LABELS: Record<BulkBarActionId, string> = {
  * The bar's actions, in its order. Everyone may try a change (each task is checked on its own, the
  * skipped ones listed after); Archive, Unarchive and Delete are offered only to administrators and the
  * people who run at least one selected task's project (employees never see them, as Merge). Category
- * and Guests need one project; more than 500 tasks (Duplicate: 50) and nothing can be applied.
+ * and Guests need one project; more than 500 tasks (Duplicate: 20) and nothing can be applied.
  */
 export function bulkBarActions(ctx: BarContext): BarAction[] {
   const oneProject = ctx.projectIds.length === 1 && !ctx.unknownProject;
   const managed = new Set(ctx.managedProjectIds);
   const runs = ctx.isAdmin || ctx.projectIds.some((id) => managed.has(id));
-  const ids: BulkBarActionId[] = ['status', 'priority', 'assign', 'reassign', 'unassign', 'dueDate'];
-  if (ctx.move) ids.push('project');
-  ids.push('category', 'guests', 'duplicate');
-  if (runs) ids.push('archive', 'unarchive', 'delete');
-  if (ctx.merge?.show) ids.push('merge');
+  const ids: BulkBarActionId[] = [];
+  if (ctx.archivedView) {
+    // Archived tasks are read-only: copied, unarchived or deleted — never edited.
+    ids.push('duplicate');
+    if (runs) ids.push('unarchive', 'delete');
+  } else {
+    ids.push('status', 'priority', 'assign', 'reassign', 'unassign', 'dueDate');
+    if (ctx.move) ids.push('project');
+    ids.push('category', 'guests', 'duplicate');
+    // (Unarchive is on the Archived tasks page: the lists here show live tasks only.)
+    if (runs) ids.push('archive', 'delete');
+    if (ctx.merge?.show) ids.push('merge');
+  }
   return ids.map((id) => {
     const limit = limitReason(ctx.count, id);
     let why: string | null = limit;

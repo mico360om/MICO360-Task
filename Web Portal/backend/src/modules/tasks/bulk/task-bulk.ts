@@ -15,7 +15,9 @@ import type { ArchiveResult } from '../task-archive';
  */
 
 export const MAX_BULK_TASKS = 500;
-export const MAX_BULK_DUPLICATES = 50;
+/** Review I3: copies copy their files on the server — at most 20 a request, and 20 a minute per person. */
+export const MAX_BULK_DUPLICATES = 20;
+export const COPIES_PER_MINUTE = 20;
 /** How long Undo is kept on the server (the website offers it for 15 seconds). */
 export const BULK_UNDO_MS = 30_000;
 
@@ -61,7 +63,9 @@ export interface BulkTask {
   startDay: string | null;
   needsApproval: boolean;
   approvalRequestedAt: Date | null;
+  approvalRequestedById?: string | null;
   archivedAt: Date | null;
+  archivedById?: string | null;
   assigneeIds: string[];
   /** Its guests (guest ids). */
   guestIds: string[];
@@ -107,7 +111,7 @@ export interface BulkUndoResult {
 
 /** What Undo needs of one changed task (kept as JSON with the bulk action). */
 export type UndoEntry =
-  | { kind: 'status'; taskId: string; beforeColumnId: string; afterColumnId: string; waits: boolean }
+  | { kind: 'status'; taskId: string; beforeColumnId: string; afterColumnId: string; waits: boolean; approvedWaiting?: boolean }
   | { kind: 'priority'; taskId: string; before: BulkPriority; after: BulkPriority }
   | { kind: 'people'; taskId: string; before: string[]; after: string[] }
   | { kind: 'due'; taskId: string; before: string | null; after: string | null }
@@ -122,6 +126,7 @@ export type UndoEntry =
 export interface BulkRecord {
   id: string;
   actorId: string;
+  createdAt: Date;
   action: BulkActionType;
   undoUntil: Date;
   undoneAt: Date | null;
@@ -130,7 +135,7 @@ export interface BulkRecord {
 
 /** A project move as the move service answers it (preview and the move itself), task by task. */
 export interface MovePorts {
-  preview(actor: BulkActor, taskIds: string[], projectId: string): Promise<{ tasks: { id: string; canMove: boolean; reason: string | null; outsiders: { id: string }[] }[] }>;
+  preview(actor: BulkActor, taskIds: string[], projectId: string): Promise<{ tasks: { id: string; canMove: boolean; reason: string | null; outsiders: { id: string; canJoin?: boolean }[] }[] }>;
   move(actor: BulkActor, taskIds: string[], input: { projectId: string; columnId?: string; assignees?: 'ADD_TO_TEAM' | 'UNASSIGN' }): Promise<{ results: ({ taskId: string; ok: true; task: { key: string; projectId: string } } | { taskId: string; ok: false; error: { code: string; message: string } })[] }>;
   /** Undo: back into its old project and column, its old number back when it is still its own. */
   moveBack(actor: BulkActor, taskId: string, to: { projectId: string; columnId: string; key: string }): Promise<void>;
@@ -147,7 +152,8 @@ export interface TaskBulkPorts {
   canApprove(actor: BulkActor, projectId: string): Promise<boolean>;
   /** Of these people, those who may be assigned in the project. */
   assignableIn(projectId: string, userIds: string[]): Promise<string[]>;
-  namesOf(userIds: string[]): Promise<Map<string, string>>;
+  /** Names of these people the person may know (anyone else: "Someone" — review M1). */
+  namesOf(actor: BulkActor, userIds: string[]): Promise<Map<string, string>>;
   /** The project's categories (and its "every task needs a category" switch). */
   categoriesOf(projectId: string): Promise<{ requireCategory: boolean; categories: { id: string; name: string; retired: boolean }[] }>;
   /** The guests that may be put on the project's tasks (its company list, not retired): id → name. */
@@ -178,9 +184,11 @@ export interface TaskBulkPorts {
   deleteTask(actor: BulkActor, taskId: string): Promise<void>;
   /** Undo of a delete: restore from the Recycle Bin (its own rules). */
   restore(actor: BulkActor, taskIds: string[]): Promise<{ restored: string[]; refused: { id: string; message: string }[] }>;
+  /** Of these tasks, the ones still in the Recycle Bin from a delete by this person since then (Undo: nobody deleted them again). */
+  inBinBy(taskIds: string[], actorId: string, since: Date): Promise<string[]>;
 
   store: {
-    save(r: Omit<BulkRecord, 'id' | 'undoneAt'> & { changed: number }): Promise<string>;
+    save(r: Omit<BulkRecord, 'id' | 'undoneAt' | 'createdAt'> & { changed: number }): Promise<string>;
     find(id: string): Promise<BulkRecord | null>;
     /** Mark it undone — only once (false: it already was). */
     claim(id: string, at: Date): Promise<boolean>;
@@ -198,6 +206,7 @@ const NOT_FOUND = 'Task not found.';
 const STATUS_WORD: Record<BulkStatus, string> = { BACKLOG: 'Backlog', TODO: 'To do', IN_PROGRESS: 'In progress', BLOCKED: 'Blocked', REVIEW: 'Review', DONE: 'Done' };
 const PRIORITY_WORD: Record<BulkPriority, string> = { URGENT: 'Urgent', HIGH: 'High', NORMAL: 'Normal', LOW: 'Low' };
 const WAITS: BulkNote = { code: 'WAITS_FOR_APPROVAL', text: 'Waits for approval' };
+const APPROVES: BulkNote = { code: 'APPROVES', text: 'Will be approved' };
 
 /** "Sara", "Sara and Omar", "Sara, Omar and Nadia". */
 function namesText(names: string[]): string {
@@ -243,6 +252,9 @@ export function createTaskBulkService(ports: TaskBulkPorts) {
     const closed = memo<boolean>();
     const cols = memo<Awaited<ReturnType<TaskBulkPorts['columnsOf']>>>();
     const approver = memo<boolean>();
+    const cats = memo<Awaited<ReturnType<TaskBulkPorts['categoriesOf']>>>();
+    const teams = memo<string[]>();
+    const guestLists = memo<Map<string, string>>();
     const once = <T>(m: Map<string, Promise<T>>, k: string, f: () => Promise<T>) => {
       let p = m.get(k);
       if (!p) m.set(k, (p = f()));
@@ -254,6 +266,10 @@ export function createTaskBulkService(ports: TaskBulkPorts) {
       archived: (p: string) => once(closed, p, () => ports.isProjectArchived(p)),
       columns: (p: string) => once(cols, p, () => ports.columnsOf(p)),
       approves: (p: string) => once(approver, p, () => ports.canApprove(actor, p)),
+      categories: (p: string) => once(cats, p, () => ports.categoriesOf(p)),
+      /** Of these people, who may be given the project's tasks (read once per project and set of people). */
+      assignable: (p: string, ids: string[]) => once(teams, `${p}|${[...ids].sort().join(',')}`, () => ports.assignableIn(p, ids)),
+      guests: (p: string, ids: string[]) => once(guestLists, `${p}|${[...ids].sort().join(',')}`, () => ports.guestsFor(actor, p, ids)),
     };
   }
   type Reader = ReturnType<typeof reader>;
@@ -301,22 +317,26 @@ export function createTaskBulkService(ports: TaskBulkPorts) {
       case 'status':
         return {
           async check(t, r) {
-            const column = pickColumn(
-              (await r.columns(t.projectId)).filter((c) => c.category === action.status),
-              [action.status],
-            );
+            // Review I1: the project's first SWITCHED-ON column of that status (a switched-off one is never chosen
+            // while the project has others on).
+            const column = pickColumn(await r.columns(t.projectId), [action.status]);
             if (!column) throw new Skip('NO_COLUMN', `${await r.name(t.projectId)} has no ${STATUS_WORD[action.status]} column.`);
             if (t.columnCategory === action.status) throw new Skip('UNCHANGED', `Already ${STATUS_WORD[action.status]}.`);
             // A task needing approval finished by someone who can't approve waits for approval (as one finished alone).
-            const waits = action.status === 'DONE' && t.needsApproval && !t.completedAt && !(await r.approves(t.projectId));
+            const finishing = action.status === 'DONE' && t.needsApproval && !t.completedAt;
+            const approver = finishing ? await r.approves(t.projectId) : false;
+            const waits = finishing && !approver;
             if (waits && t.approvalRequestedAt) throw new Skip('UNCHANGED', 'It is already waiting for approval.');
-            return { ...(waits ? { note: WAITS } : {}), data: column.id };
+            // Review M4: an approver finishing a task that waits approves it (said, as its people are told).
+            const approves = finishing && approver && Boolean(t.approvalRequestedAt);
+            return { ...(waits ? { note: WAITS } : approves ? { note: APPROVES } : {}), data: column.id };
           },
           async apply(t, plan, _r, actor) {
             const moved = await ports.moveToColumn(actor, t.id, plan.data as string);
+            const approvedWaiting = Boolean(t.approvalRequestedAt) && !moved.waits && action.status === 'DONE';
             return {
-              undo: { kind: 'status', taskId: t.id, beforeColumnId: t.columnId, afterColumnId: moved.columnId, waits: moved.waits },
-              ...(moved.waits ? { note: WAITS } : {}),
+              undo: { kind: 'status', taskId: t.id, beforeColumnId: t.columnId, afterColumnId: moved.columnId, waits: moved.waits, ...(approvedWaiting ? { approvedWaiting } : {}) },
+              ...(moved.waits ? { note: WAITS } : approvedWaiting ? { note: APPROVES } : {}),
             };
           },
         };
@@ -336,7 +356,7 @@ export function createTaskBulkService(ports: TaskBulkPorts) {
         const wanted = [...new Set(action.userIds)];
         return {
           async check(t, r) {
-            const ok = new Set(await ports.assignableIn(t.projectId, wanted));
+            const ok = new Set(await r.assignable(t.projectId, wanted));
             const outside = wanted.filter((id) => !ok.has(id));
             if (outside.length) throw new Skip('NOT_ON_TEAM', `${namesText(outside.map(name))} ${outside.length === 1 ? 'isn’t' : 'aren’t'} on the ${await r.name(t.projectId)} team.`);
             const after = action.type === 'assign' ? [...new Set([...t.assigneeIds, ...wanted])] : wanted;
@@ -396,7 +416,7 @@ export function createTaskBulkService(ports: TaskBulkPorts) {
         const remove = [...new Set(action.remove ?? [])];
         return {
           async check(t, r) {
-            const { requireCategory, categories } = await ports.categoriesOf(t.projectId);
+            const { requireCategory, categories } = await r.categories(t.projectId);
             const mine = new Map(categories.map((c) => [c.id, c]));
             if ([...add, ...remove].some((id) => !mine.has(id))) throw new Skip('CATEGORY_OTHER_PROJECT', `Those categories aren’t ${await r.name(t.projectId)}’s.`);
             if (add.some((id) => mine.get(id)!.retired)) throw new Skip('CATEGORY_RETIRED', 'A retired category can’t be given to a task.');
@@ -415,8 +435,8 @@ export function createTaskBulkService(ports: TaskBulkPorts) {
       case 'guests': {
         const add = [...new Set(action.add)];
         return {
-          async check(t, r, actor) {
-            const listed = await ports.guestsFor(actor, t.projectId, add);
+          async check(t, r) {
+            const listed = await r.guests(t.projectId, add);
             if (add.some((id) => !listed.has(id))) throw new Skip('GUEST_OTHER_LIST', `Those guests aren’t on ${await r.name(t.projectId)}’s guest list.`);
             const adding = add.filter((id) => !t.guestIds.includes(id));
             if (adding.length === 0) throw new Skip('UNCHANGED', 'They are already on it.');
@@ -440,7 +460,18 @@ export function createTaskBulkService(ports: TaskBulkPorts) {
       }
       case 'duplicate':
         return {
-          async check() {
+          // Review I4: what Duplicate would refuse, said before (the copy goes to the same project's To-do column).
+          async check(t, r, actor) {
+            const columns = await r.columns(t.projectId);
+            if (!pickColumn(columns, ['TODO', 'BACKLOG']) && !columns.some((c) => c.category !== 'DONE')) throw new Skip('NO_COLUMN', `${await r.name(t.projectId)} has no column to put the copy in.`);
+            const { requireCategory, categories } = await r.categories(t.projectId);
+            const live = new Set(categories.filter((c) => !c.retired).map((c) => c.id));
+            if (requireCategory && !t.categoryIds.some((id) => live.has(id))) throw new Skip('CATEGORY_REQUIRED', `Every task in ${await r.name(t.projectId)} needs a category, and this one has none to copy.`);
+            if (t.guestIds.length > 0) {
+              const team = await r.assignable(t.projectId, t.assigneeIds);
+              const me = team.length ? [] : await r.assignable(t.projectId, [actor.id]);
+              if (team.length === 0 && me.length === 0) throw new Skip('NEEDS_TEAM_MEMBER', 'Its guests need someone from the team, and nobody on it can be given the copy.');
+            }
             return {};
           },
           async apply(t, _p, _r, actor) {
@@ -474,10 +505,35 @@ export function createTaskBulkService(ports: TaskBulkPorts) {
 
   const named = (t: BulkTask) => ({ id: t.id, key: t.key, title: t.title, projectId: t.projectId });
 
+  /** Review M8: one bulk change (or Undo) at a time per person. */
+  const running = new Set<string>();
+  async function oneAtATime<T>(actor: BulkActor, fn: () => Promise<T>): Promise<T> {
+    if (running.has(actor.id)) throw new HttpError('Another bulk change of yours is still running. Try again when it has finished.', 'BULK_BUSY', 409);
+    running.add(actor.id);
+    try {
+      return await fn();
+    } finally {
+      running.delete(actor.id);
+    }
+  }
+
+  /** Review I3: copies made in the last minute, per person (bulk Duplicate's own budget). */
+  const copiesMade = new Map<string, number[]>();
+  function copiesLeft(actorId: string): number {
+    const since = now().getTime() - 60_000;
+    const recent = (copiesMade.get(actorId) ?? []).filter((t) => t > since);
+    copiesMade.set(actorId, recent);
+    return Math.max(0, COPIES_PER_MINUTE - recent.length);
+  }
+
   async function run(actor: BulkActor, input: { taskIds: string[]; action: BulkAction; dryRun?: boolean; ip?: string | null }): Promise<BulkResult> {
+    validate(input.action, new Set(input.taskIds).size);
+    return input.dryRun ? runNow(actor, input) : oneAtATime(actor, () => runNow(actor, input));
+  }
+
+  async function runNow(actor: BulkActor, input: { taskIds: string[]; action: BulkAction; dryRun?: boolean; ip?: string | null }): Promise<BulkResult> {
     const { action } = input;
     const dryRun = Boolean(input.dryRun);
-    validate(action, new Set(input.taskIds).size);
     const { ids, byId } = await read(input.taskIds);
     const r = reader(actor);
     const changed: BulkChanged[] = [];
@@ -537,6 +593,9 @@ export function createTaskBulkService(ports: TaskBulkPorts) {
             const t = byId.get(p.id)!;
             if (!p.canMove) skip(p.id, t, 'CANT_MOVE', p.reason ?? 'It can’t be moved.', true);
             else if (p.outsiders.length > 0 && !action.assignees) skip(p.id, t, 'ASSIGNEES_NOT_ON_TEAM', 'Someone assigned to it isn’t on the new project’s team: choose to add them or unassign them.', true);
+            // Review I4: what the move itself would refuse.
+            else if (action.assignees === 'ADD_TO_TEAM' && p.outsiders.some((o) => o.canJoin === false)) skip(p.id, t, 'CANT_JOIN_TEAM', 'Someone assigned to it can’t join the new project’s team (they aren’t in any of its companies): unassign them instead.', true);
+            else if (action.assignees === 'UNASSIGN' && t.guestIds.length > 0 && t.assigneeIds.length > 0 && p.outsiders.length >= t.assigneeIds.length) skip(p.id, t, 'NEEDS_TEAM_MEMBER', 'It has guests, so it needs at least one person from the new team: add them to the team instead.', true);
             else changed.push(named(t));
           }
           return;
@@ -558,29 +617,38 @@ export function createTaskBulkService(ports: TaskBulkPorts) {
       }
 
       const people = action.type === 'assign' || action.type === 'reassign' || (action.type === 'unassign' && action.userIds) ? (action as { userIds: string[] }).userIds : [];
-      const handler = handlerFor(action, await ports.namesOf(people));
+      const handler = handlerFor(action, await ports.namesOf(actor, people));
+      let copies = action.type === 'duplicate' ? copiesLeft(actor.id) : Infinity;
       for (const id of ids) {
-        const t = byId.get(id);
+        const first = byId.get(id);
         if (!visible.has(id)) {
-          skip(id, t, 'NOT_FOUND', NOT_FOUND, false);
+          skip(id, first, 'NOT_FOUND', NOT_FOUND, false);
           continue;
         }
+        // Review M2: applying, each task is read again just before it is changed (a long run: it may have been
+        // archived, changed or deleted meanwhile).
+        const t = dryRun ? first : (await ports.load([id]))[0];
         try {
           await common(t, r, action.type);
           const plan = await handler.check(t!, r, actor);
+          if (action.type === 'duplicate') {
+            if (copies <= 0) throw new Skip('TOO_MANY_COPIES', `You can make ${COPIES_PER_MINUTE} copies a minute — try this one again in a minute.`);
+            copies -= 1;
+          }
           if (dryRun) {
             changed.push({ ...named(t!), ...(plan.note ? { note: plan.note } : {}) });
             continue;
           }
           const done = await handler.apply(t!, plan, r, actor);
+          if (action.type === 'duplicate') copiesMade.set(actor.id, [...(copiesMade.get(actor.id) ?? []), now().getTime()]);
           changed.push({ ...named(t!), ...(done.note ? { note: done.note } : {}), ...(done.copy ? { copy: done.copy } : {}) });
           if (done.undo) undo.push(done.undo);
         } catch (err) {
-          if (err instanceof Skip) skip(id, t, err.code, err.reason, true);
+          if (err instanceof Skip) skip(id, t ?? first, err.code, err.reason, err.code !== 'NOT_FOUND');
           else {
             if (!(err instanceof HttpError) || err.status >= 500) ports.onError?.(err, `bulk ${action.type} of a task`);
             const s = skipOf(err);
-            skip(id, t, s.code === 'NOT_FOUND' ? 'NOT_FOUND' : s.code, s.code === 'NOT_FOUND' ? NOT_FOUND : s.reason, s.code !== 'NOT_FOUND');
+            skip(id, t ?? first, s.code === 'NOT_FOUND' ? 'NOT_FOUND' : s.code, s.code === 'NOT_FOUND' ? NOT_FOUND : s.reason, s.code !== 'NOT_FOUND');
           }
         }
       }
@@ -651,6 +719,10 @@ export function createTaskBulkService(ports: TaskBulkPorts) {
    * and the field still as the change left it (else "changed since" and left alone).
    */
   async function undo(actor: BulkActor, bulkId: string, opts: { ip?: string | null } = {}): Promise<BulkUndoResult> {
+    return oneAtATime(actor, () => undoNow(actor, bulkId, opts));
+  }
+
+  async function undoNow(actor: BulkActor, bulkId: string, opts: { ip?: string | null } = {}): Promise<BulkUndoResult> {
     const rec = await ports.store.find(bulkId);
     if (!rec || rec.actorId !== actor.id) throw new NotFoundError('That change isn’t there.');
     if (rec.undoneAt) throw new HttpError('This was already undone.', 'UNDO_DONE', 409);
@@ -663,7 +735,11 @@ export function createTaskBulkService(ports: TaskBulkPorts) {
     const work = async () => {
       // Deletes come back together (the bin's own rules); copies are erased; the rest task by task.
       if (rec.action === 'delete') {
-        const back = await ports.restore(actor, taskIds);
+        // Review M3: only what is still in the bin from THIS delete (deleted by them since it was made).
+        const mine = new Set(await ports.inBinBy(taskIds, actor.id, rec.createdAt));
+        for (const id of taskIds.filter((x) => !mine.has(x))) skipped.push({ id, code: 'CHANGED_SINCE', reason: 'It isn’t in the Recycle Bin from this change any more — left as it is.' });
+        if (mine.size === 0) return;
+        const back = await ports.restore(actor, [...mine]);
         const now = new Map((await ports.load(back.restored)).map((t) => [t.id, t]));
         for (const id of back.restored) {
           const t = now.get(id);
@@ -686,6 +762,8 @@ export function createTaskBulkService(ports: TaskBulkPorts) {
           }
           if (e.kind === 'archive') {
             if (Boolean(t.archivedAt) !== e.archived) throw new Skip('CHANGED_SINCE', CHANGED_SINCE);
+            // Review M3: archived by this change (not unarchived and archived again by someone since).
+            if (e.archived && (t.archivedById !== actor.id || !t.archivedAt || t.archivedAt.getTime() < rec.createdAt.getTime() - 1000)) throw new Skip('CHANGED_SINCE', CHANGED_SINCE);
             const res = e.archived ? await ports.archive.unarchive(actor, [t.id]) : await ports.archive.archive(actor, [t.id]);
             if (res.refused[0]) throw new Skip(res.refused[0].code, res.refused[0].message);
             restored.push(named(t));
@@ -694,8 +772,9 @@ export function createTaskBulkService(ports: TaskBulkPorts) {
           // Everything else: the task must still take changes.
           if (await r.archived(t.projectId)) throw new Skip(PROJECT_ARCHIVED_CODE, PROJECT_ARCHIVED_MESSAGE);
           if (t.archivedAt) throw new Skip(TASK_ARCHIVED_CODE, TASK_ARCHIVED_MESSAGE);
-          await undoOne(actor, e, t);
-          restored.push(named(t));
+          await undoOne(actor, e, t, rec);
+          // A move put back: its old number.
+          restored.push(e.kind === 'project' ? { ...named(t), key: e.before.key, projectId: e.before.projectId } : named(t));
         } catch (err) {
           if (err instanceof Skip) skipped.push(t && err.code !== 'NOT_FOUND' ? { id: e.taskId, key: t.key, title: t.title, code: err.code, reason: err.reason } : { id: e.taskId, code: 'NOT_FOUND', reason: NOT_FOUND });
           else {
@@ -723,15 +802,18 @@ export function createTaskBulkService(ports: TaskBulkPorts) {
   }
 
   /** One task's Undo, field by field as the change left it. */
-  async function undoOne(actor: BulkActor, e: UndoEntry, t: BulkTask): Promise<void> {
+  async function undoOne(actor: BulkActor, e: UndoEntry, t: BulkTask, rec: BulkRecord): Promise<void> {
     switch (e.kind) {
       case 'status':
         if (t.columnId !== e.afterColumnId) throw new Skip('CHANGED_SINCE', CHANGED_SINCE);
-        if (e.beforeColumnId !== e.afterColumnId) await ports.moveToColumn(actor, t.id, e.beforeColumnId);
-        else if (e.waits) {
-          if (!t.approvalRequestedAt) throw new Skip('CHANGED_SINCE', CHANGED_SINCE);
-          await ports.withdrawApproval(actor, t.id);
+        // Review M4: an approval given by this change isn't taken back here (its request is gone with it).
+        if (e.approvedWaiting) throw new Skip('APPROVED', 'It was approved by this change — move it back by hand if it needs to be.');
+        if (e.waits) {
+          // Review M3: its request is still the one this change made.
+          if (!t.approvalRequestedAt || t.approvalRequestedById !== actor.id || t.approvalRequestedAt.getTime() < rec.createdAt.getTime() - 1000) throw new Skip('CHANGED_SINCE', CHANGED_SINCE);
         }
+        if (e.beforeColumnId !== e.afterColumnId) await ports.moveToColumn(actor, t.id, e.beforeColumnId);
+        else if (e.waits) await ports.withdrawApproval(actor, t.id);
         return;
       case 'priority':
         if (t.priority !== e.after) throw new Skip('CHANGED_SINCE', CHANGED_SINCE);
@@ -744,12 +826,12 @@ export function createTaskBulkService(ports: TaskBulkPorts) {
       case 'people': {
         if (!sameSet(t.assigneeIds, e.after)) throw new Skip('CHANGED_SINCE', CHANGED_SINCE);
         const adding = e.before.filter((id) => !t.assigneeIds.includes(id));
-        if (adding.length) {
-          // Someone who has left the project's team since can't be put back on (the single-task rule).
-          const ok = await ports.assignableIn(t.projectId, adding);
-          if (ok.length) await ports.addPeople(actor, t.id, ok);
-        }
-        for (const id of t.assigneeIds.filter((x) => !e.before.includes(x))) await ports.removePerson(actor, t.id, id);
+        // Someone who has left the project's team since can't be put back on (the single-task rule).
+        const ok = adding.length ? await ports.assignableIn(t.projectId, adding) : [];
+        const removing = t.assigneeIds.filter((x) => !e.before.includes(x));
+        if (ok.length === 0 && removing.length === 0) throw new Skip('NOT_ON_TEAM', 'They are no longer on its project’s team — left as it is.');
+        if (ok.length) await ports.addPeople(actor, t.id, ok);
+        for (const id of removing) await ports.removePerson(actor, t.id, id);
         return;
       }
       case 'categories':

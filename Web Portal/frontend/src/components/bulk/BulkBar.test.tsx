@@ -37,7 +37,7 @@ describe('BulkBar (computer)', () => {
     expect(onAction).toHaveBeenLastCalledWith('status');
     await userEvent.click(within(bar).getByRole('button', { name: 'More actions' }));
     const menu = screen.getByRole('menu', { name: 'More actions' });
-    expect(within(menu).getAllByRole('menuitem').map((m) => m.textContent)).toEqual(['Reassign', 'Unassign', 'Category', 'Guests', 'Duplicate', 'Archive', 'Unarchive', 'Delete']);
+    expect(within(menu).getAllByRole('menuitem').map((m) => m.textContent)).toEqual(['Reassign', 'Unassign', 'Category', 'Guests', 'Duplicate', 'Archive', 'Delete']);
     await userEvent.click(within(menu).getByRole('menuitem', { name: 'Delete' }));
     expect(onAction).toHaveBeenLastCalledWith('delete');
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
@@ -91,7 +91,7 @@ describe('BulkBar (phone)', () => {
     await userEvent.click(open);
     const sheet = screen.getByRole('dialog', { name: 'Actions for 12 tasks' });
     const rows = within(sheet).getAllByRole('button').filter((b) => b.dataset.bulkAction);
-    expect(rows.map((b) => b.dataset.bulkAction)).toEqual(['status', 'priority', 'assign', 'reassign', 'unassign', 'dueDate', 'project', 'category', 'guests', 'duplicate', 'archive', 'unarchive', 'delete']);
+    expect(rows.map((b) => b.dataset.bulkAction)).toEqual(['status', 'priority', 'assign', 'reassign', 'unassign', 'dueDate', 'project', 'category', 'guests', 'duplicate', 'archive', 'delete']);
     for (const r of rows) expect(r.className).toContain('min-h-11');
     // Focus is in the sheet, and stays there.
     expect(sheet.contains(document.activeElement)).toBe(true);

@@ -11,20 +11,27 @@ import type { CreateNotificationData } from './notification-repository';
 
 interface Batch {
   notices: CreateNotificationData[];
+  /** Review M6: once the bulk action has returned, a late notice is sent as usual, never lost. */
+  closed: boolean;
 }
 
 const store = new AsyncLocalStorage<Batch>();
 
 /** The notices gathered by the bulk action running now (undefined outside one). */
 export function activeNoticeBatch(): CreateNotificationData[] | undefined {
-  return store.getStore()?.notices;
+  const batch = store.getStore();
+  return batch && !batch.closed ? batch.notices : undefined;
 }
 
 /** Run `fn` gathering its notices instead of sending them. */
 export async function collectNotices<T>(fn: () => Promise<T>): Promise<{ result: T; notices: CreateNotificationData[] }> {
-  const batch: Batch = { notices: [] };
-  const result = await store.run(batch, fn);
-  return { result, notices: batch.notices };
+  const batch: Batch = { notices: [], closed: false };
+  try {
+    const result = await store.run(batch, fn);
+    return { result, notices: batch.notices };
+  } finally {
+    batch.closed = true;
+  }
 }
 
 /** Plain words for "N tasks" and where. */

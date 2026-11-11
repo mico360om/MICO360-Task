@@ -325,6 +325,14 @@ export function createBinService(deps: BinServiceDeps) {
     return gone;
   }
 
+  /**
+   * Bulk lane (Undo of a bulk Duplicate): erase one task already put in the bin by that Undo, at once — its
+   * files too, with the audit line saying why. Callers decide who may (the bin's own rule is not asked).
+   */
+  async function eraseNow(taskId: string, by: string, reason: string): Promise<boolean> {
+    return (await eraseOne(taskId, by, reason)) !== null;
+  }
+
   /** Delete forever before the 60 days are up: administrators only. */
   async function erase(viewer: BinViewer, taskIds: string[], opts: { ip?: string | null } = {}): Promise<EraseResult> {
     if (!mayEraseNow({ isAdmin: isAdmin(viewer) })) throw new ForbiddenError(BIN_WORDS.eraseAdminsOnly);
@@ -381,7 +389,7 @@ export function createBinService(deps: BinServiceDeps) {
     return (await deps.canViewProject(viewer, t.projectId)) ? 'TASK_DELETED' : null;
   }
 
-  return { list, detail, restore, erase, sweep, deleted, noticeFor };
+  return { list, detail, restore, erase, eraseNow, sweep, deleted, noticeFor };
 }
 
 export type BinService = ReturnType<typeof createBinService>;

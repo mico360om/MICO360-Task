@@ -12,9 +12,9 @@ import type { BulkActionType } from '../api/bulk';
 /** The most tasks one bulk change takes (the server's limit too). */
 export const BULK_MAX = 500;
 /** The most tasks one bulk Duplicate takes. */
-export const DUPLICATE_MAX = 50;
+export const DUPLICATE_MAX = 20;
 export const BULK_LIMIT_TEXT = 'Bulk changes take up to 500 tasks at a time';
-export const DUPLICATE_LIMIT_TEXT = 'Duplicate up to 50 tasks at a time';
+export const DUPLICATE_LIMIT_TEXT = 'Duplicate up to 20 tasks at a time';
 
 /** A selected task, as the place it was ticked in knew it ('' project: not known — a task brought back by id). */
 export interface SelRef {

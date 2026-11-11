@@ -2025,6 +2025,7 @@ async function main(): Promise<void> {
   // Bulk task changes (bulk lane): one change to up to 500 tasks, each through its single-task service (so
   // each keeps its rules and history lines), a dry run for the confirmation, a short Undo, one combined
   // notice per person, one live update per project, one audit line.
+  const bulkPreferences = createPrismaPreferenceStore(prisma);
   const taskBulkService = createTaskBulkService(
     createBulkPorts({
       prisma,
@@ -2038,9 +2039,11 @@ async function main(): Promise<void> {
       taskArchiveService,
       binService,
       canViewProject: (userId, roles, projectId) => projectAccess.canViewProject(userId, roles, projectId),
+      accessibleProjectIds: (userId, roles) => projectAccess.accessibleProjectIds(userId, roles),
       canManageProject: (userId, roles, projectId) => projectAuthz.canManageProject(userId, roles, projectId),
       isProjectArchived: (projectId) => binArchive.isArchived(projectId),
       notify: (n) => notificationService.notify(n),
+      isMuted: async (userId, type) => isMuted(await bulkPreferences.get(userId), type),
       audit: (entry) => auditService.record(entry),
       broadcast: (projectId, event, payload) => broadcast(projectId, event, payload),
       // As the move route (task-move-routes announce): people put on a team, a task off a client page.
@@ -2760,6 +2763,14 @@ async function main(): Promise<void> {
       if (gone) logger.info('Recycle Bin: tasks erased after 60 days', { tasks: gone });
     }).catch(sweepFailed('recycle-bin-erase', 'Recycle Bin clean-up'));
   jobs.every(60 * 60 * 1000, runBinErase);
+
+  // Bulk changes (review M11): the rows kept for Undo go a day after their window (the Audit log keeps the record).
+  const runBulkPrune = () =>
+    runExclusive(jobLock, 'bulk-undo-prune', SWEEP_LEASE_MS, () => new Date(), async () => {
+      const { count } = await prisma.taskBulkAction.deleteMany({ where: { undoUntil: { lt: new Date(Date.now() - 24 * 60 * 60 * 1000) } } });
+      if (count) logger.info('Bulk changes: Undo records past their window removed', { rows: count });
+    }).catch(sweepFailed('bulk-undo-prune', 'bulk change clean-up'));
+  jobs.every(24 * 60 * 60 * 1000, runBulkPrune);
 
   await app.listen({ port: env.PORT, host: env.HOST });
   logger.info('MICO360 Tasks API listening', { port: env.PORT, realtime: true, env: env.NODE_ENV });

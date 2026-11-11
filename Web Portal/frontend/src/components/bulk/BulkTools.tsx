@@ -34,6 +34,8 @@ export interface BulkToolsProps {
   merge?: boolean;
   /** The bar is shown (default: whenever something is selected). The board shows it only in Select mode. */
   show?: boolean;
+  /** A project's Archived tasks page: only Duplicate, Unarchive and Delete (review M10). */
+  archivedView?: boolean;
 }
 
 /**
@@ -42,7 +44,7 @@ export interface BulkToolsProps {
  * Merge (today's), the summary with Undo afterwards — and the selection's count said to screen readers.
  * After a change every task view refreshes and the selection is cleared.
  */
-export function BulkTools({ selection, visibleIds, projects, assignedOf, merge = false, show = true }: BulkToolsProps) {
+export function BulkTools({ selection, visibleIds, projects, assignedOf, merge = false, show = true, archivedView = false }: BulkToolsProps) {
   const qc = useQueryClient();
   const isAdmin = useAuthStore((s) => s.isAdmin());
   const timeZone = useCompanyTimeZone();
@@ -68,6 +70,7 @@ export function BulkTools({ selection, visibleIds, projects, assignedOf, merge =
     managedProjectIds: managed,
     move: { canMove: bulkMoveAvailability(targets).canMove, reason: bulkMoveAvailability(targets).reason },
     merge: mergeAvail,
+    archivedView,
   });
   const ids = selection.refs.map((r) => r.id);
   // Unassign's choices: the people on the selected tasks now (as the page knows them).

@@ -33,10 +33,17 @@ describe('the bar’s actions: who sees what', () => {
     expect(list.every((a) => a.unavailable === null)).toBe(true);
   });
 
-  it('administrators, and people who run one of the selected tasks’ projects, also see Archive, Unarchive and Delete', () => {
-    expect(ids(bulkBarActions(ctx({ isAdmin: true })))).toEqual(expect.arrayContaining(['archive', 'unarchive', 'delete']));
-    expect(ids(bulkBarActions(ctx({ projectIds: ['p1', 'p2'], managedProjectIds: ['p2'] })))).toEqual(expect.arrayContaining(['archive', 'unarchive', 'delete']));
+  // tbk: review M10 — the lists only show live tasks, so Unarchive is offered on the Archived tasks page instead.
+  it('administrators, and people who run one of the selected tasks’ projects, also see Archive and Delete', () => {
+    expect(ids(bulkBarActions(ctx({ isAdmin: true })))).toEqual(expect.arrayContaining(['archive', 'delete']));
+    expect(ids(bulkBarActions(ctx({ isAdmin: true })))).not.toContain('unarchive');
+    expect(ids(bulkBarActions(ctx({ projectIds: ['p1', 'p2'], managedProjectIds: ['p2'] })))).toEqual(expect.arrayContaining(['archive', 'delete']));
     expect(ids(bulkBarActions(ctx({ managedProjectIds: ['p9'] })))).not.toContain('archive');
+  });
+
+  it('on the Archived tasks page: Unarchive and Delete (for those who run the project), and Duplicate — nothing that edits', () => {
+    expect(ids(bulkBarActions(ctx({ isAdmin: true, archivedView: true })))).toEqual(['duplicate', 'unarchive', 'delete']);
+    expect(ids(bulkBarActions(ctx({ archivedView: true })))).toEqual(['duplicate']);
   });
 
   it('Category and Guests only when every selected task is in one project (else unavailable, saying why)', () => {
@@ -47,7 +54,7 @@ describe('the bar’s actions: who sees what', () => {
     expect(why(bulkBarActions(ctx({ unknownProject: true })), 'category')).not.toBeNull();
   });
 
-  it('more than 500: every change is unavailable with the limit; Duplicate stops at 50', () => {
+  it('more than 500: every change is unavailable with the limit; Duplicate stops at 20', () => {
     const over = bulkBarActions(ctx({ count: 501, isAdmin: true, merge: { show: true, reason: null } }));
     expect(over.every((a) => a.unavailable === BULK_LIMIT_TEXT)).toBe(true);
     expect(why(bulkBarActions(ctx({ count: 51 })), 'duplicate')).toBe(DUPLICATE_LIMIT_TEXT);

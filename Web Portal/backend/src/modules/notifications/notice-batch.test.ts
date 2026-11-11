@@ -74,3 +74,21 @@ describe('the notification service gathers notices while a bulk action runs', ()
     expect(created).toHaveLength(1);
   });
 });
+
+describe('a notice sent after the bulk action returned (review M6)', () => {
+  it('is not gathered into the closed batch: it goes as usual', async () => {
+    let later: (() => Promise<unknown>) | null = null;
+    const sent: string[] = [];
+    const { notices } = await collectNotices(async () => {
+      later = async () => {
+        const { activeNoticeBatch } = await import('./notice-batch');
+        if (activeNoticeBatch()) return 'gathered';
+        sent.push('sent');
+        return 'sent';
+      };
+    });
+    expect(notices).toEqual([]);
+    expect(await later!()).toBe('sent');
+    expect(sent).toEqual(['sent']);
+  });
+});

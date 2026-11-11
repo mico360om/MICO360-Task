@@ -7,7 +7,15 @@ import { BULK_STATUSES, MAX_BULK_TASKS, type BulkAction, type TaskBulkService } 
 /** People or guests named in one change. */
 const MAX_NAMED = 20;
 const ids = (min: number) => z.array(idString).min(min).max(MAX_NAMED);
-const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'A day like 2026-11-20.');
+// Review M7: a real calendar day (2026-02-31 and 2026-13-01 aren't), in a sane range.
+const day = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'A day like 2026-11-20.')
+  .refine((d) => {
+    const t = new Date(`${d}T00:00:00.000Z`);
+    const year = Number(d.slice(0, 4));
+    return !Number.isNaN(t.getTime()) && t.toISOString().slice(0, 10) === d && year >= 2000 && year <= 2100;
+  }, 'That isn’t a day of the calendar.');
 
 // Written for zod 3 and zod 4 alike (plain objects in a union; no discriminator with repeated keys).
 export const bulkActionSchema = z.union([

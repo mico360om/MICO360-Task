@@ -18,6 +18,9 @@ import { EmptyState } from '../components/ui/EmptyState';
 import { StatusPill } from '../components/ui/StatusPill';
 import { TaskKey } from '../components/TaskKey';
 import { ArchiveIcon } from '../components/task-archive/ArchivedBadge';
+import { taskRef, useBulkSelection } from '../lib/bulk-selection';
+import { SelectAllBox, TaskSelectBox } from '../components/bulk/select-boxes';
+import { BulkTools } from '../components/bulk/BulkTools';
 
 /**
  * Task archive (bulk lane): a project's archived tasks — hidden from its boards and lists, kept here
@@ -57,6 +60,10 @@ export function ArchivedTasksPage() {
   });
 
   const ids = rows.map((t) => t.id);
+  // Bulk changes (review M10): tick archived tasks to Unarchive (or Delete, Duplicate) several at once.
+  const sel = useBulkSelection(`archived:${id}`);
+  const refs = rows.map(taskRef);
+  const allState = rows.length > 0 && rows.every((t) => sel.selected.has(t.id)) ? 'all' : rows.some((t) => sel.selected.has(t.id)) ? 'some' : 'none';
   return (
     <div>
       {project ? (
@@ -93,12 +100,17 @@ export function ArchivedTasksPage() {
         <EmptyState icon={<ArchiveIcon size={24} />} title="No archived tasks." description="Archive a task from its ⋯ menu to hide it here, kept and read-only." />
       ) : (
         <>
-          <p className="mb-2 text-xs text-ink-2" aria-live="polite">
-            {rows.length === 1 ? '1 archived task' : `${rows.length} archived tasks`}
-          </p>
+          <div className="mb-2 flex items-center gap-2 text-xs text-ink-2">
+            <label className={`inline-flex items-center gap-2 ${TOUCH_TALL}`}>
+              <SelectAllBox state={allState} onChange={() => (allState === 'all' ? sel.deselect(ids) : sel.selectAll(refs))} label={`Select all ${rows.length}`} className="h-4 w-4 cursor-pointer accent-brand" />
+              <span aria-hidden="true">Select all</span>
+            </label>
+            <p aria-live="polite">{rows.length === 1 ? '1 archived task' : `${rows.length} archived tasks`}</p>
+          </div>
           <ul aria-label="Archived tasks" className="card divide-y divide-line">
             {rows.map((t) => (
               <li key={t.id} data-archived-row={t.id} className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-3 py-2.5 md:flex-nowrap">
+                <TaskSelectBox task={t} checked={sel.selected.has(t.id)} onChange={(shift) => sel.toggle(taskRef(t), { shift, order: refs })} />
                 <button type="button" onClick={() => openTask(t.id, ids)} className={`group flex min-w-0 flex-1 basis-full items-center gap-2 text-start md:basis-auto ${TOUCH_TALL}`}>
                   <TaskKey value={t.key} />
                   <span dir="auto" className="min-w-0 truncate font-medium text-ink group-hover:text-brand group-hover:underline">
@@ -121,6 +133,7 @@ export function ArchivedTasksPage() {
               </li>
             ))}
           </ul>
+          {sel.count > 0 && project ? <BulkTools selection={sel} visibleIds={ids} projects={[project]} archivedView /> : null}
         </>
       )}
     </div>

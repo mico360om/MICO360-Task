@@ -4,7 +4,6 @@ import { liveTaskWhere } from '../prisma-task-repository';
 import { isAwaitingApproval } from '../task-approval';
 import { mayDeleteTask, DELETE_NOT_ALLOWED } from '../task-delete-rule';
 import { binExpiryOf } from '../../recycle-bin/bin-rules';
-import { createPrismaBinStore } from '../../recycle-bin/prisma-bin-store';
 import { collectNotices, combineNotices } from '../../notifications/notice-batch';
 import type { CreateNotificationData } from '../../notifications/notification-repository';
 import type { TaskService } from '../task-service';
@@ -30,6 +29,10 @@ export interface BulkWiringDeps {
   taskArchiveService: TaskArchiveService;
   binService: BinService;
   canViewProject(userId: string, roles: string[], projectId: string): Promise<boolean>;
+  /** The projects whose tasks this person may open (null: every one — an administrator). */
+  accessibleProjectIds(userId: string, roles: string[]): Promise<string[] | null>;
+  /** Has this person muted this type of notice (a combined notice leaves muted ones out first)? */
+  isMuted?(userId: string, type: string): Promise<boolean>;
   /** Administrators and the people who run the project (approvals, the delete rule's first half). */
   canManageProject(userId: string, roles: string[], projectId: string): Promise<boolean>;
   isProjectArchived(projectId: string): Promise<boolean>;
@@ -58,7 +61,7 @@ export function createBulkPorts(deps: BulkWiringDeps): Omit<TaskBulkPorts, 'now'
         where: { id: { in: ids }, ...liveTaskWhere },
         select: {
           id: true, key: true, title: true, projectId: true, columnId: true, completedAt: true, priority: true, dueDate: true, startDate: true,
-          needsApproval: true, approvalRequestedAt: true, archivedAt: true, isMilestone: true,
+          needsApproval: true, approvalRequestedAt: true, approvalRequestedById: true, archivedAt: true, archivedById: true, isMilestone: true,
           column: { select: { category: true } },
           assignees: { select: { userId: true }, orderBy: { assignedAt: 'asc' } },
           externalContacts: { select: { guestId: true } },
@@ -78,7 +81,9 @@ export function createBulkPorts(deps: BulkWiringDeps): Omit<TaskBulkPorts, 'now'
         startDay: day(t.startDate),
         needsApproval: t.needsApproval,
         approvalRequestedAt: t.approvalRequestedAt,
+        approvalRequestedById: t.approvalRequestedById,
         archivedAt: t.archivedAt,
+        archivedById: t.archivedById,
         assigneeIds: t.assignees.map((a) => a.userId),
         guestIds: t.externalContacts.map((c) => c.guestId).filter((g): g is string => !!g),
         categoryIds: t.categories.map((c) => c.categoryId),
@@ -93,8 +98,18 @@ export function createBulkPorts(deps: BulkWiringDeps): Omit<TaskBulkPorts, 'now'
     columnsOf: (p) => prisma.kanbanColumn.findMany({ where: { projectId: p }, select: { id: true, name: true, category: true, position: true, enabled: true } }),
     canApprove: (a, p) => deps.canManageProject(a.id, a.roles, p),
     assignableIn: (p, ids) => deps.assigneeService.eligibleAssignees(p, ids),
-    async namesOf(ids) {
-      const users = ids.length ? await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, username: true, firstName: true, lastName: true } }) : [];
+    async namesOf(actor, ids) {
+      // Review M1: only people the person may know — on the team of a project they can open, or an
+      // administrator (anyone else stays "Someone" in a reason).
+      if (ids.length === 0) return new Map();
+      const scope = await deps.accessibleProjectIds(actor.id, actor.roles);
+      let known = new Set(ids);
+      if (scope !== null) {
+        const projects = scope.length ? await prisma.project.findMany({ where: { id: { in: scope } }, select: { ownerId: true, managerId: true, members: { where: { userId: { in: ids } }, select: { userId: true } } } }) : [];
+        const admins = await prisma.userRole.findMany({ where: { userId: { in: ids }, role: { name: 'ADMIN' } }, select: { userId: true } });
+        known = new Set([...projects.flatMap((p) => [p.ownerId, p.managerId, ...p.members.map((m) => m.userId)]), ...admins.map((a) => a.userId)].filter((x): x is string => !!x));
+      }
+      const users = await prisma.user.findMany({ where: { id: { in: ids.filter((id) => known.has(id)) } }, select: { id: true, username: true, firstName: true, lastName: true } });
       return new Map(users.map((u) => [u.id, displayName(u)]));
     },
     async categoriesOf(p) {
@@ -156,24 +171,22 @@ export function createBulkPorts(deps: BulkWiringDeps): Omit<TaskBulkPorts, 'now'
     },
     async eraseCopy(a, copyId) {
       // Undo of a Duplicate (call 3): only a copy this person made, still there — erased at once, never the bin.
+      // Review C1: never a copy other tasks were merged into since (erasing it would erase them too): it is
+      // taken in one transaction, its row locked, so a merge can't slip in between (the merge locks its tasks).
       const at = new Date();
-      const taken = await prisma.task.updateMany({
-        where: { id: copyId, createdById: a.id, duplicatedFromId: { not: null }, deletedAt: null },
-        data: { deletedAt: at, deletedById: a.id, binExpiresAt: binExpiryOf(at, timeZone) },
+      const taken = await prisma.$transaction(async (tx) => {
+        const locked = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM tasks WHERE id = ${copyId} AND createdById = ${a.id} AND duplicatedFromId IS NOT NULL AND deletedAt IS NULL FOR UPDATE`;
+        if (locked.length !== 1) return false;
+        if ((await tx.task.count({ where: { mergedIntoId: copyId } })) > 0) return false;
+        if ((await tx.taskMerge.count({ where: { mainTaskId: copyId } })) > 0) return false;
+        const { count } = await tx.task.updateMany({ where: { id: copyId, deletedAt: null }, data: { deletedAt: at, deletedById: a.id, binExpiresAt: binExpiryOf(at, timeZone) } });
+        return count === 1;
       });
-      if (taken.count !== 1) return false;
+      if (!taken) return false;
       const t = await prisma.task.findUnique({ where: { id: copyId }, select: { projectId: true } });
-      const gone = await createPrismaBinStore(prisma)
-        .erase(copyId)
-        .catch((err: unknown) => {
-          deps.onError?.(err, 'erasing a copy on Undo (left in the Recycle Bin)');
-          return null;
-        });
-      if (gone) {
-        await deps
-          .audit?.({ userId: a.id, module: 'tasks', action: 'task.erased', entityId: gone.id, newValue: { taskKey: gone.key, title: gone.title, projectId: gone.projectId, reason: 'Undo of a bulk Duplicate' }, ip: null })
-          .catch((err: unknown) => deps.onError?.(err, 'the audit line of an erased copy'));
-      }
+      // Review I2: through the bin's own erase — its copied files go too (when nothing else uses them), with
+      // the audit line saying why. Should erasing fail, it stays in the bin (restorable).
+      await deps.binService.eraseNow(copyId, a.id, 'Undo of a bulk Duplicate').catch((err: unknown) => deps.onError?.(err, 'erasing a copy on Undo (left in the Recycle Bin)'));
       if (t) deps.broadcast?.(t.projectId, 'task:deleted', { id: copyId });
       await deps.taskChanged?.(copyId).catch(() => undefined);
       return true;
@@ -196,6 +209,11 @@ export function createBulkPorts(deps: BulkWiringDeps): Omit<TaskBulkPorts, 'now'
       const gone = await deps.taskService.deleteTask(taskId, 'one', a.id);
       await deps.binService.deleted({ actorId: a.id, taskIds: gone.ids, batchId: gone.batchId }).catch((err: unknown) => deps.onError?.(err, 'recording a bulk delete'));
     },
+    async inBinBy(ids, actorId, since) {
+      if (ids.length === 0) return [];
+      const rows = await prisma.task.findMany({ where: { id: { in: ids }, deletedAt: { gte: new Date(since.getTime() - 1000) }, deletedById: actorId, mergedIntoId: null }, select: { id: true } });
+      return rows.map((r) => r.id);
+    },
     async restore(a, ids) {
       const r = await deps.binService.restore(viewer(a), ids);
       return { restored: r.restored.map((x) => x.id), refused: r.notRestored.map((x) => ({ id: x.id, message: x.message })) };
@@ -212,7 +230,7 @@ export function createBulkPorts(deps: BulkWiringDeps): Omit<TaskBulkPorts, 'now'
       async find(id): Promise<BulkRecord | null> {
         const row = await prisma.taskBulkAction.findUnique({ where: { id } });
         if (!row) return null;
-        return { id: row.id, actorId: row.actorId, action: row.action as BulkRecord['action'], undoUntil: row.undoUntil, undoneAt: row.undoneAt, entries: (Array.isArray(row.undoData) ? row.undoData : []) as unknown as UndoEntry[] };
+        return { id: row.id, actorId: row.actorId, createdAt: row.createdAt, action: row.action as BulkRecord['action'], undoUntil: row.undoUntil, undoneAt: row.undoneAt, entries: (Array.isArray(row.undoData) ? row.undoData : []) as unknown as UndoEntry[] };
       },
       async claim(id, at) {
         // Once only, in one statement: two Undo clicks can't both put things back.
@@ -221,7 +239,10 @@ export function createBulkPorts(deps: BulkWiringDeps): Omit<TaskBulkPorts, 'now'
       },
     },
     collectNotices,
-    async deliverNotices(notices, ctx) {
+    async deliverNotices(all, ctx) {
+      // Review M5: a type someone muted is left out before combining (their settings still apply).
+      const notices: CreateNotificationData[] = [];
+      for (const n of all) if (!(deps.isMuted && (await deps.isMuted(n.userId, n.type)))) notices.push(n);
       if (notices.length === 0) return;
       const actor = await prisma.user.findUnique({ where: { id: ctx.actorId }, select: { username: true, firstName: true, lastName: true } });
       const projectIds = [...new Set(ctx.projectOf.values())];

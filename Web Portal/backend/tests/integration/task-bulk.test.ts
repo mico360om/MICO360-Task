@@ -98,6 +98,7 @@ const bulk = createTaskBulkService({
     taskArchiveService,
     binService,
     canViewProject: sees,
+    accessibleProjectIds: async (userId, roles) => (isAdmin(roles) ? null : (await prisma.project.findMany({ where: { OR: [{ ownerId: userId }, { members: { some: { userId } } }] }, select: { id: true } })).map((p) => p.id)),
     canManageProject: async (userId, roles, projectId) => isAdmin(roles) || runs(userId, projectId),
     isProjectArchived: (projectId) => archiveLookup.isArchived(projectId),
     notify: (n) => notifications.notify(n),
@@ -258,6 +259,33 @@ describe('bulk changes on a real database', () => {
     expect(u.skipped.map((s) => [s.id, s.code])).toEqual([[b, 'CHANGED_SINCE']]);
     expect((await prisma.task.findUniqueOrThrow({ where: { id: a } })).dueDate!.toISOString()).toBe('2026-11-20T00:00:00.000Z');
     expect((await prisma.task.findUniqueOrThrow({ where: { id: b } })).dueDate!.toISOString()).toBe('2026-12-01T00:00:00.000Z');
+  });
+
+  // tbk: review C1 — Undo of a Duplicate never erases a copy other tasks were merged into since (they would go with it).
+  it('Undo of a Duplicate erases only an untouched copy of theirs: never one another task was merged into', async () => {
+    const ports = createBulkPorts({
+      prisma, timeZone: TZ, taskService, assigneeService, categoryService, guestService, taskMoveService,
+      taskDuplicateService: {} as unknown as TaskDuplicateService, taskArchiveService, binService,
+      canViewProject: sees, accessibleProjectIds: async () => null,
+      canManageProject: async () => true, isProjectArchived: async () => false, notify: async () => undefined,
+    });
+    const original = await task(world.P1, world.todo1);
+    const copy = async () => {
+      const id = await task(world.P1, world.todo1, { createdById: world.boss });
+      await prisma.task.update({ where: { id }, data: { duplicatedFromId: original } });
+      return id;
+    };
+    const plain = await copy();
+    const mergedInto = await copy();
+    const victim = await task(world.P1, world.todo1, { createdById: world.other });
+    await prisma.task.update({ where: { id: victim }, data: { mergedIntoId: mergedInto, deletedAt: new Date() } });
+    expect(await ports.eraseCopy(as(world.mate), plain)).toBe(false); // not theirs
+    expect(await ports.eraseCopy(as(world.boss), mergedInto)).toBe(false);
+    expect(await prisma.task.findUnique({ where: { id: victim } })).not.toBeNull();
+    expect(await prisma.task.findUnique({ where: { id: mergedInto } })).toMatchObject({ deletedAt: null });
+    expect(await ports.eraseCopy(as(world.boss), plain)).toBe(true);
+    expect(await prisma.task.findUnique({ where: { id: plain } })).toBeNull();
+    expect(await ports.eraseCopy(as(world.boss), original)).toBe(false); // not a copy
   });
 
   it('nothing about a task the person can’t open; more than 500 refused', async () => {

@@ -68,6 +68,9 @@ describe('POST /tasks/bulk', () => {
       { taskIds: ['t1'], action: { type: 'status', status: 'LATER' } },
       { taskIds: ['t1'], action: { type: 'dueDate', mode: 'shift', days: 0 } },
       { taskIds: ['t1'], action: { type: 'dueDate', mode: 'set', date: 'tomorrow' } },
+      { taskIds: ['t1'], action: { type: 'dueDate', mode: 'set', date: '2026-02-31' } },
+      { taskIds: ['t1'], action: { type: 'dueDate', mode: 'set', date: '2026-13-01' } },
+      { taskIds: ['t1'], action: { type: 'dueDate', mode: 'set', date: '1900-01-01' } },
       { taskIds: [], action: { type: 'delete' } },
       { taskIds: ['t1'], action: { type: 'assign', userIds: Array.from({ length: 21 }, (_, i) => `u${i}`) } },
     ]) {

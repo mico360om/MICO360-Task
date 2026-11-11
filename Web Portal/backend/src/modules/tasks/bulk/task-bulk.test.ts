@@ -65,6 +65,7 @@ function world() {
   let gathering: CreateNotificationData[] | null = null;
   const notify = (n: CreateNotificationData) => (gathering ? gathering.push(n) : delivered.push(n));
   const deleted = new Set<string>();
+  const deletedByOthers = new Set<string>();
   const copies = new Map<string, string>(); // copy → maker
   let n = 0;
   const t = (id: string) => tasks.get(id)!;
@@ -91,8 +92,9 @@ function world() {
     async assignableIn(p, ids) {
       return ids.filter((id) => (teams[p] ?? []).includes(id));
     },
-    async namesOf(ids) {
-      return new Map(ids.map((id) => [id, id[0]!.toUpperCase() + id.slice(1)]));
+    async namesOf(_a, ids) {
+      // Only people the person may know: "stranger" stays "Someone".
+      return new Map(ids.filter((id) => id !== 'stranger').map((id) => [id, id[0]!.toUpperCase() + id.slice(1)]));
     },
     async categoriesOf(p) {
       return p === 'rig'
@@ -110,7 +112,8 @@ function world() {
       if (col.category === 'DONE' && x.needsApproval && !(await ports.canApprove(actor, x.projectId))) {
         x.columnId = `${x.projectId}-review`;
         x.columnCategory = 'REVIEW';
-        x.approvalRequestedAt = T0;
+        x.approvalRequestedAt = clock;
+        x.approvalRequestedById = actor.id;
         notify({ userId: 'nadia', type: 'TASK_APPROVAL', title: 'Approve?', body: x.key, entityType: 'task', entityId: id });
         return { columnId: x.columnId, waits: true };
       }
@@ -118,6 +121,7 @@ function world() {
       x.columnCategory = col.category;
       x.completedAt = col.category === 'DONE' ? T0 : null;
       x.approvalRequestedAt = null;
+      x.approvalRequestedById = null;
       for (const u of x.assigneeIds) if (u !== actor.id) notify({ userId: u, type: 'TASK_STATUS', title: 'Moved', body: x.key, entityType: 'task', entityId: id });
       return { columnId, waits: false };
     },
@@ -194,7 +198,7 @@ function world() {
       },
       async archive(a, ids) {
         const p = await ports.archive.plan(a, ids, true);
-        for (const d of p.done) t(d.id).archivedAt = T0;
+        for (const d of p.done) Object.assign(t(d.id), { archivedAt: clock, archivedById: a.id });
         return p;
       },
       async unarchive(a, ids) {
@@ -209,6 +213,9 @@ function world() {
     async deleteTask(_a, id) {
       deleted.add(id);
     },
+    async inBinBy(ids) {
+      return ids.filter((id) => deleted.has(id) && !deletedByOthers.has(id));
+    },
     async restore(_a, ids) {
       for (const id of ids) deleted.delete(id);
       return { restored: ids, refused: [] };
@@ -216,7 +223,7 @@ function world() {
     store: {
       async save(r) {
         const id = `bulk${records.size + 1}`;
-        records.set(id, { id, actorId: r.actorId, action: r.action, undoUntil: r.undoUntil, undoneAt: null, entries: JSON.parse(JSON.stringify(r.entries)) });
+        records.set(id, { id, actorId: r.actorId, createdAt: clock, action: r.action, undoUntil: r.undoUntil, undoneAt: null, entries: JSON.parse(JSON.stringify(r.entries)) });
         return id;
       },
       async find(id) {
@@ -252,7 +259,7 @@ function world() {
     },
     now: () => clock,
   };
-  return { service: createTaskBulkService(ports), tasks, t, calls, audits, broadcasts, delivered, records, deleted, tick: (ms: number) => (clock = new Date(clock.getTime() + ms)) };
+  return { service: createTaskBulkService(ports), ports, tasks, t, calls, audits, broadcasts, columns, deleted, deletedByOthers, delivered, records, tick: (ms: number) => (clock = new Date(clock.getTime() + ms)) };
 }
 
 describe('a bulk change: each task by its own rules', () => {
@@ -288,6 +295,7 @@ describe('a bulk change: each task by its own rules', () => {
     await expect(w.service.run(sara, { taskIds: many, action: { type: 'priority', priority: 'LOW' } })).rejects.toMatchObject({ status: 400, code: 'TOO_MANY' });
     // The same id twice counts once.
     await expect(w.service.run(sara, { taskIds: [...many.slice(0, 500), 'x0'], action: { type: 'priority', priority: 'LOW' }, dryRun: true })).resolves.toMatchObject({ total: 500 });
+    expect(MAX_BULK_DUPLICATES).toBe(20);
     const dupes = Array.from({ length: MAX_BULK_DUPLICATES + 1 }, (_, i) => `x${i}`);
     await expect(w.service.run(sara, { taskIds: dupes, action: { type: 'duplicate' } })).rejects.toMatchObject({ code: 'TOO_MANY' });
   });
@@ -382,6 +390,8 @@ describe('a bulk change: each task by its own rules', () => {
   });
 
   it('duplicate: a copy of each, named in the result; an archived task can be copied', async () => {
+    w.t('t1').categoryIds = ['c-civil'];
+    w.t('t6').categoryIds = ['c-civil'];
     const r = await w.service.run(sara, { taskIds: ['t1', 't6'], action: { type: 'duplicate' } });
     expect(r.changed.map((c) => [c.key, c.copy?.key])).toEqual([
       ['RIG-1', 'RIG-91'],
@@ -488,6 +498,7 @@ describe('Undo', () => {
   });
 
   it('Duplicate: the copies are erased at once; Delete: restored from the Recycle Bin; Archive: unarchived', async () => {
+    w.t('t1').categoryIds = ['c-civil'];
     const d = await w.service.run(sara, { taskIds: ['t1'], action: { type: 'duplicate' } });
     await w.service.undo(sara, d.undo!.id);
     expect(w.tasks.has(d.changed[0]!.copy!.id)).toBe(false);
@@ -512,5 +523,112 @@ describe('Undo', () => {
     const u = await w.service.undo(sara, 'bulk1');
     expect(u.skipped).toEqual([{ id: 't1', key: 'RIG-1', title: 'Task RIG-1', code: 'VERSION_CONFLICT', reason: 'This task was changed by someone else. Reload and try again.' }]);
     expect(u.restored.map((x) => x.key)).toEqual(['RIG-2']);
+  });
+});
+
+// tbk: the fresh review's findings (I1-I4, M1-M4, M8-M9), each pinned here.
+describe('review fixes', () => {
+  let w: ReturnType<typeof world>;
+  beforeEach(() => {
+    w = world();
+  });
+
+  it('I1: a switched-off column is never chosen while the project has others on (Review off: NO_COLUMN)', async () => {
+    w.columns.rig!.find((c) => c.id === 'rig-review')!.enabled = false;
+    const r = await w.service.run(sara, { taskIds: ['t1'], action: { type: 'status', status: 'REVIEW' }, dryRun: true });
+    expect(r.skipped[0]).toMatchObject({ code: 'NO_COLUMN', reason: 'Rig 3 has no Review column.' });
+  });
+
+  it('I3: bulk Duplicate makes at most 20 copies a minute per person; the rest are skipped and say so', async () => {
+    const ids: string[] = [];
+    for (let i = 0; i < 25; i++) {
+      const id = `d${i}`;
+      w.tasks.set(id, task({ id, key: `RIG-${100 + i}`, projectId: 'rig', categoryIds: ['c-civil'] }));
+      ids.push(id);
+    }
+    const first = await w.service.run(sara, { taskIds: ids.slice(0, 15), action: { type: 'duplicate' } });
+    expect(first.changed).toHaveLength(15);
+    const second = await w.service.run(sara, { taskIds: ids.slice(15, 25), action: { type: 'duplicate' } });
+    expect(second.changed).toHaveLength(5);
+    expect(second.skipped.map((s) => s.code)).toEqual(Array(5).fill('TOO_MANY_COPIES'));
+    w.tick(61_000);
+    expect((await w.service.run(sara, { taskIds: ids.slice(20, 21), action: { type: 'duplicate' } })).changed).toHaveLength(1);
+  });
+
+  it('I4: the dry run says what Duplicate would refuse (the project needs a category, it has none to copy)', async () => {
+    const r = await w.service.run(sara, { taskIds: ['t1'], action: { type: 'duplicate' }, dryRun: true });
+    expect(r.skipped[0]).toMatchObject({ code: 'CATEGORY_REQUIRED' });
+    w.t('t1').categoryIds = ['c-civil'];
+    expect((await w.service.run(sara, { taskIds: ['t1'], action: { type: 'duplicate' }, dryRun: true })).changed).toHaveLength(1);
+  });
+
+  it('I4: the dry run of a move says who can not join the new team, and a task with guests that would lose its team', async () => {
+    w.ports.move.preview = async (_a, ids) => ({ tasks: ids.map((id) => ({ id, canMove: true, reason: null, outsiders: [{ id: 'omar', canJoin: id !== 't1' }] })) });
+    w.t('t2').guestIds = ['g1'];
+    w.t('t2').assigneeIds = ['omar'];
+    const add = await w.service.run(sara, { taskIds: ['t1'], action: { type: 'project', projectId: 'ops', assignees: 'ADD_TO_TEAM' }, dryRun: true });
+    expect(add.skipped[0]!.code).toBe('CANT_JOIN_TEAM');
+    const off = await w.service.run(sara, { taskIds: ['t2'], action: { type: 'project', projectId: 'ops', assignees: 'UNASSIGN' }, dryRun: true });
+    expect(off.skipped[0]!.code).toBe('NEEDS_TEAM_MEMBER');
+  });
+
+  it('M1: someone the person may not know is "Someone" in a reason', async () => {
+    const r = await w.service.run(sara, { taskIds: ['t1'], action: { type: 'assign', userIds: ['stranger'] }, dryRun: true });
+    expect(r.skipped[0]!.reason).toBe('Someone isn\u2019t on the Rig 3 team.');
+  });
+
+  it('M2: each task is read again just before it changes (archived meanwhile: skipped)', async () => {
+    const load = w.ports.load;
+    let reads = 0;
+    w.ports.load = async (ids) => {
+      reads += 1;
+      if (reads === 2) w.t('t1').archivedAt = T0; // archived between the first read and its change
+      return load(ids);
+    };
+    const r = await w.service.run(sara, { taskIds: ['t1'], action: { type: 'priority', priority: 'HIGH' } });
+    expect(r.skipped[0]).toMatchObject({ code: 'TASK_ARCHIVED' });
+    expect(w.t('t1').priority).toBe('NORMAL');
+  });
+
+  it('M3: Undo restores only what is still in the bin from this delete; an archive re-done by someone else is left', async () => {
+    const del = await w.service.run(sara, { taskIds: ['t1', 't2'], action: { type: 'delete' } });
+    w.deletedByOthers.add('t2');
+    const u = await w.service.undo(sara, del.undo!.id);
+    expect(u.restored.map((x) => x.id)).toEqual(['t1']);
+    expect(u.skipped.map((x) => [x.id, x.code])).toEqual([['t2', 'CHANGED_SINCE']]);
+    const a = await w.service.run(sara, { taskIds: ['t7'], action: { type: 'archive' } });
+    Object.assign(w.t('t7'), { archivedById: 'admin' });
+    expect((await w.service.undo(sara, a.undo!.id)).skipped[0]!.code).toBe('CHANGED_SINCE');
+  });
+
+  it('M4: an approver\u2019s Done on a waiting task says it approves it; its Undo leaves it (the request is gone)', async () => {
+    w.t('t3').needsApproval = true;
+    w.t('t3').approvalRequestedAt = T0;
+    const dry = await w.service.run(sara, { taskIds: ['t3'], action: { type: 'status', status: 'DONE' }, dryRun: true });
+    expect(dry.changed[0]!.note).toEqual({ code: 'APPROVES', text: 'Will be approved' });
+    const r = await w.service.run(sara, { taskIds: ['t3'], action: { type: 'status', status: 'DONE' } });
+    const u = await w.service.undo(sara, r.undo!.id);
+    expect(u.skipped[0]!.code).toBe('APPROVED');
+  });
+
+  it('M8: one bulk change at a time per person (a dry run is never held up)', async () => {
+    let release!: () => void;
+    const slow = w.ports.setPriority;
+    w.ports.setPriority = async (...args) => {
+      await new Promise<void>((r) => (release = r));
+      return slow(...args);
+    };
+    const first = w.service.run(sara, { taskIds: ['t1'], action: { type: 'priority', priority: 'HIGH' } });
+    await new Promise((r) => setTimeout(r, 10));
+    await expect(w.service.run(sara, { taskIds: ['t2'], action: { type: 'priority', priority: 'HIGH' } })).rejects.toMatchObject({ status: 409, code: 'BULK_BUSY' });
+    await expect(w.service.run(sara, { taskIds: ['t2'], action: { type: 'priority', priority: 'HIGH' }, dryRun: true })).resolves.toBeTruthy();
+    release();
+    await first;
+  });
+
+  it('M9: Undo of a move names the task by its old number', async () => {
+    const m = await w.service.run(sara, { taskIds: ['t1'], action: { type: 'project', projectId: 'ops', assignees: 'ADD_TO_TEAM' } });
+    const u = await w.service.undo(sara, m.undo!.id);
+    expect(u.restored[0]).toMatchObject({ key: 'RIG-1', projectId: 'rig' });
   });
 });

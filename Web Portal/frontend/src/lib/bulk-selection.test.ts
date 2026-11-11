@@ -86,14 +86,14 @@ describe('bulk selection: select all matching, filters, limits', () => {
     expect(replaceWith(EMPTY_SELECTION, ['t5'], list).refs.get('t5')).toEqual(ref(5));
   });
 
-  it('more than 500: every change is unavailable; Duplicate stops at 50', () => {
+  it('more than 500: every change is unavailable; Duplicate stops at 20 (copies copy their files on the server)', () => {
     expect(BULK_MAX).toBe(500);
     expect(limitReason(500, 'status')).toBeNull();
     expect(limitReason(501, 'status')).toBe(BULK_LIMIT_TEXT);
     expect(BULK_LIMIT_TEXT).toBe('Bulk changes take up to 500 tasks at a time');
-    expect(limitReason(50, 'duplicate')).toBeNull();
-    expect(limitReason(51, 'duplicate')).toBe(DUPLICATE_LIMIT_TEXT);
-    expect(DUPLICATE_LIMIT_TEXT).toBe('Duplicate up to 50 tasks at a time');
+    expect(limitReason(20, 'duplicate')).toBeNull();
+    expect(limitReason(21, 'duplicate')).toBe(DUPLICATE_LIMIT_TEXT);
+    expect(DUPLICATE_LIMIT_TEXT).toBe('Duplicate up to 20 tasks at a time');
     expect(limitReason(501, 'duplicate')).toBe(BULK_LIMIT_TEXT);
   });
 });
