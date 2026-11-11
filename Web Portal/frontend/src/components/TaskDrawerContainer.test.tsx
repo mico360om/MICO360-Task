@@ -1088,6 +1088,14 @@ describe('TaskDrawerContainer — a task in the Recycle Bin', () => {
     expect(screen.queryByText(/external contact/)).toBeNull();
   });
 
+  // tgc: gate browser check (375, axe serious "scrollable-region-focusable"): the read-only body scrolls, and a
+  // keyboard must reach it — it holds no buttons or links of its own.
+  it('its scrolling body can be reached by keyboard', async () => {
+    openDeleted(() => json({ data: detail }));
+    await screen.findByText(/In the Recycle Bin — deleted by Ali Hassan/);
+    expect(screen.getByRole('region', { name: 'The deleted task, read-only' })).toHaveAttribute('tabindex', '0');
+  });
+
   it('anyone else on the project: "This task was deleted"', async () => {
     openDeleted(() => json({ error: { code: 'NOT_FOUND', message: 'Task not found.' } }, 404));
     expect(await screen.findByText('This task was deleted.')).toBeInTheDocument();

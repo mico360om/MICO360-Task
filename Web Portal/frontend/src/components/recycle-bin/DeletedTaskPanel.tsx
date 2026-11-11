@@ -157,7 +157,8 @@ export function DeletedTaskPanel({ taskId, onClose, closeButton }: { taskId: str
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6 sm:px-6">
+      {/* It scrolls and holds no buttons or links of its own: focusable, so a keyboard can scroll it too. */}
+      <div role="region" aria-label="The deleted task, read-only" tabIndex={0} className="min-h-0 flex-1 overflow-y-auto px-4 pb-6 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand/40 sm:px-6">
         <p className="sr-only">This task is in the Recycle Bin. It can’t be changed until it is restored.</p>
         <Section title="Details">
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
