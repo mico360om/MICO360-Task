@@ -146,7 +146,7 @@ export function BulkActionDialog({ type, taskIds, projectIds, assigned = [], tod
     );
     foot = (
       <div className={footer}>
-        <Button variant="secondary" onClick={onClose} data-bulk-focus>
+        <Button variant="secondary" onClick={onClose} data-bulk-focus className={TOUCH_TALL}>
           Cancel
         </Button>
       </div>
@@ -159,10 +159,10 @@ export function BulkActionDialog({ type, taskIds, projectIds, assigned = [], tod
     );
     foot = (
       <div className={footer}>
-        <Button variant="secondary" onClick={onClose}>
+        <Button variant="secondary" onClick={onClose} className={TOUCH_TALL}>
           Close
         </Button>
-        <Button variant="secondary" onClick={() => check.mutate(action)} data-bulk-focus>
+        <Button variant="secondary" onClick={() => check.mutate(action)} data-bulk-focus className={TOUCH_TALL}>
           Try again
         </Button>
       </div>
@@ -187,7 +187,7 @@ export function BulkActionDialog({ type, taskIds, projectIds, assigned = [], tod
     );
     foot = nothing ? (
       <div className={footer}>
-        <Button onClick={onClose} data-bulk-focus>
+        <Button onClick={onClose} data-bulk-focus className={TOUCH_TALL}>
           Close
         </Button>
       </div>
@@ -202,15 +202,15 @@ export function BulkActionDialog({ type, taskIds, projectIds, assigned = [], tod
               setAction(null);
             }}
             disabled={busy}
-            className="sm:me-auto"
+            className={`sm:me-auto ${TOUCH_TALL}`}
           >
             Back
           </Button>
         ) : null}
-        <Button variant="secondary" onClick={onClose} disabled={busy} data-bulk-focus>
+        <Button variant="secondary" onClick={onClose} disabled={busy} data-bulk-focus className={TOUCH_TALL}>
           Cancel
         </Button>
-        <Button variant={type === 'delete' ? 'danger' : 'primary'} loading={busy} onClick={() => apply.mutate(action)}>
+        <Button variant={type === 'delete' ? 'danger' : 'primary'} loading={busy} onClick={() => apply.mutate(action)} className={TOUCH_TALL}>
           Apply
         </Button>
       </div>

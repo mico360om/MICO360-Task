@@ -230,7 +230,7 @@ function ActionSheet({
 }) {
   const ref = useDialog(onClose, { initialFocus: 'container' });
   const titleId = useId();
-  const row = `flex w-full min-h-11 items-center justify-between gap-3 px-4 py-2 text-start text-base text-ink transition-colors hover:bg-ground focus-visible:bg-ground focus-visible:outline-none`;
+  const row = `flex w-full min-h-11 ${TOUCH_TALL} items-center justify-between gap-3 px-4 py-2 text-start text-base text-ink transition-colors hover:bg-ground focus-visible:bg-ground focus-visible:outline-none`;
   return (
     <ModalPortal>
       <div className="fixed inset-0 z-50 flex items-end">
