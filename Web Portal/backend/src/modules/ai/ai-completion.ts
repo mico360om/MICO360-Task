@@ -96,7 +96,15 @@ export interface CompletionOptions {
    * stream (POST /api/v1/chat/stream). Other providers ignore it.
    */
   onText?: (text: string) => void;
+  /**
+   * Review minor 10 (MICO360 AI): called once the request itself is over and its job is to be collected
+   * (b3, b15) — the caller frees the key's concurrency slot, as the platform no longer counts it running.
+   */
+  beforeCollect?: () => void;
 }
+
+/** The native API's instructions (`system`) are at most this long (guide §5 Prompts: 413 over it). */
+export const NATIVE_SYSTEM_LIMIT = 8_000;
 
 /** The default wait for a provider's answer: a cold model on MICO360 AI loads for 20–90 seconds. */
 export const COMPLETION_TIMEOUT_MS = 120_000;
@@ -128,12 +136,15 @@ export async function complete(
     : given;
   const doFetch = fetchImpl ?? createSafeFetch({ allowPrivateHosts: opts.allowPrivateHosts });
   const timeoutMs = opts.timeoutMs ?? COMPLETION_TIMEOUT_MS;
+  // The one wait before a "try again in a second" (429). Collecting a job waits with its own pause, which
+  // hears the caller's stop (review minor 3) — unless a test gives its own.
   const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const keyFor = (route: string, body: string) => (mico && opts.idempotencyKey ? idempotencyKey(opts.idempotencyKey, route, body) : undefined);
 
   // b15: MICO360 AI's live text, when someone is reading it as it is written (a server without it: /v1).
-  if (mico && opts.onText && !input.images?.length) {
-    const stream = await completeLive(model, input, doFetch, { ...opts, timeoutMs, sleep }, keyFor);
+  // Instructions longer than the native API takes (8,000 characters) go to /v1, where they fit (minor 6).
+  if (mico && opts.onText && !input.images?.length && (input.system?.length ?? 0) <= NATIVE_SYSTEM_LIMIT) {
+    const stream = await completeLive(model, input, doFetch, { ...opts, timeoutMs }, sleep, keyFor);
     if (stream !== null) return stream;
   }
 
@@ -223,7 +234,14 @@ export async function complete(
     if (mico) opts.observe?.({ ok: false, model: null, substituted: null, correlationId: refusal.correlationId, jobId: refusal.jobId, concurrencyLimit: meta!.concurrencyLimit });
     // b3: the platform keeps a job that hit its own 300 s: collect it while the feature still has time.
     if (mico && res.status === 504 && refusal.jobId && opts.collectUntil && opts.collectUntil > Date.now()) {
-      const job = await collectJob(model.provider, refusal.jobId, { fetchImpl: doFetch, allowPrivateHosts: opts.allowPrivateHosts, signal: opts.signal, deadline: opts.collectUntil, sleep });
+      opts.beforeCollect?.();
+      const job = await collectJob(model.provider, refusal.jobId, {
+        fetchImpl: doFetch,
+        allowPrivateHosts: opts.allowPrivateHosts,
+        signal: opts.signal,
+        deadline: opts.collectUntil,
+        ...(opts.sleep ? { sleep: opts.sleep } : {}),
+      });
       const text = job.output.trim();
       if (!text) throw new ValidationError('The AI provider returned an empty response.');
       opts.observe?.({ ok: true, model: job.model, substituted: job.warning, correlationId: refusal.correlationId, jobId: refusal.jobId, concurrencyLimit: null });
@@ -241,12 +259,33 @@ export async function complete(
   return text;
 }
 
-/** b15: one answer on MICO360 AI's live stream; null when the server has none (ask /v1 instead). */
+/**
+ * b15: one answer on MICO360 AI's live stream; null when the server has none (ask /v1 instead). A "try
+ * again in a second" (429 with a short Retry-After) is waited out once, as on /v1 (review minor 2).
+ */
 async function completeLive(
   model: ChatModel,
   input: CompletionInput,
   fetchImpl: typeof fetch,
-  opts: CompletionOptions & { timeoutMs: number; sleep: (ms: number) => Promise<void> },
+  opts: CompletionOptions & { timeoutMs: number },
+  retrySleep: (ms: number) => Promise<void>,
+  keyFor: (route: string, body: string) => string | undefined,
+): Promise<string | null> {
+  try {
+    return await streamOnce(model, input, fetchImpl, opts, keyFor);
+  } catch (err) {
+    const wait = err instanceof ProviderRefusedError && err.providerStatus === 429 && !err.quota && err.retryAfterSeconds !== null && err.retryAfterSeconds <= SHORT_RETRY_SECONDS ? err.retryAfterSeconds * 1000 : null;
+    if (wait === null) throw err;
+    await retrySleep(wait);
+    return streamOnce(model, input, fetchImpl, opts, keyFor);
+  }
+}
+
+async function streamOnce(
+  model: ChatModel,
+  input: CompletionInput,
+  fetchImpl: typeof fetch,
+  opts: CompletionOptions & { timeoutMs: number },
   keyFor: (route: string, body: string) => string | undefined,
 ): Promise<string | null> {
   const timeoutSeconds = Math.max(1, Math.min(600, Math.ceil(opts.timeoutMs / 1000)));
@@ -268,7 +307,8 @@ async function completeLive(
       collectUntil: opts.collectUntil ?? Date.now() + 2 * opts.timeoutMs,
       idempotencyKey: keyFor('POST /api/v1/chat/stream', JSON.stringify(request)),
       onText: opts.onText,
-      sleep: opts.sleep,
+      beforeCollect: opts.beforeCollect,
+      ...(opts.sleep ? { sleep: opts.sleep } : {}),
     });
     opts.observe?.({ ok: true, model: null, substituted: null, correlationId: out.correlationId, jobId: out.jobId, concurrencyLimit: null });
     const text = out.text.trim();

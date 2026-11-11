@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { createAiFeatureService, AI_SEARCH_COLD_BUDGET_MS, AI_SEARCH_WARM_BUDGET_MS } from './ai-feature-service';
 import { createMemoryAiConfigRepository } from './ai-config-repository';
 import type { AiConfig, AiModel } from './ai-config';
+import { AiTimeoutError } from './ai-network';
 import { AGENDA_SCHEMA, MEETING_SCHEMA, MINUTES_SCHEMA, PRIORITY_SCHEMA, TASK_SCHEMA } from './ai-schemas';
 
 const KEY = 'mico_' + 'ef56'.repeat(12);
@@ -286,8 +287,9 @@ describe('b4, b8: reading scans and pictures', () => {
   ];
 
   it('MICO360 AI reads the whole document with POST /api/v1/ocr (language, key, the native header)', async () => {
-    const t = make(micoConfig(), () => json(200, { jobId: 'JOB-O', text: 'Page one\nPage two', pages: 2 }));
-    expect(await t.svc.readDocument(pdf, { language: 'ar-SA', key: 'tasks-ocr-f1', pictures })).toEqual({ text: 'Page one\nPage two', pages: 2, whole: true });
+    const text = 'شهادة الدفاع المدني — الصفحة الأولى\nتجديد ترخيص المستودع — الصفحة الثانية';
+    const t = make(micoConfig(), () => json(200, { jobId: 'JOB-O', text, pages: 2 }));
+    expect(await t.svc.readDocument(pdf, { language: 'ar-SA', key: 'tasks-ocr-f1', pictures })).toEqual({ text, pages: 2, whole: true });
     expect(t.calls).toHaveLength(1);
     expect(t.calls[0]!.path).toBe('/api/v1/ocr');
     expect(t.calls[0]!.headers.get('x-mico-api-key')).toBe(KEY);
@@ -344,5 +346,71 @@ describe('b4, b8: reading scans and pictures', () => {
     expect((await t.svc.readDocument(pdf, { pictures })).text).toBe('as before');
     expect(t.calls).toHaveLength(1);
     expect((t.calls[0]!.body!.messages as Array<{ role: string }>)[0]!.role).toBe('system');
+  });
+});
+
+describe('(b) bundles review fixes', () => {
+  const pdf = { data: Buffer.from('%PDF-1.4 scan'), mimeType: 'application/pdf', filename: 'scan.pdf' };
+  const field = (raw: string, name: string) => new RegExp(`name="${name}"\r\n\r\n([^\r]*)\r\n`).exec(raw)?.[1] ?? null;
+
+  it('I3: one file has one deadline — its pictures stop being sent once it passes (retried later, the read ones replayed)', async () => {
+    let asked = 0;
+    const t = make(
+      micoConfig(),
+      async (c) => {
+        if (c.path === '/api/v1/ocr') return json(403, { error: 'no Ocr' });
+        asked += 1;
+        await new Promise((r) => setTimeout(r, 40));
+        return chatOk('page');
+      },
+      { ocrFileBudgetMs: 60 },
+    );
+    const five = async () => [1, 2, 3, 4, 5].map((i) => ({ data: Buffer.from(`p${i}`), mimeType: 'image/jpeg' }));
+    await expect(t.svc.readDocument(pdf, { pictures: five })).rejects.toBeInstanceOf(AiTimeoutError);
+    expect(asked).toBeLessThan(5);
+  });
+
+  it('I3: the whole-file read waits within the file’s budget (the platform’s 300 s at most)', async () => {
+    const t = make(micoConfig(), () => json(200, { text: 'whole', pages: 1 }));
+    await t.svc.readDocument(pdf, { pictures: async () => [] });
+    expect(Number(field(t.calls[0]!.raw, 'timeoutSeconds'))).toBeLessThanOrEqual(300);
+  });
+
+  it('I4: a guessed language that reads (almost) nothing is read again without one; the better text is kept', async () => {
+    const t = make(micoConfig(), (c) => (field(c.raw, 'language') ? json(200, { text: 'x ~', pages: 3 }) : json(200, { text: 'Civil defence certificate renewed for the warehouse building', pages: 3 })));
+    expect((await t.svc.readDocument(pdf, { language: 'en-US', pictures: async () => [] })).text).toBe('Civil defence certificate renewed for the warehouse building');
+    expect(t.calls.map((c) => field(c.raw, 'language'))).toEqual(['en-US', null]);
+  });
+
+  it('I4: a guessed language that reads well is kept (one request)', async () => {
+    const t = make(micoConfig(), () => json(200, { text: 'شهادة الدفاع المدني لتجديد ترخيص المستودع الرئيسي في المنطقة الصناعية', pages: 1 }));
+    await t.svc.readDocument(pdf, { language: 'ar-SA', pictures: async () => [] });
+    expect(t.calls).toHaveLength(1);
+  });
+
+  it('minor 4: a file the platform won’t take (415) goes to the pictures alone — no pause, no note for everyone', async () => {
+    let n = 0;
+    const t = make(micoConfig(), (c) => (c.path === '/api/v1/ocr' ? (++n === 1 ? json(415, { error: 'not a document type' }) : json(200, { text: 'whole', pages: 1 })) : chatOk('picture')));
+    expect((await t.svc.readDocument(pdf, { pictures: async () => [{ data: Buffer.from('p'), mimeType: 'image/jpeg' }] })).whole).toBe(false);
+    expect((await t.svc.readDocument(pdf, { pictures: async () => [] })).whole).toBe(true); // not paused
+    expect((await t.repo.load()).providers[0]!.platform?.ocrFallback ?? null).toBeNull();
+  });
+
+  it('minor 10: while a job the platform kept is collected, the key’s slot is free for others', async () => {
+    let finished = false;
+    const t = make(
+      micoConfig({ platform: { concurrencyLimit: 1 } }),
+      (c) => {
+        if (c.path === '/v1/chat/completions' && /final minutes/.test(JSON.stringify(c.body))) return json(504, { error: { message: 'The request did not complete within 300 seconds (job JOB-K, correlation id REQ-K).' } });
+        if (c.path === '/v1/chat/completions') return chatOk('{"priority":"LOW","reason":"r"}');
+        return json(200, { jobId: 'JOB-K', state: finished ? 'Completed' : 'Running', output: '{"summary":"late"}' });
+      },
+      { sleep: () => new Promise((r) => setTimeout(r, 5)) },
+    );
+    const mom = t.svc.draftMinutes('Meeting: X', requester, { background: true, jobId: 'j-k' });
+    await vi.waitFor(() => expect(t.calls.some((c) => c.path === '/api/v1/jobs/JOB-K')).toBe(true));
+    expect((await t.svc.suggestPriority({ title: 'Meanwhile' }, requester)).priority).toBe('LOW'); // not waiting for the slot
+    finished = true;
+    expect(await mom).toEqual({ summary: 'late' });
   });
 });

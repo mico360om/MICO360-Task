@@ -447,3 +447,68 @@ describe('MICO360 AI (b) bundles in complete()', () => {
     expect(o.calls[0]!.url).toBe('https://api.groq.com/openai/v1/chat/completions');
   });
 });
+
+describe('MICO360 AI (b) bundles: review fixes in complete()', () => {
+  const mico: ChatModel = { provider: { kind: 'custom', apiBaseUrl: 'https://ai.mico360.com:5310/v1', apiKey: 'mico_key', preset: 'mico360' }, modelKey: 'llama3.1:latest' };
+  const ok = (content: string) => new Response(JSON.stringify({ id: 'JOB-1', model: 'llama3.1:latest', choices: [{ message: { content } }] }), { status: 200 });
+  const sseOf = (text: string) => {
+    const enc = new TextEncoder();
+    return new Response(
+      new ReadableStream({
+        start(c) {
+          c.enqueue(enc.encode(`event: chunk\ndata: ${JSON.stringify({ sequence: 0, text, jobId: 'J' })}\n\n`));
+          c.enqueue(enc.encode('event: done\ndata: {"reason":"completed","chunks":1,"jobId":"J"}\n\n'));
+          c.close();
+        },
+      }),
+      { status: 200, headers: { 'content-type': 'text/event-stream' } },
+    );
+  };
+
+  it('minor 3: Stop ends a job being collected at once (the wait between looks hears it)', async () => {
+    const stop = new AbortController();
+    let looks = 0;
+    const fetchImpl = (async (url: string) => {
+      if (String(url).endsWith('/chat/completions')) return new Response(JSON.stringify({ error: { message: 'The request did not complete within 300 seconds (job JOB-9, correlation id REQ-9).' } }), { status: 504 });
+      looks += 1;
+      setTimeout(() => stop.abort(), 20);
+      return new Response(JSON.stringify({ jobId: 'JOB-9', state: 'Running' }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const started = Date.now();
+    const err = await complete(mico, { prompt: 'p' }, fetchImpl, { collectUntil: Date.now() + 60_000, signal: stop.signal }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(AiCallStoppedError);
+    expect(Date.now() - started).toBeLessThan(1500); // not the 2 s wait before the next look
+    expect(looks).toBe(1);
+  });
+
+  it('minor 10: the caller is told before a job is collected (it frees the key’s slot)', async () => {
+    const order: string[] = [];
+    const fetchImpl = (async (url: string) => {
+      order.push(String(url).endsWith('/chat/completions') ? 'ask' : 'look');
+      return String(url).endsWith('/chat/completions')
+        ? new Response(JSON.stringify({ error: { message: 'The request did not complete within 300 seconds (job JOB-8, correlation id REQ-8).' } }), { status: 504 })
+        : new Response(JSON.stringify({ jobId: 'JOB-8', state: 'Completed', output: 'done' }), { status: 200 });
+    }) as unknown as typeof fetch;
+    await complete(mico, { prompt: 'p' }, fetchImpl, { collectUntil: Date.now() + 60_000, sleep: async () => {}, beforeCollect: () => void order.push('free') });
+    expect(order).toEqual(['ask', 'free', 'look']);
+  });
+
+  it('minor 2: on the live stream a "try again in a second" (429) is waited out once, as on /v1', async () => {
+    let n = 0;
+    const waits: number[] = [];
+    const fetchImpl = (async () => (++n === 1 ? new Response(JSON.stringify({ error: 'Concurrency limit reached.' }), { status: 429, headers: { 'retry-after': '1' } }) : sseOf('fine'))) as unknown as typeof fetch;
+    expect(await complete(mico, { prompt: 'p' }, fetchImpl, { onText: () => {}, sleep: async (ms) => void waits.push(ms) })).toBe('fine');
+    expect(n).toBe(2);
+    expect(waits).toEqual([1000]);
+  });
+
+  it('minor 6: instructions over the native 8,000 characters go to /v1 (no stream), where they fit', async () => {
+    const urls: string[] = [];
+    const fetchImpl = (async (url: string) => {
+      urls.push(String(url));
+      return ok('fits');
+    }) as unknown as typeof fetch;
+    expect(await complete(mico, { system: 'x'.repeat(8_001), prompt: 'p' }, fetchImpl, { onText: () => {} })).toBe('fits');
+    expect(urls).toEqual(['https://ai.mico360.com:5310/v1/chat/completions']);
+  });
+});

@@ -161,7 +161,15 @@ export function pinnedFetch(opts: { allowPrivateHosts?: boolean; lookup?: Lookup
     const { request } = url.protocol === 'https:' ? await import('node:https') : await import('node:http');
     const headers: Record<string, string> = {};
     new Headers(init.headers).forEach((value, key) => (headers[key] = value));
-    const body = init.body == null ? undefined : typeof init.body === 'string' ? init.body : Buffer.from(await new Response(init.body).arrayBuffer());
+    // A Buffer (a document for MICO360 AI, up to 64 MB) is sent as it is, not copied twice more (review minor 9).
+    const body =
+      init.body == null
+        ? undefined
+        : typeof init.body === 'string'
+          ? init.body
+          : Buffer.isBuffer(init.body)
+            ? init.body
+            : Buffer.from(await new Response(init.body).arrayBuffer());
     if (body !== undefined) headers['content-length'] = String(Buffer.byteLength(body));
 
     // b15: an event stream (MICO360 AI's live text) is handed over as it arrives; anything else whole.

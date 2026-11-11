@@ -238,6 +238,8 @@ export interface OcrOptions extends Omit<NativeOptions, 'timeoutMs'> {
   /** After a 504, the job is collected until then (ms since 1970); absent: not collected. */
   collectUntil?: number;
   sleep?: CollectOptions['sleep'];
+  /** Review minor 10: called once the request itself is over and its job is to be collected. */
+  beforeCollect?: () => void;
 }
 
 export interface OcrResult {
@@ -290,6 +292,7 @@ export async function nativeOcr(provider: NativeProvider, doc: OcrDocument, opts
   if (!res.ok) {
     const refusal = await providerRefusal(res, asMico(provider));
     if (res.status === 504 && refusal.jobId && opts.collectUntil && opts.collectUntil > Date.now()) {
+      opts.beforeCollect?.();
       const job = await collectJob(provider, refusal.jobId, { ...opts, deadline: opts.collectUntil });
       return { text: job.output, pages: null, rotatedPages: null, orientationNote: null, jobId: refusal.jobId, correlationId: refusal.correlationId, warning: meta.warning };
     }

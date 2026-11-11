@@ -1,4 +1,5 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import { AiTimeoutError } from '../ai/ai-network';
 import { createMicoAiService, type MicoAiModel } from './mico-ai-service';
 import { createMemoryMicoAiRepository } from './mico-ai-repository';
 import { createMicoAiTools } from './mico-ai-tools';
@@ -13,10 +14,10 @@ import { MICO_AI_ACTION_SCHEMA } from '../ai/ai-schemas';
 // (a few times a second at most) and the page's poll shows them; the finished answer replaces them.
 
 type Reply = (req: ModelRequest) => unknown | Promise<unknown>;
-function setup(replies: Reply[]) {
+function setup(replies: Reply[], retryDelaysMs: number[] = [15, 15, 15]) {
   const store = createMemoryAiJobStore();
   const repo = createMemoryMicoAiRepository(() => NOW, { hasActiveJob: (id) => [...store.rows.values()].some((j) => j.subjectId === id && j.activeKey) });
-  const runner = createAiJobRunner({ store, owner: 'srv-1', retryDelaysMs: [15, 15, 15] });
+  const runner = createAiJobRunner({ store, owner: 'srv-1', retryDelaysMs });
   const requests: Array<{ req: ModelRequest & { idempotencyKey?: string }; userId: string }> = [];
   let i = 0;
   const model: MicoAiModel = {
@@ -105,5 +106,24 @@ describe('MICO AI: the answer’s words as they are written (b15)', () => {
     release();
     await s.runner.idle();
     expect(await s.svc.getMessage(OMAR, chat.id, answer.id)).toMatchObject({ status: 'done', text: 'Done.' });
+  });
+});
+
+// Review I1: a try that fails after some words were shown leaves no "Writing…" behind while it waits.
+describe('MICO AI: a try that waits shows its progress line, not old words', () => {
+  it('the words are cleared when the try waits for its next go', async () => {
+    const s = setup([
+      async (req) => {
+        req.onText?.('{"action":"answer","text":"Half an ans');
+        throw new AiTimeoutError();
+      },
+      () => ({ action: 'answer', text: 'The whole answer.' }),
+    ], [400, 400, 400]);
+    const chat = await s.svc.createChat(OMAR, {});
+    const { answer } = await s.svc.ask(OMAR, chat.id, 'Anything?', { clientId: 'q-wait' });
+    await vi.waitFor(async () => expect((await s.svc.getMessage(OMAR, chat.id, answer.id)).step).toMatch(/try again/));
+    expect((await s.svc.getMessage(OMAR, chat.id, answer.id)).draft ?? null).toBeNull();
+    // The next try starts after its wait (a timer), then writes the answer.
+    await vi.waitFor(async () => expect(await s.svc.getMessage(OMAR, chat.id, answer.id)).toMatchObject({ status: 'done', text: 'The whole answer.' }), { timeout: 3000 });
   });
 });

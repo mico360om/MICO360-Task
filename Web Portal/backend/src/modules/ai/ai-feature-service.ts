@@ -18,6 +18,7 @@ import { embedTexts } from './ai-embeddings';
 import { AiTimeoutError, createSafeFetch, isMico360Provider } from './ai-network';
 import { idempotencyKey, nativeOcr, NATIVE_OCR_MAX_BYTES, NATIVE_OCR_TYPES, type OcrDocument } from './mico360-native';
 import { AGENDA_SCHEMA, MEETING_SCHEMA, MINUTES_SCHEMA, PRIORITY_SCHEMA, TASK_SCHEMA } from './ai-schemas';
+import { letterCount } from '../../lib/file-text';
 import { cutChars } from './ai-text';
 import { createAiUsageLimiter, createConcurrencyGate, type AiUsageLimits } from './ai-limits';
 import { isValidRule, type RecurrenceRule } from '../tasks/recurrence';
@@ -62,6 +63,8 @@ export interface AiFeatureServiceDeps {
   logger?: { error(message: string, meta?: Record<string, unknown>): void; warn?(message: string, meta?: Record<string, unknown>): void };
   /** Waits between looks at a job the platform kept (tests pass a fake). */
   sleep?: (ms: number) => Promise<void>;
+  /** MICO360 AI: the most one file's reading may take, all its requests together. Default 5½ minutes. */
+  ocrFileBudgetMs?: number;
 }
 
 /** The signed-in user an AI request is made for (per-user limits; their roles decide which projects they see). */
@@ -125,6 +128,7 @@ export function createAiFeatureService({
   now = () => new Date(),
   logger,
   sleep,
+  ocrFileBudgetMs = OCR_FILE_BUDGET_MS,
 }: AiFeatureServiceDeps) {
   const doFetch = fetchImpl ?? createSafeFetch({ allowPrivateHosts });
   const usage = createAiUsageLimiter({ perMinute: limits?.perMinute ?? 10, perDay: limits?.perDay ?? 200 }, timeZone, now);
@@ -209,7 +213,13 @@ export function createAiFeatureService({
     let releaseKey = () => {};
     try {
       if (mico) releaseKey = await keyGate.acquire(`provider:${f.provider.id}`, keyLimit(f.provider));
-      return await complete(f.chat, input, doFetch, { allowPrivateHosts, ...(sleep ? { sleep } : {}), ...callOpts, ...(mico ? { observe: (i: ProviderCallInfo) => noted(f, i) } : {}) });
+      return await complete(f.chat, input, doFetch, {
+        allowPrivateHosts,
+        ...(sleep ? { sleep } : {}),
+        ...callOpts,
+        // Review minor 10: a job being collected no longer runs a request of the key's: its slot is freed.
+        ...(mico ? { observe: (i: ProviderCallInfo) => noted(f, i), beforeCollect: () => releaseKey() } : {}),
+      });
     } catch (err) {
       if (mico && !quiet) report(feature, err);
       throw err;
@@ -364,8 +374,11 @@ export function createAiFeatureService({
    * b8 (MICO360 AI): GLM-OCR — the reader its console installs — works best asked plainly: one picture a
    * request, "Text Recognition:", no instructions. A page that gives nothing (an empty answer, or the
    * platform's 502 for one) is passed over while others read; the caller logs failures (quiet here).
+   * Review I3: one file has one `deadline` for all its pictures (its OCR claim lasts 10 minutes): past it
+   * no picture is sent — a time-out, tried again later, when the pages already read are answered from
+   * their first reading (Idempotency-Key).
    */
-  async function readPictures(images: { data: Buffer; mimeType: string }[], opts: { signal?: AbortSignal; key?: string } = {}): Promise<string> {
+  async function readPictures(images: { data: Buffer; mimeType: string }[], opts: { signal?: AbortSignal; key?: string; deadline?: number } = {}): Promise<string> {
     const f = resolveFor(await repo.load(), 'ocr');
     if (!f) throw new ValidationError('No OCR model is set up in AI Management.');
     if (!isMico360Provider(f.provider)) {
@@ -380,17 +393,20 @@ export function createAiFeatureService({
         { feature: 'reading pictures', quiet: true, timeoutMs: Math.max(timeoutMs, 120_000), signal: opts.signal },
       );
     }
+    const deadline = opts.deadline ?? Date.now() + ocrFileBudgetMs;
     const texts: string[] = [];
     let failure: unknown = null;
     for (const image of images) {
+      const left = deadline - Date.now();
+      if (left < MIN_REQUEST_MS) throw new AiTimeoutError();
       try {
         const text = await invoke(f, { prompt: 'Text Recognition:', maxTokens: 4000, images: [image] }, {
           feature: 'reading pictures',
           quiet: true,
-          timeoutMs: BACKGROUND_WAIT_MS,
+          timeoutMs: Math.min(BACKGROUND_WAIT_MS, left),
           signal: opts.signal,
           idempotencyKey: opts.key,
-          collectUntil: Date.now() + BACKGROUND_COLLECT_MS,
+          collectUntil: deadline,
         });
         texts.push(text.trim());
       } catch (err) {
@@ -413,10 +429,16 @@ export function createAiFeatureService({
       .catch((err) => warn('MICO360 AI: the reading note could not be saved', { err }));
   }
 
-  /** b4: one whole document on MICO360 AI (a language its node can't read is tried again without one). */
-  async function readWhole(f: Found, doc: OcrDocument, opts: { language: string | null; key?: string; signal?: AbortSignal }): Promise<{ text: string; pages: number | null }> {
+  /**
+   * b4: one whole document on MICO360 AI, within the file's `deadline`. A language its node can't read is
+   * tried again without one; so is a guessed language that read (almost) nothing (review I4: the node
+   * reads one language) — the text with more letters is kept.
+   */
+  async function readWhole(f: Found, doc: OcrDocument, opts: { language: string | null; key?: string; signal?: AbortSignal; deadline: number }): Promise<{ text: string; pages: number | null }> {
     const hash = createHash('sha256').update(doc.data).digest('hex');
     const once = async (language: string | null) => {
+      const left = opts.deadline - Date.now();
+      if (left < MIN_REQUEST_MS) throw new AiTimeoutError();
       const releaseModel = await gate.acquire(f.model.id, f.model.concurrencyLimit);
       let releaseKey = () => {};
       try {
@@ -426,9 +448,11 @@ export function createAiFeatureService({
           allowPrivateHosts,
           signal: opts.signal,
           language,
-          timeoutSeconds: NATIVE_OCR_SECONDS,
+          // The platform's own wait, inside what is left of the file's (ours is 15 s longer).
+          timeoutSeconds: Math.max(1, Math.min(NATIVE_OCR_SECONDS, Math.floor(left / 1000) - 20)),
           idempotencyKey: opts.key ? idempotencyKey(opts.key, 'POST /api/v1/ocr', hash, language ?? '') : undefined,
-          collectUntil: Date.now() + BACKGROUND_COLLECT_MS,
+          collectUntil: opts.deadline,
+          beforeCollect: () => releaseKey(),
           ...(sleep ? { sleep } : {}),
         });
       } finally {
@@ -436,22 +460,31 @@ export function createAiFeatureService({
         releaseModel();
       }
     };
+    let out: Awaited<ReturnType<typeof once>>;
     try {
-      return await once(opts.language);
+      out = await once(opts.language);
     } catch (err) {
       if (opts.language && err instanceof ProviderRefusedError && err.providerStatus === 502 && /ocr language/i.test(err.detail ?? '')) return once(null);
       throw err;
     }
+    const letters = (t: string) => letterCount(t);
+    if (opts.language && letters(out.text) < POOR_LETTERS_PER_PAGE * Math.max(1, out.pages ?? 1) && opts.deadline - Date.now() >= MIN_REQUEST_MS) {
+      const plain = await once(null);
+      return letters(plain.text) > letters(out.text) ? plain : out;
+    }
+    return out;
   }
 
   /**
    * b4: the text of a scan or a picture. With MICO360 AI, the whole document goes to POST /api/v1/ocr —
    * every page of a PDF within the platform's limits (black-and-white scanner PDFs too), turned upright
    * first, read in `language` when one is known. When the platform can't (403: the key may not use Ocr,
-   * 404: an older server, 503: no OCR node; 413/415: a file it won't take; 502: over its page or pixel
-   * limits) the pictures are read instead, as before, and the admin is told on the provider's card;
-   * after a refusal whole-document reading waits a while (no upload each time). Other providers (and
-   * WebP, which the platform doesn't read) read the pictures, as before.
+   * 404: an older server, 503: no OCR node; 413: too large) the pictures are read instead, as before, the
+   * admin is told on the provider's card, and whole-document reading waits a while (no upload each time).
+   * A file it won't take (415) or one over its page or pixel limits goes to the pictures alone (review
+   * minor 4). Other providers (and WebP, which the platform doesn't read) read the pictures, as before.
+   * Review I3: everything for one file — the whole read, a second reading, the pictures — stays within
+   * one budget, well inside the 10 minutes the file is claimed for.
    */
   async function readDocument(
     doc: OcrDocument,
@@ -459,26 +492,27 @@ export function createAiFeatureService({
   ): Promise<{ text: string; pages: number | null; whole: boolean }> {
     const f = resolveFor(await repo.load(), 'ocr');
     if (!f) throw new ValidationError('No OCR model is set up in AI Management.');
+    const deadline = Date.now() + ocrFileBudgetMs;
     const at = now().getTime();
     if (isMico360Provider(f.provider) && NATIVE_OCR_TYPES.has(doc.mimeType) && doc.data.length <= NATIVE_OCR_MAX_BYTES && (ocrPausedUntil.get(f.provider.id) ?? 0) <= at) {
       try {
-        const out = await readWhole(f, doc, { language: opts.language ?? null, key: opts.key, signal: opts.signal });
+        const out = await readWhole(f, doc, { language: opts.language ?? null, key: opts.key, signal: opts.signal, deadline });
         await noteOcrFallback(f, null);
         return { text: out.text, pages: out.pages, whole: true };
       } catch (err) {
         const status = err instanceof ProviderRefusedError ? err.providerStatus : 0;
-        const tooBig = status === 502 && /500 pages|50 million pixels|pages|pixels/i.test((err as ProviderRefusedError).detail ?? '');
-        if (!(err instanceof ProviderRefusedError) || !(OCR_FALLBACK_STATUSES.has(status) || tooBig)) throw err;
-        if (!tooBig) {
+        const thisFile = status === 415 || (status === 502 && OVER_LIMITS.test((err as ProviderRefusedError).detail ?? ''));
+        if (!(err instanceof ProviderRefusedError) || !(OCR_FALLBACK_STATUSES.has(status) || thisFile)) throw err;
+        if (!thisFile) {
           ocrPausedUntil.set(f.provider.id, at + (status === 503 ? OCR_PAUSE_SHORT_MS : OCR_PAUSE_LONG_MS));
           await noteOcrFallback(f, { status, reason: err.detail });
         }
-        warn('MICO360 AI: whole-document reading was refused; reading the pictures instead', { status, correlationId: err.correlationId, tooBig });
+        warn('MICO360 AI: whole-document reading was refused; reading the pictures instead', { status, correlationId: err.correlationId, thisFile });
       }
     }
     const images = await opts.pictures();
     if (images.length === 0) return { text: '', pages: null, whole: false };
-    return { text: await readPictures(images, { signal: opts.signal, key: opts.key }), pages: null, whole: false };
+    return { text: await readPictures(images, { signal: opts.signal, key: opts.key, deadline }), pages: null, whole: false };
   }
 
   /** 1.23: the embedding model meaning search uses, or null (no meaning search). */
@@ -1000,7 +1034,19 @@ export const AI_SEARCH_COLD_BUDGET_MS = 90_000;
 /** b4: the platform's own wait for a whole document (its default; a longer one is collected, b3). */
 const NATIVE_OCR_SECONDS = 300;
 /** b4: refusals that send a document to the picture reader (the key, an older server, no node, a file it won't take). */
-const OCR_FALLBACK_STATUSES: ReadonlySet<number> = new Set([403, 404, 413, 415, 503]);
+const OCR_FALLBACK_STATUSES: ReadonlySet<number> = new Set([403, 404, 413, 503]);
+/** A node's 502 for a document over the platform's limits (guide §5: over 500 pages, a page over 50 million pixels). */
+const OVER_LIMITS = /\b500 pages\b|50 million pixels|more than \d+ pages|too many pages/i;
+/**
+ * Review I3: one file's reading, every request together — about what one read took before (310 s), so
+ * the minute's other search work is not held up longer; well inside the 10 minutes a file is claimed for.
+ * What isn't done by then is tried again later, and what was is answered from its first reading.
+ */
+export const OCR_FILE_BUDGET_MS = 330_000;
+/** No request is started with less than this left. */
+const MIN_REQUEST_MS = 10_000;
+/** Review I4: a guessed language that read fewer letters than this a page is read again without one. */
+const POOR_LETTERS_PER_PAGE = 20;
 /** …after which whole-document reading waits before it is tried again: no OCR node (503) briefly, otherwise an hour. */
 const OCR_PAUSE_SHORT_MS = 10 * 60_000;
 const OCR_PAUSE_LONG_MS = 60 * 60_000;

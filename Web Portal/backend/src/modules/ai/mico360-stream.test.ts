@@ -34,7 +34,14 @@ const recorder = (answer: (call: Call, n: number) => Response | Promise<Response
   }) as unknown as typeof fetch;
   return { calls, fetchImpl };
 };
-const base = { timeoutMs: 60_000, collectUntil: Date.now() + 60_000, sleep: async () => {} };
+const base = {
+  timeoutMs: 60_000,
+  // Fresh for each test (spreading reads it then).
+  get collectUntil() {
+    return Date.now() + 60_000;
+  },
+  sleep: async () => {},
+};
 const chunk = (sequence: number, text: string) => ['chunk', { sequence, text, jobId: 'JOB-S' }] as [string, unknown];
 const done = (reason: string, chunks: number, extra: Record<string, unknown> = {}) => ['done', { reason, chunks, jobId: 'JOB-S', correlationId: 'REQ-S1', ...extra }] as [string, unknown];
 
@@ -133,5 +140,38 @@ describe('streamChat — POST /api/v1/chat/stream (guide §5, b15)', () => {
     const err = await streamChat(provider, { prompt: 'p', timeoutSeconds: 120 }, { ...base, fetchImpl, timeoutSignal: ours.signal, collectUntil: 3_000, now: () => t, sleep: async (ms: number) => void (t += ms) }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(AiTimeoutError);
     expect((err as AiTimeoutError).jobId).toBe('JOB-S');
+  });
+
+  // Review minor 1: "\r" at the end of one read and "\n" at the start of the next is one line break.
+  it('a CRLF split across two reads is one line break, not a blank line (no chunk lost)', async () => {
+    const enc = new TextEncoder();
+    const reads = ['event: chunk\r', '\ndata: {"sequence":0,"text":"Hi","jobId":"J"}\r\n\r', '\nevent: done\r\ndata: {"reason":"completed","chunks":1,"jobId":"J"}\r\n\r\n'];
+    const { calls, fetchImpl } = recorder(
+      () =>
+        new Response(
+          new ReadableStream({
+            start(c) {
+              for (const r of reads) c.enqueue(enc.encode(r));
+              c.close();
+            },
+          }),
+          { status: 200, headers: { 'content-type': 'text/event-stream' } },
+        ),
+    );
+    const out = await streamChat(provider, { prompt: 'p', timeoutSeconds: 120 }, { ...base, fetchImpl });
+    expect(out).toMatchObject({ text: 'Hi', collected: false });
+    expect(calls).toHaveLength(1);
+  });
+
+  // Review minor 10: the stream's own request is over while its job is collected — the caller frees the
+  // key's slot first.
+  it('says when it starts collecting a job (the caller frees the key’s slot)', async () => {
+    const order: string[] = [];
+    const { fetchImpl } = recorder((c) => {
+      order.push(c.url.endsWith('/stream') ? 'stream' : 'job');
+      return c.url.endsWith('/stream') ? sse([chunk(0, 'part'), done('timed_out', 1)]) : json(200, { jobId: 'JOB-S', state: 'Completed', output: 'all' });
+    });
+    await streamChat(provider, { prompt: 'p', timeoutSeconds: 120 }, { ...base, fetchImpl, beforeCollect: () => void order.push('free') });
+    expect(order).toEqual(['stream', 'free', 'job']);
   });
 });

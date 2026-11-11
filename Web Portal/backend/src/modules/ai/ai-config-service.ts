@@ -117,10 +117,15 @@ export function createAiConfigService({
     const [v, fleet, key] = await Promise.all([platformVersion(provider, opts), platformFleet(provider, opts), keyStatus(provider, opts)]);
     return { version: v?.version ?? null, commit: v?.commit ?? null, capabilities: fleet?.capabilities ?? null, concurrencyLimit: key?.limit ?? null };
   }
+  /**
+   * The models, then — once the platform answered the list (even an empty one) — its facts. Review minor 5:
+   * never beside a refused key: 20 wrong keys a minute from one address block every key from it.
+   */
   async function list(provider: Pick<AiProvider, 'kind' | 'apiBaseUrl' | 'apiKey' | 'preset'>): Promise<Listing> {
-    if (!isMico360Provider(provider)) return listModels(provider);
-    const [listing, facts] = await Promise.all([listModels(provider), readFacts(provider)]);
-    return listing.ok || !listing.keyRefused ? { ...listing, facts } : listing;
+    const listing = await listModels(provider);
+    if (!isMico360Provider(provider)) return listing;
+    const answered = listing.ok || listing.error.message === MICO360_EMPTY_LIST;
+    return answered ? { ...listing, facts: await readFacts(provider) } : listing;
   }
   function applyListing(config: AiConfig, providerId: string, listing: Listing, m: Meta): AiConfig {
     const next = listing.ok ? ops.applySync(config, providerId, listing.models, m) : ops.recordSyncFailure(config, providerId, listing.error.message, m.now);

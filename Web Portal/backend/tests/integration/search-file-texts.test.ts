@@ -253,4 +253,36 @@ describe('file texts (database)', () => {
     await svc.readByOcr();
     expect(await textRow(scan)).toMatchObject({ status: 'OCR_DONE', text: `Inspection record ${tag}` });
   });
+
+  // Review minor 7: after the upgrade, older scans no picture could carry are read again a few at a time,
+  // so new scans still get room in every run.
+  it('b4: older scans are taken back a few a run (3), so a new scan is read in the same run', async () => {
+    await settleOthers();
+    const t = new Date('2026-11-15T08:00:00Z');
+    const old: string[] = [];
+    for (let i = 0; i < 5; i++) {
+      const id = await scanOn('Old scan', `old-${i}.pdf`, Buffer.from(`%PDF-1.4 old ${i} ${tag}`));
+      await prisma.searchFileText.create({ data: { fileId: id, status: 'EMPTY', method: null, attempts: 1, readAt: new Date(t.getTime() - (10 - i) * 60_000) } });
+      old.push(id);
+    }
+    const fresh = await scanOn('New scan', 'new.pdf', Buffer.from(`%PDF-1.4 new ${tag}`));
+    await prisma.searchFileText.create({ data: { fileId: fresh, status: 'OCR_WAIT', nextTryAt: null, readAt: new Date(t.getTime() - 1000) } });
+    const read: string[] = [];
+    const ocr = {
+      ready: async () => true,
+      read: async () => 'never',
+      wholeDocuments: async () => true,
+      readDocument: async (doc: { filename: string }) => {
+        read.push(doc.filename);
+        return { text: `Read ${doc.filename} ${tag}`, whole: true };
+      },
+    };
+    const svc = createFileTextService({ prisma, storage, index, ocr, now: () => t });
+    await svc.readByOcr();
+    expect(read).toContain('new.pdf');
+    expect(read.filter((n) => n.startsWith('old-'))).toHaveLength(3);
+    const still = await prisma.searchFileText.count({ where: { fileId: { in: old }, status: 'EMPTY' } });
+    expect(still).toBe(2); // the rest at the next runs
+  });
 });
+

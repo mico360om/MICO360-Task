@@ -18,6 +18,16 @@ function PresetHelp({ preset }: { preset: string | null | undefined }) {
   return help ? <p className="text-xs leading-snug text-ink-3">{help}</p> : null;
 }
 
+/** MICO360 AI by its preset or its address, as the server decides it (review minor 8). */
+function isMico360(p: Pick<RedactedProvider, 'preset' | 'apiBaseUrl'>): boolean {
+  if (p.preset === 'mico360') return true;
+  try {
+    return new URL(p.apiBaseUrl).hostname.replace(/\.$/, '').toLowerCase() === 'ai.mico360.com';
+  } catch {
+    return false;
+  }
+}
+
 /** What each capability of MICO360 AI's fleet is for in Tasks (b7). */
 const FLEET_USES: Array<{ capability: string; use: string }> = [
   { capability: 'Ocr', use: 'reading whole scanned files (every page)' },
@@ -44,7 +54,7 @@ function ocrFallbackWords(f: NonNullable<ProviderPlatform['ocrFallback']>): stri
  */
 function PlatformFacts({ provider: p }: { provider: RedactedProvider }) {
   const f = p.platform;
-  if (p.preset !== 'mico360' || !f) return null;
+  if (!isMico360(p) || !f) return null;
   const missing = f.capabilities ? FLEET_USES.filter((x) => !f.capabilities!.includes(x.capability)) : [];
   const subs = f.substitutions ?? [];
   return (

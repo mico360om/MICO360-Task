@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { draftOf, runTurn, type LoopDeps, type ModelRequest } from './mico-ai-loop';
+import { draftOf, MAX_TOOL_STEPS, runTurn, systemPrompt, type LoopDeps, type ModelRequest } from './mico-ai-loop';
 import { MICO_AI_ACTION_SCHEMA } from '../ai/ai-schemas';
 
 // (b) bundles, b15: MICO360 AI writes MICO AI's reply live; the reply is JSON, so the words a person may
@@ -69,6 +69,53 @@ describe('runTurn — live words (b15) and the action schema (b1)', () => {
     };
     const out = await runTurn(base(complete, drafts), input);
     expect(out.text).toBe('Nothing found.');
-    expect(drafts).toEqual([null, 'There are 5 overdue.', null, 'Nothing found.']);
+    // Review I2: figures with no data behind them are never shown (that answer is sent back).
+    expect(drafts).toEqual([null, null, 'Nothing found.']);
+  });
+});
+
+// Review I2: the words of a reply the loop may still send back are not shown.
+describe('runTurn — live words only for what can be kept', () => {
+  const input = { question: 'q', history: [], summary: null, earlier: [], signal: new AbortController().signal };
+  const deps = (replies: string[][], drafts: Array<string | null>, propose?: LoopDeps['propose']): LoopDeps => {
+    let n = 0;
+    return {
+      complete: async (req) => {
+        const pieces = replies[Math.min(n++, replies.length - 1)]!;
+        for (const p of pieces) req.onText?.(p);
+        return pieces.at(-1)!;
+      },
+      tools: [{ name: 'search_tasks', purpose: 'Find tasks.', args: '{ }', step: () => 'Checking tasks…' }],
+      runTool: async (name, args) => ({ tool: name, args, title: 'Tasks', columns: [{ key: 'key', label: 'Task' }], rows: [], total: 0 }),
+      context: { today: '2026-11-11', todayLabel: 'Wed 11 Nov 2026', timeZone: 'Asia/Muscat', userName: 'K' },
+      onDraft: (t) => void drafts.push(t),
+      ...(propose ? { propose } : {}),
+    };
+  };
+
+  it('an answer with no data behind it: its words show until a figure comes, then are taken back', async () => {
+    const drafts: Array<string | null> = [];
+    await runTurn(deps([['{"action":"answer","text":"There are ', '{"action":"answer","text":"There are 5 overdue."}'], ['{"action":"answer","text":"Nothing found.","unavailable":true}']], drafts), input);
+    expect(drafts).toEqual([null, 'There are ', null, null, 'Nothing found.']);
+  });
+
+  it('read-only: a proposal’s words are never shown (the loop answers that it can’t make changes)', async () => {
+    const drafts: Array<string | null> = [];
+    await runTurn(deps([['{"action":"propose","text":"I will move it","changes":[{"type":"update_task"}]}'], ['{"action":"answer","text":"I can’t make changes here."}']], drafts), input);
+    expect(drafts.filter((d) => d && /move it/.test(d))).toEqual([]);
+  });
+});
+
+// Review minor 6: on MICO360 AI's live stream the instructions travel as `system`, at most 8,000 characters
+// (guide §5 Prompts; 413 over it). complete() then uses /v1 instead — this keeps MICO AI on the stream.
+describe('MICO AI’s instructions fit the native API', () => {
+  it('the rules, the tools and the change types together stay under 8,000 characters', async () => {
+    const { createMicoAiTools } = await import('./mico-ai-tools');
+    const { createMemoryMicoAiData, company, NOW } = await import('./mico-ai-data.fixture');
+    const { NATIVE_SYSTEM_LIMIT } = await import('../ai/ai-completion');
+    const tools = createMicoAiTools({ data: createMemoryMicoAiData(company()), timeZone: 'Asia/Muscat', now: () => NOW }).catalogue;
+    const ctx = { today: '2026-11-11', todayLabel: 'Wed 11 Nov 2026', timeZone: 'Asia/Muscat', userName: 'x'.repeat(200) };
+    const longest = systemPrompt(tools, ctx, MAX_TOOL_STEPS, true);
+    expect(longest.length).toBeLessThanOrEqual(NATIVE_SYSTEM_LIMIT - 300); // with room to grow a little
   });
 });

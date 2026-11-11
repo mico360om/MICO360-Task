@@ -381,6 +381,13 @@ describe('AI Management: MICO360 AI’s own facts', () => {
     expect(within(c).getByText(/3 times/)).toBeInTheDocument();
   });
 
+  // Review minor 8: the server treats an ai.mico360.com address as MICO360 AI whatever it was added as.
+  it('a provider added as “Other” at MICO360 AI’s address shows its facts too', async () => {
+    current = { ...config, providers: [{ ...acme, name: 'Our AI', kind: 'custom', preset: 'custom', apiBaseUrl: 'https://ai.mico360.com:5310/v1', platform: { version: '2.6.28', concurrencyLimit: 4 } } as typeof acme] };
+    renderPage();
+    expect(within(await card()).getByText(/Runs MICO360 Connect 2\.6\.28/)).toBeInTheDocument();
+  });
+
   it('other providers show none of it', async () => {
     renderPage();
     const c = (await screen.findByText('https://api.acme.test/v1')).closest('[data-provider]') as HTMLElement;

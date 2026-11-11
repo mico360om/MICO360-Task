@@ -45,6 +45,8 @@ export interface StreamOptions extends Omit<CollectOptions, 'deadline'> {
   onText?: (text: string) => void;
   /** Tests: our own time-out, instead of one made from timeoutMs. */
   timeoutSignal?: AbortSignal;
+  /** Review minor 10: called once the stream's own request is over and its job is to be collected. */
+  beforeCollect?: () => void;
 }
 
 export interface StreamResult {
@@ -62,10 +64,14 @@ export interface StreamResult {
 
 type Done = { reason: string; chunks: number | null; jobId: string | null; correlationId: string | null; warning: string | null };
 
-/** Split a buffer into complete SSE events; returns them and what is left. */
+/**
+ * Split a buffer into complete SSE events; returns them and what is left. A "\r" at the very end is held
+ * back (review minor 1): its "\n" may come in the next read, and "\r" + "\n" is one line break.
+ */
 function takeEvents(buffer: string): { events: Array<{ event: string; data: string }>; rest: string } {
   const events: Array<{ event: string; data: string }> = [];
-  const normal = buffer.replace(/\r\n?/g, '\n');
+  const held = buffer.endsWith('\r') ? '\r' : '';
+  const normal = (held ? buffer.slice(0, -1) : buffer).replace(/\r\n?/g, '\n');
   let start = 0;
   for (;;) {
     const end = normal.indexOf('\n\n', start);
@@ -84,7 +90,7 @@ function takeEvents(buffer: string): { events: Array<{ event: string; data: stri
     }
     events.push({ event, data: data.join('\n') });
   }
-  return { events, rest: normal.slice(start) };
+  return { events, rest: normal.slice(start) + held };
 }
 
 const parse = (data: string): Record<string, unknown> | null => {
@@ -110,6 +116,7 @@ export async function streamChat(provider: NativeProvider, req: StreamRequest, o
   const signal = opts.signal ? AbortSignal.any([ours, opts.signal]) : ours;
   const stopped = () => opts.signal?.aborted === true;
   const collect = async (jobId: string, correlationId: string | null, reason: string, warning: string | null): Promise<StreamResult> => {
+    opts.beforeCollect?.();
     const job = await collectJob(provider, jobId, { ...opts, deadline: opts.collectUntil });
     return { text: job.output, jobId, correlationId, reason, collected: true, warning: job.warning ?? warning };
   };

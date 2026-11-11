@@ -771,7 +771,7 @@ export function createMicoAiService(deps: MicoAiServiceDeps) {
       }, answerTimeoutMs);
       timer.unref?.();
       try {
-        if (job.attempts > 1) await repo.updateMessage(job.subjectId, { step: 'Thinking…' }, 'PENDING');
+        if (job.attempts > 1) await repo.updateMessage(job.subjectId, { step: 'Thinking…', content: null }, 'PENDING');
         return await computeAnswer(viewer, chat, question, job.subjectId, controller.signal, job.id);
       } catch (err) {
         if (timedOut) throw new MicoAiError(TOO_LONG);
@@ -795,7 +795,8 @@ export function createMicoAiService(deps: MicoAiServiceDeps) {
     },
     async waiting(job, at) {
       const step = `The AI service didn’t answer, so MICO AI will try again in ${inWords(at)} (try ${job.attempts + 1} of ${MAX_ATTEMPTS}).`;
-      await repo.updateMessage(job.subjectId, { step }, 'PENDING');
+      // Review I1: the words a failed try had shown go (nothing is being written while it waits).
+      await repo.updateMessage(job.subjectId, { step, content: null }, 'PENDING');
     },
     async notify(job, end) {
       if (!deps.notify) return;

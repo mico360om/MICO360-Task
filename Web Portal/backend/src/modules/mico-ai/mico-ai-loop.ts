@@ -399,9 +399,11 @@ function skipValue(raw: string, i: number): number {
 /**
  * The words a person may read of a reply still being written: an answer's (or a proposal's) "text", or a
  * clarifying "question", as far as it has come — read from the top-level keys of the partial JSON, once
- * its "action" is known. Null for a tool step, or before the words start.
+ * its "action" is known. Null for a tool step, or before the words start. `propose: false` (MICO AI is
+ * read-only): a proposal's words are never shown.
  */
-export function draftOf(raw: string): string | null {
+export function draftOf(raw: string, opts: { propose?: boolean } = {}): string | null {
+  const propose = opts.propose ?? true;
   let i = raw.indexOf('{');
   if (i < 0) return null;
   i += 1;
@@ -417,14 +419,14 @@ export function draftOf(raw: string): string | null {
     i += 1;
     while (i < raw.length && /\s/.test(raw[i]!)) i += 1;
     if (i >= raw.length) return null;
-    const words = (action === 'answer' || action === 'propose') && key.text === 'text' ? true : action === 'clarify' && key.text === 'question';
+    const words = (action === 'answer' || (action === 'propose' && propose)) && key.text === 'text' ? true : action === 'clarify' && key.text === 'question';
     if (words) return raw[i] === '"' ? readString(raw, i + 1).text : null;
     if (key.text === 'action') {
       if (raw[i] !== '"') return null;
       const value = readString(raw, i + 1);
       if (value.end < 0) return null;
       action = value.text;
-      if (action === 'tool') return null;
+      if (action === 'tool' || (action === 'propose' && !propose)) return null;
       i = value.end;
       continue;
     }
@@ -537,12 +539,23 @@ export async function runTurn(deps: LoopDeps, input: TurnInput): Promise<Assista
     stopped();
     const finalOnly = results.length >= maxSteps;
     // b15: the words written so far reach the page (each call starts empty); b1: held to the action schema.
+    // Review I2: only words that can be kept — an answer with figures and nothing behind them is sent back
+    // once (below), so while that can happen a figure takes its words back off the page; a read-only
+    // MICO AI never shows a proposal.
     deps.onDraft?.(null);
     let shown: string | null = null;
+    let withheld = false;
+    const backed = nudged || results.some((r) => !r.error) || input.earlier.length > 0;
     const live = deps.onDraft
       ? (text: string) => {
-          const words = draftOf(text);
+          if (withheld) return;
+          const words = draftOf(text, { propose: !!deps.propose });
           if (words === null || words === shown) return;
+          if (!backed && /\d/.test(words)) {
+            withheld = true;
+            if (shown !== null) deps.onDraft!(null);
+            return;
+          }
           shown = words;
           deps.onDraft!(words);
         }

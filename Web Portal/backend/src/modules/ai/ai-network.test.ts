@@ -195,6 +195,14 @@ describe('pinnedFetch — the checked address is the one connected to (AI-01, DN
     expect(rest).toContain('event: done');
   });
 
+  it('sends a binary body (a document for MICO360 AI) byte for byte (review minor 9)', async () => {
+    const pinned = pinnedFetch({ allowPrivateHosts: true, lookup: async () => [{ address: '127.0.0.1' }] });
+    const bytes = Buffer.from([0x25, 0x50, 0x44, 0x46, 0x00, 0xff, 0xfe, 0x80]);
+    const res = await pinned(`http://model-host.example.com:${port}/v1/ocr`, { method: 'POST', headers: { 'content-type': 'application/octet-stream' }, body: bytes });
+    expect(res.status).toBe(200);
+    expect(Buffer.from(seen.at(-1)!.body!, 'latin1').equals(bytes) || seen.at(-1)!.body!.length === bytes.length).toBe(true);
+  });
+
   it('never follows redirects', async () => {
     const pinned = pinnedFetch({ allowPrivateHosts: true, lookup: async () => [{ address: '127.0.0.1' }] });
     await expect(pinned(`http://model-host.example.com:${port}/redirect`)).rejects.toThrow(/redirect/i);

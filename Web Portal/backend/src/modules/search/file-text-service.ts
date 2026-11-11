@@ -89,6 +89,8 @@ export function documentLanguage(own: Array<string | null | undefined>, wider: A
 
 /** b4: a scan with no page pictures we could send is looked at again after this (whole-document reading may be back). */
 const NO_PICTURES_RETRY_MS = 24 * 60 * 60_000;
+/** …at most this many a run (review minor 7: new scans keep their room). */
+const RESCANS_PER_RUN = 3;
 
 export interface FileTextLogger {
   info?(message: string, meta?: Record<string, unknown>): void;
@@ -224,11 +226,17 @@ export function createFileTextService({ prisma, storage, index, ocr, logger, now
     const dueNow = () => ({ status: 'OCR_WAIT', OR: [{ nextTryAt: null }, { nextTryAt: { lte: now() } }] });
     // b4: whole documents can be read: scans that had no page pictures we could send (black-and-white
     // scanner PDFs) wait for OCR again — once a day at most.
+    // Review minor 7: a few a run (the newest first), so new scans keep their room in every run.
     if (ocr.readDocument && ocr.wholeDocuments && (await ocr.wholeDocuments())) {
-      await prisma.searchFileText.updateMany({
+      const backlog = await prisma.searchFileText.findMany({
         where: { status: 'EMPTY', method: null, OR: [{ nextTryAt: null }, { nextTryAt: { lte: now() } }], file: { mimeType: 'application/pdf', task: { deletedAt: null } } },
-        data: { status: 'OCR_WAIT', nextTryAt: null, attempts: 0 },
+        orderBy: { readAt: 'desc' },
+        take: RESCANS_PER_RUN,
+        select: { fileId: true },
       });
+      if (backlog.length) {
+        await prisma.searchFileText.updateMany({ where: { fileId: { in: backlog.map((b) => b.fileId) }, status: 'EMPTY' }, data: { status: 'OCR_WAIT', nextTryAt: null, attempts: 0 } });
+      }
     }
     const due = await prisma.searchFileText.findMany({ where: { ...dueNow(), file: { task: { deletedAt: null } } }, orderBy: { readAt: 'asc' }, take: room, select: { fileId: true, attempts: true } });
     let done = 0;

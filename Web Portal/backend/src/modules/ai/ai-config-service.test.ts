@@ -379,4 +379,18 @@ describe('AiConfigService: MICO360 AI platform facts (b5, b7, b11, b12)', () => 
     const cfg = await svc.addProvider(mico, actor);
     expect(await svc.testModel(cfg.models[0]!.id)).toMatchObject({ ok: true, model: 'llama3.1:latest', substituted: null });
   });
+
+  // Review minor 5: 20 wrong keys a minute from one address block every key from it (guide §2), so a
+  // refused key costs one call, not three.
+  it('a key the platform refuses costs one call (the facts are read only once the models load)', async () => {
+    const urls: string[] = [];
+    const fetchImpl = vi.fn(async (url: string) => {
+      urls.push(String(url));
+      return json({ error: { message: "Invalid or missing API key. Send it as 'Authorization: Bearer <key>'." } }, 401);
+    });
+    const { svc } = make(fetchImpl as unknown as typeof fetch);
+    await expect(svc.addProvider(mico, actor)).rejects.toThrow(/did not accept the API key/);
+    expect(urls).toEqual(['https://ai.mico360.com:5310/v1/models']);
+  });
 });
+
