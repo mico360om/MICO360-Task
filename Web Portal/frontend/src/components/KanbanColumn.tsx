@@ -4,6 +4,18 @@ import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { DraggableTaskCard } from './DraggableTaskCard';
 import type { TaskCardTask } from './TaskCard';
 import { CardMenu, type CardMenuItem } from './board/CardMenu';
+import { SelectAllBox, TaskSelectBox } from './bulk/select-boxes';
+
+/** Bulk changes' Select mode on the board: the cards' boxes and each column's "Select all" box. */
+export interface BoardSelect {
+  /** Is this card ticked? */
+  has: (taskKey: string) => boolean;
+  /** A card's box; with Shift, every card from the last one clicked, in this column. */
+  onToggle: (taskKey: string, columnId: string, shift: boolean) => void;
+  /** A column header's box: every card it shows ticked, some, or none. */
+  columnState: (columnId: string) => 'all' | 'some' | 'none';
+  onToggleColumn: (columnId: string) => void;
+}
 
 export interface KanbanColumnData {
   id: string;
@@ -26,6 +38,8 @@ export interface KanbanColumnProps {
   fit?: boolean;
   /** Cards may be dragged (default). False (1.22.3 review): a read-only board — they only open. */
   canDrag?: boolean;
+  /** Bulk changes' Select mode (the board's Select button): boxes on the cards and the header. */
+  select?: BoardSelect;
 }
 
 const PLUS = <path d="M12 5v14M5 12h14" />;
@@ -45,7 +59,7 @@ function AddTaskButton({ name, onAddTask }: { name: string; onAddTask: () => voi
   );
 }
 
-export function KanbanColumn({ column, onTaskClick, onAddTask, timeZone, cardMenu, dragging = false, fit = false, canDrag = true }: KanbanColumnProps) {
+export function KanbanColumn({ column, onTaskClick, onAddTask, timeZone, cardMenu, dragging = false, fit = false, canDrag = true, select }: KanbanColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: column.id });
   const [collapsed, setCollapsed] = useState(false);
 
@@ -86,6 +100,11 @@ export function KanbanColumn({ column, onTaskClick, onAddTask, timeZone, cardMen
       {/* A long name wraps onto a second line, and past that gives its full name on hover. */}
       <header className="flex flex-none items-center justify-between gap-1 px-1 py-0.5">
         <div className="flex min-w-0 items-center gap-2">
+          {select && column.tasks.length > 0 ? (
+            <label className="-my-1 grid h-6 w-6 flex-none cursor-pointer place-items-center [@media(pointer:coarse)]:-my-2.5 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11">
+              <SelectAllBox state={select.columnState(column.id)} onChange={() => select.onToggleColumn(column.id)} label={`Select every task in ${column.name}`} className="h-4 w-4 cursor-pointer accent-brand" />
+            </label>
+          ) : null}
           <span className="h-2.5 w-2.5 flex-none rounded-full ring-2 ring-surface" style={{ background: column.color }} />
           <span dir="auto" title={column.name} className="line-clamp-2 break-words text-sm font-bold leading-tight text-ink">{column.name}</span>
           <span className="min-w-[1.25rem] flex-none rounded-full bg-ground px-1.5 text-center text-xs font-semibold tabular-nums text-ink-2">{column.tasks.length}</span>
@@ -111,11 +130,22 @@ export function KanbanColumn({ column, onTaskClick, onAddTask, timeZone, cardMen
         <SortableContext items={column.tasks.map((t) => t.key)} strategy={verticalListSortingStrategy}>
           {column.tasks.map((task) => {
             const items = cardMenu?.(task.key) ?? null;
-            if (!items || items.length === 0) return <DraggableTaskCard key={task.key} task={task} timeZone={timeZone} onClick={() => onTaskClick?.(task.key)} disabled={!canDrag} />;
+            const card =
+              !items || items.length === 0 ? (
+                <DraggableTaskCard key={task.key} task={task} timeZone={timeZone} onClick={() => onTaskClick?.(task.key)} disabled={!canDrag} />
+              ) : (
+                <div key={task.key} className="group/card relative">
+                  <DraggableTaskCard task={task} timeZone={timeZone} onClick={() => onTaskClick?.(task.key)} menuSpace disabled={!canDrag} />
+                  {dragging ? null : <CardMenu taskKey={task.key} items={items} />}
+                </div>
+              );
+            if (!select) return card;
+            // Select mode: the card's box beside it (never inside the card, which is its own button).
+            const ticked = select.has(task.key);
             return (
-              <div key={task.key} className="group/card relative">
-                <DraggableTaskCard task={task} timeZone={timeZone} onClick={() => onTaskClick?.(task.key)} menuSpace disabled={!canDrag} />
-                {dragging ? null : <CardMenu taskKey={task.key} items={items} />}
+              <div key={task.key} className="flex items-start gap-1">
+                <TaskSelectBox task={task} checked={ticked} onChange={(shift) => select.onToggle(task.key, column.id, shift)} className="-ms-1 mt-1" />
+                <div className={`min-w-0 flex-1 rounded-xl ${ticked ? 'ring-2 ring-brand/50' : ''}`}>{card}</div>
               </div>
             );
           })}

@@ -47,6 +47,10 @@ import { MonthBar, PERIODS } from './MonthBar';
 import { useBoardPeriod } from './useBoardPeriod';
 import { nearestMonth, type MonthClock } from '../../lib/board-month';
 import { countCards, currentMonth, emptyMonthText, hideCards, monthCards, monthTitle, monthWord, undatedKeys, withMonthDates } from '../../lib/month-view';
+import { taskRef, useBulkSelection } from '../../lib/bulk-selection';
+import { taskIdsOfLiveEvent } from '../../lib/bulk-words';
+import type { BoardSelect } from '../KanbanColumn';
+import { BulkTools } from '../bulk/BulkTools';
 
 /** The board's columns and cards — and (1.23.0, for its Table view) the project's columns and tasks as the server sent them. */
 type BoardData = { columns: KanbanColumnData[]; idByKey: Record<string, string>; apiColumns?: ApiColumn[]; tasks?: ApiTask[] };
@@ -403,8 +407,11 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
   const filtering = Boolean(picked.guest || picked.guestCompany.trim() || picked.category);
   // Categories are each project's own: another project (or All projects) lets go of the one picked.
   const [pickedFor, setPickedFor] = useState(projectId);
+  // Bulk changes: the board's Select mode (another board starts out of it, its selection empty).
+  const [selectMode, setSelectMode] = useState(false);
   if (pickedFor !== projectId) {
     setPickedFor(projectId);
+    setSelectMode(false);
     if (picked.category) setPicked({ ...picked, category: '', categoryLabel: undefined });
   }
   // A project's board: its categories, and whether every task needs one ("Needs a category" on cards without).
@@ -436,6 +443,52 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
     const raw = new Map((isAll ? allQ.data ?? [] : boardQ.data?.tasks ?? []).map((t) => [t.key, t]));
     return boardColumns.flatMap((c) => c.tasks.map((card) => raw.get(card.key)).filter((t): t is ApiTask => Boolean(t)));
   }, [isAll, allQ.data, boardQ.data, boardColumns]);
+
+  // ── Bulk changes (owner, 10 Nov): Select mode on the board, the boxes of its Table view ──
+  const sel = useBulkSelection(projectId);
+  // Select mode: the Select button, or tasks ticked (in the Table view, then back on the board).
+  const selecting = !locked && Boolean(projectId) && (selectMode || sel.count > 0);
+  const taskByKey = useMemo(() => new Map((isAll ? allQ.data ?? [] : boardQ.data?.tasks ?? []).map((t) => [t.key, t])), [isAll, allQ.data, boardQ.data]);
+  const taskById = useMemo(() => new Map([...taskByKey.values()].map((t) => [t.id, t])), [taskByKey]);
+  const visibleIds = useMemo(
+    () => (view === 'table' ? tableTasks.map((t) => t.id) : boardColumns.flatMap((c) => c.tasks.map((t) => idByKey[t.key]).filter((x): x is string => Boolean(x)))),
+    [view, tableTasks, boardColumns, idByKey],
+  );
+  const columnRefs = (columnId: string) =>
+    (boardColumns.find((c) => c.id === columnId)?.tasks ?? []).map((c) => taskByKey.get(c.key)).filter((t): t is ApiTask => Boolean(t)).map(taskRef);
+  const boardSelect: BoardSelect | undefined =
+    selecting && view === 'board'
+      ? {
+          has: (key) => sel.has(idByKey[key] ?? ''),
+          // Shift: the range in the card's own column.
+          onToggle: (key, columnId, shift) => {
+            const t = taskByKey.get(key);
+            if (t) sel.toggle(taskRef(t), { shift, order: columnRefs(columnId) });
+          },
+          columnState: (columnId) => sel.allState(columnRefs(columnId).map((r) => r.id)),
+          onToggleColumn: (columnId) => {
+            const refs = columnRefs(columnId);
+            if (sel.allState(refs.map((r) => r.id)) === 'all') sel.deselect(refs.map((r) => r.id));
+            else sel.selectAll(refs);
+          },
+        }
+      : undefined;
+  /** Leave Select mode: the boxes go, and so does the selection. */
+  const leaveSelect = useCallback(() => {
+    setSelectMode(false);
+    sel.clear();
+  }, [sel]);
+  // Escape leaves Select mode (unless a window, menu or the task panel is taking it).
+  useEffect(() => {
+    if (!selecting || view !== 'board') return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      if (document.querySelector("[aria-modal='true'], [role='menu'], [role='listbox']")) return;
+      leaveSelect();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [selecting, view, leaveSelect]);
 
   /**
    * New task, in the column it was started from (a column's "+" or empty box), else the first. On
@@ -475,8 +528,9 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
       }
       void qc.invalidateQueries({ queryKey: ['board', projectId] });
       const p = (payload ?? {}) as { id?: string; taskId?: string };
-      // A deleted/changed task open in a drawer refetches (and shows "not found" once deleted).
-      if (p.id && event !== 'task:created') void qc.invalidateQueries({ queryKey: ['task', p.id] });
+      // A deleted/changed task open in a drawer refetches (and shows "not found" once deleted) — and
+      // each task of a bulk change (one event per project: { bulk: true, ids }).
+      if (event !== 'task:created') for (const id of taskIdsOfLiveEvent(payload)) void qc.invalidateQueries({ queryKey: ['task', id] });
       if (event === 'task:assignees' && p.taskId) void qc.invalidateQueries({ queryKey: ['assignees', p.taskId] });
       // After a reconnect we may have missed anything — refresh every task view.
       if (event === 'resync') void invalidateTaskQueries(qc);
@@ -619,6 +673,24 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
           </>
           )}
           <ViewSwitch label="Show the board as" value={view} onChange={setView} options={VIEWS} />
+          {/* Bulk changes: Select puts a box on every card (dragging waits meanwhile); again, or Escape, leaves. */}
+          {view === 'board' && !locked ? (
+            <button
+              type="button"
+              aria-pressed={selecting}
+              onClick={() => (selecting ? leaveSelect() : setSelectMode(true))}
+              title={selecting ? 'Leave Select mode (Esc)' : 'Select tasks to change several at once'}
+              className={`inline-flex h-9 items-center gap-1.5 rounded-xl border px-3 text-sm font-semibold transition-colors ${TOUCH_TALL} ${
+                selecting ? 'border-brand bg-brand/10 text-brand' : 'border-line bg-surface text-ink hover:border-brand/30 hover:bg-ground'
+              }`}
+            >
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <rect x="3" y="3" width="18" height="18" rx="3" />
+                <path d="m8 12 3 3 5-6" />
+              </svg>
+              Select
+            </button>
+          ) : null}
           {/* 1.23.8: how wide the columns are, the person's own (board view only). */}
           {view === 'board' ? <ColumnWidthButton /> : null}
           {/* 1.24: Guest, Guest company and Category — each only when the board has a choice for it. */}
@@ -736,6 +808,15 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
             filterBar
             onOpen={(id, ids) => openTask(id, ids)}
             empty={<span />}
+            selection={
+              locked
+                ? undefined
+                : {
+                    selected: sel.selected,
+                    onToggle: (t, { shift, order }) => sel.toggle(taskRef(t), { shift, order: order.map(taskRef) }),
+                    onSelectAll: (list, on) => (on ? sel.selectAll(list.map(taskRef)) : sel.deselect(list.map((t) => t.id))),
+                  }
+            }
           />
         ) : (
         <div className={fit ? 'min-h-0 flex-1' : undefined}>
@@ -744,10 +825,12 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
           columns={boardColumns}
           timeZone={timeZone}
           // A read-only project's board: cards only open (no dragging, no "+", no card menu).
-          onMove={locked ? undefined : onMove}
+          // Select mode: dragging waits.
+          onMove={locked || selecting ? undefined : onMove}
           // On All projects a status mixes projects: cards keep their order (due date, then priority).
           // Filtered, some cards are hidden: a column's order can't be set from what is shown.
-          onReorder={isAll || filtering || hidingUndated || locked ? undefined : onReorder}
+          onReorder={isAll || filtering || hidingUndated || locked || selecting ? undefined : onReorder}
+          select={boardSelect}
           onAddTask={locked ? undefined : (columnId) => openAddTask(columnId)}
           cardMenu={locked ? undefined : cardMenu}
           onTaskClick={(key) => {
@@ -761,6 +844,17 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
         </div>
       )}
 
+
+      {projectId && !locked ? (
+        <BulkTools
+          selection={sel}
+          visibleIds={visibleIds}
+          projects={isAll ? shownProjects : projects}
+          assignedOf={(id) => taskById.get(id)?.assignees}
+          merge
+          show={view === 'table' || selecting}
+        />
+      ) : null}
 
       {duplicatingId ? (
         // The copy's notice ("Task MSSP-40 created", with Open) comes from the app shell; every view refreshes.

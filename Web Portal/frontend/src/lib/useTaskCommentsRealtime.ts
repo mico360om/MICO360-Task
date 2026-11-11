@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useAuthStore } from '../stores/auth-store';
 import { openAuthedSocket } from './authedSocket';
+import { taskIdsOfLiveEvent } from './bulk-words';
 
 /** The comment events the server sends to a project's room (comment-routes.ts and the Client portal's comments). */
 export const COMMENT_EVENTS = ['comment:created', 'comment:updated', 'comment:deleted'] as const;
@@ -17,9 +18,12 @@ const taskIdOf = (payload: unknown, key: 'taskId' | 'id'): string | null => {
  * reconnect (events may have been missed). The caller reads the comments again, so what shows always comes
  * through the comments' own permission checks.
  */
-export function useTaskCommentsRealtime(projectId: string | undefined, taskId: string, onChange: () => void): void {
+export function useTaskCommentsRealtime(projectId: string | undefined, taskId: string, onChange: () => void, onBulkChange?: () => void): void {
   const cb = useRef(onChange);
   cb.current = onChange;
+  // A bulk change (one event per project, its tasks in `ids`): the open task itself is read again too.
+  const bulk = useRef(onBulkChange);
+  bulk.current = onBulkChange;
   const signedIn = useAuthStore((s) => Boolean(s.accessToken));
 
   useEffect(() => {
@@ -36,7 +40,9 @@ export function useTaskCommentsRealtime(projectId: string | undefined, taskId: s
       });
     }
     socket.on('task:updated', (payload?: unknown) => {
-      if (taskIdOf(payload, 'id') === taskId) cb.current();
+      if (!taskIdsOfLiveEvent(payload).includes(taskId)) return;
+      cb.current();
+      if ((payload as { bulk?: unknown }).bulk === true) bulk.current?.();
     });
     return close;
   }, [projectId, taskId, signedIn]);

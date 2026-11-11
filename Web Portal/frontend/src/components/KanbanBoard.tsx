@@ -12,7 +12,7 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from '@dnd-kit/core';
-import { KanbanColumn, type KanbanColumnData } from './KanbanColumn';
+import { KanbanColumn, type BoardSelect, type KanbanColumnData } from './KanbanColumn';
 import type { CardMenuItem } from './board/CardMenu';
 import { TaskCard } from './TaskCard';
 import { dropIndex } from '../lib/board';
@@ -36,6 +36,8 @@ export interface KanbanBoardProps {
   cardMenu?: (taskKey: string) => CardMenuItem[] | null;
   /** The board fills the height it is given and each column scrolls by itself (see BOARD_FIT_QUERY in lib/board). */
   fit?: boolean;
+  /** Bulk changes' Select mode: a box on each card and each column's header (the cards don't drag meanwhile). */
+  select?: BoardSelect;
 }
 
 /**
@@ -50,7 +52,7 @@ const KEYBOARD_CODES = { start: ['Space'], cancel: ['Escape'], end: ['Space'] };
  * in a body-level portal so it stays visible over the columns' `overflow-hidden` edges and the
  * board's horizontal scroll. The container persists the change via the API (broadcast over realtime).
  */
-export function KanbanBoard({ columns, onTaskClick, onMove, onReorder, timeZone, onAddTask, cardMenu, fit = false }: KanbanBoardProps) {
+export function KanbanBoard({ columns, onTaskClick, onMove, onReorder, timeZone, onAddTask, cardMenu, fit = false, select }: KanbanBoardProps) {
   const canDrag = Boolean(onMove || onReorder);
   // Mouse drags after a small move; touch needs a short press so a swipe still scrolls the board;
   // keyboard users pick cards up with Space and move them with the arrow keys.
@@ -136,6 +138,7 @@ export function KanbanBoard({ columns, onTaskClick, onMove, onReorder, timeZone,
             dragging={activeKey !== null}
             fit={fit}
             canDrag={canDrag}
+            select={select}
           />
         ))}
       </div>
