@@ -2,6 +2,7 @@ import { ApiError, type ApiClient } from '../lib/api-client';
 import { apiClient } from './client';
 import type { FinalMinutesContent } from './meetings';
 import type { ClientGrant } from './clients';
+import type { AttemptPaper, AttemptResult, CourseDetail, FeedbackItem, FeedbackKind, LessonDone, LessonView, PortalTraining } from './training';
 
 /**
  * 1.23 The Client portal's API (server: backend/src/modules/clients/portal-routes.ts and
@@ -191,6 +192,22 @@ export interface PortalMeetingView {
   can: { respond: boolean; markDone: boolean; downloadMinutes: boolean };
 }
 
+/** Help & training's counts (GET /portal/training/summary): the header's and the home page's badges. */
+export interface PortalTrainingSummary {
+  assigned: number;
+  overdue: number;
+  inProgress: number;
+  tour: { show: boolean };
+}
+
+/** A lesson's saved place (a video's position and how much of it was watched, a guide's step). */
+export interface TrainingProgressInput {
+  videoSeconds?: number;
+  videoDuration?: number;
+  watchedPct?: number;
+  stepIndex?: number;
+}
+
 type Data<T> = { data: T };
 const seg = encodeURIComponent;
 
@@ -238,8 +255,42 @@ export function portalApi(client: ApiClient) {
       client
         .post<{ data?: { accessToken?: string; refreshToken?: string } } | undefined>('/users/me/password', { currentPassword, newPassword })
         .then((r) => r?.data ?? null),
+    // ── Help & training (Training Center; owner answer 1): courses marked for clients only ──
+    /** Their training (assigned, in progress, completed, certificates), the catalogue and the tour. */
+    training: () => client.get<Data<PortalTraining>>('/portal/training').then((r) => r.data),
+    /** The counts for the badges (no sync: light). */
+    trainingSummary: () => client.get<Data<PortalTrainingSummary>>('/portal/training/summary').then((r) => r.data),
+    trainingCourse: (id: string) => client.get<Data<CourseDetail>>(`/portal/training/courses/${seg(id)}`).then((r) => r.data),
+    trainingStart: (id: string) => client.post<Data<CourseDetail>>(`/portal/training/courses/${seg(id)}/start`).then((r) => r.data),
+    trainingLesson: (id: string) => client.get<Data<LessonView>>(`/portal/training/lessons/${seg(id)}`).then((r) => r.data),
+    trainingProgress: (id: string, p: TrainingProgressInput) =>
+      client.put<Data<{ ok: true; progressPct: number }>>(`/portal/training/lessons/${seg(id)}/progress`, p).then((r) => r.data),
+    trainingComplete: (id: string) => client.post<Data<LessonDone>>(`/portal/training/lessons/${seg(id)}/complete`).then((r) => r.data),
+    trainingStartAttempt: (lessonId: string) => client.post<Data<AttemptPaper>>(`/portal/training/lessons/${seg(lessonId)}/attempts`).then((r) => r.data),
+    trainingSaveAnswers: (attemptId: string, answers: Record<string, string[]>) =>
+      client.put<Data<{ savedAt: string }>>(`/portal/training/attempts/${seg(attemptId)}`, { answers }).then((r) => r.data),
+    trainingSubmit: (attemptId: string, answers?: Record<string, string[]>) =>
+      client.post<Data<AttemptResult>>(`/portal/training/attempts/${seg(attemptId)}/submit`, answers ? { answers } : {}).then((r) => r.data),
+    trainingResult: (attemptId: string) => client.get<Data<AttemptResult>>(`/portal/training/attempts/${seg(attemptId)}`).then((r) => r.data),
+    /** A course's picture, document or download (the server checks it is a client course). */
+    trainingFile: (fileId: string) => client.getBlob(`/portal/training/files/${seg(fileId)}`),
+    trainingCertificatePdf: (id: string) => client.getBlob(`/portal/training/certificates/${seg(id)}/pdf`),
+    trainingFeedback: (courseId: string, f: { kind: FeedbackKind; rating?: number; body?: string; lessonId?: string | null }) =>
+      client.post<Data<FeedbackItem>>(`/portal/training/courses/${seg(courseId)}/feedback`, f).then((r) => r.data),
+    trainingTourDone: () => client.put<Data<{ ok: true }>>('/portal/training/tour', { done: true }).then((r) => r.data),
   };
 }
+
+/** Help & training with nothing in it (a Preview as client: the administrators' preview has no training routes). */
+export const EMPTY_PORTAL_TRAINING: PortalTraining = {
+  counts: { assigned: 0, inProgress: 0, notStarted: 0, completed: 0, overdue: 0, review: 0 },
+  assigned: [],
+  inProgress: [],
+  completed: [],
+  certificates: [],
+  catalogue: [],
+  tour: { show: false },
+};
 
 export type PortalApi = ReturnType<typeof portalApi>;
 
@@ -292,6 +343,22 @@ export function previewPortalApi(client: ApiClient, spec: ClientPreviewSpec): Po
     readNotice: refuse,
     readAllNotices: refuse,
     setSettings: refuse,
+    // Help & training: the preview shows it empty (a client's own courses aren't previewed), and opens nothing.
+    training: () => Promise.resolve(EMPTY_PORTAL_TRAINING),
+    trainingSummary: () => Promise.resolve({ assigned: 0, overdue: 0, inProgress: 0, tour: { show: false } }),
+    trainingCourse: refuse,
+    trainingStart: refuse,
+    trainingLesson: refuse,
+    trainingProgress: refuse,
+    trainingComplete: refuse,
+    trainingStartAttempt: refuse,
+    trainingSaveAnswers: refuse,
+    trainingSubmit: refuse,
+    trainingResult: refuse,
+    trainingFile: refuse,
+    trainingCertificatePdf: refuse,
+    trainingFeedback: refuse,
+    trainingTourDone: refuse,
   };
 }
 

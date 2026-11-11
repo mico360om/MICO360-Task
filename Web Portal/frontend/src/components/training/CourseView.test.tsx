@@ -1,0 +1,145 @@
+import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { ApiError } from '../../lib/api-client';
+import { CourseView } from './CourseView';
+import { detail, fakeLearner, mine, renderOnSide } from './training-fixtures';
+
+const page = (api: ReturnType<typeof fakeLearner>, path = '/training/courses/c1', portal = false) =>
+  renderOnSide(<CourseView courseId="c1" renderHeader={(t) => <h1>{t}</h1>} />, { api, path, route: portal ? '/portal/training/courses/:id' : '/training/courses/:id', portal });
+
+let saved: { name: string; blob: Blob }[] = [];
+beforeEach(() => {
+  saved = [];
+  vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:x');
+  vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+  vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+    saved.push({ name: this.download, blob: new Blob() });
+  });
+});
+
+describe('a course’s page', () => {
+  it('shows what it is, where you are, and Resume opens the lesson to go on with', async () => {
+    const api = fakeLearner();
+    page(api);
+    expect(await screen.findByRole('heading', { level: 1, name: 'Tasks basics' })).toBeInTheDocument();
+    expect(screen.getByText('Create, assign and finish tasks.')).toBeInTheDocument();
+    expect(screen.getByText('Beginner')).toBeInTheDocument();
+    expect(screen.getByText('Starter')).toBeInTheDocument();
+    expect(screen.getByText('Mandatory')).toBeInTheDocument();
+    expect(screen.getByText('Due 14 Nov')).toBeInTheDocument();
+    expect(screen.getByRole('progressbar', { name: 'Your progress: 40%' })).toHaveAttribute('aria-valuenow', '40');
+    await userEvent.click(screen.getByRole('button', { name: 'Resume' }));
+    expect(screen.getByTestId('where')).toHaveTextContent('/training/courses/c1/lessons/l2');
+    expect(api.start).not.toHaveBeenCalled();
+  });
+
+  it('the outline: kind, minutes, done ticks, locked lessons (not links) and “Review” marks', async () => {
+    page(fakeLearner({ course: vi.fn(async () => detail({ lessons: [...detail().lessons.slice(0, 3), { ...detail().lessons[3]!, review: true, locked: false }] })) }));
+    const lessons = (await screen.findByRole('heading', { name: 'Lessons' })).parentElement!;
+    expect(within(lessons).getByRole('link', { name: /Welcome/ })).toHaveAttribute('href', '/training/courses/c1/lessons/l1');
+    expect(within(within(lessons).getByRole('link', { name: /Welcome/ })).getByText('Done')).toBeInTheDocument();
+    expect(within(lessons).getByText('8 min', { exact: false })).toBeInTheDocument();
+    // Locked: no link, said so.
+    expect(within(lessons).queryByRole('link', { name: /The cheat sheet/ })).toBeNull();
+    expect(within(lessons).getByText('Locked')).toBeInTheDocument();
+    expect(within(lessons).getByText('Finish the lessons before it first.')).toBeInTheDocument();
+    expect(within(within(lessons).getByRole('link', { name: /Check yourself/ })).getByText('Review')).toBeInTheDocument();
+  });
+
+  it('not started: Start course starts it, then opens its first lesson to take', async () => {
+    const api = fakeLearner({ course: vi.fn(async () => detail({ mine: mine({ enrolled: false, status: 'NOT_STARTED', progressPct: 0, assigned: false, mandatory: false, dueDay: null }), resumeLessonId: 'l1' })) });
+    api.start.mockResolvedValue(detail({ resumeLessonId: 'l1' }));
+    page(api);
+    await userEvent.click(await screen.findByRole('button', { name: 'Start course' }));
+    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('/training/courses/c1/lessons/l1'));
+    expect(api.start).toHaveBeenCalledWith('c1');
+  });
+
+  it('a manager previewing a course that isn’t theirs to take hears why, plainly', async () => {
+    const api = fakeLearner({ course: vi.fn(async () => detail({ mine: mine({ enrolled: false, status: 'NOT_STARTED', progressPct: 0 }) })) });
+    api.start.mockRejectedValue(new ApiError(409, 'NOT_FOR_YOU', 'You can preview this course, but it isn’t one of yours to take.'));
+    page(api);
+    await userEvent.click(await screen.findByRole('button', { name: 'Start course' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('You can preview this course, but it isn’t one of yours to take.');
+  });
+
+  it('completed: Review course (from the first lesson), the certificate with its code, PDF and the online check', async () => {
+    const cert = { id: 'cert1', code: 'TC-ABCD-EFGH-JKLM', courseId: 'c1', courseTitle: 'Tasks basics', issuedAt: '2026-11-05T08:00:00.000Z', expiresAt: '2027-11-05T08:00:00.000Z', status: 'VALID' as const };
+    const api = fakeLearner({ course: vi.fn(async () => detail({ mine: mine({ status: 'COMPLETED', progressPct: 100, completedAt: '2026-11-05T08:00:00.000Z', certificate: cert }) })) });
+    page(api);
+    const box = (await screen.findByRole('heading', { name: 'Certificate' })).closest('section')!;
+    expect(within(box).getByText('TC-ABCD-EFGH-JKLM')).toBeInTheDocument();
+    expect(within(box).getByText('Valid')).toBeInTheDocument();
+    expect(within(box).getByText('5 Nov 2027')).toBeInTheDocument();
+    expect(within(box).getByRole('link', { name: 'Check it online' })).toHaveAttribute('href', '/verify/TC-ABCD-EFGH-JKLM');
+    await userEvent.click(within(box).getByRole('button', { name: /Download certificate/ }));
+    await waitFor(() => expect(saved.map((s) => s.name)).toEqual(['certificate-TC-ABCD-EFGH-JKLM.pdf']));
+    expect(api.certificatePdf).toHaveBeenCalledWith('cert1');
+    await userEvent.click(screen.getByRole('button', { name: 'Review course' }));
+    expect(screen.getByTestId('where')).toHaveTextContent('/training/courses/c1/lessons/l1');
+  });
+
+  it('review after a major change, and a retake after expiry, say so', async () => {
+    const review = page(fakeLearner({ course: vi.fn(async () => detail({ mine: mine({ status: 'REVIEW', progressPct: 80 }) })) }));
+    expect(await screen.findByRole('button', { name: 'Review the changes' })).toBeInTheDocument();
+    expect(screen.getByText(/your certificate stays valid meanwhile/)).toBeInTheDocument();
+    review.unmount();
+    page(fakeLearner({ course: vi.fn(async () => detail({ mine: mine({ status: 'RETAKE', progressPct: 0 }) })) }));
+    expect(await screen.findByRole('button', { name: 'Retake course' })).toBeInTheDocument();
+    expect(screen.getByText(/Your certificate has expired/)).toBeInTheDocument();
+  });
+
+  it('downloads a resource under its own name', async () => {
+    const api = fakeLearner();
+    page(api);
+    await userEvent.click(await screen.findByRole('button', { name: 'Download Tasks guide.pdf' }));
+    await waitFor(() => expect(saved.map((s) => s.name)).toEqual(['Tasks guide.pdf']));
+    expect(api.file).toHaveBeenCalledWith('f1');
+  });
+
+  it('rating: five stars (radios), saved as a rating', async () => {
+    const api = fakeLearner();
+    page(api);
+    const group = (await screen.findByRole('heading', { name: 'Rate this course' })).closest('section')!;
+    expect(within(group).getAllByRole('radio')).toHaveLength(5);
+    await userEvent.click(within(group).getByRole('radio', { name: '4 stars' }));
+    await waitFor(() => expect(api.feedback).toHaveBeenCalledWith('c1', { kind: 'RATING', rating: 4 }));
+    expect(await within(group).findByText('Thanks — you gave it 4 stars.')).toBeInTheDocument();
+    expect(within(group).getByRole('radio', { name: '4 stars' })).toBeChecked();
+  });
+
+  it('questions: answered ones and your own waiting one; Ask a question sends it', async () => {
+    const api = fakeLearner();
+    page(api);
+    expect(await screen.findByText('Can I assign a task to two people?')).toBeInTheDocument();
+    expect(screen.getByText('Yes — add both as assignees.')).toBeInTheDocument();
+    expect(screen.getByText('Waiting for an answer')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Send question' }));
+    expect(screen.getByText('Write your question first.')).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText('Ask a question'), 'How do I copy a task?');
+    await userEvent.click(screen.getByRole('button', { name: 'Send question' }));
+    await waitFor(() => expect(api.feedback).toHaveBeenCalledWith('c1', { kind: 'QUESTION', body: 'How do I copy a task?' }));
+    expect(await screen.findByText(/The training team will answer here/)).toBeInTheDocument();
+  });
+
+  it('from a module’s courses (?module=) the way back is those courses; otherwise My training', async () => {
+    const one = page(fakeLearner(), '/training/courses/c1?module=tasks');
+    expect(await screen.findByRole('link', { name: 'Back to Tasks courses' })).toHaveAttribute('href', '/training?tab=catalogue&module=tasks');
+    one.unmount();
+    page(fakeLearner());
+    expect(await screen.findByRole('link', { name: 'Back to My training' })).toHaveAttribute('href', '/training');
+  });
+
+  it('a course that isn’t available says so in plain words', async () => {
+    page(fakeLearner({ course: vi.fn(async () => Promise.reject(new ApiError(404, 'NOT_FOUND', 'Course not found.'))) }));
+    expect(await screen.findByText('This course isn’t available to you.')).toBeInTheDocument();
+  });
+
+  it('in the Client portal: the same page through the portal’s side (its own addresses)', async () => {
+    const api = fakeLearner();
+    page(api, '/portal/training/courses/c1', true);
+    expect(await screen.findByRole('link', { name: 'Back to Help & training' })).toHaveAttribute('href', '/portal/training');
+    expect(await screen.findByRole('link', { name: /Welcome/ })).toHaveAttribute('href', '/portal/training/courses/c1/lessons/l1');
+  });
+});
