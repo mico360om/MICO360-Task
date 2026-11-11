@@ -44,11 +44,12 @@ import { ApiError } from '../lib/api-client';
 import { ClientSharePanel } from '../components/client-share/ClientSharePanel';
 import { configApi } from '../api/config';
 import { ProjectInspectionsTab } from '../components/inspections/ProjectInspectionsTab';
+import { ProjectKpisTab } from '../components/kpis/ProjectKpisTab';
 import { TOUCH_SQUARE, TOUCH_TALL } from '../lib/touch';
 import { isProjectArchived, projectReadOnly } from '../lib/project-archive';
 import { statusColour } from '../lib/colour-classes';
 
-type Tab = 'overview' | 'board' | 'tasks' | 'meetings' | 'inspections' | 'team';
+type Tab = 'overview' | 'board' | 'tasks' | 'meetings' | 'inspections' | 'kpis' | 'team';
 const TABS: Array<{ v: Tab; label: string }> = [
   { v: 'overview', label: 'Overview' },
   // 1.22.3 (owner): the project's Kanban board, inside its page (?tab=board).
@@ -56,6 +57,8 @@ const TABS: Array<{ v: Tab; label: string }> = [
   { v: 'tasks', label: 'Tasks' },
   { v: 'meetings', label: 'Meetings' },
   { v: 'inspections', label: 'Inspections' },
+  // Project KPIs: its KPIs with targets, lights and trends, and its own monthly KPIs (?tab=kpis).
+  { v: 'kpis', label: 'KPIs' },
   { v: 'team', label: 'Team' },
 ];
 
@@ -126,6 +129,8 @@ export function ProjectDetailPage() {
     // 1.23.5: the Overview's health, Next actions and Recent activity follow any change in the project.
     if (any('tasks', 'meetings', 'inspections', 'all')) {
       for (const root of ['project-health', 'project-next-actions', 'project-activity']) void qc.invalidateQueries({ queryKey: [root, id] });
+      // Project KPIs: this month's figures are live.
+      void qc.invalidateQueries({ queryKey: ['kpis', 'project', id] });
     }
     if (any('meetings', 'all')) void qc.invalidateQueries({ queryKey: ['meetings', 'project', id] });
     if (any('inspections', 'all')) void qc.invalidateQueries({ queryKey: ['project-inspections', id] });
@@ -491,6 +496,8 @@ export function ProjectDetailPage() {
           />
         ) : null}
 
+        {tab === 'kpis' ? <ProjectKpisTab projectId={id} onOpenTask={setOpenTaskId} /> : null}
+
         {tab === 'inspections' ? <ProjectInspectionsTab projectId={id} tasks={tasks.map((t) => ({ id: t.id, key: t.key, title: t.title }))} onOpenTask={setOpenTaskId} /> : null}
 
         {tab === 'team' ? (
@@ -516,6 +523,8 @@ export function ProjectDetailPage() {
               onAdd={(userId) => addM.mutate(userId)}
               onRemove={(userId) => removeM.mutate(userId)}
               onSetRole={(userId, role) => roleM.mutate({ userId, role })}
+              // Project KPIs: whoever runs the project opens a member's performance (counting this project's work and their other ones).
+              performanceHref={canManage ? (userId) => (userId === myId ? '/performance' : `/performance/${encodeURIComponent(userId)}`) : undefined}
             />
           </section>
           {/* 1.23: who may open the project in the Client portal (administrators change it on the Clients page). */}

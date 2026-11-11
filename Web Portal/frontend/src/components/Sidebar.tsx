@@ -175,6 +175,18 @@ const I = {
   ),
 };
 
+/**
+ * Project KPIs and User KPIs: a gauge — My performance. Kept out of `I`, the icon set the Android app copies
+ * (its menu has no such page).
+ */
+const PERFORMANCE_ICON = (
+  <>
+    <path d="M4 17a8 8 0 1 1 16 0" />
+    <path d="M12 17l4-5" />
+    <path d="M7 17h.01M17 17h.01M12 9.5V9" />
+  </>
+);
+
 // Grouped so the rail reads as a few short sections rather than one long list.
 const WORKSPACE: NavItem[] = [
   { label: 'Dashboard', to: '/dashboard', icon: I.dashboard },
@@ -187,6 +199,7 @@ const WORKSPACE: NavItem[] = [
   { label: 'Meetings', to: '/meetings', icon: I.meetings },
   { label: 'My Action Items', to: '/my-action-items', icon: I.actionItems },
   { label: 'Templates', to: '/templates', icon: I.templates },
+  { label: 'My performance', to: '/performance', icon: PERFORMANCE_ICON },
   { label: 'Management', to: '/management', icon: I.management, leadsOnly: true },
   { label: 'Reports', to: '/reports', icon: I.reports, adminOnly: true },
 ];

@@ -46,6 +46,8 @@ const TimelinePage = lazyPage(() => import('./pages/TimelinePage'), 'TimelinePag
 const WorkloadPage = lazyPage(() => import('./pages/WorkloadPage'), 'WorkloadPage');
 // Administrators and the people who run a project (it sends anyone else to the dashboard).
 const ManagementRoute = lazyPage(() => import('./pages/ManagementPage'), 'ManagementRoute');
+const PerformancePage = lazyPage(() => import('./pages/PerformancePage'), 'PerformancePage');
+const KpiTargetsPage = lazyPage(() => import('./pages/KpiTargetsPage'), 'KpiTargetsPage');
 const MeetingsPage = lazyPage(() => import('./pages/MeetingsPage'), 'MeetingsPage');
 const MeetingDetailPage = lazyPage(() => import('./pages/MeetingDetailPage'), 'MeetingDetailPage');
 const MeetingSeriesPage = lazyPage(() => import('./pages/MeetingSeriesPage'), 'MeetingSeriesPage');
@@ -179,6 +181,9 @@ export function App() {
             <Route path="/timeline" element={<TimelinePage />} />
             <Route path="/workload" element={<WorkloadPage />} />
             <Route path="/management" element={<ManagementRoute />} />
+            {/* Project KPIs and User KPIs: my own, or a person's (their projects' managers and administrators; the server decides). */}
+            <Route path="/performance" element={<PerformancePage />} />
+            <Route path="/performance/:userId" element={<PerformancePage />} />
             <Route path="/meetings" element={<MeetingsPage />} />
             <Route path="/meetings/series/:id" element={<MeetingSeriesPage />} />
             <Route path="/meetings/:id" element={<MeetingDetailPage />} />
@@ -199,6 +204,7 @@ export function App() {
               <Route path="/reports" element={<ReportsPage />} />
               <Route path="/admin/settings" element={<SystemSettingsPage />} />
               <Route path="/admin/settings/notifications" element={<NotificationSchedulingPage />} />
+              <Route path="/admin/settings/kpis" element={<KpiTargetsPage />} />
               <Route path="/admin/ai" element={<AiSettingsPage />} />
               <Route path="/admin/audit" element={<AuditPage />} />
               <Route path="/admin/error-log" element={<ErrorLogPage />} />

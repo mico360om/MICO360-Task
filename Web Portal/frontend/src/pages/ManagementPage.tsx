@@ -15,6 +15,7 @@ import { PeopleSection } from '../components/management/PeopleSection';
 import { TrendsSection } from '../components/management/TrendsSection';
 import { ApprovalsSection } from '../components/management/ApprovalsSection';
 import { ItemsSheet } from '../components/management/ItemsSheet';
+import { ManagementKpiTable } from '../components/kpis/ManagementKpiTable';
 import { plural } from '../components/management/parts';
 import { downloadBlob, fileNameOf } from '../lib/download';
 import { dayMonth, filtersFromParams, withFilters } from '../lib/management';
@@ -188,6 +189,8 @@ export function ManagementPage() {
           </div>
 
           <HealthSection rows={data.projects} today={data.today} timeZone={data.timeZone} onOpen={openList} onOpenTask={openTask} chosenHidden={filters.projectIds.length > 0} noneAtAll={data.options.projects.length === 0} />
+          {/* Project KPIs: each project's KPIs with lights, for the period (this month by default). */}
+          <ManagementKpiTable filters={filters} today={data.today} />
           {data.approvals ? <ApprovalsSection approvals={data.approvals} onOpen={openList} /> : null}
           <div className="grid gap-4 xl:grid-cols-2">
             <InspectionsSection data={data.inspections} onOpen={openList} />

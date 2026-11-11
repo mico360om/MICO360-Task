@@ -16,6 +16,8 @@ export function notificationTarget(n: Pick<ApiNotification, 'entityType' | 'enti
   if (type === 'mico-ai-chat') return { kind: 'path', to: n.entityId ? `/mico-ai?chat=${encodeURIComponent(n.entityId)}` : '/mico-ai' };
   // "… added you to the project …": its page.
   if (type === 'project' && n.entityId) return { kind: 'path', to: `/projects/${encodeURIComponent(n.entityId)}` };
+  // Project KPIs: "Time to enter October’s KPI values" opens the project's KPIs tab.
+  if (type === 'project-kpis' && n.entityId) return { kind: 'path', to: `/projects/${encodeURIComponent(n.entityId)}?tab=kpis` };
   // Notification & Scheduling: several reminders of one kind in one notice ("5 tasks are overdue") open
   // the list they are about — My Tasks, its To approve list, or Management (projects you run).
   if (type === 'my-tasks') return { kind: 'path', to: '/my-tasks' };

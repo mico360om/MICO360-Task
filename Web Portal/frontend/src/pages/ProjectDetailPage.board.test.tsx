@@ -105,10 +105,10 @@ function renderPage(path = '/projects/p1?tab=board', before: string[] = []) {
 const where = () => screen.getByTestId('where').textContent;
 
 describe('ProjectDetailPage: the Board tab (1.22.3)', () => {
-  it('comes after Overview: Overview · Board · Tasks · Meetings · Inspections · Team', async () => {
+  it('comes after Overview: Overview · Board · Tasks · Meetings · Inspections · KPIs · Team', async () => {
     renderPage('/projects/p1');
     const tabs = within(await screen.findByRole('tablist', { name: 'Project dashboard' })).getAllByRole('tab');
-    expect(tabs.map((t) => t.textContent?.replace(/\d+$/, ''))).toEqual(['Overview', 'Board', 'Tasks', 'Meetings', 'Inspections', 'Team']);
+    expect(tabs.map((t) => t.textContent?.replace(/\d+$/, ''))).toEqual(['Overview', 'Board', 'Tasks', 'Meetings', 'Inspections', 'KPIs', 'Team']);
   });
 
   it('?tab=board shows this project’s Kanban board inside the page: its columns and cards, under the page’s own header', async () => {

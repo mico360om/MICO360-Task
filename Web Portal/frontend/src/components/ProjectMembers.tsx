@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { FieldLabel } from './ui/Field';
 import { Avatar } from './ui/Avatar';
 import { TOUCH_SQUARE, TOUCH_TALL } from '../lib/touch';
@@ -21,10 +22,12 @@ export interface ProjectMembersProps {
   onRemove: (userId: string) => void;
   /** Promote/demote a member (per-project manager grant, T2.7). */
   onSetRole?: (userId: string, role: ProjectMemberRole) => void;
+  /** Project KPIs: where a member's performance opens (for whoever runs the project); none: no link. */
+  performanceHref?: (userId: string) => string;
 }
 
 /** Per-project team management with manager grants (T9.3 / T2.7). */
-export function ProjectMembers({ members, addableUsers, canManage, onAdd, onRemove, onSetRole }: ProjectMembersProps) {
+export function ProjectMembers({ members, addableUsers, canManage, onAdd, onRemove, onSetRole, performanceHref }: ProjectMembersProps) {
   const [toAdd, setToAdd] = useState('');
   // Removing takes the person off the project at once: the first press asks, the second removes.
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
@@ -50,20 +53,25 @@ export function ProjectMembers({ members, addableUsers, canManage, onAdd, onRemo
                   <span className="text-xs text-ink-2">Not in any of this project’s companies any more.</span>
                 </span>
               ) : null}
+              {performanceHref ? (
+                <Link to={performanceHref(m.id)} aria-label={`${m.name}: performance`} className={`ml-auto flex-none rounded px-1.5 text-xs font-medium text-ink-2 hover:bg-ground hover:text-brand ${TOUCH_TALL}`}>
+                  Performance
+                </Link>
+              ) : null}
               {canManage && onSetRole ? (
                 m.role === 'MANAGER' ? (
-                  <button onClick={() => onSetRole(m.id, 'MEMBER')} aria-label={`Make ${m.name} a member`} className={`ml-auto flex-none rounded px-1.5 text-xs font-medium text-ink-2 hover:bg-ground hover:text-brand ${TOUCH_TALL}`}>
+                  <button onClick={() => onSetRole(m.id, 'MEMBER')} aria-label={`Make ${m.name} a member`} className={`${performanceHref ? '' : 'ml-auto '}flex-none rounded px-1.5 text-xs font-medium text-ink-2 hover:bg-ground hover:text-brand ${TOUCH_TALL}`}>
                     Make member
                   </button>
                 ) : (
-                  <button onClick={() => onSetRole(m.id, 'MANAGER')} aria-label={`Make ${m.name} a manager`} className={`ml-auto flex-none rounded px-1.5 text-xs font-medium text-ink-2 hover:bg-ground hover:text-brand ${TOUCH_TALL}`}>
+                  <button onClick={() => onSetRole(m.id, 'MANAGER')} aria-label={`Make ${m.name} a manager`} className={`${performanceHref ? '' : 'ml-auto '}flex-none rounded px-1.5 text-xs font-medium text-ink-2 hover:bg-ground hover:text-brand ${TOUCH_TALL}`}>
                     Make manager
                   </button>
                 )
               ) : null}
               {canManage ? (
                 confirmRemove === m.id ? (
-                  <span className={`${canManage && onSetRole ? '' : 'ml-auto'} flex flex-none items-center gap-1.5 text-xs`}>
+                  <span className={`${(canManage && onSetRole) || performanceHref ? '' : 'ml-auto'} flex flex-none items-center gap-1.5 text-xs`}>
                     <span className="text-ink-2">Remove?</span>
                     <button onClick={() => { setConfirmRemove(null); onRemove(m.id); }} className={`rounded px-1.5 py-0.5 font-semibold text-danger hover:bg-danger-soft ${TOUCH_TALL}`}>Yes, remove</button>
                     <button onClick={() => setConfirmRemove(null)} className={`rounded px-1.5 py-0.5 text-ink-2 hover:bg-ground ${TOUCH_TALL}`}>Keep</button>
@@ -72,7 +80,7 @@ export function ProjectMembers({ members, addableUsers, canManage, onAdd, onRemo
                   <button
                     onClick={() => setConfirmRemove(m.id)}
                     aria-label={`Remove ${m.name}`}
-                    className={`${canManage && onSetRole ? '' : 'ml-auto'} grid h-7 w-7 flex-none place-items-center rounded text-base text-ink-2 hover:bg-ground hover:text-danger ${TOUCH_SQUARE}`}
+                    className={`${(canManage && onSetRole) || performanceHref ? '' : 'ml-auto'} grid h-7 w-7 flex-none place-items-center rounded text-base text-ink-2 hover:bg-ground hover:text-danger ${TOUCH_SQUARE}`}
                   >
                     ×
                   </button>

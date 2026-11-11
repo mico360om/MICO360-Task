@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { useState } from 'react';
 import { Toggle } from '../components/ui/Toggle';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -135,6 +136,20 @@ export function SystemSettingsPage() {
       <div className="grid gap-4 lg:grid-cols-2">
         {/* Notification & Scheduling: working time, holidays, reminders and notification rules, per company. */}
         <NotificationCentreCard />
+        {/* Project KPIs and User KPIs: each company's default targets (projects can set their own). */}
+        <section className="card card-pad lg:col-span-2" aria-labelledby="kpi-targets-heading">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <h2 id="kpi-targets-heading" className="eyebrow mb-1">
+                KPI targets
+              </h2>
+              <p className="text-sm text-ink-2">On-time completion, days late, overdue, workload and the other KPIs’ default targets — for each company. A project’s manager can set the project’s own.</p>
+            </div>
+            <Link to="/admin/settings/kpis" className="inline-flex items-center rounded-lg border border-line bg-surface px-4 py-2 text-sm font-semibold text-ink transition-colors hover:bg-ground [@media(pointer:coarse)]:!min-h-11">
+              Open KPI targets
+            </Link>
+          </div>
+        </section>
 
         {/* Carry-forward */}
         <section className="card card-pad">

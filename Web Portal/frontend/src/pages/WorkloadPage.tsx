@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState, type MouseEvent } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
+import { useAuthStore } from '../stores/auth-store';
 import { apiClient } from '../api/client';
 import { planningApi, workloadKey, type WorkloadCell, type WorkloadPerson, type WorkloadTask } from '../api/planning';
 import { assigneesApi } from '../api/assignees';
@@ -82,6 +83,7 @@ function Legend() {
  * manager sees the teams of the projects they manage; anyone else sees their own row.
  */
 export function WorkloadPage() {
+  const myId = useAuthStore((st) => st.user?.id);
   const qc = useQueryClient();
   const [params, setParams] = useSearchParams();
   const { weekStart } = useDateSettings();
@@ -296,7 +298,8 @@ export function WorkloadPage() {
                           <span className="flex items-center gap-2.5">
                             <span className="hidden flex-none sm:block"><Avatar name={p.name} src={p.avatarUrl} size="md" /></span>
                             <span className="min-w-0 max-sm:w-[7.5rem]">
-                              <span data-person-name title={p.name} className="block truncate font-bold text-ink">{p.name}</span>
+                              {/* Project KPIs: the person's performance (yours, or as their manager or an administrator — the rows shown are those you may see). */}
+                              <Link data-person-name to={p.id === myId ? '/performance' : `/performance/${encodeURIComponent(p.id)}`} title={`${p.name}: performance`} className="block truncate font-bold text-ink hover:text-brand hover:underline">{p.name}</Link>
                               <span aria-hidden="true" className="mt-1 block h-1.5 w-full overflow-hidden rounded-full bg-ground sm:w-36">
                                 <span className={`block h-full rounded-full ${BAR[bar.tone]}`} style={{ width: `${bar.pct}%` }} />
                               </span>

@@ -22,6 +22,8 @@ const LOOKS: Record<string, KindLook> = {
   TASK_ESCALATION: { id: 'overdue', name: 'Escalation', tone: OVERDUE_CLASS.chip, paths: <><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" /><path d="M12 9v4M12 17h.01" /></> },
   // Notification & Scheduling: escalation step 2 (to admins), an approval waiting too long, a task with no activity.
   TASK_ESCALATION_ADMIN: { id: 'overdue', name: 'Escalation to admins', tone: OVERDUE_CLASS.chip, paths: <><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" /><path d="M12 9v4M12 17h.01" /></> },
+  // Project KPIs: the monthly reminder to enter a project's own KPI values.
+  KPI_VALUES_DUE: { id: 'kpi-values', name: 'KPI values to enter', tone: 'text-brand bg-brand/10', paths: <><path d="M4 17a8 8 0 1 1 16 0" /><path d="M12 17l4-5" /></> },
   TASK_INACTIVE: { id: 'inactive', name: 'No activity', tone: DUE_SOON_CLASS.chip, paths: <><circle cx="12" cy="12" r="9" /><path d="M9 9h.01M15 9h.01M8.5 15h7" /></> },
   TASK_COMMENT: { id: 'comment', name: 'Comment', tone: 'text-info bg-info-soft', paths: <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /> },
   TASK_APPROVAL: { id: 'approval', name: 'Approval', tone: 'text-success bg-success-soft', paths: <><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><path d="m9 12 2 2 4-4" /></> },

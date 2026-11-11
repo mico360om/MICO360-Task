@@ -43,6 +43,8 @@ const NOT_ON_THE_SCALE = new Set([
   'components/MenuDrawer.tsx',
   'components/chat/parts.tsx',
   'components/management/ItemsSheet.tsx',
+  // Project KPIs: the list behind a KPI's number, a side sheet like the Management page's.
+  'components/kpis/KpiItemsSheet.tsx',
   'components/task-drawer/attachments.tsx',
   'components/TaskDrawer.tsx',
   'components/TaskDrawerContainer.tsx',
