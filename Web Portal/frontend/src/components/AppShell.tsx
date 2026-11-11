@@ -34,6 +34,8 @@ import { ArchivedCompanyState } from './company/ArchivedCompanyState';
 import { TaskNoticeToast } from './TaskNoticeToast';
 import { useDensitySync } from '../lib/density';
 import { useAppearanceSync } from '../lib/appearance';
+import { useTrainingAccess } from './training/training-queries';
+import { StaffTour } from './training/Tour';
 
 /** The pages that still open when all of someone's companies are archived. */
 const OPEN_WHEN_ARCHIVED = ['/settings', '/profile', '/about'];
@@ -44,7 +46,7 @@ const opensWhenArchived = (path: string) => OPEN_WHEN_ARCHIVED.some((p) => path 
  * and the Close button dismiss it, and focus then returns to the menu button. (It used to be a
  * plain panel: Escape did nothing and Tab went to the page hidden behind it.)
  */
-function MobileMenu({ isAdmin, canLead, chatUnread, onClose }: { isAdmin: boolean; canLead: boolean; chatUnread: number; onClose: () => void }) {
+function MobileMenu({ isAdmin, canLead, chatUnread, trainingOverdue, onClose }: { isAdmin: boolean; canLead: boolean; chatUnread: number; trainingOverdue: number; onClose: () => void }) {
   // 1.23.8: it slides in and out (components/MenuDrawer), as a tablet's unfolded menu does.
   return (
     <MenuDrawer className="md:hidden" onClose={onClose}>
@@ -62,7 +64,7 @@ function MobileMenu({ isAdmin, canLead, chatUnread, onClose }: { isAdmin: boolea
             </svg>
           </button>
           <nav aria-label="Main" className="flex min-h-0 flex-1 flex-col">
-            <SidebarBody isAdmin={isAdmin} canLead={canLead} chatUnread={chatUnread} onNavigate={close} />
+            <SidebarBody isAdmin={isAdmin} canLead={canLead} chatUnread={chatUnread} trainingOverdue={trainingOverdue} onNavigate={close} />
           </nav>
           {/* Companies: on the smallest phones the top bar has no room for the picker — it is here. */}
           <CompanyPicker place="menu" />
@@ -92,6 +94,9 @@ export function AppShell() {
   // The Management page's link: administrators and the people who run a project (until the server
   // answers, what it said last time — the link no longer pops in and shifts the menu).
   const canLead = useManagementLink();
+  // Training Center: overdue courses, a red count on the menu's Training (the server's number; none until it answers).
+  const overdue = useTrainingAccess().data?.overdue;
+  const trainingOverdue = typeof overdue === 'number' ? overdue : 0;
   // Companies: someone whose companies are all archived sees one card instead of the page ("archived
   // means no access"); Settings, Profile and About still open. Administrators never.
   const allArchived = useMyCompanies().data?.allArchived === true;
@@ -155,10 +160,10 @@ export function AppShell() {
         Skip to content
       </a>
 
-      <Sidebar isAdmin={isAdmin()} canLead={canLead} chatUnread={chatUnread} />
+      <Sidebar isAdmin={isAdmin()} canLead={canLead} chatUnread={chatUnread} trainingOverdue={trainingOverdue} />
 
       {/* Mobile drawer */}
-      {drawerOpen ? <MobileMenu isAdmin={isAdmin()} canLead={canLead} chatUnread={chatUnread} onClose={() => setDrawerOpen(false)} /> : null}
+      {drawerOpen ? <MobileMenu isAdmin={isAdmin()} canLead={canLead} chatUnread={chatUnread} trainingOverdue={trainingOverdue} onClose={() => setDrawerOpen(false)} /> : null}
 
       <div className="flex min-w-0 flex-1 flex-col">
         {/* 56px tall, like the sidebar's logo row beside it: their bottom lines meet as one. Its
@@ -172,6 +177,7 @@ export function AppShell() {
                 onClick={() => setDrawerOpen(true)}
                 className="relative grid h-9 w-9 flex-none place-items-center rounded-lg border border-line text-ink transition-colors hover:bg-ground md:hidden [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
                 aria-label={menuButtonLabel(chatUnread)}
+                data-tour="menu"
               >
                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
                   <path d="M4 7h16M4 12h16M4 17h16" />
@@ -190,9 +196,13 @@ export function AppShell() {
             <div className="flex flex-none items-center gap-1.5 sm:gap-2">
               <SyncStatus />
               {/* The header's N is the fallback: a page with its own "New …" takes the key. */}
-              <NewTaskButton size="sm" compact shortcutPriority={0} className="[@media(pointer:coarse)]:!min-h-11 [@media(pointer:coarse)]:!min-w-11" />
+              <span data-tour="new-task" className="inline-flex">
+                <NewTaskButton size="sm" compact shortcutPriority={0} className="[@media(pointer:coarse)]:!min-h-11 [@media(pointer:coarse)]:!min-w-11" />
+              </span>
               <span className="hidden h-6 w-px bg-line sm:block" aria-hidden="true" />
-              <NotificationsBell />
+              <span data-tour="notifications" className="inline-flex">
+                <NotificationsBell />
+              </span>
               <ProfileMenu />
             </div>
           </div>
@@ -233,6 +243,8 @@ export function AppShell() {
       <MeetingReminderPopup />
       {/* 1.22.3: "Task MICO-143 created · Open" after the task form (or an offline task's sync). */}
       <TaskNoticeToast />
+      {/* Training Center: the first-time tour (by itself once for a new account; again from My training). */}
+      <StaffTour />
     </div>
     </CurrentProjectProvider>
     </ShortcutProvider>

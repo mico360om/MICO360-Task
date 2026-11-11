@@ -16,6 +16,9 @@ export const portalKeys = {
   whereIs: (m: string) => ['portal', 'where', m] as const,
   notices: ['portal', 'notices'] as const,
   settings: ['portal', 'settings'] as const,
+  // Help & training (the course and lesson pages keep theirs under ['portal', 'training', …] too).
+  training: ['portal', 'training', 'home'] as const,
+  trainingSummary: ['portal', 'training', 'summary'] as const,
 };
 
 export function usePortalMe() {
@@ -104,4 +107,26 @@ export function taskChanged(qc: QueryClient, p: string, t: string, view: PortalT
 export function meetingChanged(qc: QueryClient, p: string, view: PortalMeetingView): void {
   qc.setQueryData(portalKeys.meeting(p, view.meeting.id), view);
   void qc.invalidateQueries({ queryKey: portalKeys.meetings(p) });
+}
+
+/** Help & training: their training, the catalogue and the tour (the server brings their assignments up to date first). */
+export function usePortalTraining() {
+  const api = usePortalApi();
+  return useQuery({ queryKey: portalKeys.training, queryFn: () => api.training(), staleTime: 60_000 });
+}
+
+/** How often the header's Help & training count is read again while the portal is open. */
+export const TRAINING_SUMMARY_EVERY_MS = 5 * 60_000;
+
+/** Help & training's counts for the badges (assigned, overdue) and whether the tour shows by itself. */
+export function usePortalTrainingSummary() {
+  const api = usePortalApi();
+  const preview = usePortalPreview();
+  return useQuery({
+    queryKey: portalKeys.trainingSummary,
+    queryFn: () => api.trainingSummary(),
+    refetchInterval: preview ? false : TRAINING_SUMMARY_EVERY_MS,
+    staleTime: 60_000,
+    retry: false,
+  });
 }

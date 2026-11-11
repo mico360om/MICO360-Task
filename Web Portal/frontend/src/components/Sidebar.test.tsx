@@ -204,3 +204,40 @@ describe('Sidebar on a short screen', () => {
     expect(list).toHaveClass('scroll-shadows');
   });
 });
+
+describe('Sidebar: Training (Training Center)', () => {
+  it('is in the Workspace group for everyone, after My performance, opening My training', () => {
+    render(
+      <MemoryRouter>
+        <Sidebar isAdmin={false} />
+      </MemoryRouter>,
+    );
+    const names = screen.getAllByRole('link').map((l) => l.textContent);
+    expect(names[names.indexOf('My performance') + 1]).toBe('Training');
+    expect(screen.getByRole('link', { name: 'Training' })).toHaveAttribute('href', '/training');
+    expect(document.querySelector('[data-training-badge]')).toBeNull();
+  });
+
+  it('a red count when training is overdue, said in its name', () => {
+    render(
+      <MemoryRouter>
+        <Sidebar isAdmin={false} trainingOverdue={2} />
+      </MemoryRouter>,
+    );
+    const link = screen.getByRole('link', { name: 'Training, 2 overdue' });
+    expect(link.querySelector('[data-training-badge]')).toHaveTextContent('2');
+    expect(link.querySelector('[data-training-badge]')!.className).toContain('bg-overdue');
+  });
+
+  it('the first-time tour finds the menu and its parts', () => {
+    render(
+      <MemoryRouter>
+        <Sidebar isAdmin={false} />
+      </MemoryRouter>,
+    );
+    expect(document.querySelector('[data-tour="menu"]')).not.toBeNull();
+    expect(document.querySelector('[data-tour="my-tasks"]')).toHaveAttribute('href', '/my-tasks');
+    expect(document.querySelector('[data-tour="board"]')).toHaveAttribute('href', '/board');
+    expect(document.querySelector('[data-tour="training"]')).toHaveAttribute('href', '/training');
+  });
+});

@@ -11,6 +11,7 @@ import { Logo } from './ui/Logo';
 import { useMediaQuery } from '../lib/useMediaQuery';
 import { useSetAppearance, useSidebarCollapsed } from '../lib/appearance';
 import { MenuDrawer } from './MenuDrawer';
+import { OVERDUE_CLASS } from '../lib/colour-classes';
 
 interface NavItem {
   label: string;
@@ -20,6 +21,8 @@ interface NavItem {
   adminOnly?: boolean;
   /** Only shown to admins and the people who run a project (the Management page). */
   leadsOnly?: boolean;
+  /** Training Center: the first-time tour points at it (`data-tour`). */
+  tour?: string;
 }
 
 // Compact 24x24 stroke icons (no external dependency). Every item has its own: on the tablet rail
@@ -187,11 +190,23 @@ const PERFORMANCE_ICON = (
   </>
 );
 
+/**
+ * Training Center: a graduation cap — My training. Kept out of `I`, the icon set the Android app copies (its menu
+ * has no such page).
+ */
+const TRAINING_ICON = (
+  <>
+    <path d="M22 10 12 5 2 10l10 5 10-5z" />
+    <path d="M6 12v5c3 2 9 2 12 0v-5" />
+    <path d="M22 10v5" />
+  </>
+);
+
 // Grouped so the rail reads as a few short sections rather than one long list.
 const WORKSPACE: NavItem[] = [
   { label: 'Dashboard', to: '/dashboard', icon: I.dashboard },
-  { label: 'My Tasks', to: '/my-tasks', icon: I.tasks },
-  { label: 'Kanban Board', to: '/board', icon: I.board },
+  { label: 'My Tasks', to: '/my-tasks', icon: I.tasks, tour: 'my-tasks' },
+  { label: 'Kanban Board', to: '/board', icon: I.board, tour: 'board' },
   { label: 'Projects', to: '/projects', icon: I.projects },
   { label: 'Calendar', to: '/calendar', icon: I.calendar },
   { label: 'Timeline', to: '/timeline', icon: I.timeline },
@@ -200,6 +215,7 @@ const WORKSPACE: NavItem[] = [
   { label: 'My Action Items', to: '/my-action-items', icon: I.actionItems },
   { label: 'Templates', to: '/templates', icon: I.templates },
   { label: 'My performance', to: '/performance', icon: PERFORMANCE_ICON },
+  { label: 'Training', to: '/training', icon: TRAINING_ICON, tour: 'training' },
   { label: 'Management', to: '/management', icon: I.management, leadsOnly: true },
   { label: 'Reports', to: '/reports', icon: I.reports, adminOnly: true },
 ];
@@ -236,6 +252,8 @@ export interface SidebarProps {
   canLead?: boolean;
   /** Unread chat messages, shown on the Chat icon (none at 0). */
   chatUnread?: number;
+  /** Training Center: courses past their due day, a red count on Training (none at 0). */
+  trainingOverdue?: number;
 }
 
 function NavIcon({ children }: { children: ReactNode }) {
@@ -504,7 +522,23 @@ function FlyoutGroup({ label, icon, items, onNavigate }: { label: string; icon: 
   );
 }
 
-function NavGroup({ label, items, onNavigate, chatUnread = 0, rail, first = false, flyout }: { label: string; items: NavItem[]; onNavigate?: () => void; chatUnread?: number; rail: boolean; first?: boolean; /** 1.23.8: on the rail, one icon with a fly-out list (the Admin group). */ flyout?: ReactNode }) {
+/** Training Center: how many courses are overdue, a red pill on the Training icon (said through the link's name). */
+function TrainingBadge({ count, active }: { count: number; active: boolean }) {
+  if (count <= 0) return null;
+  return (
+    <span
+      data-training-badge
+      aria-hidden="true"
+      className={`pointer-events-none absolute -end-2 -top-2 grid h-[1.125rem] min-w-[1.125rem] place-items-center rounded-full px-1 text-[10px] font-semibold leading-none tabular-nums ring-2 ${
+        active ? `bg-white ${OVERDUE_CLASS.text} ring-brand` : `${OVERDUE_CLASS.dot} text-white ring-surface`
+      }`}
+    >
+      {count > 99 ? '99+' : count}
+    </span>
+  );
+}
+
+function NavGroup({ label, items, onNavigate, chatUnread = 0, trainingOverdue = 0, rail, first = false, flyout }: { label: string; items: NavItem[]; onNavigate?: () => void; chatUnread?: number; trainingOverdue?: number; rail: boolean; first?: boolean; /** 1.23.8: on the rail, one icon with a fly-out list (the Admin group). */ flyout?: ReactNode }) {
   const onRail = useOnRail();
   if (rail && flyout && onRail) {
     return (
@@ -534,8 +568,28 @@ function NavGroup({ label, items, onNavigate, chatUnread = 0, rail, first = fals
                 </>
               )}
             </NavLink>
+          ) : item.to === '/training' ? (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              className={linkClass(rail)}
+              onClick={onNavigate}
+              aria-label={trainingOverdue > 0 ? `${item.label}, ${trainingOverdue} overdue` : undefined}
+              data-rail-label={item.label}
+              data-tour={item.tour}
+            >
+              {({ isActive }) => (
+                <>
+                  <span className="relative flex shrink-0">
+                    <NavIcon>{item.icon}</NavIcon>
+                    <TrainingBadge count={trainingOverdue} active={isActive} />
+                  </span>
+                  <span className={labelClass(rail)}>{item.label}</span>
+                </>
+              )}
+            </NavLink>
           ) : (
-            <NavLink key={item.to} to={item.to} className={linkClass(rail)} onClick={onNavigate} data-rail-label={item.label}>
+            <NavLink key={item.to} to={item.to} className={linkClass(rail)} onClick={onNavigate} data-rail-label={item.label} data-tour={item.tour}>
               <NavIcon>{item.icon}</NavIcon>
               <span className={labelClass(rail)}>{item.label}</span>
             </NavLink>
@@ -754,7 +808,7 @@ function FoldButton({ onTabletOpen, tabletOpen = false }: { onTabletOpen?: () =>
  * each with its name for screen readers and as a tooltip; on a phone it folds away behind the ☰ button
  * (MobileMenu in AppShell).
  */
-export function Sidebar({ isAdmin, chatUnread = 0, canLead = false }: SidebarProps) {
+export function Sidebar({ isAdmin, chatUnread = 0, canLead = false, trainingOverdue = 0 }: SidebarProps) {
   const nav = useRef<HTMLElement>(null);
   // 1.23.8 A tablet's unfolded menu: over the page, until a page is chosen, a tap outside or Escape.
   const tablet = useMediaQuery(RAIL_WIDTHS);
@@ -767,17 +821,18 @@ export function Sidebar({ isAdmin, chatUnread = 0, canLead = false }: SidebarPro
     <nav
       ref={nav}
       id="main-menu"
+      data-tour="menu"
       aria-label="Main"
       className="sticky top-0 hidden h-screen w-16 flex-none flex-col overflow-hidden border-r border-line bg-surface/95 transition-[width] duration-200 ease-out md:flex lg:w-60 rail:w-16 supports-[height:100dvh]:h-dvh"
     >
-      <SidebarBody isAdmin={isAdmin} chatUnread={chatUnread} canLead={canLead} rail onTabletOpen={() => setOverlay(true)} tabletOpen={overlay} />
+      <SidebarBody isAdmin={isAdmin} chatUnread={chatUnread} canLead={canLead} trainingOverdue={trainingOverdue} rail onTabletOpen={() => setOverlay(true)} tabletOpen={overlay} />
       <RailTooltip root={nav} />
     </nav>
     {overlay ? (
       <MenuDrawer className="hidden md:block lg:hidden" onClose={() => setOverlay(false)}>
         {(close) => (
           <nav aria-label="Main" className="flex min-h-0 flex-1 flex-col">
-            <SidebarBody isAdmin={isAdmin} chatUnread={chatUnread} canLead={canLead} onNavigate={close} onCollapse={close} />
+            <SidebarBody isAdmin={isAdmin} chatUnread={chatUnread} canLead={canLead} trainingOverdue={trainingOverdue} onNavigate={close} onCollapse={close} />
           </nav>
         )}
       </MenuDrawer>
@@ -795,6 +850,7 @@ export function SidebarBody({
   onNavigate,
   chatUnread = 0,
   canLead = false,
+  trainingOverdue = 0,
   rail = false,
   onTabletOpen,
   tabletOpen,
@@ -846,7 +902,7 @@ export function SidebarBody({
       {/* The rail hides its scrollbar (it would take a sixth of 64px); the edge shadows still say
           there is more, and the current page's link is scrolled into view (above). */}
       <div ref={list} className={`scroll-shadows flex-1 overflow-y-auto px-3 py-3 ${rail ? 'rail:px-2.5 rail:[scrollbar-width:none] rail:[&::-webkit-scrollbar]:hidden' : ''}`}>
-        <NavGroup label="Workspace" items={WORKSPACE.filter((i) => (isAdmin || !i.adminOnly) && (isAdmin || canLead || !i.leadsOnly))} onNavigate={onNavigate} rail={rail} first />
+        <NavGroup label="Workspace" items={WORKSPACE.filter((i) => (isAdmin || !i.adminOnly) && (isAdmin || canLead || !i.leadsOnly))} onNavigate={onNavigate} trainingOverdue={trainingOverdue} rail={rail} first />
         {withData ? <SavedNav onNavigate={onNavigate} rail={rail} /> : null}
         <NavGroup label="Communication" items={COMMUNICATION} onNavigate={onNavigate} chatUnread={chatUnread} rail={rail} />
         {isAdmin ? <NavGroup label="Admin" items={ADMIN} onNavigate={onNavigate} rail={rail} flyout={ADMIN_GROUP_ICON} /> : null}

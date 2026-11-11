@@ -53,6 +53,8 @@ const NOT_ON_THE_SCALE = new Set([
   'pages/MicoAiPage.tsx',
   // 1.23.7 Preview as client: the whole Client portal, full screen (a page shown in a layer, not a form).
   'components/portal/ClientPreviewDialog.tsx',
+  // Training Center: the first-time tour's card, placed beside the part of the page it points at (a popover).
+  'components/training/Tour.tsx',
 ]);
 const src = resolve(__dirname, '../..');
 const files = (dir: string): string[] =>
