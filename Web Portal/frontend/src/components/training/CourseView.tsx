@@ -1,5 +1,6 @@
 import { useEffect, useId, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Breadcrumbs } from '../ui/Breadcrumbs';
 import { useQueryClient } from '@tanstack/react-query';
 import { LIMITS, MODULE_LABELS, TRAINING_MODULES, type CertificateRef, type CourseDetail, type TrainingModule } from '../../api/training';
 import { ApiError } from '../../lib/api-client';
@@ -31,12 +32,10 @@ import { ACTION_WORDS, CERTIFICATE_WORDS, LESSON_KIND_WORDS, courseAction, dueTe
 
 const isModule = (v: string | null): v is TrainingModule => !!v && (TRAINING_MODULES as readonly string[]).includes(v);
 
-const backClass = `inline-flex items-center gap-1.5 self-start text-sm font-semibold text-brand underline-offset-2 hover:underline ${TOUCH_MIN}`;
-
 /**
  * A course's page (staff and the Client portal): what it is, Start / Resume / Review / Retake, the progress, the
- * lessons (done, locked, to review), downloads, the certificate, a rating and questions. `?module=` (from the
- * catalogue filtered to a module, or Learn this feature) makes the way back that module's courses.
+ * lessons (done, locked, to review), downloads, the certificate, a rating and questions. Breadcrumbs "Learning Hub ›
+ * the course"; `?module=` (from the catalogue filtered to a module, or Learn this feature) adds that module's courses.
  */
 export function CourseView({ courseId, renderHeader }: { courseId: string; renderHeader: (title: string) => ReactNode }) {
   const side = useLearner();
@@ -47,18 +46,16 @@ export function CourseView({ courseId, renderHeader }: { courseId: string; rende
     document.scrollingElement?.scrollTo?.(0, 0);
   }, [courseId]);
   const module = params.get('module');
-  const back = isModule(module)
-    ? { to: `${side.base}?tab=catalogue&module=${encodeURIComponent(module)}`, label: `Back to ${MODULE_LABELS[module]} courses` }
-    : { to: side.base, label: side.portal ? 'Back to Help & training' : 'Back to My training' };
-
-  const backLink = (
-    <Link to={back.to} className={backClass}>
-      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="m15 18-6-6 6-6" />
-      </svg>
-      {back.label}
-    </Link>
+  const crumbs = (title: ReactNode) => (
+    <Breadcrumbs
+      items={[
+        { label: 'Learning Hub', to: side.base },
+        ...(isModule(module) ? [{ label: `${MODULE_LABELS[module]} courses`, to: `${side.base}?tab=catalogue&module=${encodeURIComponent(module)}` }] : []),
+        { label: title },
+      ]}
+    />
   );
+  const backLink = crumbs(q.data ? <bdi>{q.data.title}</bdi> : '…');
 
   if (q.isPending) {
     return (

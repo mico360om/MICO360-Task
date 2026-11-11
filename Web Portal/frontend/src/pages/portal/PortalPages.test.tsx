@@ -38,7 +38,7 @@ const api = vi.hoisted(() => ({
   readAllNotices: vi.fn(),
   settings: vi.fn(),
   setSettings: vi.fn(),
-  // Training Center: Help & training.
+  // The Learning Hub (Training Center).
   training: vi.fn(),
   trainingSummary: vi.fn(),
   trainingCourse: vi.fn(),
@@ -1070,24 +1070,24 @@ describe('Client portal: signing in', () => {
   });
 });
 
-describe('Training Center: Help & training in the Client portal', () => {
+describe('Learning Hub in the Client portal', () => {
   const PORTAL_COURSE = courseCard({ id: 'pc1', title: 'Client portal basics', moduleKey: 'portal', audience: 'CLIENTS', mine: courseMine({ dueDay: '2026-11-04', overdue: true }) });
 
-  it('the header’s Help & training (44px) with how many courses wait, red when one is overdue; the home page’s card says so too', async () => {
+  it('the header’s Learning Hub (44px) with how many courses wait, red when one is overdue; the home page’s card says so too', async () => {
     api.trainingSummary.mockResolvedValue({ assigned: 2, overdue: 1, inProgress: 1, tour: { show: false } });
     renderAt('/portal');
-    const link = await screen.findByRole('link', { name: 'Help & training, 2 to do, 1 overdue' });
+    const link = await screen.findByRole('link', { name: 'Learning Hub, 2 to do, 1 overdue' });
     expect(link).toHaveAttribute('href', '/portal/training');
     expect(link.className).toContain('!min-h-11');
     expect(link.querySelector('[data-training-badge="overdue"]')).toHaveTextContent('1');
-    const cardLink = await screen.findByRole('link', { name: /Help & training 2 courses for you to do/ });
+    const cardLink = await screen.findByRole('link', { name: /Learning Hub 2 courses for you to do/ });
     expect(within(cardLink).getByText('1 overdue')).toBeInTheDocument();
     expect(calls).toEqual([]);
   });
 
   it('nothing waiting: no count', async () => {
     renderAt('/portal');
-    expect(await screen.findByRole('link', { name: 'Help & training' })).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'Learning Hub' })).toBeInTheDocument();
     expect(document.querySelector('[data-training-badge]')).toBeNull();
   });
 
@@ -1101,14 +1101,14 @@ describe('Training Center: Help & training in the Client portal', () => {
   it('/portal/training: their training (overdue in red), certificates and the courses for clients — all through the portal’s API', async () => {
     api.training.mockResolvedValue({ ...myTraining({ assigned: [PORTAL_COURSE], inProgress: [], completed: [] }), catalogue: [PORTAL_COURSE], tour: { show: false } });
     renderAt('/portal/training');
-    expect(await screen.findByRole('heading', { level: 1, name: 'Help & training' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Learning Hub' })).toBeInTheDocument();
     const assigned = (await screen.findByRole('heading', { name: /Assigned to you/ })).closest('section')!;
     const cardLink = within(assigned).getByRole('link', { name: /Client portal basics/ });
     expect(cardLink).toHaveAttribute('href', '/portal/training/courses/pc1');
     expect(within(cardLink).getByText('Overdue')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: /Certificates/ })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: /Courses \(1\)/ })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Help & training' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('link', { name: 'Learning Hub' })).toHaveAttribute('aria-current', 'page');
     expect(calls).toEqual([]);
     expect(io).not.toHaveBeenCalled();
   });
@@ -1120,7 +1120,7 @@ describe('Training Center: Help & training in the Client portal', () => {
     api.trainingComplete.mockResolvedValue({ courseProgressPct: 50, courseCompleted: false, certificateId: null, nextLessonId: 'l3' });
     renderAt('/portal/training/courses/pc1');
     expect(await screen.findByRole('heading', { level: 1, name: 'Client portal basics' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Back to Help & training' })).toHaveAttribute('href', '/portal/training');
+    expect(within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByRole('link', { name: 'Learning Hub' })).toHaveAttribute('href', '/portal/training');
     await userEvent.click(screen.getByRole('button', { name: 'Start course' }));
     await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('/portal/training/courses/pc1/lessons/l2'));
     expect(api.trainingStart).toHaveBeenCalledWith('pc1');
@@ -1144,13 +1144,13 @@ describe('Training Center: Help & training in the Client portal', () => {
     expect(calls).toEqual([]);
   });
 
-  it('Take the tour again from Help & training', async () => {
+  it('Take the tour again from the Learning Hub', async () => {
     renderAt('/portal/training');
     await userEvent.click(await screen.findByRole('button', { name: 'Take the tour' }));
     expect(await screen.findByRole('dialog', { name: 'Your projects' })).toBeInTheDocument();
   });
 
-  it('in a Preview as client: Help & training is shown empty, and nothing is sent', async () => {
+  it('in a Preview as client: the Learning Hub is shown empty, and nothing is sent', async () => {
     const other = otherApi();
     renderPreview('/portal/training', other);
     expect(await screen.findByText('Preview — the client’s courses aren’t shown here.')).toBeInTheDocument();

@@ -205,16 +205,16 @@ describe('Sidebar on a short screen', () => {
   });
 });
 
-describe('Sidebar: Training (Training Center)', () => {
-  it('is in the Workspace group for everyone, after My performance, opening My training', () => {
+describe('Sidebar: the Learning Hub', () => {
+  it('is in the Workspace group for everyone, after My performance, opening My learning', () => {
     render(
       <MemoryRouter>
         <Sidebar isAdmin={false} />
       </MemoryRouter>,
     );
     const names = screen.getAllByRole('link').map((l) => l.textContent);
-    expect(names[names.indexOf('My performance') + 1]).toBe('Training');
-    expect(screen.getByRole('link', { name: 'Training' })).toHaveAttribute('href', '/training');
+    expect(names[names.indexOf('My performance') + 1]).toBe('Learning Hub');
+    expect(screen.getByRole('link', { name: 'Learning Hub' })).toHaveAttribute('href', '/training');
     expect(document.querySelector('[data-training-badge]')).toBeNull();
   });
 
@@ -224,7 +224,7 @@ describe('Sidebar: Training (Training Center)', () => {
         <Sidebar isAdmin={false} trainingOverdue={2} />
       </MemoryRouter>,
     );
-    const link = screen.getByRole('link', { name: 'Training, 2 overdue' });
+    const link = screen.getByRole('link', { name: 'Learning Hub, 2 overdue' });
     expect(link.querySelector('[data-training-badge]')).toHaveTextContent('2');
     expect(link.querySelector('[data-training-badge]')!.className).toContain('bg-overdue');
   });

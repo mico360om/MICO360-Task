@@ -45,7 +45,7 @@ export function NewCourseDialog({ onClose }: { onClose: () => void }) {
   return (
     <ManageDialog title="New course" onClose={onClose} onSubmit={() => void create()} submitLabel="Create draft" busy={busy}>
       {error ? <Notice>{error}</Notice> : null}
-      <FormRow label="Title" htmlFor={ids.title} error={titleError} errorId={ids.titleErr} hint="Learners see it in My training and the catalogue.">
+      <FormRow label="Title" htmlFor={ids.title} error={titleError} errorId={ids.titleErr} hint="Learners see it in My learning and the catalogue.">
         <input
           id={ids.title}
           value={title}
@@ -82,7 +82,7 @@ export function NewCourseDialog({ onClose }: { onClose: () => void }) {
         onChange={setAudience}
         options={[
           { value: 'STAFF', label: 'Staff', hint: 'People who sign in to the site.', disabled: forcesClients(moduleKey) },
-          { value: 'CLIENTS', label: 'Clients', hint: 'Client accounts, in the Client portal’s Help & training.' },
+          { value: 'CLIENTS', label: 'Clients', hint: 'Client accounts, in the Client portal’s Learning Hub.' },
         ]}
       />
       {forcesClients(moduleKey) ? <p className="text-xs text-ink-2">Client portal courses are for clients.</p> : null}

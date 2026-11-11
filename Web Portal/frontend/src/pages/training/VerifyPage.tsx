@@ -55,7 +55,7 @@ export function VerifyPage() {
             <BrandLogo className="h-10" />
           </span>
           <Link to={signedIn ? '/training' : '/login'} className="tap text-sm font-semibold text-brand hover:underline">
-            {signedIn ? 'My training' : 'Sign in'}
+            {signedIn ? 'Learning Hub' : 'Sign in'}
           </Link>
         </div>
         <section className="rounded-2xl border border-line bg-surface p-5 shadow-soft sm:p-8">
@@ -121,6 +121,7 @@ export function VerifyPage() {
             )}
           </section>
         ) : null}
+        <p className="text-center text-xs text-ink-3">Issued through MICO360 Tasks · Learning Hub</p>
       </div>
     </main>
   );

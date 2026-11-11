@@ -34,7 +34,10 @@ describe('the lesson player', () => {
   it('the course, “Lesson n of N”, the course’s progress and Previous / Next', async () => {
     player(fakeLearner({ lesson: vi.fn(async () => lesson({ steps: STEPS })) }));
     expect(await screen.findByRole('heading', { level: 1, name: 'Make a task' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Tasks basics' })).toHaveAttribute('href', '/training/courses/c1');
+    const crumbs = within(screen.getByRole('navigation', { name: 'Breadcrumb' }));
+    expect(crumbs.getByRole('link', { name: 'Learning Hub' })).toHaveAttribute('href', '/training');
+    expect(crumbs.getByRole('link', { name: 'Tasks basics' })).toHaveAttribute('href', '/training/courses/c1');
+    expect(crumbs.getByText('Make a task').closest('[aria-current="page"]')).not.toBeNull();
     expect(await screen.findByText('Lesson 2 of 4')).toBeInTheDocument();
     expect(screen.getByRole('progressbar', { name: /Course progress/ })).toBeInTheDocument();
     const nav = screen.getByRole('navigation', { name: 'Lessons' });

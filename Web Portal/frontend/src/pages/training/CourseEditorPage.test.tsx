@@ -30,7 +30,9 @@ describe('Course editor: the page', () => {
     open();
     expect(await screen.findByRole('heading', { level: 1, name: 'Tasks basics' })).toBeInTheDocument();
     expect(api.manageCourse).toHaveBeenCalledWith('c1');
-    expect(screen.getByRole('link', { name: 'Training Center' })).toHaveAttribute('href', '/training/manage');
+    const crumbs = within(screen.getByRole('navigation', { name: 'Breadcrumb' }));
+    expect(crumbs.getByRole('link', { name: 'Learning Hub' })).toHaveAttribute('href', '/training');
+    expect(crumbs.getByRole('link', { name: 'Manage' })).toHaveAttribute('href', '/training/manage');
     expect(screen.getByRole('link', { name: 'Preview as learner' })).toHaveAttribute('href', '/training/courses/c1');
     expect(screen.getByText('Tasks · Staff · Beginner · 1 lesson · 7 min')).toBeInTheDocument();
     for (const name of ['Publish', 'Details', 'Lessons', 'Downloads']) expect(screen.getByRole('region', { name })).toBeInTheDocument();
@@ -47,7 +49,8 @@ describe('Course editor: the page', () => {
   it('someone who isn’t a Training manager is told so; a missing course says so', async () => {
     api.manageCourse.mockRejectedValue(new ApiError(403, 'FORBIDDEN', 'Only Training managers and administrators can do that.'));
     open();
-    expect(await screen.findByText('Only Training managers and administrators can edit courses')).toBeInTheDocument();
+    expect(await screen.findByText('Only Training managers and administrators can manage the Learning Hub')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Go to My learning' })).toHaveAttribute('href', '/training');
   });
 
   it('a course that doesn’t exist says so', async () => {
@@ -200,7 +203,7 @@ describe('Course editor: publish', () => {
     await waitFor(() => expect(api.archive).toHaveBeenCalledWith('c1'));
   });
 
-  it('Delete (a draft never published) goes back to the Training Center; a refusal is said in the server’s words', async () => {
+  it('Delete (a draft never published) goes back to Manage; a refusal is said in the server’s words', async () => {
     api.manageCourse.mockResolvedValue(manageCourse());
     api.deleteCourse.mockRejectedValueOnce(new ApiError(409, 'ARCHIVE_INSTEAD', 'This course has been published or taken. Archive it instead.'));
     const { where } = open();

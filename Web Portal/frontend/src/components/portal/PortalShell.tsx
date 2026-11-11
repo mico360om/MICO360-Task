@@ -174,7 +174,7 @@ function NoticeBell({ className = '' }: { className?: string }) {
 }
 
 /**
- * Training Center: Help & training in the header, with how many courses wait for the client (red when one is
+ * The Learning Hub (Training Center) in the header, with how many courses wait for the client (red when one is
  * overdue) — owner call 1: badges and counts only, no emails. Just the book on a phone (its name stays whole).
  */
 function TrainingLink({ className = '' }: { className?: string }) {
@@ -186,7 +186,7 @@ function TrainingLink({ className = '' }: { className?: string }) {
   return (
     <Link
       to="/portal/training"
-      aria-label={words ? `Help & training, ${words}` : 'Help & training'}
+      aria-label={words ? `Learning Hub, ${words}` : 'Learning Hub'}
       aria-current={here ? 'page' : undefined}
       data-tour="portal-training"
       className={`${TOUCH} relative inline-flex min-w-11 flex-none items-center justify-center gap-1.5 rounded-xl px-2 text-sm font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand/40 ${
@@ -194,7 +194,7 @@ function TrainingLink({ className = '' }: { className?: string }) {
       } ${className}`}
     >
       <BookIcon size={20} />
-      <span className="hidden lg:inline">Help &amp; training</span>
+      <span className="hidden lg:inline">Learning Hub</span>
       {waiting || overdue ? (
         <span
           aria-hidden="true"

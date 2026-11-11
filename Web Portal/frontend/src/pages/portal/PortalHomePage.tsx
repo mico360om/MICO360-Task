@@ -52,7 +52,7 @@ function PortalLearnLink() {
   return <LearnLinkView to={to} />;
 }
 
-/** Help & training on the home page: how many courses wait (red when one is overdue) — badges only, no emails. */
+/** The Learning Hub on the home page: how many courses wait (red when one is overdue) — badges only, no emails. */
 function TrainingCard() {
   const s = usePortalTrainingSummary().data;
   const waiting = typeof s?.assigned === 'number' ? s.assigned : 0;
@@ -66,7 +66,7 @@ function TrainingCard() {
         <BookIcon size={20} />
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block font-display text-base font-bold text-ink">Help &amp; training</span>
+        <span className="block font-display text-base font-bold text-ink">Learning Hub</span>
         <span className="block text-sm text-ink-2">
           {waiting ? `${waiting} ${waiting === 1 ? 'course' : 'courses'} for you to do` : 'Short courses on using the portal.'}
           {overdue ? <span className={`ms-2 inline-flex rounded-md px-2 py-0.5 text-xs font-semibold ${OVERDUE_CLASS.chip}`}>{overdue} overdue</span> : null}

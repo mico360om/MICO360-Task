@@ -48,7 +48,7 @@ function PortalTrainingHome() {
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <PortalH1>Help &amp; training</PortalH1>
+          <PortalH1>Learning Hub</PortalH1>
           <p className="mt-1 text-sm text-ink-2">Short courses on using the Client portal — at your own pace.</p>
         </div>
         <Button variant="secondary" size="sm" className={`${TOUCH} ${off.className}`} disabled={off.disabled} title={off.title} onClick={startTour}>

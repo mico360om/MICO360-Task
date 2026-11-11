@@ -215,7 +215,8 @@ const WORKSPACE: NavItem[] = [
   { label: 'My Action Items', to: '/my-action-items', icon: I.actionItems },
   { label: 'Templates', to: '/templates', icon: I.templates },
   { label: 'My performance', to: '/performance', icon: PERFORMANCE_ICON },
-  { label: 'Training', to: '/training', icon: TRAINING_ICON, tour: 'training' },
+  // The Learning Hub (the owner's name for the Training Center, 11 Nov).
+  { label: 'Learning Hub', to: '/training', icon: TRAINING_ICON, tour: 'training' },
   { label: 'Management', to: '/management', icon: I.management, leadsOnly: true },
   { label: 'Reports', to: '/reports', icon: I.reports, adminOnly: true },
 ];

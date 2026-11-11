@@ -7,6 +7,7 @@ import { ApiError } from '../../lib/api-client';
 import { downloadBlob, fileNameOf } from '../../lib/download';
 import { RichNoteView } from '../rich-text/RichNoteView';
 import { Button, buttonClass } from '../ui/Button';
+import { Breadcrumbs } from '../ui/Breadcrumbs';
 import { ModalPortal } from '../ui/ModalPortal';
 import { dialogLayer, dialogPanel } from '../ui/dialog-size';
 import { ProgressBar } from '../portal/portal-ui';
@@ -19,8 +20,6 @@ import { courseChanged, useCourse, useLessonView } from './training-queries';
 import { AwardIcon, LessonKindIcon, TOUCH_MIN, TickIcon, trainingProblem } from './training-ui';
 import { LESSON_KIND_WORDS, minutesText } from './training-words';
 import { LIMITS } from '../../api/training';
-
-const linkClass = `inline-flex items-center gap-1.5 text-sm font-semibold text-brand underline-offset-2 hover:underline ${TOUCH_MIN}`;
 
 /**
  * One lesson (staff and the Client portal): the course's name, "Lesson n of N", the course's progress, the lesson
@@ -86,12 +85,13 @@ export function LessonPlayer({ courseId, lessonId, renderTitle }: { courseId: st
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-2">
-        <Link to={courseTo} className={`${linkClass} self-start`}>
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="m15 18-6-6 6-6" />
-          </svg>
-          <span className="min-w-0 truncate">{lesson.courseTitle}</span>
-        </Link>
+        <Breadcrumbs
+          items={[
+            { label: 'Learning Hub', to: side.base },
+            { label: <bdi>{lesson.courseTitle}</bdi>, to: courseTo },
+            { label: <bdi>{lesson.title}</bdi> },
+          ]}
+        />
         {renderTitle(lesson.title)}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-ink-2">
           <span className="font-semibold text-ink">
@@ -227,7 +227,7 @@ function CourseFinished({ title, certificateId, courseTo }: { title: string; cer
           Back to the course
         </Link>
         <Link to={side.base} className={buttonClass('ghost', 'md', TOUCH_MIN)}>
-          {side.portal ? 'Help & training' : 'My training'}
+          {side.portal ? 'Learning Hub' : 'My learning'}
         </Link>
       </div>
       {error ? (

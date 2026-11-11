@@ -75,7 +75,7 @@ describe('the first-time tour (staff)', () => {
     renderTour();
     await screen.findByRole('dialog');
     for (let i = 0; i < 5; i++) await userEvent.click(screen.getByRole('button', { name: 'Next' }));
-    expect(screen.getByRole('dialog', { name: 'My training' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Learning Hub' })).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Finish' }));
     expect(screen.queryByRole('dialog')).toBeNull();
     await waitFor(() => expect(staff.tourDone).toHaveBeenCalledTimes(1));

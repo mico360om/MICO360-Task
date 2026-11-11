@@ -58,6 +58,7 @@ describe('Check a certificate (/verify, public)', () => {
     expect(screen.getByTestId('where')).toHaveTextContent('/verify/TC-ABCD-EFGH-JKLM');
     expect(screen.queryByRole('navigation', { name: 'Main' })).toBeNull();
     expect(screen.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/login');
+    expect(screen.getByText('Issued through MICO360 Tasks · Learning Hub')).toBeInTheDocument();
     expect(calls.filter((u) => u.includes('/training/verify/'))).toEqual([expect.stringMatching(/\/training\/verify\/TC-ABCD-EFGH-JKLM$/)]);
   });
 

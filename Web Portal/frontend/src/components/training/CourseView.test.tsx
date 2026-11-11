@@ -123,12 +123,17 @@ describe('a course’s page', () => {
     expect(await screen.findByText(/The training team will answer here/)).toBeInTheDocument();
   });
 
-  it('from a module’s courses (?module=) the way back is those courses; otherwise My training', async () => {
+  it('breadcrumbs: Learning Hub › (the module’s courses, from ?module=) › the course', async () => {
     const one = page(fakeLearner(), '/training/courses/c1?module=tasks');
-    expect(await screen.findByRole('link', { name: 'Back to Tasks courses' })).toHaveAttribute('href', '/training?tab=catalogue&module=tasks');
+    const crumbs = () => within(screen.getByRole('navigation', { name: 'Breadcrumb' }));
+    await screen.findByRole('heading', { level: 1, name: 'Tasks basics' });
+    expect(crumbs().getByRole('link', { name: 'Learning Hub' })).toHaveAttribute('href', '/training');
+    expect(crumbs().getByRole('link', { name: 'Tasks courses' })).toHaveAttribute('href', '/training?tab=catalogue&module=tasks');
+    expect(crumbs().getByText('Tasks basics').closest('[aria-current="page"]')).not.toBeNull();
     one.unmount();
     page(fakeLearner());
-    expect(await screen.findByRole('link', { name: 'Back to My training' })).toHaveAttribute('href', '/training');
+    await screen.findByRole('heading', { level: 1, name: 'Tasks basics' });
+    expect(crumbs().getAllByRole('link').map((l) => l.textContent)).toEqual(['Learning Hub']);
   });
 
   it('a course that isn’t available says so in plain words', async () => {
@@ -139,7 +144,7 @@ describe('a course’s page', () => {
   it('in the Client portal: the same page through the portal’s side (its own addresses)', async () => {
     const api = fakeLearner();
     page(api, '/portal/training/courses/c1', true);
-    expect(await screen.findByRole('link', { name: 'Back to Help & training' })).toHaveAttribute('href', '/portal/training');
+    expect(await within(await screen.findByRole('navigation', { name: 'Breadcrumb' })).findByRole('link', { name: 'Learning Hub' })).toHaveAttribute('href', '/portal/training');
     expect(await screen.findByRole('link', { name: /Welcome/ })).toHaveAttribute('href', '/portal/training/courses/c1/lessons/l1');
   });
 });

@@ -25,11 +25,11 @@ beforeEach(() => {
   staff.access.mockReset();
 });
 
-describe('the dashboard’s “Overdue training”', () => {
-  it('a red link with the number, opening My training', async () => {
+describe('the dashboard’s “Overdue learning”', () => {
+  it('a red link with the number, opening the Learning Hub', async () => {
     staff.access.mockResolvedValue({ ...ACCESS, overdue: 3 });
     renderLink();
-    const link = await screen.findByRole('link', { name: /Overdue training — 3/ });
+    const link = await screen.findByRole('link', { name: /Overdue learning — 3/ });
     expect(link).toHaveAttribute('href', '/training');
     expect(link.className).toContain('text-overdue');
   });
