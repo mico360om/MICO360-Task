@@ -31,7 +31,7 @@ export interface ProviderPreset {
  * pictures (scanned files) is its Vision capability and meaning search its Embedding capability.
  */
 export const MICO360_AI_HELP =
-  'Uses the AI API of MICO360 Connect 2.6.28, as its API guide describes: https on port 5310, under /v1. In MICO360 Connect, allow the key Chat — and Vision to read scanned files and pictures, Embedding for meaning search.';
+  'Uses the AI API of MICO360 Connect 2.6.28, as its API guide describes: https on port 5310, under /v1. In MICO360 Connect, allow the key Chat — and Ocr to read whole scanned files (every page), Vision for the picture reader, Embedding for meaning search.';
 
 export const PROVIDER_PRESETS: ProviderPreset[] = [
   { id: 'openai', label: 'OpenAI', name: 'OpenAI', kind: 'openai', baseUrl: 'https://api.openai.com/v1', needsKey: true, keyUrl: 'https://platform.openai.com/api-keys' },
@@ -106,6 +106,32 @@ export interface RedactedProvider {
   lastSyncError?: string | null;
   /** Its recommended chat model, among the models it offers. */
   recommendedModelId?: string | null;
+  /** MICO360 AI: what its platform said about itself (read with its models). */
+  platform?: ProviderPlatform;
+}
+
+/** A model that stood in for another on MICO360 AI (the platform's substitution), counted per pair. */
+export interface PlatformSubstitution {
+  asked: string;
+  answered: string;
+  count: number;
+  firstAt: string;
+  at: string;
+}
+
+/**
+ * MICO360 AI's facts about itself: the Connect version it runs, what its fleet can do, how many requests
+ * its key may run at once; and what Tasks noticed — scans read as pictures, stand-in models. Mirrors the
+ * backend's ProviderPlatform.
+ */
+export interface ProviderPlatform {
+  version?: string | null;
+  commit?: string | null;
+  capabilities?: string[] | null;
+  concurrencyLimit?: number | null;
+  checkedAt?: string | null;
+  ocrFallback?: { status: number; reason: string | null; at: string } | null;
+  substitutions?: PlatformSubstitution[];
 }
 
 export interface AiModelParameters {
@@ -179,8 +205,11 @@ export interface SyncResult {
   config: AiConfig;
 }
 
-/** A model test: it answered (and how fast), or the provider's reason it didn't. */
-export type ModelTestResult = { ok: true; ms: number; reply: string } | { ok: false; message: string };
+/**
+ * A model test: it answered (and how fast), or the provider's reason it didn't. MICO360 AI: the model
+ * that answered, and the platform's words when another stood in.
+ */
+export type ModelTestResult = { ok: true; ms: number; reply: string; model?: string | null; substituted?: string | null } | { ok: false; message: string };
 
 /** Admin AI Management client — every mutation returns the fresh (redacted) config. */
 export function aiApi(client: ApiClient) {

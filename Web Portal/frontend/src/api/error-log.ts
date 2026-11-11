@@ -47,6 +47,8 @@ export interface ErrorOccurrence {
   resource: string | null;
   /** A server error's database diagnosis (1.22.5): Prisma's code, the database's code and its message, values masked. */
   database?: string | null;
+  /** (b) bundles, b10: a MICO360 AI failure's ids — "MICO360 AI · correlation id … · job …" — to quote to its support. */
+  ai?: string | null;
   /** 1.23.3, a slow request: where its time went (null: not said; absent from an older server). */
   timing?: SlowTiming | null;
   value: number | null;

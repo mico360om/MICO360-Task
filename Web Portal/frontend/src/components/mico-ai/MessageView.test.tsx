@@ -104,3 +104,23 @@ describe('MICO AI message: buttons a finger can hit (1.22 design pass)', () => {
     }
   });
 });
+
+// MICO360 AI (b) bundles, b15: the answer's words appear as MICO AI writes them.
+describe('MICO AI message: the words being written', () => {
+  const pending = (draft?: string | null): MicoAiMessage => ({ id: 'a9', role: 'assistant', status: 'pending', text: '', createdAt: new Date().toISOString(), step: 'Checking tasks…', ...(draft !== undefined ? { draft } : {}) });
+
+  it('shows the words so far, marked as still being written, instead of the dots', () => {
+    renderMessage(pending('**Two tasks** are overdue: the pump'));
+    expect(screen.getByText('Two tasks')).toBeInTheDocument(); // read as the answer will be (bold)
+    expect(screen.getByText(/are overdue: the pump/)).toBeInTheDocument();
+    expect(screen.getByText('Writing…')).toBeInTheDocument();
+    expect(screen.queryByText('Checking tasks…')).not.toBeInTheDocument();
+    expect(screen.getByRole('article', { name: 'MICO AI’s answer' })).toHaveAttribute('aria-busy', 'true');
+  });
+
+  it('without words yet: the dots and what MICO AI is doing, as before', () => {
+    renderMessage(pending(null));
+    expect(screen.getByText('Checking tasks…')).toBeInTheDocument();
+    expect(screen.queryByText('Writing…')).not.toBeInTheDocument();
+  });
+});

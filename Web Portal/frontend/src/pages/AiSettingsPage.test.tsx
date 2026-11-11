@@ -183,6 +183,7 @@ describe('AI Management: connecting a provider', () => {
     expect(help).toHaveTextContent('Chat');
     expect(help).toHaveTextContent('Vision');
     expect(help).toHaveTextContent('Embedding');
+    expect(help).toHaveTextContent('Ocr'); // (b) bundles, b4: whole scanned documents
     // Another service: no MICO360 note.
     fireEvent.change(screen.getByLabelText('Service'), { target: { value: 'openai' } });
     expect(screen.queryByText(/MICO360 Connect 2\.6\.28/)).not.toBeInTheDocument();
@@ -331,5 +332,68 @@ describe('AI Management: default models', () => {
     renderPage();
     const emb = await screen.findByRole('combobox', { name: 'Default Embeddings model' });
     expect(within(emb).getAllByRole('option')[0]).toHaveTextContent('Automatic — no model switched on');
+  });
+});
+
+// MICO360 AI (b) bundles: what the platform says about itself, on its provider's card (b4, b5, b7, b11,
+// b12), and which model answered a Test (b5). Other providers' cards are unchanged.
+describe('AI Management: MICO360 AI’s own facts', () => {
+  const mico = (platform: Record<string, unknown>) => ({
+    ...config,
+    providers: [{ ...acme, name: 'MICO360 AI', kind: 'custom', preset: 'mico360', apiBaseUrl: 'https://ai.mico360.com:5310/v1', platform }],
+  });
+  const card = async () => (await screen.findByText('https://ai.mico360.com:5310/v1')).closest('[data-provider]') as HTMLElement;
+
+  it('b12, b11: the Connect version it runs and how many requests its key may run at once', async () => {
+    current = mico({ version: '2.6.28', commit: '0383615', capabilities: ['Chat', 'Vision', 'Embedding', 'Ocr'], concurrencyLimit: 6, checkedAt: NOW });
+    renderPage();
+    const c = await card();
+    expect(within(c).getByText(/Runs MICO360 Connect 2\.6\.28/)).toBeInTheDocument();
+    expect(within(c).getByText(/key may run 6 requests at once/)).toBeInTheDocument();
+    expect(within(c).queryByText(/No AI node offers/)).not.toBeInTheDocument();
+  });
+
+  it('b7: what no AI node offers right now, and what that stops', async () => {
+    current = mico({ version: '2.6.28', capabilities: ['Chat', 'Embedding'], checkedAt: NOW });
+    renderPage();
+    const note = within(await card()).getByRole('note', { name: /No AI node offers/ });
+    expect(note).toHaveTextContent(/Ocr/);
+    expect(note).toHaveTextContent(/Vision/);
+    expect(note).not.toHaveTextContent(/Embedding/);
+    expect(note).toHaveTextContent(/scanned/i);
+  });
+
+  it('b4: scans read as pictures, why, and what to allow', async () => {
+    current = mico({ version: '2.6.28', capabilities: ['Chat', 'Vision', 'Ocr'], ocrFallback: { status: 403, reason: "This API key may not use the 'Ocr' capability.", at: NOW } });
+    renderPage();
+    const c = await card();
+    const note = within(c).getByRole('note', { name: /read as pictures/ });
+    expect(note).toHaveTextContent(/HTTP 403/);
+    expect(note).toHaveTextContent(/allow Ocr/i);
+  });
+
+  it('b5: the models that stood in for others', async () => {
+    current = mico({ version: '2.6.28', substitutions: [{ asked: 'llama3.1:latest', answered: 'qwen2.5:0.5b', count: 3, firstAt: NOW, at: NOW }] });
+    renderPage();
+    const c = await card();
+    expect(within(c).getByText(/llama3\.1:latest/)).toBeInTheDocument();
+    expect(within(c).getByText(/answered by qwen2\.5:0\.5b/)).toBeInTheDocument();
+    expect(within(c).getByText(/3 times/)).toBeInTheDocument();
+  });
+
+  it('other providers show none of it', async () => {
+    renderPage();
+    const c = (await screen.findByText('https://api.acme.test/v1')).closest('[data-provider]') as HTMLElement;
+    expect(within(c).queryByText(/Runs MICO360 Connect/)).not.toBeInTheDocument();
+    expect(within(c).queryByRole('note')).not.toBeInTheDocument();
+  });
+
+  it('b5: Test names the model that answered, and says when another stood in', async () => {
+    answers['POST /ai/models/m1/test'] = () =>
+      json({ data: { ok: true, ms: 1500, reply: 'OK', model: 'qwen2.5:0.5b', substituted: "Requested model 'acme-large' is unavailable; processing on 'qwen2.5:0.5b' instead." } });
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Test acme-large' }));
+    expect(await screen.findByText('Works · answered in 1.5 s by qwen2.5:0.5b')).toBeInTheDocument();
+    expect(screen.getByText(/processing on 'qwen2\.5:0\.5b' instead/)).toBeInTheDocument();
   });
 });

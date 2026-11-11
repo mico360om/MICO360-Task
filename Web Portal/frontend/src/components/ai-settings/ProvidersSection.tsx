@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '../ui/Button';
 import { FieldLabel, FieldError, fieldClass } from '../ui/Field';
 import { relativeTime } from '../../lib/relative-time';
-import { PROVIDER_PRESETS, sendsUnencrypted, type AiConfig, type ProviderPreset, type RedactedProvider } from '../../api/ai';
+import { PROVIDER_PRESETS, sendsUnencrypted, type AiConfig, type ProviderPlatform, type ProviderPreset, type RedactedProvider } from '../../api/ai';
 import { AI_CONFIG_KEY, ProviderBadge, errMsg, failed, plural, type SectionProps } from './shared';
 
 /** Said under an address that sends the key and prompts across a network in clear text. */
@@ -16,6 +16,80 @@ function UnencryptedNote({ url }: { url: string }) {
 function PresetHelp({ preset }: { preset: string | null | undefined }) {
   const help = PROVIDER_PRESETS.find((x) => x.id === preset)?.help;
   return help ? <p className="text-xs leading-snug text-ink-3">{help}</p> : null;
+}
+
+/** What each capability of MICO360 AI's fleet is for in Tasks (b7). */
+const FLEET_USES: Array<{ capability: string; use: string }> = [
+  { capability: 'Ocr', use: 'reading whole scanned files (every page)' },
+  { capability: 'Vision', use: 'reading pictures (and scans, when whole files can’t be read)' },
+  { capability: 'Embedding', use: 'search by meaning' },
+];
+
+/** b4: why scans were read as pictures, and who can change it. */
+function ocrFallbackWords(f: NonNullable<ProviderPlatform['ocrFallback']>): string {
+  const why =
+    f.status === 403
+      ? 'its key may not read whole documents — allow Ocr on the key in MICO360 Connect (Applications & keys)'
+      : f.status === 404
+        ? 'this MICO360 Connect has no whole-document reading — it needs updating'
+        : f.status === 503
+          ? 'no AI node could read documents at that moment — it is tried again in a few minutes'
+          : 'it would not take the file';
+  return `Scans and pictures were read as pictures (the first pages only): MICO360 AI refused whole-document reading (HTTP ${f.status}) — ${why}.`;
+}
+
+/**
+ * MICO360 AI's own facts on its card (b4, b5, b7, b11, b12): the Connect version it runs, how many requests
+ * its key may run at once, what no AI node offers right now, scans read as pictures, and stand-in models.
+ */
+function PlatformFacts({ provider: p }: { provider: RedactedProvider }) {
+  const f = p.platform;
+  if (p.preset !== 'mico360' || !f) return null;
+  const missing = f.capabilities ? FLEET_USES.filter((x) => !f.capabilities!.includes(x.capability)) : [];
+  const subs = f.substitutions ?? [];
+  return (
+    <div className="flex flex-col gap-2 text-xs">
+      {f.version || f.concurrencyLimit ? (
+        <p className="text-ink-2">
+          {f.version ? <>Runs MICO360 Connect {f.version}</> : null}
+          {f.version && f.concurrencyLimit ? ' · ' : null}
+          {f.concurrencyLimit ? <>Its key may run {f.concurrencyLimit} requests at once, shared by every model</> : null}
+          {f.checkedAt ? <span className="text-ink-3"> (checked {relativeTime(f.checkedAt)})</span> : null}
+        </p>
+      ) : null}
+      {missing.length ? (
+        <div role="note" aria-label="No AI node offers this right now" className="rounded-lg border border-warning/30 bg-warning-soft px-3 py-2 text-ink">
+          <p className="font-medium">No AI node offers this right now:</p>
+          <ul className="mt-0.5 list-disc ps-4">
+            {missing.map((x) => (
+              <li key={x.capability}>
+                <span className="font-semibold">{x.capability}</span> — {x.use}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-0.5 text-ink-2">An administrator of MICO360 Connect can install a model that offers it on a node (AI Platform → Ollama engine).</p>
+        </div>
+      ) : null}
+      {f.ocrFallback ? (
+        <p role="note" aria-label="Scans read as pictures" className="rounded-lg border border-warning/30 bg-warning-soft px-3 py-2 text-ink">
+          {ocrFallbackWords(f.ocrFallback)}
+          {f.ocrFallback.reason ? <span className="text-ink-2"> It said: {f.ocrFallback.reason}</span> : null}
+        </p>
+      ) : null}
+      {subs.length ? (
+        <div>
+          <p className="font-medium text-ink-2">Stand-in models (another model answered when the one asked for was unavailable):</p>
+          <ul className="mt-0.5 flex flex-col gap-0.5 text-ink-2">
+            {subs.map((s) => (
+              <li key={`${s.asked}|${s.answered}`} className="break-words">
+                {`${s.asked} answered by ${s.answered} · ${s.count === 1 ? 'once' : `${s.count} times`} · last ${relativeTime(s.at)}`}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 /** The services that supply models: one card each, then the form that connects another. */
@@ -147,6 +221,7 @@ function ProviderCard({ provider: p, apply, api }: { provider: RedactedProvider 
       ) : null}
 
       <p className={`text-xs ${status.tone}`}>{status.text}</p>
+      <PlatformFacts provider={p} />
       {problem ? <p role="alert" className="text-xs font-medium text-danger">{problem}</p> : null}
 
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line pt-3">

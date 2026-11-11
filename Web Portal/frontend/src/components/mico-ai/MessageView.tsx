@@ -76,7 +76,18 @@ export function MessageView({ message, actions, latest }: { message: MicoAiMessa
   };
 
   let body;
-  if (message.status === 'pending') body = <Thinking step={message.step} />;
+  // MICO360 AI (b15): the words written so far, read as the answer will be, while it is still writing.
+  if (message.status === 'pending' && message.draft)
+    body = (
+      <div className="space-y-1.5">
+        <AnswerText text={message.draft} />
+        <p className="flex items-center gap-2 text-xs text-ink-3">
+          <span aria-hidden="true" className="h-1.5 w-1.5 animate-pulse rounded-full bg-brand motion-reduce:animate-none" />
+          <span>Writing…</span>
+        </p>
+      </div>
+    );
+  else if (message.status === 'pending') body = <Thinking step={message.step} />;
   else if (message.status === 'stopped') body = <p className="text-sm text-ink-2">Stopped.</p>;
   else if (message.status === 'error' || !a)
     body = (
@@ -101,6 +112,7 @@ export function MessageView({ message, actions, latest }: { message: MicoAiMessa
       data-mico-message="assistant"
       tabIndex={-1}
       aria-label="MICO AI’s answer"
+      aria-busy={message.status === 'pending' ? true : undefined}
       className="flex gap-3 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-brand/40 focus-visible:ring-offset-4 focus-visible:ring-offset-surface sm:gap-4"
     >
       <span className="pt-0.5">

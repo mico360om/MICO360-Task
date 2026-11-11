@@ -24,7 +24,7 @@ const SERVER_DETAIL = {
   group: { ...GROUPS[1], topFile: 'src/modules/search/task-search-engine.ts', topLine: 119, topFunction: 'Object.search' },
   events: [
     { id: 'e3', at: '2026-11-04T02:00:00.000Z', kind: 'SERVER', detail: 'request', message: GROUPS[1]!.title, stack: '    at Object.search (src/modules/search/task-search-engine.ts:119:29)', page: 'GET /api/v1/search', job: null, resource: null, database: SAID, value: null, count: 1, version: '1.22.4', browser: null, system: null, screen: null, signedIn: true, person: { id: 'u2', name: 'Omar Said' } },
-    { id: 'e4', at: '2026-11-04T01:00:00.000Z', kind: 'SERVER', detail: 'request', message: GROUPS[1]!.title, stack: null, page: 'GET /api/v1/search', job: null, resource: null, database: null, value: null, count: 1, version: '1.22.4', browser: null, system: null, screen: null, signedIn: true, person: { id: 'u2', name: 'Omar Said' } },
+    { id: 'e4', at: '2026-11-04T01:00:00.000Z', kind: 'SERVER', detail: 'request', message: GROUPS[1]!.title, stack: null, page: 'GET /api/v1/search', job: null, resource: null, database: null, ai: 'MICO360 AI · correlation id REQ-77 · job JOB-GW1-9', value: null, count: 1, version: '1.22.4', browser: null, system: null, screen: null, signedIn: true, person: { id: 'u2', name: 'Omar Said' } },
   ],
 };
 
@@ -152,6 +152,15 @@ describe('ErrorLogPage (System Settings → Error log)', () => {
     expect(said).toHaveTextContent(`Database said: ${SAID}`);
     const occurrences = screen.getByText('Latest occurrences').parentElement!;
     expect(within(occurrences).getAllByText(`Database said: ${SAID}`)).toHaveLength(1);
+  });
+
+  // MICO360 AI (b) bundles, b10: an AI failure's occurrence shows the ids to quote to MICO360 Connect.
+  it('a MICO360 AI failure’s occurrence shows its correlation and job ids', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click((await screen.findByText('nightly backup sweep failed: ENOSPC')).closest('button')!);
+    const occurrences = (await screen.findByText('Latest occurrences')).parentElement!;
+    expect(within(occurrences).getByText('MICO360 AI · correlation id REQ-77 · job JOB-GW1-9')).toBeInTheDocument();
   });
 
   it('“Marked fixed” lists them, with Not fixed to bring one back', async () => {

@@ -133,7 +133,7 @@ function ChatTitle({ chat, onRename }: { chat: MicoAiChat | null; onRename: (tit
  * Asking returns a pending answer at once; the page follows it (dots and what MICO AI is doing, with
  * Stop) until it is written.
  */
-export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?: number; searchDebounceMs?: number }) {
+export function MicoAiPage({ pollMs = 1000, draftPollMs = 400, searchDebounceMs = 250 }: { pollMs?: number; draftPollMs?: number; searchDebounceMs?: number }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const location = useLocation();
@@ -278,7 +278,8 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
     queryKey: ['mico-ai', 'message', chatId, pending?.id],
     queryFn: () => api.message(chatId!, pending!.id),
     enabled: !!chatId && !!pending && !isGone,
-    refetchInterval: pollMs,
+    // MICO360 AI (b15): while its words are arriving, the answer is read a little more often.
+    refetchInterval: pending?.draft ? Math.min(pollMs, draftPollMs) : pollMs,
     gcTime: 0,
     retry: (count, err) => !isGoneError(err) && count < 2,
   });
@@ -292,7 +293,7 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
   useEffect(() => {
     const m = pollQ.data;
     if (!m || !chatId || m.id !== pending?.id) return;
-    if (m.status !== pending.status || m.step !== pending.step) patchMessage(chatId, m);
+    if (m.status !== pending.status || m.step !== pending.step || (m.draft ?? null) !== (pending.draft ?? null)) patchMessage(chatId, m);
     if (m.status !== 'pending') {
       setLive(announcement(m));
       refreshList();
@@ -324,9 +325,9 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
   // - older messages came in above ("Load earlier messages"): you stay where you were;
   // - a new message at the end (you asked): the end;
   // - an answer finished while you followed it: its start, when it is taller than the view, else the end;
-  // - a new progress step: the end, only if you are already there.
+  // - a new progress step, or more of the answer's words (b15): the end, only if you are already there.
   // (Nothing seen yet: the first look always places the conversation, a new chat at its top.)
-  const seen = useRef<{ chatId: string | null | undefined; first: string | null; last: string | null; pendingId: string | null; step: string | null }>({ chatId: undefined, first: null, last: null, pendingId: null, step: null });
+  const seen = useRef<{ chatId: string | null | undefined; first: string | null; last: string | null; pendingId: string | null; step: string | null; draft: string | null }>({ chatId: undefined, first: null, last: null, pendingId: null, step: null, draft: null });
   /** The message area's height and position just before older messages are put in above. */
   const keepPlace = useRef<{ height: number; top: number } | null>(null);
   const firstId = messages[0]?.id ?? null;
@@ -334,7 +335,7 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
   useLayoutEffect(() => {
     const el = scroller.current;
     const was = seen.current;
-    seen.current = { chatId, first: firstId, last: lastId, pendingId: pending?.id ?? null, step: pending?.step ?? null };
+    seen.current = { chatId, first: firstId, last: lastId, pendingId: pending?.id ?? null, step: pending?.step ?? null, draft: pending?.draft ?? null };
     if (!el) return;
     const toEnd = () => {
       el.scrollTop = el.scrollHeight;
@@ -372,8 +373,8 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
       } else toEnd();
       return;
     }
-    if ((pending?.step ?? null) !== was.step && atEnd.current) toEnd();
-  }, [chatId, firstId, lastId, pending?.id, pending?.step, messages.length]);
+    if (((pending?.step ?? null) !== was.step || (pending?.draft ?? null) !== was.draft) && atEnd.current) toEnd();
+  }, [chatId, firstId, lastId, pending?.id, pending?.step, pending?.draft, messages.length]);
 
   // When the message area gets shorter (a phone's keyboard opens, the window is resized) while the
   // newest message is in view, it stays in view.
