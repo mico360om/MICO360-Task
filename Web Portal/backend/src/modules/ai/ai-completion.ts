@@ -1,68 +1,16 @@
 import { ValidationError } from '../../lib/http-errors';
 import type { AiModelParameters, AiProvider } from './ai-config';
 import { isReasoningModel } from './ai-model-catalog';
-import { createSafeFetch, isMico360Provider, providerErrorDetail, providerFetch, readProviderJson } from './ai-network';
+import { createSafeFetch, isMico360Provider, micoId, providerFetch, readProviderJson } from './ai-network';
+import { ProviderRefusedError, providerRefusal } from './ai-errors';
+import { collectJob, idempotencyKey, micoMeta } from './mico360-native';
+import { NativeStreamUnavailable, streamChat } from './mico360-stream';
 import { wellFormed } from './ai-text';
+
+export { ProviderRefusedError, providerRefusal } from './ai-errors';
 
 /** OpenAI reasoning models think before answering, out of the same token budget: leave them room. */
 const REASONING_MIN_TOKENS = 4096;
-
-/**
- * A provider refused a request. `message` is what anyone may see; `detail` is the provider's own
- * explanation (which can name models or accounts), shown to admins only (the model test).
- * `providerStatus` is the provider's HTTP status; our own answer stays 400 (`status`), so a
- * provider's 401 or 429 never reads as the user's session expiring or their own rate limit.
- */
-export class ProviderRefusedError extends ValidationError {
-  constructor(
-    public readonly providerStatus: number,
-    public readonly detail: string | null,
-    /** A 429 for a used-up quota (MICO360 AI), not a busy moment: trying again soon may not help. */
-    public readonly quota = false,
-    /** The answer's Retry-After in seconds, when it gave one as a number. */
-    public readonly retryAfterSeconds: number | null = null,
-  ) {
-    super(quota ? QUOTA_MESSAGE : refusalMessage(providerStatus));
-  }
-}
-
-const QUOTA_MESSAGE =
-  'The AI service’s usage allowance is used up for now (HTTP 429). It starts again when its period resets — an admin can check the key’s quota in MICO360 Connect.';
-
-/**
- * MICO360 AI's 429 is one of three (its guide, §2, §5, §8): the key's concurrency (Retry-After: 1), its
- * rate limit (until the minute ends) or a quota — "Quota exceeded: …", with a Retry-After until the
- * period resets (an hour, a day, a month). A quota is said as one; the others are "busy".
- */
-const QUOTA_RETRY_AFTER_SECONDS = 60;
-
-/** The provider's refusal, read from its answer: the reason it gives, and (MICO360 AI) whether it is a quota. */
-export async function providerRefusal(res: Response, provider: { preset?: string | null; apiBaseUrl?: string | null }): Promise<ProviderRefusedError> {
-  const detail = await providerErrorDetail(res);
-  const header = res.headers.get('retry-after')?.trim();
-  const seconds = header && /^\d+$/.test(header) ? Number(header) : null;
-  const quota =
-    isMico360Provider(provider) &&
-    res.status === 429 &&
-    (/^\s*quota exceeded/i.test(detail ?? '') || (seconds !== null && seconds > QUOTA_RETRY_AFTER_SECONDS));
-  return new ProviderRefusedError(res.status, detail, quota, seconds);
-}
-
-/** What a person is told for a provider's answer: the plain cause where the status says it. */
-function refusalMessage(status: number): string {
-  switch (status) {
-    case 429:
-      return 'The AI service is busy right now (HTTP 429). Try again in a moment.';
-    case 503:
-      return 'The AI service has no model available right now (HTTP 503). Try again in a minute, or ask an admin to check AI Management.';
-    case 504:
-      return 'The AI service took too long to answer (HTTP 504). Try again.';
-    case 413:
-      return 'That is too long for the AI service to read (HTTP 413).';
-    default:
-      return `The AI provider rejected the request (HTTP ${status}).`;
-  }
-}
 
 /** A "try again in a second" (429) worth waiting for once: a Retry-After of at most this many seconds. */
 const SHORT_RETRY_SECONDS = 3;
@@ -81,6 +29,12 @@ export interface ChatModel {
   parameters?: AiModelParameters;
 }
 
+/** A JSON Schema a feature's answer is held to (b1): `name` as OpenAI's json_schema names it. */
+export interface AnswerSchema {
+  name: string;
+  schema: Record<string, unknown>;
+}
+
 export interface CompletionInput {
   /** System / instruction prompt (how to behave). */
   system?: string;
@@ -94,8 +48,29 @@ export interface CompletionInput {
    * asked in the prompt only, as before.
    */
   json?: boolean;
+  /**
+   * b1 (MICO360 AI): the JSON Schema the answer must follow (`response_format: json_schema`, or the live
+   * stream's `format`). The caller still checks the answer as before (the second check). Implies `json`.
+   */
+  schema?: AnswerSchema;
+  /** b6 (MICO360 AI): the Tasks user the request is for, sent as `user` (the platform pseudonymises it). */
+  user?: string;
   /** 1.23 OCR: pictures for the model to read with the prompt (a model that reads images). */
   images?: { data: Buffer; mimeType: string }[];
+}
+
+/** What a MICO360 AI answer said about itself (b5, b10, b11), for the caller to note. */
+export interface ProviderCallInfo {
+  /** It answered (else it was refused). */
+  ok: boolean;
+  /** The model that answered, as the platform names it (the stream never says: null). */
+  model: string | null;
+  /** Another model answered than the one asked for: the platform's words. */
+  substituted: string | null;
+  correlationId: string | null;
+  jobId: string | null;
+  /** The key's concurrency (X-Mico-Concurrency-Limit). */
+  concurrencyLimit: number | null;
 }
 
 export interface CompletionOptions {
@@ -103,10 +78,24 @@ export interface CompletionOptions {
   timeoutMs?: number;
   /** Allow private / internal provider hosts (a local model server). Default false. */
   allowPrivateHosts?: boolean;
-  /** Waits before the one retry of a "busy, try again in a second" (tests pass a fake). */
+  /** Waits before the one retry of a "busy, try again in a second" (tests pass a fake), and between looks at a job. */
   sleep?: (ms: number) => Promise<void>;
   /** The caller's stop: the call ends at once with AiCallStoppedError (MICO AI's Stop button). */
   signal?: AbortSignal;
+  /**
+   * b2 (MICO360 AI): a background job's scope (its id). The request carries an `Idempotency-Key` made of it
+   * and what is sent, so the job's next try of the same request is answered from the first one's work.
+   */
+  idempotencyKey?: string;
+  /** b3 (MICO360 AI): a 504 that left the job running is collected (GET /api/v1/jobs/{id}) until then (ms since 1970). */
+  collectUntil?: number;
+  /** b5, b10, b11 (MICO360 AI): told what each answer (or refusal) said about itself. */
+  observe?: (info: ProviderCallInfo) => void;
+  /**
+   * b15 (MICO360 AI): the whole text so far, as the model writes it — the call goes to the native live
+   * stream (POST /api/v1/chat/stream). Other providers ignore it.
+   */
+  onText?: (text: string) => void;
 }
 
 /** The default wait for a provider's answer: a cold model on MICO360 AI loads for 20–90 seconds. */
@@ -117,6 +106,8 @@ export const COMPLETION_TIMEOUT_MS = 120_000;
  * over it, 413. Every feature's prompt is built to fit it (ai-prompt-size.test).
  */
 export const CONVERSATION_LIMIT = 32_000;
+
+const str = (v: unknown, max = 300): string | null => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : null);
 
 /**
  * Single-turn text completion against a configured provider. Speaks each provider kind's
@@ -129,11 +120,23 @@ export async function complete(
   fetchImpl?: typeof fetch,
   opts: CompletionOptions = {},
 ): Promise<string> {
+  const mico = isMico360Provider(model.provider);
   // MICO360 AI's JSON reader refuses half a character ("\ud83d", from a text cut inside an emoji): the
   // instructions and the prompt are sent well formed (review I2). Other providers get them as given.
-  const input: CompletionInput = isMico360Provider(model.provider)
+  const input: CompletionInput = mico
     ? { ...given, prompt: wellFormed(given.prompt), ...(given.system !== undefined ? { system: wellFormed(given.system) } : {}) }
     : given;
+  const doFetch = fetchImpl ?? createSafeFetch({ allowPrivateHosts: opts.allowPrivateHosts });
+  const timeoutMs = opts.timeoutMs ?? COMPLETION_TIMEOUT_MS;
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const keyFor = (route: string, body: string) => (mico && opts.idempotencyKey ? idempotencyKey(opts.idempotencyKey, route, body) : undefined);
+
+  // b15: MICO360 AI's live text, when someone is reading it as it is written (a server without it: /v1).
+  if (mico && opts.onText && !input.images?.length) {
+    const stream = await completeLive(model, input, doFetch, { ...opts, timeoutMs, sleep }, keyFor);
+    if (stream !== null) return stream;
+  }
+
   const base = model.provider.apiBaseUrl.replace(/\/+$/, '');
   const maxTokens = input.maxTokens ?? model.parameters?.maxTokens ?? 1024;
   const temperature = model.parameters?.temperature ?? 0.3;
@@ -183,8 +186,14 @@ export async function complete(
       const messages = [...(input.system ? [{ role: 'system', content: input.system }] : []), { role: 'user', content: userContent }];
       if (model.provider.kind !== 'openai') {
         // Other OpenAI-compatible services still take max_tokens.
-        body = { model: model.modelKey, max_tokens: maxTokens, temperature, messages };
-        if (input.json && isMico360Provider(model.provider)) (body as Record<string, unknown>).response_format = { type: 'json_object' };
+        const b: Record<string, unknown> = { model: model.modelKey, max_tokens: maxTokens, temperature, messages };
+        if (mico) {
+          // b1: a feature's own schema when it has one, else any JSON object (2.6.7+ holds the model to it).
+          if (input.schema) b.response_format = { type: 'json_schema', json_schema: { name: input.schema.name, schema: input.schema.schema } };
+          else if (input.json) b.response_format = { type: 'json_object' };
+          if (input.user) b.user = input.user;
+        }
+        body = b;
       } else if (isReasoningModel(model.modelKey)) {
         // o-series and GPT-5 refuse max_tokens and any temperature but the default.
         body = { model: model.modelKey, max_completion_tokens: Math.max(maxTokens, REASONING_MIN_TOKENS), reasoning_effort: 'low', messages };
@@ -195,30 +204,81 @@ export async function complete(
     }
   }
 
+  const payload = JSON.stringify(body);
+  const key = keyFor('POST /v1/chat/completions', payload);
+  if (key) headers['Idempotency-Key'] = key;
   const send = () =>
-    providerFetch(
-      url,
-      { method: 'POST', headers, body: JSON.stringify(body) },
-      {
-        fetchImpl: fetchImpl ?? createSafeFetch({ allowPrivateHosts: opts.allowPrivateHosts }),
-        timeoutMs: opts.timeoutMs ?? COMPLETION_TIMEOUT_MS,
-        allowPrivateHosts: opts.allowPrivateHosts,
-        signal: opts.signal,
-      },
-    );
+    providerFetch(url, { method: 'POST', headers, body: payload }, { fetchImpl: doFetch, timeoutMs, allowPrivateHosts: opts.allowPrivateHosts, signal: opts.signal });
   let res = await send();
   // A service at its concurrency limit says "try again in a second": wait that once, then ask again.
   const wait = shortRetryAfter(res);
   if (wait !== null) {
     await res.body?.cancel().catch(() => {});
-    await (opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms))))(wait);
+    await sleep(wait);
     res = await send();
   }
-  if (!res.ok) throw await providerRefusal(res, model.provider);
+  const meta = mico ? micoMeta(res) : null;
+  if (!res.ok) {
+    const refusal = await providerRefusal(res, model.provider);
+    if (mico) opts.observe?.({ ok: false, model: null, substituted: null, correlationId: refusal.correlationId, jobId: refusal.jobId, concurrencyLimit: meta!.concurrencyLimit });
+    // b3: the platform keeps a job that hit its own 300 s: collect it while the feature still has time.
+    if (mico && res.status === 504 && refusal.jobId && opts.collectUntil && opts.collectUntil > Date.now()) {
+      const job = await collectJob(model.provider, refusal.jobId, { fetchImpl: doFetch, allowPrivateHosts: opts.allowPrivateHosts, signal: opts.signal, deadline: opts.collectUntil, sleep });
+      const text = job.output.trim();
+      if (!text) throw new ValidationError('The AI provider returned an empty response.');
+      opts.observe?.({ ok: true, model: job.model, substituted: job.warning, correlationId: refusal.correlationId, jobId: refusal.jobId, concurrencyLimit: null });
+      return text;
+    }
+    throw refusal;
+  }
   const json = await readProviderJson(res);
+  if (mico && meta) {
+    const j = (json && typeof json === 'object' ? json : {}) as { id?: unknown; model?: unknown; warning?: unknown };
+    opts.observe?.({ ok: true, model: str(j.model, 200), substituted: str(j.warning) ?? meta.modelWarning, correlationId: meta.correlationId, jobId: micoId(j.id), concurrencyLimit: meta.concurrencyLimit });
+  }
   const text = extractText(model.provider.kind, json);
   if (!text) throw new ValidationError('The AI provider returned an empty response.');
   return text;
+}
+
+/** b15: one answer on MICO360 AI's live stream; null when the server has none (ask /v1 instead). */
+async function completeLive(
+  model: ChatModel,
+  input: CompletionInput,
+  fetchImpl: typeof fetch,
+  opts: CompletionOptions & { timeoutMs: number; sleep: (ms: number) => Promise<void> },
+  keyFor: (route: string, body: string) => string | undefined,
+): Promise<string | null> {
+  const timeoutSeconds = Math.max(1, Math.min(600, Math.ceil(opts.timeoutMs / 1000)));
+  const request = {
+    prompt: input.prompt,
+    ...(input.system ? { system: input.system } : {}),
+    model: model.modelKey,
+    ...(input.user ? { user: input.user } : {}),
+    ...(input.schema ? { format: input.schema.schema } : input.json ? { format: 'json' as const } : {}),
+    timeoutSeconds,
+  };
+  try {
+    const out = await streamChat(model.provider, request, {
+      fetchImpl,
+      allowPrivateHosts: opts.allowPrivateHosts,
+      signal: opts.signal,
+      // A little longer than the platform's own wait, so its `done: timed_out` comes first.
+      timeoutMs: (timeoutSeconds + 10) * 1000,
+      collectUntil: opts.collectUntil ?? Date.now() + 2 * opts.timeoutMs,
+      idempotencyKey: keyFor('POST /api/v1/chat/stream', JSON.stringify(request)),
+      onText: opts.onText,
+      sleep: opts.sleep,
+    });
+    opts.observe?.({ ok: true, model: null, substituted: null, correlationId: out.correlationId, jobId: out.jobId, concurrencyLimit: null });
+    const text = out.text.trim();
+    if (!text) throw new ValidationError('The AI provider returned an empty response.');
+    return text;
+  } catch (err) {
+    if (err instanceof NativeStreamUnavailable) return null;
+    if (err instanceof ProviderRefusedError) opts.observe?.({ ok: false, model: null, substituted: null, correlationId: err.correlationId, jobId: err.jobId, concurrencyLimit: null });
+    throw err;
+  }
 }
 
 /** Pull the assistant text out of each provider's response shape. */

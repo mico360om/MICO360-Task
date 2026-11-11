@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { complete, extractText, type ChatModel } from './ai-completion';
+import { complete, extractText, ProviderRefusedError, type ChatModel } from './ai-completion';
 import { AiCallStoppedError } from './ai-network';
 import { isRetryable } from '../ai-jobs/ai-job-runner';
 
@@ -306,5 +306,144 @@ describe('complete with pictures (1.23 OCR)', () => {
     const { calls, fetchImpl } = take({ message: { content: 'ok' } });
     await complete({ provider: { kind: 'ollama', apiBaseUrl: 'http://localhost:11434', apiKey: '' }, modelKey: 'llava' }, { prompt: 'Read it', images: [picture] }, fetchImpl, { allowPrivateHosts: true });
     expect((calls[0]!.body.messages as unknown[]).at(-1)).toEqual({ role: 'user', content: 'Read it', images: [picture.data.toString('base64')] });
+  });
+});
+
+describe('MICO360 AI (b) bundles in complete()', () => {
+  const mico: ChatModel = { provider: { kind: 'custom', apiBaseUrl: 'https://ai.mico360.com:5310/v1', apiKey: 'mico_key', preset: 'mico360' }, modelKey: 'llama3.1:latest' };
+  const other: ChatModel = { provider: { kind: 'custom', apiBaseUrl: 'https://api.groq.com/openai/v1', apiKey: 'k', preset: 'groq' }, modelKey: 'llama-3.3' };
+  const ok = (content: string, extra: Record<string, unknown> = {}, headers: Record<string, string> = {}) =>
+    new Response(JSON.stringify({ id: 'JOB-GW1-1', object: 'chat.completion', model: 'llama3.1:latest', choices: [{ message: { content } }], ...extra }), { status: 200, headers });
+  const record = (answer: (url: string, n: number) => Response) => {
+    const calls: { url: string; headers: Headers; body: Record<string, unknown> | null }[] = [];
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      let body: Record<string, unknown> | null = null;
+      try {
+        body = JSON.parse(String(init?.body));
+      } catch {
+        body = null;
+      }
+      calls.push({ url: String(url), headers: new Headers(init?.headers), body });
+      return answer(String(url), calls.length);
+    }) as unknown as typeof fetch;
+    return { calls, fetchImpl };
+  };
+  const schema = { name: 'priority', schema: { type: 'object', properties: { priority: { type: 'string', enum: ['LOW', 'HIGH'] } }, required: ['priority'] } };
+
+  it('b1: a feature’s JSON Schema is sent as response_format json_schema; other services get none', async () => {
+    const m = record(() => ok('{"priority":"HIGH"}'));
+    await complete(mico, { prompt: 'p', json: true, schema }, m.fetchImpl);
+    expect(m.calls[0]!.body!.response_format).toEqual({ type: 'json_schema', json_schema: schema });
+    const o = record(() => ok('{}'));
+    await complete(other, { prompt: 'p', json: true, schema }, o.fetchImpl);
+    expect(o.calls[0]!.body).not.toHaveProperty('response_format');
+  });
+
+  it('b6: the Tasks user id goes as `user` (MICO360 AI only)', async () => {
+    const m = record(() => ok('x'));
+    await complete(mico, { prompt: 'p', user: 'cuser123' }, m.fetchImpl);
+    expect(m.calls[0]!.body!.user).toBe('cuser123');
+    const o = record(() => ok('x'));
+    await complete(other, { prompt: 'p', user: 'cuser123' }, o.fetchImpl);
+    expect(o.calls[0]!.body).not.toHaveProperty('user');
+  });
+
+  it('b2: a background job’s scope becomes an Idempotency-Key, the same for the same request', async () => {
+    const m = record(() => ok('x'));
+    await complete(mico, { prompt: 'same' }, m.fetchImpl, { idempotencyKey: 'tasks-mom-job1' });
+    await complete(mico, { prompt: 'same' }, m.fetchImpl, { idempotencyKey: 'tasks-mom-job1' });
+    await complete(mico, { prompt: 'changed' }, m.fetchImpl, { idempotencyKey: 'tasks-mom-job1' });
+    const keys = m.calls.map((c) => c.headers.get('idempotency-key'));
+    expect(keys[0]).toMatch(/^tasks-mom-job1-[0-9a-f]{40}$/);
+    expect(keys[1]).toBe(keys[0]);
+    expect(keys[2]).not.toBe(keys[0]);
+    const o = record(() => ok('x'));
+    await complete(other, { prompt: 'same' }, o.fetchImpl, { idempotencyKey: 'tasks-mom-job1' });
+    expect(o.calls[0]!.headers.get('idempotency-key')).toBeNull();
+  });
+
+  it('b5, b11: what the answer says about itself reaches the caller (the model that answered, the key’s concurrency)', async () => {
+    const seen: unknown[] = [];
+    const m = record(() =>
+      ok('x', { model: 'qwen2.5:0.5b', warning: "Requested model 'llama3.1:latest' is unavailable; processing on 'qwen2.5:0.5b' instead." }, { 'x-mico-correlation-id': 'REQ-1', 'x-mico-concurrency-limit': '6', 'x-mico-model-warning': 'sub' }),
+    );
+    await complete(mico, { prompt: 'p' }, m.fetchImpl, { observe: (i) => seen.push(i) });
+    expect(seen).toEqual([
+      { ok: true, model: 'qwen2.5:0.5b', substituted: "Requested model 'llama3.1:latest' is unavailable; processing on 'qwen2.5:0.5b' instead.", correlationId: 'REQ-1', jobId: 'JOB-GW1-1', concurrencyLimit: 6 },
+    ]);
+  });
+
+  it('b3: a 504 that left the job running is collected with the native key until the deadline', async () => {
+    const m = record((url) =>
+      url.endsWith('/chat/completions')
+        ? new Response(JSON.stringify({ error: { message: 'The request did not complete within 300 seconds (job JOB-GW1-77, correlation id REQ-77).', type: 'timeout', code: null } }), { status: 504 })
+        : new Response(JSON.stringify({ jobId: 'JOB-GW1-77', state: 'Completed', output: '{"summary":"done"}' }), { status: 200 }),
+    );
+    const out = await complete(mico, { prompt: 'p' }, m.fetchImpl, { collectUntil: Date.now() + 60_000, sleep: async () => {} });
+    expect(out).toBe('{"summary":"done"}');
+    expect(m.calls[1]!.url).toBe('https://ai.mico360.com:5310/api/v1/jobs/JOB-GW1-77');
+    expect(m.calls[1]!.headers.get('x-mico-api-key')).toBe('mico_key');
+  });
+
+  it('b3: without a deadline a 504 is a refusal naming the job (b10)', async () => {
+    const m = record(() => new Response(JSON.stringify({ error: { message: 'The request did not complete within 300 seconds (job JOB-GW1-78, correlation id REQ-78).' } }), { status: 504, headers: { 'x-mico-correlation-id': 'REQ-78' } }));
+    const err = (await complete(mico, { prompt: 'p' }, m.fetchImpl).catch((e: unknown) => e)) as ProviderRefusedError;
+    expect(err.providerStatus).toBe(504);
+    expect(err.jobId).toBe('JOB-GW1-78');
+    expect(err.correlationId).toBe('REQ-78');
+    expect(m.calls).toHaveLength(1);
+  });
+
+  it('b9: MICO360 AI’s 401, 403 and 502 say who can fix them; other services keep the general words', async () => {
+    for (const [status, words] of [
+      [401, /did not accept the API key \(HTTP 401\)/],
+      [403, /may not be used for this \(HTTP 403\).*Applications & keys/],
+      [502, /model failed while answering \(HTTP 502\)/],
+    ] as const) {
+      const m = record(() => new Response(JSON.stringify({ error: { message: 'x' } }), { status }));
+      expect(((await complete(mico, { prompt: 'p' }, m.fetchImpl).catch((e: unknown) => e)) as Error).message).toMatch(words);
+      const o = record(() => new Response(JSON.stringify({ error: { message: 'x' } }), { status }));
+      expect(((await complete(other, { prompt: 'p' }, o.fetchImpl).catch((e: unknown) => e)) as Error).message).toBe(`The AI provider rejected the request (HTTP ${status}).`);
+    }
+  });
+
+  it('b15: with a listener, MICO360 AI answers on its native live stream (the schema as `format`)', async () => {
+    const enc = new TextEncoder();
+    const event = (name: string, data: unknown) => enc.encode(`event: ${name}\ndata: ${JSON.stringify(data)}\n\n`);
+    const m = record((url) =>
+      url.endsWith('/chat/stream')
+        ? new Response(
+            new ReadableStream({
+              start(c) {
+                c.enqueue(event('chunk', { sequence: 0, text: '{"priority":', jobId: 'JOB-L' }));
+                c.enqueue(event('chunk', { sequence: 1, text: '"HIGH"}', jobId: 'JOB-L' }));
+                c.enqueue(event('done', { reason: 'completed', chunks: 2, jobId: 'JOB-L', correlationId: 'REQ-L' }));
+                c.close();
+              },
+            }),
+            { status: 200, headers: { 'content-type': 'text/event-stream' } },
+          )
+        : ok('never'),
+    );
+    const seen: string[] = [];
+    const out = await complete(mico, { system: 's', prompt: 'p', json: true, schema, user: 'u9' }, m.fetchImpl, { onText: (t) => seen.push(t), idempotencyKey: 'tasks-ai-j' });
+    expect(out).toBe('{"priority":"HIGH"}');
+    expect(seen).toEqual(['{"priority":', '{"priority":"HIGH"}']);
+    expect(m.calls).toHaveLength(1);
+    expect(m.calls[0]!.url).toBe('https://ai.mico360.com:5310/api/v1/chat/stream');
+    expect(m.calls[0]!.body).toMatchObject({ prompt: 'p', system: 's', model: 'llama3.1:latest', user: 'u9', format: schema.schema });
+    expect(m.calls[0]!.headers.get('idempotency-key')).toMatch(/^tasks-ai-j-[0-9a-f]{40}$/);
+  });
+
+  it('b15: a server without the live stream is asked on /v1 as before', async () => {
+    const m = record((url) => (url.endsWith('/chat/stream') ? new Response(null, { status: 404 }) : ok('plain answer')));
+    expect(await complete(mico, { prompt: 'p' }, m.fetchImpl, { onText: () => {} })).toBe('plain answer');
+    expect(m.calls.map((c) => c.url)).toEqual(['https://ai.mico360.com:5310/api/v1/chat/stream', 'https://ai.mico360.com:5310/v1/chat/completions']);
+  });
+
+  it('b15: other providers ignore the listener (no stream)', async () => {
+    const o = record(() => ok('x'));
+    await complete(other, { prompt: 'p' }, o.fetchImpl, { onText: () => {} });
+    expect(o.calls[0]!.url).toBe('https://api.groq.com/openai/v1/chat/completions');
   });
 });
