@@ -290,6 +290,12 @@ export function createTrainingStarter(deps: TrainingStarterDeps): { run(): Promi
         await tx.trainingLesson.create({ data: common });
       }
     }
+    // A published course reads as published with nothing changed since: its rows carry the publish moment
+    // (the Learning Hub's "Changes not published" compares updatedAt with publishedAt).
+    if (course.status === 'PUBLISHED') {
+      await tx.trainingLesson.updateMany({ where: { courseId: c.id }, data: { updatedAt: at } });
+      await tx.trainingCourse.update({ where: { id: c.id }, data: { updatedAt: at } });
+    }
   }
 
   /** One course: 'loaded', 'skipped' (already there) or 'failed' (warned; tried again at the next start). */

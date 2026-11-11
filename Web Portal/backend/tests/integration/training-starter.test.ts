@@ -186,6 +186,17 @@ describe('Training starter content (R17)', () => {
     );
   });
 
+  it('a published starter course reads as published with no changes since (its stamp comes after every write)', async () => {
+    // As in real life: the clock is read before the rows are written (here an hour back, to make it plain).
+    await starter(fixture(), logger(), () => new Date(Date.now() - 3600_000)).run();
+    const c = await prisma.trainingCourse.findUniqueOrThrow({ where: { starterKey: KEYS.tasks }, include: { lessons: true } });
+    expect(c.publishedAt).not.toBeNull();
+    expect(c.updatedAt.getTime()).toBeLessThanOrEqual(c.publishedAt!.getTime());
+    for (const l of c.lessons) expect(l.updatedAt.getTime()).toBeLessThanOrEqual(c.publishedAt!.getTime());
+    const draft = await prisma.trainingCourse.findUniqueOrThrow({ where: { starterKey: KEYS.video } });
+    expect(draft.publishedAt).toBeNull();
+  });
+
   it('never again once loaded: a second run adds nothing, and a deleted starter course does not come back', async () => {
     await starter(fixture()).run();
     const filesBefore = readdirSync(privateDir).length;
