@@ -119,6 +119,7 @@ import { runExclusive, createPrismaJobLockStore } from './lib/job-lock';
 import { createJobGate } from './lib/job-gate';
 import { databaseConnectionCode } from './lib/db-connection';
 import { createShutdown } from './lib/shutdown';
+import { createUpdateWindow } from './lib/update-window';
 import { createDatabaseCheck, prismaDatabaseReads } from './modules/error-log/database-check';
 import { databaseProbes } from './modules/error-log/database-probes';
 import { isMuted, normalizePreferences } from './modules/notifications/notification-preferences';
@@ -281,6 +282,9 @@ import { createFirstPassword, createPrismaFirstPasswordRepo } from './modules/au
 import { createPrismaIdentityLookup } from './modules/users/identity-check';
 
 async function main(): Promise<void> {
+  // 1.23.14: the process's first minute and its stop (SIGTERM) are an update restart's: a database blip then
+  // is a calm "Update restart" row in the Error log, not a red Server error (lib/update-window).
+  const updateWindow = createUpdateWindow({ startedAt: Date.now() - process.uptime() * 1000 });
   const env = getEnv();
   const baseLogger = createLogger({ service: 'mico360-api', level: env.NODE_ENV === 'production' ? 'info' : 'debug' });
   // ── The Error log (1.22.4, System Settings → Error log) ──────────────────────
@@ -322,6 +326,7 @@ async function main(): Promise<void> {
     },
     warn: (message, meta) => baseLogger.warn(message, meta),
     userNames: (ids) => resolveUserNames(ids),
+    updateWindow: () => updateWindow.phase(),
   });
   const logger = withErrorLog(baseLogger, (message, ctx) => errorLog.recordServer(message, ctx));
   // 1.23.1 (lib/job-gate): background jobs start once the database first answered (a deploy restart
@@ -2581,6 +2586,7 @@ async function main(): Promise<void> {
   // then the other timers, the server and the Error log's writes, and the database client last — so a
   // restart records nothing in the Error log (lib/shutdown).
   const shutdown = createShutdown({
+    markStopping: () => updateWindow.markStopping(),
     stopJobs: () => jobs.stop(),
     stopTimers: () => {
       taskSearchSweeps.stop();

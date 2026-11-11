@@ -106,6 +106,16 @@ describe('installErrorCapture: what the page reports by itself', () => {
     expect(reports).toEqual([]);
   });
 
+  // 1.23.15 (after the avatar photos merge): a face picture that isn't there (the page then shows the photo
+  // itself, or the initials) is someone's picture, never a blocked site file.
+  it('a missing face picture (/uploads/faces/…) is not a blocked site file', () => {
+    const img = document.createElement('img');
+    img.src = `${window.location.origin}/uploads/faces/clx0p8k2a0000qz8y6j1v3n4r.png.webp`;
+    document.body.appendChild(img);
+    img.dispatchEvent(new Event('error'));
+    expect(reports).toEqual([]);
+  });
+
   it('what the security policy blocked (the page’s own event)', () => {
     const e = new Event('securitypolicyviolation') as Event & Record<string, unknown>;
     Object.assign(e, { blockedURI: 'https://evil.example/x.js?token=1', effectiveDirective: 'script-src-elem', violatedDirective: 'script-src-elem', sourceFile: '', disposition: 'enforce' });

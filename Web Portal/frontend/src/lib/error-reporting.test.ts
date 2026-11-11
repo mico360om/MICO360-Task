@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { browserReporterWorld } from './error-reporting';
+import { browserReporterWorld, serverUptimeMs } from './error-reporting';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -29,5 +29,35 @@ describe('browserReporterWorld: how the page sends its reports', () => {
   it('asks /config whether the site collects at all', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ data: { collectBrowserErrors: false } }))));
     expect(await browserReporterWorld({ baseUrl: '/api/v1', getToken: () => null }).collecting()).toBe(false);
+  });
+});
+
+// 1.23.14: a request that never reached the server asks the server how long it has been up (an update restart?).
+describe('serverUptimeMs: how long the server has been up, from /health', () => {
+  it('its uptime in ms; null when it doesn’t answer, answers an error page, or says nonsense', async () => {
+    const answer = vi.fn(async () => new Response(JSON.stringify({ data: { status: 'ok', uptimeSeconds: 42 } })));
+    vi.stubGlobal('fetch', answer);
+    expect(await serverUptimeMs('/api/v1')).toBe(42_000);
+    expect(answer).toHaveBeenCalledWith('/api/v1/health', expect.objectContaining({ cache: 'no-store' }));
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('<html>503</html>', { status: 503 })));
+    expect(await serverUptimeMs('/api/v1')).toBeNull();
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
+    expect(await serverUptimeMs('/api/v1')).toBeNull();
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ data: { uptimeSeconds: -3 } }))));
+    expect(await serverUptimeMs('/api/v1')).toBeNull();
+  });
+});
+
+describe('serverUptimeMs: never waits for ever (1.23.14 review)', () => {
+  it('gives up after 10 s', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.stubGlobal('fetch', vi.fn((_url: string, init?: RequestInit) => new Promise((_resolve, reject) => init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))))));
+      const answer = serverUptimeMs('/api/v1');
+      await vi.advanceTimersByTimeAsync(10_001);
+      expect(await answer).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

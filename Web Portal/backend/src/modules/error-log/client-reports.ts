@@ -3,7 +3,8 @@ import { isExtensionSource, pagePattern, redactText } from './error-redact';
 
 /** A browser's report as the server keeps it: checked, trimmed and reduced again (never trusted as sent). */
 export interface ClientReport {
-  kind: 'ERROR' | 'NETWORK' | 'BLOCKED' | 'SLOW';
+  /** 1.23.14 UPDATE: a request cut (api) or held up (slow) by an update restart, as the page saw it. */
+  kind: 'ERROR' | 'NETWORK' | 'BLOCKED' | 'SLOW' | 'UPDATE';
   /** error, rejection, boundary, chunk · api, socket · resource, csp, csp-report · load, lcp, inp, cls, api. */
   detail: string;
   message: string | null;
@@ -28,6 +29,15 @@ export interface ClientReport {
    */
   serverMs?: number;
   dbMs?: number | null;
+  /**
+   * 1.23.14, a slow request (or one held up by an update restart): where its time went, from the browser's
+   * Resource Timing (ms) — waiting for a free connection, connecting, waiting for the first byte,
+   * downloading. All four or none.
+   */
+  queueMs?: number;
+  connectMs?: number;
+  waitMs?: number;
+  downloadMs?: number;
 }
 
 /** Reports a batch may carry, and the most the CSP endpoint takes from one body. */
@@ -40,12 +50,13 @@ const DETAILS: Record<ClientReport['kind'], readonly string[]> = {
   NETWORK: ['api', 'socket'],
   BLOCKED: ['resource', 'csp'],
   SLOW: ['load', 'lcp', 'inp', 'cls', 'api'],
+  UPDATE: ['api', 'slow'],
 };
 
 const text = (max: number) => z.string().max(max * 4).optional().nullable();
 const ms = z.number().finite().min(0).max(1e9).optional().nullable();
 const reportSchema = z.object({
-  kind: z.enum(['ERROR', 'NETWORK', 'BLOCKED', 'SLOW']),
+  kind: z.enum(['ERROR', 'NETWORK', 'BLOCKED', 'SLOW', 'UPDATE']),
   detail: z.string().max(32),
   message: text(MAX_MESSAGE),
   stack: text(MAX_STACK),
@@ -59,12 +70,29 @@ const reportSchema = z.object({
   screen: z.string().max(40).optional().nullable(),
   serverMs: ms,
   dbMs: ms,
+  queueMs: ms,
+  connectMs: ms,
+  waitMs: ms,
+  downloadMs: ms,
 });
 
-/** A slow request's server and database times (1.23.3): only with the server's, the database's never more. */
-function timingOf(r: { kind: string; detail: string; serverMs?: number | null; dbMs?: number | null }): Pick<ClientReport, 'serverMs' | 'dbMs'> {
-  if (r.kind !== 'SLOW' || r.detail !== 'api' || r.serverMs == null) return {};
-  return { serverMs: r.serverMs, dbMs: r.dbMs == null ? null : Math.min(r.dbMs, r.serverMs) };
+type Timed = { kind: string; detail: string; serverMs?: number | null; dbMs?: number | null; queueMs?: number | null; connectMs?: number | null; waitMs?: number | null; downloadMs?: number | null };
+
+/**
+ * A slow request's server and database times (1.23.3): only with the server's, the database's never more.
+ * 1.23.14: and where its time went (all four parts, or none) — also for one held up by an update restart.
+ */
+function timingOf(r: Timed): Pick<ClientReport, 'serverMs' | 'dbMs' | 'queueMs' | 'connectMs' | 'waitMs' | 'downloadMs'> {
+  const timed = (r.kind === 'SLOW' && r.detail === 'api') || (r.kind === 'UPDATE' && r.detail === 'slow');
+  if (!timed) return {};
+  const out: Pick<ClientReport, 'serverMs' | 'dbMs' | 'queueMs' | 'connectMs' | 'waitMs' | 'downloadMs'> = {};
+  if (r.serverMs != null) {
+    out.serverMs = r.serverMs;
+    out.dbMs = r.dbMs == null ? null : Math.min(r.dbMs, r.serverMs);
+  }
+  const { queueMs, connectMs, waitMs, downloadMs } = r;
+  if (queueMs != null && connectMs != null && waitMs != null && downloadMs != null) Object.assign(out, { queueMs, connectMs, waitMs, downloadMs });
+  return out;
 }
 
 /** Messages that say nothing about the site: ResizeObserver notices, and a cross-origin script's empty error. */

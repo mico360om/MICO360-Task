@@ -187,6 +187,19 @@ describe('the Error log page’s routes: administrators only', () => {
     expect(typeof v2.json().data.previousVisitAt).toBe('string');
   });
 
+  // 1.23.14 review: an Update restart row is said as such only to a page that asks (updates=1); an older
+  // page's code (open across the deploy) knows no such kind and would break, so it gets a Server row.
+  it('says an Update restart row\u2019s own kind only when asked', async () => {
+    const app = await makeApp();
+    await app.inject({ method: 'POST', url: '/api/v1/client-errors', headers: { 'content-type': 'application/json' }, payload: { reports: [{ kind: 'UPDATE', detail: 'api', page: '/dashboard', resource: 'GET /api/v1/tasks' }] } });
+    await service.settled();
+    const admin = await bearer('admin1', ['ADMIN']);
+    const kindOf = async (url: string) => (await app.inject({ method: 'GET', url, headers: admin })).json().data.groups.map((g: { kind: string }) => g.kind);
+    expect(await kindOf('/api/v1/error-log?kind=server')).toEqual(['SERVER']);
+    expect(await kindOf('/api/v1/error-log?kind=server&updates=1')).toEqual(['UPDATE']);
+    expect((await app.inject({ method: 'GET', url: '/api/v1/error-log?updates=yes', headers: admin })).statusCode).toBe(400);
+  });
+
   it('checks its query', async () => {
     const app = await seeded();
     const admin = await bearer('admin1', ['ADMIN']);
