@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.23.16] - 2026-11-11
+
 ### New features
 - Search on the Kanban board: a search box at the top of the board (one project, All projects and a
   project's Board tab) shows only the matching cards as you type — by task number (MICO-12, mico 12 or
