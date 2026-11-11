@@ -26,6 +26,7 @@ import {
 } from '../../lib/timeline';
 import { BAR_TONE, ExpandButton, HEAT, HealthPill, ROW } from './parts';
 import { ChartTaskRows } from './TimelineTasks';
+import type { DaysOffRun } from '../../lib/days-off';
 
 /** Where a bar's words sit, against the bar (its width is 100%). */
 const LABEL_AT: Record<LabelSpot, (fill: number) => CSSProperties> = {
@@ -63,6 +64,8 @@ interface ChartProps {
   /** Opens every shown project's tasks, or closes them all once all are open. */
   onExpandAll: () => void;
   onOpenTask: (taskId: string) => void;
+  /** Notification & Scheduling: weekends and holidays in the range, shaded (named on hover in the header). */
+  daysOff?: DaysOffRun[];
 }
 
 /**
@@ -72,7 +75,7 @@ interface ChartProps {
  * never overlap. Bars and markers are buttons whose details open right after them. The current week
  * is shaded and today is a labelled line. A project's row opens to show its tasks under it.
  */
-export function TimelineChart({ range, today, currentWeek, projects, busy, scale, open, details, onOpen, expanded, onExpand, onExpandAll, onOpenTask }: ChartProps) {
+export function TimelineChart({ range, today, currentWeek, projects, busy, scale, open, details, onOpen, expanded, onExpand, onExpandAll, onOpenTask, daysOff = [] }: ChartProps) {
   const total = daysBetween(range.from, range.to) + 1;
   const pct = (day: string) => xOf(day, range.from, total);
   const halfDay = 50 / total;
@@ -82,6 +85,9 @@ export function TimelineChart({ range, today, currentWeek, projects, busy, scale
 
   const backdrop = (
     <div aria-hidden="true" className="week-lines pointer-events-none absolute inset-0" style={{ backgroundSize: `${col}% 100%` }}>
+      {daysOff.map((r) => (
+        <div key={r.start} data-day-off={r.holiday ? 'holiday' : 'weekend'} className="hatch-off absolute inset-y-0 opacity-50" style={{ left: `${pct(r.start)}%`, width: `${(r.days / total) * 100}%` }} />
+      ))}
       {weekX !== null ? <div className="absolute inset-y-0 bg-brand/[0.05]" style={{ left: `${weekX}%`, width: `${(7 / total) * 100}%` }} /> : null}
       {todayX !== null ? <div className="absolute inset-y-0 w-0.5 -translate-x-1/2 bg-brand" style={{ left: `${todayX}%` }} /> : null}
     </div>
@@ -104,6 +110,18 @@ export function TimelineChart({ range, today, currentWeek, projects, busy, scale
           </div>
           <div className="relative h-[4.25rem] border-s border-line">
             {backdrop}
+            {/* A holiday's name on hover (the stripe at the foot of the header). */}
+            {daysOff
+              .filter((r) => r.holiday)
+              .map((r) => (
+                <span
+                  key={`h${r.start}`}
+                  data-holiday={r.label}
+                  title={r.label}
+                  className="absolute bottom-0 z-[5] h-1.5 rounded-t-sm bg-warning/70"
+                  style={{ left: `${pct(r.start)}%`, width: `${(r.days / total) * 100}%` }}
+                />
+              ))}
             <div aria-hidden="true">
               {monthMarks(range.from, range.to).map((m) => (
                 <span

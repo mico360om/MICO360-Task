@@ -1,3 +1,5 @@
+import { calendarOf, useWorkingTime } from '../lib/useWorkingTime';
+import { daysOffRuns } from '../lib/days-off';
 import { useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -149,6 +151,8 @@ function Legend({ labels }: { labels: string[] }) {
       <li className="inline-flex items-center gap-1.5"><span aria-hidden="true" className="inline-block h-2 w-2 rounded-[2px] bg-meeting" />Meeting</li>
       <li className="inline-flex items-center gap-1.5"><span aria-hidden="true" className="inline-block h-2.5 w-5 rounded-sm border-[1.5px] border-dashed border-ink-2/70" />Dates from its tasks</li>
       <li className="inline-flex items-center gap-1.5"><span className="text-warning"><WaitingIcon size={12} /></span>Waiting for approval</li>
+      {/* Notification & Scheduling: weekends and holidays (a holiday's name shows on hover at the top). */}
+      <li className="inline-flex items-center gap-1.5"><span aria-hidden="true" className={`${sw} hatch-off`} />Day off</li>
       <li className="ms-auto">Busy weeks:</li>
       {labels.map((l, i) => (
         <li key={l} className="inline-flex items-center gap-1.5">
@@ -195,6 +199,9 @@ export function TimelinePage() {
   const summary = timelineSummary(byOwner);
   const shown = sortTimeline(filterTimeline(byOwner, { owner: '', show: state.show }), state.sort);
   const busy = busyTotals(shown, data?.weeks.length ?? 0);
+  // Notification & Scheduling: the scope's weekends and holidays, shaded on the chart.
+  const workingTime = useWorkingTime({ from: data?.from ?? range.from, to: data?.to ?? range.to, enabled: !phone });
+  const daysOff = useMemo(() => (workingTime.data && data ? daysOffRuns(data.from, data.to, calendarOf(workingTime.data)) : []), [workingTime.data, data]);
   const scale = heatScale(busy);
 
   // The open details and the bar or marker that opened them (they sit right after it; focus returns there).
@@ -364,6 +371,7 @@ export function TimelinePage() {
             onExpand={expand}
             onExpandAll={expandAll}
             onOpenTask={openTask}
+            daysOff={daysOff}
             details={
               detail && detailProject ? (
                 <TimelineDetails detail={detail} project={detailProject} today={today} timeZone={timeZone} trigger={trigger} onClose={() => setDetail(null)} />

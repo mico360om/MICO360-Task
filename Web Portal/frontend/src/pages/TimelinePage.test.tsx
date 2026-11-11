@@ -601,3 +601,25 @@ describe('the Timeline fills the window (1.23.8)', () => {
     expect(swatches[1]).toContain('bg-health-risk');
   });
 });
+
+// Notification & Scheduling centre: weekends and holidays are shaded; a holiday is named on hover.
+describe('TimelinePage — days off', () => {
+  it('shades the scope’s weekends and holidays and names the holidays', async () => {
+    const original = fetch;
+    vi.stubGlobal('fetch', vi.fn(async (input: string, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/working-time?')) {
+        requests.push(url);
+        return json({ data: { companyId: 'c1', timeZone: 'Asia/Muscat', weekStart: 0, workingDays: [0, 1, 2, 3, 4], hours: { start: '08:00', end: '17:00' }, from: '2026-10-04', to: '2027-01-02', daysOff: [{ day: '2026-11-18', name: 'National Day' }] } });
+      }
+      return (original as unknown as (i: string, n?: RequestInit) => Promise<Response>)(input, init);
+    }));
+    const { container } = renderPage();
+    await screen.findByRole('list', { name: 'Projects' });
+    await waitFor(() => expect(container.querySelector('[data-holiday="National Day"]')).not.toBeNull());
+    expect(container.querySelector('[data-holiday="National Day"]')).toHaveAttribute('title', 'National Day');
+    expect(container.querySelectorAll('[data-day-off="weekend"]').length).toBeGreaterThan(0);
+    expect(requests.some((u) => u.includes('/working-time?from=2026-10-04&to=2027-01-02'))).toBe(true);
+    expect(within(screen.getByRole('list', { name: 'Legend' })).getByText('Day off')).toBeInTheDocument();
+  });
+});
