@@ -49,6 +49,9 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - The task history says "assigned guest Ahmed (OXY)", "removed guest …", "added category Electrical".
 - Search this board also finds a card by its guests (name or company) and its categories. Duplicate copies
   a task's guests (with their notes for the task) and its categories, never retired ones.
+- A task in the Recycle Bin keeps its guests and categories: its categories count as in use (they can be
+  retired, not deleted) and its guests stay on the list until it is erased; its read-only view shows both,
+  and Restore brings them back as they were.
 
 ## [1.23.19] - 2026-11-11
 

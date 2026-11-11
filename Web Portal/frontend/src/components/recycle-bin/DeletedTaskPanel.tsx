@@ -12,6 +12,8 @@ import { dueDayKey, todayKey } from '../../lib/due-date';
 import { dayText, instantDayText } from '../../lib/day-words';
 import { formatSize } from '../task-drawer/attachments';
 import { TaskKey } from '../TaskKey';
+import { CategoryChips } from '../CategoryChip';
+import { GUEST_WORDS } from '../../lib/guest-contacts';
 import { ProjectAvatar } from '../ProjectAvatar';
 import { PriorityBadge } from '../ui/PriorityBadge';
 import { StatusPill } from '../ui/StatusPill';
@@ -210,7 +212,13 @@ export function DeletedTaskPanel({ taskId, onClose, closeButton }: { taskId: str
             </ul>
           </Section>
         ) : null}
-        {d.contacts.length ? <Section title="External contacts">{d.contacts.map((c) => (c.company ? `${c.name} (${c.company})` : c.name)).join(', ')}</Section> : null}
+        {d.categories?.length ? (
+          <Section title="Categories">
+            <CategoryChips categories={d.categories} density="detailed" />
+          </Section>
+        ) : null}
+        {/* 1.24: external contacts are guests. */}
+        {d.contacts.length ? <Section title={GUEST_WORDS.heading}>{d.contacts.map((c) => (c.company ? `${c.name} (${c.company})` : c.name)).join(', ')}</Section> : null}
         {d.blockers.length ? <Section title="Blocked by">{d.blockers.map((b) => `${b.key} ${b.title}`).join(', ')}</Section> : null}
         {d.checklists.map((list, i) => (
           <Section key={`${list.title}-${i}`} title={list.title}>

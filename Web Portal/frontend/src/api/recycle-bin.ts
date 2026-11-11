@@ -119,7 +119,10 @@ export interface BinDetail {
   };
   assignees: BinPerson[];
   tags: { name: string; color: string }[];
+  /** Its guests (1.24). */
   contacts: { name: string; company: string | null }[];
+  /** 1.24: its categories, in their project's order. */
+  categories: { id: string; name: string; color: string; retired: boolean }[];
   checklists: { title: string; items: { text: string; done: boolean; depth: number }[] }[];
   comments: BinComment[];
   files: { filename: string; sizeBytes: number; createdAt: string; uploadedBy: BinPerson | null }[];

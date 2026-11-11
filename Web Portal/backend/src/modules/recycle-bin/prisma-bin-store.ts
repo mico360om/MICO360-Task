@@ -131,6 +131,7 @@ export function createPrismaBinStore(prisma: PrismaClient): BinStore {
           assignees: { select: { user: { select: personSelect } } },
           tags: { select: { tag: { select: { name: true, color: true } } } },
           externalContacts: { select: { name: true, company: true }, orderBy: { position: 'asc' } },
+          categories: { select: { category: { select: { id: true, name: true, color: true, position: true, retiredAt: true } } } },
           checklistLists: { where: { deletedAt: null }, select: { id: true, title: true }, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }] },
           checklist: { where: { deletedAt: null }, select: { id: true, listId: true, parentId: true, text: true, done: true, position: true } },
           comments: { select: { id: true, parentId: true, body: true, fromClient: true, createdAt: true, editedAt: true, deletedAt: true, user: { select: personSelect } }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] },
@@ -180,6 +181,10 @@ export function createPrismaBinStore(prisma: PrismaClient): BinStore {
         assignees: t.assignees.map((a) => person(a.user)!),
         tags: t.tags.map((x) => x.tag),
         contacts: t.externalContacts,
+        categories: t.categories
+          .map((c) => c.category)
+          .sort((a, b) => a.position - b.position || a.name.localeCompare(b.name))
+          .map((c) => ({ id: c.id, name: c.name, color: c.color, retired: c.retiredAt !== null })),
         checklists: lists,
         comments,
         files: t.attachments.map((a) => ({ filename: a.filename, sizeBytes: a.sizeBytes, createdAt: a.createdAt, uploadedBy: person(a.uploadedBy) })),
