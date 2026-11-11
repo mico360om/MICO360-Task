@@ -22,10 +22,10 @@ const LOOKS: Record<string, KindLook> = {
   TASK_ESCALATION: { id: 'overdue', name: 'Escalation', tone: OVERDUE_CLASS.chip, paths: <><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" /><path d="M12 9v4M12 17h.01" /></> },
   // Notification & Scheduling: escalation step 2 (to admins), an approval waiting too long, a task with no activity.
   TASK_ESCALATION_ADMIN: { id: 'overdue', name: 'Escalation to admins', tone: OVERDUE_CLASS.chip, paths: <><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" /><path d="M12 9v4M12 17h.01" /></> },
-  TASK_APPROVAL_WAITING: { id: 'approval', name: 'Approval waiting', tone: 'text-success bg-success-soft', paths: <><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><path d="M12 8v4l2 1" /></> },
   TASK_INACTIVE: { id: 'inactive', name: 'No activity', tone: DUE_SOON_CLASS.chip, paths: <><circle cx="12" cy="12" r="9" /><path d="M9 9h.01M15 9h.01M8.5 15h7" /></> },
   TASK_COMMENT: { id: 'comment', name: 'Comment', tone: 'text-info bg-info-soft', paths: <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /> },
   TASK_APPROVAL: { id: 'approval', name: 'Approval', tone: 'text-success bg-success-soft', paths: <><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><path d="m9 12 2 2 4-4" /></> },
+  TASK_APPROVAL_WAITING: { id: 'approval', name: 'Approval waiting', tone: 'text-success bg-success-soft', paths: <><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><path d="M12 8v4l2 1" /></> },
   // 1.23: a client accepted a task or sent it back in the Client portal (with the approvals).
   TASK_CLIENT_SIGN_OFF: { id: 'client-sign-off', name: 'Client sign-off', tone: 'text-success bg-success-soft', paths: <><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="m16 11 2 2 4-4" /></> },
   MEETING_REMINDER: { id: 'meeting', name: 'Meeting', tone: 'text-brand bg-brand/10', paths: <><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></> },
