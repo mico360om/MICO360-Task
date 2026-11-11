@@ -93,6 +93,8 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   'GET /users': 'admin',
   'POST /users': 'admin',
   'GET /users/:id': 'admin',
+  // Training Center (R16): User Management's Department picker.
+  'GET /users/departments': 'admin',
   'PUT /users/:id': 'admin',
   'DELETE /users/:id': 'admin',
   'PATCH /users/:id/status': 'admin',

@@ -10,6 +10,8 @@ import { liveInvitation, onboardingStatus } from './onboarding-status';
 // Onboarding: and their newest invitation link that still works (its expiry only).
 const withRoles = {
   roles: { include: { role: true } },
+  // Training Center: the department's name beside its id (User Management's Department field).
+  department: { select: { name: true } },
   companies: { select: { company: { select: { id: true, name: true, code: true } } } },
   loginOtps: liveInvitation(new Date(0)),
   // 1.23.6: who set a temporary password (their name only).
@@ -69,6 +71,9 @@ function toSummary(u: UserWithRoles): UserSummary {
     companies: u.companies.map((m) => m.company).sort((a, b) => a.name.localeCompare(b.name)),
     primaryCompanyId: u.primaryCompanyId,
     myProjectsOnly: u.myProjectsOnly,
+    reportsToId: u.reportsToId,
+    trainingManager: u.trainingManager,
+    departmentName: u.department?.name ?? null,
   };
 }
 

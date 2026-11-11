@@ -1,5 +1,7 @@
 import type { CreateUserData, TemporaryPasswordMark, UserRepository, UserSummary } from './user-repository';
 import type { MembershipStore } from '../companies/company-membership';
+import { cleanDepartmentName, type Departments } from './prisma-departments';
+import { ValidationError } from '../../lib/http-errors';
 
 interface Row {
   user: UserSummary;
@@ -43,9 +45,13 @@ export function createMemoryUserRepository() {
         return c ? [{ id: c.id, name: c.name, code: c.code }] : [];
       })
       .sort((a, b) => a.name.localeCompare(b.name));
+  // Training Center: the site's departments (User Management's Department field finds or makes one by name).
+  const departmentRows = new Map<string, string>();
+  let departmentSeq = 0;
   const summary = (r: Row): UserSummary => {
     const locked = r.lockedUntil !== null && r.lockedUntil.getTime() > Date.now();
-    return { ...r.user, locked, lockedUntil: locked ? r.lockedUntil : null, companies: companiesOf(r), primaryCompanyId: r.user.primaryCompanyId ?? null };
+    const departmentName = r.user.departmentId ? (departmentRows.get(r.user.departmentId) ?? null) : null;
+    return { ...r.user, locked, lockedUntil: locked ? r.lockedUntil : null, companies: companiesOf(r), primaryCompanyId: r.user.primaryCompanyId ?? null, departmentName };
   };
   const live = () => [...rows.values()].filter((r) => !r.deleted);
   const same = (a: string, b: string) => a.trimEnd().toLowerCase() === b.trimEnd().toLowerCase();
@@ -75,6 +81,8 @@ export function createMemoryUserRepository() {
         inviteExpiresAt: null,
         roles: data.roleNames,
         myProjectsOnly: false,
+        reportsToId: null,
+        trainingManager: false,
         ...tempFields(data.temporary),
       };
       if ([...rows.values()].some((r) => same(r.user.email, data.email) || same(r.user.username, data.username))) {
@@ -199,9 +207,25 @@ export function createMemoryUserRepository() {
     },
   };
 
+  /** Training Center: departments by name, as prisma-departments.ts keeps them (names compared ignoring case). */
+  const departments: Departments = {
+    async list() {
+      return [...departmentRows.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+    },
+    async findOrCreate(raw) {
+      const name = cleanDepartmentName(raw);
+      if (!name) throw new ValidationError('A department needs a name.', { field: 'departmentName' });
+      for (const [id, n] of departmentRows) if (n.toLowerCase() === name.toLowerCase()) return { id, name: n };
+      const id = `d${++departmentSeq}`;
+      departmentRows.set(id, name);
+      return { id, name };
+    },
+  };
+
   return {
     repo,
     membershipStore,
+    departments,
     /** companies: a company on the site (again with the same id: its new name or status). */
     addCompany: (c: { id: string; name: string; code: string; status?: 'ACTIVE' | 'ARCHIVED' }) =>
       void companies.set(c.id, { ...c, status: c.status ?? 'ACTIVE', createdAt: companies.get(c.id)?.createdAt ?? ++companySeq }),

@@ -390,3 +390,60 @@ describe('UserService — “Show my projects only” (1.22.3, set from Manage a
     await expect(svc.updateUser(boss.id, { roleNames: ['ADMIN'] })).resolves.toMatchObject({ roles: ['ADMIN'], myProjectsOnly: false });
   });
 });
+
+describe('UserService — Training Center: “Reports to” and the Training manager permission', () => {
+  async function setup() {
+    const { svc, mem } = make();
+    const ada = await svc.createUser(person());
+    const boss = await svc.createUser(person({ email: 'b@x', username: 'boss', firstName: 'Bea' }));
+    const client = await svc.createUser(person({ email: 'c@x', username: 'cli', roleNames: ['CLIENT'] }));
+    return { svc, mem, ada, boss, client };
+  }
+
+  it('a new person reports to nobody and is not a Training manager', async () => {
+    const { ada } = await setup();
+    expect(ada).toMatchObject({ reportsToId: null, trainingManager: false });
+  });
+
+  it('“Reports to” an active staff account is kept; null clears it', async () => {
+    const { svc, ada, boss } = await setup();
+    await expect(svc.updateUser(ada.id, { reportsToId: boss.id })).resolves.toMatchObject({ reportsToId: boss.id });
+    await expect(svc.getUser(ada.id)).resolves.toMatchObject({ reportsToId: boss.id });
+    await expect(svc.updateUser(ada.id, { reportsToId: null })).resolves.toMatchObject({ reportsToId: null });
+  });
+
+  it('refuses themselves, a client, someone inactive or deleted, and an unknown id (400 naming the field); nothing saved', async () => {
+    const { svc, ada, boss, client } = await setup();
+    const refused = (reportsToId: string) => svc.updateUser(ada.id, { firstName: 'Adele', reportsToId });
+    await expect(refused(ada.id)).rejects.toMatchObject({ status: 400, details: { field: 'reportsToId' }, message: 'A person can’t report to themselves.' });
+    await expect(refused(client.id)).rejects.toMatchObject({ status: 400, details: { field: 'reportsToId' }, message: 'A client account can’t be someone’s “Reports to”.' });
+    await expect(refused('nobody')).rejects.toMatchObject({ status: 400, details: { field: 'reportsToId' }, message: 'Choose an active staff account for “Reports to”.' });
+    await svc.setUserStatus(boss.id, 'INACTIVE');
+    await expect(refused(boss.id)).rejects.toMatchObject({ status: 400, details: { field: 'reportsToId' } });
+    const gone = await svc.createUser(person({ email: 'g@x', username: 'gone' }));
+    await svc.deleteUser(gone.id);
+    await expect(refused(gone.id)).rejects.toBeInstanceOf(ValidationError);
+    await expect(svc.getUser(ada.id)).resolves.toMatchObject({ firstName: 'Ada', reportsToId: null });
+  });
+
+  it('a staff member may be made a Training manager and back', async () => {
+    const { svc, ada } = await setup();
+    await expect(svc.updateUser(ada.id, { trainingManager: true })).resolves.toMatchObject({ trainingManager: true });
+    await expect(svc.updateUser(ada.id, { trainingManager: false })).resolves.toMatchObject({ trainingManager: false });
+  });
+
+  it('a client account gets neither (400); turning the permission off is harmless', async () => {
+    const { svc, boss, client } = await setup();
+    await expect(svc.updateUser(client.id, { trainingManager: true })).rejects.toMatchObject({ status: 400, details: { field: 'trainingManager' } });
+    await expect(svc.updateUser(client.id, { reportsToId: boss.id })).rejects.toMatchObject({ status: 400, details: { field: 'reportsToId' } });
+    await expect(svc.updateUser(client.id, { trainingManager: false, reportsToId: null })).resolves.toMatchObject({ trainingManager: false, reportsToId: null });
+  });
+
+  it('the Training manager permission changes no roles and ends no sessions', async () => {
+    const { svc, revoked } = make();
+    const u = await svc.createUser(person());
+    await svc.updateUser(u.id, { trainingManager: true });
+    expect(revoked).toEqual([]);
+    await expect(svc.getUser(u.id)).resolves.toMatchObject({ roles: ['EMPLOYEE'] });
+  });
+});

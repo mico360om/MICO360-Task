@@ -172,6 +172,17 @@ export function createUserService({ users, revokeSessions, onSessionsRevoked, is
     const willBeAdmin = (next.roleNames ?? current.roles).includes(ADMIN);
     if (patch.myProjectsOnly === true && !willBeAdmin) throw new ForbiddenError(MY_PROJECTS_ONLY_REFUSED);
     if (!willBeAdmin && current.myProjectsOnly === true && patch.myProjectsOnly === undefined) next.myProjectsOnly = false;
+    // Training Center: "Reports to" is an active staff account other than themselves; a client account
+    // has neither "Reports to" nor the Training manager permission (roles never change kind: current's).
+    const client = isClientRoles(current.roles);
+    if (client && patch.trainingManager === true) throw fieldProblem('trainingManager', 'A client account can’t be a Training manager.');
+    if (patch.reportsToId !== undefined && patch.reportsToId !== null) {
+      if (client) throw fieldProblem('reportsToId', 'A client account has no “Reports to”.');
+      if (patch.reportsToId === id) throw fieldProblem('reportsToId', 'A person can’t report to themselves.');
+      const boss = await users.findById(patch.reportsToId);
+      if (boss && isClientRoles(boss.roles)) throw fieldProblem('reportsToId', 'A client account can’t be someone’s “Reports to”.');
+      if (!boss || boss.status !== 'ACTIVE') throw fieldProblem('reportsToId', 'Choose an active staff account for “Reports to”.');
+    }
     // Guard email/username uniqueness across other users before writing.
     if (patch.email !== undefined || patch.username !== undefined) {
       const email = patch.email ?? current.email;

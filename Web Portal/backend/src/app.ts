@@ -51,6 +51,7 @@ import { registerUserRoutes } from './modules/users/user-routes';
 import { registerPreferenceRoutes, type PreferencesRepository } from './modules/users/user-preferences';
 import type { UserService } from './modules/users/user-service';
 import type { WelcomeService } from './modules/users/welcome-service';
+import type { Departments } from './modules/users/prisma-departments';
 import { registerNotificationRoutes } from './modules/notifications/notification-routes';
 import { registerNotifyPolicyRoutes, type NotifyPolicyRouteDeps } from './modules/notify-policy/policy-routes';
 import type { NotificationPolicy } from './modules/notify-policy/policy';
@@ -244,6 +245,8 @@ export interface AppDeps extends AuthRouteDeps {
   userService?: UserService;
   /** Welcome emails from User Management (a "Set your password" link); administrators only. */
   welcomeService?: WelcomeService;
+  /** Training Center (R16): departments for User Management's Department field. */
+  userDepartments?: Departments;
   /** 1.23.6: System Settings → Accounts, "Invitation links last" (days; unused temporary passwords too). */
   invitationDays?: () => Promise<number>;
   /** Onboarding: the New / Manage account forms' duplicate check while typing. */
@@ -990,6 +993,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           pickOf,
           // companies: the directory lists the people the caller knows (MC1 Task 9).
           knownPeople: deps.companyAccess ? (viewer) => deps.companyAccess!.knownPeople(viewer) : undefined,
+          // Training Center (R16): the Department field (pick or type a new name) and GET /users/departments.
+          departments: deps.userDepartments,
         });
       }
       if (deps.notificationService) {

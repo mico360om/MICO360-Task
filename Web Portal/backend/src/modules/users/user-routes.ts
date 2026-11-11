@@ -21,6 +21,7 @@ import type { EmailVerification } from '../auth/email-verification';
 import { IGNORED_PASSWORD_AUDIT, ignoredPasswordMessage, resolveWayIn, temporaryPasswordFor, wayInFields } from './way-in';
 import { TEMPORARY_PASSWORD_STYLES } from '../../lib/temporary-password';
 import { invitationDaysSchema } from '../settings/settings-service';
+import { cleanDepartmentName, DEPARTMENT_NAME_MAX, type Departments } from './prisma-departments';
 
 // Password strength (8+ chars, a letter and a digit) is enforced by the service for every endpoint.
 const password = z.string().min(1).max(200);
@@ -76,6 +77,11 @@ const updateSchema = z.object({
   primaryCompanyId: idString.nullable().optional(),
   // 1.22.3: an administrator's "Show my projects only" (absent: unchanged; on: administrators only).
   myProjectsOnly: z.boolean().optional(),
+  // Training Center (R16): who they report to (an active staff account; null clears), the Training manager
+  // permission (never for a client), and their department by name ('' or null clears; found or made).
+  reportsToId: idString.nullable().optional(),
+  trainingManager: z.boolean().optional(),
+  departmentName: z.string().trim().max(DEPARTMENT_NAME_MAX).nullable().optional(),
 });
 /** companies: several people's companies at once (User Management's bulk assign). */
 const MAX_BULK_PEOPLE = 200;
@@ -152,6 +158,8 @@ export interface UserRouteDeps {
   verification?: EmailVerification;
   /** 1.23.6: System Settings → Accounts, "Invitation links last" (days; unused temporary passwords too). */
   invitationDays?: () => Promise<number>;
+  /** Training Center (R16): the Department field (pick or type a new name); absent: names aren't taken. */
+  departments?: Departments;
 }
 
 export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDeps): Promise<void> {
@@ -244,6 +252,12 @@ export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDe
     await logAudit(req, 'user.password.change', req.user!.id);
     return { data: session ?? {} };
   });
+
+  // Training Center (R16): the Department picker in User Management.
+  const departments = deps.departments;
+  if (departments) {
+    app.get('/users/departments', adminOnly, async () => ({ data: await departments.list() }));
+  }
 
   app.get('/users/:id', adminOnly, async (req) => {
     const { id } = req.params as { id: string };
@@ -345,7 +359,13 @@ export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDe
 
   app.put('/users/:id', adminOnly, async (req) => {
     const { id } = req.params as { id: string };
-    const { companyIds, primaryCompanyId, ...body } = updateSchema.parse(req.body);
+    const { companyIds, primaryCompanyId, departmentName, ...body } = updateSchema.parse(req.body);
+    // Training Center: a department by name ('' or null: none) — it wins over a departmentId sent with it.
+    if (departmentName !== undefined) {
+      const name = cleanDepartmentName(departmentName);
+      if (name && !deps.departments) throw new ValidationError('Departments can’t be named here.', { field: 'departmentName' });
+      body.departmentId = name ? (await deps.departments!.findOrCreate(name)).id : null;
+    }
     // companies: a change to their companies (or roles) is checked first, so a refused one saves nothing.
     const membership = deps.membership;
     const companiesChange = companyIds !== undefined || primaryCompanyId !== undefined;
@@ -357,10 +377,10 @@ export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDe
       updated = await userService.getUser(id);
     }
     // Onboarding: which details really changed, by name.
-    const changed = (['firstName', 'lastName', 'username', 'email', 'departmentId', 'myProjectsOnly'] as const).filter((k) => before[k] !== updated[k]);
+    const changed = (['firstName', 'lastName', 'username', 'email', 'departmentId', 'myProjectsOnly', 'reportsToId', 'trainingManager'] as const).filter((k) => (before[k] ?? null) !== (updated[k] ?? null));
     if (before.roles.slice().sort().join() !== updated.roles.slice().sort().join()) changed.push('roles' as never);
     if (JSON.stringify((before.companies ?? []).map((c) => c.id).sort()) !== JSON.stringify((updated.companies ?? []).map((c) => c.id).sort()) || before.primaryCompanyId !== updated.primaryCompanyId) changed.push('companies' as never);
-    await logAudit(req, 'user.update', id, { ...(companiesChange ? { ...body, companyIds, primaryCompanyId } : body), changed });
+    await logAudit(req, 'user.update', id, { ...(companiesChange ? { ...body, companyIds, primaryCompanyId } : body), ...(departmentName !== undefined ? { departmentName: cleanDepartmentName(departmentName) } : {}), changed });
     return { data: updated };
   });
 

@@ -49,6 +49,13 @@ export interface UserSummary {
    * the projects they own, manage or are on the team of. Admin views (and their own answers) only.
    */
   myProjectsOnly?: boolean;
+  /**
+   * Training Center (owner, 11 Nov 2026): who this person reports to (overdue mandatory training
+   * escalates to them), the Training manager permission, and their department's name. Admin views only.
+   */
+  reportsToId?: string | null;
+  trainingManager?: boolean;
+  departmentName?: string | null;
 }
 
 /**
@@ -107,6 +114,10 @@ export interface UpdateUserData {
   roleNames?: string[];
   /** 1.22.3: "Show my projects only", set from User Management (administrators' only). */
   myProjectsOnly?: boolean;
+  /** Training Center: an active staff account (not themselves, never for a client); null clears it. */
+  reportsToId?: string | null;
+  /** Training Center: the Training manager permission (never for a client account). */
+  trainingManager?: boolean;
   /** Onboarding: null when the email changes (they confirm the new one at their next sign-in). */
   emailVerifiedAt?: Date | null;
 }

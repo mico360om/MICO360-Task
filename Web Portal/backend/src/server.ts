@@ -8,6 +8,7 @@ import { uploadResponseHeaders } from './lib/upload-safety';
 import { corsOrigin, parseCorsOrigins } from './lib/cors-origins';
 import { registerWebApp, androidAppLink, downloadsDirFor, emailDownloadLinks } from './lib/web-app';
 import { createWelcomeService } from './modules/users/welcome-service';
+import { createPrismaDepartments } from './modules/users/prisma-departments';
 import { STAFF_ONLY_WHERE, createIsClient } from './modules/clients/client-kind';
 import { createClientAccounts } from './modules/clients/client-accounts';
 import { createPortalService } from './modules/clients/portal-service';
@@ -2393,6 +2394,8 @@ async function main(): Promise<void> {
     dependencyService,
     userService,
     welcomeService,
+    // Training Center (R16): User Management's Department field.
+    userDepartments: createPrismaDepartments(prisma),
     notificationService,
     // Notification & Scheduling centre: the panel, the person's rules, working time, project/task reminders.
     notifyPolicy: { service: notifyPolicy, timeZone: companyTz, ...notifyWiring.routes },

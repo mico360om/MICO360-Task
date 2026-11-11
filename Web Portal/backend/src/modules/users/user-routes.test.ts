@@ -44,7 +44,7 @@ async function makeApp() {
     users: { async findByIdentifier() { return null; }, async findById() { return null; }, async applyFailedAttempt() {}, async resetFailedAttempts() {} },
     maxAttempts: 5,
   });
-  return buildApp({ authService, tokenService, userService, auditService });
+  return buildApp({ authService, tokenService, userService, auditService, userDepartments: mem.departments });
 }
 async function token(roles: string[]) {
   return (await tokenService.issueTokens({ id: 'admin', roles })).accessToken;
@@ -299,6 +299,83 @@ describe('“Show my projects only” from User Management → Manage account (1
   it('refuses a value that isn’t on or off (400)', async () => {
     const { id } = await make(['ADMIN']);
     for (const myProjectsOnly of ['yes', null, 1]) expect((await put(id, { myProjectsOnly })).statusCode).toBe(400);
+  });
+});
+
+describe('Training Center: Reports to, Training manager and Department in User Management', () => {
+  const admin = async () => ({ authorization: `Bearer ${await token(['ADMIN'])}` });
+  const make = async (who: string, roleNames: string[] = ['EMPLOYEE']) =>
+    (await app.inject({ method: 'POST', url: '/api/v1/users', headers: await admin(), payload: { ...newUser, email: `${who}@x.co`, username: who, roleNames } })).json().data as { id: string };
+  const put = async (id: string, payload: Record<string, unknown>, headers?: Record<string, string>) =>
+    app.inject({ method: 'PUT', url: `/api/v1/users/${id}`, headers: headers ?? (await admin()), payload });
+  const row = async (id: string) => (await app.inject({ method: 'GET', url: '/api/v1/users', headers: await admin() })).json().data.find((u: { id: string }) => u.id === id);
+
+  it('the user list and a user’s answer carry reportsToId, trainingManager, departmentId and departmentName', async () => {
+    const { id } = await make('sara');
+    expect(await row(id)).toMatchObject({ reportsToId: null, trainingManager: false, departmentId: null, departmentName: null });
+    const one = (await app.inject({ method: 'GET', url: `/api/v1/users/${id}`, headers: await admin() })).json().data;
+    expect(one).toMatchObject({ reportsToId: null, trainingManager: false, departmentId: null, departmentName: null });
+  });
+
+  it('saves Reports to and the Training manager permission, audited by name', async () => {
+    const { id } = await make('sara');
+    const { id: boss } = await make('omar');
+    const res = await put(id, { reportsToId: boss, trainingManager: true });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data).toMatchObject({ reportsToId: boss, trainingManager: true });
+    expect(await row(id)).toMatchObject({ reportsToId: boss, trainingManager: true });
+    const entry = auditedValues.filter((a) => a.action === 'user.update').at(-1)!;
+    expect((entry.newValue as { changed: string[] }).changed.sort()).toEqual(['reportsToId', 'trainingManager']);
+    expect((await put(id, { reportsToId: null, trainingManager: false })).json().data).toMatchObject({ reportsToId: null, trainingManager: false });
+  });
+
+  it('refuses themselves, a client and an unknown person as Reports to; a client can’t be a Training manager (400)', async () => {
+    const { id } = await make('sara');
+    const client = (await app.inject({ method: 'POST', url: '/api/v1/users', headers: await admin(), payload: { ...newUser, email: 'cli@x.co', username: 'cli', roleNames: ['CLIENT'] } })).json();
+    // Client accounts are made with the client form; make one straight in the repository.
+    const cli = client.data?.id ?? (await mem.repo.create({ email: 'cli@x.co', username: 'cli', passwordHash: 'x', firstName: 'C', lastName: 'L', roleNames: ['CLIENT'] })).id;
+    for (const reportsToId of [id, cli, 'nobody']) {
+      const res = await put(id, { reportsToId });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error.details.field).toBe('reportsToId');
+    }
+    expect((await put(cli, { trainingManager: true })).statusCode).toBe(400);
+    expect((await put(id, { trainingManager: 'yes' })).statusCode).toBe(400);
+    expect((await put(id, { reportsToId: 7 })).statusCode).toBe(400);
+  });
+
+  it('a Department by name: found (any case) or made; empty or null clears it; GET /users/departments lists them A–Z', async () => {
+    const { id } = await make('sara');
+    const { id: omar } = await make('omar');
+    const first = await put(id, { departmentName: '  Sales  ' });
+    expect(first.statusCode).toBe(200);
+    expect(first.json().data).toMatchObject({ departmentName: 'Sales' });
+    const salesId = first.json().data.departmentId as string;
+    expect(salesId).toBeTruthy();
+    expect((await put(omar, { departmentName: 'sales' })).json().data).toMatchObject({ departmentId: salesId, departmentName: 'Sales' });
+    await put(omar, { departmentName: 'Engineering' });
+    const list = await app.inject({ method: 'GET', url: '/api/v1/users/departments', headers: await admin() });
+    expect(list.statusCode).toBe(200);
+    expect(list.json().data.map((d: { name: string }) => d.name)).toEqual(['Engineering', 'Sales']);
+    expect(await row(omar)).toMatchObject({ departmentName: 'Engineering' });
+    const changed = auditedValues.filter((a) => a.action === 'user.update').at(-1)!;
+    expect((changed.newValue as { changed: string[] }).changed).toEqual(['departmentId']);
+    expect((await put(id, { departmentName: '' })).json().data).toMatchObject({ departmentId: null, departmentName: null });
+    expect((await put(omar, { departmentName: null })).json().data).toMatchObject({ departmentId: null, departmentName: null });
+  });
+
+  it('a Department name wins over a departmentId sent with it; names over 80 characters are refused', async () => {
+    const { id } = await make('sara');
+    const res = await put(id, { departmentId: 'ignored', departmentName: 'Finance' });
+    expect(res.json().data.departmentName).toBe('Finance');
+    expect((await put(id, { departmentName: 'x'.repeat(81) })).statusCode).toBe(400);
+  });
+
+  it('only administrators: an employee is refused the departments list and these changes (403)', async () => {
+    const { id } = await make('sara');
+    const emp = { authorization: `Bearer ${await tokenFor(id, ['EMPLOYEE'])}` };
+    expect((await app.inject({ method: 'GET', url: '/api/v1/users/departments', headers: emp })).statusCode).toBe(403);
+    expect((await put(id, { trainingManager: true }, emp)).statusCode).toBe(403);
   });
 });
 
