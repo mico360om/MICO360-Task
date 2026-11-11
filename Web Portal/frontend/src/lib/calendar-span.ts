@@ -7,7 +7,6 @@
  */
 import type { ApiTask } from '../api/tasks';
 import { dueDayKey } from './due-date';
-import { zonedClock } from './working-days';
 import { statusOf, type CalItem, type CalendarData } from './calendar-model';
 
 /** Longest bar, in days from start to due; longer tasks show only their two marks. */
@@ -44,8 +43,6 @@ export interface SpanItem extends CalItem {
   start: string | null;
   due: string | null;
   mode: SpanMode;
-  /** A timed due date: its minutes after midnight (the calendar's zone) — its ⚑ sits at that time in Week and Day. */
-  dueMinutes: number | null;
 }
 
 interface SpanContext {
@@ -54,11 +51,6 @@ interface SpanContext {
   projectStatus: (projectId: string) => string | undefined;
 }
 
-const isTimed = (iso: string | null | undefined) => {
-  if (!iso || /^\d{4}-\d{2}-\d{2}$/.test(iso)) return false;
-  const d = new Date(iso);
-  return !Number.isNaN(d.getTime()) && !(d.getUTCHours() === 0 && d.getUTCMinutes() === 0 && d.getUTCSeconds() === 0 && d.getUTCMilliseconds() === 0);
-};
 
 /**
  * Each task once — those due in the range and those shown by their span — then the projected copies of
@@ -84,7 +76,6 @@ export function buildSpanItems(data: CalendarData & { spanning?: ApiTask[] }, ct
       start: s.start,
       due: s.due,
       mode: s.mode,
-      dueMinutes: s.due && isTimed(t.dueDate) ? zonedClock(new Date(t.dueDate!), ctx.timeZone).minutes : null,
     });
   }
   const heads = new Map(data.series.map((h) => [h.id, h]));
@@ -92,7 +83,7 @@ export function buildSpanItems(data: CalendarData & { spanning?: ApiTask[] }, ct
     const head = heads.get(o.taskId);
     const status = head ? ctx.projectStatus(head.projectId) : undefined;
     if (!head || status === 'ARCHIVED' || status === 'COMPLETED') continue;
-    items.push({ key: `proj:${head.id}:${o.date}`, kind: 'projected', task: head, date: o.date, status: 'projected', projectArchived: false, recurring: true, start: null, due: o.date, mode: 'due', dueMinutes: null });
+    items.push({ key: `proj:${head.id}:${o.date}`, kind: 'projected', task: head, date: o.date, status: 'projected', projectArchived: false, recurring: true, start: null, due: o.date, mode: 'due' });
   }
   return items;
 }

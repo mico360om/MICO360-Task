@@ -187,10 +187,13 @@ export function TaskBar({
       ) : (
         <span className="w-1 flex-none" />
       )}
-      <span className="flex min-w-0 flex-1 items-center gap-1">
-        <span data-status-dot aria-hidden="true" className={`inline-block h-1.5 w-1.5 flex-none rounded-full ${item.kind === 'projected' ? 'border border-dashed border-ink-2' : statusClass(item.task.columnCategory).dot}`} />
-        {number ? <TaskKey value={number} dense className={showKey ? '' : 'hidden 2xl:inline-block'} /> : null}
-        <span dir="auto" className={`min-w-0 font-medium ${detailed || lines === 2 ? 'line-clamp-2 [overflow-wrap:anywhere]' : lines === 3 ? 'line-clamp-3 [overflow-wrap:anywhere]' : 'truncate'}`}>
+      {/* Two lines with its number in sight (Week's narrow All day row): the number on the first, the title under it. */}
+      <span className={`min-w-0 flex-1 ${showKey && lines > 1 ? 'flex flex-col' : 'flex items-center gap-1'}`}>
+        <span className="flex min-w-0 flex-none items-center gap-1">
+          <span data-status-dot aria-hidden="true" className={`inline-block h-1.5 w-1.5 flex-none rounded-full ${item.kind === 'projected' ? 'border border-dashed border-ink-2' : statusClass(item.task.columnCategory).dot}`} />
+          {number ? <TaskKey value={number} dense className={showKey ? '' : 'hidden 2xl:inline-block'} /> : null}
+        </span>
+        <span dir="auto" className={`min-w-0 font-medium ${showKey && lines > 1 ? 'truncate' : detailed || lines === 2 ? 'line-clamp-2 [overflow-wrap:anywhere]' : lines === 3 ? 'line-clamp-3 [overflow-wrap:anywhere]' : 'truncate'}`}>
           {item.task.title}
           {sub ? <span className="font-normal text-ink-2"> · {sub}</span> : null}
         </span>

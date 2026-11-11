@@ -118,7 +118,6 @@ export function DayPanel(p: DayPanelProps) {
     const s = STATUS_META[item.status];
     const draggable = p.canDragTask(item);
     const act = p.canAct(item);
-    const due = 'dueMinutes' in item && item.dueMinutes !== null ? timeLabel(item.dueMinutes) : null;
     return (
       <li
         key={key}
@@ -136,7 +135,7 @@ export function DayPanel(p: DayPanelProps) {
             <span dir="auto" className="min-w-0 font-medium text-ink [overflow-wrap:anywhere]">{t.title}</span>
           </span>
           <span className={`block text-[11px] ${late ? OVERDUE_CLASS.text : 'text-ink-2'}`}>
-            {[late ? 'Overdue' : s.label, due ? `due ${due}` : null, t.assignees?.map((a) => a.name).join(', ') || null].filter(Boolean).join(' · ')}
+            {[late ? 'Overdue' : s.label, t.assignees?.map((a) => a.name).join(', ') || null].filter(Boolean).join(' · ')}
           </span>
         </button>
         {act ? (

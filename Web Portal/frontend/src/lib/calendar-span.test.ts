@@ -30,11 +30,12 @@ describe('a task from its start to its due day (owner, 11 Nov) — the same rule
       },
       ctx,
     );
-    expect(items.map((i) => [i.key, i.kind, i.start, i.due, i.mode, i.date, i.dueMinutes])).toEqual([
-      ['a', 'task', '2026-11-03', '2026-11-06', 'bar', '2026-11-06', null],
-      ['b', 'task', null, '2026-11-12', 'due', '2026-11-12', 14 * 60 + 30],
-      ['c', 'task', '2026-11-10', '2026-11-30', 'bar', '2026-11-30', null],
-      ['proj:b:2026-11-19', 'projected', null, '2026-11-19', 'due', '2026-11-19', null],
+    // Due dates are days (R12): an old row's time doesn't place it anywhere but its day.
+    expect(items.map((i) => [i.key, i.kind, i.start, i.due, i.mode, i.date])).toEqual([
+      ['a', 'task', '2026-11-03', '2026-11-06', 'bar', '2026-11-06'],
+      ['b', 'task', null, '2026-11-12', 'due', '2026-11-12'],
+      ['c', 'task', '2026-11-10', '2026-11-30', 'bar', '2026-11-30'],
+      ['proj:b:2026-11-19', 'projected', null, '2026-11-19', 'due', '2026-11-19'],
     ]);
     // Overdue by its due day (red ⚑), as everywhere.
     expect(items[0]!.status).toBe('overdue');

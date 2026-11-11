@@ -8,10 +8,10 @@ import { HOUR_PX, clipToDay, layoutColumns, minutesAt, snapMinutes, timeLabel, w
 import { columnAt, endDrag, readDrag, startDrag, type DragPayload } from '../../lib/calendar-dnd';
 import { calendarOrder } from '../../lib/calendar-order';
 import { ChecklistChip, dayLabel, meetingName } from './calendar-ui';
-import { BellIcon, DayOffTag, DueIcon, HATCH_STYLE, PeopleIcon, TaskBar, blockName, blockTimes, keyMoveOf, reminderName, type KeyMove } from './schedule-chips';
+import { BellIcon, DayOffTag, HATCH_STYLE, PeopleIcon, TaskBar, blockName, blockTimes, keyMoveOf, reminderName, type KeyMove } from './schedule-chips';
 
-const ALL_DAY_LANES = 3;
-const LANE_PITCH = 26;
+/** The All day row: Week's narrow days take two lines a task (its number and title readable), two lanes before "+N more"; Day one wide line, three lanes. */
+const ALL_DAY = { week: { lanes: 2, pitch: 40, lines: 2 as const }, day: { lanes: 3, pitch: 26, lines: 1 as const } };
 
 export interface HourGridProps {
   /** The days shown: a week's seven, or one. */
@@ -54,8 +54,7 @@ export interface HourGridProps {
 
 type Timed =
   | { id: string; kind: 'meeting'; m: CalMeeting; start: number; end: number }
-  | { id: string; kind: 'block'; b: CalBlock; start: number; end: number }
-  | { id: string; kind: 'due'; item: SpanItem; start: number; end: number };
+  | { id: string; kind: 'block'; b: CalBlock; start: number; end: number };
 
 /**
  * Week and Day with hour slots (calendar scheduling): an All day row on top (tasks' bars and marks,
@@ -81,14 +80,17 @@ export function HourGrid(p: HourGridProps) {
   const rtl = typeof document !== 'undefined' && document.dir === 'rtl';
 
   // ── All day row ──
-  const allDayItems = p.items.filter((i) => !(i.mode === 'due' && i.dueMinutes !== null));
+  // Due dates are days (R12): every task's bar or ⚑ sits in the All day row.
+  const allDayItems = p.items;
   const ranked = calendarOrder(p.items);
   const entries = [
     ...weekSegments(p.days, allDayItems).map((seg) => ({ kind: 'task' as const, seg, startCol: seg.startCol, endCol: seg.endCol, order: 1000 + (ranked.get(seg.item.key) ?? 0) })),
     ...p.days.flatMap((day, col) => (p.checklistByDay.get(day) ?? []).map((s, i) => ({ kind: 'step' as const, s, startCol: col, endCol: col, order: 90_000 + i }))),
   ];
   const placed = packLanes(entries);
-  const view = laneView(placed, ALL_DAY_LANES);
+  const shape = n > 1 ? ALL_DAY.week : ALL_DAY.day;
+  const LANE_PITCH = shape.pitch;
+  const view = laneView(placed, shape.lanes);
   const lanes = allDayOpen ? placed.reduce((m, e) => Math.max(m, e.lane + 1), 0) : view.lanes;
   const anyMore = view.more.some((x) => x > 0);
   const allDayHeight = Math.max(1, lanes + (anyMore ? 1 : 0)) * LANE_PITCH + 6;
@@ -102,7 +104,7 @@ export function HourGrid(p: HourGridProps) {
   };
 
   // ── Timed, per day: worked out once per change of the data (not on every drag-over or minute tick) ──
-  const { meetingsByDay, meetingEnd, blocks, items, reminders, timeZone } = p;
+  const { meetingsByDay, meetingEnd, blocks, reminders, timeZone } = p;
   const daysKey = p.days.join(',');
   const perDay = useMemo(() => {
     const days = daysKey.split(',');
@@ -125,12 +127,9 @@ export function HourGrid(p: HourGridProps) {
         if (c) timed.get(day)!.push({ id: `b:${b.id}`, kind: 'block', b, start: c.start, end: Math.max(c.end, c.start + 15) });
       }
     }
-    for (const item of items) {
-      if (item.due && item.dueMinutes !== null && timed.has(item.due)) timed.get(item.due)!.push({ id: `due:${item.key}`, kind: 'due', item, start: item.dueMinutes, end: item.dueMinutes + 30 });
-    }
     for (const r of reminders) bells.get(minutesAt(r.fireAt, timeZone).day)?.push(r);
     return { laid: new Map([...timed].map(([d, list]) => [d, layoutColumns(list)])), bells };
-  }, [daysKey, meetingsByDay, meetingEnd, blocks, items, reminders, timeZone]);
+  }, [daysKey, meetingsByDay, meetingEnd, blocks, reminders, timeZone]);
   const remindersOf = (day: string) => perDay.bells.get(day) ?? [];
   const nowAt = minutesAt(p.now.toISOString(), p.timeZone);
 
@@ -217,6 +216,7 @@ export function HourGrid(p: HourGridProps) {
                       onOpen={p.onOpenItem}
                       onKeyMove={p.onKeyMoveTask}
                       showKey
+                      lines={shape.lines}
                       sub={p.projectName?.(e.seg.item.task.projectId)}
                     />
                   ) : (
@@ -308,10 +308,8 @@ export function HourGrid(p: HourGridProps) {
                     <div role="listitem" key={t.id} className="absolute z-10" style={style}>
                       {t.kind === 'meeting' ? (
                         <MeetingBlock m={t.m} end={p.meetingEnd(t.m.id)} color={t.m.projectId ? p.colorOf(t.m.projectId) : undefined} draggable={p.canDragMeeting(t.m)} grabOffset={grabOffset} onKeyMove={p.onKeyMoveMeeting} />
-                      ) : t.kind === 'block' ? (
-                        <WorkBlock b={t.b} timeZone={p.timeZone} draggable={p.canDragBlock(t.b)} grabOffset={grabOffset} onOpen={p.onOpenBlock} onRemove={p.onRemoveBlock} onKeyMove={p.onKeyMoveBlock} />
                       ) : (
-                        <DueFlag item={t.item} color={p.colorOf(t.item.task.projectId)} draggable={p.canDragTask(t.item)} onOpen={p.onOpenItem} onKeyMove={p.onKeyMoveTask} />
+                        <WorkBlock b={t.b} timeZone={p.timeZone} draggable={p.canDragBlock(t.b)} grabOffset={grabOffset} onOpen={p.onOpenBlock} onRemove={p.onRemoveBlock} onKeyMove={p.onKeyMoveBlock} />
                       )}
                     </div>
                   );
@@ -452,40 +450,6 @@ function WorkBlock({
   );
 }
 
-/** A task due at a time: its ⚑ at that time (drag the ⚑ to change the due time — call 4). */
-function DueFlag({ item, color, draggable, onOpen, onKeyMove }: { item: SpanItem; color?: string; draggable: boolean; onOpen: (i: SpanItem) => void; onKeyMove: (i: SpanItem, m: KeyMove) => void }) {
-  const overdue = item.status === 'overdue';
-  return (
-    <div
-      role="button"
-      tabIndex={0}
-      data-item={`due:${item.key}`}
-      data-flag={item.task.id}
-      draggable={draggable || undefined}
-      onDragStart={(e) => startDrag(e, { kind: 'task', id: item.task.id, grip: 'due', grabDay: item.due ?? '' })}
-      onDragEnd={endDrag}
-      onClick={() => onOpen(item)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onOpen(item);
-          return;
-        }
-        const move = keyMoveOf(e);
-        if (move) e.preventDefault();
-        if (move && draggable && move.days) onKeyMove(item, { ...move, edge: 'due' });
-      }}
-      aria-label={`${item.task.key} ${item.task.title}, due at ${timeLabel(item.dueMinutes ?? 0)}${overdue ? ', overdue' : ''}`}
-      title={`${item.task.key} · ${item.task.title} — due ${timeLabel(item.dueMinutes ?? 0)}`}
-      style={color ? { borderInlineStartColor: color } : undefined}
-      className={`flex h-full min-h-5 w-full min-w-0 items-start gap-1 overflow-hidden rounded-md border border-s-[3px] bg-surface px-1.5 py-0.5 text-[11px] leading-4 shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand ${overdue ? 'border-overdue/60 text-overdue' : 'border-line text-ink'} ${draggable ? 'cursor-grab' : ''}`}
-    >
-      <span className={`mt-px ${overdue ? 'text-overdue' : 'text-ink-2'}`}><DueIcon /></span>
-      <span className="flex-none tabular-nums font-semibold">{timeLabel(item.dueMinutes ?? 0)}</span>
-      <span dir="auto" className="min-w-0 truncate font-medium">{item.task.title}</span>
-    </div>
-  );
-}
 
 /** Keep the grid's now-line moving (once a minute). */
 export function useNow(): Date {
