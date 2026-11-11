@@ -4,7 +4,7 @@ import { apiClient } from '../../api/client';
 import { BIN_KEY, binApi, type BinDetail } from '../../api/recycle-bin';
 import { ApiError } from '../../lib/api-client';
 import { binBannerLead, binCountdown, eraseText, restoredNotice, restoreText } from '../../lib/recycle-bin';
-import { buildTimeline } from '../../lib/activity-feed';
+import { buildTaskTimeline } from '../../lib/task-history-extra';
 import { invalidateTaskQueries } from '../../lib/task-cache';
 import { showTaskNotice } from '../../lib/task-notice';
 import { useCompanyTimeZone } from '../../lib/useCompanyTimeZone';
@@ -94,7 +94,8 @@ export function DeletedTaskPanel({ taskId, onClose, closeButton }: { taskId: str
   const t = d.task;
   const countdown = binCountdown(d.bin.daysLeft);
   const busy = restoreM.isPending || eraseM.isPending;
-  const history = buildTimeline(d.history.map((h) => ({ id: h.id, action: h.action, actorName: h.actor?.name ?? 'Someone', createdAt: h.createdAt, meta: h.meta })));
+  // 1.24: the task panel's timeline (guest and category lines worded as there).
+  const history = buildTaskTimeline(d.history.map((h) => ({ id: h.id, action: h.action, actorName: h.actor?.name ?? 'Someone', createdAt: h.createdAt, meta: h.meta })));
   // A date-only value keeps its day; an instant (a repeat copy's start: "now") is read in company time.
   const day = (iso: string | null) => (iso ? dayText(dueDayKey(iso, timeZone) ?? iso.slice(0, 10)) : '—');
 

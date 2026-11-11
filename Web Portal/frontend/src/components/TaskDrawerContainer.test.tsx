@@ -1074,6 +1074,20 @@ describe('TaskDrawerContainer — a task in the Recycle Bin', () => {
     expect(within(cats).getByRole('img', { name: 'Category: Old works (retired)' })).toBeInTheDocument();
   });
 
+  // tgc: 1.24 — its history words guests and categories as the task panel does.
+  it('1.24: its history says "assigned guest …" and "added category …"', async () => {
+    const history = [
+      { id: 'h3', taskId: 'tx', projectId: 'p1', userId: 'u2', action: 'DELETED', meta: {}, createdAt: '2026-11-03T09:00:00.000Z', actor: { id: 'u2', name: 'Ali Hassan' } },
+      { id: 'h2', taskId: 'tx', projectId: 'p1', userId: 'u2', action: 'CATEGORY_ADDED', meta: { name: 'Electrical' }, createdAt: '2026-11-02T08:00:00.000Z', actor: { id: 'u2', name: 'Ali Hassan' } },
+      { id: 'h1', taskId: 'tx', projectId: 'p1', userId: 'u2', action: 'EXTERNAL_CONTACT_ADDED', meta: { name: 'Ahmed Al Harthy', company: 'OXY' }, createdAt: '2026-11-01T06:00:00.000Z', actor: { id: 'u2', name: 'Ali Hassan' } },
+    ];
+    openDeleted(() => json({ data: { ...detail, history } }));
+    await screen.findByText(/In the Recycle Bin — deleted by Ali Hassan/);
+    expect(screen.getByText(/assigned guest Ahmed Al Harthy \(OXY\)/)).toBeInTheDocument();
+    expect(screen.getByText(/added category Electrical/)).toBeInTheDocument();
+    expect(screen.queryByText(/external contact/)).toBeNull();
+  });
+
   it('anyone else on the project: "This task was deleted"', async () => {
     openDeleted(() => json({ error: { code: 'NOT_FOUND', message: 'Task not found.' } }, 404));
     expect(await screen.findByText('This task was deleted.')).toBeInTheDocument();
