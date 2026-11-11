@@ -59,6 +59,13 @@ const EnvSchema = z.object({
   // Training Center files (private: served only after the course's audience check); blank =
   // `training-files` beside UPLOAD_DIR. Never inside UPLOAD_DIR, which the website serves to anyone.
   TRAINING_FILES_DIR: z.string().optional().default(''),
+  // Learning Hub: the first-time tour opens on its own for new accounts ('on', the default) or never
+  // ('off': test servers, whose new accounts would meet its full-screen layer; anyone can still replay it).
+  TRAINING_TOUR_AUTO: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? '').trim().toLowerCase() || 'on')
+    .pipe(z.enum(['on', 'off'])),
   // Folder for the hosted Android app (MICO360-Tasks.apk) that deploys keep; blank = `downloads`
   // beside UPLOAD_DIR. Served at /downloads/MICO360-Tasks.apk before any copy in WEB_ROOT.
   DOWNLOADS_DIR: z.string().optional().default(''),

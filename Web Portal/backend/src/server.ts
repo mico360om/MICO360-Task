@@ -1930,6 +1930,7 @@ async function main(): Promise<void> {
     files: createTrainingFileStore(trainingFilesDirFor(env, process.cwd())),
     timeZone: companyTz,
     appUrl: env.APP_URL,
+    tourAuto: env.TRAINING_TOUR_AUTO !== 'off',
     notify: (n) => notificationService.notify(n),
     rules: async (companyId) => {
       const r = await notifyPolicy.rules(companyId);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deliverReminders, newestCertificates, reminderCompanyOf, reportsToOf } from './training-sweeps';
+import { deliverReminders, newestCertificates, reminderCompanyOf, reportsToOf, seesReportsOf } from './training-sweeps';
 import type { PersonRecord } from './prisma-training-store';
 import type { PlannedNotice } from './training-reminders';
 
@@ -115,5 +115,18 @@ describe('who and whose rules', () => {
       { id: 'c4', userId: 'v', courseId: 'k', issuedAt: new Date('2026-03-01') },
     ];
     expect(newestCertificates(rows).map((r) => r.id).sort()).toEqual(['c2', 'c3', 'c4']);
+  });
+});
+
+describe('M11 who may follow an escalation’s link to the Reports', () => {
+  it('an administrator; a Training manager of the learner’s company; whoever runs a project the learner is on — nobody else', () => {
+    const ana = person('ana', { companyIds: ['A'], teamProjectIds: ['P1'] });
+    expect(seesReportsOf(person('boss', { admin: true }), ana)).toBe(true);
+    expect(seesReportsOf(person('tm', { trainingManager: true, companyIds: ['A'] }), ana)).toBe(true);
+    expect(seesReportsOf(person('tmB', { trainingManager: true, companyIds: ['B'] }), ana)).toBe(false);
+    expect(seesReportsOf(person('pm', { runsProject: true, runProjectIds: ['P1'] }), ana)).toBe(true);
+    expect(seesReportsOf(person('pm2', { runsProject: true, runProjectIds: ['P9'] }), ana)).toBe(false);
+    expect(seesReportsOf(person('peer'), ana)).toBe(false);
+    expect(seesReportsOf(undefined, ana)).toBe(false);
   });
 });

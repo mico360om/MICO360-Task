@@ -57,7 +57,9 @@ export type LearnerMode = 'staff' | 'client';
 // ── Pure helpers ──────────────────────────────────────────────────────────────────────────────────
 
 /** R15: show the first-time tour on its own? */
-export function tourShows(i: { launchedAt: Date | null; createdAt: Date; tourDoneAt: Date | null; client: boolean; primaryCompanyId: string | null; companyIds: readonly string[]; off: readonly string[] }): boolean {
+export function tourShows(i: { launchedAt: Date | null; createdAt: Date; tourDoneAt: Date | null; client: boolean; primaryCompanyId: string | null; companyIds: readonly string[]; off: readonly string[]; auto?: boolean }): boolean {
+  // R20: TRAINING_TOUR_AUTO=off — never on its own (it can still be replayed).
+  if (i.auto === false) return false;
   if (!i.launchedAt || i.tourDoneAt || i.createdAt.getTime() <= i.launchedAt.getTime()) return false;
   if (i.client) return !(i.companyIds.length > 0 && i.companyIds.every((c) => i.off.includes(c)));
   const company = i.primaryCompanyId ?? i.companyIds[0] ?? null;
@@ -346,7 +348,7 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync) 
     const [launched, tour] = await Promise.all([readSetting<unknown>(prisma, LAUNCHED_KEY), readSetting<{ off?: unknown }>(prisma, TOUR_KEY)]);
     const at = typeof launched === 'string' ? new Date(launched) : null;
     const off = Array.isArray(tour?.off) ? tour!.off.filter((x): x is string => typeof x === 'string') : [];
-    return { show: tourShows({ launchedAt: at && !Number.isNaN(at.getTime()) ? at : null, createdAt: p.createdAt, tourDoneAt: p.tourDoneAt, client: p.client, primaryCompanyId: p.primaryCompanyId, companyIds: p.companyIds, off }) };
+    return { show: tourShows({ launchedAt: at && !Number.isNaN(at.getTime()) ? at : null, createdAt: p.createdAt, tourDoneAt: p.tourDoneAt, client: p.client, primaryCompanyId: p.primaryCompanyId, companyIds: p.companyIds, off, auto: ctx.tourAuto !== false }) };
   }
 
   async function syncPerson(p: PersonRecord): Promise<void> {

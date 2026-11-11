@@ -361,10 +361,18 @@ export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDe
     const { id } = req.params as { id: string };
     const { companyIds, primaryCompanyId, departmentName, ...body } = updateSchema.parse(req.body);
     // Training Center: a department by name ('' or null: none) — it wins over a departmentId sent with it.
+    // M19: a new name is made only after every other check passed (a refused save makes no department).
+    let newDepartment: string | null = null;
     if (departmentName !== undefined) {
       const name = cleanDepartmentName(departmentName);
       if (name && !deps.departments) throw new ValidationError('Departments can’t be named here.', { field: 'departmentName' });
-      body.departmentId = name ? (await deps.departments!.findOrCreate(name)).id : null;
+      const existing = name ? (await deps.departments!.list()).find((d) => d.name.toLowerCase() === name.toLowerCase()) : undefined;
+      if (!name) body.departmentId = null;
+      else if (existing) body.departmentId = existing.id;
+      else {
+        newDepartment = name;
+        delete body.departmentId;
+      }
     }
     // companies: a change to their companies (or roles) is checked first, so a refused one saves nothing.
     const membership = deps.membership;
@@ -372,6 +380,7 @@ export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDe
     if (membership && (companiesChange || body.roleNames !== undefined)) await membership.check(id, companyIds, primaryCompanyId, { roles: body.roleNames });
     const before = await userService.getUser(id);
     let updated = await userService.updateUser(id, body, { id: req.user!.id, ip: req.ip ?? null });
+    if (newDepartment) updated = await userService.updateUser(id, { departmentId: (await deps.departments!.findOrCreate(newDepartment)).id }, { id: req.user!.id, ip: req.ip ?? null });
     if (membership && companiesChange) {
       await membership.set(id, companyIds, primaryCompanyId, { id: req.user!.id, roles: req.user!.roles ?? [] }, req.ip ?? null);
       updated = await userService.getUser(id);

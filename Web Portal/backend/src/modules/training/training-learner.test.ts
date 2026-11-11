@@ -10,6 +10,9 @@ describe('R15 the first-time tour', () => {
   it('only for accounts made after the Training Center launched, until they finish or skip it', () => {
     expect(tourShows({ ...staff, launchedAt: launched, off: [] })).toBe(true);
     expect(tourShows({ ...staff, launchedAt: null, off: [] })).toBe(false);
+    // R20: TRAINING_TOUR_AUTO=off (test servers): never on its own; the person can still replay it.
+    expect(tourShows({ ...staff, launchedAt: launched, off: [], auto: false })).toBe(false);
+    expect(tourShows({ ...staff, launchedAt: launched, off: [], auto: true })).toBe(true);
     expect(tourShows({ ...staff, createdAt: earlier, launchedAt: launched, off: [] })).toBe(false);
     expect(tourShows({ ...staff, tourDoneAt: later, launchedAt: launched, off: [] })).toBe(false);
   });

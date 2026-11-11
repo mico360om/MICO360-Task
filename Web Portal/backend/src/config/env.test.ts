@@ -156,3 +156,15 @@ describe('loadEnv — defaults and checks', () => {
     expect(() => loadEnv({ ...base, BACKUP_WARN_GB: '0' } as NodeJS.ProcessEnv)).toThrow('BACKUP_WARN_GB: Number must be greater than 0');
   });
 });
+
+describe('TRAINING_TOUR_AUTO (Learning Hub, R20)', () => {
+  const tour = (v?: string) => loadEnv({ ...base, NODE_ENV: 'development', ...(v === undefined ? {} : { TRAINING_TOUR_AUTO: v }) } as NodeJS.ProcessEnv).TRAINING_TOUR_AUTO;
+  it('on unless set to off (any case, spaces ignored); anything else is refused', () => {
+    expect(tour()).toBe('on');
+    expect(tour('')).toBe('on');
+    expect(tour('off')).toBe('off');
+    expect(tour(' OFF ')).toBe('off');
+    expect(tour('on')).toBe('on');
+    expect(() => tour('maybe')).toThrow();
+  });
+});

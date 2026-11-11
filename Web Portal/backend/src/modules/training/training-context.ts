@@ -15,6 +15,8 @@ export interface TrainingDeps {
   timeZone: string;
   /** The website's address (APP_URL): certificates' verification links. */
   appUrl: string;
+  /** R20 (TRAINING_TOUR_AUTO): the first-time tour opens on its own; false: never (test servers). Default true. */
+  tourAuto?: boolean;
   now?: () => Date;
   rng?: Rng;
   /** A notice through the notification service (Notification & Scheduling delivery); clients get none. */

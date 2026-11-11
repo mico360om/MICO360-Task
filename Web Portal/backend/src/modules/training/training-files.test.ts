@@ -18,6 +18,19 @@ describe('training files folder', () => {
     expect(trainingFilesDirFor({ UPLOAD_DIR: 'uploads' }, cwd)).toBe(resolve('/srv/app/training-files'));
   });
 
+  it('M13: compares whole folder names — a folder that merely starts with “..” is still inside', () => {
+    const cwd = resolve('/srv/app');
+    expect(() => trainingFilesDirFor({ UPLOAD_DIR: 'uploads', TRAINING_FILES_DIR: 'uploads/..training' }, cwd)).toThrow(/uploads/);
+    expect(trainingFilesDirFor({ UPLOAD_DIR: 'uploads', TRAINING_FILES_DIR: 'uploads-private' }, cwd)).toBe(resolve('/srv/app/uploads-private'));
+  });
+
+  it('M13: never inside the web app folder either (WEB_ROOT, served to anyone)', () => {
+    const cwd = resolve('/srv/app');
+    expect(() => trainingFilesDirFor({ UPLOAD_DIR: '../data/uploads', TRAINING_FILES_DIR: 'web/files', WEB_ROOT: 'web' }, cwd)).toThrow(/web app/);
+    expect(() => trainingFilesDirFor({ UPLOAD_DIR: 'web/uploads', TRAINING_FILES_DIR: '', WEB_ROOT: 'web' }, cwd)).toThrow(/web app/);
+    expect(trainingFilesDirFor({ UPLOAD_DIR: '../data/uploads', TRAINING_FILES_DIR: '', WEB_ROOT: 'web' }, cwd)).toBe(resolve('/srv/data/training-files'));
+  });
+
   it('refuses a TRAINING_FILES_DIR inside the public uploads folder (it would be public)', () => {
     const cwd = resolve('/srv/app');
     expect(() => trainingFilesDirFor({ UPLOAD_DIR: 'uploads', TRAINING_FILES_DIR: 'uploads/training' }, cwd)).toThrow(/uploads/);

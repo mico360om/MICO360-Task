@@ -33,6 +33,8 @@ export interface ReminderEnrolment {
   companyId: string | null;
   /** An active staff account, or null. */
   reportsToId: string | null;
+  /** M11: may Reports to open the Learning Hub's Reports for this person? No: their notice carries no link. */
+  reportsToSeesReports: boolean;
   /** The Training managers of the person's companies (active staff). */
   trainingManagerIds: readonly string[];
   adminIds: readonly string[];
@@ -61,8 +63,8 @@ export interface PlannedNotice {
   type: TrainingNoticeType;
   title: string;
   body: string;
-  entityType: 'training-course' | 'training-overdue';
-  entityId: string;
+  entityType: 'training-course' | 'training-overdue' | null;
+  entityId: string | null;
 }
 
 const day = (key: string) => formatDay(key);
@@ -94,7 +96,7 @@ export function planTrainingReminders(i: { enrolments: readonly ReminderEnrolmen
     const others = (ids: readonly string[]) => [...new Set(ids)].filter((id) => id !== e.userId);
     const tms = others(e.trainingManagerIds);
     const admins = others(e.adminIds);
-    const escalate = (stepKey: string, to: string[]) => {
+    const escalate = (stepKey: string, to: string[], linked = true) => {
       for (const userId of to) {
         out.push({
           key: key('TRAINING_OVERDUE', e.enrolmentId, `${stepKey}-${due}`),
@@ -102,14 +104,15 @@ export function planTrainingReminders(i: { enrolments: readonly ReminderEnrolmen
           type: 'TRAINING_OVERDUE',
           title: `Overdue training: ${e.learnerName} — ${e.courseTitle}`,
           body: `${e.learnerName}’s mandatory training was due ${day(due)}: ${plural(late, 'working day')} late.`,
-          entityType: 'training-overdue',
-          entityId: e.courseId,
+          entityType: linked ? 'training-overdue' : null,
+          entityId: linked ? e.courseId : null,
         });
       }
     };
     if (late >= rules.step1Days) {
       const boss = e.reportsToId && e.reportsToId !== e.userId ? [e.reportsToId] : [];
-      escalate('e1', boss.length ? boss : tms.length ? tms : admins);
+      if (boss.length) escalate('e1', boss, e.reportsToSeesReports);
+      else escalate('e1', tms.length ? tms : admins);
     }
     if (late >= rules.step1Days + rules.step2Days) escalate('e2', tms.length ? tms : admins);
   }

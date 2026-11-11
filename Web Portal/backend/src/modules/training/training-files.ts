@@ -13,15 +13,29 @@ import { LIMITS, type FileKind } from './training-types';
  * course's audience check. The folder is in the backups too (backup-wiring).
  */
 
-/** TRAINING_FILES_DIR, else `training-files` beside UPLOAD_DIR (outside the app folder, so deploys keep it). */
-export function trainingFilesDirFor(env: { UPLOAD_DIR: string; TRAINING_FILES_DIR?: string }, cwd: string): string {
+/** Is `child` the folder `parent` or inside it? Whole folder names (M13); case-insensitive on Windows. */
+function isInside(child: string, parent: string): boolean {
+  const norm = (p: string) => (process.platform === 'win32' ? resolve(p).toLowerCase() : resolve(p));
+  const rel = relative(norm(parent), norm(child));
+  if (rel === '') return true;
+  if (isAbsolute(rel)) return false;
+  return rel.split(/[\\/]/)[0] !== '..';
+}
+
+/**
+ * TRAINING_FILES_DIR, else `training-files` beside UPLOAD_DIR (outside the app folder, so deploys keep it).
+ * Never inside the uploads folder or the web app folder (WEB_ROOT): both are served to anyone (M13).
+ */
+export function trainingFilesDirFor(env: { UPLOAD_DIR: string; TRAINING_FILES_DIR?: string; WEB_ROOT?: string }, cwd: string): string {
   const uploads = resolve(cwd, env.UPLOAD_DIR);
   const own = env.TRAINING_FILES_DIR?.trim();
   const dir = own ? resolve(cwd, own) : join(dirname(uploads), 'training-files');
-  const norm = (p: string) => (process.platform === 'win32' ? resolve(p).toLowerCase() : resolve(p));
-  const rel = relative(norm(uploads), norm(dir));
-  if (rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))) {
+  if (isInside(dir, uploads)) {
     throw new Error('TRAINING_FILES_DIR is inside the uploads folder, which the website serves to anyone. Choose a private folder outside it.');
+  }
+  const web = env.WEB_ROOT?.trim();
+  if (web && isInside(dir, resolve(cwd, web))) {
+    throw new Error('The training files folder is inside the web app folder (WEB_ROOT), which the website serves to anyone. Set TRAINING_FILES_DIR to a private folder outside it.');
   }
   return dir;
 }

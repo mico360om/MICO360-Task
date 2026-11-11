@@ -371,6 +371,15 @@ describe('Training Center: Reports to, Training manager and Department in User M
     expect((await put(id, { departmentName: 'x'.repeat(81) })).statusCode).toBe(400);
   });
 
+  it('M19: a refused save makes no department (every other check comes first)', async () => {
+    const { id } = await make('rami');
+    const refused = await put(id, { departmentName: 'Never Made', reportsToId: id });
+    expect(refused.statusCode).toBe(400);
+    const list = await app.inject({ method: 'GET', url: '/api/v1/users/departments', headers: await admin() });
+    expect((list.json().data as { name: string }[]).map((d) => d.name)).not.toContain('Never Made');
+    expect((await put(id, { departmentName: 'Made Now' })).json().data).toMatchObject({ departmentName: 'Made Now' });
+  });
+
   it('only administrators: an employee is refused the departments list and these changes (403)', async () => {
     const { id } = await make('sara');
     const emp = { authorization: `Bearer ${await tokenFor(id, ['EMPLOYEE'])}` };

@@ -1,4 +1,5 @@
 import { createPrismaReminderKeys, type ReminderKeyStore } from '../notify-policy/planner-sweep';
+import { inScope } from './training-access';
 import { trainingManagersFor, type TrainingContext } from './training-context';
 import { readSetting, type PersonRecord } from './prisma-training-store';
 import { loadStates, pairKey, type PairState } from './training-read';
@@ -29,6 +30,17 @@ export function reportsToOf(p: PersonRecord, people: ReadonlyMap<string, PersonR
   if (!p.reportsToId || p.reportsToId === p.id) return null;
   const boss = people.get(p.reportsToId);
   return boss && boss.active && !boss.client ? boss.id : null;
+}
+
+/**
+ * M11: may this Reports-to person open the Learning Hub's Reports for the learner — an administrator, a
+ * Training manager of one of the learner's companies, or someone running a project the learner is on.
+ */
+export function seesReportsOf(boss: PersonRecord | undefined, p: PersonRecord): boolean {
+  if (!boss || boss.client) return false;
+  if (boss.admin) return true;
+  if (boss.trainingManager && inScope(boss.companyIds, p)) return true;
+  return !p.client && p.teamProjectIds.some((id) => boss.runProjectIds.includes(id));
 }
 
 /** Whose working days and escalation numbers: their primary company while it is one of theirs, else their first, else the site's. */
@@ -132,6 +144,7 @@ export function createTrainingSweeps(ctx: TrainingContext, sync: TrainingSync, d
         status: s.state.status,
         companyId: reminderCompanyOf(p),
         reportsToId: p.client ? null : reportsToOf(p, people),
+        reportsToSeesReports: seesReportsOf(p.reportsToId ? people.get(p.reportsToId) : undefined, p),
         trainingManagerIds: m.tms,
         adminIds: m.admins,
       });

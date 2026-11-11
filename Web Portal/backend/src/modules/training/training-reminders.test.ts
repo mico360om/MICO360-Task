@@ -16,6 +16,7 @@ const E = (o: Partial<ReminderEnrolment> = {}): ReminderEnrolment => ({
   status: 'IN_PROGRESS',
   companyId: 'A',
   reportsToId: 'boss',
+  reportsToSeesReports: true,
   trainingManagerIds: ['tm1', 'tm2'],
   adminIds: ['adm'],
   ...o,
@@ -62,6 +63,13 @@ describe('R13 overdue and escalation', () => {
       `${REMINDER_KEY_PREFIX}TRAINING_OVERDUE:e1:e2-2026-11-15 → tm1`,
       `${REMINDER_KEY_PREFIX}TRAINING_OVERDUE:e1:e2-2026-11-15 → tm2`,
     ]);
+  });
+
+  it('M11: a Reports-to person who can’t open the Learning Hub’s Reports for them gets the notice without a link', () => {
+    const e1 = plan('2026-11-18', [E({ reportsToSeesReports: false })]).find((n) => n.userId === 'boss')!;
+    expect(e1).toMatchObject({ entityType: null, entityId: null, title: 'Overdue training: Ana Alpha — Tasks basics' });
+    // Step 2 goes to the Training managers, who can: the link stays.
+    expect(plan('2026-11-26', [E({ reportsToSeesReports: false })]).find((n) => n.userId === 'tm1')).toMatchObject({ entityType: 'training-overdue', entityId: 'c1' });
   });
 
   it('no Reports to: step 1 to the Training managers, else administrators; never the learner themselves', () => {
