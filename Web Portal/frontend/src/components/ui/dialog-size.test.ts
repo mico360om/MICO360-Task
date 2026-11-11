@@ -53,6 +53,8 @@ const NOT_ON_THE_SCALE = new Set([
   'pages/MicoAiPage.tsx',
   // 1.23.7 Preview as client: the whole Client portal, full screen (a page shown in a layer, not a form).
   'components/portal/ClientPreviewDialog.tsx',
+  // Bulk changes: the phone's sheet of actions, rising from the foot of the screen (a sheet).
+  'components/bulk/BulkBar.tsx',
 ]);
 const src = resolve(__dirname, '../..');
 const files = (dir: string): string[] =>

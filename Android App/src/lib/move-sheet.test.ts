@@ -61,10 +61,11 @@ it('where the person may move tasks: an answer of another shape is none', () => 
   expect(moveTargetsOf(ok)).toBe(ok);
   expect(moveTargetsOf({ projects: 'x' })).toBeNull(); expect(moveTargetsOf(null)).toBeNull();
 });
-describe.skipIf(!hasWeb('frontend/src/components/MoveTaskDialog.tsx', 'frontend/src/components/task-drawer/menus.tsx', 'frontend/src/components/BulkActionBar.tsx'))('the website’s words', () => {
+describe.skipIf(!hasWeb('frontend/src/components/MoveTaskDialog.tsx', 'frontend/src/components/task-drawer/menus.tsx'))('the website’s words', () => {
   it('every sheet word', () => {
-    const w = readWeb('frontend/src/components/MoveTaskDialog.tsx') + readWeb('frontend/src/components/task-drawer/menus.tsx') + readWeb('frontend/src/components/BulkActionBar.tsx');
-    for (const t of Object.values(MOVE_TEXT)) expect(w, t).toContain(t.trim());
+    const w = readWeb('frontend/src/components/MoveTaskDialog.tsx') + readWeb('frontend/src/components/task-drawer/menus.tsx');
+    // The website's bulk bar (bulk lane, Nov 2026) calls it "Project"; the app's My Tasks bar keeps "Move to project…".
+    for (const [k, t] of Object.entries(MOVE_TEXT)) if (k !== 'bulkButton') expect(w, t).toContain(t.trim());
     // The website joins a fallback and the connection words: `${fallback} Check your connection and try again.`.
     expect(w).toContain('`${fallback} Check your connection and try again.`');
   });

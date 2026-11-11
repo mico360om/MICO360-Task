@@ -103,6 +103,16 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   to it too — for the website, the Android app and the Chrome extension alike. Turning it off gives
   everything back at once (no signing out), and it can always be turned off. Each switch is recorded in
   the audit log.
+- Change many tasks at once: tick tasks on My Tasks (Grid, List and Table), a project's Tasks tab, any Table
+  view, or on the Kanban board after pressing **Select** (a box on each card and on each column; Shift-click
+  ticks a range; Escape leaves). "Select all 143 matching" ticks every task the filters leave, and ticked
+  tasks stay ticked when the filters change ("12 selected (3 hidden by filters)"). The bar at the foot of the
+  window (a sheet on a phone) changes their status, priority, people (assign, reassign, unassign), due date
+  (set, clear, or move by days), project, categories and guests, duplicates them, archives or unarchives them,
+  moves them to the Recycle Bin or merges them — up to 500 tasks at a time (50 for Duplicate). Each change is
+  confirmed first ("Move 12 tasks to Done? 2 will be skipped: you can’t move tasks in Rig 3."), then summed up
+  ("18 updated · 2 not changed", the skipped ones listed with why, "Select the 2 skipped" to try again) with
+  Undo for 15 seconds.
 
 ### Improvements
 - A task's history and the Activity page say who moved a task to the Recycle Bin and who restored it; every

@@ -1,14 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { tasksApi, type ApiTask, type Priority } from '../api/tasks';
 import { useProjectsWithAll } from '../lib/useProjectsWith';
-import { columnsApi, type ApiColumn } from '../api/columns';
-import { assigneesApi } from '../api/assignees';
-import { usersApi } from '../api/users';
 import { useOpenTask } from '../lib/useOpenTask';
 import { SavedViewsBar } from '../components/SavedViewsBar';
-import { BulkActionBar } from '../components/BulkActionBar';
+import { BulkTools } from '../components/bulk/BulkTools';
 import { PageHeader } from '../components/ui/PageHeader';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Button, buttonClass } from '../components/ui/Button';
@@ -24,21 +21,13 @@ import { GuestCategoryFilterBoxes, type GuestCategoryFilterState } from '../comp
 import { EMPTY_GUEST_CATEGORY_FILTERS, guestCategoryFiltersActive, matchesGuestCategory } from '../lib/guest-category-filter';
 import { NewTaskButton } from '../components/NewTaskButton';
 import { statusMeta, STATUS_ORDER } from '../lib/taskStatus';
-import { runBulk, type BulkAction, type BulkDeps } from '../lib/bulkActions';
+import { taskRef, useBulkSelection, type SelRef } from '../lib/bulk-selection';
+import { SelectAllBox, TaskSelectBox } from '../components/bulk/select-boxes';
 import { OPEN_STATUS, type TaskFilters } from '../lib/savedViews';
 import { dueDayKey, shiftDayKey, todayKey as companyTodayKey } from '../lib/due-date';
 import { formatDueDay, isTaskDone } from '../lib/due-display';
 import { startsText, waitingDay } from '../lib/scheduled-start';
 import { useCompanyTimeZone } from '../lib/company-clock';
-import { invalidateTaskQueries } from '../lib/task-cache';
-import { approvalNotice } from '../lib/approvals';
-import { MoveTaskDialog, useMoveTargets } from '../components/MoveTaskDialog';
-import { MergeTasksDialog, type MergeTaskRef } from '../components/MergeTasksDialog';
-import { MergedToast } from '../components/task-merge/MergedToast';
-import { UndoMergeDialog } from '../components/task-merge/UndoMergeDialog';
-import type { MergeResult } from '../api/task-merge';
-import { bulkMergeAvailability, invalidateMergeQueries } from '../lib/task-merge';
-import { bulkMoveAvailability, bulkMovedText, movedText } from '../lib/task-move';
 import { readUserValue, writeUserValue } from '../lib/user-storage';
 import { useAuthStore } from '../stores/auth-store';
 import { LoadError } from '../components/ui/LoadError';
@@ -145,12 +134,8 @@ export function MyTasksPage() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   useEffect(() => { writeUserValue(userId, 'mytasks.view', view); }, [view, userId]);
 
-  // Bulk selection + async bulk-action plumbing.
-  const qc = useQueryClient();
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [bulkBusy, setBulkBusy] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
-  const directoryQ = useQuery({ queryKey: ['directory'], queryFn: () => usersApi(apiClient).directory() });
+  // Bulk selection (owner, 10 Nov): it survives filter changes — a task filtered out stays selected and counts.
+  const sel = useBulkSelection();
 
   const projectById = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
 
@@ -276,81 +261,15 @@ export function MyTasksPage() {
   // A header's sort not in the menu (Status, Title Z–A…) is shown there as the choice in force.
   const sortOptions = SORT_OPTIONS.some((o) => o.value === sort) ? SORT_OPTIONS : [...SORT_OPTIONS, { value: sort, label: myTasksSortLabel(sort) }];
 
-  // Selection scoped to what's currently visible, so hidden tasks are never acted on by surprise.
-  const selectedList = useMemo(() => sorted.filter((e) => selected.has(e.task.id)), [sorted, selected]);
-  // As shown: today's, then Upcoming (the task panel's Previous / Next follow it).
-  const sortedIds = useMemo(() => [...todayRows, ...upcomingRows].map((e) => e.task.id), [todayRows, upcomingRows]);
-  const toggleSelect = (id: string) => setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-  const clearSelection = () => setSelected(new Set());
-  const allVisibleSelected = sorted.length > 0 && selectedList.length === sorted.length;
-  const toggleSelectAll = () => setSelected(allVisibleSelected ? new Set() : new Set(sorted.map((e) => e.task.id)));
-
-  // Bulk actions reuse the single-task endpoints (each already object-level authorized).
-  const colCache = useRef(new Map<string, Promise<ApiColumn[]>>());
-  const waitingAfterBulk = useRef(0);
-  const getColumns = (projectId: string) => {
-    let p = colCache.current.get(projectId);
-    if (!p) { p = columnsApi(apiClient).list(projectId); colCache.current.set(projectId, p); }
-    return p;
-  };
-  const bulkDeps: BulkDeps = {
-    update: (id, patch) => tasksApi(apiClient).update(id, patch),
-    move: async (id, columnId) => {
-      const moved = await tasksApi(apiClient).move(id, columnId);
-      // Needs approval: it waits for a project manager instead of completing.
-      if (approvalNotice(columnId, moved)) waitingAfterBulk.current += 1;
-      return moved;
-    },
-    assign: (id, userId) => assigneesApi(apiClient).assign(id, userId),
-    doneColumnFor: async (t) => {
-      const cols = await getColumns(t.projectId);
-      const done = cols.find((c) => c.category === 'DONE' && c.enabled) ?? cols.find((c) => c.category === 'DONE');
-      return done?.id ?? null;
-    },
-  };
-  async function runBulkAction(action: BulkAction, label: string) {
-    const refs = selectedList.map((e) => ({ id: e.task.id, projectId: e.task.projectId }));
-    if (refs.length === 0) return;
-    setBulkBusy(true);
-    setToast(null);
-    waitingAfterBulk.current = 0;
-    try {
-      const res = await runBulk(refs, action, bulkDeps);
-      colCache.current.clear();
-      await invalidateTaskQueries(qc);
-      setSelected(new Set());
-      const waiting = waitingAfterBulk.current;
-      const waits = waiting ? ` ${waiting} need${waiting === 1 ? 's' : ''} approval and ${waiting === 1 ? 'is' : 'are'} waiting for a project manager.` : '';
-      setToast((res.failed === 0 ? `${label} ${res.succeeded} task${res.succeeded === 1 ? '' : 's'}.` : `${label} ${res.succeeded}, ${res.failed} couldn’t be updated.`) + waits);
-    } catch {
-      setToast('Bulk action failed. Please try again.');
-    } finally {
-      setBulkBusy(false);
-    }
-  }
-  useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 4000); return () => clearTimeout(t); }, [toast]);
-
-  // "Move to project…": one dialog for the whole selection (each task is checked there).
-  const [moving, setMoving] = useState<{ id: string; key: string; title: string; projectId: string }[] | null>(null);
-  const moveTargets = useMoveTargets(selected.size > 0);
-  const moveUnavailable = bulkMoveAvailability(moveTargets).reason;
-  // 1.23.1 "Merge…": 2–10 selected tasks, each in a project the person manages (administrators: any).
-  const mergeAvail = bulkMergeAvailability(selectedList.map((e) => e.task), moveTargets);
-  const [merging, setMerging] = useState<MergeTaskRef[] | null>(null);
-  const [merged, setMerged] = useState<MergeResult | null>(null);
-  const [undoing, setUndoing] = useState<string | null>(null);
-
-  // Assignable people (directory) + move targets (only when a single project is pinned).
-  const directory = Array.isArray(directoryQ.data) ? directoryQ.data : [];
-  const assigneeChoices = directory.map((u) => ({ value: u.id, label: `${u.firstName} ${u.lastName}`.trim() || u.username }));
-  const moveColumnsQ = useQuery({
-    queryKey: ['columns', project],
-    queryFn: () => columnsApi(apiClient).list(project),
-    enabled: !!project,
-  });
-  const moveColumns = project && Array.isArray(moveColumnsQ.data)
-    ? [...moveColumnsQ.data].filter((c) => c.enabled).sort((a, b) => a.position - b.position).map((c) => ({ value: c.id, label: c.name }))
-    : undefined;
+  // As shown: today's, then Upcoming (the task panel's Previous / Next and a Shift-click's range follow it).
+  const shownRows = useMemo(() => [...todayRows, ...upcomingRows], [todayRows, upcomingRows]);
+  const sortedIds = useMemo(() => shownRows.map((e) => e.task.id), [shownRows]);
+  const shownRefs = useMemo<SelRef[]>(() => shownRows.map((e) => taskRef(e.task)), [shownRows]);
+  const toggleSelect = (t: ApiTask, shift: boolean) => sel.toggle(taskRef(t), { shift, order: shownRefs });
+  // "Select all N matching": every task the filters leave (the selection keeps the ones filtered out).
+  const allState = sel.allState(sortedIds);
+  const toggleSelectAll = () => (allState === 'all' ? sel.deselect(sortedIds) : sel.selectAll(shownRefs));
+  const tasksById = useMemo(() => new Map(tasks.map((t) => [t.id, t])), [tasks]);
 
   // The toolbar's parts: laid out in a row (tablet and up), or behind "Filters" on a phone.
   const activeFilters = [project, status, priority, assignee, due].filter(Boolean).length + guestCategoryFiltersActive(picked);
@@ -388,11 +307,11 @@ export function MyTasksPage() {
   const rowsView = (rows: Enriched[], label: string) =>
     view === 'grid' ? (
       <div className="grid gap-3 compact:gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {rows.map((e) => <MyTaskCard key={e.task.id} e={e} today={today} onOpen={() => openTask(e.task.id, sortedIds)} selected={selected.has(e.task.id)} onToggleSelect={() => toggleSelect(e.task.id)} />)}
+        {rows.map((e) => <MyTaskCard key={e.task.id} e={e} today={today} onOpen={() => openTask(e.task.id, sortedIds)} selected={sel.has(e.task.id)} onToggleSelect={(shift) => toggleSelect(e.task, shift)} />)}
       </div>
     ) : view === 'list' ? (
       <div className="card divide-y divide-line overflow-hidden">
-        {rows.map((e) => <MyTaskRow key={e.task.id} e={e} today={today} onOpen={() => openTask(e.task.id, sortedIds)} selected={selected.has(e.task.id)} onToggleSelect={() => toggleSelect(e.task.id)} />)}
+        {rows.map((e) => <MyTaskRow key={e.task.id} e={e} today={today} onOpen={() => openTask(e.task.id, sortedIds)} selected={sel.has(e.task.id)} onToggleSelect={(shift) => toggleSelect(e.task, shift)} />)}
       </div>
     ) : (
       // The page's filters, Sort menu, saved views and selection apply; a header click sets the sort.
@@ -409,7 +328,12 @@ export function MyTasksPage() {
         onSortChange={(next) => setSort(myTasksSortValue(next))}
         shown={tableMemory.shown}
         onShownChange={tableMemory.setShown}
-        selection={{ selected, onToggle: toggleSelect }}
+        selection={{
+          selected: sel.selected,
+          // A Shift-click's range follows the page's list as shown (today's, then Upcoming).
+          // (Its "Select all" is the page's own, above both lists.)
+          onToggle: (t, { shift }) => toggleSelect(t, shift),
+        }}
         onOpen={(id) => openTask(id, sortedIds)}
       />
     );
@@ -526,8 +450,8 @@ export function MyTasksPage() {
         <>
           <div className="mb-2 flex items-center gap-3">
             <label className="flex items-center gap-1.5 text-xs font-medium text-ink-2 [@media(pointer:coarse)]:min-h-11">
-              <input type="checkbox" aria-label="Select all tasks" checked={allVisibleSelected} onChange={toggleSelectAll} className="h-3.5 w-3.5 accent-brand" />
-              Select all
+              <SelectAllBox state={allState} onChange={toggleSelectAll} />
+              {selectAllWords(sorted.length, filtersActive)}
             </label>
             <p className="text-xs text-ink-2">
               Showing <span className="font-semibold text-ink">{sorted.length}</span>{filtersActive ? ` of ${counts.total}` : ''} task{sorted.length === 1 ? '' : 's'}
@@ -548,77 +472,8 @@ export function MyTasksPage() {
         </>
       )}
 
-      {toast ? (
-        <div className="pointer-events-none fixed inset-x-0 bottom-20 z-40 flex justify-center px-4">
-          <p className="pointer-events-auto rounded-full border border-line bg-surface px-4 py-2 text-sm font-medium text-ink shadow-lift">{toast}</p>
-        </div>
-      ) : null}
-
-      {selectedList.length > 0 ? (
-        <BulkActionBar
-          count={selectedList.length}
-          busy={bulkBusy}
-          assignees={assigneeChoices}
-          columns={moveColumns}
-          onComplete={() => runBulkAction({ type: 'complete' }, 'Completed')}
-          onSetDueDate={(date) => runBulkAction({ type: 'setDueDate', dueDate: date }, 'Updated due date on')}
-          onSetPriority={(p) => runBulkAction({ type: 'setPriority', priority: p }, 'Set priority on')}
-          onMoveToProject={() => setMoving(selectedList.map((e) => ({ id: e.task.id, key: e.task.key, title: e.task.title, projectId: e.task.projectId })))}
-          moveUnavailable={moveUnavailable}
-          onMerge={mergeAvail.show ? () => setMerging(selectedList.map((e) => ({ id: e.task.id, key: e.task.key, title: e.task.title, projectId: e.task.projectId }))) : undefined}
-          mergeUnavailable={mergeAvail.reason}
-          onAssign={(userId) => runBulkAction({ type: 'assign', userId }, 'Assigned')}
-          onMove={moveColumns ? (columnId) => runBulkAction({ type: 'move', columnId }, 'Moved') : undefined}
-          onClear={clearSelection}
-        />
-      ) : null}
-
-      {moving ? (
-        <MoveTaskDialog
-          tasks={moving}
-          onClose={() => setMoving(null)}
-          // One task selected: the one-task move.
-          onMoved={(result) => {
-            void invalidateTaskQueries(qc);
-            setSelected(new Set());
-            setToast(movedText(result));
-            setMoving(null);
-          }}
-          onBulkMoved={(result, projectName) => {
-            void invalidateTaskQueries(qc);
-            setSelected(new Set());
-            setToast(bulkMovedText(result, projectName));
-            // All moved: done. Otherwise the dialog lists the ones that couldn't be, until Done.
-            if (result.failed === 0) setMoving(null);
-          }}
-        />
-      ) : null}
-
-      {merging ? (
-        <MergeTasksDialog
-          tasks={merging}
-          onClose={() => setMerging(null)}
-          onMerged={(result) => {
-            setMerging(null);
-            setSelected(new Set());
-            setMerged(result);
-            void invalidateMergeQueries(qc);
-          }}
-        />
-      ) : null}
-      {undoing ? (
-        <UndoMergeDialog
-          mergeId={undoing}
-          onClose={() => setUndoing(null)}
-          onUndone={(result) => {
-            setUndoing(null);
-            setMerged(null);
-            setToast(result.text);
-            void invalidateMergeQueries(qc);
-          }}
-        />
-      ) : null}
-      {merged ? <MergedToast text={merged.text} onOpen={() => openTask(merged.mainTaskId)} onUndo={() => setUndoing(merged.mergeId)} onDismiss={() => setMerged(null)} /> : null}
+      {/* The bulk bar, each change's confirmation, the summary with Undo, Project (move) and Merge. */}
+      <BulkTools selection={sel} visibleIds={sortedIds} projects={projects} assignedOf={(id) => tasksById.get(id)?.assignees} merge />
     </div>
   );
 }
@@ -681,24 +536,15 @@ function Assignees({ list, all = false }: { list: { id: string; name: string }[]
   );
 }
 
-/**
- * The "select this task" checkbox of a card or row. It sits above the row's click area, and its
- * label pads the 16px box out to a 28px target so it can be hit with a finger.
- */
-function SelectBox({ taskKey, checked, onChange }: { taskKey: string; checked: boolean; onChange: () => void }) {
-  return (
-    <label className="relative z-10 -m-1.5 grid h-7 w-7 flex-none cursor-pointer place-items-center [@media(pointer:coarse)]:-m-2.5 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11">
-      <input type="checkbox" aria-label={`Select ${taskKey}`} checked={checked} onChange={onChange} className="h-4 w-4 cursor-pointer accent-brand" />
-    </label>
-  );
-}
+/** "Select all 12" — "Select all 12 matching" while filters narrow the list. */
+const selectAllWords = (n: number, filtered: boolean) => `Select all ${n}${filtered ? ' matching' : ''}`;
 
 /** "Starts 20 Nov" on a task waiting for its start day (tasks scheduled for the future). */
 function StartsChip({ day, today }: { day: string; today: string }) {
   return <span className="inline-flex flex-none items-center rounded-md bg-info-soft px-1.5 py-0.5 text-[11px] font-semibold text-info">{startsText(day, today)}</span>;
 }
 
-function MyTaskCard({ e, today, onOpen, selected, onToggleSelect }: { e: Enriched; today: string; onOpen: () => void; selected?: boolean; onToggleSelect?: () => void }) {
+function MyTaskCard({ e, today, onOpen, selected, onToggleSelect }: { e: Enriched; today: string; onOpen: () => void; selected?: boolean; onToggleSelect?: (shift: boolean) => void }) {
   const t = e.task;
   // Detailed (1.23.8, lib/density): the whole title, the description's first line, tags and everyone on it.
   const density = useDensity();
@@ -713,7 +559,7 @@ function MyTaskCard({ e, today, onOpen, selected, onToggleSelect }: { e: Enriche
     >
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
-          {onToggleSelect ? <SelectBox taskKey={t.key} checked={!!selected} onChange={onToggleSelect} /> : null}
+          {onToggleSelect ? <TaskSelectBox task={t} checked={!!selected} onChange={onToggleSelect} className="-m-1.5 [@media(pointer:coarse)]:-m-2.5" /> : null}
           {e.project ? (
             <span className="flex min-w-0 items-center gap-1.5">
               <ProjectAvatar project={e.project} size="xs" />
@@ -763,7 +609,7 @@ function MyTaskCard({ e, today, onOpen, selected, onToggleSelect }: { e: Enriche
   );
 }
 
-function MyTaskRow({ e, today, onOpen, selected, onToggleSelect }: { e: Enriched; today: string; onOpen: () => void; selected?: boolean; onToggleSelect?: () => void }) {
+function MyTaskRow({ e, today, onOpen, selected, onToggleSelect }: { e: Enriched; today: string; onOpen: () => void; selected?: boolean; onToggleSelect?: (shift: boolean) => void }) {
   const t = e.task;
   const m = statusMeta(e.cat);
   // Detailed (1.23.8): the title wraps, and the description's first line, tags and everyone on it go under it.
@@ -775,7 +621,7 @@ function MyTaskRow({ e, today, onOpen, selected, onToggleSelect }: { e: Enriched
       // Compact rows (1.23.0, lib/density): a third less padding, the title a step smaller.
       className={`relative flex items-center gap-3 px-4 py-2.5 transition-colors compact:py-1.5 hover:bg-ground/60 ${selected ? 'bg-brand/5' : ''} ${e.overdue ? 'border-l-2 border-l-overdue' : 'border-l-2 border-l-transparent'}`}
     >
-      {onToggleSelect ? <SelectBox taskKey={t.key} checked={!!selected} onChange={onToggleSelect} /> : null}
+      {onToggleSelect ? <TaskSelectBox task={t} checked={!!selected} onChange={onToggleSelect} className="-m-1.5 [@media(pointer:coarse)]:-m-2.5" /> : null}
       {/* The status: a named dot (its word on the phone line below, and in a column on a wide screen). */}
       <span role="img" aria-label={m.label} title={m.label} className="hidden h-2.5 w-2.5 flex-none rounded-full sm:block 2xl:hidden" style={{ background: m.color }} />
       {/* At least the usual width, so the titles line up; a longer number widens its row's column, never cut. */}

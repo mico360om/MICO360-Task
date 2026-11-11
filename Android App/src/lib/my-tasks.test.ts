@@ -264,26 +264,8 @@ describe('My Tasks follows the website (drift)', () => {
     expect(views.OPEN_STATUS).toBe(OPEN_STATUS);
   });
 
-  it('the website’s bulk runner gives the same results for the same answers', async () => {
-    const theirs = load('lib/bulkActions.ts');
-    const answers = () => {
-      let n = 0;
-      return deps2(() => {
-        n += 1;
-        if (n === 2) throw new ApiError(400, 'VALIDATION', 'No.');
-      });
-    };
-    const refs2 = [
-      { id: '1', projectId: 'a' },
-      { id: '2', projectId: 'b' },
-      { id: '3', projectId: 'a' },
-    ];
-    for (const action of [{ type: 'complete' }, { type: 'setDueDate', dueDate: null }, { type: 'assign', userId: 'u1' }, { type: 'move', columnId: 'c9' }] as const) {
-      const web = (await (theirs.runBulk as (...a: unknown[]) => Promise<{ succeeded: number; failed: number }>)(refs2, action, answers())) as { succeeded: number; failed: number };
-      const ours = await runBulk(refs2, action, answers());
-      expect({ succeeded: ours.succeeded, failed: ours.failed }).toEqual(web);
-    }
-  });
+  // The website's one-task-at-a-time bulk runner (lib/bulkActions.ts) and its bar are gone (bulk lane,
+  // Nov 2026): the website sends one POST /tasks/bulk now. The app keeps its own runner (tested above).
 
   it('the website’s page: its option words, chips and empty states', () => {
     const page = web('pages/MyTasksPage.tsx');
@@ -291,14 +273,5 @@ describe('My Tasks follows the website (drift)', () => {
     for (const w of ['All projects', 'All statuses', 'Open (not completed)', 'All priorities', 'Anyone']) expect(page).toContain(`'${w}'`);
     for (const w of [MY_TASKS_TEXT.subtitle, MY_TASKS_TEXT.emptyTitle, MY_TASKS_TEXT.emptyText, MY_TASKS_TEXT.noMatchTitle, MY_TASKS_TEXT.noMatchText]) expect(page).toContain(w);
     for (const chip of ['label="All"', 'label="Open"', 'label="Overdue"', 'label="Completed"']) expect(page).toContain(chip);
-    const bar = web('components/BulkActionBar.tsx');
-    expect(bar).toContain('Clear the due date on {count} task{count === 1 ? \'\' : \'s\'}?');
-    for (const w of ['Complete', 'Set date', 'Clear date…', 'Clear dates', 'Keep', 'Priority…', 'Assign to…', 'Move to…']) expect(bar).toContain(w);
   });
 });
-
-/** Deps whose every write answers with `answer` (thrown errors fail it); every project has a Done column. */
-function deps2(answer: () => void): BulkDeps {
-  const run = async () => answer();
-  return { update: run, move: run, assign: run, doneColumnFor: async () => 'done' };
-}

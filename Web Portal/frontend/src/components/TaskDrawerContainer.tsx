@@ -182,7 +182,15 @@ function TaskDrawerPanel({ taskId, onClose, stepper, mergeNotice, focusItemId }:
   const commentsQ = useQuery({ queryKey: ['comments', taskId], queryFn: () => commentsApi(apiClient).list(taskId) });
   // Comments, newest first (owner, 10 Nov): comments added, changed or deleted by anyone show without reopening —
   // read again through the comments' own checks.
-  useTaskCommentsRealtime(taskQ.data?.projectId, taskId, () => void queryClient.invalidateQueries({ queryKey: ['comments', taskId] }));
+  useTaskCommentsRealtime(
+    taskQ.data?.projectId,
+    taskId,
+    () => void queryClient.invalidateQueries({ queryKey: ['comments', taskId] }),
+    // A bulk change took this task along (its status, people, dates…): the panel reads it again.
+    () => {
+      for (const key of ['task', 'assignees', 'task-activity']) void queryClient.invalidateQueries({ queryKey: [key, taskId] });
+    },
+  );
   const mentionableQ = useQuery({ queryKey: ['mentionable', taskId], queryFn: () => commentsApi(apiClient).mentionable(taskId), staleTime: 60_000 });
   const mentionable = useMemo(
     () => (Array.isArray(mentionableQ.data) ? mentionableQ.data : []).map((p) => ({ id: p.id, username: p.username, name: fullName(p), avatarUrl: p.avatarUrl })),
