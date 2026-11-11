@@ -44,6 +44,9 @@ import { MergeTasksDialog } from './MergeTasksDialog';
 import { MergedFromPanel } from './task-merge/MergedFromPanel';
 import { MergedToast } from './task-merge/MergedToast';
 import { UndoMergeDialog } from './task-merge/UndoMergeDialog';
+import { DeletedTaskPanel } from './recycle-bin/DeletedTaskPanel';
+import { BIN_KEY } from '../api/recycle-bin';
+import { binNoticeFor, showBinNotice } from '../lib/bin-notice';
 
 export interface TaskDrawerContainerProps {
   taskId: string;
@@ -343,8 +346,12 @@ function TaskDrawerPanel({ taskId, onClose, stepper, mergeNotice, focusItemId }:
 
   const deleteTaskM = useMutation({
     mutationFn: (scope?: 'series') => tasksApi(apiClient).remove(taskId, scope),
-    onSuccess: () => {
+    onSuccess: (_done, scope) => {
+      // Recycle Bin: "RIG-12 moved to the Recycle Bin · Undo" for a few seconds (the app shell shows it).
+      const t = taskQ.data;
+      if (t) showBinNotice(binNoticeFor({ id: taskId, key: t.key }, scope === 'series' ? (t.seriesSize ?? 0) : null));
       queryClient.removeQueries({ queryKey: ['task', taskId] });
+      void queryClient.invalidateQueries({ queryKey: BIN_KEY });
       refreshTaskViews();
       onClose();
     },
@@ -595,6 +602,7 @@ function TaskDrawerPanel({ taskId, onClose, stepper, mergeNotice, focusItemId }:
             onDelete={runsProject ? (scope) => deleteTaskM.mutate(scope) : undefined}
             deleteBlocked={runsProject && !canDeleteTask ? DELETE_NOT_ALLOWED : null}
             seriesDeleteBlocked={runsProject && !canDeleteSeries ? DELETE_SERIES_NOT_ALLOWED : null}
+            seriesSize={taskQ.data.seriesSize ?? null}
             watching={watchStatusQ.data ?? false}
             watcherCount={Array.isArray(watchersQ.data) ? watchersQ.data.length : 0}
             onToggleWatch={() => toggleWatchM.mutate()}
@@ -689,6 +697,9 @@ function TaskDrawerPanel({ taskId, onClose, stepper, mergeNotice, focusItemId }:
             }
             onClose={onClose}
           />
+        ) : taskQ.isError && taskQ.error instanceof ApiError && taskQ.error.code === 'TASK_DELETED' ? (
+          // Recycle Bin: a deleted task — read-only with Restore for someone who may restore it, else "This task was deleted".
+          <DeletedTaskPanel taskId={taskId} onClose={onClose} closeButton={closeButton} />
         ) : taskQ.isError ? (
           <div role="dialog" aria-modal="true" aria-label="Task not available" className="flex h-full w-full flex-col gap-3 border-l border-line bg-surface p-5">
             <p role="alert" className="text-sm text-ink">

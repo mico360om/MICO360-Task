@@ -125,15 +125,19 @@ describe('createPrismaTaskRepository', () => {
   it('numbers keys from the highest one the project used — its tasks (deleted ones too) and old keys of tasks that left — as numbers', async () => {
     const taskKeys = vi.fn(async () => [{ key: 'P-9' }, { key: 'P-10' }, { key: 'P-2' }]);
     const aliasKeys = vi.fn(async () => [{ key: 'P-11' }]);
-    const repo = createPrismaTaskRepository({ task: { findMany: taskKeys }, taskKeyAlias: { findMany: aliasKeys } } as unknown as PrismaClient);
+    const noMark = { findUnique: vi.fn(async () => ({ taskNumberMark: 0 })) };
+    const repo = createPrismaTaskRepository({ task: { findMany: taskKeys }, taskKeyAlias: { findMany: aliasKeys }, project: noMark } as unknown as PrismaClient);
     expect(await repo.countByProject('p1')).toBe(11);
     expect(taskKeys).toHaveBeenCalledWith({ where: { projectId: 'p1' }, select: { key: true } });
     expect(aliasKeys).toHaveBeenCalledWith({ where: { projectId: 'p1' }, select: { key: true } });
     // RIG-10 beats RIG-9 (text order would not); a project without tasks starts at 1.
-    const tenVsNine = createPrismaTaskRepository({ task: { findMany: vi.fn(async () => [{ key: 'RIG-9' }, { key: 'RIG-10' }]) }, taskKeyAlias: { findMany: vi.fn(async () => []) } } as unknown as PrismaClient);
+    const tenVsNine = createPrismaTaskRepository({ task: { findMany: vi.fn(async () => [{ key: 'RIG-9' }, { key: 'RIG-10' }]) }, taskKeyAlias: { findMany: vi.fn(async () => []) }, project: noMark } as unknown as PrismaClient);
     expect(await tenVsNine.countByProject('p2')).toBe(10);
-    const empty = createPrismaTaskRepository({ task: { findMany: vi.fn(async () => []) }, taskKeyAlias: { findMany: vi.fn(async () => []) } } as unknown as PrismaClient);
+    const empty = createPrismaTaskRepository({ task: { findMany: vi.fn(async () => []) }, taskKeyAlias: { findMany: vi.fn(async () => []) }, project: { findUnique: vi.fn(async () => null) } } as unknown as PrismaClient);
     expect(await empty.countByProject('p3')).toBe(0);
+    // Recycle Bin: the project's mark (its highest erased number) counts too — an erased number is never given again.
+    const erased = createPrismaTaskRepository({ task: { findMany: vi.fn(async () => [{ key: 'P-3' }]) }, taskKeyAlias: { findMany: vi.fn(async () => []) }, project: { findUnique: vi.fn(async () => ({ taskNumberMark: 7 })) } } as unknown as PrismaClient);
+    expect(await erased.countByProject('p4')).toBe(7);
   });
 
   it('findById names the task’s old keys, oldest first', async () => {
@@ -247,7 +251,7 @@ describe('createPrismaRecurrencePort', () => {
         ),
       },
       kanbanColumn: { findFirst: vi.fn(async () => ({ id: 'backlog' })) },
-      project: { findFirst: vi.fn(async () => ({ ownerId: 'owner', managerId: null, createdById: 'creator', members: [{ userId: 'u1' }, { userId: 'w1' }] })) },
+      project: { findFirst: vi.fn(async () => ({ ownerId: 'owner', managerId: null, createdById: 'creator', members: [{ userId: 'u1' }, { userId: 'w1' }] })), findUnique: vi.fn(async () => ({ taskNumberMark: 0 })) },
       // 'gone' has left (inactive / no access): the audience query doesn't return them.
       user: { findMany: vi.fn(async ({ where }: { where: { id: { in: string[] } } }) => where.id.in.filter((id) => id !== 'gone').map((id) => ({ id }))) },
       activity: { create: vi.fn(async () => ({})) },

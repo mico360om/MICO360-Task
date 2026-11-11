@@ -184,7 +184,12 @@ export function createPrismaRecurrencePort(prisma: PrismaClient, opts: PrismaRec
     },
 
     async countInstances(parentId) {
-      return prisma.task.count({ where: { OR: [{ id: parentId }, { recurrenceParentId: parentId }] } });
+      // Every copy made: deleted ones too, and (Recycle Bin) those erased for good since.
+      const [made, erased] = await Promise.all([
+        prisma.task.count({ where: { OR: [{ id: parentId }, { recurrenceParentId: parentId }] } }),
+        prisma.taskSeriesErased.findUnique({ where: { seriesId: parentId }, select: { erased: true } }),
+      ]);
+      return made + (erased?.erased ?? 0);
     },
   };
 }

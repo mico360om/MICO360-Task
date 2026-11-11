@@ -28,6 +28,8 @@ import { registerTaskExportRoutes } from './modules/tasks/task-export-routes';
 import { registerTaskMoveRoutes } from './modules/tasks/task-move-routes';
 import type { TaskMoveService } from './modules/tasks/task-move-service';
 import { installMergedTaskRedirect, registerTaskMergeRoutes } from './modules/task-merge/merge-routes';
+import { registerBinRoutes } from './modules/recycle-bin/bin-routes';
+import type { BinService } from './modules/recycle-bin/bin-service';
 import { registerTaskDuplicateRoutes } from './modules/tasks/task-duplicate-routes';
 import type { TaskDuplicateService } from './modules/tasks/task-duplicate';
 import type { DuplicateLinks } from './modules/tasks/task-routes';
@@ -219,6 +221,13 @@ export interface AppDeps extends AuthRouteDeps {
   taskMoveService?: TaskMoveService;
   /** 1.23.1 Merge tasks: the merge dialog, the merge, a main task's "Merged from" panel and Undo. */
   taskMergeService?: TaskMergeService;
+  /**
+   * Recycle Bin: deleted tasks kept 60 days — the bin page, restore, delete forever; a delete's history
+   * and audit lines; "This task was deleted" when one is opened.
+   */
+  binService?: BinService;
+  /** How many live tasks a repeating series has (a copy's details: "the entire series (12 tasks)"). */
+  seriesSize?: (seriesId: string) => Promise<number>;
   /** Duplicate Task: the review form's pre-fill and the copy (GET/POST /tasks/:id/duplicate). */
   taskDuplicateService?: TaskDuplicateService;
   /** Duplicate Task: copies one person may make a minute (default 20; each copies its files on the server). */
@@ -834,6 +843,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           // Duplicate Task: "Duplicated from MSSP-34" and "Copies: …" (only those the reader may open).
           duplicateLinks: deps.duplicateLinks,
           checklistDue: deps.checklistDue,
+          // Recycle Bin: a delete's history and audit lines; a deleted task opened says it was deleted.
+          binDeleted: deps.binService ? (e) => deps.binService!.deleted(e) : undefined,
+          binNotice: deps.binService ? (viewer, taskId) => deps.binService!.noticeFor(viewer, taskId) : undefined,
+          seriesSize: deps.seriesSize,
           projectOwnerOf: deps.projectService
             ? async (projectId) => (await deps.projectService!.getProject(projectId)).ownerId
             : undefined,
@@ -873,6 +886,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       }
       if (deps.taskMergeService) {
         await registerTaskMergeRoutes(api, { service: deps.taskMergeService, guard, broadcast: deps.onTaskEvent, canViewTask, audit: deps.auditService, logger: deps.logger });
+      }
+      if (deps.binService) {
+        // Recycle Bin: staff only (client sessions are refused by the guard's route table).
+        await registerBinRoutes(api, { service: deps.binService, guard, pickOf });
       }
       if (deps.taskDuplicateService) {
         // Duplicate Task: staff only (client sessions are refused by the guard's route table).

@@ -110,6 +110,29 @@ beforeEach(() => {
 
 const base = { title: 'Prepare report', projectId: 'p1', columnId: 'c1', createdById: 'admin' };
 
+describe('TaskService — deleting puts tasks in the Recycle Bin', () => {
+  it('a delete says who, when and when it will be erased; one task alone has no batch', async () => {
+    const at = new Date('2026-11-03T06:00:00Z');
+    const marks: unknown[] = [];
+    const tasks = { ...mem.tasks, async softDelete(id: string, mark?: unknown) { marks.push([id, mark]); } };
+    const s = createTaskService({ tasks, projects: mem.projects, timeZone: 'Asia/Muscat', now: () => at });
+    const t = await s.createTask(base);
+    expect(await s.deleteTask(t.id, 'one', 'sara')).toEqual({ ids: [t.id], batchId: null });
+    expect(marks).toEqual([[t.id, { by: 'sara', at, expiresAt: new Date('2027-01-02T20:00:00.000Z'), batchId: null }]]);
+  });
+
+  it('the entire series goes as one batch (they restore together), and says which tasks went', async () => {
+    const seen: unknown[] = [];
+    const tasks = { ...mem.tasks, async softDeleteSeries(seriesId: string, mark?: { batchId: string | null }) { seen.push([seriesId, mark?.batchId]); return ['a', 'b']; } };
+    const s = createTaskService({ tasks, projects: mem.projects, timeZone: 'Asia/Muscat' });
+    const origin = await s.createTask({ ...base, recurrenceRule: { freq: 'DAILY', interval: 1 } });
+    const r = await s.deleteTask(origin.id, 'series', 'sara');
+    expect(r.ids).toEqual(['a', 'b']);
+    expect(r.batchId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(seen).toEqual([[origin.id, r.batchId]]);
+  });
+});
+
 describe('TaskService', () => {
   it('reorders a column by re-sequencing task positions', async () => {
     const a = await svc.createTask(base);

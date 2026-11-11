@@ -1,4 +1,6 @@
+import { randomUUID } from 'node:crypto';
 import type { ChecklistTree } from './checklist-tree';
+import { binExpiryOf } from '../recycle-bin/bin-rules';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../lib/http-errors';
 import { dueDayKey } from '../../lib/due-date';
 import { isValidRule, withAnchorDay, type RecurrenceRule } from './recurrence';
@@ -21,6 +23,7 @@ import {
 import {
   TaskKeyConflictError,
   TaskVersionConflictError,
+  type BinMark,
   type ColumnInfo,
   type CreateTaskData,
   type Priority,
@@ -539,21 +542,26 @@ export function createTaskService({ tasks, projects, now = () => new Date(), tim
   }
 
   /**
-   * Delete a task. With scope 'series' on a recurring task, delete the whole series (every
-   * instance sharing its recurrenceParentId, plus the origin task) — the apply-to-entire-series
-   * case. Otherwise just this occurrence — and when it is the newest copy of a series, the
-   * `onDeleting` hook makes the next copy first, so the series carries on.
+   * Delete a task: it goes to the Recycle Bin, saying who deleted it (`actorId`), when, and when it will
+   * be erased (60 days: bin-rules). With scope 'series' on a recurring task, delete the whole series
+   * (every live instance sharing its recurrenceParentId, plus the origin task) as one batch, so it
+   * restores as one. Otherwise just this occurrence — and when it is the newest copy of a series, the
+   * `onDeleting` hook makes the next copy first, so the series carries on. Says which tasks went.
    */
-  async function deleteTask(id: string, scope: 'one' | 'series' = 'one'): Promise<void> {
+  async function deleteTask(id: string, scope: 'one' | 'series' = 'one', actorId?: string): Promise<{ ids: string[]; batchId: string | null }> {
     const task = await getTask(id);
     const recurs = Boolean(task.recurrenceRule || task.recurrenceParentId);
+    const at = now();
+    const mark = (batchId: string | null): BinMark => ({ by: actorId ?? null, at, expiresAt: binExpiryOf(at, timeZone), batchId });
     if (scope === 'series' && recurs) {
       const seriesId = task.recurrenceParentId ?? task.id;
-      await tasks.softDeleteSeries(seriesId);
-      return;
+      const batchId = randomUUID();
+      const ids = await tasks.softDeleteSeries(seriesId, mark(batchId));
+      return { ids: ids ?? [], batchId };
     }
     await onDeleting?.(task);
-    await tasks.softDelete(id);
+    await tasks.softDelete(id, mark(null));
+    return { ids: [id], batchId: null };
   }
 
   /**

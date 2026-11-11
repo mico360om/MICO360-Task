@@ -172,6 +172,13 @@ describe('the header', () => {
     expect(link).toHaveClass('gap-1');
     expect(link.textContent).toBe('For RIG-1');
   });
+
+  it('Recycle Bin: its task erased for good, it still says which task it was for', async () => {
+    server.detail = { ...detail(), task: null, erasedTask: "RIG-1 'Inspect rig 3'" };
+    show();
+    expect(await screen.findByText("Task erased (RIG-1 'Inspect rig 3')")).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /RIG-1/ })).toBeNull();
+  });
 });
 
 describe('carrying out an inspection', () => {

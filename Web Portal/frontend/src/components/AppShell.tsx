@@ -32,6 +32,7 @@ import { ArchivedProjectNotice } from './projects/ArchivedProjectNotice';
 import { DatabaseBusyNotice } from './DatabaseBusyNotice';
 import { ArchivedCompanyState } from './company/ArchivedCompanyState';
 import { TaskNoticeToast } from './TaskNoticeToast';
+import { BinUndoToast } from './recycle-bin/BinUndoToast';
 import { useDensitySync } from '../lib/density';
 import { useAppearanceSync } from '../lib/appearance';
 import { ManagerViewBadge } from './ManagerViewBadge';
@@ -239,6 +240,8 @@ export function AppShell() {
       <MeetingReminderPopup />
       {/* 1.22.3: "Task MICO-143 created · Open" after the task form (or an offline task's sync). */}
       <TaskNoticeToast />
+      {/* Recycle Bin: "RIG-12 moved to the Recycle Bin · Undo" for a few seconds after a delete. */}
+      <BinUndoToast />
     </div>
     </CurrentProjectProvider>
     </ShortcutProvider>

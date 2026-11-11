@@ -752,7 +752,8 @@ describe('TaskDrawer — a task the person may not delete', () => {
     await userEvent.click(screen.getByRole('button', { name: /delete task/i }));
     expect(screen.getByRole('group', { name: 'Confirm delete' }).className).toMatch(/\bjustify-end\b/);
     // On a phone the question takes its own line above the buttons (they stay together), right-aligned like them.
-    const question = screen.getByText('Delete this task? This can’t be undone.');
+    // Recycle Bin: it can be restored for 60 days.
+    const question = screen.getByText('Move to the Recycle Bin? You (or an admin) can restore it for 60 days.');
     expect(question.className).toMatch(/\btext-right\b/);
     expect(question.className).toMatch(/(^|\s)max-sm:basis-full(\s|$)/);
   });
@@ -776,8 +777,17 @@ describe('TaskDrawer — a task the person may not delete', () => {
     expect(screen.getByText(SERIES)).toBeVisible();
     await userEvent.click(series);
     expect(onDelete).not.toHaveBeenCalled();
-    await userEvent.click(screen.getByRole('button', { name: 'This occurrence' }));
+    await userEvent.click(screen.getByRole('button', { name: 'This copy' }));
     expect(onDelete).toHaveBeenCalledWith();
+  });
+
+  it('Recycle Bin: a repeating copy asks "this copy or the entire series (12 tasks)", both to the bin', async () => {
+    const onDelete = vi.fn();
+    render(<TaskDrawer task={{ ...task, recurrenceRule: { freq: 'WEEKLY', interval: 1 } }} checklist={[]} comments={[]} onDelete={onDelete} seriesSize={12} onClose={vi.fn()} />);
+    await userEvent.click(screen.getByRole('button', { name: /delete task/i }));
+    expect(screen.getByText('This is a repeating task — move this copy or the entire series (12 tasks) to the Recycle Bin? You (or an admin) can restore them for 60 days.')).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: 'Entire series (12)' }));
+    expect(onDelete).toHaveBeenCalledWith('series');
   });
 });
 

@@ -221,6 +221,17 @@ export interface TaskListFilter {
   month?: MonthWindow;
 }
 
+/**
+ * Recycle Bin: what a delete records on the task — who deleted it (null: not known), when, when it will be
+ * erased (bin-rules binExpiryOf), and the delete it went with (a series deleted as a whole; null alone).
+ */
+export interface BinMark {
+  by: string | null;
+  at: Date;
+  expiresAt: Date;
+  batchId: string | null;
+}
+
 export interface SeriesUpdateOptions {
   /** Leave this member out (it gets its own full update). */
   excludeId?: string;
@@ -238,7 +249,8 @@ export interface TaskRepository {
    * the same statement (two edits from one copy can't both win): TaskVersionConflictError otherwise.
    */
   update(id: string, patch: UpdateTaskData, opts?: { expectedVersion?: number }): Promise<TaskRecord>;
-  softDelete(id: string): Promise<void>;
+  /** Delete a task: it goes to the Recycle Bin (`mark`: who, when, when it is erased, its batch). */
+  softDelete(id: string, mark?: BinMark): Promise<void>;
   /**
    * The highest key number the project has used — its tasks (deleted ones too) and the old keys of
    * tasks that moved to another project — so the next key is this + 1 and a number is never reused.
@@ -249,8 +261,8 @@ export interface TaskRepository {
    * and its generated occurrences (`recurrenceParentId === seriesId`) — in ONE atomic statement.
    */
   updateSeries(seriesId: string, patch: UpdateTaskData, opts?: SeriesUpdateOptions): Promise<void>;
-  /** Soft-delete every member of a recurring series in one atomic statement. */
-  softDeleteSeries(seriesId: string): Promise<void>;
+  /** Soft-delete every live member of a recurring series (to the Recycle Bin, one batch); the ids deleted. */
+  softDeleteSeries(seriesId: string, mark?: BinMark): Promise<string[] | void>;
   /** A column's project and category, or null when it doesn't exist. */
   findColumn(columnId: string): Promise<ColumnInfo | null>;
   /**

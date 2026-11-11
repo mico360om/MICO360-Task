@@ -226,6 +226,10 @@ export const ARCHIVE_ALLOWED: Readonly<Record<string, string>> = {
   'POST /projects/:projectId/guests/check': 'a read: the duplicate check',
   'DELETE /tasks/:id/guests/:guestId': 'deleting, as today',
   'DELETE /project-categories/:categoryId': 'deleting, as today',
+  // Recycle Bin: restoring refuses an archived project's tasks itself, task by task ("Unarchive the
+  // project first" — recycle-bin/bin-service); deleting forever is deleting, as today.
+  'POST /recycle-bin/restore': 'restore refuses archived projects itself, for each task (recycle-bin/bin-service)',
+  'POST /recycle-bin/erase': 'deleting, as today',
 };
 
 /** What a refused write is about: a project, and the meeting when it is one (its people may see it without the project). */

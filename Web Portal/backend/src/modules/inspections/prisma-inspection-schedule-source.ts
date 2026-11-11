@@ -64,19 +64,21 @@ export function createPrismaInspectionScheduleSource(prisma: PrismaClient, opts:
       // names itself once its first copy is made. Never every copy loaded.
       const members = { projectId, recurrenceParentId: { in: seriesIds } } satisfies Prisma.TaskWhereInput;
       const live = { ...members, deletedAt: null } satisfies Prisma.TaskWhereInput;
-      const [open, late, done, made] = await Promise.all([
+      const [open, late, done, made, erased] = await Promise.all([
         prisma.task.groupBy({ by: ['recurrenceParentId'], where: { ...live, ...openWhere }, _count: { _all: true } }),
         // Late: open, past its day, and not waiting for approval (handed in: never late while it waits).
         prisma.task.groupBy({ by: ['recurrenceParentId'], where: { ...live, ...openWhere, approvalRequestedAt: null, dueDate: { lt: dueBefore } }, _count: { _all: true } }),
         prisma.task.groupBy({ by: ['recurrenceParentId'], where: { ...live, completedAt: { not: null } }, _max: { completedAt: true } }),
         // Every copy made, deleted ones too — as the repeat itself counts them (countInstances).
         prisma.task.groupBy({ by: ['recurrenceParentId'], where: members, _count: { _all: true } }),
+        // Recycle Bin: and those erased for good since.
+        prisma.taskSeriesErased.findMany({ where: { seriesId: { in: seriesIds } } }),
       ]);
       const count = (rows: Array<{ recurrenceParentId: string | null; _count: { _all: number } }>, id: string) => rows.find((r) => r.recurrenceParentId === id)?._count._all ?? 0;
       return new Map(
         seriesIds.map((id): [string, SeriesStats] => [
           id,
-          { open: count(open, id), late: count(late, id), lastDone: done.find((r) => r.recurrenceParentId === id)?._max.completedAt ?? null, size: count(made, id) },
+          { open: count(open, id), late: count(late, id), lastDone: done.find((r) => r.recurrenceParentId === id)?._max.completedAt ?? null, size: count(made, id) + (erased.find((e) => e.seriesId === id)?.erased ?? 0) },
         ]),
       );
     },

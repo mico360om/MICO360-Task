@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { WEIGHT_MAX, WEIGHT_MIN } from '../project-health/completion';
 import { checklistTreeSchema } from './checklist-tree-schema';
-import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { NotFoundError } from '../../lib/http-errors';
 import type { TaskService } from './task-service';
 import type { CarryForwardService } from './carry-forward-service';
 import type { TagService } from './tag-service';
@@ -227,7 +228,16 @@ export interface TaskRouteDeps {
   guestService?: GuestService;
   /** 1.24: a new task's categories (the project's rule). */
   categoryService?: CategoryService;
+  /** Recycle Bin: after a delete — the history line on each task and the audit log's (who deleted it). */
+  binDeleted?: (e: { actorId: string; taskIds: string[]; batchId: string | null; ip?: string | null }) => Promise<void>;
+  /** How many live tasks a repeating series has (a copy's details say so: "the entire series (12 tasks)"). */
+  seriesSize?: (seriesId: string) => Promise<number>;
+  /** Recycle Bin: a deleted task opened — 'TASK_DELETED' for its project's people, null for anyone else. */
+  binNotice?: (viewer: { id: string; roles: string[] }, taskId: string) => Promise<'TASK_DELETED' | null>;
 }
+
+/** Recycle Bin: what opening a deleted task answers its project's people (the app and extension read any 404 as gone). */
+const TASK_DELETED = { error: { code: 'TASK_DELETED', message: 'This task was deleted.' } };
 
 /** POST /tasks' pipeline from the routes' deps (server.ts gives Duplicate the same one: task-duplicate.ts). */
 export function newTaskPipeline(deps: Pick<TaskRouteDeps, 'taskService' | 'accessibleProjectIds' | 'assigneeService' | 'projectOwnerOf' | 'broadcast' | 'guestService' | 'categoryService'>): NewTaskPipeline {
@@ -413,6 +423,12 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
     };
   }
 
+  /** A task that isn't there: deleted (in the Recycle Bin) as its project's people are told, else not found. */
+  async function deletedOrNotFound(req: FastifyRequest, reply: FastifyReply, id: string) {
+    const notice = deps.binNotice ? await deps.binNotice({ id: req.user!.id, roles: req.user!.roles ?? [] }, id) : null;
+    return reply.status(404).send(notice === 'TASK_DELETED' ? TASK_DELETED : { error: { code: 'NOT_FOUND', message: 'Task not found.' } });
+  }
+
   /**
    * Duplicate Task: "Duplicated from MSSP-34" and "Copies: MSSP-40, MSSP-41" — only tasks the reader may
    * open (a copy in a project they can't see is never named or counted).
@@ -427,18 +443,22 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
 
   app.get('/tasks/:id', { preHandler: guard.authenticate }, async (req, reply) => {
     const { id } = req.params as { id: string };
-    if (!(await assertTaskView(req, id))) {
-      return reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Task not found.' } });
-    }
-    const task = await taskService.getTask(id);
+    if (!(await assertTaskView(req, id))) return deletedOrNotFound(req, reply, id);
+    const task = await taskService.getTask(id).catch((err: unknown) => {
+      if (err instanceof NotFoundError) return null;
+      throw err;
+    });
+    if (!task) return deletedOrNotFound(req, reply, id);
     const inspectionForm = task.inspectionFormId && deps.taskInspectionForm ? await deps.taskInspectionForm(task.inspectionFormId) : null;
     const approval = deps.taskApproval ? { approval: await deps.taskApproval({ id: req.user!.id, roles: req.user!.roles ?? [] }, task) } : {};
     const { canDelete, canDeleteSeries } = await deleteRightsOf(req, task);
     // 1.23.1: the tasks merged into it; and, opened by a merged task's id (an old link), which one that was.
     const merged = deps.mergedFrom ? { mergedFrom: await deps.mergedFrom(task.id) } : {};
     const notice = req.mergedFrom ? { mergeNotice: { key: req.mergedFrom.key, mergedAt: req.mergedFrom.mergedAt, mergedByName: req.mergedFrom.mergedByName } } : {};
+    const inSeries = Boolean(task.recurrenceRule || task.recurrenceParentId);
+    const series = inSeries && deps.seriesSize ? { seriesSize: await deps.seriesSize(task.recurrenceParentId ?? task.id) } : {};
     const duplicates = deps.duplicateLinks ? await duplicateLinksFor(req, task.id) : {};
-    return { data: { ...task, meeting: await meetingLinkOf(req, task.meetingId ?? null), inspectionForm, ...approval, canDelete, canDeleteSeries, ...merged, ...notice, ...duplicates } };
+    return { data: { ...task, meeting: await meetingLinkOf(req, task.meetingId ?? null), inspectionForm, ...approval, canDelete, canDeleteSeries, ...merged, ...notice, ...series, ...duplicates } };
   });
 
   // A new task: the shared pipeline (task-create.ts) — the project scope, then tags, contacts and
@@ -502,7 +522,9 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
     if (!(wholeSeries ? rights.canDeleteSeries : rights.canDelete)) {
       return reply.status(403).send({ error: { code: DELETE_NOT_ALLOWED_CODE, message: wholeSeries ? DELETE_SERIES_NOT_ALLOWED : DELETE_NOT_ALLOWED } });
     }
-    await taskService.deleteTask(id, scope);
+    // To the Recycle Bin, saying who deleted it; then its history and audit lines (never failing the delete).
+    const gone = await taskService.deleteTask(id, scope, req.user!.id);
+    await deps.binDeleted?.({ actorId: req.user!.id, taskIds: gone.ids, batchId: gone.batchId, ip: req.ip ?? null }).catch((err: unknown) => req.log.error({ err }, 'recycle bin: recording a delete failed'));
     deps.broadcast?.(task.projectId, 'task:deleted', { id });
     return reply.status(204).send();
   });

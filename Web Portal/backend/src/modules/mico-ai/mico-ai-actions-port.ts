@@ -18,6 +18,8 @@ import type { ActionMeetingStamp, ActionTaskState, MicoAiWritePort } from './mic
 import type { Viewer } from './mico-ai-data';
 import type { Priority } from './mico-ai-actions-types';
 import { assertProjectOpen, createPrismaArchiveLookup } from '../companies/archive-guard';
+import { binExpiryOf } from '../recycle-bin/bin-rules';
+import { createPrismaBinStore } from '../recycle-bin/prisma-bin-store';
 
 /**
  * MICO AI's changes through the app's own services, as the person who confirmed them: the same
@@ -277,11 +279,15 @@ export function createMicoAiActionsPort(deps: MicoAiActionsPortDeps): MicoAiWrit
 
     // Undo only: its creator, the person; one statement that removes it only while it is exactly as
     // Undo last saw it — a tag, a watcher, a blocker, a history line or an edit since keeps it.
+    // Recycle Bin (design call 2): the undo of something just made never goes to the bin — once the
+    // guarded statement has taken it, it is erased at once (its notices with it; its number stays used).
+    // Should erasing fail, it is left in the bin as a delete by its creator (restorable for 60 days).
     async deleteCreatedTask(viewer, taskId, touch) {
       if (!(await projectAccess.canViewTask(viewer.userId, viewer.roles, taskId))) return false;
       const people = touch.assigneeIds.length ? touch.assigneeIds : ['\u0000'];
+      const at = new Date();
       const removed = await prisma.$executeRaw`
-        UPDATE tasks SET deletedAt = ${new Date()}
+        UPDATE tasks SET deletedAt = ${at}, deletedById = ${viewer.userId}, binExpiresAt = ${binExpiryOf(at, timeZone)}
         WHERE id = ${taskId} AND createdById = ${viewer.userId} AND deletedAt IS NULL AND version = ${touch.version}
           AND (SELECT COUNT(*) FROM task_activity WHERE taskId = ${taskId}) = ${touch.activity}
           AND (SELECT COUNT(*) FROM task_tags WHERE taskId = ${taskId}) = ${touch.tags}
@@ -291,6 +297,18 @@ export function createMicoAiActionsPort(deps: MicoAiActionsPortDeps): MicoAiWrit
           AND (SELECT COUNT(*) FROM task_assignees WHERE taskId = ${taskId} AND userId IN (${Prisma.join(people)})) = ${touch.assigneeIds.length}`;
       if (removed !== 1) return false;
       const t = await prisma.task.findUnique({ where: { id: taskId }, select: { projectId: true } });
+      const gone = await createPrismaBinStore(prisma)
+        .erase(taskId)
+        .catch((err: unknown) => {
+          deps.logger?.error('MICO AI undo: erasing the task it made failed (left in the Recycle Bin)', { err, taskId });
+          return null;
+        });
+      // The audit log keeps the erase, as every erase (who, which task, why).
+      if (gone) {
+        await deps.audit
+          .record({ userId: viewer.userId, ip: null, module: 'tasks', action: 'task.erased', entityId: gone.id, newValue: { taskKey: gone.key, title: gone.title, projectId: gone.projectId, reason: 'MICO AI: Undo of a task it had just made' } })
+          .catch((err: unknown) => deps.logger?.error('MICO AI undo: the audit log line failed', { err, taskId }));
+      }
       if (t) announce(t.projectId, 'task:deleted', { id: taskId });
       return true;
     },

@@ -65,8 +65,9 @@ const port = createMicoAiActionsPort({
   workingDays: async () => [0, 1, 2, 3, 4],
   isActiveUser: async () => true,
   broadcast: (_p, event) => void broadcasts.push(event),
-  audit: { record: async () => undefined },
+  audit: { record: async (entry: Record<string, unknown>) => void audits.push(entry) },
 });
+const audits: Record<string, unknown>[] = [];
 
 const ids = { owner: '', sara: '', outsider: '', project: '', todo: '', done: '' };
 const as = (userId: string): Viewer => ({ userId, roles: ['EMPLOYEE'] });
@@ -176,10 +177,19 @@ describe('MICO AI’s changes through the app’s services (integration)', () =>
     // Untouched: gone for everyone.
     const a = await make('Undo me');
     expect(await port.deleteCreatedTask(as(ids.owner), a.id, touch(a))).toBe(false); // not its creator
+    await prisma.notification.create({ data: { userId: ids.sara, type: 'TASK_ASSIGNED', title: 'x', entityType: 'task', entityId: a.id } });
     expect(await port.deleteCreatedTask(as(ids.sara), a.id, touch(a))).toBe(true);
     expect(await port.taskState(a.id)).toBeNull();
-    expect((await prisma.task.findUnique({ where: { id: a.id } }))!.deletedAt).not.toBeNull();
+    // Recycle Bin (design call 2): the undo of something just made erases it at once — never in the bin —
+    // with the notices about it, and its number is never given again.
+    expect(await prisma.task.findUnique({ where: { id: a.id } })).toBeNull();
+    expect(await prisma.notification.count({ where: { entityId: a.id } })).toBe(0);
+    // The audit log keeps the erase (who, which task, why).
+    expect(audits.find((e) => e.action === 'task.erased' && e.entityId === a.id)).toMatchObject({ userId: ids.sara, module: 'tasks', newValue: { taskKey: a.key, title: 'Undo me', reason: 'MICO AI: Undo of a task it had just made' } });
     expect(broadcasts).toContain('task:deleted');
+    const after = await make('After the undo');
+    expect(Number(after.key.split('-')[1])).toBe(Number(a.key.split('-')[1]) + 1);
+    await prisma.task.delete({ where: { id: after.id } });
     // Tagged, watched, blocked, commented on (a history line) or edited since: it stays.
     const b = await make('Tagged');
     const tag = await prisma.tag.create({ data: { name: 'maip-tag' } });

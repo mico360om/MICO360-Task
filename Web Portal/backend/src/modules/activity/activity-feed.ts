@@ -397,6 +397,12 @@ function lineOf(kind: TimelineKind, entries: FeedEntry[]): TimelineItem | null {
       if (newest.action === 'TASKS_MERGED') return { ...base, text: mergedText(newest) };
       if (newest.action === 'MERGED_INTO') return { ...base, text: `merged this task into ${str(newest.meta?.intoKey) ?? 'another task'}` };
       if (newest.action === 'MERGE_UNDONE') return { ...base, text: mergeUndoneText(newest) };
+      // Recycle Bin: deleted (with its whole series, when it went as one) and brought back.
+      if (newest.action === 'DELETED') {
+        const batch = typeof newest.meta?.batch === 'number' && newest.meta.batch > 1 ? ` with its series (${newest.meta.batch} tasks)` : '';
+        return { ...base, text: `moved this task to the Recycle Bin${batch}` };
+      }
+      if (newest.action === 'RESTORED') return { ...base, text: 'restored this task from the Recycle Bin' };
       // Duplicate Task: on the copy, and on the original (a task the reader can't open isn't named: the server leaves its number out).
       if (newest.action === 'DUPLICATED_FROM') return { ...base, text: `duplicated this task from ${str(newest.meta?.fromKey) ?? 'another task'}` };
       if (newest.action === 'DUPLICATED') return { ...base, text: str(newest.meta?.copyKey) ? `duplicated this task as ${str(newest.meta?.copyKey)}` : 'duplicated this task' };

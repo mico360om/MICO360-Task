@@ -413,6 +413,15 @@ describe('merging tasks in a task’s history (1.23.1)', () => {
   });
 });
 
+describe('the Recycle Bin in a task’s history', () => {
+  const line = (action: string, meta?: Record<string, unknown>) => buildTimeline([e('a1', action, 'Sara Al Balushi', 1, meta)])[0]!;
+  it('deleted (to the bin, with its series when it went as a whole) and restored', () => {
+    expect(line('DELETED')).toMatchObject({ kind: 'other', text: 'moved this task to the Recycle Bin' });
+    expect(line('DELETED', { batch: 12 }).text).toBe('moved this task to the Recycle Bin with its series (12 tasks)');
+    expect(line('RESTORED').text).toBe('restored this task from the Recycle Bin');
+  });
+});
+
 describe('Duplicate Task in a task’s history', () => {
   const line = (action: string, meta?: Record<string, unknown>) => buildTimeline([e('a1', action, 'Aisha Khan', 1, meta)])[0]!;
   it('the copy: duplicated from the original; the original: duplicated as the copy', () => {

@@ -31,6 +31,7 @@ import { ExportMenu, MoreActionsMenu, WatchButton } from './task-drawer/menus';
 import { DuplicateLinks } from './task-drawer/duplicate-links';
 import { ShortcutHint, useShortcut, useShortcutHint } from './shortcuts/ShortcutProvider';
 import { ConfirmDialog } from './ui/ConfirmDialog';
+import { DELETE_ASK, seriesDeleteAsk } from '../lib/recycle-bin';
 import type { StepDirection, TaskStepper } from '../lib/task-steps';
 import { TaskKey } from './TaskKey';
 import { mergedFromKeys } from '../lib/task-merge';
@@ -141,6 +142,8 @@ export interface TaskDrawerProps {
   deleteBlocked?: string | null;
   /** Why they may not delete its entire series: "Entire series" is shown greyed out, saying so. */
   seriesDeleteBlocked?: string | null;
+  /** A repeating task: how many tasks its series has ("the entire series (12 tasks)"). */
+  seriesSize?: number | null;
   /** Whether the current user is watching (following) this task. */
   watching?: boolean;
   /** How many people watch this task. */
@@ -384,6 +387,7 @@ export function TaskDrawer({
   onDelete,
   deleteBlocked,
   seriesDeleteBlocked,
+  seriesSize = null,
   watching,
   watcherCount,
   onToggleWatch,
@@ -752,9 +756,10 @@ export function TaskDrawer({
             // 1.23.2 (owner): at the right of the bottom bar, where Delete task is.
             <div role="group" aria-label="Confirm delete" className="flex flex-wrap items-center justify-end gap-2">
               {/* On a phone the question takes its own line, so the buttons stay together under it. */}
-              <span className="text-right text-sm text-ink max-sm:basis-full">{inSeries ? 'This is a recurring task — delete which?' : 'Delete this task? This can’t be undone.'}</span>
+              {/* Recycle Bin: nothing is lost at once — it can be restored for 60 days (Undo right after). */}
+              <span className="text-right text-sm text-ink max-sm:basis-full">{inSeries ? seriesDeleteAsk(seriesSize) : DELETE_ASK}</span>
               <button type="button" onClick={() => onDelete()} className="h-9 rounded-lg bg-danger px-3 text-xs font-semibold text-white transition-colors hover:brightness-95 sm:h-8 [@media(pointer:coarse)]:h-11">
-                {inSeries ? 'This occurrence' : 'Delete'}
+                {inSeries ? 'This copy' : 'Delete'}
               </button>
               {inSeries ? (
                 <button
@@ -767,7 +772,7 @@ export function TaskDrawer({
                   title={seriesDeleteBlocked ?? undefined}
                   className="h-9 rounded-lg bg-danger px-3 text-xs font-semibold text-white transition-colors hover:brightness-95 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:hover:brightness-100 sm:h-8 [@media(pointer:coarse)]:h-11"
                 >
-                  Entire series
+                  {seriesSize && seriesSize > 1 ? `Entire series (${seriesSize})` : 'Entire series'}
                 </button>
               ) : null}
               <button ref={keepRef} type="button" onClick={() => setConfirmingDelete(false)} className="h-9 rounded-lg px-3 text-xs font-medium text-ink-2 transition-colors hover:bg-ground sm:h-8 [@media(pointer:coarse)]:h-11">

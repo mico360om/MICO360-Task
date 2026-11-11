@@ -571,7 +571,7 @@ describe('TaskDrawerContainer — who may delete this task (its creator, or the 
     await userEvent.click(await screen.findByRole('button', { name: /delete task/i }));
     expect(screen.getByRole('button', { name: /entire series/i })).toHaveAttribute('aria-disabled', 'true');
     expect(screen.getByText(SERIES)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'This occurrence' })).not.toHaveAttribute('aria-disabled');
+    expect(screen.getByRole('button', { name: 'This copy' })).not.toHaveAttribute('aria-disabled');
   });
 
   it('a refusal sent anyway (someone changed who it’s assigned to meanwhile) is told in the server’s words', async () => {
@@ -988,5 +988,83 @@ describe('TaskDrawerContainer — comments live, newest first', () => {
     await userEvent.type(screen.getAllByRole('textbox', { name: 'Reply to Omar A' })[0]!, 'Agreed');
     await userEvent.click(screen.getByRole('button', { name: 'Send reply' }));
     await waitFor(() => expect(posted[0]?.body).toEqual({ body: 'Agreed', parentId: 'c2' }));
+  });
+});
+
+describe('TaskDrawerContainer — a task in the Recycle Bin', () => {
+  const detail = {
+    task: {
+      id: 'tx', key: 'RIG-12', title: 'Replace the pump', description: 'Old one leaks', priority: 'HIGH', startDate: null, dueDate: '2026-11-20T00:00:00.000Z', isMilestone: false, repeats: false,
+      createdAt: '2026-10-01T06:00:00.000Z', createdBy: { id: 'u2', name: 'Omar A' }, formerKeys: [], project: { id: 'p1', name: 'Rig works', code: 'RIG', color: '#333', icon: null, imageUrl: null },
+      status: { name: 'Doing', category: 'IN_PROGRESS' },
+    },
+    assignees: [{ id: 'u1', name: 'Ada L' }],
+    tags: [{ name: 'pumps', color: '#333' }],
+    contacts: [],
+    checklists: [{ title: 'Steps', items: [{ text: 'Drain', done: true, depth: 0 }, { text: 'Close valve', done: false, depth: 1 }] }],
+    comments: [{ id: 'c1', author: { id: 'u2', name: 'Omar A' }, body: 'Ordered the part', deleted: false, fromClient: false, createdAt: '2026-11-02T06:00:00.000Z', editedAt: null, replies: [{ id: 'c2', author: { id: 'u1', name: 'Ada L' }, body: 'Thanks', deleted: false, fromClient: false, createdAt: '2026-11-02T07:00:00.000Z', editedAt: null }] }],
+    files: [{ filename: 'pump.pdf', sizeBytes: 2048, createdAt: '2026-11-02T06:00:00.000Z', uploadedBy: null }],
+    blockers: [],
+    history: [{ id: 'h1', taskId: 'tx', projectId: 'p1', userId: 'u2', action: 'DELETED', meta: {}, createdAt: '2026-11-03T06:00:00.000Z', actor: { id: 'u2', name: 'Ali Hassan' } }],
+    bin: { deletedAt: '2026-11-03T06:00:00.000Z', deletedBy: { id: 'u2', name: 'Ali Hassan' }, binExpiresAt: '2027-01-02T20:00:00.000Z', daysLeft: 53, batch: null, canRestore: true, canErase: false },
+  };
+  function openDeleted(binAnswer: () => Response) {
+    let restored = false;
+    const posts: unknown[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const u = String(url);
+        if (u.includes('/recycle-bin/restore')) {
+          posts.push(JSON.parse(String(init?.body)));
+          restored = true;
+          return json({ data: { restored: [{ id: 'tx', key: 'RIG-12', title: 'Replace the pump', projectId: 'p1' }], notRestored: [] } });
+        }
+        if (u.includes('/recycle-bin/tasks/tx')) return binAnswer();
+        if (u.endsWith('/tasks/tx')) {
+          return restored
+            ? json({ data: { id: 'tx', key: 'RIG-12', title: 'Replace the pump', description: '', projectId: 'p1', columnId: 'c1', position: 0, priority: 'HIGH', startDate: null, dueDate: null, progress: 0, completedAt: null, createdAt: '', updatedAt: '' } })
+            : json({ error: { code: 'TASK_DELETED', message: 'This task was deleted.' } }, 404);
+        }
+        // Its comments, files, checklist…: not readable while it is in the bin (as the server answers).
+        if (u.includes('/tasks/tx/') && !restored) return json({ error: { code: 'NOT_FOUND', message: 'Task not found.' } }, 404);
+        if (u.includes('/dependencies')) return json({ data: { blockedBy: [], blocks: [] } });
+        if (u.includes('/checklist')) return json({ data: { items: [], progress: 0 } });
+        return json({ data: [] });
+      }),
+    );
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <TaskDrawerContainer taskId="tx" onClose={() => {}} />
+      </QueryClientProvider>,
+    );
+    return { posts };
+  }
+
+  it('someone who may restore it sees it read-only under the banner, and Restore brings it back', async () => {
+    const { posts } = openDeleted(() => json({ data: detail }));
+    const banner = await screen.findByText(/In the Recycle Bin — deleted by Ali Hassan on 3 Nov/);
+    expect(banner.closest('[role="status"]')).toHaveTextContent('53 days left');
+    expect(screen.getByRole('heading', { name: 'Replace the pump' })).toBeInTheDocument();
+    expect(screen.getByText('Ordered the part')).toBeInTheDocument();
+    expect(screen.getByText('Thanks')).toBeInTheDocument();
+    expect(screen.getByText('pump.pdf')).toBeInTheDocument();
+    expect(screen.getByText('Close valve')).toBeInTheDocument();
+    expect(screen.getByText(/moved this task to the Recycle Bin/)).toBeInTheDocument();
+    // Nothing to change: no inputs, no Delete task.
+    expect(screen.queryByRole('textbox')).toBeNull();
+    expect(screen.queryByRole('button', { name: /delete task/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Delete forever' })).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: 'Restore' }));
+    expect(posts).toEqual([{ taskIds: ['tx'], wholeBatch: false }]);
+    // Back: the task itself shows.
+    await waitFor(() => expect(screen.queryByText(/In the Recycle Bin/)).toBeNull());
+  });
+
+  it('anyone else on the project: "This task was deleted"', async () => {
+    openDeleted(() => json({ error: { code: 'NOT_FOUND', message: 'Task not found.' } }, 404));
+    expect(await screen.findByText('This task was deleted.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Restore' })).toBeNull();
   });
 });
