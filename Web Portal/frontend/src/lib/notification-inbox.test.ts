@@ -14,7 +14,7 @@ import {
 } from './notification-inbox';
 
 describe('the type chips', () => {
-  it('six, in order, with their labels', () => {
+  it('seven, in order, with their labels', () => {
     expect(NOTIFICATION_KINDS.map((k) => [k.key, k.label])).toEqual([
       ['mentions', 'Mentions'],
       ['assigned', 'Assigned to me'],
@@ -22,6 +22,7 @@ describe('the type chips', () => {
       ['comments', 'Comments'],
       ['approvals', 'Approvals'],
       ['meetings', 'Meetings'],
+      ['training', 'Training'],
     ]);
   });
 
@@ -56,7 +57,7 @@ describe('the remembered tab and chips (this browser, per person)', () => {
 });
 
 describe('“Unread (12)”: unread in the chips chosen', () => {
-  const counts = { unread: 12, kinds: { mentions: 3, assigned: 2, due: 4, comments: 0, approvals: 1, meetings: 0 } };
+  const counts = { unread: 12, kinds: { mentions: 3, assigned: 2, due: 4, comments: 0, approvals: 1, meetings: 0, training: 0 } };
   it('no chip: every unread one; chips: theirs added up', () => {
     expect(unreadInView(counts, [])).toBe(12);
     expect(unreadInView(counts, ['mentions', 'due'])).toBe(7);

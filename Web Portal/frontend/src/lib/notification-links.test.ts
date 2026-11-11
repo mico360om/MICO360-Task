@@ -39,6 +39,16 @@ describe('notificationTarget — several reminders in one notice (Notification &
   });
 });
 
+describe('notificationTarget — Training Center', () => {
+  it('a course opens its page; several courses My training; escalations the reports; questions the feedback list', () => {
+    expect(notificationTarget({ entityType: 'training-course', entityId: 'c 1' })).toEqual({ kind: 'path', to: '/training/courses/c%201' });
+    expect(notificationTarget({ entityType: 'training-course', entityId: null })).toEqual({ kind: 'path', to: '/training' });
+    expect(notificationTarget({ entityType: 'training-my', entityId: null })).toEqual({ kind: 'path', to: '/training' });
+    expect(notificationTarget({ entityType: 'training-overdue', entityId: 'c1' })).toEqual({ kind: 'path', to: '/training/manage?tab=reports' });
+    expect(notificationTarget({ entityType: 'training-feedback', entityId: 'f1' })).toEqual({ kind: 'path', to: '/training/manage?tab=feedback' });
+  });
+});
+
 describe('Mark all read: only what the reader was shown (5c review)', () => {
   it('sends the newest notification’s time as upTo; nothing shown, no time', async () => {
     const { newestShown } = await import('./notification-links');

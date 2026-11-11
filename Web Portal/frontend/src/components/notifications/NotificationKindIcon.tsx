@@ -40,6 +40,13 @@ const LOOKS: Record<string, KindLook> = {
   AI_DRAFT_FAILED: { id: 'ai-failed', name: 'AI draft failed', tone: 'text-danger bg-danger-soft', paths: SPARKLE },
   MICO_AI_ANSWER: { id: 'ai', name: 'MICO AI answer', tone: 'text-brand bg-brand/10', paths: SPARKLE },
   MICO_AI_FAILED: { id: 'ai-failed', name: 'MICO AI couldn’t answer', tone: 'text-danger bg-danger-soft', paths: SPARKLE },
+  // Training Center: a course given to you, due soon, overdue (or an escalation about someone's), a certificate
+  // expiring, and a question (or its answer).
+  TRAINING_ASSIGNED: { id: 'training-assigned', name: 'Training assigned', tone: 'text-info bg-info-soft', paths: <><path d="M22 10 12 5 2 10l10 5 10-5z" /><path d="M6 12v5c3 2 9 2 12 0v-5" /></> },
+  TRAINING_DUE_SOON: { id: 'training-due', name: 'Training due soon', tone: DUE_SOON_CLASS.chip, paths: <><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z" /><path d="M12 7v4l2 1.5" /></> },
+  TRAINING_OVERDUE: { id: 'training-overdue', name: 'Training overdue', tone: OVERDUE_CLASS.chip, paths: <><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z" /><path d="M12 7v4M12 14h.01" /></> },
+  TRAINING_EXPIRING: { id: 'training-expiring', name: 'Certificate expiring', tone: DUE_SOON_CLASS.chip, paths: <><circle cx="12" cy="9" r="6" /><path d="M9 14.5 8 22l4-2 4 2-1-7.5" /><path d="M12 6.5V9l1.5 1" /></> },
+  TRAINING_QUESTION: { id: 'training-question', name: 'Training question', tone: 'text-brand bg-brand/10', paths: <><circle cx="12" cy="12" r="9" /><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01" /></> },
 };
 const OTHER: KindLook = { id: 'other', name: 'Notification', tone: 'text-ink-2 bg-ground', paths: <><path d="M18 8.5a6 6 0 1 0-12 0c0 6.5-2.5 7.5-2.5 7.5h17S18 15 18 8.5" /><path d="M10.3 20a2 2 0 0 0 3.4 0" /></> };
 

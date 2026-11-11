@@ -23,6 +23,12 @@ export function notificationTarget(n: Pick<ApiNotification, 'entityType' | 'enti
   if (type === 'my-tasks') return { kind: 'path', to: '/my-tasks' };
   if (type === 'approvals') return { kind: 'path', to: '/my-tasks#to-approve' };
   if (type === 'management') return { kind: 'path', to: '/management' };
+  // Training Center: a course (due, overdue, a certificate expiring, an answer), several courses assigned (My
+  // training), an overdue escalation (the Training Center's reports) and a question or "outdated" report (its feedback).
+  if (type === 'training-course' && n.entityId) return { kind: 'path', to: `/training/courses/${encodeURIComponent(n.entityId)}` };
+  if (type === 'training-course' || type === 'training-my') return { kind: 'path', to: '/training' };
+  if (type === 'training-overdue') return { kind: 'path', to: '/training/manage?tab=reports' };
+  if (type === 'training-feedback') return { kind: 'path', to: '/training/manage?tab=feedback' };
   return null;
 }
 

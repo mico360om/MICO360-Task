@@ -35,3 +35,21 @@ describe('the Notification & Scheduling notices’ icons', () => {
     expect(container.querySelector('[data-kind-icon="inactive"] svg path')).not.toBeNull();
   });
 });
+
+// Training Center: each training notice has its own icon and name.
+describe('the Training notices’ icons', () => {
+  const TYPES = ['TRAINING_ASSIGNED', 'TRAINING_DUE_SOON', 'TRAINING_OVERDUE', 'TRAINING_EXPIRING', 'TRAINING_QUESTION'];
+  it('assigned, due soon, overdue, certificate expiring and a question — five different icons', () => {
+    expect(TYPES.map((t) => notificationKindLook(t))).toEqual([
+      { id: 'training-assigned', name: 'Training assigned' },
+      { id: 'training-due', name: 'Training due soon' },
+      { id: 'training-overdue', name: 'Training overdue' },
+      { id: 'training-expiring', name: 'Certificate expiring' },
+      { id: 'training-question', name: 'Training question' },
+    ]);
+    const drawn = TYPES.map((t) => render(<NotificationKindIcon type={t} />).container.querySelector('svg')!.innerHTML);
+    expect(new Set(drawn).size).toBe(TYPES.length);
+    // Overdue in the one overdue colour.
+    expect(render(<NotificationKindIcon type="TRAINING_OVERDUE" />).container.querySelector('[data-kind-icon="training-overdue"]')!.className).toContain('text-overdue');
+  });
+});

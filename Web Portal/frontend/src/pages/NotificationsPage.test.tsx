@@ -32,7 +32,7 @@ const ROWS: Row[] = [
   { id: 'n2', type: 'TASK_ASSIGNED', title: 'You were assigned a task', body: null, readAt: '2026-11-01T00:00:00.000Z', createdAt: daysAgo(1), projectId: null, project: null },
   { id: 'n3', type: 'MEETING_REMINDER', title: 'Meeting in 15 minutes: Review', body: null, readAt: null, createdAt: daysAgo(3), projectId: null, project: null, entityType: 'meeting', entityId: 'm1' },
 ];
-const COUNTS = { unread: 2, kinds: { mentions: 1, assigned: 0, due: 0, comments: 0, approvals: 0, meetings: 1 } };
+const COUNTS = { unread: 2, kinds: { mentions: 1, assigned: 0, due: 0, comments: 0, approvals: 0, meetings: 1, training: 0 } };
 
 let calls: { method: string; url: string; body: unknown; keepalive?: boolean }[];
 let pages: (url: URL) => { data: Row[]; nextCursor: string | null };

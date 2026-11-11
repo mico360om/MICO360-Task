@@ -7,7 +7,7 @@
 import { dayKeyIn, dayText } from './day-words';
 import { shiftDayKey, todayKey } from './due-date';
 
-export type NotificationKind = 'mentions' | 'assigned' | 'due' | 'comments' | 'approvals' | 'meetings';
+export type NotificationKind = 'mentions' | 'assigned' | 'due' | 'comments' | 'approvals' | 'meetings' | 'training';
 
 export interface NotificationKindInfo {
   key: NotificationKind;
@@ -24,6 +24,8 @@ export const NOTIFICATION_KINDS: readonly NotificationKindInfo[] = [
   { key: 'comments', label: 'Comments', noun: 'comments' },
   { key: 'approvals', label: 'Approvals', noun: 'approvals' },
   { key: 'meetings', label: 'Meetings', noun: 'meeting reminders' },
+  // Training Center: courses assigned, due and overdue, certificates expiring, questions and answers.
+  { key: 'training', label: 'Training', noun: 'training notices' },
 ];
 const KIND_KEYS = NOTIFICATION_KINDS.map((k) => k.key);
 const isKind = (v: unknown): v is NotificationKind => typeof v === 'string' && (KIND_KEYS as string[]).includes(v);

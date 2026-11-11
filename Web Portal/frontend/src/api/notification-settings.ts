@@ -20,6 +20,8 @@ export const POLICY_KINDS = [
   'status',
   'projectAdded',
   'meetings',
+  // Training Center: every training notice in one row (bell and push on, email off by default).
+  'training',
 ] as const;
 export type PolicyKind = (typeof POLICY_KINDS)[number];
 

@@ -16,6 +16,7 @@ export const KIND_WORDS: Record<PolicyKind, { label: string; desc: string }> = {
   status: { label: 'Task moved', desc: 'One of your tasks moves column or project' },
   projectAdded: { label: 'Added to a project', desc: 'Someone puts you on a project’s team or makes you its owner' },
   meetings: { label: 'Meeting reminders', desc: 'Before each meeting you organize or are invited to' },
+  training: { label: 'Training', desc: 'Courses assigned to you, due dates, certificates expiring and answers to your questions' },
 };
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
