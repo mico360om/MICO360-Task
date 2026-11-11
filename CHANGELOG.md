@@ -14,6 +14,39 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### New features
+- **Notification & Scheduling** (System Settings → Notification & Scheduling, per company): one place for
+  working time (days, hours, week start; the site's time zone shown), holidays, reminders, escalations,
+  inactivity, quiet hours and channels, with "Preview for a person" showing what someone would get this
+  week. Meeting hours and meeting reminder times now live here (their old places link to it).
+- **Holidays**: each company starts with Oman's public holidays for this year and next — the Islamic ones
+  with expected dates marked "Confirm" and a reminder banner as each comes near — and admins add company
+  days off, one-off or every year. Weekends and holidays are shaded on the Timeline.
+- **Reminder schedules**: "Standard" (2 working days before the due day, on the due morning, 1 working day
+  after, then every 2 working days while overdue) and "Critical" (5, 2 and 1 working days before, on the
+  day, every working day overdue); admins add their own, each project picks one and a task can use another.
+- **Escalations in two steps**: overdue for 3 working days → whoever runs the project (then weekly); 5 more
+  → the company's admins or chosen people (once, also by email). Approvals waiting too long remind the
+  approver after 2 working days, then escalate the same way. Blocked tasks: one notice when blocked, then
+  weekly. Each project can set its own numbers.
+- **Inactivity reminders**: a started task with no comment, status change, checklist tick, file or due-date
+  change for 5 working days reminds its assignees; after 10, whoever runs the project too.
+- **Settings → Notifications**: each kind of notice by bell, phone and email (kinds your company requires
+  are locked on), your own quiet hours, whether meeting reminders and @mentions come through them, and
+  "Pause everything except required" for an hour, the rest of today or until the week starts.
+- A due date on a holiday or weekend gets a warning in the task form (the date is never moved).
+
+### Improvements
+- Quiet hours (outside working hours and on days off, unless changed): the bell still fills, but phone
+  pushes and emails wait for the next working morning and then come as one message — never a burst. The
+  Android app and the Chrome extension follow the same rules and their settings keep working.
+- The daily email goes on working days only (the first working morning covers everything since) and holds
+  the notices that came overnight; the weekly Management summary goes on the first working day of the week.
+- "Days late" count working days everywhere: reminders and escalations, the daily email, project health
+  risks, late milestones and the Management page.
+- More than three reminders of one kind for one person at once arrive as one notice listing them; after the
+  upgrade nobody gets a burst of reminders for what was already due.
+
 ## [1.23.11] - 2026-11-10
 
 ### Improvements
