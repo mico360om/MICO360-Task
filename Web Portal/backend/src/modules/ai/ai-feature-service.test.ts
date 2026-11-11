@@ -309,7 +309,8 @@ describe('AiFeatureService on MICO360 AI (its API guide)', () => {
     await svc.parseTask({ text: 'call the bank', today: '2026-10-20' });
     await svc.suggestPriority({ title: 'X' });
     await svc.draftMinutes('Meeting: X', { userId: 'u1' });
-    for (const body of bodies) expect(body.response_format).toEqual({ type: 'json_object' });
+    // (b) bundles, b1: the features with a schema of their own are held to it; the checklist to any JSON object.
+    expect(bodies.map((b) => (b.response_format as { type: string }).type)).toEqual(['json_object', 'json_schema', 'json_schema', 'json_schema']);
     const plain = recorder('All good.');
     await plain.svc.summarizeProject({ name: 'P', stats: { total: 1, completed: 0, inProgress: 0, overdue: 0 } });
     expect(plain.bodies[0]).not.toHaveProperty('response_format');
