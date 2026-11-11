@@ -241,8 +241,6 @@ function projectDetail(metric: MetricKey, c: Counters, extra: { blocked: number;
 
 function personDetail(metric: MetricKey, c: Counters, extra: { responses: number; workload: PersonKpis['workload'] }): string | null {
   switch (metric) {
-    case 'completed':
-      return 'Finished or handed in';
     case 'onTime':
       return c.dueDone ? `${c.onTime} of ${plural(c.dueDone, 'task')} on time` : 'Nothing with a due day finished yet';
     case 'daysLate':
@@ -258,8 +256,6 @@ function personDetail(metric: MetricKey, c: Counters, extra: { responses: number
       return c.approvalCount ? `${plural(c.approvalCount, 'decision')} as approver` : 'No approvals decided';
     case 'responsiveness':
       return extra.responses ? `${plural(extra.responses, 'answer')}` : 'Nothing to answer yet';
-    case 'actionItems':
-      return 'From meetings';
     default:
       return null;
   }
