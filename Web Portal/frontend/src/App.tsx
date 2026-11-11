@@ -37,6 +37,7 @@ const AuditPage = lazyPage(() => import('./pages/AuditPage'), 'AuditPage');
 // 1.22.4: System Settings → Error log (administrators).
 const ErrorLogPage = lazyPage(() => import('./pages/ErrorLogPage'), 'ErrorLogPage');
 const SystemSettingsPage = lazyPage(() => import('./pages/SystemSettingsPage'), 'SystemSettingsPage');
+const NotificationSchedulingPage = lazyPage(() => import('./pages/NotificationSchedulingPage'), 'NotificationSchedulingPage');
 const AiSettingsPage = lazyPage(() => import('./pages/AiSettingsPage'), 'AiSettingsPage');
 const ActivityPage = lazyPage(() => import('./pages/ActivityPage'), 'ActivityPage');
 const SearchPage = lazyPage(() => import('./pages/SearchPage'), 'SearchPage');
@@ -197,6 +198,7 @@ export function App() {
             <Route element={<AdminRoute />}>
               <Route path="/reports" element={<ReportsPage />} />
               <Route path="/admin/settings" element={<SystemSettingsPage />} />
+              <Route path="/admin/settings/notifications" element={<NotificationSchedulingPage />} />
               <Route path="/admin/ai" element={<AiSettingsPage />} />
               <Route path="/admin/audit" element={<AuditPage />} />
               <Route path="/admin/error-log" element={<ErrorLogPage />} />

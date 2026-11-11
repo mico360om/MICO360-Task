@@ -8,8 +8,8 @@ import { systemSettingsApi } from '../api/system-settings';
 import { tasksApi } from '../api/tasks';
 import { LoadError } from '../components/ui/LoadError';
 import { DailyEmailLog } from '../components/admin/DailyEmailLog';
-import { MeetingHoursSettings, workingHoursText } from '../components/admin/MeetingHoursSettings';
-import { MeetingReminderSettings } from '../components/admin/MeetingReminderSettings';
+import { workingHoursText } from '../components/admin/MeetingHoursSettings';
+import { MovedSettingCard, NotificationCentreCard } from '../components/admin/NotificationCentreLinks';
 import { isMeetingReminders, reminderSummary } from '../components/admin/meeting-reminder-words';
 import { BackupSettings } from '../components/admin/BackupSettings';
 import { AccountSettings } from '../components/admin/AccountSettings';
@@ -133,6 +133,9 @@ export function SystemSettingsPage() {
       <PageHeader eyebrow="Admin" title="System Settings" subtitle="Company-wide configuration." />
 
       <div className="grid gap-4 lg:grid-cols-2">
+        {/* Notification & Scheduling: working time, holidays, reminders and notification rules, per company. */}
+        <NotificationCentreCard />
+
         {/* Carry-forward */}
         <section className="card card-pad">
           <h2 className="eyebrow mb-1">Task carry-forward</h2>
@@ -240,18 +243,18 @@ export function SystemSettingsPage() {
                 </label>
               ))}
             </div>
-            <p className="mt-2 text-xs text-ink-2">The Management page’s weeks and the weekly summary’s day follow it.</p>
+            <p className="mt-2 text-xs text-ink-2">
+              The Management page’s weeks and the weekly summary’s day follow it (a company can have its own in Notification &amp; Scheduling → Working time).
+            </p>
           </fieldset>
         </section>
 
         {/* 1.23.6: how long invitation links (and unused temporary passwords) last. */}
         <AccountSettings />
 
-        {/* The working hours meeting free times are suggested in. */}
-        <MeetingHoursSettings />
-
-        {/* When meetings are reminded of, and whether by email too. */}
-        <MeetingReminderSettings />
+        {/* Meeting hours and meeting reminders moved into Notification & Scheduling (their cards link there). */}
+        <MovedSettingCard heading="Meeting hours" headingId="meeting-hours-heading" text="The working days and hours meeting free times are suggested in — the company’s working time." tab="working-time" tabLabel="Working time" />
+        <MovedSettingCard heading="Meeting reminders" headingId="meeting-reminders-heading" text="When meetings are reminded of, and whether by email too." tab="channels" tabLabel="Channels" />
 
         {/* The morning task emails: who got which, and how it went. */}
         <DailyEmailLog />
