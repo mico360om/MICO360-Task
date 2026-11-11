@@ -189,3 +189,40 @@ describe('review fixes in the service', () => {
     expect(k.tiles.find((t) => t.metric === 'completed')!.value).toBe(1);
   });
 });
+
+describe('owner, 11 Nov: late stays counted (the list and the people)', () => {
+  const binned = () => task({ title: 'Pour slab', dueDate: dueAt('2026-11-02'), removedAt: at('2026-11-05'), removedHow: 'binned' });
+  const merged = () => task({ title: 'Fix pump', dueDate: dueAt('2026-11-02'), removedAt: at('2026-11-04'), removedHow: 'merged' });
+
+  it('the on-time list shows them as "deleted while late" / "merged while late"; whoever runs the project sees which', async () => {
+    const { service } = setup({ tasks: [binned(), merged(), done('2026-11-03', '2026-11-04')] });
+    const list = await service.projectItems(v('mgr'), 'p1', 'onTime', { kind: 'month' });
+    expect(list.total).toBe(3);
+    const details = list.rows.map((r) => r.detail);
+    expect(details.some((d) => /^3 working days late · deleted while late/.test(d))).toBe(true);
+    expect(details.some((d) => /^2 working days late · merged while late/.test(d))).toBe(true);
+    expect(list.rows.find((r) => r.removed === 'binned')).toMatchObject({ title: 'Pour slab', peopleNames: ['ANN'] });
+  });
+
+  it('a team member sees that one was deleted while late, not which task or whose', async () => {
+    const { service } = setup({ tasks: [binned()] });
+    const list = await service.projectItems(v('bob'), 'p1', 'daysLate', { kind: 'month' });
+    expect(list.rows[0]).toMatchObject({ removed: 'binned', title: 'A task that was deleted', key: null, peopleNames: [] });
+  });
+
+  it('it counts for who had it on its due day: their on-time % and days late; their own list says so', async () => {
+    const { service } = setup({ tasks: [binned(), done('2026-11-03', '2026-11-04')] });
+    const k = await service.personKpis(v('ann'), 'ann', { kind: 'month' });
+    expect(k.tiles.find((t) => t.metric === 'onTime')!.value).toBe(50);
+    expect(k.tiles.find((t) => t.metric === 'daysLate')!.value).toBe(3);
+    expect(k.tiles.find((t) => t.metric === 'completed')!.value).toBe(1);
+    const mine = await service.personItems(v('ann'), 'ann', 'daysLate', { kind: 'month' });
+    expect(mine.rows[0]).toMatchObject({ removed: 'binned', title: 'Pour slab' });
+  });
+
+  it('a binned task that is restored simply counts as normal', async () => {
+    const restored = task({ dueDate: dueAt('2026-11-02') });
+    const { service } = setup({ tasks: [restored] });
+    expect((await service.projectKpis(v('mgr'), 'p1', { kind: 'month' })).tiles.find((t) => t.metric === 'overdue')!.value).toBe(100);
+  });
+});

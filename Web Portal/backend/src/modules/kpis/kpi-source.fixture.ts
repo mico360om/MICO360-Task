@@ -48,7 +48,9 @@ export function createMemoryKpiSource(world: MemoryKpiWorld): KpiSource & { call
     },
     async windowTasks(projectIds, from, to, opts) {
       calls.push('windowTasks');
-      return world.tasks.filter((t) => projectIds.includes(t.projectId) && (!opts?.onlyIds || opts.onlyIds.includes(t.id)) && ms(t.createdAt) < ms(to) && (t.completedAt === null || ms(t.completedAt) >= ms(from)));
+      return world.tasks.filter(
+        (t) => projectIds.includes(t.projectId) && (!opts?.onlyIds || opts.onlyIds.includes(t.id)) && ms(t.createdAt) < ms(to) && (t.removedAt ? ms(t.removedAt) >= ms(from) : t.completedAt === null || ms(t.completedAt) >= ms(from)),
+      );
     },
     async personTaskIds(userId, projectIds) {
       calls.push('personTaskIds');

@@ -119,10 +119,27 @@ export function countWindow(tasks: readonly KpiTask[], w: CalcWindow, ctx: CalcC
   const endAt = new Date(ms(w.to) - 1);
 
   for (const t of tasks) {
+    const pc = ctx.project(t.projectId);
+    if (t.removedAt) {
+      // Owner, 11 Nov — late stays counted: a task binned or merged while late keeps its late mark.
+      const late = lateWhenRemoved(t, pc, tz);
+      if (late && inWindow(late.at, w)) {
+        const p = proj(t.projectId);
+        p.dueDone += 1;
+        p.lateCount += 1;
+        p.lateDays += late.days;
+        for (const u of judgedPeople(t, late.baseline, late.at, tz, pc.rules)) {
+          const c = person(t.projectId, u);
+          c.dueDone += 1;
+          c.lateCount += 1;
+          c.lateDays += late.days;
+        }
+      }
+      continue;
+    }
     const doneAt = doneMoment(t);
     const doneByEnd = doneAt !== null && ms(doneAt) < ms(w.to);
     if (!countsInKpis(t, doneAt !== null)) continue;
-    const pc = ctx.project(t.projectId);
     const p = proj(t.projectId);
 
     // Finished in the window.
@@ -193,6 +210,23 @@ export function countWindow(tasks: readonly KpiTask[], w: CalcWindow, ctx: CalcC
     }
   }
   return { projects, people };
+}
+
+/**
+ * Owner, 11 Nov — late stays counted. A task sent to the Recycle Bin or merged into another keeps a late
+ * mark it already had: finished late before it went (counted at that finish), or still open and at least
+ * one working day past its agreed due day when it went (counted then, late up to that day). Removed before
+ * it was late — or finished on time — it counts for nothing, as before. Null when it doesn't count.
+ */
+export function lateWhenRemoved(t: KpiTask, pc: ProjectCalc, timeZone: string): { at: Date; baseline: string; days: number } | null {
+  if (!t.removedAt) return null;
+  const done = doneMoment(t);
+  const at = done && ms(done) <= ms(t.removedAt) ? done : t.removedAt;
+  const baseline = baselineAsOf(t, at, pc.rules, timeZone);
+  if (!baseline) return null;
+  const day = zonedDayKey(at, timeZone);
+  const days = day > baseline ? workingDaysLate(baseline, day, pc.calendar) : 0;
+  return days > 0 ? { at, baseline, days } : null;
 }
 
 // ── Update responsiveness (call 3) ───────────────────────────────────────────

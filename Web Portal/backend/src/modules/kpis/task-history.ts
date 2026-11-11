@@ -51,6 +51,12 @@ export interface KpiTask {
   events: HistoryEvent[];
   /** The task archive (bulk release): null when not archived. */
   archivedAt?: Date | null;
+  /**
+   * Owner, 11 Nov ("late stays counted"): when the task was sent to the Recycle Bin or merged into another
+   * (its deletedAt / mergedAt), and which. Such a task is read only to keep a late mark it already had.
+   */
+  removedAt?: Date | null;
+  removedHow?: 'binned' | 'merged';
 }
 
 /** Who may agree a new due date: administrators, and the people who run the task's project. */

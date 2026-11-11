@@ -103,6 +103,34 @@ export function kpiReads(prisma: PrismaClient) {
         select: { mainTaskId: true, mergedAt: true, mergedById: true, changes: true, items: { where: { kind: { in: ['activity', 'assignee'] } }, select: { kind: true, rowId: true } } },
       });
     },
+    /**
+     * Owner, 11 Nov — late stays counted: tasks of these projects sent to the Recycle Bin or merged since
+     * `from` (a merge sets deletedAt too). Recycle Bin lane: once merged, its deletedById / binExpiresAt don't
+     * change this — a task erased for good after 60 days is gone (its month's snapshot keeps the mark).
+     */
+    removedTasks(ids: string[], from: Date, to: Date) {
+      return prisma.task.findMany({
+        where: { projectId: { in: ids }, deletedAt: { gte: from }, createdAt: { lt: to } },
+        select: { ...taskSelect, deletedAt: true, mergedAt: true, mergedIntoId: true },
+      });
+    },
+    /** What merges moved off these merged tasks onto their main task (merges not undone): lines and people. */
+    movedOff(taskIds: string[]) {
+      return prisma.taskMergeItem.findMany({
+        where: { fromTaskId: { in: taskIds }, kind: { in: ['activity', 'assignee'] }, merge: { undoneAt: null } },
+        select: { kind: true, rowId: true, fromTaskId: true, merge: { select: { mainTaskId: true } } },
+      });
+    },
+    linesById(ids: string[]) {
+      return prisma.activity.findMany({
+        where: { id: { in: ids }, action: { in: [...KPI_ACTIONS] } },
+        select: { id: true, taskId: true, action: true, userId: true, meta: true, createdAt: true },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      });
+    },
+    assigneeRows(pairs: { taskId: string; userId: string }[]) {
+      return prisma.taskAssignee.findMany({ where: { OR: pairs }, select: { taskId: true, userId: true, assignedAt: true } });
+    },
     tasksById(ids: string[]) {
       return prisma.task.findMany({ where: { ...KPI_TASK_WHERE, id: { in: ids } }, select: taskSelect });
     },
@@ -194,6 +222,10 @@ export async function kpiProbe(prisma: PrismaClient, nowhere: string): Promise<v
   await r.decided(nowhere, [nowhere], from);
   await r.merges([nowhere]);
   await r.tasksById([nowhere]);
+  await r.removedTasks([nowhere], from, to);
+  await r.movedOff([nowhere]);
+  await r.linesById([nowhere]);
+  await r.assigneeRows([{ taskId: nowhere, userId: nowhere }]);
   await r.events([nowhere]);
   await r.doneBefore([nowhere], to);
   await r.comments([nowhere], from, to);
@@ -269,6 +301,51 @@ export function createPrismaKpiSource(prisma: PrismaClient, timeZone = 'Asia/Mus
     }));
   }
 
+  /**
+   * Tasks binned or merged since `from`, with their history. A merged task's own lines and people were moved to
+   * its main task (task_merge_items): they are read back from there, so it is judged as it stood.
+   */
+  async function removedSince(projectIds: string[], from: Date, to: Date): Promise<KpiTask[]> {
+    if (projectIds.length === 0) return [];
+    const rows: (TaskRow & { deletedAt: Date | null; mergedAt: Date | null; mergedIntoId: string | null })[] = [];
+    for (const part of chunks(projectIds, 100)) rows.push(...(await r.removedTasks(part, from, to)));
+    if (rows.length === 0) return [];
+    const own = await withHistory(rows);
+    const merged = rows.filter((t) => t.mergedIntoId).map((t) => t.id);
+    const lines = new Map<string, HistoryEvent[]>();
+    const people = new Map<string, { userId: string; assignedAt: Date }[]>();
+    for (const part of chunks(merged)) {
+      const items = await r.movedOff(part);
+      const lineOf = new Map(items.filter((i) => i.kind === 'activity').map((i) => [i.rowId, i.fromTaskId]));
+      for (const ids of chunks([...lineOf.keys()])) {
+        for (const e of await r.linesById(ids)) {
+          const t = lineOf.get(e.id)!;
+          lines.set(t, [...(lines.get(t) ?? []), { at: e.createdAt, action: e.action, userId: e.userId, meta: e.meta }]);
+        }
+      }
+      const moved = items.filter((i) => i.kind === 'assignee').map((i) => ({ taskId: i.merge.mainTaskId, userId: i.rowId, from: i.fromTaskId }));
+      if (moved.length) {
+        const found = await r.assigneeRows(moved.map((m) => ({ taskId: m.taskId, userId: m.userId })));
+        for (const m of moved) {
+          const row = found.find((f) => f.taskId === m.taskId && f.userId === m.userId);
+          if (row) people.set(m.from, [...(people.get(m.from) ?? []), { userId: m.userId, assignedAt: row.assignedAt }]);
+        }
+      }
+    }
+    return own.map((t) => {
+      const row = rows.find((x) => x.id === t.id)!;
+      const how = row.mergedIntoId ? 'merged' : 'binned';
+      const extra = lines.get(t.id) ?? [];
+      return {
+        ...t,
+        removedAt: (how === 'merged' ? row.mergedAt : null) ?? row.deletedAt,
+        removedHow: how,
+        assignees: [...t.assignees, ...(people.get(t.id) ?? []).filter((p) => !t.assignees.some((a) => a.userId === p.userId))],
+        events: extra.length ? [...t.events, ...extra].sort((a, b) => a.at.getTime() - b.at.getTime()) : t.events,
+      };
+    });
+  }
+
   return {
     async projects(ids) {
       const out: KpiProjectRow[] = [];
@@ -301,7 +378,9 @@ export function createPrismaKpiSource(prisma: PrismaClient, timeZone = 'Asia/Mus
       if (opts?.onlyIds) {
         for (const part of chunks([...new Set(opts.onlyIds)])) rows.push(...(await r.windowTasks([...new Set(projectIds)], from, to, part)));
       } else for (const part of chunks([...new Set(projectIds)], 100)) rows.push(...(await r.windowTasks(part, from, to)));
-      return withHistory(rows);
+      // Owner, 11 Nov — late stays counted: the tasks binned or merged since `from` (few; never filtered to
+      // one person here — a merged task's people were moved to its main task).
+      return [...(await withHistory(rows)), ...(await removedSince([...new Set(projectIds)], from, to))];
     },
     async personTaskIds(userId, projectIds, from) {
       if (projectIds.length === 0) return [];

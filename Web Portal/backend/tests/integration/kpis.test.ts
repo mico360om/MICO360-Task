@@ -107,7 +107,8 @@ beforeAll(async () => {
       { taskId: t3, projectId: P, userId: w.people.amy, action: 'APPROVED', meta: {}, createdAt: at(-4, '10:00') },
     ],
   });
-  // Open and overdue (Cat's); a binned done task and a merged one never count; one in a Blocked column.
+  // Open and overdue (Cat's); a task finished on time then binned never counts; one finished 7 days late then merged
+  // stays late (owner, 11 Nov: late stays counted); one in a Blocked column.
   await task({ assignee: w.people.cat, due: -2 });
   await task({ assignee: w.people.ana, due: -3, done: -4, deleted: true });
   await task({ assignee: w.people.ana, due: -9, done: -2, merged: t2 });
@@ -136,23 +137,24 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
-type Tiles = { tiles: { metric: string; value: number | null; light: string }[] };
+type Tiles = { tiles: { metric: string; value: number | null; light: string; detail?: string | null }[] };
 const fig = (k: Tiles, m: string) => k.tiles.find((t) => t.metric === m)!.value;
 
 describe('a project’s KPIs over real task history', () => {
-  it('on time against the agreed due day; days late; hand-in counts; binned and merged left out; Blocked; approval turnaround', async () => {
+  it('on time against the agreed due day; days late; hand-in counts; binned on time left out, merged while late kept; Blocked; approval turnaround', async () => {
     const k = (await app.get(w.as.ana, `/kpis/projects/${P}?${range}`)) as Tiles;
-    expect(fig(k, 'onTime')).toBe(67); // 2 of 3
-    expect(fig(k, 'daysLate')).toBe(5); // the assignee's own move doesn't count
+    expect(fig(k, 'onTime')).toBe(50); // 2 of 4: the merged-while-late task stays late
+    expect(fig(k, 'daysLate')).toBe(6); // (5 + 7) / 2 — the assignee's own move doesn't count
     expect(fig(k, 'overdue')).toBe(100); // Cat's: the only open task with a due day (the Blocked one has none)
     expect(fig(k, 'blocked')).toBe(1);
     expect(fig(k, 'approvalTurnaround')).toBe(9);
   });
 
   it('the list behind a number names the tasks it counted', async () => {
-    const list = (await app.get(w.as.ana, `/kpis/projects/${P}/items?metric=onTime&${range}`)) as { total: number; rows: { id: string; days: number }[] };
-    expect(list.total).toBe(3);
-    expect(list.rows[0]).toMatchObject({ id: t1, days: 5 });
+    const list = (await app.get(w.as.ana, `/kpis/projects/${P}/items?metric=onTime&${range}`)) as { total: number; rows: { id: string; days: number; removed?: string }[] };
+    expect(list.total).toBe(4);
+    expect(list.rows[0]).toMatchObject({ days: 7, removed: 'merged' });
+    expect(list.rows.find((r) => r.id === t1)).toMatchObject({ days: 5 });
   });
 
   it('someone who can’t see the project gets a 404; a client account is refused', async () => {
@@ -176,7 +178,7 @@ describe('a person’s KPIs (owner 2)', () => {
     const k = (await app.get(w.as.ana, `/kpis/people/me?${range}`)) as Tiles & { scope: string };
     expect(k.scope).toBe('self');
     expect(fig(k, 'completed')).toBe(3);
-    expect(fig(k, 'onTime')).toBe(67);
+    expect(fig(k, 'onTime')).toBe(50);
     expect(fig(k, 'responsiveness')).toBe(2);
   });
 
@@ -202,7 +204,7 @@ describe('a person’s KPIs (owner 2)', () => {
 
 describe('targets and a project’s own KPIs', () => {
   it('the company default, then the project’s own (whoever runs it), never a team member', async () => {
-    expect((await app.put(w.as.admin, '/kpis/targets', { companyId: w.companies.A, targets: [{ metric: 'onTime', target: 60 }] })).statusCode).toBe(200);
+    expect((await app.put(w.as.admin, '/kpis/targets', { companyId: w.companies.A, targets: [{ metric: 'onTime', target: 40 }] })).statusCode).toBe(200);
     expect(((await app.get(w.as.ana, `/kpis/projects/${P}?${range}`)) as Tiles).tiles.find((t) => t.metric === 'onTime')!.light).toBe('green');
     expect((await app.put(w.as.ana, `/kpis/projects/${P}/targets`, { targets: [{ metric: 'onTime', target: 99 }] })).statusCode).toBe(403);
     expect((await app.put(w.as.amy, `/kpis/projects/${P}/targets`, { targets: [{ metric: 'onTime', target: 99 }] })).statusCode).toBe(200);
@@ -295,3 +297,56 @@ describe('review fixes on the database', () => {
     expect(asManager.scope).toBe('manager');
   });
 });
+
+describe('owner, 11 Nov: late stays counted (on the database)', () => {
+  it('a task binned while late counts late for who had it; the list says "deleted while late" — which task only to whoever runs the project', async () => {
+    const binned = await task({ assignee: w.people.ana, due: -6, title: 'KPI binned while late' });
+    await prisma.task.update({ where: { id: binned }, data: { deletedAt: at(-1) } });
+    try {
+      const amy = (await app.get(w.as.amy, `/kpis/projects/${P}/items?metric=daysLate&${range}`)) as { rows: { id: string; title: string; removed?: string; detail: string }[] };
+      const row = amy.rows.find((r) => r.id === binned);
+      expect(row).toMatchObject({ title: 'KPI binned while late', removed: 'binned' });
+      expect(row!.detail).toMatch(/^5 working days late · deleted while late/);
+      const ana = (await app.get(w.as.ana, `/kpis/projects/${P}/items?metric=daysLate&${range}`)) as { rows: { id: string; title: string }[] };
+      expect(ana.rows.find((r) => r.id === binned)!.title).toBe('A task that was deleted');
+      // Ana's own on-time %: one more task with a due day, none more on time.
+      const mine = (await app.get(w.as.ana, `/kpis/people/me?${range}`)) as Tiles;
+      await prisma.task.update({ where: { id: binned }, data: { deletedAt: null } });
+      const open = (await app.get(w.as.ana, `/kpis/people/me?${range}`)) as Tiles;
+      const ofTotal = (k: Tiles) => (k.tiles.find((t) => t.metric === 'onTime')!.detail ?? '').match(/^(\d+) of (\d+)/)!.slice(1).map(Number);
+      const [onTimeOpen, totalOpen] = ofTotal(open);
+      expect(ofTotal(mine)).toEqual([onTimeOpen, totalOpen! + 1]);
+      // Restored from the bin, it simply counts as normal: open and overdue again.
+      const after = (await app.get(w.as.amy, `/kpis/projects/${P}/items?metric=overdue&${range}`)) as { rows: { id: string; removed?: string }[] };
+      expect(after.rows.find((r) => r.id === binned)).toMatchObject({ id: binned });
+      expect(after.rows.find((r) => r.id === binned)!.removed).toBeUndefined();
+    } finally {
+      await prisma.task.deleteMany({ where: { id: binned } });
+    }
+  });
+
+  it('a task merged while late is judged by its own history, read back from the main task it was merged into', async () => {
+    const main = await task({ assignee: w.people.cat, due: 10, title: 'KPI merge target' });
+    const late = await task({ due: -8, title: 'KPI merged while late' });
+    // Bob was on it; the merge moved its lines and Bob to the main task.
+    await prisma.taskAssignee.create({ data: { taskId: main, userId: w.people.ben, assignedAt: at(-20, '08:00') } });
+    const line = await prisma.activity.create({ data: { taskId: main, projectId: P, userId: w.people.amy, action: 'ASSIGNED', meta: { assigneeId: w.people.ben }, createdAt: at(-20, '08:00') } });
+    await prisma.task.update({ where: { id: late }, data: { deletedAt: at(-1), mergedAt: at(-1), mergedIntoId: main } });
+    const m = await prisma.taskMerge.create({
+      data: { mainTaskId: main, mainKeyBefore: 'M', mainKeyAfter: 'M', mainProjectBefore: P, mainProjectAfter: P, taskIds: [{ id: late, key: 'L' }], changes: {}, summary: {}, mergedById: w.people.amy, mergedAt: at(-1), items: { create: [{ kind: 'activity', rowId: line.id, fromTaskId: late }, { kind: 'assignee', rowId: w.people.ben, fromTaskId: late }] } },
+    });
+    try {
+      const list = (await app.get(w.as.admin, `/kpis/projects/${P}/items?metric=daysLate&${range}`)) as { rows: { id: string; removed?: string; peopleNames: string[]; days: number }[] };
+      const row = list.rows.find((r) => r.id === late);
+      expect(row).toMatchObject({ removed: 'merged', days: 7 });
+      expect(row!.peopleNames).toHaveLength(1);
+      // …and the main task doesn't take its lines as its own: Ben isn't judged on the main task.
+      expect(list.rows.find((r) => r.id === main)).toBeUndefined();
+    } finally {
+      await prisma.taskMerge.deleteMany({ where: { id: m.id } });
+      await prisma.activity.deleteMany({ where: { id: line.id } });
+      await prisma.task.deleteMany({ where: { id: { in: [late, main] } } });
+    }
+  });
+});
+

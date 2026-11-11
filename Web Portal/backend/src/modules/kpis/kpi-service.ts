@@ -486,7 +486,9 @@ export function createKpiService(deps: KpiServiceDeps) {
     const blocked = m === 'blocked' ? await deps.source.blocked([p.id]) : [];
     const w = windowOf(period.from, period.to, tz, at);
     const rows = itemsFor(m === 'throughput' ? 'completed' : m, facts, w, { blocked, now: at });
-    return itemsAnswer(m, named ? rows : rows.map((r) => ({ ...r, people: [] })), [p]);
+    // A task deleted or merged while late: which one it was is for whoever runs the project too.
+    const anonymous = (r: KpiItemRow): KpiItemRow => ({ ...r, people: [], ...(r.removed ? { title: r.removed === 'merged' ? 'A task that was merged' : 'A task that was deleted', key: null } : {}) });
+    return itemsAnswer(m, named ? rows : rows.map(anonymous), [p]);
   }
 
   // ── The Management page's KPI table ──────────────────────────────────────

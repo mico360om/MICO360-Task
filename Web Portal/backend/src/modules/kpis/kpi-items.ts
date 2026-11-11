@@ -6,7 +6,7 @@
 import { workingDaysBetween, workingDaysLate } from '../../lib/working-days';
 import { dueDayKey, zonedDayKey } from '../../lib/due-date';
 import { formatDay } from '../../lib/export-format';
-import type { CalcWindow } from './kpi-calc';
+import { lateWhenRemoved, type CalcWindow } from './kpi-calc';
 import type { MetricKey } from './kpi-defs';
 import type { Facts } from './kpi-engine';
 import type { BlockedTask } from './kpi-source';
@@ -34,6 +34,8 @@ export interface KpiItemRow {
   tone: 'success' | 'danger' | 'warning' | 'neutral';
   /** An action item's meeting. */
   meetingId?: string | null;
+  /** Owner, 11 Nov: a task sent to the Recycle Bin or merged while late (it can't be opened from the list). */
+  removed?: 'binned' | 'merged';
 }
 
 /** Metrics with a list behind them. */
@@ -67,7 +69,7 @@ export function itemsFor(metric: MetricKey, f: Facts, w: CalcWindow, opts: { per
     }
   } else if (metric === 'approvalTurnaround') {
     for (const t of f.tasks) {
-      if (!countsInKpis(t, doneMoment(t) !== null)) continue;
+      if (t.removedAt || !countsInKpis(t, doneMoment(t) !== null)) continue;
       const pc = f.ctx.project(t.projectId);
       for (const c of approvalCycles(t)) {
         if (!inWindow(c.decidedAt) || (me && c.decidedBy !== me)) continue;
@@ -78,9 +80,31 @@ export function itemsFor(metric: MetricKey, f: Facts, w: CalcWindow, opts: { per
     }
   } else {
     for (const t of f.tasks) {
+      const pc = f.ctx.project(t.projectId);
+      if (t.removedAt) {
+        // Owner, 11 Nov — late stays counted: only in the on-time and days-late lists.
+        if (metric !== 'onTime' && metric !== 'daysLate') continue;
+        const late = lateWhenRemoved(t, pc, tz);
+        if (!late || !inWindow(late.at)) continue;
+        const judged = judgedPeople(t, late.baseline, late.at, tz, pc.rules);
+        if (me && !judged.includes(me)) continue;
+        const how = t.removedHow ?? 'binned';
+        rows.push({
+          ...base(t),
+          people: judged,
+          due: late.baseline,
+          doneDay: zonedDayKey(late.at, tz),
+          days: late.days,
+          hours: null,
+          detail: `${plural(late.days, 'working day')} late · ${how === 'merged' ? 'merged' : 'deleted'} while late (due ${formatDay(late.baseline)})`,
+          tone: 'danger',
+          removed: how,
+          sort: -late.days,
+        });
+        continue;
+      }
       const doneAt = doneMoment(t);
       if (!countsInKpis(t, doneAt !== null)) continue;
-      const pc = f.ctx.project(t.projectId);
       if (metric === 'overdue' || metric === 'userOverdue') {
         if (ms(t.createdAt) >= ms(w.to) || (doneAt && ms(doneAt) < ms(w.to))) continue;
         const due = baselineAsOf(t, endAt, pc.rules, tz);

@@ -245,3 +245,37 @@ describe('review fixes in the counting', () => {
     expect(countResponses([c], NOV, ctx).get('p1')?.get('ann') ?? []).toEqual([]);
   });
 });
+
+describe('owner, 11 Nov: late stays counted — a task binned or merged while late', () => {
+  const removed = (how: 'binned' | 'merged', day: string, over: Partial<KpiTask> = {}) => task({ dueDate: dueAt('2026-11-02'), removedAt: at(day), removedHow: how, ...over });
+
+  it('binned while late: late in on-time %, days late (to the day it was binned) and late counts, for who had it on its due day', () => {
+    const counts = countWindow([removed('binned', '2026-11-05')], NOV, ctx);
+    const p = counts.projects.get('p1')!;
+    // Due Mon 2 Nov, binned Thu 5 Nov: 3 working days late (Tue, Wed, Thu).
+    expect(p).toMatchObject({ dueDone: 1, onTime: 0, lateCount: 1, lateDays: 3, completed: 0, cycleCount: 0, openDue: 0, total: 0 });
+    expect(counts.people.get('p1')!.get('ann')).toMatchObject({ dueDone: 1, lateCount: 1, lateDays: 3, completed: 0, overdue: 0 });
+  });
+
+  it('merged while late counts the same way', () => {
+    expect(countWindow([removed('merged', '2026-11-04')], NOV, ctx).projects.get('p1')).toMatchObject({ dueDone: 1, lateCount: 1, lateDays: 2 });
+  });
+
+  it('binned or merged before it was late: nothing (as before)', () => {
+    // Nothing counted: the project has no counters at all.
+    expect(countWindow([removed('binned', '2026-11-02')], NOV, ctx).projects.get('p1')).toBeUndefined();
+    expect(countWindow([removed('merged', '2026-11-01')], NOV, ctx).projects.get('p1')).toBeUndefined();
+  });
+
+  it('finished late, then binned: still that late finish; finished on time, then binned: nothing', () => {
+    const lateDone = removed('binned', '2026-11-09', { columnCategory: 'DONE', completedAt: at('2026-11-04') });
+    expect(countWindow([lateDone], NOV, ctx).projects.get('p1')).toMatchObject({ dueDone: 1, lateCount: 1, lateDays: 2, completed: 0 });
+    const onTime = removed('binned', '2026-11-09', { columnCategory: 'DONE', completedAt: at('2026-11-02') });
+    expect(countWindow([onTime], NOV, ctx).projects.get('p1')).toBeUndefined();
+  });
+
+  it('counted in the period it was binned (or finished), not in an earlier one', () => {
+    const oct = windowOf('2026-10-01', '2026-10-31', TZ, at('2026-11-11'));
+    expect(countWindow([removed('binned', '2026-11-05')], oct, ctx).projects.get('p1')?.lateCount ?? 0).toBe(0);
+  });
+});

@@ -127,6 +127,36 @@ describe('the project KPIs tab', () => {
     expect(openTask).toHaveBeenCalledWith('t9');
   });
 
+  it('a task deleted or merged while late is listed with why, but can’t be opened (owner, 11 Nov: late stays counted)', async () => {
+    const gone = { kind: 'task', projectId: 'rig', due: '2026-11-02', doneDay: '2026-11-05', hours: null, people: [], peopleNames: [], tone: 'danger', project: { id: 'rig', code: 'RIG', name: 'Rig 3' } };
+    answers['/kpis/projects/rig/items'] = () =>
+      json({
+        data: {
+          metric: 'onTime',
+          title: 'On-time completion',
+          total: 3,
+          limit: 200,
+          rows: [
+            { ...gone, id: 'x1', key: 'RIG-4', title: 'Old pour', days: 3, detail: '3 working days late · deleted while late (due 2 Nov 2026)', removed: 'binned' },
+            { ...gone, id: 'x2', key: null, title: 'A task that was merged', days: 2, detail: '2 working days late · merged while late (due 2 Nov 2026)', removed: 'merged' },
+            { ...gone, id: 't9', key: 'RIG-9', title: 'Pour slab', days: 2, detail: '2 working days late', people: ['ann'], peopleNames: ['Ann'] },
+          ],
+        },
+      });
+    const openTask = vi.fn();
+    renderAt('/projects/rig?tab=kpis', <ProjectKpisTab projectId="rig" onOpenTask={openTask} />);
+    await userEvent.click(await screen.findByRole('button', { name: /On-time completion: 50%/ }));
+    const sheet = await screen.findByRole('dialog', { name: 'On-time completion' });
+    expect(await within(sheet).findByText(/deleted while late/)).toBeInTheDocument();
+    expect(within(sheet).getByText(/merged while late/)).toBeInTheDocument();
+    expect(within(sheet).queryByRole('button', { name: /Old pour/ })).toBeNull();
+    expect(within(sheet).queryByRole('button', { name: /A task that was merged/ })).toBeNull();
+    await userEvent.click(within(sheet).getByText('Old pour'));
+    expect(openTask).not.toHaveBeenCalled();
+    await userEvent.click(within(sheet).getByRole('button', { name: /Pour slab/ }));
+    expect(openTask).toHaveBeenCalledWith('t9');
+  });
+
   it('the period is kept in the address; week asks for it', async () => {
     renderAt('/projects/rig?tab=kpis', <ProjectKpisTab projectId="rig" onOpenTask={() => {}} />);
     await screen.findByText('This month (1–11 Nov 2026)');

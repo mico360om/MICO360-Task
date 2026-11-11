@@ -45,6 +45,10 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   change by the assignee doesn't move it, and taking yourself off a task doesn't take it off your record. A
   date filled in automatically ("new tasks due today") counts until someone sets the real one. A task needing
   approval counts as done when it is handed in. Days late are working days.
+- **Late stays counted**: a task that was already late when it was sent to the Recycle Bin or merged into
+  another task still counts as late — for whoever had it on its due day, in on time, days late and the late
+  counts — and is listed as "deleted while late" or "merged while late". A task deleted or merged before it
+  was late doesn't count, and a task restored from the bin simply counts as normal.
 - **A project's own KPIs**: whoever runs a project adds KPIs that tasks can't show ("Safety incidents",
   "Budget used %") with a unit, a target and which way is better, and enters each month's value with a
   note; they get a reminder on the first working morning of the month when last month's value is missing.

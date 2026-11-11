@@ -20,7 +20,8 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
 
 /**
  * The list behind a KPI's number, in a side sheet: the tasks (approvals, action items) it was counted
- * from, by the same rules, worst first. A task opens in the task panel; an action item its meeting.
+ * from, by the same rules, worst first. A task opens in the task panel; an action item its meeting. A task
+ * deleted or merged while late still counts (owner, 11 Nov) and is listed with why, but doesn't open.
  */
 export function KpiItemsSheet({ title, queryKey, load, onClose, onOpenTask }: { title: string; queryKey: readonly unknown[]; load: () => Promise<KpiItems>; onClose: () => void; onOpenTask: (id: string) => void }) {
   const titleId = useId();
@@ -86,7 +87,7 @@ export function KpiItemsSheet({ title, queryKey, load, onClose, onOpenTask }: { 
               <ul className="divide-y divide-line">
                 {data.rows.map((row, i) => (
                   <li key={`${row.kind}-${row.id}-${i}`}>
-                    {row.kind === 'task' ? (
+                    {row.kind === 'task' && !row.removed ? (
                       <button type="button" className={ROW} onClick={() => onOpenTask(row.id)}>
                         {body(row)}
                       </button>

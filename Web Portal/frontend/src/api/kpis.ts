@@ -143,6 +143,8 @@ export interface KpiItemRow {
   detail: string;
   tone: 'success' | 'danger' | 'warning' | 'neutral';
   meetingId?: string | null;
+  /** A task sent to the Recycle Bin or merged while late: still counted late, but it can't be opened. */
+  removed?: 'binned' | 'merged';
   project: { id: string; code: string; name: string } | null;
 }
 
