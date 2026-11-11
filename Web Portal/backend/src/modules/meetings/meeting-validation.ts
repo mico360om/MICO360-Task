@@ -52,7 +52,7 @@ export const onlineLinkField = z
     try {
       return normalizeOnlineLink(v);
     } catch (err) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: (err as Error).message });
+      ctx.addIssue({ code: 'custom', message: (err as Error).message });
       return z.NEVER;
     }
   })

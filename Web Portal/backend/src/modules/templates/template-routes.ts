@@ -58,7 +58,7 @@ const useSchema = projectCreateSchema.extend({
   startDate: calendarDay,
   roles: z.record(idString, idString.nullable()).optional(),
   /** When the template the preview showed was last changed (its plan's `template.updatedAt`): a later change is refused. */
-  expectedUpdatedAt: z.string().datetime({ offset: true }).optional(),
+  expectedUpdatedAt: z.iso.datetime({ offset: true }).optional(),
 });
 
 /** A template of 500 tasks with long descriptions is more than the usual 1 MB request. */
