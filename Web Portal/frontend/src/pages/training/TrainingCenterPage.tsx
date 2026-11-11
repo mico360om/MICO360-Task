@@ -5,6 +5,7 @@ import { LoadError } from '../../components/ui/LoadError';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { buttonClass } from '../../components/ui/Button';
 import { useTrainingAccess } from '../../components/training/manage/manage-queries';
+import { LearningHubTabs } from '../../components/training/LearningHubTabs';
 import { CoursesTab } from '../../components/training/manage/CoursesTab';
 import { AssignmentsTab } from '../../components/training/manage/AssignmentsTab';
 import { RulesTab } from '../../components/training/manage/RulesTab';
@@ -14,7 +15,7 @@ import { ReportsTab } from '../../components/training/manage/ReportsTab';
 import { SettingsTab } from '../../components/training/manage/SettingsTab';
 import { usePageName } from '../../lib/page-meta';
 
-type TabKey = 'courses' | 'assignments' | 'rules' | 'feedback' | 'certificates' | 'reports' | 'settings';
+type TabKey = 'courses' | 'assignments' | 'rules' | 'feedback' | 'certificates' | 'settings';
 
 interface Tab {
   key: TabKey;
@@ -24,72 +25,81 @@ interface Tab {
   element: () => ReactNode;
 }
 
-/** The Training Center's tabs, in order (Settings: administrators only). */
+/** Manage's sections, in order (Settings: administrators only). Reports is the Learning Hub's own top tab. */
 const TABS: readonly Tab[] = [
   { key: 'courses', label: 'Courses', element: () => <CoursesTab /> },
   { key: 'assignments', label: 'Assignments', element: () => <AssignmentsTab /> },
   { key: 'rules', label: 'Onboarding rules', element: () => <RulesTab /> },
   { key: 'feedback', label: 'Feedback', element: () => <FeedbackTab /> },
   { key: 'certificates', label: 'Certificates', element: () => <CertificatesTab /> },
-  { key: 'reports', label: 'Reports', element: () => <ReportsTab /> },
   { key: 'settings', label: 'Settings', admin: true, element: () => <SettingsTab /> },
 ];
 
-const SUBTITLE = 'Courses, assignments, onboarding rules and reports for everyone’s training';
-
 /**
- * The Training Center (owner answers 4, 7, 11–17): Training managers and administrators author courses,
- * assign them, set onboarding rules, answer feedback, manage certificates and read the reports;
- * administrators also switch the first-time tour per company. A project manager who is neither sees only
- * the reports, for their own team (read-only). The open tab is in the address (?tab=reports).
+ * The Learning Hub's Manage and Reports tabs (the former Training Center; owner answers 4, 7, 11–17 and the owner's
+ * name, 11 Nov): Training managers and administrators author courses, assign them, set onboarding rules, answer
+ * feedback and manage certificates (Manage), and read the reports (?tab=reports); administrators also switch the
+ * first-time tour per company. A project manager who is neither sees only Reports, for their own team (read-only).
+ * The open section is in the address (?tab=feedback).
  */
 export function TrainingCenterPage() {
-  usePageName('Training Center');
+  const [params] = useSearchParams();
   const accessQ = useTrainingAccess();
   const a = accessQ.data;
+  const teamOnly = !!a && !a.manager && a.teamReports;
+  const reports = params.get('tab') === 'reports' || teamOnly;
+  usePageName(reports ? 'Reports' : 'Manage');
+
+  const header = (
+    <>
+      <PageHeader eyebrow="Workspace" title="Learning Hub" subtitle={reports ? 'Who has done what, quiz results, and what is overdue' : 'Courses, assignments, onboarding rules, feedback and certificates'} />
+      <LearningHubTabs current={a && !a.manager && !a.teamReports ? null : reports ? 'reports' : 'manage'} />
+    </>
+  );
 
   if (accessQ.isError) {
     return (
-      <div data-page="training-center">
-        <PageHeader title="Training Center" />
-        <LoadError what="the Training Center" onRetry={() => void accessQ.refetch()} />
+      <div data-page="learning-hub-manage">
+        {header}
+        <div className="mt-4">
+          <LoadError what="the Learning Hub" onRetry={() => void accessQ.refetch()} />
+        </div>
       </div>
     );
   }
   if (!a) {
     return (
-      <div data-page="training-center">
-        <PageHeader title="Training Center" />
-        <div className="skeleton h-64 rounded-2xl" role="status" aria-label="Loading the Training Center" />
+      <div data-page="learning-hub-manage">
+        {header}
+        <div className="skeleton mt-4 h-64 rounded-2xl" role="status" aria-label="Loading the Learning Hub" />
       </div>
     );
   }
-  if (!a.manager && a.teamReports) {
+  if (!a.manager && !a.teamReports) {
     return (
-      <div data-page="training-center">
-        <PageHeader title="Training Center" subtitle="Your team’s training: who has done what, and what is overdue" />
-        <ReportsTab readOnly />
+      <div data-page="learning-hub-manage">
+        {header}
+        <div className="mt-4">
+          <EmptyState
+            title="Only Training managers and administrators can manage the Learning Hub"
+            description="Your own courses, progress and certificates are in My learning."
+            action={<Link to="/training" className={buttonClass('primary', 'md', '!min-h-[44px]')}>Go to My learning</Link>}
+          />
+        </div>
       </div>
     );
   }
-  if (!a.manager) {
-    return (
-      <div data-page="training-center">
-        <PageHeader title="Training Center" />
-        <EmptyState
-          title="Only Training managers and administrators can open the Training Center"
-          description="Your own courses, progress and certificates are in My training."
-          action={<Link to="/training" className={buttonClass('primary', 'md', '!min-h-[44px]')}>Go to My training</Link>}
-        />
-      </div>
-    );
-  }
-  return <ManagerTabs admin={a.admin} />;
+  return (
+    <div data-page="learning-hub-manage" className="min-w-0">
+      {header}
+      <div className="mt-4 min-w-0">{reports ? <ReportsTab readOnly={teamOnly} /> : <ManageSections admin={a.admin} />}</div>
+    </div>
+  );
 }
 
 export default TrainingCenterPage;
 
-function ManagerTabs({ admin }: { admin: boolean }) {
+function ManageSections({ admin }: { admin: boolean }) {
   const [params, setParams] = useSearchParams();
   const tabs = TABS.filter((t) => !t.admin || admin);
   const current = tabs.find((t) => t.key === params.get('tab')) ?? tabs[0]!;
@@ -100,7 +110,7 @@ function ManagerTabs({ admin }: { admin: boolean }) {
     if (focus) buttons.current.get(key)?.focus();
   };
 
-  // Arrow keys, Home and End move along the tabs (the open one is the only Tab stop).
+  // Arrow keys, Home and End move along the sections (the open one is the only Tab stop).
   function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
     const at = tabs.findIndex((t) => t.key === current.key);
     const go = (i: number) => {
@@ -114,10 +124,9 @@ function ManagerTabs({ admin }: { admin: boolean }) {
   }
 
   return (
-    <div data-page="training-center" className="min-w-0">
-      <PageHeader title="Training Center" subtitle={SUBTITLE} />
-      {/* On a phone the tabs scroll sideways inside their own row; the page itself never does. */}
-      <div role="tablist" aria-label="Training Center" onKeyDown={onKeyDown} className="-mb-px flex min-w-0 gap-1 overflow-x-auto border-b border-line">
+    <div className="min-w-0">
+      {/* On a phone the sections scroll sideways inside their own row; the page itself never does. */}
+      <div role="tablist" aria-label="Manage" onKeyDown={onKeyDown} className="-mb-px flex min-w-0 gap-1 overflow-x-auto border-b border-line">
         {tabs.map((t) => {
           const selected = t.key === current.key;
           return (
@@ -129,19 +138,19 @@ function ManagerTabs({ admin }: { admin: boolean }) {
               }}
               type="button"
               role="tab"
-              id={`training-tab-${t.key}`}
-              aria-controls={`training-panel-${t.key}`}
+              id={`manage-tab-${t.key}`}
+              aria-controls={`manage-panel-${t.key}`}
               aria-selected={selected}
               tabIndex={selected ? 0 : -1}
               onClick={() => show(t.key)}
-              className={`!min-h-[44px] flex-none whitespace-nowrap border-b-2 px-4 py-2 text-sm font-semibold transition-colors ${selected ? 'border-brand text-brand' : 'border-transparent text-ink-2 hover:text-ink'}`}
+              className={`!min-h-[44px] flex-none whitespace-nowrap rounded-t-lg border-b-2 px-3 py-2 text-sm font-medium transition-colors ${selected ? 'border-brand bg-brand/5 text-brand' : 'border-transparent text-ink-2 hover:text-ink'}`}
             >
               {t.label}
             </button>
           );
         })}
       </div>
-      <div key={current.key} role="tabpanel" id={`training-panel-${current.key}`} aria-labelledby={`training-tab-${current.key}`} className="mt-4 min-w-0">
+      <div key={current.key} role="tabpanel" id={`manage-panel-${current.key}`} aria-labelledby={`manage-tab-${current.key}`} className="mt-4 min-w-0">
         {current.element()}
       </div>
     </div>

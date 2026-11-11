@@ -48,11 +48,12 @@ beforeEach(() => {
   useTourStore.setState({ open: false, autoShown: false });
 });
 
-describe('My training', () => {
+describe('Learning Hub: My learning and the catalogue', () => {
   it('counts, then assigned (overdue in red, due days), in progress with %, completed and certificates', async () => {
     renderAt();
-    expect(screen.getByRole('heading', { level: 1, name: 'My training' })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: 'My training' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('heading', { level: 1, name: 'Learning Hub' })).toBeInTheDocument();
+    const tabs = screen.getByRole('navigation', { name: 'Learning Hub' });
+    expect(within(tabs).getByRole('link', { name: 'My learning' })).toHaveAttribute('aria-current', 'page');
     const assigned = (await screen.findByRole('heading', { name: /Assigned to you/ })).closest('section')!;
     const cards = within(assigned).getAllByRole('link');
     expect(cards.map((c) => c.querySelector('h3')?.textContent)).toEqual(['Tasks basics', 'Meetings & minutes']);
@@ -80,7 +81,8 @@ describe('My training', () => {
     renderAt();
     expect(await screen.findByText('Nothing assigned to you yet.')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Browse the catalogue' }));
-    expect(screen.getByRole('tab', { name: 'Catalogue' })).toHaveAttribute('aria-selected', 'true');
+    expect(within(screen.getByRole('navigation', { name: 'Learning Hub' })).getByRole('link', { name: 'Catalogue' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByTestId('where')).toHaveTextContent('/training?tab=catalogue');
   });
 
   it('the catalogue: cards with minutes, lessons, difficulty, Starter and rating; search and filters ask the server', async () => {
@@ -118,27 +120,31 @@ describe('My training', () => {
     expect(screen.getByLabelText('Module')).toHaveValue('meetings');
   });
 
-  it('tabs move with the arrow keys', async () => {
+  it('the tabs are links: Catalogue opens the catalogue, My learning comes back', async () => {
     renderAt();
-    screen.getByRole('tab', { name: 'My training' }).focus();
-    await userEvent.keyboard('{ArrowRight}');
-    expect(screen.getByRole('tab', { name: 'Catalogue' })).toHaveFocus();
-    expect(screen.getByRole('tab', { name: 'Catalogue' })).toHaveAttribute('aria-selected', 'true');
+    const tabs = screen.getByRole('navigation', { name: 'Learning Hub' });
+    await userEvent.click(within(tabs).getByRole('link', { name: 'Catalogue' }));
+    expect(await screen.findByText('2 courses')).toBeInTheDocument();
+    await userEvent.click(within(tabs).getByRole('link', { name: 'My learning' }));
+    expect(await screen.findByRole('heading', { name: /Assigned to you/ })).toBeInTheDocument();
+    expect(screen.getByTestId('where')).toHaveTextContent(/^\/training$/);
   });
 
-  it('Training managers and administrators get the Training Center; people who run a project, Team training; others neither', async () => {
+  it('Manage and Reports are tabs for managers; Reports alone for a project manager; neither for others (no separate buttons)', async () => {
     staff.access.mockResolvedValue({ ...ACCESS, manager: true });
     const a = renderAt();
-    expect(await screen.findByRole('link', { name: 'Training Center' })).toHaveAttribute('href', '/training/manage');
+    const tabs = () => screen.getByRole('navigation', { name: 'Learning Hub' });
+    await waitFor(() => expect(within(tabs()).getAllByRole('link').map((l) => l.textContent)).toEqual(['My learning', 'Catalogue', 'Manage', 'Reports']));
+    expect(screen.queryByRole('link', { name: /Training Center|Team training/ })).toBeNull();
     a.unmount();
     staff.access.mockResolvedValue({ ...ACCESS, teamReports: true });
     const b = renderAt();
-    expect(await screen.findByRole('link', { name: 'Team training' })).toHaveAttribute('href', '/training/manage');
+    await waitFor(() => expect(within(tabs()).getAllByRole('link').map((l) => l.textContent)).toEqual(['My learning', 'Catalogue', 'Reports']));
     b.unmount();
     staff.access.mockResolvedValue(ACCESS);
     renderAt();
     await screen.findByRole('heading', { name: /Assigned to you/ });
-    expect(screen.queryByRole('link', { name: /Training Center|Team training/ })).toBeNull();
+    expect(within(tabs()).getAllByRole('link').map((l) => l.textContent)).toEqual(['My learning', 'Catalogue']);
   });
 
   it('“Take the tour” plays the tour again', async () => {
