@@ -13,7 +13,7 @@ export function GuestIcon({ size = 12 }: { size?: number }) {
 }
 
 /**
- * The line's words: "Guest: Ahmed (OXY) and 2 more" from the task's guests — or, when an older server
+ * The line's words: "Guest: Ahmed (Acme) and 2 more" from the task's guests — or, when an older server
  * sends none (or a contact isn't a guest yet), from its external contacts in short; null for neither.
  */
 export function guestsLineText(
@@ -26,7 +26,7 @@ export function guestsLineText(
 }
 
 /**
- * 1.24 A task's guests in one short line on its card or row — "Guest: Ahmed Al Said (OXY) and 2 more"
+ * 1.24 A task's guests in one short line on its card or row — "Guest: Ahmed Al Said (Acme) and 2 more"
  * (1.20's "External: …" line; external contacts are guests now) — kept apart from its assignees;
  * nothing for a task without any.
  */

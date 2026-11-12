@@ -52,7 +52,7 @@ const reminder = {
   id: 'n1',
   type: 'MEETING_REMINDER',
   title: 'Meeting in 15 minutes: Core switch go-live review',
-  body: '09:00–10:00 · OXY HQ – Meeting room 2 · Join online',
+  body: '09:00–10:00 · Head office – Meeting room 2 · Join online',
   entityType: 'meeting',
   entityId: 'm1',
   createdAt: '2026-10-31T04:45:00.000Z',
@@ -63,7 +63,7 @@ describe('MeetingReminderPopup: a meeting reminder pops up on the open website',
     const { refreshed } = mount();
     act(() => handlers['notification:new']?.(reminder));
     expect(screen.getByText('Meeting in 15 minutes: Core switch go-live review')).toBeInTheDocument();
-    expect(screen.getByText('09:00–10:00 · OXY HQ – Meeting room 2 · Join online')).toBeInTheDocument();
+    expect(screen.getByText('09:00–10:00 · Head office – Meeting room 2 · Join online')).toBeInTheDocument();
     expect(refreshed(UNREAD_COUNT_KEY)).toBe(true);
     expect(refreshed(NOTIFICATIONS_KEY)).toBe(true);
   });

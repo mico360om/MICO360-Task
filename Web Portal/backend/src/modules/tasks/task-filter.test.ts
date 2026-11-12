@@ -146,7 +146,7 @@ describe('filterAndSortTasks', () => {
 });
 
 describe('1.24 guests and categories in the list filters', () => {
-  const ahmed = { id: 'g1', name: 'Ahmed', company: 'OXY' };
+  const ahmed = { id: 'g1', name: 'Ahmed', company: 'Acme' };
   const sara = { id: 'g2', name: 'Sara', company: 'PDO' };
   const tasks = [
     task({ id: 'a', guests: [ahmed], categories: [{ id: 'c1', name: 'Civil', color: 'teal', retired: false }] }),
@@ -157,7 +157,7 @@ describe('1.24 guests and categories in the list filters', () => {
     expect(filterAndSortTasks(tasks, { guestIds: ['g2'] }).map((t) => t.id)).toEqual(['b']);
   });
   it('Guest company: case and spaces aside', () => {
-    expect(filterAndSortTasks(tasks, { guestCompany: ' oxy ' }).map((t) => t.id)).toEqual(['a']);
+    expect(filterAndSortTasks(tasks, { guestCompany: ' acme ' }).map((t) => t.id)).toEqual(['a']);
   });
   it('Category: any of the picked', () => {
     expect(filterAndSortTasks(tasks, { categoryIds: ['c1', 'c2'] }).map((t) => t.id)).toEqual(['a', 'b']);

@@ -14,13 +14,13 @@ const ctx: ListContext = {
   now: new Date('2026-10-10T05:00:00.000Z'),
   projectName: () => null,
   organizerName: () => null,
-  seriesName: (id) => ({ s1: 'Monthly OXY review' } as Record<string, string>)[id] ?? null,
+  seriesName: (id) => ({ s1: 'Monthly site review' } as Record<string, string>)[id] ?? null,
 };
 const list = [
-  m({ id: 'a', seriesId: 's1', seriesName: 'Monthly OXY review' }),
+  m({ id: 'a', seriesId: 's1', seriesName: 'Monthly site review' }),
   m({ id: 'b', seriesId: 's2', seriesName: 'Board' }),
   m({ id: 'c' }),
-  m({ id: 'd', seriesId: 's1', seriesName: 'Monthly OXY review' }),
+  m({ id: 'd', seriesId: 's1', seriesName: 'Monthly site review' }),
 ];
 
 describe('the Series filter', () => {
@@ -31,10 +31,10 @@ describe('the Series filter', () => {
 
   it('counts as a filter in use, with a chip named after the series', () => {
     expect(hasActiveFilters({ ...EMPTY_FILTERS, seriesId: 's1' })).toBe(true);
-    expect(filterChips({ ...EMPTY_FILTERS, seriesId: 's1' }, 'date', ctx)).toEqual([{ key: 'series', label: 'Series: Monthly OXY review' }]);
+    expect(filterChips({ ...EMPTY_FILTERS, seriesId: 's1' }, 'date', ctx)).toEqual([{ key: 'series', label: 'Series: Monthly site review' }]);
   });
 
   it('offers each series of the meetings listed once, by name', () => {
-    expect(seriesOptions(list)).toEqual([{ id: 's2', name: 'Board' }, { id: 's1', name: 'Monthly OXY review' }]);
+    expect(seriesOptions(list)).toEqual([{ id: 's2', name: 'Board' }, { id: 's1', name: 'Monthly site review' }]);
   });
 });

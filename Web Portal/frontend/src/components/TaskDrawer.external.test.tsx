@@ -15,12 +15,12 @@ function json(body: unknown, status = 200): Response {
 const taskGuest = (guestId: string, linkId: string, name: string, company: string | null, extra: Partial<ApiTaskGuest> = {}): ApiTaskGuest => ({
   linkId, guestId, taskId: 't1', name, company, designation: null, email: null, phone: null, note: null, position: 0, addedById: 'u1', addedAt: '', retired: false, ...extra,
 });
-const AHMED = taskGuest('g1', 'x1', 'Ahmed Al Harthy', 'OXY', { designation: 'Site engineer', email: 'ahmed@oxy.com', phone: '+968 9912 3456', note: 'Bring the permit' });
+const AHMED = taskGuest('g1', 'x1', 'Ahmed Al Harthy', 'Acme', { designation: 'Site engineer', email: 'ahmed@acme.com', phone: '+968 9912 3456', note: 'Bring the permit' });
 const SARA = taskGuest('g2', 'x2', 'Sara Nasser', null);
 const task: ApiTask = {
   id: 't1', key: 'MICO-1', title: 'Rig inspection', description: null, projectId: 'p1', columnId: 'c1', columnCategory: 'TODO',
   position: 0, priority: 'NORMAL', startDate: null, dueDate: null, progress: 0, completedAt: null, createdAt: '', updatedAt: '',
-  guests: [{ id: 'g1', name: 'Ahmed Al Harthy', company: 'OXY' }, { id: 'g2', name: 'Sara Nasser', company: null }],
+  guests: [{ id: 'g1', name: 'Ahmed Al Harthy', company: 'Acme' }, { id: 'g2', name: 'Sara Nasser', company: null }],
   taskGuests: [AHMED, SARA],
 };
 const team = [{ id: 'u1', name: 'Mona Owner' }];
@@ -43,31 +43,31 @@ afterEach(() => {
 const assigned = () => screen.getByRole('list', { name: 'Assigned' });
 
 describe('TaskDrawer: guests under Assigned', () => {
-  it('lists the team members first, then the guests as “Ahmed Al Harthy · OXY · Guest”; no separate External contacts section', () => {
+  it('lists the team members first, then the guests as “Ahmed Al Harthy · Acme · Guest”; no separate External contacts section', () => {
     render(<TaskDrawer task={task} checklist={[]} comments={[]} assignees={team} onClose={vi.fn()} />);
     const items = within(assigned()).getAllByRole('listitem');
     expect(items).toHaveLength(3);
     expect(items[0]).toHaveTextContent('Mona Owner');
-    expect(items[1]).toHaveTextContent('Ahmed Al Harthy · OXY');
+    expect(items[1]).toHaveTextContent('Ahmed Al Harthy · Acme');
     expect(within(items[1]!).getByText(GUEST_WORDS.badge)).toBeInTheDocument();
     expect(items[2]).toHaveTextContent('Sara Nasser');
     expect(within(items[2]!).getByText(GUEST_WORDS.badge)).toBeInTheDocument();
-    expect(within(assigned()).getByRole('button', { name: 'Ahmed Al Harthy · OXY · Guest' })).toBeInTheDocument();
+    expect(within(assigned()).getByRole('button', { name: 'Ahmed Al Harthy · Acme · Guest' })).toBeInTheDocument();
     expect(within(assigned()).getByRole('button', { name: 'Sara Nasser · Guest' })).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'External contacts' })).toBeNull();
   });
 
   it('reads a list row’s short guests when the full ones aren’t there', () => {
     render(<TaskDrawer task={{ ...task, taskGuests: undefined }} checklist={[]} comments={[]} assignees={team} onClose={vi.fn()} />);
-    expect(within(assigned()).getByRole('button', { name: 'Ahmed Al Harthy · OXY · Guest' })).toBeInTheDocument();
+    expect(within(assigned()).getByRole('button', { name: 'Ahmed Al Harthy · Acme · Guest' })).toBeInTheDocument();
   });
 
   it('a guest’s details: name, company, designation, phone and email as plain text, each with Copy — no mail, call or message links', async () => {
     const user = userEvent.setup();
     render(<TaskDrawer task={task} checklist={[]} comments={[]} assignees={team} onClose={vi.fn()} />);
-    await user.click(within(assigned()).getByRole('button', { name: 'Ahmed Al Harthy · OXY · Guest' }));
+    await user.click(within(assigned()).getByRole('button', { name: 'Ahmed Al Harthy · Acme · Guest' }));
     const dialog = screen.getByRole('dialog', { name: 'Ahmed Al Harthy' });
-    for (const text of ['OXY', 'Site engineer', '+968 9912 3456', 'ahmed@oxy.com']) expect(within(dialog).getByText(text)).toBeInTheDocument();
+    for (const text of ['Acme', 'Site engineer', '+968 9912 3456', 'ahmed@acme.com']) expect(within(dialog).getByText(text)).toBeInTheDocument();
     expect(within(dialog).queryAllByRole('link')).toHaveLength(0);
     expect(document.querySelector('a[href^="mailto:"], a[href^="tel:"], a[href^="sms:"]')).toBeNull();
     expect(within(dialog).getByText(GUEST_WORDS.hint)).toBeInTheDocument();
@@ -76,7 +76,7 @@ describe('TaskDrawer: guests under Assigned', () => {
     expect(await navigator.clipboard.readText()).toBe('+968 9912 3456');
     expect(copyPhone).toHaveTextContent(GUEST_WORDS.copied);
     await user.click(within(dialog).getByRole('button', { name: 'Copy email' }));
-    expect(await navigator.clipboard.readText()).toBe('ahmed@oxy.com');
+    expect(await navigator.clipboard.readText()).toBe('ahmed@acme.com');
     for (const name of ['Copy name', 'Copy company', 'Copy designation']) expect(within(dialog).getByRole('button', { name })).toBeInTheDocument();
     await user.click(within(dialog).getByRole('button', { name: 'Close' }));
     expect(screen.queryByRole('dialog', { name: 'Ahmed Al Harthy' })).toBeNull();
@@ -86,7 +86,7 @@ describe('TaskDrawer: guests under Assigned', () => {
   it('the details are a well-formed description list: each row holds only its term and descriptions', async () => {
     const user = userEvent.setup();
     render(<TaskDrawer task={task} checklist={[]} comments={[]} assignees={team} onClose={vi.fn()} />);
-    await user.click(within(assigned()).getByRole('button', { name: 'Ahmed Al Harthy · OXY · Guest' }));
+    await user.click(within(assigned()).getByRole('button', { name: 'Ahmed Al Harthy · Acme · Guest' }));
     const dialog = screen.getByRole('dialog', { name: 'Ahmed Al Harthy' });
     const list = dialog.querySelector('dl')!;
     const rows = Array.from(list.children);
@@ -103,7 +103,7 @@ describe('TaskDrawer: guests under Assigned', () => {
   it('this task’s note for the guest is changed by whoever can edit the task (and checked first)', async () => {
     const onSetGuestNote = vi.fn(async () => {});
     render(<TaskDrawer task={task} checklist={[]} comments={[]} assignees={team} onSetGuestNote={onSetGuestNote} onRemoveGuest={vi.fn()} onClose={vi.fn()} />);
-    await userEvent.click(within(assigned()).getByRole('button', { name: 'Ahmed Al Harthy · OXY · Guest' }));
+    await userEvent.click(within(assigned()).getByRole('button', { name: 'Ahmed Al Harthy · Acme · Guest' }));
     const dialog = screen.getByRole('dialog', { name: 'Ahmed Al Harthy' });
     const note = within(dialog).getByRole('textbox', { name: GUEST_WORDS.note });
     expect(note).toHaveValue('Bring the permit');
@@ -142,7 +142,7 @@ describe('TaskDrawer: guests under Assigned', () => {
   it('read-only (no way to change them): guests are shown, their details have no note box and no Remove', async () => {
     render(<TaskDrawer task={task} checklist={[]} comments={[]} assignees={team} onClose={vi.fn()} />);
     expect(screen.queryByRole('button', { name: 'Add assignee' })).toBeNull();
-    await userEvent.click(within(assigned()).getByRole('button', { name: 'Ahmed Al Harthy · OXY · Guest' }));
+    await userEvent.click(within(assigned()).getByRole('button', { name: 'Ahmed Al Harthy · Acme · Guest' }));
     const dialog = screen.getByRole('dialog', { name: 'Ahmed Al Harthy' });
     expect(within(dialog).getByText('Bring the permit')).toBeInTheDocument();
     expect(within(dialog).queryByRole('textbox')).toBeNull();

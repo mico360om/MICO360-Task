@@ -42,14 +42,14 @@ describe('ActivityTimeline: guests and categories (1.24)', () => {
       { id: 'g4', action: 'CATEGORY_REMOVED', actorName: 'Mona', createdAt: at(1), meta: { name: 'HSE', categoryId: 'k2' } },
       { id: 'g3', action: 'CATEGORY_ADDED', actorName: 'Mona', createdAt: at(50), meta: { name: 'Electrical', categoryId: 'k1' } },
       { id: 'g2', action: 'EXTERNAL_CONTACT_REMOVED', actorName: 'Omar', createdAt: at(100), meta: { name: 'Sara', company: null, guestId: 'g2' } },
-      { id: 'g1', action: 'EXTERNAL_CONTACT_ADDED', actorName: 'Omar', createdAt: at(200), meta: { name: 'Ahmed', company: 'OXY', guestId: 'g1' } },
+      { id: 'g1', action: 'EXTERNAL_CONTACT_ADDED', actorName: 'Omar', createdAt: at(200), meta: { name: 'Ahmed', company: 'Acme', guestId: 'g1' } },
     ];
     render(<ActivityTimeline activity={history} />);
     const lines = within(screen.getByRole('list', { name: 'Activity' })).getAllByRole('listitem').map((li) => li.textContent);
     expect(lines[0]).toContain('Mona removed category HSE');
     expect(lines[1]).toContain('Mona added category Electrical');
     expect(lines[2]).toContain('Omar removed guest Sara');
-    expect(lines[3]).toContain('Omar assigned guest Ahmed (OXY)');
+    expect(lines[3]).toContain('Omar assigned guest Ahmed (Acme)');
     expect(screen.queryByText(/external contact/)).toBeNull();
   });
 });

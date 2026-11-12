@@ -2,7 +2,7 @@ import type { ApiClient } from '../lib/api-client';
 import type { ActionItemStatus, MeetingStatus, Priority } from './meetings';
 
 /**
- * 1.23 Meeting series: named series of related meetings ("Monthly OXY review"). Not a repeat — a
+ * 1.23 Meeting series: named series of related meetings ("Monthly site review"). Not a repeat — a
  * repeating meeting's own series (its first meeting and rule) is `Meeting.series`; every repeat is
  * in a named series too.
  */

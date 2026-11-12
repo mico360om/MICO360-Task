@@ -64,11 +64,11 @@ describe('a board card shows what the website’s card shows (4b)', () => {
     expect(full.assignees).toEqual([{ id: 'u9', name: 'Cy Do' }]);
   });
 
-  it('names its external contacts in one line — “External: Ahmed Al Said (OXY) and 2 more” — and reads it to TalkBack', () => {
-    const summary = { count: 3, name: 'Ahmed Al Said', company: 'OXY', names: ['Ahmed Al Said', 'B', 'C'], companies: ['OXY'] };
+  it('names its external contacts in one line — “External: Ahmed Al Said (Acme) and 2 more” — and reads it to TalkBack', () => {
+    const summary = { count: 3, name: 'Ahmed Al Said', company: 'Acme', names: ['Ahmed Al Said', 'B', 'C'], companies: ['Acme'] };
     const view = cardView(boardCard(task('1', { externalSummary: summary }), col('c1')), { now: NOW, timeZone: TZ });
-    expect(view.externalText).toBe('External: Ahmed Al Said (OXY) and 2 more');
-    expect(view.label).toContain('External: Ahmed Al Said (OXY) and 2 more.');
+    expect(view.externalText).toBe('External: Ahmed Al Said (Acme) and 2 more');
+    expect(view.label).toContain('External: Ahmed Al Said (Acme) and 2 more.');
     expect(cardView(boardCard(task('2'), col('c1')), { now: NOW, timeZone: TZ }).externalText).toBeNull();
     expect(cardView(boardCard(task('3', { externalSummary: null }), col('c1')), { now: NOW, timeZone: TZ }).externalText).toBeNull();
   });
@@ -144,13 +144,13 @@ describe('a face without a photo shows initials, as the website’s Avatar does 
     expect(personInitials('Ann Lee')).toBe('AL');
     expect(personInitials('  maryam  al balushi ')).toBe('MA');
     expect(personInitials('omar')).toBe('O');
-    expect(personInitials('Mohammed (OXY)')).toBe('MO');
+    expect(personInitials('Mohammed (Acme)')).toBe('MA');
     expect(personInitials('  ')).toBe('?');
     // The website's Avatar makes them with lib/initials.ts personInitials: the same faces here.
     const portal = resolve(__dirname, '../../../Web Portal/frontend/src');
     expect(readFileSync(resolve(portal, 'components/ui/Avatar.tsx'), 'utf8')).toMatch(/const initials = personInitials\(name\);/);
     const web = (await import(/* @vite-ignore */ resolve(portal, 'lib/initials.ts'))) as { personInitials: (n: string) => string };
-    for (const n of ['Ann Lee', '  maryam  al balushi ', 'omar', 'Mohammed (OXY)', 'Sara - Ahmed', '(2) Bilal Khan', 'محمد علي', '🚀 Launch', '', '  ']) {
+    for (const n of ['Ann Lee', '  maryam  al balushi ', 'omar', 'Mohammed (Acme)', 'Sara - Ahmed', '(2) Bilal Khan', 'محمد علي', '🚀 Launch', '', '  ']) {
       expect(personInitials(n), n).toBe(web.personInitials(n));
     }
   });

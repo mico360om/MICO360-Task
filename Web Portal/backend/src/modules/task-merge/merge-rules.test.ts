@@ -138,13 +138,13 @@ describe('merge rules — duplicates', () => {
     expect(sameContact({ name: 'Ahmed', email: null, phone: '1234' }, { name: 'Ahmed', email: null, phone: '1234' })).toBe(false);
     expect(sameContact({ name: 'Ahmed', email: 'a@x.com', phone: '91234567' }, { name: 'Ahmed', email: 'b@x.com', phone: '92223333' })).toBe(false);
     // Review: a shared switchboard or mailbox is two people when the names differ — both are kept.
-    expect(sameContact({ name: 'Ahmed', email: 'office@oxy.test', phone: null }, { name: 'Fatima', email: 'office@oxy.test', phone: null })).toBe(false);
+    expect(sameContact({ name: 'Ahmed', email: 'office@acme.test', phone: null }, { name: 'Fatima', email: 'office@acme.test', phone: null })).toBe(false);
   });
 
   it('a kept contact gets the fields it is missing from the other copy, never loses its own', () => {
     const kept = { name: 'Ahmed', company: null, designation: 'Engineer', email: 'a@x.com', phone: null, remarks: '' };
-    const other = { name: 'Ahmed Al Said', company: 'OXY', designation: 'Lead', email: 'a@x.com', phone: '91234567', remarks: null };
-    expect(contactFill(kept, other)).toEqual({ company: 'OXY', phone: '91234567' });
+    const other = { name: 'Ahmed Al Said', company: 'Acme', designation: 'Lead', email: 'a@x.com', phone: '91234567', remarks: null };
+    expect(contactFill(kept, other)).toEqual({ company: 'Acme', phone: '91234567' });
   });
 
   it('files: the same name (case aside) and size, before their content is compared', () => {

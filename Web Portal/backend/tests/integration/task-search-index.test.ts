@@ -56,14 +56,14 @@ describe('Task search index on MySQL (integration)', () => {
     await prisma.comment.create({ data: { taskId, userId: bilalId, body: 'secret deleted words', deletedAt: new Date() } });
     await prisma.checklistItem.create({ data: { taskId, text: 'Photograph the base plates' } });
     await prisma.taskAssignee.create({ data: { taskId, userId: bilalId } });
-    await prisma.taskExternalContact.create({ data: { taskId, name: 'Ahmed Al Said', company: 'OXY', designation: 'Site lead', email: 'ahmed@oxy.com', phone: '+968 9912', remarks: 'Call before 10' } });
+    await prisma.taskExternalContact.create({ data: { taskId, name: 'Ahmed Al Said', company: 'Acme', designation: 'Site lead', email: 'ahmed@acme.com', phone: '+968 9912', remarks: 'Call before 10' } });
     await prisma.taskTag.create({ data: { taskId, tagId: tag.id } });
     await prisma.attachment.create({ data: { taskId, uploadedById: ownerId, filename: 'Permit-Scan.PDF', mimeType: 'application/pdf', sizeBytes: 10, storageKey: 'k', url: '/u/k' } });
     await prisma.taskKeyAlias.create({ data: { key: 'SIDX2-9', taskId, projectId } });
     expect(await index.refresh([taskId])).toBe(1);
     const r = (await row())!;
     expect(r.head).toBe('\nsidx-1\nsidx2-9\ncheck the scaffold');
-    for (const text of ['before the shift', 'who has the permit?', 'i have it', 'photograph the base plates', 'bilal ahmed', 'sidx-bilal', 'ahmed al said', 'oxy', 'site lead', 'ahmed@oxy.com', '+968 9912', 'call before 10', 'sidx-safety', 'permit-scan.pdf']) {
+    for (const text of ['before the shift', 'who has the permit?', 'i have it', 'photograph the base plates', 'bilal ahmed', 'sidx-bilal', 'ahmed al said', 'acme', 'site lead', 'ahmed@acme.com', '+968 9912', 'call before 10', 'sidx-safety', 'permit-scan.pdf']) {
       expect(r.doc.split('\n'), text).toContain(text);
     }
     expect(r.doc).not.toContain('secret');

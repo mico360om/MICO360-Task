@@ -480,7 +480,7 @@ export function taskShape(t: { start: string | null; due: string }, range: { fro
   return { kind: 'marker', x: xOf(t.due, range.from, total) + 50 / total };
 }
 
-/** "Sara Ahmed" → "SA", from letters only as on every avatar ("Yaqoob (OXY IT)" → "YO"). */
+/** "Sara Ahmed" → "SA", from letters only as on every avatar ("Yaqoob (Acme IT)" → "YA"). */
 export const initialsOf = (name: string) => personInitials(name);
 
 /** "Today · 24 Oct". */

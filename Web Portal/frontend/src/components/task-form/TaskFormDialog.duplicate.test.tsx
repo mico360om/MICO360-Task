@@ -54,7 +54,7 @@ const PREFILL: DuplicatePrefill = {
     checklists: [{ title: 'Before', items: [{ text: 'Valves', children: [{ text: 'Main valve' }] }, { text: 'Gauges' }] }],
     // tbk: 1.24 Guests — the original's contacts are guests now (externalContacts: only ones not on a guest list yet).
     externalContacts: [],
-    guests: [{ id: 'g1', name: 'Ahmed Al Said', company: 'OXY', designation: null, email: null, phone: null, note: 'Bring the permit' }],
+    guests: [{ id: 'g1', name: 'Ahmed Al Said', company: 'Acme', designation: null, email: null, phone: null, note: 'Bring the permit' }],
     categoryIds: [],
     inspectionFormId: null,
     inspectionPlace: null,

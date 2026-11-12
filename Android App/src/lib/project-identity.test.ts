@@ -105,7 +105,7 @@ describe('a project’s look', () => {
   });
 
   it('uses letters only, as the website’s tile: no bracket, dash or number; a name without a letter keeps its digits', () => {
-    expect(projectInitials('(OXY) Pipeline Survey')).toBe('OP');
+    expect(projectInitials('(Acme) Pipeline Survey')).toBe('AP');
     expect(projectInitials('Rig - Phase 2')).toBe('RP');
     expect(projectInitials('2026 Audit')).toBe('AU');
     expect(projectInitials('2026')).toBe('20');
@@ -214,7 +214,7 @@ describe.skipIf(!existsSync(webIcons) || !existsSync(webEditor) || !existsSync(w
     const web = loadTsx(webIcons, webIconsImports) as Record<string, Fn>;
     for (const c of [...PROJECT_COLORS, '#FFFFFF', '#FFE680', '#000000', 'bad', '#abc']) expect(readableOn(c)).toBe(web.readableOn!(c));
     const names = ['Rig Inspection Portal', 'Mobile App', 'Payroll', 'مشروع الحفر', 'Café Opening', '', '  ', 'A', '2026 Budget Plan', 'Ünïcode Work Stream Five Six', 'x y',
-      '(OXY) Pipeline Survey', 'Rig - Phase 2', '2026 Audit', '2026', '٢٠٢٦', '— · —', '🚀 Launch', 'مُشروع'];
+      '(Acme) Pipeline Survey', 'Rig - Phase 2', '2026 Audit', '2026', '٢٠٢٦', '— · —', '🚀 Launch', 'مُشروع'];
     for (const n of names) {
       expect(projectInitials(n), n).toBe(web.projectInitials!(n));
       expect(suggestCode(n), n).toBe(web.suggestCode!(n));

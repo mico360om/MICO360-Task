@@ -44,7 +44,7 @@ export function hashChallengeToken(token: string): string {
   return createHash('sha256').update(String(token)).digest('hex');
 }
 
-/** "a•••@oxy.com": enough to recognise the address, not enough to learn it. */
+/** "a•••@acme.com": enough to recognise the address, not enough to learn it. */
 export function maskEmail(email: string): string {
   const e = String(email ?? '').trim();
   const at = e.lastIndexOf('@');

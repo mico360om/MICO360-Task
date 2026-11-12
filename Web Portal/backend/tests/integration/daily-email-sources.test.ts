@@ -351,7 +351,7 @@ describe('Daily email sources after the merge: the task archive, guests and cate
     await prisma.taskExternalContact.createMany({
       data: [
         { taskId: dm2!.id, name: 'Sara', company: null, email: 'sara@guest.test', phone: '+968 9000 0000', position: 1 },
-        { taskId: dm2!.id, name: 'Ahmed', company: 'OXY', email: 'ahmed@oxy.test', position: 0 },
+        { taskId: dm2!.id, name: 'Ahmed', company: 'Acme', email: 'ahmed@acme.test', position: 0 },
       ],
     });
     const open = await prisma.project.findFirstOrThrow({ where: { code: 'DMOPEN' } });
@@ -359,8 +359,8 @@ describe('Daily email sources after the merge: the task archive, guests and cate
     const civil = await prisma.projectCategory.create({ data: { projectId: open.id, name: 'Civil', nameKey: 'civil', color: '#B87611', position: 0 } });
     await prisma.taskCategory.createMany({ data: [{ taskId: dm2!.id, categoryId: hse.id }, { taskId: dm2!.id, categoryId: civil.id }] });
     const t = (await sources.tasks.pending(ada)).find((x) => x.key === 'DM-2')!;
-    expect(t.guests).toEqual([{ name: 'Ahmed', company: 'OXY' }, { name: 'Sara', company: null }]);
-    expect(JSON.stringify(t)).not.toMatch(/@guest\.test|@oxy\.test|9000/);
+    expect(t.guests).toEqual([{ name: 'Ahmed', company: 'Acme' }, { name: 'Sara', company: null }]);
+    expect(JSON.stringify(t)).not.toMatch(/@guest\.test|@acme\.test|9000/);
     expect(t.categories).toEqual([{ name: 'Civil', color: '#B87611' }, { name: 'HSE', color: '#2E7D53' }]);
     await prisma.taskCategory.deleteMany({ where: { taskId: dm2!.id } });
     await prisma.projectCategory.deleteMany({ where: { projectId: open.id } });

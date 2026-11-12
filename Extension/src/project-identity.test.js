@@ -16,7 +16,7 @@ describe('a project’s picture', () => {
     expect(projectLook({ name: 'Rig Inspection', icon: 'not-an-icon', color: null })).toEqual({ kind: 'initials', text: 'RI', color: DEFAULT_PROJECT_COLOR, fg: '#ffffff' });
     expect(projectLook({ name: 'Ops', color: '#B7791F' }).text).toBe('OP');
     // Letters only, as the web's tile: no bracket, dash or number; a name without a letter keeps its digits.
-    expect(projectLook({ name: '(OXY) Pipeline' }).text).toBe('OP');
+    expect(projectLook({ name: '(Acme) Pipeline' }).text).toBe('AP');
     expect(projectLook({ name: '2026' }).text).toBe('20');
   });
 
@@ -61,7 +61,7 @@ describe.skipIf(!web)('project pictures: src/project-identity.js matches the web
     const colours = [...web.PROJECT_COLORS, '#ffffff', '#000000', '#ffff00', '#777777', 'nope', '', '#abc', '8B1E1E'];
     for (const c of colours) expect(readableOn(c), c).toBe(web.readableOn(c));
     const names = ['Rig Inspection Portal', 'ops', '  Mobile   App ', 'X', '', '   ', 'مشروع الحفر', 'émile zola', '🚀 Launch', 'A',
-      '(OXY) Pipeline Survey', 'Rig - Phase 2', '2026 Audit', '2026', '— · —', 'Mohammed (OXY)'];
+      '(Acme) Pipeline Survey', 'Rig - Phase 2', '2026 Audit', '2026', '— · —', 'Mohammed (Acme)'];
     for (const n of names) expect(projectInitials(n), JSON.stringify(n)).toBe(web.projectInitials(n));
   });
 });

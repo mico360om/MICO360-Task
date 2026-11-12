@@ -9,7 +9,7 @@ export function onTasksText(n: number): string {
 /** "1 guest ticked", "3 guests ticked". */
 export const tickedText = (n: number) => `${n} ${n === 1 ? 'guest' : 'guests'} ticked`;
 
-/** "Merged into Ahmed (OXY), 3 tasks updated." */
+/** "Merged into Ahmed (Acme), 3 tasks updated." */
 export const mergedText = (label: string, tasks: number) => `Merged into ${label}, ${tasks} ${tasks === 1 ? 'task' : 'tasks'} updated.`;
 
 /** The server's own words when guests of two companies are sent together, and what to do. */

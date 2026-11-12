@@ -178,7 +178,7 @@ describe('project icons', () => {
     expect(projectInitials('مشروع الحفر')).toBe('ما');
     expect(projectInitials('   ')).toBe('?');
     // Letters only, as the web app's tile: no bracket, dash or number.
-    expect(projectInitials('(OXY) Pipeline Survey')).toBe('OP');
+    expect(projectInitials('(Acme) Pipeline Survey')).toBe('AP');
     expect(projectInitials('Rig - Phase 2')).toBe('RP');
     expect(projectInitials('2026 Audit')).toBe('AU');
     // A name without a letter keeps its digits; nothing usable at all is "?".

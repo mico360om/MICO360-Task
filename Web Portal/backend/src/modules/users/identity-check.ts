@@ -4,7 +4,7 @@ import { CLIENT_ONLY_WHERE, STAFF_ONLY_WHERE, isClientRoles } from '../clients/c
 /**
  * Onboarding: the duplicate check the New and Manage account forms run while an administrator types —
  * "This email is already used by Ahmed Al Harthy (client) — Open account", "Username taken", and a
- * gentle "A client named Saif at OXY already exists". Emails and usernames compare trimmed and
+ * gentle "A client named Saif at Acme already exists". Emails and usernames compare trimmed and
  * case-insensitive (the columns' collation); deleted accounts never count (their identity is freed).
  * The server still refuses a real duplicate on save (409); this only says so sooner.
  */
@@ -48,7 +48,7 @@ export async function checkIdentity(lookup: IdentityLookup, q: IdentityQuery): P
   const first = q.firstName?.trim();
   const last = q.lastName?.trim();
   const organisation = q.organisation?.trim() || null;
-  // A client's same-name warning needs the organisation (it is "at OXY"); staff compare by name alone.
+  // A client's same-name warning needs the organisation (it is "at Acme"); staff compare by name alone.
   const askName = !!first && !!last && (!q.client || !!organisation);
   const [byEmail, byUsername, sameName] = await Promise.all([
     email ? lookup.byEmail(email) : Promise.resolve(null),

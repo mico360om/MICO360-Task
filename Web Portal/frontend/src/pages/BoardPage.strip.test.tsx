@@ -22,7 +22,7 @@ const project = (id: string, code: string, name: string, more: Record<string, un
   id, code, name, number: null, description: null, clientName: null, status: 'ACTIVE', priority: 'HIGH', color: '#8B1E1E', icon: null, imageUrl: null, ownerId: 'u9', startDate: null, targetDate: null, createdAt: '', updatedAt: '', ...more,
 });
 const PROJECTS = [
-  project('p1', 'MICO', 'MICO360 Platform', { number: 'J-204', clientName: 'OXY Oman', startDate: shiftDayKey(TODAY, -30), targetDate: shiftDayKey(TODAY, 20) }),
+  project('p1', 'MICO', 'MICO360 Platform', { number: 'J-204', clientName: 'Acme Oman', startDate: shiftDayKey(TODAY, -30), targetDate: shiftDayKey(TODAY, 20) }),
   project('p2', 'OPS', 'Operations'),
 ];
 const HEALTH = {
@@ -89,7 +89,7 @@ describe('Kanban board: the project strip', () => {
     expect(within(s).getByText('MICO360 Platform')).toBeInTheDocument();
     expect(within(s).getByText('MICO')).toBeInTheDocument();
     expect(s).toHaveTextContent('No. J-204');
-    expect(within(s).getByTitle('Client: OXY Oman')).toBeInTheDocument();
+    expect(within(s).getByTitle('Client: Acme Oman')).toBeInTheDocument();
     expect(await within(s).findByTitle('Project manager: Bilal Khan')).toBeInTheDocument();
     expect(s).toHaveTextContent('20 days left');
     expect(within(s).getByRole('button', { name: /Amber/ })).toHaveAttribute('data-health-badge');
@@ -124,14 +124,14 @@ describe('Kanban board: the project strip', () => {
     expect(within(folded).getByText('MICO360 Platform')).toBeInTheDocument();
     expect(within(folded).getByRole('button', { name: /Amber/ })).toBeInTheDocument();
     expect(folded).toHaveTextContent('63%');
-    expect(within(folded).queryByTitle('Client: OXY Oman')).toBeNull();
+    expect(within(folded).queryByTitle('Client: Acme Oman')).toBeNull();
     expect(within(folded).getByRole('button', { name: 'Project details', expanded: false })).toBeInTheDocument();
     first.unmount();
     renderPage();
     const again = await strip();
     expect(within(again).getByRole('button', { name: 'Project details', expanded: false })).toBeInTheDocument();
     await user.click(within(again).getByRole('button', { name: 'Project details' }));
-    expect(within(await strip()).getByTitle('Client: OXY Oman')).toBeInTheDocument();
+    expect(within(await strip()).getByTitle('Client: Acme Oman')).toBeInTheDocument();
   });
 
   it('review I2: folding and opening keeps the keyboard on the button (it is the same button)', async () => {
@@ -159,11 +159,11 @@ describe('Kanban board: the project strip', () => {
     renderPage();
     const s = await strip();
     await waitFor(() => expect(s).toHaveTextContent('63%'));
-    expect(within(s).queryByTitle('Client: OXY Oman')).toBeNull();
+    expect(within(s).queryByTitle('Client: Acme Oman')).toBeNull();
     const details = within(s).getByRole('button', { name: 'Project details', expanded: false });
     expect(details).toHaveTextContent('Details');
     await user.click(details);
-    expect(within(await strip()).getByTitle('Client: OXY Oman')).toBeInTheDocument();
+    expect(within(await strip()).getByTitle('Client: Acme Oman')).toBeInTheDocument();
     expect(within(await strip()).getByRole('button', { name: 'Project details', expanded: true })).toHaveFocus();
   });
 

@@ -62,9 +62,9 @@ beforeEach(async () => {
 
 describe('External contacts on MySQL (integration)', () => {
   it('adds contacts at the end of the list and keeps every field', async () => {
-    const first = await repo.add(taskId, fields('Ahmed Al Said', { company: 'OXY', designation: 'Site lead', email: 'ahmed@oxy.com', phone: '+968 9912 3456', remarks: 'Call before 10' }), userId, 20);
+    const first = await repo.add(taskId, fields('Ahmed Al Said', { company: 'Acme', designation: 'Site lead', email: 'ahmed@acme.com', phone: '+968 9912 3456', remarks: 'Call before 10' }), userId, 20);
     const second = await repo.add(taskId, fields('Sara Nasser', { company: 'PDO' }), userId, 20);
-    expect(first).toMatchObject({ taskId, name: 'Ahmed Al Said', company: 'OXY', designation: 'Site lead', email: 'ahmed@oxy.com', phone: '+968 9912 3456', remarks: 'Call before 10', position: 0, createdById: userId });
+    expect(first).toMatchObject({ taskId, name: 'Ahmed Al Said', company: 'Acme', designation: 'Site lead', email: 'ahmed@acme.com', phone: '+968 9912 3456', remarks: 'Call before 10', position: 0, createdById: userId });
     expect(second?.position).toBe(1);
     expect((await repo.list(taskId)).map((c) => c.name)).toEqual(['Ahmed Al Said', 'Sara Nasser']);
     expect(await repo.get(first!.id)).toMatchObject({ id: first!.id, name: 'Ahmed Al Said' });
@@ -79,7 +79,7 @@ describe('External contacts on MySQL (integration)', () => {
 
   it('changes and removes a contact; a removed one is gone for both', async () => {
     const c = (await repo.add(taskId, fields('Ahmed'), userId, 20))!;
-    expect(await repo.update(c.id, fields('Ahmed Al Said', { company: 'OXY' }))).toMatchObject({ name: 'Ahmed Al Said', company: 'OXY' });
+    expect(await repo.update(c.id, fields('Ahmed Al Said', { company: 'Acme' }))).toMatchObject({ name: 'Ahmed Al Said', company: 'Acme' });
     expect(await repo.remove(c.id)).toBe(true);
     expect(await repo.remove(c.id)).toBe(false);
     expect(await repo.update(c.id, fields('Again'))).toBeNull();
@@ -97,7 +97,7 @@ describe('External contacts on MySQL (integration)', () => {
     const gone = (await prisma.task.create({ data: { key: 'XCON-3', title: 'Deleted', projectId, columnId, createdById: userId, deletedAt: new Date() } })).id;
     const elsewhereColumn = (await prisma.kanbanColumn.create({ data: { projectId: otherProjectId, name: 'To do', category: 'TODO', position: 0 } })).id;
     const elsewhere = (await prisma.task.create({ data: { key: 'XCON2-1', title: 'Other', projectId: otherProjectId, columnId: elsewhereColumn, createdById: userId } })).id;
-    await repo.add(taskId, fields('Ahmed Al Said', { company: 'OXY' }), userId, 20);
+    await repo.add(taskId, fields('Ahmed Al Said', { company: 'Acme' }), userId, 20);
     await new Promise((r) => setTimeout(r, 20));
     await repo.add(t2, fields('Salim Hinai', { company: 'Al Amal Trading' }), userId, 20);
     await repo.add(gone, fields('Alia Deleted', { company: 'Gone' }), userId, 20);
@@ -105,7 +105,7 @@ describe('External contacts on MySQL (integration)', () => {
     const hits = await repo.searchProject(projectId, 'al', 50);
     // tgc: 1.24 — suggestions are the company's guest list: its other projects' guests and a deleted task's guest are on it.
     expect(hits.map((c) => c.name)).toEqual(['Ali Elsewhere', 'Alia Deleted', 'Salim Hinai', 'Ahmed Al Said']);
-    expect((await repo.searchProject(projectId, 'oxy', 50)).map((c) => c.name)).toEqual(['Ahmed Al Said']);
+    expect((await repo.searchProject(projectId, 'acme', 50)).map((c) => c.name)).toEqual(['Ahmed Al Said']);
     expect(await repo.searchProject(projectId, 'zz', 50)).toEqual([]);
   });
 
@@ -117,12 +117,12 @@ describe('External contacts on MySQL (integration)', () => {
   });
 
   it('task rows sum up their contacts, and a single task carries them in full', async () => {
-    await repo.add(taskId, fields('Ahmed Al Said', { company: 'OXY' }), userId, 20);
+    await repo.add(taskId, fields('Ahmed Al Said', { company: 'Acme' }), userId, 20);
     await repo.add(taskId, fields('Sara Nasser', { company: 'PDO' }), userId, 20);
     const [row] = await tasks.list({ projectId });
-    expect(row?.externalSummary).toEqual({ count: 2, name: 'Ahmed Al Said', company: 'OXY', names: ['Ahmed Al Said', 'Sara Nasser'], companies: ['OXY', 'PDO'] });
+    expect(row?.externalSummary).toEqual({ count: 2, name: 'Ahmed Al Said', company: 'Acme', names: ['Ahmed Al Said', 'Sara Nasser'], companies: ['Acme', 'PDO'] });
     const one = await tasks.findById(taskId);
-    expect(one?.externalContacts?.map((c) => [c.name, c.company])).toEqual([['Ahmed Al Said', 'OXY'], ['Sara Nasser', 'PDO']]);
+    expect(one?.externalContacts?.map((c) => [c.name, c.company])).toEqual([['Ahmed Al Said', 'Acme'], ['Sara Nasser', 'PDO']]);
     expect(one?.externalSummary?.count).toBe(2);
     const bare = (await prisma.task.create({ data: { key: 'XCON-9', title: 'None', projectId, columnId, createdById: userId } })).id;
     expect((await tasks.findById(bare))?.externalSummary).toBeNull();
@@ -135,7 +135,7 @@ describe('External contacts on MySQL (integration)', () => {
       projectId,
       columnId,
       createdById: userId,
-      externalContacts: [fields('Ahmed Al Said', { company: 'OXY' }), fields('Sara Nasser')],
+      externalContacts: [fields('Ahmed Al Said', { company: 'Acme' }), fields('Sara Nasser')],
     });
     const saved = await prisma.taskExternalContact.findMany({ where: { taskId: created.id }, orderBy: { position: 'asc' } });
     expect(saved.map((c) => [c.name, c.position, c.createdById])).toEqual([['Ahmed Al Said', 0, userId], ['Sara Nasser', 1, userId]]);
@@ -144,18 +144,18 @@ describe('External contacts on MySQL (integration)', () => {
 
   it('the next copy of a repeating task keeps its contacts (copied)', async () => {
     await prisma.task.update({ where: { id: taskId }, data: { recurrenceRule: { freq: 'WEEKLY', interval: 1 } as unknown as Prisma.InputJsonValue, dueDate: new Date('2026-10-28T00:00:00Z') } });
-    await repo.add(taskId, fields('Ahmed Al Said', { company: 'OXY', phone: '+968 9912 3456' }), userId, 20);
+    await repo.add(taskId, fields('Ahmed Al Said', { company: 'Acme', phone: '+968 9912 3456' }), userId, 20);
     const port = createPrismaRecurrencePort(prisma, { timeZone: 'Asia/Muscat', now: () => new Date('2026-10-31T06:00:00Z') });
     const next = await port.spawnNext(taskId, new Date('2026-11-04T00:00:00Z'), { freq: 'WEEKLY', interval: 1 });
     const copied = await prisma.taskExternalContact.findMany({ where: { taskId: next!.id } });
-    expect(copied.map((c) => [c.name, c.company, c.phone])).toEqual([['Ahmed Al Said', 'OXY', '+968 9912 3456']]);
+    expect(copied.map((c) => [c.name, c.company, c.phone])).toEqual([['Ahmed Al Said', 'Acme', '+968 9912 3456']]);
     expect(copied[0]!.id).not.toBe((await repo.list(taskId))[0]!.id);
   });
 
   it('the task export lists the contacts in full', async () => {
-    await repo.add(taskId, fields('Ahmed Al Said', { company: 'OXY', designation: 'Site lead', email: 'ahmed@oxy.com', phone: '+968 9912 3456', remarks: 'Call first' }), userId, 20);
+    await repo.add(taskId, fields('Ahmed Al Said', { company: 'Acme', designation: 'Site lead', email: 'ahmed@acme.com', phone: '+968 9912 3456', remarks: 'Call first' }), userId, 20);
     const data = await createPrismaTaskExportSource(prisma, 'Asia/Muscat').load(taskId);
-    expect(data?.externalContacts).toEqual([{ name: 'Ahmed Al Said', company: 'OXY', designation: 'Site lead', email: 'ahmed@oxy.com', phone: '+968 9912 3456', remarks: 'Call first' }]);
+    expect(data?.externalContacts).toEqual([{ name: 'Ahmed Al Said', company: 'Acme', designation: 'Site lead', email: 'ahmed@acme.com', phone: '+968 9912 3456', remarks: 'Call first' }]);
   });
 
   it('search finds a task by a contact’s name or company', async () => {
@@ -169,7 +169,7 @@ describe('External contacts on MySQL (integration)', () => {
   });
 
   it('MICO AI reads a task’s contacts with its other details', async () => {
-    await repo.add(taskId, fields('Ahmed Al Said', { company: 'OXY', email: 'ahmed@oxy.com' }), userId, 20);
+    await repo.add(taskId, fields('Ahmed Al Said', { company: 'Acme', email: 'ahmed@acme.com' }), userId, 20);
     const never = async () => false;
     const data = createPrismaMicoAiData({
       prisma,
@@ -178,6 +178,6 @@ describe('External contacts on MySQL (integration)', () => {
       conversationIdsFor: async () => [],
     } as unknown as Parameters<typeof createPrismaMicoAiData>[0]);
     const extras = await data.taskExtras(taskId);
-    expect(extras.externalContacts).toEqual([{ name: 'Ahmed Al Said', company: 'OXY', designation: null, email: 'ahmed@oxy.com', phone: null, remarks: null }]);
+    expect(extras.externalContacts).toEqual([{ name: 'Ahmed Al Said', company: 'Acme', designation: null, email: 'ahmed@acme.com', phone: null, remarks: null }]);
   });
 });

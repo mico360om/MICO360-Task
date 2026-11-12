@@ -29,7 +29,7 @@ const DAY = 24 * 3600 * 1000;
 function person(id: string, o: Partial<Person> = {}): Person {
   const p: Person = {
     id,
-    email: `${id}@oxy.com`,
+    email: `${id}@acme.com`,
     username: id,
     passwordHash: tempHash,
     status: 'ACTIVE',

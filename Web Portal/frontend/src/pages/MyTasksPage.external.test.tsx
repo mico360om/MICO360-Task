@@ -19,11 +19,11 @@ let tasks: unknown[] = [];
 beforeEach(() => {
   localStorage.clear();
   tasks = [
-    task('t1', 'MICO-1', 'Rig inspection', [{ id: 'g1', name: 'Ahmed Al Said', company: 'OXY' }]),
+    task('t1', 'MICO-1', 'Rig inspection', [{ id: 'g1', name: 'Ahmed Al Said', company: 'Acme' }]),
     task('t2', 'MICO-2', 'Pipeline survey', [
       { id: 'g2', name: 'Salim', company: 'PDO' },
       { id: 'g3', name: 'Ali', company: null },
-      { id: 'g4', name: 'Huda', company: 'oxy' },
+      { id: 'g4', name: 'Huda', company: 'acme' },
     ]),
     task('t3', 'MICO-3', 'Internal only', []),
   ];
@@ -44,16 +44,16 @@ function renderPage() {
 describe('My Tasks: guests', () => {
   it('each task says who outside the company is named on it', async () => {
     renderPage();
-    expect(await screen.findByText('Guest: Ahmed Al Said (OXY)')).toBeInTheDocument();
+    expect(await screen.findByText('Guest: Ahmed Al Said (Acme)')).toBeInTheDocument();
     expect(screen.getByText('Guest: Salim (PDO) and 2 more')).toBeInTheDocument();
     expect(screen.queryByText(/^External:/)).toBeNull();
   });
 
   it('…and in the list view too; an older server’s rows (contacts in short) the same way', async () => {
-    tasks = [task('t1', 'MICO-1', 'Rig inspection', undefined, { count: 2, name: 'Ahmed Al Said', company: 'OXY', names: ['Ahmed Al Said', 'Sara'], companies: ['OXY'] })];
+    tasks = [task('t1', 'MICO-1', 'Rig inspection', undefined, { count: 2, name: 'Ahmed Al Said', company: 'Acme', names: ['Ahmed Al Said', 'Sara'], companies: ['Acme'] })];
     renderPage();
     await userEvent.click(await screen.findByRole('button', { name: 'List view' }));
-    expect(await screen.findByText('Guest: Ahmed Al Said (OXY) and 1 more')).toBeInTheDocument();
+    expect(await screen.findByText('Guest: Ahmed Al Said (Acme) and 1 more')).toBeInTheDocument();
   });
 
   it('filters by guest company (case aside)', async () => {
@@ -65,7 +65,7 @@ describe('My Tasks: guests', () => {
     await waitFor(() => expect(screen.queryByText('Rig inspection')).toBeNull());
     expect(screen.getByText('Pipeline survey')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Filter by guest company' }));
-    await userEvent.click(await screen.findByRole('option', { name: 'OXY' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Acme' }));
     await waitFor(() => expect(screen.getByText('Rig inspection')).toBeInTheDocument());
     expect(screen.getByText('Pipeline survey')).toBeInTheDocument();
     expect(screen.queryByText('Internal only')).toBeNull();

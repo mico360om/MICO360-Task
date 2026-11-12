@@ -268,7 +268,7 @@ describe('MeetingsPage — the numbers on top, and "Nothing coming up"', () => {
     vi.useRealTimers();
   });
 
-  const iso = () => meeting({ id: 'iso', title: 'ISO audit', status: 'COMPLETED', startAt: '2026-10-13T05:00:00.000Z', endAt: '2026-10-13T13:00:00.000Z', minutes: 'DRAFT', openActionItemCount: 0, attendees: ['Mohammed (OXY)'], attendeeCount: 1 });
+  const iso = () => meeting({ id: 'iso', title: 'ISO audit', status: 'COMPLETED', startAt: '2026-10-13T05:00:00.000Z', endAt: '2026-10-13T13:00:00.000Z', minutes: 'DRAFT', openActionItemCount: 0, attendees: ['Mohammed (Acme)'], attendeeCount: 1 });
   const itMeeting = () => meeting({ id: 'it', title: 'IT project meeting', status: 'COMPLETED', startAt: '2026-10-06T09:00:00.000Z', endAt: null, minutes: 'FINAL', openActionItemCount: 2 });
   const september = () => meeting({ id: 'sep', title: 'September review', status: 'COMPLETED', startAt: '2026-09-20T06:00:00.000Z', endAt: null, minutes: 'NOTES', openActionItemCount: 1 });
   const siteVisit = () => meeting({ id: 'soon', title: 'Site visit', startAt: '2026-10-16T06:00:00.000Z', endAt: '2026-10-16T07:00:00.000Z' });

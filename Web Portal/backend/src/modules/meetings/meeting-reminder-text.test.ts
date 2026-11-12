@@ -6,7 +6,7 @@ const meeting = {
   title: 'Core switch go-live review',
   startAt: new Date('2026-10-31T05:00:00Z'),
   endAt: new Date('2026-10-31T06:00:00Z'),
-  location: 'OXY HQ – Meeting room 2',
+  location: 'Head office – Meeting room 2',
   onlineLink: 'https://meet.example.com/abc',
 };
 const MUSCAT = 'Asia/Muscat';
@@ -16,21 +16,21 @@ describe('reminderWording: the words of a meeting reminder (bell, phone and emai
   it('15 minutes before: "Meeting in 15 minutes: …", then the time, the place and "Join online"', () => {
     const w = reminderWording({ meeting, meetingZone: MUSCAT, personZone: MUSCAT, offsetMinutes: 15, now: at('2026-10-31T04:45:00Z') });
     expect(w.title).toBe('Meeting in 15 minutes: Core switch go-live review');
-    expect(w.body).toBe('09:00–10:00 · OXY HQ – Meeting room 2 · Join online');
+    expect(w.body).toBe('09:00–10:00 · Head office – Meeting room 2 · Join online');
     expect(w.startsIn).toBe('starts in 15 minutes');
   });
 
   it('24 hours before: "Meeting tomorrow at 09:00: …" (the day said, in the meeting’s time zone)', () => {
     const w = reminderWording({ meeting, meetingZone: MUSCAT, personZone: MUSCAT, offsetMinutes: 1440, now: at('2026-10-30T05:00:00Z') });
     expect(w.title).toBe('Meeting tomorrow at 09:00: Core switch go-live review');
-    expect(w.body).toBe('09:00–10:00 · OXY HQ – Meeting room 2 · Join online');
+    expect(w.body).toBe('09:00–10:00 · Head office – Meeting room 2 · Join online');
     expect(w.startsIn).toBe('starts tomorrow at 09:00');
   });
 
   it('12 hours before: "Meeting in 12 hours: …", and the body says it is tomorrow', () => {
     const w = reminderWording({ meeting, meetingZone: MUSCAT, personZone: MUSCAT, offsetMinutes: 720, now: at('2026-10-30T17:00:00Z') });
     expect(w.title).toBe('Meeting in 12 hours: Core switch go-live review');
-    expect(w.body).toBe('Tomorrow, 09:00–10:00 · OXY HQ – Meeting room 2 · Join online');
+    expect(w.body).toBe('Tomorrow, 09:00–10:00 · Head office – Meeting room 2 · Join online');
     expect(w.startsIn).toBe('starts in 12 hours');
   });
 
@@ -57,19 +57,19 @@ describe('reminderWording: the words of a meeting reminder (bell, phone and emai
 
   it('someone in another time zone gets their own time in brackets (only when the clock differs)', () => {
     const london = reminderWording({ meeting, meetingZone: MUSCAT, personZone: 'Europe/London', offsetMinutes: 15, now: at('2026-10-31T04:45:00Z') });
-    expect(london.body).toBe('09:00–10:00 GMT+4 (05:00–06:00 your time) · OXY HQ – Meeting room 2 · Join online');
+    expect(london.body).toBe('09:00–10:00 GMT+4 (05:00–06:00 your time) · Head office – Meeting room 2 · Join online');
     // Dubai keeps Muscat's clock: nothing to add.
     expect(reminderWording({ meeting, meetingZone: MUSCAT, personZone: 'Asia/Dubai', offsetMinutes: 15, now: at('2026-10-31T04:45:00Z') }).body).toBe(
-      '09:00–10:00 · OXY HQ – Meeting room 2 · Join online',
+      '09:00–10:00 · Head office – Meeting room 2 · Join online',
     );
     // On their side it is still the day before: the date is said too.
     const honolulu = reminderWording({ meeting, meetingZone: MUSCAT, personZone: 'Pacific/Honolulu', offsetMinutes: 15, now: at('2026-10-31T04:45:00Z') });
-    expect(honolulu.body).toBe('09:00–10:00 GMT+4 (30 Oct 2026, 19:00–20:00 your time) · OXY HQ – Meeting room 2 · Join online');
+    expect(honolulu.body).toBe('09:00–10:00 GMT+4 (30 Oct 2026, 19:00–20:00 your time) · Head office – Meeting room 2 · Join online');
   });
 
   it('a guest (no zone of their own) gets the meeting’s time only', () => {
     expect(reminderWording({ meeting, meetingZone: MUSCAT, personZone: null, offsetMinutes: 15, now: at('2026-10-31T04:45:00Z') }).body).toBe(
-      '09:00–10:00 · OXY HQ – Meeting room 2 · Join online',
+      '09:00–10:00 · Head office – Meeting room 2 · Join online',
     );
   });
 
@@ -81,7 +81,7 @@ describe('reminderWording: the words of a meeting reminder (bell, phone and emai
 
   it('a meeting that ends on the next day keeps the 24-hour clock', () => {
     const late = { ...meeting, startAt: at('2026-10-31T19:30:00Z'), endAt: at('2026-10-31T20:30:00Z') }; // 23:30–00:30 Muscat
-    expect(reminderWording({ meeting: late, meetingZone: MUSCAT, personZone: MUSCAT, offsetMinutes: 15, now: at('2026-10-31T19:15:00Z') }).body).toBe('23:30–00:30 · OXY HQ – Meeting room 2 · Join online');
+    expect(reminderWording({ meeting: late, meetingZone: MUSCAT, personZone: MUSCAT, offsetMinutes: 15, now: at('2026-10-31T19:15:00Z') }).body).toBe('23:30–00:30 · Head office – Meeting room 2 · Join online');
   });
 
   it('the email’s "When": the full day, the time and the meeting’s zone (and theirs when it differs)', () => {

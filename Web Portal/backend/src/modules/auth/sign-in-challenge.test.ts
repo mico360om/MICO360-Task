@@ -26,7 +26,7 @@ function make() {
     },
   });
 }
-const ada = { id: 'u1', email: 'ada@oxy.com' };
+const ada = { id: 'u1', email: 'ada@acme.com' };
 const lastCode = () => sent[sent.length - 1]!.code;
 const err = async (p: Promise<unknown>) => p.then(() => null, (e: { code?: string; status?: number }) => ({ code: e.code, status: e.status }));
 
@@ -42,9 +42,9 @@ describe('Sign-in challenge: start', () => {
   it('emails a 6-digit code valid 10 minutes to the account’s address and answers with a token and the address masked', async () => {
     const view = await make().start(ada, 'VERIFY_EMAIL');
     expect(sent).toHaveLength(1);
-    expect(sent[0]).toMatchObject({ to: 'ada@oxy.com', kind: 'VERIFY_EMAIL', minutes: 10, brand: { companyName: 'Prolens' } });
+    expect(sent[0]).toMatchObject({ to: 'ada@acme.com', kind: 'VERIFY_EMAIL', minutes: 10, brand: { companyName: 'Prolens' } });
     expect(sent[0]!.code).toMatch(/^\d{6}$/);
-    expect(view).toMatchObject({ kind: 'VERIFY_EMAIL', sentTo: 'a•••@oxy.com', codeSent: true });
+    expect(view).toMatchObject({ kind: 'VERIFY_EMAIL', sentTo: 'a•••@acme.com', codeSent: true });
     expect(view.token).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(Date.parse(view.expiresAt) - clock).toBe(CODE_TTL_MS);
     expect(Date.parse(view.resendAt) - clock).toBe(MIN);
@@ -66,7 +66,7 @@ describe('Sign-in challenge: start', () => {
     expect(store.rows).toHaveLength(1);
     // The first token no longer answers; the second does, with the code from the first email.
     expect(await err(svc.verify(first.token, lastCode()))).toEqual({ code: 'SIGN_IN_EXPIRED', status: 401 });
-    expect(await svc.verify(second.token, lastCode())).toEqual({ userId: 'u1', kind: 'VERIFY_EMAIL', sentTo: 'ada@oxy.com' });
+    expect(await svc.verify(second.token, lastCode())).toEqual({ userId: 'u1', kind: 'VERIFY_EMAIL', sentTo: 'ada@acme.com' });
   });
 
   it('a new address (the email was changed) gets a new challenge, not the old one', async () => {
@@ -75,7 +75,7 @@ describe('Sign-in challenge: start', () => {
     clock += 2 * MIN;
     const view = await svc.start({ id: 'u1', email: 'ada@new.com' }, 'VERIFY_EMAIL');
     expect(view.codeSent).toBe(true);
-    expect(sent.map((s) => s.to)).toEqual(['ada@oxy.com', 'ada@new.com']);
+    expect(sent.map((s) => s.to)).toEqual(['ada@acme.com', 'ada@new.com']);
   });
 
   it('once the code has expired (10 minutes), signing in again sends a fresh code', async () => {

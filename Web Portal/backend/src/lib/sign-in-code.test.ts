@@ -38,7 +38,7 @@ describe('Sign-in codes (onboarding)', () => {
   });
 
   it('an address is shown masked: the first letter and the domain', () => {
-    expect(maskEmail('ahmed@oxy.com')).toBe('a•••@oxy.com');
+    expect(maskEmail('ahmed@acme.com')).toBe('a•••@acme.com');
     expect(maskEmail('A@x.co')).toBe('A•••@x.co');
     expect(maskEmail('  sara.k@mico360.om ')).toBe('s•••@mico360.om');
     expect(maskEmail('no-at-sign')).toBe('n•••');

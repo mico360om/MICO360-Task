@@ -39,7 +39,7 @@ afterEach(() => {
 });
 
 const prefill: SeriesPrefill = {
-  seriesId: 's1', seriesName: 'Monthly OXY review', title: 'Monthly OXY review', projectId: 'p1', companyId: null,
+  seriesId: 's1', seriesName: 'Monthly site review', title: 'Monthly site review', projectId: 'p1', companyId: null,
   location: 'Site office', onlineLink: null, teamsLink: true, durationMinutes: 60, description: null, people: [], agendaItems: [],
 };
 

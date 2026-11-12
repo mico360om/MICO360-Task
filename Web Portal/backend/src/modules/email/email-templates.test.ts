@@ -266,7 +266,7 @@ describe('minutes email — the project’s identity', () => {
 });
 
 describe('meeting invitation — a Teams link (1.23)', () => {
-  const base = { title: 'OXY review', whenLabel: 'Thu 3 Dec 2026, 10:00', organizerName: 'Khurram', projectName: 'OXY', link: 'https://app.test/meetings/m1' };
+  const base = { title: 'Site review', whenLabel: 'Thu 3 Dec 2026, 10:00', organizerName: 'Khurram', projectName: 'Acme', link: 'https://app.test/meetings/m1' };
   it('names a Teams link as Microsoft Teams, and a plain link as Online', () => {
     const teams = meetingInviteEmail({ ...base, onlineLink: 'https://teams.microsoft.com/l/meetup-join/x', onlineMeetingProvider: 'TEAMS' });
     expect(teams.text).toContain('Microsoft Teams');

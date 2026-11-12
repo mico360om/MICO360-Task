@@ -31,7 +31,7 @@ const key = (node, k) => {
   return e;
 };
 
-const ahmed = { id: 'x1', taskId: 't1', name: 'Ahmed Al Said', company: 'OXY', designation: 'Site lead', email: 'ahmed@oxy.com', phone: '+968 9912 3456', remarks: 'Call before 10', position: 0 };
+const ahmed = { id: 'x1', taskId: 't1', name: 'Ahmed Al Said', company: 'Acme', designation: 'Site lead', email: 'ahmed@acme.com', phone: '+968 9912 3456', remarks: 'Call before 10', position: 0 };
 
 function drawerCtx(over = {}) {
   const task = { id: 't1', key: 'OPS-7', title: 'Inspect the rig', priority: 'NORMAL', projectId: 'p1', dueDate: null, version: 3, tags: [], externalContacts: [ahmed], ...over.task };
@@ -88,8 +88,8 @@ describe('external contacts: shown in the task panel, apart from the assignees',
     expect(sec.textContent).not.toContain('Omar Ahmed'); // the assignees are their own section
     const row = sec.querySelector('li');
     expect(row.querySelector('.td-contact-name').textContent).toBe('Ahmed Al Said');
-    expect(row.textContent).toContain('OXY · Site lead');
-    expect(row.querySelector('a[href="mailto:ahmed@oxy.com"]').textContent).toBe('ahmed@oxy.com');
+    expect(row.textContent).toContain('Acme · Site lead');
+    expect(row.querySelector('a[href="mailto:ahmed@acme.com"]').textContent).toBe('ahmed@acme.com');
     expect(row.querySelector('a[href="tel:+96899123456"]').textContent).toBe('+968 9912 3456');
     expect(row.textContent).toContain('Call before 10');
     // The section comes right after Assignees.
@@ -212,7 +212,7 @@ describe('external contacts: adding one', () => {
 
 describe('external contacts: suggestions from the project', () => {
   const earlier = [
-    { name: 'Ahmed Al Said', company: 'OXY', designation: 'Site lead', email: 'ahmed@oxy.com', phone: '+968 9912 3456', remarks: 'Call before 10' },
+    { name: 'Ahmed Al Said', company: 'Acme', designation: 'Site lead', email: 'ahmed@acme.com', phone: '+968 9912 3456', remarks: 'Call before 10' },
     { name: 'Ahmed Hinai', company: 'PDO', designation: null, email: null, phone: null, remarks: null },
   ];
 
@@ -231,16 +231,16 @@ describe('external contacts: suggestions from the project', () => {
     expect(suggest).toHaveBeenCalledWith('p1', 'Ahm');
     const list = form.querySelector('[role="listbox"]');
     expect(list.getAttribute('aria-label')).toBe(W.suggestions);
-    expect([...list.querySelectorAll('[role="option"]')].map((o) => o.textContent)).toEqual(['Ahmed Al Said · OXY · Site lead', 'Ahmed Hinai · PDO']);
+    expect([...list.querySelectorAll('[role="option"]')].map((o) => o.textContent)).toEqual(['Ahmed Al Said · Acme · Site lead', 'Ahmed Hinai · PDO']);
     expect(name.getAttribute('aria-expanded')).toBe('true');
     key(name, 'ArrowDown');
     expect(name.getAttribute('aria-activedescendant')).toBe(list.querySelector('[role="option"]').id);
     expect(key(name, 'Enter').defaultPrevented).toBe(true);
     await settle();
     expect(name.value).toBe('Ahmed Al Said');
-    expect(fieldOf(form, 'Company').value).toBe('OXY');
+    expect(fieldOf(form, 'Company').value).toBe('Acme');
     expect(fieldOf(form, 'Designation').value).toBe('Site lead');
-    expect(fieldOf(form, 'Email').value).toBe('ahmed@oxy.com');
+    expect(fieldOf(form, 'Email').value).toBe('ahmed@acme.com');
     expect(fieldOf(form, 'Phone').value).toBe('+968 9912 3456');
     expect(fieldOf(form, 'Remarks').value).toBe('Call before 10');
     expect(form.querySelector('[role="listbox"]')).toBeNull();
@@ -351,7 +351,7 @@ describe('external contacts: changing and removing one', () => {
 });
 
 describe('external contacts on board cards and task rows', () => {
-  const summary = { count: 3, name: 'Ahmed Al Said', company: 'OXY', names: ['Ahmed Al Said', 'B', 'C'], companies: ['OXY'] };
+  const summary = { count: 3, name: 'Ahmed Al Said', company: 'Acme', names: ['Ahmed Al Said', 'B', 'C'], companies: ['Acme'] };
 
   it('a board card shows “External: …” under its title', async () => {
     const { BoardScreen } = await import('../app/screens/board.js');
@@ -373,16 +373,16 @@ describe('external contacts on board cards and task rows', () => {
     document.body.append(root);
     await settle();
     const card = (id) => [...root.querySelectorAll('.tcard')].find((c) => c.dataset.taskId === id);
-    expect(card('t1').querySelector('.texternal').textContent).toBe('External: Ahmed Al Said (OXY) and 2 more');
-    expect(card('t1').getAttribute('aria-label')).toContain('External: Ahmed Al Said (OXY) and 2 more');
+    expect(card('t1').querySelector('.texternal').textContent).toBe('External: Ahmed Al Said (Acme) and 2 more');
+    expect(card('t1').getAttribute('aria-label')).toContain('External: Ahmed Al Said (Acme) and 2 more');
     expect(card('t2').querySelector('.texternal')).toBeNull();
   });
 
   it('a task row (My Tasks, Dashboard, Calendar) shows it too', async () => {
     const { taskRow } = await import('../app/components.js');
     const row = taskRow({ id: 't1', key: 'OPS-7', title: 'Inspect the rig', priority: 'NORMAL', dueDate: null, progress: 0, externalSummary: summary }, () => {});
-    expect(row.querySelector('.texternal').textContent).toBe('External: Ahmed Al Said (OXY) and 2 more');
-    expect(row.getAttribute('aria-label')).toContain('External: Ahmed Al Said (OXY) and 2 more');
+    expect(row.querySelector('.texternal').textContent).toBe('External: Ahmed Al Said (Acme) and 2 more');
+    expect(row.getAttribute('aria-label')).toContain('External: Ahmed Al Said (Acme) and 2 more');
     expect(taskRow({ id: 't2', key: 'OPS-8', title: 'x', priority: 'NORMAL', dueDate: null, progress: 0 }, () => {}).querySelector('.texternal')).toBeNull();
   });
 });
@@ -413,7 +413,7 @@ describe('external contacts: focus and timing (review)', () => {
   });
 
   it('suggestions that arrive after the Name box was left are not shown', async () => {
-    const suggest = vi.fn(async () => [{ name: 'Ahmed Al Said', company: 'OXY', designation: null, email: null, phone: null, remarks: null }]);
+    const suggest = vi.fn(async () => [{ name: 'Ahmed Al Said', company: 'Acme', designation: null, email: null, phone: null, remarks: null }]);
     const root = await open(drawerCtx({ task: { externalContacts: [] }, suggest }));
     byText(root, 'button', W.add).click();
     await settle();
@@ -427,7 +427,7 @@ describe('external contacts: focus and timing (review)', () => {
   });
 
   it('typing again puts the old suggestions away at once, so they can’t be picked meanwhile', async () => {
-    const suggest = vi.fn(async (_p, q) => (q === 'Ahm' ? [{ name: 'Ahmed Al Said', company: 'OXY', designation: null, email: null, phone: null, remarks: null }] : []));
+    const suggest = vi.fn(async (_p, q) => (q === 'Ahm' ? [{ name: 'Ahmed Al Said', company: 'Acme', designation: null, email: null, phone: null, remarks: null }] : []));
     const root = await open(drawerCtx({ task: { externalContacts: [] }, suggest }));
     byText(root, 'button', W.add).click();
     await settle();

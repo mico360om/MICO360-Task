@@ -20,13 +20,13 @@ const attendee = (over: Partial<AttendeeRecord>): AttendeeRecord => ({
 function meeting(over: Partial<DueMeeting> = {}): DueMeeting {
   return {
     id: 'm1', title: 'Core switch go-live review', description: null, status: 'SCHEDULED', projectId: 'p1', projectName: 'Core switch', organizerId: 'org',
-    location: 'OXY HQ – Meeting room 2', onlineLink: 'https://meet.example.com/abc', startAt: START, endAt: new Date(START.getTime() + 60 * MIN), timeZone: 'Asia/Muscat',
+    location: 'Head office – Meeting room 2', onlineLink: 'https://meet.example.com/abc', startAt: START, endAt: new Date(START.getTime() + 60 * MIN), timeZone: 'Asia/Muscat',
     attendees: [attendee({ userId: 'ann' }), attendee({ externalName: 'Guest', externalEmail: 'guest@client.test' })],
     ...over,
   };
 }
 
-const person = (id: string, over: Partial<ReminderPerson> = {}): ReminderPerson => ({ userId: id, name: id.toUpperCase(), email: `${id}@oxy.test`, timeZone: null, muted: false, ...over });
+const person = (id: string, over: Partial<ReminderPerson> = {}): ReminderPerson => ({ userId: id, name: id.toUpperCase(), email: `${id}@acme.test`, timeZone: null, muted: false, ...over });
 
 /** A store with the unique key the database has: a key is taken once. */
 function memoryStore(): MeetingReminderStore & { rows: Map<string, { status: string; key: ReminderSendKey }> } {
@@ -105,7 +105,7 @@ describe('the meeting reminder sweep', () => {
     expect(t.notify.mock.calls.map((c) => c[0].userId)).toEqual(['org', 'ann']);
     expect(t.notify.mock.calls[0]![0]).toEqual({
       userId: 'org', type: 'MEETING_REMINDER', title: 'Meeting in 15 minutes: Core switch go-live review',
-      body: '09:00–10:00 · OXY HQ – Meeting room 2 · Join online', entityType: 'meeting', entityId: 'm1',
+      body: '09:00–10:00 · Head office – Meeting room 2 · Join online', entityType: 'meeting', entityId: 'm1',
     });
     // Its own Android channel, gone once the meeting has started, and it replaces the meeting's earlier one.
     // Notification & Scheduling: held by quiet hours or Pause past the start, it is dropped (expiresAt).
@@ -120,12 +120,12 @@ describe('the meeting reminder sweep', () => {
       ['org', 'Meeting tomorrow at 09:00: Core switch go-live review'],
       ['ann', 'Meeting tomorrow at 09:00: Core switch go-live review'],
     ]);
-    expect(t.sendMeetingReminder.mock.calls.map((c) => c[0])).toEqual(['org@oxy.test', 'ann@oxy.test', 'guest@client.test']);
+    expect(t.sendMeetingReminder.mock.calls.map((c) => c[0])).toEqual(['org@acme.test', 'ann@acme.test', 'guest@client.test']);
     expect(t.sendMeetingReminder.mock.calls[2]![1]).toMatchObject({
       title: 'Core switch go-live review',
       startsInLabel: 'starts tomorrow at 09:00',
       whenLabel: 'Sat 31 Oct 2026, 09:00–10:00 (GMT+4)',
-      location: 'OXY HQ – Meeting room 2',
+      location: 'Head office – Meeting room 2',
       onlineLink: 'https://meet.example.com/abc',
       organizerName: 'ORG',
       projectName: 'Core switch',
@@ -168,7 +168,7 @@ describe('the meeting reminder sweep', () => {
     t.setMeetings([meeting({ startAt: later, endAt: new Date(later.getTime() + 60 * MIN) })]);
     t.setNow(new Date(later.getTime() - 15 * MIN));
     expect((await t.svc.runSweep()).sent).toBe(2);
-    expect(t.notify.mock.calls.at(-1)![0].body).toBe('10:00–11:00 · OXY HQ – Meeting room 2 · Join online');
+    expect(t.notify.mock.calls.at(-1)![0].body).toBe('10:00–11:00 · Head office – Meeting room 2 · Join online');
   });
 
   it('a cancelled meeting, or one whose start has passed, gets nothing', async () => {
@@ -189,18 +189,18 @@ describe('the meeting reminder sweep', () => {
     });
     await t.svc.runSweep();
     expect(t.notify.mock.calls.map((c) => c[0].userId)).toEqual(['org']);
-    expect(t.sendMeetingReminder.mock.calls.map((c) => c[0])).toEqual(['org@oxy.test']);
+    expect(t.sendMeetingReminder.mock.calls.map((c) => c[0])).toEqual(['org@acme.test']);
   });
 
   it('times in the meeting’s zone; someone in another zone also gets theirs', async () => {
     const t = setup({ people: [person('org', { timeZone: 'Europe/London' }), person('ann')] });
     await t.svc.runSweep();
-    expect(t.notify.mock.calls[0]![0].body).toBe('09:00–10:00 GMT+4 (05:00–06:00 your time) · OXY HQ – Meeting room 2 · Join online');
-    expect(t.notify.mock.calls[1]![0].body).toBe('09:00–10:00 · OXY HQ – Meeting room 2 · Join online');
+    expect(t.notify.mock.calls[0]![0].body).toBe('09:00–10:00 GMT+4 (05:00–06:00 your time) · Head office – Meeting room 2 · Join online');
+    expect(t.notify.mock.calls[1]![0].body).toBe('09:00–10:00 · Head office – Meeting room 2 · Join online');
     // A meeting stored without a zone (or a broken one) is said in the company's.
     const u = setup({ meetings: [meeting({ timeZone: 'Not/AZone' })] });
     await u.svc.runSweep();
-    expect(u.notify.mock.calls[0]![0].body).toBe('09:00–10:00 · OXY HQ – Meeting room 2 · Join online');
+    expect(u.notify.mock.calls[0]![0].body).toBe('09:00–10:00 · Head office – Meeting room 2 · Join online');
   });
 
   it('an email that fails is tried again by the next sweep, while the reminder is still due — the bell is not sent twice', async () => {
@@ -208,7 +208,7 @@ describe('the meeting reminder sweep', () => {
     const t = setup({
       now: new Date(START.getTime() - 24 * 60 * MIN),
       email: async (to) => {
-        if (fail && to === 'ann@oxy.test') throw new EmailDeliveryError(to, 503, 'down');
+        if (fail && to === 'ann@acme.test') throw new EmailDeliveryError(to, 503, 'down');
       },
     });
     const first = await t.svc.runSweep();
@@ -218,8 +218,8 @@ describe('the meeting reminder sweep', () => {
     t.setNow(new Date(START.getTime() - 24 * 60 * MIN + MIN));
     const second = await t.svc.runSweep();
     expect(second.sent).toBe(1);
-    expect(t.sendMeetingReminder.mock.calls.filter((c) => c[0] === 'ann@oxy.test')).toHaveLength(2);
-    expect(t.sendMeetingReminder.mock.calls.filter((c) => c[0] === 'org@oxy.test')).toHaveLength(1);
+    expect(t.sendMeetingReminder.mock.calls.filter((c) => c[0] === 'ann@acme.test')).toHaveLength(2);
+    expect(t.sendMeetingReminder.mock.calls.filter((c) => c[0] === 'org@acme.test')).toHaveLength(1);
     expect(t.notify).toHaveBeenCalledTimes(2);
   });
 
@@ -280,7 +280,7 @@ describe('the meeting reminder sweep', () => {
       ['ann', 'Meeting in 14 minutes: Core switch go-live review'],
     ]);
     // The 20-minute one is ticked for email (the 15-minute one isn't): the email still goes, once.
-    expect(t.sendMeetingReminder.mock.calls.map((c) => c[0])).toEqual(['org@oxy.test', 'ann@oxy.test', 'guest@client.test']);
+    expect(t.sendMeetingReminder.mock.calls.map((c) => c[0])).toEqual(['org@acme.test', 'ann@acme.test', 'guest@client.test']);
     const skipped = [...t.store.rows.values()].filter((r) => r.status === 'SKIPPED').map((r) => `${r.key.recipientKey}/${r.key.offsetMinutes}/${r.key.channel}`);
     expect(skipped.sort()).toEqual(['user:ann/20/APP', 'user:org/20/APP']);
     t.setNow(new Date(START.getTime() - 13 * MIN));

@@ -1632,7 +1632,7 @@ model Meeting {
   /// A meeting without a project belongs to a company (null for project meetings: theirs is the project's).
   companyId     String?
   company       Company?              @relation(fields: [companyId], references: [id], onDelete: SetNull)
-  /// 1.23: the named series it is in ("Monthly OXY review"), if any — not its repeat (recurrenceParentId).
+  /// 1.23: the named series it is in ("Monthly site review"), if any — not its repeat (recurrenceParentId).
   seriesId      String?
   namedSeries   MeetingSeries?        @relation(fields: [seriesId], references: [id], onDelete: SetNull)
 
@@ -1648,7 +1648,7 @@ model Meeting {
   @@map("meetings")
 }
 
-/// 1.23: a named series of related meetings ("Monthly OXY review"): meetings made one by one, repeating
+/// 1.23: a named series of related meetings ("Monthly site review"): meetings made one by one, repeating
 /// meetings (each repeat family is in one), or both. It belongs to a project — or, for meetings without a
 /// project, to a company — and only that project's (company's) meetings can be in it. Deleting it unlinks
 /// its meetings (never deletes them).

@@ -278,13 +278,13 @@ describe('Set-password links on the database: what a link is, and using one', ()
 
 describe('Duplicates on the database: trimmed and case-insensitive', () => {
   it('the check names the holder of an email or username whatever its case; deleted accounts never count', async () => {
-    const ahmed = await person('ahmed', { firstName: 'Ahmed', lastName: 'Al Harthy', organisation: 'OXY' }, ['CLIENT']);
+    const ahmed = await person('ahmed', { firstName: 'Ahmed', lastName: 'Al Harthy', organisation: 'Acme' }, ['CLIENT']);
     const lookup = createPrismaIdentityLookup(prisma);
     const found = await checkIdentity(lookup, { email: `  AHMED${DOMAIN.toUpperCase()} `, username: 'ONB-AHMED' });
-    expect(found.email).toMatchObject({ id: ahmed.id, name: 'Ahmed Al Harthy', kind: 'client', organisation: 'OXY' });
+    expect(found.email).toMatchObject({ id: ahmed.id, name: 'Ahmed Al Harthy', kind: 'client', organisation: 'Acme' });
     expect(found.username).toMatchObject({ id: ahmed.id });
     // The same name at the same organisation (any case) — a gentle warning; another organisation isn't one.
-    expect((await checkIdentity(lookup, { firstName: 'ahmed', lastName: 'al harthy', organisation: 'oxy', client: true })).sameName.map((m) => m.id)).toEqual([ahmed.id]);
+    expect((await checkIdentity(lookup, { firstName: 'ahmed', lastName: 'al harthy', organisation: 'acme', client: true })).sameName.map((m) => m.id)).toEqual([ahmed.id]);
     expect((await checkIdentity(lookup, { firstName: 'Ahmed', lastName: 'Al Harthy', organisation: 'PDO', client: true })).sameName).toEqual([]);
     // Editing Ahmed himself: no clash.
     expect((await checkIdentity(lookup, { email: ahmed.email, excludeId: ahmed.id })).email).toBeNull();
@@ -318,9 +318,9 @@ describe('Email change and client details on the database', () => {
     const accounts = createClientAccounts({ prisma, userService });
     const base = { firstName: 'Saif', lastName: 'Said', username: 'onb-saif', email: `saif${DOMAIN}`, password: 'Password1!' };
     await expect(accounts.create({ ...base }, { id: admin.id })).rejects.toMatchObject({ status: 400, details: { field: 'organisation' } });
-    await expect(accounts.create({ ...base, organisation: 'OXY', phone: '+968-9000' }, { id: admin.id })).rejects.toMatchObject({ status: 400, details: { field: 'phone' } });
-    const saif = await accounts.create({ ...base, organisation: 'OXY', phone: '+968 9000 0001' }, { id: admin.id });
-    expect(saif).toMatchObject({ onboarding: 'ACTIVE', emailVerifiedAt: null, invitedAt: null, organisation: 'OXY' });
+    await expect(accounts.create({ ...base, organisation: 'Acme', phone: '+968-9000' }, { id: admin.id })).rejects.toMatchObject({ status: 400, details: { field: 'phone' } });
+    const saif = await accounts.create({ ...base, organisation: 'Acme', phone: '+968 9000 0001' }, { id: admin.id });
+    expect(saif).toMatchObject({ onboarding: 'ACTIVE', emailVerifiedAt: null, invitedAt: null, organisation: 'Acme' });
     // An older phone that predates the rule still saves with other changes; a new bad one doesn't.
     await prisma.user.update({ where: { id: saif.id }, data: { phone: '(968) 9000' } });
     expect((await accounts.update(saif.id, { firstName: 'Saeed', phone: '(968) 9000' }, { id: admin.id })).firstName).toBe('Saeed');

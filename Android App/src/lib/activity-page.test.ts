@@ -87,7 +87,7 @@ describe('the Activity page’s words (5c), as the website’s', () => {
     expect(actorInitials('Sara Al Balushi')).toBe('SA');
     expect(actorInitials('')).toBe('?');
     // From letters only (1.18.2): a guest named with their company in brackets.
-    expect(actorInitials('Mohammed (OXY)')).toBe('MO');
+    expect(actorInitials('Mohammed (Acme)')).toBe('MA');
   });
 
   it('reads one row out whole: who, what, which task, details, project and when', () => {

@@ -581,7 +581,7 @@ describe('ProjectDetailPage: Clients with access (1.23)', () => {
     modules: { progress: true, meetings: true }, actions: { comment: true, signOff: true, respond: false, download: false },
   };
   const NOOR = {
-    id: 'cl2', name: 'Noor Al Said', organisation: null, email: 'noor@oxy.test', status: 'INACTIVE',
+    id: 'cl2', name: 'Noor Al Said', organisation: null, email: 'noor@acme.test', status: 'INACTIVE',
     access: ['Meetings and minutes'], modules: { progress: false, meetings: true }, actions: { comment: false, signOff: false, respond: false, download: false },
   };
   let asked = false;

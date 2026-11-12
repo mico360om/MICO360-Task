@@ -83,9 +83,9 @@ beforeEach(() => {
   hangMoves = false;
   MONTHS = {
     '2026-11': [
-      task('t1', 'MICO-1', { startDate: day('2026-11-05'), dueDate: day('2026-11-20'), externalSummary: ext('OXY') }),
+      task('t1', 'MICO-1', { startDate: day('2026-11-05'), dueDate: day('2026-11-20'), externalSummary: ext('Acme') }),
       task('t2', 'MICO-2', { startDate: day('2026-10-01'), dueDate: day('2026-10-30') }),
-      task('t3', 'MICO-3', { externalSummary: ext('OXY') }),
+      task('t3', 'MICO-3', { externalSummary: ext('Acme') }),
       task('t10', 'MICO-7', { externalSummary: ext('PDO') }),
       task('t11', 'OPS-2', { projectId: 'p2', columnId: 'p2-todo' }),
       task('t4', 'MICO-4', { columnId: 'p1-done', columnCategory: 'DONE', completedAt: '2026-11-03T08:00:00.000Z' }),
@@ -377,7 +377,7 @@ describe('Kanban Board: month view review fixes', () => {
     expect(await screen.findByRole('button', { name: 'No date (2)' })).toBeInTheDocument();
     // tgc: 1.24 — "External company" is "Guest company" now (these rows are an older server's: contacts in short).
     await userEvent.click(screen.getByRole('button', { name: 'Filter by guest company' }));
-    await userEvent.click(await screen.findByRole('option', { name: 'OXY' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Acme' }));
     expect(await screen.findByRole('button', { name: 'No date (1)' })).toBeInTheDocument();
   });
 

@@ -91,7 +91,7 @@ describe('the "Create a Teams link" tick', () => {
 
   it('ticked: the link field waits for Teams, and the new meeting is sent with teamsLink and no pasted link', async () => {
     const { onSaved, onClose } = renderModal();
-    await userEvent.type(screen.getByLabelText(/Title/), 'OXY review');
+    await userEvent.type(screen.getByLabelText(/Title/), 'Site review');
     await userEvent.type(screen.getByLabelText('Online link'), 'meet.example.com/abc');
     await userEvent.click(await tick());
     const field = screen.getByLabelText('Online link') as HTMLInputElement;
@@ -106,7 +106,7 @@ describe('the "Create a Teams link" tick', () => {
   it('Microsoft unreachable: "Meeting saved", the plain notice and Make Teams link — which then works', async () => {
     createReply = { id: 'm-new', onlineMeetingProvider: 'TEAMS', onlineLink: null, teamsLinkPending: true, teamsNotice: { code: 'TEAMS_FAILED', message: 'The Teams link couldn’t be made — try again.' } };
     const { onClose, onSaved } = renderModal();
-    await userEvent.type(screen.getByLabelText(/Title/), 'OXY review');
+    await userEvent.type(screen.getByLabelText(/Title/), 'Site review');
     await userEvent.click(await tick());
     await userEvent.click(screen.getByRole('button', { name: /Schedule meeting/ }));
     expect(await screen.findByText('Meeting saved')).toBeTruthy();
@@ -165,7 +165,7 @@ describe('the "Create a Teams link" tick', () => {
   it('saved but not connected after all: the notice links to Settings', async () => {
     createReply = { id: 'm-new', onlineMeetingProvider: 'TEAMS', onlineLink: null, teamsLinkPending: true, teamsNotice: { code: 'TEAMS_NOT_CONNECTED', message: 'The Teams link couldn’t be made: connect Microsoft Teams in Settings, then press Make Teams link.' } };
     renderModal();
-    await userEvent.type(screen.getByLabelText(/Title/), 'OXY review');
+    await userEvent.type(screen.getByLabelText(/Title/), 'Site review');
     await userEvent.click(await tick());
     await userEvent.click(screen.getByRole('button', { name: /Schedule meeting/ }));
     expect(await screen.findByText('Meeting saved')).toBeTruthy();
@@ -175,7 +175,7 @@ describe('the "Create a Teams link" tick', () => {
   it('saved, but only the organizer can make the link: said plainly, no Make Teams link', async () => {
     createReply = { id: 'm-new', onlineMeetingProvider: null, onlineLink: null, teamsNotice: { code: 'TEAMS_NOT_ORGANIZER', message: 'Only the meeting’s organizer can make its Teams link, with their own Microsoft account.' } };
     const { onClose } = renderModal();
-    await userEvent.type(screen.getByLabelText(/Title/), 'OXY review');
+    await userEvent.type(screen.getByLabelText(/Title/), 'Site review');
     await userEvent.click(await tick());
     await userEvent.click(screen.getByRole('button', { name: /Schedule meeting/ }));
     expect(await screen.findByText(/Only the meeting’s organizer can make its Teams link/)).toBeTruthy();

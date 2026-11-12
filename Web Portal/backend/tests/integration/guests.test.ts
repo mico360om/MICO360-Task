@@ -76,14 +76,14 @@ beforeEach(async () => {
 
 describe('the company guest list', () => {
   it('adds a guest to the project’s company list; the same person again is offered back (409) unless confirmed', async () => {
-    const ahmed = await guests.createForProject(p1, { name: ' Ahmed Al Harthy ', company: 'OXY', email: 'ahmed@oxy.com' }, owner);
-    expect(ahmed).toMatchObject({ companyId: COMPANIES[0], name: 'Ahmed Al Harthy', company: 'OXY' });
+    const ahmed = await guests.createForProject(p1, { name: ' Ahmed Al Harthy ', company: 'Acme', email: 'ahmed@acme.com' }, owner);
+    expect(ahmed).toMatchObject({ companyId: COMPANIES[0], name: 'Ahmed Al Harthy', company: 'Acme' });
     // Another project of the same company shares the list.
-    await expect(guests.createForProject(p2, { name: 'ahmed  al harthy', company: 'oxy' }, owner)).rejects.toMatchObject({ status: 409, code: 'GUEST_DUPLICATE' });
-    const again = await guests.createForProject(p2, { name: 'Ahmed Al Harthy', company: 'OXY' }, owner, { confirmNew: true });
+    await expect(guests.createForProject(p2, { name: 'ahmed  al harthy', company: 'acme' }, owner)).rejects.toMatchObject({ status: 409, code: 'GUEST_DUPLICATE' });
+    const again = await guests.createForProject(p2, { name: 'Ahmed Al Harthy', company: 'Acme' }, owner, { confirmNew: true });
     expect(again.id).not.toBe(ahmed.id);
     // Another company has its own list: no clash, never listed across.
-    await guests.createForProject(pB, { name: 'Ahmed Al Harthy', company: 'OXY' }, owner);
+    await guests.createForProject(pB, { name: 'Ahmed Al Harthy', company: 'Acme' }, owner);
     expect((await guests.listForProject(p1)).map((g) => g.companyId)).toEqual([COMPANIES[0], COMPANIES[0]]);
     expect(await guests.listForProject(pB)).toHaveLength(1);
   });
@@ -95,10 +95,10 @@ describe('the company guest list', () => {
   });
 
   it('finds guests by name, company, email or phone digits; retired and merged ones are not picked', async () => {
-    const a = await guests.createForProject(p1, { name: 'Ahmed', company: 'OXY', phone: '+968 9912 3456' }, owner);
+    const a = await guests.createForProject(p1, { name: 'Ahmed', company: 'Acme', phone: '+968 9912 3456' }, owner);
     const s = await guests.createForProject(p1, { name: 'Sara', company: 'PDO', email: 'sara@pdo.co.om' }, owner);
     await guests.createForProject(p1, { name: 'Ali', company: 'BP' }, owner);
-    expect((await guests.listForProject(p1, 'oxy')).map((g) => g.id)).toEqual([a.id]);
+    expect((await guests.listForProject(p1, 'acme')).map((g) => g.id)).toEqual([a.id]);
     expect((await guests.listForProject(p1, '99123')).map((g) => g.id)).toEqual([a.id]);
     expect((await guests.listForProject(p1, 'sara@')).map((g) => g.id)).toEqual([s.id]);
     await guests.setRetired(s.id, true);
@@ -106,9 +106,9 @@ describe('the company guest list', () => {
   });
 
   it('the duplicate check: the same person, and same-name others', async () => {
-    const a = await guests.createForProject(p1, { name: 'Ahmed', company: 'OXY' }, owner);
+    const a = await guests.createForProject(p1, { name: 'Ahmed', company: 'Acme' }, owner);
     const b = await guests.createForProject(p1, { name: 'Ahmed', company: 'PDO' }, owner);
-    const m = await guests.duplicatesFor(p2, { name: 'AHMED', company: 'oxy' });
+    const m = await guests.duplicatesFor(p2, { name: 'AHMED', company: 'acme' });
     expect(m.same.map((g) => g.id)).toEqual([a.id]);
     expect(m.similar.map((g) => g.id)).toEqual([b.id]);
   });
@@ -117,11 +117,11 @@ describe('the company guest list', () => {
 describe('guests on a task', () => {
   it('needs a team member on the task; then puts the guest on with a copy of their details and a history line', async () => {
     const t = await task(p1, todo);
-    const g = await guests.createForProject(p1, { name: 'Ahmed', company: 'OXY', email: 'a@oxy.com' }, owner);
+    const g = await guests.createForProject(p1, { name: 'Ahmed', company: 'Acme', email: 'a@acme.com' }, owner);
     await expect(guests.addToTask(t, g.id, null, owner)).rejects.toMatchObject({ status: 400, message: 'Add at least one person from your team to look after this task.' });
     await prisma.taskAssignee.create({ data: { taskId: t, userId: other } });
     const link = await guests.addToTask(t, g.id, 'Signs the report', owner);
-    expect(link).toMatchObject({ guestId: g.id, name: 'Ahmed', company: 'OXY', email: 'a@oxy.com', note: 'Signs the report', retired: false });
+    expect(link).toMatchObject({ guestId: g.id, name: 'Ahmed', company: 'Acme', email: 'a@acme.com', note: 'Signs the report', retired: false });
     await expect(guests.addToTask(t, g.id, null, owner)).rejects.toMatchObject({ status: 409, code: 'GUEST_ON_TASK' });
     expect(lines.map((l) => [l.action, l.meta?.name])).toEqual([['EXTERNAL_CONTACT_ADDED', 'Ahmed']]);
     // Another company's guest never goes on this company's task.
@@ -132,7 +132,7 @@ describe('guests on a task', () => {
   it('a retired guest stays on its tasks but can’t be added again; edits show on every task', async () => {
     const t1 = await task(p1, todo, { assignees: [other] });
     const t2 = await task(p1, todo, { assignees: [other] });
-    const g = await guests.createForProject(p1, { name: 'Ahmed', company: 'OXY' }, owner);
+    const g = await guests.createForProject(p1, { name: 'Ahmed', company: 'Acme' }, owner);
     await guests.addToTask(t1, g.id, null, owner);
     await guests.adminUpdate(g.id, { phone: '+968 9000 0000', notes: 'Key contact' });
     await guests.setRetired(g.id, true);
@@ -159,7 +159,7 @@ describe('guests on a task', () => {
     const emails = await prisma.emailLog.count();
     const notices = await prisma.notification.count();
     const t = await task(p1, todo, { assignees: [other] });
-    const g = await guests.createForProject(p1, { name: 'Ahmed', email: 'ahmed@oxy.com' }, owner);
+    const g = await guests.createForProject(p1, { name: 'Ahmed', email: 'ahmed@acme.com' }, owner);
     await guests.addToTask(t, g.id, null, owner);
     expect([await prisma.user.count(), await prisma.emailLog.count(), await prisma.notification.count()]).toEqual([users, emails, notices]);
   });
@@ -169,7 +169,7 @@ describe('admins tidy the list', () => {
   it('merges duplicates: every task link moves to the kept guest, a task with both keeps one with both notes', async () => {
     const t1 = await task(p1, todo, { assignees: [other] });
     const t2 = await task(p1, todo, { assignees: [other] });
-    const keep = await guests.createForProject(p1, { name: 'Ahmed Al Harthy', company: 'OXY' }, owner);
+    const keep = await guests.createForProject(p1, { name: 'Ahmed Al Harthy', company: 'Acme' }, owner);
     const dup = await guests.createForProject(p1, { name: 'Ahmed AlHarthy', company: 'Occidental' }, owner);
     await guests.addToTask(t1, keep.id, 'first', owner);
     await guests.addToTask(t1, dup.id, 'second', owner);
@@ -177,7 +177,7 @@ describe('admins tidy the list', () => {
     const r = await guests.merge(keep.id, [dup.id], owner);
     expect(r.tasks).toBe(2);
     expect((await guests.taskGuests(t1)).map((g) => [g.guestId, g.note])).toEqual([[keep.id, 'first\nsecond']]);
-    expect((await guests.taskGuests(t2))[0]).toMatchObject({ guestId: keep.id, company: 'OXY' });
+    expect((await guests.taskGuests(t2))[0]).toMatchObject({ guestId: keep.id, company: 'Acme' });
     expect((await guests.adminList({ companyId: COMPANIES[0], status: 'all' })).map((g) => g.id)).toEqual([keep.id]);
     expect(lines.filter((l) => l.action === 'EXTERNAL_CONTACT_CHANGED')).toHaveLength(2);
     // Only one company's guests merge.
@@ -209,12 +209,12 @@ describe('the old external-contact way in (Android app, extension) works on gues
 
   it('adding a contact links the matching guest (or makes one); the task gets its creator when it has no team member', async () => {
     const t = await task(p1, todo, { createdById: other });
-    const g = await guests.createForProject(p1, { name: 'Ahmed Al Harthy', company: 'OXY', email: 'ahmed@oxy.com' }, owner);
-    const c = await service.add(t, { name: 'ahmed al-harthy ', email: 'AHMED@oxy.com', remarks: 'Call first' }, owner);
+    const g = await guests.createForProject(p1, { name: 'Ahmed Al Harthy', company: 'Acme', email: 'ahmed@acme.com' }, owner);
+    const c = await service.add(t, { name: 'ahmed al-harthy ', email: 'AHMED@acme.com', remarks: 'Call first' }, owner);
     // "al-harthy" keeps its hyphen: a different name → a new guest; the exact name matches by email.
     expect(c.name).toBe('ahmed al-harthy');
-    const d = await service.add(t, { name: 'Ahmed Al Harthy', email: 'ahmed@oxy.com' }, owner);
-    expect(d).toMatchObject({ name: 'Ahmed Al Harthy', company: 'OXY' });
+    const d = await service.add(t, { name: 'Ahmed Al Harthy', email: 'ahmed@acme.com' }, owner);
+    expect(d).toMatchObject({ name: 'Ahmed Al Harthy', company: 'Acme' });
     expect((await prisma.taskExternalContact.findUnique({ where: { id: d.id } }))?.guestId).toBe(g.id);
     expect(await prisma.taskAssignee.findMany({ where: { taskId: t }, select: { userId: true } })).toEqual([{ userId: other }]);
     expect(lines.find((l) => l.action === 'ASSIGNED')?.meta).toMatchObject({ assigneeId: other, reason: 'guests' });
@@ -222,17 +222,17 @@ describe('the old external-contact way in (Android app, extension) works on gues
 
   it('editing a contact re-links the task to the guest the new details match; the shared guest is never changed', async () => {
     const t = await task(p1, todo, { assignees: [other] });
-    const g = await guests.createForProject(p1, { name: 'Ahmed', company: 'OXY', designation: 'Lead' }, owner);
-    const c = await service.add(t, { name: 'Ahmed', company: 'OXY' }, owner);
+    const g = await guests.createForProject(p1, { name: 'Ahmed', company: 'Acme', designation: 'Lead' }, owner);
+    const c = await service.add(t, { name: 'Ahmed', company: 'Acme' }, owner);
     const { after } = await service.update(c.id, { company: 'PDO' });
     const row = await prisma.taskExternalContact.findUnique({ where: { id: after.id } });
     expect(row?.guestId).not.toBe(g.id);
     expect(row).toMatchObject({ name: 'Ahmed', company: 'PDO' });
     expect(row?.designation).toBe('Lead');
-    expect(await prisma.guestContact.findUnique({ where: { id: g.id } })).toMatchObject({ company: 'OXY', designation: 'Lead' });
-    const back = await service.update(after.id, { company: 'OXY', designation: 'Manager', remarks: 'note' });
-    // Back to Ahmed (OXY): the shared guest keeps its designation.
-    expect(back.after).toMatchObject({ company: 'OXY', designation: 'Lead', remarks: 'note' });
+    expect(await prisma.guestContact.findUnique({ where: { id: g.id } })).toMatchObject({ company: 'Acme', designation: 'Lead' });
+    const back = await service.update(after.id, { company: 'Acme', designation: 'Manager', remarks: 'note' });
+    // Back to Ahmed (Acme): the shared guest keeps its designation.
+    expect(back.after).toMatchObject({ company: 'Acme', designation: 'Lead', remarks: 'note' });
     expect((await prisma.taskExternalContact.findUnique({ where: { id: back.after.id } }))?.guestId).toBe(g.id);
   });
 
@@ -245,7 +245,7 @@ describe('the old external-contact way in (Android app, extension) works on gues
 
   it('a new task sent with contacts links guests in the same write', async () => {
     const tasks = createPrismaTaskRepository(prisma);
-    const made = await tasks.create({ key: `GN-${Date.now()}`, title: 'From the app', projectId: p1, columnId: todo, createdById: owner, externalContacts: [{ name: 'Ahmed', ...none, company: 'OXY' }] });
+    const made = await tasks.create({ key: `GN-${Date.now()}`, title: 'From the app', projectId: p1, columnId: todo, createdById: owner, externalContacts: [{ name: 'Ahmed', ...none, company: 'Acme' }] });
     const rows = await prisma.taskExternalContact.findMany({ where: { taskId: made.id } });
     expect(rows).toHaveLength(1);
     expect(rows[0]!.guestId).toBeTruthy();
@@ -260,17 +260,17 @@ describe('today’s external contacts become guests', () => {
     const t1 = await task(p1, todo, { assignees: [owner] });
     const t2 = await task(p2, (await prisma.kanbanColumn.findFirstOrThrow({ where: { projectId: p2 } })).id, { assignees: [owner] });
     const t3 = await task(pB, todoB, { assignees: [owner] });
-    await legacyRow(t1, { name: 'Ahmed Al Harthy', company: 'OXY', remarks: 'site lead on t1' }, 0, new Date('2026-10-01T00:00:00Z'));
-    await legacyRow(t2, { name: 'ahmed  al harthy', phone: '+968 9912 3456', email: 'ahmed@oxy.com', company: 'oxy', designation: 'Engineer' }, 0, new Date('2026-10-02T00:00:00Z'));
+    await legacyRow(t1, { name: 'Ahmed Al Harthy', company: 'Acme', remarks: 'site lead on t1' }, 0, new Date('2026-10-01T00:00:00Z'));
+    await legacyRow(t2, { name: 'ahmed  al harthy', phone: '+968 9912 3456', email: 'ahmed@acme.com', company: 'acme', designation: 'Engineer' }, 0, new Date('2026-10-02T00:00:00Z'));
     await legacyRow(t1, { name: 'AHMED AL HARTHY', phone: '96899123456', email: 'a.harthy@gmail.com' }, 1, new Date('2026-10-03T00:00:00Z'));
-    await legacyRow(t1, { name: 'Sara', company: 'OXY', email: 'ahmed@oxy.com' }, 2);
-    await legacyRow(t3, { name: 'Ahmed Al Harthy', company: 'OXY' });
+    await legacyRow(t1, { name: 'Sara', company: 'Acme', email: 'ahmed@acme.com' }, 2);
+    await legacyRow(t3, { name: 'Ahmed Al Harthy', company: 'Acme' });
     const r = await convert();
     expect(r).toMatchObject({ rows: 5, guestsMade: 3 });
     const listA = await guests.adminList({ companyId: COMPANIES[0] });
     expect(listA.map((g) => g.name)).toEqual(['ahmed  al harthy', 'Sara']);
     const ahmed = listA[0]!;
-    expect(ahmed).toMatchObject({ company: 'oxy', email: 'ahmed@oxy.com', phone: '+968 9912 3456', designation: 'Engineer', taskCount: 2 });
+    expect(ahmed).toMatchObject({ company: 'acme', email: 'ahmed@acme.com', phone: '+968 9912 3456', designation: 'Engineer', taskCount: 2 });
     expect(ahmed.notes).toMatch(/Also recorded: email a\.harthy@gmail\.com \(G-\d+/);
     // t1 had Ahmed twice: one row stays, its remarks kept; every row shows the guest's details.
     const t1Rows = await prisma.taskExternalContact.findMany({ where: { taskId: t1 }, orderBy: { position: 'asc' } });
@@ -281,12 +281,12 @@ describe('today’s external contacts become guests', () => {
   });
 
   it('joins an existing guest of the list, and open tasks with no team member get their creator', async () => {
-    const g = await guests.createForProject(p1, { name: 'Ahmed', company: 'OXY' }, owner);
+    const g = await guests.createForProject(p1, { name: 'Ahmed', company: 'Acme' }, owner);
     const open = await task(p1, todo, { createdById: other });
     const finished = await task(p1, done);
     const binned = await task(p1, todo);
     await prisma.task.update({ where: { id: binned }, data: { deletedAt: new Date() } });
-    for (const t of [open, finished, binned]) await legacyRow(t, { name: 'ahmed', company: 'OXY' });
+    for (const t of [open, finished, binned]) await legacyRow(t, { name: 'ahmed', company: 'Acme' });
     const r = await convert();
     expect(r).toMatchObject({ rows: 3, guestsMade: 0, responsible: 1 });
     expect(await prisma.taskExternalContact.count({ where: { guestId: g.id } })).toBe(3);
@@ -295,8 +295,8 @@ describe('today’s external contacts become guests', () => {
   });
 
   it('notes name each other detail once', () => {
-    expect(alsoRecorded({ name: 'A', company: 'OXY', designation: null, email: 'a@x.co', phone: null }, [
-      { name: 'A', company: ' oxy', designation: null, email: 'b@x.co', phone: '1', task: { key: 'R-1' } },
+    expect(alsoRecorded({ name: 'A', company: 'Acme', designation: null, email: 'a@x.co', phone: null }, [
+      { name: 'A', company: ' acme', designation: null, email: 'b@x.co', phone: '1', task: { key: 'R-1' } },
       { name: 'A', company: null, designation: 'Lead', email: 'B@x.co', phone: null, task: { key: 'R-2' } },
     ] as never)).toBe('Also recorded: email b@x.co (R-1); phone 1 (R-1); designation Lead (R-2)');
   });

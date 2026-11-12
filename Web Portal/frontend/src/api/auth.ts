@@ -23,7 +23,7 @@ export interface SignInChallenge {
   /** Sent back with the code (or to ask for another). Kept in memory only. */
   token: string;
   kind: 'VERIFY_EMAIL';
-  /** "a•••@oxy.com" */
+  /** "a•••@acme.com" */
   sentTo: string;
   /** False when signing in again reused the open step: the code already sent still works. */
   codeSent: boolean;

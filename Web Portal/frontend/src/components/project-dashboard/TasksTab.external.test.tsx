@@ -18,7 +18,7 @@ const groups = [
     name: 'To Do',
     color: '#3A6EA5',
     tasks: [
-      task('1', 'Rig inspection', { guests: [{ id: 'g1', name: 'Ahmed Al Said', company: 'OXY' }, { id: 'g2', name: 'Sara Nasser', company: 'PDO' }], categories: [ELEC, HSE] }),
+      task('1', 'Rig inspection', { guests: [{ id: 'g1', name: 'Ahmed Al Said', company: 'Acme' }, { id: 'g2', name: 'Sara Nasser', company: 'PDO' }], categories: [ELEC, HSE] }),
       task('2', 'Internal only', { guests: [], categories: [HSE] }),
       task('3', 'Old row', { externalSummary: { count: 1, name: 'Salim', company: 'Petrogas', names: ['Salim'], companies: ['Petrogas'] } }),
     ],
@@ -29,7 +29,7 @@ const renderTab = () => render(<TasksTab groups={groups} today="2026-10-31" time
 describe('project Tasks tab: guests and categories', () => {
   it('each row says who outside the company is named on it (an older server’s row from its contacts in short)', () => {
     renderTab();
-    expect(screen.getByText('Guest: Ahmed Al Said (OXY) and 1 more')).toBeInTheDocument();
+    expect(screen.getByText('Guest: Ahmed Al Said (Acme) and 1 more')).toBeInTheDocument();
     expect(screen.getByText('Guest: Salim (Petrogas)')).toBeInTheDocument();
     expect(screen.queryByText(/^External:/)).toBeNull();
   });
