@@ -1917,6 +1917,9 @@ async function main(): Promise<void> {
     people: dailyEmailSources.people,
     // Their tasks, their day's meetings and the projects they run; also how many tasks wait for their approval.
     tasks: { ...dailyEmailSources.tasks, awaitingApproval: (userId) => approvalSource.countFor(userId) },
+    // The redesign: This week and Done this week run on the person's own week start, else their
+    // primary company's, else the site's (design call 4).
+    weekStartOf: async (userId) => (await companyTime.calendarOf(userId)).weekStart,
     // companies: one email per person, under their primary company's brand and sender name (MC1 Task 16).
     send: (to, content, template, opts) => emailService.sendPrepared(template, to, content, opts),
     emailOptions: documentBrands.email.person,

@@ -12,13 +12,13 @@ let ada = '';
 let bo = '';
 
 async function cleanup() {
-  const projects = await prisma.project.findMany({ where: { code: { in: ['DMOPEN', 'DMOLD', 'DMRUN', 'DMOTHER'] } }, select: { id: true } });
+  const projects = await prisma.project.findMany({ where: { code: { in: ['DMOPEN', 'DMOLD', 'DMRUN', 'DMOTHER', 'DMFAR', 'DMDONE', 'DMWEIGHT', 'DMTEAM', 'DMCLOSED'] } }, select: { id: true } });
   const ids = projects.map((p) => p.id);
   await prisma.meeting.deleteMany({ where: { title: { startsWith: 'DM meeting' } } });
   await prisma.task.deleteMany({ where: { projectId: { in: ids } } });
   await prisma.kanbanColumn.deleteMany({ where: { projectId: { in: ids } } });
   await prisma.project.deleteMany({ where: { id: { in: ids } } });
-  await prisma.company.deleteMany({ where: { code: { in: ['DMOTHERCO', 'DMSHUTCO'] } } });
+  await prisma.company.deleteMany({ where: { code: { in: ['DMOTHERCO', 'DMSHUTCO', 'DMFARCO'] } } });
   await prisma.user.deleteMany({ where: { email: { in: EMAILS } } });
 }
 beforeAll(async () => {
@@ -62,14 +62,17 @@ describe('Daily email sources (integration)', () => {
     const people = (await sources.people.list()).filter((p) => EMAILS.includes(p.email ?? ''));
     expect(people.map((p) => p.email).sort()).toEqual([EMAILS[0], EMAILS[1]]);
     const a = people.find((p) => p.id === ada)!;
-    expect(a).toMatchObject({ name: 'Ada Test', username: 'dm-ada', timeZone: 'Asia/Kolkata', prefs: { dailyEmails: { pending: true, completed: false, time: '07:00' } } });
+    expect(a).toMatchObject({ name: 'Ada Test', username: 'dm-ada', timeZone: 'Asia/Kolkata', weekStart: null, prefs: { dailyEmails: { pending: true, completed: false, time: '07:00' } } });
     expect((await sources.people.find(bo))?.timeZone).toBeNull();
+    // Redesign: their own week start (Settings), for This week and Done this week.
+    await prisma.user.update({ where: { id: bo }, data: { weekStart: 1 } });
+    expect((await sources.people.find(bo))?.weekStart).toBe(1);
   });
 
   it('pending: only the person’s own open tasks in projects still going', async () => {
     const tasks = await sources.tasks.pending(ada);
     expect(tasks.map((t) => t.key).sort()).toEqual(['DM-1', 'DM-2']);
-    expect(tasks.find((t) => t.key === 'DM-1')).toMatchObject({ title: 'Task 1', priority: 'HIGH', statusLabel: 'Doing', completedAt: null });
+    expect(tasks.find((t) => t.key === 'DM-1')).toMatchObject({ title: 'Task 1', priority: 'HIGH', statusLabel: 'Doing', statusKind: 'IN_PROGRESS', completedAt: null, boardDate: null });
     // The project as the email heads its section: details, its manager's name, colour and picture.
     expect(tasks.find((t) => t.key === 'DM-1')!.project).toEqual({
       id: expect.any(String),
@@ -111,25 +114,21 @@ describe('Daily email sources (integration)', () => {
 describe('Daily email sources, 1.22: the card’s details, the day’s meetings, the projects the person runs (integration)', () => {
   const byKey = async (key: string) => prisma.task.findFirstOrThrow({ where: { key, project: { code: { in: ['DMOPEN', 'DMOLD'] } } } });
 
-  it('pending: description, start, checklist, the latest update (the newer of the newest comment and change), blocked', async () => {
+  it('pending: start, the day it is on the board (a later day: it waits), checklist (every level of a nested one), blocked', async () => {
     const [dm1, dm2, dm3, dm4] = await Promise.all(['DM-1', 'DM-2', 'DM-3', 'DM-4'].map(byKey));
-    await prisma.task.update({ where: { id: dm1!.id }, data: { description: 'Fix the pump', startDate: new Date('2026-10-15T00:00:00Z') } });
-    await prisma.checklistItem.createMany({ data: [{ taskId: dm1!.id, text: 'a', done: true }, { taskId: dm1!.id, text: 'b' }, { taskId: dm1!.id, text: 'c', done: true }] });
-    await prisma.comment.create({ data: { taskId: dm1!.id, userId: bo, body: 'An older comment', createdAt: new Date('2026-10-18T08:00:00Z') } });
-    await prisma.activity.create({ data: { taskId: dm1!.id, projectId: dm1!.projectId, userId: bo, action: 'MOVED', meta: { from: 'To Do', to: 'Doing' }, createdAt: new Date('2026-10-19T08:00:00Z') } });
-    await prisma.comment.create({ data: { taskId: dm1!.id, userId: bo, body: 'Removed', createdAt: new Date('2026-10-20T08:00:00Z'), deletedAt: new Date() } });
+    const later = new Date('2026-11-20T12:00:00Z');
+    await prisma.task.update({ where: { id: dm1!.id }, data: { startDate: new Date('2026-10-15T00:00:00Z'), boardDate: later } });
+    const a = await prisma.checklistItem.create({ data: { taskId: dm1!.id, text: 'a' } });
+    await prisma.checklistItem.createMany({ data: [{ taskId: dm1!.id, text: 'a1', parentId: a.id, done: true }, { taskId: dm1!.id, text: 'a2', parentId: a.id }, { taskId: dm1!.id, text: 'b', done: true }] });
     // DM-2 waits on DM-3 (not done): blocked. DM-1 waits on DM-4 (done): not.
     await prisma.taskDependency.createMany({ data: [{ taskId: dm2!.id, dependsOnTaskId: dm3!.id }, { taskId: dm1!.id, dependsOnTaskId: dm4!.id }] });
-    await prisma.comment.create({ data: { taskId: dm2!.id, userId: bo, body: 'The newest   words\n here', createdAt: new Date('2026-10-20T09:00:00Z') } });
-    await prisma.activity.create({ data: { taskId: dm2!.id, projectId: dm2!.projectId, userId: ada, action: 'UPDATED', meta: {}, createdAt: new Date('2026-10-19T09:00:00Z') } });
 
     const tasks = await sources.tasks.pending(ada);
     const one = tasks.find((t) => t.key === 'DM-1')!;
-    expect(one).toMatchObject({ description: 'Fix the pump', startDate: new Date('2026-10-15T00:00:00Z'), checklist: { done: 2, total: 3 }, blocked: false });
-    expect(one.latest).toEqual({ text: 'Bo Test moved this task (To Do → Doing)', at: new Date('2026-10-19T08:00:00Z') });
+    // The sub-items count, not their parent: a1 done, a2 not, b done.
+    expect(one).toMatchObject({ startDate: new Date('2026-10-15T00:00:00Z'), boardDate: later, checklist: { done: 2, total: 3 }, blocked: false });
     const two = tasks.find((t) => t.key === 'DM-2')!;
-    expect(two).toMatchObject({ blocked: true, checklist: null, description: null, startDate: null });
-    expect(two.latest).toEqual({ text: 'Bo Test: “The newest words here”', at: new Date('2026-10-20T09:00:00Z') });
+    expect(two).toMatchObject({ blocked: true, checklist: null, startDate: null });
   });
 
   it('Duplicate Task: a "duplicated from / as" history line is never the latest update (it names another task, maybe in a project the reader can’t open)', async () => {
@@ -137,8 +136,9 @@ describe('Daily email sources, 1.22: the card’s details, the day’s meetings,
     await prisma.activity.create({ data: { taskId: dm1.id, projectId: dm1.projectId, userId: bo, action: 'DUPLICATED', meta: { copyTaskId: 'hidden-copy', copyKey: 'HIDDEN-9' }, createdAt: new Date('2026-10-21T08:00:00Z') } });
     await prisma.activity.create({ data: { taskId: dm1.id, projectId: dm1.projectId, userId: bo, action: 'DUPLICATED_FROM', meta: { fromTaskId: 'hidden-original', fromKey: 'HIDDEN-3' }, createdAt: new Date('2026-10-21T09:00:00Z') } });
     const one = (await sources.tasks.pending(ada)).find((t) => t.key === 'DM-1')!;
-    expect(one.latest?.text ?? '').not.toContain('HIDDEN');
-    expect(one.latest?.text ?? '').not.toMatch(/duplicated/i);
+    // The redesign has no "latest update" line at all (ruling R8): nothing about another task can come through.
+    expect(one).not.toHaveProperty('latest');
+    expect(JSON.stringify(one)).not.toContain('HIDDEN');
   });
 
   it('meetings: those the person organizes or is invited to and hasn’t declined, starting in the window — not drafts, cancelled, deleted or archived projects’', async () => {
@@ -200,3 +200,170 @@ describe('Daily email sources, 1.22: the card’s details, the day’s meetings,
     expect(await sources.tasks.managed('nobody', now)).toEqual([]);
   });
 });
+
+describe('Daily email sources, the redesign: the week\u2019s figures and the projects the person runs (integration)', () => {
+  const byKey = async (key: string) => prisma.task.findFirstOrThrow({ where: { key, project: { code: { in: ['DMOPEN', 'DMOLD'] } } } });
+  const now = new Date('2026-11-04T02:00:00Z'); // 06:00, Wed 4 Nov in Muscat
+
+  it('the week: the person\u2019s tasks due in the range, done or not (a Done column or a completion), and when theirs were completed', async () => {
+    const day = (k: string) => new Date(`${k}T00:00:00Z`);
+    const [dm1, dm2, dm3, dm4, dm5, dm6, dm7] = await Promise.all(['DM-1', 'DM-2', 'DM-3', 'DM-4', 'DM-5', 'DM-6', 'DM-7'].map(byKey));
+    await prisma.task.update({ where: { id: dm1!.id }, data: { dueDate: day('2026-11-03') } }); // hers, open
+    await prisma.task.update({ where: { id: dm2!.id }, data: { dueDate: day('2026-11-06') } }); // hers (shared), open
+    await prisma.task.update({ where: { id: dm3!.id }, data: { dueDate: day('2026-11-05') } }); // Bo's only
+    await prisma.task.update({ where: { id: dm4!.id }, data: { dueDate: day('2026-11-02'), completedAt: new Date('2026-11-02T09:00:00Z') } }); // hers, done
+    await prisma.task.update({ where: { id: dm5!.id }, data: { dueDate: day('2026-12-01'), completedAt: new Date('2026-10-25T09:00:00Z') } }); // done long ago, due later
+    await prisma.task.update({ where: { id: dm6!.id }, data: { dueDate: day('2026-11-04'), completedAt: new Date('2026-11-03T09:00:00Z') } }); // deleted
+    await prisma.task.update({ where: { id: dm7!.id }, data: { dueDate: day('2026-11-04'), completedAt: new Date('2026-11-03T09:00:00Z') } }); // archived project
+
+    const week = await sources.tasks.weekFigures(ada, { dueFrom: day('2026-10-31'), dueTo: day('2026-11-09'), doneFrom: new Date('2026-10-20T20:00:00Z'), now });
+    expect(week.due.map((r) => [r.dueDate.toISOString().slice(0, 10), r.done]).sort()).toEqual([
+      ['2026-11-02', true],
+      ['2026-11-03', false],
+      ['2026-11-06', false],
+    ]);
+    expect(week.completions.map((d) => d.toISOString()).sort()).toEqual(['2026-10-25T09:00:00.000Z', '2026-11-02T09:00:00.000Z']);
+    // Nothing of anyone else's.
+    const bos = await sources.tasks.weekFigures(bo, { dueFrom: day('2026-10-31'), dueTo: day('2026-11-09'), doneFrom: new Date('2026-10-20T20:00:00Z'), now });
+    expect(bos.due.map((r) => r.dueDate.toISOString().slice(0, 10)).sort()).toEqual(['2026-11-05', '2026-11-06']);
+    expect(bos.completions).toEqual([]);
+  });
+
+  it('the projects the person runs (owner, named manager, MANAGER member) — with completion, open, overdue by their day, and waiting for approval', async () => {
+    const open = await prisma.project.findFirstOrThrow({ where: { code: 'DMOPEN' } });
+    const doing = await prisma.kanbanColumn.findFirstOrThrow({ where: { projectId: open.id, category: 'IN_PROGRESS' } });
+    // DMOPEN now: DM-1 (due 19 Oct: late), DM-2, DM-3 open; DM-4, DM-5 done; DM-6 deleted; DM-8 nobody's.
+    await prisma.task.create({ data: { key: 'DM-30', title: 'Waiting', projectId: open.id, columnId: doing.id, createdById: bo, needsApproval: true, approvalRequestedAt: new Date('2026-11-02T08:00:00Z'), dueDate: new Date('2026-10-01T00:00:00Z') } });
+    // Due at 01:00 on 4 Nov in Muscat (today: not late) — 21:00 on 3 Nov in London (late there).
+    await prisma.task.create({ data: { key: 'DM-31', title: 'Due in the night', projectId: open.id, columnId: doing.id, createdById: bo, dueDate: new Date('2026-11-03T21:00:00Z') } });
+    // Late, but waiting for a later start day (scheduled for the future): not overdue today.
+    await prisma.task.create({ data: { key: 'DM-32', title: 'Starts later', projectId: open.id, columnId: doing.id, createdById: bo, dueDate: new Date('2026-11-01T00:00:00Z'), boardDate: new Date('2026-11-09T12:00:00Z') } });
+    // Bo runs this one, not Ada.
+    await prisma.project.create({ data: { code: 'DMFAR', name: 'Project DMFAR', status: 'ACTIVE', createdById: bo, ownerId: bo } });
+    // A project Ada ran that is completed: not hers to watch now.
+    await prisma.project.create({ data: { code: 'DMDONE', name: 'Project DMDONE', status: 'COMPLETED', createdById: ada, ownerId: ada } });
+    await runBackfill(prisma);
+
+    const mine = await sources.tasks.projectFigures(ada, { now, timeZone: 'Asia/Muscat', companyTimeZone: 'Asia/Muscat' });
+    expect(mine.map((f) => f.project.code)).toEqual(['DMOPEN']); // DMOLD archived, DMDONE completed, DMFAR Bo's
+    // Its 9 live tasks: DM-1, 2, 3, 4, 5, 8, 30, 31, 32 (DM-6 deleted); done: DM-4, DM-5.
+    // Overdue: DM-1 only (DM-30 waits for approval, DM-31 is due today here, DM-32 waits for its start day).
+    expect(mine[0]).toMatchObject({ total: 9, done: 2, pct: 22, open: 7, overdue: 1, waiting: 1, project: { code: 'DMOPEN', name: 'Project DMOPEN' } });
+    // In London DM-31 was due yesterday evening: late there.
+    expect((await sources.tasks.projectFigures(ada, { now, timeZone: 'Europe/London', companyTimeZone: 'Asia/Muscat' }))[0]!.overdue).toBe(2);
+    // Bo is DMOPEN's named manager and DMFAR's owner.
+    expect((await sources.tasks.projectFigures(bo, { now, timeZone: 'Asia/Muscat', companyTimeZone: 'Asia/Muscat' })).map((f) => f.project.code)).toEqual(['DMFAR', 'DMOPEN']);
+    // Someone who runs nothing: nothing.
+    expect(await sources.tasks.projectFigures('nobody', { now, timeZone: 'Asia/Muscat', companyTimeZone: 'Asia/Muscat' })).toEqual([]);
+  });
+
+  it('privacy: never a project the person can\u2019t see — one they run in a company they left is left out; an administrator gets only the projects they run, not the site\u2019s', async () => {
+    const farCo = await prisma.company.create({ data: { name: 'DM Far Co', code: 'DMFARCO' } });
+    // Ada owns DMFAR, but it is only in a company she isn't in.
+    await prisma.project.create({ data: { code: 'DMFAR', name: 'Project DMFAR', status: 'ACTIVE', createdById: bo, ownerId: ada, mainCompanyId: farCo.id, companies: { create: { companyId: farCo.id } } } });
+    expect((await sources.tasks.projectFigures(ada, { now, timeZone: 'Asia/Muscat', companyTimeZone: 'Asia/Muscat' })).map((f) => f.project.code)).toEqual(['DMOPEN']);
+    // Losing her company takes DMOPEN out too.
+    await prisma.companyMember.deleteMany({ where: { userId: ada } });
+    expect(await sources.tasks.projectFigures(ada, { now, timeZone: 'Asia/Muscat', companyTimeZone: 'Asia/Muscat' })).toEqual([]);
+    // Bo as an administrator: every company — but still only the projects he runs (DMOPEN), never DMFAR or DMOLD.
+    const admin = await prisma.role.upsert({ where: { name: 'ADMIN' }, update: {}, create: { name: 'ADMIN' } });
+    await prisma.userRole.create({ data: { userId: bo, roleId: admin.id } });
+    expect((await sources.tasks.projectFigures(bo, { now, timeZone: 'Asia/Muscat', companyTimeZone: 'Asia/Muscat' })).map((f) => f.project.code)).toEqual(['DMOPEN']);
+  });
+
+  it('a project counted by weight shows its weighted completion', async () => {
+    const w = await prisma.project.create({ data: { code: 'DMWEIGHT', name: 'Project DMWEIGHT', status: 'ACTIVE', createdById: ada, ownerId: ada, completionMode: 'WEIGHT' } });
+    const todo = await prisma.kanbanColumn.create({ data: { projectId: w.id, name: 'To do', category: 'TODO', position: 0 } });
+    const done = await prisma.kanbanColumn.create({ data: { projectId: w.id, name: 'Done', category: 'DONE', position: 1 } });
+    await prisma.task.create({ data: { key: 'DMW-1', title: 'Heavy, done', projectId: w.id, columnId: done.id, createdById: ada, weight: 9, completedAt: now } });
+    await prisma.task.create({ data: { key: 'DMW-2', title: 'Light, open', projectId: w.id, columnId: todo.id, createdById: ada, weight: 1 } });
+    await runBackfill(prisma);
+    const f = (await sources.tasks.projectFigures(ada, { now, timeZone: 'Asia/Muscat', companyTimeZone: 'Asia/Muscat' })).find((x) => x.project.code === 'DMWEIGHT')!;
+    expect(f).toMatchObject({ pct: 90, done: 1, total: 2, open: 1 });
+  });
+
+  it('review: a MANAGER member runs the project; a plain team member doesn\u2019t — and board days are the company\u2019s days', async () => {
+    const run = await prisma.project.create({ data: { code: 'DMRUN', name: 'Project DMRUN', status: 'ACTIVE', createdById: bo, members: { create: [{ userId: ada, role: 'MANAGER' }] } } });
+    await prisma.project.create({ data: { code: 'DMTEAM', name: 'Project DMTEAM', status: 'ACTIVE', createdById: bo, ownerId: bo, members: { create: [{ userId: ada }] } } });
+    const col = await prisma.kanbanColumn.create({ data: { projectId: run.id, name: 'Doing', category: 'IN_PROGRESS', position: 0 } });
+    // Late, on the company's today's board (4 Nov in Muscat): late for someone in New York too, where it is still 3 Nov.
+    await prisma.task.create({ data: { key: 'DM-40', title: 'Late, on today\u2019s board', projectId: run.id, columnId: col.id, createdById: bo, dueDate: new Date('2026-10-30T00:00:00Z'), boardDate: new Date('2026-11-04T12:00:00Z') } });
+    await runBackfill(prisma);
+    const codes = (await sources.tasks.projectFigures(ada, { now, timeZone: 'Asia/Muscat', companyTimeZone: 'Asia/Muscat' })).map((f) => f.project.code);
+    expect(codes).toContain('DMRUN');
+    expect(codes).not.toContain('DMTEAM');
+    const ny = await sources.tasks.projectFigures(ada, { now, timeZone: 'America/New_York', companyTimeZone: 'Asia/Muscat' });
+    expect(ny.find((f) => f.project.code === 'DMRUN')!.overdue).toBe(1);
+  });
+
+  it('review: the week\u2019s due tasks leave out open tasks of a completed project (they are in no list) but keep its done ones', async () => {
+    const closed = await prisma.project.create({ data: { code: 'DMCLOSED', name: 'Project DMCLOSED', status: 'COMPLETED', createdById: ada, ownerId: ada } });
+    const todo = await prisma.kanbanColumn.create({ data: { projectId: closed.id, name: 'To do', category: 'TODO', position: 0 } });
+    const done = await prisma.kanbanColumn.create({ data: { projectId: closed.id, name: 'Done', category: 'DONE', position: 1 } });
+    const due = new Date('2026-11-05T00:00:00Z');
+    await prisma.task.create({ data: { key: 'DMC-1', title: 'Open, closed project', projectId: closed.id, columnId: todo.id, createdById: ada, dueDate: due, assignees: { create: [{ userId: ada }] } } });
+    await prisma.task.create({ data: { key: 'DMC-2', title: 'Done, closed project', projectId: closed.id, columnId: done.id, createdById: ada, dueDate: due, completedAt: now, assignees: { create: [{ userId: ada }] } } });
+    await runBackfill(prisma);
+    const week = await sources.tasks.weekFigures(ada, { dueFrom: new Date('2026-10-31T00:00:00Z'), dueTo: new Date('2026-11-09T00:00:00Z'), doneFrom: new Date('2026-10-20T20:00:00Z'), now });
+    expect(week.due.filter((r) => r.dueDate.getTime() === due.getTime()).map((r) => r.done)).toEqual([true]);
+  });
+});
+
+describe('Daily email sources after the merge: the task archive, guests and categories (integration)', () => {
+  const byKey = async (key: string) => prisma.task.findFirstOrThrow({ where: { key, project: { code: { in: ['DMOPEN', 'DMOLD'] } } } });
+  const now = new Date('2026-11-04T02:00:00Z');
+  const day = (k: string) => new Date(`${k}T00:00:00Z`);
+  const archive = (id: string) => prisma.task.update({ where: { id }, data: { archivedAt: new Date('2026-11-03T08:00:00Z'), archivedById: ada } });
+
+  it('an archived OPEN task is in no list and no figure; an archived DONE task still counts in the week and the project\u2019s bar', async () => {
+    const [dm1, dm2, dm4] = await Promise.all(['DM-1', 'DM-2', 'DM-4'].map(byKey));
+    // DM-1 (hers, open, late) archived; DM-4 (hers, done) archived; DM-2 (hers, open) not.
+    await prisma.task.update({ where: { id: dm2!.id }, data: { dueDate: day('2026-11-05') } });
+    await prisma.task.update({ where: { id: dm4!.id }, data: { dueDate: day('2026-11-03'), completedAt: new Date('2026-11-03T09:00:00Z') } });
+    await prisma.task.update({ where: { id: dm1!.id }, data: { dueDate: day('2026-11-02') } });
+    await archive(dm1!.id);
+    await archive(dm4!.id);
+
+    expect((await sources.tasks.pending(ada)).map((t) => t.key)).toEqual(['DM-2']);
+    // Bo runs DMOPEN (named manager): Ada's archived late task is not in his list of others' late tasks.
+    expect((await sources.tasks.managed(bo, now)).map((t) => t.key)).not.toContain('DM-1');
+    const week = await sources.tasks.weekFigures(ada, { dueFrom: day('2026-10-31'), dueTo: day('2026-11-09'), doneFrom: new Date('2026-10-20T20:00:00Z'), now });
+    expect(week.due.map((r) => [r.dueDate.toISOString().slice(0, 10), r.done]).sort()).toEqual([['2026-11-03', true], ['2026-11-05', false]]);
+    expect(week.completions.map((d) => d.toISOString())).toContain('2026-11-03T09:00:00.000Z');
+    // Completed yesterday is a list: an archived task isn't in it.
+    expect((await sources.tasks.completedBetween(ada, new Date('2026-11-03T00:00:00Z'), now)).map((t) => t.key)).not.toContain('DM-4');
+
+    const f = (await sources.tasks.projectFigures(ada, { now, timeZone: 'Asia/Muscat', companyTimeZone: 'Asia/Muscat' })).find((x) => x.project.code === 'DMOPEN')!;
+    // DMOPEN: DM-1 (archived open: out), DM-2, DM-3, DM-8 open; DM-4 (archived done: counted), DM-5 done; DM-6 deleted.
+    expect(f).toMatchObject({ total: 5, done: 2, open: 3, overdue: 0 });
+  });
+
+  it('an archived task no longer blocks the task that depends on it', async () => {
+    const [dm2, dm3] = await Promise.all(['DM-2', 'DM-3'].map(byKey));
+    await prisma.taskDependency.create({ data: { taskId: dm2!.id, dependsOnTaskId: dm3!.id } });
+    expect((await sources.tasks.pending(ada)).find((t) => t.key === 'DM-2')!.blocked).toBe(true);
+    await archive(dm3!.id);
+    expect((await sources.tasks.pending(ada)).find((t) => t.key === 'DM-2')!.blocked).toBe(false);
+  });
+
+  it('guests (name and company only) and categories (by their place, with their colour) on the person\u2019s tasks', async () => {
+    const dm2 = await byKey('DM-2');
+    await prisma.taskExternalContact.createMany({
+      data: [
+        { taskId: dm2!.id, name: 'Sara', company: null, email: 'sara@guest.test', phone: '+968 9000 0000', position: 1 },
+        { taskId: dm2!.id, name: 'Ahmed', company: 'OXY', email: 'ahmed@oxy.test', position: 0 },
+      ],
+    });
+    const open = await prisma.project.findFirstOrThrow({ where: { code: 'DMOPEN' } });
+    const hse = await prisma.projectCategory.create({ data: { projectId: open.id, name: 'HSE', nameKey: 'hse', color: '#2E7D53', position: 1 } });
+    const civil = await prisma.projectCategory.create({ data: { projectId: open.id, name: 'Civil', nameKey: 'civil', color: '#B87611', position: 0 } });
+    await prisma.taskCategory.createMany({ data: [{ taskId: dm2!.id, categoryId: hse.id }, { taskId: dm2!.id, categoryId: civil.id }] });
+    const t = (await sources.tasks.pending(ada)).find((x) => x.key === 'DM-2')!;
+    expect(t.guests).toEqual([{ name: 'Ahmed', company: 'OXY' }, { name: 'Sara', company: null }]);
+    expect(JSON.stringify(t)).not.toMatch(/@guest\.test|@oxy\.test|9000/);
+    expect(t.categories).toEqual([{ name: 'Civil', color: '#B87611' }, { name: 'HSE', color: '#2E7D53' }]);
+    await prisma.taskCategory.deleteMany({ where: { taskId: dm2!.id } });
+    await prisma.projectCategory.deleteMany({ where: { projectId: open.id } });
+  });
+});
+

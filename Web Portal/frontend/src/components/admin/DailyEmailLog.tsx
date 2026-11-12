@@ -21,6 +21,7 @@ import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { LoadError } from '../ui/LoadError';
 import { ModalPortal } from '../ui/ModalPortal';
 import { dialogLayer, dialogPanel } from '../ui/dialog-size';
+import { DailyEmailPreviewDialog, touchTarget } from '../settings/DailyEmailPreviewDialog';
 import {
   KIND_LABEL,
   KIND_NAME,
@@ -153,6 +154,8 @@ export function DailyEmailLog({ pollMs = POLL_MS }: { pollMs?: number } = {}) {
   // What the list shows, read out after each change the person makes to it (another page, a filter).
   const [asked, setAsked] = useState(0);
   const [listNote, setListNote] = useState('');
+  // "Preview my email": the administrator's own email, as it is now (the redesign's look, in the browser).
+  const [myPreview, setMyPreview] = useState(false);
   const isToday = !day || day === today;
   const q = useQuery({
     queryKey: [OVERVIEW_KEY, isToday ? 'today' : day],
@@ -261,11 +264,17 @@ export function DailyEmailLog({ pollMs = POLL_MS }: { pollMs?: number } = {}) {
 
   return (
     <section ref={sectionRef} id={DAILY_EMAILS_ANCHOR} className="card min-w-0 p-5 lg:col-span-2" aria-labelledby="daily-email-log-heading">
-      <h2 ref={headingRef} tabIndex={-1} id="daily-email-log-heading" className="eyebrow mb-1 outline-none">Daily email</h2>
+      <div className="mb-1 flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+        <h2 ref={headingRef} tabIndex={-1} id="daily-email-log-heading" className="eyebrow outline-none">Daily email</h2>
+        <Button variant="secondary" size="sm" className={touchTarget} onClick={() => setMyPreview(true)}>
+          Preview my email
+        </Button>
+      </div>
       <p className="mb-4 text-sm text-ink-2">
         The daily email each person gets every morning. A failed send is tried again after 5, 15 and 45 minutes before it counts as
         failed. Days are each person’s own calendar day; days before the one daily email also show the “Completed yesterday” email.
       </p>
+      {myPreview ? <DailyEmailPreviewDialog onClose={() => setMyPreview(false)} load={() => dailyEmailsApi(apiClient).myPreview()} queryKey="daily-email-my-preview" /> : null}
       {data?.emailEnabled === false ? (
         <p id={NOT_SET_UP_ID} className="mb-4 rounded-lg bg-warning-soft px-3 py-2 text-sm text-warning">
           Email isn’t set up on this server, so no daily emails are being sent. Add the email (Mailjet) keys to the server’s settings to start them.

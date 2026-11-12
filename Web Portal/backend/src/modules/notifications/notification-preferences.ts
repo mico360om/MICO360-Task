@@ -15,55 +15,96 @@ export interface NotificationPreferences extends DeliveryPrefFields {
 }
 
 /**
- * The daily email (1.22: one email, in parts) and when it goes (HH:MM in the person's own time zone).
- * `pending` and `completed` were the two morning emails before 1.22 and keep their names, so older
- * apps' switches still work: `pending` is the person's tasks grouped by project, `completed` the
- * "Recently completed" part.
+ * The daily email (1.22: one email, in parts; the redesign of Nov 2026 adds five) and when it goes
+ * (HH:MM in the person's own time zone). `pending` and `completed` were the two morning emails before
+ * 1.22 and keep their names, so older apps' switches still work: `pending` is now "Other open tasks"
+ * (the person's open tasks not due soon, by project), `completed` the "Completed yesterday" part.
  */
 export interface DailyEmailPrefs {
-  /** "Your tasks": the person's open tasks, grouped by project. */
+  /** "Other open tasks": the person's open tasks with no due date or due later, by project. */
   pending: boolean;
-  /** "Recently completed": their tasks completed since the last email. */
+  /** "Completed yesterday": their tasks completed since the last email. */
   completed: boolean;
   time: string;
-  /** "Today's schedule": their meetings and their tasks due at a time today. */
+  /** "Today's meetings": their meetings today, by time. */
   schedule: boolean;
-  /** "Overdue & urgent": their overdue and urgent tasks, at the top. */
+  /** "Overdue" and "Due today": their overdue tasks and those due today. */
   urgent: boolean;
-  /** "In your projects": overdue and waiting-for-approval tasks of the projects they run. */
+  /** Overdue and waiting-for-approval tasks of the projects they run, assigned to others. */
   managed: boolean;
+  /** "Today at a glance": the tiles (open, in progress, not started, overdue, done this week). */
+  glance: boolean;
+  /** "This week": this week's tasks done of due, and the tasks completed each day of the last week. */
+  week: boolean;
+  /** "By priority": their open tasks by priority. */
+  priority: boolean;
+  /** "Coming up": their tasks due in the next 7 days, and those waiting for a later start day. */
+  comingUp: boolean;
+  /** "Your projects": each project they run — completion, overdue tasks, tasks waiting for approval. */
+  projects: boolean;
 }
 
-/** As stored: settings saved before 1.22 have no `schedule`, `urgent` or `managed` (dailyEmailPrefs fills them in). */
-export type StoredDailyEmailPrefs = Pick<DailyEmailPrefs, 'pending' | 'completed' | 'time'> & Partial<Pick<DailyEmailPrefs, 'schedule' | 'urgent' | 'managed'>>;
+/** The parts of 1.22 (and before), as old apps and old saves know them. */
+export const OLD_DAILY_EMAIL_PARTS = ['schedule', 'urgent', 'pending', 'managed', 'completed'] as const;
+/** The redesign's parts: saves that don't have them fill them in from their matching old part. */
+export const NEW_DAILY_EMAIL_PARTS = ['glance', 'week', 'priority', 'comingUp', 'projects'] as const;
+type NewPart = (typeof NEW_DAILY_EMAIL_PARTS)[number];
+/** Each new part's old part: a person who turned that one off keeps the new one off too (design call 2). */
+export const NEW_PART_MATCH: Readonly<Record<NewPart, 'pending' | 'completed' | 'managed'>> = {
+  glance: 'pending',
+  priority: 'pending',
+  comingUp: 'pending',
+  week: 'completed',
+  projects: 'managed',
+};
+
+/** As stored: settings saved before 1.22 have no `schedule`, `urgent` or `managed`, and before the redesign none of its parts (dailyEmailPrefs fills them in). */
+export type StoredDailyEmailPrefs = Pick<DailyEmailPrefs, 'pending' | 'completed' | 'time'> & Partial<Omit<DailyEmailPrefs, 'pending' | 'completed' | 'time'>>;
 
 /** The parts, in the email's order. The email goes when at least one is on (and has something in it). */
-export const DAILY_EMAIL_PARTS = ['schedule', 'urgent', 'pending', 'managed', 'completed'] as const;
+export const DAILY_EMAIL_PARTS = ['glance', 'week', 'priority', 'urgent', 'comingUp', 'pending', 'schedule', 'completed', 'projects', 'managed'] as const;
 export type DailyEmailPart = (typeof DAILY_EMAIL_PARTS)[number];
 
 /** Everyone gets every part, at 06:00, until they choose otherwise. */
-export const DEFAULT_DAILY_EMAILS: DailyEmailPrefs = { pending: true, completed: true, time: '06:00', schedule: true, urgent: true, managed: true };
+export const DEFAULT_DAILY_EMAILS: DailyEmailPrefs = {
+  pending: true,
+  completed: true,
+  time: '06:00',
+  schedule: true,
+  urgent: true,
+  managed: true,
+  glance: true,
+  week: true,
+  priority: true,
+  comingUp: true,
+  projects: true,
+};
 
 /** Is the daily email on: any one part on. */
 export function dailyEmailOn(d: DailyEmailPrefs): boolean {
   return DAILY_EMAIL_PARTS.some((part) => d[part]);
 }
 
+const bool = (v: unknown): v is boolean => typeof v === 'boolean';
+
 /**
- * Fills in the parts settings saved before 1.22 don't have, keeping their meaning: "Overdue & urgent"
- * follows the old "Pending tasks" switch (it was the task list), and the new parts are on unless both
- * old emails were off — both off means no email.
+ * Fills in the parts older saves don't have, keeping their meaning. 1.22: "Overdue & urgent" follows the
+ * old "Pending tasks" switch (it was the task list), and the 1.22 parts are on unless both old emails
+ * were off — both off means no email. The redesign: each new part follows its matching part
+ * (NEW_PART_MATCH), so it is on unless the person turned that one off.
  */
-function withNewParts(d: { pending: boolean; completed: boolean; time: string; schedule?: unknown; urgent?: unknown; managed?: unknown }): DailyEmailPrefs {
+function withNewParts(d: { pending: boolean; completed: boolean; time: string } & Partial<Record<Exclude<DailyEmailPart, 'pending' | 'completed'>, unknown>>): DailyEmailPrefs {
   const wanted = d.pending || d.completed;
-  return {
+  const old = {
     pending: d.pending,
     completed: d.completed,
     time: d.time,
-    schedule: typeof d.schedule === 'boolean' ? d.schedule : wanted,
-    urgent: typeof d.urgent === 'boolean' ? d.urgent : d.pending,
-    managed: typeof d.managed === 'boolean' ? d.managed : wanted,
+    schedule: bool(d.schedule) ? d.schedule : wanted,
+    urgent: bool(d.urgent) ? d.urgent : d.pending,
+    managed: bool(d.managed) ? d.managed : wanted,
   };
+  const added = Object.fromEntries(NEW_DAILY_EMAIL_PARTS.map((k) => [k, bool(d[k]) ? d[k] : old[NEW_PART_MATCH[k]]])) as Record<NewPart, boolean>;
+  return { ...old, ...added };
 }
 
 /** A time of day as HH:MM (00:00–23:59). */
@@ -89,7 +130,7 @@ export function normalizePreferences(input: unknown): NotificationPreferences {
     out.reminderLeadMinutes = lead;
   }
   if (raw.dailyEmails && typeof raw.dailyEmails === 'object') {
-    const d = raw.dailyEmails as { pending?: unknown; completed?: unknown; time?: unknown; schedule?: unknown; urgent?: unknown; managed?: unknown };
+    const d = raw.dailyEmails as Record<string, unknown>;
     out.dailyEmails = withNewParts({
       ...d,
       pending: typeof d.pending === 'boolean' ? d.pending : DEFAULT_DAILY_EMAILS.pending,

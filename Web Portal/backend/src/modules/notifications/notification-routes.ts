@@ -5,7 +5,7 @@ import { KIND_KEYS } from './notification-kinds';
 import type { ListScope } from './notification-repository';
 import { NO_PICK, type PickOf } from '../companies/company-pick';
 import type { AuthGuard } from '../auth/auth-guard';
-import { dailyEmailOn, dailyEmailPrefs, normalizePreferences, weeklySummaryOn, DAILY_EMAIL_TIME, MAX_REMINDER_LEAD_MINUTES, type DailyEmailPrefs, type NotificationPreferences } from './notification-preferences';
+import { dailyEmailOn, dailyEmailPrefs, normalizePreferences, weeklySummaryOn, DAILY_EMAIL_TIME, MAX_REMINDER_LEAD_MINUTES, NEW_DAILY_EMAIL_PARTS, NEW_PART_MATCH, OLD_DAILY_EMAIL_PARTS, type DailyEmailPrefs, type NotificationPreferences } from './notification-preferences';
 import { legacyMutedView, mergeLegacyMuted, type NotificationPolicy } from '../notify-policy/policy';
 import { cleanBreakThrough, cleanChannels, cleanPauseUntil, cleanQuietHours, syncMutedWithChannels } from '../notify-policy/person-prefs';
 import { ValidationError } from '../../lib/http-errors';
@@ -23,6 +23,16 @@ const prefsSchema = z.object({
       schedule: z.boolean().optional(),
       urgent: z.boolean().optional(),
       managed: z.boolean().optional(),
+      // The redesign (Nov 2026): its five new parts.
+      glance: z.boolean().optional(),
+      week: z.boolean().optional(),
+      priority: z.boolean().optional(),
+      comingUp: z.boolean().optional(),
+      projects: z.boolean().optional(),
+      // The website since the redesign says it knows every part: its saves are taken as they are. Saves
+      // without it (the phone app, the extension, a 1.22 website tab still open — which sends back every
+      // part it read) have their new parts follow their old ones. Never stored.
+      knowsAllParts: z.literal(true).optional(),
     })
     .optional(),
   weeklySummary: z.boolean().optional(),
@@ -59,7 +69,7 @@ const bulkSchema = z.object({ ids: z.array(z.string().min(1).max(64)).min(1).max
  * 1.22 review: turned back on from no email at all, "Today's schedule" and "In your projects" come
  * back too (as an old app's settings read: on whenever either old email is) — not just the task list.
  */
-function dailyEmailsSaved(current: DailyEmailPrefs, sent: z.infer<typeof prefsSchema>['dailyEmails'] & object): DailyEmailPrefs {
+function oldAppSaved(current: DailyEmailPrefs, sent: DailySave): DailyEmailPrefs {
   const next = { ...current, ...sent };
   const older = sent.schedule === undefined && sent.urgent === undefined && sent.managed === undefined;
   // Only a switch the save changes means something (older apps send both, as they are, with the time).
@@ -74,6 +84,37 @@ function dailyEmailsSaved(current: DailyEmailPrefs, sent: z.infer<typeof prefsSc
     ...(backOn ? { schedule: true, managed: true } : {}),
     ...(off ? { schedule: false, urgent: false, managed: false } : {}),
   };
+}
+
+type DailySave = z.infer<typeof prefsSchema>['dailyEmails'] & object;
+
+/**
+ * The redesign: a save from an app or page that doesn't know the five new parts (the phone app, the
+ * extension, a 1.22 website still open — anything without `knowsAllParts`) moves each new part with its
+ * matching old part
+ * (NEW_PART_MATCH) — so turning every part it knows off still means no email, and turning "Pending
+ * tasks" off takes At a glance, By priority and Coming up with it. A save that changes no old part
+ * leaves the new parts as they are (a time change never turns them on or off).
+ */
+function dailyEmailsSaved(current: DailyEmailPrefs, saved: DailySave): DailyEmailPrefs {
+  const { knowsAllParts, ...sent } = saved;
+  if (knowsAllParts) return { ...current, ...sent };
+  // Review: a save that doesn't say it knows the new parts may still carry them (a 1.22 tab sends back
+  // what it read): they are left out, so they follow their old parts below.
+  for (const k of NEW_DAILY_EMAIL_PARTS) delete sent[k];
+  const next = oldAppSaved(current, sent);
+  const moved = (k: (typeof OLD_DAILY_EMAIL_PARTS)[number]) => next[k] !== current[k];
+  if (!OLD_DAILY_EMAIL_PARTS.some(moved)) return next;
+  const wasOff = !dailyEmailOn(current);
+  const follow = Object.fromEntries(
+    NEW_DAILY_EMAIL_PARTS.map((k) => {
+      const match = NEW_PART_MATCH[k];
+      return [k, wasOff || moved(match) ? next[match] : current[k]];
+    }),
+  );
+  const result = { ...next, ...follow };
+  // Every part it knows off: no email at all.
+  return OLD_DAILY_EMAIL_PARTS.some((k) => result[k]) ? result : { ...result, ...Object.fromEntries(NEW_DAILY_EMAIL_PARTS.map((k) => [k, false])) };
 }
 
 /** Preferences as the apps read them: the daily email settings and the weekly summary switch always filled in. */

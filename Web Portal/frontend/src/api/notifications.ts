@@ -1,3 +1,4 @@
+import type { DailyEmailMyPreview } from './daily-emails';
 import type { ApiClient, RequestOptions } from '../lib/api-client';
 import type { InboxCounts, NotificationKind } from '../lib/notification-inbox';
 
@@ -67,7 +68,9 @@ export interface PersonQuietHours {
 }
 
 /** A save: only what changed; `null` clears quiet hours, break-through or Pause (back to the company's / no pause). */
-export type NotificationPreferencesSave = Partial<Omit<NotificationPreferences, 'quietHours' | 'breakThrough' | 'pauseUntil' | 'reminderLeadMinutes'>> & {
+export type NotificationPreferencesSave = Partial<Omit<NotificationPreferences, 'quietHours' | 'breakThrough' | 'pauseUntil' | 'reminderLeadMinutes' | 'dailyEmails'>> & {
+  /** Release A: `knowsAllParts` — the save has every part of the daily email (this website), so the server takes them as they are. */
+  dailyEmails?: DailyEmailPrefs & { knowsAllParts?: true };
   /** null: no extra reminder. */
   reminderLeadMinutes?: number | null;
   quietHours?: PersonQuietHours | null;
@@ -76,21 +79,32 @@ export type NotificationPreferencesSave = Partial<Omit<NotificationPreferences, 
 };
 
 /**
- * The daily email (1.22: one email, in parts). `pending` (your tasks by project) and `completed`
- * (recently completed) keep the names of the two emails before it, so older apps still work.
+ * The daily email (1.22: one email, in parts; the redesign of Nov 2026 adds five). `pending` (other open
+ * tasks) and `completed` (completed yesterday) keep the names of the two emails before 1.22, so older apps
+ * still work.
  */
 export interface DailyEmailPrefs {
   pending: boolean;
   completed: boolean;
   time: string;
-  /** Today's schedule. */
+  /** Today's meetings. */
   schedule: boolean;
-  /** Overdue & urgent. */
+  /** Overdue and due today. */
   urgent: boolean;
-  /** In your projects (people who run a project). */
+  /** Others' overdue and waiting tasks (people who run a project). */
   managed: boolean;
+  /** Today at a glance (the tiles). */
+  glance: boolean;
+  /** This week (done of due, and the last 7 days). */
+  week: boolean;
+  /** By priority. */
+  priority: boolean;
+  /** Coming up (next 7 days, and tasks starting later). */
+  comingUp: boolean;
+  /** Your projects (people who run a project). */
+  projects: boolean;
 }
-export type DailyEmailPart = 'schedule' | 'urgent' | 'pending' | 'managed' | 'completed';
+export type DailyEmailPart = 'glance' | 'week' | 'priority' | 'urgent' | 'comingUp' | 'pending' | 'schedule' | 'completed' | 'projects' | 'managed';
 
 /** What "Send me a test" sent: an email with nothing in it isn't sent. `pending`/`completed` repeat `daily` for older apps. */
 export interface DailyEmailTestResult {
@@ -126,9 +140,14 @@ export function notificationsApi(client: ApiClient) {
     bulk: (ids: readonly string[], action: NotificationBulkAction, opts?: RequestOptions) =>
       client.post<{ data: { count: number } }>('/notifications/bulk', { ids, action }, opts).then((r) => r.data),
     getPreferences: () => client.get<{ data: NotificationPreferences }>('/notifications/preferences').then((r) => r.data),
-    /** Saves what is sent; daily email settings left out are kept as they are. */
+    /**
+     * Saves what is sent; daily email settings left out are kept as they are. `knowsAllParts`: the save
+     * has every part of the daily email (this website), so the server takes them as they are.
+     */
     setPreferences: (prefs: NotificationPreferencesSave) =>
       client.put<{ data: NotificationPreferences }>('/notifications/preferences', prefs).then((r) => r.data),
     sendDailyTest: () => client.post<{ data: DailyEmailTestResult }>('/notifications/daily-emails/test').then((r) => r.data),
+    /** "Preview my email": your own daily email as it would be sent now (the server only ever builds the caller's own). */
+    previewDailyEmail: () => client.get<{ data: DailyEmailMyPreview }>('/notifications/daily-emails/preview').then((r) => r.data),
   };
 }

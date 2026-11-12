@@ -70,6 +70,27 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   number back, and erases copies made by Duplicate at once. The people on the tasks get one notice for the
   whole change ("Sara assigned you 12 tasks in Rig 3"), open boards refresh once, and the Audit log keeps
   one line for it.
+- A new daily email: wider (720 px on a computer, fitting any phone), compact and clear, in the site's colour
+  scheme and readable in light and dark mode, in Outlook, Gmail and phone mail apps. It opens with **Today at a
+  glance** — your open, in progress, not started and overdue tasks and how many you finished this week (Overdue
+  turns red when anything is late) — then **This week** (how many of this week's tasks are done, with a bar, and
+  the tasks you finished each day of the last 7 days against the week before) beside **By priority** (urgent,
+  high, normal, low, each with a bar). Then **Overdue** ("3 days late", with a red edge), **Due today**
+  ("today 14:00"), **Coming up** (the next 7 days, and tasks that start on a later day) and **Other open tasks**
+  (the rest, by project — nothing is left out), **Today's meetings** and **Completed yesterday**. Every task shows
+  its number, title, project, status and priority (word and colour), its day, its categories and guests ("Guest:
+  Ahmed (OXY)") and, when it has one, its checklist ("4/7 · 57%" with a small bar). Archived tasks are left out
+  (a finished one you archived still counts in This week and Your projects). Your week starts on your own week start and every day and time is in your own
+  time zone.
+- For people who run projects (and administrators, for the projects they run): **Your projects** — each project's
+  completion bar (as the Projects page counts it), how many tasks are overdue and how many wait for your approval
+  — above the list of others' overdue and waiting tasks. Only projects you can see.
+- Settings → Daily email has a switch for every part, in the email's order. The five new parts are on; if you had
+  turned "Your tasks" or "Recently completed" off, the new parts that go with them stay off. The phone app's and
+  the extension's switches keep working as before.
+- **Preview my email**, for everyone in Settings → Daily email (next to "Send me a test") and for administrators
+  in System settings → Daily email: your own email as it would be sent now, at a computer's or a phone's width —
+  only ever your own; it works before email is set up, and sends nothing.
 - **Notification & Scheduling** (System Settings → Notification & Scheduling, per company): one place for
   working time (days, hours, week start; the site's time zone shown), holidays, reminders, escalations,
   inactivity, quiet hours and channels, with "Preview for a person" showing what someone would get this
@@ -210,13 +231,17 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - A task in the Recycle Bin keeps its guests and categories: its categories count as in use (they can be
   retired, not deleted) and its guests stay on the list until it is erased; its read-only view shows both
   (its history words them as the task panel does), and Restore brings them back as they were.
+- The daily email stays within Gmail's size limit on busy days by trimming the less urgent lists first (overdue
+  and due-today tasks keep the most rows), and says how many more there are and where. An email with nothing
+  in it is still not sent.
 - The Android app (unchanged) still moves only a task's due date on its calendar; the website's calendar now
   moves start and due together.
 - Quiet hours (outside working hours and on days off, unless changed): the bell still fills, but phone
   pushes and emails wait for the next working morning and then come as one message — never a burst. The
   Android app and the Chrome extension follow the same rules and their settings keep working.
-- The daily email goes on working days only (the first working morning covers everything since) and holds
-  the notices that came overnight; the weekly Management summary goes on the first working day of the week.
+- The daily email goes on working days only (the first working morning covers everything since) and the
+  notices held overnight fold into it under **While you were away**; the weekly Management summary goes on the
+  first working day of the week.
 - "Days late" count working days everywhere: reminders and escalations, the daily email, project health
   risks, late milestones and the Management page.
 - More than three reminders of one kind for one person at once arrive as one notice listing them; after the

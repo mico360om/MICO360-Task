@@ -127,6 +127,13 @@ describe('Manager View — the routes it refuses (scanned from the source)', () 
     }
   });
 
+  it('daily email redesign: "Preview my email" from Settings (one’s own) stays open; the System settings copy is an admin page’s, refused like it', () => {
+    expect(scanned).toContain('GET /notifications/daily-emails/preview');
+    expect(managerViewRule('GET /notifications/daily-emails/preview')).toBe('open');
+    expect(scanned).toContain('GET /admin/daily-emails/my-preview');
+    expect(managerViewRule('GET /admin/daily-emails/my-preview')).toBe('refuse');
+  });
+
   it('the work stays an administrator’s: every project’s tasks, boards, meetings, Reports, Management, their own settings', () => {
     for (const k of ['GET /projects', 'GET /projects/:id', 'POST /projects', 'GET /tasks', 'POST /tasks', 'PUT /tasks/:id', 'DELETE /tasks/:id', 'GET /reports/status', 'GET /management/overview', 'GET /meetings', 'PUT /columns/:columnId/tasks/reorder', 'GET /projects/:id/members', 'GET /projects/:id/columns', 'GET /recycle-bin', 'GET /recycle-bin/tasks/:id', 'POST /recycle-bin/restore', 'POST /recycle-bin/erase']) {
       if (scanned.includes(k)) expect(managerViewRule(k), k).toBe('open');

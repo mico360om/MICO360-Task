@@ -152,8 +152,9 @@ describe('until its start day', () => {
     const t = await create({ title: 'Email me later', startDate: later });
     expect(((await app.get(w.as.ana, '/tasks/mine')) as Task[]).map((x) => x.id)).toContain(t.id);
     const pending = await createPrismaDailyEmailSources(prisma).tasks.pending(w.people.ana);
-    expect(pending.find((x) => x.id === t.id)?.boardDay).toBe(later);
-    expect(pending.find((x) => x.title === 'No start')?.boardDay).toBe(today);
+    // The redesign reads the board day itself (a noon-UTC anchor: its UTC date is the day).
+    expect(pending.find((x) => x.id === t.id)?.boardDate?.toISOString().slice(0, 10)).toBe(later);
+    expect(pending.find((x) => x.title === 'No start')?.boardDate?.toISOString().slice(0, 10)).toBe(today);
   });
 });
 

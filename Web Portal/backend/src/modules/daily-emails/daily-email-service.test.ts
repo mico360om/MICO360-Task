@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createDailyEmailService, NOT_A_WORKING_DAY, type DailyRecipient } from './daily-email-service';
 import type { DailyEmailRecord, DailyEmailRepository } from './daily-email-repository';
-import type { DailyMeeting, DailyTask } from './daily-email-content';
+import type { DailyMeeting, DailyProjectFigures, DailyTask, DailyWeek } from './daily-email-content';
 import type { EmailContent } from '../email/email-templates';
 
 /** The delivery records in memory, with the same once-only rules as the database. */
@@ -90,7 +90,21 @@ function checkStore() {
 }
 
 function setup(
-  opts: { people?: DailyRecipient[]; pending?: DailyTask[]; completed?: DailyTask[]; meetings?: DailyMeeting[]; managed?: DailyTask[]; awaiting?: number; configured?: boolean; failures?: number; blocked?: string[]; checks?: ReturnType<typeof checkStore> } = {},
+  opts: {
+    people?: DailyRecipient[];
+    pending?: DailyTask[];
+    completed?: DailyTask[];
+    meetings?: DailyMeeting[];
+    managed?: DailyTask[];
+    awaiting?: number;
+    configured?: boolean;
+    failures?: number;
+    blocked?: string[];
+    checks?: ReturnType<typeof checkStore>;
+    week?: DailyWeek;
+    projects?: DailyProjectFigures[];
+    companyWeekStart?: number;
+  } = {},
 ) {
   let now = at('2026-10-21T02:00:00Z'); // 06:00 in Muscat
   const { repo, rows, failFinishes, failClaimsFor } = memoryRepo(() => now);
@@ -106,6 +120,9 @@ function setup(
   const completedBetween = vi.fn(async (_u: string, _from: Date, _to: Date) => completedTasks);
   const meetingsBetween = vi.fn(async (_u: string, _from: Date, _to: Date) => opts.meetings ?? []);
   const managed = vi.fn(async (_u: string, _at: Date) => opts.managed ?? []);
+  const weekFigures = vi.fn(async (_u: string, _r: { dueFrom: Date; dueTo: Date; doneFrom: Date; now: Date }) => opts.week ?? { due: [], completions: [] });
+  const projectFigures = vi.fn(async (_u: string, _o: { now: Date; timeZone: string; companyTimeZone: string }) => opts.projects ?? []);
+  const weekStartOf = vi.fn(async (_u: string) => opts.companyWeekStart ?? 0);
   const warn = vi.fn();
   const service = createDailyEmailService({
     repo,
@@ -116,7 +133,8 @@ function setup(
       },
       find: async (id) => people.find((p) => p.id === id) ?? null,
     },
-    tasks: { pending, completedBetween, meetingsBetween, managed, awaitingApproval: async () => opts.awaiting ?? 0 },
+    tasks: { pending, completedBetween, meetingsBetween, managed, weekFigures, projectFigures, awaitingApproval: async () => opts.awaiting ?? 0 },
+    weekStartOf,
     send: async (to: string, content: EmailContent, template: string) => {
       if (held) {
         const h = held;
@@ -141,7 +159,7 @@ function setup(
     ...(opts.checks ? { checks: opts.checks } : {}),
   });
   return {
-    service, rows, sent, pending, completedBetween, meetingsBetween, managed, warn, people,
+    service, rows, sent, pending, completedBetween, meetingsBetween, managed, weekFigures, projectFigures, weekStartOf, warn, people,
     setNow: (iso: string) => { now = at(iso); },
     setFailures: (n: number) => { failures = n; },
     failFinishes,
@@ -264,6 +282,40 @@ describe('the daily email: the morning sweep', () => {
     expect(s.meetingsBetween).not.toHaveBeenCalled();
     expect(s.managed).not.toHaveBeenCalled();
     expect(s.completedBetween).not.toHaveBeenCalled();
+    // At a glance is on (it follows the task list): the week's figures are read; Your projects follows "In your projects" (off).
+    expect(s.weekFigures).toHaveBeenCalled();
+    expect(s.projectFigures).not.toHaveBeenCalled();
+    const t = setup({ people: [person('ada', { prefs: { muted: [], dailyEmails: { ...ALL_OFF, urgent: true, time: '06:00' } } })], pending: [task('RIG-1', { dueDate: at('2026-10-19T00:00:00Z') })] });
+    await t.service.runSweep();
+    expect(t.sent).toHaveLength(1);
+    expect(t.weekFigures).not.toHaveBeenCalled();
+    expect(t.projectFigures).not.toHaveBeenCalled();
+  });
+
+  it('redesign: the week’s figures from the person’s own week start, else their company’s, in their time zone', async () => {
+    // Wed 21 Oct 06:00 Muscat. Their own week starts on Monday: Mon 19 Oct.
+    const s = setup({ people: [person('ada', { weekStart: 1 })], companyWeekStart: 6 });
+    await s.service.runSweep();
+    expect(s.weekStartOf).not.toHaveBeenCalled();
+    const [who, r] = s.weekFigures.mock.calls[0]!;
+    expect(who).toBe('ada');
+    // Due dates a day either side of the week (the email keeps those in it, by its own day rule).
+    expect([r.dueFrom.toISOString(), r.dueTo.toISOString()]).toEqual(['2026-10-18T00:00:00.000Z', '2026-10-27T00:00:00.000Z']);
+    // Completed since 14 days back (7 Oct 00:00 Muscat), until now.
+    expect([r.doneFrom.toISOString(), r.now.toISOString()]).toEqual(['2026-10-06T20:00:00.000Z', '2026-10-21T02:00:00.000Z']);
+    // No week start of their own: their company's (Saturday: Sat 17 Oct).
+    const t = setup({ companyWeekStart: 6 });
+    await t.service.runSweep();
+    expect(t.weekStartOf).toHaveBeenCalledWith('ada');
+    expect(t.weekFigures.mock.calls[0]![1].dueFrom.toISOString()).toBe('2026-10-16T00:00:00.000Z');
+    expect(t.sent[0]!.html).toContain('Today at a glance');
+  });
+
+  it('redesign: the projects they run, with their time zone (overdue is by their day)', async () => {
+    const s = setup({ people: [person('ada', { timeZone: 'Asia/Dubai' })] });
+    await s.service.runSweep();
+    // Board days (a task waiting for a later day) are the company's days: its time zone goes too.
+    expect(s.projectFigures).toHaveBeenCalledWith('ada', { now: at('2026-10-21T02:00:00Z'), timeZone: 'Asia/Dubai', companyTimeZone: TZ });
   });
 
   it('it goes when only approvals wait for the person (none of their own tasks)', async () => {
@@ -280,7 +332,10 @@ describe('the daily email: the morning sweep', () => {
     const b = setup({ pending: [], completed: [], managed: [task('RIG-7', { dueDate: at('2026-10-19T00:00:00Z'), assignees: ['Omar'] })] });
     await b.service.runSweep();
     expect(b.sent).toHaveLength(1);
-    expect(b.sent[0]!.html).toContain('In your projects');
+    expect(b.sent[0]!.html).toContain('Overdue and waiting in your projects');
+    const c = setup({ pending: [], completed: [], projects: [{ project: RIG, pct: 40, done: 4, total: 10, open: 6, overdue: 1, waiting: 0 }] });
+    await c.service.runSweep();
+    expect(c.sent[0]!.html).toContain('Your projects');
   });
 
   it('skips an email with nothing in it, and records that', async () => {
@@ -298,7 +353,7 @@ describe('the daily email: the morning sweep', () => {
     s.setNow('2026-10-21T03:30:00Z');
     await s.service.runSweep();
     expect(s.sent.map((m) => [m.to, m.template])).toEqual([['ada@mico360.test', 'daily-email']]);
-    expect(s.sent[0]!.html).not.toContain('Recently completed'); // that part is off
+    expect(s.sent[0]!.html).not.toContain('Completed yesterday'); // that part is off
     expect(s.rows.map((r) => [r.userId, r.kind])).toEqual([['ada', 'PENDING']]);
   });
 
@@ -480,7 +535,7 @@ describe('the daily email: "Send me a test"', () => {
     expect(s.sent[0]!.html).not.toContain('Recently completed');
     const t = setup({ people: [person('ada', { prefs: bothOff })] });
     expect((await t.service.sendTest('ada')).daily).toBe('sent');
-    expect(t.sent[0]!.html).toContain('Recently completed');
+    expect(t.sent[0]!.html).toContain('Completed yesterday');
   });
 
   it('nothing in it: not sent, and said so', async () => {
@@ -501,6 +556,7 @@ describe('the daily email: "Send me a test"', () => {
 });
 
 const onlyPending = { muted: [], dailyEmails: { pending: true, completed: false, time: '06:00' } };
+const ALL_OFF = { pending: false, completed: false, schedule: false, urgent: false, managed: false, glance: false, week: false, priority: false, comingUp: false, projects: false };
 const bothOff = { muted: [], dailyEmails: { pending: false, completed: false, time: '06:00' } };
 
 describe('daily task emails: when the server last checked', () => {
@@ -777,13 +833,46 @@ describe('daily task emails: an administrator sends one person’s emails', () =
   });
 });
 
+describe('daily task emails: "Preview my email"', () => {
+  it('the person’s own email as it would be sent now — subject, HTML and plain text — sends nothing and records nothing', async () => {
+    const s = setup({ pending: [task('RIG-1', { title: 'Check the pump' })] });
+    const p = await s.service.previewOwn('ada');
+    expect(p).toMatchObject({ subject: 'Today: 1 open task — Wed 21 Oct', empty: false });
+    expect(p!.html).toContain('Check the pump');
+    expect(p!.text).toContain('- RIG-1 Check the pump');
+    expect(s.sent).toEqual([]);
+    expect(s.rows).toEqual([]);
+  });
+
+  it('every part when they turned them all off (as "Send me a test"); works without an email address or email set up', async () => {
+    const s = setup({ people: [person('ada', { email: null, prefs: { muted: [], dailyEmails: { ...ALL_OFF, time: '06:00' } } })], configured: false });
+    const p = await s.service.previewOwn('ada');
+    expect(p!.empty).toBe(false);
+    expect(p!.html).toContain('Completed yesterday');
+  });
+
+  it('reads only that person\u2019s own tasks, meetings, projects and figures — never anyone else\u2019s', async () => {
+    const s = setup({ people: [person('ada'), person('bo')] });
+    await s.service.previewOwn('bo');
+    const asked = [s.pending, s.completedBetween, s.meetingsBetween, s.managed, s.weekFigures, s.projectFigures].flatMap((fn) => fn.mock.calls.map((c) => c[0]));
+    expect(asked.length).toBeGreaterThan(3);
+    expect(new Set(asked)).toEqual(new Set(['bo']));
+  });
+
+  it('nothing in it: empty; not an active person: null', async () => {
+    const s = setup({ pending: [], completed: [] });
+    expect(await s.service.previewOwn('ada')).toEqual({ subject: null, html: null, text: null, empty: true });
+    expect(await s.service.previewOwn('nobody')).toBeNull();
+  });
+});
+
 describe('daily task emails: an administrator’s preview', () => {
   it('builds the email as it would be sent now — the subject and the plain text — and sends nothing', async () => {
     const s = setup({ pending: [task('RIG-1', { title: 'Check the <b>pump</b>' })] });
     const p = await s.service.preview('ada', 'PENDING');
     expect(p).toMatchObject({ name: 'ADA', email: 'ada@mico360.test', kind: 'PENDING', day: '2026-10-21', subject: 'Today: 1 open task — Wed 21 Oct', taskCount: 1, empty: false, on: true });
-    expect(p!.text).toContain('RIG — RIG'); // the task's project heads its section
-    expect(p!.text).toContain('- Check the <b>pump</b> (RIG-1)');
+    expect(p!.text).toContain('RIG — RIG · 1 task'); // the task's project heads its group in Other open tasks
+    expect(p!.text).toContain('- RIG-1 Check the <b>pump</b>');
     expect(p).not.toHaveProperty('html');
     expect(s.sent).toEqual([]);
     expect(s.rows).toEqual([]);
@@ -1050,9 +1139,34 @@ describe('Notification & Scheduling centre: working days only, held notices fold
     expect(c.sent).toHaveLength(1);
   });
 
+  // Release B on Release A's daily email: a row's day says "N days late" — in working days with the centre.
   it('overdue counts working days', async () => {
     const c = centre({ pending: [task('RIG-1', { dueDate: at('2026-10-15T00:00:00Z') })] });
     await c.service.runSweep();
-    expect(c.sent[0]!.text).toContain('3 working days overdue');
+    expect(c.sent[0]!.text).toContain('3 working days late');
+    expect(c.sent[0]!.text).not.toContain(' 6 days late');
+  });
+
+  it('a task finished after its due day, but with no working day between (a day off), is on time', async () => {
+    const t = task('RIG-2', { dueDate: at('2026-10-15T00:00:00Z'), completedAt: at('2026-10-16T08:00:00Z') });
+    const { repo } = memoryRepo(() => MORNING);
+    const sent: string[] = [];
+    const service = createDailyEmailService({
+      repo,
+      people: { list: async () => [person('ada')], find: async (id) => (id === 'ada' ? person('ada') : null) },
+      tasks: { pending: async () => [], completedBetween: async () => [t] },
+      send: async (_to, content) => {
+        sent.push(content.text);
+        return 'sent';
+      },
+      isConfigured: () => true,
+      companyTimeZone: TZ,
+      appUrl: 'https://task.example',
+      now: () => MORNING,
+      lateDays: () => 0,
+    });
+    await service.runSweep();
+    expect(sent[0]).toContain('On time');
+    expect(sent[0]).not.toContain('late');
   });
 });
