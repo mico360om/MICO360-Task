@@ -244,3 +244,31 @@ describe('Duplicate: the New task form, filled in from the task', () => {
     expect(screen.getByRole('button', { name: 'Create task' })).toBeDisabled();
   });
 });
+
+// Review fix N8 (13 Nov 2026): Duplicate keeps one Idempotency-Key across retries, as New task does.
+describe('Duplicate: the same request key across retries', () => {
+  const keys = () => posts().map((c) => c.headers['Idempotency-Key']);
+  const save = async (n: number) => {
+    await userEvent.click(screen.getByRole('button', { name: 'Create task' }));
+    await waitFor(() => expect(posts()).toHaveLength(n));
+  };
+
+  it('a server error, then Create again: the same key; a definite refusal: a new one', async () => {
+    let n = 0;
+    duplicateReply = () =>
+      ++n === 1
+        ? json({ error: { code: 'INTERNAL', message: 'Something went wrong.' } }, 500)
+        : n === 2
+          ? json({ error: { code: 'VALIDATION', message: 'Choose a column.' } }, 400)
+          : json({ data: { id: 't40', key: 'MICO-40', title: 'x', projectId: 'p1', columnId: 'c1' }, files: { total: 0, copied: 0, failed: [] } }, 201);
+    renderDialog();
+    await ready();
+    await save(1);
+    await screen.findByText(/Couldn’t duplicate the task/);
+    await save(2);
+    await waitFor(() => expect(screen.getByText(/Choose a column/)).toBeInTheDocument());
+    await save(3);
+    expect(keys()[1]).toBe(keys()[0]);
+    expect(keys()[2]).not.toBe(keys()[1]);
+  });
+});
