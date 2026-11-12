@@ -64,9 +64,11 @@ export function PageTitle({ title, subtitle, eyebrow, learn, className = '' }: O
  */
 export function PageHeader({ title, subtitle, eyebrow, actions, learn }: PageHeaderProps) {
   return (
-    <div data-page-header className="relative z-20 mb-4 flex min-h-10 flex-wrap items-center justify-between gap-x-4 gap-y-2 animate-fade-in-up [@media(pointer:coarse)]:min-h-11">
-      <PageTitle title={title} subtitle={subtitle} eyebrow={eyebrow} learn={learn} className="flex-[1_1_auto]" />
-      {actions ? <div className="flex max-w-full flex-wrap items-center gap-2">{actions}</div> : null}
+    // Release B: items-start + a title line a button tall with its words centred — when the actions wrap (the Learn link
+    // takes room), the title stays on their first line instead of floating between the two rows.
+    <div data-page-header className="relative z-20 mb-4 flex min-h-10 flex-wrap items-start justify-between gap-x-4 gap-y-2 animate-fade-in-up [@media(pointer:coarse)]:min-h-11">
+      <PageTitle title={title} subtitle={subtitle} eyebrow={eyebrow} learn={learn} className="min-h-10 flex-[1_1_auto] content-center [@media(pointer:coarse)]:min-h-11" />
+      {actions ? <div data-page-actions className="flex min-h-10 max-w-full flex-wrap items-center gap-2 [@media(pointer:coarse)]:min-h-11">{actions}</div> : null}
     </div>
   );
 }

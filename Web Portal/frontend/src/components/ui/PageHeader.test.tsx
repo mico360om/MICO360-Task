@@ -47,6 +47,23 @@ describe('PageHeader', () => {
     expect(row().className).toMatch(/(^|\s)min-h-10(\s|$)/);
   });
 
+  // Release B gate (battery, meetings-cards-shots): "Learn this feature" beside the title left Meetings' actions short of
+  // room at 1440 px; "+ New meeting" dropped under the search and the title, centred on both rows, sat between them.
+  // When the actions wrap, the title stays on their first line.
+  it('keeps the title on the first line of its actions when they wrap (a centred title floated between two rows)', () => {
+    const { container } = render(<PageHeader eyebrow="Workspace" title="Meetings" actions={<button type="button">+ New meeting</button>} />);
+    const row = container.querySelector('[data-page-header]')!;
+    expect(row.className).toMatch(/(^|\s)items-start(\s|$)/);
+    expect(row.className).not.toMatch(/(^|\s)items-center(\s|$)/);
+    const line = screen.getByRole('heading', { level: 1 }).parentElement!;
+    // A button tall itself, its words centred in it: on one line with the first row of actions.
+    expect(line.className).toMatch(/(^|\s)min-h-10(\s|$)/);
+    expect(line.className).toMatch(/\[@media\(pointer:coarse\)\]:min-h-11/);
+    expect(line.className).toMatch(/(^|\s)content-center(\s|$)/);
+    // Small actions stay centred on that line too (a 32 px button in a button-tall row).
+    expect(container.querySelector('[data-page-actions]')!.className).toMatch(/(^|\s)min-h-10(\s|$)/);
+  });
+
   it('works without a section or a subtitle', () => {
     render(<PageHeader title="Your profile" />);
     expect(screen.getByRole('heading', { level: 1, name: 'Your profile' }).parentElement!.textContent).toBe('Your profile');
