@@ -9,6 +9,8 @@ import { loadDraft, saveDraft } from './chat-model';
 import { keepInOutbox, loadOutbox } from './chat-outbox';
 import { unsentChangeCount } from './useSignOut';
 import { ApiError } from './api-client';
+import { inspectionOutbox } from './inspection-sync';
+import type { InspectionDetail } from '../api/inspections';
 
 const A = { id: 'userA', email: 'a@x.test', username: 'ann', roles: [] as string[] };
 const B = { id: 'userB', email: 'b@x.test', username: 'bob', roles: [] as string[] };
@@ -378,6 +380,45 @@ describe('#7 offline replay only sends a person’s own changes', () => {
     const res = await flushOfflineQueue();
     expect(res.synced).toBe(1);
     expect(posts.map((c) => c.auth)).toEqual(['Bearer atA5']);
+  });
+});
+
+describe('#7 the inspection outbox sends a person’s answers only as them', () => {
+  function inspection(id: string): InspectionDetail {
+    return {
+      id, projectId: 'p1', title: `Check ${id}`, status: 'IN_PROGRESS', place: null, startedAt: '2026-11-13T08:00:00.000Z', finishedAt: null,
+      inspector: { id: 'userA', name: 'Ann' }, counts: { total: 1, answered: 0, passed: 0, failed: 0, na: 0 }, result: '0 of 1 answered',
+      clientVisible: false, task: null, description: null, formId: 'f1', formVersion: 1,
+      structure: { sections: [{ id: 's1', title: 'S', items: [{ id: 'v', kind: 'CHECK', label: 'Valves closed', help: null }] }], clientSignature: 'NONE', supervisorSignature: 'NONE' },
+      startedBy: { id: 'userA', name: 'Ann' }, answers: [], signatures: [], followUps: [],
+      permissions: { canAnswer: true, canFinish: true, canReopen: false, canTakeOver: false, canDelete: true, canShowToClient: false, canMakeFollowUps: true },
+      signatureRoles: { allowed: ['INSPECTOR'], required: ['INSPECTOR'] }, revision: 0,
+    } as unknown as InspectionDetail;
+  }
+
+  it('A’s session ends (expired: kept on purpose) and B signs in mid-flush: A’s next inspection is never sent as B', async () => {
+    for (const id of ['i1', 'i2']) {
+      inspectionOutbox.remember('userA', inspection(id));
+      inspectionOutbox.saveAnswer('userA', id, { itemId: 'v', result: 'PASS', reading: null, note: null });
+    }
+    const first = deferred<Response>();
+    const sent: Call[] = [];
+    vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
+      const u = String(url);
+      if (!u.includes('/inspections/')) return Promise.resolve(json({ data: { ok: true } }));
+      sent.push({ url: u, method: init?.method ?? 'GET', auth: header(init, 'Authorization'), body: null });
+      if (sent.length === 1) return first.promise;
+      return Promise.resolve(json({ error: { code: 'SERVER' } }, 500));
+    }));
+    const p = inspectionOutbox.flushAll('userA', { force: true });
+    await vi.waitFor(() => expect(sent.length).toBe(1));
+    useAuthStore.getState().logout('expired');
+    useAuthStore.getState().setSession({ user: B, accessToken: 'atB', refreshToken: 'rtB' }, { remember: true });
+    first.resolve(json({ error: { code: 'SERVER' } }, 500)); // i1 waits for a later try; the flush goes on
+    await p;
+    expect(sent.filter((c) => c.auth === 'Bearer atB')).toEqual([]);
+    expect(sent.map((c) => c.auth)).toEqual(['Bearer atA']);
+    expect(inspectionOutbox.waiting('userA').length).toBe(2); // both kept for A
   });
 });
 

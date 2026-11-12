@@ -418,21 +418,38 @@ export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthoriz
    * person who sent it (`sentAs`): when the session changed meanwhile, the 401 stands and nobody is
    * signed out.
    */
-  async function fetchRefreshing(method: string, path: string, opts: FetchOpts, shared: Record<string, string>, sentAs: string | null): Promise<Response> {
+  async function fetchRefreshing(method: string, path: string, opts: FetchOpts, shared: Record<string, string>, sentAs: string | null, bound: boolean): Promise<Response> {
     // A failed login/OTP/refresh is not a token-expiry — never trigger a refresh for those.
     const canRefresh = !path.startsWith('/auth/');
     const token = getToken();
     let res = await doFetch(method, path, opts, token, shared);
     if (res.status === 401 && canRefresh) {
-      // Signed out, or someone else signed in, while it was on its way: never renewed or sent as them.
       // Sent while nobody was signed in: there is no session of its own to renew (and nobody to sign out).
-      if (!stillSender(sentAs) || (getUserId && sentAs === null)) return res;
+      if (getUserId && sentAs === null) return res;
+      // Signed out, or someone else signed in, while it was on its way: never renewed or sent as them.
+      if (!stillSender(sentAs)) return changedHands(res, bound);
       const outcome = await refreshOnce(token, sentAs);
       if (outcome === 'refreshed') {
-        if (stillSender(sentAs)) res = await doFetch(method, path, opts, getToken(), shared);
-      } else if (outcome === 'invalid') onUnauthorized?.();
+        if (!stillSender(sentAs)) return changedHands(res, bound);
+        res = await doFetch(method, path, opts, getToken(), shared);
+      } else if (outcome === 'changed') {
+        return changedHands(res, bound);
+      } else if (outcome === 'invalid' && stillSender(sentAs)) {
+        // Only the person it was for, still signed in (the verdict comes a moment after it was reached).
+        onUnauthorized?.();
+      }
     }
     return res;
+  }
+
+  /**
+   * The session changed hands while a request was on its way, so its answer stands as it is. A request
+   * bound to its person (forUser — a replayed change, a chat message) says so instead (SessionChangedError):
+   * its caller keeps it for that person — never a failure of the change itself.
+   */
+  function changedHands<T>(answer: T, bound: boolean): T {
+    if (bound) throw new SessionChangedError();
+    return answer;
   }
 
   /**
@@ -442,14 +459,15 @@ export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthoriz
    * `asUser` (forUser): sent only while that person is the one held — checked as it goes, nothing awaited between.
    */
   async function authedFetch(method: string, path: string, opts: FetchOpts = {}, asUser?: string): Promise<Response> {
-    if (asUser !== undefined && !stillSender(asUser)) throw new SessionChangedError();
+    const bound = asUser !== undefined;
+    if (bound && !stillSender(asUser)) throw new SessionChangedError();
     const sentAs = asUser ?? holder();
     const { sent, withoutPick } = sharedHeaders();
-    const res = await fetchRefreshing(method, path, opts, sent, sentAs);
+    const res = await fetchRefreshing(method, path, opts, sent, sentAs, bound);
     if (!withoutPick || !(await refusesCompany(res.status, () => res.clone().text()))) return res;
     // The same request once more, only as the same person.
-    if (!stillSender(sentAs)) return res;
-    const retry = await fetchRefreshing(method, path, opts, withoutPick, sentAs);
+    if (!stillSender(sentAs)) return changedHands(res, bound);
+    const retry = await fetchRefreshing(method, path, opts, withoutPick, sentAs, bound);
     if (!(await refusesCompany(retry.status, () => retry.clone().text()))) onCompanyGone?.(sent);
     return retry;
   }
@@ -495,24 +513,34 @@ export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthoriz
     }
     // The same refresh-once-on-401 and refused-pick rules as every other request — the file is sent
     // again only as the person who sent it (batch 2).
-    if (asUser !== undefined && !stillSender(asUser)) throw new SessionChangedError();
+    const bound = asUser !== undefined;
+    if (bound && !stillSender(asUser)) throw new SessionChangedError();
     const sentAs = asUser ?? holder();
     const send = async (shared: Record<string, string>) => {
       const token = getToken();
       let answer = await sendWithProgress(path, form, token, onProgress, shared);
-      if (answer.status === 401 && stillSender(sentAs) && !(getUserId && sentAs === null)) {
+      if (answer.status === 401 && !(getUserId && sentAs === null)) {
+        if (!stillSender(sentAs)) return changedHands(answer, bound);
         const outcome = await refreshOnce(token, sentAs);
         if (outcome === 'refreshed') {
-          if (stillSender(sentAs)) answer = await sendWithProgress(path, form, getToken(), onProgress, shared);
-        } else if (outcome === 'invalid') onUnauthorized?.();
+          if (!stillSender(sentAs)) return changedHands(answer, bound);
+          answer = await sendWithProgress(path, form, getToken(), onProgress, shared);
+        } else if (outcome === 'changed') {
+          return changedHands(answer, bound);
+        } else if (outcome === 'invalid' && stillSender(sentAs)) {
+          onUnauthorized?.();
+        }
       }
       return answer;
     };
     const { sent, withoutPick } = sharedHeaders();
     let res = await send(sent);
-    if (withoutPick && (await refusesCompany(res.status, async () => res.text)) && stillSender(sentAs)) {
-      res = await send(withoutPick);
-      if (!(await refusesCompany(res.status, async () => res.text))) onCompanyGone?.(sent);
+    if (withoutPick && (await refusesCompany(res.status, async () => res.text))) {
+      if (!stillSender(sentAs)) changedHands(res, bound);
+      else {
+        res = await send(withoutPick);
+        if (!(await refusesCompany(res.status, async () => res.text))) onCompanyGone?.(sent);
+      }
     }
     if (res.status < 200 || res.status >= 300) throw refusal(res.status, res.text);
     return (res.text ? JSON.parse(res.text) : {}) as T;

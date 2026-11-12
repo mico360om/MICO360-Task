@@ -69,10 +69,9 @@ export async function pollNotifications({ authedFetch, local, session, notificat
   } catch {
     return null;
   }
-  if (!(await stillSignedIn(local, userId))) return null;
-  setBadge(count);
   const stored = await local.get(['lastUnread', 'lastUnreadUser']);
   const baseline = unreadBaseline(stored, userId);
+  let alert = null;
   if (shouldNotify(baseline, count)) {
     const settings = await readAlertSettings(local);
     if (settings.on) {
@@ -84,14 +83,21 @@ export async function pollNotifications({ authedFetch, local, session, notificat
           newest = null;
         }
       }
-      const content = alertContent({ fresh: count - baseline, newest, details: settings.details });
-      try {
-        await session.set({ [ALERT_TARGET_KEY]: newest ? { id: newest.id, entityType: newest.entityType ?? null, entityId: newest.entityId ?? null, userId } : null });
-      } catch { /* the click then opens Notifications */ }
-      try {
-        notifications?.create(NOTIFICATION_ID, { type: 'basic', iconUrl: 'icons/icon128.png', ...content });
-      } catch { /* no desktop notifications here */ }
+      alert = { newest, content: alertContent({ fresh: count - baseline, newest, details: settings.details }) };
     }
+  }
+  // Batch 2: everything read so far is this person's — shown and kept only while they are still the
+  // one signed in (the requests above may have waited while someone else signed in).
+  if (!(await stillSignedIn(local, userId))) return null;
+  setBadge(count);
+  if (alert) {
+    const { newest, content } = alert;
+    try {
+      await session.set({ [ALERT_TARGET_KEY]: newest ? { id: newest.id, entityType: newest.entityType ?? null, entityId: newest.entityId ?? null, userId } : null });
+    } catch { /* the click then opens Notifications */ }
+    try {
+      notifications?.create(NOTIFICATION_ID, { type: 'basic', iconUrl: 'icons/icon128.png', ...content });
+    } catch { /* no desktop notifications here */ }
   }
   // The count first: a worker stopped while reporting must not alert about the same ones again.
   if (!(await stillSignedIn(local, userId))) return null;

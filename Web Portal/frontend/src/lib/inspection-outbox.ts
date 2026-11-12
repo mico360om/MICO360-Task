@@ -1,4 +1,4 @@
-import { ApiError } from './api-client';
+import { ApiError, SessionChangedError } from './api-client';
 import { effectiveResult, INSPECTION_LIMITS, itemsOf, parseReading, summarize, type ItemResult } from './inspection-rules';
 import type { AnswerOutcome, AnswerView, AnswerWrite, FinishInput, FollowUpResult, InspectionCounts, InspectionDetail, InspectionListItem, SignatureInput } from '../api/inspections';
 
@@ -247,8 +247,14 @@ export function detailView(detail: InspectionDetail): DraftView {
   };
 }
 
-export function createInspectionOutbox(deps: { storage: DraftStorage; api: OutboxApi; now?: () => Date; newId?: () => string }) {
-  const { storage, api } = deps;
+/**
+ * `apiFor(ownerId)` (batch 2, review #7): the API as one person — each record is sent only as the person
+ * who made it; while someone else is signed in it is never sent (SessionChangedError: like being signed
+ * out, it waits). Without it, `api` for everyone (tests).
+ */
+export function createInspectionOutbox(deps: { storage: DraftStorage; api: OutboxApi; apiFor?: (ownerId: string) => OutboxApi; now?: () => Date; newId?: () => string }) {
+  const { storage } = deps;
+  const apiAs = (ownerId: string): OutboxApi => (deps.apiFor ? deps.apiFor(ownerId) : deps.api);
   const now = deps.now ?? (() => new Date());
   const newId =
     deps.newId ??
@@ -394,6 +400,8 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
    */
   function failed(ownerId: string, inspectionId: string, e: unknown, stage: OutboxProblem['stage'], itemIds: string[] = []): { state: FlushState } {
     if (e instanceof ApiError && e.status === 401) return { state: 'signed-out' };
+    // Someone else is signed in now: nothing was sent; it waits for its person, as when signed out.
+    if (e instanceof SessionChangedError) return { state: 'signed-out' };
     // Reasons that pass: kept as they are and tried again later, waiting longer each time. They
     // never become a problem, and never stop anyone answering.
     const passing: TransientState | null = !(e instanceof ApiError)
@@ -438,7 +446,7 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
     if (!writes.length) return null;
     let out: Awaited<ReturnType<OutboxApi['answer']>>;
     try {
-      out = await api.answer(inspectionId, writes);
+      out = await apiAs(ownerId).answer(inspectionId, writes);
     } catch (e) {
       return failed(ownerId, inspectionId, e, 'answers');
     }
@@ -470,7 +478,7 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
     for (const g of groups.values()) {
       let results: FollowUpResult[];
       try {
-        results = await api.makeFollowUps(inspectionId, g);
+        results = await apiAs(ownerId).makeFollowUps(inspectionId, g);
       } catch (e) {
         const out = failed(ownerId, inspectionId, e, 'follow-ups', g.itemIds);
         if (out.state === 'problem' && read(ownerId, inspectionId)?.problem?.stage === 'follow-ups') continue; // dropped with a note
@@ -508,7 +516,7 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
     }
     let done: InspectionDetail;
     try {
-      done = await api.finish(inspectionId, { finishId: d.finish.finishId, revision: d.finish.revision ?? d.snapshot.revision ?? 0, seen: d.snapshot.answers.map((a) => ({ itemId: a.itemId, editedAt: a.editedAt })), signatures: d.finish.signatures });
+      done = await apiAs(ownerId).finish(inspectionId, { finishId: d.finish.finishId, revision: d.finish.revision ?? d.snapshot.revision ?? 0, seen: d.snapshot.answers.map((a) => ({ itemId: a.itemId, editedAt: a.editedAt })), signatures: d.finish.signatures });
     } catch (e) {
       return failed(ownerId, inspectionId, e, 'finish');
     }

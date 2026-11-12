@@ -332,6 +332,26 @@ describe('the background poll’s unread marker', () => {
     expect(s.local.data.lastUnreadUser === 'uA' && s.local.data.lastUnread === 9).toBe(false);
   });
 
+  it('a switch while the alert’s details are read: no badge, no alert and no marker for the person before', async () => {
+    const s = signedInAsA();
+    await s.local.set({ lastUnread: 2, lastUnreadUser: 'uA', desktopAlerts: { on: true, details: true } });
+    const setBadge = vi.fn();
+    const create = vi.fn();
+    const authedFetch = vi.fn(async (path) => {
+      if (path === '/notifications/unread-count') return jsonRes({ data: { count: 5 } });
+      if (path === '/notifications') {
+        await startB(s);
+        throw new SessionChangedError(); // bound to uA: nothing read
+      }
+      return jsonRes({ data: [] });
+    });
+    const r = await pollNotifications({ authedFetch, local: s.local, session: s.session, notifications: { create }, setBadge, userId: 'uA' });
+    expect(r).toBeNull();
+    expect(create).not.toHaveBeenCalled();
+    expect(setBadge).not.toHaveBeenCalled();
+    expect(s.local.data.lastUnreadUser).toBeUndefined(); // startSession(B) cleared it; nothing stamped since
+  });
+
   it('its requests go only as the person it is for (a switch before it asks: nothing read, nothing stamped)', async () => {
     const s = signedInAsA();
     const authedFetch = vi.fn(async () => { throw new SessionChangedError(); });

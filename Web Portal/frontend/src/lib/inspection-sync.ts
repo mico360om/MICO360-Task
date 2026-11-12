@@ -10,7 +10,12 @@ import { createInspectionOutbox, localDraftStorage, type DraftView, type FlushSt
  * changes are sent a moment after they are made, when the browser comes back online, when the tab
  * is shown again, every 20 seconds while something waits, and after signing in again.
  */
-export const inspectionOutbox: InspectionOutbox = createInspectionOutbox({ storage: localDraftStorage, api: inspectionsApi(apiClient) });
+export const inspectionOutbox: InspectionOutbox = createInspectionOutbox({
+  storage: localDraftStorage,
+  api: inspectionsApi(apiClient),
+  // Batch 2 (review #7): a person's inspection work is only ever sent as them.
+  apiFor: (ownerId) => inspectionsApi(apiClient.forUser(ownerId)),
+});
 
 // Another tab changed a record: tell this tab's pages.
 if (typeof window !== 'undefined') {
