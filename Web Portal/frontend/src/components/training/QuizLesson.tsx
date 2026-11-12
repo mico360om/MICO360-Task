@@ -44,6 +44,8 @@ export function QuizLesson({ lesson, onDone }: { lesson: LessonView; onDone: (do
   const [paper, setPaper] = useState<AttemptPaper | null>(null);
   const [result, setResult] = useState<AttemptResult | null>(null);
   const [fresh, setFresh] = useState(false);
+  // Finished before this visit (read once: the lesson is read again at 100% right after the course is finished here).
+  const [finishedBefore] = useState(() => lesson.courseProgressPct >= 100);
   const [busy, setBusy] = useState<'start' | 'last' | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -99,7 +101,7 @@ export function QuizLesson({ lesson, onDone }: { lesson: LessonView; onDone: (do
   if (result) {
     const again = !result.passed && (result.attemptsLeft === null || result.attemptsLeft > 0);
     // Course completed is said when this hand-in finished it (not when an old result is read again).
-    const finished = fresh && result.passed && result.courseCompleted && lesson.courseProgressPct < 100;
+    const finished = fresh && result.passed && result.courseCompleted && !finishedBefore;
     return (
       <QuizResultView
         result={result}

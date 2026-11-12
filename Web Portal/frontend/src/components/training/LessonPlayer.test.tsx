@@ -3,7 +3,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ApiError } from '../../lib/api-client';
 import { LessonPlayer } from './LessonPlayer';
-import { detail, fakeLearner, lesson, renderOnSide } from './training-fixtures';
+import { detail, fakeLearner, lesson, paper, renderOnSide, result } from './training-fixtures';
 import { windowWidth } from '../../test/window-width';
 
 const STEPS = [
@@ -102,6 +102,29 @@ describe('the lesson player (12 Nov §4)', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Finish course' }));
     expect(await screen.findByRole('heading', { name: 'Course completed' })).toBeInTheDocument();
     await waitFor(() => expect(api.course.mock.calls.length).toBeGreaterThan(1));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.getByRole('heading', { name: 'Course completed' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Next' })).toHaveAttribute('href', '/training');
+  });
+
+  it('a quiz that finishes the course: “Course completed” stays when the lesson is read again at 100%', async () => {
+    let passed = false;
+    const quizInfo = { passMark: 70, maxAttempts: null, attemptsUsed: 0, timeLimitMinutes: null, questionCount: 1, best: null, openAttemptId: null, lastAttemptId: null, canStart: true, reason: null };
+    const api = fakeLearner({
+      course: vi.fn(async () => lastOne()),
+      lesson: vi.fn(async () => lesson({ kind: 'QUIZ', title: 'Check yourself', nextLessonId: null, quiz: passed ? { ...quizInfo, attemptsUsed: 1, best: { scorePct: 100, passed: true } } : quizInfo, courseProgressPct: passed ? 100 : 75 })),
+      startAttempt: vi.fn(async () => paper({ questions: [paper().questions[0]!] })),
+    });
+    api.submit.mockImplementation(async () => {
+      passed = true;
+      return result({ scorePct: 100, passed: true, answersShown: true, courseCompleted: true, certificateId: null, questions: [result().questions[0]!] });
+    });
+    player(api);
+    await userEvent.click(await screen.findByRole('button', { name: 'Start quiz' }));
+    await userEvent.click(await screen.findByRole('radio', { name: 'Top bar' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Hand in' }));
+    expect(await screen.findByRole('heading', { name: 'Course completed' })).toBeInTheDocument();
+    await waitFor(() => expect(api.lesson.mock.calls.length).toBeGreaterThan(1));
     await new Promise((r) => setTimeout(r, 50));
     expect(screen.getByRole('heading', { name: 'Course completed' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Next' })).toHaveAttribute('href', '/training');
