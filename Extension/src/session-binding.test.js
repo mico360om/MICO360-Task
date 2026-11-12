@@ -92,6 +92,20 @@ describe('#4 a renewal that comes back after the session changed', () => {
     expect(logoutBodies(calls)).toEqual(['rA2']);
   });
 
+  it('a context outside the lock already stored the very same new pair: it is used and never revoked', async () => {
+    const s = signedInAsA();
+    const { reply, calls, fetchImpl } = refreshHeld();
+    const auth = createAuth({ ...s, apiBase: API, fetchImpl });
+    const p = auth.refresh('aA0');
+    await until(() => expect(calls.some((c) => c.url.endsWith('/auth/refresh'))).toBe(true));
+    // Since 1.23.25 a logout ends the whole rotation family: revoking the pair held would end the session.
+    await createTokenStore(s).saveRotated({ accessToken: 'aA2', refreshToken: 'rA2', user: A });
+    reply.resolve(jsonRes({ data: { accessToken: 'aA2', refreshToken: 'rA2', user: A } }));
+    const r = await p;
+    expect(r.token).toBe('aA2');
+    expect(logoutBodies(calls)).toEqual([]);
+  });
+
   it('the session moved to another server meanwhile: the renewal is not kept', async () => {
     const s = signedInAsA();
     const { reply, calls, fetchImpl } = refreshHeld();

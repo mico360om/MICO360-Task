@@ -425,7 +425,8 @@ export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthoriz
     let res = await doFetch(method, path, opts, token, shared);
     if (res.status === 401 && canRefresh) {
       // Signed out, or someone else signed in, while it was on its way: never renewed or sent as them.
-      if (!stillSender(sentAs)) return res;
+      // Sent while nobody was signed in: there is no session of its own to renew (and nobody to sign out).
+      if (!stillSender(sentAs) || (getUserId && sentAs === null)) return res;
       const outcome = await refreshOnce(token, sentAs);
       if (outcome === 'refreshed') {
         if (stillSender(sentAs)) res = await doFetch(method, path, opts, getToken(), shared);
@@ -499,7 +500,7 @@ export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthoriz
     const send = async (shared: Record<string, string>) => {
       const token = getToken();
       let answer = await sendWithProgress(path, form, token, onProgress, shared);
-      if (answer.status === 401 && stillSender(sentAs)) {
+      if (answer.status === 401 && stillSender(sentAs) && !(getUserId && sentAs === null)) {
         const outcome = await refreshOnce(token, sentAs);
         if (outcome === 'refreshed') {
           if (stillSender(sentAs)) answer = await sendWithProgress(path, form, getToken(), onProgress, shared);

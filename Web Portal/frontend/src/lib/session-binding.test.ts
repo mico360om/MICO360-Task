@@ -123,6 +123,59 @@ describe('#4 a renewal that comes back after the session changed', () => {
     expect(revoked(calls)).toEqual(['rtA2']);
   });
 
+  it('another tab already holds the very same new pair (the server hands a retried renewal the same one): kept, never revoked', async () => {
+    const reply = deferred<Response>();
+    const calls = stubFetch(reply.promise);
+    const p = refreshTokens('atA');
+    await vi.waitFor(() => expect(calls.some((c) => c.url.endsWith('/auth/refresh'))).toBe(true));
+    // Since 1.23.25 a logout ends the whole rotation family: revoking this pair would sign the person out everywhere.
+    localStorage.setItem('mico360.refreshToken', 'rtA2');
+    localStorage.setItem('mico360.accessToken', 'atA2');
+    reply.resolve(json({ data: { user: A, accessToken: 'atA2', refreshToken: 'rtA2' } }));
+    expect(await p).toBe('refreshed');
+    expect(useAuthStore.getState().refreshToken).toBe('rtA2');
+    expect(revoked(calls)).toEqual([]);
+  });
+
+  it('…and the same when it reached this tab first by a broadcast', async () => {
+    const reply = deferred<Response>();
+    const calls = stubFetch(reply.promise);
+    const p = refreshTokens('atA');
+    await vi.waitFor(() => expect(calls.some((c) => c.url.endsWith('/auth/refresh'))).toBe(true));
+    localStorage.setItem('mico360.refreshToken', 'rtA2');
+    localStorage.setItem('mico360.accessToken', 'atA2');
+    handleAuthMessage({ type: 'session', session: { user: A, accessToken: 'atA2', refreshToken: 'rtA2' }, remember: true });
+    reply.resolve(json({ data: { user: A, accessToken: 'atA2', refreshToken: 'rtA2' } }));
+    expect(await p).toBe('refreshed');
+    expect(revoked(calls)).toEqual([]);
+  });
+
+  it('a request sent while nobody was signed in is never renewed or sent again (and signs nobody out)', async () => {
+    useAuthStore.getState().logout('user');
+    const calls = stubFetch(Promise.resolve(json({ data: { user: B, accessToken: 'atB2', refreshToken: 'rtB2' } })), () => json({ error: { code: 'UNAUTHORIZED' } }, 401));
+    const p = apiClient.get('/config').catch((e: unknown) => e);
+    // Someone signs in on this tab before the answer comes back.
+    useAuthStore.getState().setSession({ user: B, accessToken: 'atB', refreshToken: 'rtB' }, { remember: true });
+    expect(await p).toBeInstanceOf(ApiError);
+    expect(calls.filter((c) => c.url.endsWith('/config')).map((c) => c.auth)).toEqual([null]);
+    expect(calls.some((c) => c.url.endsWith('/auth/refresh'))).toBe(false);
+    expect(useAuthStore.getState().user?.id).toBe('userB');
+  });
+
+  it('…nor, still signed out here, does its 401 end the session another tab just stored', async () => {
+    useAuthStore.getState().logout('user');
+    const calls = stubFetch(Promise.resolve(json({ data: { ok: true } })), () => json({ error: { code: 'UNAUTHORIZED' } }, 401));
+    const p = apiClient.get('/config').catch((e: unknown) => e);
+    // B signs in in another tab ("Keep me signed in"); this tab hasn't seen its storage event yet.
+    localStorage.setItem('mico360.refreshToken', 'rtB');
+    localStorage.setItem('mico360.user', JSON.stringify(B));
+    localStorage.setItem('mico360.accessToken', 'atB');
+    expect(await p).toBeInstanceOf(ApiError);
+    expect(calls.some((c) => c.url.endsWith('/auth/refresh'))).toBe(false);
+    expect(localStorage.getItem('mico360.accessToken')).toBe('atB');
+    expect(localStorage.getItem('mico360.refreshToken')).toBe('rtB');
+  });
+
   it('a renewal for someone else than the session held here (a reply for another account) is never stored', async () => {
     stubFetch(Promise.resolve(json({ data: { user: B, accessToken: 'atB2', refreshToken: 'rtB2' } })));
     expect(await refreshTokens('atA')).not.toBe('refreshed');

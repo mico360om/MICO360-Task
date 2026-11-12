@@ -1,4 +1,4 @@
-import { createApiClient, type RefreshOutcome } from '../lib/api-client';
+import { createApiClient, tokenSubject, type RefreshOutcome } from '../lib/api-client';
 import { COMPANY_HEADER, companyHeaders } from '../lib/companies';
 import { readStoredSession, useAuthStore, type Session } from '../stores/auth-store';
 import { useCompanyStore } from '../stores/company-store';
@@ -27,10 +27,10 @@ async function withRefreshLock<T>(fn: () => Promise<T>): Promise<T> {
   return fn();
 }
 
-/** Whose session this tab holds now (null: nobody is signed in). */
+/** Whose session this tab holds now (null: nobody is signed in); a session kept without its user is its token's. */
 function heldUserId(): string | null {
   const s = useAuthStore.getState();
-  return s.isAuthenticated ? (s.user?.id ?? null) : null;
+  return s.isAuthenticated ? (s.user?.id ?? tokenSubject(s.accessToken)) : null;
 }
 
 /**
@@ -130,21 +130,25 @@ async function callRefresh(refreshToken: string): Promise<RefreshCall> {
     if (!isSessionReply(reply)) return { kind: 'transient' };
     const now = useAuthStore.getState();
     const storedNow = readStoredSession(now.remember);
-    const gone = !now.isAuthenticated
+    // A reply for another person than the one held (never asked for): not stored, and not this tab's to end.
+    const someoneElses = owner !== null && reply.user.id !== owner;
+    const gone = someoneElses
+      || !now.isAuthenticated
       || heldUserId() !== owner
-      || (owner !== null && reply.user.id !== owner)
       || (storedBefore !== null && (!storedNow || (storedNow.user?.id ?? owner) !== owner));
     if (gone) {
-      revokeUnheld(reply.refreshToken);
+      if (!someoneElses) revokeUnheld(reply.refreshToken);
       return { kind: 'changed' };
     }
+    // (Never the pair held now: a renewal retried within 2 minutes gets the very same pair back, and a
+    // logout ends a token's whole rotation family — ending it would sign the person out everywhere.)
     if (now.refreshToken !== heldRefresh) {
-      revokeUnheld(reply.refreshToken);
+      if (now.refreshToken !== reply.refreshToken) revokeUnheld(reply.refreshToken);
       return { kind: 'ok' };
     }
     if (storedBefore && storedNow && storedNow.refreshToken && storedNow.refreshToken !== storedBefore.refreshToken) {
       // Another tab of this person stored a newer pair meanwhile: take it over, end the late one.
-      revokeUnheld(reply.refreshToken);
+      if (storedNow.refreshToken !== reply.refreshToken) revokeUnheld(reply.refreshToken);
       useAuthStore.setState({ accessToken: storedNow.accessToken, refreshToken: storedNow.refreshToken, user: storedNow.user ?? now.user, isAuthenticated: true, remember: storedNow.remember });
       return { kind: 'ok' };
     }

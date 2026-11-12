@@ -227,7 +227,9 @@ export function createAuth({ local, session, apiBase, fetchImpl = (...a) => fetc
       // renewal is never stored (it would sign the person back in) and is ended at its server.
       const now = await tokens.get();
       if (!sameSession(now, t)) {
-        void revokeUnheld(data.refreshToken, t.apiBase);
+        // Never the pair held now (a renewal retried within 2 minutes gets the very same pair back, and a
+        // logout ends a token's whole rotation family): that would end the session it was meant to keep.
+        if (now.refreshToken !== data.refreshToken) void revokeUnheld(data.refreshToken, t.apiBase);
         const samePerson = now.userId === t.userId && !!now.apiBase && sameOrigin(now.apiBase, t.apiBase) && !!now.accessToken;
         return samePerson ? { token: now.accessToken, expired: false } : { token: null, expired: false, changed: true };
       }
