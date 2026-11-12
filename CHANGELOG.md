@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.23.24] - 2026-11-12
+
 ### Bug fixes
 - Chat: a message waiting to be sent in one tab is no longer lost when another tab of the same person sends its own.
 
