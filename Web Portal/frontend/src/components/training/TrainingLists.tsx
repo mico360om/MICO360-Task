@@ -206,7 +206,7 @@ function OlderCertificates({ certificates }: { certificates: CertificateRef[] })
       <button
         type="button"
         aria-expanded={open}
-        aria-controls={id}
+        aria-controls={open ? id : undefined}
         onClick={() => setOpen((v) => !v)}
         className={`self-start text-sm font-semibold text-brand underline-offset-2 hover:underline ${TOUCH_MIN}`}
       >

@@ -88,6 +88,25 @@ describe('the lesson player (12 Nov §4)', () => {
     expect(screen.getByTestId('where')).toHaveTextContent(/^\/training$/);
   });
 
+  it('review I2: “Course completed” stays when the course comes back finished from the server', async () => {
+    let finished = false;
+    const api = fakeLearner({
+      course: vi.fn(async () => (finished ? detail({ mine: { ...lastOne().mine, status: 'COMPLETED', progressPct: 100, completedAt: '2026-11-13T08:00:00.000Z' }, lessons: lastOne().lessons.map((l) => ({ ...l, done: true })) }) : lastOne())),
+      lesson: vi.fn(async () => lesson({ steps: [STEPS[2]!], nextLessonId: null })),
+    });
+    api.complete.mockImplementation(async () => {
+      finished = true;
+      return { courseProgressPct: 100, courseCompleted: true, certificateId: null, nextLessonId: null };
+    });
+    player(api);
+    await userEvent.click(await screen.findByRole('button', { name: 'Finish course' }));
+    expect(await screen.findByRole('heading', { name: 'Course completed' })).toBeInTheDocument();
+    await waitFor(() => expect(api.course.mock.calls.length).toBeGreaterThan(1));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.getByRole('heading', { name: 'Course completed' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Next' })).toHaveAttribute('href', '/training');
+  });
+
   it('arriving from the lesson before: one note that it is done', async () => {
     player(fakeLearner({ lesson: vi.fn(async () => lesson({ steps: STEPS })) }), 'l2', { lessonDone: 'Welcome' });
     expect(await screen.findByText('“Welcome” done.')).toBeInTheDocument();

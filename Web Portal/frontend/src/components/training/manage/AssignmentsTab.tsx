@@ -100,7 +100,7 @@ export function AssignmentsTab() {
     onMutate: () => setSwitchProblem(null),
     onSuccess: (_r, v) => {
       setSwitchingOff(null);
-      setDone(v.on ? 'Switched on. People who join from now on get it.' : 'Switched off. Nobody new gets it; nobody loses anything.');
+      setDone(v.on ? 'Switched on. Everyone who joined since it was set up gets it, and people who join later.' : 'Switched off. Nobody new gets it; nobody loses anything.');
       refresh();
     },
     onError: (err, v) => {

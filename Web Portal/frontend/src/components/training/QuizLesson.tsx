@@ -99,7 +99,7 @@ export function QuizLesson({ lesson, onDone }: { lesson: LessonView; onDone: (do
   if (result) {
     const again = !result.passed && (result.attemptsLeft === null || result.attemptsLeft > 0);
     // Course completed is said when this hand-in finished it (not when an old result is read again).
-    const finished = fresh && result.passed && result.courseCompleted;
+    const finished = fresh && result.passed && result.courseCompleted && lesson.courseProgressPct < 100;
     return (
       <QuizResultView
         result={result}
@@ -590,7 +590,7 @@ function QuizResultView({
             <button
               type="button"
               aria-expanded={showAnswers}
-              aria-controls={answersId}
+              aria-controls={showAnswers ? answersId : undefined}
               onClick={() => setShowAnswers((v) => !v)}
               className={`self-start text-sm font-semibold text-brand underline-offset-2 hover:underline ${TOUCH_MIN}`}
             >

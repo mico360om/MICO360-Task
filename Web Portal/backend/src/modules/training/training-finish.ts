@@ -123,7 +123,8 @@ export function createTrainingFinish(ctx: TrainingContext) {
     let finished = 0;
     for (const courseId of [...new Set(courseIds)]) {
       const course = await prisma.trainingCourse.findUnique({ where: { id: courseId }, select: COURSE });
-      if (!course) continue;
+      // Review I1: only a course people can take finishes them (a draft being reworked waits for its Publish).
+      if (!course || course.status !== 'PUBLISHED') continue;
       const open = await prisma.trainingEnrolment.findMany({
         where: { courseId, withdrawnAt: null, OR: [{ completedAt: null }, { retakeFrom: { not: null } }, { reviewFrom: { not: null }, reviewDoneAt: null }] },
         select: { userId: true },

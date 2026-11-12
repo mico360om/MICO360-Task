@@ -34,6 +34,8 @@ export function LessonPlayer({ courseId, lessonId, renderTitle }: { courseId: st
   const q = useLessonView(lessonId);
   const course = useCourse(courseId);
   const [done, setDone] = useState<LessonDone | null>(null);
+  // Review I2: finished here, on this visit (latched: the course read again afterwards says COMPLETED).
+  const [finishedHere, setFinishedHere] = useState(false);
   const [reporting, setReporting] = useState(false);
   const courseTo = coursePath(side.base, courseId);
   const arrived = (location.state as { lessonDone?: unknown } | null)?.lessonDone;
@@ -41,6 +43,7 @@ export function LessonPlayer({ courseId, lessonId, renderTitle }: { courseId: st
   // Another lesson: start afresh, at the top of the page.
   useEffect(() => {
     setDone(null);
+    setFinishedHere(false);
     document.scrollingElement?.scrollTo?.(0, 0);
   }, [lessonId]);
 
@@ -73,16 +76,16 @@ export function LessonPlayer({ courseId, lessonId, renderTitle }: { courseId: st
   const lesson = q.data;
   const outline = course.data?.lessons ?? [];
   const at = outline.findIndex((l) => l.id === lesson.id);
-  const n = at >= 0 ? at + 1 : lesson.position + 1;
   const total = outline.length || lesson.lessonCount;
   const nextId = lesson.nextLessonId;
   // Finished before this visit: going through it again never says "Course completed" again.
   const wasFinished = course.data?.mine.status === 'COMPLETED' || course.data?.mine.status === 'REVIEW';
   const othersDone = outline.length > 0 && outline.every((l) => l.id === lesson.id || l.done);
-  const courseDone = !!done?.courseCompleted && !wasFinished && lesson.kind !== 'QUIZ';
+  const courseDone = finishedHere && lesson.kind !== 'QUIZ';
 
   const finished = (d: LessonDone) => {
     setDone(d);
+    if (d.courseCompleted && !wasFinished) setFinishedHere(true);
     courseChanged(qc, side, courseId);
     void qc.invalidateQueries({ queryKey: [...side.keyRoot, 'lesson', lesson.id], exact: true });
   };
@@ -91,7 +94,7 @@ export function LessonPlayer({ courseId, lessonId, renderTitle }: { courseId: st
   const next: LessonNext = {
     label: nextId ? 'Next lesson' : othersDone && !wasFinished ? 'Finish course' : 'Back to the course',
     go: (d) => {
-      if (d?.courseCompleted && !wasFinished) return;
+      if ((d?.courseCompleted && !wasFinished) || finishedHere) return;
       if (nextId) navigate(lessonPath(side.base, courseId, nextId), { state: { lessonDone: lesson.title } });
       else navigate(courseTo);
     },
@@ -110,9 +113,11 @@ export function LessonPlayer({ courseId, lessonId, renderTitle }: { courseId: st
         {renderTitle(lesson.title)}
         {lesson.kind !== 'GUIDE' ? (
           <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-ink-2">
-            <span className="font-semibold text-ink">
-              Lesson {n} of {total}
-            </span>
+            {at >= 0 ? (
+              <span className="font-semibold text-ink">
+                Lesson {at + 1} of {total}
+              </span>
+            ) : null}
             <span className="inline-flex items-center gap-1">
               <LessonKindIcon kind={lesson.kind} size={14} />
               {LESSON_KIND_WORDS[lesson.kind]}
@@ -228,7 +233,9 @@ function ReportProblemDialog({ lesson, onClose }: { lesson: LessonView; onClose:
                 Thanks — the training team will look at “{lesson.title}”.
               </p>
               <div className="flex justify-end">
-                <Button onClick={onClose}>Close</Button>
+                <Button className={TOUCH_MIN} onClick={onClose}>
+                  Close
+                </Button>
               </div>
             </>
           ) : (
@@ -252,10 +259,10 @@ function ReportProblemDialog({ lesson, onClose }: { lesson: LessonView; onClose:
                 </p>
               ) : null}
               <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-                <Button variant="secondary" onClick={onClose} disabled={busy}>
+                <Button variant="secondary" className={TOUCH_MIN} onClick={onClose} disabled={busy}>
                   Cancel
                 </Button>
-                <Button loading={busy} onClick={() => void send()}>
+                <Button className={TOUCH_MIN} loading={busy} onClick={() => void send()}>
                   Send report
                 </Button>
               </div>

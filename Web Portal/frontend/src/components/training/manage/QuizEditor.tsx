@@ -25,7 +25,7 @@ export function QuizEditor({ lesson, courseId }: { lesson: ManageLesson; courseI
   const cache = useCourseCache(courseId);
   const ids = { pass: useId(), attempts: useId(), minutes: useId(), draw: useId(), shuffleHint: useId(), problems: useId(), more: useId() };
   const [saved, setSaved] = useState(() => draftFromQuiz(lesson.quiz));
-  const [more, setMore] = useState(() => saved.timed || saved.bank || saved.shuffle);
+  const [more, setMore] = useState(() => saved.timed || saved.bank);
   const [draft, setDraft] = useState<QuizDraft>(saved);
   const [checked, setChecked] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
@@ -102,7 +102,7 @@ export function QuizEditor({ lesson, courseId }: { lesson: ManageLesson; courseI
             onClick={() => setMore((v) => !v)}
             className="inline-flex items-center gap-1.5 rounded-lg text-sm font-semibold text-brand hover:underline [@media(pointer:coarse)]:!min-h-11"
           >
-            <span aria-hidden="true" className={`inline-block transition-transform ${more ? 'rotate-90' : ''}`}>›</span>
+            <span aria-hidden="true" className={`inline-block transition-transform ${more ? 'rotate-90' : 'rtl:-scale-x-100'}`}>›</span>
             More options
           </button>
         </div>

@@ -191,6 +191,9 @@ interface CopiedFile {
   storageKey: string;
 }
 
+/** Review M1: an administrator edited the course between the check and the write — it is left alone. */
+class EditedMeanwhile extends Error {}
+
 const retryable = (err: unknown) => {
   const e = err as { code?: string; message?: string };
   return e?.code === 'P2034' || e?.code === 'P2002' || /deadlock|write conflict/i.test(e?.message ?? '');
@@ -455,7 +458,9 @@ export function createTrainingStarter(deps: TrainingStarterDeps): { run(): Promi
 
       const removedKeys = await prisma.$transaction(
         async (tx) => {
-          const c = await tx.trainingCourse.findUniqueOrThrow({ where: { id: courseId }, select: { publishedAt: true } });
+          // Review M1: checked again inside the write (an edit since the first check leaves the course alone).
+          const c = await tx.trainingCourse.findUniqueOrThrow({ where: { id: courseId }, select: { publishedAt: true, updatedById: true, version: true, status: true, lessons: { select: { updatedAt: true } } } });
+          if (!untouchedStarter(c, c.lessons)) throw new EditedMeanwhile();
           const at = c.publishedAt ?? now();
           const fileIds = new Map(keepIds);
           let filePosition = ((await tx.trainingFile.findFirst({ where: { courseId }, orderBy: [{ position: 'desc' }], select: { position: true } }))?.position ?? -1) + 1;
@@ -510,9 +515,14 @@ export function createTrainingStarter(deps: TrainingStarterDeps): { run(): Promi
               if (free.size) await tx.trainingQuestion.deleteMany({ where: { id: { in: [...free.keys()] } } });
             }
           }
-          // Lessons the new content no longer has (their progress rows stay and are ignored: R10).
-          const gone = rows.filter((r) => !taken.has(r.id)).map((r) => r.id);
+          // Lessons the new content no longer has (their progress rows stay and are ignored: R10). Review M3: a video
+          // lesson with a pasted link is never removed (a later revision that forgot its title keeps it, at the end).
+          const left = rows.filter((r) => !taken.has(r.id));
+          const gone = left.filter((r) => !(r.kind === 'VIDEO' && r.videoId)).map((r) => r.id);
           if (gone.length) await tx.trainingLesson.deleteMany({ where: { id: { in: gone } } });
+          for (const [k, r] of left.filter((x) => x.kind === 'VIDEO' && x.videoId).entries()) {
+            await tx.trainingLesson.update({ where: { id: r.id }, data: { position: course.lessons.length + k, updatedAt: at } });
+          }
 
           // Starter files nothing uses any more (an administrator's own uploads are never touched).
           const used = new Set([
@@ -568,6 +578,8 @@ export function createTrainingStarter(deps: TrainingStarterDeps): { run(): Promi
         continue; // kept: someone added a link to it (an administrator can remove it)
       }
       if (v.status !== 'DRAFT' || v.publishedAt || v.updatedById !== null) continue;
+      // Review M2: a lesson an administrator changed (its stamp moved after it was made) counts as an edit too.
+      if (v.lessons.some((l) => l.updatedAt.getTime() - l.createdAt.getTime() > 2_000)) continue;
       if ((await prisma.trainingEnrolment.count({ where: { courseId: v.id } })) > 0) continue;
       const own = await prisma.trainingFile.findMany({ where: { courseId: v.id }, select: { storageKey: true } });
       await prisma.$transaction([
@@ -610,6 +622,7 @@ export function createTrainingStarter(deps: TrainingStarterDeps): { run(): Promi
         current.set(course.key, row.id);
         updated++;
       } catch (err) {
+        if (err instanceof EditedMeanwhile) continue;
         failed++;
         warn('Training starter: a starter course could not be brought up to date; it is tried again at the next start.', { course: course.key, err: (err as Error)?.message ?? String(err) });
       }

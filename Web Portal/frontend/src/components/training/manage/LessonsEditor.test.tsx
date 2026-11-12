@@ -338,11 +338,18 @@ describe('Course editor: a quiz', () => {
     );
   });
 
-  it('More options is open from the start when the quiz uses one of them (a shuffled quiz)', async () => {
+  it('More options stays folded for a shuffled quiz (every starter quiz) and opens for a time limit (review M8)', async () => {
     await open(lesson({ id: 'q', kind: 'QUIZ', title: 'Check yourself', quiz: quiz({ shuffle: true }) }));
     const panel = await expand('Check yourself');
-    expect(within(panel).getByRole('button', { name: 'More options' })).toHaveAttribute('aria-expanded', 'true');
+    expect(within(panel).getByRole('button', { name: 'More options' })).toHaveAttribute('aria-expanded', 'false');
+    await userEvent.click(within(panel).getByRole('button', { name: 'More options' }));
     expect(within(panel).getByRole('switch', { name: 'Shuffle the questions' })).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('More options is open from the start when the quiz has a time limit', async () => {
+    await open(lesson({ id: 'q', kind: 'QUIZ', title: 'Check yourself', quiz: quiz({ timeLimitMinutes: 10 }) }));
+    const panel = await expand('Check yourself');
+    expect(within(panel).getByRole('button', { name: 'More options' })).toHaveAttribute('aria-expanded', 'true');
   });
 
   it('put in order: the steps are written in the right order and can be moved', async () => {

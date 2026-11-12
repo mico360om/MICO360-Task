@@ -97,9 +97,9 @@ function urgency(c: CourseCard): number {
 export function byUrgency(a: CourseCard, b: CourseCard): number {
   return (
     urgency(a) - urgency(b) ||
-    (a.mine.dueDay ?? '9999-99-99').localeCompare(b.mine.dueDay ?? '9999-99-99') ||
+    (a.mine.dueDay ?? '9999-99-99').localeCompare(b.mine.dueDay ?? '9999-99-99', 'en') ||
     Number(b.mine.mandatory) - Number(a.mine.mandatory) ||
-    a.title.localeCompare(b.title)
+    a.title.localeCompare(b.title, 'en')
   );
 }
 
@@ -111,7 +111,7 @@ export function learningGroups(d: Pick<MyTraining, 'assigned' | 'inProgress' | '
   const seen = new Set<string>();
   const open = [...d.assigned, ...d.inProgress].filter((c) => c.mine.status !== 'COMPLETED' && !seen.has(c.id) && (seen.add(c.id), true)).sort(byUrgency);
   const done = d.completed.filter((c) => !seen.has(c.id) && (seen.add(c.id), true));
-  const onCards = new Set(done.map((c) => c.mine.certificate?.id).filter((id): id is string => !!id));
+  const onCards = new Set(done.map((c) => (c.mine.certificate && c.mine.certificate.status !== 'REVOKED' ? c.mine.certificate.id : null)).filter((id): id is string => !!id));
   return { upNext: open[0] ?? null, todo: open.slice(1), done, olderCertificates: d.certificates.filter((c) => !onCards.has(c.id)) };
 }
 

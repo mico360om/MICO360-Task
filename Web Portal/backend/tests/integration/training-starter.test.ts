@@ -531,6 +531,39 @@ describe('Starter update to a new revision (R1, R4, R3)', () => {
     expect(after.lessons[0]).toMatchObject({ id: mod.lessons[0]!.id, videoProvider: 'VIMEO', videoId: '76979871' });
   });
 
+  it('an administrator’s lesson edit (even with nobody named on the course) keeps the course out of the update', async () => {
+    const before = await liveSite();
+    await prisma.trainingLesson.update({ where: { id: before.b.id }, data: { title: 'Old guide B (edited)', updatedAt: new Date() } });
+    await upgrader(rev2(), 2).run();
+    const mod = (await courseOf(U.mod))!;
+    expect(mod.title).toBe('Mod basics');
+    expect(mod.lessons.map((l) => l.title)).toEqual(['Old guide A', 'Old guide B (edited)', 'Quiz: Mod']);
+    // Its module course left alone: the draft video course without a link has nowhere to go and stays.
+    expect(await courseOf(U.vMod)).not.toBeNull();
+  });
+
+  it('review M2: a draft video course whose lesson an administrator changed is kept (even without a link)', async () => {
+    await liveSite();
+    const v = (await courseOf(U.vMod))!;
+    await prisma.trainingLesson.update({ where: { id: v.lessons[0]!.id }, data: { title: 'Watch this', updatedAt: new Date(Date.now() + 60_000) } });
+    await upgrader(rev2(), 2).run();
+    expect(await courseOf(U.vMod)).not.toBeNull();
+  });
+
+  it('review M3: a video lesson with a link is never removed, even if a later revision forgot its old title', async () => {
+    await liveSite();
+    await upgrader(rev2(), 2).run();
+    const mod = (await courseOf(U.mod))!;
+    await prisma.trainingLesson.update({ where: { id: mod.lessons[0]!.id }, data: { videoProvider: 'YOUTUBE', videoId: 'dQw4w9WgXcQ', videoUrl: 'https://youtu.be/dQw4w9WgXcQ', updatedAt: mod.lessons[0]!.updatedAt } });
+    const rev3 = rev2();
+    const m = rev3.find((c) => c.key === U.mod)!;
+    m.lessons[0] = { kind: 'VIDEO', title: 'Video: Mod, renamed', minutes: 2, videoUrl: null };
+    await upgrader(rev3, 3).run();
+    const after = (await courseOf(U.mod))!;
+    const linked = after.lessons.filter((l) => l.videoId === 'dQw4w9WgXcQ');
+    expect(linked.map((l) => l.id)).toEqual([mod.lessons[0]!.id]);
+  });
+
   it('a new site: the first load is the newest revision (nothing to update afterwards)', async () => {
     const out = await upgrader(rev2(), 2).run();
     expect(out).toEqual({ loaded: 4, skipped: 0, already: false });

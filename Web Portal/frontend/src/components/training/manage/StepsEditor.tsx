@@ -199,7 +199,7 @@ function StepRow({
             onClick={onOpen}
             className="flex min-w-0 flex-1 items-center gap-2 rounded-lg text-start text-sm hover:text-brand [@media(pointer:coarse)]:!min-h-11"
           >
-            <span aria-hidden="true" className={`inline-block flex-none transition-transform ${open ? 'rotate-90' : ''}`}>›</span>
+            <span aria-hidden="true" className={`inline-block flex-none transition-transform ${open ? 'rotate-90' : 'rtl:-scale-x-100'}`}>›</span>
             <span className="flex-none font-bold text-ink">{`Step ${n}`}</span>
             {!open && step.title.trim() ? (
               <span dir="auto" className="min-w-0 truncate text-ink-2">

@@ -572,6 +572,7 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
     if (!c.publishedAt) {
       await prisma.trainingCourse.update({ where: { id: c.id }, data: { status: 'PUBLISHED', publishedAt: now, updatedAt: now, updatedById: actor.id } });
       await audit(actor, meta, 'training.course.publish', c.id, { newValue: { version: c.version } });
+      await recheck(c.id);
       return manageCourse(c.id);
     }
     if (!input.change) throw new HttpError('Say whether this is a minor fix or a major change.', 'CHANGE_KIND_NEEDED', 400);
@@ -592,6 +593,8 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
       });
     });
     await audit(actor, meta, 'training.course.publish', c.id, { newValue: { version, change: input.change, changedLessons: changed.length } });
+    // R3 / review I1: lessons removed while it was unpublished finish anyone who has done every lesson left.
+    await recheck(c.id);
     return manageCourse(c.id);
   }
 

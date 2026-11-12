@@ -192,6 +192,22 @@ describe('finishing re-checked when a lesson goes (R3) and a guide’s step kept
     expect(await status('cat', c.id)).toMatchObject({ status: 'COMPLETED', progressPct: 100 });
   });
 
+  it('review I1: on an unpublished course nobody is finished when a lesson goes; publishing again checks', async () => {
+    const c = await makeCourse('Being reworked', [
+      { key: 'Guide', kind: 'GUIDE' },
+      { key: 'Old quiz stand-in', kind: 'GUIDE' },
+    ], { certificateOn: true });
+    await finish('gus', c.lessons.Guide!);
+    await manage.unpublish(w.people.admin, c.id);
+    await manage.deleteLesson(w.people.admin, c.lessons['Old quiz stand-in']!);
+    const e = await prisma.trainingEnrolment.findFirstOrThrow({ where: { userId: w.people.gus, courseId: c.id } });
+    expect(e.completedAt).toBeNull();
+    expect(await prisma.trainingCertificate.count({ where: { courseId: c.id } })).toBe(0);
+    // Published again: anyone with every lesson done is finished then (as at their next click).
+    await manage.publish(w.people.admin, c.id, { change: 'MINOR' });
+    expect((await prisma.trainingEnrolment.findFirstOrThrow({ where: { userId: w.people.gus, courseId: c.id } })).completedAt).not.toBeNull();
+  });
+
   it('a guide with fewer steps: the saved step is never past the last one', async () => {
     const c = await makeCourse('Shrinking guide', [{ key: 'Long', kind: 'GUIDE', steps: 4 }]);
     await learner.saveProgress(w.people.ben, 'staff', c.lessons.Long!, { stepIndex: 3 });

@@ -4,7 +4,7 @@ import { useDialog } from '../../hooks/useDialog';
 import { RichNoteView } from '../rich-text/RichNoteView';
 import { Button } from '../ui/Button';
 import { ModalPortal } from '../ui/ModalPortal';
-import { dialogLayer } from '../ui/dialog-size';
+import { dialogLayer, dialogPanel } from '../ui/dialog-size';
 import { useLearner } from './learner';
 import { TOUCH_MIN, TickIcon, trainingProblem, useBlobUrl } from './training-ui';
 
@@ -169,16 +169,16 @@ function PictureDialog({ url, alt, onClose }: { url: string; alt: string; onClos
   const ref = useDialog(onClose);
   return (
     <ModalPortal>
-      <div className={dialogLayer('small')}>
+      <div className={dialogLayer('wide')}>
         <div className="absolute inset-0 bg-scrim animate-fade-in" onClick={onClose} aria-hidden="true" />
-        <div ref={ref} role="dialog" aria-modal="true" aria-label={alt || 'Picture'} className="relative z-10 flex max-h-[92vh] w-[min(96vw,80rem)] animate-scale-in flex-col gap-2 rounded-2xl bg-surface p-2 shadow-lift">
+        <div ref={ref} role="dialog" aria-modal="true" aria-label={alt || 'Picture'} className={`card relative ${dialogPanel('wide')} flex animate-scale-in flex-col gap-2 p-2`}>
           <div className="flex justify-end">
             <Button variant="secondary" size="sm" className={TOUCH_MIN} onClick={onClose}>
               Close
             </Button>
           </div>
           <div className="min-h-0 overflow-auto">
-            <img src={url} alt={alt} className="mx-auto h-auto max-h-[80vh] w-auto max-w-full object-contain" />
+            <img src={url} alt={alt} className="mx-auto h-auto max-h-[calc(var(--visible-height)-6rem)] w-auto max-w-full object-contain" />
           </div>
         </div>
       </div>

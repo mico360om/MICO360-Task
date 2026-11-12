@@ -413,7 +413,7 @@ function Questions({ course: c }: { course: CourseDetail }) {
         <h2 id={`${id}-title`} className="font-display text-base font-bold text-ink">
           Questions
         </h2>
-        <Button variant="secondary" size="sm" className={TOUCH_MIN} aria-expanded={asking} aria-controls={`${id}-box`} onClick={() => setAsking((v) => !v)}>
+        <Button variant="secondary" size="sm" className={TOUCH_MIN} aria-expanded={asking} aria-controls={asking ? `${id}-box` : undefined} onClick={() => setAsking((v) => !v)}>
           Ask a question
         </Button>
       </div>

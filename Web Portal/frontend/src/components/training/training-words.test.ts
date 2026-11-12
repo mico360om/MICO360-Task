@@ -76,6 +76,10 @@ describe('training words', () => {
     // Each course once (a course assigned and started is listed once).
     expect(learningGroups({ assigned: [dueSoon], inProgress: [dueSoon], completed: [], certificates: [] }).todo).toEqual([]);
     expect(learningGroups({ assigned: [], inProgress: [], completed: [], certificates: [] })).toEqual({ upNext: null, todo: [], done: [], olderCertificates: [] });
+    // Review M5: a Done course whose only certificate is revoked: it shows under Older certificates (R6).
+    const revoked = { ...cert, id: 'cert9', status: 'REVOKED' as const };
+    const doneRevoked = card({ id: 'dn', title: 'F done', mine: mine({ status: 'COMPLETED', progressPct: 100, certificate: revoked }) });
+    expect(learningGroups({ assigned: [], inProgress: [], completed: [doneRevoked], certificates: [revoked] }).olderCertificates.map((c) => c.id)).toEqual(['cert9']);
     // Waiting for a review or a retake: To do (R9).
     const review = card({ id: 'rv', mine: mine({ status: 'REVIEW', dueDay: null }) });
     expect(learningGroups({ assigned: [review], inProgress: [], completed: [], certificates: [] }).upNext?.id).toBe('rv');
