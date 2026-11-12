@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { extname, join, resolve } from 'node:path';
 import sharp from 'sharp';
 import { LEGACY_STARTER_KEYS, RETIRED_VIDEO_COURSES, STARTER_COURSES, STARTER_REVISION } from './starter-courses';
@@ -171,7 +171,7 @@ describe('starter courses: the list', () => {
   it('Calendar, Chat and MICO AI say what 1.23.24 shows (checked against the retaken pictures)', () => {
     const calendar = JSON.stringify(byKey('starter:calendar'));
     for (const said of ['<strong>Day</strong>', '<strong>+ Task</strong>', 'Change dates']) expect(calendar, said).toContain(said);
-    expect(calendar).not.toMatch(/Add a task on this day|Change date|Change date</);
+    expect(calendar).not.toMatch(/Add a task on this day|Change date(?!s)/);
     expect(JSON.stringify(byKey('starter:chat'))).not.toMatch(/reaction, reply and more buttons/);
     expect(JSON.stringify(byKey('starter:mico-ai'))).not.toMatch(/How can I help, Omar/);
   });
