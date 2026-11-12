@@ -820,6 +820,22 @@ describe('ChatPage messages', () => {
 });
 
 describe('ChatPage sending reliably', () => {
+  it('a message tapped while it is still sending shows its actions once it is sent', async () => {
+    let answer: (r: Response) => void = () => {};
+    let sentId = '';
+    override = (u, method, body) => {
+      if (!(u.includes('/conversations/c1/messages') && method === 'POST')) return undefined;
+      sentId = (body as { clientId: string }).clientId;
+      return new Promise<Response>((r) => { answer = r; });
+    };
+    await openMobileChannel();
+    await userEvent.type(screen.getByLabelText('Message'), 'just sent{Enter}');
+    await userEvent.click(await screen.findByText('just sent')); // a tap on the phone: the message's actions
+    await act(async () => { answer(json({ data: message({ id: 'srv-j', userId: 'me', body: 'just sent', clientId: sentId, createdAt: new Date().toISOString() }) }, 201)); });
+    await waitFor(() => expect(rowOf('just sent')).toHaveAttribute('data-message-id', 'srv-j'));
+    expect(rowOf('just sent')).toHaveAttribute('data-revealed', 'true');
+  });
+
   it('keeps a message that failed to send, and retries it as the same message', async () => {
     let attempts = 0;
     override = (u, method) => (u.includes('/conversations/c1/messages') && method === 'POST' && ++attempts === 1 ? json({ error: { code: 'ERR', message: 'boom' } }, 500) : undefined);

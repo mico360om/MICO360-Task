@@ -916,7 +916,8 @@ export function ChatPage({ startDirectWith, openConversationId, onOpened }: Chat
         canDelete={!m.pending && (mine || isAdmin)}
         editing={editingId === m.id}
         highlighted={highlightId === m.id}
-        revealed={revealedId === m.id}
+        // A tap on a message still sending carries over to its saved copy (it gets its actions then).
+        revealed={revealedId === m.id || (!!m.clientId && !m.pending && revealedId === `pending-${m.clientId}`)}
         myId={myId}
         myUsername={me?.username ?? ''}
         knownUsernames={knownUsernames}
