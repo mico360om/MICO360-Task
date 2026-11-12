@@ -175,6 +175,39 @@ describe('Idempotency-Key — nothing stays stuck', () => {
     expect(errors).toEqual(['releasing a repeated request’s key']);
   });
 
+  // Reviewer follow-ups (13 Nov 2026).
+  it('a 401 answer is never stored: after signing in again, the same key runs the request', async () => {
+    const store = createMemoryIdempotencyStore();
+    const app = Fastify();
+    registerIdempotency(app, { store, userIdOf: () => 'u1' });
+    let ok = false;
+    app.post('/items', async (_req, reply) => (ok ? reply.status(201).send({ data: 'made' }) : reply.status(401).send({ error: { code: 'UNAUTHORIZED' } })));
+    const h = { 'idempotency-key': 'k-401' };
+    expect((await app.inject({ method: 'POST', url: '/items', headers: h, payload: {} })).statusCode).toBe(401);
+    expect(await store.find('u1', 'k-401')).toBeNull();
+    ok = true;
+    const again = await app.inject({ method: 'POST', url: '/items', headers: h, payload: {} });
+    expect(again.statusCode).toBe(201);
+    expect(again.headers['idempotent-replay']).toBeUndefined();
+  });
+
+  it('the store’s occasional clean-up failing never fails the request it rode on (Prisma store, stand-in client)', async () => {
+    const { vi } = await import('vitest');
+    const { createPrismaIdempotencyStore } = await import('./idempotency');
+    const create = vi.fn(async () => ({}));
+    const deleteMany = vi.fn(async () => {
+      throw new Error('Connection lost');
+    });
+    const store = createPrismaIdempotencyStore({ idempotencyKey: { create, deleteMany } } as never);
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0);
+    try {
+      await expect(store.reserve({ userId: 'u1', key: 'k', method: 'POST', path: '/x' })).resolves.toBe(true);
+    } finally {
+      random.mockRestore();
+    }
+    expect(deleteMany).toHaveBeenCalled();
+  });
+
   it('purgeOlderThan removes old records of every kind (the daily clean-up)', async () => {
     let clock = Date.parse('2026-11-13T08:00:00Z');
     const store = createMemoryIdempotencyStore(() => clock);

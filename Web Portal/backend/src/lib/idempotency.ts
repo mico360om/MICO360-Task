@@ -71,9 +71,10 @@ export function createPrismaIdempotencyStore(prisma: PrismaClient): IdempotencyS
         if (isUniqueViolation(err)) return false;
         throw err;
       }
-      // Opportunistic cleanup keeps the table small without a dedicated job.
+      // Opportunistic cleanup keeps the table small between the daily ones. Never this request's business:
+      // a failure here mustn't fail a request whose key is already reserved (review follow-up to #27).
       if (Math.random() < 0.02) {
-        await prisma.idempotencyKey.deleteMany({ where: { createdAt: { lt: new Date(Date.now() - IDEMPOTENCY_RETENTION_MS) } } });
+        await prisma.idempotencyKey.deleteMany({ where: { createdAt: { lt: new Date(Date.now() - IDEMPOTENCY_RETENTION_MS) } } }).catch(() => undefined);
       }
       return true;
     },
@@ -210,7 +211,9 @@ export function registerIdempotency(app: FastifyInstance, { store, userIdOf, ses
     req.idempotency = null;
     const status = reply.statusCode;
     const contentType = String(reply.getHeader('content-type') ?? '');
-    if (status >= 500) {
+    if (status >= 500 || status === 401) {
+      // A 401 is never an answer to keep (review follow-up to #3): the session went stale after the hook's
+      // check — the same key after signing in again must run the request, not replay the refusal.
       await quietly(RELEASE, () => store.release(idem.userId, idem.key));
     } else if (payload === undefined || payload === null || payload === '') {
       await quietly(SAVE, () => store.complete(idem.userId, idem.key, status, ''));

@@ -1,4 +1,4 @@
-import type { PrismaClient, Prisma } from '@prisma/client';
+import { Prisma, type PrismaClient } from '@prisma/client';
 import { ValidationError } from '../../lib/http-errors';
 import { isLocked } from '../../lib/lockout';
 import { randomBytes } from 'node:crypto';
@@ -104,11 +104,15 @@ async function resolveRoles(db: Db, names: string[]) {
 
 /**
  * Review fix #8: the reads and writes a change that could remove an administrator makes — on the
- * client, or inside the transaction that holds the administrators (`withAdminsHeld`).
+ * client, or inside the transaction that holds the administrators (`withAdminsHeld`, `locking`). Held,
+ * the person is locked before being read and the administrators are counted with a locking read: both
+ * see the latest committed rows whenever the transaction's snapshot began (MariaDB or MySQL), so the
+ * rule never rests on when a snapshot starts.
  */
-function heldUsers(db: Db): AdminHeldUsers {
+function heldUsers(db: Db, locking = false): AdminHeldUsers {
   return {
     async findById(id) {
+      if (locking) await db.$queryRaw`SELECT id FROM users WHERE id = ${id} FOR UPDATE`;
       const u = await db.user.findFirst({ where: { id, deletedAt: null }, include: include() });
       return u ? toSummary(u) : null;
     },
@@ -141,6 +145,10 @@ function heldUsers(db: Db): AdminHeldUsers {
       });
     },
     async countActiveAdmins(excludeId) {
+      if (locking) {
+        const [row] = await db.$queryRaw<Array<{ n: bigint | number }>>`SELECT COUNT(DISTINCT u.id) AS n FROM users u JOIN user_roles ur ON ur.userId = u.id JOIN roles r ON r.id = ur.roleId WHERE u.status = 'ACTIVE' AND u.deletedAt IS NULL AND r.name = 'ADMIN' ${excludeId ? Prisma.sql`AND u.id <> ${excludeId}` : Prisma.empty} LOCK IN SHARE MODE`;
+        return Number(row?.n ?? 0);
+      }
       return db.user.count({
         where: {
           status: 'ACTIVE',
@@ -250,7 +258,7 @@ export function createPrismaUserRepository(prisma: PrismaClient): UserRepository
       return toSummary(u);
     },
     async withAdminsHeld(work) {
-      return withSentinelLock(prisma, ADMIN_GUARD_LOCK, (tx) => work(heldUsers(tx)));
+      return withSentinelLock(prisma, ADMIN_GUARD_LOCK, (tx) => work(heldUsers(tx, true)));
     },
     async releaseDeletedIdentity(email, username) {
       const stale = await prisma.user.findMany({

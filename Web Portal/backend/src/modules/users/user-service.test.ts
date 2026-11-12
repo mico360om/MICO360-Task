@@ -329,6 +329,19 @@ describe('UserService — never lose the last active administrator', () => {
     }
   });
 
+  // Review follow-up to N1: reactivating someone makes the sign-in check read the account again too, so a
+  // fresh sign-in straight after isn't refused by a cached "inactive" for up to 10 seconds.
+  it('reactivating an account tells the sign-in check to read it again', async () => {
+    const changed: string[] = [];
+    const h = make({ onAccountChanged: (id) => void changed.push(id) });
+    await h.svc.createUser(person({ email: 'boss@x', username: 'boss', roleNames: ['ADMIN'] }));
+    const ada = await h.svc.createUser(person());
+    await h.svc.setUserStatus(ada.id, 'INACTIVE');
+    expect(changed).toEqual([]);
+    await h.svc.setUserStatus(ada.id, 'ACTIVE');
+    expect(changed).toEqual([ada.id]);
+  });
+
   it('the refused change ends nobody’s sessions; the one made ends them after it is saved', async () => {
     const { svc, admins, revoked } = await withAdmins(2);
     await svc.setUserStatus(admins[0]!.id, 'INACTIVE');

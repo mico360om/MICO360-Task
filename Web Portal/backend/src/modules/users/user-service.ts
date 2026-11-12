@@ -30,6 +30,11 @@ export interface UserServiceDeps {
   onDeleted?: (userId: string) => Promise<void>;
   /** After a person's first name, last name or username changed (the task search finds them by it). */
   onRenamed?: (userId: string) => void | Promise<void>;
+  /**
+   * Review follow-up to N1: an account's access changed without its sessions being ended (reactivated):
+   * the sign-in check reads it again (auth-guard forgetUser), so a sign-in straight after isn't refused.
+   */
+  onAccountChanged?: (userId: string) => void;
   /** 1.23: after an account is made inactive, suspended or deleted: forget what it connected (Microsoft Teams). */
   onDeactivated?: (userId: string) => Promise<void>;
   /**
@@ -67,7 +72,7 @@ const sameRoles = (a: string[], b: string[]) => a.length === b.length && a.every
 /** How long after a self-service password change the old live sockets are closed (see revokeAccess). */
 const OWN_CHANGE_SOCKET_GRACE_MS = 5000;
 
-export function createUserService({ users, revokeSessions, onSessionsRevoked, issueSession, forgetDevices, onDeleted, onRenamed, onDeactivated, onEmailChanged }: UserServiceDeps) {
+export function createUserService({ users, revokeSessions, onSessionsRevoked, issueSession, forgetDevices, onDeleted, onRenamed, onDeactivated, onEmailChanged, onAccountChanged }: UserServiceDeps) {
   /** Refuse an email or username someone else holds (case and spaces don't matter), naming the field. */
   async function assertFree(email: string, username: string, selfId?: string): Promise<void> {
     const clash = await users.findByEmailOrUsername(email.trim(), username.trim());
@@ -294,6 +299,7 @@ export function createUserService({ users, revokeSessions, onSessionsRevoked, is
     if (status !== 'ACTIVE' && isActiveAdmin(current)) await ensureAnotherActiveAdmin(id);
     // Stopping an account is checked and written held (review fix #8); reactivating one never waits.
     const updated = status === 'ACTIVE' ? await users.setStatus(id, status) : await removingAdmin(id, (held) => held.setStatus(id, status));
+    if (status === 'ACTIVE') onAccountChanged?.(id);
     if (status !== 'ACTIVE') {
       // A stopped account's welcome or reset link must not set a password (or work once it's reactivated).
       await users.endPasswordLinks(id);

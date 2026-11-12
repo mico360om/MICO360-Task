@@ -715,6 +715,8 @@ async function main(): Promise<void> {
   // Late-bound to the realtime server (below): a suspended / deleted / demoted user's open sockets
   // are closed, not left streaming until the tab is closed.
   let onSessionsRevoked: (userId: string) => void = () => {};
+  // Late-bound to the shared sign-in check (below): an account change it must read again at once.
+  let forgetAccountState: (userId: string) => void = () => {};
   // Late-bound to the token service (below): a self password change hands the caller a fresh session.
   let issueSession: (u: { id: string; roles: string[]; tokenVersion: number }) => Promise<{ accessToken: string; refreshToken: string }> = async () => {
     throw new Error('token service not ready');
@@ -746,6 +748,8 @@ async function main(): Promise<void> {
     users: userMgmtRepository,
     revokeSessions: (userId) => revokeSessions(userId),
     onSessionsRevoked: (userId) => onSessionsRevoked(userId),
+    // Review follow-up to N1: a reactivated account is read again by the sign-in check at once.
+    onAccountChanged: (userId) => forgetAccountState(userId),
     issueSession: (u) => issueSession(u),
     // The device-token repository is created below; this runs only when access is revoked.
     forgetDevices: (userId) => deviceTokenRepository.deleteForUser(userId).then(() => undefined),
@@ -2184,6 +2188,7 @@ async function main(): Promise<void> {
   // session ending below can make it forget an account's cached state at once.
   const managerViewLookup = createPrismaManagerViewLookup(prisma);
   const authGuard = createAuthGuard(tokenService, { userState: userStateLookup, managerView: managerViewLookup });
+  forgetAccountState = (userId) => authGuard.forgetUser(userId);
   // A password change, an administrator's reset, a deactivation, a deletion or a role change ends every
   // sign-in — the ones half-way through the emailed-code step and unused emailed login codes too (review
   // fix #33) — and the sign-in check reads the account again on its next request (N1).
@@ -2220,7 +2225,6 @@ async function main(): Promise<void> {
   let broadcast: (projectId: string, event: string, payload: unknown) => void = () => {};
   let broadcastToUser: (userId: string, event: string, payload: unknown) => void = () => {};
   let broadcastToAudience: (audience: { projectId?: string | null; userIds?: string[] }, event: string, payload: unknown) => void = () => {};
-
 
   // Duplicate Task: a copy is made as any new task in the chosen project (the same pipeline as POST /tasks:
   // its scope, tags, contacts and assignee rules), then gets the original's watchers who can see that
