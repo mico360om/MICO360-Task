@@ -796,6 +796,27 @@ describe('a dropped read is tried again (1.23.23)', () => {
     expect(seen[0]).toMatchObject({ status: 200, startedAt: 1450, ms: 30, tries: 2, url: 'http://api.test/tasks' });
   });
 
+  // Review: a blip fails fast; a try that failed only after a long wait (a timeout, a long export cut on the way)
+  // isn't sent again — the person would wait 3 times as long, and the server would do the work again.
+  it('a try that failed only after 5 s or more is not tried again', async () => {
+    let now = 0;
+    vi.spyOn(performance, 'now').mockImplementation(() => now);
+    for (const [took, calls] of [[4_900, 2], [5_000, 1], [30_000, 1]] as const) {
+      let n = 0;
+      const f = vi.fn(async () => {
+        n += 1;
+        if (n === 1) {
+          now += took;
+          throw dropped();
+        }
+        return jsonResponse({ data: 1 });
+      });
+      vi.stubGlobal('fetch', f);
+      await client().getBlob('/reports/tasks.xlsx').catch(() => undefined);
+      expect(f).toHaveBeenCalledTimes(calls);
+    }
+  });
+
   it('downloads (getText, getBlob) are reads: tried again too', async () => {
     const f = stubSeq([dropped(), { data: 1 }]);
     await expect(client().getText('/reports/status.csv')).resolves.toBe('{"data":1}');

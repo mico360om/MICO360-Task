@@ -65,7 +65,7 @@ export interface ApiClientOptions {
   onDatabaseBusy?: (err: ApiError) => void;
   /**
    * 1.23.23: a read (GET, HEAD) whose connection dropped on the way — the fetch failed, not an abort — is
-   * tried again: up to NETWORK_TRIES tries in all, about 400 ms and then about 1.2 s apart, only while the page
+   * tried again: up to READ_TRIES tries in all, about 400 ms and then about 1.2 s apart, only while the page
    * is on screen and the browser isn't offline. A change is never sent twice. On by default; `false` turns it
    * off; the rest is for tests.
    */
@@ -85,11 +85,16 @@ export interface NetworkRetryOptions {
 }
 
 /** 1.23.23: a dropped read is sent this many times in all (the first try and two more). */
-export const NETWORK_TRIES = 3;
+export const READ_TRIES = 3;
 /** The waits before the 2nd and 3rd tries (ms), before the jitter. */
 export const NETWORK_RETRY_DELAYS_MS: readonly number[] = [400, 1200];
 /** Each wait is moved by up to this share of it, either way, so many tabs don't all try again at once. */
 const RETRY_JITTER = 0.25;
+/**
+ * A blip fails fast: a try that failed only after this long (a timeout, a long export cut on the way) isn't
+ * sent again — the person would wait 3 times as long, and the server would do the work again.
+ */
+export const QUICK_FAILURE_MS = 5000;
 
 /** How many tries a failed request took (the error as thrown to the caller; 0 when not known). */
 const triesByError = new WeakMap<object, number>();
@@ -211,7 +216,7 @@ export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthoriz
    */
   async function mayTryAgain(tries: number): Promise<boolean> {
     try {
-      if (!retry || tries >= NETWORK_TRIES || !retry.allowed()) return false;
+      if (!retry || tries >= READ_TRIES || !retry.allowed()) return false;
       const base = retry.delays[Math.min(tries - 1, retry.delays.length - 1)] ?? 0;
       const r = Math.min(1, Math.max(0, Number(retry.random()) || 0));
       await retry.wait(Math.max(0, Math.round(base * (1 - RETRY_JITTER + 2 * RETRY_JITTER * r))));
@@ -328,7 +333,8 @@ export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthoriz
           return res;
         },
         async (err: unknown) => {
-          if (read && !isAbort(err) && (await mayTryAgain(tries))) return attempt(tries + 1);
+          const quick = clock() - started.at < QUICK_FAILURE_MS;
+          if (read && quick && !isAbort(err) && (await mayTryAgain(tries))) return attempt(tries + 1);
           // Every try failed (or no more may go): told once, from the first try's start — the whole request.
           told(method, path, 0, first ?? started, undefined, err, tries);
           if (err !== null && typeof err === 'object') triesByError.set(err, tries);

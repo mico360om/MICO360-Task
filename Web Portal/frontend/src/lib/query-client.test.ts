@@ -27,23 +27,52 @@ describe('the app’s query client', () => {
     expect(onError).toHaveBeenCalledTimes(1);
   });
 
-  // 1.23.23: the API client tries a dropped read 3 times; the query doesn't multiply that (4 × 3 requests).
-  it('a read dropped every time is sent 3 times in all (the API client’s tries), not 3 × the query’s retries', async () => {
-    const f = vi.fn(async () => { throw new TypeError('Failed to fetch'); });
-    vi.stubGlobal('fetch', f);
-    const api = createApiClient({ baseUrl: 'http://api.test', getToken: () => null, networkRetry: { wait: async () => undefined } });
-    const read = new QueryObserver(createAppQueryClient(), { queryKey: ['dropped'], queryFn: () => api.get('/tasks') });
-    const failed = new Promise<void>((resolve) => {
-      const stop = read.subscribe((r) => {
-        if (r.status === 'error') {
-          stop();
-          resolve();
-        }
-      });
+  // 1.23.23: the API client tries a dropped read 3 times; the query adds one more round 4 s later — 6 requests
+  // in all (not 4 × 3), and a connection back within about 7 s is never seen (as before).
+  describe('a dropped read (1.23.23)', () => {
+    const watch = (fetchFn: () => Promise<Response>) => {
+      const f = vi.fn(fetchFn);
+      vi.stubGlobal('fetch', f);
+      const api = createApiClient({ baseUrl: 'http://api.test', getToken: () => null, networkRetry: { wait: async () => undefined } });
+      const read = new QueryObserver(createAppQueryClient(), { queryKey: ['dropped', Math.random()], queryFn: () => api.get('/tasks') });
+      const states: string[] = [];
+      const stop = read.subscribe((r) => states.push(r.status));
+      return { f, states, stop };
+    };
+    afterEach(() => {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
     });
-    await Promise.race([failed, new Promise((_, reject) => setTimeout(() => reject(new Error('the query kept retrying')), 3_000))]);
-    expect(f).toHaveBeenCalledTimes(3);
-    vi.unstubAllGlobals();
+
+    it('dropped every time: 3 tries, one more round of 3 after 4 s, then the error — 6 requests in all', async () => {
+      vi.useFakeTimers();
+      const { f, states, stop } = watch(async () => { throw new TypeError('Failed to fetch'); });
+      await vi.advanceTimersByTimeAsync(10);
+      expect(f).toHaveBeenCalledTimes(3);
+      await vi.advanceTimersByTimeAsync(3_900);
+      expect(f).toHaveBeenCalledTimes(3);
+      await vi.advanceTimersByTimeAsync(200);
+      expect(f).toHaveBeenCalledTimes(6);
+      expect(states.at(-1)).toBe('error');
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(f).toHaveBeenCalledTimes(6);
+      stop();
+    });
+
+    it('back within the extra round: the data, never the error', async () => {
+      vi.useFakeTimers();
+      let n = 0;
+      const { f, states, stop } = watch(async () => {
+        n += 1;
+        if (n <= 3) throw new TypeError('Failed to fetch');
+        return new Response('{"data":1}', { status: 200 });
+      });
+      await vi.advanceTimersByTimeAsync(4_200);
+      expect(f).toHaveBeenCalledTimes(4);
+      expect(states).not.toContain('error');
+      expect(states.at(-1)).toBe('success');
+      stop();
+    });
   });
 
   it('a server error is still retried by the query (the API client doesn’t)', () => {

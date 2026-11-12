@@ -34,6 +34,19 @@ export async function serverUptimeMs(baseUrl: string): Promise<number | null> {
 /** The page is being left, or hidden now. */
 const goingOrHidden = () => isLeaving() || document.visibilityState === 'hidden';
 
+/**
+ * 1.23.23: may the API client try a dropped read again now? Only on a page that is on screen, online and not
+ * being left (Firefox and Safari fail a page's requests as it navigates away, while it is still visible).
+ * Never throws (a broken check is a no).
+ */
+export function mayRetryRequest(): boolean {
+  try {
+    return !isLeaving() && document.visibilityState === 'visible' && navigator.onLine !== false;
+  } catch {
+    return false;
+  }
+}
+
 /** The browser's own pieces: fetch with keepalive (sendBeacon only where that is missing), timers, the page. */
 export function browserReporterWorld(opts: { baseUrl: string; getToken: () => string | null }): ReporterWorld {
   const url = `${opts.baseUrl}/client-errors`;

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { browserReporterWorld, serverUptimeMs } from './error-reporting';
+import { browserReporterWorld, mayRetryRequest, serverUptimeMs } from './error-reporting';
+import { installErrorCapture } from './error-capture';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -58,6 +59,36 @@ describe('serverUptimeMs: never waits for ever (1.23.14 review)', () => {
       expect(await answer).toBeNull();
     } finally {
       vi.useRealTimers();
+    }
+  });
+});
+
+// 1.23.23 (review): the API client tries a dropped read again only on a page that is on screen, online and not
+// being left (Firefox and Safari fail a page's requests as it navigates away, with the page still visible).
+describe('mayRetryRequest: may a dropped read be tried again now?', () => {
+  const setVisibility = (state: string) => Object.defineProperty(document, 'visibilityState', { value: state, configurable: true });
+  afterEach(() => {
+    setVisibility('visible');
+    vi.restoreAllMocks();
+  });
+
+  it('yes on a visible, online page; no while hidden, offline or being left', () => {
+    const uninstall = installErrorCapture(window, { report: () => undefined, flush: async () => undefined }, { origin: window.location.origin });
+    try {
+      setVisibility('visible');
+      expect(mayRetryRequest()).toBe(true);
+      setVisibility('hidden');
+      expect(mayRetryRequest()).toBe(false);
+      setVisibility('visible');
+      const offline = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+      expect(mayRetryRequest()).toBe(false);
+      offline.mockRestore();
+      window.dispatchEvent(new Event('beforeunload'));
+      expect(mayRetryRequest()).toBe(false);
+      window.dispatchEvent(new Event('focus')); // a cancelled "Leave site?" prompt: the page stays
+      expect(mayRetryRequest()).toBe(true);
+    } finally {
+      uninstall();
     }
   });
 });

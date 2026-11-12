@@ -7,6 +7,7 @@ import { micoAiApi, micoAiChatKey, MICO_AI_CHATS_KEY, type ConfirmBody, type Mic
 import { projectsApi } from '../api/projects';
 import { usersApi } from '../api/users';
 import { ApiError } from '../lib/api-client';
+import { queryRetryDelay, retriesLeft } from '../lib/queryRetry';
 import { downloadBlob, fileNameOf } from '../lib/download';
 import { useFrameOffset } from '../lib/useFrameOffset';
 import { useDateSettings } from '../lib/useDatePrefs';
@@ -282,7 +283,8 @@ export function MicoAiPage({ pollMs = 1000, draftPollMs = 400, searchDebounceMs 
     // MICO360 AI (b15): while its words are arriving, the answer is read a little more often.
     refetchInterval: pending?.draft ? Math.min(pollMs, draftPollMs) : pollMs,
     gcTime: 0,
-    retry: (count, err) => !isGoneError(err) && count < 2,
+    retry: (count, err) => !isGoneError(err) && retriesLeft(count, err, 2),
+    retryDelay: queryRetryDelay,
   });
   // The chat was deleted somewhere else (another tab): stop following its answer and say so.
   useEffect(() => {

@@ -4,6 +4,7 @@ import { Link, Navigate, useSearchParams } from 'react-router-dom';
 import { apiClient } from '../api/client';
 import { managementAccessKey, managementApi, managementOverviewKey, type ItemQuery, type ManagementFilters as Filters, type ManagementOverview } from '../api/management';
 import { ApiError } from '../lib/api-client';
+import { queryRetryDelay, retriesLeft } from '../lib/queryRetry';
 import { PageHeader } from '../components/ui/PageHeader';
 import { Button } from '../components/ui/Button';
 import { LoadError } from '../components/ui/LoadError';
@@ -94,8 +95,9 @@ export function ManagementPage() {
     refetchInterval: REFRESH_MS,
     refetchOnWindowFocus: true,
     // A refusal is an answer, not a hiccup: don't ask again and again.
-    retry: (n, err) => !(err instanceof ApiError && err.status === 403) && n < 2,
-    retryDelay: 400,
+    // 1.23.23: a dropped read the API client already tried 3 times gets one more round, 4 s later.
+    retry: (n, err) => !(err instanceof ApiError && err.status === 403) && retriesLeft(n, err, 2),
+    retryDelay: (n, err) => queryRetryDelay(n, err, 400),
   });
   const data: ManagementOverview | undefined = q.data;
   // The server says no (they no longer run a project): the sidebar link goes too.

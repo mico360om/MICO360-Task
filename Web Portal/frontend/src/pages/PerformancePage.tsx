@@ -10,6 +10,7 @@ import { ProjectAvatar } from '../components/ProjectAvatar';
 import { KpiItemsSheet } from '../components/kpis/KpiItemsSheet';
 import { KpiTileCard, PeriodPicker, TrendNote, usePeriodParam } from '../components/kpis/kpi-ui';
 import { ApiError } from '../lib/api-client';
+import { queryRetryDelay, retriesLeft } from '../lib/queryRetry';
 import { todayKey } from '../lib/due-date';
 import { useCompanyTimeZone } from '../lib/company-clock';
 import { usePageName } from '../lib/page-meta';
@@ -40,7 +41,8 @@ export function PerformancePage() {
     queryFn: () => (self ? kpisApi(apiClient).me(period) : kpisApi(apiClient).person(userId, period)),
     placeholderData: keepPreviousData,
     staleTime: 30_000,
-    retry: (n, err) => !(err instanceof ApiError && (err.status === 403 || err.status === 404)) && n < 2,
+    retry: (n, err) => !(err instanceof ApiError && (err.status === 403 || err.status === 404)) && retriesLeft(n, err, 2),
+    retryDelay: queryRetryDelay,
   });
   const data = q.data;
   usePageName(self ? 'My performance' : data ? `${data.person.name} · Performance` : 'Performance');
