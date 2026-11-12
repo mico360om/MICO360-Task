@@ -15,31 +15,6 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 ## [Unreleased]
 
 ### New features
-- Guests on tasks: people outside the company — a client's engineer, a supplier's site lead — can be named
-  on a task for the record. The Assign box (New task, Edit task and the task panel) has a switch
-  **Internal user | Guest**: pick a guest from your company's list, or add a new one (name required;
-  company, designation, email and phone if you have them). If the same person is already on the list, the
-  form says so ("Ahmed Al Harthy (OXY) is already on the list — use them?"). A task can have several team
-  members and several guests, and always needs at least one person from your team, who looks after it.
-  Guests never sign in, never get emails or notices, take no licence and are never shown to clients.
-- Guests show on the task's right side under Assigned (with a Guest badge; their phone and email with a
-  Copy button, and a note for this task), on cards and rows ("Guest: Ahmed (OXY)"), in the Table view's
-  Guests column, in the task PDF and Excel, in the report's task list, and in the daily email of the person
-  looking after the task ("with guest Ahmed (OXY)"). Filter by **Guest** and **Guest company** on the
-  board, My Tasks, the project's Tasks tab, the Table view and Search results.
-- Today's external contacts become guests on your company's list by themselves (the same person on several
-  tasks becomes one guest; other details found are kept in the guest's notes). An open task that had
-  contacts and nobody from the team gets its creator as the person responsible.
-- Admin → Guest contacts: search your company's guest list, change a guest's details (every task shows
-  them), retire a guest (kept on old tasks, not offered any more), merge duplicates into one, or remove a
-  guest who is on no task.
-- Task categories: each project has its own categories (a name and one of 12 colours), set up by admins and
-  the project's managers in Edit project → Categories (add, rename, recolour, reorder, retire). A task can
-  have several; the project can ask that **every task needs a category**. Categories show as coloured
-  chips on cards, rows and the Table view (Compact 1, Comfortable 2, Detailed all), in the task panel, the
-  task PDF, Excel, the report and the daily email, with a **Category** filter on the board, My Tasks, the
-  Tasks tab, the Table view and Search results — and searching "category:Electrical" finds them too. The
-  project's Overview shows its open tasks **By category**. Tags stay as they are.
 - Task archive: a task you no longer need on the boards can be archived ("Archive" in the task's ⋯ menu, for
   administrators and the people who run its project). It leaves every board, list, My Tasks, the calendar,
   the Timeline, Workload, dashboards, reminders and the daily email, and is read-only, but nothing is lost:
@@ -221,16 +196,6 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   administrator powers).
 
 ### Improvements
-- Moving a task to another project keeps the categories that project has by name and says which it drops;
-  a guest of another company is copied onto the new project's company list. Merging tasks keeps every
-  category and each guest once (Undo gives them back); repeating copies keep both; "Save as template"
-  keeps a project's categories, and a project made from that template starts with them.
-- The task history says "assigned guest Ahmed (OXY)", "removed guest …", "added category Electrical".
-- Search this board also finds a card by its guests (name or company) and its categories. Duplicate copies
-  a task's guests (with their notes for the task) and its categories, never retired ones.
-- A task in the Recycle Bin keeps its guests and categories: its categories count as in use (they can be
-  retired, not deleted) and its guests stay on the list until it is erased; its read-only view shows both
-  (its history words them as the task panel does), and Restore brings them back as they were.
 - The daily email stays within Gmail's size limit on busy days by trimming the less urgent lists first (overdue
   and due-today tasks keep the most rows), and says how many more there are and where. An email with nothing
   in it is still not sent.
@@ -248,10 +213,6 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   upgrade nobody gets a burst of reminders for what was already due.
 - The dashboard shows "Overdue learning" when a course assigned to you is past its due day.
 
-### Bug fixes
-- Recycle Bin: a deleted task's details can be scrolled with the keyboard too (on a phone they scroll and
-  have no buttons of their own).
-
 ### Security
 - Training files (documents, downloads, step pictures, signatures) are kept in a private folder, never at
   the public uploads address, and are sent only to people who may see the course (they are in backups).
@@ -259,6 +220,51 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   you pass or have no attempts left.
 - The site's security policy allows exactly YouTube's privacy-enhanced player and Vimeo's player to show
   lesson videos (no other site, no outside scripts).
+
+## [1.23.20] - 2026-11-12
+
+### New features
+- Guests on tasks: people outside the company — a client's engineer, a supplier's site lead — can be named
+  on a task for the record. The Assign box (New task, Edit task and the task panel) has a switch
+  **Internal user | Guest**: pick a guest from your company's list, or add a new one (name required;
+  company, designation, email and phone if you have them). If the same person is already on the list, the
+  form says so ("Ahmed Al Harthy (OXY) is already on the list — use them?"). A task can have several team
+  members and several guests, and always needs at least one person from your team, who looks after it.
+  Guests never sign in, never get emails or notices, take no licence and are never shown to clients.
+- Guests show on the task's right side under Assigned (with a Guest badge; their phone and email with a
+  Copy button, and a note for this task), on cards and rows ("Guest: Ahmed (OXY)"), in the Table view's
+  Guests column, in the task PDF and Excel, in the report's task list, and in the daily email of the person
+  looking after the task ("with guest Ahmed (OXY)"). Filter by **Guest** and **Guest company** on the
+  board, My Tasks, the project's Tasks tab, the Table view and Search results.
+- Today's external contacts become guests on your company's list by themselves (the same person on several
+  tasks becomes one guest; other details found are kept in the guest's notes). An open task that had
+  contacts and nobody from the team gets its creator as the person responsible.
+- Admin → Guest contacts: search your company's guest list, change a guest's details (every task shows
+  them), retire a guest (kept on old tasks, not offered any more), merge duplicates into one, or remove a
+  guest who is on no task.
+- Task categories: each project has its own categories (a name and one of 12 colours), set up by admins and
+  the project's managers in Edit project → Categories (add, rename, recolour, reorder, retire). A task can
+  have several; the project can ask that **every task needs a category**. Categories show as coloured
+  chips on cards, rows and the Table view (Compact 1, Comfortable 2, Detailed all), in the task panel, the
+  task PDF, Excel, the report and the daily email, with a **Category** filter on the board, My Tasks, the
+  Tasks tab, the Table view and Search results — and searching "category:Electrical" finds them too. The
+  project's Overview shows its open tasks **By category**. Tags stay as they are.
+
+### Improvements
+- Moving a task to another project keeps the categories that project has by name and says which it drops;
+  a guest of another company is copied onto the new project's company list. Merging tasks keeps every
+  category and each guest once (Undo gives them back); repeating copies keep both; "Save as template"
+  keeps a project's categories, and a project made from that template starts with them.
+- The task history says "assigned guest Ahmed (OXY)", "removed guest …", "added category Electrical".
+- Search this board also finds a card by its guests (name or company) and its categories. Duplicate copies
+  a task's guests (with their notes for the task) and its categories, never retired ones.
+- A task in the Recycle Bin keeps its guests and categories: its categories count as in use (they can be
+  retired, not deleted) and its guests stay on the list until it is erased; its read-only view shows both
+  (its history words them as the task panel does), and Restore brings them back as they were.
+
+### Bug fixes
+- Recycle Bin: a deleted task's details can be scrolled with the keyboard too (on a phone they scroll and
+  have no buttons of their own).
 
 ## [1.23.19] - 2026-11-11
 
