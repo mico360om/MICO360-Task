@@ -197,7 +197,8 @@ describe('carrying out an inspection', () => {
     first.unmount();
     server.offline = true;
     show();
-    expect(await screen.findByText('No signal: showing the copy saved on this phone.')).toBeInTheDocument();
+    // 1.23.23: the browser still says it is online, so the dropped read is tried 3 times first (about 1.6 s).
+    expect(await screen.findByText('No signal: showing the copy saved on this phone.', {}, { timeout: 4000 })).toBeInTheDocument();
     await userEvent.click(screen.getByRole('radio', { name: 'Fail' }));
     await waitFor(() => expect(screen.getByText(/Saved on this phone, will send when online: 1 answer\./)).toBeInTheDocument(), { timeout: 3000 });
     expect(screen.getByText('1 failed', { exact: false })).toBeInTheDocument();

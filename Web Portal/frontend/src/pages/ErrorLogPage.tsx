@@ -14,7 +14,7 @@ import { relativeTime } from '../lib/relative-time';
 import { useCompanyTimeZone } from '../lib/useCompanyTimeZone';
 import { TOUCH_SQUARE, TOUCH_TALL } from '../lib/touch';
 import { DatabaseCheckLine } from '../components/admin/DatabaseCheckLine';
-import { KIND_FILTERS, KIND_WORDS, RANGES, browserText, databaseText, detailText, interactionWords, isNewSince, lastTimeText, pageTimeNote, partsText, peopleText, personText, placeText, slowTimingText, timesText, topFrameText } from '../components/admin/error-log-words';
+import { KIND_FILTERS, KIND_WORDS, RANGES, browserText, databaseText, detailText, interactionWords, isNewSince, lastTimeText, pageTimeNote, partsText, peopleText, personText, placeText, slowTimingText, timesText, topFrameText, triesText } from '../components/admin/error-log-words';
 
 const segment = (active: boolean) =>
   `rounded-lg px-3 py-1 text-sm font-medium transition-colors ${TOUCH_SQUARE} ${active ? 'bg-brand text-white shadow-brand' : 'text-ink-2 hover:bg-ground hover:text-ink'}`;
@@ -308,7 +308,7 @@ function ErrorDetails({ id, groupId, kind, status, timeZone, onChanged }: { id: 
 }
 
 function Occurrence({ e, timeZone }: { e: ErrorOccurrence; timeZone: string }) {
-  const facts = [placeText(e), browserText(e), e.version ? `Version ${e.version}` : '', e.screen ? `Window ${e.screen.replace('x', '×')}` : '', e.count > 1 ? `${timesText(e.count)} in one visit` : '', detailText(e.detail)].filter(Boolean);
+  const facts = [placeText(e), browserText(e), e.version ? `Version ${e.version}` : '', e.screen ? `Window ${e.screen.replace('x', '×')}` : '', e.count > 1 ? `${timesText(e.count)} in one visit` : '', detailText(e.detail), triesText(e)].filter(Boolean);
   return (
     <li className="flex flex-col gap-0.5 px-3 py-2 text-xs">
       <span className="flex flex-wrap items-baseline gap-x-2">

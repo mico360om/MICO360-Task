@@ -409,3 +409,50 @@ describe('GET /users/me', () => {
     expect(reports).toEqual([{ kind: 'SLOW', detail: 'api', value: 10_600, resource: 'GET /api/v1/users/me', serverMs: 12, dbMs: 4, queueMs: 0, connectMs: 0, waitMs: 10_600, downloadMs: 0 }]);
   });
 });
+
+// 1.23.23 — the API client tries a dropped read again (up to 3 tries) and tells the request once: a read that
+// got through on a retry is an ordinary request (nothing for a quick one; a slow one timed by the try that got
+// through); one that failed every try is reported once, saying how many tries it took (value).
+describe('a dropped read tried again (1.23.23)', () => {
+  it('got through on the 2nd or 3rd try, quickly: nothing reported', async () => {
+    uptimes = [3_600_000, 3_600_000];
+    const r2 = request({ path: '/projects/p1/next-actions' });
+    watch.requestDone(r2.done(120, { tries: 2 }));
+    watch.resources([entry(r2.started.startedAt, { wait: 100 }, { name: `${BASE}/projects/p1/next-actions?limit=50` })]);
+    const r3 = request();
+    watch.requestDone(r3.done(90, { tries: 3 }));
+    await advance(180_000);
+    expect(reports).toEqual([]);
+    expect(probes).toBe(0);
+  });
+
+  it('a slow read that got through on a retry is timed by that try’s own entry, not the failed one’s', () => {
+    const failedStart = mono;
+    mono += 450; // the failed try and the wait before the second
+    wall += 450;
+    const r = request();
+    watch.requestDone(r.done(10_700, { tries: 2 }));
+    // The failed try's entry (the browser may keep one for it) started 450 ms earlier: not this request's.
+    watch.resources([entry(failedStart, { wait: 30 }), entry(r.started.startedAt, { wait: 10_650 })]);
+    expect(reports).toEqual([{ kind: 'SLOW', detail: 'api', value: 10_650, resource: 'GET /api/v1/tasks', queueMs: 0, connectMs: 0, waitMs: 10_650, downloadMs: 0 }]);
+  });
+
+  it('failed every try, the server up all along: “blocked on the way” once, saying it was tried 3 times', async () => {
+    uptimes = [3_600_000];
+    watch.requestDone(request({ path: '/projects/p1/next-actions' }).done(1_700, { status: 0, tries: 3 }));
+    await advance(10);
+    expect(reports).toEqual([{ kind: 'NETWORK', detail: 'api', resource: 'GET /api/v1/projects/p1/next-actions', value: 3 }]);
+  });
+
+  it('failed every try while the server restarted: the update’s, saying it was tried 3 times', async () => {
+    uptimes = [1_000];
+    watch.requestDone(request({ path: '/conversations' }).done(1_700, { status: 0, tries: 3 }));
+    await advance(10);
+    expect(reports).toEqual([{ kind: 'UPDATE', detail: 'api', resource: 'GET /api/v1/conversations', value: 3 }]);
+  });
+
+  it('older callers too: a failure says how many tries it took', () => {
+    watch.requestDone({ method: 'GET', path: '/x', status: 0, ms: 1_700, tries: 3 });
+    expect(reports).toEqual([{ kind: 'NETWORK', detail: 'api', resource: 'GET /api/v1/x', value: 3 }]);
+  });
+});

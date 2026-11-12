@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { createApiClient, ApiError, type RequestDone } from './api-client';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { createApiClient, ApiError, networkTries, type RequestDone } from './api-client';
 import { fileNameOf } from './download';
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -596,5 +596,247 @@ describe('onDatabaseBusy', () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(BUSY, 503)));
     await expect(api.get('/tasks')).rejects.toMatchObject({ code: 'DATABASE_BUSY' });
     expect(told).toHaveLength(1);
+  });
+});
+
+// 1.23.23 — a read whose connection drops on the way (a brief network blip: status 0, not an abort) is tried
+// again, up to 3 tries in all, about 400 ms and then about 1.2 s apart, only while the page is on screen and the
+// browser isn't offline. A change is never sent twice. The caller gets the answer of the try that got through;
+// onRequestDone is told once — the successful try (its own start and time), or the last failure (the first try's
+// start, so the Error log judges the whole request) with how many tries it took.
+describe('a dropped read is tried again (1.23.23)', () => {
+  const dropped = () => new TypeError('Failed to fetch');
+  /** fetch answers in turn: an Error is thrown (a drop), anything else is the JSON body of a 200. */
+  function stubSeq(answers: unknown[]) {
+    let i = 0;
+    const f = vi.fn(async (_url: string, _init?: RequestInit) => {
+      const a = answers[Math.min(i++, answers.length - 1)];
+      if (a instanceof Error || a instanceof DOMException) throw a;
+      return jsonResponse(a);
+    });
+    vi.stubGlobal('fetch', f);
+    return f;
+  }
+  let waits: number[];
+  let allowed: boolean;
+  let seen: RequestDone[];
+  beforeEach(() => {
+    waits = [];
+    allowed = true;
+    seen = [];
+  });
+  const client = (over: Partial<Parameters<typeof createApiClient>[0]> = {}) =>
+    createApiClient({
+      baseUrl: 'http://api.test',
+      getToken: () => 'tok',
+      onRequestDone: (i) => seen.push(i),
+      networkRetry: { wait: async (ms) => void waits.push(ms), random: () => 0.5, allowed: () => allowed },
+      ...over,
+    });
+
+  it('a GET dropped once gets through on the 2nd try: the caller gets the answer, told once (tries 2)', async () => {
+    const f = stubSeq([dropped(), { data: { ok: 1 } }]);
+    await expect(client().get('/projects/p1/next-actions')).resolves.toEqual({ data: { ok: 1 } });
+    expect(f).toHaveBeenCalledTimes(2);
+    expect(waits).toEqual([400]);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({ method: 'GET', path: '/projects/p1/next-actions', status: 200, tries: 2 });
+  });
+
+  it('dropped twice, through on the 3rd: waits about 400 ms, then about 1.2 s', async () => {
+    const f = stubSeq([dropped(), dropped(), { data: [] }]);
+    await expect(client().get('/tasks')).resolves.toEqual({ data: [] });
+    expect(f).toHaveBeenCalledTimes(3);
+    expect(waits).toEqual([400, 1200]);
+    expect(seen.map((s) => [s.status, s.tries])).toEqual([[200, 3]]);
+  });
+
+  it('the waits are jittered by up to a quarter either way', async () => {
+    for (const [r, want] of [[0, [300, 900]], [1, [500, 1500]]] as const) {
+      waits = [];
+      stubSeq([dropped(), dropped(), { data: 1 }]);
+      await client({ networkRetry: { wait: async (ms) => void waits.push(ms), random: () => r, allowed: () => true } }).get('/tasks');
+      expect(waits).toEqual(want);
+    }
+  });
+
+  it('dropped every time: 3 tries, the drop goes to the caller, told once as status 0 with tries 3 and the first try’s start', async () => {
+    let marks = 0;
+    const f = stubSeq([dropped(), dropped(), dropped(), { data: 'never' }]);
+    const api = client({ pageMark: () => ({ n: ++marks }) });
+    const err = await api.get('/tasks/t1').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(TypeError);
+    expect(f).toHaveBeenCalledTimes(3);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({ method: 'GET', path: '/tasks/t1', status: 0, tries: 3, mark: { n: 1 } });
+    expect(networkTries(err)).toBe(3);
+  });
+
+  it('a one-try answer says nothing about tries', async () => {
+    stubSeq([{ data: 1 }]);
+    await client().get('/tasks');
+    expect(seen[0]).not.toHaveProperty('tries');
+  });
+
+  it('an abort on purpose is never tried again', async () => {
+    const f = stubSeq([new DOMException('The user aborted a request.', 'AbortError'), { data: 1 }]);
+    await expect(client().get('/x')).rejects.toMatchObject({ name: 'AbortError' });
+    expect(f).toHaveBeenCalledTimes(1);
+    expect(waits).toEqual([]);
+    expect(seen[0]).toMatchObject({ status: 0, aborted: true });
+  });
+
+  it('an answer from the server (a 500, a 503) is not a drop: not tried again here', async () => {
+    const f = vi.fn(async () => jsonResponse({ error: { code: 'X' } }, 500));
+    vi.stubGlobal('fetch', f);
+    await expect(client().get('/tasks')).rejects.toMatchObject({ status: 500 });
+    expect(f).toHaveBeenCalledTimes(1);
+  });
+
+  it('a change is never sent twice: POST, PUT, PATCH, DELETE and an upload fail at the first drop', async () => {
+    const api = client();
+    const sends = [() => api.post('/tasks', { title: 'x' }), () => api.put('/tasks/t1', {}), () => api.patch('/tasks/t1', {}), () => api.del('/tasks/t1'), () => api.upload('/tasks/t1/attachments', new FormData())];
+    for (const send of sends) {
+      const f = stubSeq([dropped(), { data: 1 }]);
+      await expect(send()).rejects.toBeInstanceOf(TypeError);
+      expect(f).toHaveBeenCalledTimes(1);
+    }
+    expect(waits).toEqual([]);
+    expect(seen).toHaveLength(5);
+    expect(seen.every((s) => s.status === 0 && !('tries' in s))).toBe(true);
+  });
+
+  it('not while the page is hidden or offline: the drop goes to the caller at once', async () => {
+    allowed = false;
+    const f = stubSeq([dropped(), { data: 1 }]);
+    await expect(client().get('/tasks')).rejects.toBeInstanceOf(TypeError);
+    expect(f).toHaveBeenCalledTimes(1);
+    expect(waits).toEqual([]);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).not.toHaveProperty('tries');
+  });
+
+  it('the page hidden during the wait: no more tries', async () => {
+    const f = stubSeq([dropped(), dropped(), { data: 1 }]);
+    const api = client({ networkRetry: { wait: async (ms) => { waits.push(ms); allowed = false; }, random: () => 0.5, allowed: () => allowed } });
+    const err = await api.get('/tasks').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(TypeError);
+    expect(f).toHaveBeenCalledTimes(1);
+    expect(waits).toEqual([400]);
+    expect(seen).toHaveLength(1);
+    expect(networkTries(err)).toBe(1);
+  });
+
+  describe('the page’s own state, by default', () => {
+    const setVisibility = (state: string) => Object.defineProperty(document, 'visibilityState', { value: state, configurable: true });
+    afterEach(() => {
+      setVisibility('visible');
+      vi.restoreAllMocks();
+    });
+    const plain = () => createApiClient({ baseUrl: 'http://api.test', getToken: () => null, networkRetry: { wait: async (ms) => void waits.push(ms) } });
+
+    it('tries again on a visible, online page', async () => {
+      setVisibility('visible');
+      const f = stubSeq([dropped(), { data: 1 }]);
+      await expect(plain().get('/tasks')).resolves.toEqual({ data: 1 });
+      expect(f).toHaveBeenCalledTimes(2);
+    });
+
+    it('not on a hidden page', async () => {
+      setVisibility('hidden');
+      const f = stubSeq([dropped(), { data: 1 }]);
+      await expect(plain().get('/tasks')).rejects.toBeInstanceOf(TypeError);
+      expect(f).toHaveBeenCalledTimes(1);
+    });
+
+    it('not while the browser says it is offline', async () => {
+      setVisibility('visible');
+      vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+      const f = stubSeq([dropped(), { data: 1 }]);
+      await expect(plain().get('/tasks')).rejects.toBeInstanceOf(TypeError);
+      expect(f).toHaveBeenCalledTimes(1);
+    });
+
+    it('the real waits: about 400 ms, then about 1.2 s', async () => {
+      vi.useFakeTimers();
+      try {
+        const f = stubSeq([dropped(), dropped(), { data: 1 }]);
+        const done = createApiClient({ baseUrl: 'http://api.test', getToken: () => null, networkRetry: { random: () => 0.5 } }).get('/tasks');
+        await vi.advanceTimersByTimeAsync(399);
+        expect(f).toHaveBeenCalledTimes(1);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(f).toHaveBeenCalledTimes(2);
+        await vi.advanceTimersByTimeAsync(1199);
+        expect(f).toHaveBeenCalledTimes(2);
+        await vi.advanceTimersByTimeAsync(1);
+        await expect(done).resolves.toEqual({ data: 1 });
+        expect(f).toHaveBeenCalledTimes(3);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  it('the slow-request time is the successful try’s own: its start and its time, not the failed tries or the waits', async () => {
+    let now = 1000;
+    vi.spyOn(performance, 'now').mockImplementation(() => now);
+    let n = 0;
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      n += 1;
+      if (n === 1) {
+        now += 50; // the drop came after 50 ms
+        throw dropped();
+      }
+      now += 30; // the second try answered in 30 ms
+      return jsonResponse({ data: 1 });
+    }));
+    const api = client({ networkRetry: { wait: async (ms) => { now += ms; }, random: () => 0.5, allowed: () => true } });
+    await api.get('/tasks');
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({ status: 200, startedAt: 1450, ms: 30, tries: 2, url: 'http://api.test/tasks' });
+  });
+
+  it('downloads (getText, getBlob) are reads: tried again too', async () => {
+    const f = stubSeq([dropped(), { data: 1 }]);
+    await expect(client().getText('/reports/status.csv')).resolves.toBe('{"data":1}');
+    expect(f).toHaveBeenCalledTimes(2);
+    const g = stubSeq([dropped(), { data: 1 }]);
+    await expect(client().getBlob('/reports/tasks.xlsx')).resolves.toBeInstanceOf(Blob);
+    expect(g).toHaveBeenCalledTimes(2);
+  });
+
+  it('the token refresh after a 401 works as before when the first try was dropped', async () => {
+    let token = 'stale';
+    let n = 0;
+    const f = vi.fn(async (_url: string, init?: RequestInit) => {
+      n += 1;
+      if (n === 1) throw dropped();
+      const auth = (init!.headers as Record<string, string>)['Authorization'];
+      return auth === 'Bearer fresh' ? jsonResponse({ data: { ok: true } }) : jsonResponse({ error: { code: 'UNAUTHORIZED' } }, 401);
+    });
+    vi.stubGlobal('fetch', f);
+    const refreshTokens = vi.fn(async () => { token = 'fresh'; return 'refreshed' as const; });
+    const api = client({ getToken: () => token, refreshTokens });
+    await expect(api.get('/tasks')).resolves.toEqual({ data: { ok: true } });
+    expect(refreshTokens).toHaveBeenCalledOnce();
+    expect(f).toHaveBeenCalledTimes(3);
+  });
+
+  it('a refused company pick is still sent again once without it, and noticed', async () => {
+    const gone = vi.fn();
+    let h: Record<string, string> = { 'X-Company-Id': 'B' };
+    let n = 0;
+    const f = vi.fn(async (_url: string, _init?: RequestInit) => {
+      n += 1;
+      if (n === 1) throw dropped();
+      if (n === 2) return jsonResponse({ error: { code: 'COMPANY_NOT_AVAILABLE', message: 'You no longer have access to this company.' } }, 403);
+      return jsonResponse({ data: 'ok' });
+    });
+    vi.stubGlobal('fetch', f);
+    const api = client({ getHeaders: () => h, onCompanyGone: () => { gone(); h = {}; } });
+    await expect(api.get('/projects')).resolves.toEqual({ data: 'ok' });
+    expect(f).toHaveBeenCalledTimes(3);
+    expect((f.mock.calls[2]![1]!.headers as Record<string, string>)['X-Company-Id']).toBeUndefined();
+    expect(gone).toHaveBeenCalledTimes(1);
   });
 });

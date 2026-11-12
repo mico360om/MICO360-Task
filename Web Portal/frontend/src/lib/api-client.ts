@@ -63,7 +63,52 @@ export interface ApiClientOptions {
    * page in the server's words.
    */
   onDatabaseBusy?: (err: ApiError) => void;
+  /**
+   * 1.23.23: a read (GET, HEAD) whose connection dropped on the way — the fetch failed, not an abort — is
+   * tried again: up to NETWORK_TRIES tries in all, about 400 ms and then about 1.2 s apart, only while the page
+   * is on screen and the browser isn't offline. A change is never sent twice. On by default; `false` turns it
+   * off; the rest is for tests.
+   */
+  networkRetry?: NetworkRetryOptions | false;
 }
+
+/** 1.23.23: how a dropped read is tried again (createApiClient's networkRetry). */
+export interface NetworkRetryOptions {
+  /** The waits before the 2nd and 3rd tries (ms), each jittered by up to a quarter either way. */
+  delaysMs?: readonly number[];
+  /** Whether another try may go now (default: the page is visible and the browser doesn't say it is offline). */
+  allowed?: () => boolean;
+  /** Waits that long (default: a timer). */
+  wait?: (ms: number) => Promise<void>;
+  /** 0–1, for the jitter (default Math.random). */
+  random?: () => number;
+}
+
+/** 1.23.23: a dropped read is sent this many times in all (the first try and two more). */
+export const NETWORK_TRIES = 3;
+/** The waits before the 2nd and 3rd tries (ms), before the jitter. */
+export const NETWORK_RETRY_DELAYS_MS: readonly number[] = [400, 1200];
+/** Each wait is moved by up to this share of it, either way, so many tabs don't all try again at once. */
+const RETRY_JITTER = 0.25;
+
+/** How many tries a failed request took (the error as thrown to the caller; 0 when not known). */
+const triesByError = new WeakMap<object, number>();
+export function networkTries(err: unknown): number {
+  return err !== null && typeof err === 'object' ? (triesByError.get(err) ?? 0) : 0;
+}
+
+/** The page is on screen and the browser doesn't say it is offline (outside a browser: yes). */
+function pageMayRetry(): boolean {
+  try {
+    if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return false;
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const isAbort = (err: unknown) => (err as { name?: unknown } | null)?.name === 'AbortError';
 
 /** How one request went (onRequestDone). */
 export interface RequestDone {
@@ -83,6 +128,12 @@ export interface RequestDone {
   wallStart?: number;
   mark?: unknown;
   aborted?: boolean;
+  /**
+   * 1.23.23: a read tried again after its connection dropped — how many tries it took (absent: one). An
+   * answer is told with the start and time of the try that got it; a read that failed every try with the
+   * first try's start (and status 0).
+   */
+  tries?: number;
 }
 
 /** The code the server answers a database blip with (lib/db-connection.ts there). */
@@ -142,8 +193,33 @@ async function refusesCompany(status: number, text: () => Promise<string>): Prom
   return isCompanyGone(errorFrom(status, await text()));
 }
 
-export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthorized, getHeaders, onCompanyGone, onRefused, onRequestDone, onDatabaseBusy, pageMark }: ApiClientOptions): ApiClient {
+export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthorized, getHeaders, onCompanyGone, onRefused, onRequestDone, onDatabaseBusy, pageMark, networkRetry }: ApiClientOptions): ApiClient {
   const clock = () => (typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now());
+  /** 1.23.23: how a dropped read is tried again (null: never). */
+  const retry =
+    networkRetry === false
+      ? null
+      : {
+          delays: networkRetry?.delaysMs ?? NETWORK_RETRY_DELAYS_MS,
+          allowed: networkRetry?.allowed ?? pageMayRetry,
+          wait: networkRetry?.wait ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))),
+          random: networkRetry?.random ?? Math.random,
+        };
+  /**
+   * After a read's try number `tries` dropped: wait and say whether to try again — only while the page is on
+   * screen and online, before the wait and after it. Never throws (a broken check is a no).
+   */
+  async function mayTryAgain(tries: number): Promise<boolean> {
+    try {
+      if (!retry || tries >= NETWORK_TRIES || !retry.allowed()) return false;
+      const base = retry.delays[Math.min(tries - 1, retry.delays.length - 1)] ?? 0;
+      const r = Math.min(1, Math.max(0, Number(retry.random()) || 0));
+      await retry.wait(Math.max(0, Math.round(base * (1 - RETRY_JITTER + 2 * RETRY_JITTER * r))));
+      return retry.allowed();
+    } catch {
+      return false;
+    }
+  }
   /** 1.23.14: a request's start — the page's clock and the wall clock, and the page's mark (never in its way). */
   type Start = { at: number; wall: number; mark?: unknown; url: string };
   const begin = (url: string): Start => {
@@ -156,11 +232,12 @@ export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthoriz
     return start;
   };
   /** Tell onRequestDone how a request went (never in its way); `header` reads one of the answer's headers. */
-  const told = (method: string, path: string, status: number, started: Start, header?: (name: string) => string | null, failure?: unknown) => {
+  const told = (method: string, path: string, status: number, started: Start, header?: (name: string) => string | null, failure?: unknown, tries = 1) => {
     try {
       const info: RequestDone = { method, path: path.split('?')[0]!, status, ms: Math.max(0, clock() - started.at), url: started.url, startedAt: started.at, wallStart: started.wall };
       if (started.mark !== undefined) info.mark = started.mark;
-      if (status === 0 && (failure as { name?: unknown } | null)?.name === 'AbortError') info.aborted = true;
+      if (status === 0 && isAbort(failure)) info.aborted = true;
+      if (tries > 1) info.tries = tries;
       try {
         const serverTiming = header?.('server-timing');
         if (serverTiming) info.serverTiming = serverTiming;
@@ -230,23 +307,36 @@ export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthoriz
     // by Fastify ("Body cannot be empty when content-type is set to 'application/json'").
     if (!opts.form && opts.body !== undefined) headers['Content-Type'] = 'application/json';
     if (token) headers['Authorization'] = `Bearer ${token}`;
-    const started = begin(`${baseUrl}${path}`);
-    return fetch(`${baseUrl}${path}`, {
+    const url = `${baseUrl}${path}`;
+    const init: RequestInit = {
       method,
       headers,
       body: opts.form ?? (opts.body !== undefined ? JSON.stringify(opts.body) : undefined),
       ...(opts.keepalive ? { keepalive: true } : {}),
       ...(opts.credentials ? { credentials: opts.credentials } : {}),
-    }).then(
-      (res) => {
-        told(method, path, res.status, started, (name) => res.headers.get(name));
-        return res;
-      },
-      (err: unknown) => {
-        told(method, path, 0, started, undefined, err);
-        throw err;
-      },
-    );
+    };
+    // 1.23.23: only a read is ever sent again when its connection drops — a change could happen twice.
+    const read = method === 'GET' || method === 'HEAD';
+    let first: Start | null = null;
+    const attempt = (tries: number): Promise<Response> => {
+      const started = begin(url);
+      if (!first) first = started;
+      return fetch(url, init).then(
+        (res) => {
+          // The try that got an answer is the one timed (its own start; the failed tries and waits aren't in it).
+          told(method, path, res.status, started, (name) => res.headers.get(name), undefined, tries);
+          return res;
+        },
+        async (err: unknown) => {
+          if (read && !isAbort(err) && (await mayTryAgain(tries))) return attempt(tries + 1);
+          // Every try failed (or no more may go): told once, from the first try's start — the whole request.
+          told(method, path, 0, first ?? started, undefined, err, tries);
+          if (err !== null && typeof err === 'object') triesByError.set(err, tries);
+          throw err;
+        },
+      );
+    };
+    return attempt(1);
   }
 
   /**

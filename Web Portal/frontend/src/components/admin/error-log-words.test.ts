@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { browserText, detailText, interactionWords, isNewSince, KIND_FILTERS, KIND_WORDS, lastTimeText, pageTimeNote, partsText, peopleText, personText, placeText, slowTimingText, timesText, topFrameText } from './error-log-words';
+import { browserText, detailText, interactionWords, triesText, isNewSince, KIND_FILTERS, KIND_WORDS, lastTimeText, pageTimeNote, partsText, peopleText, personText, placeText, slowTimingText, timesText, topFrameText } from './error-log-words';
 
 // 1.23.3 — where a slow request's time went: the server's own time, the database's part of it when the
 // server's part matters (a second or more), and the network when the server's part is under half the whole.
@@ -120,5 +120,19 @@ describe('Error log words: a request held up by an update restart (1.23.14 revie
     expect(lastTimeText(t, 'UPDATE')).toBe('Last time 15.9 s: waited 15.9 s while the server started; the server itself then took under 0.1 s');
     expect(detailText('stopping')).toBe('While the server stopped');
     expect(detailText('starting')).toBe('While the server started (an update or a restart)');
+  });
+});
+
+// 1.23.23: a read the site tried 3 times before it was logged says so on its occurrence.
+describe('Error log words: a dropped request tried again (1.23.23)', () => {
+  it('says how many tries a failed request took; nothing for other rows or older reports', () => {
+    expect(triesText({ kind: 'NETWORK', detail: 'api', value: 3 })).toBe('Tried 3 times');
+    expect(triesText({ kind: 'UPDATE', detail: 'api', value: 3 })).toBe('Tried 3 times');
+    expect(triesText({ kind: 'NETWORK', detail: 'api', value: null })).toBe('');
+    expect(triesText({ kind: 'NETWORK', detail: 'api', value: 1 })).toBe('');
+    expect(triesText({ kind: 'NETWORK', detail: 'socket', value: 3 })).toBe('');
+    expect(triesText({ kind: 'SLOW', detail: 'api', value: 10_550 })).toBe('');
+    expect(triesText({ kind: 'UPDATE', detail: 'slow', value: 15_900 })).toBe('');
+    expect(triesText({ kind: 'NETWORK', detail: 'api', value: 2.5 })).toBe('');
   });
 });

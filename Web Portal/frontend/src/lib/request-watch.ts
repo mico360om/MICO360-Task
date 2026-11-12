@@ -1,5 +1,5 @@
 import { isAiRequest } from './ai-requests';
-import { requestReport, serverTimingOf, SLOW } from './error-capture';
+import { requestReport, serverTimingOf, SLOW, triesOf } from './error-capture';
 import type { RequestDone } from './api-client';
 import type { ErrorReport } from './error-reporter';
 import type { PageLifecycle, PageMark } from './page-lifecycle';
@@ -25,6 +25,11 @@ import type { PageLifecycle, PageMark } from './page-lifecycle';
  *    request → "blocked on the way" (a firewall, a proxy, an antivirus, the connection); started after it,
  *    or never answering until then too → cut by an update restart, or still the network (as before).
  *    A request aborted on purpose is neither.
+ *
+ * 1.23.23: the API client tries a dropped read again (up to 3 tries) and tells it once — a read that got through
+ * on a retry as the try that got through (its own start and time: nothing for a quick one, an ordinary slow
+ * request for a slow one); one that failed every try with its first try's start and `tries`, reported once
+ * with the tries as its value (the Error log: "Tried 3 times").
  */
 
 /** What is needed of a Resource Timing entry (a PerformanceResourceTiming). */
@@ -215,7 +220,8 @@ export function createRequestWatch(world: RequestWatchWorld) {
       if (left() || !world.online()) return;
       for (const i of waiting) {
         const restarted = serverStartedAt !== null && i.wallStart !== undefined && serverStartedAt > i.wallStart - RESTART_SLACK_MS;
-        world.report({ kind: restarted ? 'UPDATE' : 'NETWORK', detail: 'api', resource: resourceOf(i) });
+        // 1.23.23: one report for the whole request, saying how many tries the API client gave it.
+        world.report({ kind: restarted ? 'UPDATE' : 'NETWORK', detail: 'api', resource: resourceOf(i), ...triesOf(i) });
       }
     };
     const attempt = (n: number) => {

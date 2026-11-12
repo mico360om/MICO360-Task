@@ -63,17 +63,24 @@ export function serverTimingOf(header: string | null | undefined): { serverMs: n
   return serverMs === undefined ? null : { serverMs, dbMs: durations.get('db') ?? null };
 }
 
+/** 1.23.23: a failed read's tries, as its report's value (the Error log says "Tried 3 times"); nothing for one try. */
+export function triesOf(info: Pick<RequestDone, 'tries'>): { value?: number } {
+  const n = info.tries;
+  return typeof n === 'number' && Number.isInteger(n) && n > 1 ? { value: n } : {};
+}
+
 /**
  * What the API client tells about one request: a request that never reached the server while the
  * device says it is online (blocked on the way: a firewall, a proxy, an antivirus) is a network
  * problem; one that took over 10 s is slow (one that waits on the AI: over a minute) — 1.23.3: with
  * the server's time and its time in the database when the answer said them. The server logs its own
- * errors, so an answer is not one.
+ * errors, so an answer is not one. 1.23.23: a failed read the API client tried more than once says how many
+ * tries it took (value).
  */
 export function requestReport(info: RequestDone, ctx: { online: boolean; leaving: boolean }): ErrorReport | null {
   if (info.path.startsWith('/client-errors')) return null;
   const resource = `${info.method.toUpperCase()} /api/v1${info.path}`;
-  if (info.status === 0) return ctx.online && !ctx.leaving ? { kind: 'NETWORK', detail: 'api', resource } : null;
+  if (info.status === 0) return ctx.online && !ctx.leaving ? { kind: 'NETWORK', detail: 'api', resource, ...triesOf(info) } : null;
   if (info.ms > (isAiRequest(info.method, info.path) ? SLOW.aiApiMs : SLOW.apiMs)) {
     const timing = serverTimingOf(info.serverTiming);
     const report: ErrorReport = { kind: 'SLOW', detail: 'api', value: Math.round(info.ms), resource };

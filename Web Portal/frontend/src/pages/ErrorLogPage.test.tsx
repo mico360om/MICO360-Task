@@ -393,3 +393,31 @@ describe('Error log — the database check', () => {
     expect(screen.queryByText(/Database check/)).toBeNull();
   });
 });
+
+// 1.23.23 — a read the site tried 3 times before it gave up: its occurrence says so.
+describe('Error log — a dropped request tried again (1.23.23)', () => {
+  const ROW = { ...GROUPS[0], id: 'n1', kind: 'NETWORK', title: 'A request didn’t reach the server (blocked on the way?)', count: 2, people: 1, page: '/projects/:id', timing: null };
+  const ev = (over: Record<string, unknown>) => ({ id: 'x', at: '2026-11-12T07:02:00.000Z', kind: 'NETWORK', detail: 'api', message: ROW.title, stack: null, page: '/projects/:id', job: null, resource: 'GET /api/v1/projects/:id/next-actions', value: null, count: 1, version: '1.23.23', browser: 'Chrome 142', system: 'Windows', screen: null, signedIn: true, person: { id: 'u1', name: 'Sara Ali' }, timing: null, ...over });
+  beforeEach(() => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const u = String(url);
+        if (u.endsWith('/error-log/visit')) return json({ data: { previousVisitAt: null } });
+        if (/\/error-log\/n1$/.test(u)) return json({ data: { group: { ...ROW, topFile: null, topLine: null, topFunction: null }, events: [ev({ id: 'a', value: 3 }), ev({ id: 'b', version: '1.23.22' })] } });
+        if (u.includes('/error-log?')) return json({ data: { groups: [ROW], next: null, counts: { all: 1, errors: 1, blocked: 0, slow: 0, server: 0 } } });
+        if (u.endsWith('/config')) return json({ data: { timeZone: 'Asia/Muscat' } });
+        return json({ data: [] });
+      }),
+    );
+  });
+
+  it('the occurrence says “Tried 3 times”; an older one says nothing about tries', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click((await screen.findByText(ROW.title)).closest('button')!);
+    const occurrences = (await screen.findByText('Latest occurrences')).parentElement!;
+    expect(within(occurrences).getAllByText(/Tried 3 times/)).toHaveLength(1);
+    expect(within(occurrences).getByText(/Version 1\.23\.23 · Request · Tried 3 times/)).toBeInTheDocument();
+  });
+});

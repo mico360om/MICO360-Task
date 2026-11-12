@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { managementAccessKey, managementApi } from '../api/management';
 import { useAuthStore } from '../stores/auth-store';
+import { clientRetriedNetwork } from './queryRetry';
 
 /**
  * May this person see the Management page? Administrators always; anyone else when they run a
@@ -18,7 +19,8 @@ export function useManagementAccess(): { allowed: boolean; ready: boolean; faile
     enabled: signedIn && !isAdmin,
     staleTime: 60_000,
     refetchOnWindowFocus: true,
-    retry: 2,
+    // 1.23.23: never on top of the API client's own 3 tries of a dropped read.
+    retry: (failures, error) => failures < 2 && !clientRetriedNetwork(error),
     retryDelay: 400,
   });
   const retry = () => void q.refetch();

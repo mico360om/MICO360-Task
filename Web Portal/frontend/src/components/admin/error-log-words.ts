@@ -69,6 +69,16 @@ const DETAIL_WORDS: Record<string, string> = {
 };
 export const detailText = (detail: string | null) => (detail ? (DETAIL_WORDS[detail] ?? detail) : '');
 
+/**
+ * 1.23.23: a request the site tried again after its connection dropped, and that failed every try — its
+ * value is the number of tries ("Tried 3 times"); nothing for older reports or any other row.
+ */
+export function triesText(e: Pick<ErrorOccurrence, 'kind' | 'detail' | 'value'>): string {
+  if ((e.kind !== 'NETWORK' && e.kind !== 'UPDATE') || e.detail !== 'api') return '';
+  const n = e.value;
+  return typeof n === 'number' && Number.isInteger(n) && n > 1 && n <= 10 ? `Tried ${n} times` : '';
+}
+
 /** Who it happened to. */
 export function personText(e: Pick<ErrorOccurrence, 'person' | 'kind' | 'job'>): string {
   if (e.person) return e.person.name ?? 'Someone no longer here';
