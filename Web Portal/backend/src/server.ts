@@ -123,6 +123,7 @@ import { releaseOf, stampDueChange, type StampDeps } from './modules/kpis/kpi-st
 import { createPrismaNotificationRepository, createPrismaPreferenceStore, createPrismaReminderLogStore, pruneReminderLog } from './modules/notifications/prisma-notification-repository';
 import type { NotificationRecord } from './modules/notifications/notification-repository';
 import { buildDigests } from './modules/notifications/notification-digest';
+import { sendDigests } from './modules/notifications/digest-dispatch';
 import { createDailyEmailService } from './modules/daily-emails/daily-email-service';
 import { createPrismaDailyEmailCheckStore, createPrismaDailyEmailRepository } from './modules/daily-emails/prisma-daily-email-repository';
 import { createPrismaDailyEmailSources } from './modules/daily-emails/prisma-daily-email-sources';
@@ -1869,23 +1870,19 @@ async function main(): Promise<void> {
       { timeZone: companyTz },
     );
     const userById = new Map(users.map((u) => [u.id, u]));
-    for (const digest of digests) {
-      const user = userById.get(digest.userId);
-      if (!user) continue;
-      // A muted digest isn’t written.
-      if (isMuted(normalizePreferences(user.notificationPrefs), 'TASK_DIGEST')) continue;
-      // A per-day marker keeps the digest to once daily even as the sweep re-runs hourly.
-      const dedupe = `digest:${digest.userId}:${day}`;
-      if (await reminderLogStore.has(dedupe)) continue;
-      await reminderLogStore.add(dedupe);
-      const summary = `${digest.overdue.length} overdue · ${digest.dueToday.length} due today`;
-      const items = [...digest.overdue.map((i) => `${i.key} ${i.title} (overdue, due ${i.dueDate})`), ...digest.dueToday.map((i) => `${i.key} ${i.title} (due today)`)];
-      const lines = items.map((i) => `• ${i}`).join('\n');
-      // In-app notification — reliable regardless of email deliverability. Nothing stored means
-      // the type is suppressed for this user, so no email either.
-      // The morning emails (pending tasks, completed yesterday) are the daily task emails below.
-      await notificationService.notify({ userId: digest.userId, type: 'TASK_DIGEST', title: `Your daily digest — ${summary}`, body: lines, entityType: 'digest', entityId: day });
-    }
+    // Review fix #28: each digest is sent, then marked sent for the day, one person at a time
+    // (digest-dispatch.ts); one person's failure is logged and the others still get theirs.
+    // The morning emails (pending tasks, completed yesterday) are the daily task emails below.
+    await sendDigests(digests, {
+      day,
+      prefsOf: (userId) => {
+        const user = userById.get(userId);
+        return user ? (user.notificationPrefs ?? null) : undefined;
+      },
+      store: reminderLogStore,
+      notify: (n) => notificationService.notify(n),
+      onError: (err, userId) => logger.error('daily digest: one person’s digest failed (tried again next hour)', { err, userId }),
+    });
   }
 
   // Tasks scheduled for the future: the morning a waiting task starts, its people are told once
