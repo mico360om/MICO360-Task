@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.23.22] - 2026-11-12
+
 ### New features
 - **Notification & Scheduling** (System Settings → Notification & Scheduling, per company): one place for
   working time (days, hours, week start; the site's time zone shown), holidays, reminders, escalations,
