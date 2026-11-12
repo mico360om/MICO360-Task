@@ -495,7 +495,8 @@ async function main(): Promise<void> {
       columnsOf: (projectId) => prisma.kanbanColumn.findMany({ where: { projectId }, select: { id: true, category: true, position: true, enabled: true } }),
     },
     // An approval or send-back is saved: a step after it that fails (a notice, the comment) is logged.
-    onError: (err, taskId) => logger.error('task approvals: a step after the decision failed', { err, taskId }),
+    // Review fix #15: so is a step after a new task was saved (its history line, its approvers' notice).
+    onError: (err, taskId, what) => logger.error(what ? `new task: ${what} failed` : 'task approvals: a step after the decision failed', { err, taskId }),
     // A re-opened task goes back to what its checklist says (it was forced to 100% when completed).
     checklistPercent: (taskId) => checklistPercentOf(prisma, taskId),
     onCreated: (task, info) => onTaskCreated(task, info),
@@ -2243,6 +2244,8 @@ async function main(): Promise<void> {
       // 1.24: a copy's guests and categories go through the same checks as a new task's.
       guestService,
       categoryService,
+      // Review fix #15: a step after the copy was saved that failed is logged (the copy stands).
+      onError: (err, what, taskId) => logger.error(`duplicating a task: ${what} failed`, { err, taskId }),
     },
     timeZone: companyTz,
     onError: (err, what) => logger.error(`duplicating a task: ${what} failed`, { err }),

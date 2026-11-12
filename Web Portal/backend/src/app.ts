@@ -904,6 +904,11 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           // 1.24: a new task's guests and categories are checked by their own rules.
           guestService: deps.guestService,
           categoryService: deps.categoryService,
+          // Review fix #15: a step after a new task was saved that failed is logged (the task stands).
+          onCreateStepFailed: (err, what, taskId) => {
+            if (deps.logger) deps.logger.error(`new task: ${what} failed`, { err, taskId });
+            else console.error(`new task ${taskId}: ${what} failed`, err);
+          },
         });
       }
       if (deps.taskService && deps.approvalSource) {

@@ -133,8 +133,11 @@ export interface TaskServiceDeps {
   inspectionForms?: { isLive(formId: string): Promise<boolean> };
   /** Task approvals (task-approval). Without it, "Needs approval" is kept but changes nothing. */
   approvals?: TaskApprovalPorts;
-  /** A step after an approval or a send-back was saved that failed (logged; the decision stands). */
-  onError?: (err: unknown, taskId: string) => void;
+  /**
+   * A step after an approval or a send-back was saved that failed (logged; the decision stands). Review
+   * fix #15: also a step after a new task was saved (`what` names it) — the task stands and is returned.
+   */
+  onError?: (err: unknown, taskId: string, what?: string) => void;
 }
 
 /** How many consecutive key numbers to try when concurrent creates race for the same one. */
@@ -224,6 +227,16 @@ export function createTaskService({ tasks, projects, now = () => new Date(), tim
     return { patch: { columnId: target.columnId, ...change, ...approval }, event, unchanged: false, guarded };
   }
 
+  /** A step after a new task was saved: a failure is logged (onError) and never fails the create. */
+  async function afterCreate(taskId: string, what: string, step: () => unknown): Promise<void> {
+    try {
+      await step();
+    } catch (err) {
+      if (onError) onError(err, taskId, what);
+      else console.error(`new task ${taskId}: ${what} failed`, err);
+    }
+  }
+
   async function createTask(input: NewTask): Promise<TaskRecord> {
     const code = await projects.getCodeById(input.projectId);
     if (!code) throw new NotFoundError('Project not found.');
@@ -280,9 +293,11 @@ export function createTaskService({ tasks, projects, now = () => new Date(), tim
       const key = `${code}-${count + 1 + attempt}`;
       try {
         const created = await tasks.create({ ...data, key });
-        await onCreated?.(created, { autoDue: !toDueDay(input.dueDate) && !!dueDate });
+        // Review fix #15: the task is saved — what follows is best effort (logged), so a saved task always
+        // answers 201 and a client's retry with the same key replays it instead of making a duplicate.
+        await afterCreate(created.id, 'recording the new task', () => onCreated?.(created, { autoDue: !toDueDay(input.dueDate) && !!dueDate }));
         // Created waiting (into Done by someone who can't approve): its approvers are told.
-        if (waits) await moved(created, created.columnId, input.createdById, { approval: 'REQUESTED' });
+        if (waits) await afterCreate(created.id, 'telling the approvers', () => moved(created, created.columnId, input.createdById, { approval: 'REQUESTED' }));
         return created;
       } catch (err) {
         if (!(err instanceof TaskKeyConflictError)) throw err;
