@@ -3,7 +3,8 @@ import { ValidationError } from '../../lib/http-errors';
 import { isLocked } from '../../lib/lockout';
 import { randomBytes } from 'node:crypto';
 import { hashPassword } from '../../lib/password';
-import type { CreateUserData, TemporaryPasswordMark, UserListFilter, UserRepository, UserSummary } from './user-repository';
+import { withSentinelLock } from '../../lib/sentinel-lock';
+import type { AdminHeldUsers, CreateUserData, TemporaryPasswordMark, UserListFilter, UserRepository, UserSummary } from './user-repository';
 import { liveInvitation, onboardingStatus } from './onboarding-status';
 
 // companies: each person comes with their companies (the admin views show them).
@@ -90,19 +91,77 @@ export function tombstone(value: string, id: string): string {
   return `${value.slice(0, MAX_IDENTITY_LENGTH - tag.length)}${tag}`;
 }
 
-export function createPrismaUserRepository(prisma: PrismaClient): UserRepository {
-  /** Resolve role names to ids, refusing unknown names (they'd silently leave the user roleless). */
-  async function resolveRoles(names: string[]) {
-    const unique = [...new Set(names)];
-    const found = await prisma.role.findMany({ where: { name: { in: unique } } });
-    const missing = unique.filter((n) => !found.some((r) => r.name === n));
-    if (missing.length) throw new ValidationError(`Unknown role: ${missing.join(', ')}`);
-    return found;
-  }
+type Db = PrismaClient | Prisma.TransactionClient;
 
+/** Resolve role names to ids, refusing unknown names (they'd silently leave the user roleless). */
+async function resolveRoles(db: Db, names: string[]) {
+  const unique = [...new Set(names)];
+  const found = await db.role.findMany({ where: { name: { in: unique } } });
+  const missing = unique.filter((n) => !found.some((r) => r.name === n));
+  if (missing.length) throw new ValidationError(`Unknown role: ${missing.join(', ')}`);
+  return found;
+}
+
+/**
+ * Review fix #8: the reads and writes a change that could remove an administrator makes — on the
+ * client, or inside the transaction that holds the administrators (`withAdminsHeld`).
+ */
+function heldUsers(db: Db): AdminHeldUsers {
   return {
+    async findById(id) {
+      const u = await db.user.findFirst({ where: { id, deletedAt: null }, include: include() });
+      return u ? toSummary(u) : null;
+    },
+    async update(id, patch) {
+      const { roleNames, ...scalar } = patch;
+      // When roleNames is supplied, replace the join rows with exactly those roles.
+      let roles: Prisma.UserUpdateInput['roles'] | undefined;
+      if (roleNames) {
+        const found = await resolveRoles(db, roleNames);
+        roles = { deleteMany: {}, create: found.map((r) => ({ roleId: r.id })) };
+      }
+      const u = await db.user.update({
+        where: { id },
+        data: { ...scalar, ...(roles ? { roles } : {}) },
+        include: include(),
+      });
+      return toSummary(u);
+    },
+    async setStatus(id, status) {
+      const u = await db.user.update({ where: { id }, data: { status }, include: include() });
+      return toSummary(u);
+    },
+    async softDelete(id) {
+      const u = await db.user.findUnique({ where: { id }, select: { email: true, username: true } });
+      if (!u) return;
+      // Email and username are unique columns: rename them so the address can be reused later.
+      await db.user.update({
+        where: { id },
+        data: { deletedAt: new Date(), email: tombstone(u.email, id), username: tombstone(u.username, id) },
+      });
+    },
+    async countActiveAdmins(excludeId) {
+      return db.user.count({
+        where: {
+          status: 'ACTIVE',
+          deletedAt: null,
+          roles: { some: { role: { name: 'ADMIN' } } },
+          ...(excludeId ? { id: { not: excludeId } } : {}),
+        },
+      });
+    },
+  };
+}
+
+/** The sentinel row (job_locks) every change that could remove an administrator locks first. */
+export const ADMIN_GUARD_LOCK = 'admin-guard';
+
+export function createPrismaUserRepository(prisma: PrismaClient): UserRepository {
+  const held = heldUsers(prisma);
+  return {
+    ...held,
     async create(data: CreateUserData) {
-      const roles = await resolveRoles(data.roleNames);
+      const roles = await resolveRoles(prisma, data.roleNames);
       const u = await prisma.user.create({
         data: {
           email: data.email,
@@ -121,10 +180,6 @@ export function createPrismaUserRepository(prisma: PrismaClient): UserRepository
       });
       return toSummary(u);
     },
-    async findById(id) {
-      const u = await prisma.user.findFirst({ where: { id, deletedAt: null }, include: include() });
-      return u ? toSummary(u) : null;
-    },
     async findByEmailOrUsername(email, username) {
       const u = await prisma.user.findFirst({
         where: { OR: [{ email }, { username }], deletedAt: null },
@@ -135,25 +190,6 @@ export function createPrismaUserRepository(prisma: PrismaClient): UserRepository
     async list(filter) {
       const us = await prisma.user.findMany({ where: { deletedAt: null, ...companyFilter(filter) }, include: include(), orderBy: { createdAt: 'desc' } });
       return us.map(toSummary);
-    },
-    async update(id, patch) {
-      const { roleNames, ...scalar } = patch;
-      // When roleNames is supplied, replace the join rows with exactly those roles.
-      let roles: Prisma.UserUpdateInput['roles'] | undefined;
-      if (roleNames) {
-        const found = await resolveRoles(roleNames);
-        roles = { deleteMany: {}, create: found.map((r) => ({ roleId: r.id })) };
-      }
-      const u = await prisma.user.update({
-        where: { id },
-        data: { ...scalar, ...(roles ? { roles } : {}) },
-        include: include(),
-      });
-      return toSummary(u);
-    },
-    async setStatus(id, status) {
-      const u = await prisma.user.update({ where: { id }, data: { status }, include: include() });
-      return toSummary(u);
     },
     async setAvatar(id, avatarUrl) {
       const u = await prisma.user.update({ where: { id }, data: { avatarUrl }, include: include() });
@@ -205,15 +241,6 @@ export function createPrismaUserRepository(prisma: PrismaClient): UserRepository
       const u = await prisma.user.findFirst({ where: { id, deletedAt: null }, select: { passwordHash: true } });
       return u?.passwordHash ?? null;
     },
-    async softDelete(id) {
-      const u = await prisma.user.findUnique({ where: { id }, select: { email: true, username: true } });
-      if (!u) return;
-      // Email and username are unique columns: rename them so the address can be reused later.
-      await prisma.user.update({
-        where: { id },
-        data: { deletedAt: new Date(), email: tombstone(u.email, id), username: tombstone(u.username, id) },
-      });
-    },
     async bumpTokenVersion(id) {
       const u = await prisma.user.update({ where: { id }, data: { tokenVersion: { increment: 1 } }, select: { tokenVersion: true } });
       return u.tokenVersion;
@@ -222,15 +249,8 @@ export function createPrismaUserRepository(prisma: PrismaClient): UserRepository
       const u = await prisma.user.update({ where: { id }, data: { failedLoginAttempts: 0, lockedUntil: null }, include: include() });
       return toSummary(u);
     },
-    async countActiveAdmins(excludeId) {
-      return prisma.user.count({
-        where: {
-          status: 'ACTIVE',
-          deletedAt: null,
-          roles: { some: { role: { name: 'ADMIN' } } },
-          ...(excludeId ? { id: { not: excludeId } } : {}),
-        },
-      });
+    async withAdminsHeld(work) {
+      return withSentinelLock(prisma, ADMIN_GUARD_LOCK, (tx) => work(heldUsers(tx)));
     },
     async releaseDeletedIdentity(email, username) {
       const stale = await prisma.user.findMany({

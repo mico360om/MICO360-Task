@@ -308,6 +308,33 @@ describe('UserService — never lose the last active administrator', () => {
     await svc.setUserStatus(admins[1]!.id, 'SUSPENDED');
     await expect(svc.deleteUser(admins[0]!.id)).rejects.toMatchObject({ code: 'LAST_ADMIN' });
   });
+
+  // Review fix #8: the check and the change are one held step, so two admins removing each other at
+  // the same moment can't both pass the check (the database test runs the real thing: last-admin.test).
+  it('two admins removing each other at the same moment: exactly one succeeds, in every pairing', async () => {
+    type Svc = Awaited<ReturnType<typeof withAdmins>>['svc'];
+    const pairs: Array<[string, (svc: Svc, id: string) => Promise<unknown>]> = [
+      ['deactivate', (svc, id) => svc.setUserStatus(id, 'INACTIVE')],
+      ['suspend', (svc, id) => svc.setUserStatus(id, 'SUSPENDED')],
+      ['demote', (svc, id) => svc.updateUser(id, { roleNames: ['EMPLOYEE'] })],
+      ['delete', (svc, id) => svc.deleteUser(id)],
+    ];
+    for (const [, first] of pairs) {
+      for (const [, second] of pairs) {
+        const { svc, admins, mem } = await withAdmins(2);
+        const r = await Promise.allSettled([first(svc, admins[0]!.id), second(svc, admins[1]!.id)]);
+        expect(r.map((x) => (x.status === 'fulfilled' ? 'ok' : (x.reason as { code?: string }).code)).sort()).toEqual(['LAST_ADMIN', 'ok']);
+        expect(await mem.repo.countActiveAdmins()).toBe(1);
+      }
+    }
+  });
+
+  it('the refused change ends nobody’s sessions; the one made ends them after it is saved', async () => {
+    const { svc, admins, revoked } = await withAdmins(2);
+    await svc.setUserStatus(admins[0]!.id, 'INACTIVE');
+    await expect(svc.setUserStatus(admins[1]!.id, 'INACTIVE')).rejects.toMatchObject({ code: 'LAST_ADMIN' });
+    expect(revoked).toEqual([admins[0]!.id]);
+  });
 });
 
 describe('UserService — a user’s phones are forgotten when their access is revoked', () => {

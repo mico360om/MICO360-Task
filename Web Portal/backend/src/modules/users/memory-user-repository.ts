@@ -61,6 +61,7 @@ export function createMemoryUserRepository() {
     return r;
   };
 
+  let held: Promise<void> = Promise.resolve();
   const repo: UserRepository = {
     async create(data: CreateUserData) {
       const id = `u${seq++}`;
@@ -172,6 +173,15 @@ export function createMemoryUserRepository() {
     },
     async countActiveAdmins(excludeId) {
       return live().filter((r) => r.user.id !== excludeId && r.user.status === 'ACTIVE' && r.user.roles.includes('ADMIN')).length;
+    },
+    // Review fix #8: one held change at a time, like the database's sentinel lock.
+    async withAdminsHeld(work) {
+      const turn = held.then(() => work(repo));
+      held = turn.then(
+        () => undefined,
+        () => undefined,
+      );
+      return turn;
     },
     async releaseDeletedIdentity(email, username) {
       for (const r of rows.values()) {
