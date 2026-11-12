@@ -3,7 +3,7 @@ import { aiJobRetryDelays, getEnv, parseTrustProxy } from './config/env';
 import { prisma } from './lib/prisma';
 import { poolSizeOf, withPoolDefaults } from './lib/db-pool';
 import { buildApp } from './app';
-import { createPrismaIdempotencyStore } from './lib/idempotency';
+import { createPrismaIdempotencyStore, IDEMPOTENCY_RETENTION_MS } from './lib/idempotency';
 import { uploadResponseHeaders } from './lib/upload-safety';
 import { corsOrigin, parseCorsOrigins } from './lib/cors-origins';
 import { registerWebApp, androidAppLink, downloadsDirFor, emailDownloadLinks } from './lib/web-app';
@@ -2537,6 +2537,8 @@ async function main(): Promise<void> {
   clientNotices = notices;
   onClientReply = (reply) => notices.taskReply(reply);
 
+  // Repeated requests (Idempotency-Key): the routes' store, and the daily clean-up below (review fix #27).
+  const idempotencyStore = createPrismaIdempotencyStore(prisma);
   const app = await buildApp({
     about: { release },
     seriesInstanceCount: (seriesId) => recurrencePort.countInstances(seriesId),
@@ -2820,7 +2822,7 @@ async function main(): Promise<void> {
     trustProxy: parseTrustProxy(env.TRUST_PROXY),
     rateLimitMax: env.RATE_LIMIT_MAX,
     authRateLimitMax: env.AUTH_RATE_LIMIT_MAX,
-    idempotencyStore: createPrismaIdempotencyStore(prisma),
+    idempotencyStore,
     dataExporter: createPrismaDataExporter(prisma),
     clientView: {
       service: clientAccessService,
@@ -3041,6 +3043,11 @@ async function main(): Promise<void> {
   // Bulk changes (review M11): the rows kept for Undo go a day after their window (the Audit log keeps the record).
   const runBulkPrune = () =>
     runExclusive(jobLock, 'bulk-undo-prune', SWEEP_LEASE_MS, () => new Date(), async () => {
+      // Review fix #27: repeated-request records past their 24 hours go too, every day (not only now and then
+      // when a new request comes in).
+      await idempotencyStore
+        .purgeOlderThan(new Date(Date.now() - IDEMPOTENCY_RETENTION_MS))
+        .catch((err) => logger.error('repeated requests: the daily clean-up failed', { err }));
       const { count } = await prisma.taskBulkAction.deleteMany({ where: { undoUntil: { lt: new Date(Date.now() - 24 * 60 * 60 * 1000) } } });
       if (count) logger.info('Bulk changes: Undo records past their window removed', { rows: count });
     }).catch(sweepFailed('bulk-undo-prune', 'bulk change clean-up'));

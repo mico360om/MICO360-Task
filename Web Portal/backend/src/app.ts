@@ -572,7 +572,19 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   // One guard for every route, so its short account-state cache is shared (with the server's session
   // ending too, when it passes its own: review fix N1). Made before the repeated-request hook, which asks it.
   const guard = deps.authGuard ?? createAuthGuard(deps.tokenService, { userState: deps.userState, ...(deps.managerViewLookup ? { managerView: deps.managerViewLookup } : {}) });
-  if (deps.idempotencyStore) registerIdempotency(app, { store: deps.idempotencyStore, userIdOf });
+  if (deps.idempotencyStore) {
+    registerIdempotency(app, {
+      store: deps.idempotencyStore,
+      userIdOf,
+      // Review fix #3: a stored answer only for a session that is still current (the guard's own check).
+      sessionCurrent: (req) => guard.sessionCurrent(req),
+      // Review fix #27: a store write that failed after the work was done is logged; the answer still goes.
+      onError: (err, what) => {
+        if (deps.logger) deps.logger.error(`repeated requests: ${what} failed`, { err });
+        else console.error(`repeated requests: ${what} failed`, err);
+      },
+    });
+  }
 
   // Uploaded files (avatars, task/chat attachments, project images) and brand assets
   // are public and embedded cross-origin — by the SPA on a different origin/port and by

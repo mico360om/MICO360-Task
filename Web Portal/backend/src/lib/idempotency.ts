@@ -19,6 +19,8 @@ export interface IdempotencyRecord {
   /** 0 while the original request is still running. */
   statusCode: number;
   responseBody: string;
+  /** When the key was reserved (a pending one older than its lease is taken over: review fix #27). */
+  createdAt?: Date;
 }
 
 export interface IdempotencyStore {
@@ -27,12 +29,23 @@ export interface IdempotencyStore {
   reserve(rec: { userId: string; key: string; method: string; path: string }): Promise<boolean>;
   complete(userId: string, key: string, statusCode: number, responseBody: string): Promise<void>;
   release(userId: string, key: string): Promise<void>;
+  /**
+   * Review fix #27: drop the key's reservation iff it is still pending and was made before `olderThan`
+   * (its request can't still be running: the server stopped, or a write failed). True when it did.
+   */
+  reclaim?(userId: string, key: string, olderThan: Date): Promise<boolean>;
   purgeOlderThan(cutoff: Date): Promise<void>;
 }
 
 export const PENDING_STATUS = 0;
 /** How long a stored response stays replayable. */
 export const IDEMPOTENCY_RETENTION_MS = 24 * 60 * 60 * 1000;
+/**
+ * Review fix #27 (13 Nov 2026): how long a pending key may stay "in progress". Past it, the original
+ * request is taken to have died (a restart, a lost database write) and a retry runs again — otherwise the
+ * website's and the extension's offline queues, which pause on 409, would wait until the 24-hour purge.
+ */
+export const IDEMPOTENCY_LEASE_MS = 10 * 60 * 1000;
 const MAX_KEY_LENGTH = 128;
 
 declare module 'fastify' {
@@ -49,7 +62,7 @@ export function createPrismaIdempotencyStore(prisma: PrismaClient): IdempotencyS
   return {
     async find(userId, key) {
       const row = await prisma.idempotencyKey.findUnique({ where: { userId_key: { userId, key } } });
-      return row ? { userId: row.userId, key: row.key, method: row.method, path: row.path, statusCode: row.statusCode, responseBody: row.responseBody } : null;
+      return row ? { userId: row.userId, key: row.key, method: row.method, path: row.path, statusCode: row.statusCode, responseBody: row.responseBody, createdAt: row.createdAt } : null;
     },
     async reserve(rec) {
       try {
@@ -70,24 +83,28 @@ export function createPrismaIdempotencyStore(prisma: PrismaClient): IdempotencyS
     async release(userId, key) {
       await prisma.idempotencyKey.deleteMany({ where: { userId, key, statusCode: PENDING_STATUS } });
     },
+    async reclaim(userId, key, olderThan) {
+      const { count } = await prisma.idempotencyKey.deleteMany({ where: { userId, key, statusCode: PENDING_STATUS, createdAt: { lt: olderThan } } });
+      return count === 1;
+    },
     async purgeOlderThan(cutoff) {
       await prisma.idempotencyKey.deleteMany({ where: { createdAt: { lt: cutoff } } });
     },
   };
 }
 
-/** In-memory store for tests and single-process development. */
-export function createMemoryIdempotencyStore(): IdempotencyStore & { size(): number } {
-  const rows = new Map<string, IdempotencyRecord & { createdAt: number }>();
+/** In-memory store for tests and single-process development. `clock`: its time (ms; tests). */
+export function createMemoryIdempotencyStore(clock: () => number = () => Date.now()): IdempotencyStore & { size(): number } {
+  const rows = new Map<string, Omit<IdempotencyRecord, 'createdAt'> & { createdAt: number }>();
   const id = (userId: string, key: string) => `${userId}\u0000${key}`;
   return {
     async find(userId, key) {
       const row = rows.get(id(userId, key));
-      return row ? { ...row } : null;
+      return row ? { ...row, createdAt: new Date(row.createdAt) } : null;
     },
     async reserve(rec) {
       if (rows.has(id(rec.userId, rec.key))) return false;
-      rows.set(id(rec.userId, rec.key), { ...rec, statusCode: PENDING_STATUS, responseBody: '', createdAt: Date.now() });
+      rows.set(id(rec.userId, rec.key), { ...rec, statusCode: PENDING_STATUS, responseBody: '', createdAt: clock() });
       return true;
     },
     async complete(userId, key, statusCode, responseBody) {
@@ -97,6 +114,12 @@ export function createMemoryIdempotencyStore(): IdempotencyStore & { size(): num
     async release(userId, key) {
       const row = rows.get(id(userId, key));
       if (row && row.statusCode === PENDING_STATUS) rows.delete(id(userId, key));
+    },
+    async reclaim(userId, key, olderThan) {
+      const row = rows.get(id(userId, key));
+      if (!row || row.statusCode !== PENDING_STATUS || row.createdAt >= olderThan.getTime()) return false;
+      rows.delete(id(userId, key));
+      return true;
     },
     async purgeOlderThan(cutoff) {
       for (const [k, row] of rows) if (row.createdAt < cutoff.getTime()) rows.delete(k);
@@ -109,11 +132,30 @@ export interface IdempotencyOptions {
   store: IdempotencyStore;
   /** The verified user id of the request, or null when unauthenticated. */
   userIdOf: (req: FastifyRequest) => string | null;
+  /**
+   * Review fix #3: is the request's session still current (account active, token version) — the sign-in
+   * check's own answer. False: the hook steps aside (no stored answer, no reservation) and the route's
+   * check refuses the request (401). Absent: a verified user id is enough (as before).
+   */
+  sessionCurrent?: (req: FastifyRequest) => Promise<boolean>;
+  /** Review fix #27: a store write that failed (logged; the answer still goes out). */
+  onError?: (err: unknown, what: string) => void;
+  /** The clock (ms; tests). */
+  now?: () => number;
 }
 
 /** Register the Idempotency-Key hooks on an app (applies to every POST route). */
-export function registerIdempotency(app: FastifyInstance, { store, userIdOf }: IdempotencyOptions): void {
+export function registerIdempotency(app: FastifyInstance, { store, userIdOf, sessionCurrent, onError, now = () => Date.now() }: IdempotencyOptions): void {
   app.decorateRequest('idempotency', null);
+
+  /** A store write after the work is done: a failure is logged, never turned into an error answer. */
+  const quietly = async (what: string, write: () => Promise<unknown>) => {
+    try {
+      await write();
+    } catch (err) {
+      onError?.(err, what);
+    }
+  };
 
   app.addHook('preHandler', async (req, reply) => {
     if (req.method !== 'POST') return;
@@ -125,9 +167,12 @@ export function registerIdempotency(app: FastifyInstance, { store, userIdOf }: I
     }
     const userId = userIdOf(req);
     if (!userId) return; // the route's own auth check rejects the request
+    // Review fix #3: a session that has ended (deactivated, password changed, signed out everywhere) is
+    // neither answered from the store nor given a reservation — the route's own check answers 401.
+    if (sessionCurrent && !(await sessionCurrent(req))) return;
     const path = req.url.split('?')[0] ?? req.url;
 
-    for (let attempt = 0; attempt < 2; attempt++) {
+    for (let attempt = 0; attempt < 3; attempt++) {
       const existing = await store.find(userId, key);
       if (existing) {
         if (existing.method !== req.method || existing.path !== path.slice(0, 191)) {
@@ -135,6 +180,9 @@ export function registerIdempotency(app: FastifyInstance, { store, userIdOf }: I
             error: { code: 'IDEMPOTENCY_KEY_REUSED', message: 'This Idempotency-Key was already used for a different request.' },
           });
         }
+        // Review fix #27: pending past its lease — its request died — so this retry takes the key over.
+        const stale = existing.createdAt !== undefined && existing.createdAt.getTime() < now() - IDEMPOTENCY_LEASE_MS;
+        if (existing.statusCode === PENDING_STATUS && stale && store.reclaim && (await store.reclaim(userId, key, new Date(now() - IDEMPOTENCY_LEASE_MS)))) continue;
         if (existing.statusCode === PENDING_STATUS) {
           return reply.status(409).send({
             error: { code: 'IDEMPOTENCY_IN_PROGRESS', message: 'The original request is still being processed. Retry shortly.' },
@@ -152,6 +200,10 @@ export function registerIdempotency(app: FastifyInstance, { store, userIdOf }: I
     }
   });
 
+  // Review fix #27: every store write here is quiet — the work is done (a task may be saved), so its
+  // answer must reach the client whatever the store does; a key left pending is taken over after its lease.
+  const SAVE = 'saving the answer to a repeated request';
+  const RELEASE = 'releasing a repeated request’s key';
   app.addHook('onSend', async (req, reply, payload) => {
     const idem = req.idempotency;
     if (!idem) return payload;
@@ -159,18 +211,18 @@ export function registerIdempotency(app: FastifyInstance, { store, userIdOf }: I
     const status = reply.statusCode;
     const contentType = String(reply.getHeader('content-type') ?? '');
     if (status >= 500) {
-      await store.release(idem.userId, idem.key);
+      await quietly(RELEASE, () => store.release(idem.userId, idem.key));
     } else if (payload === undefined || payload === null || payload === '') {
-      await store.complete(idem.userId, idem.key, status, '');
+      await quietly(SAVE, () => store.complete(idem.userId, idem.key, status, ''));
     } else if (typeof payload === 'string' && contentType.includes('json') && payload.includes('"temporaryPassword"')) {
       // 1.23.6: a temporary password made on the server goes back once and is never stored anywhere —
       // not here either. A retry runs the request again.
-      await store.release(idem.userId, idem.key);
+      await quietly(RELEASE, () => store.release(idem.userId, idem.key));
     } else if (typeof payload === 'string' && contentType.includes('json')) {
-      await store.complete(idem.userId, idem.key, status, payload);
+      await quietly(SAVE, () => store.complete(idem.userId, idem.key, status, payload));
     } else {
       // Streams / non-JSON bodies aren't stored; let a retry run the request again.
-      await store.release(idem.userId, idem.key);
+      await quietly(RELEASE, () => store.release(idem.userId, idem.key));
     }
     return payload;
   });
@@ -180,6 +232,6 @@ export function registerIdempotency(app: FastifyInstance, { store, userIdOf }: I
     const idem = req.idempotency;
     if (!idem) return;
     req.idempotency = null;
-    await store.release(idem.userId, idem.key);
+    await quietly(RELEASE, () => store.release(idem.userId, idem.key));
   });
 }
