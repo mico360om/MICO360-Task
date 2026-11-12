@@ -28,7 +28,10 @@ import type { TaskDuplicateService } from '../../src/modules/tasks/task-duplicat
 // notice per person, one audit line, Undo once only and only by its maker.
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.TEST_DATABASE_URL } } });
 const TZ = 'Asia/Muscat';
-const clock = new Date('2026-11-12T06:00:00Z');
+// Release B gate: the clock is the real time — a bulk record's createdAt is the database's own now(), and Undo compares
+// it with the archive/bin marks written by this clock; a fixed 2026-11-12T06:00Z made every run after 10:00 Muscat that
+// day read them as "changed since" (3 failures).
+const clock = () => new Date();
 const audit = createAuditService({ audit: createPrismaAuditRepository(prisma) });
 const activity = createActivityService({ activities: createPrismaActivityRepository(prisma) });
 const recordActivity = async (e: { taskId: string; userId: string; action: string; meta?: Record<string, unknown> }) => {
@@ -58,17 +61,17 @@ const taskService = createTaskService({
   tasks: createPrismaTaskRepository(prisma),
   projects: createPrismaProjectLookup(prisma),
   timeZone: TZ,
-  now: () => clock,
+  now: clock,
   approvals: {
     canApprove: async (userId, projectId) => (await prisma.userRole.count({ where: { userId, role: { name: 'ADMIN' } } })) > 0 || runs(userId, projectId),
     columnsOf: (projectId) => prisma.kanbanColumn.findMany({ where: { projectId }, select: { id: true, category: true, position: true, enabled: true } }),
   },
 });
-const taskMoveService = createTaskMoveService({ repo: createPrismaTaskMoveRepository(prisma), timeZone: TZ, now: () => clock });
+const taskMoveService = createTaskMoveService({ repo: createPrismaTaskMoveRepository(prisma), timeZone: TZ, now: clock });
 const binService = createBinService({
   store: createPrismaBinStore(prisma),
   timeZone: TZ,
-  now: () => clock,
+  now: clock,
   adminScope: async () => null,
   isArchived: (projectId) => archiveLookup.isArchived(projectId),
   canViewProject: (viewer, projectId) => sees(viewer.id, viewer.roles, projectId),
@@ -83,7 +86,7 @@ const taskArchiveService = createTaskArchiveService({
   runsProject: async (a, projectId) => isAdmin(a.roles) || runs(a.id, projectId),
   isProjectArchived: (projectId) => archiveLookup.isArchived(projectId),
   recordActivity,
-  now: () => clock,
+  now: clock,
 });
 const bulk = createTaskBulkService({
   ...createBulkPorts({
@@ -104,7 +107,7 @@ const bulk = createTaskBulkService({
     notify: (n) => notifications.notify(n),
     audit: (e) => audit.record(e),
   }),
-  now: () => clock,
+  now: clock,
 });
 
 const CODES = ['BKA', 'BKB'];
