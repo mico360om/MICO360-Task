@@ -21,7 +21,7 @@ export function LearnLinkView({ to, compact = false }: { to: string; compact?: b
       to={to}
       data-learn-link
       aria-label="Learn this feature"
-      className="inline-flex flex-none items-center gap-1.5 whitespace-nowrap rounded-lg px-1.5 py-0.5 text-sm font-semibold text-brand outline-none transition-colors hover:bg-brand/5 focus-visible:ring-2 focus-visible:ring-brand/40 [@media(pointer:coarse)]:min-h-11"
+      className="inline-flex flex-none items-center gap-1.5 whitespace-nowrap rounded-lg px-1.5 py-0.5 text-sm font-semibold text-brand outline-none transition-colors hover:bg-brand/5 focus-visible:ring-2 focus-visible:ring-brand/40 [@media(pointer:coarse)]:!min-h-11"
     >
       <BookIcon />
       <span className={compact ? '' : 'sm:hidden'}>Learn</span>

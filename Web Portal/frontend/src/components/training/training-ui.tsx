@@ -9,7 +9,7 @@ import { DIFFICULTY_WORDS, STATUS_WORDS, dueText, lessonsText, minutesText, rati
 /** Pieces the training pages share (staff and the Client portal): the site's cards, chips and 44px touch targets. */
 
 /** A touch-sized control on a touch screen (44px), as the rest of the site. */
-export const TOUCH_MIN = '[@media(pointer:coarse)]:min-h-11';
+export const TOUCH_MIN = '[@media(pointer:coarse)]:!min-h-11';
 
 const svg = (children: ReactNode, size = 16) => (
   <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="flex-none">

@@ -225,7 +225,7 @@ function QuestionEditor({ question: q, index, last, onChange, onMove, onRemove }
                     {q.kind === 'ORDER' ? (
                       <span className="w-6 text-center text-sm font-semibold text-ink-2" aria-hidden="true">{oi + 1}</span>
                     ) : (
-                      <label className="flex cursor-pointer items-center gap-1.5 text-xs font-medium text-ink-2 [@media(pointer:coarse)]:min-h-11">
+                      <label className="flex cursor-pointer items-center gap-1.5 text-xs font-medium text-ink-2 [@media(pointer:coarse)]:!min-h-11">
                         <input
                           type={q.kind === 'MULTIPLE' ? 'checkbox' : 'radio'}
                           name={`${q.key}-right`}

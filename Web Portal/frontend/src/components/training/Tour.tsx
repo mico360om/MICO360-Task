@@ -147,16 +147,16 @@ export function TourDialog({ steps, onFinish }: { steps: TourStep[]; onFinish: (
             {step.body}
           </p>
           <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
-            <Button variant="ghost" size="sm" className="[@media(pointer:coarse)]:min-h-11" onClick={() => onFinish('skip')}>
+            <Button variant="ghost" size="sm" className="[@media(pointer:coarse)]:!min-h-11" onClick={() => onFinish('skip')}>
               Skip tour
             </Button>
             <div className="flex gap-2">
               {at > 0 ? (
-                <Button variant="secondary" size="sm" className="[@media(pointer:coarse)]:min-h-11" onClick={() => go(at - 1)}>
+                <Button variant="secondary" size="sm" className="[@media(pointer:coarse)]:!min-h-11" onClick={() => go(at - 1)}>
                   Back
                 </Button>
               ) : null}
-              <Button size="sm" className="[@media(pointer:coarse)]:min-h-11" onClick={() => (last ? onFinish('done') : go(at + 1))}>
+              <Button size="sm" className="[@media(pointer:coarse)]:!min-h-11" onClick={() => (last ? onFinish('done') : go(at + 1))}>
                 {last ? 'Finish' : 'Next'}
               </Button>
             </div>

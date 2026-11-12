@@ -78,7 +78,7 @@ export function CourseEditorPage() {
       <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-1">
         <span className="text-sm text-ink-2">{courseFacts({ ...course, lessonCount: course.lessons.length, minutes: course.lessons.reduce((s, l) => s + l.minutes, 0) })}</span>
         {course.status === 'PUBLISHED' ? (
-          <Link to={`/training/manage?tab=assignments&course=${encodeURIComponent(course.id)}&assign=1`} className="inline-flex items-center text-sm font-semibold text-brand hover:underline [@media(pointer:coarse)]:min-h-11">
+          <Link to={`/training/manage?tab=assignments&course=${encodeURIComponent(course.id)}&assign=1`} className="inline-flex items-center text-sm font-semibold text-brand hover:underline [@media(pointer:coarse)]:!min-h-11">
             Assign this course
           </Link>
         ) : null}
