@@ -18,17 +18,58 @@ export class ApiError extends Error {
  * Result of a token refresh. `refreshed` = retry with the new token; `invalid` = the server rejected
  * the refresh token (401/400) and the session is really over; `transient` = offline, a server error
  * or rate limiting (429) — not a verdict on the session, so the user must stay signed in.
- * `true`/`false` are accepted as shorthands for `refreshed`/`invalid`.
+ * `changed` (batch 2, as on Android) = the session is no longer the one the request was sent with —
+ * signed out, or someone else signed in, while it was on its way: the request is not sent again and
+ * nobody is signed out. `true`/`false` are accepted as shorthands for `refreshed`/`invalid`.
  */
-export type RefreshOutcome = 'refreshed' | 'invalid' | 'transient';
+export type RefreshOutcome = 'refreshed' | 'invalid' | 'transient' | 'changed';
+
+/**
+ * Batch 2: a request made for one person (forUser — a replayed offline change) while someone else's
+ * session, or none, is held. It is never sent; the caller keeps it for its person.
+ */
+export class SessionChangedError extends Error {
+  constructor(message = 'Signed in as someone else: this change waits for the person who made it.') {
+    super(message);
+    this.name = 'SessionChangedError';
+  }
+}
+
+/**
+ * The person an access token was issued to (its `sub`), or null when it can't be read. Never verified —
+ * the server does that on every request; it only tells whose token is about to be sent.
+ */
+export function tokenSubject(token: string | null | undefined): string | null {
+  if (!token || typeof token !== 'string') return null;
+  const part = token.split('.')[1];
+  if (!part) return null;
+  try {
+    let b64 = part.replace(/-/g, '+').replace(/_/g, '/');
+    while (b64.length % 4) b64 += '=';
+    const claims = JSON.parse(atob(b64)) as { sub?: unknown } | null;
+    return claims && typeof claims.sub === 'string' && claims.sub ? claims.sub : null;
+  } catch {
+    return null;
+  }
+}
 
 export interface ApiClientOptions {
   baseUrl: string;
   getToken: () => string | null;
-  /** Attempt to refresh the access token after a 401 (given the token that was rejected). */
-  refreshTokens?: (rejectedToken: string | null) => Promise<RefreshOutcome | boolean>;
+  /**
+   * Attempt to refresh the access token after a 401 (given the token that was rejected). With getUserId,
+   * also given whose request it was: a refresh is never run, or its result used, for anyone else.
+   */
+  refreshTokens?: (rejectedToken: string | null, expectedUserId?: string | null) => Promise<RefreshOutcome | boolean>;
   /** Called only when the refresh token itself is rejected — the app should log out. */
   onUnauthorized?: () => void;
+  /**
+   * Batch 2 (as on Android): whose session the app holds now (null: nobody). With it, each request
+   * remembers who sent it (`sentAs`, before its first send) and is sent again after a 401 — or without a
+   * refused company pick — only while that person (and their token) is still the one held; otherwise the
+   * first answer stands and nobody is signed out. Without it, the access token's own `sub` is the word.
+   */
+  getUserId?: () => string | null;
   /**
    * Headers sent with every request, uploads and downloads too — the picked company
    * (`X-Company-Id`) while one is picked. Read again for each request.
@@ -170,6 +211,15 @@ export interface ApiClient {
   getBlob(path: string): Promise<Blob>;
 }
 
+/** The app's client: also one bound to a person (a replayed offline change), sent only as them. */
+export interface SessionApiClient extends ApiClient {
+  /**
+   * A client whose every request goes only while `userId` is the person signed in (and their token is the
+   * one sent): otherwise it is never sent and rejects with SessionChangedError. As Android's forUser.
+   */
+  forUser(userId: string): ApiClient;
+}
+
 export interface UploadOptions {
   /** Called as the body is sent, with the fraction sent so far (0–1). */
   onProgress?: (fraction: number) => void;
@@ -198,7 +248,7 @@ async function refusesCompany(status: number, text: () => Promise<string>): Prom
   return isCompanyGone(errorFrom(status, await text()));
 }
 
-export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthorized, getHeaders, onCompanyGone, onRefused, onRequestDone, onDatabaseBusy, pageMark, networkRetry }: ApiClientOptions): ApiClient {
+export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthorized, getUserId, getHeaders, onCompanyGone, onRefused, onRequestDone, onDatabaseBusy, pageMark, networkRetry }: ApiClientOptions): SessionApiClient {
   const clock = () => (typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now());
   /** 1.23.23: how a dropped read is tried again (null: never). */
   const retry =
@@ -288,19 +338,35 @@ export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthoriz
     return { sent, withoutPick };
   }
 
+  /**
+   * Batch 2: whose session is held now — the app's word (getUserId), or, without it, the access token's own
+   * `sub` — and whether a request sent as `sentAs` may go (again) now: that person is still the one held,
+   * and the token that would go is theirs (a token that can't be read is left to the app's word).
+   */
+  const holder = (): string | null => (getUserId ? (getUserId() ?? null) : tokenSubject(getToken()));
+  const stillSender = (sentAs: string | null): boolean => {
+    if (holder() !== sentAs) return false;
+    const sub = tokenSubject(getToken());
+    return sub === null || sub === sentAs;
+  };
+
   // Single-flight token refresh: parallel 401s share one refresh instead of stampeding /auth/refresh.
-  let refreshing: Promise<RefreshOutcome> | null = null;
-  function refreshOnce(rejectedToken: string | null): Promise<RefreshOutcome> {
-    if (!refreshTokens) return Promise.resolve('invalid');
+  // Each refresh is for one person: only their requests join it (as on Android).
+  let refreshing: { promise: Promise<RefreshOutcome>; owner: string | null } | null = null;
+  async function refreshOnce(rejectedToken: string | null, sentAs: string | null): Promise<RefreshOutcome> {
+    if (!refreshTokens) return 'invalid';
+    // A refresh still on its way for someone else (the person before): its end is waited for first.
+    while (refreshing && refreshing.owner !== sentAs) await refreshing.promise.catch(() => undefined);
     if (!refreshing) {
-      refreshing = refreshTokens(rejectedToken)
+      const promise: Promise<RefreshOutcome> = (getUserId ? refreshTokens(rejectedToken, sentAs) : refreshTokens(rejectedToken))
         .then((r): RefreshOutcome => (r === true ? 'refreshed' : r === false ? 'invalid' : r))
         .catch((): RefreshOutcome => 'transient')
         .finally(() => {
-          refreshing = null;
+          if (refreshing?.promise === promise) refreshing = null;
         });
+      refreshing = { promise, owner: sentAs };
     }
-    return refreshing;
+    return refreshing.promise;
   }
 
   type FetchOpts = { body?: unknown; form?: FormData; headers?: Record<string, string>; keepalive?: boolean; credentials?: RequestCredentials };
@@ -348,17 +414,22 @@ export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthoriz
   /**
    * Fetch with automatic token refresh + retry on a 401 (except for auth endpoints). Only a rejected
    * refresh token ends the session; a refresh that fails for any other reason (offline, 5xx, 429)
-   * leaves the user signed in and just surfaces this request's error.
+   * leaves the user signed in and just surfaces this request's error. Batch 2: sent again only as the
+   * person who sent it (`sentAs`): when the session changed meanwhile, the 401 stands and nobody is
+   * signed out.
    */
-  async function fetchRefreshing(method: string, path: string, opts: FetchOpts, shared: Record<string, string>): Promise<Response> {
+  async function fetchRefreshing(method: string, path: string, opts: FetchOpts, shared: Record<string, string>, sentAs: string | null): Promise<Response> {
     // A failed login/OTP/refresh is not a token-expiry — never trigger a refresh for those.
     const canRefresh = !path.startsWith('/auth/');
     const token = getToken();
     let res = await doFetch(method, path, opts, token, shared);
     if (res.status === 401 && canRefresh) {
-      const outcome = await refreshOnce(token);
-      if (outcome === 'refreshed') res = await doFetch(method, path, opts, getToken(), shared);
-      else if (outcome === 'invalid') onUnauthorized?.();
+      // Signed out, or someone else signed in, while it was on its way: never renewed or sent as them.
+      if (!stillSender(sentAs)) return res;
+      const outcome = await refreshOnce(token, sentAs);
+      if (outcome === 'refreshed') {
+        if (stillSender(sentAs)) res = await doFetch(method, path, opts, getToken(), shared);
+      } else if (outcome === 'invalid') onUnauthorized?.();
     }
     return res;
   }
@@ -367,18 +438,23 @@ export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthoriz
    * …and when the server refuses the picked company (taken away, archived), the request goes once
    * more without it. Only if that one isn't refused too was it the pick (a company the request names
    * itself, e.g. a picker's `companyIds`, is refused the same way) — then the app is told.
+   * `asUser` (forUser): sent only while that person is the one held — checked as it goes, nothing awaited between.
    */
-  async function authedFetch(method: string, path: string, opts: FetchOpts = {}): Promise<Response> {
+  async function authedFetch(method: string, path: string, opts: FetchOpts = {}, asUser?: string): Promise<Response> {
+    if (asUser !== undefined && !stillSender(asUser)) throw new SessionChangedError();
+    const sentAs = asUser ?? holder();
     const { sent, withoutPick } = sharedHeaders();
-    const res = await fetchRefreshing(method, path, opts, sent);
+    const res = await fetchRefreshing(method, path, opts, sent, sentAs);
     if (!withoutPick || !(await refusesCompany(res.status, () => res.clone().text()))) return res;
-    const retry = await fetchRefreshing(method, path, opts, withoutPick);
+    // The same request once more, only as the same person.
+    if (!stillSender(sentAs)) return res;
+    const retry = await fetchRefreshing(method, path, opts, withoutPick, sentAs);
     if (!(await refusesCompany(retry.status, () => retry.clone().text()))) onCompanyGone?.(sent);
     return retry;
   }
 
-  async function request<T>(method: string, path: string, body?: unknown, reqOpts?: RequestOptions): Promise<T> {
-    const res = await authedFetch(method, path, { body, headers: reqOpts?.headers, ...(reqOpts?.keepalive ? { keepalive: true } : {}), ...(reqOpts?.credentials ? { credentials: reqOpts.credentials } : {}) });
+  async function request<T>(method: string, path: string, body?: unknown, reqOpts?: RequestOptions, asUser?: string): Promise<T> {
+    const res = await authedFetch(method, path, { body, headers: reqOpts?.headers, ...(reqOpts?.keepalive ? { keepalive: true } : {}), ...(reqOpts?.credentials ? { credentials: reqOpts.credentials } : {}) }, asUser);
     const text = await res.text();
     if (!res.ok) throw method === 'GET' ? failure(res.status, text) : refusal(res.status, text);
     return (text ? JSON.parse(text) : {}) as T;
@@ -408,28 +484,32 @@ export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthoriz
     });
   }
 
-  async function upload<T>(path: string, form: FormData, opts?: UploadOptions): Promise<T> {
+  async function upload<T>(path: string, form: FormData, opts?: UploadOptions, asUser?: string): Promise<T> {
     const onProgress = opts?.onProgress;
     if (!onProgress || typeof XMLHttpRequest === 'undefined') {
-      const res = await authedFetch('POST', path, { form });
+      const res = await authedFetch('POST', path, { form }, asUser);
       const text = await res.text();
       if (!res.ok) throw refusal(res.status, text);
       return (text ? JSON.parse(text) : {}) as T;
     }
-    // The same refresh-once-on-401 and refused-pick rules as every other request.
+    // The same refresh-once-on-401 and refused-pick rules as every other request — the file is sent
+    // again only as the person who sent it (batch 2).
+    if (asUser !== undefined && !stillSender(asUser)) throw new SessionChangedError();
+    const sentAs = asUser ?? holder();
     const send = async (shared: Record<string, string>) => {
       const token = getToken();
       let answer = await sendWithProgress(path, form, token, onProgress, shared);
-      if (answer.status === 401) {
-        const outcome = await refreshOnce(token);
-        if (outcome === 'refreshed') answer = await sendWithProgress(path, form, getToken(), onProgress, shared);
-        else if (outcome === 'invalid') onUnauthorized?.();
+      if (answer.status === 401 && stillSender(sentAs)) {
+        const outcome = await refreshOnce(token, sentAs);
+        if (outcome === 'refreshed') {
+          if (stillSender(sentAs)) answer = await sendWithProgress(path, form, getToken(), onProgress, shared);
+        } else if (outcome === 'invalid') onUnauthorized?.();
       }
       return answer;
     };
     const { sent, withoutPick } = sharedHeaders();
     let res = await send(sent);
-    if (withoutPick && (await refusesCompany(res.status, async () => res.text))) {
+    if (withoutPick && (await refusesCompany(res.status, async () => res.text)) && stillSender(sentAs)) {
       res = await send(withoutPick);
       if (!(await refusesCompany(res.status, async () => res.text))) onCompanyGone?.(sent);
     }
@@ -437,30 +517,35 @@ export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthoriz
     return (res.text ? JSON.parse(res.text) : {}) as T;
   }
 
-  async function getText(path: string): Promise<string> {
-    const res = await authedFetch('GET', path);
+  async function getText(path: string, asUser?: string): Promise<string> {
+    const res = await authedFetch('GET', path, {}, asUser);
     const text = await res.text();
     if (!res.ok) throw failure(res.status, text);
     return text;
   }
 
   /** A download; when the server names the file (Content-Disposition) it comes back as a File with that name. */
-  async function getBlob(path: string): Promise<Blob> {
-    const res = await authedFetch('GET', path);
+  async function getBlob(path: string, asUser?: string): Promise<Blob> {
+    const res = await authedFetch('GET', path, {}, asUser);
     if (!res.ok) throw failure(res.status, await res.text());
     const blob = await res.blob();
     const name = fileNameFromDisposition(res.headers.get('content-disposition'));
     return name ? new File([blob], name, { type: blob.type }) : blob;
   }
 
-  return {
-    get: (path) => request('GET', path),
-    post: (path, body, opts) => request('POST', path, body, opts),
-    put: (path, body) => request('PUT', path, body),
-    patch: (path, body) => request('PATCH', path, body),
-    del: (path, opts) => request('DELETE', path, undefined, opts),
-    upload,
-    getText,
-    getBlob,
-  };
+  /** The client's calls, as whoever is signed in (asUser undefined) or only as one person (forUser). */
+  function clientFor(asUser?: string): ApiClient {
+    return {
+      get: (path) => request('GET', path, undefined, undefined, asUser),
+      post: (path, body, opts) => request('POST', path, body, opts, asUser),
+      put: (path, body) => request('PUT', path, body, undefined, asUser),
+      patch: (path, body) => request('PATCH', path, body, undefined, asUser),
+      del: (path, opts) => request('DELETE', path, undefined, opts, asUser),
+      upload: (path, form, opts) => upload(path, form, opts, asUser),
+      getText: (path) => getText(path, asUser),
+      getBlob: (path) => getBlob(path, asUser),
+    };
+  }
+
+  return { ...clientFor(), forUser: (userId: string) => clientFor(userId) };
 }

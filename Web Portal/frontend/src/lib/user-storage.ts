@@ -21,6 +21,8 @@ const KEPT_ON_SIGN_OUT = new Set(['mytasks.views', 'daily-emails.perPage', COMPA
 
 /** Unscoped keys written by older builds. They can't be attributed to a user, so sign-out removes them. */
 export const LEGACY_PER_USER_KEYS = ['mico360.board.projectId', 'mico360.mytasks.view'] as const;
+/** …and unscoped families of keys: chat drafts kept by conversation only, before batch 2 (review #9). */
+export const LEGACY_PER_USER_PREFIXES = ['mico360.chat.draft.'] as const;
 
 export function userStorageKey(userId: string, name: string): string {
   return `${PREFIX}${userId}.${name}`;
@@ -47,7 +49,7 @@ export function writeUserValue(userId: string | null | undefined, name: string, 
 
 /**
  * Remove per-user state from this browser: every `mico360.u.*` key (except the few the person
- * authored, see KEPT_ON_SIGN_OUT) plus the legacy unscoped keys.
+ * authored, see KEPT_ON_SIGN_OUT) — their chat drafts too — plus the legacy unscoped keys.
  */
 export function clearUserStorage(): void {
   try {
@@ -58,7 +60,7 @@ export function clearUserStorage(): void {
       if (key.startsWith(PREFIX)) {
         const name = key.slice(PREFIX.length).split('.').slice(1).join('.');
         if (!KEPT_ON_SIGN_OUT.has(name)) doomed.push(key);
-      } else if ((LEGACY_PER_USER_KEYS as readonly string[]).includes(key)) {
+      } else if ((LEGACY_PER_USER_KEYS as readonly string[]).includes(key) || LEGACY_PER_USER_PREFIXES.some((p) => key.startsWith(p))) {
         doomed.push(key);
       }
     }

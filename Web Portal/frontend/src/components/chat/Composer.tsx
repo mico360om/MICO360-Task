@@ -3,6 +3,7 @@ import type { MentionPerson } from '../../lib/mentions';
 import { useMentionAutocomplete } from '../../hooks/useMentionAutocomplete';
 import { MentionList } from '../Mentions';
 import { MAX_MESSAGE_LENGTH, loadDraft, saveDraft } from '../../lib/chat-model';
+import { useAuthStore } from '../../stores/auth-store';
 import { COUNTER_FROM } from './MessageItem';
 import { EmojiPopover } from './EmojiPicker';
 import { CloseIcon, PaperclipIcon, ReplyIcon, SendIcon, SmileIcon } from './icons';
@@ -40,10 +41,12 @@ export interface ComposerProps {
  * across visits), and sends with Enter on a computer — Shift+Enter starts a new line.
  */
 export function Composer({ conversationId, placeholder, people, replyTo, onCancelReply, onSend, onFiles, restore, readOnly }: ComposerProps) {
-  const [draft, setDraftState] = useState(() => loadDraft(conversationId));
+  // The draft is the signed-in person's own (batch 2): never another person's on the same browser.
+  const userId = useAuthStore((s) => s.user?.id ?? null);
+  const [draft, setDraftState] = useState(() => loadDraft(userId, conversationId));
   const setDraft = (text: string) => {
     setDraftState(text);
-    saveDraft(conversationId, text);
+    saveDraft(userId, conversationId, text);
   };
   const boxRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
