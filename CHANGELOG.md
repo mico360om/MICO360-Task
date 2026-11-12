@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.23.20] - 2026-11-12
+
 ### New features
 - Guests on tasks: people outside the company — a client's engineer, a supplier's site lead — can be named
   on a task for the record. The Assign box (New task, Edit task and the task panel) has a switch
