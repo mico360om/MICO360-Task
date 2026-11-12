@@ -31,7 +31,15 @@ export interface HoldStore {
   finish(ids: string[], outcome: HoldOutcome, at: Date): Promise<void>;
   /** Forget finished rows older than this. */
   prune(before: Date): Promise<number>;
+  /**
+   * Release B: let go rows TAKEN (claimed by a release run, or taken for a daily email) before `before` and never
+   * finished — a crash between taking and finishing — so they are sent after all. Finished rows are never touched.
+   */
+  reclaimStale(before: Date): Promise<number>;
 }
+
+/** How long a take may stay unfinished before the next release run lets it go (Release B). */
+export const HOLD_LEASE_MS = 15 * 60_000;
 
 const select = { id: true, userId: true, notificationId: true, channel: true, type: true, title: true, body: true, entityType: true, entityId: true, releaseAt: true, expiresAt: true, createdAt: true } as const;
 type Row = { channel: string } & Omit<HoldRow, 'channel'>;
@@ -85,6 +93,15 @@ export function createPrismaHoldStore(prisma: PrismaClient): HoldStore {
     async prune(before) {
       return (await prisma.notificationHold.deleteMany({ where: { doneAt: { not: null, lt: before } } })).count;
     },
+    async reclaimStale(before) {
+      // Taken marks are 'CLAIM:…' and 'FOLD:…' (finished ones are SENT, FOLDED, DROPPED).
+      return (
+        await prisma.notificationHold.updateMany({
+          where: { doneAt: { not: null, lt: before }, OR: [{ outcome: { startsWith: 'CLAIM:' } }, { outcome: { startsWith: 'FOLD:' } }] },
+          data: { doneAt: null, outcome: null },
+        })
+      ).count;
+    },
   };
 }
 
@@ -122,6 +139,16 @@ export function createMemoryHoldStore(): HoldStore & { rows: (HoldRow & { doneAt
     async finish(ids, outcome, at) {
       for (const r of rows) if (ids.includes(r.id)) Object.assign(r, { doneAt: at, outcome });
     },
+    async reclaimStale(before) {
+      let n = 0;
+      for (const r of rows) {
+        if (r.doneAt && r.doneAt < before && (r.outcome === 'CLAIM' || r.outcome === 'FOLD')) {
+          Object.assign(r, { doneAt: null, outcome: null });
+          n++;
+        }
+      }
+      return n;
+    },
     async prune(before) {
       const keep = rows.filter((r) => !(r.doneAt && r.doneAt < before));
       const gone = rows.length - keep.length;
@@ -139,7 +166,7 @@ export interface HoldReleaseDeps {
   sendBundleEmail(userId: string, items: HoldRow[]): Promise<void>;
   /** Will the person's daily email still go today (it folds their held emails in)? */
   dailyEmailPending(userId: string, now: Date): Promise<boolean>;
-  logger?: { error(msg: string, meta?: Record<string, unknown>): void };
+  logger?: { error(msg: string, meta?: Record<string, unknown>): void; warn?(msg: string, meta?: Record<string, unknown>): void };
 }
 
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
@@ -158,6 +185,9 @@ export function bundledPush(items: readonly HoldRow[]): { title: string; body: s
 export function createHoldRelease(deps: HoldReleaseDeps) {
   async function run(now: Date = new Date()): Promise<{ pushes: number; emails: number; dropped: number }> {
     const done = { pushes: 0, emails: 0, dropped: 0 };
+    // Release B: a take older than its lease never finished (the server stopped in between): let go, then sent below.
+    const reclaimed = await deps.store.reclaimStale(new Date(now.getTime() - HOLD_LEASE_MS)).catch(() => 0);
+    if (reclaimed) deps.logger?.warn?.('held notices taken but never finished were let go again', { count: reclaimed });
     for (const userId of await deps.store.dueUsers(now, 500)) {
       try {
         const pushes = await deps.store.claimDue(userId, 'PUSH', now);

@@ -145,6 +145,9 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   administrator powers).
 
 ### Improvements
+- Merging tasks moves their planned time and personal reminders to the main task (the same person's at the same
+  time kept once); Undo puts them back where they were.
+- Notices held overnight that a server restart left half-sent are sent at the next release, never lost.
 - The Android app (unchanged) still moves only a task's due date on its calendar; the website's calendar now
   moves start and due together.
 - Quiet hours (outside working hours and on days off, unless changed): the bell still fills, but phone

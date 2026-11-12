@@ -966,6 +966,36 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
         })),
       (rowIds) => tx.notification.updateMany({ where: { id: { in: rowIds } }, data: { entityId: main.id, projectId } }),
     );
+    // Release B (owner, 12 Nov): the merged tasks' planned time (Calendar work blocks) and personal reminders move to
+    // the main task. The same person's block at the same time (start and end), or reminder at the same time (a date and
+    // time, or the same time before its start or due), is kept once: the main task's, else the first — the other stays
+    // on its merged task (hidden with it) and Undo gives everything back where it was.
+    const blockKey = (b: { userId: string; startAt: Date; endAt: Date }) => `${b.userId}|${b.startAt.getTime()}|${b.endAt.getTime()}`;
+    const blocksSeen = new Set((await tx.taskWorkBlock.findMany({ where: { taskId: main.id }, select: { userId: true, startAt: true, endAt: true } })).map(blockKey));
+    const blocksMoving: string[] = [];
+    for (const b of await tx.taskWorkBlock.findMany({ where: { taskId: { in: otherIds } }, select: { id: true, taskId: true, userId: true, startAt: true, endAt: true }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] })) {
+      if (blocksSeen.has(blockKey(b))) {
+        item('keepWorkBlock', b.id, b.taskId);
+        continue;
+      }
+      blocksSeen.add(blockKey(b));
+      item('workBlock', b.id, b.taskId);
+      blocksMoving.push(b.id);
+    }
+    if (blocksMoving.length) await tx.taskWorkBlock.updateMany({ where: { id: { in: blocksMoving } }, data: { taskId: main.id } });
+    const reminderKey = (x: { userId: string; at: Date | null; anchor: string | null; offsetMinutes: number | null }) => `${x.userId}|${x.at ? `at:${x.at.getTime()}` : `${x.anchor}:${x.offsetMinutes}`}`;
+    const remindersSeen = new Set((await tx.taskReminder.findMany({ where: { taskId: main.id }, select: { userId: true, at: true, anchor: true, offsetMinutes: true } })).map(reminderKey));
+    const remindersMoving: string[] = [];
+    for (const x of await tx.taskReminder.findMany({ where: { taskId: { in: otherIds } }, select: { id: true, taskId: true, userId: true, at: true, anchor: true, offsetMinutes: true }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] })) {
+      if (remindersSeen.has(reminderKey(x))) {
+        item('keepReminder', x.id, x.taskId);
+        continue;
+      }
+      remindersSeen.add(reminderKey(x));
+      item('reminder', x.id, x.taskId);
+      remindersMoving.push(x.id);
+    }
+    if (remindersMoving.length) await tx.taskReminder.updateMany({ where: { id: { in: remindersMoving } }, data: { taskId: main.id } });
     // 1.23.7: "Show to client" on a file belongs to its project's Client portal — a file leaving its project
     // (the main task moving, or a file coming from another project's task) loses the tick, as a moved task does.
     if (projectChanges) await tx.attachment.updateMany({ where: { taskId: main.id, clientVisible: true }, data: { clientVisible: false } });
@@ -1416,6 +1446,9 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
     await backTo('actionItem', (from, rowIds) => tx.actionItem.updateMany({ where: { id: { in: rowIds }, taskId: main.id }, data: { taskId: from } }));
     await backTo('meetingNote', (from, rowIds) => tx.meetingNote.updateMany({ where: { id: { in: rowIds }, taskId: main.id }, data: { taskId: from } }));
     await backTo('followUp', (from, rowIds) => tx.inspectionFollowUp.updateMany({ where: { id: { in: rowIds }, taskId: main.id }, data: { taskId: from } }));
+    // Release B: planned time and personal reminders back to their own tasks (those kept once never moved).
+    await backTo('workBlock', (from, rowIds) => tx.taskWorkBlock.updateMany({ where: { id: { in: rowIds }, taskId: main.id }, data: { taskId: from } }));
+    await backTo('reminder', (from, rowIds) => tx.taskReminder.updateMany({ where: { id: { in: rowIds }, taskId: main.id }, data: { taskId: from } }));
     for (const i of of('activity')) {
       const projectId = (i.data as { projectId?: string | null } | null)?.projectId ?? byId.get(i.fromTaskId)?.projectId ?? null;
       await tx.activity.updateMany({ where: { id: i.rowId, taskId: main.id }, data: { taskId: i.fromTaskId, projectId } });

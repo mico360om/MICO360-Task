@@ -94,3 +94,45 @@ describe('review M7/M8: the daily email takes held emails due by the morning', (
     expect((await store.openEmails('u1')).map((t) => t.title)).toEqual(['night', 'after a long pause']);
   });
 });
+
+// Release B (coordinator's call, 12 Nov): a crash between taking held notices (for the daily email, or a release
+// run's claim) and finishing them left them taken for good — never sent. A take older than its 15-minute lease is let
+// go by the next run (then sent as usual) and logged once.
+describe('stale taken holds', () => {
+  it('a hold taken more than 15 minutes ago and never finished is let go by the next run, sent, and logged once', async () => {
+    const store = createMemoryHoldStore();
+    const push = { sendToUser: vi.fn(async () => 1) };
+    const warn = vi.fn();
+    const release = createHoldRelease({ store, push, sendBundleEmail: vi.fn(async () => {}), dailyEmailPending: async () => false, logger: { error: vi.fn(), warn } });
+    await store.add(held({ notificationId: 'n1' }));
+    await store.add(held({ notificationId: 'n2', channel: 'EMAIL' }));
+    // Taken at 08:00 (a push claim and the daily email's take), then the server died.
+    await store.claimDue('u1', 'PUSH', MORNING);
+    await store.takeEmails('u1', MORNING, MORNING);
+    expect(store.rows.every((r) => r.doneAt)).toBe(true);
+    // Ten minutes later: still within the lease — left alone.
+    await release.run(new Date(MORNING.getTime() + 10 * 60_000));
+    expect(push.sendToUser).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
+    // Sixteen minutes later: let go and sent; the log says so once.
+    await release.run(new Date(MORNING.getTime() + 16 * 60_000));
+    expect(push.sendToUser).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith('held notices taken but never finished were let go again', { count: 2 });
+    await release.run(new Date(MORNING.getTime() + 40 * 60_000));
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(store.rows.map((r) => r.outcome)).toEqual(['SENT', 'SENT']);
+  });
+
+  it('finished holds (sent, folded, dropped) are never let go', async () => {
+    const store = createMemoryHoldStore();
+    await store.add(held({ notificationId: 'n1' }));
+    await store.add(held({ notificationId: 'n2' }));
+    await store.add(held({ notificationId: 'n3' }));
+    const ids = store.rows.map((r) => r.id);
+    await store.finish([ids[0]!], 'SENT', MORNING);
+    await store.finish([ids[1]!], 'FOLDED', MORNING);
+    await store.finish([ids[2]!], 'DROPPED', MORNING);
+    expect(await store.reclaimStale(new Date(MORNING.getTime() + 60 * 60_000))).toBe(0);
+  });
+});

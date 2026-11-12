@@ -267,6 +267,48 @@ describe('Merging tasks (integration)', () => {
     expect(record).toMatchObject({ key: other.key, title: 'Pump check', main: { id: main.id, key: main.key }, keptOnce: { checklist: 0, files: 1, contacts: 1 } });
   });
 
+  // Release B (owner, 12 Nov): the merged tasks' planned time (Calendar work blocks) and personal reminders MOVE to the
+  // main task; the same person's block or reminder at the same time is kept once (the other stays on its merged task);
+  // Undo puts every one back where it was.
+  it('planned time and personal reminders move to the main task — the same person at the same time kept once — and Undo puts them back', async () => {
+    const a = await newTask('Main with plans');
+    const b = await newTask('Other with plans');
+    const c = await newTask('Third with plans');
+    const hour = (h: number) => ({ startAt: new Date(`2026-11-10T${String(h).padStart(2, '0')}:00:00.000Z`), endAt: new Date(`2026-11-10T${String(h + 1).padStart(2, '0')}:00:00.000Z`) });
+    const block = async (taskId: string, userId: string, h: number) => (await prisma.taskWorkBlock.create({ data: { taskId, userId, plannedById: manager.id, ...hour(h) } })).id;
+    const remind = async (taskId: string, userId: string, timing: { at?: Date; anchor?: string; offsetMinutes?: number }) => (await prisma.taskReminder.create({ data: { taskId, userId, setById: userId, ...timing } })).id;
+    const B = {
+      onMain: await block(a.id, employee.id, 5),
+      sameAsMain: await block(b.id, employee.id, 5), // the same person and time as the main task's: kept once
+      moves: await block(b.id, employee.id, 7),
+      otherPerson: await block(c.id, mateId, 5), // the same time, someone else: moves
+      sameAmongMerged: await block(c.id, employee.id, 7), // the same as the one moving from b: kept once
+    };
+    const R = {
+      onMain: await remind(a.id, employee.id, { anchor: 'due', offsetMinutes: 60 }),
+      sameAsMain: await remind(b.id, employee.id, { anchor: 'due', offsetMinutes: 60 }),
+      atTime: await remind(b.id, employee.id, { at: new Date('2026-11-09T05:00:00.000Z') }),
+      otherPerson: await remind(c.id, mateId, { anchor: 'due', offsetMinutes: 60 }),
+      otherOffset: await remind(c.id, employee.id, { anchor: 'due', offsetMinutes: 120 }),
+    };
+    const where = async () => ({
+      blocks: Object.fromEntries((await prisma.taskWorkBlock.findMany({ where: { id: { in: Object.values(B) } }, select: { id: true, taskId: true } })).map((x) => [x.id, x.taskId])),
+      reminders: Object.fromEntries((await prisma.taskReminder.findMany({ where: { id: { in: Object.values(R) } }, select: { id: true, taskId: true } })).map((x) => [x.id, x.taskId])),
+    });
+    const before = await where();
+
+    const r = await merges.merge(manager, { taskIds: [a.id, b.id, c.id], mainTaskId: a.id });
+    const after = await where();
+    expect(after.blocks).toEqual({ [B.onMain]: a.id, [B.sameAsMain]: b.id, [B.moves]: a.id, [B.otherPerson]: a.id, [B.sameAmongMerged]: c.id });
+    expect(after.reminders).toEqual({ [R.onMain]: a.id, [R.sameAsMain]: b.id, [R.atTime]: a.id, [R.otherPerson]: a.id, [R.otherOffset]: a.id });
+    // Nothing is copied or deleted.
+    expect(await prisma.taskWorkBlock.count({ where: { id: { in: Object.values(B) } } })).toBe(5);
+    expect(await prisma.taskReminder.count({ where: { id: { in: Object.values(R) } } })).toBe(5);
+
+    await merges.undo(manager, r.mergeId);
+    expect(await where()).toEqual(before);
+  });
+
   it('data integrity: every table’s rows are the same before, after the merge and after Undo (apart from the merge’s own rows)', async () => {
     const a = await fullTask('Alpha', {}, 1);
     const b = await fullTask('Bravo', { assigneeIds: [mateId] }, 2);

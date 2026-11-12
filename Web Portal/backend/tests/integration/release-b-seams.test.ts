@@ -203,3 +203,30 @@ describe('Release B seams — the Recycle Bin and “late stays counted”', () 
     expect((await source.windowTasks([ids.project!], ...nov)).some((t) => t.key === 'RBS-1' && !t.removedAt)).toBe(true);
   });
 });
+
+describe('Release B — stale taken holds (coordinator, 12 Nov)', () => {
+  it('the store lets go only takes older than the lease that never finished (CLAIM:/FOLD:), never finished ones', async () => {
+    const { createPrismaHoldStore, HOLD_LEASE_MS } = await import('../../src/modules/notify-policy/holds');
+    const store = createPrismaHoldStore(prisma);
+    const now = new Date('2026-11-17T06:00:00Z');
+    const ago = (min: number) => new Date(now.getTime() - min * 60_000);
+    const hold = async (outcome: string | null, doneAt: Date | null) =>
+      (await prisma.notificationHold.create({ data: { userId: ids.ann!, channel: 'EMAIL', type: 'TASK_OVERDUE', title: `${TAG} held`, releaseAt: ago(120), doneAt, outcome } })).id;
+    try {
+      const staleFold = await hold('FOLD:aaaaaaaaaaa', ago(20));
+      const staleClaim = await hold('CLAIM:bbbbbbbbbb', ago(20));
+      const freshFold = await hold('FOLD:ccccccccccc', ago(5));
+      const folded = await hold('FOLDED', ago(20));
+      const sent = await hold('SENT', ago(20));
+      expect(await store.reclaimStale(new Date(now.getTime() - HOLD_LEASE_MS))).toBe(2);
+      const rows = new Map((await prisma.notificationHold.findMany({ where: { title: `${TAG} held` } })).map((r) => [r.id, r]));
+      expect([staleFold, staleClaim].map((id) => [rows.get(id)!.doneAt, rows.get(id)!.outcome])).toEqual([
+        [null, null],
+        [null, null],
+      ]);
+      expect([freshFold, folded, sent].map((id) => rows.get(id)!.outcome)).toEqual(['FOLD:ccccccccccc', 'FOLDED', 'SENT']);
+    } finally {
+      await prisma.notificationHold.deleteMany({ where: { title: `${TAG} held` } });
+    }
+  });
+});
