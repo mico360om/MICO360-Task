@@ -14,7 +14,7 @@ const socket = {
 const ioMock = vi.fn((..._args: unknown[]) => socket);
 vi.mock('socket.io-client', () => ({ io: (...args: unknown[]) => ioMock(...args) }));
 const socketTrouble = vi.fn();
-vi.mock('./error-reporting', () => ({ noteSocketTrouble: () => socketTrouble(), noteRequest: () => {}, pageMark: () => undefined }));
+vi.mock('./error-reporting', () => ({ noteSocketTrouble: () => socketTrouble(), noteRequest: () => {}, pageMark: () => undefined, mayRetryRequest: () => true }));
 
 const session = (accessToken: string) =>
   useAuthStore.getState().setSession({ user: { id: 'u1', email: 'a@b.c', username: 'ada', roles: [] }, accessToken, refreshToken: 'rt' });
