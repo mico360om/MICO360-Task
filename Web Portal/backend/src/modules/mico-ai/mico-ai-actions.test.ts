@@ -609,3 +609,14 @@ describe('MICO AI actions: review fixes', () => {
   });
 });
 
+
+describe('MICO AI actions: an archived task (task archive, bulk lane)', () => {
+  const archiveRig21 = (d: MemoryData) => {
+    d.tasks = d.tasks.map((t) => (t.id === 't21' ? { ...t, archivedAt: new Date('2026-10-22T08:00:00Z') } : t));
+  };
+  it('is never changed: named by number it is refused (“unarchive it first”), by its title it is not offered', async () => {
+    const { actions } = setup(archiveRig21);
+    expect(await actions.prepare(OMAR, [{ type: 'update_task', task: 'RIG-21', priority: 'HIGH' }], { final: false })).toEqual({ kind: 'retry', problems: ['RIG-21 is archived — unarchive it first.'] });
+    expect(await actions.prepare(OMAR, [{ type: 'update_task', task: 'Safety checklist v2', priority: 'HIGH' }], { final: false })).toEqual({ kind: 'retry', problems: ['No task you can see matches “Safety checklist v2”.'] });
+  });
+});

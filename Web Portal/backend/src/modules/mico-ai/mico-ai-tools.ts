@@ -2,8 +2,9 @@ import { z } from 'zod';
 import { dueDayKey, daysUntilDue, shiftDayKey, todayKey, zonedDayKey, zonedStartOfDay } from '../../lib/due-date';
 import { CATEGORY_ORDER, categoryLabel, priorityLabel, wallClock } from '../../lib/export-format';
 import { isTaskDone, isTaskLate } from '../tasks/task-status';
+import { isCountedTask } from '../tasks/task-archive-where';
 import { matchesNormalized, normalizeForSearch } from '../search/text-normalize';
-import { buildTimeline } from '../activity/activity-feed';
+import { buildTaskTimeline as buildTimeline } from '../activity/task-history-extra';
 import { withoutHiddenBlockers } from '../activity/hidden-blockers';
 import { completionStats, projectPerformance, statusBreakdown, userWorkload, type ReportTask } from '../reports/report-service';
 import type { ToolInfo } from './mico-ai-loop';
@@ -264,18 +265,20 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
   function taskRow(s: Scope, t: AiTaskRec): ResultRow {
     const done = isTaskDone({ columnCategory: t.category, completedAt: t.completedAt });
     const until = daysUntilDue(t.dueDate, timeZone, now());
+    const status = t.columnName || categoryLabel(t.category);
     return {
       ref: taskRef(t),
       values: {
         key: t.key,
         title: t.title,
         project: t.projectName,
-        status: t.columnName || categoryLabel(t.category),
+        // Task archive: an archived task is found, and says so.
+        status: t.archivedAt ? `${status} · Archived` : status,
         priority: priorityLabel(t.priority),
         assignees: assigneesText(s, t.assigneeIds),
         due: dueDayKey(t.dueDate, timeZone),
-        // Never "days overdue" while it waits for approval (owner, 30 Oct).
-        overdueDays: !done && !t.approvalRequestedAt && until !== null && until < 0 ? -until : null,
+        // Never "days overdue" while it waits for approval (owner, 30 Oct), nor once archived.
+        overdueDays: !done && !t.approvalRequestedAt && !t.archivedAt && until !== null && until < 0 ? -until : null,
         completed: done && t.completedAt ? zonedDayKey(t.completedAt, timeZone) : null,
         progress: done ? 100 : Math.max(0, Math.min(100, t.progress)),
       },
@@ -301,6 +304,8 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
     assigneeIds: t.assigneeIds,
     approvalRequestedAt: t.approvalRequestedAt ?? null,
   });
+  /** Task archive: figures keep an archived Done task (still done) and leave an archived open one. */
+  const counted = (t: AiTaskRec) => isCountedTask({ archivedAt: t.archivedAt, completedAt: t.completedAt, columnCategory: t.category });
   const dueWithin = (t: AiTaskRec, from?: string, to?: string) => {
     if (!from && !to) return true;
     const due = dueDayKey(t.dueDate, timeZone);
@@ -383,6 +388,8 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
       const rows = (await visibleTasks(s, { projectId: project?.id, assigneeId: person?.id }, true))
         .filter((t) => {
           const done = isTaskDone({ columnCategory: t.category, completedAt: t.completedAt });
+          // Task archive: found (marked) with no status or "done"; an archived task is in no open, overdue or column list.
+          if (t.archivedAt && status !== 'any' && status !== 'done') return false;
           if (status === 'open' && done) return false;
           if (status === 'done' && !done) return false;
           if (status === 'overdue' && !isTaskLate({ columnCategory: t.category, completedAt: t.completedAt, dueDate: t.dueDate, approvalRequestedAt: t.approvalRequestedAt }, timeZone, now())) return false;
@@ -437,8 +444,10 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
           milestone: t.isMilestone,
           start: dueDayKey(t.startDate, timeZone),
           checklist: x.checklist.slice(0, 25).map((c) => ({ item: clip(c.text, 150), done: c.done })),
-          // The people outside the company responsible for it (read only: MICO AI has no action that changes them).
+          // Its guests — people outside the company named on it (read only: MICO AI has no action that changes them).
           externalContacts: x.externalContacts.map((c) => ({ ...c, remarks: c.remarks === null ? null : clip(c.remarks, 300) })),
+          // 1.24: its categories (read only).
+          ...(x.categories?.length ? { categories: x.categories } : {}),
           comments: x.comments.slice(-10).map((c) => ({ by: nameOf(s.person.get(c.userId)) || 'Someone', at: wallClock(c.createdAt, timeZone), text: clip(c.body, 300) })),
           history,
           blockedBy: blockedBy.map(link),
@@ -455,7 +464,7 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
       const projects = s.projects
         .filter((p) => (status === 'any' || p.status === status.toUpperCase()) && (!q || matchesNormalized(q, p.name, p.code, p.number, p.clientName)))
         .sort((x, y) => x.name.localeCompare(y.name));
-      const tasks = await visibleTasks(s);
+      const tasks = (await visibleTasks(s)).filter(counted);
       const rows = projects.map((p): ResultRow => {
         const mine = tasks.filter((t) => t.projectId === p.id);
         const perf = projectPerformance(mine.map(toReportTask), timeZone, now())[0];
@@ -482,7 +491,9 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
 
     async project_details(s, a) {
       const p = resolveProject(s, a.project as string);
-      const [tasks, members] = await Promise.all([visibleTasks(s, { projectId: p.id }), data.memberships([p.id])]);
+      const [all, members] = await Promise.all([visibleTasks(s, { projectId: p.id }), data.memberships([p.id])]);
+      // Task archive: the figures keep an archived Done task; the lists (milestones, deadlines) never show an archived one.
+      const tasks = all.filter(counted);
       const listed = (await run.list_projects(s, {})).rows.filter((r) => r.ref?.id === p.id);
       const byStatus: Record<string, number> = {};
       for (const t of tasks) {
@@ -491,7 +502,7 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
       }
       const t0 = today();
       const open = tasks.filter((t) => !isTaskDone({ columnCategory: t.category, completedAt: t.completedAt }));
-      const milestones = tasks.filter((t) => t.isMilestone).sort(byDue);
+      const milestones = tasks.filter((t) => t.isMilestone && !t.archivedAt).sort(byDue);
       const deadlines = open.filter((t) => {
         const due = dueDayKey(t.dueDate, timeZone);
         return !!due && due >= t0 && due <= shiftDayKey(t0, 14);
@@ -749,7 +760,7 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
       const person = a.person ? resolvePerson(s, a.person as string) : null;
       const dueFrom = a.dueFrom as string | undefined;
       const dueTo = a.dueTo as string | undefined;
-      const tasks = (await visibleTasks(s, { projectId: project?.id, assigneeId: person?.id })).filter((t) => dueWithin(t, dueFrom, dueTo));
+      const tasks = (await visibleTasks(s, { projectId: project?.id, assigneeId: person?.id })).filter((t) => counted(t) && dueWithin(t, dueFrom, dueTo));
       const rt = tasks.map(toReportTask);
       const period = dueFrom || dueTo ? `, tasks due ${dueFrom ?? '…'} to ${dueTo ?? '…'}` : '';
       const where = `${project ? ` for ${project.name}` : ''}${person ? ` (${nameOf(person)})` : ''}${period}`;

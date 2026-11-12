@@ -158,7 +158,7 @@ const MISC_DATA = {
   milestone: { source: 'components/TaskCard.tsx', strokeWidth: 2, shapes: [p('M5 21V4'), p('M5 4h11l-2 4 2 4H5', { fill: true, fillOpacity: 0.18 })] },
   eye: { source: 'components/TaskCard.tsx', strokeWidth: 2, shapes: [p('M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z'), c(12, 12, 3)] },
   menu: { source: 'components/AppShell.tsx', strokeWidth: 2, shapes: [p('M4 7h16M4 12h16M4 17h16')] },
-  check: { source: 'components/BulkActionBar.tsx', strokeWidth: 2.2, shapes: [p('M20 6 9 17l-5-5')] },
+  check: { source: 'components/TaskDrawer.tsx', strokeWidth: 2.2, shapes: [p('M20 6 9 17l-5-5')] },
   dots: { source: 'components/board/CardMenu.tsx', strokeWidth: 0, filled: true, shapes: [c(5, 12, 1.8), c(12, 12, 1.8), c(19, 12, 1.8)] },
   info: { source: 'components/ProfileMenu.tsx', strokeWidth: 1.8, shapes: [c(12, 12, 9), p('M12 11v5M12 7.5v.01')] },
   signOut: { source: 'components/ProfileMenu.tsx', strokeWidth: 1.8, shapes: [p('M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9')] },

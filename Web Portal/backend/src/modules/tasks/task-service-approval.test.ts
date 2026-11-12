@@ -240,3 +240,20 @@ describe('what the review found', () => {
   });
 });
 
+
+// tbk: bulk lane — Undo of a bulk "Done" that left a task waiting where it was (a project with no Review column).
+describe('withdrawing a request (Undo of a bulk Done)', () => {
+  it('a waiting task stops waiting where it is; its people are told the request was withdrawn', async () => {
+    const t = await s.make({ projectId: 'p2', columnId: 'q-doing' });
+    await s.svc.moveTask(t.id, 'q-done', undefined, 'sara');
+    const after = await s.svc.withdrawApproval(t.id, 'sara');
+    expect(after).toMatchObject({ columnId: 'q-doing', approvalRequestedAt: null, approvalRequestedById: null, completedAt: null });
+    expect(s.moved.at(-1)).toMatchObject({ taskId: t.id, approval: 'WITHDRAWN' });
+  });
+  it('a task that isn’t waiting is left as it is', async () => {
+    const t = await s.make();
+    const n = s.moved.length;
+    expect(await s.svc.withdrawApproval(t.id, 'sara')).toMatchObject({ id: t.id, approvalRequestedAt: null });
+    expect(s.moved.length).toBe(n);
+  });
+});

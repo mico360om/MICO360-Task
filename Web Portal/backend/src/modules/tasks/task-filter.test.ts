@@ -144,3 +144,27 @@ describe('filterAndSortTasks', () => {
     expect(filterAndSortTasks(tasks, { q: 'fix', sort: 'priority', order: 'desc' }).map((t) => t.id)).toEqual(['b', 'a']);
   });
 });
+
+describe('1.24 guests and categories in the list filters', () => {
+  const ahmed = { id: 'g1', name: 'Ahmed', company: 'OXY' };
+  const sara = { id: 'g2', name: 'Sara', company: 'PDO' };
+  const tasks = [
+    task({ id: 'a', guests: [ahmed], categories: [{ id: 'c1', name: 'Civil', color: 'teal', retired: false }] }),
+    task({ id: 'b', guests: [sara], categories: [{ id: 'c2', name: 'Electrical', color: 'gold', retired: false }] }),
+    task({ id: 'c' }),
+  ];
+  it('Guest: by the guest (id)', () => {
+    expect(filterAndSortTasks(tasks, { guestIds: ['g2'] }).map((t) => t.id)).toEqual(['b']);
+  });
+  it('Guest company: case and spaces aside', () => {
+    expect(filterAndSortTasks(tasks, { guestCompany: ' oxy ' }).map((t) => t.id)).toEqual(['a']);
+  });
+  it('Category: any of the picked', () => {
+    expect(filterAndSortTasks(tasks, { categoryIds: ['c1', 'c2'] }).map((t) => t.id)).toEqual(['a', 'b']);
+    expect(filterAndSortTasks(tasks, { categoryIds: ['zz'] })).toEqual([]);
+  });
+  it('the keyword finds a task by a guest’s name or company and by a category', () => {
+    expect(filterAndSortTasks(tasks, { q: 'sara' }).map((t) => t.id)).toEqual(['b']);
+    expect(filterAndSortTasks(tasks, { q: 'electrical' }).map((t) => t.id)).toEqual(['b']);
+  });
+});

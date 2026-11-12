@@ -16,6 +16,8 @@ import { registerEmailWebhookRoutes } from './modules/email/email-webhook-routes
 import type { EmailWebhookService } from './modules/email/email-webhook-service';
 import { registerAuthRoutes, type AuthRouteDeps } from './modules/auth/auth-routes';
 import { createAuthGuard, type UserStateLookup } from './modules/auth/auth-guard';
+import type { ManagerViewLookup } from './modules/auth/manager-view';
+import { registerManagerViewRoutes, type ManagerViewStore } from './modules/users/manager-view-routes';
 import { registerProjectRoutes } from './modules/projects/project-routes';
 import type { ProjectOverviewSource } from './modules/projects/project-overview';
 import type { ProjectService } from './modules/projects/project-service';
@@ -26,6 +28,15 @@ import { registerTaskExportRoutes } from './modules/tasks/task-export-routes';
 import { registerTaskMoveRoutes } from './modules/tasks/task-move-routes';
 import type { TaskMoveService } from './modules/tasks/task-move-service';
 import { installMergedTaskRedirect, registerTaskMergeRoutes } from './modules/task-merge/merge-routes';
+import { registerBinRoutes } from './modules/recycle-bin/bin-routes';
+import type { BinService } from './modules/recycle-bin/bin-service';
+import { registerTaskDuplicateRoutes } from './modules/tasks/task-duplicate-routes';
+import { registerTaskArchiveRoutes } from './modules/tasks/task-archive-routes';
+import { registerTaskBulkRoutes } from './modules/tasks/bulk/task-bulk-routes';
+import type { TaskBulkService } from './modules/tasks/bulk/task-bulk';
+import type { TaskArchiveService } from './modules/tasks/task-archive';
+import type { TaskDuplicateService } from './modules/tasks/task-duplicate';
+import type { DuplicateLinks } from './modules/tasks/task-routes';
 import type { TaskMergeService } from './modules/task-merge/merge-service';
 import type { TaskExportSource } from './modules/tasks/task-export';
 import type { TaskService } from './modules/tasks/task-service';
@@ -39,6 +50,10 @@ import { registerChecklistRoutes } from './modules/tasks/checklist-routes';
 import type { ChecklistService } from './modules/tasks/checklist-service';
 import { registerExternalContactRoutes } from './modules/tasks/external-contact-routes';
 import type { ExternalContactService } from './modules/tasks/external-contact-service';
+import { registerGuestRoutes } from './modules/guests/guest-routes';
+import type { GuestService } from './modules/guests/guest-service';
+import { registerCategoryRoutes } from './modules/categories/category-routes';
+import type { CategoryService } from './modules/categories/category-service';
 import { registerCommentRoutes } from './modules/tasks/comment-routes';
 import type { CommentService } from './modules/tasks/comment-service';
 import { registerChatRoutes } from './modules/chat/chat-routes';
@@ -189,6 +204,10 @@ export interface AppDeps extends AuthRouteDeps {
    * suspended / deleted / demoted user loses access at once instead of when their token expires.
    */
   userState?: UserStateLookup;
+  /** Manager View (owner, 10 Nov): an administrator's own switch — GET/PUT /users/me/manager-view. */
+  managerViewStore?: ManagerViewStore;
+  /** Manager View's project-settings rule: does this person run the project (absent: refused, fails closed). */
+  managerViewLookup?: ManagerViewLookup;
   projectService?: ProjectService;
   /** The Projects page's figures in grouped queries (GET /projects/overview). */
   projectOverview?: ProjectOverviewSource;
@@ -212,6 +231,25 @@ export interface AppDeps extends AuthRouteDeps {
   taskMoveService?: TaskMoveService;
   /** 1.23.1 Merge tasks: the merge dialog, the merge, a main task's "Merged from" panel and Undo. */
   taskMergeService?: TaskMergeService;
+  /**
+   * Recycle Bin: deleted tasks kept 60 days — the bin page, restore, delete forever; a delete's history
+   * and audit lines; "This task was deleted" when one is opened.
+   */
+  binService?: BinService;
+  /** How many live tasks a repeating series has (a copy's details: "the entire series (12 tasks)"). */
+  seriesSize?: (seriesId: string) => Promise<number>;
+  /** Duplicate Task: the review form's pre-fill and the copy (GET/POST /tasks/:id/duplicate). */
+  taskDuplicateService?: TaskDuplicateService;
+  /** Task archive (bulk lane): archive / unarchive one task (many: POST /tasks/bulk). */
+  taskArchiveService?: TaskArchiveService;
+  /** Bulk task changes (bulk lane): one change to up to 500 tasks, its dry run and its Undo. */
+  taskBulkService?: TaskBulkService;
+  /** Bulk changes one person may send a minute (default 30). */
+  bulkPerMinute?: number;
+  /** Duplicate Task: copies one person may make a minute (default 20; each copies its files on the server). */
+  duplicatesPerMinute?: number;
+  /** Duplicate Task: the task a copy was made from, and an original's copies (a task's details; each shown only to whoever may open it). */
+  duplicateLinks?: (taskId: string) => Promise<DuplicateLinks>;
   carryForwardService?: import('./modules/tasks/carry-forward-service').CarryForwardService;
   assigneeService?: AssigneeService;
   watcherService?: WatcherService;
@@ -229,6 +267,10 @@ export interface AppDeps extends AuthRouteDeps {
   namesOfUsers?: (userIds: string[]) => Promise<Map<string, string>>;
   /** External contacts on tasks: the people outside the company responsible for a task. */
   externalContactService?: ExternalContactService;
+  /** 1.24: the company guest lists and a task's guests (record only: never users, never emailed). */
+  guestService?: GuestService;
+  /** 1.24: each project's task categories and a task's categories. */
+  categoryService?: CategoryService;
   commentService?: CommentService;
   chatService?: MessageService;
   /** Deliver a chat event to one user across their sockets (their DMs). */
@@ -623,7 +665,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   // Process metrics for monitoring (T19.3). Admin-only: pid, Node version and memory are
   // internal details that anonymous callers shouldn't see (uptime checks use /health).
   // One guard for every route, so its short account-state cache is shared.
-  const guard = createAuthGuard(deps.tokenService, { userState: deps.userState });
+  const guard = createAuthGuard(deps.tokenService, { userState: deps.userState, ...(deps.managerViewLookup ? { managerView: deps.managerViewLookup } : {}) });
   app.get('/api/v1/metrics', { preHandler: guard.requireRoles('ADMIN') }, async () => {
     const mem = process.memoryUsage();
     return {
@@ -737,7 +779,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         await registerProjectRoutes(api, {
           projectService: deps.projectService,
           guard,
-          listProjectTasks: deps.taskService ? (projectId) => deps.taskService!.listTasks({ projectId }) : undefined,
+          // Manager View: an administrator's "may change it" — the projects they run.
+          managerView: deps.managerViewLookup,
+          // Task archive: progress figures keep an archived Done task (counted) and leave an archived open one.
+          listProjectTasks: deps.taskService ? (projectId) => deps.taskService!.listTasks({ projectId, archived: 'counted' }) : undefined,
           timeZone: deps.appConfig?.timeZone,
           overview: deps.projectOverview,
           audit: deps.auditService,
@@ -826,11 +871,20 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           taskApproval: deps.taskApprovalDetails,
           // 1.23.1: the tasks merged into a task (its "Merged from" panel opens from them).
           mergedFrom: deps.taskMergeService ? (id) => deps.taskMergeService!.mergedInto(id) : undefined,
+          // Duplicate Task: "Duplicated from MSSP-34" and "Copies: …" (only those the reader may open).
+          duplicateLinks: deps.duplicateLinks,
           checklistDue: deps.checklistDue,
           calendarExtras: deps.calendarExtras,
+          // Recycle Bin: a delete's history and audit lines; a deleted task opened says it was deleted.
+          binDeleted: deps.binService ? (e) => deps.binService!.deleted(e) : undefined,
+          binNotice: deps.binService ? (viewer, taskId) => deps.binService!.noticeFor(viewer, taskId) : undefined,
+          seriesSize: deps.seriesSize,
           projectOwnerOf: deps.projectService
             ? async (projectId) => (await deps.projectService!.getProject(projectId)).ownerId
             : undefined,
+          // 1.24: a new task's guests and categories are checked by their own rules.
+          guestService: deps.guestService,
+          categoryService: deps.categoryService,
         });
       }
       if (deps.taskService && deps.approvalSource) {
@@ -864,6 +918,22 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       }
       if (deps.taskMergeService) {
         await registerTaskMergeRoutes(api, { service: deps.taskMergeService, guard, broadcast: deps.onTaskEvent, canViewTask, audit: deps.auditService, logger: deps.logger });
+      }
+      if (deps.binService) {
+        // Recycle Bin: staff only (client sessions are refused by the guard's route table).
+        await registerBinRoutes(api, { service: deps.binService, guard, pickOf });
+      }
+      if (deps.taskArchiveService && deps.taskService) {
+        // Task archive: staff only (client sessions are refused by the guard's route table).
+        await registerTaskArchiveRoutes(api, { service: deps.taskArchiveService, guard, getTask: (id) => deps.taskService!.getTask(id) });
+      }
+      if (deps.taskBulkService) {
+        // Bulk changes: staff only (client sessions are refused by the guard's route table).
+        await registerTaskBulkRoutes(api, { service: deps.taskBulkService, guard, ...(deps.bulkPerMinute ? { perMinute: deps.bulkPerMinute } : {}) });
+      }
+      if (deps.taskDuplicateService) {
+        // Duplicate Task: staff only (client sessions are refused by the guard's route table).
+        await registerTaskDuplicateRoutes(api, { service: deps.taskDuplicateService, guard, ...(deps.duplicatesPerMinute ? { perMinute: deps.duplicatesPerMinute } : {}) });
       }
       if (deps.assigneeService) {
         await registerAssigneeRoutes(api, {
@@ -928,6 +998,30 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           recordActivity: deps.recordTaskActivity,
         });
       }
+      if (deps.guestService) {
+        await registerGuestRoutes(api, {
+          service: deps.guestService,
+          guard,
+          canViewTask,
+          // The task's own edit rule (as PUT /tasks/:id): whoever can see the task may change it.
+          canEditTask: canViewTask,
+          canViewProject,
+          broadcast: deps.onTaskEvent,
+          taskOf: deps.taskService ? (taskId) => deps.taskService!.getTask(taskId) : undefined,
+        });
+      }
+      if (deps.categoryService) {
+        await registerCategoryRoutes(api, {
+          service: deps.categoryService,
+          guard,
+          canViewProject,
+          canManageProject: (u, r, p) => projectAuthz.canManageProject(u, r, p),
+          canViewTask,
+          canEditTask: canViewTask,
+          broadcast: deps.onTaskEvent,
+          taskOf: deps.taskService ? (taskId) => deps.taskService!.getTask(taskId) : undefined,
+        });
+      }
       if (deps.commentService) {
         await registerCommentRoutes(api, {
           commentService: deps.commentService,
@@ -980,6 +1074,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       if (deps.userPreferences) {
         // A static path, so /users/me/preferences is never read as the admin route /users/:id.
         await registerPreferenceRoutes(api, { repo: deps.userPreferences, guard });
+      }
+      if (deps.managerViewStore) {
+        // Manager View's switch: a static path too (never the admin route /users/:id), and never refused by it.
+        await registerManagerViewRoutes(api, { store: deps.managerViewStore, guard, audit: deps.auditService });
       }
       if (deps.userService) {
         await registerUserRoutes(api, {

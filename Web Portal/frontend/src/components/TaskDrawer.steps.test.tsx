@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { ReactNode } from 'react';
 import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -7,7 +7,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { ShortcutProvider } from './shortcuts/ShortcutProvider';
 import { TaskDrawer, type TaskStepper } from './TaskDrawer';
 import type { ApiTask } from '../api/tasks';
-import { ExternalContactsSection } from './task-drawer/external-contacts';
+import { GUEST_WORDS } from '../lib/guest-contacts';
 
 // 1.22: Previous / Next in the task panel's header — through the list the task was opened from.
 const task: ApiTask = {
@@ -34,6 +34,7 @@ const press = (code: string, key: string) => {
 };
 
 beforeEach(() => localStorage.clear());
+afterEach(() => vi.unstubAllGlobals());
 
 describe('the task panel’s Previous / Next', () => {
   it('shows “‹ Previous”, “3 of 18” and “Next ›” in the header', () => {
@@ -135,12 +136,15 @@ describe('the task panel’s Previous / Next', () => {
   });
 
   // 1.22 review W1: a half-typed external contact was dropped by Next / J without asking.
-  it('a half-typed external contact counts as unsaved too (Next and J ask); an opened but empty one does not', async () => {
+  // tgc: 1.24 — external contacts are guests now: a half-typed New guest (in the Assign box) is what can be lost.
+  it('a half-typed new guest counts as unsaved too (Next and J ask); an opened but empty one does not', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ data: [] }), { status: 200, headers: { 'content-type': 'application/json' } })));
     const onNext = vi.fn();
-    const contacts = <ExternalContactsSection contacts={[{ id: 'x1', name: 'Ahmed Saleh', company: 'Oxy', designation: null, email: null, phone: null, remarks: null }]} onAdd={vi.fn()} onSave={vi.fn()} />;
-    drawer({ position: 2, total: 3, onPrevious: vi.fn(), onNext }, { externalContacts: contacts });
-    await userEvent.click(screen.getByRole('button', { name: 'Add a contact' }));
-    const form = screen.getByRole('group', { name: 'Add an external contact' });
+    drawer({ position: 2, total: 3, onPrevious: vi.fn(), onNext }, { assignees: [{ id: 'u1', name: 'Ada' }], onAssignUser: vi.fn(), onAddGuest: vi.fn() });
+    await userEvent.click(screen.getByRole('button', { name: 'Add assignee' }));
+    await userEvent.click(screen.getByRole('radio', { name: GUEST_WORDS.guest }));
+    await userEvent.click(screen.getByRole('button', { name: GUEST_WORDS.newGuest }));
+    const form = screen.getByRole('group', { name: GUEST_WORDS.newGuest });
     await userEvent.click(screen.getByRole('button', { name: 'Next task' }));
     expect(onNext).toHaveBeenCalledTimes(1); // nothing typed yet
     await userEvent.type(within(form).getByRole('textbox', { name: 'Company' }), 'Petroleum Dev');
@@ -155,15 +159,15 @@ describe('the task panel’s Previous / Next', () => {
     expect(onNext).toHaveBeenCalledTimes(1);
   });
 
-  it('a contact being changed counts as unsaved once it differs from what is saved', async () => {
+  // tgc: 1.24 — the contact editor this checked is gone; the Categories box's choice is the panel's other unsaved pick.
+  it('a category choice being changed counts as unsaved once it differs from what is saved', async () => {
     const onNext = vi.fn();
-    const contacts = <ExternalContactsSection contacts={[{ id: 'x1', name: 'Ahmed Saleh', company: 'Oxy', designation: null, email: null, phone: null, remarks: null }]} onAdd={vi.fn()} onSave={vi.fn()} />;
-    drawer({ position: 2, total: 3, onPrevious: vi.fn(), onNext }, { externalContacts: contacts });
-    await userEvent.click(screen.getByRole('button', { name: 'Edit Ahmed Saleh' }));
-    const form = screen.getByRole('group', { name: 'Edit the external contact' });
+    const choices = [{ id: 'k1', name: 'Electrical', color: 'teal', position: 0, retired: false }, { id: 'k2', name: 'HSE', color: 'gold', position: 1, retired: false }];
+    drawer({ position: 2, total: 3, onPrevious: vi.fn(), onNext }, { task: { ...task, categories: [] }, categoryChoices: choices, onSetCategories: vi.fn() });
+    await userEvent.click(screen.getByRole('button', { name: 'Edit categories' }));
     await userEvent.click(screen.getByRole('button', { name: 'Next task' }));
     expect(onNext).toHaveBeenCalledTimes(1); // opened, not changed
-    await userEvent.type(within(form).getByRole('textbox', { name: 'Phone' }), '+968 9912');
+    await userEvent.click(screen.getByRole('button', { name: 'HSE' }));
     await userEvent.click(screen.getByRole('button', { name: 'Next task' }));
     expect(screen.getByRole('alertdialog', { name: 'Discard your changes?' })).toBeInTheDocument();
     expect(onNext).toHaveBeenCalledTimes(1);

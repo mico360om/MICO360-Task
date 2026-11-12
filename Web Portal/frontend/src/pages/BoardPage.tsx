@@ -104,6 +104,8 @@ export function BoardPage() {
       onRemoved={forgetProject}
       // 1.22.3 review: an archived or completed project chosen in the picker — the project page's rule.
       readOnly={project ? projectReadOnly(project) : null}
+      // Owner, 10 Nov: the chosen project's basics above the columns (not on All projects).
+      projectStrip
       header={(boardActions) => (
         <PageHeader
           eyebrow="Workspace"

@@ -10,6 +10,7 @@ import {
   type NotificationPreferences,
   type PreferenceStore,
 } from './notification-preferences';
+import { activeNoticeBatch } from './notice-batch';
 
 /** How the phone push of one notification is shown (see PushDeliveryOptions): its channel, how long it lasts, its tag. */
 export interface NotificationPushOptions {
@@ -97,6 +98,12 @@ export interface NotificationServiceDeps {
 export function createNotificationService({ notifications, preferences, push, logger, onDelivered, isClient, delivery }: NotificationServiceDeps) {
   /** Create a notification unless the recipient has muted this type. Returns null when suppressed. */
   async function notify(input: CreateNotificationData, opts?: NotifyOptions): Promise<NotificationRecord | null> {
+    // Bulk lane: while a bulk task change runs, its notices are gathered (one combined per person, after).
+    const batch = activeNoticeBatch();
+    if (batch) {
+      batch.push(input);
+      return null;
+    }
     return deliver(input, false, opts);
   }
 

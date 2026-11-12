@@ -1,10 +1,13 @@
+import { randomUUID } from 'node:crypto';
 import type { ChecklistTree } from './checklist-tree';
+import { binExpiryOf } from '../recycle-bin/bin-rules';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../lib/http-errors';
 import { dueDayKey } from '../../lib/due-date';
 import { isValidRule, withAnchorDay, type RecurrenceRule } from './recurrence';
 import { boardDateFromKey, boardDateKey } from './board-date';
 import { columnEntryChange, defaultCompanyTimeZone } from './task-status';
 import { dueDateOnEntry } from '../projects/project-task-settings';
+import { boardDayAfterStartEdit, newTaskBoardDay } from './scheduled-start';
 import type { ExternalContactFields } from './external-contacts';
 import {
   approvalOnEntry,
@@ -20,6 +23,7 @@ import {
 import {
   TaskKeyConflictError,
   TaskVersionConflictError,
+  type BinMark,
   type ColumnInfo,
   type CreateTaskData,
   type Priority,
@@ -64,8 +68,14 @@ export interface NewTask {
   checklists?: ChecklistTree;
   /** External contacts (already checked), in order, written in the same write as the task. */
   externalContacts?: ExternalContactFields[];
+  /** 1.24: guests picked from the company's list (already checked), written in the same write as the task. */
+  guestLinks?: { guestId: string; note: string | null }[];
+  /** 1.24: its categories (already checked: the project's, not retired), written in the same write. */
+  categoryIds?: string[];
   /** Needs approval before it counts as done; left out, the project's "New tasks need approval" decides. */
   needsApproval?: boolean;
+  /** Duplicate Task: the task this one is a copy of (task-duplicate.ts). */
+  duplicatedFromId?: string | null;
 }
 
 /** What approvals need to know: who may approve a project's tasks, and its board columns. */
@@ -223,8 +233,10 @@ export function createTaskService({ tasks, projects, now = () => new Date(), tim
     const column = await requireColumn(input.columnId, input.projectId);
     await assertLiveForm(input.inspectionFormId);
     const at = now();
-    // Per-date boards: a new task lands on today's board unless a board day was given.
-    const boardDate = input.boardDate ?? todayAnchor();
+    // Per-date boards: a new task lands on today's board unless a board day was given — or, tasks
+    // scheduled for the future (owner, 10 Nov), its Start date is later than today: then it waits on
+    // its start day's board (scheduled-start.ts). A board day given still wins.
+    const boardDate = newTaskBoardDay(input, timeZone, at);
     // Every way a task is created comes through here (the REST API used by the website, extension and
     // Android app, quick add, meeting notes made into tasks): a project whose new tasks are due today
     // gives an undated one the board day it is added to (when later than today), else today; a date
@@ -377,6 +389,27 @@ export function createTaskService({ tasks, projects, now = () => new Date(), tim
       }
     }
 
+    // Tasks scheduled for the future (owner, 10 Nov): once its start day changed, a task nobody has
+    // started moves to that day's board (it waits again) — or, waiting, its start now today or earlier
+    // (or cleared), onto today's. One under way, done or handed in stays (scheduled-start.ts). Judged
+    // as this edit leaves it (a move made with it counts).
+    const startDay = (d: Date | null | undefined) => (d ? dayOf(d) : null);
+    if (next.startDate !== undefined && startDay(next.startDate) !== startDay(current.startDate)) {
+      const target = next.columnId !== undefined && next.columnId !== current.columnId ? await tasks.findColumn(next.columnId) : null;
+      const board = boardDayAfterStartEdit(
+        {
+          boardDate: next.boardDate !== undefined ? next.boardDate : (current.boardDate ?? null),
+          columnCategory: target ? target.category : current.columnCategory,
+          completedAt: next.completedAt !== undefined ? next.completedAt : current.completedAt,
+          approvalRequestedAt: next.approvalRequestedAt !== undefined ? next.approvalRequestedAt : current.approvalRequestedAt,
+        },
+        next.startDate ?? null,
+        timeZone,
+        now(),
+      );
+      if (board) next.boardDate = board;
+    }
+
     // Saved only if nobody changed the task since `expectedVersion`, in the same statement — the check
     // above answers early, this one also holds when two edits arrive together.
     let updated: TaskRecord;
@@ -437,6 +470,25 @@ export function createTaskService({ tasks, projects, now = () => new Date(), tim
     }
     await moved(after, current.columnId, actorId, event ? { approval: event, requestedById: current.approvalRequestedById ?? null } : null);
     return after;
+  }
+
+  /**
+   * Bulk lane (Undo of a bulk "Done" that left a task waiting where it was): its approval request is taken
+   * back — saved only from the version just read; its people are told as for a request withdrawn by a move.
+   * A task that isn't waiting is left as it is.
+   */
+  async function withdrawApproval(id: string, actorId: string): Promise<TaskRecord> {
+    const current = await getTask(id);
+    if (!isAwaitingApproval(current)) return current;
+    let updated: TaskRecord;
+    try {
+      updated = await tasks.update(id, { approvalRequestedAt: null, approvalRequestedById: null }, { expectedVersion: current.version });
+    } catch (err) {
+      if (err instanceof TaskVersionConflictError) throw new ConflictError('This task was changed by someone else. Reload and try again.', 'VERSION_CONFLICT');
+      throw err;
+    }
+    await moved(updated, current.columnId, actorId, { approval: 'WITHDRAWN', requestedById: current.approvalRequestedById ?? null });
+    return updated;
   }
 
   /** An approver's refusals, in order: may they (403), does it still wait (409), the version they saw (409). */
@@ -510,21 +562,26 @@ export function createTaskService({ tasks, projects, now = () => new Date(), tim
   }
 
   /**
-   * Delete a task. With scope 'series' on a recurring task, delete the whole series (every
-   * instance sharing its recurrenceParentId, plus the origin task) — the apply-to-entire-series
-   * case. Otherwise just this occurrence — and when it is the newest copy of a series, the
-   * `onDeleting` hook makes the next copy first, so the series carries on.
+   * Delete a task: it goes to the Recycle Bin, saying who deleted it (`actorId`), when, and when it will
+   * be erased (60 days: bin-rules). With scope 'series' on a recurring task, delete the whole series
+   * (every live instance sharing its recurrenceParentId, plus the origin task) as one batch, so it
+   * restores as one. Otherwise just this occurrence — and when it is the newest copy of a series, the
+   * `onDeleting` hook makes the next copy first, so the series carries on. Says which tasks went.
    */
-  async function deleteTask(id: string, scope: 'one' | 'series' = 'one'): Promise<void> {
+  async function deleteTask(id: string, scope: 'one' | 'series' = 'one', actorId?: string): Promise<{ ids: string[]; batchId: string | null }> {
     const task = await getTask(id);
     const recurs = Boolean(task.recurrenceRule || task.recurrenceParentId);
+    const at = now();
+    const mark = (batchId: string | null): BinMark => ({ by: actorId ?? null, at, expiresAt: binExpiryOf(at, timeZone), batchId });
     if (scope === 'series' && recurs) {
       const seriesId = task.recurrenceParentId ?? task.id;
-      await tasks.softDeleteSeries(seriesId);
-      return;
+      const batchId = randomUUID();
+      const ids = await tasks.softDeleteSeries(seriesId, mark(batchId));
+      return { ids: ids ?? [], batchId };
     }
     await onDeleting?.(task);
-    await tasks.softDelete(id);
+    await tasks.softDelete(id, mark(null));
+    return { ids: [id], batchId: null };
   }
 
   /**
@@ -535,7 +592,7 @@ export function createTaskService({ tasks, projects, now = () => new Date(), tim
     await tasks.reorderInColumn(columnId, orderedIds);
   }
 
-  return { createTask, listTasks, getTask, getColumn, updateTask, moveTask, approveTask, sendBackTask, deleteTask, reorderColumn, timeZone };
+  return { createTask, listTasks, getTask, getColumn, updateTask, moveTask, approveTask, sendBackTask, withdrawApproval, deleteTask, reorderColumn, timeZone };
 }
 
 export type TaskService = ReturnType<typeof createTaskService>;

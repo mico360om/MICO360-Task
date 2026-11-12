@@ -57,4 +57,6 @@ export interface SearchHit {
   match?: 'close' | 'some';
   /** 1.23.6 Clients & contacts: which of the three it is. */
   sub?: 'client' | 'account' | 'external';
+  /** Task archive: a task result that is archived (search still finds it; it opens read-only). Absent otherwise. */
+  archived?: true;
 }

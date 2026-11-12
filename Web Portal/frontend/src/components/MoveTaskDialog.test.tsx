@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MoveTaskDialog, type MoveTaskDialogProps } from './MoveTaskDialog';
-import type { TaskMovePreview } from '../api/tasks';
+import type { TaskMoveExtras, TaskMovePreview } from '../api/tasks';
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -17,7 +17,7 @@ const COLUMNS = [
   { id: 'o-done', name: 'Finished', category: 'DONE', position: 3, enabled: true },
 ];
 const SARA = { id: 'sara', name: 'Sara Al Balushi' };
-const previewTask = (over: Partial<TaskMovePreview> = {}): TaskMovePreview => ({
+const previewTask = (over: Partial<TaskMovePreview & TaskMoveExtras> = {}): TaskMovePreview => ({
   id: 't4', key: 'RIG-4', title: 'Inspect the rig', from: { id: 'rig', code: 'RIG', name: 'Rig Inspection' }, canMove: true, reason: null, newKey: 'OPS-17',
   currentCategory: 'IN_PROGRESS', completed: false, columnId: 'o-doing', milestoneCleared: false, dueDate: null, repeat: null, outsiders: [], ...over,
 });
@@ -88,6 +88,17 @@ describe('Move to another project (one task)', () => {
     expect(within(changes).getByText('It stops being a milestone: milestones belong to their project.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Column' })).toHaveTextContent('Doing');
     expect(calls.find((c) => c.url.endsWith('/tasks/move-preview'))!.body).toEqual({ taskIds: ['t4'], projectId: 'ops' });
+  });
+
+  it('1.24: says which categories it drops and how many guests are copied to the new company’s list, in plain words', async () => {
+    previewTasks = [previewTask({ categoriesDropped: ['Electrical', 'HSE'], guestsCopied: 2 })];
+    open();
+    await chooseProject('Operations');
+    const changes = await screen.findByRole('list', { name: 'What will change' });
+    const dropped = within(changes).getByText('Drops categories: Electrical, HSE — Operations has none of those names.');
+    expect(within(changes).getByText('Copies 2 guests to the new company’s list.')).toBeInTheDocument();
+    // An ordinary line of the list: no alarm colours.
+    expect(dropped.className).not.toMatch(/danger|warning|overdue/);
   });
 
   it('when the new project has no column of its stage, says it goes to the first one', async () => {

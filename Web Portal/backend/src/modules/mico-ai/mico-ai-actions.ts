@@ -315,11 +315,18 @@ export function createMicoAiActions({ data, port, timeZone, now = () => new Date
     const key = /^([A-Za-z][A-Za-z0-9]*-\d+)\b/.exec(raw)?.[1];
     for (const handle of uniq([raw, ...(key ? [key] : [])])) {
       const t = await data.findTask(s.projectIds, handle);
-      if (t && s.allowed(t.projectId)) return t;
+      if (t && s.allowed(t.projectId)) {
+        // Task archive: an archived task is read-only — nothing MICO AI proposes may change it.
+        if (t.archivedAt) {
+          g.missing.push(`${t.key} is archived — unarchive it first.`);
+          return null;
+        }
+        return t;
+      }
     }
-    // By its title (the model may name a task by what it says).
+    // By its title (the model may name a task by what it says) — never an archived one.
     const n = normalizeForSearch(raw);
-    const all = (await data.tasks({ projectIds: s.projectIds })).filter((t) => s.allowed(t.projectId));
+    const all = (await data.tasks({ projectIds: s.projectIds })).filter((t) => s.allowed(t.projectId) && !t.archivedAt);
     const exact = all.filter((t) => normalizeForSearch(t.title) === n);
     const found: Match<AiTaskRec> = exact.length === 1 ? { found: exact[0]! } : exact.length > 1 ? { several: exact } : n.length >= 4 ? oneOf(all.filter((t) => normalizeForSearch(t.title).includes(n))) : { none: true };
     if ('found' in found) return found.found;

@@ -48,6 +48,8 @@ const NOT_ON_THE_SCALE = new Set([
   'components/task-drawer/attachments.tsx',
   'components/TaskDrawer.tsx',
   'components/TaskDrawerContainer.tsx',
+  // Recycle Bin: a deleted task in the task panel (the side panel's content, read-only).
+  'components/recycle-bin/DeletedTaskPanel.tsx',
   'components/calendar/dialogs.tsx',
   'components/shortcuts/ShortcutProvider.tsx',
   'pages/MicoAiPage.tsx',
@@ -55,6 +57,8 @@ const NOT_ON_THE_SCALE = new Set([
   'components/portal/ClientPreviewDialog.tsx',
   // Training Center: the first-time tour's card, placed beside the part of the page it points at (a popover).
   'components/training/Tour.tsx',
+  // Bulk changes: the phone's sheet of actions, rising from the foot of the screen (a sheet).
+  'components/bulk/BulkBar.tsx',
 ]);
 const src = resolve(__dirname, '../..');
 const files = (dir: string): string[] =>

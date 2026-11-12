@@ -2,6 +2,7 @@ import { Prisma, type ColumnCategory, type PrismaClient, type Task } from '@pris
 import {
   TaskKeyConflictError,
   TaskVersionConflictError,
+  type BinMark,
   type CreateTaskData,
   type ProjectLookup,
   type TaskRecord,
@@ -16,16 +17,22 @@ import { paletteColorFor } from './tag-repository';
 import { highestKeyNumberIn } from './task-keys';
 import { summarizeExternalContacts } from './external-contacts';
 import { toExternalContactRecord } from './prisma-external-contact-repository';
+import { companyOfProject, findOrCreateGuest, guestColumns, guestIdsOnProject, seesWholeList, toTaskGuestRecord } from '../guests/guest-store';
+import { GUEST_LIMITS } from './guest-contacts';
 import { LIVE_PROJECT_WHERE } from '../companies/company-access';
 import { currentAcceptance } from '../clients/sign-off';
 import { checklistTreeOf, leafCounts } from './checklist-tree';
 import { rowsFromTree } from './checklist-service';
+import { NOT_ARCHIVED, archivedWhere } from './task-archive-where';
 import { PERSON_SUMMARY_SELECT, personSummary } from '../../lib/person-summary';
 
 type TagRelation = { tag: { id: string; name: string; color: string } };
 type AssigneeRelation = { user: { id: string; username: string; firstName: string | null; lastName: string | null; avatarUrl: string | null } };
-// 1.23.1: a merged task's merge columns aren't read here (merged tasks aren't live tasks).
-type EnrichedTask = Omit<Task, 'carryForwardLog' | 'mergedIntoId' | 'mergedAt' | 'mergedById' | 'mergeId' | 'reminderScheduleId'> & {
+// 1.23.1: a merged task's merge columns aren't read here (merged tasks aren't live tasks), nor the
+// Recycle Bin's (deleted tasks aren't live tasks either). Duplicate Task: nor the task a copy was made
+// from (single-task details read it on their own; never list rows). Notification & Scheduling: nor the
+// task's own reminder schedule (read by its own route).
+type EnrichedTask = Omit<Task, 'carryForwardLog' | 'mergedIntoId' | 'mergedAt' | 'mergedById' | 'mergeId' | 'deletedById' | 'binExpiresAt' | 'deleteBatchId' | 'duplicatedFromId' | 'reminderScheduleId'> & {
   /** Absent on list rows — the carry-forward history is only returned for a single task. */
   carryForwardLog?: Prisma.JsonValue;
   /** Its old keys (a single task only). */
@@ -36,7 +43,9 @@ type EnrichedTask = Omit<Task, 'carryForwardLog' | 'mergedIntoId' | 'mergedAt' |
   checklist?: { id: string; parentId: string | null; done: boolean }[];
   _count?: { comments: number; attachments: number };
   /** Its external contacts, in order: names and companies on list rows, every field for a single task. */
-  externalContacts?: { name: string; company: string | null }[];
+  externalContacts?: { id?: string; name: string; company: string | null; guestId?: string | null }[];
+  /** 1.24: its categories. */
+  categories?: { category: { id: string; name: string; color: string; retiredAt: Date | null; position: number } }[];
 };
 
 function toRecord(t: EnrichedTask): TaskRecord {
@@ -78,6 +87,9 @@ function toRecord(t: EnrichedTask): TaskRecord {
     approvalRequestedById: t.approvalRequestedById ?? null,
     approvedAt: t.approvedAt ?? null,
     approvedById: t.approvedById ?? null,
+    // Task archive (absent from an older select: not archived).
+    archivedAt: t.archivedAt ?? null,
+    archivedById: t.archivedById ?? null,
     version: t.version,
     createdAt: t.createdAt,
     updatedAt: t.updatedAt,
@@ -94,12 +106,39 @@ function toRecord(t: EnrichedTask): TaskRecord {
           },
         }
       : {}),
-    ...(t.externalContacts ? { externalSummary: summarizeExternalContacts(t.externalContacts) } : {}),
+    ...(t.externalContacts
+      ? {
+          externalSummary: summarizeExternalContacts(t.externalContacts),
+          // 1.24: its guests in short (cards, filters): a row not converted yet stands for itself.
+          guests: t.externalContacts.map((c) => ({ id: c.guestId ?? c.id ?? '', name: c.name, company: c.company })),
+        }
+      : {}),
+    ...(t.categories ? { categories: categoriesOf(t.categories) } : {}),
   };
+}
+
+/** 1.24: a task's categories as rows show them, in their project's order. */
+function categoriesOf(rows: NonNullable<EnrichedTask['categories']>): { id: string; name: string; color: string; retired: boolean }[] {
+  return rows
+    .map((r) => r.category)
+    .sort((a, b) => a.position - b.position || a.name.localeCompare(b.name))
+    .map((c) => ({ id: c.id, name: c.name, color: c.color, retired: c.retiredAt !== null }));
+}
+
+/** What a delete writes: the Recycle Bin's marks (an older caller without one: just when). */
+function binData(mark: BinMark | undefined): Prisma.TaskUncheckedUpdateManyInput {
+  if (!mark) return { deletedAt: new Date() };
+  return { deletedAt: mark.at, deletedById: mark.by, binExpiresAt: mark.expiresAt, deleteBatchId: mark.batchId };
 }
 
 /** Live tasks only: not deleted, and not in a deleted project. */
 export const liveTaskWhere = { deletedAt: null, project: { is: { deletedAt: null } } } satisfies Prisma.TaskWhereInput;
+
+/**
+ * Task archive: a list's tasks — live and not archived (boards, lists, My Tasks, the calendar, sweeps).
+ * A single task's read keeps liveTaskWhere: an archived task still opens (read-only).
+ */
+export const listedTaskWhere = { ...liveTaskWhere, ...NOT_ARCHIVED } satisfies Prisma.TaskWhereInput;
 
 /**
  * Month view (month-list.ts): the tasks that may show in a month's window — completed in it (a Done
@@ -137,13 +176,16 @@ export function isTaskKeyConflict(err: unknown): boolean {
  * this + 1. The highest, not a count: a gap (a number a create or move skipped) never makes the next
  * one collide, and a fresh read after losing a race to another task gives exactly the next number.
  * The keys are compared as numbers here (task-keys), not in SQL, so MySQL and PostgreSQL agree.
+ * Recycle Bin: and the project's mark — the highest number of a task erased for good — so erasing the
+ * newest task (or a merge's main task) never frees a number.
  */
-export async function highestKeyNumber(db: Pick<PrismaClient, 'task' | 'taskKeyAlias'> | Prisma.TransactionClient, projectId: string): Promise<number> {
-  const [tasks, oldKeys] = await Promise.all([
+export async function highestKeyNumber(db: Pick<PrismaClient, 'task' | 'taskKeyAlias' | 'project'> | Prisma.TransactionClient, projectId: string): Promise<number> {
+  const [tasks, oldKeys, project] = await Promise.all([
     db.task.findMany({ where: { projectId }, select: { key: true } }),
     db.taskKeyAlias.findMany({ where: { projectId }, select: { key: true } }),
+    db.project.findUnique({ where: { id: projectId }, select: { taskNumberMark: true } }),
   ]);
-  return highestKeyNumberIn([...tasks, ...oldKeys].map((k) => k.key));
+  return Math.max(project?.taskNumberMark ?? 0, highestKeyNumberIn([...tasks, ...oldKeys].map((k) => k.key)));
 }
 
 /** True when `key` was a task's key before it moved project: it is never given to another task. */
@@ -174,7 +216,48 @@ const listScalars = {
   meetingId: true, inspectionFormId: true, inspectionPlace: true, version: true, createdAt: true, updatedAt: true, deletedAt: true,
   needsApproval: true, approvalRequestedAt: true, approvalRequestedById: true, approvedAt: true, approvedById: true,
   clientShowDescription: true, clientAcceptedAt: true, clientAcceptedById: true,
+  // Task archive: list rows of an archived task say so (the project's "Archived tasks" list, search).
+  archivedAt: true, archivedById: true,
 } as const;
+
+/**
+ * 1.24: a new task's guests — guests picked on the website (already checked: its company's, not retired), and
+ * contacts sent the old way (the Android app, the extension), each linked to the company's guest with those
+ * details by the duplicate rule (or a new guest). One row per guest: the same guest twice keeps one, with both
+ * remarks.
+ */
+async function writeGuests(
+  tx: Prisma.TransactionClient,
+  taskId: string,
+  projectId: string,
+  createdById: string,
+  contacts: NonNullable<CreateTaskData['externalContacts']>,
+  picked: NonNullable<CreateTaskData['guestLinks']>,
+): Promise<void> {
+  const companyId = await companyOfProject(tx, projectId);
+  const taskKey = (await tx.task.findUnique({ where: { id: taskId }, select: { key: true } }))?.key;
+  // 1.24: another company's person on a shared project is matched only among the guests on its tasks.
+  const onlyAmong = contacts.length && !(await seesWholeList(tx, { id: createdById }, companyId)) ? await guestIdsOnProject(tx, projectId) : null;
+  type Guest = { name: string; company: string | null; designation: string | null; email: string | null; phone: string | null };
+  const byGuest = new Map<string, { guest: Guest; remarks: string[] }>();
+  for (const p of picked) {
+    const guest = await tx.guestContact.findUniqueOrThrow({ where: { id: p.guestId } });
+    const seen = byGuest.get(guest.id) ?? { guest, remarks: [] };
+    if (p.note) seen.remarks.push(p.note);
+    byGuest.set(guest.id, seen);
+  }
+  for (const c of contacts) {
+    const guest = await findOrCreateGuest(tx, companyId, { name: c.name, company: c.company, designation: c.designation, email: c.email, phone: c.phone }, createdById, { taskKey, onlyAmong });
+    const seen = byGuest.get(guest.id) ?? { guest, remarks: [] };
+    if (c.remarks) seen.remarks.push(c.remarks);
+    byGuest.set(guest.id, seen);
+  }
+  let position = 0;
+  for (const [guestId, { guest, remarks }] of byGuest) {
+    const note = remarks.join('\n').slice(0, GUEST_LIMITS.note) || null;
+    await tx.taskExternalContact.create({ data: { taskId, guestId, position: position++, createdById, remarks: note, ...guestColumns(guest) } });
+  }
+}
 
 export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository {
   // Always join the column's category (Kanban stage) and the task's tags so every
@@ -182,10 +265,12 @@ export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository
   const withColumn = {
     column: { select: { category: true, enabled: true } },
     tags: { include: { tag: true } },
-    // Its external contacts in short (the card line, search and the company filter).
-    externalContacts: { select: { name: true, company: true }, orderBy: { position: 'asc' } },
+    // Its external contacts in short (the card line, search and the company filter) — 1.24: its guests.
+    externalContacts: { select: { id: true, name: true, company: true, guestId: true }, orderBy: { position: 'asc' } },
+    // 1.24: its categories.
+    categories: { select: { category: { select: { id: true, name: true, color: true, retiredAt: true, position: true } } } },
   } as const;
-  const contactsInFull = { orderBy: { position: 'asc' } } as const;
+  const contactsInFull = { orderBy: { position: 'asc' }, include: { guest: { select: { retiredAt: true } } } } as const;
   return {
     async create(data: CreateTaskData) {
       const tagNames = data.tagNames ?? [];
@@ -193,6 +278,8 @@ export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository
       // 1.23.3: its checklists (the tree the New task form and templates send; an old flat list is one "Checklist").
       const tree = data.checklists ?? checklistTreeOf(data.checklist ?? []);
       const externalContacts = data.externalContacts ?? [];
+      const guestLinks = data.guestLinks ?? [];
+      const categoryIds = [...new Set(data.categoryIds ?? [])];
       // A key a task had before it moved project still finds that task: never give it to another one.
       if (await isOldKey(prisma, data.key)) throw new TaskKeyConflictError(data.key);
       try {
@@ -225,6 +312,7 @@ export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository
             approvalRequestedById: data.approvalRequestedById ?? undefined,
             approvedAt: data.approvedAt ?? undefined,
             approvedById: data.approvedById ?? undefined,
+            duplicatedFromId: data.duplicatedFromId ?? undefined,
             ...(tagNames.length
               ? {
                   tags: {
@@ -235,19 +323,20 @@ export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository
                 }
               : {}),
             ...(assigneeIds.length ? { assignees: { create: assigneeIds.map((userId) => ({ userId })) } } : {}),
-            ...(externalContacts.length
-              ? { externalContacts: { create: externalContacts.map((c, position) => ({ ...c, position, createdById: data.createdById })) } }
-              : {}),
           },
         });
-        if (tree.length === 0) return toRecord(await write(prisma));
-        // With its checklists, one transaction: all of it lands or none of it does.
+        if (tree.length === 0 && externalContacts.length === 0 && guestLinks.length === 0 && categoryIds.length === 0) return toRecord(await write(prisma));
+        // With its checklists, guests or categories, one transaction: all of it lands or none of it does.
         const t = await prisma.$transaction(async (tx) => {
           const made = await write(tx);
-          const rows = rowsFromTree(made.id, tree, data.createdById, new Date());
-          await tx.checklistList.createMany({ data: rows.lists });
-          if (rows.items.length) await tx.checklistItem.createMany({ data: rows.items });
-          return made;
+          if (tree.length) {
+            const rows = rowsFromTree(made.id, tree, data.createdById, new Date());
+            await tx.checklistList.createMany({ data: rows.lists });
+            if (rows.items.length) await tx.checklistItem.createMany({ data: rows.items });
+          }
+          if (externalContacts.length || guestLinks.length) await writeGuests(tx, made.id, data.projectId, data.createdById, externalContacts, guestLinks);
+          if (categoryIds.length) await tx.taskCategory.createMany({ data: categoryIds.map((categoryId) => ({ taskId: made.id, categoryId, addedById: data.createdById })), skipDuplicates: true });
+          return externalContacts.length || guestLinks.length || categoryIds.length ? tx.task.findUniqueOrThrow({ where: { id: made.id }, include: withColumn }) : made;
         });
         return toRecord(t);
       } catch (err) {
@@ -271,6 +360,8 @@ export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository
         recurrenceNextId: next?.id ?? null,
         formerKeys: (t.keyAliases ?? []).map((a) => a.key),
         externalContacts: (t.externalContacts ?? []).map(toExternalContactRecord),
+        // 1.24: its guests in full (the task panel's Assigned box).
+        taskGuests: (t.externalContacts ?? []).map(toTaskGuestRecord),
       };
     },
     async list(filter) {
@@ -290,6 +381,8 @@ export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository
       if (filter.recurring) and.push({ recurrenceRule: { not: Prisma.DbNull } });
       if (filter.awaitingApproval) and.push({ approvalRequestedAt: { not: null } });
       if (filter.month) and.push(monthWindowWhere(filter.month));
+      // Task archive: none by default (every view), only them (a project's "Archived tasks"), or counted (figures).
+      and.push(archivedWhere(filter.archived));
       const ts = await prisma.task.findMany({
         where: { ...liveTaskWhere, AND: and },
         // Enrich list rows for card display: assignees + lightweight aggregate counts. `_count`
@@ -324,8 +417,9 @@ export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository
       const t = await prisma.task.update({ where: { id }, data, include: withColumn });
       return toRecord(t);
     },
-    async softDelete(id) {
-      await prisma.task.update({ where: { id }, data: { deletedAt: new Date() } });
+    async softDelete(id, mark) {
+      // Only a live task (a merge at the same moment keeps its merged record as it is).
+      await prisma.task.updateMany({ where: { id, deletedAt: null }, data: binData(mark) });
     },
     async updateSeries(seriesId, patch, opts = {}) {
       // One atomic UPDATE over the series members — no full-table scan, no loop.
@@ -347,11 +441,11 @@ export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository
         data,
       });
     },
-    async softDeleteSeries(seriesId) {
-      await prisma.task.updateMany({
-        where: { deletedAt: null, OR: [{ id: seriesId }, { recurrenceParentId: seriesId }] },
-        data: { deletedAt: new Date() },
-      });
+    async softDeleteSeries(seriesId, mark) {
+      // One statement over every live member (a copy made meanwhile goes too); its batch says which went.
+      await prisma.task.updateMany({ where: { deletedAt: null, OR: [{ id: seriesId }, { recurrenceParentId: seriesId }] }, data: binData(mark) });
+      if (!mark?.batchId) return [];
+      return (await prisma.task.findMany({ where: { deleteBatchId: mark.batchId }, select: { id: true } })).map((t) => t.id);
     },
     async countByProject(projectId) {
       // The highest number used — deleted tasks and old keys of tasks moved away too — so keys never repeat.
@@ -380,6 +474,8 @@ export function createPrismaCarryForwardRepo(prisma: PrismaClient): CarryForward
       const ts = await prisma.task.findMany({
         where: {
           deletedAt: null,
+          // Task archive: an archived task stays on its day (it is on no board).
+          archivedAt: null,
           // Live projects that carry forward: one switched off keeps its tasks on their days. The
           // setting is read at each sweep, so a project switched back on carries on the next night.
           // 1.22: an archived project (its own status, or all its companies) is read-only — skipped.

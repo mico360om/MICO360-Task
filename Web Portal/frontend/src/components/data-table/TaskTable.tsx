@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../../api/client';
 import { tasksApi, type ApiTask, type Priority } from '../../api/tasks';
@@ -39,6 +39,13 @@ import { weightColumns } from './weight-column';
 import { PRIORITY_CLASS, dueTone, statusColour } from '../../lib/colour-classes';
 import { useDensity } from '../../lib/density';
 import { ChecklistCount, DescriptionLine, TagChips } from '../DetailLines';
+import { CategoryChips } from '../CategoryChip';
+import { GuestIcon } from '../GuestsLine';
+import { GUEST_WORDS, guestLabel } from '../../lib/guest-contacts';
+import { CATEGORY_WORDS } from '../../lib/task-categories';
+import { TaskFormDialog } from '../task-form/TaskFormDialog';
+import { SelectAllBox, shiftHeld } from '../bulk/select-boxes';
+import { selectBoxName } from '../../lib/bulk-selection';
 
 export interface TaskTableProps {
   /** Which page's table (what it remembers for the person: sort, filters, columns). */
@@ -57,6 +64,11 @@ export interface TaskTableProps {
   readOnly?: ProjectReadOnly | null;
   /** The table's own filter bar (pages without filters of their own). */
   filterBar?: boolean;
+  /**
+   * The filter bar's words box (default). False (board search, 10 Nov): the page's own search box filters the rows
+   * before they get here (the board's), so the table has none — and a word it remembers from before is let go.
+   */
+  wordsBox?: boolean;
   /** My Tasks: the page's own sort (its Sort menu), the rows already in that order. */
   sort?: SortState | null;
   onSortChange?: (next: SortState | null) => void;
@@ -64,8 +76,12 @@ export interface TaskTableProps {
   /** My Tasks: the shown columns, kept with its saved views. */
   shown?: string[];
   onShownChange?: (ids: string[]) => void;
-  /** My Tasks: the selection boxes. */
-  selection?: { selected: ReadonlySet<string>; onToggle: (id: string) => void };
+  /**
+   * Bulk changes: the selection boxes — a row's (with Shift, the range from the last one clicked, in the
+   * rows' order as shown) and the header's "Select all N matching" (every row the filters leave, not only
+   * the hundred drawn).
+   */
+  selection?: TaskTableSelection;
   /** Open a task in the task panel, with the rows as shown for its Previous / Next. */
   onOpen: (taskId: string, ids: string[]) => void;
   /** Before the Columns menu (when there is no filter bar). */
@@ -74,6 +90,17 @@ export interface TaskTableProps {
   empty?: ReactNode;
   /** A hundred rows at a time (the default); false: all of them (My Tasks). */
   paged?: boolean;
+  /** Told the rows its own filters leave (every page), as they change — "(3 hidden by filters)". */
+  onRowsShown?: (ids: string[]) => void;
+}
+
+/** The table's selection boxes (bulk changes): the page keeps the selection (lib/bulk-selection). */
+export interface TaskTableSelection {
+  selected: ReadonlySet<string>;
+  /** A row's box; `order`: the rows as shown, for a Shift-click's range. */
+  onToggle: (task: ApiTask, opts: { shift: boolean; order: ApiTask[] }) => void;
+  /** The header's box: every matching row on, or off. */
+  onSelectAll?: (tasks: ApiTask[], on: boolean) => void;
 }
 
 const PRIORITIES: Priority[] = ['URGENT', 'HIGH', 'NORMAL', 'LOW'];
@@ -104,6 +131,7 @@ export function TaskTable({
   showProject = false,
   readOnly = null,
   filterBar = false,
+  wordsBox = true,
   sort: pageSort,
   onSortChange,
   presorted = false,
@@ -114,6 +142,7 @@ export function TaskTable({
   toolbar,
   empty,
   paged = true,
+  onRowsShown,
 }: TaskTableProps) {
   const qc = useQueryClient();
   const myId = useAuthStore((s) => s.user?.id);
@@ -191,11 +220,12 @@ export function TaskTable({
   // person not among this table's choices is let go here, never an empty table with a blank box.
   const filters = {
     ...remembered,
+    text: wordsBox ? remembered.text : '',
     status: statusOptions.some((o) => o.value === remembered.status) ? remembered.status : '',
     person: personOptions.some((o) => o.value === remembered.person) ? remembered.person : '',
   };
   // A sort on a column since hidden is let go too (unless the page keeps its own sort: My Tasks' menu says it).
-  const OPTIONAL = new Set(['start', 'progress', 'tags']);
+  const OPTIONAL = new Set(['start', 'progress', 'tags', 'guests', 'categories']);
   const shownSort = presorted || !sort || !OPTIONAL.has(sort.column) || shown.includes(sort.column) ? sort : null;
 
   const rawById = useMemo(() => new Map(tasks.map((t) => [t.id, t])), [tasks]);
@@ -203,6 +233,12 @@ export function TaskTable({
   const filtered = filterBar ? filterTaskRows(withEdits, filters, ctx) : withEdits;
   const rows = presorted ? filtered : sortRows(filtered, shownSort, (t, c) => taskSortValue(t, c, ctx));
   const ids = rows.map((t) => t.id);
+  const idsKey = ids.join(',');
+  const told = useRef(onRowsShown);
+  told.current = onRowsShown;
+  useEffect(() => {
+    told.current?.(idsKey ? idsKey.split(',') : []);
+  }, [idsKey]);
 
   const save = (t: ApiTask, patch: Partial<ApiTask>, run: () => Promise<Partial<ApiTask> | void>) => {
     const base = rawById.get(t.id);
@@ -238,19 +274,41 @@ export function TaskTable({
 
   const editable = (t: ApiTask) => taskRowEditable(projectById.get(t.projectId), readOnly);
   const open = (t: ApiTask) => onOpen(t.id, ids);
+  // Duplicate Task: "Duplicate" beside Open — the New task form, filled in from that row's task.
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
+  const rowButton = `inline-grid h-8 w-8 place-items-center rounded-lg text-ink-2 transition-colors compact:h-7 compact:w-7 hover:bg-ground hover:text-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand ${TOUCH_SQUARE}`;
 
+  // The header's "Select all N matching": every row the filters leave (all pages, not only the drawn).
+  const selectedRows = selection ? rows.filter((t) => selection.selected.has(t.id)).length : 0;
+  const allState: 'all' | 'some' | 'none' = selectedRows === 0 ? 'none' : selectedRows === rows.length ? 'all' : 'some';
   const tableColumns: DataColumn<ApiTask>[] = [
     ...(selection
       ? [
           {
             id: 'select',
             label: 'Select',
-            hideLabel: true,
+            hideLabel: !selection.onSelectAll,
+            header: selection.onSelectAll ? (
+              <label className="mx-auto grid h-8 w-8 cursor-pointer place-items-center compact:h-7 compact:w-7 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11">
+                <SelectAllBox
+                  state={allState}
+                  label={`Select all ${rows.length}${filterBar && tableFiltersActive(filters) ? ' matching' : ''}`}
+                  onChange={() => selection.onSelectAll?.(rows, allState !== 'all')}
+                  className="h-4 w-4 cursor-pointer accent-brand"
+                />
+              </label>
+            ) : undefined,
             pin: true,
             className: 'w-11 !px-0 text-center',
             cell: (t: ApiTask) => (
               <label className="mx-auto grid h-8 w-8 cursor-pointer place-items-center compact:h-7 compact:w-7 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11">
-                <input type="checkbox" aria-label={`Select ${t.key}`} checked={selection.selected.has(t.id)} onChange={() => selection.onToggle(t.id)} className="h-4 w-4 cursor-pointer accent-brand" />
+                <input
+                  type="checkbox"
+                  aria-label={selectBoxName(t)}
+                  checked={selection.selected.has(t.id)}
+                  onChange={(e) => selection.onToggle(t, { shift: shiftHeld(e.nativeEvent), order: rows })}
+                  className="h-4 w-4 cursor-pointer accent-brand"
+                />
               </label>
             ),
           },
@@ -294,6 +352,7 @@ export function TaskTable({
             ) : null}
             {/* Detailed (1.23.8, lib/density): the description's first line and the tags under the title. */}
             {detailed ? <DescriptionLine description={t.description} /> : null}
+            {detailed && !shown.includes('categories') ? <CategoryChips categories={t.categories} density="detailed" /> : null}
             {detailed && !shown.includes('tags') ? <TagChips tags={t.tags} /> : null}
             {detailed ? <ChecklistCount counts={t.counts} /> : null}
           </span>
@@ -436,23 +495,45 @@ export function TaskTable({
           <span className="text-ink-3">—</span>
         ),
     },
+    // 1.24: its guests (people outside the company, named for the record) and its categories.
+    {
+      id: 'guests',
+      label: GUEST_WORDS.heading,
+      optional: true,
+      sortable: true,
+      className: 'min-w-[9rem] max-w-[16rem]',
+      cell: (t) => <GuestsCell task={t} />,
+    },
+    {
+      id: 'categories',
+      label: CATEGORY_WORDS.heading,
+      optional: true,
+      sortable: true,
+      className: 'min-w-[8rem] max-w-[16rem]',
+      cell: (t) => (t.categories?.length ? <CategoryChips categories={t.categories} density="detailed" /> : <span className="text-ink-3">—</span>),
+    },
     {
       id: 'open',
       label: 'Open',
       hideLabel: true,
       className: 'w-px !px-1.5 text-end',
       cell: (t) => (
-        <button
-          type="button"
-          onClick={() => open(t)}
-          aria-label={`Open ${t.key}: ${t.title}`}
-          title="Open"
-          className={`inline-grid h-8 w-8 place-items-center rounded-lg text-ink-2 transition-colors compact:h-7 compact:w-7 hover:bg-ground hover:text-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand ${TOUCH_SQUARE}`}
-        >
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M7 17 17 7M9 7h8v8" />
-          </svg>
-        </button>
+        <span className="inline-flex items-center gap-0.5">
+          {/* A table only to look at (an archived or completed project) leaves Duplicate to the task panel. */}
+          {readOnly ? null : (
+            <button type="button" onClick={() => setDuplicatingId(t.id)} aria-label={`Duplicate ${t.key}: ${t.title}`} title="Duplicate" className={rowButton}>
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <rect x="8" y="8" width="13" height="13" rx="2" />
+                <path d="M4 16V5a1 1 0 0 1 1-1h11" />
+              </svg>
+            </button>
+          )}
+          <button type="button" onClick={() => open(t)} aria-label={`Open ${t.key}: ${t.title}`} title="Open" className={rowButton}>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M7 17 17 7M9 7h8v8" />
+            </svg>
+          </button>
+        </span>
       ),
     },
   ];
@@ -464,6 +545,7 @@ export function TaskTable({
       statusOptions={statusOptions}
       personOptions={personOptions}
       personLabel="assignee"
+      words={wordsBox}
       shown={rows.length}
       total={tasks.length}
       noun={['task', 'tasks']}
@@ -479,7 +561,7 @@ export function TaskTable({
     </>
   );
 
-  return (
+  const table = (
     <DataTable
       label={label}
       columns={tableColumns}
@@ -509,6 +591,37 @@ export function TaskTable({
         )
       }
     />
+  );
+  return duplicatingId ? (
+    <>
+      {table}
+      {/* The copy's notice ("Task MSSP-40 created", with Open) comes from the app shell; every view refreshes. */}
+      <TaskFormDialog duplicateOfId={duplicatingId} onClose={() => setDuplicatingId(null)} />
+    </>
+  ) : (
+    table
+  );
+}
+
+/**
+ * 1.24 A task's guests in the table: each by name (company) with the person-outside icon, read out as
+ * "Guest: …" (an older server: its contacts in short, by name). Never a link or a button: guests have no access.
+ */
+function GuestsCell({ task }: { task: ApiTask }) {
+  const labels = task.guests?.length
+    ? task.guests.map((g) => ({ key: g.id, text: guestLabel(g) }))
+    : (task.externalSummary?.names ?? []).map((name, i) => ({ key: `${i}`, text: i === 0 ? guestLabel({ name, company: task.externalSummary!.company }) : name }));
+  if (labels.length === 0) return <span className="text-ink-3">—</span>;
+  return (
+    <span className="flex flex-wrap gap-1">
+      {labels.map((g) => (
+        <span key={g.key} data-testid="table-guest" title={`${GUEST_WORDS.one}: ${g.text}`} className="inline-flex max-w-full items-center gap-1 rounded-full bg-ground px-2 py-0.5 text-[11px] font-medium text-ink-2">
+          <GuestIcon size={11} />
+          <span className="sr-only">{GUEST_WORDS.one}: </span>
+          <span dir="auto" className="truncate">{g.text}</span>
+        </span>
+      ))}
+    </span>
   );
 }
 

@@ -1,10 +1,24 @@
+import { createHash } from 'node:crypto';
 import { ValidationError } from '../../lib/http-errors';
 import { todayKey } from '../../lib/due-date';
 import type { AiConfigRepository } from './ai-config-repository';
-import { effectiveModel, type AiConfig, type AiModel } from './ai-config';
-import { complete, COMPLETION_TIMEOUT_MS, CONVERSATION_LIMIT, type ChatModel } from './ai-completion';
+import { effectiveModel, recordOcrFallback, recordStrictJsonRefusal, recordSubstitution, strictJsonPaused, type AiConfig, type AiModel, type AiProvider } from './ai-config';
+import {
+  complete,
+  COMPLETION_TIMEOUT_MS,
+  CONVERSATION_LIMIT,
+  ProviderRefusedError,
+  type AnswerSchema,
+  type ChatModel,
+  type CompletionInput,
+  type CompletionOptions,
+  type ProviderCallInfo,
+} from './ai-completion';
 import { embedTexts } from './ai-embeddings';
-import { createSafeFetch, isMico360Provider } from './ai-network';
+import { AiTimeoutError, createSafeFetch, isMico360Provider } from './ai-network';
+import { idempotencyKey, nativeOcr, NATIVE_OCR_MAX_BYTES, NATIVE_OCR_TYPES, type OcrDocument } from './mico360-native';
+import { AGENDA_SCHEMA, MEETING_SCHEMA, MINUTES_SCHEMA, PRIORITY_SCHEMA, TASK_SCHEMA } from './ai-schemas';
+import { letterCount } from '../../lib/file-text';
 import { cutChars } from './ai-text';
 import { createAiUsageLimiter, createConcurrencyGate, type AiUsageLimits } from './ai-limits';
 import { isValidRule, type RecurrenceRule } from '../tasks/recurrence';
@@ -45,6 +59,12 @@ export interface AiFeatureServiceDeps {
   /** How long a request may wait for a free slot under the model's concurrency limit. Default 20 seconds. */
   slotWaitMs?: number;
   now?: () => Date;
+  /** MICO360 AI (b10): its failures, with their correlation and job ids (the Error log); notes (warn). */
+  logger?: { error(message: string, meta?: Record<string, unknown>): void; warn?(message: string, meta?: Record<string, unknown>): void };
+  /** Waits between looks at a job the platform kept (tests pass a fake). */
+  sleep?: (ms: number) => Promise<void>;
+  /** MICO360 AI: the most one file's reading may take, all its requests together. Default 5½ minutes. */
+  ocrFileBudgetMs?: number;
 }
 
 /** The signed-in user an AI request is made for (per-user limits; their roles decide which projects they see). */
@@ -64,6 +84,32 @@ export interface ProjectSummaryInput {
   sampleTitles?: string[];
 }
 
+/** One model call for MICO AI or AI search (see chat()). */
+export interface ChatCall {
+  system: string;
+  prompt: string;
+  maxTokens?: number;
+  json?: boolean;
+  /** b1: the JSON Schema the answer is held to (MICO360 AI). */
+  schema?: AnswerSchema;
+  signal?: AbortSignal;
+  /** b15: the text so far, as the model writes it (MICO360 AI's live stream). */
+  onText?: (text: string) => void;
+  /** b2: the background job's scope for an Idempotency-Key (MICO360 AI). */
+  idempotencyKey?: string;
+  /** b6: who it is for, when no limit is counted (AI search). */
+  user?: string;
+  /** The caller logs its own failures (AI search): not logged here too. */
+  quiet?: boolean;
+}
+
+/** A model with its provider, ready to call. */
+interface Found {
+  model: AiModel;
+  provider: AiProvider;
+  chat: ChatModel;
+}
+
 /**
  * Product-facing AI features (task breakdown, natural-language task capture, project status
  * summary, priority suggestion). Each resolves the admin-configured default *chat* model from
@@ -80,45 +126,179 @@ export function createAiFeatureService({
   timeoutMs = COMPLETION_TIMEOUT_MS,
   slotWaitMs = 20_000,
   now = () => new Date(),
+  logger,
+  sleep,
+  ocrFileBudgetMs = OCR_FILE_BUDGET_MS,
 }: AiFeatureServiceDeps) {
   const doFetch = fetchImpl ?? createSafeFetch({ allowPrivateHosts });
   const usage = createAiUsageLimiter({ perMinute: limits?.perMinute ?? 10, perDay: limits?.perDay ?? 200 }, timeZone, now);
   const gate = createConcurrencyGate(slotWaitMs);
+  // ── MICO360 AI (b) bundles: what this server learns as it calls the platform ──
+  /** b11: one concurrency budget for the whole key, shared by every model it runs. */
+  const keyGate = createConcurrencyGate(slotWaitMs);
+  /** b11: the key's concurrency as the platform last said it (X-Mico-Concurrency-Limit), by provider. */
+  const keyLimits = new Map<string, number>();
+  /** b13: when each model last answered (a model stays loaded for 30 minutes after use). */
+  const answeredAt = new Map<string, number>();
+  /** b5: when each stand-in pair was last written down (at most once every 10 minutes). */
+  const substitutionsNoted = new Map<string, number>();
+  /** b4: whole-document reading paused after a refusal, until (by provider). */
+  const ocrPausedUntil = new Map<string, number>();
+  /** b13: a warm-up was sent (not again before this). */
+  let warmUpUntil = 0;
 
-  function resolveChatModel(config: AiConfig): { model: AiModel; chat: ChatModel } {
+  const found = (config: AiConfig, model: AiModel | null): Found | null => {
+    const provider = model ? config.providers.find((p) => p.id === model.providerId) : undefined;
+    return model && provider ? { model, provider, chat: { provider, modelKey: model.modelKey, parameters: model.parameters } } : null;
+  };
+
+  function resolveChatModel(config: AiConfig): Found {
     // The admin's default chat model while it is usable, otherwise the recommended one ("Automatic").
-    const model = effectiveModel(config, 'chat');
-    if (!model) {
+    const out = found(config, effectiveModel(config, 'chat'));
+    if (!out) {
       throw new ValidationError('AI is not configured yet — an admin needs to add a provider and enable a chat model in AI Management.');
     }
-    const provider = config.providers.find((p) => p.id === model.providerId)!;
-    return { model, chat: { provider, modelKey: model.modelKey, parameters: model.parameters } };
+    return out;
+  }
+
+  const keyLimit = (provider: AiProvider): number => keyLimits.get(provider.id) ?? provider.platform?.concurrencyLimit ?? DEFAULT_KEY_CONCURRENCY;
+  const sameModel = (a: string, b: string) => a.trim().toLowerCase().replace(/:latest$/, '') === b.trim().toLowerCase().replace(/:latest$/, '');
+  const warn = (message: string, meta: Record<string, unknown>) => {
+    try {
+      logger?.warn?.(message, meta);
+    } catch {
+      // A note must never be what fails.
+    }
+  };
+
+  /** What a MICO360 AI answer said about itself: the key's budget, a warm model, a stand-in (b5, b11, b13). */
+  function noted(f: Found, info: ProviderCallInfo): void {
+    if (info.concurrencyLimit) keyLimits.set(f.provider.id, info.concurrencyLimit);
+    if (info.strictRefused) noteStrictRefusal(f, info.strictRefused);
+    if (!info.ok) return;
+    answeredAt.set(f.model.id, now().getTime());
+    if (!info.substituted || !info.model || sameModel(info.model, f.model.modelKey)) return;
+    const pair = `${f.provider.id}\u0000${f.model.modelKey}\u0000${info.model}`;
+    const at = now().getTime();
+    if (at - (substitutionsNoted.get(pair) ?? -Infinity) < SUBSTITUTION_NOTE_EVERY_MS) return;
+    substitutionsNoted.set(pair, at);
+    const sub = { asked: f.model.modelKey, answered: info.model };
+    void repo
+      .update((c) => (c.providers.some((p) => p.id === f.provider.id) ? recordSubstitution(c, f.provider.id, sub, new Date(at).toISOString()) : c))
+      .catch((err) => warn('MICO360 AI: a stand-in model could not be noted', { err }));
+  }
+
+  /**
+   * Safety net: this Connect refused strict answer shapes (json_schema), and JSON mode answered instead.
+   * Written on the provider — features use JSON mode for 24 hours or until the next model refresh, and
+   * the provider card says so — once, not by every call in flight: a refusal already noted (and not yet
+   * forgotten by a model refresh) is left as it is.
+   */
+  function noteStrictRefusal(f: Found, refusal: { status: number; reason: string | null }): void {
+    const at = now().getTime();
+    let wrote = false;
+    void repo
+      .update((c) => {
+        const p = c.providers.find((x) => x.id === f.provider.id);
+        if (!p || strictJsonPaused(p, at)) return c;
+        wrote = true;
+        return recordStrictJsonRefusal(c, p.id, refusal, new Date(at).toISOString());
+      })
+      .then(() => {
+        if (wrote) warn('MICO360 AI: strict answer shapes not accepted by this Connect — using JSON mode', { status: refusal.status, reason: refusal.reason });
+      })
+      .catch((err) => warn('MICO360 AI: the refusal of strict answer shapes could not be noted', { err }));
+  }
+
+  /**
+   * b10: a MICO360 AI failure worth an admin's look goes to the log (and so the Error log) with its
+   * correlation and job ids. A busy moment or a used-up quota (429) is not one; the key is never logged.
+   */
+  function report(feature: string, err: unknown): void {
+    const status = err instanceof ProviderRefusedError ? err.providerStatus : null;
+    const worth = err instanceof AiTimeoutError || (status !== null && status !== 429 && (status >= 500 || status === 401 || status === 403 || status === 404 || status === 413));
+    if (!worth) return;
+    try {
+      logger?.error(`MICO360 AI: ${feature} failed`, { err, feature });
+    } catch {
+      // Logging must never be what fails.
+    }
+  }
+
+  /**
+   * One model call: the model's own concurrency slot and — MICO360 AI — a slot of the key's (b11); what
+   * the answer says about itself is noted, and a failure worth it is logged (b10) unless `quiet`.
+   */
+  async function invoke(f: Found, input: CompletionInput, opts: CompletionOptions & { feature: string; quiet?: boolean }): Promise<string> {
+    const mico = isMico360Provider(f.provider);
+    const { feature, quiet, ...callOpts } = opts;
+    const releaseModel = await gate.acquire(f.model.id, f.model.concurrencyLimit);
+    let releaseKey = () => {};
+    try {
+      if (mico) releaseKey = await keyGate.acquire(`provider:${f.provider.id}`, keyLimit(f.provider));
+      return await complete(f.chat, input, doFetch, {
+        allowPrivateHosts,
+        ...(sleep ? { sleep } : {}),
+        ...callOpts,
+        // Review minor 10: a job being collected no longer runs a request of the key's: its slot is freed.
+        ...(mico ? { observe: (i: ProviderCallInfo) => noted(f, i), beforeCollect: () => releaseKey() } : {}),
+      });
+    } catch (err) {
+      if (mico && !quiet) report(feature, err);
+      throw err;
+    } finally {
+      releaseKey();
+      releaseModel();
+    }
   }
 
   /**
    * One completion with the default chat model. `json`: the answer is parsed as JSON, so a provider
-   * that can hold the model to JSON is asked to (MICO360 AI); `wait` overrides the time allowed;
-   * `background`: nobody is waiting at a page, so MICO360 AI is waited for as long as it waits itself.
+   * that can hold the model to JSON is asked to (MICO360 AI); `schema` (b1) holds it to that schema;
+   * `wait` overrides the time allowed; `background`: nobody is waiting at a page, so MICO360 AI is
+   * waited for as long as it waits itself, and a job it kept after its 504 is collected (b3).
    */
   async function run(
     system: string,
     prompt: string,
     maxTokens: number | undefined,
-    requester?: AiRequester,
-    opts: { json?: boolean; wait?: number; signal?: AbortSignal; dailyOnly?: boolean; background?: boolean } = {},
+    requester: AiRequester | undefined,
+    opts: {
+      feature: string;
+      json?: boolean;
+      schema?: AnswerSchema;
+      wait?: number;
+      signal?: AbortSignal;
+      dailyOnly?: boolean;
+      background?: boolean;
+      idempotencyKey?: string;
+      onText?: (text: string) => void;
+      user?: string;
+      quiet?: boolean;
+    },
   ): Promise<string> {
-    const { model, chat } = resolveChatModel(await repo.load());
+    const f = resolveChatModel(await repo.load());
     if (requester) {
       if (opts.dailyOnly) usage.takeDaily(requester.userId);
       else usage.take(requester.userId);
     }
-    const wait = opts.background && isMico360(chat) ? BACKGROUND_WAIT_MS : (opts.wait ?? timeoutMs);
-    const release = await gate.acquire(model.id, model.concurrencyLimit);
-    try {
-      return await complete(chat, { system, prompt, maxTokens, json: opts.json }, doFetch, { timeoutMs: wait, allowPrivateHosts, signal: opts.signal });
-    } finally {
-      release();
-    }
+    const mico = isMico360Provider(f.provider);
+    const wait = opts.background && mico ? BACKGROUND_WAIT_MS : (opts.wait ?? timeoutMs);
+    // Safety net: a Connect that refused strict answer shapes lately is asked in JSON mode (the answer is checked as before).
+    const schema = opts.schema && !(mico && strictJsonPaused(f.provider, now().getTime())) ? opts.schema : undefined;
+    return invoke(
+      f,
+      { system, prompt, maxTokens, json: opts.json || !!opts.schema, schema, user: opts.user ?? requester?.userId },
+      {
+        feature: opts.feature,
+        quiet: opts.quiet,
+        timeoutMs: wait,
+        signal: opts.signal,
+        idempotencyKey: opts.idempotencyKey,
+        onText: opts.onText,
+        ...(opts.background && mico ? { collectUntil: Date.now() + BACKGROUND_COLLECT_MS } : {}),
+      },
+    );
   }
 
   /** Is a chat model set up and usable? (MICO AI says so on its page before anyone types.) */
@@ -131,9 +311,20 @@ export function createAiFeatureService({
    * configured wait, with the caller's stop. With a requester, the call counts against the person's
    * daily AI limit, the same one every AI feature uses; the minute counted the question once
    * (startMicoAiQuestion), so a question of several steps never fails halfway on the minute.
+   * Without one (AI search), nothing more is counted; `user` still says who it is for (b6).
    */
-  async function chat(input: { system: string; prompt: string; maxTokens?: number; json?: boolean; signal?: AbortSignal }, requester?: AiRequester): Promise<string> {
-    return run(input.system, input.prompt, input.maxTokens, requester, { json: input.json, signal: input.signal, dailyOnly: true });
+  async function chat(input: ChatCall, requester?: AiRequester): Promise<string> {
+    return run(input.system, input.prompt, input.maxTokens, requester, {
+      feature: requester ? 'MICO AI' : 'AI search',
+      json: input.json,
+      schema: input.schema,
+      signal: input.signal,
+      dailyOnly: true,
+      onText: input.onText,
+      idempotencyKey: input.idempotencyKey,
+      user: input.user,
+      quiet: input.quiet,
+    });
   }
 
   /** A MICO AI question starts: it counts once against the minute; throws (429) when the minute or the day is used up. */
@@ -154,14 +345,48 @@ export function createAiFeatureService({
     usage.take(userId);
   }
 
+  /** b13: has the chat model in use answered on this server in the last 25 minutes? */
+  const isCold = (modelId: string): boolean => {
+    const last = answeredAt.get(modelId);
+    return last === undefined || now().getTime() - last > COLD_AFTER_MS;
+  };
+
+  /**
+   * b13: how long the AI search panel may take. MICO360 AI's first answer of the day loads the model
+   * (20–90 s, its guide §7), so a cold model gets the long budget; otherwise the usual 20 seconds.
+   */
+  async function searchBudgetMs(): Promise<number> {
+    const f = found(await repo.load(), effectiveModel(await repo.load(), 'chat'));
+    return f && isMico360Provider(f.provider) && isCold(f.model.id) ? AI_SEARCH_COLD_BUDGET_MS : AI_SEARCH_WARM_BUDGET_MS;
+  }
+
+  /**
+   * b13: someone is about to search (the search box or page asked whether AI is on): a cold MICO360 AI
+   * chat model is asked one tiny question, so it is loaded by the time the question comes. System work
+   * (no one's limit), at most every 5 minutes, never waited for; other providers are left alone.
+   */
+  function warmUp(): void {
+    void (async () => {
+      const config = await repo.load();
+      const f = found(config, effectiveModel(config, 'chat'));
+      if (!f || !isMico360Provider(f.provider) || !isCold(f.model.id) || now().getTime() < warmUpUntil) return;
+      warmUpUntil = now().getTime() + WARM_UP_EVERY_MS;
+      await invoke(f, { prompt: 'Reply with OK.', maxTokens: 1 }, { feature: 'warm-up', quiet: true, timeoutMs: COMPLETION_TIMEOUT_MS });
+    })().catch((err) => warn('MICO360 AI: the warm-up was not answered', { err }));
+  }
+
   /** The usable model for a capability with its provider connection, or null. */
-  function resolveFor(config: AiConfig, capability: 'ocr' | 'embedding'): { model: AiModel; chat: ChatModel } | null {
-    const model = effectiveModel(config, capability);
-    const provider = model ? config.providers.find((p) => p.id === model.providerId) : undefined;
-    return model && provider ? { model, chat: { provider, modelKey: model.modelKey, parameters: model.parameters } } : null;
+  function resolveFor(config: AiConfig, capability: 'ocr' | 'embedding'): Found | null {
+    return found(config, effectiveModel(config, capability));
   }
 
   /** 1.23: is an OCR model set up and usable (scanned files and pictures are read by it)? */
+  /** b4: are whole documents read now (the OCR model is MICO360 AI's)? Scans no picture could carry are then read again. */
+  async function readsWholeDocuments(): Promise<boolean> {
+    const f = resolveFor(await repo.load(), 'ocr');
+    return !!f && isMico360Provider(f.provider);
+  }
+
   async function ocrReady(): Promise<boolean> {
     return resolveFor(await repo.load(), 'ocr') !== null;
   }
@@ -170,48 +395,175 @@ export function createAiFeatureService({
    * 1.23: the text in pictures (a scanned PDF's pages, a photo), read by the OCR model — work the
    * system does for search, so no person's limit is counted; the model's concurrency limit applies.
    * Background work: MICO360 AI is waited for as long as it waits itself (a vision job may take 300 s).
+   *
+   * b8 (MICO360 AI): GLM-OCR — the reader its console installs — works best asked plainly: one picture a
+   * request, "Text Recognition:", no instructions. A page that gives nothing (an empty answer, or the
+   * platform's 502 for one) is passed over while others read; the caller logs failures (quiet here).
+   * Review I3: one file has one `deadline` for all its pictures (its OCR claim lasts 10 minutes): past it
+   * no picture is sent — a time-out, tried again later, when the pages already read are answered from
+   * their first reading (Idempotency-Key).
    */
-  async function readPictures(images: { data: Buffer; mimeType: string }[], opts: { signal?: AbortSignal } = {}): Promise<string> {
-    const found = resolveFor(await repo.load(), 'ocr');
-    if (!found) throw new ValidationError('No OCR model is set up in AI Management.');
-    const release = await gate.acquire(found.model.id, found.model.concurrencyLimit);
-    try {
-      return await complete(
-        found.chat,
+  async function readPictures(images: { data: Buffer; mimeType: string }[], opts: { signal?: AbortSignal; key?: string; deadline?: number } = {}): Promise<string> {
+    const f = resolveFor(await repo.load(), 'ocr');
+    if (!f) throw new ValidationError('No OCR model is set up in AI Management.');
+    if (!isMico360Provider(f.provider)) {
+      return invoke(
+        f,
         {
           system: 'You transcribe documents. Reply with only the text you can read in the pictures, in reading order, keeping its language. No commentary. If there is no text, reply with nothing.',
           prompt: 'Transcribe all the text in these pictures.',
           maxTokens: 4000,
           images,
         },
-        doFetch,
-        { timeoutMs: isMico360(found.chat) ? BACKGROUND_WAIT_MS : Math.max(timeoutMs, 120_000), allowPrivateHosts, signal: opts.signal },
+        { feature: 'reading pictures', quiet: true, timeoutMs: Math.max(timeoutMs, 120_000), signal: opts.signal },
       );
-    } finally {
-      release();
     }
+    const deadline = opts.deadline ?? Date.now() + ocrFileBudgetMs;
+    const texts: string[] = [];
+    let failure: unknown = null;
+    for (const image of images) {
+      const left = deadline - Date.now();
+      if (left < MIN_REQUEST_MS) throw new AiTimeoutError();
+      try {
+        const text = await invoke(f, { prompt: 'Text Recognition:', maxTokens: 4000, images: [image] }, {
+          feature: 'reading pictures',
+          quiet: true,
+          timeoutMs: Math.min(BACKGROUND_WAIT_MS, left),
+          signal: opts.signal,
+          idempotencyKey: opts.key,
+          collectUntil: deadline,
+        });
+        texts.push(text.trim());
+      } catch (err) {
+        const blank = (err instanceof ProviderRefusedError && err.providerStatus === 502) || (err instanceof ValidationError && /empty response/.test(err.message));
+        if (!blank) throw err;
+        failure ??= err;
+      }
+    }
+    if (texts.length === 0 && failure) throw failure;
+    return texts.filter(Boolean).join('\n\n');
+  }
+
+  /** b4: write down (or clear) why whole-document reading fell back to pictures — only when it changes. */
+  async function noteOcrFallback(f: Found, fallback: { status: number; reason: string | null } | null): Promise<void> {
+    const was = f.provider.platform?.ocrFallback ?? null;
+    if (!fallback && !was) return;
+    if (fallback && was && was.status === fallback.status && was.reason === fallback.reason) return;
+    await repo
+      .update((c) => (c.providers.some((p) => p.id === f.provider.id) ? recordOcrFallback(c, f.provider.id, fallback, now().toISOString()) : c))
+      .catch((err) => warn('MICO360 AI: the reading note could not be saved', { err }));
+  }
+
+  /**
+   * b4: one whole document on MICO360 AI, within the file's `deadline`. A language its node can't read is
+   * tried again without one; so is a guessed language that read (almost) nothing (review I4: the node
+   * reads one language) — the text with more letters is kept.
+   */
+  async function readWhole(f: Found, doc: OcrDocument, opts: { language: string | null; key?: string; signal?: AbortSignal; deadline: number }): Promise<{ text: string; pages: number | null }> {
+    const hash = createHash('sha256').update(doc.data).digest('hex');
+    const once = async (language: string | null) => {
+      const left = opts.deadline - Date.now();
+      if (left < MIN_REQUEST_MS) throw new AiTimeoutError();
+      const releaseModel = await gate.acquire(f.model.id, f.model.concurrencyLimit);
+      let releaseKey = () => {};
+      try {
+        releaseKey = await keyGate.acquire(`provider:${f.provider.id}`, keyLimit(f.provider));
+        return await nativeOcr(f.provider, doc, {
+          fetchImpl: doFetch,
+          allowPrivateHosts,
+          signal: opts.signal,
+          language,
+          // The platform's own wait, inside what is left of the file's (ours is 15 s longer).
+          timeoutSeconds: Math.max(1, Math.min(NATIVE_OCR_SECONDS, Math.floor(left / 1000) - 20)),
+          idempotencyKey: opts.key ? idempotencyKey(opts.key, 'POST /api/v1/ocr', hash, language ?? '') : undefined,
+          collectUntil: opts.deadline,
+          beforeCollect: () => releaseKey(),
+          ...(sleep ? { sleep } : {}),
+        });
+      } finally {
+        releaseKey();
+        releaseModel();
+      }
+    };
+    let out: Awaited<ReturnType<typeof once>>;
+    try {
+      out = await once(opts.language);
+    } catch (err) {
+      if (opts.language && err instanceof ProviderRefusedError && err.providerStatus === 502 && /ocr language/i.test(err.detail ?? '')) return once(null);
+      throw err;
+    }
+    const letters = (t: string) => letterCount(t);
+    if (opts.language && letters(out.text) < POOR_LETTERS_PER_PAGE * Math.max(1, out.pages ?? 1) && opts.deadline - Date.now() >= MIN_REQUEST_MS) {
+      const plain = await once(null);
+      return letters(plain.text) > letters(out.text) ? plain : out;
+    }
+    return out;
+  }
+
+  /**
+   * b4: the text of a scan or a picture. With MICO360 AI, the whole document goes to POST /api/v1/ocr —
+   * every page of a PDF within the platform's limits (black-and-white scanner PDFs too), turned upright
+   * first, read in `language` when one is known. When the platform can't (403: the key may not use Ocr,
+   * 404: an older server, 503: no OCR node; 413: too large) the pictures are read instead, as before, the
+   * admin is told on the provider's card, and whole-document reading waits a while (no upload each time).
+   * A file it won't take (415) or one over its page or pixel limits goes to the pictures alone (review
+   * minor 4). Other providers (and WebP, which the platform doesn't read) read the pictures, as before.
+   * Review I3: everything for one file — the whole read, a second reading, the pictures — stays within
+   * one budget, well inside the 10 minutes the file is claimed for.
+   */
+  async function readDocument(
+    doc: OcrDocument,
+    opts: { language?: string | null; key?: string; signal?: AbortSignal; pictures: () => Promise<{ data: Buffer; mimeType: string }[]> },
+  ): Promise<{ text: string; pages: number | null; whole: boolean }> {
+    const f = resolveFor(await repo.load(), 'ocr');
+    if (!f) throw new ValidationError('No OCR model is set up in AI Management.');
+    const deadline = Date.now() + ocrFileBudgetMs;
+    const at = now().getTime();
+    if (isMico360Provider(f.provider) && NATIVE_OCR_TYPES.has(doc.mimeType) && doc.data.length <= NATIVE_OCR_MAX_BYTES && (ocrPausedUntil.get(f.provider.id) ?? 0) <= at) {
+      try {
+        const out = await readWhole(f, doc, { language: opts.language ?? null, key: opts.key, signal: opts.signal, deadline });
+        await noteOcrFallback(f, null);
+        return { text: out.text, pages: out.pages, whole: true };
+      } catch (err) {
+        const status = err instanceof ProviderRefusedError ? err.providerStatus : 0;
+        const thisFile = status === 415 || (status === 502 && OVER_LIMITS.test((err as ProviderRefusedError).detail ?? ''));
+        if (!(err instanceof ProviderRefusedError) || !(OCR_FALLBACK_STATUSES.has(status) || thisFile)) throw err;
+        if (!thisFile) {
+          ocrPausedUntil.set(f.provider.id, at + (status === 503 ? OCR_PAUSE_SHORT_MS : OCR_PAUSE_LONG_MS));
+          await noteOcrFallback(f, { status, reason: err.detail });
+        }
+        warn('MICO360 AI: whole-document reading was refused; reading the pictures instead', { status, correlationId: err.correlationId, thisFile });
+      }
+    }
+    const images = await opts.pictures();
+    if (images.length === 0) return { text: '', pages: null, whole: false };
+    return { text: await readPictures(images, { signal: opts.signal, key: opts.key, deadline }), pages: null, whole: false };
   }
 
   /** 1.23: the embedding model meaning search uses, or null (no meaning search). */
   async function embeddingModel(): Promise<{ id: string; modelKey: string } | null> {
-    const found = resolveFor(await repo.load(), 'embedding');
-    return found ? { id: found.model.id, modelKey: found.model.modelKey } : null;
+    const f = resolveFor(await repo.load(), 'embedding');
+    return f ? { id: f.model.id, modelKey: f.model.modelKey } : null;
   }
 
   /**
    * 1.23: vectors for texts with the embedding model (and which model made them). `background`: the
    * search sweep — MICO360 AI is given 120 s, as its guide asks of every client (a person's question
-   * keeps the short wait).
+   * keeps the short wait). MICO360 AI: a slot of the key's budget too (b11).
    */
   async function embed(texts: string[], opts: { signal?: AbortSignal; background?: boolean } = {}): Promise<{ model: string; vectors: number[][] }> {
-    const found = resolveFor(await repo.load(), 'embedding');
-    if (!found) throw new ValidationError('No embedding model is set up in AI Management.');
-    const timeoutMs = opts.background && isMico360(found.chat) ? EMBEDDING_SWEEP_WAIT_MS : undefined;
-    const release = await gate.acquire(found.model.id, found.model.concurrencyLimit);
+    const f = resolveFor(await repo.load(), 'embedding');
+    if (!f) throw new ValidationError('No embedding model is set up in AI Management.');
+    const mico = isMico360Provider(f.provider);
+    const wait = opts.background && mico ? EMBEDDING_SWEEP_WAIT_MS : undefined;
+    const releaseModel = await gate.acquire(f.model.id, f.model.concurrencyLimit);
+    let releaseKey = () => {};
     try {
-      return { model: found.model.id, vectors: await embedTexts(found.chat, texts, doFetch, { allowPrivateHosts, signal: opts.signal, timeoutMs }) };
+      if (mico) releaseKey = await keyGate.acquire(`provider:${f.provider.id}`, keyLimit(f.provider));
+      return { model: f.model.id, vectors: await embedTexts(f.chat, texts, doFetch, { allowPrivateHosts, signal: opts.signal, timeoutMs: wait }) };
     } finally {
-      release();
+      releaseKey();
+      releaseModel();
     }
   }
 
@@ -222,7 +574,7 @@ export function createAiFeatureService({
       `Title: ${input.title}\nDescription: ${input.description?.trim() || '(none)'}`,
       512,
       requester,
-      { json: true },
+      { feature: 'task checklist', json: true },
     );
     const items = parseStringArray(text)
       .map((s) => s.trim())
@@ -286,7 +638,7 @@ export function createAiFeatureService({
       input.text,
       600,
       requester,
-      { json: true },
+      { feature: 'describe a task', schema: TASK_SCHEMA },
     );
     const obj = parseJsonObject(text);
     const title = typeof obj.title === 'string' && obj.title.trim() ? obj.title.trim() : input.text.trim();
@@ -349,7 +701,7 @@ export function createAiFeatureService({
       input.text,
       900,
       requester,
-      { json: true },
+      { feature: 'describe a meeting', schema: MEETING_SCHEMA },
     );
     const obj = parseJsonObject(text);
     const str = (v: unknown, max: number) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : null);
@@ -412,7 +764,7 @@ export function createAiFeatureService({
       lines.join('\n\n'),
       900,
       requester,
-      { json: true },
+      { feature: 'draft agenda', schema: AGENDA_SCHEMA },
     );
     const raw = parseJsonObject(text).items;
     const invited = new Set(input.people.map((p) => p.id));
@@ -449,7 +801,7 @@ export function createAiFeatureService({
       ].filter(Boolean).join('\n\n'),
       500,
       requester,
-      { json: true },
+      { feature: 'meeting description', json: true },
     );
     const description = parseJsonObject(text).description;
     const out = typeof description === 'string' ? description.trim().slice(0, 2000) : '';
@@ -470,6 +822,7 @@ export function createAiFeatureService({
       ].filter(Boolean).join('\n'),
       300,
       requester,
+      { feature: 'project summary' },
     );
     return summary.trim();
   }
@@ -484,7 +837,7 @@ export function createAiFeatureService({
       `Title: ${input.title}\nDescription: ${input.description?.trim() || '(none)'}\nDue: ${input.dueDate || '(none)'}`,
       120,
       requester,
-      { json: true },
+      { feature: 'suggest priority', schema: PRIORITY_SCHEMA },
     );
     const obj = parseJsonObject(text);
     const priority = PRIORITIES.includes(obj.priority as Priority) ? (obj.priority as Priority) : 'NORMAL';
@@ -497,7 +850,7 @@ export function createAiFeatureService({
    * model is told to write only what the facts support. Returns its JSON; the caller checks it.
    * `background`: the Final MOM job (1.22), which nobody waits for at a page.
    */
-  async function draftMinutes(facts: string, requester?: AiRequester, opts: { signal?: AbortSignal; background?: boolean } = {}): Promise<Record<string, unknown>> {
+  async function draftMinutes(facts: string, requester?: AiRequester, opts: { signal?: AbortSignal; background?: boolean; jobId?: string } = {}): Promise<Record<string, unknown>> {
     const text = await run(
       [
         'You write the final minutes of a business meeting. Use only the facts given: never invent names, dates, numbers or decisions.',
@@ -511,14 +864,44 @@ export function createAiFeatureService({
       2500,
       requester,
       // A long answer: ~2,500 tokens at ~35 a second, after a cold load, is well over 2 minutes.
-      { json: true, wait: Math.max(timeoutMs, MINUTES_TIMEOUT_MS), signal: opts.signal, background: opts.background },
+      {
+        feature: 'Final MOM',
+        schema: MINUTES_SCHEMA,
+        wait: Math.max(timeoutMs, MINUTES_TIMEOUT_MS),
+        signal: opts.signal,
+        background: opts.background,
+        // b2: the Final MOM job's tries of the same request are one piece of work on MICO360 AI.
+        idempotencyKey: opts.jobId ? `tasks-mom-${opts.jobId}` : undefined,
+      },
     );
     const obj = parseJsonObject(text);
     if (Object.keys(obj).length === 0) throw new ValidationError('The AI’s draft couldn’t be read. Try again, or start from the notes.');
     return obj;
   }
 
-  return { breakdownTask, parseTask, parseMeeting, draftAgenda, writeMeetingDescription, summarizeProject, suggestPriority, draftMinutes, chatReady, chat, startMicoAiQuestion, checkLimits, startSearchQuestion, ocrReady, readPictures, embeddingModel, embed };
+  return {
+    breakdownTask,
+    parseTask,
+    parseMeeting,
+    draftAgenda,
+    writeMeetingDescription,
+    summarizeProject,
+    suggestPriority,
+    draftMinutes,
+    chatReady,
+    chat,
+    startMicoAiQuestion,
+    checkLimits,
+    startSearchQuestion,
+    searchBudgetMs,
+    warmUp,
+    ocrReady,
+    readsWholeDocuments,
+    readPictures,
+    readDocument,
+    embeddingModel,
+    embed,
+  };
 }
 
 export type AiFeatureService = ReturnType<typeof createAiFeatureService>;
@@ -658,8 +1041,40 @@ const MINUTES_TIMEOUT_MS = 180_000;
 export const BACKGROUND_WAIT_MS = 310_000;
 /** MICO360 AI's meaning-search sweep: at least the 120 s its guide asks of every client (§4, §7). */
 export const EMBEDDING_SWEEP_WAIT_MS = 120_000;
-
-const isMico360 = (chat: ChatModel): boolean => isMico360Provider(chat.provider);
+/**
+ * b3: a job MICO360 AI kept running after its 504 is collected for up to this long after the request
+ * (background work only; under the 10 minutes a file being read is held for).
+ */
+export const BACKGROUND_COLLECT_MS = 9 * 60_000;
+/** b11: a MICO360 AI key runs 4 requests at once unless an administrator changed it (its guide, §2). */
+export const DEFAULT_KEY_CONCURRENCY = 4;
+/** b5: a stand-in pair is written down at most this often. */
+const SUBSTITUTION_NOTE_EVERY_MS = 10 * 60_000;
+/** b13: a model stays loaded 30 minutes after use (its guide, §7); after 25 without an answer it may be cold. */
+export const COLD_AFTER_MS = 25 * 60_000;
+const WARM_UP_EVERY_MS = 5 * 60_000;
+/** b13: the AI search panel's time: 20 s, and 90 s for a cold MICO360 AI model's first answer (20–90 s to load). */
+export const AI_SEARCH_WARM_BUDGET_MS = 20_000;
+export const AI_SEARCH_COLD_BUDGET_MS = 90_000;
+/** b4: the platform's own wait for a whole document (its default; a longer one is collected, b3). */
+const NATIVE_OCR_SECONDS = 300;
+/** b4: refusals that send a document to the picture reader (the key, an older server, no node, a file it won't take). */
+const OCR_FALLBACK_STATUSES: ReadonlySet<number> = new Set([403, 404, 413, 503]);
+/** A node's 502 for a document over the platform's limits (guide §5: over 500 pages, a page over 50 million pixels). */
+const OVER_LIMITS = /\b500 pages\b|50 million pixels|more than \d+ pages|too many pages/i;
+/**
+ * Review I3: one file's reading, every request together — about what one read took before (310 s), so
+ * the minute's other search work is not held up longer; well inside the 10 minutes a file is claimed for.
+ * What isn't done by then is tried again later, and what was is answered from its first reading.
+ */
+export const OCR_FILE_BUDGET_MS = 330_000;
+/** No request is started with less than this left. */
+const MIN_REQUEST_MS = 10_000;
+/** Review I4: a guessed language that read fewer letters than this a page is read again without one. */
+const POOR_LETTERS_PER_PAGE = 20;
+/** …after which whole-document reading waits before it is tried again: no OCR node (503) briefly, otherwise an hour. */
+const OCR_PAUSE_SHORT_MS = 10 * 60_000;
+const OCR_PAUSE_LONG_MS = 60 * 60_000;
 
 /** At most this many projects are listed in the prompt (each one is a line). */
 const MAX_PROMPT_PROJECTS = 100;

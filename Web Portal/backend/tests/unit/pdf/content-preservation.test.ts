@@ -32,6 +32,8 @@ const MOVED: Partial<Record<SampleName, Record<string, string[]>>> = {
     'Prolens Projects LLC · MICO360 Tasks · Generated 10 Nov 2026, 20:23 (Asia/Muscat) by Khurram Mumtaz': ['Prolens Projects LLC', TASK_PRINTED],
   },
   'task-full': {
+    // tgc: 1.24 Guests — the task PDF's "External contacts" section is called "Guests" now.
+    'External contacts': ['Guests'],
     'Generated 10 Nov 2026, 20:23 (Asia/Muscat) by Khurram Mumtaz': [TASK_PRINTED],
     'Prolens Projects LLC · MICO360 Tasks · Generated 10 Nov 2026, 20:23 (Asia/Muscat) by Khurram Mumtaz': ['Prolens Projects LLC', TASK_PRINTED],
   },

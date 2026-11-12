@@ -48,6 +48,8 @@ export interface InspectionRecord {
   /** The last reopen. */
   reopenedAt: Date | null;
   reopenedById: string | null;
+  /** Recycle Bin: the task it was for was erased — its number and title as they were ("KEY-12 'Title'"). */
+  erasedTask?: string | null;
   counts: Counts;
   clientVisible: boolean;
   clientVisibleProjectId: string | null;

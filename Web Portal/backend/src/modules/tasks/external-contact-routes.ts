@@ -68,8 +68,9 @@ export async function registerExternalContactRoutes(app: FastifyInstance, deps: 
     const { id } = req.params as { id: string };
     if (!(await canView(req, id))) return reply.status(403).send(noAccess);
     if (!(await canEdit(req, id))) return reply.status(403).send(cannotEdit);
-    const contact = await service.add(id, contactSchema.parse(req.body ?? {}), req.user!.id);
-    await changed(req, id, 'EXTERNAL_CONTACT_ADDED', contact);
+    const { alreadyOnTask, ...contact } = await service.add(id, contactSchema.parse(req.body ?? {}), req.user!.id);
+    // 1.24: the task had this guest already — no second history line.
+    if (!alreadyOnTask) await changed(req, id, 'EXTERNAL_CONTACT_ADDED', contact);
     return reply.status(201).send({ data: contact });
   });
 
@@ -80,7 +81,7 @@ export async function registerExternalContactRoutes(app: FastifyInstance, deps: 
     const existing = await service.get(idString.parse(contactId));
     if (!(await canView(req, existing.taskId))) return reply.status(403).send(noAccess);
     if (!(await canEdit(req, existing.taskId))) return reply.status(403).send(cannotEdit);
-    const { after, changed: didChange } = await service.update(existing.id, body);
+    const { after, changed: didChange } = await service.update(existing.id, body, req.user!.id);
     if (didChange) await changed(req, after.taskId, 'EXTERNAL_CONTACT_CHANGED', after);
     return { data: after };
   });
@@ -100,6 +101,6 @@ export async function registerExternalContactRoutes(app: FastifyInstance, deps: 
     const { projectId } = req.params as { projectId: string };
     if (!(await ask(deps.canViewProject, req, projectId))) return reply.status(403).send(noProject);
     const { q } = suggestQuery.parse(req.query);
-    return { data: await service.suggest(projectId, q ?? '') };
+    return { data: await service.suggest(projectId, q ?? '', { id: req.user!.id, roles: req.user!.roles ?? [] }) };
   });
 }

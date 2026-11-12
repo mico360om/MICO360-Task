@@ -6,7 +6,7 @@ import type { DailyRecipient } from './daily-email-service';
 import { liveProjectWhere } from '../companies/project-archive';
 import { hasActiveCompany, sharedCompanyWhere } from '../companies/company-access';
 import { managedProjectsWhere } from '../projects/project-managers';
-import { buildTimeline } from '../activity/activity-feed';
+import { buildTaskTimeline as buildTimeline } from '../activity/task-history-extra';
 import { STAFF_ONLY_WHERE } from '../clients/client-kind';
 
 const personSelect = {
@@ -38,7 +38,9 @@ const nameOf = (u: { firstName: string | null; lastName: string | null; username
  * Not "the latest update" line: comments are read as comments, and blocker changes may name a task the
  * person can't see (the "Blocked" mark says enough).
  */
-const NOT_AN_UPDATE = ['COMMENTED', 'comment.added', 'BLOCKER_ADDED', 'BLOCKER_REMOVED'];
+// Duplicate Task: "duplicated from / as" lines name another task (maybe in a project the reader can't open), as
+// blocker lines do — never the email's latest update (review I1).
+const NOT_AN_UPDATE = ['COMMENTED', 'comment.added', 'BLOCKER_ADDED', 'BLOCKER_REMOVED', 'DUPLICATED', 'DUPLICATED_FROM'];
 
 const taskSelect = {
   id: true,
@@ -51,11 +53,16 @@ const taskSelect = {
   // 1.22: the card's details.
   description: true,
   startDate: true,
+  // Tasks scheduled for the future: a later day's board means it is "Coming up".
+  boardDate: true,
   // 1.23.3: the live items; the count is of the real to-do items (no sub-items).
   checklist: { where: { deletedAt: null }, select: { id: true, parentId: true, done: true } },
   comments: { where: { deletedAt: null }, orderBy: { createdAt: 'desc' }, take: 1, select: { body: true, createdAt: true, user: { select: nameSelect } } },
   activities: { where: { action: { notIn: NOT_AN_UPDATE } }, orderBy: { createdAt: 'desc' }, take: 1, select: { id: true, action: true, meta: true, createdAt: true, user: { select: nameSelect } } },
-  dependencies: { select: { dependsOn: { select: { completedAt: true, deletedAt: true, column: { select: { category: true } } } } } },
+  dependencies: { select: { dependsOn: { select: { completedAt: true, deletedAt: true, archivedAt: true, column: { select: { category: true } } } } } },
+  // 1.24: its guests (name and company only) and categories.
+  externalContacts: { select: { name: true, company: true }, orderBy: { position: 'asc' } },
+  categories: { select: { category: { select: { name: true, position: true } } } },
   project: {
     select: {
       id: true,
@@ -113,10 +120,14 @@ const toTask = (t: TaskRow): DailyTask => ({
   waitingSince: t.approvalRequestedAt,
   description: t.description,
   startDate: t.startDate,
+  // Board days are noon-UTC anchors: their UTC date is the day.
+  boardDay: t.boardDate ? t.boardDate.toISOString().slice(0, 10) : null,
   checklist: t.checklist.length ? leafCounts(t.checklist) : null,
   latest: latestOf(t),
-  // Blocked: a task it depends on isn't done yet.
-  blocked: t.dependencies.some((d) => !d.dependsOn.deletedAt && !d.dependsOn.completedAt && d.dependsOn.column.category !== 'DONE'),
+  // Blocked: a task it depends on isn't done yet (task archive: an archived one no longer blocks).
+  blocked: t.dependencies.some((d) => !d.dependsOn.deletedAt && !d.dependsOn.archivedAt && !d.dependsOn.completedAt && d.dependsOn.column.category !== 'DONE'),
+  guests: t.externalContacts.map((g) => ({ name: g.name, company: g.company })),
+  categories: t.categories.map((c) => c.category).sort((a, b) => a.position - b.position || a.name.localeCompare(b.name, 'en')).map((c) => c.name),
 });
 
 /** At most this many meetings in one person's day. */
@@ -152,6 +163,7 @@ export function createPrismaDailyEmailSources(prisma: PrismaClient) {
         const rows = await prisma.task.findMany({
           where: {
             deletedAt: null,
+            archivedAt: null, // task archive: never in the daily email
             completedAt: null,
             assignees: { some: { userId } },
             column: { category: { not: 'DONE' } },
@@ -166,7 +178,7 @@ export function createPrismaDailyEmailSources(prisma: PrismaClient) {
       /** Assigned to them and completed in [from, to), whoever completed them — never in an archived project. */
       async completedBetween(userId: string, from: Date, to: Date): Promise<DailyTask[]> {
         const rows = await prisma.task.findMany({
-          where: { deletedAt: null, assignees: { some: { userId } }, completedAt: { gte: from, lt: to }, project: liveProjectWhere({ deletedAt: null, AND: [await companyScope(userId)] }) },
+          where: { deletedAt: null, archivedAt: null, assignees: { some: { userId } }, completedAt: { gte: from, lt: to }, project: liveProjectWhere({ deletedAt: null, AND: [await companyScope(userId)] }) },
           select: taskSelect,
           orderBy: { completedAt: 'asc' },
           take: 500,
@@ -226,6 +238,7 @@ export function createPrismaDailyEmailSources(prisma: PrismaClient) {
         const rows = await prisma.task.findMany({
           where: {
             deletedAt: null,
+            archivedAt: null, // task archive: never in the daily email
             completedAt: null,
             column: { category: { not: 'DONE' } },
             assignees: { none: { userId } },

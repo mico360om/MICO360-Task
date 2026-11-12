@@ -8,7 +8,7 @@ import { dueDayKey } from './due-date';
 import { isWaitingForApproval } from './approvals';
 import { workingDaysLate, type WorkCalendar } from './working-days';
 
-export type TaskPhase = 'completed' | 'overdue' | 'ongoing' | 'pending';
+export type TaskPhase = 'completed' | 'overdue' | 'ongoing' | 'pending' | 'upcoming';
 
 const ONGOING = new Set(['IN_PROGRESS', 'REVIEW', 'BLOCKED']);
 const DAY_MS = 86_400_000;
@@ -20,11 +20,21 @@ const daysBetween = (from: string, to: string) => Math.round((Date.parse(`${to}T
 export const isFinished = (t: ApiTask) => t.columnCategory === 'DONE' || !!t.completedAt;
 
 /**
- * Completed; overdue (open and past its due day — never while it waits for approval: owner, 30 Oct);
- * ongoing (being worked on); or pending (not started).
+ * Tasks scheduled for the future (owner, 10 Nov): the day an open task waits for — its board day while
+ * that is later than today (board days are stored at noon UTC: their UTC date is the day) — else null.
+ */
+export function upcomingDay(t: ApiTask, today: string): string | null {
+  const day = t.boardDate ? t.boardDate.slice(0, 10) : null;
+  return day && day > today && !isFinished(t) ? day : null;
+}
+
+/**
+ * Completed; upcoming (waiting for a later start day); overdue (open and past its due day — never while
+ * it waits for approval: owner, 30 Oct); ongoing (being worked on); or pending (not started).
  */
 export function taskPhase(t: ApiTask, today: string, timeZone = 'UTC'): TaskPhase {
   if (isFinished(t)) return 'completed';
+  if (upcomingDay(t, today)) return 'upcoming';
   const due = dueDay(t.dueDate, timeZone);
   if (due && due < today && !isWaitingForApproval(t)) return 'overdue';
   return ONGOING.has(t.columnCategory ?? '') ? 'ongoing' : 'pending';
@@ -35,7 +45,8 @@ export function taskStats(tasks: ApiTask[], today: string, timeZone = 'UTC') {
   const byPriority: Record<Priority, number> = { URGENT: 0, HIGH: 0, NORMAL: 0, LOW: 0 };
   for (const t of tasks) {
     const phase = taskPhase(t, today, timeZone);
-    count[phase] += 1;
+    // A task waiting for its start day isn't started: the tiles count it with the not-started ones.
+    count[phase === 'upcoming' ? 'pending' : phase] += 1;
     if (phase !== 'completed') byPriority[t.priority] += 1;
   }
   const total = tasks.length;
@@ -99,6 +110,8 @@ export function workload(tasks: ApiTask[], today: string, timeZone = 'UTC') {
   const people = new Map<string, { id: string; name: string; open: number; overdue: number; completed: number }>();
   for (const t of tasks) {
     const phase = taskPhase(t, today, timeZone);
+    // Waiting for its start day: not on anyone's plate yet.
+    if (phase === 'upcoming') continue;
     for (const a of t.assignees ?? []) {
       const p = people.get(a.id) ?? { id: a.id, name: a.name, open: 0, overdue: 0, completed: 0 };
       if (phase === 'completed') p.completed += 1;

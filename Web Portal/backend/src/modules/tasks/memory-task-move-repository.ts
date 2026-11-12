@@ -64,6 +64,7 @@ export function createMemoryTaskMoveRepository(state: MemoryMoveState): TaskMove
           repeats: Boolean(t.repeats ?? t.recurrenceRule),
           inSeries: Boolean(t.recurrenceRule || t.recurrenceParentId),
           assignees: t.assigneeList,
+          archivedAt: t.archivedAt ?? null,
         }));
     },
     async findProject(id) {
@@ -93,8 +94,11 @@ export function createMemoryTaskMoveRepository(state: MemoryMoveState): TaskMove
       const task = state.tasks.find((t) => t.id === w.taskId);
       if (!task || task.projectId !== w.from.projectId) throw new TaskMovedConflictError(w.taskId);
       if (task.version !== w.version) throw new TaskChangedConflictError(w.taskId);
-      const key = `${w.to.code}-${nextKeyNumber(w.to.projectId)}`;
-      if (keyTaken(key)) throw new TaskKeyConflictError(key);
+      const own = w.reclaimKey ? state.aliases.get(w.reclaimKey) : undefined;
+      const reclaim = own && own.taskId === task.id && own.projectId === w.to.projectId ? w.reclaimKey! : null;
+      const key = reclaim ?? `${w.to.code}-${nextKeyNumber(w.to.projectId)}`;
+      if (reclaim) state.aliases.delete(reclaim);
+      else if (keyTaken(key)) throw new TaskKeyConflictError(key);
       state.aliases.set(w.from.key, { taskId: task.id, projectId: w.from.projectId });
       const inColumn = state.tasks.filter((t) => t.columnId === w.columnId);
       Object.assign(task, w.patch, {

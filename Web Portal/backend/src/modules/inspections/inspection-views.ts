@@ -48,6 +48,8 @@ export interface InspectionListItem {
    * days after its due day the task was finished (0 on time); null when it isn't a finished check.
    */
   task: { id: string; key: string; title: string; done: boolean; lateDays?: number | null } | null;
+  /** Recycle Bin: the task it was for was erased — "KEY-12 'Title'" (and `task` is null). */
+  erasedTask?: string | null;
 }
 
 export interface AnswerView {
@@ -195,6 +197,7 @@ export function listItem(r: InspectionRecord, names: Map<string, string>, task: 
     result: resultText(r.status, counts),
     clientVisible: r.clientVisible,
     task,
+    ...(r.erasedTask && !task ? { erasedTask: r.erasedTask } : {}),
   };
 }
 

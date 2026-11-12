@@ -1,8 +1,8 @@
+import { useEffectiveAdmin } from '../lib/manager-view';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { apiClient } from '../api/client';
 import { projectsApi } from '../api/projects';
-import { useAuthStore } from '../stores/auth-store';
 import { buttonClass } from './ui/Button';
 import { TOUCH_TALL } from '../lib/touch';
 
@@ -33,7 +33,8 @@ export const FirstStepsIcon = (
  * administrator, "Add your team". Each goes to its page with the New form already open (?new=1).
  */
 export function FirstStepsActions() {
-  const isAdmin = useAuthStore((s) => s.isAdmin());
+  // Manager View (owner, 10 Nov): User Management is closed then — no "Add people" way to it.
+  const isAdmin = useEffectiveAdmin();
   return (
     <div className="flex flex-wrap items-center justify-center gap-2">
       <Link to="/projects?new=1" className={buttonClass('primary', 'md', TOUCH_TALL)}>

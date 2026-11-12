@@ -52,6 +52,14 @@ const withContents = {
 
 type StoredTemplate = Prisma.ProjectTemplateGetPayload<{ include: typeof withContents }>;
 
+/** 1.24: a template's categories as stored (JSON [{ name, color }]); anything else reads as none. */
+export function categoriesOf(value: Prisma.JsonValue | null | undefined): { name: string; color: string }[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((c): c is { name: string; color: string } => !!c && typeof c === 'object' && typeof (c as { name?: unknown }).name === 'string' && typeof (c as { color?: unknown }).color === 'string')
+    .map((c) => ({ name: c.name, color: c.color }));
+}
+
 function toProjectTemplate(t: StoredTemplate): ProjectTemplateRecord {
   const columns = columnsOf(t.columns);
   return {
@@ -59,6 +67,7 @@ function toProjectTemplate(t: StoredTemplate): ProjectTemplateRecord {
     name: t.name,
     description: t.description,
     columns,
+    categories: categoriesOf(t.categories),
     roles: t.roles.map((r) => ({ id: r.id, name: r.name })),
     tasks: t.tasks.map((x) => ({
       id: x.id,
@@ -152,7 +161,14 @@ export function createPrismaTemplateRepository(prisma: PrismaClient): TemplateRe
     async createProjectTemplate(input, actorId) {
       return prisma.$transaction(async (tx) => {
         const t = await tx.projectTemplate.create({
-          data: { name: input.name, description: input.description, columns: input.columns as unknown as Prisma.InputJsonValue, createdById: actorId, updatedById: actorId },
+          data: {
+            name: input.name,
+            description: input.description,
+            columns: input.columns as unknown as Prisma.InputJsonValue,
+            ...(input.categories?.length ? { categories: input.categories as unknown as Prisma.InputJsonValue } : {}),
+            createdById: actorId,
+            updatedById: actorId,
+          },
         });
         await writeContents(tx, t.id, input, new Set());
         return (await read(tx, t.id))!;
@@ -164,7 +180,13 @@ export function createPrismaTemplateRepository(prisma: PrismaClient): TemplateRe
         if (!before) return null;
         await tx.projectTemplate.update({
           where: { id },
-          data: { name: input.name, description: input.description, columns: input.columns as unknown as Prisma.InputJsonValue, updatedById: actorId },
+          data: {
+            name: input.name,
+            description: input.description,
+            columns: input.columns as unknown as Prisma.InputJsonValue,
+            ...(input.categories !== undefined ? { categories: input.categories as unknown as Prisma.InputJsonValue } : {}),
+            updatedById: actorId,
+          },
         });
         await writeContents(tx, id, input, new Set(before.roles.map((r) => r.id)));
         return read(tx, id);
@@ -210,11 +232,14 @@ export function createPrismaTemplateRepository(prisma: PrismaClient): TemplateRe
           startDate: true,
           createdAt: true,
           columns: { where: { enabled: true }, orderBy: { position: 'asc' }, select: { name: true, category: true, color: true } },
+          // 1.24: its categories in use, in order.
+          categories: { where: { retiredAt: null }, orderBy: [{ position: 'asc' }, { name: 'asc' }], select: { name: true, color: true } },
         },
       });
       if (!p) return null;
       const rows = await prisma.task.findMany({
-        where: { projectId, deletedAt: null },
+        // Task archive: a template from a project leaves its archived tasks out (hidden but kept there).
+        where: { projectId, deletedAt: null, archivedAt: null },
         select: {
           id: true,
           key: true,
@@ -252,6 +277,7 @@ export function createPrismaTemplateRepository(prisma: PrismaClient): TemplateRe
         startDate: p.startDate,
         createdAt: p.createdAt,
         columns: p.columns.map((c) => ({ name: c.name, category: c.category as ColumnCategory, color: c.color })),
+        categories: p.categories.map((c) => ({ name: c.name, color: c.color })),
         tasks,
       };
     },

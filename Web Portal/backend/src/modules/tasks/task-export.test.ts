@@ -119,7 +119,8 @@ describe('describeActivity (the website’s activity wording)', () => {
 describe('taskSheets', () => {
   it('puts the details on the first sheet and each list on its own sheet', () => {
     const sheets = taskSheets(task(), ctx);
-    expect(sheets.map((s) => s.name)).toEqual(['Task', 'External contacts', 'Checklist', 'Comments', 'Attachments', 'Dependencies', 'Activity']);
+    // tgc: 1.24 — external contacts are guests now.
+    expect(sheets.map((s) => s.name)).toEqual(['Task', 'Guests', 'Checklist', 'Comments', 'Attachments', 'Dependencies', 'Activity']);
     const details = sheets[0]!;
     expect(details.title).toBe('MICO-42 · مراجعة تقرير المبيعات الشهري — monthly sales review');
     const field = (name: string) => details.rows.find((r) => r[0] === name)?.[1];
@@ -140,12 +141,20 @@ describe('taskSheets', () => {
 
   it('lists the external contacts with all six fields, apart from the people the task is assigned to', () => {
     const sheet = taskSheets(task(), ctx)[1]!;
-    expect(sheet.columns.map((c) => c.header)).toEqual(['Name', 'Company', 'Designation', 'Email', 'Phone', 'Remarks']);
+    // tgc: 1.24 — a guest's remarks are this task's note for them.
+    expect(sheet.columns.map((c) => c.header)).toEqual(['Name', 'Company', 'Designation', 'Email', 'Phone', 'Note for this task']);
     expect(sheet.rows).toEqual([
       ['Ahmed Al Said', 'OXY', 'Site lead', 'ahmed@oxy.com', '+968 9912 3456', 'Call before 10 am'],
       ['سالم الهنائي', '', '', '', '', ''],
     ]);
     expect(taskSheets(task({ externalContacts: [] }), ctx)[1]!.rows).toEqual([]);
+  });
+
+  it('1.24: names its categories and guests on the details sheet', () => {
+    const details = taskSheets(task({ categories: ['Civil', 'HSE'] }), ctx)[0]!;
+    const field = (name: string) => details.rows.find((r) => r[0] === name)?.[1];
+    expect(field('Categories')).toBe('Civil, HSE');
+    expect(field('Guests')).toBe('Ahmed Al Said (OXY), سالم الهنائي');
   });
 });
 
@@ -266,20 +275,22 @@ describe('taskPdf: summary and details', () => {
   });
 });
 
+// tgc: 1.24 — external contacts are guests now ("Guests" in the PDF).
 describe('taskPdf: external contacts', () => {
   it('lists each external contact with all six fields', () => {
     const text = textOf(taskPdf(task(), ctx));
     const joined = text.join(' ');
-    expect(text).toContain('External contacts');
+    expect(text).toContain('Guests');
     for (const value of ['Ahmed Al Said', 'OXY · Site lead', 'ahmed@oxy.com', '+968 9912 3456', 'Call before 10 am', 'سالم الهنائي']) expect(joined, value).toContain(value);
-    expect(text.indexOf('External contacts')).toBeLessThan(text.indexOf('Description'));
+    expect(text.indexOf('Guests')).toBeLessThan(text.indexOf('Description'));
   });
 
   // tpdf: 1.23.11 (design call 1) — an optional section with nothing in it is left out (was "No external contacts.").
   it('leaves the section out when a task has none', () => {
     const text = textOf(taskPdf(task({ externalContacts: [] }), ctx));
-    expect(text).not.toContain('External contacts');
-    expect(text).not.toContain('No external contacts.');
+    // tgc: 1.24 — external contacts are guests now.
+    expect(text).not.toContain('Guests');
+    expect(text).not.toContain('No guests.');
   });
 });
 
@@ -574,7 +585,7 @@ describe('taskPdf: flow', () => {
   // tpdf: 1.23.11 (design call 1: no empty sections) — an empty list's section is left out (was "No description." … "No activity yet.").
   it('leaves out the sections of the lists that are empty, keeping the details', () => {
     const text = textOf(taskPdf(task({ description: null, checklist: [], comments: [], attachments: [], blockedBy: [], blocks: [], externalContacts: [], activity: [] }), ctx));
-    for (const t of ['Description', 'Checklist', 'Comments', 'Attachments', 'Dependencies', 'Activity', 'External contacts', 'No description.', 'No checklist items.', 'No comments yet.', 'No attachments.', 'No dependencies.', 'No activity yet.']) expect(text, t).not.toContain(t);
+    for (const t of ['Description', 'Checklist', 'Comments', 'Attachments', 'Dependencies', 'Activity', 'External contacts', 'Guests', 'No description.', 'No checklist items.', 'No comments yet.', 'No attachments.', 'No dependencies.', 'No activity yet.']) expect(text, t).not.toContain(t);
     for (const t of ['Details', 'Status', 'MICO-42']) expect(text, t).toContain(t);
   });
 });
@@ -635,5 +646,14 @@ describe('withPictures (reading a task’s pictures for its PDF)', () => {
     };
     const out = await withPictures(task({ attachments: [file('a.jpg'), file('b.png'), file('c.png'), file('d.png')] }), { read: async (k) => stored[k]!, thumbnail: async () => null });
     expect(out.attachments.map((a) => (a.picture === stored[a.storageKey] ? 'as stored' : a.picture === null ? null : 'unpacked here'))).toEqual(['as stored', 'as stored', null, null]);
+  });
+});
+
+describe('1.24: categories and guest history in the task PDF', () => {
+  it('names its categories with the details and words category and guest lines', () => {
+    const joined = textOf(taskPdf(task({ categories: ['Civil', 'HSE'] }), ctx)).join(' ');
+    expect(joined).toContain('Civil, HSE');
+    expect(describeActivity('CATEGORY_ADDED', { name: 'Civil' })).toBe('Added category Civil');
+    expect(describeActivity('EXTERNAL_CONTACT_ADDED', { name: 'Ahmed', company: 'OXY' })).toBe('Assigned guest Ahmed (OXY)');
   });
 });

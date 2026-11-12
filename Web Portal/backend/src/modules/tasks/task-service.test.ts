@@ -110,6 +110,29 @@ beforeEach(() => {
 
 const base = { title: 'Prepare report', projectId: 'p1', columnId: 'c1', createdById: 'admin' };
 
+describe('TaskService — deleting puts tasks in the Recycle Bin', () => {
+  it('a delete says who, when and when it will be erased; one task alone has no batch', async () => {
+    const at = new Date('2026-11-03T06:00:00Z');
+    const marks: unknown[] = [];
+    const tasks = { ...mem.tasks, async softDelete(id: string, mark?: unknown) { marks.push([id, mark]); } };
+    const s = createTaskService({ tasks, projects: mem.projects, timeZone: 'Asia/Muscat', now: () => at });
+    const t = await s.createTask(base);
+    expect(await s.deleteTask(t.id, 'one', 'sara')).toEqual({ ids: [t.id], batchId: null });
+    expect(marks).toEqual([[t.id, { by: 'sara', at, expiresAt: new Date('2027-01-02T20:00:00.000Z'), batchId: null }]]);
+  });
+
+  it('the entire series goes as one batch (they restore together), and says which tasks went', async () => {
+    const seen: unknown[] = [];
+    const tasks = { ...mem.tasks, async softDeleteSeries(seriesId: string, mark?: { batchId: string | null }) { seen.push([seriesId, mark?.batchId]); return ['a', 'b']; } };
+    const s = createTaskService({ tasks, projects: mem.projects, timeZone: 'Asia/Muscat' });
+    const origin = await s.createTask({ ...base, recurrenceRule: { freq: 'DAILY', interval: 1 } });
+    const r = await s.deleteTask(origin.id, 'series', 'sara');
+    expect(r.ids).toEqual(['a', 'b']);
+    expect(r.batchId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(seen).toEqual([[origin.id, r.batchId]]);
+  });
+});
+
 describe('TaskService', () => {
   it('reorders a column by re-sequencing task positions', async () => {
     const a = await svc.createTask(base);
@@ -516,8 +539,16 @@ describe('TaskService — a project whose new tasks are due today', () => {
     expect(t.recurrenceRule).toEqual({ freq: 'MONTHLY', interval: 1, anchorDay: 23 });
   });
 
-  it('a task that only starts on a later day keeps no date (it can’t be due before it starts)', async () => {
+  it('a task that only starts on a later day waits on that day’s board and is due on it (never before it starts)', async () => {
+    // Tasks scheduled for the future: its start day's board — and the project's "due today" is that day.
     const t = await due.createTask({ ...base, startDate: new Date('2026-10-25T00:00:00Z') });
+    expect(t.boardDate?.toISOString()).toBe('2026-10-25T12:00:00.000Z');
+    expect(t.dueDate?.toISOString()).toBe('2026-10-25T00:00:00.000Z');
+  });
+
+  it('a later start than the board day it was added to keeps no date (it can’t be due before it starts)', async () => {
+    const t = await due.createTask({ ...base, boardDate: new Date('2026-10-24T12:00:00Z'), startDate: new Date('2026-10-25T00:00:00Z') });
+    expect(t.boardDate?.toISOString()).toBe('2026-10-24T12:00:00.000Z');
     expect(t.dueDate).toBeNull();
   });
 
@@ -537,5 +568,88 @@ describe('TaskService — a project whose new tasks are due today', () => {
     const t = await due.createTask({ ...base, boardDate: new Date('2026-10-20T12:00:00Z') });
     expect(t.dueDate?.toISOString()).toBe(TODAY);
     expect(t.startDate).toEqual(NOW);
+  });
+});
+
+describe('TaskService — tasks scheduled for the future', () => {
+  // 10:00 on 10 Nov 2026 in Muscat.
+  const NOW = new Date('2026-11-10T06:00:00Z');
+  const anchor = (key: string) => `${key}T12:00:00.000Z`;
+  let m: ReturnType<typeof inMemory>;
+  let s: ReturnType<typeof createTaskService>;
+  let clock = NOW;
+  beforeEach(() => {
+    clock = NOW;
+    m = inMemory({ p1: 'MICO', p2: 'RIG' });
+    s = createTaskService({ tasks: m.tasks, projects: m.projects, timeZone: 'Asia/Muscat', now: () => clock });
+  });
+
+  it('a start date later than today puts the new task on its start day’s board (it waits)', async () => {
+    // As the Android app and the extension send it: a start date, no board day.
+    const t = await s.createTask({ ...base, startDate: new Date('2026-11-20') });
+    expect(t.boardDate?.toISOString()).toBe(anchor('2026-11-20'));
+    expect(t.startDate?.toISOString()).toBe('2026-11-20T00:00:00.000Z');
+  });
+
+  it('no start date, or one today or earlier: today’s board, as before', async () => {
+    expect((await s.createTask(base)).boardDate?.toISOString()).toBe(anchor('2026-11-10'));
+    expect((await s.createTask({ ...base, startDate: new Date('2026-11-10') })).boardDate?.toISOString()).toBe(anchor('2026-11-10'));
+    expect((await s.createTask({ ...base, startDate: new Date('2026-11-03') })).boardDate?.toISOString()).toBe(anchor('2026-11-10'));
+  });
+
+  it('a board day given explicitly still wins', async () => {
+    const t = await s.createTask({ ...base, startDate: new Date('2026-11-20'), boardDate: new Date(anchor('2026-11-18')) });
+    expect(t.boardDate?.toISOString()).toBe(anchor('2026-11-18'));
+  });
+
+  it('just after midnight in Muscat (still yesterday in UTC), a start “today” is today’s board', async () => {
+    clock = new Date('2026-11-10T20:30:00Z'); // 00:30 on 11 Nov in Muscat
+    const t = await s.createTask({ ...base, startDate: new Date('2026-11-11') });
+    expect(t.boardDate?.toISOString()).toBe(anchor('2026-11-11'));
+  });
+
+  describe('editing the start date', () => {
+    it('a not-started task whose start moves later goes to that day’s board', async () => {
+      const t = await s.createTask(base);
+      const after = await s.updateTask(t.id, { startDate: new Date('2026-11-25') });
+      expect(after.boardDate?.toISOString()).toBe(anchor('2026-11-25'));
+    });
+
+    it('a waiting task whose start moves to another later day follows it; moved to today or earlier, it comes onto today’s board', async () => {
+      const t = await s.createTask({ ...base, startDate: new Date('2026-11-20') });
+      expect((await s.updateTask(t.id, { startDate: new Date('2026-11-22') })).boardDate?.toISOString()).toBe(anchor('2026-11-22'));
+      expect((await s.updateTask(t.id, { startDate: new Date('2026-11-05') })).boardDate?.toISOString()).toBe(anchor('2026-11-10'));
+    });
+
+    it('clearing a waiting task’s start brings it onto today’s board', async () => {
+      const t = await s.createTask({ ...base, startDate: new Date('2026-11-20') });
+      expect((await s.updateTask(t.id, { startDate: null })).boardDate?.toISOString()).toBe(anchor('2026-11-10'));
+    });
+
+    it('a task already under way stays where it is', async () => {
+      const t = await s.createTask({ ...base, columnId: 'c2' });
+      const after = await s.updateTask(t.id, { startDate: new Date('2026-11-25') });
+      expect(after.boardDate?.toISOString()).toBe(anchor('2026-11-10'));
+      expect(after.startDate?.toISOString()).toBe('2026-11-25T00:00:00.000Z');
+    });
+
+    it('a done task stays where it is', async () => {
+      const t = await s.createTask({ ...base, columnId: 'done' });
+      const after = await s.updateTask(t.id, { startDate: new Date('2026-11-25'), dueDate: new Date('2026-11-26') });
+      expect(after.boardDate?.toISOString()).toBe(anchor('2026-11-10'));
+    });
+
+    it('an edit that leaves the start day as it was (an app sending every field) doesn’t move the task', async () => {
+      const t = await s.createTask({ ...base, startDate: new Date('2026-11-20'), boardDate: new Date(anchor('2026-11-18')) });
+      const after = await s.updateTask(t.id, { title: 'Renamed', startDate: new Date('2026-11-20') });
+      expect(after.boardDate?.toISOString()).toBe(anchor('2026-11-18'));
+    });
+
+    it('a start moved later together with a move under way stays where it is', async () => {
+      const t = await s.createTask(base);
+      const after = await s.updateTask(t.id, { startDate: new Date('2026-11-25'), columnId: 'c2' });
+      expect(after.boardDate?.toISOString()).toBe(anchor('2026-11-10'));
+      expect(after.columnId).toBe('c2');
+    });
   });
 });

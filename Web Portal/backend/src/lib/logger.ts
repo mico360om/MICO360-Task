@@ -13,7 +13,15 @@ export type LogContext = Record<string, unknown>;
 
 function serialize(value: unknown): unknown {
   if (value instanceof Error) {
-    return { message: value.message, stack: value.stack, name: value.name };
+    // MICO360 AI (b10): the request's correlation id and the platform's job id, when the error has them.
+    const { correlationId, jobId } = value as { correlationId?: unknown; jobId?: unknown };
+    return {
+      message: value.message,
+      stack: value.stack,
+      name: value.name,
+      ...(typeof correlationId === 'string' ? { correlationId } : {}),
+      ...(typeof jobId === 'string' ? { jobId } : {}),
+    };
   }
   return value;
 }

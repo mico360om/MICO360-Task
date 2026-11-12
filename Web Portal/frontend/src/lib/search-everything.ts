@@ -56,10 +56,12 @@ export interface SearchHit {
   match?: 'close' | 'some';
   /** 1.23.6 Clients & contacts: which of the three it is. */
   sub?: 'client' | 'account' | 'external';
+  /** Task archive: a task result that is archived (it opens read-only). */
+  archived?: boolean;
 }
 
 /** 1.23.6 The built-in reader's chips (the server reads the words as typed). */
-export const READER_CHIP_KEYS = ['kind', 'due', 'when', 'done', 'status', 'approval', 'priority', 'project', 'assignee', 'mine', 'creator', 'organizer'] as const;
+export const READER_CHIP_KEYS = ['kind', 'due', 'when', 'done', 'status', 'approval', 'priority', 'category', 'project', 'assignee', 'mine', 'creator', 'organizer'] as const;
 export type ReaderChipKey = (typeof READER_CHIP_KEYS)[number];
 /** What the reader understood: a chip per filter, the words left to search, the chips taken off. */
 export interface Understood {
@@ -92,6 +94,10 @@ export interface EverythingFilters {
   off?: ReaderChipKey[];
   /** 1.23.6: "Search the words instead" — every word as typed, nothing read. */
   plain?: boolean;
+  /** 1.24: a category (of the chosen project), a guest and a guest company — tasks only. */
+  category?: string;
+  guest?: string;
+  guestCompany?: string;
 }
 
 const TASK_STATUSES = ['BACKLOG', 'TODO', 'IN_PROGRESS', 'BLOCKED', 'REVIEW', 'DONE'];
@@ -117,6 +123,11 @@ export function everythingFilters(params: URLSearchParams): EverythingFilters {
     ...(params.get('ai') === '1' ? { ai: true } : {}),
     ...(offOf(params.get('off')).length ? { off: offOf(params.get('off')) } : {}),
     ...(params.get('plain') === '1' ? { plain: true } : {}),
+    // 1.24: tasks only (a filter of one of them makes the search one of tasks, as a status does).
+    ...(params.get('category') ? { category: params.get('category')!.slice(0, 64) } : {}),
+    ...(params.get('guest') ? { guest: params.get('guest')!.slice(0, 64) } : {}),
+    ...(params.get('guestCompany') ? { guestCompany: params.get('guestCompany')!.slice(0, 120) } : {}),
+    ...(!type && (params.get('category') || params.get('guest') || params.get('guestCompany')) ? { type: 'task' as const } : {}),
   };
 }
 
@@ -142,10 +153,14 @@ export function everythingAddress(f: EverythingFilters): string {
   if (f.off?.length) p.set('off', f.off.join(','));
   if (f.plain) p.set('plain', '1');
   if (f.ai) p.set('ai', '1');
+  if (f.category) p.set('category', f.category);
+  if (f.guest) p.set('guest', f.guest);
+  if (f.guestCompany) p.set('guestCompany', f.guestCompany);
   return p.toString();
 }
 
-export const hasEverythingFilters = (f: EverythingFilters): boolean => Boolean(f.type || f.projectId || f.status || f.person || f.from || f.to || f.done !== undefined || f.archived);
+export const hasEverythingFilters = (f: EverythingFilters): boolean =>
+  Boolean(f.type || f.projectId || f.status || f.person || f.from || f.to || f.done !== undefined || f.archived || f.category || f.guest || f.guestCompany);
 
 /** GET /search/all's query for these filters (a task status only when tasks are asked for). */
 export function allQuery(f: EverythingFilters, cursor?: string): string {
@@ -160,6 +175,11 @@ export function allQuery(f: EverythingFilters, cursor?: string): string {
   if (f.archived) p.set('archived', 'true');
   if (f.off?.length) p.set('off', f.off.join(','));
   if (f.plain) p.set('plain', 'true');
+  if (f.type === 'task') {
+    if (f.category) p.set('category', f.category);
+    if (f.guest) p.set('guest', f.guest);
+    if (f.guestCompany) p.set('guestCompany', f.guestCompany);
+  }
   if (cursor) p.set('cursor', cursor);
   return p.toString();
 }

@@ -5,6 +5,7 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { BoardPeople } from './BoardPeople';
 import { useAuthStore } from '../../stores/auth-store';
+import { useManagerViewStore } from '../../stores/manager-view-store';
 import type { ApiProject } from '../../api/projects';
 
 // 1.22: the board's "who has access" — a row of faces, and the full list behind it.
@@ -108,6 +109,22 @@ describe('BoardPeople — the board’s face row', () => {
     renderRow();
     await userEvent.click(await screen.findByRole('button', { name: /People on this project/ }));
     expect(screen.getByRole('link', { name: 'Manage team' })).toBeInTheDocument();
+  });
+
+  it('Manager View (owner, 10 Nov): an administrator gets “Manage team” only on a board of a project they run', async () => {
+    useAuthStore.getState().setSession({ user: { id: 'admin', email: 'ad@x', username: 'admin', roles: ['ADMIN'] }, accessToken: 'at', refreshToken: 'rt' });
+    useManagerViewStore.getState().set('admin', true);
+    try {
+      const { unmount } = renderRow(project({ canManage: false }));
+      await userEvent.click(await screen.findByRole('button', { name: /People on this project/ }));
+      expect(screen.queryByRole('link', { name: 'Manage team' })).not.toBeInTheDocument();
+      unmount();
+      renderRow(project({ canManage: true }));
+      await userEvent.click(await screen.findByRole('button', { name: /People on this project/ }));
+      expect(screen.getByRole('link', { name: 'Manage team' })).toBeInTheDocument();
+    } finally {
+      useManagerViewStore.getState().clear();
+    }
   });
 
   it('Escape closes the list, back to the row', async () => {

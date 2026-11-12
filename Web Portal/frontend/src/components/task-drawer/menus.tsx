@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { ArchiveIcon } from '../task-archive/ArchivedBadge';
 
 /**
  * A small popup menu's open state: Escape closes it (and only it — not the drawer around it) and
@@ -123,6 +124,14 @@ export const MergeIcon = () => (
   </svg>
 );
 
+/** Duplicate Task: two sheets, one over the other. */
+export const DuplicateIcon = () => (
+  <svg viewBox="0 0 24 24" {...ICON} aria-hidden="true">
+    <rect x="8" y="8" width="13" height="13" rx="2" />
+    <path d="M4 16V5a1 1 0 0 1 1-1h11" />
+  </svg>
+);
+
 export const TemplateIcon = () => (
   <svg viewBox="0 0 24 24" {...ICON} aria-hidden="true">
     <rect x="6" y="3" width="15" height="14" rx="2" />
@@ -132,8 +141,9 @@ export const TemplateIcon = () => (
 
 /**
  * "⋯ More actions": the header's secondary actions in one menu. Watching and exporting have header
- * buttons on wider screens, so the menu is the way to them on small ones; moving the task to another
- * project and saving it as a template live only here, so with either the menu shows on every screen.
+ * buttons on wider screens, so the menu is the way to them on small ones; duplicating the task, moving
+ * it to another project and saving it as a template live only here, so with any of them the menu shows
+ * on every screen.
  * Unavailable, the move says why. Choosing an item gives focus back to the menu button (a dialog it
  * opens returns focus there).
  */
@@ -141,16 +151,20 @@ export function MoreActionsMenu({
   watching,
   onToggleWatch,
   onExport,
+  onDuplicate,
   onMoveToProject,
   moveUnavailable,
   onSaveAsTemplate,
   onMerge,
   mergeUnavailable,
+  onArchive,
   className = '',
 }: {
   watching?: boolean;
   onToggleWatch?: () => void;
   onExport?: (format: 'xlsx' | 'pdf') => Promise<void>;
+  /** Duplicate Task: a copy of it, reviewed in the New task form ("Duplicate…"). */
+  onDuplicate?: () => void;
   /** Move the task to another project ("Move to another project…"). */
   onMoveToProject?: () => void;
   /** Why it can't be moved now (the item is shown, unavailable, with this reason). */
@@ -161,12 +175,14 @@ export function MoreActionsMenu({
   onMerge?: () => void;
   /** Why it can't be merged now (the item is shown, unavailable, with this reason). */
   mergeUnavailable?: string | null;
+  /** Task archive: archive it ("Archive": administrators and the people who run its project; it can be undone). */
+  onArchive?: () => void;
   className?: string;
 }) {
   const { open, setOpen, wrap, trigger } = useMenu();
-  if (!onToggleWatch && !onExport && !onMoveToProject && !onSaveAsTemplate && !onMerge) return null;
-  // With the move, the template or the merge in it, the menu shows everywhere and these repeat header buttons on wider screens.
-  const headerToo = onMoveToProject || onSaveAsTemplate || onMerge ? 'sm:hidden' : '';
+  if (!onToggleWatch && !onExport && !onDuplicate && !onMoveToProject && !onSaveAsTemplate && !onMerge && !onArchive) return null;
+  // With the duplicate, the move, the template, the merge or the archive in it, the menu shows everywhere and these repeat header buttons on wider screens.
+  const headerToo = onDuplicate || onMoveToProject || onSaveAsTemplate || onMerge || onArchive ? 'sm:hidden' : '';
   const choose = (act: () => void) => {
     setOpen(false);
     trigger.current?.focus();
@@ -201,6 +217,7 @@ export function MoreActionsMenu({
           {onToggleWatch ? item(watching ? 'Stop watching' : 'Watch this task', onToggleWatch, <EyeIcon filled={watching} />, headerToo) : null}
           {onExport ? item('Export as Excel', () => void onExport('xlsx').catch(() => {}), <DownloadIcon />, headerToo) : null}
           {onExport ? item('Export as PDF', () => void onExport('pdf').catch(() => {}), <DownloadIcon />, headerToo) : null}
+          {onDuplicate ? item('Duplicate…', onDuplicate, <DuplicateIcon />) : null}
           {onMoveToProject ? (
             moveUnavailable ? (
               <button role="menuitem" type="button" aria-disabled="true" className={`${menuItemClass} cursor-default items-start text-ink-3 hover:bg-transparent`}>
@@ -232,6 +249,7 @@ export function MoreActionsMenu({
             )
           ) : null}
           {onSaveAsTemplate ? item('Save as template…', onSaveAsTemplate, <TemplateIcon />) : null}
+          {onArchive ? item('Archive', onArchive, <ArchiveIcon />) : null}
         </div>
       ) : null}
     </div>

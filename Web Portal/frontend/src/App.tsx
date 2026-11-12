@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, type ComponentType } from 'react';
 import { Routes, Route, Navigate, useLocation, useSearchParams } from 'react-router-dom';
 import { ProtectedRoute, returnPathFrom } from './features/auth/ProtectedRoute';
-import { AdminRoute } from './features/auth/AdminRoute';
+import { AdminRoute, AdminSettingsRoute } from './features/auth/AdminRoute';
 import { ClientRoute, HomeRedirect, StaffRoute } from './features/auth/RoleRoutes';
 import { landingPathFor } from './features/auth/client-routes';
 import { AppShell } from './components/AppShell';
@@ -30,6 +30,8 @@ const NotificationsPage = lazyPage(() => import('./pages/NotificationsPage'), 'N
 const ReportsPage = lazyPage(() => import('./pages/ReportsPage'), 'ReportsPage');
 const UsersPage = lazyPage(() => import('./pages/UsersPage'), 'UsersPage');
 const CompaniesPage = lazyPage(() => import('./pages/CompaniesPage'), 'CompaniesPage');
+// 1.24 Guest contacts: each company's list of guests (administrators).
+const GuestContactsPage = lazyPage(() => import('./pages/GuestContactsPage'), 'GuestContactsPage');
 const ClientsPage = lazyPage(() => import('./pages/ClientsPage'), 'ClientsPage');
 const SettingsPage = lazyPage(() => import('./pages/SettingsPage'), 'SettingsPage');
 const MyTasksPage = lazyPage(() => import('./pages/MyTasksPage'), 'MyTasksPage');
@@ -57,6 +59,8 @@ const ChatPage = lazy(loadWithRecovery(() => import('./pages/ChatPage').then((m)
 const ProfilePage = lazyPage(() => import('./pages/ProfilePage'), 'ProfilePage');
 const MicoAiPage = lazyPage(() => import('./pages/MicoAiPage'), 'MicoAiPage');
 const TemplatesPage = lazyPage(() => import('./pages/TemplatesPage'), 'TemplatesPage');
+const RecycleBinPage = lazyPage(() => import('./pages/RecycleBinPage'), 'RecycleBinPage');
+const ArchivedTasksPage = lazyPage(() => import('./pages/ArchivedTasksPage'), 'ArchivedTasksPage');
 // A client's read-only page for one shared project (no staff sign-in, no app shell).
 const ClientViewPage = lazyPage(() => import('./pages/ClientViewPage'), 'ClientViewPage');
 const AboutPage = lazyPage(() => import('./pages/AboutPage'), 'AboutPage');
@@ -195,6 +199,8 @@ export function App() {
             <Route path="/board" element={<BoardPage />} />
             <Route path="/projects" element={<ProjectsPage />} />
             <Route path="/projects/:id" element={<ProjectDetailPage />} />
+            {/* Task archive: a project's archived tasks (read-only; Unarchive for whoever runs it). */}
+            <Route path="/projects/:id/archived" element={<ArchivedTasksPage />} />
             <Route path="/my-tasks" element={<MyTasksPage />} />
             <Route path="/calendar" element={<CalendarPage />} />
             <Route path="/timeline" element={<TimelinePage />} />
@@ -208,6 +214,8 @@ export function App() {
             <Route path="/meetings/:id" element={<MeetingDetailPage />} />
             <Route path="/my-action-items" element={<MyActionItemsPage />} />
             <Route path="/templates" element={<TemplatesPage />} />
+            {/* Recycle Bin: admins and the people who run a project (the server decides what each one sees). */}
+            <Route path="/recycle-bin" element={<RecycleBinPage />} />
             <Route path="/chat" element={<ChatRoute />} />
             <Route path="/mico-ai" element={<MicoAiPage />} />
             <Route path="/activity" element={<ActivityPage />} />
@@ -227,6 +235,9 @@ export function App() {
             <Route path="/training/manage/courses/:id" element={<CourseEditorPage />} />
             <Route element={<AdminRoute />}>
               <Route path="/reports" element={<ReportsPage />} />
+            </Route>
+            {/* The Admin menu's pages — closed while Manager View is on (it says so, with Turn off). */}
+            <Route element={<AdminSettingsRoute />}>
               <Route path="/admin/settings" element={<SystemSettingsPage />} />
               <Route path="/admin/settings/notifications" element={<NotificationSchedulingPage />} />
               <Route path="/admin/settings/kpis" element={<KpiTargetsPage />} />
@@ -235,6 +246,7 @@ export function App() {
               <Route path="/admin/error-log" element={<ErrorLogPage />} />
               <Route path="/admin/users" element={<UsersPage />} />
               <Route path="/admin/companies" element={<CompaniesPage />} />
+              <Route path="/admin/guests" element={<GuestContactsPage />} />
               <Route path="/admin/clients" element={<ClientsPage />} />
             </Route>
           </Route>

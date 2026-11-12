@@ -22,16 +22,24 @@ import type { ChecklistAt, CLList, CLPerson } from '../lib/checklist-tree';
 import { todayKey } from '../lib/due-date';
 import { CommentsSection, type DrawerComment, type ReplyToComment } from './task-drawer/comments';
 import { ActivityTimeline, type DrawerActivity } from './task-drawer/activity';
+import { drawerGuests } from './task-drawer/guests';
+import { CategoriesBox } from './task-drawer/categories';
+import type { PickableCategory } from './task-form/category-picker';
 import { AttachmentsSection, type DrawerAttachment, type LoadOfficePreview, type SetFileClientVisible } from './task-drawer/attachments';
 import { DependenciesSection, type DrawerDependencies, type DrawerTaskRef } from './task-drawer/dependencies';
 import { ExportMenu, MoreActionsMenu, WatchButton } from './task-drawer/menus';
+import { DuplicateLinks } from './task-drawer/duplicate-links';
 import { ShortcutHint, useShortcut, useShortcutHint } from './shortcuts/ShortcutProvider';
 import { ConfirmDialog } from './ui/ConfirmDialog';
+import { DELETE_ASK, seriesDeleteAsk } from '../lib/recycle-bin';
 import type { StepDirection, TaskStepper } from '../lib/task-steps';
 import { TaskKey } from './TaskKey';
 import { mergedFromKeys } from '../lib/task-merge';
 import { StatusPill as SchemeStatusPill } from './ui/StatusPill';
 import { OVERDUE_CLASS } from '../lib/colour-classes';
+import { archivedBannerText } from '../lib/task-archive';
+import { ArchivedBadge } from './task-archive/ArchivedBadge';
+import { ArchivedBanner } from './task-archive/ArchivedBanner';
 
 /** A carried-forward day ('YYYY-MM-DD') in words — "20 Oct 2026" — as the rest of the panel writes days. */
 const carriedDay = (key: string) => dayText(key) || key;
@@ -137,6 +145,8 @@ export interface TaskDrawerProps {
   deleteBlocked?: string | null;
   /** Why they may not delete its entire series: "Entire series" is shown greyed out, saying so. */
   seriesDeleteBlocked?: string | null;
+  /** A repeating task: how many tasks its series has ("the entire series (12 tasks)"). */
+  seriesSize?: number | null;
   /** Whether the current user is watching (following) this task. */
   watching?: boolean;
   /** How many people watch this task. */
@@ -151,6 +161,8 @@ export interface TaskDrawerProps {
   project?: ProjectLook & { id: string; completionMode?: 'COUNT' | 'WEIGHT'; weightUrgent?: number; weightHigh?: number; weightNormal?: number; weightLow?: number };
   /** Move the task to another project (in “More actions”). */
   onMoveToProject?: () => void;
+  /** Duplicate Task: "Duplicate…" in the actions menu (a copy, reviewed in the New task form). */
+  onDuplicate?: () => void;
   /** Why it can't be moved now: the item is shown, unavailable, saying so. */
   moveUnavailable?: string | null;
   /** Save it as a task template (in “More actions”; whoever runs its project). */
@@ -169,8 +181,18 @@ export interface TaskDrawerProps {
   inspections?: ReactNode;
   /** The "Approval" section (needs approval; Approve / Send back while it waits) — first while it waits. */
   approval?: ReactNode;
-  /** The "External contacts" section (people outside the company responsible for the task), under its details. */
-  externalContacts?: ReactNode;
+  /**
+   * 1.24 Guests (people outside the company, for the record; shown under Assigned after the team):
+   * put one from the company's list on the task, take one off, change this task's note for one. Each
+   * rejects with the reason to show. Without them the guests are shown read-only.
+   */
+  onAddGuest?: (guestId: string) => Promise<void> | void;
+  onRemoveGuest?: (guestId: string) => Promise<void> | void;
+  onSetGuestNote?: (guestId: string, note: string | null) => Promise<void> | void;
+  /** 1.24 Categories: the project's list to pick from (null while it loads), whether it needs one, and saving the task's set. */
+  categoryChoices?: PickableCategory[] | null;
+  requireCategory?: boolean;
+  onSetCategories?: (categoryIds: string[]) => Promise<void> | void;
   /** Previous / Next through the list the task was opened from (none: no steps shown). */
   stepper?: TaskStepper;
   /** 1.23.1: merge it with other tasks (in “More actions”; administrators and its project's managers). */
@@ -186,6 +208,15 @@ export interface TaskDrawerProps {
   /** Checklist items and history lines that came with a merged task, by id ("From MICO-14"). */
   checklistFromKeys?: Record<string, string>;
   activityFromKeys?: Record<string, string>;
+  /**
+   * Task archive: "Archive" in More actions (administrators and the people who run its project; only for a
+   * task that isn't archived). An archived task's panel is read-only: the container passes no editing actions.
+   */
+  onArchive?: () => void;
+  /** Task archive: Unarchive on an archived task's banner (the same people); rejects with the reason to show. */
+  onUnarchive?: () => Promise<void> | void;
+  /** Task archive: who archived it, for the banner ("Archived on 3 Nov by Ali — read-only"). */
+  archivedByName?: string | null;
   onClose: () => void;
 }
 
@@ -370,6 +401,7 @@ export function TaskDrawer({
   onDelete,
   deleteBlocked,
   seriesDeleteBlocked,
+  seriesSize = null,
   watching,
   watcherCount,
   onToggleWatch,
@@ -377,13 +409,19 @@ export function TaskDrawer({
   onEdit,
   project,
   onMoveToProject,
+  onDuplicate,
   moveUnavailable,
   onSaveAsTemplate,
   onSetClientVisible,
   onSetClientDescription,
   inspections,
   approval,
-  externalContacts,
+  onAddGuest,
+  onRemoveGuest,
+  onSetGuestNote,
+  categoryChoices,
+  requireCategory = false,
+  onSetCategories,
   stepper,
   onMerge,
   mergeUnavailable,
@@ -392,6 +430,9 @@ export function TaskDrawer({
   mergeNotice,
   checklistFromKeys,
   activityFromKeys,
+  onArchive,
+  onUnarchive,
+  archivedByName,
   onClose,
 }: TaskDrawerProps) {
   // Escape / focus trapping live in TaskDrawerContainer, so they also work while loading or on errors.
@@ -441,6 +482,8 @@ export function TaskDrawer({
 
   // Calendar-day rule in the company zone; a finished task is never overdue, nor one waiting for approval.
   const overdue = isTaskLate(task, timeZone);
+  // Task archive: an archived task's banner (when, by whom, read-only).
+  const archivedText = task.archivedAt ? archivedBannerText(task, archivedByName, timeZone) : '';
   const dueText = formatDueDay(task.dueDate, timeZone);
   const carried = task.carryForwardLog && task.carryForwardLog.length > 0 ? task.carryForwardLog : null;
 
@@ -449,6 +492,10 @@ export function TaskDrawer({
   // the checklist and comments, which come first.
   const phone = useMediaQuery(PHONE_QUERY);
   const former = mergedFromKeys(task).former;
+  // 1.24: its guests (in full from the task, else a list row's short ones) and its categories.
+  const guests = useMemo(() => drawerGuests(task), [task.taskGuests, task.guests]);
+  const categories = task.categories;
+  const showCategories = categories !== undefined && (categories.length > 0 || (categoryChoices?.length ?? 0) > 0 || requireCategory);
   // The checklists: the panel's own changes, then everything else the container offers.
   // Only a new list from the server is new items (a tick waiting for the server stays while the panel redraws).
   const checklistItems = useMemo(
@@ -507,6 +554,7 @@ export function TaskDrawer({
               </span>
             ) : null}
             <StatusPill category={task.columnCategory} />
+            {task.archivedAt ? <ArchivedBadge title={archivedText} /> : null}
             {task.clientAcceptedAt ? <ClientAcceptedMark at={task.clientAcceptedAt} timeZone={timeZone} /> : null}
             <PriorityBadge priority={task.priority} />
             {task.isMilestone ? (
@@ -594,12 +642,14 @@ export function TaskDrawer({
               watching={watching}
               onToggleWatch={onToggleWatch}
               onExport={onExport}
+              onDuplicate={onDuplicate}
               onMoveToProject={onMoveToProject}
               moveUnavailable={moveUnavailable}
               onSaveAsTemplate={onSaveAsTemplate}
               onMerge={onMerge}
               mergeUnavailable={mergeUnavailable}
-              className={onMoveToProject || onSaveAsTemplate || onMerge ? '' : 'sm:hidden'}
+              onArchive={task.archivedAt ? undefined : onArchive}
+              className={onDuplicate || onMoveToProject || onSaveAsTemplate || onMerge || (onArchive && !task.archivedAt) ? '' : 'sm:hidden'}
             />
             <button
               type="button"
@@ -617,9 +667,11 @@ export function TaskDrawer({
         <div className="mt-2">
           <InlineTitle title={task.title} onSave={saveField ? (title) => saveField({ title }) : undefined} />
         </div>
-        {inSeries || carried || task.meeting ? (
+        {inSeries || carried || task.meeting || task.duplicatedFrom || task.copies?.length ? (
           <div className="mt-2 flex flex-wrap gap-1.5">
             {task.meeting ? <MeetingLink meeting={task.meeting} timeZone={timeZone} /> : null}
+            {/* Duplicate Task: the task it was copied from, and its copies (only those the reader may open). */}
+            <DuplicateLinks from={task.duplicatedFrom} copies={task.copies} />
             {task.recurrenceRule ? (
               <span className="inline-flex items-center gap-1 rounded-full bg-brand/10 px-2 py-0.5 text-xs font-medium text-brand">{Icon.repeat}{recurrenceSummary(task.recurrenceRule)}</span>
             ) : inSeries ? (
@@ -638,6 +690,7 @@ export function TaskDrawer({
         {/* The top space is a spacer, not padding: the comments' write box sticks flush under the header
             (a scroller's top padding would leave a strip where the comments show through above it). */}
         <div aria-hidden="true" className="h-4 sm:h-5" />
+        {task.archivedAt ? <ArchivedBanner text={archivedText} onUnarchive={onUnarchive} /> : null}
         {mergeNotice ? (
           <p role="status" className="mb-4 rounded-lg bg-info-soft px-3 py-2 text-sm text-info">
             {mergeNotice}
@@ -687,9 +740,12 @@ export function TaskDrawer({
               scope={scope}
               onScope={setScope}
               weightDefaults={countsByWeight(project) ? projectWeights(project) : null}
+              guests={guests}
+              onAddGuest={onAddGuest}
+              onRemoveGuest={onRemoveGuest}
+              onSetGuestNote={onSetGuestNote}
             />
-            {/* Apart from the assignees above: the people outside the company responsible for it. */}
-            {externalContacts}
+            {showCategories ? <CategoriesBox categories={categories ?? []} choices={categoryChoices} requireCategory={requireCategory} onSave={onSetCategories} /> : null}
             {phone ? null : sideParts}
           </div>
           <div className="min-w-0 lg:col-start-1 lg:row-start-2">
@@ -724,9 +780,10 @@ export function TaskDrawer({
             // 1.23.2 (owner): at the right of the bottom bar, where Delete task is.
             <div role="group" aria-label="Confirm delete" className="flex flex-wrap items-center justify-end gap-2">
               {/* On a phone the question takes its own line, so the buttons stay together under it. */}
-              <span className="text-right text-sm text-ink max-sm:basis-full">{inSeries ? 'This is a recurring task — delete which?' : 'Delete this task? This can’t be undone.'}</span>
+              {/* Recycle Bin: nothing is lost at once — it can be restored for 60 days (Undo right after). */}
+              <span className="text-right text-sm text-ink max-sm:basis-full">{inSeries ? seriesDeleteAsk(seriesSize) : DELETE_ASK}</span>
               <button type="button" onClick={() => onDelete()} className="h-9 rounded-lg bg-danger px-3 text-xs font-semibold text-white transition-colors hover:brightness-95 sm:h-8 [@media(pointer:coarse)]:h-11">
-                {inSeries ? 'This occurrence' : 'Delete'}
+                {inSeries ? 'This copy' : 'Delete'}
               </button>
               {inSeries ? (
                 <button
@@ -739,7 +796,7 @@ export function TaskDrawer({
                   title={seriesDeleteBlocked ?? undefined}
                   className="h-9 rounded-lg bg-danger px-3 text-xs font-semibold text-white transition-colors hover:brightness-95 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:hover:brightness-100 sm:h-8 [@media(pointer:coarse)]:h-11"
                 >
-                  Entire series
+                  {seriesSize && seriesSize > 1 ? `Entire series (${seriesSize})` : 'Entire series'}
                 </button>
               ) : null}
               <button ref={keepRef} type="button" onClick={() => setConfirmingDelete(false)} className="h-9 rounded-lg px-3 text-xs font-medium text-ink-2 transition-colors hover:bg-ground sm:h-8 [@media(pointer:coarse)]:h-11">

@@ -51,6 +51,11 @@ export interface ProjectHealthDetail {
   risks: (Omit<Risk, 'accountable' | 'taskIds'> & { accountable: Person[]; tasks: { id: string; key: string; title: string }[] })[];
   /** Accountable owners: the project owner, its managers, and each open milestone's owners. */
   owners: { owner: Person | null; managers: Person[]; milestones: { id: string; key: string; title: string; due: string | null; owners: Person[] }[] };
+  /**
+   * Its open tasks, and how many of them are overdue (open, not waiting for approval, due before today) —
+   * the Management page's figures (added for the Kanban board's project strip, 10 Nov; an older server leaves it out).
+   */
+  counts: { open: number; overdue: number };
   generatedAt: string;
 }
 
@@ -190,6 +195,7 @@ export function createProjectHealthService(deps: ProjectHealthDeps) {
           managers: named(managerIds),
           milestones: x.milestones.map((m) => ({ id: m.id, key: m.key, title: m.title, due: m.due, owners: named(m.ownerIds) })),
         },
+        counts: { open: e.row.open, overdue: e.row.late },
         generatedAt: new Date(e.at).toISOString(),
       };
     },

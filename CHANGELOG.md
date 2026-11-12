@@ -15,6 +15,61 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 ## [Unreleased]
 
 ### New features
+- Guests on tasks: people outside the company — a client's engineer, a supplier's site lead — can be named
+  on a task for the record. The Assign box (New task, Edit task and the task panel) has a switch
+  **Internal user | Guest**: pick a guest from your company's list, or add a new one (name required;
+  company, designation, email and phone if you have them). If the same person is already on the list, the
+  form says so ("Ahmed Al Harthy (OXY) is already on the list — use them?"). A task can have several team
+  members and several guests, and always needs at least one person from your team, who looks after it.
+  Guests never sign in, never get emails or notices, take no licence and are never shown to clients.
+- Guests show on the task's right side under Assigned (with a Guest badge; their phone and email with a
+  Copy button, and a note for this task), on cards and rows ("Guest: Ahmed (OXY)"), in the Table view's
+  Guests column, in the task PDF and Excel, in the report's task list, and in the daily email of the person
+  looking after the task ("with guest Ahmed (OXY)"). Filter by **Guest** and **Guest company** on the
+  board, My Tasks, the project's Tasks tab, the Table view and Search results.
+- Today's external contacts become guests on your company's list by themselves (the same person on several
+  tasks becomes one guest; other details found are kept in the guest's notes). An open task that had
+  contacts and nobody from the team gets its creator as the person responsible.
+- Admin → Guest contacts: search your company's guest list, change a guest's details (every task shows
+  them), retire a guest (kept on old tasks, not offered any more), merge duplicates into one, or remove a
+  guest who is on no task.
+- Task categories: each project has its own categories (a name and one of 12 colours), set up by admins and
+  the project's managers in Edit project → Categories (add, rename, recolour, reorder, retire). A task can
+  have several; the project can ask that **every task needs a category**. Categories show as coloured
+  chips on cards, rows and the Table view (Compact 1, Comfortable 2, Detailed all), in the task panel, the
+  task PDF, Excel, the report and the daily email, with a **Category** filter on the board, My Tasks, the
+  Tasks tab, the Table view and Search results — and searching "category:Electrical" finds them too. The
+  project's Overview shows its open tasks **By category**. Tags stay as they are.
+- Task archive: a task you no longer need on the boards can be archived ("Archive" in the task's ⋯ menu, for
+  administrators and the people who run its project). It leaves every board, list, My Tasks, the calendar,
+  the Timeline, Workload, dashboards, reminders and the daily email, and is read-only, but nothing is lost:
+  search still finds it (marked "Archived"), its panel says "Archived on 3 Nov by Ali — read-only" with
+  Unarchive, and the project page's "Archived tasks" lists them for anyone on the project. Archiving shows
+  "RIG-12 archived · Undo" for a few seconds. A finished task you archive still counts as done in every
+  figure (completion %, health, Management, the client's page), so archiving finished work never lowers a %;
+  an unfinished one leaves the figures until it is unarchived.
+- Reports: a finished task you archive still counts as done in every chart, tile and export (so archiving
+  never lowers a %). "Include archived" (off by default) also counts the unfinished archived tasks and lists
+  every archived task in the exports, marked "Archived".
+- A repeating task whose newest copy is archived keeps going: its future days still show on the calendar and
+  its schedule on the project's Inspections tab.
+- Change many tasks at once: tick tasks on My Tasks (Grid, List and Table), a project's Tasks tab, any Table
+  view, or on the Kanban board after pressing **Select** (a box on each card and on each column; Shift-click
+  ticks a range; Escape leaves). "Select all 143 matching" ticks every task the filters leave, and ticked
+  tasks stay ticked when the filters change ("12 selected (3 hidden by filters)"). The bar at the foot of the
+  window (a sheet on a phone) changes their status, priority, people (assign, reassign, unassign), due date
+  (set, clear, or move by days), project, categories and guests, duplicates them, archives or unarchives them,
+  moves them to the Recycle Bin or merges them — up to 500 tasks at a time (20 for Duplicate). Each change is
+  confirmed first ("Move 12 tasks to Done? 2 will be skipped: you can’t move tasks in Rig 3."), then summed up
+  ("18 updated · 2 not changed", the skipped ones listed with why, "Select the 2 skipped" to try again) with
+  Undo for 15 seconds.
+- Everyone can use bulk changes, and each task is changed only as its own rules allow — who may see it,
+  its project's team, approvals (a task that needs approval moved to Done waits for approval), the delete
+  rule, archive and the guests rule (a task with guests always keeps someone from the team); a task you
+  can't open is never named. Undo puts back only what nobody changed since, gives a moved task its old
+  number back, and erases copies made by Duplicate at once. The people on the tasks get one notice for the
+  whole change ("Sara assigned you 12 tasks in Rig 3"), open boards refresh once, and the Audit log keeps
+  one line for it.
 - **Notification & Scheduling** (System Settings → Notification & Scheduling, per company): one place for
   working time (days, hours, week start; the site's time zone shown), holidays, reminders, escalations,
   inactivity, quiet hours and channels, with "Preview for a person" showing what someone would get this
@@ -145,6 +200,16 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   administrator powers).
 
 ### Improvements
+- Moving a task to another project keeps the categories that project has by name and says which it drops;
+  a guest of another company is copied onto the new project's company list. Merging tasks keeps every
+  category and each guest once (Undo gives them back); repeating copies keep both; "Save as template"
+  keeps a project's categories, and a project made from that template starts with them.
+- The task history says "assigned guest Ahmed (OXY)", "removed guest …", "added category Electrical".
+- Search this board also finds a card by its guests (name or company) and its categories. Duplicate copies
+  a task's guests (with their notes for the task) and its categories, never retired ones.
+- A task in the Recycle Bin keeps its guests and categories: its categories count as in use (they can be
+  retired, not deleted) and its guests stay on the list until it is erased; its read-only view shows both
+  (its history words them as the task panel does), and Restore brings them back as they were.
 - The Android app (unchanged) still moves only a task's due date on its calendar; the website's calendar now
   moves start and due together.
 - Quiet hours (outside working hours and on days off, unless changed): the bell still fills, but phone
@@ -158,6 +223,10 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   upgrade nobody gets a burst of reminders for what was already due.
 - The dashboard shows "Overdue learning" when a course assigned to you is past its due day.
 
+### Bug fixes
+- Recycle Bin: a deleted task's details can be scrolled with the keyboard too (on a phone they scroll and
+  have no buttons of their own).
+
 ### Security
 - Training files (documents, downloads, step pictures, signatures) are kept in a private folder, never at
   the public uploads address, and are sent only to people who may see the course (they are in backups).
@@ -165,6 +234,128 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   you pass or have no attempts left.
 - The site's security policy allows exactly YouTube's privacy-enhanced player and Vimeo's player to show
   lesson videos (no other site, no outside scripts).
+
+## [1.23.19] - 2026-11-11
+
+### New features
+- Recycle Bin: a deleted task is no longer gone at once. It goes to the Recycle Bin (side menu, for
+  administrators and the people who run a project) and can be restored for 60 days with everything it had —
+  details, people, contacts, followers, tags, comments and replies, files, checklists, blockers and history.
+  The bin shows who deleted each task, when, and the days left before it is erased ("12 days left", amber at
+  7 or less, red at 2 or less, "Erased tonight" on its last day); search by number, title or description;
+  filter by project, who deleted it, the days it was deleted, "7 days or less left" and (with several
+  companies) company; sort by days left or by when it was deleted; select several to restore together.
+  Administrators see every deleted task and may also delete one forever; the people who run a project see
+  and restore that project's deleted tasks. A project's page has "Deleted tasks", the bin filtered to it.
+- Delete asks first — "Move to the Recycle Bin? You (or an admin) can restore it for 60 days." (a repeating
+  task: this copy, or the entire series with how many tasks it has) — and offers Undo for a few seconds.
+  A series deleted as a whole comes back as a whole (or just one copy, if you choose).
+- Opening a deleted task (an old notification, an email link) shows it read-only under "In the Recycle Bin —
+  deleted by Ali on 3 Nov · 53 days left" with Restore, for the people who may restore it; anyone else on the
+  project sees "This task was deleted".
+- After its 60 days a task is erased for good, with its files; the Audit log keeps a line saying which task
+  was erased and when. Inspections carried out for it are kept and still say which task they were for, and
+  its number is never given to another task. Tasks deleted before this version get a full 60 days from the
+  upgrade ("Deleted by: Unknown", as it was never recorded).
+
+### Improvements
+- A task's history and the Activity page say who moved a task to the Recycle Bin and who restored it; every
+  delete, restore and erase is in the Audit log.
+- Restoring a task whose board column was deleted meanwhile puts it in the project's first column of the same
+  kind; a task of an archived project waits until the project is unarchived. Undo of a task MICO AI has just
+  made removes it at once (it never goes to the Recycle Bin).
+
+## [1.23.18] - 2026-11-11
+
+### New features
+- MICO AI's answers appear as they are written: on MICO360 AI the words show on the page while the model
+  writes them (bold and lists as the finished answer has them), and the finished answer then replaces them.
+  Stop still stops it at once.
+- Scanned files are read whole on MICO360 AI: every page of a scanned PDF (black-and-white scanner PDFs
+  too, which could not be read before) and pictures go to MICO360 AI's document reader, which turns pages
+  upright first and reads them in Arabic or English when the task's words say which. Scans that could not
+  be read before are read again by themselves. If the key may not read documents, scans are read as
+  pictures as before, and AI Management says why and what to allow.
+- AI Management shows more about MICO360 AI on its card: the version of MICO360 Connect it runs, how many
+  requests its key may run at once, a note when no AI node offers reading documents, pictures or meaning
+  search, a note when scans were read as pictures, and which models stood in for others. Test now says
+  which model answered.
+
+### Improvements
+- MICO360 AI's answers to Describe a task, Describe a meeting, Suggest priority, Draft agenda, the Final
+  MOM and MICO AI are held to the exact form Tasks reads, so fewer answers come back unreadable. If the
+  MICO360 Connect doesn't accept that, or an answer doesn't come back in that form, Tasks asks once more
+  the way it did before, and keeps asking that way for a day (or until the models are next refreshed);
+  AI Management's card says so.
+- Tasks keeps within MICO360 AI's limit on how many requests a key may run at once — one budget for every
+  AI feature together — so busy moments wait their turn instead of being refused.
+- Work in the background is never done twice on MICO360 AI: when the Final MOM, a MICO AI answer or a scan
+  is tried again, the platform answers from the first try's work; and an answer the platform finished after
+  its 5-minute wait is collected instead of asked for again.
+- The first AI search of the day waits for MICO360 AI to load its model (up to 90 seconds, instead of
+  giving up after 20), and opening search starts loading it.
+- "Automatic" picks MICO360 AI's models by what they are, no longer preferring one only because it
+  appeared in the platform's list later.
+- Clearer words when MICO360 AI refuses: a key it doesn't accept, a key not allowed to do something (and
+  where to allow it), or a model that failed while answering.
+- The Error log shows MICO360 AI's correlation and job ids for an AI failure, to look up in MICO360 Connect
+  or quote to its support. Each request also tells MICO360 AI which Tasks user it is for (MICO360 Connect
+  keeps only a pseudonym).
+
+## [1.23.17] - 2026-11-11
+
+### New features
+- Duplicate a task: "Duplicate…" in the task's ⋯ menu (task panel and board cards) and beside Open in
+  every Table view. The New task form opens filled in from it — title, description, project, assignees,
+  priority, dates, tags, checklists (every item unticked, sub-items kept), external contacts, the
+  inspection form and place, milestone, weight, estimate and watchers — titled "Duplicate of MSSP-34", so
+  you can change anything (or pick another project) before saving. "Copy files (3)" is ticked unless you
+  untick it; a file that can't be copied is named ("2 of 3 files copied — “x.dwg” couldn’t be copied") and
+  the task is still made. The copy gets its own new number and starts in To do; comments, history,
+  completion, approvals and the repeat are never copied. The copy shows "Duplicated from MSSP-34" and the
+  original lists its copies (only the ones you can open), and both histories say so. Duplicating needs
+  the internet connection.
+- Tasks for the future: the New and Edit task form has a Start date. A task that starts on a later day
+  waits until then — it is on that day's board, not today's, and the form says "Scheduled for 20 Nov".
+  Until its day it is under "Upcoming" in My Tasks and in the project's task list, and out of today's
+  lists, the Open and Overdue counts, My Priorities and the due-date reminders; the calendar, the Timeline,
+  Workload and the daily email's new "Coming up" part still show it. On its start day it is like any task.
+  The people on it are told when it is assigned ("You were assigned a task — starts 20 Nov") and again the
+  morning it starts ("A task starts today", once). This works for tasks made on the website, the Android
+  app, the Chrome extension, with MICO AI, from meeting notes and from a project template that starts later.
+  Moving a not-started task's start date to a later day moves it to that day; a task already under way
+  stays where it is; moving the start to today puts it back on today's board. Existing tasks aren't moved.
+- Manager View, for administrators: a switch in your account menu (saved on your account) that hides
+  the settings while you look at the work as a manager does. While it is on, a "Manager View" badge shows
+  in the top bar; the Admin menu (User Management, Clients, Companies, AI Management, System Settings,
+  Error Log, Audit Logs) is gone, and opening one of its pages by its address says "Manager View is on —
+  turn it off to open this page" with a Turn off button; a project's settings (its details, picture,
+  columns, team, client links, archive) open only for the projects you run; the dashboard's default for
+  everyone and the Workload daily limit can't be changed. Everything else stays as an administrator's:
+  every project's tasks, boards and meetings, Reports, Management and your own settings. The server keeps
+  to it too — for the website, the Android app and the Chrome extension alike. Turning it off gives
+  everything back at once (no signing out), and it can always be turned off. Each switch is recorded in
+  the audit log.
+
+### Bug fixes
+- A tab left open on an older version no longer shows an error when a newer tab updates your profile details.
+- A board card's ⋯ menu near the bottom of the screen (on a phone, or low in a long column) opens above the
+  card, so all of its items can be reached.
+
+## [1.23.16] - 2026-11-11
+
+### New features
+- Search on the Kanban board: a search box at the top of the board (one project, All projects and a
+  project's Board tab) shows only the matching cards as you type — by task number (MICO-12, mico 12 or
+  just 12), title, description, person, project or tag, Arabic in any spelling. The words found are
+  marked on each card, each column says how many of its cards match ("3 of 12"), and ✕ or Escape clears
+  it ("/" jumps to it). It works with the company filter, Day and Month and the Table view, cards can
+  still be dragged to another column, and the words stay in the page's link. When nothing matches,
+  "Search all tasks" opens the full search with the same words.
+- Project details on the Kanban board: with one project chosen, a slim line above the columns shows its
+  picture, name and number, client, project manager, dates with the days left (or late), health, progress,
+  open and overdue tasks, and "Open project". Fold it away with its arrow (remembered); on a phone it shows
+  the short version with "Details".
 
 ## [1.23.15] - 2026-11-11
 

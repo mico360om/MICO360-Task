@@ -3,7 +3,8 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { tasksApi, type AssigneeChoice, type BulkMoveResult, type MoveInput, type MoveResult, type MoveTargets } from '../api/tasks';
 import { ApiError } from '../lib/api-client';
-import { assigneeChoiceLabels, bulkMoveAvailability, bulkMovedText, moveAvailability, moveChanges, notOnTeamText } from '../lib/task-move';
+import { assigneeChoiceLabels, bulkMoveAvailability, bulkMovedText, moveAvailability, notOnTeamText } from '../lib/task-move';
+import { moveChangesWithExtras } from '../lib/task-move-extra';
 import { statusMeta } from '../lib/taskStatus';
 import { todayKey } from '../lib/due-date';
 import { useCompanyTimeZone } from '../lib/company-clock';
@@ -35,6 +36,12 @@ export interface MoveTaskDialogProps {
    * dialog stays open listing the ones that couldn't be moved, until Done.
    */
   onBulkMoved?: (result: BulkMoveResult, projectName: string) => void;
+  /**
+   * Bulk changes (the bulk bar's Project): the caller applies the move (POST /tasks/bulk, so it gets the
+   * summary and Undo) — for one task or several, the skipped ones listed in the summary. A refusal is
+   * shown here and the dialog stays open; on success the caller closes it.
+   */
+  onApply?: (input: MoveInput) => Promise<void>;
 }
 
 /** Where the signed-in person may move tasks (shared with the menus that offer moving). */
@@ -60,7 +67,7 @@ const radioClass = 'h-4 w-4 flex-none accent-brand';
  * change, and answer for people assigned who aren't on the new team — that answer is required.
  * One dialog for one task or many.
  */
-export function MoveTaskDialog({ tasks, onClose, onMoved, onBulkMoved }: MoveTaskDialogProps) {
+export function MoveTaskDialog({ tasks, onClose, onMoved, onBulkMoved, onApply }: MoveTaskDialogProps) {
   const single = tasks.length === 1;
   const ids = useMemo(() => tasks.map((t) => t.id), [tasks]);
   const today = todayKey(useCompanyTimeZone());
@@ -108,7 +115,7 @@ export function MoveTaskDialog({ tasks, onClose, onMoved, onBulkMoved }: MoveTas
   const suggested = single ? (movable[0]?.columnId ?? '') : '';
   const chosenColumn = columnId || suggested;
   // What will change, for the column chosen (one task: the suggestion until another is picked).
-  const changes = preview ? moveChanges(preview, today, single ? chosenColumn : columnId) : [];
+  const changes = preview ? moveChangesWithExtras(preview, today, single ? chosenColumn : columnId) : [];
 
   const moveOne = useMutation({
     mutationFn: (input: MoveInput) => tasksApi(apiClient).moveToProject(ids[0]!, input),
@@ -130,7 +137,11 @@ export function MoveTaskDialog({ tasks, onClose, onMoved, onBulkMoved }: MoveTas
     },
     onError: (e) => setError(failureText(e, 'Couldn’t move the tasks.')),
   });
-  const busy = moveOne.isPending || moveMany.isPending;
+  const applyMut = useMutation({
+    mutationFn: (input: MoveInput) => onApply!(input),
+    onError: (e) => setError(failureText(e, single ? 'Couldn’t move the task.' : 'Couldn’t move the tasks.')),
+  });
+  const busy = moveOne.isPending || moveMany.isPending || applyMut.isPending;
   busyRef.current = busy;
 
   // The results replace the form (and its focused button): keep keyboard focus in the dialog.
@@ -160,7 +171,8 @@ export function MoveTaskDialog({ tasks, onClose, onMoved, onBulkMoved }: MoveTas
       ...(chosenColumn ? { columnId: chosenColumn } : {}),
       ...(outsiders.length > 0 && choice ? { assignees: choice } : {}),
     };
-    if (single) moveOne.mutate(input);
+    if (onApply) applyMut.mutate(input);
+    else if (single) moveOne.mutate(input);
     else moveMany.mutate(input);
   }
 

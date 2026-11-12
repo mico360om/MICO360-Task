@@ -3,6 +3,7 @@ import { ARCHIVE_SELECT, archivedOf } from '../companies/project-archive';
 import type { ProjectStatus } from '../management/management-rules';
 import { weightDefaultsOf, type CompletionMode } from './completion';
 import type { AttentionTask, HealthSource, LinkedTask } from './health-source';
+import { COUNTED_TASK, countedSql, NOT_ARCHIVED, notArchivedSql } from '../tasks/task-archive-where';
 
 /**
  * 1.23.5 Project overview & health over the database: a fixed number of reads for a whole list of
@@ -19,13 +20,14 @@ const nameOf = (u: { firstName: string | null; lastName: string | null; username
 const DONE = Prisma.sql`(c.category = 'DONE' OR t.completedAt IS NOT NULL)`;
 /** A task's weight: its own, else its project's (`p`) default for its priority. */
 const WEIGHT = Prisma.sql`COALESCE(t.weight, CASE t.priority WHEN 'URGENT' THEN p.weightUrgent WHEN 'HIGH' THEN p.weightHigh WHEN 'LOW' THEN p.weightLow ELSE p.weightNormal END)`;
-/** Open and not waiting for approval (a task handed in is no work in hand). */
-const OPEN_IN_HAND: Prisma.TaskWhereInput = { deletedAt: null, completedAt: null, approvalRequestedAt: null, column: { category: { not: 'DONE' } } };
+/** Open and not waiting for approval (a task handed in is no work in hand) — never archived (task archive). */
+const OPEN_IN_HAND: Prisma.TaskWhereInput = { deletedAt: null, ...NOT_ARCHIVED, completedAt: null, approvalRequestedAt: null, column: { category: { not: 'DONE' } } };
 const MOVES = ['MOVED', 'REOPENED', 'SENT_BACK'];
 
-const linkedSelect = { id: true, key: true, projectId: true, dueDate: true, deletedAt: true, completedAt: true, column: { select: { category: true } } } as const;
+const linkedSelect = { id: true, key: true, projectId: true, dueDate: true, deletedAt: true, archivedAt: true, completedAt: true, column: { select: { category: true } } } as const;
 type Linked = Prisma.TaskGetPayload<{ select: typeof linkedSelect }>;
-const linked = (t: Linked): LinkedTask => ({ id: t.id, key: t.key, projectId: t.projectId, dueDate: t.dueDate, open: !t.completedAt && t.column.category !== 'DONE' });
+// Task archive: an archived task is never open work — an archived open blocker no longer blocks.
+const linked = (t: Linked): LinkedTask => ({ id: t.id, key: t.key, projectId: t.projectId, dueDate: t.dueDate, open: !t.archivedAt && !t.completedAt && t.column.category !== 'DONE' });
 
 /** Every statement the health extras send, in one place (the sources use them; the start-up check sends each once). */
 export function healthReads(prisma: PrismaClient) {
@@ -68,7 +70,7 @@ export function healthReads(prisma: PrismaClient) {
                CAST(SUM(CASE WHEN ${DONE} THEN ${WEIGHT} ELSE 0 END) AS SIGNED) AS weightDone,
                MAX(t.updatedAt) AS lastTaskUpdate
           FROM tasks t JOIN kanban_columns c ON c.id = t.columnId JOIN projects p ON p.id = t.projectId
-         WHERE t.deletedAt IS NULL AND t.projectId IN (${inList(ids)})
+         WHERE t.deletedAt IS NULL AND ${countedSql('t', 'c')} AND t.projectId IN (${inList(ids)})
          GROUP BY t.projectId`;
     },
     openTotals(ids: string[]) {
@@ -79,7 +81,7 @@ export function healthReads(prisma: PrismaClient) {
         SELECT t.projectId AS projectId, a.userId AS userId, COUNT(*) AS n
           FROM tasks t JOIN kanban_columns c ON c.id = t.columnId
           JOIN task_assignees a ON a.taskId = t.id JOIN users u ON u.id = a.userId
-         WHERE t.deletedAt IS NULL AND t.completedAt IS NULL AND c.category <> 'DONE' AND t.approvalRequestedAt IS NULL
+         WHERE t.deletedAt IS NULL AND ${notArchivedSql('t')} AND t.completedAt IS NULL AND c.category <> 'DONE' AND t.approvalRequestedAt IS NULL
            AND u.deletedAt IS NULL AND t.projectId IN (${inList(ids)})
          GROUP BY t.projectId, a.userId`;
     },
@@ -88,6 +90,7 @@ export function healthReads(prisma: PrismaClient) {
         where: {
           projectId: { in: ids },
           deletedAt: null,
+          ...NOT_ARCHIVED,
           completedAt: null,
           column: { category: { not: 'DONE' } },
           OR: [
@@ -133,9 +136,10 @@ export function healthReads(prisma: PrismaClient) {
     },
     dueGroups(ids: string[], dueBefore: Date) {
       const live = { projectId: { in: ids }, deletedAt: null, dueDate: { not: null, lt: dueBefore } } satisfies Prisma.TaskWhereInput;
+      // Task archive: the totals keep an archived Done task (it was done on time or not); the open ones never an archived task.
       return Promise.all([
-        prisma.task.groupBy({ by: ['projectId', 'dueDate'], where: live, _count: { _all: true } }),
-        prisma.task.groupBy({ by: ['projectId', 'dueDate'], where: { ...live, completedAt: null, column: { category: { not: 'DONE' } } }, _count: { _all: true } }),
+        prisma.task.groupBy({ by: ['projectId', 'dueDate'], where: { ...live, ...COUNTED_TASK }, _count: { _all: true } }),
+        prisma.task.groupBy({ by: ['projectId', 'dueDate'], where: { ...live, ...NOT_ARCHIVED, completedAt: null, column: { category: { not: 'DONE' } } }, _count: { _all: true } }),
       ]);
     },
     people(ids: string[]) {

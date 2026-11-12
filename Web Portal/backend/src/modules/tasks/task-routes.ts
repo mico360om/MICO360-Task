@@ -1,10 +1,11 @@
 import { z } from 'zod';
 import { WEIGHT_MAX, WEIGHT_MIN } from '../project-health/completion';
 import { checklistTreeSchema } from './checklist-tree-schema';
-import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { NotFoundError } from '../../lib/http-errors';
 import type { TaskService } from './task-service';
 import type { CarryForwardService } from './carry-forward-service';
-import { normalizeTagNames, type TagService } from './tag-service';
+import type { TagService } from './tag-service';
 import type { AssigneeService } from './assignee-service';
 import type { AuthGuard } from '../auth/auth-guard';
 import { filterAndSortTasks, SORT_FIELDS, type TaskFilterCriteria } from './task-filter';
@@ -15,12 +16,14 @@ import { shownBySpan } from '../calendar/calendar-span';
 import { dueDayKey, shiftDayKey, todayKey } from '../../lib/due-date';
 import type { TaskRecord } from './task-repository';
 import type { ApprovalViewer, TaskApprovalDetails } from './task-approval-routes';
-import { checkNewTaskContacts } from './external-contact-service';
+import { createNewTask, type NewTaskPipeline } from './task-create';
 import { externalContactSchema } from './external-contact-routes';
 import { DELETE_NOT_ALLOWED, DELETE_NOT_ALLOWED_CODE, DELETE_SERIES_NOT_ALLOWED, mayDeleteSeries, mayDeleteTask } from './task-delete-rule';
 import { NO_PICK, type PickOf } from '../companies/company-pick';
 import { isMonthKey } from './board-month';
 import { inMonth, monthWindow } from './month-list';
+import type { GuestService } from '../guests/guest-service';
+import type { CategoryService } from '../categories/category-service';
 
 const priorityEnum = z.enum(['LOW', 'NORMAL', 'HIGH', 'URGENT']);
 
@@ -44,6 +47,12 @@ const listQuerySchema = z.object({
   overdue: queryBoolean.optional(),
   /** Only tasks with an external contact from this company (case and extra spaces aside). */
   externalCompany: z.string().max(120).optional(),
+  /** 1.24: only tasks with one of these guests (ids, comma-separated). */
+  guestId: z.string().max(2000).optional(),
+  /** 1.24: only tasks with a guest from this company. */
+  guestCompany: z.string().max(120).optional(),
+  /** 1.24: only tasks with one of these task categories (ids, comma-separated). `category` is a column stage. */
+  categoryId: z.string().max(2000).optional(),
   boardDate: calendarDay.optional(),
   /** Month view (YYYY-MM): only the tasks that show in that month (board-month.ts); meta says how many have no dates. */
   month: z.string().refine(isMonthKey, { message: 'Expected a month (YYYY-MM).' }).optional(),
@@ -54,6 +63,11 @@ const listQuerySchema = z.object({
   /** Optional paging over the filtered, sorted list. */
   limit: z.coerce.number().int().min(1).max(1000).optional(),
   offset: z.coerce.number().int().min(0).optional(),
+  /**
+   * Task archive: `only` = a project's "Archived tasks" list (with a projectId only; newest archived first).
+   * Left out (or `exclude`), archived tasks are never listed.
+   */
+  archived: z.enum(['exclude', 'only']).optional(),
 });
 
 const recurrenceSchema = z.object({
@@ -82,7 +96,8 @@ const SPAN_LOOKBACK_DAYS = 23;
 /** 1.23.5: a task's weight — whole points, 1–10 (the live database would keep anything: the server checks). */
 const taskWeight = z.number().int().min(WEIGHT_MIN, `A weight is ${WEIGHT_MIN} to ${WEIGHT_MAX} points.`).max(WEIGHT_MAX, `A weight is ${WEIGHT_MIN} to ${WEIGHT_MAX} points.`);
 
-const createSchema = z.object({
+/** The New task form's fields (POST /tasks; Duplicate reads the same, task-duplicate-routes.ts). */
+export const createSchema = z.object({
   title: requiredText,
   description: longText.optional(),
   projectId: idString,
@@ -110,6 +125,10 @@ const createSchema = z.object({
   checklists: checklistTreeSchema.optional(),
   /** Its external contacts, in order, written with the task (checked by the shared rules; at most 20). */
   externalContacts: z.array(externalContactSchema).max(100).optional(),
+  /** 1.24: guests picked from the company's list, with the task's note for each (the website's New task form). */
+  guests: z.array(z.object({ guestId: idString, note: z.string().max(5000).nullable().optional() })).max(100).optional(),
+  /** 1.24: its categories. Present (even []) they are checked — a project that asks for one refuses none; absent (the app) nothing is set. */
+  categoryIds: z.array(idString).max(100).optional(),
   /** The inspection form it is carried out with (a scheduled check, or a one-off task with a form). */
   inspectionFormId: idString.nullable().optional(),
   /** Where the check is done ("Rig 3"): trimmed, blank means none. */
@@ -164,6 +183,12 @@ export interface TaskMeetingLookup {
   canView: (userId: string, roles: string[], meetingId: string) => Promise<boolean>;
 }
 
+/** Duplicate Task: a task's links to the task it was copied from and to its copies (live tasks, oldest copy first). */
+export interface DuplicateLinks {
+  from: { id: string; key: string } | null;
+  copies: { id: string; key: string }[];
+}
+
 export interface TaskRouteDeps {
   taskService: TaskService;
   guard: AuthGuard;
@@ -203,6 +228,8 @@ export interface TaskRouteDeps {
   taskApproval?: (viewer: ApprovalViewer, task: TaskRecord) => Promise<TaskApprovalDetails>;
   /** 1.23.1: the tasks merged into this one (additive `mergedFrom`; its "Merged from" panel opens from them). */
   mergedFrom?: (taskId: string) => Promise<{ id: string; key: string; mergeId: string }[]>;
+  /** Duplicate Task: the task this one was copied from, and its own copies (live tasks; additive `duplicatedFrom`, `copies`). */
+  duplicateLinks?: (taskId: string) => Promise<DuplicateLinks>;
   /** 1.23.3: dated checklist items for the calendar, in the caller's scope (see prisma-checklist-queries). */
   checklistDue?: (opts: { from: string; to: string; userId: string; ownIds: string[] | null; listIds: string[] | null }) => Promise<unknown[]>;
   /**
@@ -210,6 +237,33 @@ export interface TaskRouteDeps {
    * their reminders, and whether they have the Team view — added to GET /calendar (see modules/calendar).
    */
   calendarExtras?: (q: { viewer: { id: string; roles: string[] }; from: string; to: string; own: string[] | null; list: string[] | null; team: boolean }) => Promise<Record<string, unknown>>;
+  /** 1.24: a new task's guests (and the person who looks after them). */
+  guestService?: GuestService;
+  /** 1.24: a new task's categories (the project's rule). */
+  categoryService?: CategoryService;
+  /** Recycle Bin: after a delete — the history line on each task and the audit log's (who deleted it). */
+  binDeleted?: (e: { actorId: string; taskIds: string[]; batchId: string | null; ip?: string | null }) => Promise<void>;
+  /** How many live tasks a repeating series has (a copy's details say so: "the entire series (12 tasks)"). */
+  seriesSize?: (seriesId: string) => Promise<number>;
+  /** Recycle Bin: a deleted task opened — 'TASK_DELETED' for its project's people, null for anyone else. */
+  binNotice?: (viewer: { id: string; roles: string[] }, taskId: string) => Promise<'TASK_DELETED' | null>;
+}
+
+/** Recycle Bin: what opening a deleted task answers its project's people (the app and extension read any 404 as gone). */
+const TASK_DELETED = { error: { code: 'TASK_DELETED', message: 'This task was deleted.' } };
+
+/** POST /tasks' pipeline from the routes' deps (server.ts gives Duplicate the same one: task-duplicate.ts). */
+export function newTaskPipeline(deps: Pick<TaskRouteDeps, 'taskService' | 'accessibleProjectIds' | 'assigneeService' | 'projectOwnerOf' | 'broadcast' | 'guestService' | 'categoryService'>): NewTaskPipeline {
+  return {
+    taskService: deps.taskService,
+    scopeOf: async (actor) => (deps.accessibleProjectIds ? deps.accessibleProjectIds(actor.id, actor.roles) : null),
+    assigneeService: deps.assigneeService,
+    projectOwnerOf: deps.projectOwnerOf,
+    broadcast: deps.broadcast,
+    // 1.24: a new task's guests and categories (POST /tasks and Duplicate alike).
+    guestService: deps.guestService,
+    categoryService: deps.categoryService,
+  };
 }
 
 export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDeps): Promise<void> {
@@ -241,6 +295,9 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
   app.get('/tasks', { preHandler: guard.authenticate }, async (req, reply) => {
     const params = listQuerySchema.parse(req.query);
     if (params.month && params.boardDate) return reply.status(400).send({ error: { code: 'VALIDATION', message: 'Ask for a day or a month, not both.' } });
+    // Task archive: a project's archived tasks are listed one project at a time (anyone who sees it).
+    const archivedOnly = params.archived === 'only';
+    if (archivedOnly && !params.projectId) return reply.status(400).send({ error: { code: 'VALIDATION', message: 'Archived tasks are listed one project at a time.' } });
     // Object-level scope: a non-admin only ever sees tasks in projects they belong to. One named
     // project (its board, opened by its link) is checked by its own rule; the plain list follows
     // the picked company too (companies).
@@ -255,6 +312,9 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
       dueAfter: params.dueAfter,
       overdue: params.overdue,
       externalCompany: params.externalCompany,
+      guestIds: csv(params.guestId),
+      guestCompany: params.guestCompany,
+      categoryIds: csv(params.categoryId),
       sort: params.sort,
       order: params.order,
       timeZone: taskService.timeZone,
@@ -275,9 +335,12 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
       dueBefore: criteria.dueBefore,
       dueAfter: criteria.dueAfter,
       ...(params.month && monthClock ? { month: monthWindow(params.month, monthClock) } : {}),
+      ...(archivedOnly ? { archived: 'only' as const } : {}),
     });
     const scoped = allowedIds ? tasks.filter((t) => allowedIds.includes(t.projectId)) : tasks;
-    const filtered = filterAndSortTasks(scoped, criteria);
+    const sorted = filterAndSortTasks(scoped, criteria);
+    // The Archived tasks list: newest archived first unless a sort was asked for.
+    const filtered = archivedOnly && !params.sort ? [...sorted].sort((a, b) => (b.archivedAt?.getTime() ?? 0) - (a.archivedAt?.getTime() ?? 0)) : sorted;
     const month = params.month && monthClock ? inMonth(filtered, params.month, monthClock, params.undated === true) : null;
     const data = month ? month.rows : filtered;
     const monthMeta = month ? { month: params.month, undated: month.undated } : null;
@@ -319,7 +382,9 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
     const today = todayKey(tz);
     const occurrences: { taskId: string; seriesId: string; date: string }[] = [];
     const series = [];
-    for (const head of visible(await taskService.listTasks({ ...scope, recurring: true }))) {
+    // Task archive (lead's ruling, 11 Nov): archiving a copy doesn't stop its series — an archived newest copy
+    // still projects the series' days (it is in `series`, never in `tasks`).
+    for (const head of visible(await taskService.listTasks({ ...scope, recurring: true, archived: 'include' }))) {
       if (!head.recurrenceRule) continue;
       const seriesId = head.recurrenceParentId ?? head.id;
       const existing = head.recurrenceRule.count != null && deps.countSeries ? await deps.countSeries(seriesId) : 1;
@@ -386,60 +451,48 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
     };
   }
 
+  /** A task that isn't there: deleted (in the Recycle Bin) as its project's people are told, else not found. */
+  async function deletedOrNotFound(req: FastifyRequest, reply: FastifyReply, id: string) {
+    const notice = deps.binNotice ? await deps.binNotice({ id: req.user!.id, roles: req.user!.roles ?? [] }, id) : null;
+    return reply.status(404).send(notice === 'TASK_DELETED' ? TASK_DELETED : { error: { code: 'NOT_FOUND', message: 'Task not found.' } });
+  }
+
+  /**
+   * Duplicate Task: "Duplicated from MSSP-34" and "Copies: MSSP-40, MSSP-41" — only tasks the reader may
+   * open (a copy in a project they can't see is never named or counted).
+   */
+  async function duplicateLinksFor(req: FastifyRequest, taskId: string): Promise<{ duplicatedFrom: DuplicateLinks['from']; copies: DuplicateLinks['copies'] }> {
+    const links = await deps.duplicateLinks!(taskId);
+    const opens = (id: string) => assertTaskView(req, id).catch(() => false);
+    const from = links.from && (await opens(links.from.id)) ? links.from : null;
+    const shown = await Promise.all(links.copies.map((c) => opens(c.id)));
+    return { duplicatedFrom: from, copies: links.copies.filter((_, i) => shown[i]) };
+  }
+
   app.get('/tasks/:id', { preHandler: guard.authenticate }, async (req, reply) => {
     const { id } = req.params as { id: string };
-    if (!(await assertTaskView(req, id))) {
-      return reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Task not found.' } });
-    }
-    const task = await taskService.getTask(id);
+    if (!(await assertTaskView(req, id))) return deletedOrNotFound(req, reply, id);
+    const task = await taskService.getTask(id).catch((err: unknown) => {
+      if (err instanceof NotFoundError) return null;
+      throw err;
+    });
+    if (!task) return deletedOrNotFound(req, reply, id);
     const inspectionForm = task.inspectionFormId && deps.taskInspectionForm ? await deps.taskInspectionForm(task.inspectionFormId) : null;
     const approval = deps.taskApproval ? { approval: await deps.taskApproval({ id: req.user!.id, roles: req.user!.roles ?? [] }, task) } : {};
     const { canDelete, canDeleteSeries } = await deleteRightsOf(req, task);
     // 1.23.1: the tasks merged into it; and, opened by a merged task's id (an old link), which one that was.
     const merged = deps.mergedFrom ? { mergedFrom: await deps.mergedFrom(task.id) } : {};
     const notice = req.mergedFrom ? { mergeNotice: { key: req.mergedFrom.key, mergedAt: req.mergedFrom.mergedAt, mergedByName: req.mergedFrom.mergedByName } } : {};
-    return { data: { ...task, meeting: await meetingLinkOf(req, task.meetingId ?? null), inspectionForm, ...approval, canDelete, canDeleteSeries, ...merged, ...notice } };
+    const inSeries = Boolean(task.recurrenceRule || task.recurrenceParentId);
+    const series = inSeries && deps.seriesSize ? { seriesSize: await deps.seriesSize(task.recurrenceParentId ?? task.id) } : {};
+    const duplicates = deps.duplicateLinks ? await duplicateLinksFor(req, task.id) : {};
+    return { data: { ...task, meeting: await meetingLinkOf(req, task.meetingId ?? null), inspectionForm, ...approval, canDelete, canDeleteSeries, ...merged, ...notice, ...series, ...duplicates } };
   });
 
+  // A new task: the shared pipeline (task-create.ts) — the project scope, then tags, contacts and
+  // assignees checked before the task, its tags, assignees and contacts are written in one go.
   app.post('/tasks', { preHandler: guard.authenticate }, async (req, reply) => {
-    const { tags, assigneeIds, boardDate, externalContacts: contactDrafts, ...body } = createSchema.parse(req.body);
-    // Object-level authorization: a non-admin may only create tasks in projects they belong to.
-    const allowed = await scopeOf(req);
-    if (allowed && !allowed.includes(body.projectId)) return reply.status(403).send(forbidden);
-
-    // Everything is validated before anything is written: tag names, and the assignees (who must
-    // be active members of the project). An explicit list — even an empty one — is used as is;
-    // only a request without `assigneeIds` falls back to the project owner.
-    const tagNames = tags && tags.length > 0 ? normalizeTagNames(tags) : [];
-    const externalContacts = checkNewTaskContacts(contactDrafts);
-    let assignees: string[] = [];
-    if (assigneeIds !== undefined) {
-      assignees = deps.assigneeService ? await deps.assigneeService.assertAssignable(body.projectId, assigneeIds) : [...new Set(assigneeIds)];
-    } else if (deps.assigneeService && deps.projectOwnerOf) {
-      const ownerId = await deps.projectOwnerOf(body.projectId);
-      if (ownerId) assignees = await deps.assigneeService.eligibleAssignees(body.projectId, [ownerId]);
-    }
-
-    // The task, its tags, its assignees and its external contacts are created in one write.
-    const created = await taskService.createTask({
-      ...body,
-      ...(boardDate ? { boardDate: boardDateFromKey(boardDate) } : {}),
-      createdById: req.user!.id,
-      tagNames,
-      assigneeIds: assignees,
-      ...(externalContacts.length ? { externalContacts } : {}),
-    });
-    let appliedAssignees;
-    if (deps.assigneeService && assignees.length > 0) {
-      await deps.assigneeService.notifyAssigned(created.id, assignees, req.user!.id);
-      appliedAssignees = await deps.assigneeService.listAssignees(created.id);
-    }
-    deps.broadcast?.(created.projectId, 'task:created', created);
-    const data = {
-      ...created,
-      ...(tagNames.length > 0 ? { tags: created.tags ?? [] } : {}),
-      ...(appliedAssignees ? { assignees: appliedAssignees } : {}),
-    };
+    const data = await createNewTask(newTaskPipeline(deps), { id: req.user!.id, roles: req.user!.roles ?? [] }, createSchema.parse(req.body));
     return reply.status(201).send({ data });
   });
 
@@ -497,7 +550,9 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
     if (!(wholeSeries ? rights.canDeleteSeries : rights.canDelete)) {
       return reply.status(403).send({ error: { code: DELETE_NOT_ALLOWED_CODE, message: wholeSeries ? DELETE_SERIES_NOT_ALLOWED : DELETE_NOT_ALLOWED } });
     }
-    await taskService.deleteTask(id, scope);
+    // To the Recycle Bin, saying who deleted it; then its history and audit lines (never failing the delete).
+    const gone = await taskService.deleteTask(id, scope, req.user!.id);
+    await deps.binDeleted?.({ actorId: req.user!.id, taskIds: gone.ids, batchId: gone.batchId, ip: req.ip ?? null }).catch((err: unknown) => req.log.error({ err }, 'recycle bin: recording a delete failed'));
     deps.broadcast?.(task.projectId, 'task:deleted', { id });
     return reply.status(204).send();
   });

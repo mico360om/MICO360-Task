@@ -1,3 +1,4 @@
+import { storedCategoryKey } from '../categories/category-store';
 import { z } from 'zod';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { SearchService } from './search-service';
@@ -172,7 +173,7 @@ export async function registerSearchRoutes(app: FastifyInstance, deps: SearchRou
     const { q } = querySchema.parse(req.query);
     // Object-level scope: a non-admin only ever finds tasks/projects in projects they belong to —
     // companies: in the picked company; people they may find; an invitation shows no notes.
-    const viewer = { id: req.user!.id, roles: req.user!.roles ?? [] };
+    const viewer = { id: req.user!.id, roles: req.user!.roles ?? [], managerView: req.user!.managerView === true };
     const pick = await pickOf(req);
     const admin = viewer.roles.includes('ADMIN');
     const [{ projectIds: allowedProjectIds }, people, companyIds, mineOnly] = await Promise.all([
@@ -219,7 +220,7 @@ export async function registerSearchRoutes(app: FastifyInstance, deps: SearchRou
    */
   function registerSaved(saved: SavedSearches, everything: SearchEverythingDeps): void {
     const own = { preHandler: guard.authenticate };
-    const viewerOf = (req: FastifyRequest) => ({ id: req.user!.id, roles: req.user!.roles ?? [] });
+    const viewerOf = (req: FastifyRequest) => ({ id: req.user!.id, roles: req.user!.roles ?? [], managerView: req.user!.managerView === true });
     const idParam = z.object({ id: z.string().min(1).max(64) });
     app.get('/search/saved', own, async (req) => ({ data: await saved.list(viewerOf(req)) }));
     // Review I1: the picked company (checked first — a company the person isn't in is refused) narrows it.
@@ -361,6 +362,10 @@ export async function registerSearchRoutes(app: FastifyInstance, deps: SearchRou
       // 1.23.6: the reader's chips taken off, and "Search the words instead".
       off: offList,
       plain: flag.optional(),
+      // 1.24: the Guest, Guest company and Category filters (ids comma-separated; tasks only).
+      guest: z.string().max(2000).optional().transform((v) => (v ? v.split(',').map((x) => x.trim()).filter(Boolean).slice(0, 20) : undefined)),
+      guestCompany: z.string().max(120).optional(),
+      category: z.string().max(2000).optional().transform((v) => (v ? v.split(',').map((x) => x.trim()).filter(Boolean).slice(0, 20) : undefined)),
       limit: z.coerce.number().int().min(1).max(50).default(ALL_PAGE_SIZE),
       cursor: z.string().max(40).optional(),
     });
@@ -374,7 +379,7 @@ export async function registerSearchRoutes(app: FastifyInstance, deps: SearchRou
       const p = allQuery.parse(req.query);
       const { offset, extra } = decodeAllCursor(p.cursor);
       const first = offset === 0 && !extra;
-      const viewer = { id: req.user!.id, roles: req.user!.roles ?? [] };
+      const viewer = { id: req.user!.id, roles: req.user!.roles ?? [], managerView: req.user!.managerView === true };
       const pick = await pickOf(req);
       const scope = await everything.scope.forViewer(viewer, pick); // companies: the pick
       // 1.23.6: the words as typed are read (unless plain words were asked for); the engine gets what is left.
@@ -424,7 +429,7 @@ export async function registerSearchRoutes(app: FastifyInstance, deps: SearchRou
     app.post('/search/ai', searchRoute, async (req) => {
       const b = askBody.parse(req.body ?? {});
       const type = typeof b.type === 'string' ? z.array(z.enum(SEARCH_KINDS)).parse(b.type.split(',').map((s) => s.trim()).filter(Boolean)) : b.type;
-      const viewer = { id: req.user!.id, roles: req.user!.roles ?? [] };
+      const viewer = { id: req.user!.id, roles: req.user!.roles ?? [], managerView: req.user!.managerView === true };
       const pick = await pickOf(req);
       const scope = await everything.scope.forViewer(viewer, pick);
       // 1.23.6: the AI is given what the reader read as filters (the whole question still goes to it).
@@ -456,6 +461,10 @@ interface PageFilters {
   q: string;
   type?: SearchKind[];
   projectId?: string;
+  /** 1.24: the page's Guest, Guest company and Category filters (tasks only). */
+  guest?: string[];
+  guestCompany?: string;
+  category?: string[];
   status?: string[];
   done?: boolean;
   person?: string;
@@ -514,6 +523,11 @@ export function engineInput(timeZone: string, ctx: ReaderContext | null, viewerI
     ...(f.assignee === 'none' ? { unassigned: true } : {}),
     ...(f.creator?.length ? { creatorIds: me(f.creator) } : {}),
     ...(f.organizer?.length ? { organizerIds: me(f.organizer) } : {}),
+    // 1.24: "category:Electrical" (by name, in any project the person may see) and the page's own filters.
+    ...(f.categories?.length ? { categoryKeys: [...new Set(f.categories.map(storedCategoryKey))] } : {}),
+    ...(p.category?.length ? { categoryIds: p.category } : {}),
+    ...(p.guest?.length ? { guestIds: p.guest } : {}),
+    ...(p.guestCompany?.trim() ? { guestCompany: p.guestCompany.trim() } : {}),
   };
   const filtered = Object.keys(out).some((k) => k !== 'q' && k !== 'includeArchived');
   return { ...out, ...(parseTaskQuery(q).terms.length === 0 && filtered ? { browse: true } : {}) };

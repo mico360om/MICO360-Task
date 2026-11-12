@@ -57,6 +57,10 @@ export interface MovableTask {
   /** One of the copies of a repeating series (the newest or an earlier one). */
   inSeries: boolean;
   assignees: MovePerson[];
+  /** 1.24: how many guests it has (a task with guests keeps a team member). */
+  guestCount?: number;
+  /** Task archive: archived tasks are read-only (never moved). */
+  archivedAt?: Date | null;
 }
 
 /** What a move writes, in one transaction. */
@@ -90,6 +94,8 @@ export interface ProjectMoveWrite {
   unassign: MovePerson[];
   /** Who moved it (the activity lines are theirs). */
   actorId: string;
+  /** Bulk lane (Undo of a bulk move): its own old key in the new project, taken back instead of a new number. */
+  reclaimKey?: string;
   /** The due day the move gave the task ('YYYY-MM-DD'), for its activity line. */
   dueDateSet?: string | null;
 }
@@ -129,6 +135,12 @@ export interface TaskMoveRepository {
   joinableIds?(projectId: string, userIds: string[]): Promise<string[]>;
   /** The number the project's next key gets: the highest it has used (old keys included) + 1. */
   nextKeyNumber(projectId: string): Promise<number>;
+  /**
+   * 1.24: what a move to `projectId` does to the task's categories and guests — the categories that project
+   * has no category of the same name for (dropped), and how many guests are another company's (copied onto
+   * that project's company list). Absent: neither.
+   */
+  categoryAndGuestChanges?(taskId: string, projectId: string): Promise<{ categoriesDropped: string[]; guestsCopied: number }>;
   /**
    * Move the task in one transaction: the new key, project, column and fields; the old key kept as an
    * alias; people added to the team or taken off; its history filed under the new project, with the

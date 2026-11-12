@@ -46,9 +46,17 @@ export interface ProjectTemplateSummary {
   updatedAt: Date;
 }
 
+/** 1.24: a task category as a template keeps it (a project made from it starts with these, in order). */
+export interface TemplateCategory {
+  name: string;
+  color: string;
+}
+
 /** A project template with everything in it. */
 export interface ProjectTemplateRecord extends ProjectTemplateSummary {
   columns: TemplateColumn[];
+  /** 1.24: its task categories, in order (empty for templates saved before 1.24). */
+  categories: TemplateCategory[];
   roles: TemplateRole[];
   tasks: ProjectTemplateTaskRecord[];
 }
@@ -61,6 +69,8 @@ export interface ProjectTemplateInput {
   name: string;
   description: string | null;
   columns: TemplateColumn[];
+  /** 1.24: its task categories; left out, a template being replaced keeps the ones it has. */
+  categories?: TemplateCategory[];
   roles: { key: string; name: string }[];
   tasks: {
     title: string;
@@ -107,6 +117,8 @@ export interface ProjectSnapshot {
   createdAt: Date;
   /** Its board as people see it: the columns that are switched on, in order. */
   columns: TemplateColumn[];
+  /** 1.24: its task categories in use (not retired), in order. */
+  categories?: TemplateCategory[];
   /** Its live tasks, oldest first — one per repeating series (its first live copy). */
   tasks: {
     id: string;

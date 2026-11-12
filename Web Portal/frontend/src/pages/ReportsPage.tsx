@@ -7,7 +7,8 @@ import { BarChart } from '../components/BarChart';
 import { LineChart } from '../components/LineChart';
 import { SearchableSelect } from '../components/ui/SearchableSelect';
 import { apiClient } from '../api/client';
-import { reportsApi, type ReportFilters, type ReportFormat, type ReportKind } from '../api/reports';
+import { filterParams, reportsApi, type ReportFilters, type ReportFormat, type ReportKind } from '../api/reports';
+import { TOUCH_TALL } from '../lib/touch';
 import { projectsApi } from '../api/projects';
 import { downloadBlob, fileNameOf } from '../lib/download';
 import { isBackwards, isWholeDate } from '../lib/date-box';
@@ -100,6 +101,8 @@ export function ReportsPage() {
   const [exportError, setExportError] = useState<string | null>(null);
   const [projectFilter, setProjectFilter] = useState('');
   const [teamFilter, setTeamFilter] = useState('');
+  // Task archive: archived tasks are left out of every report unless ticked (off by default).
+  const [includeArchived, setIncludeArchived] = useState(false);
   const [to, setTo] = useState(() => todayKey());
   const [from, setFrom] = useState(() => shiftKey(todayKey(), -29));
   // What the two date boxes show. A box may hold an unfinished date while it is being typed (the
@@ -173,7 +176,7 @@ export function ReportsPage() {
   }, [timeZone]);
 
   // One filter object drives every chart, tile, table and export on the page.
-  const filters: ReportFilters = { projectId: projectFilter || undefined, userId: teamFilter || undefined };
+  const filters: ReportFilters = { projectId: projectFilter || undefined, userId: teamFilter || undefined, ...(includeArchived ? { includeArchived: true } : {}) };
   const keep = { placeholderData: keepPreviousData };
   const projectsQ = useQuery({ queryKey: ['report-projects', filters], queryFn: () => reportsApi(apiClient).projectPerformance(filters), ...keep });
   const statusQ = useQuery({ queryKey: ['report-status', filters], queryFn: () => reportsApi(apiClient).status(filters), ...keep });
@@ -200,7 +203,7 @@ export function ReportsPage() {
     setExportError(null);
     try {
       // Every export honours the project/team filters; the full report and the trend also take the date range.
-      const params = { ...filters, ...(exportKind === 'timeseries' || exportKind === 'export' ? { from, to } : {}) };
+      const params = { ...filterParams(filters), ...(exportKind === 'timeseries' || exportKind === 'export' ? { from, to } : {}) };
       const blob = await reportsApi(apiClient).exportFile(exportKind, format, params);
       const file = EXPORT_REPORTS.find((r) => r.value === exportKind)?.file ?? exportKind;
       // The server's name (report + filters + the company's day), else report + the company's today.
@@ -330,6 +333,15 @@ export function ReportsPage() {
                 {teamFilter ? ` · ${teamLabel(teamFilter)}’s tasks` : ''} — charts, tiles and exports
               </span>
             ) : null}
+            {/* Task archive: a finished archived task always counts (archiving never lowers a %); ticked, the unfinished
+                archived ones count too and every archived task is listed in the exports, marked Archived. */}
+            <label
+              title="Finished archived tasks always count. Tick to count unfinished archived tasks too, and list every archived task in the exports (marked Archived)."
+              className={`col-span-2 flex cursor-pointer items-center gap-2 rounded-lg px-1 text-sm text-ink sm:col-span-1 ${TOUCH_TALL}`}
+            >
+              <input type="checkbox" checked={includeArchived} onChange={(e) => setIncludeArchived(e.target.checked)} className="h-4 w-4 flex-none accent-brand" />
+              Include archived
+            </label>
           </div>
 
           {/* Summary tiles: two to a row on a phone, four on a wide screen (as on Management). */}

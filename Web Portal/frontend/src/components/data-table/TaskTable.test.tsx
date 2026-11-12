@@ -219,6 +219,21 @@ describe('TaskTable', () => {
     expect(onOpen).toHaveBeenCalledWith('t2', ['t1', 't2', 't3']);
   });
 
+  it('Duplicate beside Open opens the New task form filled in from that task (Duplicate Task)', async () => {
+    const user = userEvent.setup();
+    show();
+    await user.click(within(row('MICO-2')).getByRole('button', { name: 'Duplicate MICO-2: Order rebar' }));
+    const form = await screen.findByRole('dialog', { name: /^Duplicate of/ });
+    await waitFor(() => expect(calls.some((c) => c.method === 'GET' && c.url.endsWith('/tasks/t2/duplicate'))).toBe(true));
+    expect(form).toBeInTheDocument();
+  });
+
+  it('a table that is only to look at has no Duplicate (the task panel still offers it)', () => {
+    show({ readOnly: 'archived' });
+    expect(screen.queryByRole('button', { name: /^Duplicate MICO-1/ })).toBeNull();
+    expect(within(row('MICO-1')).getByRole('button', { name: 'Open MICO-1: Pour slab B' })).toBeInTheDocument();
+  });
+
   it('its own filter bar narrows the rows and counts them', async () => {
     const user = userEvent.setup();
     show();
@@ -360,5 +375,62 @@ describe('Detailed rows in the Table view (1.23.8)', () => {
     } finally {
       act(() => useDensityStore.getState().set('comfortable'));
     }
+  });
+});
+
+describe('TaskTable — 1.24 Guests and Categories columns', () => {
+  const ELEC = { id: 'k1', name: 'Electrical', color: 'teal', retired: false };
+  const HSE = { id: 'k2', name: 'HSE', color: 'pink', retired: false };
+  const CIVIL = { id: 'k3', name: 'Civil', color: 'gold', retired: true };
+  const ROWS = [
+    task({ id: 'a', key: 'MICO-1', title: 'Wiring', guests: [{ id: 'g1', name: 'Sara Nasser', company: 'PDO' }, { id: 'g2', name: 'Ahmed', company: null }], categories: [HSE, ELEC, CIVIL] }),
+    task({ id: 'b', key: 'MICO-2', title: 'Survey', guests: [{ id: 'g3', name: 'Ahmed Al Said', company: 'OXY' }], categories: [ELEC] }),
+    task({ id: 'c', key: 'MICO-3', title: 'Internal', guests: [], categories: [] }),
+    // An older server's row: its contacts in short.
+    task({ id: 'd', key: 'MICO-4', title: 'Old', externalSummary: { count: 1, name: 'Salim', company: 'Petrogas', names: ['Salim'], companies: ['Petrogas'] } }),
+  ];
+  const titles = () => screen.getAllByRole('rowheader').map((h) => h.textContent?.match(/Wiring|Survey|Internal|Old/)?.[0]);
+
+  it('both are optional columns, off at first, shown from the Columns menu', async () => {
+    const user = userEvent.setup();
+    show({ tasks: ROWS });
+    expect(screen.queryByRole('columnheader', { name: /Guests/ })).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Columns' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Guests' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Categories' }));
+    expect(screen.getByRole('columnheader', { name: /Guests/ })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: /Categories/ })).toBeInTheDocument();
+  });
+
+  it('Guests: each guest by name (company), said to be a guest; an older server’s contacts the same way', () => {
+    localStorage.setItem('mico360.u.u1.table.test', JSON.stringify({ sort: null, filters: {}, shown: ['guests', 'categories'] }));
+    show({ tasks: ROWS });
+    const guests = within(row('MICO-1')).getAllByTestId('table-guest');
+    expect(guests.map((g) => g.textContent)).toEqual(['Guest: Sara Nasser (PDO)', 'Guest: Ahmed']);
+    expect(within(row('MICO-4')).getByTestId('table-guest')).toHaveTextContent('Salim (Petrogas)');
+    expect(within(row('MICO-3')).queryByTestId('table-guest')).toBeNull();
+  });
+
+  it('Categories: every chip, a retired one marked', () => {
+    localStorage.setItem('mico360.u.u1.table.test', JSON.stringify({ sort: null, filters: {}, shown: ['categories'] }));
+    show({ tasks: ROWS });
+    const chips = [...row('MICO-1').querySelectorAll('[data-category-chip]')].map((el) => el.getAttribute('aria-label'));
+    expect(chips).toEqual(['Category: HSE', 'Category: Electrical', 'Category: Civil (retired)']);
+  });
+
+  it('both sort by their first entry, A to Z (an empty one last)', async () => {
+    const user = userEvent.setup();
+    localStorage.setItem('mico360.u.u1.table.test', JSON.stringify({ sort: null, filters: {}, shown: ['guests', 'categories'] }));
+    show({ tasks: ROWS });
+    await user.click(within(screen.getByRole('columnheader', { name: /Categories/ })).getByRole('button'));
+    expect(titles()).toEqual(['Survey', 'Wiring', 'Internal', 'Old']);
+    await user.click(within(screen.getByRole('columnheader', { name: /Guests/ })).getByRole('button'));
+    expect(titles()).toEqual(['Survey', 'Old', 'Wiring', 'Internal']);
+  });
+
+  it('a hidden Categories column’s sort is let go', () => {
+    localStorage.setItem('mico360.u.u1.table.test', JSON.stringify({ sort: { column: 'categories', dir: 'asc' }, filters: {}, shown: [] }));
+    show({ tasks: ROWS });
+    expect(titles()).toEqual(['Wiring', 'Survey', 'Internal', 'Old']);
   });
 });

@@ -241,4 +241,16 @@ describe('ProjectDetailPage: the Board tab (1.22.3)', () => {
     expect(where()).toBe('/projects/p1?tab=tasks');
     expect(screen.getByTestId('current-project')).toHaveTextContent('p1');
   });
+
+  it('board search: the board’s search box is on the tab; its words stay in the address, and go when you leave the board', async () => {
+    const user = userEvent.setup();
+    renderPage('/projects/p1?tab=board&q=t3');
+    await waitFor(() => expect(document.querySelectorAll('[data-card-key]')).toHaveLength(1));
+    expect(screen.getByRole('searchbox', { name: 'Search this board' })).toHaveValue('t3');
+    await user.click(screen.getByRole('tab', { name: /^Tasks/ }));
+    await waitFor(() => expect(where()).toBe('/projects/p1?tab=tasks'));
+    await user.click(screen.getByRole('tab', { name: /^Board/ }));
+    expect(await screen.findByRole('searchbox', { name: 'Search this board' })).toHaveValue('');
+    await waitFor(() => expect(document.querySelectorAll('[data-card-key]')).toHaveLength(3));
+  });
 });

@@ -4,6 +4,7 @@ import { ComboPicker } from './combo-picker';
 import { failureMessage } from './save-state';
 import { TaskKey } from '../TaskKey';
 import { StatusPill } from '../ui/StatusPill';
+import { ArchiveIcon, ArchivedBadge } from '../task-archive/ArchivedBadge';
 
 export interface DrawerTaskRef {
   id: string;
@@ -13,6 +14,8 @@ export interface DrawerTaskRef {
   statusName?: string;
   statusCategory?: string;
   done?: boolean;
+  /** Task archive: it is archived — it no longer blocks (marked, not counted as open). */
+  archived?: boolean;
 }
 export interface DrawerDependencies {
   blockedBy: DrawerTaskRef[];
@@ -31,14 +34,18 @@ function TaskLine({ t, onRemove }: { t: DrawerTaskRef; onRemove?: () => void }) 
     <li className="flex items-center gap-2 rounded-lg px-1.5 py-1 text-sm hover:bg-ground/70">
       {t.done ? (
         <span aria-hidden="true" className="text-success">✓</span>
+      ) : t.archived ? (
+        <span className="flex-none text-ink-3">
+          <ArchiveIcon size={12} />
+        </span>
       ) : (
         <span aria-hidden="true" className="h-1.5 w-1.5 flex-none rounded-full bg-warning" />
       )}
       <TaskKey value={t.key} />
-      <span dir="auto" className={`min-w-0 flex-1 truncate ${t.done ? 'text-ink-3 line-through' : 'text-ink'}`} title={t.title}>
+      <span dir="auto" className={`min-w-0 flex-1 truncate ${t.done ? 'text-ink-3 line-through' : t.archived ? 'text-ink-3' : 'text-ink'}`} title={t.title}>
         {t.title}
       </span>
-      <Status t={t} />
+      {t.archived ? <ArchivedBadge title="Archived: it no longer blocks" /> : <Status t={t} />}
       {onRemove ? (
         <button
           type="button"
@@ -80,7 +87,8 @@ export function DependenciesSection({
   const exclude = new Set([taskId, ...dependencies.blockedBy.map((d) => d.id), ...dependencies.blocks.map((d) => d.id)]);
   // 1.22.3: the task whose number was typed — any way ("mico142", "#MICO-142") — first.
   const matches = pickTasks(availableTasks, query, exclude);
-  const open = dependencies.blockedBy.filter((d) => !d.done).length;
+  // Task archive: an archived blocker no longer blocks.
+  const open = dependencies.blockedBy.filter((d) => !d.done && !d.archived).length;
 
   async function add(id: string) {
     if (!onAdd || busy) return;

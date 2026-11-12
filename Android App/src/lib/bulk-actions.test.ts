@@ -1,5 +1,4 @@
 import { describe, it, expect } from 'vitest';
-import { hasWeb, readWeb } from '../testing/web-source';
 import { BULK_LABELS, bulkResultText, runBulk, type BulkDeps } from './bulk-actions';
 
 describe('bulk Complete and tasks that need approval', () => {
@@ -28,8 +27,5 @@ describe('bulk Complete and tasks that need approval', () => {
   });
 });
 
-describe.skipIf(!hasWeb('frontend/src/pages/MyTasksPage.tsx'))('the website’s bulk toast', () => {
-  it('words the tasks that wait the same way', () => {
-    expect(readWeb('frontend/src/pages/MyTasksPage.tsx')).toContain("` ${waiting} need${waiting === 1 ? 's' : ''} approval and ${waiting === 1 ? 'is' : 'are'} waiting for a project manager.`");
-  });
-});
+// The website's My Tasks bulk toast is gone (bulk lane, Nov 2026): its bulk changes are confirmed first and
+// summed up after ("2 will wait for approval."), so there is no toast left to compare these words with.

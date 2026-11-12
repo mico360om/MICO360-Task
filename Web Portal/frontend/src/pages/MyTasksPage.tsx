@@ -1,14 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { tasksApi, type ApiTask, type Priority } from '../api/tasks';
 import { useProjectsWithAll } from '../lib/useProjectsWith';
-import { columnsApi, type ApiColumn } from '../api/columns';
-import { assigneesApi } from '../api/assignees';
-import { usersApi } from '../api/users';
 import { useOpenTask } from '../lib/useOpenTask';
 import { SavedViewsBar } from '../components/SavedViewsBar';
-import { BulkActionBar } from '../components/BulkActionBar';
+import { BulkTools } from '../components/bulk/BulkTools';
 import { PageHeader } from '../components/ui/PageHeader';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Button, buttonClass } from '../components/ui/Button';
@@ -17,24 +14,20 @@ import { FirstStepsActions, FirstStepsIcon, useNoProjectsYet } from '../componen
 import { Avatar } from '../components/ui/Avatar';
 import { PriorityBadge } from '../components/ui/PriorityBadge';
 import { SearchableSelect } from '../components/ui/SearchableSelect';
-import { ExternalContactsLine } from '../components/ExternalContactsLine';
-import { EXTERNAL_CONTACT_WORDS, externalCompanyOptions, hasExternalCompany } from '../lib/external-contacts';
+import { GuestsLine } from '../components/GuestsLine';
+import { CategoryChips } from '../components/CategoryChip';
+import { RowCategoryChips } from '../components/RowCategoryChips';
+import { GuestCategoryFilterBoxes, type GuestCategoryFilterState } from '../components/GuestCategoryFilters';
+import { EMPTY_GUEST_CATEGORY_FILTERS, guestCategoryFiltersActive, matchesGuestCategory } from '../lib/guest-category-filter';
 import { NewTaskButton } from '../components/NewTaskButton';
 import { statusMeta, STATUS_ORDER } from '../lib/taskStatus';
-import { runBulk, type BulkAction, type BulkDeps } from '../lib/bulkActions';
+import { taskRef, useBulkSelection, type SelRef } from '../lib/bulk-selection';
+import { SelectAllBox, TaskSelectBox } from '../components/bulk/select-boxes';
 import { OPEN_STATUS, type TaskFilters } from '../lib/savedViews';
 import { dueDayKey, shiftDayKey, todayKey as companyTodayKey } from '../lib/due-date';
 import { formatDueDay, isTaskDone } from '../lib/due-display';
+import { startsText, waitingDay } from '../lib/scheduled-start';
 import { useCompanyTimeZone } from '../lib/company-clock';
-import { invalidateTaskQueries } from '../lib/task-cache';
-import { approvalNotice } from '../lib/approvals';
-import { MoveTaskDialog, useMoveTargets } from '../components/MoveTaskDialog';
-import { MergeTasksDialog, type MergeTaskRef } from '../components/MergeTasksDialog';
-import { MergedToast } from '../components/task-merge/MergedToast';
-import { UndoMergeDialog } from '../components/task-merge/UndoMergeDialog';
-import type { MergeResult } from '../api/task-merge';
-import { bulkMergeAvailability, invalidateMergeQueries } from '../lib/task-merge';
-import { bulkMoveAvailability, bulkMovedText, movedText } from '../lib/task-move';
 import { readUserValue, writeUserValue } from '../lib/user-storage';
 import { useAuthStore } from '../stores/auth-store';
 import { LoadError } from '../components/ui/LoadError';
@@ -53,7 +46,7 @@ import { useMediaQuery } from '../lib/useMediaQuery';
 import { TaskTable } from '../components/data-table/TaskTable';
 import { useTableMemory } from '../components/data-table/hooks';
 import { sortRows, type SortValue } from '../lib/data-table';
-import { myTasksSort, myTasksSortLabel, myTasksSortValue } from '../lib/task-table';
+import { firstGuestLabel, myTasksSort, myTasksSortLabel, myTasksSortValue } from '../lib/task-table';
 import { StatusPill as SchemeStatusPill } from '../components/ui/StatusPill';
 import { OVERDUE_CLASS, STATUS_CLASS, dueTone } from '../lib/colour-classes';
 import { useDensity } from '../lib/density';
@@ -83,6 +76,8 @@ const DUE_OPTIONS = [
   { value: 'today', label: 'Due today' },
   { value: 'week', label: 'Next 7 days' },
   { value: 'none', label: 'No due date' },
+  // Tasks scheduled for the future: waiting for a later start day.
+  { value: 'upcoming', label: 'Upcoming (starts later)' },
 ];
 
 interface Enriched {
@@ -98,6 +93,8 @@ interface Enriched {
   dueLabel: string;
   projectName: string | null;
   project: ProjectLook | null;
+  /** Tasks scheduled for the future: the day it waits for (on a later day's board), else null — under "Upcoming". */
+  waits: string | null;
 }
 
 /** Stop a key/click on a row's checkbox from also opening the task (Space must select the row). */
@@ -123,8 +120,8 @@ export function MyTasksPage() {
   const [priority, setPriority] = useState('');
   const [assignee, setAssignee] = useState('');
   const [due, setDue] = useState('');
-  // External company: only tasks with a contact from it (not part of saved views).
-  const [company, setCompany] = useState('');
+  // 1.24 Guest, Guest company and Category (in place of "External company"; like it, not part of saved views).
+  const [picked, setPicked] = useState<GuestCategoryFilterState>(EMPTY_GUEST_CATEGORY_FILTERS);
   const [sort, setSort] = useState<Sort>('due');
   const [view, setView] = useState<View>(() => {
     const saved = readUserValue(useAuthStore.getState().user?.id, 'mytasks.view') as View | null;
@@ -137,12 +134,8 @@ export function MyTasksPage() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   useEffect(() => { writeUserValue(userId, 'mytasks.view', view); }, [view, userId]);
 
-  // Bulk selection + async bulk-action plumbing.
-  const qc = useQueryClient();
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [bulkBusy, setBulkBusy] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
-  const directoryQ = useQuery({ queryKey: ['directory'], queryFn: () => usersApi(apiClient).directory() });
+  // Bulk selection (owner, 10 Nov): it survives filter changes — a task filtered out stays selected and counts.
+  const sel = useBulkSelection();
 
   const projectById = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
 
@@ -152,12 +145,14 @@ export function MyTasksPage() {
       const cat = task.columnCategory ?? 'TODO';
       const done = isTaskDone(task);
       const dueKey = dueDayKey(task.dueDate, timeZone);
+      // Waiting for its start day (tasks scheduled for the future): not today's work yet.
+      const waits = waitingDay(task, timeZone);
       // Never overdue while it waits for approval: its badge says so instead (owner, 30 Oct).
-      const overdue = !!dueKey && dueKey < tKey && !done && !task.approvalRequestedAt;
+      const overdue = !!dueKey && dueKey < tKey && !done && !task.approvalRequestedAt && !waits;
       const dueToday = !!dueKey && dueKey === tKey;
       const dueTomorrow = !!dueKey && dueKey === shiftDayKey(tKey, 1);
       const dueLabel = formatDueDay(task.dueDate, timeZone, { month: 'short', day: 'numeric' });
-      return { task, cat, done, overdue, dueToday, dueTomorrow, dueKey, dueLabel, projectName: projectById.get(task.projectId)?.name ?? null, project: projectById.get(task.projectId) ?? null };
+      return { task, cat, done, overdue, dueToday, dueTomorrow, dueKey, dueLabel, projectName: projectById.get(task.projectId)?.name ?? null, project: projectById.get(task.projectId) ?? null, waits };
     });
   }, [tasks, projectById, timeZone]);
 
@@ -187,11 +182,8 @@ export function MyTasksPage() {
     { value: 'NORMAL', label: 'Normal' },
     { value: 'LOW', label: 'Low' },
   ];
-  const companyOptions = useMemo(() => {
-    const found = externalCompanyOptions(tasks);
-    const choices = company && !found.includes(company) ? [company, ...found] : found;
-    return [{ value: '', label: `${EXTERNAL_CONTACT_WORDS.filter}: ${EXTERNAL_CONTACT_WORDS.anyCompany}` }, ...choices.map((c) => ({ value: c, label: c }))];
-  }, [tasks, company]);
+  // The Category filter's choices are each project's own: named by project.
+  const projectNameOf = useMemo(() => (id: string) => projectById.get(id)?.name, [projectById]);
   const assigneeOptions = useMemo(() => {
     const m = new Map<string, string>();
     for (const t of tasks) for (const a of t.assignees ?? []) m.set(a.id, a.name);
@@ -210,10 +202,11 @@ export function MyTasksPage() {
       if (due === 'today' && !e.dueToday) return false;
       if (due === 'week' && !(e.dueKey && e.dueKey >= tK && e.dueKey <= wK)) return false;
       if (due === 'none' && e.task.dueDate) return false;
-      if (company && !hasExternalCompany(e.task.externalSummary, company)) return false;
+      if (due === 'upcoming' && !e.waits) return false;
+      if (!matchesGuestCategory(e.task, picked)) return false;
       return true;
     });
-  }, [enriched, project, status, priority, assignee, due, company, timeZone]);
+  }, [enriched, project, status, priority, assignee, due, picked, timeZone]);
 
   // The Sort menu's choice — or a table header's (the same sort): due date with undated last, priority
   // most urgent first, progress most done first, title A–Z, and each the other way round.
@@ -229,23 +222,33 @@ export function MyTasksPage() {
         case 'project': return e.projectName ?? '';
         case 'assignee': return e.task.assignees?.[0]?.name ?? '';
         case 'start': return dueDayKey(e.task.startDate, timeZone);
+        // 1.24: the first guest and the first category (the table's headers).
+        case 'guests': return firstGuestLabel(e.task);
+        case 'categories': return e.task.categories?.[0]?.name ?? '';
         default: return null;
       }
     };
     return sortRows(filtered, myTasksSort(sort), valueOf);
   }, [filtered, sort, timeZone]);
+  // Tasks scheduled for the future: today's list, then "Upcoming" — the ones waiting for a later start
+  // day, soonest first (the chosen sort within a day).
+  const todayRows = useMemo(() => sorted.filter((e) => !e.waits), [sorted]);
+  const upcomingRows = useMemo(() => sorted.filter((e) => e.waits).sort((a, b) => a.waits!.localeCompare(b.waits!, 'en')), [sorted]);
+  const today = companyTodayKey(timeZone);
 
   const counts = useMemo(() => {
-    let open = 0, overdue = 0, done = 0;
+    let open = 0, overdue = 0, done = 0, upcoming = 0;
     for (const e of enriched) {
-      if (e.done) done += 1; else open += 1;
+      if (e.done) done += 1;
+      else if (e.waits) upcoming += 1;
+      else open += 1;
       if (e.overdue) overdue += 1;
     }
-    return { total: enriched.length, open, overdue, done };
+    return { total: enriched.length, open, overdue, upcoming, done };
   }, [enriched]);
 
-  const filtersActive = !!(project || status || priority || assignee || due || company);
-  const clearFilters = () => { setProject(''); setStatus(''); setPriority(''); setAssignee(''); setDue(''); setCompany(''); };
+  const filtersActive = !!(project || status || priority || assignee || due) || guestCategoryFiltersActive(picked) > 0;
+  const clearFilters = () => { setProject(''); setStatus(''); setPriority(''); setAssignee(''); setDue(''); setPicked(EMPTY_GUEST_CATEGORY_FILTERS); };
 
   // Saved views: snapshot the filter state and apply a preset back onto it — 1.23.0: with the table's
   // columns (a view saved before keeps the columns as they are).
@@ -258,83 +261,18 @@ export function MyTasksPage() {
   // A header's sort not in the menu (Status, Title Z–A…) is shown there as the choice in force.
   const sortOptions = SORT_OPTIONS.some((o) => o.value === sort) ? SORT_OPTIONS : [...SORT_OPTIONS, { value: sort, label: myTasksSortLabel(sort) }];
 
-  // Selection scoped to what's currently visible, so hidden tasks are never acted on by surprise.
-  const selectedList = useMemo(() => sorted.filter((e) => selected.has(e.task.id)), [sorted, selected]);
-  const sortedIds = useMemo(() => sorted.map((e) => e.task.id), [sorted]);
-  const toggleSelect = (id: string) => setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-  const clearSelection = () => setSelected(new Set());
-  const allVisibleSelected = sorted.length > 0 && selectedList.length === sorted.length;
-  const toggleSelectAll = () => setSelected(allVisibleSelected ? new Set() : new Set(sorted.map((e) => e.task.id)));
-
-  // Bulk actions reuse the single-task endpoints (each already object-level authorized).
-  const colCache = useRef(new Map<string, Promise<ApiColumn[]>>());
-  const waitingAfterBulk = useRef(0);
-  const getColumns = (projectId: string) => {
-    let p = colCache.current.get(projectId);
-    if (!p) { p = columnsApi(apiClient).list(projectId); colCache.current.set(projectId, p); }
-    return p;
-  };
-  const bulkDeps: BulkDeps = {
-    update: (id, patch) => tasksApi(apiClient).update(id, patch),
-    move: async (id, columnId) => {
-      const moved = await tasksApi(apiClient).move(id, columnId);
-      // Needs approval: it waits for a project manager instead of completing.
-      if (approvalNotice(columnId, moved)) waitingAfterBulk.current += 1;
-      return moved;
-    },
-    assign: (id, userId) => assigneesApi(apiClient).assign(id, userId),
-    doneColumnFor: async (t) => {
-      const cols = await getColumns(t.projectId);
-      const done = cols.find((c) => c.category === 'DONE' && c.enabled) ?? cols.find((c) => c.category === 'DONE');
-      return done?.id ?? null;
-    },
-  };
-  async function runBulkAction(action: BulkAction, label: string) {
-    const refs = selectedList.map((e) => ({ id: e.task.id, projectId: e.task.projectId }));
-    if (refs.length === 0) return;
-    setBulkBusy(true);
-    setToast(null);
-    waitingAfterBulk.current = 0;
-    try {
-      const res = await runBulk(refs, action, bulkDeps);
-      colCache.current.clear();
-      await invalidateTaskQueries(qc);
-      setSelected(new Set());
-      const waiting = waitingAfterBulk.current;
-      const waits = waiting ? ` ${waiting} need${waiting === 1 ? 's' : ''} approval and ${waiting === 1 ? 'is' : 'are'} waiting for a project manager.` : '';
-      setToast((res.failed === 0 ? `${label} ${res.succeeded} task${res.succeeded === 1 ? '' : 's'}.` : `${label} ${res.succeeded}, ${res.failed} couldn’t be updated.`) + waits);
-    } catch {
-      setToast('Bulk action failed. Please try again.');
-    } finally {
-      setBulkBusy(false);
-    }
-  }
-  useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 4000); return () => clearTimeout(t); }, [toast]);
-
-  // "Move to project…": one dialog for the whole selection (each task is checked there).
-  const [moving, setMoving] = useState<{ id: string; key: string; title: string; projectId: string }[] | null>(null);
-  const moveTargets = useMoveTargets(selected.size > 0);
-  const moveUnavailable = bulkMoveAvailability(moveTargets).reason;
-  // 1.23.1 "Merge…": 2–10 selected tasks, each in a project the person manages (administrators: any).
-  const mergeAvail = bulkMergeAvailability(selectedList.map((e) => e.task), moveTargets);
-  const [merging, setMerging] = useState<MergeTaskRef[] | null>(null);
-  const [merged, setMerged] = useState<MergeResult | null>(null);
-  const [undoing, setUndoing] = useState<string | null>(null);
-
-  // Assignable people (directory) + move targets (only when a single project is pinned).
-  const directory = Array.isArray(directoryQ.data) ? directoryQ.data : [];
-  const assigneeChoices = directory.map((u) => ({ value: u.id, label: `${u.firstName} ${u.lastName}`.trim() || u.username }));
-  const moveColumnsQ = useQuery({
-    queryKey: ['columns', project],
-    queryFn: () => columnsApi(apiClient).list(project),
-    enabled: !!project,
-  });
-  const moveColumns = project && Array.isArray(moveColumnsQ.data)
-    ? [...moveColumnsQ.data].filter((c) => c.enabled).sort((a, b) => a.position - b.position).map((c) => ({ value: c.id, label: c.name }))
-    : undefined;
+  // As shown: today's, then Upcoming (the task panel's Previous / Next and a Shift-click's range follow it).
+  const shownRows = useMemo(() => [...todayRows, ...upcomingRows], [todayRows, upcomingRows]);
+  const sortedIds = useMemo(() => shownRows.map((e) => e.task.id), [shownRows]);
+  const shownRefs = useMemo<SelRef[]>(() => shownRows.map((e) => taskRef(e.task)), [shownRows]);
+  const toggleSelect = (t: ApiTask, shift: boolean) => sel.toggle(taskRef(t), { shift, order: shownRefs });
+  // "Select all N matching": every task the filters leave (the selection keeps the ones filtered out).
+  const allState = sel.allState(sortedIds);
+  const toggleSelectAll = () => (allState === 'all' ? sel.deselect(sortedIds) : sel.selectAll(shownRefs));
+  const tasksById = useMemo(() => new Map(tasks.map((t) => [t.id, t])), [tasks]);
 
   // The toolbar's parts: laid out in a row (tablet and up), or behind "Filters" on a phone.
-  const activeFilters = [project, status, priority, assignee, due, company].filter(Boolean).length;
+  const activeFilters = [project, status, priority, assignee, due].filter(Boolean).length + guestCategoryFiltersActive(picked);
   const filterBoxes = (box: string) => (
     <>
       <div className={box}><SearchableSelect ariaLabel="Filter by project" value={project} onChange={setProject} options={projectOptions} /></div>
@@ -342,9 +280,8 @@ export function MyTasksPage() {
       <div className={box}><SearchableSelect ariaLabel="Filter by priority" value={priority} onChange={setPriority} options={priorityOptions} /></div>
       <div className={box}><SearchableSelect ariaLabel="Filter by assignee" value={assignee} onChange={setAssignee} options={assigneeOptions} /></div>
       <div className={box}><SearchableSelect ariaLabel="Filter by due date" value={due} onChange={setDue} options={DUE_OPTIONS} /></div>
-      {companyOptions.length > 1 ? (
-        <div className={box}><SearchableSelect ariaLabel={`Filter by ${EXTERNAL_CONTACT_WORDS.filter.toLowerCase()}`} value={company} onChange={setCompany} options={companyOptions} /></div>
-      ) : null}
+      {/* 1.24: each only when the tasks give it a choice; categories named by project (they are each project's own). */}
+      <GuestCategoryFilterBoxes rows={tasks} value={picked} onChange={setPicked} projectName={projectNameOf} box={box} />
     </>
   );
   const clearButton = filtersActive ? (
@@ -365,6 +302,41 @@ export function MyTasksPage() {
       </ViewButton>
     </div>
   );
+
+  /** One list of tasks in the chosen view (today's, or Upcoming). */
+  const rowsView = (rows: Enriched[], label: string) =>
+    view === 'grid' ? (
+      <div className="grid gap-3 compact:gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        {rows.map((e) => <MyTaskCard key={e.task.id} e={e} today={today} onOpen={() => openTask(e.task.id, sortedIds)} selected={sel.has(e.task.id)} onToggleSelect={(shift) => toggleSelect(e.task, shift)} />)}
+      </div>
+    ) : view === 'list' ? (
+      <div className="card divide-y divide-line overflow-hidden">
+        {rows.map((e) => <MyTaskRow key={e.task.id} e={e} today={today} onOpen={() => openTask(e.task.id, sortedIds)} selected={sel.has(e.task.id)} onToggleSelect={(shift) => toggleSelect(e.task, shift)} />)}
+      </div>
+    ) : (
+      // The page's filters, Sort menu, saved views and selection apply; a header click sets the sort.
+      <TaskTable
+        page="mytasks"
+        label={label}
+        tasks={rows.map((e) => e.task)}
+        projects={projects}
+        showProject
+        presorted
+        // Every task, as Grid and List draw them: "Select all" then acts only on what is on screen.
+        paged={false}
+        sort={myTasksSort(sort)}
+        onSortChange={(next) => setSort(myTasksSortValue(next))}
+        shown={tableMemory.shown}
+        onShownChange={tableMemory.setShown}
+        selection={{
+          selected: sel.selected,
+          // A Shift-click's range follows the page's list as shown (today's, then Upcoming).
+          // (Its "Select all" is the page's own, above both lists.)
+          onToggle: (t, { shift }) => toggleSelect(t, shift),
+        }}
+        onOpen={(id) => openTask(id, sortedIds)}
+      />
+    );
 
   return (
     <div>
@@ -391,6 +363,9 @@ export function MyTasksPage() {
           <Chip active={!filtersActive} onClick={clearFilters} label="All" value={counts.total} />
           <Chip active={status === OPEN_STATUS} onClick={() => setStatus(status === OPEN_STATUS ? '' : OPEN_STATUS)} label="Open" value={counts.open} tone="info" />
           <Chip active={due === 'overdue'} onClick={() => setDue(due === 'overdue' ? '' : 'overdue')} label="Overdue" value={counts.overdue} tone="overdue" />
+          {counts.upcoming > 0 || due === 'upcoming' ? (
+            <Chip active={due === 'upcoming'} onClick={() => setDue(due === 'upcoming' ? '' : 'upcoming')} label="Upcoming" value={counts.upcoming} tone="info" />
+          ) : null}
           <Chip active={status === 'DONE'} onClick={() => setStatus(status === 'DONE' ? '' : 'DONE')} label="Completed" value={counts.done} tone="done" />
         </div>
       ) : null}
@@ -476,114 +451,30 @@ export function MyTasksPage() {
         <>
           <div className="mb-2 flex items-center gap-3">
             <label className="flex items-center gap-1.5 text-xs font-medium text-ink-2 [@media(pointer:coarse)]:min-h-11">
-              <input type="checkbox" aria-label="Select all tasks" checked={allVisibleSelected} onChange={toggleSelectAll} className="h-3.5 w-3.5 accent-brand" />
-              Select all
+              <SelectAllBox state={allState} onChange={toggleSelectAll} />
+              {selectAllWords(sorted.length, filtersActive)}
             </label>
             <p className="text-xs text-ink-2">
               Showing <span className="font-semibold text-ink">{sorted.length}</span>{filtersActive ? ` of ${counts.total}` : ''} task{sorted.length === 1 ? '' : 's'}
             </p>
           </div>
-          {view === 'grid' ? (
-            <div className="grid gap-3 compact:gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {sorted.map((e) => <MyTaskCard key={e.task.id} e={e} onOpen={() => openTask(e.task.id, sortedIds)} selected={selected.has(e.task.id)} onToggleSelect={() => toggleSelect(e.task.id)} />)}
-            </div>
-          ) : view === 'list' ? (
-            <div className="card divide-y divide-line overflow-hidden">
-              {sorted.map((e) => <MyTaskRow key={e.task.id} e={e} onOpen={() => openTask(e.task.id, sortedIds)} selected={selected.has(e.task.id)} onToggleSelect={() => toggleSelect(e.task.id)} />)}
-            </div>
-          ) : (
-            // The page's filters, Sort menu, saved views and selection apply; a header click sets the sort.
-            <TaskTable
-              page="mytasks"
-              label="My tasks"
-              tasks={sorted.map((e) => e.task)}
-              projects={projects}
-              showProject
-              presorted
-              // Every task, as Grid and List draw them: "Select all" then acts only on what is on screen.
-              paged={false}
-              sort={myTasksSort(sort)}
-              onSortChange={(next) => setSort(myTasksSortValue(next))}
-              shown={tableMemory.shown}
-              onShownChange={tableMemory.setShown}
-              selection={{ selected, onToggle: toggleSelect }}
-              onOpen={(id, ids) => openTask(id, ids)}
-            />
-          )}
+          {todayRows.length ? <section aria-label="Your tasks">{rowsView(todayRows, 'My tasks')}</section> : null}
+          {/* Tasks scheduled for the future: the ones waiting for a later start day. */}
+          {upcomingRows.length ? (
+            <section aria-label="Upcoming" className={todayRows.length ? 'mt-6' : ''}>
+              <div className="mb-2 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                <h2 className="text-sm font-semibold text-ink">Upcoming</h2>
+                <span className="text-xs font-semibold tabular-nums text-ink-2">{upcomingRows.length}</span>
+                <p className="basis-full text-xs text-ink-2 sm:basis-auto">Scheduled to start later — each joins your list on its start day.</p>
+              </div>
+              {rowsView(upcomingRows, 'Upcoming tasks')}
+            </section>
+          ) : null}
         </>
       )}
 
-      {toast ? (
-        <div className="pointer-events-none fixed inset-x-0 bottom-20 z-40 flex justify-center px-4">
-          <p className="pointer-events-auto rounded-full border border-line bg-surface px-4 py-2 text-sm font-medium text-ink shadow-lift">{toast}</p>
-        </div>
-      ) : null}
-
-      {selectedList.length > 0 ? (
-        <BulkActionBar
-          count={selectedList.length}
-          busy={bulkBusy}
-          assignees={assigneeChoices}
-          columns={moveColumns}
-          onComplete={() => runBulkAction({ type: 'complete' }, 'Completed')}
-          onSetDueDate={(date) => runBulkAction({ type: 'setDueDate', dueDate: date }, 'Updated due date on')}
-          onSetPriority={(p) => runBulkAction({ type: 'setPriority', priority: p }, 'Set priority on')}
-          onMoveToProject={() => setMoving(selectedList.map((e) => ({ id: e.task.id, key: e.task.key, title: e.task.title, projectId: e.task.projectId })))}
-          moveUnavailable={moveUnavailable}
-          onMerge={mergeAvail.show ? () => setMerging(selectedList.map((e) => ({ id: e.task.id, key: e.task.key, title: e.task.title, projectId: e.task.projectId }))) : undefined}
-          mergeUnavailable={mergeAvail.reason}
-          onAssign={(userId) => runBulkAction({ type: 'assign', userId }, 'Assigned')}
-          onMove={moveColumns ? (columnId) => runBulkAction({ type: 'move', columnId }, 'Moved') : undefined}
-          onClear={clearSelection}
-        />
-      ) : null}
-
-      {moving ? (
-        <MoveTaskDialog
-          tasks={moving}
-          onClose={() => setMoving(null)}
-          // One task selected: the one-task move.
-          onMoved={(result) => {
-            void invalidateTaskQueries(qc);
-            setSelected(new Set());
-            setToast(movedText(result));
-            setMoving(null);
-          }}
-          onBulkMoved={(result, projectName) => {
-            void invalidateTaskQueries(qc);
-            setSelected(new Set());
-            setToast(bulkMovedText(result, projectName));
-            // All moved: done. Otherwise the dialog lists the ones that couldn't be, until Done.
-            if (result.failed === 0) setMoving(null);
-          }}
-        />
-      ) : null}
-
-      {merging ? (
-        <MergeTasksDialog
-          tasks={merging}
-          onClose={() => setMerging(null)}
-          onMerged={(result) => {
-            setMerging(null);
-            setSelected(new Set());
-            setMerged(result);
-            void invalidateMergeQueries(qc);
-          }}
-        />
-      ) : null}
-      {undoing ? (
-        <UndoMergeDialog
-          mergeId={undoing}
-          onClose={() => setUndoing(null)}
-          onUndone={(result) => {
-            setUndoing(null);
-            setMerged(null);
-            setToast(result.text);
-            void invalidateMergeQueries(qc);
-          }}
-        />
-      ) : null}
-      {merged ? <MergedToast text={merged.text} onOpen={() => openTask(merged.mainTaskId)} onUndo={() => setUndoing(merged.mergeId)} onDismiss={() => setMerged(null)} /> : null}
+      {/* The bulk bar, each change's confirmation, the summary with Undo, Project (move) and Merge. */}
+      <BulkTools selection={sel} visibleIds={sortedIds} projects={projects} assignedOf={(id) => tasksById.get(id)?.assignees} merge />
     </div>
   );
 }
@@ -646,22 +537,19 @@ function Assignees({ list, all = false }: { list: { id: string; name: string; av
   );
 }
 
-/**
- * The "select this task" checkbox of a card or row. It sits above the row's click area, and its
- * label pads the 16px box out to a 28px target so it can be hit with a finger.
- */
-function SelectBox({ taskKey, checked, onChange }: { taskKey: string; checked: boolean; onChange: () => void }) {
-  return (
-    <label className="relative z-10 -m-1.5 grid h-7 w-7 flex-none cursor-pointer place-items-center [@media(pointer:coarse)]:-m-2.5 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11">
-      <input type="checkbox" aria-label={`Select ${taskKey}`} checked={checked} onChange={onChange} className="h-4 w-4 cursor-pointer accent-brand" />
-    </label>
-  );
+/** "Select all 12" — "Select all 12 matching" while filters narrow the list. */
+const selectAllWords = (n: number, filtered: boolean) => `Select all ${n}${filtered ? ' matching' : ''}`;
+
+/** "Starts 20 Nov" on a task waiting for its start day (tasks scheduled for the future). */
+function StartsChip({ day, today }: { day: string; today: string }) {
+  return <span className="inline-flex flex-none items-center rounded-md bg-info-soft px-1.5 py-0.5 text-[11px] font-semibold text-info">{startsText(day, today)}</span>;
 }
 
-function MyTaskCard({ e, onOpen, selected, onToggleSelect }: { e: Enriched; onOpen: () => void; selected?: boolean; onToggleSelect?: () => void }) {
+function MyTaskCard({ e, today, onOpen, selected, onToggleSelect }: { e: Enriched; today: string; onOpen: () => void; selected?: boolean; onToggleSelect?: (shift: boolean) => void }) {
   const t = e.task;
   // Detailed (1.23.8, lib/density): the whole title, the description's first line, tags and everyone on it.
-  const detailed = useDensity() === 'detailed';
+  const density = useDensity();
+  const detailed = density === 'detailed';
   return (
     // The title button opens the task; its ::after covers the card, so a click anywhere works, while
     // the select checkbox sits above it as a separate control (never one control inside another).
@@ -672,7 +560,7 @@ function MyTaskCard({ e, onOpen, selected, onToggleSelect }: { e: Enriched; onOp
     >
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
-          {onToggleSelect ? <SelectBox taskKey={t.key} checked={!!selected} onChange={onToggleSelect} /> : null}
+          {onToggleSelect ? <TaskSelectBox task={t} checked={!!selected} onChange={onToggleSelect} className="-m-1.5 [@media(pointer:coarse)]:-m-2.5" /> : null}
           {e.project ? (
             <span className="flex min-w-0 items-center gap-1.5">
               <ProjectAvatar project={e.project} size="xs" />
@@ -685,6 +573,7 @@ function MyTaskCard({ e, onOpen, selected, onToggleSelect }: { e: Enriched; onOp
       <div className="flex items-center gap-2">
         <TaskKey value={t.key} dense="compact" />
         <StatusPill category={e.cat} />
+        {e.waits ? <StartsChip day={e.waits} today={today} /> : null}
         {t.approvalRequestedAt ? <ApprovalChip /> : null}
         {t.inspectionFormId ? <InspectionChip /> : null}
       </div>
@@ -697,7 +586,9 @@ function MyTaskCard({ e, onOpen, selected, onToggleSelect }: { e: Enriched; onOp
         {t.title}
       </button>
       {detailed ? <DescriptionLine description={t.description} className="-mt-1" /> : null}
-      <ExternalContactsLine summary={t.externalSummary} />
+      {/* 1.24: its categories (Compact 1, Comfortable 2, Detailed all) and its guests. */}
+      <CategoryChips categories={t.categories} density={density} />
+      <GuestsLine guests={t.guests} summary={t.externalSummary} />
       {detailed ? <TagChips tags={t.tags} /> : null}
 
       <div className="mt-auto flex flex-col gap-2 pt-1 compact:gap-1.5 compact:pt-0">
@@ -719,18 +610,19 @@ function MyTaskCard({ e, onOpen, selected, onToggleSelect }: { e: Enriched; onOp
   );
 }
 
-function MyTaskRow({ e, onOpen, selected, onToggleSelect }: { e: Enriched; onOpen: () => void; selected?: boolean; onToggleSelect?: () => void }) {
+function MyTaskRow({ e, today, onOpen, selected, onToggleSelect }: { e: Enriched; today: string; onOpen: () => void; selected?: boolean; onToggleSelect?: (shift: boolean) => void }) {
   const t = e.task;
   const m = statusMeta(e.cat);
   // Detailed (1.23.8): the title wraps, and the description's first line, tags and everyone on it go under it.
-  const detailed = useDensity() === 'detailed';
+  const density = useDensity();
+  const detailed = density === 'detailed';
   return (
     <div
       data-task-key={t.key}
       // Compact rows (1.23.0, lib/density): a third less padding, the title a step smaller.
       className={`relative flex items-center gap-3 px-4 py-2.5 transition-colors compact:py-1.5 hover:bg-ground/60 ${selected ? 'bg-brand/5' : ''} ${e.overdue ? 'border-l-2 border-l-overdue' : 'border-l-2 border-l-transparent'}`}
     >
-      {onToggleSelect ? <SelectBox taskKey={t.key} checked={!!selected} onChange={onToggleSelect} /> : null}
+      {onToggleSelect ? <TaskSelectBox task={t} checked={!!selected} onChange={onToggleSelect} className="-m-1.5 [@media(pointer:coarse)]:-m-2.5" /> : null}
       {/* The status: a named dot (its word on the phone line below, and in a column on a wide screen). */}
       <span role="img" aria-label={m.label} title={m.label} className="hidden h-2.5 w-2.5 flex-none rounded-full sm:block 2xl:hidden" style={{ background: m.color }} />
       {/* At least the usual width, so the titles line up; a longer number widens its row's column, never cut. */}
@@ -747,6 +639,11 @@ function MyTaskRow({ e, onOpen, selected, onToggleSelect }: { e: Enriched; onOpe
         >
           {t.title}
         </button>
+        {e.waits ? (
+          <span className="hidden flex-none sm:inline-flex">
+            <StartsChip day={e.waits} today={today} />
+          </span>
+        ) : null}
         {t.approvalRequestedAt ? (
           <span className="hidden flex-none sm:inline-flex">
             <ApprovalChip />
@@ -757,8 +654,10 @@ function MyTaskRow({ e, onOpen, selected, onToggleSelect }: { e: Enriched; onOpe
             <InspectionChip />
           </span>
         ) : null}
+        {/* 1.24: its categories beside the title (the title gives way; Detailed: all, wrapping). */}
+        <RowCategoryChips categories={t.categories} density={density} />
         {detailed ? <DescriptionLine description={t.description} className="basis-full" /> : null}
-        <ExternalContactsLine summary={t.externalSummary} className="basis-full" />
+        <GuestsLine guests={t.guests} summary={t.externalSummary} className="basis-full" />
         {detailed ? <TagChips tags={t.tags} className="mt-1 basis-full" /> : null}
         {detailed && (t.assignees?.length ?? 0) > 0 ? <PeopleLine people={t.assignees} className="mt-1 basis-full" /> : null}
         {detailed ? <ChecklistCount counts={t.counts} className="mt-1" /> : null}
@@ -766,6 +665,7 @@ function MyTaskRow({ e, onOpen, selected, onToggleSelect }: { e: Enriched; onOpe
         <div data-phone-meta className="mt-1 flex basis-full flex-wrap items-center gap-x-2 gap-y-1 sm:hidden">
           <TaskKey value={t.key} />
           <StatusPill category={e.cat} />
+          {e.waits ? <StartsChip day={e.waits} today={today} /> : null}
           {t.approvalRequestedAt ? <ApprovalChip /> : null}
           {t.inspectionFormId ? <InspectionChip /> : null}
           <PriorityBadge priority={t.priority} />

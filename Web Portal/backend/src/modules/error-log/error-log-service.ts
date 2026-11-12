@@ -179,6 +179,25 @@ const errorText = (err: unknown): { message: string | null; stack: string | null
   return { message: null, stack: null };
 };
 
+/** MICO360 AI's ids as the platform writes them: a correlation id (REQ-…, or ours) and a job id (JOB-…). */
+const CORRELATION_ID = /^[A-Za-z0-9][A-Za-z0-9_:.-]{0,63}$/;
+const JOB_ID = /^JOB-[A-Za-z0-9_:.-]{1,96}$/;
+const AI_IDS = 'MICO360 AI · ';
+
+/**
+ * (b) bundles, b10: a MICO360 AI failure's ids (ai-errors: `correlationId`, `jobId`), as the occurrence's
+ * details say them — only well-formed ones, never anything key-like. Null when it has none.
+ */
+function aiIdsText(thrown: unknown): string | null {
+  if (!thrown || typeof thrown !== 'object') return null;
+  const { correlationId, jobId } = thrown as { correlationId?: unknown; jobId?: unknown };
+  const correlation = typeof correlationId === 'string' && CORRELATION_ID.test(correlationId) && !/^mico_/i.test(correlationId) ? correlationId : null;
+  const job = typeof jobId === 'string' && JOB_ID.test(jobId) ? jobId : null;
+  const parts = [correlation ? `correlation id ${correlation}` : '', job ? `job ${job}` : ''].filter(Boolean);
+  return parts.length ? `${AI_IDS}${parts.join(' · ')}` : null;
+}
+const isAiIds = (resource: string | null): boolean => !!resource && resource.startsWith(AI_IDS);
+
 /**
  * The Error log (1.22.4): what browsers report (errors, blocked files and scripts, slow pages) and
  * the server's own errors (failed requests, background jobs), grouped into rows, kept 30 days, read on
@@ -396,7 +415,8 @@ export function createErrorLogService(deps: ErrorLogServiceDeps) {
             stack: resolved.stack ? redactText(resolved.stack, 4096) : null,
             page,
             job: job ? job.slice(0, 100) : null,
-            resource: clip(db?.text, 300),
+            // 1.22.5: a database error's diagnosis; (b) bundles, b10: else a MICO360 AI failure's ids.
+            resource: clip(db?.text ?? aiIdsText(thrown), 300),
             value: null,
             count: 1,
             version,
@@ -487,9 +507,11 @@ export function createErrorLogService(deps: ErrorLogServiceDeps) {
         page: e.page,
         job: e.job,
         // A server error's resource is its database diagnosis (1.22.5): the page says "Database said: …".
-        // 1.23.14: so is an update restart's the server saw itself.
+        // 1.23.14: so is an update restart's the server saw itself. (b) bundles, b10: or a MICO360 AI
+        // failure's correlation and job ids, shown as they are.
         resource: fromServer(e) ? null : e.resource,
-        database: fromServer(e) ? e.resource : null,
+        database: fromServer(e) && !isAiIds(e.resource) ? e.resource : null,
+        ai: e.kind === 'SERVER' && isAiIds(e.resource) ? e.resource : null,
         value: e.value,
         count: e.count,
         version: e.version,

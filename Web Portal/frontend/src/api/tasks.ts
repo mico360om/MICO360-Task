@@ -3,6 +3,8 @@ import type { ChecklistTree } from '../lib/checklist-tree';
 import type { RecurrenceRule } from '../lib/recurrence';
 import type { ExternalContactDraft, ExternalContactSummary } from '../lib/external-contacts';
 import type { ApiExternalContact } from './external-contacts';
+import type { ApiTaskGuest } from './guests';
+import type { TaskCategoryChip } from './categories';
 
 export type Priority = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
 
@@ -68,6 +70,10 @@ export interface ApiTask {
   version?: number;
   /** A milestone: a key date or deliverable of its project (older servers leave it out). */
   isMilestone?: boolean;
+  /** Task archive: when it was archived (null/absent: it isn't) — read-only and out of every board and list until unarchived. */
+  archivedAt?: string | null;
+  /** Who archived it. */
+  archivedById?: string | null;
   /** 1.23.5: its weight in its project's completion (1–10 points); null = the project's default for its priority. */
   weight?: number | null;
   /** Shown on the project's client page and in the Client portal (its title, status and due date). */
@@ -113,6 +119,8 @@ export interface ApiTask {
   canDelete?: boolean;
   /** May they delete its entire repeating series (only the series' creator; single-task responses). */
   canDeleteSeries?: boolean;
+  /** A repeating task: how many live tasks its series has (the delete question: "the entire series (12 tasks)"). */
+  seriesSize?: number;
   /** Assignees (present on list responses; used for card avatars), each with their photo (null or left out by an older server: initials). */
   assignees?: { id: string; name: string; avatarUrl?: string | null }[];
   /** Its tags (list and single-task responses; the Table view's optional Tags column). */
@@ -123,10 +131,67 @@ export interface ApiTask {
   externalSummary?: ExternalContactSummary | null;
   /** Its external contacts in full, in order (single-task responses). */
   externalContacts?: ApiExternalContact[];
+  /** 1.24: its guests in short, in order (list and single-task responses; older servers leave it out). */
+  guests?: { id: string; name: string; company: string | null }[];
+  /** 1.24: its guests in full, with this task's note for each (single-task responses). */
+  taskGuests?: ApiTaskGuest[];
+  /** 1.24: its categories, in its project's order (retired ones marked). */
+  categories?: TaskCategoryChip[];
   /** 1.23.1: the tasks merged into it (single-task responses): its "Merged from" panel opens from them. */
   mergedFrom?: { id: string; key: string; mergeId: string }[];
   /** 1.23.1: opened by a merged task's id (an old link or notice): which one, when and by whom. */
   mergeNotice?: { key: string; mergedAt: string | null; mergedByName: string | null };
+  /** Duplicate Task (single-task responses): the task it was copied from — null when none, or the reader can't open it. */
+  duplicatedFrom?: { id: string; key: string } | null;
+  /** Duplicate Task (single-task responses): its copies the reader can open, oldest first. */
+  copies?: { id: string; key: string }[];
+}
+
+/** Duplicate Task: the New task form's pre-fill for a copy (GET /tasks/:id/duplicate). */
+export interface DuplicatePrefill {
+  original: { id: string; key: string; title: string; projectId: string };
+  task: {
+    title: string;
+    description: string | null;
+    projectId: string;
+    /** The original project's first To-do column. */
+    columnId: string | null;
+    priority: Priority;
+    /** Company calendar days, 'YYYY-MM-DD'. */
+    startDate: string | null;
+    dueDate: string | null;
+    estimatedHours: number | null;
+    isMilestone: boolean;
+    weight: number | null;
+    tags: string[];
+    assigneeIds: string[];
+    checklists: ChecklistTree;
+    externalContacts: { name: string; company: string | null; designation: string | null; email: string | null; phone: string | null; remarks: string | null }[];
+    /** 1.24: its guests (an older server sends none) — each with this task's note, which the copy keeps. */
+    guests?: { id: string; name: string; company: string | null; designation: string | null; email: string | null; phone: string | null; note: string | null }[];
+    /** 1.24: its categories (an older server sends none). */
+    categoryIds?: string[];
+    inspectionFormId: string | null;
+    inspectionPlace: string | null;
+  };
+  watchers: { id: string; name: string }[];
+  files: { id: string; filename: string; sizeBytes: number; mimeType: string }[];
+}
+
+/** Duplicate Task: the reviewed form (the New task form's fields, the column optional) and the files tick. */
+export type DuplicateInput = Omit<NewTaskInput, 'columnId' | 'startDate'> & {
+  columnId?: string;
+  /** 'YYYY-MM-DD'; null: none of its own. Left out: the original's. */
+  startDate?: string | null;
+  recurrenceRule?: RecurrenceRule | null;
+  copyFiles: boolean;
+};
+
+/** How the copy's files went. */
+export interface DuplicateFiles {
+  total: number;
+  copied: number;
+  failed: { filename: string; reason: string }[];
 }
 
 export interface NewTaskInput {
@@ -136,6 +201,8 @@ export interface NewTaskInput {
   description?: string;
   priority?: Priority;
   dueDate?: string;
+  /** Its start day ('YYYY-MM-DD'). Later than today, the task waits on that day's board (unless a board day is sent). */
+  startDate?: string;
   /** Board day (YYYY-MM-DD) for per-date boards; defaults to today server-side. */
   boardDate?: string;
   /** A key date or deliverable of the project. */
@@ -153,6 +220,10 @@ export interface NewTaskInput {
   checklists?: ChecklistTree;
   /** Its external contacts (people outside the company responsible for it), in order, created with the task. */
   externalContacts?: ExternalContactDraft[];
+  /** 1.24: guests from the project's company list (and this task's note for each); needs a team member too. */
+  guests?: { guestId: string; note?: string | null }[];
+  /** 1.24: its categories. Sent (even []) they are checked — a project that needs one refuses none. */
+  categoryIds?: string[];
   /** The inspection form it is carried out with, and where (a check). */
   inspectionFormId?: string | null;
   inspectionPlace?: string | null;
@@ -219,6 +290,17 @@ export interface TaskMovePreview {
   outsiders: MovePerson[];
 }
 
+/**
+ * 1.24: what a move does to a task's categories and guests (POST /tasks/move-preview sends them with each task).
+ * Kept apart from TaskMovePreview, whose fields the Android app's copy mirrors (its drift test).
+ */
+export interface TaskMoveExtras {
+  /** Its categories the new project has no category of the same name for (dropped by the move). */
+  categoriesDropped?: string[];
+  /** How many of its guests are copied onto the new project's company list (another company's project). */
+  guestsCopied?: number;
+}
+
 export interface MovePreview {
   project: MoveProject & { defaultDueToday: boolean };
   /** The new project's columns, in board order. */
@@ -276,6 +358,11 @@ export function tasksApi(client: ApiClient) {
       if (projectId) qs.set('projectId', projectId);
       return client.get<{ data: ApiTask[] }>(`/tasks?${qs.toString()}`).then((r) => r.data);
     },
+    /** Task archive: a project's archived tasks (its "Archived tasks" list), newest archived first. */
+    listArchived: (projectId: string) => client.get<{ data: ApiTask[] }>(`/tasks?${new URLSearchParams({ projectId, archived: 'only' }).toString()}`).then((r) => r.data),
+    /** Task archive: archive / unarchive one task (administrators and the people who run its project); answers the task. */
+    archive: (id: string) => client.post<{ data: ApiTask }>(`/tasks/${id}/archive`, {}).then((r) => r.data),
+    unarchive: (id: string) => client.post<{ data: ApiTask }>(`/tasks/${id}/unarchive`, {}).then((r) => r.data),
     mine: () => client.get<{ data: ApiTask[] }>('/tasks/mine').then((r) => r.data),
     get: (id: string) => client.get<{ data: ApiTask }>(`/tasks/${id}`).then((r) => r.data),
     create: (input: NewTaskInput, opts?: CreateTaskOptions) =>
@@ -284,10 +371,12 @@ export function tasksApi(client: ApiClient) {
         .then((r) => r.data),
     update: (
       id: string,
-      patch: Omit<Partial<NewTaskInput>, 'dueDate' | 'externalContacts'> & {
+      patch: Omit<Partial<NewTaskInput>, 'dueDate' | 'startDate' | 'externalContacts' | 'guests' | 'categoryIds'> & {
         progress?: number;
         columnId?: string;
         dueDate?: string | null;
+        /** A not-started task whose start moves later waits on that day's board; earlier (or cleared), today's. */
+        startDate?: string | null;
         recurrenceRule?: RecurrenceRule | null;
         /** 'series' applies the edit to every occurrence of a recurring task. */
         scope?: 'one' | 'series';
@@ -303,6 +392,13 @@ export function tasksApi(client: ApiClient) {
         .then((r) => r.data),
     remove: (id: string, scope?: 'series') =>
       client.del<void>(scope ? `/tasks/${id}?scope=${scope}` : `/tasks/${id}`),
+    /** Duplicate Task: the review form's pre-fill (only what the person may see). */
+    duplicatePrefill: (id: string) => client.get<{ data: DuplicatePrefill }>(`/tasks/${id}/duplicate`).then((r) => r.data),
+    /** Duplicate Task: the copy, and how its files went. One Idempotency-Key per attempt: a double click makes one copy. */
+    duplicate: (id: string, input: DuplicateInput, opts?: CreateTaskOptions) =>
+      client
+        .post<{ data: ApiTask; files: DuplicateFiles }>(`/tasks/${id}/duplicate`, input, opts?.idempotencyKey ? { headers: { 'Idempotency-Key': opts.idempotencyKey } } : undefined)
+        .then((r) => ({ task: r.data, files: r.files })),
     /** Admin: run the per-date carry-forward sweep on demand. */
     runCarryForward: () => client.post<{ data: { carried: number } }>('/tasks/carry-forward', {}).then((r) => r.data),
     /** Where the signed-in person may move tasks to, and whose tasks they may move. */

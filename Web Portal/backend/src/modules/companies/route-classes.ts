@@ -651,4 +651,46 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   'POST /tasks/:id/reminders/:reminderId/snooze': 'object',
   'GET /calendar/preferences': 'own',
   'PUT /calendar/preferences': 'own',
+  // 1.24 Guests on tasks: the company list through a project, a task's guests (object), the admin page (admin).
+  'GET /projects/:projectId/guests': 'object',
+  'POST /projects/:projectId/guests/check': 'object',
+  'POST /projects/:projectId/guests': 'object',
+  'GET /tasks/:id/guests': 'object',
+  'POST /tasks/:id/guests': 'object',
+  'PATCH /tasks/:id/guests/:guestId': 'object',
+  'DELETE /tasks/:id/guests/:guestId': 'object',
+  'GET /guests': 'admin',
+  'PUT /guests/:guestId': 'admin',
+  'POST /guests/:guestId/retire': 'admin',
+  'POST /guests/:guestId/unretire': 'admin',
+  'POST /guests/merge': 'admin',
+  'DELETE /guests/:guestId': 'admin',
+  // 1.24 Task categories: one project's list (its managers change it) and a task's categories.
+  'GET /projects/:id/categories': 'object',
+  'POST /projects/:id/categories': 'object',
+  'PUT /projects/:id/categories/order': 'object',
+  'PUT /projects/:id/category-settings': 'object',
+  'PUT /project-categories/:categoryId': 'object',
+  'DELETE /project-categories/:categoryId': 'object',
+  'PUT /tasks/:id/categories': 'object',
+  // Recycle Bin: the bin lists the deleted tasks of the projects the person runs (an administrator's:
+  // every project) in the picked company; one deleted task, restore
+  // and Delete forever are checked task by task (Delete forever: administrators only).
+  'GET /recycle-bin': 'list',
+  'GET /recycle-bin/tasks/:id': 'object',
+  'POST /recycle-bin/restore': 'object',
+  'POST /recycle-bin/erase': 'admin',
+  // Duplicate Task: the review form's pre-fill (the original by the task rule) and the copy (the original
+  // by the task rule, the chosen project by the new-task rule; staff only — a client account is refused).
+  'GET /tasks/:id/duplicate': 'object',
+  'POST /tasks/:id/duplicate': 'object',
+  // Manager View (owner, 10 Nov 2026): an administrator's own switch, never refused by Manager View itself.
+  'GET /users/me/manager-view': 'own',
+  'PUT /users/me/manager-view': 'own',
+  // Task archive (bulk lane): one task archived or unarchived (administrators and its project's managers,
+  // checked by the service on the task); many at once, and their Undo, task by task (bulk service).
+  'POST /tasks/:id/archive': 'object',
+  'POST /tasks/:id/unarchive': 'object',
+  'POST /tasks/bulk': 'object',
+  'POST /tasks/bulk/:bulkId/undo': 'own',
 };

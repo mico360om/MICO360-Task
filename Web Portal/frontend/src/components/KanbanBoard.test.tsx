@@ -27,6 +27,19 @@ describe('KanbanBoard', () => {
     expect(within(done).getByText('1')).toBeInTheDocument();
   });
 
+  it('board search: a column says how many of its cards are found — "1 of 2" with a mouse, the shorter "1/2" on a touch screen (its 44px buttons leave the name less room), read out in full', () => {
+    const searched: KanbanColumnData[] = [{ ...columns[0]!, tasks: [columns[0]!.tasks[0]!], total: 2 }, { ...columns[1]!, tasks: [], total: 1 }];
+    render(<KanbanBoard columns={searched} />);
+    const chip = within(screen.getByRole('region', { name: 'To Do' })).getByTestId('column-count');
+    expect(within(chip).getByText('1 of 2')).toHaveClass('sr-only');
+    // Its words for screen readers stay inside it: in a column scrolled out of view they once widened the page.
+    expect(chip).toHaveClass('relative');
+    const shown = chip.querySelector('[aria-hidden="true"]')!;
+    expect(shown.querySelector('[class*="pointer:coarse"][class*="hidden"]')).toHaveTextContent('of');
+    expect(Array.from(shown.querySelectorAll('span')).find((s) => s.textContent === '/')?.className).toMatch(/hidden \[@media\(pointer:coarse\)\]:inline/);
+    expect(within(screen.getByRole('region', { name: 'Done' })).getByTestId('column-count')).toHaveTextContent('0 of 1');
+  });
+
   it('a long column name wraps onto a second line and, if still cut, gives its full name on hover', () => {
     render(<KanbanBoard columns={[{ id: 'c9', name: 'Waiting on the client / Blocked', color: '#C0422F', tasks: [] }]} />);
     const name = within(screen.getByRole('region', { name: 'Waiting on the client / Blocked' })).getByText('Waiting on the client / Blocked');

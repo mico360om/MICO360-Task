@@ -1,3 +1,4 @@
+import { isEffectiveAdmin } from '../auth/manager-view';
 import { z } from 'zod';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { AuthGuard } from '../auth/auth-guard';
@@ -180,6 +181,7 @@ export async function registerClientAccountRoutes(app: FastifyInstance, deps: Cl
     const { id } = req.params as { id: string };
     const roles = req.user!.roles ?? [];
     if (!(await deps.canViewProject(req.user!.id, roles, id))) throw new NotFoundError('Project not found.');
-    return { data: { clients: await accounts.forProject(id), canChange: roles.includes('ADMIN') } };
+    // Manager View: the Clients page is closed to them, so they can't change it from here either.
+    return { data: { clients: await accounts.forProject(id), canChange: isEffectiveAdmin(req.user!) } };
   });
 }

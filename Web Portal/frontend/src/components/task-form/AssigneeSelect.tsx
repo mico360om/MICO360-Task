@@ -30,6 +30,9 @@ export function AssigneeSelect({
   required,
   invalid,
   describedBy,
+  extraChips,
+  modeSwitch,
+  picker,
 }: {
   people: PersonOption[];
   value: string[];
@@ -52,6 +55,12 @@ export function AssigneeSelect({
   invalid?: boolean;
   /** Ids of what describes the search box (a problem with the pick). */
   describedBy?: string;
+  /** 1.24: more chips after the people, in the same list (the task's guests). */
+  extraChips?: ReactNode;
+  /** 1.24: shown between the chips and the search (the "Internal user | Guest" switch). */
+  modeSwitch?: ReactNode;
+  /** 1.24: shown in place of the people search (the guest search, while Guest is chosen). */
+  picker?: ReactNode;
 }) {
   const [query, setQuery] = useState('');
   const byId = useMemo(() => new Map(people.map((p) => [p.id, p])), [people]);
@@ -62,7 +71,7 @@ export function AssigneeSelect({
 
   return (
     <div className="flex flex-col gap-2">
-      {chosen.length ? (
+      {chosen.length || extraChips ? (
         <ul aria-label={listLabel} className="flex flex-wrap gap-1.5">
           {chosen.map((p) => (
             <li key={p.id} className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-line bg-ground py-1 pe-1 ps-1 text-sm text-ink">
@@ -80,8 +89,11 @@ export function AssigneeSelect({
               </button>
             </li>
           ))}
+          {extraChips}
         </ul>
       ) : null}
+      {modeSwitch}
+      {picker ?? (
       <ComboPicker
         label={addLabel}
         placeholder={people.length ? 'Search by name…' : noPeopleText}
@@ -105,6 +117,7 @@ export function AssigneeSelect({
           setQuery('');
         }}
       />
+      )}
       {note ? <p id={noteId} className="text-xs text-ink-2">{note}</p> : null}
     </div>
   );

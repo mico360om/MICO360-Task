@@ -2,6 +2,8 @@ import type { ExternalContactFields } from './external-contacts';
 
 /** One external contact of a task: a person outside the company responsible for it. */
 export interface ExternalContactRecord extends ExternalContactFields {
+  /** 1.24: an add found the task already had this guest (no new row; nothing to note in its history). */
+  alreadyOnTask?: boolean;
   id: string;
   taskId: string;
   /** Its place in the task's list (0 first). */
@@ -22,13 +24,13 @@ export interface ExternalContactRepository {
    * in the same transaction, so two people adding at once can't go over it).
    */
   add(taskId: string, fields: ExternalContactFields, createdById: string, max: number): Promise<ExternalContactRecord | null>;
-  /** Replace a contact's fields; null when it is gone. */
-  update(contactId: string, fields: ExternalContactFields): Promise<ExternalContactRecord | null>;
+  /** Replace a contact's fields; null when it is gone. 1.24: `actorId`, who changes it (how much of the guest list they may match). */
+  update(contactId: string, fields: ExternalContactFields, actorId?: string): Promise<ExternalContactRecord | null>;
   /** Remove a contact; false when it was already gone. */
   remove(contactId: string): Promise<boolean>;
   /**
    * Contacts on the project's live tasks whose name or company has a word starting with `prefix`
    * (case aside), the most recently saved first — at most `limit` rows, not yet one per person.
    */
-  searchProject(projectId: string, prefix: string, limit: number): Promise<ExternalContactRecord[]>;
+  searchProject(projectId: string, prefix: string, limit: number, viewer?: { id: string; roles?: string[] } | null): Promise<ExternalContactRecord[]>;
 }

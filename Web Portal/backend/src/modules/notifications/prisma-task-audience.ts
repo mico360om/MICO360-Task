@@ -18,6 +18,15 @@ export const taskAudienceSelect = {
   },
 } satisfies Prisma.TaskSelect;
 
+/**
+ * The tasks the reminder and digest sweeps read: live, dated, in live projects — and never an archived
+ * one (task archive: hidden but kept, no reminders until it is unarchived).
+ */
+export const DATED_SWEEP_TASKS = { deletedAt: null, archivedAt: null, dueDate: { not: null }, project: { is: { deletedAt: null } } } satisfies Prisma.TaskWhereInput;
+
+/** The escalation sweep's tasks: live, in live projects, not archived. */
+export const ESCALATION_SWEEP_TASKS = { deletedAt: null, archivedAt: null, project: { is: { deletedAt: null } } } satisfies Prisma.TaskWhereInput;
+
 export interface TaskAudienceRow {
   assignees: { userId: string }[];
   project: { deletedAt: Date | null; ownerId: string | null; managerId: string | null; members: { userId: string }[]; companies: { companyId: string }[] } | null;

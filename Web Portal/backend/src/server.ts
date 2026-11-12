@@ -30,7 +30,7 @@ import { createPrismaProjectOverviewSource } from './modules/projects/prisma-pro
 import { createPrismaTimelineSource } from './modules/planning/prisma-timeline-source';
 import { createPrismaWorkloadStore } from './modules/planning/prisma-workload-store';
 import { createColumnService } from './modules/projects/column-service';
-import { createPrismaColumnRepository } from './modules/projects/prisma-column-repository';
+import { countWaitingTasksIn, createPrismaColumnRepository } from './modules/projects/prisma-column-repository';
 import { createMemberService } from './modules/projects/member-service';
 import { createPrismaMemberRepository, createPrismaProjectExistsLookup, createPrismaProjectManagerLookup, projectRunnerIds } from './modules/projects/prisma-member-repository';
 import { createProjectAuthz } from './modules/projects/project-authz';
@@ -40,6 +40,12 @@ import { createProjectNotices } from './modules/projects/project-notices';
 import { createProjectAccess } from './modules/projects/project-access';
 import { createCompanyAccess, fallbackProjectCompanyId, isAdminRoles, readMyProjectsOnly } from './modules/companies/company-access';
 import { createPrismaArchiveLookup } from './modules/companies/archive-guard';
+import { createTaskArchiveService } from './modules/tasks/task-archive';
+import { createPrismaTaskArchiveStore } from './modules/tasks/prisma-task-archive-store';
+import { createTaskBulkService } from './modules/tasks/bulk/task-bulk';
+import { createBulkPorts } from './modules/tasks/bulk/bulk-wiring';
+import { createBinService } from './modules/recycle-bin/bin-service';
+import { createPrismaBinStore } from './modules/recycle-bin/prisma-bin-store';
 import { createCompanyService, mailFromName, type OnCompanyAccessChanged } from './modules/companies/company-service';
 import { createPrismaCompanyRepository } from './modules/companies/prisma-company-repository';
 import { createCompanyMembership, createPrismaMembershipStore } from './modules/companies/company-membership';
@@ -77,6 +83,9 @@ import { createPrismaChecklistStore, checklistPercentOf } from './modules/tasks/
 import { createPrismaChecklistQueries } from './modules/tasks/prisma-checklist-queries';
 import { createExternalContactService } from './modules/tasks/external-contact-service';
 import { createPrismaExternalContactRepository } from './modules/tasks/prisma-external-contact-repository';
+import { createGuestService, type GuestService } from './modules/guests/guest-service';
+import { healGuestsAndCategories, healedSomething, runGuestConversion } from './modules/guests/guest-conversion';
+import { createCategoryService } from './modules/categories/category-service';
 import { createCommentService } from './modules/tasks/comment-service';
 import { createCommentNotifier } from './modules/tasks/comment-notifier';
 import { createPrismaCommentRepository } from './modules/tasks/prisma-comment-repository';
@@ -90,6 +99,8 @@ import {
   createPrismaChatMemberLookup,
 } from './modules/chat/prisma-chat-repository';
 import { createAttachmentService } from './modules/tasks/attachment-service';
+import { createTaskDuplicateService } from './modules/tasks/task-duplicate';
+import { createPrismaTaskDuplicateSource } from './modules/tasks/prisma-task-duplicate-source';
 import { createImageShrinker } from './lib/image-shrink';
 import { createAvatarFaces, prismaIsAvatar, registerAvatarFaceRoute } from './modules/users/avatar-faces';
 import { createPrismaAttachmentRepository } from './modules/tasks/prisma-attachment-repository';
@@ -99,6 +110,9 @@ import { createPrismaDependencyRepository } from './modules/tasks/prisma-depende
 import { createRecurrenceService } from './modules/tasks/recurrence-service';
 import { createPrismaRecurrencePort } from './modules/tasks/prisma-recurrence-port';
 import { createPrismaPreferences } from './modules/users/user-preferences';
+import { createPrismaManagerViewStore } from './modules/users/manager-view-routes';
+import { createPrismaManagerViewLookup } from './modules/auth/prisma-manager-view-lookup';
+import { isEffectiveAdmin } from './modules/auth/manager-view';
 import { createUserService } from './modules/users/user-service';
 import { createPrismaUserRepository as createPrismaUserMgmtRepository } from './modules/users/prisma-user-repository';
 import { createNotificationService } from './modules/notifications/notification-service';
@@ -130,6 +144,7 @@ import type { NotificationDelivery } from './modules/notifications/notification-
 import { isWorkingDay, workingDaysLate, type WorkCalendar } from './lib/working-days';
 import { channelsForType } from './modules/notify-policy/policy';
 import { runExclusive, createPrismaJobLockStore } from './lib/job-lock';
+import { assignedNoticeTitle, createPrismaStartingTasksSource, createStartDayReminders } from './modules/tasks/start-day-reminders';
 import { createJobGate } from './lib/job-gate';
 import { databaseConnectionCode } from './lib/db-connection';
 import { createShutdown } from './lib/shutdown';
@@ -138,7 +153,7 @@ import { createDatabaseCheck, prismaDatabaseReads } from './modules/error-log/da
 import { databaseProbes } from './modules/error-log/database-probes';
 import { isMuted, normalizePreferences } from './modules/notifications/notification-preferences';
 import { filterTaskRecipients } from './modules/notifications/recipient-access';
-import { activeCompaniesOf, taskAudienceSelect, toAudienceFacts } from './modules/notifications/prisma-task-audience';
+import { activeCompaniesOf, DATED_SWEEP_TASKS, ESCALATION_SWEEP_TASKS, taskAudienceSelect, toAudienceFacts } from './modules/notifications/prisma-task-audience';
 import { createDeviceTokenService } from './modules/device-tokens/device-token-service';
 import { createPrismaDeviceTokenRepository } from './modules/device-tokens/prisma-device-token-repository';
 import { createPushSender, type PushSender } from './modules/device-tokens/push-sender';
@@ -395,7 +410,8 @@ async function main(): Promise<void> {
   const columnService = createColumnService({
     columns: createPrismaColumnRepository(prisma),
     // A column with tasks waiting for approval can't become a Done column (they would count as done).
-    waitingTasksIn: (columnId) => prisma.task.count({ where: { columnId, deletedAt: null, approvalRequestedAt: { not: null } } }),
+    // Task archive: an archived task waiting for approval still keeps it from becoming a Done column.
+    waitingTasksIn: (columnId) => countWaitingTasksIn(prisma, columnId),
   });
 
   // Late-bound (chat + realtime are created further down): a removed member leaves the project's
@@ -523,7 +539,11 @@ async function main(): Promise<void> {
     taskLookup: createPrismaTaskLookup(prisma),
     onAssigned: (taskId, userIds, actorId) => onTaskAssigned(taskId, userIds, actorId),
     onUnassigned: (taskId, userId, actorId) => onTaskUnassigned(taskId, userId, actorId),
+    // 1.24: a task with guests keeps at least one team member (late-bound: the guest service is made below).
+    beforeUnassign: async (taskId, userIds) => guestServiceRef?.assertTeamStays(taskId, userIds),
   });
+  // 1.24 Guests: made once the task history is (below); the services above reach it through this.
+  let guestServiceRef: GuestService | null = null;
 
   const watcherRepo = createPrismaWatcherRepository(prisma);
   const watcherService = createWatcherService({ repo: watcherRepo, taskLookup: createPrismaTaskLookup(prisma) });
@@ -595,6 +615,8 @@ async function main(): Promise<void> {
     repo: createPrismaExternalContactRepository(prisma),
     taskLookup: createPrismaTaskLookup(prisma),
     onChanged: (taskId) => taskSearchIndex.taskChanged(taskId),
+    // 1.24: contacts are guests; a task left with guests and no team member gets the person responsible.
+    ensureResponsible: async (taskId, actorId) => guestServiceRef?.ensureResponsible(taskId, actorId),
   });
 
   // Late-bound so a comment @mention can notify the mentioned users once notifications exist (below).
@@ -1039,6 +1061,18 @@ async function main(): Promise<void> {
     await activityService.record({ taskId, projectId: task?.projectId ?? null, userId, action, meta: details });
   };
 
+  // 1.24 Guests on tasks (each company's reusable list; record only — never a user, never emailed) and task
+  // categories (each project's own list). Both change the task's words, so search re-reads the task.
+  const guestService = createGuestService({
+    prisma,
+    recordActivity: recordTaskActivity,
+    onTaskChanged: (taskId) => taskSearchIndex.taskChanged(taskId),
+    // The person put on a task to look after its guests is told, as anyone assigned (not by the switch to guests).
+    onAssigned: (taskId, userIds, actorId) => onTaskAssigned(taskId, userIds, actorId),
+  });
+  guestServiceRef = guestService;
+  const categoryService = createCategoryService({ prisma, recordActivity: recordTaskActivity, onTaskChanged: (taskId) => taskSearchIndex.taskChanged(taskId) });
+
   /** Which task a notification is about ("MICO-12 · Title"), so the rows in the bell can be told apart. */
   const taskNotice = async (taskId: string): Promise<string | null> =>
     taskNoticeBody(await prisma.task.findUnique({ where: { id: taskId }, select: { key: true, title: true } }));
@@ -1047,12 +1081,14 @@ async function main(): Promise<void> {
   onTaskAssigned = async (taskId, userIds, actorId) => {
     await taskSearchIndex.taskChanged(taskId);
     const about = await taskNotice(taskId);
+    // Tasks scheduled for the future: "You were assigned a task — starts 20 Nov" while it waits.
+    const title = assignedNoticeTitle(await prisma.task.findUnique({ where: { id: taskId }, select: { boardDate: true, completedAt: true } }), companyTz, new Date());
     // Self-assignment isn't news to the person who did it.
     for (const userId of await visibleTaskRecipients(taskId, userIds, actorId)) {
       await notificationService.notify({
         userId,
         type: 'TASK_ASSIGNED',
-        title: 'You were assigned a task',
+        title,
         body: about,
         entityType: 'task',
         entityId: taskId,
@@ -1323,6 +1359,59 @@ async function main(): Promise<void> {
   const auditService = createAuditService({ audit: createPrismaAuditRepository(prisma), tasks: createPrismaAuditTaskRefs(prisma) });
   onClientMinutesHidden = auditMinutesMovedAway(auditService);
 
+  // Recycle Bin: a deleted task is kept 60 days — admins see every one, the people who run a project its
+  // own; restore brings it all back (its people told, search and open boards refreshed); admins may
+  // delete one forever; the nightly sweep (below) erases them after 60 days, files and all.
+  const binArchive = createPrismaArchiveLookup(prisma);
+  const binService = createBinService({
+    store: createPrismaBinStore(prisma),
+    timeZone: companyTz,
+    adminScope: (viewer, pick) => projectAccess.accessibleProjectIds(viewer.id, viewer.roles, pick),
+    isArchived: (projectId) => binArchive.isArchived(projectId),
+    canViewProject: (viewer, projectId) => projectAccess.canViewProject(viewer.id, viewer.roles, projectId),
+    removeFile: (storageKey) => attachmentStorage.remove(storageKey),
+    audit: (entry) => auditService.record(entry).then(() => undefined),
+    record: (entry) => activityService.record(entry).then(() => undefined),
+    onRestored: async (restored, actor) => {
+      // Each task on its own (one failing never skips the others); a series restored as a whole is one
+      // notice per person (its first task), not one per copy.
+      const told = new Set<string>();
+      for (const t of restored) {
+        try {
+          await taskSearchIndex.taskChanged(t.id);
+          const task = await taskService.getTask(t.id);
+          broadcast(task.projectId, 'task:created', task);
+          if (t.deleteBatchId && told.has(t.deleteBatchId)) continue;
+          if (t.deleteBatchId) told.add(t.deleteBatchId);
+          for (const userId of await taskRecipientIds(task.id, actor.id)) {
+            await notificationService.notify({ userId, type: 'TASK_STATUS', title: 'A task was restored from the Recycle Bin', body: taskNoticeBody(task), entityType: 'task', entityId: task.id });
+          }
+        } catch (err) {
+          logger.error('recycle bin: after restoring a task, a follow-up step failed', { err, taskId: t.id });
+        }
+      }
+    },
+    onError: (err, what, taskId) => logger.error(`recycle bin: ${what} failed`, { err, taskId }),
+  });
+
+  // Task archive (bulk lane): administrators and the people who run a project archive its tasks — hidden
+  // but kept, read-only (archive-guard), back with Unarchive. Open boards hear an archived task leave
+  // (task:deleted) and an unarchived one come back (task:created); search re-reads it.
+  const taskArchiveService = createTaskArchiveService({
+    ...createPrismaTaskArchiveStore(prisma),
+    canViewTask: (actor, taskId) => projectAccess.canViewTask(actor.id, actor.roles, taskId),
+    runsProject: (actor, projectId) => projectAuthz.canManageProject(actor.id, actor.roles, projectId),
+    isProjectArchived: (projectId) => binArchive.isArchived(projectId),
+    recordActivity: recordTaskActivity,
+    audit: (entry) => auditService.record(entry),
+    onChanged: async (t, archived) => {
+      await taskSearchIndex.taskChanged(t.id);
+      if (archived) broadcast(t.projectId, 'task:deleted', { id: t.id, archived: true });
+      else broadcast(t.projectId, 'task:created', await taskService.getTask(t.id));
+    },
+    onError: (err, what) => logger.error(`task archive: ${what} failed`, { err }),
+  });
+
   const settingsService = createSettingsService({ settings: createPrismaSettingsRepository(prisma) });
   collectSetting = () => settingsService.collectBrowserErrors(); // the Error log's "Collect browser errors"
   // companies: System → Companies and each person's companies (GET /me/companies). A company inherits
@@ -1485,6 +1574,8 @@ async function main(): Promise<void> {
     timeZone: companyTz,
     allowPrivateHosts: env.AI_ALLOW_PRIVATE_HOSTS,
     limits: { perMinute: env.AI_USER_REQUESTS_PER_MINUTE, perDay: env.AI_USER_REQUESTS_PER_DAY },
+    // MICO360 AI (b10): a failure worth an admin's look reaches the Error log with its correlation and job ids.
+    logger,
   });
 
   // MICO AI: each person's private chats with the assistant. Its tools read with the app's own rules
@@ -1760,13 +1851,13 @@ async function main(): Promise<void> {
     const { day, hour } = companyDayHour();
     if (hour < DIGEST_HOUR) return; // wait until the morning; a later sweep sends it
     const tasks = await prisma.task.findMany({
-      where: { deletedAt: null, dueDate: { not: null }, project: { is: { deletedAt: null } } },
-      select: { id: true, key: true, title: true, dueDate: true, completedAt: true, approvalRequestedAt: true, column: { select: { category: true } }, watchers: { select: { userId: true } }, ...taskAudienceSelect },
+      where: DATED_SWEEP_TASKS, // task archive: never an archived task
+      select: { id: true, key: true, title: true, dueDate: true, boardDate: true, completedAt: true, approvalRequestedAt: true, column: { select: { category: true } }, watchers: { select: { userId: true } }, ...taskAudienceSelect },
     });
     const { users, activeIds, adminIds, companiesOf } = await sweepAudience();
     const digests = buildDigests(
       tasks.map((t) => ({
-        id: t.id, key: t.key, title: t.title, dueDate: t.dueDate, completedAt: t.completedAt, approvalRequestedAt: t.approvalRequestedAt,
+        id: t.id, key: t.key, title: t.title, dueDate: t.dueDate, boardDate: t.boardDate, completedAt: t.completedAt, approvalRequestedAt: t.approvalRequestedAt,
         columnCategory: t.column?.category ?? null,
         // Someone who has left the project no longer gets its tasks in their digest.
         recipientIds: filterTaskRecipients([...t.assignees.map((a) => a.userId), ...t.watchers.map((w) => w.userId)], toAudienceFacts(t), { activeIds, adminIds, companiesOf }),
@@ -1792,6 +1883,21 @@ async function main(): Promise<void> {
       await notificationService.notify({ userId: digest.userId, type: 'TASK_DIGEST', title: `Your daily digest — ${summary}`, body: lines, entityType: 'digest', entityId: day });
     }
   }
+
+  // Tasks scheduled for the future: the morning a waiting task starts, its people are told once
+  // (start-day-reminders.ts; hourly like the digest, from 07:00 company time).
+  const startDayReminders = createStartDayReminders({
+    source: createPrismaStartingTasksSource(prisma),
+    visibleRecipients: (taskId, ids) => visibleTaskRecipients(taskId, ids),
+    store: reminderLogStore,
+    notify: (n) => notificationService.notify(n),
+    timeZone: companyTz,
+  });
+  const runStartDay = () =>
+    runExclusive(jobLock, 'start-day-reminders', SWEEP_LEASE_MS, () => new Date(), async () => {
+      await startDayReminders.run();
+    }).catch(sweepFailed('start-day-reminders', 'start-day reminder sweep'));
+  jobs.every(60 * 60 * 1000, runStartDay);
 
   const runDigest = () => runExclusive(jobLock, 'daily-digest', SWEEP_LEASE_MS, () => new Date(), runDigestSweep).catch(sweepFailed('daily-digest', 'daily digest sweep'));
   // Escalations are the reminder planner's now (two steps in working days; Notification & Scheduling).
@@ -2107,6 +2213,68 @@ async function main(): Promise<void> {
   // a suspended, deleted or demoted user loses access at once, not when their token expires.
   const userStateLookup = createPrismaUserStateLookup(prisma);
 
+  // Duplicate Task: a copy is made as any new task in the chosen project (the same pipeline as POST /tasks:
+  // its scope, tags, contacts and assignee rules), then gets the original's watchers who can see that
+  // project, its files through the upload checks (when ticked), and a history line on both tasks.
+  const duplicateSource = createPrismaTaskDuplicateSource(prisma);
+  const taskDuplicateService = createTaskDuplicateService({
+    ...duplicateSource,
+    canViewTask: (actor, taskId) => projectAccess.canViewTask(actor.id, actor.roles, taskId),
+    readFile: async (storageKey) => (attachmentStorage.read ? attachmentStorage.read(storageKey).catch(() => null) : null),
+    uploadFile: (taskId, uploadedById, file) => attachmentService.upload(taskId, uploadedById, file),
+    recordActivity: recordTaskActivity,
+    pipeline: {
+      taskService,
+      scopeOf: (actor) => projectAccess.accessibleProjectIds(actor.id, actor.roles),
+      assigneeService,
+      projectOwnerOf: async (projectId) => (await projectService.getProject(projectId)).ownerId,
+      broadcast: (projectId, event, payload) => broadcast(projectId, event, payload),
+      // 1.24: a copy's guests and categories go through the same checks as a new task's.
+      guestService,
+      categoryService,
+    },
+    timeZone: companyTz,
+    onError: (err, what) => logger.error(`duplicating a task: ${what} failed`, { err }),
+  });
+
+  // Bulk task changes (bulk lane): one change to up to 500 tasks, each through its single-task service (so
+  // each keeps its rules and history lines), a dry run for the confirmation, a short Undo, one combined
+  // notice per person, one live update per project, one audit line.
+  const bulkPreferences = createPrismaPreferenceStore(prisma);
+  const taskBulkService = createTaskBulkService(
+    createBulkPorts({
+      prisma,
+      timeZone: companyTz,
+      taskService,
+      assigneeService,
+      categoryService,
+      guestService,
+      taskMoveService,
+      taskDuplicateService,
+      taskArchiveService,
+      binService,
+      canViewProject: (userId, roles, projectId) => projectAccess.canViewProject(userId, roles, projectId),
+      accessibleProjectIds: (userId, roles) => projectAccess.accessibleProjectIds(userId, roles),
+      canManageProject: (userId, roles, projectId) => projectAuthz.canManageProject(userId, roles, projectId),
+      isProjectArchived: (projectId) => binArchive.isArchived(projectId),
+      notify: (n) => notificationService.notify(n),
+      isMuted: async (userId, type) => isMuted(await bulkPreferences.get(userId), type),
+      audit: (entry) => auditService.record(entry),
+      broadcast: (projectId, event, payload) => broadcast(projectId, event, payload),
+      // As the move route (task-move-routes announce): people put on a team, a task off a client page.
+      afterMove: async (actorId, move) => {
+        if (move.clientHidden) {
+          await auditService.record({ userId: actorId, ip: null, module: 'client-view', action: 'client-view.task.hidden', entityId: move.task.id, newValue: { projectId: move.from.projectId, reason: 'moved', toProjectId: move.to.projectId } });
+        }
+        if (move.addedToTeam.length) {
+          await auditService.record({ userId: actorId, ip: null, module: 'members', action: 'member.add', entityId: move.to.projectId, newValue: { userIds: move.addedToTeam.map((p) => p.id), taskId: move.task.id, reason: `task moved from ${move.from.name}` } });
+        }
+      },
+      taskChanged: (taskId) => taskSearchIndex.taskChanged(taskId),
+      onError: (err, what) => logger.error(`bulk task change: ${what} failed`, { err }),
+    }),
+  );
+
   logger.info('Release', { version: release.build.version, builtAt: release.build.builtAt, commit: release.build.commit, source: release.source });
 
   // The hosted Android app lives in a folder deploys keep (made here, so it is there to upload into).
@@ -2145,9 +2313,11 @@ async function main(): Promise<void> {
     appVersion: release.build.version,
     timeZone: companyTz,
     weekStart: () => settingsService.companyWeekStart(),
+    // An active administrator with Manager View off (a download link made just before turning it on doesn't
+    // work while it is on — review M3).
     isActiveAdmin: async (userId) => {
       const state = await userStateLookup(userId);
-      return Boolean(state?.active && state.roles.includes('ADMIN'));
+      return Boolean(state?.active && isEffectiveAdmin(state));
     },
     // Failures go to every active administrator by email (when email is set up); success is quiet.
     alertAdmins: async ({ title, message }) => {
@@ -2178,7 +2348,13 @@ async function main(): Promise<void> {
     prisma,
     storage: { read: (key) => (attachmentStorage.read ? attachmentStorage.read(key) : Promise.reject(new Error('no storage reader'))) },
     index: searchIndex,
-    ocr: { ready: () => aiFeatureService.ocrReady(), read: (images) => aiFeatureService.readPictures(images) },
+    ocr: {
+      ready: () => aiFeatureService.ocrReady(),
+      read: (images) => aiFeatureService.readPictures(images),
+      // MICO360 AI (b4): the whole document, falling back to the pictures; scans no picture could carry are read again.
+      readDocument: (doc, opts) => aiFeatureService.readDocument(doc, opts),
+      wholeDocuments: () => aiFeatureService.readsWholeDocuments(),
+    },
     logger,
   });
   const searchScope = createSearchScope({
@@ -2229,7 +2405,11 @@ async function main(): Promise<void> {
     // 1.23.6 the built-in reader: the person's projects and people, today and their company's week.
     reader: createReaderContext({ prisma, timeZone: companyTz, weekStart: (viewer, pick) => companyTime.weekStartOfScope(viewer, pick) }),
     ai: {
-      status: async () => ({ ready: await aiFeatureService.chatReady().catch(() => false), semantic: await searchSemantic.ready() }),
+      // b13: someone is about to search — a cold MICO360 AI chat model is warmed up (never waited for).
+      status: async () => {
+        aiFeatureService.warmUp();
+        return { ready: await aiFeatureService.chatReady().catch(() => false), semantic: await searchSemantic.ready() };
+      },
       ask: aiSearch.ask,
     },
     timeZone: companyTz,
@@ -2364,6 +2544,10 @@ async function main(): Promise<void> {
     })(),
     recordTaskActivity,
     userState: userStateLookup,
+    // Manager View (owner, 10 Nov): the switch, and the project-settings rule (does this person run the project:
+    // the team rule — an administrator needn't belong to the project's company).
+    managerViewStore: createPrismaManagerViewStore(prisma),
+    managerViewLookup: createPrismaManagerViewLookup(prisma),
     clientAccounts,
     portal,
     clientMinutes: {
@@ -2432,6 +2616,14 @@ async function main(): Promise<void> {
     taskService,
     taskMoveService,
     taskMergeService,
+    binService, // Recycle Bin
+    taskArchiveService, // Task archive (bulk lane)
+    taskBulkService, // Bulk task changes (bulk lane)
+    // The delete question names the series' size: "the entire series (12 tasks)".
+    seriesSize: (seriesId) => prisma.task.count({ where: { deletedAt: null, OR: [{ id: seriesId }, { recurrenceParentId: seriesId }] } }),
+    // Duplicate Task: the review form's pre-fill, the copy, and each task's "Duplicated from" / "Copies".
+    taskDuplicateService,
+    duplicateLinks: (taskId) => duplicateSource.links(taskId),
     carryForwardService,
     assigneeService,
     watcherService,
@@ -2473,6 +2665,8 @@ async function main(): Promise<void> {
     }),
     namesOfUsers,
     externalContactService,
+    guestService,
+    categoryService,
     commentService,
     attachmentService,
     chatAttachmentStorage: attachmentStorage,
@@ -2799,6 +2993,20 @@ async function main(): Promise<void> {
     }).catch(sweepFailed('error-log-retention', 'error log clean-up'));
   jobs.every(24 * 60 * 60 * 1000, runErrorLogRetention);
 
+  // 1.24 Guests: today's external contacts (and any an older server added after a rollback) become guests of
+  // their task's company list — once the database answers, then every minute (nothing to do on most runs).
+  const runGuestConversionJob = () =>
+    runExclusive(jobLock, 'guest-conversion', SWEEP_LEASE_MS, () => new Date(), async () => {
+      const done = await runGuestConversion(prisma, (taskId, actorId, opts) => guestService.ensureResponsible(taskId, actorId, opts));
+      if (done.rows || done.responsible) logger.info('Guests: external contacts linked to guests', { rows: done.rows, guestsMade: done.guestsMade, responsible: done.responsible });
+      if (done.failed) logger.warn('Guests: some external contacts could not be linked yet (tried again next minute)', done.failed);
+      for (const taskId of done.tasks) await taskSearchIndex.taskChanged(taskId);
+      // Rows and categories an older server left out of step (after a rollback), and the like.
+      const healed = await healGuestsAndCategories(prisma);
+      if (healedSomething(healed)) logger.info('Guests and categories: brought back in step', healed);
+    }).catch(sweepFailed('guest-conversion', 'guests from external contacts'));
+  jobs.every(60 * 1000, runGuestConversionJob);
+
   // 1.23.3 nested checklists: a deleted checklist or item can be restored for 30 days; once a day (and at
   // start-up), on one instance, what was deleted before that goes for good.
   const runChecklistPurge = () =>
@@ -2807,6 +3015,23 @@ async function main(): Promise<void> {
       if (gone) logger.info('Checklists: deleted items older than 30 days removed', { rows: gone });
     }).catch(sweepFailed('checklist-purge', 'checklist clean-up'));
   jobs.every(24 * 60 * 60 * 1000, runChecklistPurge);
+
+  // Recycle Bin: a deleted task is erased (files and all) once its 60 days are over — at the company
+  // midnight that ends them. Hourly, so it goes soon after; one instance at a time, a few at once.
+  const runBinErase = () =>
+    runExclusive(jobLock, 'recycle-bin-erase', SWEEP_LEASE_MS, () => new Date(), async () => {
+      const gone = await binService.sweep();
+      if (gone) logger.info('Recycle Bin: tasks erased after 60 days', { tasks: gone });
+    }).catch(sweepFailed('recycle-bin-erase', 'Recycle Bin clean-up'));
+  jobs.every(60 * 60 * 1000, runBinErase);
+
+  // Bulk changes (review M11): the rows kept for Undo go a day after their window (the Audit log keeps the record).
+  const runBulkPrune = () =>
+    runExclusive(jobLock, 'bulk-undo-prune', SWEEP_LEASE_MS, () => new Date(), async () => {
+      const { count } = await prisma.taskBulkAction.deleteMany({ where: { undoUntil: { lt: new Date(Date.now() - 24 * 60 * 60 * 1000) } } });
+      if (count) logger.info('Bulk changes: Undo records past their window removed', { rows: count });
+    }).catch(sweepFailed('bulk-undo-prune', 'bulk change clean-up'));
+  jobs.every(24 * 60 * 60 * 1000, runBulkPrune);
 
   await app.listen({ port: env.PORT, host: env.HOST });
   logger.info('MICO360 Tasks API listening', { port: env.PORT, realtime: true, env: env.NODE_ENV });

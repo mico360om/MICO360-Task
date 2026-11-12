@@ -85,7 +85,8 @@ export function createPrismaApprovalSource(prisma: PrismaClient, deps: { canMana
       const scope = await approvable({ id: userId, roles: await roleNames(userId) });
       if (scope && scope.length === 0) return 0;
       // 1.22 review: not archived projects' (by status or by all their companies) — Approve is refused there.
-      return prisma.task.count({ where: { deletedAt: null, approvalRequestedAt: { not: null }, project: { is: { deletedAt: null, ...LIVE_PROJECT_WHERE } }, ...(scope ? { projectId: { in: scope } } : {}) } });
+      // Task archive: an archived task waits for nobody (it is on no list).
+      return prisma.task.count({ where: { deletedAt: null, archivedAt: null, approvalRequestedAt: { not: null }, project: { is: { deletedAt: null, ...LIVE_PROJECT_WHERE } }, ...(scope ? { projectId: { in: scope } } : {}) } });
     },
 
     async details(viewer, task) {

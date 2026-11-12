@@ -1,3 +1,4 @@
+import { useEffectiveAdmin } from '../lib/manager-view';
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { PROJECTS_OVERVIEW_KEY, projectsApi, type ApiProject, type ProjectOverview, type ProjectStatus } from '../api/projects';
@@ -72,6 +73,7 @@ const SELECT = 'h-full min-w-0 cursor-pointer rounded-xl bg-transparent pe-2 tex
 export function ProjectsPage() {
   const qc = useQueryClient();
   const admin = useAuthStore((s) => s.isAdmin());
+  const settingsAdmin = useEffectiveAdmin();
   const timeZone = useCompanyTimeZone();
   const now = useNow();
   const today = todayKey(timeZone, now);
@@ -365,7 +367,8 @@ export function ProjectsPage() {
         ) : visible.length > 0 ? (
           <div className="grid project-grid gap-4 animate-fade-in">
             {visible.map((p) => {
-              const can = admin || p.canManage === true;
+              // Manager View (owner, 10 Nov): only the projects they run (the server's canManage).
+              const can = settingsAdmin || p.canManage === true;
               return (
                 <ProjectCard
                   key={p.id}

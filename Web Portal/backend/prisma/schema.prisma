@@ -146,6 +146,10 @@ model User {
   // the Kanban board's columns are ('narrow' | 'normal' | 'wide'). The density above also takes 'detailed'.
   sidebarCollapsed           Boolean    @default(false)
   boardColumnWidth           String     @default("normal") @db.VarChar(16)
+  // Manager View (an administrator's own, owner 10 Nov 2026): while on, they are treated as a non-administrator
+  // for settings and configuration (the Admin menu's pages, other people's project settings) and stay an
+  // administrator for the work. Means nothing for anyone else. See modules/auth/manager-view.ts.
+  managerView                Boolean    @default(false)
   // 1.23.4 Smarter Dashboard: the person's own widget arrangement ({ widgets: [{ id, hidden, size }] });
   // null = they follow their group's default (administrators' or everyone else's, set by an administrator).
   dashboardLayout            Json?
@@ -172,6 +176,7 @@ model User {
   approvalsGiven       Task[]                @relation("TaskApprover")
   /// External contacts this person added to tasks (the contact belongs to its task).
   externalContacts     TaskExternalContact[] @relation("ExternalContactCreator")
+  guestsCreated        GuestContact[]        @relation("GuestCreator")
   assignments          TaskAssignee[]
   watching             TaskWatcher[]
   comments             Comment[]
@@ -273,6 +278,8 @@ model Company {
   notificationPolicy NotificationPolicy?
   holidays           CompanyHoliday[]
   reminderSchedules  ReminderSchedule[]
+  /// 1.24: the company's reusable guest list (people outside the company named on tasks).
+  guests             GuestContact[]
 
   @@index([status])
   @@map("companies")
@@ -341,6 +348,11 @@ model Project {
   weightHigh           Int            @default(3)
   weightNormal         Int            @default(2)
   weightLow            Int            @default(1)
+  /// 1.24: "Every task needs a category" — new saves (and edits of a task's categories) must keep one.
+  requireCategory      Boolean        @default(false)
+  /// Recycle Bin: the highest task number it has used — erasing its newest task (or a merge's main task)
+  /// never frees a number (task numbers are never given twice).
+  taskNumberMark       Int            @default(0)
   createdById          String
   createdAt            DateTime       @default(now())
   updatedAt            DateTime       @updatedAt
@@ -368,6 +380,8 @@ model Project {
   savedSearches  SavedSearch[]
   /// Project KPIs: its own KPIs that whoever runs it enters each month ("Safety incidents", "Budget used %").
   customKpis     ProjectKpi[]
+  /// 1.24: its own task categories (name + colour), in order.
+  categories     ProjectCategory[]
 
   @@index([status])
   @@index([managerId])
@@ -476,6 +490,23 @@ model Task {
   mergedById            String?
   /// The merge (task_merges) that merged it.
   mergeId               String?
+  /// Recycle Bin: who deleted it (no foreign key, like the other "by" columns of history); null = not
+  /// recorded (deleted before the Recycle Bin). Merged tasks get none of these three.
+  deletedById           String?
+  /// Recycle Bin: when it is erased for good — the company midnight 60 days after the day it was deleted.
+  binExpiresAt          DateTime?
+  /// Recycle Bin: the delete it went with (a series deleted as a whole restores as a whole).
+  deleteBatchId         String?
+  /// Duplicate Task: the task this one was copied from ("Duplicated from MSSP-34"); null for any other
+  /// task. No relation: the original may be deleted or merged later (then nothing is found). Single-task
+  /// details only — never in list payloads.
+  duplicatedFromId      String?
+  /// Task archive (bulk lane): hidden but kept — read-only, out of boards, lists, My Tasks, calendar,
+  /// Timeline, reminders, open counts and the daily email; in search, reports on request and the project's
+  /// "Archived tasks" list. Null = not archived. An archived Done task still counts as done in every figure.
+  archivedAt            DateTime?
+  /// Who archived it (no foreign key, like the other "by" columns of history).
+  archivedById          String?
 
   project             Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
   column              KanbanColumn          @relation(fields: [columnId], references: [id])
@@ -489,8 +520,11 @@ model Task {
   checklist           ChecklistItem[]
   /// 1.23.3: its checklists (each item is in one).
   checklistLists      ChecklistList[]
-  /// People outside the company responsible for this task (kept apart from its assignees).
+  /// People outside the company responsible for this task (kept apart from its assignees). 1.24: each row
+  /// is the task's link to a guest of its project's company (guestId), with a copy of the guest's details.
   externalContacts    TaskExternalContact[]
+  /// 1.24: its categories (from its project's list).
+  categories          TaskCategory[]
   attachments         Attachment[]
   dependencies        TaskDependency[]      @relation("DependentTask")
   dependedOnBy        TaskDependency[]      @relation("BlockingTask")
@@ -528,6 +562,13 @@ model Task {
   @@index([approvedById])
   /// 1.23.1: the tasks merged into a main task.
   @@index([mergedIntoId])
+  /// Recycle Bin: the nightly erase, and a delete's batch.
+  @@index([binExpiresAt])
+  @@index([deleteBatchId])
+  /// Duplicate Task: an original's copies.
+  @@index([duplicatedFromId])
+  /// Task archive: a project's archived tasks, and the live ones (archivedAt NULL).
+  @@index([projectId, archivedAt])
   @@fulltext([title, description])
   @@map("tasks")
 }
@@ -576,6 +617,15 @@ model TaskMergeItem {
   @@index([mergeId])
   @@index([kind, rowId])
   @@map("task_merge_items")
+}
+
+/// Recycle Bin: how many tasks of a repeating series were erased for good. The repeat still counts them,
+/// as it counts deleted copies ("every day, 10 times" stays at 10 made), and so do a schedule's figures.
+model TaskSeriesErased {
+  seriesId String @id
+  erased   Int    @default(0)
+
+  @@map("task_series_erased")
 }
 
 /// Task search: one normalised text per task — its keys (old ones too), title, description, live
@@ -949,10 +999,85 @@ model TaskExternalContact {
   updatedAt   DateTime @updatedAt
   task        Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
   createdBy   User?    @relation("ExternalContactCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  /// 1.24: the guest (of the task's project's company) this row links the task to; null until a row made
+  /// before 1.24 (or by an older server) is converted. name…phone are kept equal to the guest's.
+  guestId     String?
+  guest       GuestContact? @relation(fields: [guestId], references: [id], onDelete: SetNull)
 
   @@index([taskId, position])
   @@index([createdById])
+  @@index([guestId])
   @@map("task_external_contacts")
+}
+
+/// 1.24 Guests: a company's reusable list of people outside it, named on tasks for the record only. A guest
+/// never signs in, has no account, takes no licence and gets no email or notice; clients never see one.
+model GuestContact {
+  id           String    @id @default(cuid())
+  companyId    String
+  name         String    @db.VarChar(120)
+  company      String?   @db.VarChar(120)
+  designation  String?   @db.VarChar(120)
+  email        String?   @db.VarChar(191)
+  phone        String?   @db.VarChar(40)
+  /// Admins' notes, and details the conversion found on other copies of the same person.
+  notes        String?   @db.VarChar(2000)
+  /// The name as compared (guest-contacts.ts guestTextKey), for the duplicate check.
+  nameKey      String    @db.VarChar(191)
+  createdById  String?
+  /// Retired: hidden from picking, kept on the tasks that have it.
+  retiredAt    DateTime?
+  /// Merged into another guest by an admin (every task link moved there); hidden.
+  mergedIntoId String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  owner     Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy User?                 @relation("GuestCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  links     TaskExternalContact[]
+
+  @@index([companyId, nameKey])
+  @@index([companyId, retiredAt])
+  @@index([createdById])
+  @@map("guest_contacts")
+}
+
+/// 1.24 Task categories: a project's own labels for its tasks (name + one of 12 colours), in order.
+model ProjectCategory {
+  id          String    @id @default(cuid())
+  projectId   String
+  name        String    @db.VarChar(40)
+  /// The name as compared (task-categories.ts categoryNameKey): one per project.
+  nameKey     String    @db.VarChar(160)
+  color       String    @db.VarChar(20)
+  position    Int       @default(0)
+  /// Retired: hidden from picking, kept on tasks and in filters.
+  retiredAt   DateTime?
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  project Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tasks   TaskCategory[]
+
+  @@unique([projectId, nameKey])
+  @@index([projectId, position])
+  @@map("project_categories")
+}
+
+/// 1.24: a task's categories.
+model TaskCategory {
+  taskId     String
+  categoryId String
+  addedById  String?
+  addedAt    DateTime @default(now())
+
+  task     Task            @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  category ProjectCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, categoryId])
+  @@index([categoryId])
+  @@map("task_categories")
 }
 
 model TaskDependency {
@@ -2161,6 +2286,8 @@ model ProjectTemplate {
   description String?               @db.Text
   /// Its board, in order: [{ name, category, color }].
   columns     Json
+  /// 1.24: its task categories, in order: [{ name, color }] (a project made from it starts with them).
+  categories  Json?
   /// Who made it: they can change and delete it (administrators can change any). Kept when they're gone.
   createdById String?
   updatedById String?
@@ -2273,6 +2400,9 @@ model Inspection {
   place                  String?               @db.VarChar(200)
   /// The task it was carried out for ("Inspect rig 3"), if any.
   taskId                 String?
+  /// Recycle Bin: that task was erased — its number and title as they were ("KEY-12 'Inspect rig 3'"),
+  /// so the report still says which task it was carried out for.
+  erasedTask             String?               @db.VarChar(300)
   /// IN_PROGRESS or FINISHED.
   status                 String                @default("IN_PROGRESS") @db.VarChar(12)
   /// The one person who answers it now (whoever started it, or took it over).
@@ -2942,4 +3072,25 @@ model TrainingFeedback {
   @@index([status, kind])
   @@index([userId])
   @@map("training_feedback")
+}
+
+/// Bulk task changes (bulk lane): one row per bulk action someone applied — for its Undo (each task's
+/// values before and after, read back only by the person who made it, within its window) and the audit.
+model TaskBulkAction {
+  id        String    @id @default(cuid())
+  actorId   String
+  /// status | priority | assign | reassign | unassign | dueDate | project | category | guests | duplicate | archive | unarchive | delete
+  action    String    @db.VarChar(32)
+  /// How many tasks it changed.
+  changed   Int       @default(0)
+  /// Each changed task's before/after values (and copies made, a delete's batch) — what Undo puts back.
+  undoData  Json?
+  createdAt DateTime  @default(now())
+  /// Undo is refused after this.
+  undoUntil DateTime
+  /// When it was undone (once only).
+  undoneAt  DateTime?
+
+  @@index([actorId, createdAt])
+  @@map("task_bulk_actions")
 }

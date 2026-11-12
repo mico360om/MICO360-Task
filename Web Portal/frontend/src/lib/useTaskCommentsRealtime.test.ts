@@ -53,6 +53,21 @@ describe('useTaskCommentsRealtime (comments live)', () => {
     expect(onChange).toHaveBeenCalledTimes(1);
   });
 
+  it('a bulk change naming this task among its ids: the comments and the task itself are read again', () => {
+    const onChange = vi.fn();
+    const onBulk = vi.fn();
+    renderHook(() => useTaskCommentsRealtime('p1', 't1', onChange, onBulk));
+    handlers['task:updated']!({ bulk: true, ids: ['t7', 't8'] });
+    expect(onChange).not.toHaveBeenCalled();
+    expect(onBulk).not.toHaveBeenCalled();
+    handlers['task:updated']!({ bulk: true, ids: ['t7', 't1'] });
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onBulk).toHaveBeenCalledTimes(1);
+    // A single change (the board refreshes the task for it): no extra read here.
+    handlers['task:updated']!({ id: 't1' });
+    expect(onBulk).toHaveBeenCalledTimes(1);
+  });
+
   it('reads again after a reconnect (events may have been missed), not on the first connect', () => {
     const onChange = vi.fn();
     renderHook(() => useTaskCommentsRealtime('p1', 't1', onChange));

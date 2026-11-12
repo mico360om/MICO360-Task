@@ -5,6 +5,7 @@ import { useCompanyStore } from '../stores/company-store';
 import { PROJECT_ARCHIVED_CODE, useArchivedNoticeStore } from '../stores/archived-notice-store';
 import { useDatabaseBusyStore } from '../stores/database-busy-store';
 import { noteRequest, pageMark } from '../lib/error-reporting';
+import { noteManagerViewRefusal } from '../stores/manager-view-store';
 
 const baseUrl = import.meta.env.VITE_API_URL ?? 'http://localhost:4000/api/v1';
 /** The API's address (/api/v1 on the site itself): the Error log reporter sends there too. */
@@ -138,6 +139,8 @@ export const apiClient = createApiClient({
   // 1.22: a change to an archived project, refused by the server — said across the page in its words.
   onRefused: (err) => {
     if (err.code === PROJECT_ARCHIVED_CODE && err.message) useArchivedNoticeStore.getState().show(err.message);
+    // Manager View was turned on elsewhere (another device): it is on here too (lib/manager-view).
+    noteManagerViewRefusal(err);
   },
   // 1.22.4: a request blocked on the way, or a slow one, goes to the Error log.
   onRequestDone: noteRequest,

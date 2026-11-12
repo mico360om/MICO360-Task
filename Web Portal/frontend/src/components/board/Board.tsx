@@ -1,3 +1,4 @@
+import { useEffectiveAdmin } from '../../lib/manager-view';
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -13,7 +14,7 @@ import { ApiError } from '../../lib/api-client';
 import { enqueueOffline } from '../../lib/offline-replay';
 import { invalidateTaskQueries } from '../../lib/task-cache';
 import { approvalNotice } from '../../lib/approvals';
-import { ALL_PROJECTS, BOARD_FIT_QUERY, boardCompanies, boardProjects, composeAllProjectsBoard, composeBoard, filterBoardByCompany, fullColumnIndex, moveTaskInBoard, reorderColumnInBoard, statusOfBoardColumn, targetColumnFor } from '../../lib/board';
+import { ALL_PROJECTS, BOARD_FIT_QUERY, boardFilterRows, boardProjects, composeAllProjectsBoard, composeBoard, filterBoard, fullColumnIndex, markNeedsCategory, moveTaskInBoard, reorderColumnInBoard, statusOfBoardColumn, targetColumnFor } from '../../lib/board';
 import { STATUS_META, type TaskCategory } from '../../lib/taskStatus';
 import { BoardPeople } from './BoardPeople';
 import type { KanbanColumnData } from '../KanbanColumn';
@@ -24,10 +25,10 @@ import { ColumnManager } from '../ColumnManager';
 import { ColumnWidthButton } from './ColumnWidthButton';
 import { TaskFormDialog } from '../task-form/TaskFormDialog';
 import { Button } from '../ui/Button';
-import { SearchableSelect } from '../ui/SearchableSelect';
-import { EXTERNAL_CONTACT_WORDS } from '../../lib/external-contacts';
+import { GuestCategoryFilterBoxes, type GuestCategoryFilterState } from '../GuestCategoryFilters';
+import { EMPTY_GUEST_CATEGORY_FILTERS, projectCategoryChoices } from '../../lib/guest-category-filter';
+import { useProjectCategories } from '../../lib/useProjectCategories';
 import { useBoardRealtime, type BoardEvent } from '../../lib/useBoardRealtime';
-import { useAuthStore } from '../../stores/auth-store';
 import { LoadError } from '../ui/LoadError';
 import { useShortcut } from '../shortcuts/ShortcutProvider';
 import { MoveTaskDialog, useMoveTargets, type MoveTaskRef } from '../MoveTaskDialog';
@@ -46,6 +47,16 @@ import { MonthBar, PERIODS } from './MonthBar';
 import { useBoardPeriod } from './useBoardPeriod';
 import { nearestMonth, type MonthClock } from '../../lib/board-month';
 import { countCards, currentMonth, emptyMonthText, hideCards, monthCards, monthTitle, monthWord, undatedKeys, withMonthDates } from '../../lib/month-view';
+import { taskRef, useBulkSelection } from '../../lib/bulk-selection';
+import { taskIdsOfLiveEvent } from '../../lib/bulk-words';
+import type { BoardSelect } from '../KanbanColumn';
+import { BulkTools } from '../bulk/BulkTools';
+import { boardSearchDocs, matchesBoardSearch, readBoardSearch, searchBoard } from '../../lib/board-search';
+import { everythingAddress } from '../../lib/search-everything';
+import { BoardSearchBox } from './BoardSearchBox';
+import { useBoardSearchWords, useLeavingCards } from './useBoardSearch';
+import { ProjectStrip } from './ProjectStrip';
+import { projectHealthKey } from '../../api/project-health';
 
 /** The board's columns and cards — and (1.23.0, for its Table view) the project's columns and tasks as the server sent them. */
 type BoardData = { columns: KanbanColumnData[]; idByKey: Record<string, string>; apiColumns?: ApiColumn[]; tasks?: ApiTask[] };
@@ -55,6 +66,8 @@ const errorText = (e: unknown, fallback: string) => (e instanceof ApiError && e.
 // Admin-triggered carry-forward runs at most once per app session (the server sweep handles the rest).
 let carriedThisSession = false;
 const NO_PROJECTS: ReadonlySet<string> = new Set();
+/** No search: no card's text is read. */
+const NO_DOCS: ReadonlyMap<string, string> = new Map();
 const VIEWS = [
   { value: 'board' as const, label: 'Board', icon: VIEW_ICONS.board },
   { value: 'table' as const, label: 'Table', icon: VIEW_ICONS.table },
@@ -90,6 +103,11 @@ export interface BoardProps {
    * project page's Board tab's ('project-board'); its table remembers its sort, filters and columns there too.
    */
   viewPlace?: 'board' | 'project-board';
+  /**
+   * The Kanban Board page (owner, 10 Nov): a slim line of the chosen project's basics above the columns
+   * (components/board/ProjectStrip). Not on All projects; a project page's Board tab has the project's own header.
+   */
+  projectStrip?: boolean;
 }
 
 /**
@@ -98,9 +116,11 @@ export interface BoardProps {
  * task panel (Previous / Next follow the columns), the people strip, column management, live
  * updates and the N shortcut — or, on the Board page, All projects under six shared statuses.
  */
-export function Board({ projectId, projects, list, linking = false, hiddenProjects = NO_PROJECTS, header, onRemoved, readOnly = null, viewPlace = 'board' }: BoardProps) {
+export function Board({ projectId, projects, list, linking = false, hiddenProjects = NO_PROJECTS, header, onRemoved, readOnly = null, viewPlace = 'board', projectStrip = false }: BoardProps) {
   const qc = useQueryClient();
-  const isAdmin = useAuthStore((s) => s.isAdmin());
+  // Manager View (owner, 10 Nov): the board's settings (columns, team) only for a project they run, and no
+  // carry-forward run from here (the server refuses it then; the nightly one still runs).
+  const settingsAdmin = useEffectiveAdmin();
   // A card's task opens in the app shell's task panel, through ?task= in the address (reload, Back, a shared link).
   const openTask = useOpenTask();
   const navigate = useNavigate();
@@ -117,6 +137,8 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
   // A card's "Move to another project…": the task being moved, then what happened.
   const [movingTask, setMovingTask] = useState<MoveTaskRef | null>(null);
   const [movedToast, setMovedToast] = useState<string | null>(null);
+  // Duplicate Task: a card's "Duplicate…" — the New task form, filled in from that task.
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
   useEffect(() => {
     if (!movedToast) return;
     const t = setTimeout(() => setMovedToast(null), 6000);
@@ -155,13 +177,13 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
   // Auto carry-forward: when an admin opens today's board, run the sweep once so any still-open tasks
   // from previous days appear immediately (the server also sweeps on start-up + hourly for everyone).
   useEffect(() => {
-    if (!isAdmin || boardDate !== todayKey || carriedThisSession) return;
+    if (!settingsAdmin || boardDate !== todayKey || carriedThisSession) return;
     carriedThisSession = true;
     tasksApi(apiClient)
       .runCarryForward()
       .then((res) => { if (res.carried > 0) qc.invalidateQueries({ queryKey: ['board'] }); })
       .catch(() => { carriedThisSession = false; });
-  }, [isAdmin, boardDate, todayKey, qc]);
+  }, [settingsAdmin, boardDate, todayKey, qc]);
 
   const columnsQ = useQuery({
     queryKey: ['columns', projectId],
@@ -355,7 +377,7 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
     statusMoveMut.mutate({ id: t.id, toColumnId: target, taskKey, status });
   }
 
-  // Each card's menu: "Move to another project…", offered to those who may (and saying why to others).
+  // Each card's menu: "Duplicate…" (anyone who sees the card), and "Move to another project…" for those who may move it.
   const moveTargets = useMoveTargets();
   const refByKey = useMemo(() => {
     const refs = new Map<string, MoveTaskRef>();
@@ -371,14 +393,26 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
     }
     return refs;
   }, [isAll, allQ.data, boardQ.data, projectId]);
-  // Only for someone who may move the task: others (members who don't manage it) see no ⋯ at all.
+  // The ⋯ shows whenever there is an item for the person: Duplicate always; Move only for whoever may move it.
   const cardMenu = (key: string): CardMenuItem[] | null => {
     const ref = refByKey.get(key);
     if (!ref) return null;
+    const items: CardMenuItem[] = [{ label: 'Duplicate…', onSelect: () => setDuplicatingId(ref.id) }];
     const name = projects.find((p) => p.id === ref.projectId)?.name;
-    if (!moveAvailability(ref.projectId, moveTargets, name).canMove) return null;
-    return [{ label: 'Move to another project…', onSelect: () => setMovingTask(ref) }];
+    if (moveAvailability(ref.projectId, moveTargets, name).canMove) items.push({ label: 'Move to another project…', onSelect: () => setMovingTask(ref) });
+    return items;
   };
+
+  /**
+   * Review: a task added while the board is searched that the words don't find is saved but not shown —
+   * so the board says so (else it looks as if saving failed).
+   */
+  function hiddenBySearch(t: ApiTask) {
+    if (!search) return;
+    const own = isAll ? projects.find((p) => p.id === t.projectId) : undefined;
+    const card = { key: t.key, title: t.title, description: t.description, assignees: t.assignees ?? [], tags: t.tags, formerKeys: t.formerKeys, project: own ? { name: own.name, code: own.code } : undefined };
+    if (!matchesBoardSearch(card, search, { project: searchProject })) setNotice(`${t.key} was saved, but your search “${search.text}” hides it. Clear the search to see it.`);
+  }
 
   /** Where keyboard focus goes once a moved card has left the board: the next card in its column (else the one before), else the board. */
   function focusAfterMove(movedKey: string) {
@@ -391,8 +425,23 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
     };
   }
 
-  // Filter by external company: only the cards with a contact from it (in memory; the choices are the board's own).
-  const [company, setCompany] = useState('');
+  // 1.24 Filter by guest, guest company and category (in memory; the choices are the board's own cards' —
+  // a project's board offers its whole category list, retired ones marked). They replace "External company".
+  const [picked, setPicked] = useState<GuestCategoryFilterState>(EMPTY_GUEST_CATEGORY_FILTERS);
+  const filtering = Boolean(picked.guest || picked.guestCompany.trim() || picked.category);
+  // Categories are each project's own: another project (or All projects) lets go of the one picked.
+  const [pickedFor, setPickedFor] = useState(projectId);
+  // Bulk changes: the board's Select mode (another board starts out of it, its selection empty).
+  const [selectMode, setSelectMode] = useState(false);
+  if (pickedFor !== projectId) {
+    setPickedFor(projectId);
+    setSelectMode(false);
+    if (picked.category) setPicked({ ...picked, category: '', categoryLabel: undefined });
+  }
+  // A project's board: its categories, and whether every task needs one ("Needs a category" on cards without).
+  const projectCategories = useProjectCategories(projectId, Boolean(projectId) && !isAll);
+  const needsOne = Boolean(projectCategories?.requireCategory);
+  const categoryChoices = useMemo(() => (projectCategories ? projectCategoryChoices(projectCategories.categories) : undefined), [projectCategories]);
   // Month view: each card shows its dates in the month; the ones without dates wait behind "No date (12)".
   const rawTasks = isAll ? allQ.data : boardQ.data?.tasks;
   const cardsOfMonth = useMemo(() => (isMonth ? monthCards(rawTasks ?? [], month, monthClock) : null), [isMonth, rawTasks, month, monthClock]);
@@ -404,22 +453,86 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
   // Cards without dates left off: a drop lands among the whole column, and a column's order isn't set from what is shown.
   const hidingUndated = isMonth && !showUndated && countCards(fullColumns, noDate) > 0;
   const periodColumns = useMemo(() => (isMonth && !showUndated ? hideCards(fullColumns, noDate) : fullColumns), [isMonth, showUndated, fullColumns, noDate]);
-  const companies = useMemo(() => boardCompanies(periodColumns), [periodColumns]);
-  // The chosen company stays a choice on a day without it, so it can be seen (and cleared).
-  const companyChoices = company && !companies.includes(company) ? [company, ...companies] : companies;
-  const boardColumns = useMemo(() => filterBoardByCompany(periodColumns, company), [periodColumns, company]);
-  // "No date (12)": the cards it would add (the company filter applies to them too).
-  const undatedCount = isMonth ? countCards(filterBoardByCompany(fullColumns, company), noDate) : 0;
+  const filterRows = useMemo(() => boardFilterRows(periodColumns), [periodColumns]);
+  // 1.24: the Guest, Guest company and Category filters (and "Needs a category" on a one-project board).
+  const filteredColumns = useMemo(() => markNeedsCategory(filterBoard(periodColumns, picked), needsOne), [periodColumns, picked, needsOne]);
+  // Board search (10 Nov): over what the board is showing (its day or month, the filters), in
+  // memory. Each card's text is read once per load of the board, not on every key.
+  const words = useBoardSearchWords();
+  const search = useMemo(() => readBoardSearch(words.words), [words.words]);
+  const searchProject = useMemo(() => (project ? { name: project.name, code: project.code } : null), [project]);
+  const searching = search !== null;
+  // Read only while searching (review: not on every load and live change of a board nobody searches).
+  const searchDocs = useMemo(() => (searching ? boardSearchDocs(fullColumns, { project: searchProject }) : NO_DOCS), [searching, fullColumns, searchProject]);
+  const searched = useMemo(() => searchBoard(filteredColumns, search, { project: searchProject, docs: searchDocs }), [filteredColumns, search, searchProject, searchDocs]);
+  // The board as shown: the cards found (a card a live change has just left unfound fades out first).
+  const boardColumns = useLeavingCards(filteredColumns, searched.columns, search);
+  // "No date (12)": the cards it would add (the filters and the search apply to them too).
+  const undatedCount = useMemo(
+    () => (isMonth ? countCards(searchBoard(filterBoard(fullColumns, picked), search, { project: searchProject, docs: searchDocs, marks: false }).columns, noDate) : 0),
+    [isMonth, fullColumns, picked, search, searchProject, searchDocs, noDate],
+  );
+  /** The cards shown, column by column (Previous / Next, the Table), none fading out. */
+  const shownCards = useMemo(() => boardColumns.flatMap((c) => c.tasks.filter((t) => !t.leaving)), [boardColumns]);
   const idByKey = useMemo(
     () => (isAll ? Object.fromEntries((allQ.data ?? []).map((t) => [t.key, t.id])) : boardQ.data?.idByKey ?? {}),
     [isAll, allQ.data, boardQ.data],
   );
 
-  // The Table view's rows: the board's cards in its order, as the server sent them.
+  // The Table view's rows: the board's cards in its order, as the server sent them (the search applied).
   const tableTasks = useMemo(() => {
     const raw = new Map((isAll ? allQ.data ?? [] : boardQ.data?.tasks ?? []).map((t) => [t.key, t]));
-    return boardColumns.flatMap((c) => c.tasks.map((card) => raw.get(card.key)).filter((t): t is ApiTask => Boolean(t)));
-  }, [isAll, allQ.data, boardQ.data, boardColumns]);
+    return shownCards.map((card) => raw.get(card.key)).filter((t): t is ApiTask => Boolean(t));
+  }, [isAll, allQ.data, boardQ.data, shownCards]);
+
+  // ── Bulk changes (owner, 10 Nov): Select mode on the board, the boxes of its Table view ──
+  const sel = useBulkSelection(projectId);
+  // Select mode: the Select button, or tasks ticked (in the Table view, then back on the board).
+  const selecting = !locked && Boolean(projectId) && (selectMode || sel.count > 0);
+  const taskByKey = useMemo(() => new Map((isAll ? allQ.data ?? [] : boardQ.data?.tasks ?? []).map((t) => [t.key, t])), [isAll, allQ.data, boardQ.data]);
+  const taskById = useMemo(() => new Map([...taskByKey.values()].map((t) => [t.id, t])), [taskByKey]);
+  // The rows the Table view shows after its own filters too (it says them), else the board's cards.
+  const [tableShown, setTableShown] = useState<string[] | null>(null);
+  const visibleIds = useMemo(
+    () => (view === 'table' ? (tableShown ?? tableTasks.map((t) => t.id)) : boardColumns.flatMap((c) => c.tasks.map((t) => idByKey[t.key]).filter((x): x is string => Boolean(x)))),
+    [view, tableShown, tableTasks, boardColumns, idByKey],
+  );
+  const columnRefs = (columnId: string) =>
+    (boardColumns.find((c) => c.id === columnId)?.tasks ?? []).map((c) => taskByKey.get(c.key)).filter((t): t is ApiTask => Boolean(t)).map(taskRef);
+  const boardSelect: BoardSelect | undefined =
+    selecting && view === 'board'
+      ? {
+          has: (key) => sel.has(idByKey[key] ?? ''),
+          // Shift: the range in the card's own column.
+          onToggle: (key, columnId, shift) => {
+            const t = taskByKey.get(key);
+            if (t) sel.toggle(taskRef(t), { shift, order: columnRefs(columnId) });
+          },
+          columnState: (columnId) => sel.allState(columnRefs(columnId).map((r) => r.id)),
+          onToggleColumn: (columnId) => {
+            const refs = columnRefs(columnId);
+            if (sel.allState(refs.map((r) => r.id)) === 'all') sel.deselect(refs.map((r) => r.id));
+            else sel.selectAll(refs);
+          },
+        }
+      : undefined;
+  /** Leave Select mode: the boxes go, and so does the selection. */
+  const leaveSelect = useCallback(() => {
+    setSelectMode(false);
+    sel.clear();
+  }, [sel]);
+  // Escape leaves Select mode (unless a window, menu or the task panel is taking it).
+  useEffect(() => {
+    if (!selecting || view !== 'board') return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      // (A popover such as the people strip is a dialog without aria-modal: its Escape is its own.)
+      if (document.querySelector("[role='dialog'], [role='alertdialog'], [aria-modal='true'], [role='menu'], [role='listbox']")) return;
+      leaveSelect();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [selecting, view, leaveSelect]);
 
   /**
    * New task, in the column it was started from (a column's "+" or empty box), else the first. On
@@ -458,9 +571,12 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
         return;
       }
       void qc.invalidateQueries({ queryKey: ['board', projectId] });
+      // The project strip's health and figures follow the board.
+      if (projectId && projectId !== ALL_PROJECTS) void qc.invalidateQueries({ queryKey: projectHealthKey(projectId) });
       const p = (payload ?? {}) as { id?: string; taskId?: string };
-      // A deleted/changed task open in a drawer refetches (and shows "not found" once deleted).
-      if (p.id && event !== 'task:created') void qc.invalidateQueries({ queryKey: ['task', p.id] });
+      // A deleted/changed task open in a drawer refetches (and shows "not found" once deleted) — and
+      // each task of a bulk change (one event per project: { bulk: true, ids }).
+      if (event !== 'task:created') for (const id of taskIdsOfLiveEvent(payload)) void qc.invalidateQueries({ queryKey: ['task', id] });
       if (event === 'task:assignees' && p.taskId) void qc.invalidateQueries({ queryKey: ['assignees', p.taskId] });
       // After a reconnect we may have missed anything — refresh every task view.
       if (event === 'resync') void invalidateTaskQueries(qc);
@@ -479,8 +595,8 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
     const data = boardQ.data;
     const id = data?.idByKey[taskKey];
     if (!data || !id) return;
-    // Filtered by company (or cards without dates left off), the drop position is among the shown cards: place it in the whole column.
-    const at = company || hidingUndated ? fullColumnIndex(data.columns, boardColumns, toColumnId, toIndex, taskKey) : toIndex;
+    // Filtered or searched (or cards without dates left off), the drop position is among the shown cards: place it in the whole column.
+    const at = filtering || hidingUndated || search ? fullColumnIndex(data.columns, boardColumns, toColumnId, toIndex, taskKey) : toIndex;
     const after = moveTaskInBoard(data.columns, taskKey, toColumnId, at);
     const orderedIds = (after.find((c) => c.id === toColumnId)?.tasks ?? [])
       .map((t) => data.idByKey[t.key])
@@ -498,8 +614,11 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
   // A day with nothing on it says so once, above the columns (each column only says "No tasks").
   // (Not on a read-only board: its notice says why nothing can be added.)
   const emptyDay = !locked && !loading && !error && Boolean(projectId) && periodColumns.length > 0 && periodColumns.every((c) => c.tasks.length === 0);
-  // The company filter leaves no card on a board that has some.
-  const noneFromCompany = !emptyDay && Boolean(company) && boardColumns.length > 0 && boardColumns.every((c) => c.tasks.length === 0);
+  // The filters leave no card on a board that has some.
+  const noneMatch = !emptyDay && filtering && filteredColumns.length > 0 && filteredColumns.every((c) => c.tasks.length === 0);
+  // The search finds nothing here: it says so, and offers the top-bar search's results for the same words.
+  // (Not while the month keeps some found cards behind "No date (2)": the chip says so.)
+  const noneFound = !loading && !error && Boolean(projectId) && search !== null && searched.shown === 0 && undatedCount === 0 && !noneMatch;
 
   // A laptop, or a tablet with room: the board is the rest of the window's height and each column
   // scrolls by itself, its header always in view. A phone scrolls the page. So does the page while
@@ -514,7 +633,7 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
   const actions = projectId && !locked ? (
     <>
       {/* Whoever runs the project (the server says) and admins change its columns. */}
-      {(isAdmin || project?.canManage === true) && !isAll ? (
+      {(settingsAdmin || project?.canManage === true) && !isAll ? (
         <button
           onClick={() => setManageColumns((v) => !v)}
           aria-expanded={manageColumns}
@@ -543,6 +662,7 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
         </div>
       ) : projectId ? (
         <div className="mb-4 flex flex-wrap items-center gap-2">
+          <BoardSearchBox words={words.words} onWords={words.setWords} searching={search !== null} shown={searched.shown} total={searched.total} />
           <ViewSwitch
             label="Show the board for"
             value={period}
@@ -603,17 +723,32 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
           </>
           )}
           <ViewSwitch label="Show the board as" value={view} onChange={setView} options={VIEWS} />
+          {/* Bulk changes: Select puts a box on every card (dragging waits meanwhile); again, or Escape, leaves. */}
+          {view === 'board' && !locked ? (
+            <button
+              type="button"
+              aria-pressed={selecting}
+              onClick={() => (selecting ? leaveSelect() : setSelectMode(true))}
+              title={selecting ? 'Leave Select mode (Esc)' : 'Select tasks to change several at once'}
+              className={`inline-flex h-9 items-center gap-1.5 rounded-xl border px-3 text-sm font-semibold transition-colors ${TOUCH_TALL} ${
+                selecting ? 'border-brand bg-brand/10 text-brand' : 'border-line bg-surface text-ink hover:border-brand/30 hover:bg-ground'
+              }`}
+            >
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <rect x="3" y="3" width="18" height="18" rx="3" />
+                <path d="m8 12 3 3 5-6" />
+              </svg>
+              Select
+            </button>
+          ) : null}
           {/* 1.23.8: how wide the columns are, the person's own (board view only). */}
           {view === 'board' ? <ColumnWidthButton /> : null}
-          {companies.length > 0 || company ? (
-            <div className="w-48" title={company || EXTERNAL_CONTACT_WORDS.anyCompany}>
-              <SearchableSelect
-                ariaLabel={`Filter by ${EXTERNAL_CONTACT_WORDS.filter.toLowerCase()}`}
-                value={company}
-                onChange={setCompany}
-                options={[{ value: '', label: `${EXTERNAL_CONTACT_WORDS.filter}: ${EXTERNAL_CONTACT_WORDS.anyCompany}` }, ...companyChoices.map((c) => ({ value: c, label: c }))]}
-              />
-            </div>
+          {/* 1.24: Guest, Guest company and Category — each only when the board has a choice for it. */}
+          <GuestCategoryFilterBoxes rows={filterRows} value={picked} onChange={setPicked} categories={categoryChoices} box="min-w-0 max-sm:flex-[1_1_calc(50%-0.25rem)] sm:w-44" />
+          {filtering ? (
+            <button type="button" onClick={() => setPicked(EMPTY_GUEST_CATEGORY_FILTERS)} className={`rounded-lg px-2 py-1 text-xs font-medium text-ink-2 transition-colors hover:bg-ground hover:text-ink ${TOUCH_TALL}`}>
+              Clear filters
+            </button>
           ) : null}
           {isAll && myOnly ? <MyProjectsLine /> : null}
           {isAll ? <p className="ms-auto hidden text-sm text-ink-2 lg:block">All projects — drag a card to change its status in its own project.</p> : null}
@@ -622,6 +757,8 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
           {header ? null : <div className={`flex flex-wrap items-center gap-2 ${!isAll && project ? '' : 'ms-auto'}`}>{actions}</div>}
         </div>
       ) : null}
+
+      {projectStrip && project && !listLoading && !linking ? <ProjectStrip project={project} today={todayKey} timeZone={timeZone} /> : null}
 
       {manageColumns && projectId && !isAll && !locked ? (
         <div className="card mb-4 p-5">
@@ -698,16 +835,28 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
             <span>{isMonth ? emptyMonthText(month, thisMonth) : emptyDayText(boardDate, todayKey)}</span>
           </p>
         ) : null}
-        {noneFromCompany ? (
+        {noneMatch ? (
           <p role="status" className="mb-3 flex flex-none items-center justify-between gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-sm text-ink-2">
-            <span dir="auto">No cards on this board have an external contact from {company}.</span>
-            <button type="button" onClick={() => setCompany('')} className={`flex-none text-xs font-semibold text-brand underline ${TOUCH_TALL}`}>
+            <span>No cards on this board match these filters.</span>
+            <button type="button" onClick={() => setPicked(EMPTY_GUEST_CATEGORY_FILTERS)} className={`flex-none text-xs font-semibold text-brand underline ${TOUCH_TALL}`}>
               Show every card
             </button>
           </p>
         ) : null}
+        {noneFound && search ? (
+          <p role="status" className="mb-3 flex flex-none flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-xl border border-line bg-surface px-3 py-2 text-sm text-ink-2">
+            <span dir="auto">No cards on this board match “{search.text}”.</span>
+            <button
+              type="button"
+              onClick={() => navigate(`/search?${everythingAddress({ q: search.text, type: 'task' })}`)}
+              className={`flex-none text-xs font-semibold text-brand underline ${TOUCH_TALL}`}
+            >
+              Search all tasks
+            </button>
+          </p>
+        ) : null}
         {view === 'table' ? (
-          // The day's cards as rows, column by column (the board's order), the company filter applied.
+          // The day's cards as rows, column by column (the board's order), the guest and category filters applied.
           <TaskTable
             page={viewPlace}
             label={
@@ -721,8 +870,20 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
             showProject={isAll}
             readOnly={locked ? readOnly : null}
             filterBar
+            // The board's search box filters the rows (the table has no words box of its own here).
+            wordsBox={false}
             onOpen={(id, ids) => openTask(id, ids)}
             empty={<span />}
+            onRowsShown={setTableShown}
+            selection={
+              locked
+                ? undefined
+                : {
+                    selected: sel.selected,
+                    onToggle: (t, { shift, order }) => sel.toggle(taskRef(t), { shift, order: order.map(taskRef) }),
+                    onSelectAll: (list, on) => (on ? sel.selectAll(list.map(taskRef)) : sel.deselect(list.map((t) => t.id))),
+                  }
+            }
           />
         ) : (
         <div className={fit ? 'min-h-0 flex-1' : undefined}>
@@ -731,16 +892,18 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
           columns={boardColumns}
           timeZone={timeZone}
           // A read-only project's board: cards only open (no dragging, no "+", no card menu).
-          onMove={locked ? undefined : onMove}
+          // Select mode: dragging waits.
+          onMove={locked || selecting ? undefined : onMove}
           // On All projects a status mixes projects: cards keep their order (due date, then priority).
-          // Filtered by company, some cards are hidden: a column's order can't be set from what is shown.
-          onReorder={isAll || company || hidingUndated || locked ? undefined : onReorder}
+          // Filtered or searched, some cards are hidden (and Select mode pauses it): a column's order can't be set from what is shown.
+          onReorder={isAll || filtering || hidingUndated || search || locked || selecting ? undefined : onReorder}
+          select={boardSelect}
           onAddTask={locked ? undefined : (columnId) => openAddTask(columnId)}
           cardMenu={locked ? undefined : cardMenu}
           onTaskClick={(key) => {
             const id = idByKey[key];
             // The board as shown is its list for Previous / Next: column by column, top to bottom.
-            if (id) openTask(id, boardColumns.flatMap((c) => c.tasks.map((t) => idByKey[t.key]).filter((x): x is string => Boolean(x))));
+            if (id) openTask(id, shownCards.map((t) => idByKey[t.key]).filter((x): x is string => Boolean(x)));
           }}
         />
         </div>
@@ -749,6 +912,21 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
       )}
 
 
+      {projectId && !locked ? (
+        <BulkTools
+          selection={sel}
+          visibleIds={visibleIds}
+          projects={isAll ? shownProjects : projects}
+          assignedOf={(id) => taskById.get(id)?.assignees}
+          merge
+          show={view === 'table' || selecting}
+        />
+      ) : null}
+
+      {duplicatingId ? (
+        // The copy's notice ("Task MSSP-40 created", with Open) comes from the app shell; every view refreshes.
+        <TaskFormDialog duplicateOfId={duplicatingId} onClose={() => setDuplicatingId(null)} />
+      ) : null}
       {movingTask ? (
         <MoveTaskDialog
           tasks={[movingTask]}
@@ -781,7 +959,10 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
           {...(isAll ? { defaultColumnCategory: newTaskStatus } : { projectId, defaultColumnId: newTaskColumn })}
           // Month view: today's defaults (it keeps no board day).
           boardDate={isMonth ? undefined : boardDate}
-          onCreated={(t) => tellWhere(t, (word) => `Saved — it’s in ${word}.`)}
+          onCreated={(t) => {
+            tellWhere(t, (word) => `Saved — it’s in ${word}.`);
+            hiddenBySearch(t);
+          }}
           onClose={() => setAddingTask(false)}
           onQueued={() => setNotice('You’re offline — the task was saved and will sync when you reconnect.')}
         />
