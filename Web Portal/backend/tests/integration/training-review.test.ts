@@ -198,7 +198,7 @@ describe('M6/M15 a Training manager sees only what is hers', () => {
 });
 
 describe('M8 a published course can’t be left unfinished', () => {
-  it('refuses removing the last answer, emptying a guide, removing a video link or the last lesson', async () => {
+  it('refuses removing the last answer, emptying a guide or the last lesson (clearing a video link only hides it: R2)', async () => {
     const admin = w.as.admin;
     const noRight = await send('PUT', admin, `/training/manage/lessons/${quiz.id}/quiz`, { passMark: 100, maxAttempts: 1, shuffle: false, timeLimitMinutes: null, drawCount: null, questions: [{ kind: 'SINGLE', prompt: 'Pick yes', options: [{ text: 'Yes', correct: false }, { text: 'No', correct: false }] }] });
     expect(noRight.statusCode).toBe(409);
@@ -207,7 +207,7 @@ describe('M8 a published course can’t be left unfinished', () => {
     const guide = lessons.find((l) => l.kind === 'GUIDE')!;
     expect((await send('PUT', admin, `/training/manage/lessons/${guide.id}/steps`, { steps: [] })).statusCode).toBe(409);
     const video = data<ManageLesson>(await send('POST', admin, `/training/manage/courses/${course.id}/lessons`, { kind: 'VIDEO', title: 'Watch', minutes: 3, videoUrl: 'https://youtu.be/dQw4w9WgXcQ' }), 201);
-    expect((await send('PATCH', admin, `/training/manage/lessons/${video.id}`, { videoUrl: null })).statusCode).toBe(409);
+    expect((await send('PATCH', admin, `/training/manage/lessons/${video.id}`, { videoUrl: null })).statusCode).toBe(200);
     expect((await send('DELETE', admin, `/training/manage/lessons/${video.id}`)).statusCode).toBe(204);
     // A draft may be anything while it is made.
     const draft = data<ManageCourse>(await send('POST', admin, '/training/manage/courses', { title: `Draft ${w.tag}`, moduleKey: 'tasks', audience: 'STAFF', difficulty: 'BEGINNER' }), 201);

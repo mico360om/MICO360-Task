@@ -174,6 +174,8 @@ export interface MyCourseState {
   dueDay: string | null;
   overdue: boolean;
   lastLessonId: string | null;
+  /** The lesson Start / Continue opens: the first one to do (to review), else the first; null: no lessons. */
+  nextLessonId: string | null;
   startedAt: string | null;
   completedAt: string | null;
   certificate: CertificateRef | null;
