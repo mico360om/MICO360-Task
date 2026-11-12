@@ -14,6 +14,11 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### Improvements
+- Learning Hub: simpler pages — one 'Up next' course to start, To do and Done lists, slimmer course cards, one Next button in lessons and a shorter quiz.
+- Learning Hub: each course starts with its training video once the link is added, a new 'Getting started' course, and lesson pictures updated to the current version.
+- Learning Hub (admins): fewer tabs, a 'New staff only' choice when assigning a course, and the tour switch moved to System Settings.
+
 ## [1.23.24] - 2026-11-12
 
 ### Bug fixes
