@@ -91,7 +91,20 @@ export const myTraining = (over: Partial<MyTraining> = {}): MyTraining => ({
     card({ id: 'c2', title: 'Meetings & minutes', moduleKey: 'meetings', mine: mine({ mandatory: false, status: 'NOT_STARTED', progressPct: 0, dueDay: '2026-11-20' }) }),
   ],
   inProgress: [card({ id: 'c3', title: 'Calendar tips', moduleKey: 'calendar', mine: mine({ assigned: false, mandatory: false, dueDay: null, progressPct: 60 }) })],
-  completed: [card({ id: 'c4', title: 'Kanban board', moduleKey: 'board', mine: mine({ status: 'COMPLETED', progressPct: 100, completedAt: '2026-11-05T08:00:00.000Z' }) })],
+  completed: [
+    card({
+      id: 'c4',
+      title: 'Kanban board',
+      moduleKey: 'board',
+      mine: mine({
+        status: 'COMPLETED',
+        progressPct: 100,
+        dueDay: null,
+        completedAt: '2026-11-05T08:00:00.000Z',
+        certificate: { id: 'cert1', code: 'TC-ABCD-EFGH-JKLM', courseId: 'c4', courseTitle: 'Kanban board', issuedAt: '2026-11-05T08:00:00.000Z', expiresAt: '2027-11-05T08:00:00.000Z', status: 'VALID' },
+      }),
+    }),
+  ],
   certificates: [{ id: 'cert1', code: 'TC-ABCD-EFGH-JKLM', courseId: 'c4', courseTitle: 'Kanban board', issuedAt: '2026-11-05T08:00:00.000Z', expiresAt: '2027-11-05T08:00:00.000Z', status: 'VALID' }],
   ...over,
 });
@@ -182,7 +195,7 @@ function Where() {
 }
 
 /** Render on a side (staff by default) at an address, with the given routes. */
-export function renderOnSide(ui: ReactElement, { api, path = '/', route = '*', portal = false }: { api: LearnerApi; path?: string; route?: string; portal?: boolean }) {
+export function renderOnSide(ui: ReactElement, { api, path = '/', route = '*', portal = false, state }: { api: LearnerApi; path?: string; route?: string; portal?: boolean; state?: unknown }) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const side: LearnerSide = portal ? { api, base: '/portal/training', portal: true, keyRoot: ['portal', 'training'] } : { api, base: '/training', portal: false, keyRoot: ['training'] };
   return {
@@ -190,7 +203,7 @@ export function renderOnSide(ui: ReactElement, { api, path = '/', route = '*', p
     ...render(
       <QueryClientProvider client={qc}>
         <LearnerProvider side={side}>
-          <MemoryRouter initialEntries={[path]}>
+          <MemoryRouter initialEntries={[state === undefined ? path : { pathname: path, state }]}>
             <Routes>
               <Route path={route} element={ui} />
               <Route path="*" element={<div>elsewhere</div>} />

@@ -3,8 +3,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { card, myTraining } from '../../components/training/training-fixtures';
-import { useTourStore } from '../../components/training/tour-store';
+import { card, detail, mine, myTraining } from '../../components/training/training-fixtures';
 import { MyTrainingPage } from './MyTrainingPage';
 
 /** The staff training API, replaced (hoisted: the side and the queries take it when they load). */
@@ -13,6 +12,7 @@ const staff = vi.hoisted(() => ({
   me: vi.fn(),
   catalogue: vi.fn(),
   learn: vi.fn(),
+  start: vi.fn(),
   certificatePdf: vi.fn(),
 }));
 vi.mock('../../api/training', async (importOriginal) => ({ ...(await importOriginal<typeof import('../../api/training')>()), trainingApi: () => staff }));
@@ -38,118 +38,176 @@ function renderAt(path = '/training') {
 }
 
 const ACCESS = { learner: true, manager: false, admin: false, teamReports: false, overdue: 1, assigned: 2, tour: { show: false } };
+const notMine = { ...mine(), enrolled: false, assigned: false, mandatory: false, status: 'NOT_STARTED' as const, progressPct: 0, dueDay: null, nextLessonId: 'l1' };
+const many = (n: number) => Array.from({ length: n }, (_, i) => card({ id: `m${i}`, title: `Course ${i + 1}`, mine: notMine }));
 
 beforeEach(() => {
   for (const f of Object.values(staff)) f.mockReset();
   staff.access.mockResolvedValue(ACCESS);
   staff.me.mockResolvedValue(myTraining());
-  staff.catalogue.mockResolvedValue({ courses: [card(), card({ id: 'c5', title: 'Reports for admins', moduleKey: 'reports', difficulty: 'ADVANCED', starter: false, rating: { average: null, count: 0 }, mine: { ...card().mine, enrolled: false, assigned: false, mandatory: false, status: 'NOT_STARTED', progressPct: 0, dueDay: null } })] });
+  staff.catalogue.mockResolvedValue({ courses: [card(), card({ id: 'c5', title: 'Reports for admins', summary: 'Read the reports.', moduleKey: 'reports', difficulty: 'ADVANCED', starter: false, rating: { average: null, count: 0 }, mine: notMine })] });
   staff.learn.mockResolvedValue({ courseId: null, module: 'training', count: 0 });
-  useTourStore.setState({ open: false, autoShown: false });
 });
 
-describe('Learning Hub: My learning and the catalogue', () => {
-  it('counts, then assigned (overdue in red, due days), in progress with %, completed and certificates', async () => {
+describe('My learning (12 Nov: Up next, To do, Done)', () => {
+  it('Up next is the most urgent course, with Continue, its due date and how far along; To do and Done below; no count tiles', async () => {
     renderAt();
     expect(screen.getByRole('heading', { level: 1, name: 'Learning Hub' })).toBeInTheDocument();
-    const tabs = screen.getByRole('navigation', { name: 'Learning Hub' });
-    expect(within(tabs).getByRole('link', { name: 'My learning' })).toHaveAttribute('aria-current', 'page');
-    const assigned = (await screen.findByRole('heading', { name: /Assigned to you/ })).closest('section')!;
-    const cards = within(assigned).getAllByRole('link');
-    expect(cards.map((c) => c.querySelector('h3')?.textContent)).toEqual(['Tasks basics', 'Meetings & minutes']);
-    expect(within(cards[0]!).getByText('Overdue')).toBeInTheDocument();
-    expect(within(cards[0]!).getByText('Due 4 Nov')).toBeInTheDocument();
-    expect(within(cards[0]!).getByText('Mandatory')).toBeInTheDocument();
-    expect(cards[0]).toHaveAttribute('href', '/training/courses/c1');
-    expect(within(cards[1]!).getByText('Due 20 Nov')).toBeInTheDocument();
-    const progress = (screen.getByRole('heading', { name: /In progress \(1\)/ })).closest('section')!;
-    expect(within(progress).getByRole('progressbar')).toHaveAttribute('aria-valuenow', '60');
-    expect(screen.getByRole('heading', { name: /Completed \(1\)/ })).toBeInTheDocument();
-    const certs = screen.getByRole('heading', { name: /Certificates/ }).closest('section')!;
-    expect(within(certs).getByText('TC-ABCD-EFGH-JKLM')).toBeInTheDocument();
+    expect(within(screen.getByRole('navigation', { name: 'Learning Hub' })).getByRole('link', { name: 'My learning' })).toHaveAttribute('aria-current', 'page');
+    const upNext = await screen.findByRole('region', { name: 'Up next' });
+    expect(within(upNext).getByRole('heading', { name: 'Tasks basics' })).toBeInTheDocument();
+    expect(within(upNext).getByText('Overdue · was due 4 Nov')).toBeInTheDocument();
+    expect(within(upNext).getByText('40% done')).toBeInTheDocument();
+    expect(within(upNext).getByRole('progressbar')).toHaveAttribute('aria-valuenow', '40');
+    // To do: the rest, nearest due day before started-without-a-due-day; each course once.
+    const todo = screen.getByRole('region', { name: /^To do/ });
+    expect(within(todo).getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual(['Meetings & minutes', 'Calendar tips']);
+    expect(within(todo).getByText('Due 20 Nov')).toBeInTheDocument();
+    expect(within(todo).getByText('60% done')).toBeInTheDocument();
+    // Done: its certificate on the card.
+    const done = screen.getByRole('region', { name: /^Done/ });
+    expect(within(done).getByRole('heading', { name: 'Kanban board' })).toBeInTheDocument();
+    expect(within(within(done).getByRole('link', { name: 'Kanban board' }).closest('article')!).getByText('Done')).toBeInTheDocument();
     staff.certificatePdf.mockResolvedValue(new Blob(['%PDF']));
     vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:x');
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
-    await userEvent.click(within(certs).getByRole('button', { name: 'Download the certificate for Kanban board (PDF)' }));
+    await userEvent.click(within(done).getByRole('button', { name: 'Certificate (PDF): Kanban board' }));
     await waitFor(() => expect(click).toHaveBeenCalled());
     expect(staff.certificatePdf).toHaveBeenCalledWith('cert1');
+    // Gone: the four count tiles, the separate lists, the tour button (it is in the account menu now).
+    expect(screen.queryByText(/^Assigned$/i)).toBeNull();
+    expect(screen.queryByRole('heading', { name: /In progress|Certificates|Assigned to you/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /tour/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Older certificates' })).toBeNull();
+    // Continue opens the lesson to do next.
+    await userEvent.click(within(upNext).getByRole('link', { name: 'Continue' }));
+    expect(screen.getByTestId('where')).toHaveTextContent('/training/courses/c1/lessons/l2');
   });
 
-  it('nothing yet: says so, with the way to the catalogue', async () => {
+  it('Start (a course not started yet) starts it and opens its first lesson', async () => {
+    staff.me.mockResolvedValue(myTraining({ assigned: [card({ id: 'c2', title: 'Meetings & minutes', mine: mine({ enrolled: false, status: 'NOT_STARTED', progressPct: 0, dueDay: '2026-11-20', nextLessonId: 'm1' }) })], inProgress: [], completed: [], certificates: [] }));
+    staff.start.mockResolvedValue(detail({ id: 'c2', resumeLessonId: 'm1' }));
+    renderAt();
+    const upNext = await screen.findByRole('region', { name: 'Up next' });
+    expect(within(upNext).getByText('Due 20 Nov')).toBeInTheDocument();
+    expect(within(upNext).queryByRole('progressbar')).toBeNull();
+    expect(screen.queryByRole('region', { name: /^To do/ })).toBeNull();
+    await userEvent.click(within(upNext).getByRole('button', { name: 'Start' }));
+    await waitFor(() => expect(staff.start).toHaveBeenCalledWith('c2'));
+    expect(screen.getByTestId('where')).toHaveTextContent('/training/courses/c2/lessons/m1');
+  });
+
+  it('“Older certificates” only when a certificate has no Done card (expired, replaced, an archived course…)', async () => {
+    const data = myTraining();
+    staff.me.mockResolvedValue({ ...data, certificates: [...data.certificates, { id: 'cert0', code: 'TC-OLD0-OLD0-OLD0', courseId: 'gone', courseTitle: 'Safety induction', issuedAt: '2025-11-05T08:00:00.000Z', expiresAt: '2026-11-01T08:00:00.000Z', status: 'EXPIRED' }] });
+    renderAt();
+    const more = await screen.findByRole('button', { name: 'Older certificates' });
+    expect(more).toHaveAttribute('aria-expanded', 'false');
+    await userEvent.click(more);
+    expect(more).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('Safety induction')).toBeInTheDocument();
+    expect(screen.getByText('Expired')).toBeInTheDocument();
+  });
+
+  it('nothing to do: one line and Browse all courses (no zero tiles)', async () => {
     staff.me.mockResolvedValue(myTraining({ assigned: [], inProgress: [], completed: [], certificates: [], counts: { assigned: 0, inProgress: 0, notStarted: 0, completed: 0, overdue: 0, review: 0 } }));
     renderAt();
-    expect(await screen.findByText('Nothing assigned to you yet.')).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Browse the catalogue' }));
-    expect(within(screen.getByRole('navigation', { name: 'Learning Hub' })).getByRole('link', { name: 'Catalogue' })).toHaveAttribute('aria-current', 'page');
+    expect(await screen.findByText('Nothing to do right now')).toBeInTheDocument();
+    expect(screen.queryByText('0')).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: 'Browse all courses' }));
+    expect(within(screen.getByRole('navigation', { name: 'Learning Hub' })).getByRole('link', { name: 'All courses' })).toHaveAttribute('aria-current', 'page');
     expect(screen.getByTestId('where')).toHaveTextContent('/training?tab=catalogue');
   });
 
-  it('the catalogue: cards with minutes, lessons, difficulty, Starter and rating; search and filters ask the server', async () => {
+  it('done but nothing to do: “Nothing to do right now” in place of Up next, the Done list below', async () => {
+    staff.me.mockResolvedValue(myTraining({ assigned: [], inProgress: [] }));
+    renderAt();
+    expect(await screen.findByText('Nothing to do right now')).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: /^Done/ })).toBeInTheDocument();
+  });
+});
+
+describe('All courses (was Catalogue)', () => {
+  it('slim cards: title, one-line summary, minutes, Mandatory, one chip — no Starter, Beginner, ratings, lesson count or module', async () => {
     renderAt('/training?tab=catalogue');
-    const grid = await screen.findByText('2 courses');
-    expect(grid).toBeInTheDocument();
-    const first = screen.getByRole('link', { name: /Tasks basics/ });
+    expect(await screen.findByText('2 courses')).toBeInTheDocument();
+    const first = screen.getByRole('link', { name: 'Tasks basics' }).closest('article')!;
     expect(within(first).getByText('25 min')).toBeInTheDocument();
-    expect(within(first).getByText('4 lessons')).toBeInTheDocument();
-    expect(within(first).getByText('Beginner')).toBeInTheDocument();
-    expect(within(first).getByText('Starter')).toBeInTheDocument();
-    expect(within(first).getByText('4.5 · 12 ratings')).toBeInTheDocument();
-    expect(within(screen.getByRole('link', { name: /Reports for admins/ })).getByText('No ratings yet')).toBeInTheDocument();
-    // The module filter: asked for, kept in the address, and the cards keep it for the way back.
-    staff.catalogue.mockResolvedValue({ courses: [card()] });
-    await userEvent.selectOptions(screen.getByLabelText('Module'), 'tasks');
-    await waitFor(() => expect(staff.catalogue).toHaveBeenLastCalledWith({ module: 'tasks', difficulty: '', q: '' }));
-    expect(screen.getByTestId('where')).toHaveTextContent('/training?tab=catalogue&module=tasks');
-    expect(await screen.findByText('1 course')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Tasks basics/ })).toHaveAttribute('href', '/training/courses/c1?module=tasks');
-    await userEvent.selectOptions(screen.getByLabelText('Difficulty'), 'BEGINNER');
-    await waitFor(() => expect(staff.catalogue).toHaveBeenLastCalledWith({ module: 'tasks', difficulty: 'BEGINNER', q: '' }));
-    await userEvent.type(screen.getByRole('searchbox', { name: 'Search courses' }), 'assign');
-    await waitFor(() => expect(staff.catalogue).toHaveBeenLastCalledWith({ module: 'tasks', difficulty: 'BEGINNER', q: 'assign' }));
-    // The Client portal's courses aren't a staff filter.
-    expect(within(screen.getByLabelText('Module')).queryByRole('option', { name: 'Client portal' })).toBeNull();
+    expect(within(first).getByText('Mandatory')).toBeInTheDocument();
+    expect(within(first).getByText('Due 14 Nov')).toBeInTheDocument();
+    for (const gone of ['Starter', 'Beginner', '4 lessons', '4.5 · 12 ratings', 'Tasks', 'Certificate']) expect(within(first).queryByText(gone)).toBeNull();
+    expect(screen.getByRole('link', { name: 'Tasks basics' })).toHaveAttribute('href', '/training/courses/c1');
+    const second = screen.getByRole('link', { name: 'Reports for admins' }).closest('article')!;
+    expect(within(second).getByText('Advanced')).toBeInTheDocument();
+    expect(within(second).queryByText('No ratings yet')).toBeNull();
+    expect(within(second).queryByText('Mandatory')).toBeNull();
+  });
+
+  it('8 courses or fewer: no Module filter; Difficulty only when the courses differ; search asks the server', async () => {
+    renderAt('/training?tab=catalogue');
+    await screen.findByText('2 courses');
+    expect(screen.queryByLabelText('Module')).toBeNull();
+    await userEvent.selectOptions(screen.getByLabelText('Difficulty'), 'ADVANCED');
+    await waitFor(() => expect(staff.catalogue).toHaveBeenLastCalledWith({ module: '', difficulty: 'ADVANCED', q: '' }));
+    await userEvent.type(screen.getByRole('searchbox', { name: 'Search courses' }), 'report');
+    await waitFor(() => expect(staff.catalogue).toHaveBeenLastCalledWith({ module: '', difficulty: 'ADVANCED', q: 'report' }));
     staff.catalogue.mockResolvedValue({ courses: [] });
     await userEvent.type(screen.getByRole('searchbox', { name: 'Search courses' }), 'zzz');
     expect(await screen.findByText('No courses match.')).toBeInTheDocument();
   });
 
-  it('a Learn link (or a back link) opens the catalogue filtered to its module', async () => {
-    renderAt('/training?tab=catalogue&module=meetings');
-    await waitFor(() => expect(staff.catalogue).toHaveBeenCalledWith({ module: 'meetings', difficulty: '', q: '' }));
-    expect(screen.getByLabelText('Module')).toHaveValue('meetings');
+  it('more than 8 courses: the Module filter (without the Client portal’s), kept in the address and on the cards’ links', async () => {
+    staff.catalogue.mockImplementation(async (f: { module?: string }) => ({ courses: f.module ? [card()] : [card(), ...many(8)] }));
+    renderAt('/training?tab=catalogue');
+    expect(await screen.findByText('9 courses')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Difficulty')).toBeNull();
+    expect(within(screen.getByLabelText('Module')).queryByRole('option', { name: 'Client portal' })).toBeNull();
+    await userEvent.selectOptions(screen.getByLabelText('Module'), 'tasks');
+    await waitFor(() => expect(staff.catalogue).toHaveBeenLastCalledWith({ module: 'tasks', difficulty: '', q: '' }));
+    expect(screen.getByTestId('where')).toHaveTextContent('/training?tab=catalogue&module=tasks');
+    expect(await screen.findByText('1 course')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Tasks basics' })).toHaveAttribute('href', '/training/courses/c1?module=tasks');
   });
 
-  it('the tabs are links: Catalogue opens the catalogue, My learning comes back', async () => {
+  it('R7: a Learn link’s module (?module=) still filters; without the Module filter it shows as a chip that clears it', async () => {
+    staff.catalogue.mockImplementation(async (f: { module?: string }) => ({ courses: f.module ? [card({ id: 'c2', title: 'Meetings & minutes', moduleKey: 'meetings' })] : [card(), card({ id: 'c2', title: 'Meetings & minutes', moduleKey: 'meetings' })] }));
+    renderAt('/training?tab=catalogue&module=meetings');
+    await waitFor(() => expect(staff.catalogue).toHaveBeenCalledWith({ module: 'meetings', difficulty: '', q: '' }));
+    expect(await screen.findByText('1 course')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Module')).toBeNull();
+    const chip = screen.getByRole('button', { name: 'Show every module (now: Meetings & minutes)' });
+    expect(chip).toHaveTextContent('Meetings & minutes');
+    await userEvent.click(chip);
+    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent(/^\/training\?tab=catalogue$/));
+    expect(await screen.findByText('2 courses')).toBeInTheDocument();
+  });
+});
+
+describe('the tabs', () => {
+  it('links: All courses opens the list, My learning comes back', async () => {
     renderAt();
     const tabs = screen.getByRole('navigation', { name: 'Learning Hub' });
-    await userEvent.click(within(tabs).getByRole('link', { name: 'Catalogue' }));
+    await userEvent.click(within(tabs).getByRole('link', { name: 'All courses' }));
     expect(await screen.findByText('2 courses')).toBeInTheDocument();
     await userEvent.click(within(tabs).getByRole('link', { name: 'My learning' }));
-    expect(await screen.findByRole('heading', { name: /Assigned to you/ })).toBeInTheDocument();
+    expect(await screen.findByRole('region', { name: 'Up next' })).toBeInTheDocument();
     expect(screen.getByTestId('where')).toHaveTextContent(/^\/training$/);
   });
 
-  it('Manage and Reports are tabs for managers; Reports alone for a project manager; neither for others (no separate buttons)', async () => {
+  it('Manage and Reports for managers; Reports alone for a project runner with team courses; neither for others', async () => {
     staff.access.mockResolvedValue({ ...ACCESS, manager: true });
     const a = renderAt();
     const tabs = () => screen.getByRole('navigation', { name: 'Learning Hub' });
-    await waitFor(() => expect(within(tabs()).getAllByRole('link').map((l) => l.textContent)).toEqual(['My learning', 'Catalogue', 'Manage', 'Reports']));
-    expect(screen.queryByRole('link', { name: /Training Center|Team training/ })).toBeNull();
+    await waitFor(() => expect(within(tabs()).getAllByRole('link').map((l) => l.textContent)).toEqual(['My learning', 'All courses', 'Manage', 'Reports']));
     a.unmount();
     staff.access.mockResolvedValue({ ...ACCESS, teamReports: true });
     const b = renderAt();
-    await waitFor(() => expect(within(tabs()).getAllByRole('link').map((l) => l.textContent)).toEqual(['My learning', 'Catalogue', 'Reports']));
+    await waitFor(() => expect(within(tabs()).getAllByRole('link').map((l) => l.textContent)).toEqual(['My learning', 'All courses', 'Reports']));
     b.unmount();
     staff.access.mockResolvedValue(ACCESS);
     renderAt();
-    await screen.findByRole('heading', { name: /Assigned to you/ });
-    expect(within(tabs()).getAllByRole('link').map((l) => l.textContent)).toEqual(['My learning', 'Catalogue']);
-  });
-
-  it('“Take the tour” plays the tour again', async () => {
-    renderAt();
-    await userEvent.click(screen.getByRole('button', { name: 'Take the tour' }));
-    expect(useTourStore.getState().open).toBe(true);
+    await screen.findByRole('region', { name: 'Up next' });
+    expect(within(tabs()).getAllByRole('link').map((l) => l.textContent)).toEqual(['My learning', 'All courses']);
   });
 });

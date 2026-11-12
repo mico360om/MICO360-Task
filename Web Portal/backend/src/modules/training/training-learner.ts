@@ -857,7 +857,7 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync) 
       } else {
         if (kind === 'QUESTION' && !text) throw new ValidationError('Write your question.', { field: 'body' });
         row = await prisma.trainingFeedback.create({ data: { courseId: course.id, lessonId: lesson?.id ?? null, userId: p.id, kind, body: text, status: 'OPEN' } });
-        const about = kind === 'QUESTION' ? `Question about ${course.title}` : `Lesson reported outdated: ${course.title}`;
+        const about = kind === 'QUESTION' ? `Question about ${course.title}` : `Problem reported: ${course.title}`;
         const said = (text ?? lesson?.title ?? '').slice(0, 140);
         await tellManagers(p, { title: about, body: said || course.title, feedbackId: row.id });
       }
