@@ -15,6 +15,8 @@ import { checkState, compareOpenChecks, daysLate, isCheckDone } from './inspecti
 export interface Person {
   id: string;
   name: string;
+  /** Their photo (avatar hotfix; null or left out: the face shows the initials). */
+  avatarUrl?: string | null;
 }
 
 export interface FormRef {

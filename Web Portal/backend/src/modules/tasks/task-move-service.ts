@@ -7,6 +7,7 @@ import { TaskChangedConflictError, TaskMovedConflictError, type MovableTask, typ
 import { matchingColumn, namesText, notOnTeamMessage } from './task-move';
 import { isAwaitingApproval, type ApprovalEvent } from './task-approval';
 import { projectArchived } from '../companies/project-archive';
+import { TASK_ARCHIVED_CODE, TASK_ARCHIVED_MESSAGE } from '../companies/archive-guard';
 
 /** What happens to people assigned to a task who aren't on the new project's team. */
 export type AssigneeChoice = 'ADD_TO_TEAM' | 'UNASSIGN';
@@ -23,6 +24,11 @@ export interface MoveInput {
   columnId?: string;
   /** Required when someone assigned isn't on the new project's team. */
   assignees?: AssigneeChoice;
+  /**
+   * Bulk lane (Undo of a bulk move, never from a request body): take back this number — only when it is
+   * this task's own old key there (else the next free number, as always).
+   */
+  reclaimKey?: string;
 }
 
 export type MoveProjectSummary = Pick<MoveProject, 'id' | 'code' | 'name' | 'status' | 'color' | 'icon' | 'imageUrl'>;
@@ -65,6 +71,10 @@ export interface TaskMovePreview {
   repeat: 'SERIES' | 'COPY' | null;
   /** People assigned to it who aren't on the new project's team (companies: `canJoin` false — only "Unassign them"). */
   outsiders: Outsider[];
+  /** 1.24: its categories the new project has none of the same name for (the move drops them). */
+  categoriesDropped?: string[];
+  /** 1.24: how many of its guests are copied onto the new project's company list (another company's project). */
+  guestsCopied?: number;
 }
 
 /** Someone assigned who isn't on the new team, and whether they may join it (companies: in one of its companies). */
@@ -205,6 +215,8 @@ export function createTaskMoveService(deps: TaskMoveServiceDeps) {
 
   /** The task's own refusals: it is already there, or the actor may not move tasks out of its project. */
   async function source(scope: Set<string> | null, task: MovableTask, to: MoveProject, find: FindProject): Promise<MoveProject> {
+    // Task archive: read-only until it is unarchived (before anything else is said about it).
+    if (task.archivedAt) throw new TaskRefusal(TASK_ARCHIVED_MESSAGE, TASK_ARCHIVED_CODE, 409, 'Archived: unarchive it first.');
     if (task.projectId === to.id) throw new TaskRefusal(`This task is already in ${to.name}.`, 'SAME_PROJECT', 400, `Already in ${to.name}.`);
     const from = await find(task.projectId);
     if (!from) throw new NotFoundError('Task not found.');
@@ -268,8 +280,10 @@ export function createTaskMoveService(deps: TaskMoveServiceDeps) {
         const people = await outsidersOf(task, to);
         for (const p of people) outsiders.set(p.id, p);
         const due = dueOnEntry(task, to);
+        const changes = repo.categoryAndGuestChanges ? await repo.categoryAndGuestChanges(task.id, to.id) : null;
         tasks.push({
           ...base,
+          ...(changes ?? {}),
           from: { id: from.id, code: from.code, name: from.name },
           canMove: true,
           reason: null,
@@ -307,6 +321,15 @@ export function createTaskMoveService(deps: TaskMoveServiceDeps) {
     }
     const addedToTeam = input.assignees === 'ADD_TO_TEAM' ? outsiders : [];
     const unassigned = input.assignees === 'UNASSIGN' ? outsiders : [];
+    // 1.24: a task with guests keeps at least one person from the team.
+    if ((task.guestCount ?? 0) > 0 && task.assignees.length > 0 && unassigned.length >= task.assignees.length) {
+      throw new TaskRefusal(
+        `This task has guests, so it needs at least one person from the ${to.name} team. Add them to the team instead of unassigning everyone.`,
+        'NEEDS_TEAM_MEMBER',
+        409,
+        'It has guests: it needs a person from the new team.',
+      );
+    }
 
     const at = now();
     const due = dueOnEntry(task, to);
@@ -347,6 +370,7 @@ export function createTaskMoveService(deps: TaskMoveServiceDeps) {
           unassign: unassigned,
           actorId: actor.id,
           dueDateSet,
+          ...(input.reclaimKey ? { reclaimKey: input.reclaimKey } : {}),
         });
       } catch (err) {
         if (err instanceof TaskMovedConflictError) throw new ConflictError('Someone else moved this task just now. Reload it and try again.', 'TASK_MOVED');

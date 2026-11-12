@@ -228,7 +228,11 @@ function ModelRow({
 
       <div aria-live="polite" className="basis-full empty:hidden">
         {mTest.isPending ? <p className="text-xs text-ink-3">Asking the model…</p> : null}
-        {test?.ok ? <p className="text-xs font-medium text-success">Works · answered in {(test.ms / 1000).toFixed(1)} s</p> : null}
+        {test?.ok ? (
+          <p className="text-xs font-medium text-success">{`Works · answered in ${(test.ms / 1000).toFixed(1)} s${test.model ? ` by ${test.model}` : ''}`}</p>
+        ) : null}
+        {/* MICO360 AI (b5): another model stood in for this one — the platform's own words. */}
+        {test?.ok && test.substituted ? <p className="text-xs text-warning">{test.substituted}</p> : null}
         {test && !test.ok ? (
           <p className="text-xs text-danger">
             <span className="font-semibold">Didn’t work: </span>

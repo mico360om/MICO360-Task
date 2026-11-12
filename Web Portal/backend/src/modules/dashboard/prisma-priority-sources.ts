@@ -21,9 +21,10 @@ const dayStart = (key: string) => new Date(`${key}T00:00:00.000Z`);
 const projectSelect = { id: true, code: true, name: true, color: true, icon: true, imageUrl: true } as const;
 const personSelect = { id: true, firstName: true, lastName: true, username: true } as const;
 
-/** Open: not deleted, not done, not waiting for approval, in a live project (not deleted or archived). */
+/** Open: not deleted, not archived (task archive), not done, not waiting for approval, in a live project (not deleted or archived). */
 const OPEN_TASK: Prisma.TaskWhereInput = {
   deletedAt: null,
+  archivedAt: null,
   completedAt: null,
   approvalRequestedAt: null,
   column: { category: { not: 'DONE' } },
@@ -47,7 +48,7 @@ const taskSelect = {
   assignees: { select: { user: { select: personSelect } }, orderBy: [{ assignedAt: 'asc' as const }, { userId: 'asc' as const }] },
 } satisfies Prisma.TaskSelect;
 type TaskPick = Prisma.TaskGetPayload<{ select: typeof taskSelect }>;
-const depSelect = { id: true, key: true, projectId: true, deletedAt: true, completedAt: true, column: { select: { category: true } }, project: { select: { deletedAt: true } } } as const;
+const depSelect = { id: true, key: true, projectId: true, deletedAt: true, archivedAt: true, completedAt: true, column: { select: { category: true } }, project: { select: { deletedAt: true } } } as const;
 
 /** What the task source needs to know about the person's reach (wired as the task lists are). */
 export interface PriorityTaskScopes {
@@ -63,6 +64,11 @@ const inScope = (ids: string[] | null): Prisma.TaskWhereInput => (ids ? { projec
 /** Loose date edges in the database (a stored instant may sit a day either side of its company day); the ranking decides each row's day exactly. */
 const soonEdgeOf = (today: string) => dayStart(shiftDayKey(today, UPCOMING_DAYS + 2));
 const lateEdgeOf = (today: string) => dayStart(shiftDayKey(today, -TEAM_OVERDUE_DAYS + 2));
+/**
+ * Tasks scheduled for the future (owner, 10 Nov): a task on a later day's board waits for its start day
+ * and isn't today's priority — board days are noon-UTC anchors, so "before tomorrow's UTC midnight".
+ */
+const notWaiting = (today: string): Prisma.TaskWhereInput => ({ OR: [{ boardDate: null }, { boardDate: { lt: dayStart(shiftDayKey(today, 1)) } }] });
 
 /**
  * Every statement "My Priorities Today" sends, in one place: the sources use them, and the start-up
@@ -76,11 +82,12 @@ export function priorityReads(prisma: PrismaClient) {
       return rows.map((r) => r.id);
     },
     /** The person's own open tasks that may have a reason: due before `soonEdge`, urgent, Blocked, or with a dependency either way. */
-    mineTasks(userId: string, own: string[] | null, soonEdge: Date): Promise<TaskPick[]> {
+    mineTasks(userId: string, own: string[] | null, soonEdge: Date, today: string): Promise<TaskPick[]> {
       return prisma.task.findMany({
         where: {
           AND: [
             OPEN_TASK,
+            notWaiting(today),
             inScope(own),
             { assignees: { some: { userId } } },
             { OR: [{ dueDate: { lt: soonEdge } }, { priority: 'URGENT' }, { column: { category: 'BLOCKED' } }, { dependencies: { some: {} } }, { dependedOnBy: { some: {} } }] },
@@ -90,9 +97,9 @@ export function priorityReads(prisma: PrismaClient) {
       });
     },
     /** Open tasks in `team` that aren't the person's and have no one assigned, sit in a Blocked column, or are due before `lateEdge`. */
-    teamTasks(userId: string, team: string[] | null, lateEdge: Date): Promise<TaskPick[]> {
+    teamTasks(userId: string, team: string[] | null, lateEdge: Date, today: string): Promise<TaskPick[]> {
       return prisma.task.findMany({
-        where: { AND: [OPEN_TASK, inScope(team), { assignees: { none: { userId } } }, { OR: [{ assignees: { none: {} } }, { column: { category: 'BLOCKED' } }, { dueDate: { lt: lateEdge } }] }] },
+        where: { AND: [OPEN_TASK, notWaiting(today), inScope(team), { assignees: { none: { userId } } }, { OR: [{ assignees: { none: {} } }, { column: { category: 'BLOCKED' } }, { dueDate: { lt: lateEdge } }] }] },
         select: taskSelect,
       });
     },
@@ -124,8 +131,8 @@ export async function priorityProbe(prisma: PrismaClient, nowhere: string, timeZ
   const reads = priorityReads(prisma);
   const today = todayKey(timeZone);
   await reads.managedProjectIds(nowhere, [nowhere]);
-  await reads.mineTasks(nowhere, [nowhere], soonEdgeOf(today));
-  await reads.teamTasks(nowhere, [nowhere], lateEdgeOf(today));
+  await reads.mineTasks(nowhere, [nowhere], soonEdgeOf(today), today);
+  await reads.teamTasks(nowhere, [nowhere], lateEdgeOf(today), today);
   await reads.edges([nowhere]);
   await reads.doneColumns([nowhere]);
   await reads.liveProjectIds([nowhere]);
@@ -154,8 +161,8 @@ export function createPrismaTaskPrioritySource(prisma: PrismaClient, scopes: Pri
       const me = viewer.id;
       const [own, team, openable] = await Promise.all([scopes.ownProjectIds(viewer, pick), teamProjectIds(viewer, pick), scopes.openableProjectIds(viewer)]);
       const [mineRows, teamRows] = await Promise.all([
-        own && own.length === 0 ? Promise.resolve([] as TaskPick[]) : reads.mineTasks(me, own, soonEdgeOf(today)),
-        team && team.length === 0 ? Promise.resolve([] as TaskPick[]) : reads.teamTasks(me, team, lateEdgeOf(today)),
+        own && own.length === 0 ? Promise.resolve([] as TaskPick[]) : reads.mineTasks(me, own, soonEdgeOf(today), today),
+        team && team.length === 0 ? Promise.resolve([] as TaskPick[]) : reads.teamTasks(me, team, lateEdgeOf(today), today),
       ]);
       const rows = [...mineRows.map((t) => ({ t, mine: true })), ...teamRows.map((t) => ({ t, mine: false }))];
       if (rows.length === 0) return [];
@@ -167,7 +174,8 @@ export function createPrismaTaskPrioritySource(prisma: PrismaClient, scopes: Pri
       // Dependencies either way, with the other task's state; the Done columns a Complete moves to.
       const [edges, doneColumns] = await Promise.all([reads.edges(ids), reads.doneColumns(projectIds)]);
       type Other = (typeof edges)[number]['task'];
-      const isOpenVisible = (o: Other) => !o.deletedAt && !o.completedAt && o.column.category !== 'DONE' && !o.project.deletedAt && mayOpen(o.projectId);
+      // Task archive: an archived task neither blocks nor waits (it is out of every open list).
+      const isOpenVisible = (o: Other) => !o.deletedAt && !o.archivedAt && !o.completedAt && o.column.category !== 'DONE' && !o.project.deletedAt && mayOpen(o.projectId);
       const blockers = new Map<string, { id: string; key: string; projectId: string }[]>();
       const dependents = new Map<string, number>();
       const wanted = new Set(ids);

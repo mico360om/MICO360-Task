@@ -9,6 +9,7 @@ import { GRANT_COLUMNS, GRANT_WORDS, grantOf, grantRow, grantRows, grantWords, r
 import { accountProblems, organisationProblem, phoneProblem } from '../../lib/account-rules';
 import { fieldProblem } from '../users/user-service';
 import { liveInvitation, onboardingStatus, type OnboardingStatus } from '../users/onboarding-status';
+import { photoOf } from '../../lib/person-summary';
 
 /**
  * 1.23 Client accounts, for administrators: the Clients page and User Management's Role "Client" (one
@@ -320,18 +321,19 @@ export function createClientAccounts(deps: ClientAccountsDeps) {
      * "Clients with access" on a project's page: who may open it in the Client portal and what each may
      * do. Only active client accounts; their email and organisation, never anything of the portal itself.
      */
-    async forProject(projectId: string): Promise<{ id: string; name: string; organisation: string | null; email: string; status: string; role: ClientRoleName; access: string[]; modules: ClientGrant['modules']; actions: ClientGrant['actions'] }[]> {
+    async forProject(projectId: string): Promise<{ id: string; name: string; avatarUrl: string | null; organisation: string | null; email: string; status: string; role: ClientRoleName; access: string[]; modules: ClientGrant['modules']; actions: ClientGrant['actions'] }[]> {
       const rows = await prisma.clientProjectGrant.findMany({
         where: { projectId, user: { deletedAt: null, ...CLIENT_ONLY_WHERE } },
         select: {
           ...GRANT_COLUMNS,
-          user: { select: { id: true, firstName: true, lastName: true, email: true, organisation: true, status: true } },
+          user: { select: { id: true, firstName: true, lastName: true, avatarUrl: true, email: true, organisation: true, status: true } },
         },
       });
       return rows
         .map((r) => {
           const g = grantOf(r);
-          return { id: r.user.id, name: `${r.user.firstName} ${r.user.lastName}`.trim(), organisation: r.user.organisation ?? null, email: r.user.email, status: r.user.status, role: roleOf(r), access: grantWords(r), modules: g.modules, actions: g.actions };
+          // Avatar hotfix: the client's own photo for the team's list (null: initials).
+          return { id: r.user.id, name: `${r.user.firstName} ${r.user.lastName}`.trim(), avatarUrl: photoOf(r.user.avatarUrl), organisation: r.user.organisation ?? null, email: r.user.email, status: r.user.status, role: roleOf(r), access: grantWords(r), modules: g.modules, actions: g.actions };
         })
         .sort((a, b) => a.name.localeCompare(b.name));
     },

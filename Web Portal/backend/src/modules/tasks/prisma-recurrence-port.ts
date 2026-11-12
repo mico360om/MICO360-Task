@@ -49,6 +49,8 @@ export function createPrismaRecurrencePort(prisma: PrismaClient, opts: PrismaRec
           checklistLists: { where: { deletedAt: null } },
           checklist: { where: { deletedAt: null } },
           externalContacts: { orderBy: { position: 'asc' } },
+          // 1.24: its categories (the same project's).
+          categories: { select: { categoryId: true } },
           inspectionForm: { select: { deletedAt: true } },
         },
       });
@@ -118,9 +120,12 @@ export function createPrismaRecurrencePort(prisma: PrismaClient, opts: PrismaRec
                 assignees: { create: assigneeIds.map((userId) => ({ userId })) },
                 watchers: { create: watcherIds.map((userId) => ({ userId })) },
                 tags: { create: source.tags.map((t) => ({ tagId: t.tagId })) },
-                // Its external contacts: copies, so a change on one copy leaves the others as they are.
+                // 1.24: the same categories.
+                categories: { create: (source.categories ?? []).map((c) => ({ categoryId: c.categoryId })) },
+                // Its guests: each copy links the same guests (rows of its own, with this task's notes).
                 externalContacts: {
                   create: (source.externalContacts ?? []).map((c) => ({
+                    guestId: c.guestId,
                     name: c.name,
                     company: c.company,
                     designation: c.designation,
@@ -179,7 +184,12 @@ export function createPrismaRecurrencePort(prisma: PrismaClient, opts: PrismaRec
     },
 
     async countInstances(parentId) {
-      return prisma.task.count({ where: { OR: [{ id: parentId }, { recurrenceParentId: parentId }] } });
+      // Every copy made: deleted ones too, and (Recycle Bin) those erased for good since.
+      const [made, erased] = await Promise.all([
+        prisma.task.count({ where: { OR: [{ id: parentId }, { recurrenceParentId: parentId }] } }),
+        prisma.taskSeriesErased.findUnique({ where: { seriesId: parentId }, select: { erased: true } }),
+      ]);
+      return made + (erased?.erased ?? 0);
     },
   };
 }

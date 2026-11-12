@@ -98,7 +98,7 @@ describe('My Tasks: Grid | List | Table (1.23.0)', () => {
     localStorage.setItem(userStorageKey('u1', 'mytasks.view'), 'table');
     show();
     await screen.findByRole('table');
-    await user.click(screen.getByRole('checkbox', { name: 'Select FIN-2' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Select FIN-2 Later work' }));
     expect(await screen.findByText(/1 selected/i)).toBeInTheDocument();
   });
 
@@ -132,7 +132,7 @@ describe('My Tasks: Grid | List | Table (1.23.0)', () => {
     expect(screen.getByRole('columnheader', { name: /Start date/ })).toBeInTheDocument();
   });
 
-  it('draws every task (as Grid and List do), so Select all acts only on what is on screen', async () => {
+  it('draws every task (as Grid and List do); "Select all 105" selects every one', async () => {
     const user = userEvent.setup();
     const many = Array.from({ length: 105 }, (_, i) => t(`m${i}`, `FIN-${i + 10}`, `Work ${i}`, 'NORMAL', null));
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
@@ -146,7 +146,7 @@ describe('My Tasks: Grid | List | Table (1.23.0)', () => {
     await screen.findByRole('table');
     await waitFor(() => expect(screen.getAllByRole('rowheader')).toHaveLength(105));
     expect(screen.queryByRole('button', { name: /^Show \d+ more/ })).toBeNull();
-    await user.click(screen.getByRole('checkbox', { name: 'Select all tasks' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Select all 105' }));
     expect(screen.getAllByRole('checkbox', { name: /^Select FIN-/, checked: true })).toHaveLength(105);
   });
 });

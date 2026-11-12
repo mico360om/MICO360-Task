@@ -66,15 +66,22 @@ describe('Sidebar: the Admin menu', () => {
 
   it('has Clients and Companies after User Management, with links to their pages', () => {
     renderSidebar(true);
-    expect(adminLabels()).toEqual(['User Management', 'Clients', 'Companies', 'AI Management', 'System Settings', 'Error Log', 'Audit Logs']);
+    // tgc: 1.24 — the admins' Guest contacts page sits right after Companies.
+    expect(adminLabels()).toEqual(['User Management', 'Clients', 'Companies', 'Guest contacts', 'AI Management', 'System Settings', 'Error Log', 'Audit Logs']);
     expect(screen.getByRole('link', { name: 'Clients' })).toHaveAttribute('href', '/admin/clients');
     expect(screen.getByRole('link', { name: 'Companies' })).toHaveAttribute('href', '/admin/companies');
   });
 
-  it('employees have no Companies or Clients link', () => {
+  it('has Guest contacts (1.24) after Companies, linking to its page', () => {
+    renderSidebar(true);
+    expect(screen.getByRole('link', { name: 'Guest contacts' })).toHaveAttribute('href', '/admin/guests');
+  });
+
+  it('employees have no Companies, Clients or Guest contacts link', () => {
     renderSidebar(false);
     expect(screen.queryByRole('link', { name: 'Companies' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Clients' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Guest contacts' })).not.toBeInTheDocument();
   });
 });
 

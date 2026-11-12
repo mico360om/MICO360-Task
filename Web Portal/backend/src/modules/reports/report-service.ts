@@ -23,10 +23,15 @@ export interface ReportTask {
   approvalRequestedAt?: Date | null;
   /** 1.23.1: the numbers of the tasks merged into it (merged tasks themselves are never rows). */
   mergedFrom?: string[];
+  /** 1.24: its guests ("Ahmed (OXY)") and its categories' names, in order (the task list exports). */
+  guests?: string[];
+  categories?: string[];
   /** 1.23.5: the weight it counts with (its own, else its project's default for its priority)… */
   weight?: number;
   /** …and whether its project counts completion by weight. */
   byWeight?: boolean;
+  /** Task archive: when it was archived (null/absent: it isn't) — in reports only with "Include archived". */
+  archivedAt?: Date | null;
 }
 
 export interface ReportUser {
@@ -53,6 +58,11 @@ export interface TaskListRow {
   overdue: boolean;
   /** 1.23.1: "Merged from: MICO-14, MICO-15" — the tasks merged into it. */
   mergedFrom?: string[];
+  /** 1.24: its guests and categories. */
+  guests?: string[];
+  categories?: string[];
+  /** Task archive: it is archived (its status says so too: "Done · Archived"). */
+  archived?: boolean;
 }
 
 /** The on-screen report filters; every report and export applies the same ones. */
@@ -67,12 +77,22 @@ export interface ReportFilter {
    * scope (null/absent = everyone).
    */
   peopleIds?: string[] | null;
+  /**
+   * Task archive (lead's ruling, 11 Nov): off (the default), the figures keep an archived Done task (archiving
+   * finished work never lowers a %) and leave an archived open one, and no archived task is listed; on, the
+   * archived open ones count too and every archived task is listed, marked "Archived".
+   */
+  includeArchived?: boolean;
 }
+
+/** Task archive: counted in a report's figures — not archived, archived and done, or any with Include archived. */
+const counted = (t: ReportTask, filter: ReportFilter) => filter.includeArchived === true || !t.archivedAt || isTaskDone(t);
 
 export function applyReportFilter(tasks: ReportTask[], filter: ReportFilter = {}): ReportTask[] {
   const inPick = filter.projectIds ? new Set(filter.projectIds) : null;
   return tasks.filter(
     (t) =>
+      counted(t, filter) &&
       (!filter.projectId || t.projectId === filter.projectId) &&
       (!filter.userId || t.assigneeIds.includes(filter.userId)) &&
       (!inPick || inPick.has(t.projectId)),
@@ -83,7 +103,8 @@ export function applyReportFilter(tasks: ReportTask[], filter: ReportFilter = {}
 // and every report agree. "Overdue" means the due day is before today in the company time zone,
 // and never while the task waits for approval (the shared isTaskLate).
 const isDone = (t: ReportTask): boolean => isTaskDone(t);
-const isOverdueOpen = (t: ReportTask, timeZone: string, now: Date): boolean => isTaskLate(t, timeZone, now);
+// Task archive: an archived task is in nobody's overdue count, even when archived tasks are included.
+const isOverdueOpen = (t: ReportTask, timeZone: string, now: Date): boolean => !t.archivedAt && isTaskLate(t, timeZone, now);
 
 /** Number of tasks in each column category. */
 export function statusBreakdown(tasks: ReportTask[]): Record<string, number> {
@@ -223,16 +244,20 @@ export function createReportService({ data, timeZone = defaultCompanyTimeZone(),
   }
   /** The filtered tasks with readable details: open tasks first, soonest due first. */
   async function taskListReport(filter?: ReportFilter): Promise<TaskListRow[]> {
-    const [tasks, users] = await Promise.all([tasksFor(filter), data.getUsers()]);
+    const [counted, users] = await Promise.all([tasksFor(filter), data.getUsers()]);
+    // Task archive: the list shows archived tasks only with Include archived (the figures count an archived Done one anyway).
+    const tasks = filter?.includeArchived ? counted : counted.filter((t) => !t.archivedAt);
     const nameOf = new Map(users.map((u) => [u.id, u.name?.trim() || u.username]));
     const at = now();
     const rows = tasks.map((t): TaskListRow => {
       const done = isDone(t);
+      const status = t.columnName ?? t.columnCategory;
       return {
         key: t.key ?? '',
         title: t.title ?? '',
         projectName: t.projectName,
-        status: t.columnName ?? t.columnCategory,
+        // Task archive: an archived task's row says so (only listed with "Include archived").
+        status: t.archivedAt ? `${status} · Archived` : status,
         category: t.columnCategory,
         priority: t.priority ?? 'NORMAL',
         assignees: t.assigneeIds.map((id) => nameOf.get(id)).filter((n): n is string => Boolean(n)),
@@ -241,6 +266,9 @@ export function createReportService({ data, timeZone = defaultCompanyTimeZone(),
         done,
         overdue: isOverdueOpen(t, timeZone, at),
         mergedFrom: t.mergedFrom ?? [],
+        guests: t.guests ?? [],
+        categories: t.categories ?? [],
+        ...(t.archivedAt ? { archived: true } : {}),
       };
     });
     return rows.sort(

@@ -101,6 +101,33 @@ describe('auth store', () => {
   });
 });
 
+describe('your own details change without touching the session (11 Nov)', () => {
+  it('setUser takes the new details, saves only them, and tells the other tabs', () => {
+    useAuthStore.getState().setSession(session);
+    const post = vi.spyOn(BroadcastChannel.prototype, 'postMessage');
+    localStorage.setItem('mico360.refreshToken', 'rotated-by-another-tab');
+    useAuthStore.getState().setUser({ ...session.user, firstName: 'Ada', avatarUrl: '/uploads/a.png' });
+    const s = useAuthStore.getState();
+    expect(s.user).toMatchObject({ firstName: 'Ada', avatarUrl: '/uploads/a.png' });
+    expect([s.accessToken, s.refreshToken]).toEqual(['at', 'rt']);
+    expect(JSON.parse(localStorage.getItem('mico360.user')!)).toMatchObject({ avatarUrl: '/uploads/a.png' });
+    expect(localStorage.getItem('mico360.refreshToken')).toBe('rotated-by-another-tab'); // tokens never written back
+    expect(post.mock.calls.some(([m]) => (m as { type: string }).type === 'user')).toBe(true);
+    post.mockRestore();
+  });
+
+  it('another tab signed in as the same person takes them; anyone else ignores them', () => {
+    useAuthStore.getState().setSession(session);
+    handleAuthMessage({ type: 'user', user: { ...session.user, avatarUrl: '/uploads/b.png' } });
+    expect(useAuthStore.getState().user?.avatarUrl).toBe('/uploads/b.png');
+    handleAuthMessage({ type: 'user', user: { ...session.user, id: 'u2', avatarUrl: '/uploads/x.png' } });
+    expect(useAuthStore.getState().user?.avatarUrl).toBe('/uploads/b.png');
+    useAuthStore.getState().logout('remote');
+    handleAuthMessage({ type: 'user', user: { ...session.user, avatarUrl: '/uploads/c.png' } });
+    expect(useAuthStore.getState().user).toBeNull();
+  });
+});
+
 describe('cross-tab session sync', () => {
   it('adopts a refreshed pair another tab broadcast for the same user', () => {
     useAuthStore.getState().setSession(session, { remember: false });
@@ -164,5 +191,66 @@ describe('window-only sessions across tabs', () => {
     expect(s.remember).toBe(false);
     expect(localStorage.getItem('mico360.accessToken')).toBeNull(); // still never persisted
     expect(sessionStorage.getItem('mico360.accessToken')).toBe('at');
+  });
+});
+
+// Live Error log (1.23.16): "TypeError: Cannot read properties of undefined (reading 'user')" from a tab still on
+// 1.23.13 when a newer tab sent 1.23.14's { type: 'user' } — any type it didn't know was read as a session. A
+// message this version doesn't know, or one that is broken, is now ignored: never an error, never a change.
+describe('cross-tab messages it doesn’t know, or that are broken, are ignored', () => {
+  const junk: unknown[] = [
+    null,
+    undefined,
+    'session',
+    42,
+    [],
+    {},
+    { type: 'something-from-a-newer-version', user: session.user },
+    { type: 'future', session },
+    { type: 'session' },
+    { type: 'session', remember: true },
+    { type: 'session', session: null, remember: true },
+    { type: 'session', session: {}, remember: true },
+    { type: 'session', session: { user: null, accessToken: 'x', refreshToken: 'y' }, remember: true },
+    { type: 'session', session: { ...session, user: { ...session.user, id: 7 } }, remember: true },
+    { type: 'session', session: { ...session, accessToken: 5 }, remember: true },
+    { type: 'session', session: { ...session, accessToken: 'new' }, remember: 'yes' },
+    { type: 'user' },
+    { type: 'user', user: null },
+    { type: 'user', user: 'u1' },
+    { type: 'user', user: { id: 'u1' } },
+    { type: 'user', user: { ...session.user, roles: 'ADMIN' } },
+    { type: 'share-session' },
+    { type: 'share-session', session: { user: {} } },
+    { type: 'logout', userId: 42 },
+    { type: 'request-session', extra: 1 },
+  ];
+
+  it('signed in: nothing throws and nothing changes', () => {
+    useAuthStore.getState().setSession(session);
+    const before = { ...useAuthStore.getState() };
+    for (const msg of junk) {
+      expect(() => handleAuthMessage(msg as never), JSON.stringify(msg)).not.toThrow();
+    }
+    const after = useAuthStore.getState();
+    expect([after.isAuthenticated, after.user, after.accessToken, after.refreshToken]).toEqual([before.isAuthenticated, before.user, before.accessToken, before.refreshToken]);
+  });
+
+  it('signed out (a new tab that just asked for a session): nothing throws, nothing is adopted', () => {
+    initAuthSync()();
+    for (const msg of junk) {
+      expect(() => handleAuthMessage(msg as never), JSON.stringify(msg)).not.toThrow();
+    }
+    expect(useAuthStore.getState().isAuthenticated).toBe(false);
+  });
+
+  it('a newer version’s { type: "user" } still updates this tab, and the known messages still work', () => {
+    useAuthStore.getState().setSession(session);
+    handleAuthMessage({ type: 'user', user: { ...session.user, avatarUrl: '/uploads/n.png' } });
+    expect(useAuthStore.getState().user?.avatarUrl).toBe('/uploads/n.png');
+    handleAuthMessage({ type: 'session', session: { ...session, user: { ...session.user, avatarUrl: '/uploads/n.png' }, accessToken: 'at9', refreshToken: 'rt9' }, remember: true });
+    expect(useAuthStore.getState().accessToken).toBe('at9');
+    handleAuthMessage({ type: 'logout', userId: null });
+    expect(useAuthStore.getState().isAuthenticated).toBe(false);
   });
 });

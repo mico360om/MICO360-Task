@@ -5,6 +5,8 @@ import { LIVE_PROJECT_SQL } from '../companies/project-archive';
 export interface SearchViewer {
   id: string;
   roles: string[];
+  /** Manager View (an administrator's own): client portal accounts (the Clients page's) aren't found then. */
+  managerView?: boolean;
 }
 
 /**

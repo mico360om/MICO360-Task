@@ -115,7 +115,7 @@ describe('MyTasksPage', () => {
         </MemoryRouter>
       </QueryClientProvider>,
     );
-    const box = await screen.findByRole('checkbox', { name: 'Select MICO-1' });
+    const box = await screen.findByRole('checkbox', { name: 'Select MICO-1 Prepare report' });
     box.focus();
     const { default: userEvent } = await import('@testing-library/user-event');
     await userEvent.keyboard(' ');
@@ -339,12 +339,12 @@ describe('MyTasksPage', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Couldn’t load your tasks.');
     fail = false;
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
-    expect(await screen.findByRole('checkbox', { name: 'Select MICO-1' })).toBeInTheDocument();
+    expect(await screen.findByRole('checkbox', { name: 'Select MICO-1 Prepare report' })).toBeInTheDocument();
   });
 });
 
 describe('MyTasksPage: moving the selected tasks to another project', () => {
-  it('“Move to project…” moves the selection in one go, then says how it went and clears it', async () => {
+  it('the bar’s Project moves the selection in one go (the move dialog, applied as a bulk change), then sums it up and clears it', async () => {
     const task = (id: string, key: string, title: string) => ({ id, key, title, description: null, projectId: 'p1', columnId: 'c1', columnCategory: 'TODO', position: 0, priority: 'HIGH', startDate: null, dueDate: null, progress: 0, completedAt: null, createdAt: '', updatedAt: '' });
     const projects = [
       { id: 'p1', code: 'RIG', name: 'Rig Inspection', status: 'ACTIVE', color: '#8B1E1E', icon: null, imageUrl: null },
@@ -361,9 +361,9 @@ describe('MyTasksPage: moving the selected tasks to another project', () => {
         const p = (id: string, key: string, title: string, newKey: string) => ({ id, key, title, from: { id: 'p1', code: 'RIG', name: 'Rig Inspection' }, canMove: true, reason: null, newKey, currentCategory: 'TODO', columnId: 'o1', milestoneCleared: false, dueDate: null, repeat: null, outsiders: [] });
         return json({ data: { project: { ...projects[1], defaultDueToday: false }, columns: [{ id: 'o1', name: 'Next', category: 'TODO', position: 0, enabled: true }], outsiders: [], tasks: [p('t1', 'RIG-1', 'One', 'OPS-17'), p('t2', 'RIG-2', 'Two', 'OPS-18')] } });
       }
-      if (u.endsWith('/tasks/move-to-project')) {
+      if (u.endsWith('/tasks/bulk')) {
         moved = true;
-        return json({ data: { results: [{ taskId: 't1', ok: true, to: { projectId: 'p2', name: 'Operations', key: 'OPS-17' } }, { taskId: 't2', ok: true, to: { projectId: 'p2', name: 'Operations', key: 'OPS-18' } }], moved: 2, failed: 0 } });
+        return json({ data: { action: 'project', dryRun: false, total: 2, changed: [{ id: 't1', key: 'OPS-17', title: 'One', projectId: 'p2' }, { id: 't2', key: 'OPS-18', title: 'Two', projectId: 'p2' }], skipped: [], undo: { id: 'b1', until: '2026-11-12T08:00:30.000Z' } } });
       }
       if (u.includes('/tasks/mine')) return json({ data: moved ? [] : [task('t1', 'RIG-1', 'One'), task('t2', 'RIG-2', 'Two')] });
       return json({ data: [] });
@@ -376,16 +376,20 @@ describe('MyTasksPage: moving the selected tasks to another project', () => {
       </QueryClientProvider>,
     );
     await screen.findByText('One');
-    await userEvent.click(screen.getByRole('checkbox', { name: 'Select all tasks' }));
-    await userEvent.click(await screen.findByRole('button', { name: 'Move to project…' }));
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Select all 2' }));
+    const bar = await screen.findByRole('region', { name: 'Bulk actions' });
+    await waitFor(() => expect(within(bar).getByRole('button', { name: 'Project' })).not.toHaveAttribute('aria-disabled'));
+    await userEvent.click(within(bar).getByRole('button', { name: 'Project' }));
     const dialog = await screen.findByRole('dialog', { name: 'Move 2 tasks to another project' });
     await userEvent.click(within(dialog).getByRole('button', { name: 'Project' }));
     await userEvent.click(await screen.findByRole('option', { name: /Operations/ }));
     await userEvent.click(await within(dialog).findByRole('button', { name: /^Move 2 tasks/ }));
-    expect(await screen.findByText('Moved 2 tasks to Operations.')).toBeInTheDocument();
-    expect(posts.find((p) => p.url.endsWith('/tasks/move-to-project'))?.body).toEqual({ taskIds: ['t1', 't2'], projectId: 'p2' });
+    expect(await screen.findByText('2 moved')).toBeInTheDocument();
+    expect(posts.find((p) => p.url.endsWith('/tasks/bulk'))?.body).toEqual({ taskIds: ['t1', 't2'], action: { type: 'project', projectId: 'p2' } });
+    expect(posts.some((p) => p.url.endsWith('/tasks/move-to-project'))).toBe(false);
     expect(screen.queryByRole('dialog', { name: 'Move 2 tasks to another project' })).not.toBeInTheDocument();
-    expect(screen.queryByText(/selected$/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Bulk actions' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Undo \(15 s\)/ })).toBeInTheDocument();
   });
 
   it('marks a check (a task that carries an inspection form) in the list and on cards', async () => {

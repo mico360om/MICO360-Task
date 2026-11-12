@@ -342,7 +342,7 @@ describe('buildTimelineTasks (a project’s task lane)', () => {
       r('next', '2026-10-30', { startDate: day('2026-10-26') }),
       r('after', '2026-11-12'), // after the shown weeks: not listed
     ];
-    const doneInRange = [r('done1', '2026-10-20', { done: true, assignees: [{ id: 'u1', name: 'Sara Ahmed' }] }), r('done2', '2026-10-22', { done: true })];
+    const doneInRange = [r('done1', '2026-10-20', { done: true, assignees: [{ id: 'u1', name: 'Sara Ahmed', avatarUrl: '/uploads/avatars/sara.png' }] }), r('done2', '2026-10-22', { done: true })];
     const data = buildTimelineTasks(
       'mob',
       lane({ overdue, openInRange, doneInRange, inRangeDays: days([r('late', '2026-10-20'), ...openInRange, ...doneInRange]), overdueDays: days(overdue), open: 12, undated: 2 }),
@@ -358,7 +358,7 @@ describe('buildTimelineTasks (a project’s task lane)', () => {
       ['done2', null, '2026-10-22', true, false],
       ['done1', null, '2026-10-20', true, false],
     ]);
-    expect(data.tasks[7]!.assignees).toEqual([{ id: 'u1', name: 'Sara Ahmed' }]);
+    expect(data.tasks[7]!.assignees).toEqual([{ id: 'u1', name: 'Sara Ahmed', avatarUrl: '/uploads/avatars/sara.png' }]); // the photo too (avatar hotfix)
     // Every task of the lane is shown: the two overdue from before, and the six in the shown weeks.
     expect(data).toMatchObject({ projectId: 'mob', from: '2026-10-19', to: '2026-11-08', today: '2026-10-24', matched: 8, open: 12, undated: 2 });
   });

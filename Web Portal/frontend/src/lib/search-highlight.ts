@@ -42,6 +42,9 @@ export interface TaskSearchHit {
   assigneeCount?: number;
   matches?: TaskSearchMatch[];
   external?: string[];
+  /** Task archive: it is archived (search still finds it; it opens read-only). */
+  archived?: boolean;
+  archivedAt?: string | null;
 }
 
 const isRange = (r: unknown): r is HighlightRange =>

@@ -242,9 +242,11 @@ describe('Report PDFs: the company (companies)', () => {
     const branded = await makeApp({ pdfBranding });
     const auth = { authorization: `Bearer ${await token(['ADMIN'])}` };
     const all = await branded.inject({ method: 'GET', url: '/api/v1/reports/export.pdf', headers: auth });
-    expect(inspectPdf(all.rawPayload).pages.flat().join('\n')).toContain('Alpha LLC · MICO360 Tasks');
+    // tpdf: 1.23.11 — the footer names the company on its own (was "Alpha LLC · MICO360 Tasks · …").
+    const footer = (pdf: Buffer) => inspectPdf(pdf).lines.flat().filter((l) => l.artifact).map((l) => l.text);
+    expect(footer(all.rawPayload)).toContain('Alpha LLC');
     const one = await branded.inject({ method: 'GET', url: '/api/v1/reports/export.pdf?projectId=p1', headers: auth });
-    expect(inspectPdf(one.rawPayload).pages.flat().join('\n')).toContain('Rig Co · MICO360 Tasks');
+    expect(footer(one.rawPayload)).toContain('Rig Co');
     expect([...inspectPdf(one.rawPayload).objects.values()].some((d) => /\/Subtype \/Image/.test(d) && /\/Width 205\b/.test(d))).toBe(true);
     expect((await branded.inject({ method: 'GET', url: '/api/v1/reports/export.xlsx', headers: auth })).statusCode).toBe(200);
     expect(asked).toEqual([['scope', 'admin', null], ['project', 'p1']]);

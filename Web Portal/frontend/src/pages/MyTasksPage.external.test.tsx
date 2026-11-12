@@ -5,25 +5,29 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MyTasksPage } from './MyTasksPage';
 
+// tgc: 1.24 — external contacts are guests now: each task says "Guest: …" (from the rows' `guests`), and the
+// "External company" filter became "Guest" (a person) and "Guest company"; Clear clears them.
+
 function json(body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
 }
-const task = (id: string, key: string, title: string, externalSummary: unknown) => ({
-  id, key, title, description: null, projectId: 'p1', columnId: 'c1', position: 0, priority: 'HIGH', startDate: null, dueDate: null, progress: 20, completedAt: null, createdAt: '', updatedAt: '', externalSummary,
+const task = (id: string, key: string, title: string, guests: unknown, externalSummary: unknown = null) => ({
+  id, key, title, description: null, projectId: 'p1', columnId: 'c1', position: 0, priority: 'HIGH', startDate: null, dueDate: null, progress: 20, completedAt: null, createdAt: '', updatedAt: '', guests, externalSummary,
 });
+let tasks: unknown[] = [];
 
 beforeEach(() => {
   localStorage.clear();
-  vi.stubGlobal('fetch', vi.fn(async (url: string) =>
-    String(url).includes('/tasks/mine')
-      ? json({
-          data: [
-            task('t1', 'MICO-1', 'Rig inspection', { count: 1, name: 'Ahmed Al Said', company: 'OXY', names: ['Ahmed Al Said'], companies: ['OXY'] }),
-            task('t2', 'MICO-2', 'Pipeline survey', { count: 3, name: 'Salim', company: 'PDO', names: ['Salim', 'Ali', 'Huda'], companies: ['PDO', 'oxy'] }),
-            task('t3', 'MICO-3', 'Internal only', null),
-          ],
-        })
-      : json({ data: [] })));
+  tasks = [
+    task('t1', 'MICO-1', 'Rig inspection', [{ id: 'g1', name: 'Ahmed Al Said', company: 'OXY' }]),
+    task('t2', 'MICO-2', 'Pipeline survey', [
+      { id: 'g2', name: 'Salim', company: 'PDO' },
+      { id: 'g3', name: 'Ali', company: null },
+      { id: 'g4', name: 'Huda', company: 'oxy' },
+    ]),
+    task('t3', 'MICO-3', 'Internal only', []),
+  ];
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => (String(url).includes('/tasks/mine') ? json({ data: tasks }) : json({ data: [] }))));
 });
 afterEach(() => vi.restoreAllMocks());
 
@@ -37,24 +41,46 @@ function renderPage() {
   );
 }
 
-describe('My Tasks: external contacts', () => {
-  it('each task says who outside the company is responsible', async () => {
+describe('My Tasks: guests', () => {
+  it('each task says who outside the company is named on it', async () => {
     renderPage();
-    expect(await screen.findByText('External: Ahmed Al Said (OXY)')).toBeInTheDocument();
-    expect(screen.getByText('External: Salim (PDO) and 2 more')).toBeInTheDocument();
+    expect(await screen.findByText('Guest: Ahmed Al Said (OXY)')).toBeInTheDocument();
+    expect(screen.getByText('Guest: Salim (PDO) and 2 more')).toBeInTheDocument();
+    expect(screen.queryByText(/^External:/)).toBeNull();
   });
 
-  it('filters by external company (case aside)', async () => {
+  it('…and in the list view too; an older server’s rows (contacts in short) the same way', async () => {
+    tasks = [task('t1', 'MICO-1', 'Rig inspection', undefined, { count: 2, name: 'Ahmed Al Said', company: 'OXY', names: ['Ahmed Al Said', 'Sara'], companies: ['OXY'] })];
+    renderPage();
+    await userEvent.click(await screen.findByRole('button', { name: 'List view' }));
+    expect(await screen.findByText('Guest: Ahmed Al Said (OXY) and 1 more')).toBeInTheDocument();
+  });
+
+  it('filters by guest company (case aside)', async () => {
     renderPage();
     await screen.findByText('Rig inspection');
-    await userEvent.click(screen.getByRole('button', { name: 'Filter by external company' }));
+    expect(screen.queryByRole('button', { name: 'Filter by external company' })).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: 'Filter by guest company' }));
     await userEvent.click(await screen.findByRole('option', { name: 'PDO' }));
     await waitFor(() => expect(screen.queryByText('Rig inspection')).toBeNull());
     expect(screen.getByText('Pipeline survey')).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Filter by external company' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Filter by guest company' }));
     await userEvent.click(await screen.findByRole('option', { name: 'OXY' }));
     await waitFor(() => expect(screen.getByText('Rig inspection')).toBeInTheDocument());
     expect(screen.getByText('Pipeline survey')).toBeInTheDocument();
     expect(screen.queryByText('Internal only')).toBeNull();
+  });
+
+  it('filters by guest (a person); Clear brings every task back', async () => {
+    renderPage();
+    await screen.findByText('Rig inspection');
+    await userEvent.click(screen.getByRole('button', { name: 'Filter by guest' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Ali' }));
+    await waitFor(() => expect(screen.queryByText('Rig inspection')).toBeNull());
+    expect(screen.getByText('Pipeline survey')).toBeInTheDocument();
+    expect(screen.getByText(/of 3/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Clear' }));
+    await waitFor(() => expect(screen.getByText('Internal only')).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'Filter by guest' })).toHaveTextContent('Guest: Any guest');
   });
 });

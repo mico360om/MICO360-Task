@@ -112,7 +112,8 @@ describe('folded: every item still reachable', () => {
     await user.click(group);
     const menu = screen.getByRole('menu', { name: 'Admin' });
     const items = within(menu).getAllByRole('menuitem');
-    expect(items.map((i) => i.textContent)).toEqual(['User Management', 'Clients', 'Companies', 'AI Management', 'System Settings', 'Error Log', 'Audit Logs']);
+    // tgc: 1.24 — Guest contacts joins the Admin items, right after Companies.
+    expect(items.map((i) => i.textContent)).toEqual(['User Management', 'Clients', 'Companies', 'Guest contacts', 'AI Management', 'System Settings', 'Error Log', 'Audit Logs']);
     expect(group).toHaveAttribute('aria-expanded', 'true');
     expect(document.activeElement).toBe(items[0]);
     await user.keyboard('{ArrowDown}');

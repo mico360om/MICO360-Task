@@ -1,4 +1,6 @@
 import { escapeHtml, initialsInk, initialsOf, renderEmail, safeHref, type Block } from '../email/email-layout';
+import { guestLabel } from '../tasks/guest-contacts';
+import { waitingDayKey } from '../tasks/scheduled-start';
 import { resolveBrand, type Brand } from '../email/brand';
 import type { EmailContent, TemplateOptions } from '../email/email-templates';
 import { completedOnTime, daysUntilDue, dueDayKey, shiftDayKey, zonedDayKey, zonedStartOfDay } from '../../lib/due-date';
@@ -78,10 +80,10 @@ export interface DailyTask {
   blocked?: boolean;
   /** Who it is assigned to (shown for others' tasks in the projects the person runs). */
   assignees?: string[];
-  /** Task categories (chips), when the site has them. */
+  /** Its categories (chips: the name, with the category's colour as a dot). */
   categories?: Array<{ name: string; color?: string | null }>;
-  /** Guests on the task ("Ahmed (OXY)"), when the site has them. */
-  guests?: string[];
+  /** Its guests — name and company only (a guest's email or phone is never in an email): "Guest: Ahmed (OXY)". */
+  guests?: Array<{ name: string; company: string | null }>;
 }
 
 /** A meeting on the person's day: one they organize or are invited to and haven't declined. */
@@ -225,18 +227,6 @@ const PRIORITY_WORD: Record<DailyTask['priority'], string> = { URGENT: 'Urgent',
 const share = (part: number, whole: number) => (whole <= 0 ? 0 : part >= whole ? 100 : Math.min(99, Math.round((Math.max(0, part) / whole) * 100)));
 const IN_PROGRESS_KINDS = new Set<string>(['IN_PROGRESS', 'REVIEW', 'BLOCKED']);
 const safeColor = (v: string | null | undefined) => (/^#[0-9a-f]{6}$/i.test(v ?? '') ? v! : null);
-
-/**
- * How many days a task still waits for its board day (scheduled for the future), else 0. Board days are
- * the company's calendar days, stored as a noon-UTC anchor (their UTC date), so they are compared with the
- * company's today — never the person's (someone far west of the company would see today's tasks as
- * "tomorrow's"). One rule for the email's lists and figures and the sources' project figures.
- */
-export function waitsDays(boardDate: Date | null | undefined, companyToday: string): number {
-  if (!boardDate) return 0;
-  const day = boardDate.toISOString().slice(0, 10);
-  return day > companyToday ? daysBetween(companyToday, day) : 0;
-}
 
 // ── How many fit ─────────────────────────────────────────────────────────────
 
@@ -384,9 +374,17 @@ function classify(input: DailyEmailInput) {
   const today = zonedDayKey(now, tz);
   const days = (t: DailyTask) => daysUntilDue(t.dueDate, tz, now);
   const waiting = (t: DailyTask) => Boolean(t.waitingSince);
-  /** Days until the task's board day when it waits for a later one (else 0): by the company's today (board days are its days). */
-  const companyToday = zonedDayKey(now, input.companyTimeZone ?? tz);
-  const startsIn = (t: DailyTask) => waitsDays(t.boardDate, companyToday);
+  /**
+   * Days until the task's board day when it waits for a later one (scheduled for the future), else 0 —
+   * the site's one rule (tasks/scheduled-start waitingDayKey), by the company's today: board days are
+   * the company's days (someone far west of the company would otherwise see today's tasks as tomorrow's).
+   */
+  const companyTz = input.companyTimeZone ?? tz;
+  const companyToday = zonedDayKey(now, companyTz);
+  const startsIn = (t: DailyTask) => {
+    const day = waitingDayKey({ boardDate: t.boardDate ?? null, completedAt: t.completedAt }, companyTz, now);
+    return day ? daysBetween(companyToday, day) : 0;
+  };
   const dueKey = (t: DailyTask) => dueDayKey(t.dueDate, tz) ?? '9999';
 
   const placeOf = (t: DailyTask): Place => {
@@ -474,10 +472,13 @@ function classify(input: DailyEmailInput) {
   const late = parts.urgent ? numbers.overdue : 0;
   const due = parts.urgent ? dueToday : 0;
   const said = [late > 0 && `${late} overdue`, due > 0 && `${due} due`, meetings.length > 0 && plural(meetings.length, 'meeting')].filter(Boolean);
+  const comingOnly = input.tasks.length - current.length;
   const subjectWhat = said.length
     ? said.join(', ')
-    : input.tasks.length
-      ? plural(input.tasks.length, 'open task')
+    : current.length
+      ? plural(current.length, 'open task')
+      : comingOnly && parts.comingUp
+        ? `${plural(comingOnly, 'task')} coming up`
       : approvals
         ? `${plural(approvals, 'task')} to approve`
         : completed.length
@@ -780,7 +781,7 @@ function rowMaker(input: DailyEmailInput, m: Model, c: Brand['colors']) {
       ...(m.waiting(t) ? [{ text: 'Waiting for approval', token: WAITING_TOKEN, tones: WAITING }] : []),
       ...(t.blocked ? [{ text: 'Blocked', token: BLOCKED_TOKEN, tones: BLOCKED_T }] : []),
       ...(t.categories ?? []).map((cat) => ({ text: cat.name, token: NEUTRAL_TOKEN, tones: NEUTRAL, color: safeColor(cat.color) })),
-      ...(t.guests ?? []).map((g) => ({ text: `Guest: ${g}`, token: NEUTRAL_TOKEN, tones: NEUTRAL })),
+      ...(t.guests ?? []).map((g) => ({ text: `Guest: ${guestLabel(g)}`, token: NEUTRAL_TOKEN, tones: NEUTRAL })),
     ];
     // A category's own colour is a dot before its name (the name says it; colour is never alone).
     const badgeHtml = badges

@@ -38,6 +38,8 @@ export const TASK_QUERY_ROOTS = [
   'project-activity',
   // 1.23.3: My Tasks' "Checklist items for me" (a finished task's items leave it).
   'my-checklist-items',
+  // Task archive: a project's Archived tasks list (and the project page's figures that count its archived Done tasks).
+  'project-archived-tasks',
 ] as const;
 
 /** Views under another root that count tasks: the Projects page's card figures (open, overdue, next due…) and the Timeline's. */

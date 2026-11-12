@@ -9,7 +9,7 @@ import { BRAND } from '../../lib/export-format';
 import { ValidationError } from '../../lib/http-errors';
 import { ALL_SECTIONS, loadReportBundle, reportFileName, reportPdf, reportSheets, type ReportMeta, type ReportSection } from './report-export';
 import { shiftDayKey, todayKey } from '../../lib/due-date';
-import { calendarDay, idString } from '../tasks/validation';
+import { calendarDay, idString, queryBoolean } from '../tasks/validation';
 import { defaultCompanyTimeZone } from '../tasks/task-status';
 import { NO_PICK, type PickOf } from '../companies/company-pick';
 import type { PdfBrand } from '../companies/company-branding';
@@ -83,13 +83,16 @@ const DAY_MS = 86_400_000;
 const DEFAULT_WINDOW_DAYS = 30;
 const MAX_WINDOW_DAYS = 366;
 
-/** The on-screen filters, accepted by every report endpoint and export: ?projectId & ?userId (team member). */
-const filterQuery = z.object({ projectId: idString.optional(), userId: idString.optional() });
+/**
+ * The on-screen filters, accepted by every report endpoint and export: ?projectId & ?userId (team member),
+ * and ?includeArchived (task archive: archived tasks are left out unless it is true).
+ */
+const filterQuery = z.object({ projectId: idString.optional(), userId: idString.optional(), includeArchived: queryBoolean.optional() });
 const rangeQuery = filterQuery.extend({ from: calendarDay.optional(), to: calendarDay.optional() });
 
 function resolveFilter(query: unknown): ReportFilter {
-  const { projectId, userId } = filterQuery.parse(query ?? {});
-  return { ...(projectId ? { projectId } : {}), ...(userId ? { userId } : {}) };
+  const { projectId, userId, includeArchived } = filterQuery.parse(query ?? {});
+  return { ...(projectId ? { projectId } : {}), ...(userId ? { userId } : {}), ...(includeArchived ? { includeArchived: true } : {}) };
 }
 
 /** Parse ?from/?to plus the filters, defaulting to the last 30 company-time days and clamping the span. */
@@ -116,7 +119,7 @@ const sectionsQuery = z.object({
       if (!v) return ALL_SECTIONS;
       const picked = v.split(',').map((x) => x.trim()).filter(Boolean);
       if (picked.length === 0 || picked.some((x) => !ALL_SECTIONS.includes(x as ReportSection))) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, message: `sections: choose from ${ALL_SECTIONS.join(', ')}` });
+        ctx.addIssue({ code: 'custom', message: `sections: choose from ${ALL_SECTIONS.join(', ')}` });
         return z.NEVER;
       }
       return ALL_SECTIONS.filter((x) => picked.includes(x));
@@ -179,13 +182,14 @@ export async function registerReportRoutes(app: FastifyInstance, deps: ReportRou
         memberName: range.userId ? (memberName ?? 'Selected member') : null,
         from: range.from,
         to: range.to,
+        ...(range.includeArchived ? { includeArchived: true } : {}),
       },
     };
   }
 
   async function exportReport(req: FastifyRequest, reply: FastifyReply, opts: { title: string; file: string; sections: ReportSection[]; format: 'xlsx' | 'pdf' }) {
     const { meta, range } = await metaFor(req, opts.title);
-    const filter = { ...(range.projectId ? { projectId: range.projectId } : {}), ...(range.userId ? { userId: range.userId } : {}), ...(await pickScopeOf(req)) };
+    const filter = { ...(range.projectId ? { projectId: range.projectId } : {}), ...(range.userId ? { userId: range.userId } : {}), ...(range.includeArchived ? { includeArchived: true } : {}), ...(await pickScopeOf(req)) };
     const bundle = await loadReportBundle(reportService, { filter, from: range.from, to: range.to });
     if (opts.format === 'xlsx') {
       const body = buildXlsx(reportSheets(bundle, meta, opts.sections), { title: opts.title, brand: BRAND }, meta.generatedAt);

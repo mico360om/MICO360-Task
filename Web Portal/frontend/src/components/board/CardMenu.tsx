@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 
 /** One action in a board card's menu; with `unavailable`, it is shown but can't be chosen, saying why. */
@@ -37,6 +37,18 @@ export function CardMenu({ taskKey, items }: { taskKey: string; items: CardMenuI
     setPlace({ top: (r?.bottom ?? 0) + 4, right: Math.max(8, window.innerWidth - (r?.right ?? window.innerWidth)) });
     setOpen(true);
   };
+
+  // Kept on screen: a card near the bottom of the window (a phone, a long column) opens its menu above the ⋯
+  // instead of below the screen, where it couldn't be reached (it closes when the page scrolls). Placed
+  // before it is painted or focused.
+  useLayoutEffect(() => {
+    if (!open || !place || !menu.current) return;
+    const height = menu.current.getBoundingClientRect().height;
+    if (place.top + height <= window.innerHeight - 8) return;
+    const above = (trigger.current?.getBoundingClientRect().top ?? place.top) - 4 - height;
+    const top = Math.max(8, above);
+    if (top !== place.top) setPlace({ ...place, top });
+  }, [open, place]);
 
   useEffect(() => {
     if (!open || !place) return;

@@ -13,8 +13,8 @@ const ACTIVE = { deletedAt: null, status: 'ACTIVE' as const, ...STAFF_ONLY_WHERE
  * emails) — companies: archived by its own status or by all its companies (liveProjectWhere).
  */
 const LIVE_PROJECT = liveProjectWhere({ deletedAt: null, status: { not: 'COMPLETED' } });
-/** The shared "open" rule: not in a Done column and no completion time. */
-const OPEN = { deletedAt: null, completedAt: null, column: { category: { not: 'DONE' as const } } };
+/** The shared "open" rule: not in a Done column and no completion time — and not archived (task archive: no one's workload). */
+const OPEN = { deletedAt: null, archivedAt: null, completedAt: null, column: { category: { not: 'DONE' as const } } };
 
 /**
  * The Workload page's reads, each one grouped query whatever the number of people. Plain reads:

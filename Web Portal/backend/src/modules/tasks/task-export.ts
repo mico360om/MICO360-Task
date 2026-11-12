@@ -4,15 +4,18 @@ import { arrange, type ItemRow, type ListRow } from './checklist-tree';
  * attachments, dependencies and activity, one sheet each) or a PDF of the whole task under its project's badge.
  */
 import type { PrismaClient } from '@prisma/client';
-import { PdfDocument, hexToRgb, type GridPicture, type RGB, type TableColumn, type TextOptions } from '../../lib/pdf-document';
+import { PDF_STANDARD, PdfDocument, hexToRgb, type GridPicture, type RGB, type TableColumn, type TextOptions } from '../../lib/pdf-document';
 import { isolate, layoutText, lineBox, type StyledRun } from '../../lib/pdf-text';
 import { printableAsStored, printableImage } from '../../lib/pdf-image';
 import type { XlsxSheet } from '../../lib/xlsx-writer';
-import { BRAND, formatDateTime, formatDay, priorityLabel, wallClock } from '../../lib/export-format';
+import { BRAND, formatDateTime, formatDay, printedLine, priorityLabel, wallClock } from '../../lib/export-format';
+import { OVERDUE_TONES, PRIORITY_TONES, statusTones, type PriorityLevel } from '../../lib/colour-scheme';
+import { resolveBrand } from '../email/brand';
 import { dueDayKey, isOverdue } from '../../lib/due-date';
 import { projectIconPaths, projectInitials } from '../projects/project-icons';
 import { projectAudienceIds } from './prisma-assignee-repository';
-import { buildTimeline } from '../activity/activity-feed';
+import { buildTaskTimeline } from '../activity/task-history-extra';
+import { guestLabel } from './guest-contacts';
 import { mentionTokens } from './mentions';
 import { recurrenceSummary } from './recurrence-summary';
 import type { RecurrenceRule } from './recurrence';
@@ -94,8 +97,10 @@ export interface TaskExportData {
    * and start are null for a reader who may not see that meeting (the export route checks), as on the website.
    */
   meeting: { id: string; title: string | null; startAt: Date | null } | null;
-  /** The people outside the company responsible for it (all six fields), in order. */
+  /** The people outside the company responsible for it (all six fields), in order — 1.24: its guests (remarks = the task's note). */
   externalContacts: ExternalContactFields[];
+  /** 1.24: its categories' names, in its project's order. */
+  categories?: string[];
   /**
    * Its checklist items in order. 1.23.3: each with its checklist's title (`list`), its level (`depth`, 0 =
    * top) and whether it is a real to-do item (`leaf`: no sub-items) — counts use those only.
@@ -139,7 +144,7 @@ export interface TaskExportSource {
  */
 export function describeActivity(action: string, meta: unknown): string {
   const details = meta && typeof meta === 'object' && !Array.isArray(meta) ? (meta as Record<string, unknown>) : null;
-  const [item] = buildTimeline([{ id: 'entry', action, actorName: '', meta: details }]);
+  const [item] = buildTaskTimeline([{ id: 'entry', action, actorName: '', meta: details }]);
   if (!item) return 'Updated this task'; // an edit that changed nothing it can name
   const text = item.text.charAt(0).toUpperCase() + item.text.slice(1);
   return item.path && item.path.length > 1 ? `${text}: ${item.path.join(' → ')}` : text;
@@ -172,6 +177,8 @@ function detailRows(t: TaskExportData, tz: string): [string, string][] {
     ['Assignees', t.assignees.join(', ') || 'Unassigned'],
     ['Watchers', t.watchers.join(', ')],
     ['Tags', t.tags.join(', ')],
+    ['Categories', (t.categories ?? []).join(', ')],
+    ['Guests', t.externalContacts.map(guestLabel).join(', ')],
     ['Start', day(t.startDate, tz)],
     ['Due', due && t.overdue ? `${due} · Overdue` : due],
     ['Completed', t.completedAt ? formatDateTime(t.completedAt, tz) : ''],
@@ -203,10 +210,10 @@ export function taskSheets(t: TaskExportData, ctx: TaskExportContext): XlsxSheet
       rows: [...detailRows(t, tz).filter(([, v]) => v !== ''), ['Description', t.description ?? '']],
     },
     {
-      name: 'External contacts',
+      name: 'Guests',
       title,
       notes,
-      columns: [{ header: 'Name' }, { header: 'Company' }, { header: 'Designation' }, { header: 'Email' }, { header: 'Phone' }, { header: 'Remarks', wrap: true }],
+      columns: [{ header: 'Name' }, { header: 'Company' }, { header: 'Designation' }, { header: 'Email' }, { header: 'Phone' }, { header: 'Note for this task', wrap: true }],
       rows: t.externalContacts.map((c) => [c.name, c.company ?? '', c.designation ?? '', c.email ?? '', c.phone ?? '', c.remarks ?? '']),
     },
     checklistSheet(t.checklist, title, notes),
@@ -289,14 +296,13 @@ async function readPicture(storageKey: string, reader: PictureReader): Promise<B
 // PDF
 // ---------------------------------------------------------------------------
 
-const INK: RGB = [0.11, 0.1, 0.09];
 const MUTED: RGB = [0.42, 0.4, 0.38];
 const THREAD: RGB = [0.82, 0.8, 0.78];
 
-/** The title's size: as big as keeps it to two lines (20, 18 or 16 pt), else 14 pt over as many lines as it needs. */
+/** The title's size (1.23.11): 15.5 pt while it takes at most two lines, else 14 pt, else 13 pt over as many lines as it needs. */
 export function titleSize(title: string, width: number): number {
-  const lines = (size: number) => layoutText(title, { size, bold: true, family: 'display', maxWidth: width }).length;
-  return [20, 18, 16].find((size) => lines(size) <= 2) ?? 14;
+  const lines = (size: number) => layoutText(title, { size, bold: true, maxWidth: width }).length;
+  return [PDF_STANDARD.type.title, 14].find((size) => lines(size) <= 2) ?? 13;
 }
 
 /** Comments in reading order: each followed by its replies (and theirs), with how deep it sits. */
@@ -336,17 +342,30 @@ function meetingText(meeting: TaskExportData['meeting'], tz: string): string {
   return meeting.startAt ? `${isolate(meeting.title)} · ${day(meeting.startAt, tz)}` : isolate(meeting.title);
 }
 
+/** 1.23.11: the summary strip's status, priority and due colours — the site's one colour scheme. */
+function statusColors(category: string) {
+  return statusTones(category).light;
+}
+function priorityColors(priority: string) {
+  return (PRIORITY_TONES[priority as PriorityLevel] ?? PRIORITY_TONES.NORMAL).light;
+}
+
 export function taskPdf(t: TaskExportData, ctx: TaskExportContext): Buffer {
   const tz = ctx.timeZone;
   const brand = hexToRgb(BRAND);
-  const generated = generatedLine(ctx, isolate);
-  // Companies: the project's company before the product's name in the credit line (2+ companies), and its logo.
-  const credit = `${ctx.companyName ? `${isolate(ctx.companyName)} · ` : ''}MICO360 Tasks · ${generated}`;
-  const doc = new PdfDocument({ title: `${t.key} · ${t.title}`, runningTitle: `${t.key} · ${t.projectName}`, footerLeft: credit, palette: { brand: BRAND }, ...(ctx.logo ? { logo: ctx.logo } : {}) });
-  const width = doc.pageWidth - doc.margin * 2;
+  // 1.23.11 footer (owner): the company — the project's on a site with 2+ companies, else the site's —
+  // "Printed … by …" and the page number; the company's logo in the headers.
+  const doc = new PdfDocument({
+    title: `${t.key} · ${t.title}`,
+    runningTitle: `${t.key} · ${t.projectName}`,
+    footer: { company: ctx.companyName ?? resolveBrand().companyName, printed: printedLine(ctx.generatedAt, tz, ctx.generatedBy, isolate) },
+    palette: { brand: BRAND },
+    ...(ctx.logo ? { logo: ctx.logo } : {}),
+  });
+  const S = PDF_STANDARD.type;
 
   // Header: the project's badge (its picture, else its icon, else its initials, on its colour), name
-  // and number; then the task's key, its title from its start edge, and who made this PDF when.
+  // and number, the company's logo; then the task's key just above its title.
   doc.identityHeader({
     image: t.projectImage ?? null, // shown when the PDF can print it (a see-through PNG set on white), as the minutes PDF does
     icon: projectIconPaths(t.projectIcon),
@@ -356,104 +375,115 @@ export function taskPdf(t: TaskExportData, ctx: TaskExportContext): Buffer {
     title: t.projectName,
     subtitle: [t.projectCode, t.projectNumber ? `Project no. ${t.projectNumber}` : null].filter((s): s is string => Boolean(s)).map(isolate).join('  ·  '),
   });
-  doc.text(t.key, { bold: true, size: 10, color: brand, gap: 1, direction: 'ltr' });
-  doc.text(t.title, { bold: true, size: titleSize(t.title, width), family: 'display', color: INK, gap: 2 });
-  doc.text(generated, { size: 8.5, color: MUTED, gap: 10, direction: 'ltr' });
+  doc.documentTitle(t.title, { key: t.key, size: titleSize(t.title, doc.pageWidth - doc.margin * 2) });
 
+  // One slim strip: status, priority, due and progress, each in the colour scheme's tones.
   const due = day(t.dueDate, tz);
   doc.statTiles([
-    { label: 'Status', value: t.status, tone: t.category === 'DONE' ? 'success' : t.category === 'BLOCKED' ? 'danger' : 'brand' },
-    { label: 'Priority', value: priorityLabel(t.priority), tone: t.priority === 'URGENT' || t.priority === 'HIGH' ? 'danger' : 'muted' },
-    { label: 'Due', value: due || '—', note: t.overdue ? 'Overdue' : undefined, tone: t.overdue ? 'danger' : 'muted' },
-    { label: 'Progress', value: `${t.progress}%`, tone: t.progress >= 100 ? 'success' : 'brand' },
+    { label: 'Status', value: t.status, colors: statusColors(t.category) },
+    { label: 'Priority', value: priorityLabel(t.priority), colors: priorityColors(t.priority) },
+    { label: 'Due', value: due || '—', note: t.overdue ? 'Overdue' : undefined, ...(t.overdue ? { colors: OVERDUE_TONES.light } : { tone: 'muted' as const }) },
+    { label: 'Progress', value: `${t.progress}%`, ...(t.progress >= 100 ? { colors: statusColors('DONE') } : { tone: 'brand' as const }) },
   ]);
 
-  const none = (text: string) => doc.text(text, { size: 9.5, color: MUTED, gap: 2 });
-  const note = (text: string, gap = 3) => doc.text(text, { size: 9, color: MUTED, gap });
+  const none = (text: string) => doc.text(text, { size: S.small, color: MUTED, gap: 2 });
   // Each section heading is kept on the page with its note and the first thing under it (a
-  // paragraph's first two lines, a picture row, a table's header and first row), never left alone
-  // at the bottom of a page; these measure them.
-  const noteHeight = (text: string, gap = 3) => doc.textHeight(text, { size: 9, gap });
+  // paragraph's first two lines, a picture row, a table's header and first rows), never left alone
+  // at the bottom of a page; these measure them. A section under a third of a page is kept whole.
+  const noteHeight = (text: string, gap = 3) => doc.textHeight(text, { size: S.small, gap });
   const opening = (text: string, size: number) => Math.min(doc.textHeight(text, { size }), lineBox(null, size).height * 2);
 
-  // Details: everything the cards above don't show.
-  doc.heading('Details', { keepWith: 90 });
+  // Details: everything the strip above doesn't show.
   const time = [t.estimatedHours != null ? `${hours(t.estimatedHours)} estimated` : '', t.actualHours != null ? `${hours(t.actualHours)} spent` : ''].filter(Boolean).join(' · ');
   const rows = (pairs: Array<[string, string]>) => pairs.filter(([, v]) => v !== '');
-  doc.keyValueColumns(
-    rows([
-      ['Project', t.projectName],
-      ['Assignees', names(t.assignees) || 'Unassigned'],
-      ['Watchers', names(t.watchers)],
-      ['Tags', names(t.tags)],
-      ['Milestone', t.isMilestone ? 'Yes, a key date of this project' : ''],
-      ['From meeting', meetingText(t.meeting, tz)],
-    ]),
-    rows([
-      ['Start', day(t.startDate, tz)],
-      ['Completed', t.completedAt ? formatDateTime(t.completedAt, tz) : ''],
-      ['Time', time],
-      ['Repeat', t.repeat ?? ''],
-      ['Created', `${formatDateTime(t.createdAt, tz)} by ${isolate(t.createdBy)}`],
-      ['Last updated', formatDateTime(t.updatedAt, tz)],
-      ['Merged from', t.mergedFrom?.length ? t.mergedFrom.join(', ') : ''],
-    ]),
-    { size: 9.5 },
-  );
+  doc.section(() => {
+    doc.heading('Details', { topGap: 6, keepWith: 60 });
+    doc.keyValueColumns(
+      rows([
+        ['Project', t.projectName],
+        ['Assignees', names(t.assignees) || 'Unassigned'],
+        ['Watchers', names(t.watchers)],
+        ['Tags', names(t.tags)],
+        ['Categories', names(t.categories ?? [])],
+        ['Milestone', t.isMilestone ? 'Yes, a key date of this project' : ''],
+        ['From meeting', meetingText(t.meeting, tz)],
+      ]),
+      rows([
+        ['Start', day(t.startDate, tz)],
+        ['Completed', t.completedAt ? formatDateTime(t.completedAt, tz) : ''],
+        ['Time', time],
+        ['Repeat', t.repeat ?? ''],
+        ['Created', `${formatDateTime(t.createdAt, tz)} by ${isolate(t.createdBy)}`],
+        ['Last updated', formatDateTime(t.updatedAt, tz)],
+        ['Merged from', t.mergedFrom?.length ? t.mergedFrom.join(', ') : ''],
+      ]),
+    );
+  });
 
-  // External contacts: the people outside the company responsible for it, each with every detail
-  // given — name; company and designation; email and phone; remarks — kept on one page.
+  // 1.23.11: the optional sections below are left out when they have nothing in them (design call 1).
+
+  // Guests (1.24; the external contacts before): the people outside the company named on it, each with every
+  // detail given — name; company and designation; email and phone; this task's note — kept on one page.
   const contactLines = (c: ExternalContactFields): Array<TextOptions & { text: string }> => {
     const role = [c.company, c.designation].filter((v): v is string => Boolean(v)).map(isolate).join(' · ');
     const reach = [c.email ? `Email ${c.email}` : null, c.phone ? `Phone ${c.phone}` : null].filter(Boolean).join(' · ');
     return [
-      { text: c.name, bold: true, size: 10 },
-      ...(role ? [{ text: role, size: 9.5 }] : []),
-      ...(reach ? [{ text: reach, size: 9.5, direction: 'ltr' as const }] : []),
-      ...(c.remarks ? [{ text: c.remarks, size: 9, color: MUTED }] : []),
+      { text: c.name, bold: true, size: S.body },
+      ...(role ? [{ text: role, size: S.data }] : []),
+      ...(reach ? [{ text: reach, size: S.data, direction: 'ltr' as const }] : []),
+      ...(c.remarks ? [{ text: c.remarks, size: S.small, color: MUTED }] : []),
     ];
   };
-  const contactHeight = (c: ExternalContactFields) => contactLines(c).reduce((h, { text, ...l }) => h + doc.textHeight(text, l), 0) + 6;
-  doc.heading('External contacts', { keepWith: t.externalContacts.length ? contactHeight(t.externalContacts[0]!) : 0 });
-  if (t.externalContacts.length === 0) none('No external contacts.');
-  for (const c of t.externalContacts) {
-    doc.keepTogether(contactHeight(c));
-    const lines = contactLines(c);
-    lines.forEach(({ text, ...l }, i) => doc.text(text, { ...l, gap: i === lines.length - 1 ? 6 : 0 }));
+  const contactHeight = (c: ExternalContactFields) => contactLines(c).reduce((h, { text, ...l }) => h + doc.textHeight(text, l), 0) + 4;
+  if (t.externalContacts.length) {
+    doc.section(() => {
+      doc.heading('Guests', { keepWith: contactHeight(t.externalContacts[0]!) });
+      for (const c of t.externalContacts) {
+        doc.keepTogether(contactHeight(c));
+        const lines = contactLines(c);
+        lines.forEach(({ text, ...l }, i) => doc.text(text, { ...l, gap: i === lines.length - 1 ? 4 : 0 }));
+      }
+    });
   }
 
   // Description: each paragraph in its own direction.
   const description = t.description?.replace(/\r\n?/g, '\n').trim();
   const paragraphs = description ? description.split('\n') : [];
-  doc.heading('Description', { keepWith: paragraphs.length ? opening(paragraphs[0]!, 10) : 0 });
-  if (paragraphs.length) for (const para of paragraphs) doc.text(para, { size: 10 });
-  else none('No description.');
+  if (paragraphs.length) {
+    doc.section(() => {
+      doc.heading('Description', { keepWith: opening(paragraphs[0]!, S.body) });
+      for (const para of paragraphs) doc.text(para);
+    });
+  }
 
   // Checklist: drawn boxes, ticked when done; long items wrap in full. 1.23.3: the real to-do items are
   // counted (no parents), each checklist named with its own count, sub-items a step further in.
-  const leaves = t.checklist.filter(isLeaf);
-  const checked = `${leaves.filter((c) => c.done).length} of ${leaves.length} done`;
-  doc.heading('Checklist', { keepWith: t.checklist.length ? noteHeight(checked) + opening(t.checklist[0]!.text, 10) : 0 });
-  if (t.checklist.length === 0) none('No checklist items.');
-  else {
-    note(checked);
-    for (const group of checklistGroups(t.checklist)) {
-      if (group.title !== null) doc.keepTogether(noteHeight(group.label) + opening(group.items[0]?.text ?? '', 10)).text(group.label, { size: 9.5, bold: true, gap: 2 });
-      for (const c of group.items) doc.checkItem(c.text, c.done, { size: 10, indent: Math.min(c.depth ?? 0, CHECKLIST_PDF_LEVELS) * 14 });
-    }
+  if (t.checklist.length) {
+    const leaves = t.checklist.filter(isLeaf);
+    const checked = `${leaves.filter((c) => c.done).length} of ${leaves.length} done`;
+    doc.section(() => {
+      doc.heading('Checklist', { keepWith: noteHeight(checked) + opening(t.checklist[0]!.text, S.body), aside: checked });
+      for (const group of checklistGroups(t.checklist)) {
+        if (group.title !== null) doc.keepTogether(noteHeight(group.label) + opening(group.items[0]?.text ?? '', S.body)).text(group.label, { size: S.data, bold: true, gap: 1 });
+        for (const c of group.items) doc.checkItem(c.text, c.done, { indent: Math.min(c.depth ?? 0, CHECKLIST_PDF_LEVELS) * 14 });
+      }
+    });
   }
 
   // Comments: each reply under the comment it answers, a step further in; @mentions in bold. A
   // comment's name line starts on the same page as its first lines.
-  const commentStart = 34;
-  doc.heading('Comments', { keepWith: t.comments.length ? commentStart : 0 });
-  if (t.comments.length === 0) none('No comments yet.');
-  for (const { comment: c, depth } of commentThreads(t.comments)) {
-    const inset = Math.min(depth, 3) * 18;
-    const bar = depth > 0 ? THREAD : undefined;
-    doc.keepTogether(commentStart);
-    doc.text(`${isolate(c.author)} · ${formatDateTime(c.at, tz)}${c.edited ? ' · edited' : ''}`, { size: 8.5, bold: true, color: MUTED, inset, bar, direction: 'ltr' });
-    doc.styledText(commentRuns(c.body, t.mentionable), { size: 10, inset, bar, gap: 6 });
+  const commentStart = 28;
+  if (t.comments.length) {
+    doc.section(() => {
+      doc.heading('Comments', { keepWith: commentStart });
+      for (const { comment: c, depth } of commentThreads(t.comments)) {
+        const inset = Math.min(depth, 3) * 16;
+        const bar = depth > 0 ? THREAD : undefined;
+        doc.keepTogether(commentStart);
+        doc.text(`${isolate(c.author)} · ${formatDateTime(c.at, tz)}${c.edited ? ' · edited' : ''}`, { size: S.small, bold: true, color: MUTED, inset, bar, direction: 'ltr' });
+        doc.styledText(commentRuns(c.body, t.mentionable), { inset, bar, gap: 4 });
+      }
+    });
   }
 
   // Attachments: the first pictures as thumbnails, three to a row; everything else listed.
@@ -469,17 +499,17 @@ export function taskPdf(t: TaskExportData, ctx: TaskExportContext): Buffer {
     listed.push([failed ? `${a.filename} (picture could not be shown)` : a.filename, formatSize(a.sizeBytes), a.uploadedBy, formatDateTime(a.uploadedAt, tz)]);
   }
   const fileCols: TableColumn[] = [{ header: 'File' }, { header: 'Size', align: 'right' }, { header: 'Added by' }, { header: 'Added' }];
-  const files = `${plural(t.attachments.length, 'file')}${shown.length ? ` · ${plural(shown.length, 'picture')} shown` : ''}`;
-  const firstFiles = shown.length ? doc.imageGridFirstRowHeight(shown) : doc.tableHeight(fileCols, listed, { size: 9, wide: 0, firstRows: 1 });
-  doc.heading('Attachments', { keepWith: t.attachments.length ? noteHeight(files, 6) + firstFiles : 0 });
-  if (t.attachments.length === 0) none('No attachments.');
-  else {
-    note(files, 6);
-    doc.imageGrid(shown);
-    if (listed.length) {
-      if (shown.length) doc.subheading('Other files', { topGap: 2, keepWith: doc.tableHeight(fileCols, listed, { size: 9, wide: 0, firstRows: 2 }) });
-      doc.table(fileCols, listed, { size: 9, wide: 0 });
-    }
+  if (t.attachments.length) {
+    const files = `${plural(t.attachments.length, 'file')}${shown.length ? ` · ${plural(shown.length, 'picture')} shown` : ''}`;
+    const firstFiles = shown.length ? doc.imageGridFirstRowHeight(shown) : doc.tableHeight(fileCols, listed, { wide: 0, firstRows: 2 });
+    doc.section(() => {
+      doc.heading('Attachments', { keepWith: firstFiles, aside: files });
+      doc.imageGrid(shown);
+      if (listed.length) {
+        if (shown.length) doc.subheading('Other files', { topGap: 2, keepWith: doc.tableHeight(fileCols, listed, { wide: 0, firstRows: 2 }) });
+        doc.table(fileCols, listed, { wide: 0 });
+      }
+    });
   }
 
   // Dependencies: what this task waits for, and what waits for it. The title comes last and takes
@@ -488,29 +518,29 @@ export function taskPdf(t: TaskExportData, ctx: TaskExportContext): Buffer {
   const sides = [
     { label: 'Blocked by', rows: t.blockedBy.map((d) => [d.key, d.status, d.title]), empty: 'Nothing blocks this task.' },
     { label: 'Blocks', rows: t.blocks.map((d) => [d.key, d.status, d.title]), empty: 'No other task waits for this one.' },
-  ].map((s) => ({ ...s, keep: { topGap: 4, keepWith: s.rows.length ? doc.tableHeight(linkCols, s.rows, { size: 9, wide: 2, firstRows: 3 }) : 16 } }));
-  const anyLinks = sides.some((s) => s.rows.length > 0);
-  doc.heading('Dependencies', { keepWith: anyLinks ? doc.subheadingRoom(sides[0]!.keep) : 0 });
-  if (!anyLinks) none('No dependencies.');
-  else {
-    for (const side of sides) {
-      doc.subheading(side.label, side.keep);
-      if (side.rows.length) doc.table(linkCols, side.rows, { size: 9, wide: 2 });
-      else none(side.empty);
-    }
+  ].map((s) => ({ ...s, keep: { topGap: 2, keepWith: s.rows.length ? doc.tableHeight(linkCols, s.rows, { wide: 2, firstRows: 2 }) : 16 } }));
+  if (sides.some((s) => s.rows.length > 0)) {
+    doc.section(() => {
+      doc.heading('Dependencies', { keepWith: doc.subheadingRoom(sides[0]!.keep) });
+      for (const side of sides) {
+        doc.subheading(side.label, side.keep);
+        if (side.rows.length) doc.table(linkCols, side.rows, { wide: 2 });
+        else none(side.empty);
+      }
+    });
   }
 
   // Activity: the latest changes, newest first.
   const latest = [...t.activity].reverse().sort((a, b) => b.at.getTime() - a.at.getTime()).slice(0, MAX_ACTIVITY);
   const changeCols: TableColumn[] = [{ header: 'When' }, { header: 'Who' }, { header: 'What' }];
   const changes = latest.map((a) => [formatDateTime(a.at, tz), a.who, describeActivity(a.action, a.meta)]);
-  doc.heading('Activity', { keepWith: changes.length ? noteHeight('Newest first') + doc.tableHeight(changeCols, changes, { size: 9, wide: 2, firstRows: 1 }) : 0 });
-  if (changes.length === 0) none('No activity yet.');
-  else {
+  if (changes.length) {
     const earlier = Math.max(t.activityTotal ?? 0, t.activity.length) - latest.length;
-    note('Newest first');
-    doc.table(changeCols, changes, { size: 9, wide: 2 });
-    if (earlier > 0) doc.spacer(4).text(`${plural(earlier, 'earlier change')} not shown`, { size: 9, color: MUTED });
+    doc.section(() => {
+      doc.heading('Activity', { keepWith: doc.tableHeight(changeCols, changes, { wide: 2, firstRows: 2 }), aside: 'Newest first' });
+      doc.table(changeCols, changes, { wide: 2 });
+      if (earlier > 0) doc.spacer(3).text(`${plural(earlier, 'earlier change')} not shown`, { size: S.small, color: MUTED });
+    });
   }
   return doc.build();
 }
@@ -544,6 +574,8 @@ export function createPrismaTaskExportSource(prisma: PrismaClient, timeZone: str
           checklistLists: { where: { deletedAt: null } },
           checklist: { where: { deletedAt: null } },
           externalContacts: { orderBy: { position: 'asc' }, select: { name: true, company: true, designation: true, email: true, phone: true, remarks: true } },
+          // 1.24: its categories.
+          categories: { select: { category: { select: { name: true, position: true } } } },
           // Linked tasks that are deleted, or in a deleted project, are left out.
           dependencies: { where: { dependsOn: live }, include: { dependsOn: { select: link } } },
           dependedOnBy: { where: { task: live }, include: { task: { select: link } } },
@@ -593,6 +625,7 @@ export function createPrismaTaskExportSource(prisma: PrismaClient, timeZone: str
         isMilestone: t.isMilestone,
         meeting: t.meeting && !t.meeting.deletedAt ? { id: t.meeting.id, title: t.meeting.title, startAt: t.meeting.startAt } : null,
         externalContacts: t.externalContacts,
+        categories: t.categories.map((c) => c.category).sort((a, b) => a.position - b.position || a.name.localeCompare(b.name, 'en')).map((c) => c.name),
         checklist: exportChecklist(t.checklistLists as ListRow[], t.checklist as ItemRow[]),
         blockedBy: t.dependencies.map((d) => linked(d.dependsOn)),
         blocks: t.dependedOnBy.map((d) => linked(d.task)),

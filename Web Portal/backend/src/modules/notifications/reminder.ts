@@ -2,6 +2,7 @@ import type { CreateNotificationData } from './notification-repository';
 import { daysUntilDue } from '../../lib/due-date';
 import { defaultCompanyTimeZone, isTaskDone } from '../tasks/task-status';
 import { taskNoticeBody } from './task-notice';
+import { isWaitingTask } from '../tasks/scheduled-start';
 
 /** A task considered for deadline reminders. */
 export interface ReminderTask {
@@ -18,6 +19,8 @@ export interface ReminderTask {
   approvalRequestedAt?: Date | null;
   /** Users to remind (its assignees). */
   assigneeIds: string[];
+  /** Its board day: while that is later than today it waits for its start day — no reminders yet (owner, 10 Nov). */
+  boardDate?: Date | null;
 }
 
 export const DEFAULT_SOON_WINDOW_MS = 24 * 60 * 60 * 1000; // "due soon" = due today or tomorrow
@@ -52,6 +55,8 @@ export function planReminders(tasks: ReminderTask[], opts: PlanRemindersOptions 
 
   for (const task of tasks) {
     if (isTaskDone(task) || task.approvalRequestedAt) continue;
+    // Tasks scheduled for the future: nothing before its day — it isn't today's work yet.
+    if (isWaitingTask(task, timeZone, now)) continue;
     const days = daysUntilDue(task.dueDate, timeZone, now);
     if (days === null) continue;
     const body = (task.key ? taskNoticeBody({ key: task.key, title: task.title }) : null) ?? task.title;

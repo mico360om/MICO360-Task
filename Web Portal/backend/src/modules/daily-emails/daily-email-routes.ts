@@ -198,7 +198,8 @@ export async function registerDailyEmailRoutes(app: FastifyInstance, deps: Daily
       reply.header('Cache-Control', 'no-store');
       return { data: shown };
     };
-    app.get('/notifications/daily-emails/preview', { preHandler: deps.guard.authenticate }, ownPreview);
-    app.get('/admin/daily-emails/my-preview', adminOnly, ownPreview);
+    // Written as inline handlers so the route scans (Manager View, route classes) see both.
+    app.get('/notifications/daily-emails/preview', { preHandler: deps.guard.authenticate }, async (req, reply) => ownPreview(req, reply));
+    app.get('/admin/daily-emails/my-preview', adminOnly, async (req, reply) => ownPreview(req, reply));
   }
 }

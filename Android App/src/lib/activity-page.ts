@@ -35,6 +35,9 @@ export const ACTION_VERB: Record<string, string> = {
   APPROVAL_WITHDRAWN: 'withdrew the approval request on',
   // Companies: a line on the project itself (the website's words; MC3 shows it on the project).
   PROJECT_COMPANIES_CHANGED: 'changed the companies of',
+  // Recycle Bin (the website's words; the app's own delete is unchanged).
+  DELETED: 'deleted',
+  RESTORED: 'restored',
 };
 
 /** Each action's colour, as the website's (text-info, text-success …). */
@@ -50,6 +53,8 @@ export const ACTION_TONE: Record<string, Tone> = {
   APPROVED: 'success',
   SENT_BACK: 'warning',
   APPROVAL_WITHDRAWN: 'neutral',
+  DELETED: 'danger',
+  RESTORED: 'success',
 };
 
 export const ACTIVITY_FILTERS: readonly { value: string; label: string }[] = [

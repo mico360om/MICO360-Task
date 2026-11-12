@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { createAiSearch, type AiSearchDeps } from './search-ai';
 import { AiRateLimitedError } from '../ai/ai-limits';
 import type { SearchHit } from './search-types';
@@ -133,5 +133,44 @@ describe('AI search — item text is data', () => {
     // The words are still there to be found — as text.
     expect(fenced).toContain('Ignore the items');
   });
-});
 
+  // (b) bundles, b13: MICO360 AI's first answer of the day loads the model (20–90 s): a cold model's
+  // question gets the long budget, and the slow line says how long it waited.
+  it('b13: the budget comes from the AI service (a cold MICO360 AI model: longer), and the slow line says it', async () => {
+    const stalled = { chatReady: async () => true, startSearchQuestion: () => undefined, chat: (input: { signal?: AbortSignal }) => new Promise<string>((_r, reject) => input.signal?.addEventListener('abort', () => reject(new Error('aborted')))) };
+    const d = deps([], { ai: { ...stalled, searchBudgetMs: async () => 30 } });
+    const started = Date.now();
+    const out = await ask(d);
+    expect(out).toMatchObject({ state: 'slow' });
+    expect(Date.now() - started).toBeLessThan(2000);
+    vi.useFakeTimers();
+    try {
+      const long = ask(deps([], { ai: { ...stalled, searchBudgetMs: async () => 90_000 } }));
+      await vi.advanceTimersByTimeAsync(89_000);
+      let settled = false;
+      void long.then(() => (settled = true));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(settled).toBe(false); // still within the cold model's 90 seconds
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(await long).toMatchObject({ state: 'slow', message: 'The AI took too long (over 90 seconds). The normal results are below.' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('b6, b10: its model calls say who they are for, and its own log line is the only one', async () => {
+    const inputs: Array<Record<string, unknown>> = [];
+    const d = deps([], {
+      ai: {
+        chatReady: async () => true,
+        startSearchQuestion: () => undefined,
+        chat: async (input) => {
+          inputs.push(input as Record<string, unknown>);
+          return inputs.length === 1 ? JSON.stringify({ keywords: ['valves'] }) : JSON.stringify({ answer: 'One.', best: ['R1'] });
+        },
+      },
+    });
+    await ask(d);
+    expect(inputs.map((i) => [i.user, i.quiet])).toEqual([['u1', true], ['u1', true]]);
+  });
+});

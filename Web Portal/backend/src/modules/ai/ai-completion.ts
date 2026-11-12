@@ -1,41 +1,17 @@
 import { ValidationError } from '../../lib/http-errors';
 import type { AiModelParameters, AiProvider } from './ai-config';
 import { isReasoningModel } from './ai-model-catalog';
-import { createSafeFetch, providerErrorDetail, providerFetch, readProviderJson } from './ai-network';
+import { createSafeFetch, isMico360Provider, micoId, providerFetch, readProviderJson } from './ai-network';
+import { ProviderRefusedError, providerRefusal } from './ai-errors';
+import { collectJob, idempotencyKey, micoMeta } from './mico360-native';
+import { NativeStreamUnavailable, streamChat } from './mico360-stream';
+import { wellFormed } from './ai-text';
+import { fitsSchema } from './ai-schemas';
+
+export { ProviderRefusedError, providerRefusal } from './ai-errors';
 
 /** OpenAI reasoning models think before answering, out of the same token budget: leave them room. */
 const REASONING_MIN_TOKENS = 4096;
-
-/**
- * A provider refused a request. `message` is what anyone may see; `detail` is the provider's own
- * explanation (which can name models or accounts), shown to admins only (the model test).
- * `providerStatus` is the provider's HTTP status; our own answer stays 400 (`status`), so a
- * provider's 401 or 429 never reads as the user's session expiring or their own rate limit.
- */
-export class ProviderRefusedError extends ValidationError {
-  constructor(
-    public readonly providerStatus: number,
-    public readonly detail: string | null,
-  ) {
-    super(refusalMessage(providerStatus));
-  }
-}
-
-/** What a person is told for a provider's answer: the plain cause where the status says it. */
-function refusalMessage(status: number): string {
-  switch (status) {
-    case 429:
-      return 'The AI service is busy right now (HTTP 429). Try again in a moment.';
-    case 503:
-      return 'The AI service has no model available right now (HTTP 503). Try again in a minute, or ask an admin to check AI Management.';
-    case 504:
-      return 'The AI service took too long to answer (HTTP 504). Try again.';
-    case 413:
-      return 'That is too long for the AI service to read (HTTP 413).';
-    default:
-      return `The AI provider rejected the request (HTTP ${status}).`;
-  }
-}
 
 /** A "try again in a second" (429) worth waiting for once: a Retry-After of at most this many seconds. */
 const SHORT_RETRY_SECONDS = 3;
@@ -54,6 +30,12 @@ export interface ChatModel {
   parameters?: AiModelParameters;
 }
 
+/** A JSON Schema a feature's answer is held to (b1): `name` as OpenAI's json_schema names it. */
+export interface AnswerSchema {
+  name: string;
+  schema: Record<string, unknown>;
+}
+
 export interface CompletionInput {
   /** System / instruction prompt (how to behave). */
   system?: string;
@@ -67,8 +49,34 @@ export interface CompletionInput {
    * asked in the prompt only, as before.
    */
   json?: boolean;
+  /**
+   * b1 (MICO360 AI): the JSON Schema the answer must follow (`response_format: json_schema`, or the live
+   * stream's `format`). The caller still checks the answer as before (the second check). Implies `json`.
+   */
+  schema?: AnswerSchema;
+  /** b6 (MICO360 AI): the Tasks user the request is for, sent as `user` (the platform pseudonymises it). */
+  user?: string;
   /** 1.23 OCR: pictures for the model to read with the prompt (a model that reads images). */
   images?: { data: Buffer; mimeType: string }[];
+}
+
+/** What a MICO360 AI answer said about itself (b5, b10, b11), for the caller to note. */
+export interface ProviderCallInfo {
+  /** It answered (else it was refused). */
+  ok: boolean;
+  /** The model that answered, as the platform names it (the stream never says: null). */
+  model: string | null;
+  /** Another model answered than the one asked for: the platform's words. */
+  substituted: string | null;
+  correlationId: string | null;
+  jobId: string | null;
+  /** The key's concurrency (X-Mico-Concurrency-Limit). */
+  concurrencyLimit: number | null;
+  /**
+   * Safety net: this answer came in JSON mode after the platform refused the schema (json_schema, or the
+   * stream's schema `format`) with this status and reason — the caller remembers it for the provider.
+   */
+  strictRefused?: { status: number; reason: string | null };
 }
 
 export interface CompletionOptions {
@@ -76,26 +84,108 @@ export interface CompletionOptions {
   timeoutMs?: number;
   /** Allow private / internal provider hosts (a local model server). Default false. */
   allowPrivateHosts?: boolean;
-  /** Waits before the one retry of a "busy, try again in a second" (tests pass a fake). */
+  /** Waits before the one retry of a "busy, try again in a second" (tests pass a fake), and between looks at a job. */
   sleep?: (ms: number) => Promise<void>;
   /** The caller's stop: the call ends at once with AiCallStoppedError (MICO AI's Stop button). */
   signal?: AbortSignal;
+  /**
+   * b2 (MICO360 AI): a background job's scope (its id). The request carries an `Idempotency-Key` made of it
+   * and what is sent, so the job's next try of the same request is answered from the first one's work.
+   */
+  idempotencyKey?: string;
+  /** b3 (MICO360 AI): a 504 that left the job running is collected (GET /api/v1/jobs/{id}) until then (ms since 1970). */
+  collectUntil?: number;
+  /** b5, b10, b11 (MICO360 AI): told what each answer (or refusal) said about itself. */
+  observe?: (info: ProviderCallInfo) => void;
+  /**
+   * b15 (MICO360 AI): the whole text so far, as the model writes it — the call goes to the native live
+   * stream (POST /api/v1/chat/stream). Other providers ignore it.
+   */
+  onText?: (text: string) => void;
+  /**
+   * Review minor 10 (MICO360 AI): called once the request itself is over and its job is to be collected
+   * (b3, b15) — the caller frees the key's concurrency slot, as the platform no longer counts it running.
+   */
+  beforeCollect?: () => void;
 }
+
+/** The native API's instructions (`system`) are at most this long (guide §5 Prompts: 413 over it). */
+export const NATIVE_SYSTEM_LIMIT = 8_000;
 
 /** The default wait for a provider's answer: a cold model on MICO360 AI loads for 20–90 seconds. */
 export const COMPLETION_TIMEOUT_MS = 120_000;
 
 /**
+ * The most MICO360 AI reads of one conversation, system messages included (its guide, §5 and §11):
+ * over it, 413. Every feature's prompt is built to fit it (ai-prompt-size.test).
+ */
+export const CONVERSATION_LIMIT = 32_000;
+
+const str = (v: unknown, max = 300): string | null => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : null);
+
+/** Safety net: how a platform that does not take strict answer shapes (json_schema) refuses them. */
+const STRICT_REFUSALS = new Set([400, 422]);
+
+/**
  * Single-turn text completion against a configured provider. Speaks each provider kind's
  * chat API (Anthropic Messages, OpenAI/custom chat-completions, Ollama chat) and returns the
  * assistant's text. `fetchImpl` is injected so features are fully testable without a network.
+ *
+ * Safety net (MICO360 AI): strict answer shapes (b1) are new on the platform. A request with a schema
+ * that is refused with 400 or 422, or whose answer does not fit the schema, is asked once more in
+ * today's JSON mode (json_object; on the live stream, format "json"). A refusal is told to `observe`
+ * with that answer (`strictRefused`), so the caller can stop sending schemas to that Connect for a while.
+ * An answer cut at its length is not asked again: the same room would cut it again.
  */
 export async function complete(
   model: ChatModel,
-  input: CompletionInput,
+  given: CompletionInput,
   fetchImpl?: typeof fetch,
   opts: CompletionOptions = {},
 ): Promise<string> {
+  if (!given.schema || !isMico360Provider(model.provider)) return (await completeOnce(model, given, fetchImpl, opts)).text;
+  let refused: ProviderRefusedError | null = null;
+  try {
+    const first = await completeOnce(model, given, fetchImpl, opts);
+    if (first.cut || fitsSchema(first.text, given.schema.schema)) return first.text;
+  } catch (err) {
+    if (!(err instanceof ProviderRefusedError) || !STRICT_REFUSALS.has(err.providerStatus)) throw err;
+    refused = err;
+  }
+  const strictRefused = refused ? { status: refused.providerStatus, reason: refused.detail } : null;
+  const observe = opts.observe;
+  const told = strictRefused && observe ? (i: ProviderCallInfo) => observe(i.ok ? { ...i, strictRefused } : i) : observe;
+  const again = await completeOnce(model, { ...given, schema: undefined, json: true }, fetchImpl, { ...opts, observe: told });
+  return again.text;
+}
+
+/** One request (one answer, collected or streamed); `cut`: it stopped at its length (finish_reason "length"). */
+async function completeOnce(
+  model: ChatModel,
+  given: CompletionInput,
+  fetchImpl: typeof fetch | undefined,
+  opts: CompletionOptions,
+): Promise<{ text: string; cut: boolean }> {
+  const mico = isMico360Provider(model.provider);
+  // MICO360 AI's JSON reader refuses half a character ("\ud83d", from a text cut inside an emoji): the
+  // instructions and the prompt are sent well formed (review I2). Other providers get them as given.
+  const input: CompletionInput = mico
+    ? { ...given, prompt: wellFormed(given.prompt), ...(given.system !== undefined ? { system: wellFormed(given.system) } : {}) }
+    : given;
+  const doFetch = fetchImpl ?? createSafeFetch({ allowPrivateHosts: opts.allowPrivateHosts });
+  const timeoutMs = opts.timeoutMs ?? COMPLETION_TIMEOUT_MS;
+  // The one wait before a "try again in a second" (429). Collecting a job waits with its own pause, which
+  // hears the caller's stop (review minor 3) — unless a test gives its own.
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const keyFor = (route: string, body: string) => (mico && opts.idempotencyKey ? idempotencyKey(opts.idempotencyKey, route, body) : undefined);
+
+  // b15: MICO360 AI's live text, when someone is reading it as it is written (a server without it: /v1).
+  // Instructions longer than the native API takes (8,000 characters) go to /v1, where they fit (minor 6).
+  if (mico && opts.onText && !input.images?.length && (input.system?.length ?? 0) <= NATIVE_SYSTEM_LIMIT) {
+    const stream = await completeLive(model, input, doFetch, { ...opts, timeoutMs }, sleep, keyFor);
+    if (stream !== null) return { text: stream, cut: false };
+  }
+
   const base = model.provider.apiBaseUrl.replace(/\/+$/, '');
   const maxTokens = input.maxTokens ?? model.parameters?.maxTokens ?? 1024;
   const temperature = model.parameters?.temperature ?? 0.3;
@@ -145,8 +235,14 @@ export async function complete(
       const messages = [...(input.system ? [{ role: 'system', content: input.system }] : []), { role: 'user', content: userContent }];
       if (model.provider.kind !== 'openai') {
         // Other OpenAI-compatible services still take max_tokens.
-        body = { model: model.modelKey, max_tokens: maxTokens, temperature, messages };
-        if (input.json && model.provider.preset === 'mico360') (body as Record<string, unknown>).response_format = { type: 'json_object' };
+        const b: Record<string, unknown> = { model: model.modelKey, max_tokens: maxTokens, temperature, messages };
+        if (mico) {
+          // b1: a feature's own schema when it has one, else any JSON object (2.6.7+ holds the model to it).
+          if (input.schema) b.response_format = { type: 'json_schema', json_schema: { name: input.schema.name, schema: input.schema.schema } };
+          else if (input.json) b.response_format = { type: 'json_object' };
+          if (input.user) b.user = input.user;
+        }
+        body = b;
       } else if (isReasoningModel(model.modelKey)) {
         // o-series and GPT-5 refuse max_tokens and any temperature but the default.
         body = { model: model.modelKey, max_completion_tokens: Math.max(maxTokens, REASONING_MIN_TOKENS), reasoning_effort: 'low', messages };
@@ -157,30 +253,117 @@ export async function complete(
     }
   }
 
+  const payload = JSON.stringify(body);
+  const key = keyFor('POST /v1/chat/completions', payload);
+  if (key) headers['Idempotency-Key'] = key;
   const send = () =>
-    providerFetch(
-      url,
-      { method: 'POST', headers, body: JSON.stringify(body) },
-      {
-        fetchImpl: fetchImpl ?? createSafeFetch({ allowPrivateHosts: opts.allowPrivateHosts }),
-        timeoutMs: opts.timeoutMs ?? COMPLETION_TIMEOUT_MS,
-        allowPrivateHosts: opts.allowPrivateHosts,
-        signal: opts.signal,
-      },
-    );
+    providerFetch(url, { method: 'POST', headers, body: payload }, { fetchImpl: doFetch, timeoutMs, allowPrivateHosts: opts.allowPrivateHosts, signal: opts.signal });
   let res = await send();
   // A service at its concurrency limit says "try again in a second": wait that once, then ask again.
   const wait = shortRetryAfter(res);
   if (wait !== null) {
     await res.body?.cancel().catch(() => {});
-    await (opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms))))(wait);
+    await sleep(wait);
     res = await send();
   }
-  if (!res.ok) throw new ProviderRefusedError(res.status, await providerErrorDetail(res));
+  const meta = mico ? micoMeta(res) : null;
+  if (!res.ok) {
+    const refusal = await providerRefusal(res, model.provider);
+    if (mico) opts.observe?.({ ok: false, model: null, substituted: null, correlationId: refusal.correlationId, jobId: refusal.jobId, concurrencyLimit: meta!.concurrencyLimit });
+    // b3: the platform keeps a job that hit its own 300 s: collect it while the feature still has time.
+    if (mico && res.status === 504 && refusal.jobId && opts.collectUntil && opts.collectUntil > Date.now()) {
+      opts.beforeCollect?.();
+      const job = await collectJob(model.provider, refusal.jobId, {
+        fetchImpl: doFetch,
+        allowPrivateHosts: opts.allowPrivateHosts,
+        signal: opts.signal,
+        deadline: opts.collectUntil,
+        ...(opts.sleep ? { sleep: opts.sleep } : {}),
+      });
+      const text = job.output.trim();
+      if (!text) throw new ValidationError('The AI provider returned an empty response.');
+      opts.observe?.({ ok: true, model: job.model, substituted: job.warning, correlationId: refusal.correlationId, jobId: refusal.jobId, concurrencyLimit: null });
+      return { text, cut: false };
+    }
+    throw refusal;
+  }
   const json = await readProviderJson(res);
+  if (mico && meta) {
+    const j = (json && typeof json === 'object' ? json : {}) as { id?: unknown; model?: unknown; warning?: unknown };
+    opts.observe?.({ ok: true, model: str(j.model, 200), substituted: str(j.warning) ?? meta.modelWarning, correlationId: meta.correlationId, jobId: micoId(j.id), concurrencyLimit: meta.concurrencyLimit });
+  }
   const text = extractText(model.provider.kind, json);
   if (!text) throw new ValidationError('The AI provider returned an empty response.');
-  return text;
+  return { text, cut: finishReason(json) === 'length' };
+}
+
+/** OpenAI-compatible answers say why they stopped (`choices[0].finish_reason`); null when they don't. */
+function finishReason(json: unknown): string | null {
+  const choices = (json && typeof json === 'object' ? (json as { choices?: unknown }).choices : null) as Array<{ finish_reason?: unknown }> | null;
+  const reason = Array.isArray(choices) ? choices[0]?.finish_reason : null;
+  return typeof reason === 'string' ? reason : null;
+}
+
+/**
+ * b15: one answer on MICO360 AI's live stream; null when the server has none (ask /v1 instead). A "try
+ * again in a second" (429 with a short Retry-After) is waited out once, as on /v1 (review minor 2).
+ */
+async function completeLive(
+  model: ChatModel,
+  input: CompletionInput,
+  fetchImpl: typeof fetch,
+  opts: CompletionOptions & { timeoutMs: number },
+  retrySleep: (ms: number) => Promise<void>,
+  keyFor: (route: string, body: string) => string | undefined,
+): Promise<string | null> {
+  try {
+    return await streamOnce(model, input, fetchImpl, opts, keyFor);
+  } catch (err) {
+    const wait = err instanceof ProviderRefusedError && err.providerStatus === 429 && !err.quota && err.retryAfterSeconds !== null && err.retryAfterSeconds <= SHORT_RETRY_SECONDS ? err.retryAfterSeconds * 1000 : null;
+    if (wait === null) throw err;
+    await retrySleep(wait);
+    return streamOnce(model, input, fetchImpl, opts, keyFor);
+  }
+}
+
+async function streamOnce(
+  model: ChatModel,
+  input: CompletionInput,
+  fetchImpl: typeof fetch,
+  opts: CompletionOptions & { timeoutMs: number },
+  keyFor: (route: string, body: string) => string | undefined,
+): Promise<string | null> {
+  const timeoutSeconds = Math.max(1, Math.min(600, Math.ceil(opts.timeoutMs / 1000)));
+  const request = {
+    prompt: input.prompt,
+    ...(input.system ? { system: input.system } : {}),
+    model: model.modelKey,
+    ...(input.user ? { user: input.user } : {}),
+    ...(input.schema ? { format: input.schema.schema } : input.json ? { format: 'json' as const } : {}),
+    timeoutSeconds,
+  };
+  try {
+    const out = await streamChat(model.provider, request, {
+      fetchImpl,
+      allowPrivateHosts: opts.allowPrivateHosts,
+      signal: opts.signal,
+      // A little longer than the platform's own wait, so its `done: timed_out` comes first.
+      timeoutMs: (timeoutSeconds + 10) * 1000,
+      collectUntil: opts.collectUntil ?? Date.now() + 2 * opts.timeoutMs,
+      idempotencyKey: keyFor('POST /api/v1/chat/stream', JSON.stringify(request)),
+      onText: opts.onText,
+      beforeCollect: opts.beforeCollect,
+      ...(opts.sleep ? { sleep: opts.sleep } : {}),
+    });
+    opts.observe?.({ ok: true, model: null, substituted: null, correlationId: out.correlationId, jobId: out.jobId, concurrencyLimit: null });
+    const text = out.text.trim();
+    if (!text) throw new ValidationError('The AI provider returned an empty response.');
+    return text;
+  } catch (err) {
+    if (err instanceof NativeStreamUnavailable) return null;
+    if (err instanceof ProviderRefusedError) opts.observe?.({ ok: false, model: null, substituted: null, correlationId: err.correlationId, jobId: err.jobId, concurrencyLimit: null });
+    throw err;
+  }
 }
 
 /** Pull the assistant text out of each provider's response shape. */

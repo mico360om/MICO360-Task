@@ -10,6 +10,8 @@ import type { RecurrenceRule } from './recurrence';
 export interface Person {
   id: string;
   name: string;
+  /** Their photo, where a face shows it (null or left out: initials). */
+  avatarUrl?: string | null;
 }
 
 export interface InspectionForm {
@@ -65,6 +67,8 @@ export interface InspectionListItem {
   clientVisible: boolean;
   /** `lateDays`: a finished check (a task that carries a form) done N days after its due day (0 on time). */
   task: { id: string; key: string; title: string; done: boolean; lateDays?: number | null } | null;
+  /** Recycle Bin: the task it was for was erased — "KEY-12 'Title'" (and `task` is null). */
+  erasedTask?: string | null;
 }
 
 export interface AnswerView {

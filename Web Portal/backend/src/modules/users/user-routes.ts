@@ -41,7 +41,7 @@ const createSchema = z
     primaryCompanyId: idString.nullable().optional(),
   })
   .superRefine((b, ctx) => {
-    if (!b.sendWelcome && !b.password && !b.generatePassword) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['password'], message: 'Required' });
+    if (!b.sendWelcome && !b.password && !b.generatePassword) ctx.addIssue({ code: 'custom', path: ['password'], message: 'Required' });
   });
 /** Welcome emails to several people: at most this many a send. */
 const MAX_WELCOME_BATCH = 100;
@@ -127,6 +127,8 @@ export interface UserRouteDeps {
   /** File storage for profile images; when absent, the avatar upload endpoint is disabled. */
   storage?: AttachmentStorage;
   avatarMaxBytes?: number;
+  /** Avatar thumbnails: an uploaded photo's face copy is written beside it (never fails the upload). */
+  avatarFaces?: { prepare(url: string, content: Buffer): Promise<void> };
   /** "Download my data"; when absent, GET /users/me/export isn't offered. */
   exportData?: DataExporter;
   /** Company time zone — dates the export file name. */
@@ -203,6 +205,13 @@ export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDe
     };
   });
 
+  // The signed-in person's own name and current photo: the header's face reads it on every load, so a
+  // photo or name changed elsewhere (another device, User Management) shows without signing in again.
+  app.get('/users/me', { preHandler: guard.authenticate }, async (req) => {
+    const u = await userService.getUser(req.user!.id);
+    return { data: { id: u.id, email: u.email, username: u.username, firstName: u.firstName, lastName: u.lastName, roles: u.roles, avatarUrl: u.avatarUrl } };
+  });
+
   // Upload / remove the signed-in user's profile image (any authenticated user, self only).
   app.post('/users/me/avatar', { preHandler: guard.authenticate }, async (req) => {
     if (!deps.storage) throw new ValidationError('Uploads are not enabled.');
@@ -214,6 +223,8 @@ export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDe
       { filename: file.filename, mimeType: file.mimetype, content },
       { maxBytes: deps.avatarMaxBytes ?? 5 * 1024 * 1024 },
     );
+    // The faces' small copy, from the same bytes (an older photo gets one when first asked for).
+    await deps.avatarFaces?.prepare(url, content);
     const user = await userService.setAvatar(req.user!.id, url);
     await logAudit(req, 'user.avatar.set', user.id);
     return { data: user };

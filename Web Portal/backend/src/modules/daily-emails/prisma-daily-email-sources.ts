@@ -1,7 +1,9 @@
 import { leafCounts } from '../tasks/checklist-tree';
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { normalizePreferences } from '../notifications/notification-preferences';
-import { waitsDays, type DailyMeeting, type DailyProjectFigures, type DailyTask, type DailyWeek } from './daily-email-content';
+import type { DailyMeeting, DailyProjectFigures, DailyTask, DailyWeek } from './daily-email-content';
+import { COUNTED_TASK as COUNTED_IN_FIGURES, NOT_ARCHIVED } from '../tasks/task-archive-where';
+import { isWaitingTask } from '../tasks/scheduled-start';
 import type { DailyRecipient } from './daily-email-service';
 import { liveProjectWhere } from '../companies/project-archive';
 import { hasActiveCompany, sharedCompanyWhere } from '../companies/company-access';
@@ -9,7 +11,7 @@ import { managedProjectsWhere } from '../projects/project-managers';
 import { STAFF_ONLY_WHERE } from '../clients/client-kind';
 import { healthReads } from '../project-health/prisma-health-source';
 import { completionOf, type CompletionMode } from '../project-health/completion';
-import { daysUntilDue, zonedDayKey } from '../../lib/due-date';
+import { daysUntilDue } from '../../lib/due-date';
 
 const personSelect = {
   id: true,
@@ -39,14 +41,15 @@ const nameSelect = { firstName: true, lastName: true, username: true } as const;
 const nameOf = (u: { firstName: string | null; lastName: string | null; username: string }) => [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username;
 
 /**
- * The redesign (Nov 2026): which tasks count. A task in the Recycle Bin or merged into another carries
- * `deletedAt` and counts nowhere. WIRE AFTER MERGE (bulk + task archive): an archived OPEN task leaves
- * every list and figure (add `archivedAt: null` to OPEN_TASK and to the open side of COUNTED_TASK); an
- * archived DONE task still counts as done in the week's figures and the projects' bars (owner, 10 Nov).
+ * Which tasks count. A task in the Recycle Bin or merged into another carries `deletedAt` and counts
+ * nowhere. Task archive (owner, 10 Nov): an archived OPEN task leaves every list and figure; an archived
+ * DONE task still counts as done in the week's figures and the projects' bars (tasks/task-archive-where).
  */
-const OPEN_TASK = { deletedAt: null, completedAt: null, column: { category: { not: 'DONE' as const } } } satisfies Prisma.TaskWhereInput;
-/** Tasks a figure counts, done or not (archived done ones too, once the archive exists). */
-const COUNTED_TASK = { deletedAt: null } satisfies Prisma.TaskWhereInput;
+const OPEN_TASK = { deletedAt: null, ...NOT_ARCHIVED, completedAt: null, column: { category: { not: 'DONE' as const } } } satisfies Prisma.TaskWhereInput;
+/** Tasks a figure counts, done or not: not deleted, and not archived unless done. */
+const COUNTED_TASK = { deletedAt: null, AND: [COUNTED_IN_FIGURES] } satisfies Prisma.TaskWhereInput;
+/** Completions: every done task counts, archived ones too. */
+const DONE_COUNTED = { deletedAt: null } satisfies Prisma.TaskWhereInput;
 
 /** The project as the email names it. */
 const projectSelect = {
@@ -92,7 +95,10 @@ const taskSelect = {
   boardDate: true,
   // 1.23.3: the live items; the count is of the real to-do items (no sub-items).
   checklist: { where: { deletedAt: null }, select: { id: true, parentId: true, done: true } },
-  dependencies: { select: { dependsOn: { select: { completedAt: true, deletedAt: true, column: { select: { category: true } } } } } },
+  dependencies: { select: { dependsOn: { select: { completedAt: true, deletedAt: true, archivedAt: true, column: { select: { category: true } } } } } },
+  // Its guests (name and company only — never a guest's email or phone) and its categories.
+  externalContacts: { select: { name: true, company: true }, orderBy: { position: 'asc' } },
+  categories: { select: { category: { select: { name: true, color: true, position: true } } } },
   project: { select: projectSelect },
   // The redesign: its column's kind (in progress or not started) as well as its name.
   column: { select: { name: true, category: true } },
@@ -114,9 +120,13 @@ const toTask = (t: TaskRow): DailyTask => ({
   startDate: t.startDate,
   boardDate: t.boardDate,
   checklist: t.checklist.length ? leafCounts(t.checklist) : null,
-  // Blocked: a task it depends on isn't done yet.
-  blocked: t.dependencies.some((d) => !d.dependsOn.deletedAt && !d.dependsOn.completedAt && d.dependsOn.column.category !== 'DONE'),
-  // WIRE AFTER MERGE (guests + categories): `categories` [{ name, color }] and `guests` ["Name (Company)"].
+  // Blocked: a task it depends on isn't done yet (an archived one no longer blocks).
+  blocked: t.dependencies.some((d) => !d.dependsOn.deletedAt && !d.dependsOn.archivedAt && !d.dependsOn.completedAt && d.dependsOn.column.category !== 'DONE'),
+  guests: t.externalContacts.map((g) => ({ name: g.name, company: g.company })),
+  categories: t.categories
+    .map((c) => c.category)
+    .sort((a, b) => a.position - b.position || a.name.localeCompare(b.name, 'en'))
+    .map((c) => ({ name: c.name, color: c.color })),
 });
 
 /**
@@ -179,7 +189,8 @@ export function createPrismaDailyEmailSources(prisma: PrismaClient) {
       /** Assigned to them and completed in [from, to), whoever completed them — never in an archived project. */
       async completedBetween(userId: string, from: Date, to: Date): Promise<DailyTask[]> {
         const rows = await prisma.task.findMany({
-          where: { deletedAt: null, assignees: { some: { userId } }, completedAt: { gte: from, lt: to }, project: liveProjectWhere({ deletedAt: null, AND: [await companyScope(userId)] }) },
+          // Task archive: an archived task is never in the email's lists (its completion still counts in figures).
+          where: { deletedAt: null, ...NOT_ARCHIVED, assignees: { some: { userId } }, completedAt: { gte: from, lt: to }, project: liveProjectWhere({ deletedAt: null, AND: [await companyScope(userId)] }) },
           select: taskSelect,
           orderBy: { completedAt: 'asc' },
           take: 500,
@@ -257,15 +268,16 @@ export function createPrismaDailyEmailSources(prisma: PrismaClient) {
        */
       async weekFigures(userId: string, r: { dueFrom: Date; dueTo: Date; doneFrom: Date; now: Date }): Promise<DailyWeek> {
         const project = liveProjectWhere({ deletedAt: null, AND: [await companyScope(userId)] });
-        const mine = { ...COUNTED_TASK, assignees: { some: { userId } }, project };
+        const mine = { assignees: { some: { userId } }, project };
         const [due, done] = await Promise.all([
           prisma.task.findMany({
-            // An open task of a completed project is in no list: left out (its done ones still count).
-            where: { ...mine, dueDate: { gte: r.dueFrom, lt: r.dueTo }, OR: [{ project: { status: { not: 'COMPLETED' } } }, { completedAt: { not: null } }, { column: { category: 'DONE' } }] },
+            // Counted tasks (archived open ones out, archived done ones in); an open task of a completed
+            // project is in no list: left out too (its done ones still count).
+            where: { ...mine, ...COUNTED_TASK, dueDate: { gte: r.dueFrom, lt: r.dueTo }, OR: [{ project: { status: { not: 'COMPLETED' } } }, { completedAt: { not: null } }, { column: { category: 'DONE' } }] },
             select: { dueDate: true, completedAt: true, column: { select: { category: true } } },
             take: 2000,
           }),
-          prisma.task.findMany({ where: { ...mine, completedAt: { gte: r.doneFrom, lte: r.now } }, select: { completedAt: true }, take: 5000 }),
+          prisma.task.findMany({ where: { ...mine, ...DONE_COUNTED, completedAt: { gte: r.doneFrom, lte: r.now } }, select: { completedAt: true }, take: 5000 }),
         ]);
         return {
           due: due.map((t) => ({ dueDate: t.dueDate!, done: t.completedAt !== null || t.column.category === 'DONE' })),
@@ -302,14 +314,14 @@ export function createPrismaDailyEmailSources(prisma: PrismaClient) {
           }),
         ]);
         // Board days are the company's days: a task waits for a later one by the company's today.
-        const companyToday = zonedDayKey(o.now, o.companyTimeZone ?? o.timeZone);
+        const companyTz = o.companyTimeZone ?? o.timeZone;
         const count = (rows: Array<{ projectId: string; _count: { _all: number } }>) => new Map(rows.map((r) => [r.projectId, r._count._all] as const));
         const openOf = count(open);
         const waitingOf = count(waiting);
         const lateOf = new Map<string, number>();
         for (const t of maybeLate) {
           // Waiting for a later start day: not today's work, so not late today.
-          if (waitsDays(t.boardDate, companyToday) > 0) continue;
+          if (isWaitingTask({ boardDate: t.boardDate, completedAt: null }, companyTz, o.now)) continue;
           if ((daysUntilDue(t.dueDate, o.timeZone, o.now) ?? 0) < 0) lateOf.set(t.projectId, (lateOf.get(t.projectId) ?? 0) + 1);
         }
         const figuresOf = new Map(figures.map((f) => [f.projectId, f] as const));

@@ -47,6 +47,7 @@ const PAGES: [pattern: RegExp, title: string, indexable?: boolean][] = [
   [/^\/admin\/error-log$/, 'Error Log'],
   [/^\/admin\/users$/, 'User Management'],
   [/^\/admin\/companies$/, 'Companies'],
+  [/^\/admin\/guests$/, 'Guest contacts'],
   [/^\/admin\/clients$/, 'Clients'],
   // 1.23 The Client portal (client accounts; private, never listed).
   [/^\/portal$/, 'Your projects'],

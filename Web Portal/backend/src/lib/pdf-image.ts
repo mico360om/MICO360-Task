@@ -67,15 +67,22 @@ export function printableImage(buf: Buffer): Buffer | null {
  * when the PDF can't take it as stored (WebP, GIF, see-through or interlaced PNGs), converted by the
  * picture library — or, without one, flattened here when it can be. Null when there is none, it
  * can't be read or nothing can print it, so the caller draws the project's icon or initials instead.
+ *
+ * 1.23.11: `fit` (the picture library's toDocumentPicture for the box it is printed in) makes any
+ * picture — a big JPEG too — the size the PDF prints it at (≤ 200 dpi), re-encoded once; when it
+ * can't, the picture is taken as before.
  */
 export async function readProjectPicture(
   imageUrl: string | null | undefined,
   read: ((imageUrl: string) => Promise<Buffer | null>) | undefined,
   convert?: (raw: Buffer) => Promise<Buffer | null>,
+  fit?: (raw: Buffer) => Promise<Buffer | null>,
 ): Promise<Buffer | null> {
   if (!imageUrl || !read) return null;
   const stored = await read(imageUrl).catch(() => null);
   if (!stored) return null;
+  const sized = fit ? await fit(stored).catch(() => null) : null;
+  if (sized) return sized;
   if (printableAsStored(stored)) return stored;
   if (convert) return convert(stored).catch(() => null);
   return printableImage(stored);

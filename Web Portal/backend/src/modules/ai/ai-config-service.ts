@@ -3,8 +3,9 @@ import { NotFoundError, ValidationError } from '../../lib/http-errors';
 import type { AuditService } from '../audit/audit-service';
 import type { AiConfigRepository } from './ai-config-repository';
 import { fetchProviderModels, ProviderHttpError } from './ai-provider-sync';
-import { complete, COMPLETION_TIMEOUT_MS, ProviderRefusedError } from './ai-completion';
-import { createSafeFetch } from './ai-network';
+import { complete, COMPLETION_TIMEOUT_MS, ProviderRefusedError, type ProviderCallInfo } from './ai-completion';
+import { createSafeFetch, isMico360Provider } from './ai-network';
+import { keyStatus, platformFleet, platformVersion } from './mico360-native';
 import type { RemoteModel } from './ai-model-catalog';
 import * as ops from './ai-config';
 import type {
@@ -37,11 +38,19 @@ export interface AiConfigServiceDeps {
 /** How old a provider's model list may get before the regular refresh loads it again. */
 export const MODEL_LIST_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
-/** The outcome of asking a provider for its models. */
-type Listing = { ok: true; models: RemoteModel[] } | { ok: false; error: ValidationError; keyRefused: boolean };
+/** MICO360 AI answered an empty model list (its guide, §9: busy or draining nodes' models are left out). */
+const MICO360_EMPTY_LIST = 'MICO360 AI listed no models right now — its AI nodes may be busy or offline. Any models already here stay as they were; the list is loaded again within the hour (or press Refresh models).';
+/** …so it is loaded again at the next hourly check, not a day later (review minor 6). */
+const EMPTY_LIST_RETRY_MS = 60 * 60 * 1000;
 
-/** The outcome of a model test: it answered (and how fast), or why not. */
-export type ModelTestResult = { ok: true; ms: number; reply: string } | { ok: false; message: string };
+/** The outcome of asking a provider for its models (MICO360 AI: and its platform's facts). */
+type Listing = ({ ok: true; models: RemoteModel[] } | { ok: false; error: ValidationError; keyRefused: boolean }) & { facts?: ops.PlatformFacts };
+
+/**
+ * The outcome of a model test: it answered (and how fast), or why not. MICO360 AI (b5): the model that
+ * answered, and the platform's words when another model stood in.
+ */
+export type ModelTestResult = { ok: true; ms: number; reply: string; model?: string | null; substituted?: string | null } | { ok: false; message: string };
 
 /**
  * AI Management service (admin). Persists the AI config, applies every change
@@ -86,16 +95,41 @@ export function createAiConfigService({
   }
 
   /** Ask a provider for its models. Network and provider problems become a failed listing, not an error. */
-  async function list(provider: Pick<AiProvider, 'kind' | 'apiBaseUrl' | 'apiKey'>): Promise<Listing> {
+  async function listModels(provider: Pick<AiProvider, 'kind' | 'apiBaseUrl' | 'apiKey' | 'preset'>): Promise<Listing> {
     try {
-      return { ok: true, models: await fetchProviderModels(provider, providerFetch, { allowPrivateHosts }) };
+      const models = await fetchProviderModels(provider, providerFetch, { allowPrivateHosts });
+      // MICO360 AI lists no models while none of its AI nodes accepts work (busy, draining, offline):
+      // that says nothing about which models it has, so every model stays as it was.
+      if (isMico360Provider(provider) && models.length === 0) return { ok: false, error: new ValidationError(MICO360_EMPTY_LIST), keyRefused: false };
+      return { ok: true, models };
     } catch (err) {
       if (!(err instanceof ValidationError)) throw err;
       return { ok: false, error: err, keyRefused: err instanceof ProviderHttpError && (err.providerStatus === 401 || err.providerStatus === 403) };
     }
   }
+  /**
+   * MICO360 AI's facts about itself, read beside its models (b7, b11, b12): the server's version (the
+   * keyless GET /api/status), what the fleet can do (GET /api/v1/models) and the key's concurrency
+   * (GET /api/v1/status). Each is best effort: one that can't be read keeps the last one known.
+   */
+  async function readFacts(provider: Pick<AiProvider, 'apiBaseUrl' | 'apiKey' | 'preset'>): Promise<ops.PlatformFacts> {
+    const opts = { fetchImpl: providerFetch, allowPrivateHosts };
+    const [v, fleet, key] = await Promise.all([platformVersion(provider, opts), platformFleet(provider, opts), keyStatus(provider, opts)]);
+    return { version: v?.version ?? null, commit: v?.commit ?? null, capabilities: fleet?.capabilities ?? null, concurrencyLimit: key?.limit ?? null };
+  }
+  /**
+   * The models, then — once the platform answered the list (even an empty one) — its facts. Review minor 5:
+   * never beside a refused key: 20 wrong keys a minute from one address block every key from it.
+   */
+  async function list(provider: Pick<AiProvider, 'kind' | 'apiBaseUrl' | 'apiKey' | 'preset'>): Promise<Listing> {
+    const listing = await listModels(provider);
+    if (!isMico360Provider(provider)) return listing;
+    const answered = listing.ok || listing.error.message === MICO360_EMPTY_LIST;
+    return answered ? { ...listing, facts: await readFacts(provider) } : listing;
+  }
   function applyListing(config: AiConfig, providerId: string, listing: Listing, m: Meta): AiConfig {
-    return listing.ok ? ops.applySync(config, providerId, listing.models, m) : ops.recordSyncFailure(config, providerId, listing.error.message, m.now);
+    const next = listing.ok ? ops.applySync(config, providerId, listing.models, m) : ops.recordSyncFailure(config, providerId, listing.error.message, m.now);
+    return listing.facts ? ops.applyPlatform(next, providerId, listing.facts, m.now) : next;
   }
 
   // Reads
@@ -187,14 +221,23 @@ export function createAiConfigService({
     const provider = config.providers.find((p) => p.id === model.providerId);
     if (!provider) throw new NotFoundError('AI provider not found.');
     const started = Date.now();
+    let info: ProviderCallInfo | null = null;
     try {
       const reply = await complete(
         { provider, modelKey: model.modelKey, parameters: model.parameters },
         { system: 'Reply with the single word OK.', prompt: 'Are you there?', maxTokens: 16 },
         providerFetch,
-        { timeoutMs: COMPLETION_TIMEOUT_MS, allowPrivateHosts },
+        { timeoutMs: COMPLETION_TIMEOUT_MS, allowPrivateHosts, observe: (i) => (info = i) },
       );
-      return { ok: true, ms: Date.now() - started, reply: reply.slice(0, 80) };
+      const result: ModelTestResult = { ok: true, ms: Date.now() - started, reply: reply.slice(0, 80) };
+      const seen = info as ProviderCallInfo | null;
+      if (!seen) return result;
+      // b5 (MICO360 AI): which model answered; a stand-in is logged on the provider too.
+      if (seen.substituted && seen.model && seen.model !== model.modelKey) {
+        const sub = { asked: model.modelKey, answered: seen.model };
+        await mutate((c) => ({ config: ops.recordSubstitution(c, provider.id, sub, now()), result: null })).catch(() => undefined);
+      }
+      return { ...result, model: seen.model ?? model.modelKey, substituted: seen.substituted };
     } catch (err) {
       if (err instanceof ProviderRefusedError) return { ok: false, message: `HTTP ${err.providerStatus}${err.detail ? `: ${err.detail}` : ''}` };
       if (err instanceof ValidationError) return { ok: false, message: err.message };
@@ -232,12 +275,18 @@ export function createAiConfigService({
     return { ...result, config: ops.redactConfig(config) };
   }
 
-  /** Reload the model list of every switched-on provider not checked in the last day (the regular job). */
+  /**
+   * Reload the model list of every switched-on provider not checked in the last day (the regular job);
+   * MICO360 AI's after an hour when it last listed no models (its nodes were busy).
+   */
   async function refreshDueProviders(): Promise<{ refreshed: number; failed: number }> {
     const at = Date.parse(now());
-    const due = (await repo.load()).providers.filter(
-      (p) => p.enabled && (!p.lastSyncAttemptAt || at - Date.parse(p.lastSyncAttemptAt) >= MODEL_LIST_MAX_AGE_MS),
-    );
+    const due = (await repo.load()).providers.filter((p) => {
+      if (!p.enabled) return false;
+      if (!p.lastSyncAttemptAt) return true;
+      const age = at - Date.parse(p.lastSyncAttemptAt);
+      return age >= MODEL_LIST_MAX_AGE_MS || (p.lastSyncError === MICO360_EMPTY_LIST && age >= EMPTY_LIST_RETRY_MS);
+    });
     let refreshed = 0;
     let failed = 0;
     for (const p of due) {

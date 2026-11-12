@@ -1,7 +1,8 @@
 import type { ApiClient } from '../lib/api-client';
 
 /** 1.22.4 the Error log (System Settings → Error log, administrators only). */
-export type ErrorKind = 'ERROR' | 'NETWORK' | 'BLOCKED' | 'SLOW' | 'SERVER';
+/** 1.23.14 UPDATE: an update restart — the database briefly away while the server stopped or started (handled), or a request cut or held up by it. */
+export type ErrorKind = 'ERROR' | 'NETWORK' | 'BLOCKED' | 'SLOW' | 'SERVER' | 'UPDATE';
 export type ErrorKindFilter = 'all' | 'errors' | 'blocked' | 'slow' | 'server';
 export type ErrorRange = 'today' | '7d' | '30d';
 
@@ -11,8 +12,17 @@ export type ErrorRange = 'today' | '7d' | '30d';
  */
 export interface SlowTiming {
   totalMs: number | null;
-  serverMs: number;
+  /** 1.23.14: null when only the browser's parts were said (an answer without the server's time). */
+  serverMs: number | null;
   dbMs: number | null;
+  /**
+   * 1.23.14 — where the time went, from the browser's own timing (ms): waiting for a free connection,
+   * connecting, waiting for the first byte, downloading. Absent from older reports and servers.
+   */
+  queueMs?: number;
+  connectMs?: number;
+  waitMs?: number;
+  downloadMs?: number;
 }
 
 export interface ErrorGroup {
@@ -47,6 +57,8 @@ export interface ErrorOccurrence {
   resource: string | null;
   /** A server error's database diagnosis (1.22.5): Prisma's code, the database's code and its message, values masked. */
   database?: string | null;
+  /** (b) bundles, b10: a MICO360 AI failure's ids — "MICO360 AI · correlation id … · job …" — to quote to its support. */
+  ai?: string | null;
   /** 1.23.3, a slow request: where its time went (null: not said; absent from an older server). */
   timing?: SlowTiming | null;
   value: number | null;
@@ -106,7 +118,8 @@ export interface ErrorLogQuery {
 export function errorLogApi(client: ApiClient) {
   return {
     list: (query: ErrorLogQuery) => {
-      const params = new URLSearchParams({ kind: query.kind, range: query.range, status: query.status });
+      // 1.23.14 updates=1: this page knows the Update restart kind (an older page gets those rows as Server rows).
+      const params = new URLSearchParams({ kind: query.kind, range: query.range, status: query.status, updates: '1' });
       if (query.q.trim()) params.set('q', query.q.trim().slice(0, 100));
       if (query.before) params.set('before', query.before);
       return client.get<{ data: ErrorLogPage }>(`/error-log?${params}`).then((r) => r.data);

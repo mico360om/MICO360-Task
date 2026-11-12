@@ -131,6 +131,16 @@ describe('Daily email sources, 1.22: the card’s details, the day’s meetings,
     expect(two).toMatchObject({ blocked: true, checklist: null, startDate: null });
   });
 
+  it('Duplicate Task: a "duplicated from / as" history line is never the latest update (it names another task, maybe in a project the reader can’t open)', async () => {
+    const dm1 = await byKey('DM-1');
+    await prisma.activity.create({ data: { taskId: dm1.id, projectId: dm1.projectId, userId: bo, action: 'DUPLICATED', meta: { copyTaskId: 'hidden-copy', copyKey: 'HIDDEN-9' }, createdAt: new Date('2026-10-21T08:00:00Z') } });
+    await prisma.activity.create({ data: { taskId: dm1.id, projectId: dm1.projectId, userId: bo, action: 'DUPLICATED_FROM', meta: { fromTaskId: 'hidden-original', fromKey: 'HIDDEN-3' }, createdAt: new Date('2026-10-21T09:00:00Z') } });
+    const one = (await sources.tasks.pending(ada)).find((t) => t.key === 'DM-1')!;
+    // The redesign has no "latest update" line at all (ruling R8): nothing about another task can come through.
+    expect(one).not.toHaveProperty('latest');
+    expect(JSON.stringify(one)).not.toContain('HIDDEN');
+  });
+
   it('meetings: those the person organizes or is invited to and hasn’t declined, starting in the window — not drafts, cancelled, deleted or archived projects’', async () => {
     const open = await prisma.project.findFirstOrThrow({ where: { code: 'DMOPEN' } });
     const old = await prisma.project.findFirstOrThrow({ where: { code: 'DMOLD' } });
@@ -298,3 +308,62 @@ describe('Daily email sources, the redesign: the week\u2019s figures and the pro
     expect(week.due.filter((r) => r.dueDate.getTime() === due.getTime()).map((r) => r.done)).toEqual([true]);
   });
 });
+
+describe('Daily email sources after the merge: the task archive, guests and categories (integration)', () => {
+  const byKey = async (key: string) => prisma.task.findFirstOrThrow({ where: { key, project: { code: { in: ['DMOPEN', 'DMOLD'] } } } });
+  const now = new Date('2026-11-04T02:00:00Z');
+  const day = (k: string) => new Date(`${k}T00:00:00Z`);
+  const archive = (id: string) => prisma.task.update({ where: { id }, data: { archivedAt: new Date('2026-11-03T08:00:00Z'), archivedById: ada } });
+
+  it('an archived OPEN task is in no list and no figure; an archived DONE task still counts in the week and the project\u2019s bar', async () => {
+    const [dm1, dm2, dm4] = await Promise.all(['DM-1', 'DM-2', 'DM-4'].map(byKey));
+    // DM-1 (hers, open, late) archived; DM-4 (hers, done) archived; DM-2 (hers, open) not.
+    await prisma.task.update({ where: { id: dm2!.id }, data: { dueDate: day('2026-11-05') } });
+    await prisma.task.update({ where: { id: dm4!.id }, data: { dueDate: day('2026-11-03'), completedAt: new Date('2026-11-03T09:00:00Z') } });
+    await prisma.task.update({ where: { id: dm1!.id }, data: { dueDate: day('2026-11-02') } });
+    await archive(dm1!.id);
+    await archive(dm4!.id);
+
+    expect((await sources.tasks.pending(ada)).map((t) => t.key)).toEqual(['DM-2']);
+    // Bo runs DMOPEN (named manager): Ada's archived late task is not in his list of others' late tasks.
+    expect((await sources.tasks.managed(bo, now)).map((t) => t.key)).not.toContain('DM-1');
+    const week = await sources.tasks.weekFigures(ada, { dueFrom: day('2026-10-31'), dueTo: day('2026-11-09'), doneFrom: new Date('2026-10-20T20:00:00Z'), now });
+    expect(week.due.map((r) => [r.dueDate.toISOString().slice(0, 10), r.done]).sort()).toEqual([['2026-11-03', true], ['2026-11-05', false]]);
+    expect(week.completions.map((d) => d.toISOString())).toContain('2026-11-03T09:00:00.000Z');
+    // Completed yesterday is a list: an archived task isn't in it.
+    expect((await sources.tasks.completedBetween(ada, new Date('2026-11-03T00:00:00Z'), now)).map((t) => t.key)).not.toContain('DM-4');
+
+    const f = (await sources.tasks.projectFigures(ada, { now, timeZone: 'Asia/Muscat', companyTimeZone: 'Asia/Muscat' })).find((x) => x.project.code === 'DMOPEN')!;
+    // DMOPEN: DM-1 (archived open: out), DM-2, DM-3, DM-8 open; DM-4 (archived done: counted), DM-5 done; DM-6 deleted.
+    expect(f).toMatchObject({ total: 5, done: 2, open: 3, overdue: 0 });
+  });
+
+  it('an archived task no longer blocks the task that depends on it', async () => {
+    const [dm2, dm3] = await Promise.all(['DM-2', 'DM-3'].map(byKey));
+    await prisma.taskDependency.create({ data: { taskId: dm2!.id, dependsOnTaskId: dm3!.id } });
+    expect((await sources.tasks.pending(ada)).find((t) => t.key === 'DM-2')!.blocked).toBe(true);
+    await archive(dm3!.id);
+    expect((await sources.tasks.pending(ada)).find((t) => t.key === 'DM-2')!.blocked).toBe(false);
+  });
+
+  it('guests (name and company only) and categories (by their place, with their colour) on the person\u2019s tasks', async () => {
+    const dm2 = await byKey('DM-2');
+    await prisma.taskExternalContact.createMany({
+      data: [
+        { taskId: dm2!.id, name: 'Sara', company: null, email: 'sara@guest.test', phone: '+968 9000 0000', position: 1 },
+        { taskId: dm2!.id, name: 'Ahmed', company: 'OXY', email: 'ahmed@oxy.test', position: 0 },
+      ],
+    });
+    const open = await prisma.project.findFirstOrThrow({ where: { code: 'DMOPEN' } });
+    const hse = await prisma.projectCategory.create({ data: { projectId: open.id, name: 'HSE', nameKey: 'hse', color: '#2E7D53', position: 1 } });
+    const civil = await prisma.projectCategory.create({ data: { projectId: open.id, name: 'Civil', nameKey: 'civil', color: '#B87611', position: 0 } });
+    await prisma.taskCategory.createMany({ data: [{ taskId: dm2!.id, categoryId: hse.id }, { taskId: dm2!.id, categoryId: civil.id }] });
+    const t = (await sources.tasks.pending(ada)).find((x) => x.key === 'DM-2')!;
+    expect(t.guests).toEqual([{ name: 'Ahmed', company: 'OXY' }, { name: 'Sara', company: null }]);
+    expect(JSON.stringify(t)).not.toMatch(/@guest\.test|@oxy\.test|9000/);
+    expect(t.categories).toEqual([{ name: 'Civil', color: '#B87611' }, { name: 'HSE', color: '#2E7D53' }]);
+    await prisma.taskCategory.deleteMany({ where: { taskId: dm2!.id } });
+    await prisma.projectCategory.deleteMany({ where: { projectId: open.id } });
+  });
+});
+

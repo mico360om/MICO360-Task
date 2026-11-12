@@ -424,7 +424,7 @@ describe('a task’s row', () => {
     checklist: { done: 4, total: 7 },
     blocked: true,
     categories: [{ name: 'Electrical', color: '#7C3AED' }],
-    guests: ['Ahmed (OXY)'],
+    guests: [{ name: 'Ahmed', company: 'OXY' }],
   });
 
   it('number, title (a link), project, status and priority badges in the scheme’s colours, how late, the checklist with a bar, categories and guests', () => {
@@ -584,7 +584,7 @@ describe('email-safe HTML (Outlook, Gmail, phones)', () => {
   const busy = () =>
     build({
       tasks: [
-        task('A-1', { dueDate: day('2026-11-01'), checklist: { done: 1, total: 3 }, categories: [{ name: 'HSE', color: '#2F6DB5' }], guests: ['G'] }),
+        task('A-1', { dueDate: day('2026-11-01'), checklist: { done: 1, total: 3 }, categories: [{ name: 'HSE', color: '#2F6DB5' }], guests: [{ name: 'G', company: null }] }),
         task('A-2', { dueDate: day('2026-11-04') }),
         task('A-3', { dueDate: day('2026-11-06'), project: OPS }),
         task('A-4', { project: OPS }),
@@ -655,7 +655,7 @@ describe('long lists stay under Gmail’s limit (about 102 KB)', () => {
         priority: 'HIGH',
         checklist: { done: 2, total: 9 },
         categories: [{ name: 'Mechanical', color: '#2F6DB5' }],
-        guests: ['A guest with a long name (Some Company)'],
+        guests: [{ name: 'A guest with a long name', company: 'Some Company' }],
         ...extra(i),
       }),
     );
@@ -784,6 +784,22 @@ describe('review fixes', () => {
     const m = section(e.text, 'Overdue and waiting in your projects');
     expect(m).toContain('RIG-8');
     expect(m).not.toContain('RIG-9');
+  });
+
+  it('merge (dupmv lane’s case): only tasks starting on a later day — the email still goes, and its subject says they are coming up', () => {
+    const e = build({ tasks: [task('RIG-30', { title: 'Pour the slab', boardDate: board('2026-11-10'), dueDate: day('2026-11-12') })] });
+    expect(e.subject).toBe('Today: 1 task coming up — Wed 4 Nov');
+    expect(section(e.text, 'Coming up')).toMatch(/RIG-30 Pour the slab — starts in 6 days/);
+    // Its start day is today: today’s work again.
+    expect(build({ tasks: [task('RIG-30', { boardDate: board('2026-11-04') })] }).subject).toBe('Today: 1 open task — Wed 4 Nov');
+  });
+
+  it('merge (guests lane’s case): a guest’s name and company only, as a "Guest: Ahmed (OXY)" chip; a guest without a company by name', () => {
+    const { text, html } = build({ tasks: [task('RIG-1', { guests: [{ name: 'Ahmed', company: 'OXY' }, { name: 'Sara', company: null }], categories: [{ name: 'Civil', color: '#2E7D53' }, { name: 'HSE' }] })] });
+    expect(text).toContain('Guest: Ahmed (OXY) · Guest: Sara');
+    expect(text).toContain('Civil · HSE');
+    expect(html).toContain('>Guest: Sara</span>');
+    expect(html).toContain('<span style="color:#2E7D53">●</span>&nbsp;Civil</span>');
   });
 
   it('M6: the subject and the preview line say only what the parts that are on show', () => {

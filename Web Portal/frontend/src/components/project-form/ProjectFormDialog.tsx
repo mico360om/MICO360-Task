@@ -1,3 +1,4 @@
+import { useEffectiveAdmin } from '../../lib/manager-view';
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../../api/client';
@@ -21,6 +22,7 @@ import { Toggle } from '../ui/Toggle';
 import { ProjectAvatar } from '../ProjectAvatar';
 import { AssigneeSelect } from '../task-form/AssigneeSelect';
 import { IdentityEditor, type ImageChoice } from './IdentityEditor';
+import { CategoriesEditor } from './CategoriesEditor';
 import { activePeople, ownerChoices, personName } from './owner-options';
 import { priorityOptions } from '../priority-option';
 import { templatesApi } from '../../api/templates';
@@ -227,7 +229,10 @@ export function ProjectFormDialog({ project, onClose, onSaved, templateId }: { p
   const dirQ = useQuery({ queryKey: ['directory'], queryFn: () => usersApi(apiClient).directory() });
   // The company-wide carry-forward switch (System Settings, which only admins can read). Off there,
   // the project's own switch changes nothing for now: say so (to admins; others aren't told).
-  const settingsQ = useQuery({ queryKey: ['system-settings'], queryFn: () => systemSettingsApi(apiClient).list(), enabled: isAdmin, staleTime: 60_000 });
+  // (System Settings are closed while Manager View is on: not asked then — the form keeps an administrator's
+  // other choices, since making a project is work and a project's settings open only where they run it.)
+  const settingsAdmin = useEffectiveAdmin();
+  const settingsQ = useQuery({ queryKey: ['system-settings'], queryFn: () => systemSettingsApi(apiClient).list(), enabled: isAdmin && settingsAdmin, staleTime: 60_000 });
   const carryOffForCompany = companyCarryForwardOff(settingsQ.data);
   const clients = useMemo(() => {
     const names = new Set<string>();
@@ -764,6 +769,13 @@ export function ProjectFormDialog({ project, onClose, onSaved, templateId }: { p
     </fieldset>
   );
 
+  // 1.24 The project's categories: saved one change at a time (not by this window's Save), so only once it exists.
+  const categoriesField = editing ? (
+    <CategoriesEditor projectId={saved!.id} />
+  ) : (
+    <p className="rounded-2xl border border-dashed border-line px-4 py-3 text-xs text-ink-2">Categories are added once the project is saved.</p>
+  );
+
   return (
     <ModalPortal>
       <div className={dialogLayer('wide')}>
@@ -800,6 +812,7 @@ export function ProjectFormDialog({ project, onClose, onSaved, templateId }: { p
                     {ownerField}
                     {teamField}
                     {tasksField}
+                    {categoriesField}
                   </div>
                 </div>
               ) : (
@@ -814,6 +827,7 @@ export function ProjectFormDialog({ project, onClose, onSaved, templateId }: { p
                   {ownerField}
                   {teamField}
                   {tasksField}
+                  {categoriesField}
                 </>
               )}
             </div>

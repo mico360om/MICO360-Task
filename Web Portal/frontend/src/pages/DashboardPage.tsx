@@ -1,3 +1,4 @@
+import { useEffectiveAdmin } from '../lib/manager-view';
 import { dayText, instantDayText } from '../lib/day-words';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -20,6 +21,7 @@ import { namedProjectOption } from '../components/project-option';
 import { daysUntilDue } from '../lib/due-date';
 import { useOpenTask } from '../lib/useOpenTask';
 import { isTaskDone } from '../lib/due-display';
+import { waitingDay } from '../lib/scheduled-start';
 import { useCompanyTimeZone } from '../lib/company-clock';
 import { LoadError } from '../components/ui/LoadError';
 import { STATUS_META, STATUS_ORDER } from '../lib/taskStatus';
@@ -98,6 +100,8 @@ function dueMeta(due: string, timeZone: string): { label: string; overdue: boole
 export function DashboardPage() {
   const user = useAuthStore((s) => s.user);
   const isAdmin = useAuthStore((s) => s.isAdmin());
+  // Manager View (owner, 10 Nov): the default arrangement for everyone is a setting — not offered then.
+  const settingsAdmin = useEffectiveAdmin();
   const qc = useQueryClient();
   const [projectFilter, setProjectFilter] = useState('');
   // Tasks open in the app shell's task panel, through ?task= in the address (reload, Back, a shared link).
@@ -123,7 +127,7 @@ export function DashboardPage() {
   const [said, setSaid] = useState('');
   const [editError, setEditError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const defaultsQ = useQuery({ queryKey: LAYOUT_DEFAULTS_KEY, queryFn: () => dashboardApi(apiClient).defaults(), enabled: isAdmin && !!editing && editing.target !== 'mine' });
+  const defaultsQ = useQuery({ queryKey: LAYOUT_DEFAULTS_KEY, queryFn: () => dashboardApi(apiClient).defaults(), enabled: settingsAdmin && !!editing && editing.target !== 'mine' });
   const defaultOf = (group: LayoutGroup) => layoutOrDefault(defaultsQ.data?.[group] ?? builtInLayout(group === 'admins'), group === 'admins');
   // While an administrator arranges a default that hasn't loaded yet, its draft waits for it.
   const waitingForDefault = !!editing && editing.target !== 'mine' && editing.draft.widgets.length === 0;
@@ -211,12 +215,13 @@ export function DashboardPage() {
   const dueSoon = useMemo(
     () =>
       [...(allTasksQ.data ?? [])]
-        .filter((t) => t.dueDate && !isTaskDone(t))
+        // Tasks scheduled for the future: one waiting for a later start day isn't today's (My Tasks' Upcoming).
+        .filter((t) => t.dueDate && !isTaskDone(t) && !waitingDay(t, timeZone))
         .sort((a, b) => (a.dueDate ?? '').localeCompare(b.dueDate ?? '', 'en'))
         .slice(0, rowsForHeight(6, windowHeight)),
-    [allTasksQ.data, windowHeight],
+    [allTasksQ.data, windowHeight, timeZone],
   );
-  const openTasks = useMemo(() => (myTasksQ.data ?? []).filter((t) => !isTaskDone(t)), [myTasksQ.data]);
+  const openTasks = useMemo(() => (myTasksQ.data ?? []).filter((t) => !isTaskDone(t) && !waitingDay(t, timeZone)), [myTasksQ.data, timeZone]);
   // Everyone else's Overdue and Due this week: their own tasks (already loaded for "Your open tasks"),
   // in company days and the company's week (its week start; Sunday until an administrator sets one).
   const companyWeekStart = useCompanyWeekStart();
@@ -434,7 +439,7 @@ export function DashboardPage() {
       {editing ? (
         <div id="customize-dashboard">
           <CustomizePanel
-            isAdmin={isAdmin}
+            isAdmin={settingsAdmin}
             target={editing.target}
             onTarget={chooseTarget}
             draft={editing.target === 'everyone' ? previewFor(editing.draft, 'everyone') : editing.draft}
@@ -550,7 +555,7 @@ function ActivityRow({ a, onOpenTask }: { a: ApiActivity; onOpenTask: (taskId: s
   const assignee = a.action === 'ASSIGNED' && typeof a.meta?.assignee === 'string' ? a.meta.assignee : null;
   return (
     <li className="flex gap-2 text-sm">
-      <Avatar name={who} size="sm" />
+      <Avatar name={who} src={a.actor?.avatarUrl} size="sm" decorative />
       <div className="min-w-0 flex-1">
         <p className="leading-snug text-ink">
           <bdi className="font-semibold">{who}</bdi> <span className={actionTone(a.action)}>{actionLabel(a.action)}</span>{' '}

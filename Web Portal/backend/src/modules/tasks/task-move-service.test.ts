@@ -509,3 +509,40 @@ describe('Moving a task: the new team stays inside its project’s companies', (
     expect((await w.service.preview(aisha, ['t8'], 'ops')).outsiders).toEqual([{ ...SARA, canJoin: true }, { ...ZAID, canJoin: true }]);
   });
 });
+
+// tbk: task archive — an archived task is read-only: it isn't moved (the others of a bulk move are).
+describe('Moving an archived task', () => {
+  it('is refused, task by task, with the plain sentence (unarchive it first)', async () => {
+    const w = world();
+    w.state.tasks.find((t) => t.id === 't1')!.archivedAt = new Date('2026-10-23T08:00:00Z');
+    const one = await refusal(w.service.moveTask(aisha, 't1', { projectId: 'ops' }));
+    expect(one.code).toBe('TASK_ARCHIVED');
+    expect(one.message).toBe('This task is archived — unarchive it first.');
+    const many = await w.service.moveTasks(aisha, ['t1', 't3'], { projectId: 'ops' });
+    expect(many.results.map((r) => [r.taskId, r.ok])).toEqual([
+      ['t1', false],
+      ['t3', true],
+    ]);
+    const preview = await w.service.preview(aisha, ['t1'], 'ops');
+    expect(preview.tasks[0]).toMatchObject({ canMove: false, reason: 'Archived: unarchive it first.' });
+  });
+});
+
+// tbk: bulk lane — Undo of a bulk move puts a task back with the number it had (still its own alias).
+describe('Moving a task back with its old number (Undo of a bulk move)', () => {
+  it('takes back the number it had there, which then stops being an old key; the new one is kept as an old key', async () => {
+    const w = world();
+    const there = await w.service.moveTask(aisha, 't1', { projectId: 'ops' });
+    expect(there.task.key).toBe('OPS-17');
+    const back = await w.service.moveTask(aisha, 't1', { projectId: 'rig', columnId: 'r-todo', reclaimKey: 'RIG-1' });
+    expect(back.task.key).toBe('RIG-1');
+    expect(w.state.aliases.has('RIG-1')).toBe(false);
+    expect(w.state.aliases.get('OPS-17')).toMatchObject({ taskId: 't1' });
+  });
+  it('a number that isn’t its own old key is never taken: the next free one is used', async () => {
+    const w = world();
+    await w.service.moveTask(aisha, 't1', { projectId: 'ops' });
+    const back = await w.service.moveTask(aisha, 't1', { projectId: 'rig', reclaimKey: 'RIG-2' });
+    expect(back.task.key).not.toBe('RIG-2');
+  });
+});

@@ -31,10 +31,11 @@ const olderQuery = z.object({ before: id, limit: z.coerce.number().int().min(1).
 // The person's ticks and edits on a card (the server checks each edit again; nothing else is taken from here).
 const confirmBody = z
   .object({
-    items: z.array(z.object({ id: z.string().min(1).max(20), include: z.boolean(), edits: z.record(z.unknown()).optional() })).max(60).default([]),
+    items: z.array(z.object({ id: z.string().min(1).max(20), include: z.boolean(), edits: z.record(z.string(), z.unknown()).optional() })).max(60).default([]),
     sendInvites: z.boolean().optional(),
   })
-  .default({});
+  // prefault: no body is read as {} and gets the items' own default (none).
+  .prefault({});
 
 const viewer = (req: FastifyRequest) => ({ userId: req.user!.id, roles: req.user!.roles ?? [] });
 

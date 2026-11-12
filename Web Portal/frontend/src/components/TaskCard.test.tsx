@@ -179,14 +179,23 @@ describe('TaskCard on a board of several projects', () => {
   });
 });
 
-describe('TaskCard: external contacts', () => {
-  it('says who outside the company is responsible: the first contact, and how many more', () => {
+// tgc: 1.24 — external contacts are guests now: the card line says "Guest: …" from the task's guests,
+// and from its external contacts in short only when an older server sends no guests.
+describe('TaskCard: guests', () => {
+  it('says who outside the company is named on it: the first guest, and how many more', () => {
+    render(<TaskCard task={{ ...task, guests: [{ id: 'g1', name: 'Ahmed Al Said', company: 'OXY' }, { id: 'g2', name: 'Sara', company: null }, { id: 'g3', name: 'Huda', company: 'PDO' }] }} />);
+    expect(screen.getByText('Guest: Ahmed Al Said (OXY) and 2 more')).toBeInTheDocument();
+    expect(screen.queryByText(/^External:/)).toBeNull();
+  });
+
+  it('an older server (no guests, contacts in short): the same line from them', () => {
     render(<TaskCard task={{ ...task, external: { count: 3, name: 'Ahmed Al Said', company: 'OXY', names: [], companies: [] } }} />);
-    expect(screen.getByText('External: Ahmed Al Said (OXY) and 2 more')).toBeInTheDocument();
+    expect(screen.getByText('Guest: Ahmed Al Said (OXY) and 2 more')).toBeInTheDocument();
   });
 
   it('says nothing for a task without any', () => {
-    render(<TaskCard task={{ ...task, external: null }} />);
+    render(<TaskCard task={{ ...task, guests: [], external: null }} />);
+    expect(screen.queryByText(/^Guest:/)).toBeNull();
     expect(screen.queryByText(/^External:/)).toBeNull();
   });
 });

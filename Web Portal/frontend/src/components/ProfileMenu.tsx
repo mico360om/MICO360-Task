@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { assetUrl } from '../api/client';
+import { personInitials } from '../lib/initials';
+import { ownName, useOwnUserRefresh } from '../lib/own-user';
+import { usePersonPhoto } from './ui/Avatar';
 import { useAuthStore } from '../stores/auth-store';
 import { useSignOut } from '../lib/useSignOut';
 import { SignOutWarning } from './SignOutWarning';
 import { ShortcutHint, useShortcutSettings } from './shortcuts/ShortcutProvider';
+import { MANAGER_VIEW_WORDS, useManagerView, useSetManagerView } from '../lib/manager-view';
 
 /** Header account button + dropdown menu: identity, profile, settings and log out. */
 export function ProfileMenu() {
@@ -14,8 +17,16 @@ export function ProfileMenu() {
   // Changes still on this device are discarded on sign-out, so ask first when there are any.
   const { signOut: signOutNow, unsent, cancel } = useSignOut();
   const ref = useRef<HTMLDivElement>(null);
-  const initials = (user?.username ?? '?').slice(0, 2).toUpperCase();
+  // Their own name's initials ("Aisha Khan" → AK, never the username's), and their current photo: the
+  // copy saved at sign-in is refreshed on every load and when the photo changes (lib/own-user).
+  useOwnUserRefresh();
+  const initials = personInitials(ownName(user) || '?');
+  const photo = usePersonPhoto(user?.avatarUrl);
   const admin = isAdmin();
+  // Manager View (owner, 10 Nov): an administrator's own switch, saved on their account.
+  const managerView = useManagerView();
+  const setManagerView = useSetManagerView();
+  const [switchFailed, setSwitchFailed] = useState(false);
 
   useEffect(() => {
     if (!open) cancel();
@@ -40,8 +51,8 @@ export function ProfileMenu() {
   }, [open]);
 
   const avatar = (size: string) =>
-    user?.avatarUrl ? (
-      <img src={assetUrl(user.avatarUrl)} alt="" className={`${size} rounded-full border border-line object-cover`} />
+    photo.url ? (
+      <img src={photo.url} alt="" onError={photo.onError} className={`${size} rounded-full border border-line object-cover`} />
     ) : (
       <span className={`${size} grid place-items-center rounded-full bg-brand-gradient text-xs font-bold text-white`}>{initials}</span>
     );
@@ -105,6 +116,36 @@ export function ProfileMenu() {
               Keyboard shortcuts
               <ShortcutHint action="help" className="ms-auto" />
             </button>
+            {managerView.available ? (
+              <button
+                type="button"
+                role="menuitemcheckbox"
+                aria-checked={managerView.on}
+                disabled={setManagerView.isPending || !managerView.known}
+                onClick={() => {
+                  setSwitchFailed(false);
+                  setManagerView.mutate(!managerView.on, { onError: () => setSwitchFailed(true) });
+                }}
+                className={`${itemClass} w-full text-start disabled:opacity-60`}
+              >
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3" />
+                </svg>
+                <span className="min-w-0 flex-1">
+                  <span className="block">{MANAGER_VIEW_WORDS.label}</span>
+                  <span className="block text-xs text-ink-2">{MANAGER_VIEW_WORDS.hint}</span>
+                </span>
+                {/* A small switch, its state read out by aria-checked on the item itself. */}
+                <span aria-hidden="true" className={`relative inline-flex h-5 w-9 flex-none items-center rounded-full transition-colors ${managerView.on ? 'bg-brand' : 'bg-line'}`}>
+                  <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${managerView.on ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                </span>
+              </button>
+            ) : null}
+            {switchFailed ? (
+              <p role="alert" className="px-2.5 py-1 text-xs text-danger">
+                {MANAGER_VIEW_WORDS.failed}
+              </p>
+            ) : null}
             <Link to="/about" role="menuitem" onClick={() => setOpen(false)} className={itemClass}>
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 7.5v.01" />

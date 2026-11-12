@@ -109,8 +109,10 @@ export function createInspectionPorts(d: InspectionPortDeps): InspectionPorts {
     doneColumnOf,
     async completeTask(taskId, actorId) {
       if (!d.tasks.moveTask) return false;
-      const t = await prisma.task.findFirst({ where: { id: taskId, deletedAt: null }, select: { projectId: true, completedAt: true, version: true, column: { select: { category: true } } } });
+      const t = await prisma.task.findFirst({ where: { id: taskId, deletedAt: null }, select: { projectId: true, completedAt: true, version: true, archivedAt: true, column: { select: { category: true } } } });
       if (!t || isTaskDone({ completedAt: t.completedAt, columnCategory: t.column?.category ?? null })) return false;
+      // Task archive: an archived task is read-only — the inspection is finished, the task stays as it is.
+      if (t.archivedAt) return false;
       const done = await doneColumnOf(t.projectId);
       if (!done) return false;
       // As a card moved to Done on the board: the same service call, and open boards are told. Only

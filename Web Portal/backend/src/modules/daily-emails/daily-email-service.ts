@@ -1,5 +1,6 @@
 import { shiftDayKey, zonedDayKey, zonedStartOfDay } from '../../lib/due-date';
 import { instantOf } from '../meetings/meeting-series';
+import { isWaitingTask } from '../tasks/scheduled-start';
 import type { EmailContent, TemplateOptions } from '../email/email-templates';
 import { dailyEmailOn, dailyEmailPrefs, DAILY_EMAIL_PARTS, type DailyEmailPart, type NotificationPreferences } from '../notifications/notification-preferences';
 import { dailyEmail, type DailyMeeting, type DailyProjectFigures, type DailyTask, type DailyWeek } from './daily-email-content';
@@ -412,7 +413,9 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
       },
       brand ?? undefined,
     );
-    return { count: tasks.filter((t) => !t.waitingSince).length, content, ...sender };
+    // The delivery log's task count: today's open tasks — not handed in, not waiting for a later start day
+    // (Coming up; board days are the company's days).
+    return { count: tasks.filter((t) => !t.waitingSince && !isWaitingTask({ boardDate: t.boardDate ?? null, completedAt: t.completedAt }, deps.companyTimeZone, at)).length, content, ...sender };
   }
 
   /** Sends a built email (with the company's sender name when it has one; as before without). */

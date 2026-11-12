@@ -233,6 +233,8 @@ export interface MeetingListCounts {
   openActionItemCount: number;
   /** The first few attendees' names (for the cards' faces). */
   attendees?: string[];
+  /** Avatar hotfix: the same first few as faces — name and photo (null: initials). */
+  attendeeFaces?: Array<{ name: string; avatarUrl: string | null }>;
   /** How far the minutes are. */
   minutes?: MinutesState;
   /** Notes recorded as decisions. */
@@ -370,7 +372,7 @@ export async function registerMeetingRoutes(app: FastifyInstance, deps: MeetingR
       data: flagged.map((m) => {
         const c = counts[m.id];
         return {
-          ...m, attendeeCount: c?.attendeeCount ?? 0, openActionItemCount: c?.openActionItemCount ?? 0, attendees: c?.attendees ?? [], minutes: c?.minutes ?? 'NONE', decisionCount: c?.decisionCount ?? 0,
+          ...m, attendeeCount: c?.attendeeCount ?? 0, openActionItemCount: c?.openActionItemCount ?? 0, attendees: c?.attendees ?? [], attendeeFaces: c?.attendeeFaces ?? [], minutes: c?.minutes ?? 'NONE', decisionCount: c?.decisionCount ?? 0,
           // Your own row and answer: a list shows them without reading each meeting's people.
           myAttendeeId: c?.mine?.attendeeId ?? null, myResponse: c?.mine?.response ?? null,
         };

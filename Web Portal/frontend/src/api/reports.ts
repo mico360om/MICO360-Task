@@ -55,6 +55,13 @@ export interface ReportFilters {
   projectId?: string;
   /** A team member: only tasks assigned to them. */
   userId?: string;
+  /** Task archive: "Include archived" (off by default: archived tasks are left out of every report). */
+  includeArchived?: boolean;
+}
+
+/** The filters as query args (every report, chart and export takes the same). */
+export function filterParams(f: ReportFilters = {}): Record<string, string | undefined> {
+  return { projectId: f.projectId, userId: f.userId, includeArchived: f.includeArchived ? 'true' : undefined };
 }
 
 export interface TimeSeriesParams extends ReportFilters {
@@ -76,18 +83,18 @@ function queryString(params: Record<string, string | undefined>): string {
 export function reportsApi(client: ApiClient) {
   return {
     projectPerformance: (f: ReportFilters = {}) =>
-      client.get<{ data: ProjectPerformanceRow[] }>(`/reports/projects${queryString({ projectId: f.projectId, userId: f.userId })}`).then((r) => r.data),
+      client.get<{ data: ProjectPerformanceRow[] }>(`/reports/projects${queryString(filterParams(f))}`).then((r) => r.data),
     status: (f: ReportFilters = {}) =>
-      client.get<{ data: Record<string, number> }>(`/reports/status${queryString({ projectId: f.projectId, userId: f.userId })}`).then((r) => r.data),
+      client.get<{ data: Record<string, number> }>(`/reports/status${queryString(filterParams(f))}`).then((r) => r.data),
     workload: (f: ReportFilters = {}) =>
-      client.get<{ data: UserWorkloadRow[] }>(`/reports/workload${queryString({ projectId: f.projectId, userId: f.userId })}`).then((r) => r.data),
+      client.get<{ data: UserWorkloadRow[] }>(`/reports/workload${queryString(filterParams(f))}`).then((r) => r.data),
     completion: (f: ReportFilters = {}) =>
-      client.get<{ data: CompletionStats }>(`/reports/completion${queryString({ projectId: f.projectId, userId: f.userId })}`).then((r) => r.data),
+      client.get<{ data: CompletionStats }>(`/reports/completion${queryString(filterParams(f))}`).then((r) => r.data),
     /** Daily time series: completion, overdue trend, burndown + weekly velocity over a date range. */
     timeSeries: (params: TimeSeriesParams = {}) =>
       client
         .get<{ data: TimeSeriesResult }>(
-          `/reports/timeseries${queryString({ from: params.from, to: params.to, projectId: params.projectId, userId: params.userId })}`,
+          `/reports/timeseries${queryString({ from: params.from, to: params.to, ...filterParams(params) })}`,
         )
         .then((r) => r.data),
     /** Download a report in the given format; `params` (filters, and the time series' range) become query args. */

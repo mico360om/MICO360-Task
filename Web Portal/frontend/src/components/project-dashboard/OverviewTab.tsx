@@ -16,6 +16,7 @@ import type { TaskFilter, TaskGroup } from './TasksTab';
 import { TaskKey } from '../TaskKey';
 import type { ProjectCompletion } from '../../api/projects';
 import { HealthCard, NextActionsCard, OwnersCard, RecentActivityCard, RisksCard } from './HealthCards';
+import { ByCategoryCard } from './ByCategoryCard';
 import { OVERDUE_CLASS, STATUS_CLASS, dueTone } from '../../lib/colour-classes';
 
 const PROJECT_STATUS_TONE: Record<string, BadgeTone> = { PLANNING: 'info', ACTIVE: 'success', ON_HOLD: 'warning', COMPLETED: 'brand', ARCHIVED: 'neutral' };
@@ -52,14 +53,17 @@ function Detail({ label, children }: { label: string; children: ReactNode }) {
 export interface OverviewProps {
   project: ApiProject;
   tasks: ApiTask[];
+  /** Task archive: the tasks the figures count — the listed ones and the archived Done ones (Work done). Default: `tasks`. */
+  figureTasks?: ApiTask[];
   groups: TaskGroup[];
   today: string;
   timeZone: string;
   statsReady: boolean;
-  members: Array<{ id: string; name: string; role: 'MEMBER' | 'MANAGER' }>;
+  /** Avatar hotfix: each with their photo (null: initials). */
+  members: Array<{ id: string; name: string; role: 'MEMBER' | 'MANAGER'; avatarUrl?: string | null }>;
   ownerName: string;
   /** The person named as its manager, if any (they run it too). */
-  namedManager?: { id: string; name: string } | null;
+  namedManager?: { id: string; name: string; avatarUrl?: string | null } | null;
   /** Who created the project. */
   createdByName?: string | null;
   /** The owner picker (admins), shown instead of the owner's name. */
@@ -76,11 +80,14 @@ export interface OverviewProps {
 
 /**
  * The project at a glance: its details and timeline, milestones, deadlines coming up, who runs it
- * and who has what, the next meeting, and the tasks by status.
+ * and who has what, the next meeting, and the tasks by status (1.24: and by category).
  */
 export function OverviewTab(p: OverviewProps) {
   const { project, tasks, today, timeZone } = p;
-  const stats = taskStats(tasks, today, timeZone);
+  // Task archive: Work done counts an archived Done task too (the Completion tile's figure); the lists below
+  // (by status, by priority) are the tasks the page lists.
+  const stats = taskStats(p.figureTasks ?? tasks, today, timeZone);
+  const listed = p.figureTasks ? taskStats(tasks, today, timeZone) : stats;
   const timeline = projectTimeline(project.startDate, project.targetDate, today, timeZone);
   const marks = milestones(tasks, today, timeZone);
   const soon = deadlines(tasks, today, 14, timeZone);
@@ -230,7 +237,7 @@ export function OverviewTab(p: OverviewProps) {
           {managers.length ? (
             <ul className="mt-1.5 flex flex-col gap-1.5">
               {managers.map((m) => (
-                <li key={m.id} className="flex items-center gap-2 text-sm font-medium text-ink"><Avatar name={m.name} size="sm" /><bdi>{m.name}</bdi></li>
+                <li key={m.id} className="flex items-center gap-2 text-sm font-medium text-ink"><Avatar name={m.name} src={m.avatarUrl} size="sm" decorative /><bdi>{m.name}</bdi></li>
               ))}
             </ul>
           ) : (
@@ -239,7 +246,7 @@ export function OverviewTab(p: OverviewProps) {
           <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-ink-3">Members · {p.members.length}</p>
           {p.members.length ? (
             <div className="mt-1.5 flex flex-wrap gap-1" title={p.members.map((m) => m.name).join(', ')}>
-              {p.members.slice(0, 10).map((m) => <Avatar key={m.id} name={m.name} size="sm" />)}
+              {p.members.slice(0, 10).map((m) => <Avatar key={m.id} name={m.name} src={m.avatarUrl} size="sm" />)}
               {p.members.length > 10 ? <span className="grid h-6 w-6 place-items-center rounded-full border border-line bg-ground text-[10px] font-semibold text-ink-2">+{p.members.length - 10}</span> : null}
             </div>
           ) : (
@@ -302,13 +309,13 @@ export function OverviewTab(p: OverviewProps) {
         <SectionCard id="pd-status" title="Tasks by status">
           {!p.statsReady ? (
             <div className="skeleton h-24 rounded-lg" />
-          ) : stats.total === 0 ? (
+          ) : listed.total === 0 ? (
             <EmptyNote>No tasks in this project yet.</EmptyNote>
           ) : (
             <>
               <div className="flex flex-col gap-2.5">
                 {p.groups.map((g) => {
-                  const pct = stats.total ? Math.round((g.tasks.length / stats.total) * 100) : 0;
+                  const pct = listed.total ? Math.round((g.tasks.length / listed.total) * 100) : 0;
                   return (
                     <div key={g.id} className="flex items-center gap-3">
                       <span className="h-2.5 w-2.5 flex-none rounded-full" style={{ background: g.color }} aria-hidden />
@@ -322,11 +329,14 @@ export function OverviewTab(p: OverviewProps) {
                 })}
               </div>
               <p className="mt-3 border-t border-line pt-3 text-xs text-ink-2">
-                Open by priority: {stats.byPriority.URGENT} urgent · {stats.byPriority.HIGH} high · {stats.byPriority.NORMAL} normal · {stats.byPriority.LOW} low
+                Open by priority: {listed.byPriority.URGENT} urgent · {listed.byPriority.HIGH} high · {listed.byPriority.NORMAL} normal · {listed.byPriority.LOW} low
               </p>
             </>
           )}
         </SectionCard>
+
+        {/* 1.24: open tasks per category (hidden when the project has none). */}
+        <ByCategoryCard projectId={project.id} tasks={tasks} ready={p.statsReady} />
       </div>
     </div>
   );

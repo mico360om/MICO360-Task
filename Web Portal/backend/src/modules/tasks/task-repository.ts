@@ -1,3 +1,4 @@
+import type { PersonSummary } from '../../lib/person-summary';
 import type { ChecklistTree } from './checklist-tree';
 import type { MonthWindow } from './month-list';
 import type { RecurrenceRule } from './recurrence';
@@ -5,6 +6,8 @@ import type { CarryLogEntry } from './board-date';
 import type { ProjectTaskSettings } from '../projects/project-task-settings';
 import type { ExternalContactFields, ExternalContactSummary } from './external-contacts';
 import type { ExternalContactRecord } from './external-contact-repository';
+import type { TaskGuestRecord } from '../guests/guest-store';
+import type { ArchivedListing } from './task-archive-where';
 
 export type Priority = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
 
@@ -74,8 +77,8 @@ export interface TaskRecord {
   updatedAt: Date;
   /** The task's tags (present on list/get; used for tag filtering + display). */
   tags?: { id: string; name: string; color: string }[];
-  /** The task's assignees (present on list; used for card avatars). */
-  assignees?: { id: string; name: string }[];
+  /** The task's assignees (present on list; used for card avatars): name and photo (null: initials). */
+  assignees?: PersonSummary[];
   /** Lightweight aggregate counts for card badges (present on list). */
   counts?: { comments: number; attachments: number; checklistDone: number; checklistTotal: number };
   /**
@@ -85,6 +88,16 @@ export interface TaskRecord {
   externalSummary?: ExternalContactSummary | null;
   /** Its external contacts in full, in order (a single task). */
   externalContacts?: ExternalContactRecord[];
+  /** 1.24: its guests in short, in order — id, name and company (cards, the Guest filters). */
+  guests?: { id: string; name: string; company: string | null }[];
+  /** 1.24: its guests in full, with the task's own note (a single task). */
+  taskGuests?: TaskGuestRecord[];
+  /** 1.24: its categories, in its project's order (retired ones marked). */
+  categories?: { id: string; name: string; color: string; retired: boolean }[];
+  /** Task archive: when it was archived (null: it isn't) — read-only and hidden from views until unarchived. */
+  archivedAt?: Date | null;
+  /** Who archived it. */
+  archivedById?: string | null;
 }
 
 export interface CreateTaskData {
@@ -127,6 +140,12 @@ export interface CreateTaskData {
   checklists?: ChecklistTree;
   /** External contacts (already checked), in order, written in the same write as the task. */
   externalContacts?: ExternalContactFields[];
+  /** 1.24: guests picked from the company's list (already checked), written in the same write as the task. */
+  guestLinks?: { guestId: string; note: string | null }[];
+  /** 1.24: its categories (already checked), written in the same write as the task. */
+  categoryIds?: string[];
+  /** Duplicate Task: the task this one is a copy of (single-task details read it; never list payloads). */
+  duplicatedFromId?: string | null;
 }
 
 /** Thrown by `TaskRepository.create` when the generated key is already taken (a concurrent create). */
@@ -205,6 +224,23 @@ export interface TaskListFilter {
    * runs on the rows. Repositories that can't narrow may return more; never fewer.
    */
   month?: MonthWindow;
+  /**
+   * Task archive: which archived tasks the list has — none (the default: every view, board, list, the
+   * calendar, My Tasks, the app and the extension), `only` them (a project's "Archived tasks" list),
+   * `counted` (figures: the archived Done ones still count, archived open ones leave) or `include` all.
+   */
+  archived?: ArchivedListing;
+}
+
+/**
+ * Recycle Bin: what a delete records on the task — who deleted it (null: not known), when, when it will be
+ * erased (bin-rules binExpiryOf), and the delete it went with (a series deleted as a whole; null alone).
+ */
+export interface BinMark {
+  by: string | null;
+  at: Date;
+  expiresAt: Date;
+  batchId: string | null;
 }
 
 export interface SeriesUpdateOptions {
@@ -224,7 +260,8 @@ export interface TaskRepository {
    * the same statement (two edits from one copy can't both win): TaskVersionConflictError otherwise.
    */
   update(id: string, patch: UpdateTaskData, opts?: { expectedVersion?: number }): Promise<TaskRecord>;
-  softDelete(id: string): Promise<void>;
+  /** Delete a task: it goes to the Recycle Bin (`mark`: who, when, when it is erased, its batch). */
+  softDelete(id: string, mark?: BinMark): Promise<void>;
   /**
    * The highest key number the project has used — its tasks (deleted ones too) and the old keys of
    * tasks that moved to another project — so the next key is this + 1 and a number is never reused.
@@ -235,8 +272,8 @@ export interface TaskRepository {
    * and its generated occurrences (`recurrenceParentId === seriesId`) — in ONE atomic statement.
    */
   updateSeries(seriesId: string, patch: UpdateTaskData, opts?: SeriesUpdateOptions): Promise<void>;
-  /** Soft-delete every member of a recurring series in one atomic statement. */
-  softDeleteSeries(seriesId: string): Promise<void>;
+  /** Soft-delete every live member of a recurring series (to the Recycle Bin, one batch); the ids deleted. */
+  softDeleteSeries(seriesId: string, mark?: BinMark): Promise<string[] | void>;
   /** A column's project and category, or null when it doesn't exist. */
   findColumn(columnId: string): Promise<ColumnInfo | null>;
   /**

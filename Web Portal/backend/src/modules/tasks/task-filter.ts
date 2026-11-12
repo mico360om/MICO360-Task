@@ -2,6 +2,8 @@ import type { TaskRecord } from './task-repository';
 import { defaultCompanyTimeZone, isTaskLate } from './task-status';
 import { matchesNormalized, normalizeForSearch } from '../search/text-normalize';
 import { hasExternalCompany } from './external-contacts';
+import { hasGuest, hasGuestCompany } from './guest-contacts';
+import { hasAnyCategory } from './task-categories';
 import { matchesTaskNumber } from '../../lib/task-number';
 
 const PRIORITY_RANK: Record<string, number> = { LOW: 0, NORMAL: 1, HIGH: 2, URGENT: 3 };
@@ -19,6 +21,12 @@ export interface TaskFilterCriteria {
   q?: string;
   /** Keep only tasks with an external contact from this company (case and extra spaces aside). */
   externalCompany?: string;
+  /** 1.24: keep only tasks with one of these guests. */
+  guestIds?: string[];
+  /** 1.24: keep only tasks with a guest from this company (case, spaces and accents aside). */
+  guestCompany?: string;
+  /** 1.24: keep only tasks with one of these task categories (not `categories`, which are column stages). */
+  categoryIds?: string[];
   /** Keep only these priorities. */
   priorities?: string[];
   /** Keep only tasks whose column category is one of these (status). */
@@ -39,8 +47,12 @@ export interface TaskFilterCriteria {
 }
 
 function matches(t: TaskRecord, c: TaskFilterCriteria, q: string, now: Date, timeZone: string): boolean {
-  if (q && !matchesNormalized(q, t.title, t.description, t.key, ...(t.externalSummary?.names ?? []), ...(t.externalSummary?.companies ?? [])) && !matchesTaskNumber(q, t.key, t.formerKeys)) return false;
+  const words = [...(t.externalSummary?.names ?? []), ...(t.externalSummary?.companies ?? []), ...(t.guests ?? []).flatMap((g) => [g.name, g.company ?? '']), ...(t.categories ?? []).map((x) => x.name)];
+  if (q && !matchesNormalized(q, t.title, t.description, t.key, ...words) && !matchesTaskNumber(q, t.key, t.formerKeys)) return false;
   if (c.externalCompany?.trim() && !hasExternalCompany(t.externalSummary, c.externalCompany)) return false;
+  if (c.guestIds?.length && !c.guestIds.some((id) => hasGuest(t.guests, id))) return false;
+  if (c.guestCompany?.trim() && !hasGuestCompany(t.guests, c.guestCompany)) return false;
+  if (c.categoryIds?.length && !hasAnyCategory(t.categories, c.categoryIds)) return false;
   if (c.priorities?.length && !c.priorities.includes(t.priority)) return false;
   if (c.categories?.length) {
     const cat = t.columnCategory ?? null;

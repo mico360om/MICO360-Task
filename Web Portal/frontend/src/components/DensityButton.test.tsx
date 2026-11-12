@@ -6,6 +6,7 @@ import { useAuthStore } from '../stores/auth-store';
 import { initDensity, useDensityStore, useDensitySync } from '../lib/density';
 import { DensityButton } from './DensityButton';
 import { DensitySetting, DENSITY_WORDS } from './settings/DensitySetting';
+import { TOUCH_TALL } from '../lib/touch';
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 let prefs: Record<string, unknown>;
@@ -103,6 +104,17 @@ describe('the quick “Rows” button (tables and lists, 1.23.8)', () => {
     // …and Settings back to comfortable: the button follows.
     await user.click(within(group).getByRole('button', { name: 'Comfortable' }));
     expect(toolbar().getByRole('button', { name: 'Rows: Comfortable' })).toBeInTheDocument();
+  });
+
+  // Browser check (1.24, phone 375): the menu's rows came out 36px on a touch screen — a plain
+  // `min-h-11` loses to index.css's coarse-pointer `button:not([role='switch'])` floor; TOUCH_TALL wins.
+  it('each choice is 44px tall on a touch screen (TOUCH_TALL, which outranks the 32px floor)', async () => {
+    screenIs('phone');
+    renderBoth();
+    await userEvent.setup().click(toolbar().getByRole('button', { name: /^Rows: Comfortable/ }));
+    const items = within(screen.getByRole('menu', { name: DENSITY_WORDS.label })).getAllByRole('menuitemradio');
+    expect(items).toHaveLength(3);
+    for (const item of items) expect(item.className).toContain(TOUCH_TALL);
   });
 
   it('the keyboard: arrows move, Escape closes back to the button', async () => {

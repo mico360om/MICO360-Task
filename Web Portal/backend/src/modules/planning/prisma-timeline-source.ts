@@ -1,5 +1,6 @@
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { healthReads } from '../project-health/prisma-health-source';
+import { COUNTED_TASK, NOT_ARCHIVED } from '../tasks/task-archive-where';
 import { TIMELINE_TASK_LIMIT, type TimelineMilestoneRow, type TimelinePerson, type TimelineRows, type TimelineSource, type TimelineTaskRow } from './timeline';
 
 const personFields = { id: true, firstName: true, lastName: true, username: true, avatarUrl: true } as const;
@@ -36,20 +37,24 @@ export function createPrismaTimelineSource(prisma: PrismaClient): TimelineSource
         return { totals: [], openByDue: [], waitingByDue: [], taskDates: [], milestones: [], nextMilestones: [], soonMilestones: [], milestoneCounts: [], meetings: [], meetingsThisWeek: [], owners: [] };
       }
       const inProjects = { deletedAt: null, projectId: { in: projectIds } };
-      const milestone = { ...inProjects, isMilestone: true };
+      // Task archive: figures (totals, milestone counts) keep an archived Done task and leave an archived
+      // open one; open work, waiting work and the milestone markers never show an archived task.
+      const counted = { ...inProjects, ...COUNTED_TASK };
+      const listed = { ...inProjects, ...NOT_ARCHIVED };
+      const milestone = { ...listed, isMilestone: true };
       const meeting = { projectId: { in: projectIds }, deletedAt: null, status: { not: 'CANCELLED' as const } };
       // 1.23.5: the weights (the project health's own read: MariaDB-safe, in the start-up check).
       const weightRows = await healthReads(prisma).figures(projectIds);
       const [totals, openByDue, waitingByDue, shown, firstDue, soon, counts, meetings, thisWeek, owners] = await Promise.all([
         // Every live task, with the dates a project without its own takes from them (done tasks too).
-        prisma.task.groupBy({ by: ['projectId'], where: inProjects, _count: { _all: true }, _min: { startDate: true, dueDate: true }, _max: { dueDate: true } }),
-        prisma.task.groupBy({ by: ['projectId', 'dueDate'], where: { ...inProjects, ...NOT_DONE }, _count: { _all: true } }),
+        prisma.task.groupBy({ by: ['projectId'], where: counted, _count: { _all: true }, _min: { startDate: true, dueDate: true }, _max: { dueDate: true } }),
+        prisma.task.groupBy({ by: ['projectId', 'dueDate'], where: { ...listed, ...NOT_DONE }, _count: { _all: true } }),
         // The open ones waiting for approval: never overdue while they wait (owner, 30 Oct).
-        prisma.task.groupBy({ by: ['projectId', 'dueDate'], where: { ...inProjects, ...NOT_DONE, approvalRequestedAt: { not: null } }, _count: { _all: true } }),
+        prisma.task.groupBy({ by: ['projectId', 'dueDate'], where: { ...listed, ...NOT_DONE, approvalRequestedAt: { not: null } }, _count: { _all: true } }),
         prisma.task.findMany({ where: { ...milestone, dueDate: { gte: w.shownFrom, lt: w.shownTo } }, select: milestoneFields, orderBy: [{ dueDate: 'asc' }, { title: 'asc' }] }),
         prisma.task.groupBy({ by: ['projectId'], where: { ...milestone, ...NOT_DONE, dueDate: { not: null } }, _min: { dueDate: true } }),
         prisma.task.findMany({ where: { ...milestone, ...NOT_DONE, dueDate: { gte: w.soonFrom, lt: w.soonTo } }, select: { projectId: true, dueDate: true } }),
-        prisma.task.groupBy({ by: ['projectId'], where: milestone, _count: { _all: true } }),
+        prisma.task.groupBy({ by: ['projectId'], where: { ...counted, isMilestone: true }, _count: { _all: true } }),
         prisma.meeting.findMany({ where: { ...meeting, startAt: { gte: w.shownFrom, lt: w.shownTo } }, select: { id: true, title: true, projectId: true, startAt: true, endAt: true }, orderBy: { startAt: 'asc' } }),
         prisma.meeting.groupBy({ by: ['projectId'], where: { ...meeting, startAt: { gte: w.weekFrom, lt: w.weekTo } }, _count: { _all: true } }),
         ownerIds.length ? prisma.user.findMany({ where: { id: { in: ownerIds }, deletedAt: null }, select: personFields }) : Promise.resolve([]),
@@ -87,7 +92,8 @@ export function createPrismaTimelineSource(prisma: PrismaClient): TimelineSource
     },
 
     async projectTasks(projectId, { from, to, overdueBefore, upcomingFrom }) {
-      const live = { projectId, deletedAt: null };
+      // Task archive: a project's lanes never show an archived task.
+      const live = { projectId, deletedAt: null, ...NOT_ARCHIVED };
       const select = {
         id: true,
         key: true,
@@ -111,7 +117,8 @@ export function createPrismaTimelineSource(prisma: PrismaClient): TimelineSource
         done: t.completedAt !== null || t.column.category === 'DONE',
         priority: t.priority,
         isMilestone: t.isMilestone,
-        assignees: t.assignees.map((a) => ({ id: a.user.id, name: toPerson(a.user).name })),
+        // Avatar hotfix: the lane's faces show the photos (already read with the row).
+        assignees: t.assignees.map((a) => toPerson(a.user)),
         waiting: t.approvalRequestedAt !== null,
       });
       // Due from `from` on, and due (or started) before `to`: in or reaching into the shown weeks.

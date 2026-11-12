@@ -176,6 +176,14 @@ const I = {
 };
 
 // Grouped so the rail reads as a few short sections rather than one long list.
+/** Recycle Bin: a bin — kept out of `I`, the icon set the Android app copies (its menu has no such page). */
+const RECYCLE_BIN_ICON = (
+  <>
+    <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M6 6v14a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6" />
+    <path d="M10 11v6M14 11v6" />
+  </>
+);
+
 const WORKSPACE: NavItem[] = [
   { label: 'Dashboard', to: '/dashboard', icon: I.dashboard },
   { label: 'My Tasks', to: '/my-tasks', icon: I.tasks },
@@ -189,6 +197,8 @@ const WORKSPACE: NavItem[] = [
   { label: 'Templates', to: '/templates', icon: I.templates },
   { label: 'Management', to: '/management', icon: I.management, leadsOnly: true },
   { label: 'Reports', to: '/reports', icon: I.reports, adminOnly: true },
+  // Recycle Bin: admins and anyone who runs a project (the Management page's people).
+  { label: 'Recycle Bin', to: '/recycle-bin', icon: RECYCLE_BIN_ICON, leadsOnly: true },
 ];
 const COMMUNICATION: NavItem[] = [
   { label: 'Chat', to: '/chat', icon: I.chat },
@@ -207,10 +217,23 @@ const ERROR_LOG_ICON = (
   </>
 );
 
+/**
+ * 1.24: an address card with a person on it — Guest contacts, each company's list of people outside it
+ * named on tasks. Kept out of `I`, the icon set the Android app copies (its menu has no such page).
+ */
+const GUEST_CONTACTS_ICON = (
+  <>
+    <rect x="5" y="3" width="15" height="18" rx="2.5" />
+    <circle cx="12.5" cy="10" r="2.6" />
+    <path d="M8.6 17a3.9 3.9 0 0 1 7.8 0M3 7.5h3.5M3 12h3.5M3 16.5h3.5" />
+  </>
+);
+
 const ADMIN: NavItem[] = [
   { label: 'User Management', to: '/admin/users', icon: I.users },
   { label: 'Clients', to: '/admin/clients', icon: I.clients },
   { label: 'Companies', to: '/admin/companies', icon: I.companies },
+  { label: 'Guest contacts', to: '/admin/guests', icon: GUEST_CONTACTS_ICON },
   { label: 'AI Management', to: '/admin/ai', icon: I.aiManagement },
   { label: 'System Settings', to: '/admin/settings', icon: I.sliders },
   { label: 'Error Log', to: '/admin/error-log', icon: ERROR_LOG_ICON },
@@ -219,6 +242,11 @@ const ADMIN: NavItem[] = [
 
 export interface SidebarProps {
   isAdmin: boolean;
+  /**
+   * The Admin group (User Management … Audit Logs): an administrator's — unless Manager View is on (owner,
+   * 10 Nov), which hides it. Default: `isAdmin`.
+   */
+  adminMenu?: boolean;
   /** Runs a project (or is an admin): the Management page is theirs to see. */
   canLead?: boolean;
   /** Unread chat messages, shown on the Chat icon (none at 0). */
@@ -741,7 +769,7 @@ function FoldButton({ onTabletOpen, tabletOpen = false }: { onTabletOpen?: () =>
  * each with its name for screen readers and as a tooltip; on a phone it folds away behind the ☰ button
  * (MobileMenu in AppShell).
  */
-export function Sidebar({ isAdmin, chatUnread = 0, canLead = false }: SidebarProps) {
+export function Sidebar({ isAdmin, adminMenu = isAdmin, chatUnread = 0, canLead = false }: SidebarProps) {
   const nav = useRef<HTMLElement>(null);
   // 1.23.8 A tablet's unfolded menu: over the page, until a page is chosen, a tap outside or Escape.
   const tablet = useMediaQuery(RAIL_WIDTHS);
@@ -757,14 +785,14 @@ export function Sidebar({ isAdmin, chatUnread = 0, canLead = false }: SidebarPro
       aria-label="Main"
       className="sticky top-0 hidden h-screen w-16 flex-none flex-col overflow-hidden border-r border-line bg-surface/95 transition-[width] duration-200 ease-out md:flex lg:w-60 rail:w-16 supports-[height:100dvh]:h-dvh"
     >
-      <SidebarBody isAdmin={isAdmin} chatUnread={chatUnread} canLead={canLead} rail onTabletOpen={() => setOverlay(true)} tabletOpen={overlay} />
+      <SidebarBody isAdmin={isAdmin} adminMenu={adminMenu} chatUnread={chatUnread} canLead={canLead} rail onTabletOpen={() => setOverlay(true)} tabletOpen={overlay} />
       <RailTooltip root={nav} />
     </nav>
     {overlay ? (
       <MenuDrawer className="hidden md:block lg:hidden" onClose={() => setOverlay(false)}>
         {(close) => (
           <nav aria-label="Main" className="flex min-h-0 flex-1 flex-col">
-            <SidebarBody isAdmin={isAdmin} chatUnread={chatUnread} canLead={canLead} onNavigate={close} onCollapse={close} />
+            <SidebarBody isAdmin={isAdmin} adminMenu={adminMenu} chatUnread={chatUnread} canLead={canLead} onNavigate={close} onCollapse={close} />
           </nav>
         )}
       </MenuDrawer>
@@ -779,6 +807,7 @@ export function Sidebar({ isAdmin, chatUnread = 0, canLead = false }: SidebarPro
  */
 export function SidebarBody({
   isAdmin,
+  adminMenu = isAdmin,
   onNavigate,
   chatUnread = 0,
   canLead = false,
@@ -812,7 +841,7 @@ export function SidebarBody({
     if (at.bottom > view.bottom) box.scrollTop += at.bottom - view.bottom + margin;
     else if (at.top < view.top) box.scrollTop -= view.top - at.top + margin;
     // Again when links come or go above it (Management appears once access is known).
-  }, [pathname, isAdmin, canLead]);
+  }, [pathname, isAdmin, adminMenu, canLead]);
 
   return (
     <>
@@ -836,7 +865,7 @@ export function SidebarBody({
         <NavGroup label="Workspace" items={WORKSPACE.filter((i) => (isAdmin || !i.adminOnly) && (isAdmin || canLead || !i.leadsOnly))} onNavigate={onNavigate} rail={rail} first />
         {withData ? <SavedNav onNavigate={onNavigate} rail={rail} /> : null}
         <NavGroup label="Communication" items={COMMUNICATION} onNavigate={onNavigate} chatUnread={chatUnread} rail={rail} />
-        {isAdmin ? <NavGroup label="Admin" items={ADMIN} onNavigate={onNavigate} rail={rail} flyout={ADMIN_GROUP_ICON} /> : null}
+        {adminMenu ? <NavGroup label="Admin" items={ADMIN} onNavigate={onNavigate} rail={rail} flyout={ADMIN_GROUP_ICON} /> : null}
       </div>
 
       <div className={`border-t border-line px-3 py-2 ${rail ? 'rail:px-2.5' : ''}`}>

@@ -1,5 +1,6 @@
-import { z, ZodError, type ZodTypeAny } from 'zod';
+import { z, ZodError } from 'zod';
 import { ConflictError, ForbiddenError, HttpError, NotFoundError, ValidationError } from '../../lib/http-errors';
+import { validationDetails } from '../../lib/validation-errors';
 import { imageDimensions } from '../../lib/image-dimensions';
 import type { CreateAuditData } from '../audit/audit-repository';
 import { defaultCompanyTimeZone } from '../tasks/task-status';
@@ -168,7 +169,7 @@ const CLAIM_STALE_MS = 2 * MINUTE;
 const SIGNATURE_MAX_BYTES = 512 * 1024;
 const SIGNATURE_MAX_SIDE = { width: 3000, height: 1500 };
 
-const iso = z.string().datetime({ offset: true });
+const iso = z.iso.datetime({ offset: true });
 const startBody = z.object({
   formId: z.string().min(1).max(191),
   taskId: z.string().min(1).max(191).nullish(),
@@ -215,12 +216,12 @@ function validated<T>(check: () => T): T {
     if (err instanceof ZodError) {
       const first = err.issues[0];
       const words = first && !/^(Required|Invalid|Expected|String must|Array must|Number must)/.test(first.message) ? first.message : 'Invalid input.';
-      throw new ValidationError(words, err.flatten());
+      throw new ValidationError(words, validationDetails(err));
     }
     throw err;
   }
 }
-const parse = <S extends ZodTypeAny>(schema: S, body: unknown): z.infer<S> => validated(() => schema.parse(body));
+const parse = <S extends z.ZodType>(schema: S, body: unknown): z.output<S> => validated(() => schema.parse(body));
 
 const gone = () => new HttpError('This inspection isn’t there any more: it was deleted, or the link is wrong.', 'INSPECTION_GONE', 404);
 const alreadyFinished = () => new ConflictError('This inspection was already finished (on another device, or by another finish).', 'ALREADY_FINISHED');
@@ -853,7 +854,7 @@ export function createInspectionService(deps: InspectionServiceDeps) {
           inspector: personOf(r.inspectorId, names).name,
           startedAt: r.startedAt.toISOString(),
           finishedAt: r.finishedAt?.toISOString() ?? null,
-          task: attached ? `${attached.key} · ${attached.title}` : null,
+          task: attached ? `${attached.key} · ${attached.title}` : r.erasedTask ? `Task erased (${r.erasedTask})` : null,
           followUps: r.structure.sections.map((s) => s.items.map((i) => followUpKeys.get(i.id) ?? null)),
           reopenedBy: r.reopenedById ? personOf(r.reopenedById, names).name : null,
           earlierRevisions: earlierRevisionsOf(earlier).map((e) => ({ number: e.number, reopenedAt: e.reopenedAt, signatures: e.signatures.map((x) => ({ role: SIGNATURE_LABEL[x.role], name: x.name, signedAt: x.signedAt })) })),

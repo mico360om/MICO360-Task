@@ -262,7 +262,7 @@ export function createPortalService(deps: PortalDeps) {
   /** 5. A task of this project marked "Show to client" (404). */
   async function sharedTask(projectId: string, taskId: unknown): Promise<TaskRow> {
     if (typeof taskId !== 'string' || !taskId) throw notFound();
-    const t = await prisma.task.findFirst({ where: { id: taskId, projectId, deletedAt: null, clientVisible: true }, select: taskSelect });
+    const t = await prisma.task.findFirst({ where: { id: taskId, projectId, deletedAt: null, archivedAt: null, clientVisible: true }, select: taskSelect });
     if (!t) throw notFound();
     return t;
   }
@@ -470,7 +470,7 @@ export function createPortalService(deps: PortalDeps) {
     const projectIds = [...new Set(rows.map((r) => r.projectId))].filter((p) => grants.has(p));
     const taskIds = [...new Set(rows.flatMap((r) => (r.taskId ? [r.taskId] : [])))];
     const shownTasks = taskIds.length
-      ? new Set((await prisma.task.findMany({ where: { id: { in: taskIds }, projectId: { in: projectIds }, deletedAt: null, clientVisible: true }, select: { id: true, projectId: true } })).map((t) => `${t.projectId}|${t.id}`))
+      ? new Set((await prisma.task.findMany({ where: { id: { in: taskIds }, projectId: { in: projectIds }, deletedAt: null, archivedAt: null, clientVisible: true }, select: { id: true, projectId: true } })).map((t) => `${t.projectId}|${t.id}`))
       : new Set<string>();
     const fileIds = [...new Set(rows.flatMap((r) => (r.attachmentId ? [r.attachmentId] : [])))];
     const files = fileIds.length ? await prisma.attachment.findMany({ where: { id: { in: fileIds } }, select: { id: true, taskId: true, clientVisible: true, fromClient: true, uploadedById: true } }) : [];
@@ -545,7 +545,7 @@ export function createPortalService(deps: PortalDeps) {
     async project(who: string | PortalViewer, projectId: unknown) {
       const { grant, project } = await open(who, projectId);
       const [c, tasks] = grant.progress
-        ? await Promise.all([counts(project.id), prisma.task.findMany({ where: { projectId: project.id, deletedAt: null, clientVisible: true }, select: taskSelect })])
+        ? await Promise.all([counts(project.id), prisma.task.findMany({ where: { projectId: project.id, deletedAt: null, archivedAt: null, clientVisible: true }, select: taskSelect })])
         : [null, [] as TaskRow[]];
       return portalProject({ project: toProjectSource(project), grant, counts: c, tasks: tasks.map(toTaskSource), timeZone: deps.timeZone, now: now() });
     },
@@ -701,7 +701,7 @@ export function createPortalService(deps: PortalDeps) {
       await activity({ taskId: t.id, userId: client.id, action: 'CLIENT_SENT_BACK', meta: { client: true, reason: why, commentId: c.id } });
       await record({ userId: client.id, ip: meta.ip ?? null, action: 'portal.task.sent_back', entityId: t.id, newValue: { projectId: project.id, commentId: c.id } });
       await tellTeam(t.id, project.id, client.id, { type: 'TASK_CLIENT_SIGN_OFF', title: 'A client sent a task back', body: `${t.key} ${t.title}: ${why}`.slice(0, 500) }, 'task:updated');
-      const fresh = await prisma.task.findFirst({ where: { id: t.id, projectId: project.id, deletedAt: null, clientVisible: true }, select: taskSelect });
+      const fresh = await prisma.task.findFirst({ where: { id: t.id, projectId: project.id, deletedAt: null, archivedAt: null, clientVisible: true }, select: taskSelect });
       if (!fresh) throw notFound();
       return portalTaskView(toTaskSource(fresh), grant, actionsOf(grant).comment ? await threadOf(t.id, client.id) : null, client.id, deps.timeZone, now(), await filesOf(t.id, client.id));
     },
@@ -714,7 +714,7 @@ export function createPortalService(deps: PortalDeps) {
         project: toProjectSource(project),
         grant,
         counts: await counts(project.id),
-        tasks: (await prisma.task.findMany({ where: { projectId: project.id, deletedAt: null, clientVisible: true }, select: taskSelect })).map(toTaskSource),
+        tasks: (await prisma.task.findMany({ where: { projectId: project.id, deletedAt: null, archivedAt: null, clientVisible: true }, select: taskSelect })).map(toTaskSource),
         timeZone: deps.timeZone,
         now: now(),
       });

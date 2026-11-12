@@ -384,3 +384,14 @@ describe('Search page — when tasks couldn’t be searched', () => {
     expect(screen.queryByText(/Tasks couldn’t be searched/)).toBeNull();
   });
 });
+
+describe('Search results page: archived tasks (task archive)', () => {
+  it('an archived task is found and says so; the others don’t', async () => {
+    serve([{ data: [task(1, { archived: true }), task(2)], nextCursor: null, total: 2, totalCapped: false, counts: COUNTS, corrected: [] }]);
+    open();
+    const archived = await row('Check the scaffold 1');
+    expect(within(archived).getByText('Archived')).toBeInTheDocument();
+    const live = await row('Check the scaffold 2');
+    expect(within(live).queryByText('Archived')).toBeNull();
+  });
+});

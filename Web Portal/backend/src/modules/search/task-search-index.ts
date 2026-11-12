@@ -64,6 +64,8 @@ export async function loadTaskSearchLive(prisma: PrismaClient, ids: string[]): P
       assignees: { orderBy: { assignedAt: 'asc' }, select: { user: person } },
       externalContacts: { orderBy: { position: 'asc' }, select: { name: true, company: true, designation: true, email: true, phone: true, remarks: true } },
       tags: { select: { tag: { select: { name: true } } } },
+      // 1.24: its categories are searched with its tags.
+      categories: { select: { category: { select: { name: true } } } },
       attachments: { orderBy: { createdAt: 'asc' }, select: { filename: true } },
     },
   });
@@ -81,7 +83,7 @@ export async function loadTaskSearchLive(prisma: PrismaClient, ids: string[]): P
         lists: t.checklistLists,
         assignees: t.assignees.map((a) => a.user),
         contacts: t.externalContacts,
-        tags: t.tags.map((x) => x.tag).sort((a, b) => a.name.localeCompare(b.name)),
+        tags: [...t.tags.map((x) => x.tag), ...t.categories.map((c) => c.category)].sort((a, b) => a.name.localeCompare(b.name)),
         files: t.attachments,
       },
     ]),

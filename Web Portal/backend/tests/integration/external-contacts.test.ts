@@ -35,6 +35,8 @@ async function cleanup() {
   const ids = projects.map((p) => p.id);
   await prisma.activity.deleteMany({ where: { projectId: { in: ids } } });
   await prisma.task.deleteMany({ where: { projectId: { in: ids } } });
+  // tgc: 1.24 — contacts are guests on the company's list (here the site's first company): this file's own go too.
+  await prisma.guestContact.deleteMany({ where: { companyId: 'company_prolens', links: { none: {} }, name: { in: ['Ahmed Al Said', 'Sara Nasser', 'Salim Hinai', 'Alia Deleted', 'Ali Elsewhere', 'Khalid Al-Hassan', 'A', 'B', 'C', 'P0', 'P1', 'P2', 'Ahmed'] } } });
   await prisma.kanbanColumn.deleteMany({ where: { projectId: { in: ids } } });
   await prisma.project.deleteMany({ where: { id: { in: ids } } });
   await prisma.user.deleteMany({ where: { email: 'xcon@mico360.test' } });
@@ -101,7 +103,8 @@ describe('External contacts on MySQL (integration)', () => {
     await repo.add(gone, fields('Alia Deleted', { company: 'Gone' }), userId, 20);
     await repo.add(elsewhere, fields('Ali Elsewhere', { company: 'Other' }), userId, 20);
     const hits = await repo.searchProject(projectId, 'al', 50);
-    expect(hits.map((c) => c.name)).toEqual(['Salim Hinai', 'Ahmed Al Said']);
+    // tgc: 1.24 — suggestions are the company's guest list: its other projects' guests and a deleted task's guest are on it.
+    expect(hits.map((c) => c.name)).toEqual(['Ali Elsewhere', 'Alia Deleted', 'Salim Hinai', 'Ahmed Al Said']);
     expect((await repo.searchProject(projectId, 'oxy', 50)).map((c) => c.name)).toEqual(['Ahmed Al Said']);
     expect(await repo.searchProject(projectId, 'zz', 50)).toEqual([]);
   });

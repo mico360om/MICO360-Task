@@ -412,3 +412,36 @@ describe('merging tasks in a task’s history (1.23.1)', () => {
     expect(line('MERGE_UNDONE', { keys: ['MICO-14'], mainKey: 'MICO-12', fromMain: true }).text).toBe('undid its merge into MICO-12: this is a separate task again');
   });
 });
+
+describe('the Recycle Bin in a task’s history', () => {
+  const line = (action: string, meta?: Record<string, unknown>) => buildTimeline([e('a1', action, 'Sara Al Balushi', 1, meta)])[0]!;
+  it('deleted (to the bin, with its series when it went as a whole) and restored', () => {
+    expect(line('DELETED')).toMatchObject({ kind: 'other', text: 'moved this task to the Recycle Bin' });
+    expect(line('DELETED', { batch: 12 }).text).toBe('moved this task to the Recycle Bin with its series (12 tasks)');
+    expect(line('RESTORED').text).toBe('restored this task from the Recycle Bin');
+  });
+});
+
+describe('the task archive in a task’s history', () => {
+  const line = (action: string) => buildTimeline([e('a1', action, 'Sara Al Balushi', 1)])[0]!;
+  it('archived and unarchived', () => {
+    expect(line('ARCHIVED')).toMatchObject({ kind: 'other', text: 'archived this task' });
+    expect(line('UNARCHIVED').text).toBe('unarchived this task');
+  });
+});
+
+describe('Duplicate Task in a task’s history', () => {
+  const line = (action: string, meta?: Record<string, unknown>) => buildTimeline([e('a1', action, 'Aisha Khan', 1, meta)])[0]!;
+  it('the copy: duplicated from the original; the original: duplicated as the copy', () => {
+    expect(line('DUPLICATED_FROM', { fromTaskId: 't1', fromKey: 'MSSP-34' })).toMatchObject({ kind: 'other', text: 'duplicated this task from MSSP-34' });
+    expect(line('DUPLICATED', { copyTaskId: 't9', copyKey: 'MSSP-40' })).toMatchObject({ kind: 'other', text: 'duplicated this task as MSSP-40' });
+  });
+  it('a task the reader can’t open isn’t named (the server leaves its number out)', () => {
+    expect(line('DUPLICATED_FROM', {}).text).toBe('duplicated this task from another task');
+    expect(line('DUPLICATED').text).toBe('duplicated this task');
+  });
+  it('two copies made one after the other are two lines', () => {
+    const items = buildTimeline([e('a2', 'DUPLICATED', 'Aisha Khan', 1, { copyKey: 'MSSP-41' }), e('a1', 'DUPLICATED', 'Aisha Khan', 2, { copyKey: 'MSSP-40' })]);
+    expect(items.map((i) => i.text)).toEqual(['duplicated this task as MSSP-41', 'duplicated this task as MSSP-40']);
+  });
+});

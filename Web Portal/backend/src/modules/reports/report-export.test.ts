@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { reportSheets, reportPdf, reportFileName, filterSummary, type ReportBundle, type ReportMeta } from './report-export';
 import { inspectPdf } from '../../lib/pdf-inspect';
 
+const textOf = (pdf: Buffer): string[] => inspectPdf(pdf).pages.flat();
+
 const bundle = (taskCount = 3): ReportBundle => ({
   completion: { total: 10, completed: 6, onTime: 4, late: 1, unclassified: 1, onTimeRate: 80 },
   status: { DONE: 6, IN_PROGRESS: 3, TODO: 1 },
@@ -98,10 +100,22 @@ describe('reportSheets', () => {
   it('lists every task with real dates, people and an overdue flag', () => {
     const tasks = reportSheets(bundle(), meta, ['tasks'])[0]!;
     // 1.23.1: "Merged from" — the tasks merged into each one (empty for most).
-    expect(tasks.columns.map((c) => c.header)).toEqual(['Key', 'Title', 'Project', 'Status', 'Priority', 'Assignees', 'Due', 'Completed', 'Overdue', 'Merged from']);
-    expect(tasks.rows[0]).toEqual(['MICO-1', 'مراجعة تقرير المبيعات الشهري', 'MICO360 Platform', 'In progress', 'Urgent', 'Ada Lovelace, Omar Ahmed', { date: '2026-09-30' }, null, 'Yes', '']);
+    // tgc: 1.24 — Guests and Categories columns after Assignees.
+    expect(tasks.columns.map((c) => c.header)).toEqual(['Key', 'Title', 'Project', 'Status', 'Priority', 'Assignees', 'Guests', 'Categories', 'Due', 'Completed', 'Overdue', 'Merged from']);
+    expect(tasks.rows[0]).toEqual(['MICO-1', 'مراجعة تقرير المبيعات الشهري', 'MICO360 Platform', 'In progress', 'Urgent', 'Ada Lovelace, Omar Ahmed', '', '', { date: '2026-09-30' }, null, 'Yes', '']);
     // Completion time in company time (13:30 UTC is 17:30 in Muscat).
-    expect(tasks.rows[1]![7]).toEqual({ date: '2026-09-30 17:30' });
+    expect(tasks.rows[1]![9]).toEqual({ date: '2026-09-30 17:30' });
+  });
+
+  it('1.24: names each task’s guests and categories (Excel columns; the PDF under the title)', () => {
+    const b = bundle();
+    b.tasks[0] = { ...b.tasks[0]!, guests: ['Ahmed (OXY)', 'Sara'], categories: ['Civil', 'HSE'] };
+    const row = reportSheets(b, meta, ['tasks'])[0]!.rows[0]!;
+    expect(row[6]).toBe('Ahmed (OXY), Sara');
+    expect(row[7]).toBe('Civil, HSE');
+    const text = textOf(reportPdf(b, meta, ['tasks'])).join(' ');
+    expect(text).toContain('Guests: Ahmed (OXY), Sara');
+    expect(text).toContain('Categories: Civil, HSE');
   });
 
   it('summarises the numbers on the Summary sheet', () => {

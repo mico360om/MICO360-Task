@@ -27,6 +27,20 @@ export class ProjectArchivedError extends HttpError {
   }
 }
 
+/**
+ * Task archive (bulk lane): an archived TASK is read-only too — the same writes an archived project's
+ * tasks refuse are refused for it (adding, editing, moving, its comments, files, checklists, guests and
+ * categories); deleting stays as today (it goes to the Recycle Bin). Unarchive first.
+ */
+export const TASK_ARCHIVED_MESSAGE = 'This task is archived — unarchive it first.';
+export const TASK_ARCHIVED_CODE = 'TASK_ARCHIVED';
+
+export class TaskArchivedError extends HttpError {
+  constructor() {
+    super(TASK_ARCHIVED_MESSAGE, TASK_ARCHIVED_CODE, 409);
+  }
+}
+
 /** Where a refused write's project is found. */
 export type ArchiveTarget =
   /** `:id` is a task. */
@@ -56,7 +70,9 @@ export type ArchiveTarget =
   /** 1.23: `:id` is a meeting series (its project's). */
   | 'series'
   /** 1.23: "New series…": `body.meetingId`, the meeting it is made with. */
-  | 'seriesMeeting';
+  | 'seriesMeeting'
+  /** 1.24: `:categoryId`, one of a project's task categories. */
+  | 'category';
 
 /** Write routes an archived project refuses. Keys as in route-classes.ts. */
 export const ARCHIVE_REFUSED: Readonly<Record<string, ArchiveTarget>> = {
@@ -130,6 +146,17 @@ export const ARCHIVE_REFUSED: Readonly<Record<string, ArchiveTarget>> = {
   'POST /meeting-series/:id/merge': 'series',
   // 1.23: Make Teams link writes the meeting's online link.
   'POST /meetings/:id/teams-link': 'meeting',
+  // 1.24: a task's guests and categories, and the project's category list (like its board's columns).
+  'POST /tasks/:id/guests': 'task',
+  'PATCH /tasks/:id/guests/:guestId': 'task',
+  'PUT /tasks/:id/categories': 'task',
+  'POST /projects/:id/categories': 'project',
+  'PUT /projects/:id/categories/order': 'project',
+  'PUT /projects/:id/category-settings': 'project',
+  'PUT /project-categories/:categoryId': 'category',
+  // Duplicate Task: a copy is a new task in the chosen project (`body.projectId`, and its column's). The
+  // original may be in an archived project: copying from it changes nothing there.
+  'POST /tasks/:id/duplicate': 'newTask',
 };
 
 /** Write routes (one project's, task's or meeting's) an archived project does not refuse, and why. */
@@ -208,6 +235,22 @@ export const ARCHIVE_ALLOWED: Readonly<Record<string, string>> = {
   'POST /task-merges/:mergeId/undo': 'Undo refuses archived projects itself, for every task involved (merge-service)',
   // 1.23.6: a saved search shared with a project's team changes nothing in the project (its owner's search).
   'PUT /search/saved/:id/share': 'the owner’s saved search shown to a team: nothing in the project changes',
+  // 1.24 Guests: the list is the company's, not the project's (a guest made there is for every project).
+  'POST /projects/:projectId/guests': 'a guest on the company’s list, not a change to this project',
+  'POST /projects/:projectId/guests/check': 'a read: the duplicate check',
+  'DELETE /tasks/:id/guests/:guestId': 'deleting, as today',
+  'DELETE /project-categories/:categoryId': 'deleting, as today',
+  // Recycle Bin: restoring refuses an archived project's tasks itself, task by task ("Unarchive the
+  // project first" — recycle-bin/bin-service); deleting forever is deleting, as today.
+  'POST /recycle-bin/restore': 'restore refuses archived projects itself, for each task (recycle-bin/bin-service)',
+  'POST /recycle-bin/erase': 'deleting, as today',
+  // Task archive (bulk lane): archiving and unarchiving refuse an archived project's tasks themselves
+  // (task-archive.ts, task by task) — an archived task must be unarchivable, so the task rule can't apply.
+  'POST /tasks/:id/archive': 'the archive refuses archived projects itself (task-archive)',
+  'POST /tasks/:id/unarchive': 'unarchiving refuses archived projects itself (task-archive)',
+  // Bulk changes (bulk lane): each task is checked on its own — an archived project's tasks (and archived
+  // tasks) are skipped with the reason, like every other refusal (tasks/bulk/task-bulk.ts).
+  'POST /tasks/bulk': 'bulk changes skip an archived project’s tasks themselves, task by task (task-bulk)',
 };
 
 /** What a refused write is about: a project, and the meeting when it is one (its people may see it without the project). */
@@ -216,12 +259,14 @@ export interface ArchiveSubject {
   meetingId?: string | null;
   /** An action item's assignee and creator: they may change their own item without seeing its meeting, so they know it is there. */
   ownerIds?: readonly string[];
+  /** Task archive: the task the write is about (or whose comment, checklist, contact) is archived. */
+  taskArchived?: boolean;
 }
 
 /** At most this many tasks are looked at in one bulk move (the route itself takes at most 500). */
 export const MAX_GUARDED_TASKS = 1000;
 
-export type ArchiveKind = 'task' | 'comment' | 'checklistItem' | 'checklistList' | 'externalContact' | 'column' | 'meeting' | 'actionItem' | 'series';
+export type ArchiveKind = 'task' | 'comment' | 'checklistItem' | 'checklistList' | 'externalContact' | 'column' | 'meeting' | 'actionItem' | 'series' | 'category';
 
 /** The facts the guard reads (Prisma: createPrismaArchiveLookup). */
 export interface ArchiveLookup {
@@ -283,6 +328,8 @@ export function createArchiveGuard(deps: ArchiveGuardDeps) {
         return of('series', p.id);
       case 'seriesMeeting':
         return of('meeting', b.meetingId);
+      case 'category':
+        return of('category', p.categoryId);
       case 'taskToProject':
         return [...(await of('task', p.id)), ...project(b.projectId)];
       case 'tasksToProject': {
@@ -295,19 +342,24 @@ export function createArchiveGuard(deps: ArchiveGuardDeps) {
     }
   }
 
-  /** Refuses the write when it touches an archived project the person can see. */
+  /** Refuses the write when it touches an archived project (or an archived task) the person can see. */
   return async function check(target: ArchiveTarget, req: FastifyRequest): Promise<void> {
     const user = req.user;
     if (!user) return; // not signed in: the route answers 401 itself
     const roles = user.roles ?? [];
     const asked = new Set<string>(); // each project once (a bulk move's tasks share a few)
-    for (const s of await subjectsOf(target, req)) {
+    const subjects = await subjectsOf(target, req);
+    for (const s of subjects) {
       if (!s.projectId || (asked.has(s.projectId) && !s.meetingId) || !(await lookup.isArchived(s.projectId))) continue;
       asked.add(s.projectId);
       const sees =
         (s.ownerIds ?? []).includes(user.id) ||
         (s.meetingId ? await deps.canSeeMeeting(user.id, roles, s.meetingId) : await deps.canSeeProject(user.id, roles, s.projectId));
       if (sees) throw new ProjectArchivedError();
+    }
+    // Task archive: the task itself is archived (its project is live). Only for someone who can see it.
+    for (const s of subjects) {
+      if (s.taskArchived && s.projectId && (await deps.canSeeProject(user.id, roles, s.projectId))) throw new TaskArchivedError();
     }
   };
 }
@@ -334,30 +386,22 @@ export function installArchiveGuard(app: FastifyInstance, guard: ArchiveGuard, p
 
 /** The guard's facts over the database. */
 export function createPrismaArchiveLookup(prisma: PrismaClient): ArchiveLookup {
-  const taskProject = async (where: { id: string }) => (await prisma.task.findFirst({ where: { ...where, deletedAt: null }, select: { projectId: true } }))?.projectId ?? null;
+  /** A task-scoped thing's project, and whether its task is archived (task archive). */
+  const ofTask = (t: { projectId: string; archivedAt: Date | null } | null | undefined): ArchiveSubject | null => (t ? { projectId: t.projectId, taskArchived: t.archivedAt !== null } : null);
+  const taskFacts = { select: { projectId: true, archivedAt: true } } as const;
   return {
     async subjectOf(kind, id) {
       switch (kind) {
-        case 'task': {
-          const projectId = await taskProject({ id });
-          return projectId ? { projectId } : null;
-        }
-        case 'comment': {
-          const c = await prisma.comment.findUnique({ where: { id }, select: { task: { select: { projectId: true } } } });
-          return c ? { projectId: c.task.projectId } : null;
-        }
-        case 'checklistItem': {
-          const i = await prisma.checklistItem.findUnique({ where: { id }, select: { task: { select: { projectId: true } } } });
-          return i ? { projectId: i.task.projectId } : null;
-        }
-        case 'checklistList': {
-          const l = await prisma.checklistList.findUnique({ where: { id }, select: { task: { select: { projectId: true } } } });
-          return l ? { projectId: l.task.projectId } : null;
-        }
-        case 'externalContact': {
-          const c = await prisma.taskExternalContact.findUnique({ where: { id }, select: { task: { select: { projectId: true } } } });
-          return c ? { projectId: c.task.projectId } : null;
-        }
+        case 'task':
+          return ofTask(await prisma.task.findFirst({ where: { id, deletedAt: null }, select: { projectId: true, archivedAt: true } }));
+        case 'comment':
+          return ofTask((await prisma.comment.findUnique({ where: { id }, select: { task: taskFacts } }))?.task);
+        case 'checklistItem':
+          return ofTask((await prisma.checklistItem.findUnique({ where: { id }, select: { task: taskFacts } }))?.task);
+        case 'checklistList':
+          return ofTask((await prisma.checklistList.findUnique({ where: { id }, select: { task: taskFacts } }))?.task);
+        case 'externalContact':
+          return ofTask((await prisma.taskExternalContact.findUnique({ where: { id }, select: { task: taskFacts } }))?.task);
         case 'column': {
           const c = await prisma.kanbanColumn.findUnique({ where: { id }, select: { projectId: true } });
           return c ? { projectId: c.projectId } : null;
@@ -369,6 +413,10 @@ export function createPrismaArchiveLookup(prisma: PrismaClient): ArchiveLookup {
         case 'series': {
           const s = await prisma.meetingSeries.findUnique({ where: { id }, select: { projectId: true } });
           return s ? { projectId: s.projectId } : null;
+        }
+        case 'category': {
+          const c = await prisma.projectCategory.findUnique({ where: { id }, select: { projectId: true } });
+          return c ? { projectId: c.projectId } : null;
         }
         case 'actionItem': {
           const a = await prisma.actionItem.findUnique({ where: { id }, select: { projectId: true, meetingId: true, assigneeId: true, createdById: true, meeting: { select: { projectId: true } } } });

@@ -2,6 +2,7 @@ import { isExtensionSource } from './error-redact';
 import { isAiRequest } from './ai-requests';
 import type { ErrorReport, ErrorReporter } from './error-reporter';
 import type { RequestDone } from './api-client';
+import { createPageLifecycle, type PageLifecycle } from './page-lifecycle';
 
 /** When a page counts as slow (1.22.4, the Error log's Slow). */
 export const SLOW = {
@@ -15,6 +16,11 @@ export const SLOW = {
   cls: 0.25,
   /** An API request took this long. */
   apiMs: 10_000,
+  /**
+   * 1.23.14: a page-show time (largest content, page load) over this is the page in the background — a
+   * sleeping machine, a tab left behind — never slowness: it is not reported.
+   */
+  maxPageMs: 120_000,
   /**
    * 1.23.0: a request that waits on the AI (ai-requests.ts) took this long — an AI answer legitimately
    * takes a while (the provider is given minutes); one that fails is still logged as an error.
@@ -105,8 +111,55 @@ const pathOf = (win: Window) => {
   }
 };
 
-/** Slow pages, measured with the browser's own PerformanceObserver (no package). Returns what to run when the page is hidden. */
-function observePerformance(win: Window, sink: Sink): { finish: () => void; stop: () => void } {
+/** Plain words for what kind of element a click or key press was on (never its text, label or value). */
+const ELEMENT_WORDS: [string, string][] = [
+  ['a, [role="link"]', 'a link'],
+  ['button, [role="button"], input[type="button"], input[type="submit"], input[type="reset"], summary', 'a button'],
+  ['input[type="checkbox"], [role="checkbox"]', 'a tick box'],
+  ['input[type="radio"], [role="radio"]', 'a choice'],
+  ['[role="switch"]', 'a switch'],
+  ['select, [role="listbox"], [role="combobox"], [role="option"]', 'a list'],
+  ['[role="tab"]', 'a tab'],
+  ['[role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]', 'a menu item'],
+  ['textarea, input, [role="textbox"], [role="searchbox"]', 'a text box'],
+  ['[contenteditable=""], [contenteditable="true"], [contenteditable="plaintext-only"]', 'a text editor'],
+];
+
+/**
+ * 1.23.14 — what a slow click or key press was on, in plain words ("a click on a button", "a key press in a
+ * text box"): the kind of event and of the element (or its nearest clickable ancestor), never its text.
+ */
+export function interactionText(eventName: string, target: Element | null | undefined): string {
+  const name = String(eventName ?? '').toLowerCase();
+  const key = /^key/.test(name);
+  const tap = /^touch/.test(name);
+  const what = key ? 'a key press' : tap ? 'a tap' : 'a click';
+  if (!target || typeof target.closest !== 'function') return what;
+  let words = 'the page';
+  try {
+    for (const [selector, w] of ELEMENT_WORDS) {
+      if (target.closest(selector)) {
+        words = w;
+        break;
+      }
+    }
+  } catch {
+    // An element the selectors can't read: just the event.
+    return what;
+  }
+  return `${what} ${key && (words === 'a text box' || words === 'a text editor') ? 'in' : 'on'} ${words}`;
+}
+
+/**
+ * Slow pages, measured with the browser's own PerformanceObserver (no package). Returns what to run when the page is hidden.
+ *
+ * 1.23.14 — only while the page is on screen (web-vitals' rules): a page-show time (largest content, page
+ * load) counts only from what happened before the page was first hidden, from a prerendered page's
+ * activation, never from a page restored from the back-forward cache, and never over 2 minutes (that is the
+ * page in the background). A slow click or key press, or a layout shift, while the page was hidden or frozen
+ * isn't the page's.
+ */
+function observePerformance(win: Window, sink: Sink, life: PageLifecycle): { finish: () => void; stop: () => void } {
   const observers: PerformanceObserver[] = [];
   const PO = (win as Window & { PerformanceObserver?: typeof PerformanceObserver }).PerformanceObserver;
   const supported: readonly string[] = PO?.supportedEntryTypes ?? [];
@@ -114,6 +167,12 @@ function observePerformance(win: Window, sink: Sink): { finish: () => void; stop
   const shifts: { startTime: number; value: number; hadRecentInput: boolean }[] = [];
   let shiftPage = '/';
   let finished = false;
+  /** A page-show time from the activation; null when it doesn't count (shown after the page was first hidden, or too long). */
+  const shown = (at: number): number | null => {
+    if (!(at < life.firstHiddenTime())) return null;
+    const ms = Math.max(0, at - life.activationStart());
+    return ms > SLOW.maxPageMs ? null : ms;
+  };
   const watch = (type: string, onEntries: (entries: PerformanceEntry[]) => void, extra: Record<string, unknown> = {}) => {
     if (!PO || !supported.includes(type)) return;
     try {
@@ -131,11 +190,15 @@ function observePerformance(win: Window, sink: Sink): { finish: () => void; stop
     }
   };
   watch('largest-contentful-paint', (entries) => {
-    const last = entries[entries.length - 1];
-    if (last) lcp = { ms: last.startTime, page: pathOf(win) };
+    if (finished || life.restored()) return;
+    // The latest one shown before the page was first hidden (a later one is the page coming back).
+    for (const e of entries) {
+      if (e.startTime < life.firstHiddenTime()) lcp = { ms: e.startTime, page: pathOf(win) };
+    }
   });
   watch('layout-shift', (entries) => {
     for (const e of entries as (PerformanceEntry & { value?: number; hadRecentInput?: boolean })[]) {
+      if (life.awayBetween(e.startTime, e.startTime)) continue;
       shifts.push({ startTime: e.startTime, value: Number(e.value) || 0, hadRecentInput: !!e.hadRecentInput });
     }
     if (shifts.length > 500) shifts.splice(0, shifts.length - 500);
@@ -144,19 +207,25 @@ function observePerformance(win: Window, sink: Sink): { finish: () => void; stop
   watch(
     'event',
     (entries) => {
-      for (const e of entries as (PerformanceEntry & { interactionId?: number })[]) {
-        if (e.interactionId && e.duration > SLOW.inpMs) sink.report({ kind: 'SLOW', detail: 'inp', value: Math.round(e.duration) });
+      for (const e of entries as (PerformanceEntry & { interactionId?: number; target?: Element | null })[]) {
+        if (!e.interactionId || !(e.duration > SLOW.inpMs)) continue;
+        // A click or key press the page couldn't answer because it was hidden or frozen isn't slow.
+        if (life.awayBetween(e.startTime, e.startTime + e.duration)) continue;
+        sink.report({ kind: 'SLOW', detail: 'inp', value: Math.round(e.duration), resource: interactionText(e.name, e.target) });
       }
     },
     { durationThreshold: 104 },
   );
 
+  let loadTimer: number | undefined;
   const onLoad = () => {
-    win.setTimeout(() => {
+    loadTimer = win.setTimeout(() => {
       try {
+        if (life.restored()) return;
         const nav = win.performance?.getEntriesByType?.('navigation')[0] as PerformanceNavigationTiming | undefined;
-        const ms = nav ? nav.loadEventEnd || nav.duration : win.performance.now();
-        if (ms > SLOW.loadMs) sink.report({ kind: 'SLOW', detail: 'load', value: Math.round(ms), page: pathOf(win) });
+        if (!nav) return; // no timing: nothing to say (never the time the page has been open)
+        const ms = shown(nav.loadEventEnd || nav.duration);
+        if (ms !== null && ms > SLOW.loadMs) sink.report({ kind: 'SLOW', detail: 'load', value: Math.round(ms), page: pathOf(win) });
       } catch {
         // No timing: nothing to say.
       }
@@ -169,13 +238,15 @@ function observePerformance(win: Window, sink: Sink): { finish: () => void; stop
     finish() {
       if (finished) return;
       finished = true;
-      if (lcp.ms > SLOW.lcpMs) sink.report({ kind: 'SLOW', detail: 'lcp', value: Math.round(lcp.ms), page: lcp.page });
+      const ms = life.restored() ? null : shown(lcp.ms);
+      if (ms !== null && ms > SLOW.lcpMs) sink.report({ kind: 'SLOW', detail: 'lcp', value: Math.round(ms), page: lcp.page });
       const cls = layoutShiftScore(shifts);
       if (cls > SLOW.cls) sink.report({ kind: 'SLOW', detail: 'cls', value: Math.round(cls * 1000) / 1000, page: shiftPage });
     },
     stop() {
       for (const o of observers) o.disconnect();
       win.removeEventListener('load', onLoad);
+      if (loadTimer !== undefined) win.clearTimeout(loadTimer);
     },
   };
 }
@@ -197,8 +268,12 @@ export function installErrorCapture(
      * recorded. Absent: it always stands.
      */
     codeFailureStands?: () => Promise<boolean>;
+    /** 1.23.14: whether the page was on screen (error-reporting shares one with the API requests); made here when absent. */
+    lifecycle?: PageLifecycle;
   },
 ): () => void {
+  const ownLifecycle = opts.lifecycle ? null : createPageLifecycle(win);
+  const life = (opts.lifecycle ?? ownLifecycle)!;
   /** Report a code-loading failure only when it stands (the automatic reload can't help). */
   const reportCode = (report: ErrorReport) => {
     if (!opts.codeFailureStands) return sink.report(report);
@@ -274,7 +349,7 @@ export function installErrorCapture(
 
   const perf = (() => {
     try {
-      return observePerformance(win, sink);
+      return observePerformance(win, sink, life);
     } catch {
       return { finish() {}, stop() {} };
     }
@@ -326,6 +401,7 @@ export function installErrorCapture(
     win.document.removeEventListener('pointerdown', onBack, true);
     win.document.removeEventListener('keydown', onBack, true);
     perf.stop();
+    ownLifecycle?.stop();
     leaving = false;
   };
 }

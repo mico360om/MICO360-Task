@@ -4,11 +4,19 @@
  * kept only for a reader who can open that task; anyone else sees "a blocker" (the activity wording
  * falls back to it), and the other task's id is dropped too. A dependency must not reveal a hidden
  * task, here or on the task's Blocked by / Blocks lists.
+ *
+ * Duplicate Task: the same for its two lines — on a copy, the task it was duplicated from
+ * (DUPLICATED_FROM); on the original, the copy made (DUPLICATED). A copy made in a project the reader
+ * can't see reads "duplicated this task", without its number.
  */
 
-const BLOCKER_ACTIONS = new Set(['BLOCKER_ADDED', 'BLOCKER_REMOVED']);
-/** What names the other task: dropped for a reader who can't open it. */
-const HIDDEN_FIELDS = new Set(['dependsOnTaskId', 'key', 'title']);
+/** The lines that name another task: where its id is, and what names it (dropped for a reader who can't open it). */
+const LINKED: Readonly<Record<string, { idField: string; hidden: ReadonlySet<string> }>> = {
+  BLOCKER_ADDED: { idField: 'dependsOnTaskId', hidden: new Set(['dependsOnTaskId', 'key', 'title']) },
+  BLOCKER_REMOVED: { idField: 'dependsOnTaskId', hidden: new Set(['dependsOnTaskId', 'key', 'title']) },
+  DUPLICATED_FROM: { idField: 'fromTaskId', hidden: new Set(['fromTaskId', 'fromKey']) },
+  DUPLICATED: { idField: 'copyTaskId', hidden: new Set(['copyTaskId', 'copyKey']) },
+};
 /** The other tasks are checked this many at a time. */
 const CHECK_AT_ONCE = 10;
 
@@ -18,8 +26,9 @@ interface ActivityLike {
 }
 
 const otherTask = (row: ActivityLike): string | null => {
-  if (!BLOCKER_ACTIONS.has(row.action) || !row.meta || typeof row.meta !== 'object') return null;
-  const id = (row.meta as Record<string, unknown>).dependsOnTaskId;
+  const linked = LINKED[row.action];
+  if (!linked || !row.meta || typeof row.meta !== 'object') return null;
+  const id = (row.meta as Record<string, unknown>)[linked.idField];
   return typeof id === 'string' ? id : null;
 };
 
@@ -35,7 +44,8 @@ export async function withoutHiddenBlockers<T extends ActivityLike>(rows: T[], c
   return rows.map((row) => {
     const id = otherTask(row);
     if (id === null || open.has(id)) return row;
-    const rest = Object.fromEntries(Object.entries(row.meta as Record<string, unknown>).filter(([k]) => !HIDDEN_FIELDS.has(k)));
+    const hidden = LINKED[row.action]!.hidden;
+    const rest = Object.fromEntries(Object.entries(row.meta as Record<string, unknown>).filter(([k]) => !hidden.has(k)));
     return { ...row, meta: rest };
   });
 }

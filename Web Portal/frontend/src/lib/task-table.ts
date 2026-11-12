@@ -5,6 +5,7 @@ import { isTaskDone } from './due-display';
 import { isWaitingForApproval } from './approvals';
 import { matchesTaskNumber } from './task-number';
 import { projectReadOnly, type ProjectReadOnly } from './project-archive';
+import { guestLabel } from './guest-contacts';
 
 /**
  * Task tables (1.23.0: the project's Tasks and Board tabs, My Tasks, the Board page): how a task row
@@ -69,15 +70,28 @@ export function taskSortValue(t: ApiTask, column: string, ctx: TaskTableContext)
       return ctx.statusOf(t).rank;
     case 'progress':
       return t.progress ?? 0;
+    // 1.24: by the first guest ("Ahmed (OXY)"; an older server: its first contact) and the first category.
+    case 'guests':
+      return firstGuestLabel(t);
+    case 'categories':
+      return t.categories?.[0]?.name ?? '';
     default:
       return null;
   }
 }
 
+/** A task's first guest as the Guests column sorts it ("Ahmed (OXY)"); an older server's first contact; '' for none. */
+export function firstGuestLabel(t: Pick<ApiTask, 'guests' | 'externalSummary'>): string {
+  const g = t.guests?.[0];
+  if (g) return guestLabel(g);
+  const s = t.externalSummary;
+  return s && s.count > 0 ? guestLabel({ name: s.name, company: s.company }) : '';
+}
+
 /** My Tasks' Sort menu choices, and which way each has always gone (Progress: most done first). */
 const MY_TASKS_FIRST: Record<string, 'asc' | 'desc'> = { due: 'asc', priority: 'asc', progress: 'desc', title: 'asc' };
 /** Columns the table sorts by that the menu doesn't list. */
-const TABLE_ONLY = new Set(['key', 'status', 'project', 'assignee', 'start']);
+const TABLE_ONLY = new Set(['key', 'status', 'project', 'assignee', 'start', 'guests', 'categories']);
 
 /** The direction a My Tasks column starts in when its header is clicked. */
 export const myTasksFirstDir = (column: string): 'asc' | 'desc' => MY_TASKS_FIRST[column] ?? 'asc';
@@ -111,6 +125,8 @@ const SORT_WORDS: Record<string, [string, string, string]> = {
   project: ['Project', ' (A–Z)', ' (Z–A)'],
   assignee: ['Assignee', ' (A–Z)', ' (Z–A)'],
   start: ['Start date', '', ' (latest first)'],
+  guests: ['Guests', ' (A–Z)', ' (Z–A)'],
+  categories: ['Categories', ' (A–Z)', ' (Z–A)'],
 };
 
 /** A My Tasks sort value in the Sort menu's words ("Title (Z–A)", "Due date (latest first)"). */

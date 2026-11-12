@@ -1,5 +1,5 @@
 import { NotFoundError, ValidationError } from '../../lib/http-errors';
-import { validateProviderUrl } from './ai-network';
+import { isMico360Provider, validateProviderUrl } from './ai-network';
 import { friendlyModelName, inferCapabilities, pickRecommended, type RemoteModel } from './ai-model-catalog';
 
 /** Capabilities a model can serve. "document" = Document Processing. */
@@ -26,9 +26,51 @@ export interface AiProvider {
   lastSyncedAt?: string | null;
   lastSyncAttemptAt?: string | null;
   lastSyncError?: string | null;
+  /** MICO360 AI: what its platform said about itself (AI Management's provider card). */
+  platform?: ProviderPlatform;
   createdAt: string;
   updatedAt: string;
 }
+
+/** b5: another model answered than the one asked for (the platform's substitution), counted per pair. */
+export interface PlatformSubstitution {
+  asked: string;
+  answered: string;
+  count: number;
+  firstAt: string;
+  at: string;
+}
+
+/**
+ * MICO360 AI's facts about itself, read when its models load (and once a day): the server's version
+ * (b12, GET /api/status), what the fleet can do (b7, GET /api/v1/models), how many requests the key may
+ * run at once (b11, GET /api/v1/status); and what Tasks noticed: whole-document reading refused, so
+ * scans were read as pictures (b4), models that stood in for others (b5), and strict answer shapes
+ * (json_schema) refused, so JSON mode is used (the safety net).
+ */
+export interface ProviderPlatform {
+  version?: string | null;
+  commit?: string | null;
+  /** Every connected node's capabilities (Chat, Vision, Embedding, Ocr…); null: not read yet. */
+  capabilities?: string[] | null;
+  concurrencyLimit?: number | null;
+  checkedAt?: string | null;
+  /** The last refusal of POST /api/v1/ocr that sent scans to the picture reader; null once it works again. */
+  ocrFallback?: { status: number; reason: string | null; at: string } | null;
+  /** Newest first, at most MAX_SUBSTITUTIONS. */
+  substitutions?: PlatformSubstitution[];
+  /**
+   * Safety net: this Connect refused an answer held to a JSON Schema (json_schema, or the stream's schema
+   * `format`), so answers are asked for in JSON mode (json_object) for STRICT_JSON_PAUSE_MS, or until the
+   * next model refresh forgets it.
+   */
+  strictJsonRefused?: { status: number; reason: string | null; at: string } | null;
+}
+
+export const MAX_SUBSTITUTIONS = 10;
+
+/** Safety net: how long a Connect that refused strict answer shapes is asked in JSON mode instead. */
+export const STRICT_JSON_PAUSE_MS = 24 * 60 * 60 * 1000;
 
 export interface AiModelParameters {
   temperature?: number;
@@ -49,6 +91,11 @@ export interface AiModel {
   available: boolean; // detected from the provider on sync
   /** When the provider released the model (seconds since 1970), if it says: newer is recommended first. */
   created?: number;
+  /**
+   * MICO360 AI: when the provider's list first left it out (that list omits busy nodes' models for a
+   * while). It stays available until MISSING_GRACE_MS have passed; absent while the list has it.
+   */
+  missingSince?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -87,7 +134,7 @@ export function redactConfig(config: AiConfig): RedactedConfig {
   return {
     providers: config.providers.map((p) => {
       const { apiKey, ...rest } = p;
-      const offered = config.models.filter((m) => m.providerId === p.id && m.available);
+      const offered = rankable(config, config.models.filter((m) => m.providerId === p.id && m.available));
       return {
         ...rest,
         hasApiKey: Boolean(apiKey),
@@ -267,12 +314,16 @@ export function setDefault(config: AiConfig, capability: string, modelId: string
 }
 
 // ── Provider sync (mark availability + auto-detect new models) ───────────────
+/** MICO360 AI: how long a model may be left out of its list before it counts as gone. */
+export const MISSING_GRACE_MS = 3 * 24 * 60 * 60 * 1000;
+
 /**
  * Apply a provider's current model list: known models are marked available or not (and get the
  * provider's name for them unless an admin renamed them), new ones are added switched off with
  * what they can do. The first time a provider's list loads and none of its models is on, its
  * recommended chat model is switched on, so AI works right after connecting; after that the
- * admin's on/off choices are never changed.
+ * admin's on/off choices are never changed. MICO360 AI's models left out of its list stay
+ * available for MISSING_GRACE_MS (its list omits a busy node's models for a while).
  */
 export function applySync(config: AiConfig, providerId: string, remoteModels: Array<string | RemoteModel>, meta: Meta): AiConfig {
   const provider = requireProvider(config, providerId);
@@ -283,17 +334,28 @@ export function applySync(config: AiConfig, providerId: string, remoteModels: Ar
     if (key && !remote.has(key)) remote.set(key, { ...m, key });
   }
   const known = new Set(config.models.filter((m) => m.providerId === providerId).map((m) => m.modelKey));
+  // MICO360 AI lists only the models of nodes accepting work right now: one left out may be on a busy
+  // node, so it stays available for a while (the platform itself then answers with a substitute or a 503).
+  const graceful = isMico360Provider(provider);
+  const nowMs = Date.parse(meta.now);
 
   // Update availability of known models.
   let models = config.models.map((m) => {
     if (m.providerId !== providerId) return m;
     const r = remote.get(m.modelKey);
     const renamed = m.displayName !== m.modelKey && m.displayName !== friendlyModelName(m.modelKey);
+    // b14: MICO360 AI's `created` is when the list was asked for, not the model's release: never kept.
+    const { missingSince, created, ...rest } = m;
+    const since = missingSince ?? meta.now;
+    const presence = r || !graceful
+      ? { available: Boolean(r) }
+      : { available: m.available && !(nowMs - Date.parse(since) >= MISSING_GRACE_MS), missingSince: since };
+    const release = graceful ? undefined : (created ?? r?.created);
     return {
-      ...m,
-      available: Boolean(r),
+      ...rest,
+      ...presence,
       ...(r?.displayName && !renamed ? { displayName: r.displayName } : {}),
-      ...(r?.created !== undefined && m.created === undefined ? { created: r.created } : {}),
+      ...(release !== undefined ? { created: release } : {}),
       updatedAt: meta.now,
     };
   });
@@ -312,7 +374,7 @@ export function applySync(config: AiConfig, providerId: string, remoteModels: Ar
       concurrencyLimit: 4,
       enabled: false,
       available: true,
-      ...(r.created !== undefined ? { created: r.created } : {}),
+      ...(r.created !== undefined && !graceful ? { created: r.created } : {}),
       createdAt: meta.now,
       updatedAt: meta.now,
     });
@@ -360,10 +422,19 @@ export function resolveDefaultModel(config: AiConfig, capability: AiCapability):
   return usableModels(config, capability).find((m) => m.id === id) ?? null;
 }
 
+/**
+ * Models as "Automatic" ranks them. b14: a MICO360 AI model's `created` (saved by an older release) is
+ * when its list was asked for, so it never decides between two models.
+ */
+function rankable(config: AiConfig, models: AiModel[]): AiModel[] {
+  const mico = new Set(config.providers.filter((p) => isMico360Provider(p)).map((p) => p.id));
+  return models.map((m) => (mico.has(m.providerId) && m.created !== undefined ? (({ created: _created, ...rest }) => rest)(m) : m));
+}
+
 /** What "Automatic" picks for each capability: the recommended model among the usable ones. */
 export function automaticModels(config: AiConfig): Record<AiCapability, string | null> {
   const out = {} as Record<AiCapability, string | null>;
-  for (const cap of AI_CAPABILITIES) out[cap] = pickRecommended(usableModels(config, cap), cap);
+  for (const cap of AI_CAPABILITIES) out[cap] = pickRecommended(rankable(config, usableModels(config, cap)), cap);
   return out;
 }
 
@@ -371,8 +442,71 @@ export function automaticModels(config: AiConfig): Record<AiCapability, string |
 export function effectiveModel(config: AiConfig, capability: AiCapability): AiModel | null {
   const chosen = resolveDefaultModel(config, capability);
   if (chosen) return chosen;
-  const id = pickRecommended(usableModels(config, capability), capability);
+  const id = pickRecommended(rankable(config, usableModels(config, capability)), capability);
   return id ? (config.models.find((m) => m.id === id) ?? null) : null;
+}
+
+// ── MICO360 AI: its platform's facts (the provider card) ──────────────────────
+export interface PlatformFacts {
+  version: string | null;
+  commit: string | null;
+  capabilities: string[] | null;
+  concurrencyLimit: number | null;
+}
+
+function withPlatform(config: AiConfig, providerId: string, change: (p: ProviderPlatform) => ProviderPlatform): AiConfig {
+  requireProvider(config, providerId);
+  return { ...config, providers: config.providers.map((p) => (p.id === providerId ? { ...p, platform: change(p.platform ?? {}) } : p)) };
+}
+
+/**
+ * b7, b11, b12: the facts just read; one that couldn't be read keeps the last one known. A model refresh
+ * also forgets a strict-shape refusal (the safety net): the Connect may have been updated since.
+ */
+export function applyPlatform(config: AiConfig, providerId: string, facts: PlatformFacts, now: string): AiConfig {
+  return withPlatform(config, providerId, (p) => {
+    const next: ProviderPlatform = {
+      ...p,
+      version: facts.version ?? p.version ?? null,
+      commit: facts.version ? facts.commit : (p.commit ?? null),
+      capabilities: facts.capabilities ?? p.capabilities ?? null,
+      concurrencyLimit: facts.concurrencyLimit ?? p.concurrencyLimit ?? null,
+      checkedAt: now,
+    };
+    delete next.strictJsonRefused;
+    return next;
+  });
+}
+
+/** b5: another model answered — counted per pair, newest first, at most MAX_SUBSTITUTIONS. */
+export function recordSubstitution(config: AiConfig, providerId: string, sub: { asked: string; answered: string }, now: string): AiConfig {
+  const asked = sub.asked.slice(0, 200);
+  const answered = sub.answered.slice(0, 200);
+  return withPlatform(config, providerId, (p) => {
+    const list = p.substitutions ?? [];
+    const same = list.find((s) => s.asked === asked && s.answered === answered);
+    const entry: PlatformSubstitution = same ? { ...same, count: same.count + 1, at: now } : { asked, answered, count: 1, firstAt: now, at: now };
+    return { ...p, substitutions: [entry, ...list.filter((s) => s !== same)].slice(0, MAX_SUBSTITUTIONS) };
+  });
+}
+
+/** b4: whole-document reading was refused (scans read as pictures instead), or (null) works again. */
+export function recordOcrFallback(config: AiConfig, providerId: string, fallback: { status: number; reason: string | null } | null, now: string): AiConfig {
+  return withPlatform(config, providerId, (p) => ({ ...p, ocrFallback: fallback ? { status: fallback.status, reason: fallback.reason?.slice(0, 300) ?? null, at: now } : null }));
+}
+
+/** Safety net: strict answer shapes were refused (status 400/422 and the Connect's reason), or (null) forgotten. */
+export function recordStrictJsonRefusal(config: AiConfig, providerId: string, refusal: { status: number; reason: string | null } | null, now: string): AiConfig {
+  return withPlatform(config, providerId, (p) => ({
+    ...p,
+    strictJsonRefused: refusal ? { status: refusal.status, reason: refusal.reason?.slice(0, 300) ?? null, at: now } : null,
+  }));
+}
+
+/** Safety net: is this provider being asked in JSON mode rather than with a schema (a refusal under 24 hours old)? */
+export function strictJsonPaused(provider: Pick<AiProvider, 'platform'>, nowMs: number): boolean {
+  const at = Date.parse(provider.platform?.strictJsonRefused?.at ?? '');
+  return Number.isFinite(at) && nowMs - at < STRICT_JSON_PAUSE_MS;
 }
 
 // ── small helpers ────────────────────────────────────────────────────────────

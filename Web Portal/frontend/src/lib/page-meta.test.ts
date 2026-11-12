@@ -36,6 +36,8 @@ describe('pageMetaFor', () => {
       '/admin/error-log': 'Error Log',
       '/admin/users': 'User Management',
       '/admin/companies': 'Companies',
+      // 1.24 The admins' list of guests.
+      '/admin/guests': 'Guest contacts',
       '/admin/clients': 'Clients',
       '/client/AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-abcde': 'Shared project',
       '/privacy/client': 'Privacy notice for clients',

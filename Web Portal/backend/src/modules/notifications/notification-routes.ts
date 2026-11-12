@@ -35,7 +35,7 @@ const prefsSchema = z.object({
 });
 
 const kindsSchema = z.array(z.enum(KIND_KEYS)).max(KIND_KEYS.length * 2);
-const readAllSchema = z.object({ upTo: z.string().datetime({ offset: true }).optional(), kinds: kindsSchema.optional() });
+const readAllSchema = z.object({ upTo: z.iso.datetime({ offset: true }).optional(), kinds: kindsSchema.optional() });
 
 /** 1.22: a page of the list — `kinds=mentions,due` (the chips), `unread=1` (the Unread tab), `limit` (≤100, default 100), `cursor`. */
 const pageSchema = z.object({

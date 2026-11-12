@@ -36,6 +36,8 @@ export function createMemoryTemplateRepository(seed: { projects?: ProjectSnapsho
       name: input.name,
       description: input.description,
       columns: input.columns.map((c) => ({ ...c })),
+      // 1.24: a template being replaced without them keeps the ones it has.
+      categories: (input.categories ?? before?.categories ?? []).map((c) => ({ ...c })),
       roles,
       tasks: input.tasks.map((t) => ({
         id: id('tt'),

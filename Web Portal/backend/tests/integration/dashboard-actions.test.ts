@@ -213,7 +213,12 @@ describe('Reschedule, with Undo', () => {
     expect(rowOf(await cached(w.as.ana), id)).toMatchObject({ reason: { code: 'due-today' }, task: { startDate: today } });
     const undo = await send('PUT', w.as.ana, `/tasks/${id}`, { dueDate: r.dueDate, startDate: r.startAt, expectedVersion: res.body.data!.version });
     expect(undo.status).toBe(200);
-    expect(rowOf(await cached(w.as.ana), id)!.task).toMatchObject({ dueDate: r.dueDate, startDate: r.startDate });
+    const back = await prisma.task.findUniqueOrThrow({ where: { id } });
+    expect([back.dueDate?.toISOString().slice(0, 10), back.startDate?.toISOString().slice(0, 10)]).toEqual([r.dueDate, r.startDate]);
+    // Tasks scheduled for the future (owner, 10 Nov 2026): its start back on a later day, the not-started
+    // task waits on that day's board — out of My Priorities until then.
+    expect(back.boardDate?.toISOString()).toBe(`${r.startDate}T12:00:00.000Z`);
+    expect(rowOf(await cached(w.as.ana), id)).toBeUndefined();
   });
 
   it('a repeating task moves only this occurrence (the rule notes the day it replaced); Undo puts the rule back', async () => {
