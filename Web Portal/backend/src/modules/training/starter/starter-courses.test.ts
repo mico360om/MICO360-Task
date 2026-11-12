@@ -168,6 +168,14 @@ describe('starter courses: the list', () => {
     expect(text).not.toMatch(/attach a file|time-zone picker|invited you in the bell/i);
   });
 
+  it('Calendar, Chat and MICO AI say what 1.23.24 shows (checked against the retaken pictures)', () => {
+    const calendar = JSON.stringify(byKey('starter:calendar'));
+    for (const said of ['<strong>Day</strong>', '<strong>+ Task</strong>', 'Change dates']) expect(calendar, said).toContain(said);
+    expect(calendar).not.toMatch(/Add a task on this day|Change date|Change date</);
+    expect(JSON.stringify(byKey('starter:chat'))).not.toMatch(/reaction, reply and more buttons/);
+    expect(JSON.stringify(byKey('starter:mico-ai'))).not.toMatch(/How can I help, Omar/);
+  });
+
   it('the Tasks and Meetings courses carry the owner’s how-to slides', () => {
     expect(byKey('starter:tasks').resources).toEqual([{ file: 'tasks-how-to.pdf', name: 'Tasks how-to slides (PDF)', mimeType: 'application/pdf' }]);
     expect(byKey('starter:meetings').resources).toEqual([{ file: 'meetings-how-to.pdf', name: 'Meetings how-to slides (PDF)', mimeType: 'application/pdf' }]);

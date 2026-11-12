@@ -559,15 +559,15 @@ const calendar: StarterCourse = {
       steps: [
         {
           title: 'Open the calendar',
-          body: '<p>Click <strong>Calendar</strong> in the side menu. Tasks show on their due date and meetings at their start time. Switch between <strong>Month</strong>, <strong>Week</strong> and <strong>Agenda</strong> at the top; <strong>Today</strong> takes you back to today.</p>',
+          body: '<p>Click <strong>Calendar</strong> in the side menu. Tasks show on their due date and meetings at their start time. Switch between <strong>Month</strong>, <strong>Week</strong>, <strong>Day</strong> and <strong>Agenda</strong> at the top; <strong>Today</strong> takes you back to today.</p>',
           image: 'calendar-month.webp',
-          alt: 'The Calendar in Month view: tasks and meetings on their days, with the Month, Week and Agenda buttons and the filters at the top.',
+          alt: 'The Calendar in Month view: tasks and meetings on their days, with the Month, Week, Day and Agenda buttons and the filters at the top.',
         },
         {
           title: 'Look at a task',
-          body: '<p>Click a task to see its status, due date, project and people. Click <strong>Open task</strong> for all its details, or <strong>Change date</strong> to give it a new due date. Click a meeting to open its page.</p>',
+          body: '<p>Click a task to see its status, due date, project and people. Click <strong>Open task</strong> for all its details, or <strong>Change dates</strong> to give it new dates. Click a meeting to open its page.</p>',
           image: 'calendar-preview.webp',
-          alt: 'A task’s summary over the calendar: its status, due date, project, assignee and priority, with the Change date and Open task buttons.',
+          alt: 'A task’s summary over the calendar: its status, due date, project, assignee and priority, with the Change dates and Open task buttons.',
         },
         {
           title: 'Move a task to another day',
@@ -575,9 +575,9 @@ const calendar: StarterCourse = {
         },
         {
           title: 'Add a task on a day',
-          body: '<p>Click a day’s number to see everything on that day, then click <strong>+ Add a task on this day</strong>. The new task gets that day as its due date.</p>',
+          body: '<p>Click a day’s number to see everything on that day, then click <strong>+ Task</strong> at the top. The new task gets that day as its due date.</p>',
           image: 'calendar-day.webp',
-          alt: 'The list for one day: a meeting and four tasks, with the + Add a task on this day button at the bottom.',
+          alt: 'One day’s window: a meeting with Accept, Maybe and Decline, a task due that day, and the + Task and Plan time buttons at the top.',
         },
         {
           title: 'Choose what you see',
@@ -605,13 +605,13 @@ const calendar: StarterCourse = {
       trueFalse('Dragging a task to another day changes its due date.', true, 'And a message lets you Undo the move.'),
       multiple(
         'Which views does the calendar have?',
-        [right('Month'), right('Week'), right('Agenda'), wrong('Year', 'There is no Year view. The views are Month, Week and Agenda.')],
-        'You can switch between Month, Week and Agenda.',
+        [right('Month'), right('Week'), right('Agenda'), wrong('Year', 'There is no Year view. The views are Month, Week, Day and Agenda.')],
+        'You can switch between Month, Week, Day and Agenda.',
       ),
       single(
         'How do you add a task due on a particular day?',
         [
-          right('Click the day’s number, then + Add a task on this day', 'Yes — that day becomes its due date.'),
+          right('Click the day’s number, then + Task', 'Yes — that day becomes its due date.'),
           wrong('Drag an empty box onto the day', 'Click the day’s number first.'),
           wrong('Open Settings → Calendar & dates', 'That is for your week start and time zone.'),
           wrong('Ask an administrator', 'Anyone can add a task on a day.'),
@@ -876,7 +876,7 @@ const chat: StarterCourse = {
           title: 'Reply to a message',
           body: '<p>Point at a message and click the reply arrow. The message you are answering shows above the box. Type your reply and send it.</p>',
           image: 'chat-reply.webp',
-          alt: 'A reply being written: “Replying to Zara Ahmed” above the message box, with the reaction, reply and more buttons shown on a message.',
+          alt: 'A reply being written: “Replying to Zara Ahmed” above the message box, under the message it answers.',
         },
         {
           title: 'Start a direct message',
@@ -955,7 +955,7 @@ const micoAi: StarterCourse = {
           title: 'Open MICO AI',
           body: '<p>Click <strong>MICO AI</strong> in the side menu. It answers from your tasks, projects, meetings, reports and team chat — only from what you are allowed to see. Your chats are private to you.</p>',
           image: 'mico-ai-page.webp',
-          alt: 'The MICO AI page: “How can I help, Omar?”, four suggested questions, and the question box at the bottom.',
+          alt: 'The MICO AI page: “How can I help?” with the person’s name, four suggested questions, and the question box at the bottom.',
         },
         {
           title: 'Ask a question',
