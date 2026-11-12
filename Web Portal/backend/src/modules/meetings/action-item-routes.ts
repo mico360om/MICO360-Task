@@ -4,6 +4,7 @@ import type { ActionItemService } from './action-item-service';
 import type { ActionItemRecord } from './action-item-repository';
 import type { AuthGuard } from '../auth/auth-guard';
 import { NO_PICK, type PickOf } from '../companies/company-pick';
+import { queryBoolean } from '../tasks/validation';
 import type { MeetingViewOf } from './invitee-view';
 
 const statusEnum = z.enum(['OPEN', 'IN_PROGRESS', 'PENDING', 'COMPLETED', 'CANCELLED']);
@@ -31,7 +32,8 @@ const patchSchema = z.object({
 
 const mineQuery = z.object({
   status: statusEnum.optional(),
-  openOnly: z.coerce.boolean().optional(),
+  // Review fix #30: 'false'/'0' mean false (z.coerce.boolean read any text, "false" too, as true).
+  openOnly: queryBoolean.optional(),
 });
 
 export interface ActionItemRouteDeps {
