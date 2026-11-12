@@ -159,6 +159,8 @@ import { createPrismaDeviceTokenRepository } from './modules/device-tokens/prism
 import { createPushSender, type PushSender } from './modules/device-tokens/push-sender';
 import { createFcmTransport, parseServiceAccount } from './modules/device-tokens/fcm-transport';
 import { createPrismaUserStateLookup } from './modules/auth/prisma-user-state-lookup';
+import { createAuthGuard } from './modules/auth/auth-guard';
+import { createSessionRevoker } from './modules/auth/session-revoker';
 import { createClientAccessService } from './modules/client-view/client-access-service';
 import { createPrismaClientShareStore } from './modules/client-view/prisma-client-share-store';
 import { createPrismaClientViewSource } from './modules/client-view/client-view-source';
@@ -2177,14 +2179,23 @@ async function main(): Promise<void> {
     logger,
   });
   const boundEvents = onboardingEvents;
-  // A password change, an administrator's reset, a deactivation or a deletion ends every sign-in — the
-  // ones half-way through the emailed-code step too.
-  const revokeTokens = revokeSessions;
-  const endChallenges = (userId: string) => signInChallenges.endAll(userId).catch((err) => logger.warn('could not end sign-in codes', { userId, error: err instanceof Error ? err.message : String(err) }));
-  revokeSessions = async (userId) => {
-    await revokeTokens(userId);
-    await endChallenges(userId);
-  };
+  // Live account state (token version, status, current roles) for the HTTP guard and sockets:
+  // a suspended, deleted or demoted user loses access at once, not when their token expires.
+  const userStateLookup = createPrismaUserStateLookup(prisma);
+  // Review fix N1 (13 Nov 2026): ONE sign-in check for every route (buildApp below takes it), so the
+  // session ending below can make it forget an account's cached state at once.
+  const managerViewLookup = createPrismaManagerViewLookup(prisma);
+  const authGuard = createAuthGuard(tokenService, { userState: userStateLookup, managerView: managerViewLookup });
+  // A password change, an administrator's reset, a deactivation, a deletion or a role change ends every
+  // sign-in — the ones half-way through the emailed-code step and unused emailed login codes too (review
+  // fix #33) — and the sign-in check reads the account again on its next request (N1).
+  const revokeAllSessions = createSessionRevoker({
+    revokeTokens: (userId) => tokenService.revokeAllForUser(userId),
+    endCodes: (userId) => endEveryCode(prisma, userId),
+    forgetAccountState: (userId) => authGuard.forgetUser(userId),
+    onError: (err, what, userId) => logger.warn(`could not finish ${what}`, { userId, error: err instanceof Error ? err.message : String(err) }),
+  });
+  revokeSessions = revokeAllSessions;
   // Invitations past their 7 days: ended and audited once each, every hour.
   const invitationSweep = createInvitationSweep({ store: createPrismaExpiredInvitationStore(prisma), audit: auditService });
   jobs.every(60 * 60 * 1000, () => invitationSweep.run().catch(sweepFailed('invitation-expiry', 'invitation expiry sweep')));
@@ -2196,10 +2207,7 @@ async function main(): Promise<void> {
     ttlSeconds: env.PASSWORD_RESET_TTL_SECONDS,
     appUrl: env.APP_URL,
     hashPassword,
-    revokeSessions: async (userId) => {
-      await tokenService.revokeAllForUser(userId);
-      await endChallenges(userId);
-    },
+    revokeSessions: revokeAllSessions,
     onSessionsRevoked: (userId) => onSessionsRevoked(userId),
     forgetDevices: (userId) => deviceTokenRepository.deleteForUser(userId).then(() => undefined),
     logger,
@@ -2215,9 +2223,6 @@ async function main(): Promise<void> {
   let broadcastToUser: (userId: string, event: string, payload: unknown) => void = () => {};
   let broadcastToAudience: (audience: { projectId?: string | null; userIds?: string[] }, event: string, payload: unknown) => void = () => {};
 
-  // Live account state (token version, status, current roles) for the HTTP guard and sockets:
-  // a suspended, deleted or demoted user loses access at once, not when their token expires.
-  const userStateLookup = createPrismaUserStateLookup(prisma);
 
   // Duplicate Task: a copy is made as any new task in the chosen project (the same pipeline as POST /tasks:
   // its scope, tags, contacts and assignee rules), then gets the original's watchers who can see that
@@ -2553,7 +2558,9 @@ async function main(): Promise<void> {
     // Manager View (owner, 10 Nov): the switch, and the project-settings rule (does this person run the project:
     // the team rule — an administrator needn't belong to the project's company).
     managerViewStore: createPrismaManagerViewStore(prisma),
-    managerViewLookup: createPrismaManagerViewLookup(prisma),
+    managerViewLookup,
+    // Review fix N1: the routes use the guard the session ending forgets accounts in.
+    authGuard,
     clientAccounts,
     portal,
     clientMinutes: {
