@@ -37,11 +37,14 @@ async function signedIn() {
   return { ...s, apiBase, auth };
 }
 
-/** Replay the offline queue — the background worker is the one flusher (XP-06). */
+/**
+ * Replay the offline queue — the background worker is the one flusher (XP-06). Each change goes only as
+ * the person who made it (batch 2, review #7: the fetch is bound to item.userId and pauses otherwise).
+ */
 async function flushNow(ctx) {
   const c = ctx || (await signedIn());
   if (!c) return null;
-  const perform = makePerformMutation((path, init) => c.auth.authedFetch(path, init), { onTask: (t) => rememberTask(cache, t) });
+  const perform = makePerformMutation((path, init, as) => c.auth.authedFetch(path, init, as), { onTask: (t) => rememberTask(cache, t) });
   return flushQueue(local, perform, { userId: c.userId });
 }
 
@@ -61,7 +64,8 @@ async function poll() {
     // The badge, and a desktop alert only when the count rises above this user's own baseline
     // (EXT-06) — saying what the newest is about only when this device allows it (Stage 5).
     const r = await pollNotifications({
-      authedFetch: (path, init) => ctx.auth.authedFetch(path, init),
+      // Only ever as the person this poll is for (batch 2): a switch meanwhile reads and stamps nothing.
+      authedFetch: (path, init) => ctx.auth.authedFetch(path, init, { asUser: ctx.userId }),
       local,
       session: sessionStore,
       notifications: chrome.notifications,

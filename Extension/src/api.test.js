@@ -40,7 +40,8 @@ describe('api.version', () => {
 });
 
 describe('cached reads only keep real API answers (M6)', () => {
-  const saved = () => fakeStorage({ 'cache:projects': { data: [{ id: 'p1', name: 'Ops' }], cachedAt: 1 } });
+  // Batch 2: a copy carries whose it is (no session in these stores: nobody's), and is served only to them.
+  const saved = () => fakeStorage({ 'cache:projects': { data: [{ id: 'p1', name: 'Ops' }], cachedAt: 1, owner: null, apiBase: null } });
 
   it('a 200 page that is not JSON (a Wi-Fi sign-in page or a proxy) is not cached: the saved copy is shown instead', async () => {
     const store = saved();
