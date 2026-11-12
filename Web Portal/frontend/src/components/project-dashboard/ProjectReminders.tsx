@@ -16,7 +16,8 @@ const key = (projectId: string) => ['project-reminders', projectId] as const;
  * tasks follow, and its own escalation numbers (in working days) — for whoever runs it and admins. A
  * task can still pick its own schedule.
  */
-export function ProjectReminders({ projectId, readOnly }: { projectId: string; readOnly?: boolean }) {
+/** `settingsAllowed` (Release B x Manager View): false hides the card where the page says the project's settings are closed. */
+export function ProjectReminders({ projectId, readOnly, settingsAllowed = true }: { projectId: string; readOnly?: boolean; settingsAllowed?: boolean }) {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: key(projectId), queryFn: () => notificationSettingsApi(apiClient).projectReminders(projectId) });
   const data = q.data && Array.isArray(q.data.schedules) ? q.data : null;
@@ -43,7 +44,7 @@ export function ProjectReminders({ projectId, readOnly }: { projectId: string; r
     onError: (e) => setProblem(e instanceof ApiError && e.status < 500 && e.message ? e.message : 'Couldn’t save the reminders. Please try again.'),
   });
 
-  if (!data?.canEdit) return null;
+  if (!data?.canEdit || !settingsAllowed) return null;
   const inUse = data.schedules.find((s) => s.id === scheduleId) ?? data.schedules.find((s) => s.isDefault);
   const good = (n: number) => Number.isInteger(n) && n >= 1 && n <= 60;
   const submit = () => {

@@ -387,6 +387,8 @@ export function ReminderEditor({ task, timeZone, people, onChanged, compact = fa
       ) : q.isSuccess && !compact ? (
         <p className="text-sm text-ink-2">No reminders yet.</p>
       ) : null}
+      {/* Nothing to add on an archived task (the server answers no one to remind: Release B x task archive). */}
+      {q.isSuccess && forPeople.length === 0 ? null : (
       <form
         className="flex flex-col gap-2 rounded-xl border border-line bg-ground/50 p-3"
         onSubmit={(e) => {
@@ -433,6 +435,7 @@ export function ReminderEditor({ task, timeZone, people, onChanged, compact = fa
           <button type="submit" disabled={busy} className={primary}>{busy ? 'Saving…' : 'Add reminder'}</button>
         </div>
       </form>
+      )}
     </div>
   );
 }

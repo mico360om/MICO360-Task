@@ -47,6 +47,8 @@ const taskSelect = {
   approvalRequestedAt: true,
   priority: true,
   weight: true,
+  // The task archive (Release B): an archived Done task still counts, an archived open one leaves the figures.
+  archivedAt: true,
   column: { select: { category: true } },
   assignees: { select: { userId: true, assignedAt: true }, orderBy: [{ assignedAt: 'asc' }, { userId: 'asc' }] },
 } as const satisfies Prisma.TaskSelect;
@@ -293,6 +295,7 @@ export function createPrismaKpiSource(prisma: PrismaClient, timeZone = 'Asia/Mus
       approvalRequestedAt: t.approvalRequestedAt,
       priority: t.priority as KpiPriority,
       weight: t.weight,
+      archivedAt: t.archivedAt,
       assignees: t.assignees.map((a) => {
         const joined = joinedAt.get(t.id)?.get(a.userId);
         return { userId: a.userId, assignedAt: joined && joined > a.assignedAt ? joined : a.assignedAt };

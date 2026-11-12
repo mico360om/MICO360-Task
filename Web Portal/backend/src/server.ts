@@ -136,7 +136,7 @@ import { createPrismaPolicyStore } from './modules/notify-policy/policy-store';
 import { createNoticeEmails, createPolicyWiring } from './modules/notify-policy/policy-wiring';
 import { createHoldRelease, createPrismaHoldStore } from './modules/notify-policy/holds';
 import { createPlannerSweep, createPrismaFirstRun, createPrismaReminderKeys, leadDaysOf } from './modules/notify-policy/planner-sweep';
-import { blocksForWorkload, calendarTaskFacts, createPrismaCalendarStore, createPrismaReminderClaims, createPrismaReminderSweepStore, teamProjectIds } from './modules/calendar/prisma-calendar-store';
+import { blocksForWorkload, calendarTaskFacts, createCalendarPlannedHours, createPrismaCalendarStore, createPrismaReminderClaims, createPrismaReminderSweepStore, teamProjectIds } from './modules/calendar/prisma-calendar-store';
 import { createCalendarExtras } from './modules/calendar/calendar-extras';
 import { createReminderSweep } from './modules/calendar/reminder-sweep';
 import { withWorkBlocks } from './modules/calendar/busy-blocks';
@@ -153,7 +153,7 @@ import { createDatabaseCheck, prismaDatabaseReads } from './modules/error-log/da
 import { databaseProbes } from './modules/error-log/database-probes';
 import { isMuted, normalizePreferences } from './modules/notifications/notification-preferences';
 import { filterTaskRecipients } from './modules/notifications/recipient-access';
-import { activeCompaniesOf, DATED_SWEEP_TASKS, ESCALATION_SWEEP_TASKS, taskAudienceSelect, toAudienceFacts } from './modules/notifications/prisma-task-audience';
+import { activeCompaniesOf, DATED_SWEEP_TASKS, taskAudienceSelect, toAudienceFacts } from './modules/notifications/prisma-task-audience';
 import { createDeviceTokenService } from './modules/device-tokens/device-token-service';
 import { createPrismaDeviceTokenRepository } from './modules/device-tokens/prisma-device-token-repository';
 import { createPushSender, type PushSender } from './modules/device-tokens/push-sender';
@@ -1494,6 +1494,7 @@ async function main(): Promise<void> {
     audit: (e) => auditService.record({ userId: e.userId, ip: e.ip ?? null, module: 'notifications', action: e.action, entityId: e.entityId, oldValue: e.oldValue ?? null, newValue: e.newValue ?? null }).then(() => {}),
     planner: {
       prisma,
+      timeZone: companyTz,
       audience: () => sweepAudience(),
       runners: (ids) => projectRunnerIds(prisma, ids),
       approvers: (projectId, exceptId) => approvalSource.approvers(projectId, exceptId),
@@ -2035,6 +2036,8 @@ async function main(): Promise<void> {
     },
     weekStart: () => settingsService.companyWeekStart(),
     myProjectsOnly: (viewer) => companyAccess.myProjectsOnly(viewer),
+    // Release B: Workload's planned hours are the Calendar's work blocks (the blocks the calendar shows).
+    planned: createCalendarPlannedHours(prisma),
     notify: (n) => notificationService.notify(n),
     logger: logger.job('kpi-snapshots'),
   });

@@ -174,6 +174,13 @@ describe('the project KPIs tab', () => {
     expect(screen.queryByRole('button', { name: /Enter a value/ })).toBeNull();
   });
 
+  it('Manager View (Release B): an administrator on a project they don’t run sees no Targets or own-KPI buttons (the page says its settings are closed)', async () => {
+    renderAt('/projects/rig?tab=kpis', <ProjectKpisTab projectId="rig" onOpenTask={() => {}} settingsAllowed={false} />);
+    await screen.findByText('This month (1–11 Nov 2026)');
+    expect(screen.queryByRole('button', { name: 'Targets' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Add a KPI' })).toBeNull();
+  });
+
   it('adds an own KPI', async () => {
     answers['/kpis/projects/rig/custom'] = () => json({ data: [] }, 201);
     renderAt('/projects/rig?tab=kpis', <ProjectKpisTab projectId="rig" onOpenTask={() => {}} />);

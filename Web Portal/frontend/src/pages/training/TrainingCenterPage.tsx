@@ -6,6 +6,7 @@ import { EmptyState } from '../../components/ui/EmptyState';
 import { buttonClass } from '../../components/ui/Button';
 import { useTrainingAccess } from '../../components/training/manage/manage-queries';
 import { LearningHubTabs } from '../../components/training/LearningHubTabs';
+import { useEffectiveAdmin } from '../../lib/manager-view';
 import { CoursesTab } from '../../components/training/manage/CoursesTab';
 import { AssignmentsTab } from '../../components/training/manage/AssignmentsTab';
 import { RulesTab } from '../../components/training/manage/RulesTab';
@@ -46,6 +47,9 @@ export function TrainingCenterPage() {
   const [params] = useSearchParams();
   const accessQ = useTrainingAccess();
   const a = accessQ.data;
+  // Manager View (Release B): the Learning Hub stays open (training is work), but its Settings — the tour switch per
+  // company — are an administrator's setting, closed while Manager View is on (the server refuses them too).
+  const settingsAdmin = useEffectiveAdmin();
   const teamOnly = !!a && !a.manager && a.teamReports;
   const reports = params.get('tab') === 'reports' || teamOnly;
   usePageName(reports ? 'Reports' : 'Manage');
@@ -92,7 +96,7 @@ export function TrainingCenterPage() {
   return (
     <div data-page="learning-hub-manage" className="min-w-0">
       {header}
-      <div className="mt-4 min-w-0">{reports ? <ReportsTab readOnly={teamOnly} /> : <ManageSections admin={a.admin} />}</div>
+      <div className="mt-4 min-w-0">{reports ? <ReportsTab readOnly={teamOnly} /> : <ManageSections admin={a.admin && settingsAdmin} />}</div>
     </div>
   );
 }

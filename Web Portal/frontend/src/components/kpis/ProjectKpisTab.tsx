@@ -73,7 +73,11 @@ const download = async (make: () => Promise<Blob>, fallback: string, setProblem:
  * with its target, light in words, the facts behind it and its trend — a tile opens the tasks behind its
  * number; the project's own KPIs; the PDF and Excel file; and, for whoever runs the project, its targets.
  */
-export function ProjectKpisTab({ projectId, onOpenTask }: { projectId: string; onOpenTask: (id: string) => void }) {
+/**
+ * `settingsAllowed` (Release B x Manager View): false when the page says this person may not change the project's
+ * settings — an administrator in Manager View on a project they don't run (the server refuses it: 403 MANAGER_VIEW).
+ */
+export function ProjectKpisTab({ projectId, onOpenTask, settingsAllowed = true }: { projectId: string; onOpenTask: (id: string) => void; settingsAllowed?: boolean }) {
   const [period, setPeriod] = usePeriodParam();
   const [customOpen, setCustomOpen] = useState(false);
   const timeZone = useCompanyTimeZone();
@@ -97,7 +101,7 @@ export function ProjectKpisTab({ projectId, onOpenTask }: { projectId: string; o
         </div>
         <div className="flex flex-wrap items-end gap-2">
           <PeriodPicker value={period} onChange={setPeriod} today={today} customOpen={customOpen} onCustomOpen={setCustomOpen} />
-          {data?.can.manage ? (
+          {data?.can.manage && settingsAllowed ? (
             <Button size="sm" variant="secondary" onClick={() => setTargets(true)} className={TOUCH_TALL}>
               Targets
             </Button>
@@ -141,7 +145,7 @@ export function ProjectKpisTab({ projectId, onOpenTask }: { projectId: string; o
             ))}
           </ul>
           <TrendNote kind={data.trend.kind} points={data.trend.points} />
-          <CustomKpisSection projectId={projectId} custom={data.custom} canManage={data.can.manage} />
+          <CustomKpisSection projectId={projectId} custom={data.custom} canManage={data.can.manage && settingsAllowed} />
         </div>
       )}
       {sheet ? (

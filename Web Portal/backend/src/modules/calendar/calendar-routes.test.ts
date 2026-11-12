@@ -199,3 +199,35 @@ describe('a person’s own Calendar choices', () => {
     expect((await call('mona', 'GET', '/calendar/preferences')).json().data.layout).toBe('split');
   });
 });
+
+describe('an archived task (Release B x task archive)', () => {
+  const slot = { startAt: '2026-11-15T05:00:00.000Z', endAt: '2026-11-15T06:30:00.000Z' };
+
+  it('is read-only: its planned time and reminders still list, nobody may add or change one (409 TASK_ARCHIVED), a reminder set for you can still be muted, and planned time removed', async () => {
+    const block = await call('ali', 'POST', '/tasks/t1/work-blocks', slot);
+    const set = await call('boss', 'POST', '/tasks/t1/reminders', { userId: 'ali', at: '2026-11-14T05:00:00.000Z' });
+    expect(set.statusCode).toBe(201);
+    facts.t1!.archivedAt = new Date('2026-11-12T05:00:00.000Z');
+
+    const blocks = await call('ali', 'GET', '/tasks/t1/work-blocks');
+    expect(blocks.json().data).toHaveLength(1);
+    expect(blocks.json().data[0].canChange).toBe(false);
+    expect(blocks.json().meta).toEqual({ forPeople: [] });
+    const reminders = await call('boss', 'GET', '/tasks/t1/reminders');
+    expect(reminders.json().data[0].canChange).toBe(false);
+    expect(reminders.json().meta).toEqual({ forPeople: [] });
+
+    for (const [who, method, url, body] of [
+      ['ali', 'POST', '/tasks/t1/work-blocks', slot],
+      ['ali', 'PUT', `/tasks/t1/work-blocks/${block.json().data.id}`, slot],
+      ['ali', 'POST', '/tasks/t1/reminders', { at: '2026-11-14T06:00:00.000Z' }],
+      ['boss', 'PUT', `/tasks/t1/reminders/${set.json().data.id}`, { at: '2026-11-14T07:00:00.000Z' }],
+    ] as const) {
+      const res = await call(who, method, url, body);
+      expect(res.statusCode, `${method} ${url}`).toBe(409);
+      expect(res.json().error.code).toBe('TASK_ARCHIVED');
+    }
+    expect((await call('ali', 'POST', `/tasks/t1/reminders/${set.json().data.id}/mute`, { muted: true })).statusCode).toBe(200);
+    expect((await call('ali', 'DELETE', `/tasks/t1/work-blocks/${block.json().data.id}`)).statusCode).toBe(204);
+  });
+});

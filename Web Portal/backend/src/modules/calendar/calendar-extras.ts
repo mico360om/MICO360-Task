@@ -112,7 +112,7 @@ export function createCalendarExtras(deps: CalendarExtrasDeps) {
         endAt: b.endAt.toISOString(),
         mine: b.userId === me,
         // A done task's (past) block is history and an archived project is read-only: neither changes here.
-        canChange: !b.task.completedAt && !b.task.projectArchived && (b.userId === me || b.plannedById === me || runs(b.task.projectId)),
+        canChange: !b.task.completedAt && !b.task.archivedAt && !b.task.projectArchived && (b.userId === me || b.plannedById === me || runs(b.task.projectId)),
         done: !!b.task.completedAt,
       })),
       reminders: reminders.map(({ r, s }) => ({

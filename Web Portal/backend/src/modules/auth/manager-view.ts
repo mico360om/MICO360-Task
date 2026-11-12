@@ -83,6 +83,15 @@ export const PROJECT_SETTINGS_ROUTES: Readonly<Record<string, ProjectOfRoute>> =
   'POST /projects/:id/client-shares': { project: 'id' },
   'DELETE /projects/:id/client-shares/:shareId': { project: 'id' },
   'POST /projects/:id/client-shares/:shareId/resend': { project: 'id' },
+  // Release B: the project's reminder schedule and escalation numbers (Notification & Scheduling, its Team tab) and its
+  // KPI targets and own KPIs with their monthly values (the KPI design: "project overrides (project settings)").
+  'PUT /projects/:id/reminders': { project: 'id' },
+  'PUT /kpis/projects/:id/targets': { project: 'id' },
+  'POST /kpis/projects/:id/custom': { project: 'id' },
+  'PATCH /kpis/projects/:id/custom/:kpiId': { project: 'id' },
+  'DELETE /kpis/projects/:id/custom/:kpiId': { project: 'id' },
+  'PUT /kpis/projects/:id/custom/:kpiId/values/:month': { project: 'id' },
+  'DELETE /kpis/projects/:id/custom/:kpiId/values/:month': { project: 'id' },
 };
 
 export type ManagerViewRule = 'refuse' | 'project-settings' | 'open';

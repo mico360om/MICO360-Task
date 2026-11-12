@@ -5,6 +5,8 @@ import type { ReminderSweepStore, ReminderSweepTask } from './reminder-sweep';
 import type { ReminderAnchor } from './task-reminders';
 import { ARCHIVE_SELECT, archivedOf } from '../companies/project-archive';
 import { managedVisibleWhere } from '../projects/project-managers';
+import { NOT_ARCHIVED } from '../tasks/task-archive-where';
+import type { PlannedHoursSource } from '../kpis/kpi-source';
 
 /**
  * Calendar scheduling's rows in MySQL / MariaDB — plain Prisma reads and writes (no raw SQL). A task's
@@ -12,15 +14,20 @@ import { managedVisibleWhere } from '../projects/project-managers';
  * counts as gone for the routes; the calendar and the sweep hide the rest by their own rules.
  */
 
-const TASK_BRIEF = { id: true, key: true, title: true, projectId: true, startDate: true, dueDate: true, completedAt: true, deletedAt: true } as const satisfies Prisma.TaskSelect;
+const TASK_BRIEF = { id: true, key: true, title: true, projectId: true, startDate: true, dueDate: true, completedAt: true, deletedAt: true, archivedAt: true } as const satisfies Prisma.TaskSelect;
 /** The task as the calendar names it, with whether its project is archived (read-only, reminders not sent). */
 const TASK_WITH_PROJECT = { ...TASK_BRIEF, project: { select: ARCHIVE_SELECT } } as const satisfies Prisma.TaskSelect;
 const briefOf = (t: Prisma.TaskGetPayload<{ select: typeof TASK_WITH_PROJECT }>): CalTaskBrief => {
   const { project, ...rest } = t;
   return { ...rest, projectArchived: archivedOf(project) };
 };
-/** Live: not deleted, in a live project. (After the task archive lands, archived tasks are hidden by `archivedAt` in the rules.) */
+/** Live: not deleted, in a live project — the routes still open an archived task (read-only; its facts say archived). */
 const LIVE_TASK: Prisma.TaskWhereInput = { deletedAt: null, project: { is: { deletedAt: null } } };
+/**
+ * Shown: live and not archived (Release B x task archive) — what the calendar, Workload, free times, the reminder
+ * sweep and the KPIs' planned hours read. An archived task's blocks and reminders are kept and come back with Unarchive.
+ */
+const SHOWN_TASK: Prisma.TaskWhereInput = { ...LIVE_TASK, ...NOT_ARCHIVED };
 
 const blockOf = (b: { id: string; taskId: string; userId: string; plannedById: string; startAt: Date; endAt: Date; createdAt: Date }): BlockRow => ({
   id: b.id,
@@ -96,7 +103,7 @@ export function createPrismaCalendarStore(prisma: PrismaClient): CalendarStore {
           startAt: { lt: q.to },
           endAt: { gt: q.from },
           ...(q.userId ? { userId: q.userId } : {}),
-          task: { is: { ...LIVE_TASK, ...(q.projectIds ? { projectId: { in: q.projectIds } } : {}) } },
+          task: { is: { ...SHOWN_TASK, ...(q.projectIds ? { projectId: { in: q.projectIds } } : {}) } },
         },
         include: { task: { select: TASK_WITH_PROJECT } },
         orderBy: [{ startAt: 'asc' }, { id: 'asc' }],
@@ -109,7 +116,7 @@ export function createPrismaCalendarStore(prisma: PrismaClient): CalendarStore {
       const rows = await prisma.taskReminder.findMany({
         where: {
           userId: q.userId,
-          task: { is: LIVE_TASK },
+          task: { is: SHOWN_TASK },
           OR: [
             { at: { gte: q.from, lt: q.to } },
             { snoozedUntil: { gte: q.from, lt: q.to } },
@@ -158,7 +165,7 @@ export function createPrismaReminderSweepStore(prisma: PrismaClient): ReminderSw
     async dueBetween(from, to) {
       // Only ones still to go: a sent one's nextAt is cleared (until its time changes again).
       const rows = await prisma.taskReminder.findMany({
-        where: { nextAt: { gte: from, lte: to }, mutedAt: null, task: { is: { deletedAt: null, completedAt: null } } },
+        where: { nextAt: { gte: from, lte: to }, mutedAt: null, task: { is: { deletedAt: null, completedAt: null, ...NOT_ARCHIVED } } },
         select: SELECT,
         orderBy: [{ nextAt: 'asc' }, { id: 'asc' }],
         take: 5000,
@@ -171,7 +178,7 @@ export function createPrismaReminderSweepStore(prisma: PrismaClient): ReminderSw
           anchor: { not: null },
           // Every one of an open task at first (so after a restart a date moved meanwhile is caught); then only
           // those whose task changed since.
-          task: { is: { deletedAt: null, completedAt: null, ...(since ? { updatedAt: { gte: since } } : {}) } },
+          task: { is: { deletedAt: null, completedAt: null, ...NOT_ARCHIVED, ...(since ? { updatedAt: { gte: since } } : {}) } },
         },
         select: SELECT,
         take: 20_000,
@@ -222,10 +229,39 @@ export async function blocksForWorkload(prisma: PrismaClient, q: { userIds: stri
       startAt: { lt: q.to },
       endAt: { gt: q.from },
       ...(q.userIds ? { userId: { in: q.userIds } } : {}),
-      task: { is: { ...LIVE_TASK, completedAt: null, ...(q.projectIds ? { projectId: { in: q.projectIds } } : {}) } },
+      task: { is: { ...SHOWN_TASK, completedAt: null, ...(q.projectIds ? { projectId: { in: q.projectIds } } : {}) } },
     },
     select: { id: true, userId: true, startAt: true, endAt: true },
     orderBy: [{ startAt: 'asc' }, { id: 'asc' }],
     take: 20_000,
   });
+}
+
+/**
+ * Project KPIs and User KPIs (Release B): a person's planned hours in a period are their Calendar work blocks
+ * there (clipped to it) — the blocks the calendar shows: on live, not archived tasks of live projects, and on a
+ * done task only those that ended by now (time planned after it was done is hidden, as on the calendar).
+ * `projectIds`: a manager's view counts only the projects they run (null: every project).
+ */
+export function createCalendarPlannedHours(prisma: PrismaClient, opts: { now?: () => Date } = {}): PlannedHoursSource {
+  return {
+    async plannedHours(userId, projectIds, from, to) {
+      if (projectIds && projectIds.length === 0) return 0;
+      const now = opts.now ? opts.now() : new Date();
+      const rows = await prisma.taskWorkBlock.findMany({
+        where: {
+          userId,
+          startAt: { lt: to },
+          endAt: { gt: from },
+          task: { is: { ...SHOWN_TASK, ...(projectIds ? { projectId: { in: projectIds } } : {}) } },
+          OR: [{ task: { is: { completedAt: null } } }, { endAt: { lte: now } }],
+        },
+        select: { startAt: true, endAt: true },
+        take: 20_000,
+      });
+      let ms = 0;
+      for (const b of rows) ms += Math.max(0, Math.min(b.endAt.getTime(), to.getTime()) - Math.max(b.startAt.getTime(), from.getTime()));
+      return Math.round((ms / 3_600_000) * 100) / 100;
+    },
+  };
 }

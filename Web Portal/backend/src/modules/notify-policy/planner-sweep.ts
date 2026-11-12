@@ -3,6 +3,8 @@ import { filterTaskRecipients } from '../notifications/recipient-access';
 import { taskAudienceSelect, toAudienceFacts } from '../notifications/prisma-task-audience';
 import { isTaskDone } from '../tasks/task-status';
 import { LIVE_PROJECT_WHERE } from '../companies/company-access';
+import { NOT_ARCHIVED } from '../tasks/task-archive-where';
+import { notWaitingWhere } from '../tasks/scheduled-start';
 import { bundleNotices, planReminders, type PlannedNotice, type PlannerItem, type PlannerTask } from './planner';
 import type { CompanyRules } from './policy-service';
 
@@ -112,11 +114,13 @@ async function latestDueChange(prisma: PrismaClient, taskIds: string[], since: D
 const later = (...ds: (Date | null | undefined)[]): Date | null => ds.reduce<Date | null>((a, d) => (d && (!a || d > a) ? d : a), null);
 
 /** Everything the planner needs, read from the database (also for the panel's "Preview for a person"). */
-export async function loadPlannerFacts(deps: Pick<PlannerSweepDeps, 'prisma' | 'audience' | 'runners' | 'approvers' | 'checklistItems' | 'rules' | 'leadDays'>, now: Date) {
+export async function loadPlannerFacts(deps: Pick<PlannerSweepDeps, 'prisma' | 'timeZone' | 'audience' | 'runners' | 'approvers' | 'checklistItems' | 'rules' | 'leadDays'>, now: Date) {
   const { prisma } = deps;
   // Archived projects (their own status, or all their companies archived) are locked: nothing about them.
+  // Release B: never an archived task (task archive), nor one waiting for its start day — a later day's board
+  // (tasks for the future: no reminders before that day, owner 10 Nov).
   const rows = await prisma.task.findMany({
-    where: { deletedAt: null, completedAt: null, project: { is: { deletedAt: null, ...LIVE_PROJECT_WHERE } } },
+    where: { deletedAt: null, completedAt: null, ...NOT_ARCHIVED, ...notWaitingWhere(deps.timeZone, now), project: { is: { deletedAt: null, ...LIVE_PROJECT_WHERE } } },
     select: {
       id: true,
       key: true,

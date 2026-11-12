@@ -33,10 +33,10 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 
-const renderCard = (readOnly = false) =>
+const renderCard = (readOnly = false, settingsAllowed = true) =>
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <ProjectReminders projectId="p1" readOnly={readOnly} />
+      <ProjectReminders projectId="p1" readOnly={readOnly} settingsAllowed={settingsAllowed} />
     </QueryClientProvider>,
   );
 
@@ -51,6 +51,12 @@ describe('A project’s reminders', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save reminders' }));
     await waitFor(() => expect(puts).toEqual([{ scheduleId: 's2', escalationDays: { step1Days: 2, step2Days: 5 } }]));
     expect(await screen.findByRole('status')).toHaveTextContent('Saved.');
+  });
+
+  it('Manager View (Release B): not shown where the page says the project’s settings are closed', async () => {
+    const { container } = renderCard(false, false);
+    await waitFor(() => expect((fetch as unknown as { mock: { calls: unknown[] } }).mock.calls.length).toBeGreaterThan(0));
+    expect(container).toBeEmptyDOMElement();
   });
 
   it('is not shown to people who can’t change it', async () => {

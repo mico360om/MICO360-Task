@@ -23,6 +23,8 @@ export function TaskScheduling({ task, timeZone }: { task: ApiTask; timeZone: st
   const [problem, setProblem] = useState<string | null>(null);
   const [said, setSaid] = useState<string | null>(null);
   const done = !!task.completedAt;
+  // Release B x task archive: an archived task is read-only (nothing can be added; the server refuses it too).
+  const archived = !!task.archivedAt;
   const people = new Map((task.assignees ?? []).map((a) => [a.id, a.name]));
   const blocksQ = useQuery({ queryKey: ['task-blocks', task.id], queryFn: () => api.blocks(task.id), enabled: openBlocks });
   const remindersQ = useQuery({ queryKey: ['task-reminders', task.id], queryFn: () => api.reminders(task.id), enabled: openReminders });
@@ -54,7 +56,11 @@ export function TaskScheduling({ task, timeZone }: { task: ApiTask; timeZone: st
         {head('task-reminders-heading', 'Reminders', openReminders, () => setOpenReminders((o) => !o), remindersQ.data?.reminders.length)}
         {openReminders ? (
           <div className="mt-2">
-            {done ? <p className="mb-2 text-xs text-ink-2">This task is done — its reminders wait (not sent) until it is reopened.</p> : null}
+            {archived ? (
+              <p className="mb-2 text-xs text-ink-2">This task is archived — its reminders and planned time wait (not sent, not counted) until it is unarchived.</p>
+            ) : done ? (
+              <p className="mb-2 text-xs text-ink-2">This task is done — its reminders wait (not sent) until it is reopened.</p>
+            ) : null}
             {said ? <p role="status" className="mb-2 text-xs text-ink-2">{said}</p> : null}
             <ReminderEditor task={task} timeZone={timeZone} people={people} compact onChanged={setSaid} />
           </div>
@@ -106,7 +112,7 @@ export function TaskScheduling({ task, timeZone }: { task: ApiTask; timeZone: st
               <p className="text-sm text-ink-2">No time planned yet.</p>
             ) : null}
             {problem ? <p role="alert" className="text-sm text-danger">{problem}</p> : null}
-            {!done && (blocksQ.data?.forPeople.length ?? 0) > 0 ? (
+            {!done && !archived && (blocksQ.data?.forPeople.length ?? 0) > 0 ? (
               <button type="button" onClick={() => setPlanning(true)} className="self-start rounded-lg border border-line px-3 py-1.5 text-sm font-semibold text-brand hover:border-brand [@media(pointer:coarse)]:min-h-11">
                 Plan time
               </button>

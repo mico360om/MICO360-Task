@@ -139,6 +139,52 @@ describe('Manager View — the routes it refuses (scanned from the source)', () 
   });
 });
 
+describe('Manager View — Release B (Notification & Scheduling, Calendar, KPIs, Learning Hub)', () => {
+  // Learning Hub (design call 3; train R18): training is work, not system configuration — every Learning Hub route stays
+  // open to an administrator in Manager View (authoring, assigning, reports, their own learning, the Client portal's)
+  // except the per-company tour switch (System-setting-like: the admin class).
+  it('every Learning Hub route stays open in Manager View, except its tour settings', () => {
+    // Every Learning Hub row of the route table (the scan reads only literal registrations) and every one scanned.
+    const training = [...new Set([...scanned, ...Object.keys(ROUTE_CLASSES)])].filter((k) => / \/(portal\/)?training\//.test(k));
+    expect(training.length).toBeGreaterThan(60);
+    for (const k of training) expect(managerViewRule(k), k).toBe(k === 'GET /training/settings' || k === 'PUT /training/settings' ? 'refuse' : 'open');
+  });
+
+  it('the Notification & Scheduling panel and the KPI targets are settings: refused; a person’s own notifications and KPIs stay theirs', () => {
+    const panel = scanned.filter((k) => k.includes(' /notification-settings'));
+    expect(panel.length).toBeGreaterThan(10);
+    for (const k of [...panel, 'GET /kpis/targets', 'PUT /kpis/targets']) expect(managerViewRule(k), k).toBe('refuse');
+    for (const k of ['GET /notifications/policy', 'GET /working-time', 'GET /kpis/people/me', 'GET /kpis/management', 'GET /kpis/projects/:id', 'GET /kpis/projects/:id/items', 'GET /calendar/preferences', 'PUT /calendar/preferences']) {
+      expect(scanned, k).toContain(k);
+      expect(managerViewRule(k), k).toBe('open');
+    }
+  });
+
+  // A project's reminder schedule and escalation numbers (its Team tab) and its KPI targets and own KPIs are the
+  // project's settings (the KPI design: "project overrides (project settings)"): open only for a project they run.
+  it('a project’s reminders and its KPI targets and own KPIs are project settings', () => {
+    for (const k of [
+      'PUT /projects/:id/reminders',
+      'PUT /kpis/projects/:id/targets',
+      'POST /kpis/projects/:id/custom',
+      'PATCH /kpis/projects/:id/custom/:kpiId',
+      'DELETE /kpis/projects/:id/custom/:kpiId',
+      'PUT /kpis/projects/:id/custom/:kpiId/values/:month',
+      'DELETE /kpis/projects/:id/custom/:kpiId/values/:month',
+    ]) {
+      expect(scanned, k).toContain(k);
+      expect(managerViewRule(k), k).toBe('project-settings');
+    }
+  });
+
+  it('a task’s own reminder schedule, its planned time and reminders are work: open', () => {
+    for (const k of ['PUT /tasks/:id/reminder-schedule', 'POST /tasks/:id/work-blocks', 'PUT /tasks/:id/work-blocks/:blockId', 'POST /tasks/:id/reminders', 'POST /tasks/:id/reminders/:reminderId/mute']) {
+      expect(scanned, k).toContain(k);
+      expect(managerViewRule(k), k).toBe('open');
+    }
+  });
+});
+
 describe('Manager View — who it applies to', () => {
   it('only an administrator with the switch on is in Manager View; the switch means nothing for anyone else', () => {
     expect(inManagerView({ roles: ['ADMIN'], managerView: true })).toBe(true);

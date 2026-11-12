@@ -41,7 +41,7 @@ export interface PolicyWiringDeps {
   meetingReminders(): Promise<unknown>;
   audit?(entry: { userId: string | null; action: string; entityId: string; oldValue?: unknown; newValue?: unknown; ip?: string | null }): Promise<void>;
   /** The planner's data sources (for the preview). */
-  planner: Pick<PlannerSweepDeps, 'prisma' | 'audience' | 'runners' | 'approvers' | 'checklistItems' | 'leadDays'>;
+  planner: Pick<PlannerSweepDeps, 'prisma' | 'timeZone' | 'audience' | 'runners' | 'approvers' | 'checklistItems' | 'leadDays'>;
   preferences: PreferenceStore;
 }
 

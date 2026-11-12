@@ -546,7 +546,7 @@ export function ProjectDetailPage() {
           />
         ) : null}
 
-        {tab === 'kpis' ? <ProjectKpisTab projectId={id} onOpenTask={setOpenTaskId} /> : null}
+        {tab === 'kpis' ? <ProjectKpisTab projectId={id} onOpenTask={setOpenTaskId} settingsAllowed={canManage} /> : null}
 
         {tab === 'inspections' ? <ProjectInspectionsTab projectId={id} tasks={tasks.map((t) => ({ id: t.id, key: t.key, title: t.title }))} onOpenTask={setOpenTaskId} /> : null}
 
@@ -580,7 +580,7 @@ export function ProjectDetailPage() {
           {/* 1.23: who may open the project in the Client portal (administrators change it on the Clients page). */}
           <ClientsWithAccess projectId={id} />
           {/* Notification & Scheduling: its reminder schedule and escalation steps (whoever runs it, admins). */}
-          <ProjectReminders projectId={id} readOnly={readOnly !== null} />
+          <ProjectReminders projectId={id} readOnly={readOnly !== null} settingsAllowed={canManage} />
           </>
         ) : null}
       </div>

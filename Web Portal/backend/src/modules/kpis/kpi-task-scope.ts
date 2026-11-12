@@ -13,10 +13,10 @@ import type { Prisma } from '@prisma/client';
 export const KPI_TASK_WHERE = { deletedAt: null } as const satisfies Prisma.TaskWhereInput;
 
 /**
- * Open work the KPIs count ("Open blocked", a person's open tasks): when the task archive merges, add
- * `archivedAt: null` here — an archived open task leaves every figure.
+ * Open work the KPIs count ("Open blocked", a person's open tasks): never an archived task — an archived open
+ * task leaves every figure (Release B x task archive).
  */
-export const KPI_OPEN_TASK_WHERE = { ...KPI_TASK_WHERE } as const satisfies Prisma.TaskWhereInput;
+export const KPI_OPEN_TASK_WHERE = { ...KPI_TASK_WHERE, archivedAt: null } as const satisfies Prisma.TaskWhereInput;
 
 /** Archived open tasks leave every figure; archived done ones count. */
 export function countsInKpis(t: { archivedAt?: Date | null }, done: boolean): boolean {

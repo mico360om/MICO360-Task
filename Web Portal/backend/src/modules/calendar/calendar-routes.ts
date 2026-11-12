@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { AuthGuard } from '../auth/auth-guard';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../lib/http-errors';
+import { TaskArchivedError } from '../companies/archive-guard';
 import type { BlockRow, CalendarStore, ReminderRow } from './calendar-store';
 import { blockProblem, mayChangeBlock, mayPlanBlock } from './work-blocks';
 import {
@@ -92,6 +93,8 @@ export async function registerCalendarRoutes(app: FastifyInstance, deps: Calenda
     return task;
   }
   const notDone = (task: CalendarTaskFacts, what: string) => {
+    // Release B x task archive: an archived task is read-only (409 TASK_ARCHIVED, as the archive guard says it).
+    if (task.archivedAt) throw new TaskArchivedError();
     if (task.completedAt) throw new ConflictError(`This task is done — reopen it to ${what}.`);
   };
 
@@ -109,7 +112,7 @@ export async function registerCalendarRoutes(app: FastifyInstance, deps: Calenda
       plannedByName: names.get(b.plannedById) ?? 'Someone',
       startAt: b.startAt.toISOString(),
       endAt: b.endAt.toISOString(),
-      canChange: mayChangeBlock({ viewerId: v.id, block: b, runsProject: runs }),
+      canChange: !task.archivedAt && mayChangeBlock({ viewerId: v.id, block: b, runsProject: runs }),
     }));
   }
   async function blockOf(req: FastifyRequest, task: CalendarTaskFacts): Promise<BlockRow> {
@@ -126,6 +129,8 @@ export async function registerCalendarRoutes(app: FastifyInstance, deps: Calenda
   /** Whose time the asker may plan (blocks) or remind (reminders) on this task: the task panel's "For" choice. */
   async function forPeople(req: FastifyRequest, task: CalendarTaskFacts, what: 'blocks' | 'reminders'): Promise<string[]> {
     const v = viewer(req);
+    // An archived task: nothing to add for anyone (read-only until it is unarchived).
+    if (task.archivedAt) return [];
     const runs = v.id === task.createdById || (await deps.runsProject(v.id, v.roles, task.projectId));
     if (what === 'blocks') return task.assigneeIds.filter((id) => id === v.id || runs);
     return [v.id, ...(runs ? task.assigneeIds.filter((id) => id !== v.id) : [])];
@@ -201,7 +206,7 @@ export async function registerCalendarRoutes(app: FastifyInstance, deps: Calenda
         muted: !!r.mutedAt,
         snoozedUntil: r.snoozedUntil?.toISOString() ?? null,
         sentAt: r.sentAt?.toISOString() ?? null,
-        canChange: mayChangeReminder(v.id, r),
+        canChange: !task.archivedAt && mayChangeReminder(v.id, r),
         canMute: mayMuteReminder(v.id, r),
       };
     });
@@ -252,6 +257,7 @@ export async function registerCalendarRoutes(app: FastifyInstance, deps: Calenda
     const task = await visibleTask(req);
     const r = await reminderOf(req, task);
     if (!mayChangeReminder(req.user!.id, r)) throw new ForbiddenError('Only whoever set this reminder changes it.');
+    if (task.archivedAt) throw new TaskArchivedError();
     const { userId: _ignored, ...body } = reminderBody.parse(req.body);
     void _ignored;
     const timing = await timingOf(body, task);
