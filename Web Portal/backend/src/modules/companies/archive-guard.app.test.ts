@@ -60,6 +60,8 @@ beforeAll(async () => {
     // Notification & Scheduling centre: a project's reminders and a task's schedule.
     notifyPolicy: untouched('notifyPolicy'),
     kpis: { service: untouched('kpis') }, // Project KPIs: its targets and its own KPIs
+    // Calendar scheduling: a task's planned time and reminders.
+    calendarScheduling: untouched('calendarScheduling'),
     // 1.23: Make Teams link (the Teams routes).
     microsoft: { connections: null, teams: untouched('microsoft.teams'), appUrl: 'http://x', canEditMeeting: untouched('microsoft').canEdit, getMeeting: untouched('microsoft').getMeeting },
     authService,

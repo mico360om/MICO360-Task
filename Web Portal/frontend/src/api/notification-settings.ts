@@ -9,6 +9,8 @@ import type { ApiClient } from '../lib/api-client';
 export const POLICY_KINDS = [
   'assigned',
   'dueSoon',
+  // Calendar scheduling: a person's own reminders on tasks (and those their manager set for them).
+  'reminders',
   'overdue',
   'escalation',
   'escalationAdmin',

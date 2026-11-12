@@ -833,6 +833,38 @@ describe('GET /calendar — the visible range only, with the coming copies of re
     expect(asked).toEqual([{ from: '2026-10-01', to: '2026-10-31', userId: 'u1', ownIds: ['p1'], listIds: ['p1'] }]);
   });
 
+  it('calendar scheduling: tasks shown by their span — a bar crossing into the range, a start inside it — come as `spanning` (the due ones stay in `tasks`)', async () => {
+    const { a, add } = await build();
+    await add('due inside', 'p1', 'c1', day('2026-11-10'), { startDate: day('2026-11-02') });
+    await add('crossing the week', 'p1', 'c1', day('2026-11-17'), { startDate: day('2026-11-05') });
+    await add('starts inside', 'p1', 'c1', day('2026-12-30'), { startDate: day('2026-11-12') });
+    await add('start only', 'p1', 'c1', null, { startDate: day('2026-11-13') });
+    await add('long, passing through', 'p1', 'c1', day('2026-11-30'), { startDate: day('2026-11-01') });
+    await add('hidden project', 'p2', 'c3', day('2026-11-17'), { startDate: day('2026-11-05') });
+    const res = await a.inject({ method: 'GET', url: '/api/v1/calendar?from=2026-11-08&to=2026-11-14', headers: { authorization: `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}` } });
+    const data = res.json().data;
+    expect(data.tasks.map((t: { title: string }) => t.title)).toEqual(['due inside']);
+    expect(data.spanning.map((t: { title: string }) => t.title).sort()).toEqual(['crossing the week', 'start only', 'starts inside']);
+  });
+
+  it('calendar scheduling: the person’s work blocks, reminders and Team view come from the scheduling module, in the caller’s scope', async () => {
+    const asked: unknown[] = [];
+    const a = await buildApp({
+      authService,
+      tokenService,
+      taskService: createTaskService(inMemory()),
+      projectAccess,
+      calendarExtras: async (q) => {
+        asked.push(q);
+        return { workBlocks: [{ id: 'b1' }], reminders: [{ id: 'r1' }], team: { available: true, on: true } };
+      },
+    });
+    const res = await a.inject({ method: 'GET', url: '/api/v1/calendar?from=2026-11-08&to=2026-11-14&team=1', headers: { authorization: `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}` } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data).toMatchObject({ workBlocks: [{ id: 'b1' }], reminders: [{ id: 'r1' }], team: { available: true, on: true } });
+    expect(asked).toEqual([{ viewer: { id: 'u1', roles: ['EMPLOYEE'] }, from: '2026-11-08', to: '2026-11-14', own: ['p1'], list: ['p1'], team: true }]);
+  });
+
   it('refuses a range that ends before it starts, is too long, or is not a date', async () => {
     const { a } = await build();
     const headers = { authorization: `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}` };

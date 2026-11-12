@@ -43,6 +43,7 @@ import { MergeTasksDialog } from './MergeTasksDialog';
 import { MergedFromPanel } from './task-merge/MergedFromPanel';
 import { MergedToast } from './task-merge/MergedToast';
 import { UndoMergeDialog } from './task-merge/UndoMergeDialog';
+import { TaskScheduling } from './task-drawer/scheduling';
 
 export interface TaskDrawerContainerProps {
   taskId: string;
@@ -645,6 +646,7 @@ function TaskDrawerPanel({ taskId, onClose, stepper, mergeNotice, focusItemId }:
             mergeNotice={mergeNotice}
             checklistFromKeys={labels?.checklist}
             activityFromKeys={labels?.activity}
+            scheduling={<TaskScheduling task={taskQ.data!} timeZone={timeZone} />}
             mergedFrom={
               mergesQ.data && mergesQ.data.merges.length > 0 ? (
                 <MergedFromPanel panel={mergesQ.data} timeZone={timeZone} today={todayKey(timeZone)} onUndo={(mergeId) => setUndoing(mergeId)} />

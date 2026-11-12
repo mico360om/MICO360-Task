@@ -141,8 +141,32 @@ export function LegendButton({ timeNote }: { timeNote: string }) {
               </span>
               <span>Waiting for approval</span>
             </li>
+            {/* Calendar scheduling: start and due marks, planned time, reminders and days off — shapes and words, never colour alone. */}
+            <li className="flex items-center gap-1.5 rounded-md border border-line px-2 py-1 text-xs font-medium text-ink">
+              <svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true" className="flex-none"><path d="M3 1.8v8.4L10 6z" fill="currentColor" /></svg>
+              <span className="flex-1">Start</span>
+              <svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true" className="flex-none"><path d="M2.5 11V1.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /><path d="M3 1.8h6.5L8 4l1.5 2.2H3z" fill="currentColor" /></svg>
+              <span>Due (red when overdue)</span>
+            </li>
+            <li
+              className="flex items-center gap-1.5 rounded-md border border-dashed border-brand/50 px-2 py-1 text-xs font-medium text-ink"
+              style={{ backgroundImage: 'repeating-linear-gradient(135deg, rgb(var(--c-brand) / 0.13) 0 5px, transparent 5px 10px)' }}
+            >
+              <span className="font-semibold text-brand">Planned</span>
+              <span>time to work on a task</span>
+            </li>
+            <li className="flex items-center gap-1.5 rounded-md border border-line px-2 py-1 text-xs font-medium text-ink">
+              <span className="text-warning">
+                <Svg size={14}><path d="M6 9a6 6 0 0 1 12 0c0 6 2.5 7.5 2.5 7.5h-17S6 15 6 9z" /><path d="M10.3 20a2 2 0 0 0 3.4 0" /></Svg>
+              </span>
+              <span>My reminder</span>
+            </li>
+            <li className="flex items-center gap-1.5 rounded-md border border-line bg-ground px-2 py-1 text-xs font-medium text-ink">
+              <span>Shaded: a day off (weekend or holiday)</span>
+            </li>
           </ul>
           <p className="mt-2.5 text-[11px] leading-snug text-ink-2">The coloured edge is the project’s colour; the small dot is the task’s status.</p>
+          <p className="mt-1 text-[11px] leading-snug text-ink-2">Drag a task to move it, its ▶ or ⚑ to change that date, or into an hour to plan time. Keyboard: Alt + arrow keys move the item in focus (with Shift: its due date, or a block’s end).</p>
           <p className="mt-1 border-t border-line pt-2 text-xs text-ink-2">{timeNote}</p>
         </div>
       ) : null}

@@ -331,3 +331,18 @@ describe('buildWorkload: suggestions', () => {
     expect(cell(data, 'omar', '2026-10-28').tasks.every((t) => t.suggestion === null)).toBe(true);
   });
 });
+
+describe('planned work time (calendar scheduling: work blocks)', () => {
+  it('shows each person’s planned minutes on its day and for the week — a block over midnight split between its days', () => {
+    const planned = [
+      { userId: 'omar', startAt: new Date('2026-10-26T05:00:00Z'), endAt: new Date('2026-10-26T07:30:00Z') },
+      { userId: 'omar', startAt: new Date('2026-10-27T19:00:00Z'), endAt: new Date('2026-10-27T21:00:00Z') }, // 23:00–01:00 Muscat
+    ];
+    const data = buildWorkload(rows([], { planned }), opts);
+    expect(cell(data, 'omar', '2026-10-26').plannedMinutes).toBe(150);
+    expect(cell(data, 'omar', '2026-10-27').plannedMinutes).toBe(60);
+    expect(cell(data, 'omar', '2026-10-28').plannedMinutes).toBe(60);
+    expect(rowOf(data, 'omar').plannedMinutes).toBe(270);
+    expect(rowOf(data, 'sara').plannedMinutes).toBe(0);
+  });
+});

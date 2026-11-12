@@ -141,6 +141,33 @@ describe('loadWorkload: who sees what', () => {
   });
 });
 
+describe('loadWorkload: planned work time (calendar scheduling: work blocks count in Workload as planned hours)', () => {
+  const PLANNED: FakeCompany = {
+    ...COMPANY,
+    planned: [
+      { userId: 'omar', projectId: 'rig', start: '2026-10-28T05:00:00Z', end: '2026-10-28T07:00:00Z' },
+      { userId: 'omar', projectId: 'mob', start: '2026-10-28T08:00:00Z', end: '2026-10-28T09:00:00Z' },
+      { userId: 'sara', projectId: 'mob', start: '2026-10-29T05:00:00Z', end: '2026-10-29T06:00:00Z' },
+      { userId: 'hassan', projectId: 'secret', start: '2026-10-29T05:00:00Z', end: '2026-10-29T06:00:00Z' },
+    ],
+  };
+  const plannedOf = (rows: { planned?: { userId: string; startAt: Date }[] }) => (rows.planned ?? []).map((p) => `${p.userId} ${p.startAt.toISOString().slice(0, 13)}`).sort();
+
+  it('an administrator: everyone shown, every live project', async () => {
+    const store = fakeWorkloadStore(PLANNED);
+    const scope = await scopeFor(store, 'admin', ['ADMIN'], null);
+    const { rows } = await loadWorkload(store, { scope, viewerId: 'admin', projectId: null, week: WEEK, today: TODAY, timeZone: TZ });
+    expect(plannedOf(rows)).toEqual(['hassan 2026-10-29T05', 'omar 2026-10-28T05', 'omar 2026-10-28T08', 'sara 2026-10-29T05']);
+  });
+
+  it('a project manager: their team’s blocks on the projects they run, and their own elsewhere — never a teammate’s other projects', async () => {
+    const store = fakeWorkloadStore(PLANNED);
+    const scope = await scopeFor(store, 'sara', ['EMPLOYEE'], ['rig', 'mob']);
+    const { rows } = await loadWorkload(store, { scope, viewerId: 'sara', projectId: null, week: WEEK, today: TODAY, timeZone: TZ });
+    expect(plannedOf(rows)).toEqual(['omar 2026-10-28T05', 'sara 2026-10-29T05']);
+  });
+});
+
 describe('loadWorkload: days', () => {
   it('judges overdue by the company’s day: a moment just after midnight today is not overdue, one just before is', async () => {
     const store = fakeWorkloadStore({

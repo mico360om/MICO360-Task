@@ -179,6 +179,8 @@ export interface TaskDrawerProps {
   mergeUnavailable?: string | null;
   /** The "Merged from" panel (the tasks merged into this one), beside its details. */
   mergedFrom?: ReactNode;
+  /** Calendar scheduling: the task's Reminders and Planned time, beside its details. */
+  scheduling?: ReactNode;
   /** Opened by a merged task's number or link: "MICO-14 was merged into this task on 5 Nov by Khurram." */
   mergeNotice?: string | null;
   /** Checklist items and history lines that came with a merged task, by id ("From MICO-14"). */
@@ -386,6 +388,7 @@ export function TaskDrawer({
   onMerge,
   mergeUnavailable,
   mergedFrom,
+  scheduling,
   mergeNotice,
   checklistFromKeys,
   activityFromKeys,
@@ -467,6 +470,7 @@ export function TaskDrawer({
       ) : null}
       {task.approvalRequestedAt ? null : approval}
       {task.inspectionFormId ? null : inspections}
+      {scheduling}
       <AttachmentsSection
         attachments={attachments}
         onUpload={onUploadFile}

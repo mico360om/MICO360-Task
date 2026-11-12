@@ -31,7 +31,8 @@ describe('policy kinds', () => {
   });
 
   it('Training Center (R13): one "training" row holds every training notice — bell and push on, email off, not required', () => {
-    expect([...POLICY_KINDS]).toEqual(['assigned', 'dueSoon', 'overdue', 'escalation', 'escalationAdmin', 'approvals', 'approvalWaiting', 'inactivity', 'mentions', 'comments', 'status', 'projectAdded', 'meetings', 'training']);
+    // Release B: with the Calendar's 'reminders' row (My reminders) after Due soon.
+    expect([...POLICY_KINDS]).toEqual(['assigned', 'dueSoon', 'reminders', 'overdue', 'escalation', 'escalationAdmin', 'approvals', 'approvalWaiting', 'inactivity', 'mentions', 'comments', 'status', 'projectAdded', 'meetings', 'training']);
     expect(KIND_TYPES.training).toEqual(['TRAINING_ASSIGNED', 'TRAINING_DUE_SOON', 'TRAINING_OVERDUE', 'TRAINING_EXPIRING', 'TRAINING_QUESTION']);
     for (const t of KIND_TYPES.training) expect(policyKindOfType(t)).toBe('training');
     expect(DEFAULT_POLICY.channels.training).toEqual({ bell: true, push: true, email: false });

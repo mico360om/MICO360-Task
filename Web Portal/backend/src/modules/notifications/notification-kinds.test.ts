@@ -9,7 +9,7 @@ describe('the Notifications page’s type chips (1.22)', () => {
       mentions: ['MENTION', 'CHAT_MENTION'],
       assigned: ['TASK_ASSIGNED'],
       // Notification & Scheduling: escalation step 2 and inactivity join "due", approvals waiting "approvals".
-      due: ['TASK_DUE_SOON', 'TASK_OVERDUE', 'TASK_ESCALATION', 'TASK_ESCALATION_ADMIN', 'TASK_INACTIVE'],
+      due: ['TASK_DUE_SOON', 'TASK_OVERDUE', 'TASK_ESCALATION', 'TASK_ESCALATION_ADMIN', 'TASK_INACTIVE', 'TASK_REMINDER'],
       comments: ['TASK_COMMENT'],
       approvals: ['TASK_APPROVAL', 'TASK_CLIENT_SIGN_OFF', 'TASK_APPROVAL_WAITING'],
       meetings: ['MEETING_REMINDER'],
@@ -24,7 +24,7 @@ describe('the Notifications page’s type chips (1.22)', () => {
   });
 
   it('chips → their types, in order, once each; none = every type', () => {
-    expect(typesOfKinds(['due', 'mentions'])).toEqual(['MENTION', 'CHAT_MENTION', 'TASK_DUE_SOON', 'TASK_OVERDUE', 'TASK_ESCALATION', 'TASK_ESCALATION_ADMIN', 'TASK_INACTIVE']);
+    expect(typesOfKinds(['due', 'mentions'])).toEqual(['MENTION', 'CHAT_MENTION', 'TASK_DUE_SOON', 'TASK_OVERDUE', 'TASK_ESCALATION', 'TASK_ESCALATION_ADMIN', 'TASK_INACTIVE', 'TASK_REMINDER']);
     expect(typesOfKinds(['comments', 'comments'])).toEqual(['TASK_COMMENT']);
     expect(typesOfKinds([])).toBeUndefined();
     expect(typesOfKinds(undefined)).toBeUndefined();

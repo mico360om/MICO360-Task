@@ -29,6 +29,8 @@ let prefs: { timeZone: string | null; weekStart: number | null };
 let requests: { url: string; method: string; body?: unknown }[];
 let override: (u: string, method: string, body: unknown) => Response | undefined;
 let meetingRows: Array<Record<string, unknown>>;
+/** Calendar scheduling: the person's own Calendar choices (GET/PUT /calendar/preferences). */
+let calPrefs: { layout: 'split' | 'full'; show: { tasks: boolean; meetings: boolean; blocks: boolean; reminders: boolean }; team: boolean };
 let checklistItems: Array<{ id: string; text: string; done: boolean; dueDate: string; assigneeId: string | null; taskId: string; taskKey: string; taskTitle: string; projectId: string }>;
 
 const meeting = (over: Record<string, unknown>) => ({
@@ -51,6 +53,7 @@ beforeEach(() => {
   series = [];
   meetingRows = [];
   checklistItems = [];
+  calPrefs = { layout: 'split', show: { tasks: true, meetings: true, blocks: true, reminders: true }, team: false };
   tasks = [
     task({}),
     task({ id: 't2', key: 'MICO-2', title: 'Late invoice', dueDate: '2026-10-05T00:00:00.000Z', priority: 'HIGH' }),
@@ -69,6 +72,13 @@ beforeEach(() => {
     if (u.endsWith('/config')) return json({ data: { timeZone: 'Asia/Muscat', productName: '', companyName: '', serverTime: new Date().toISOString() } });
     if (u.endsWith('/users/me/preferences')) return json({ data: prefs });
     if (u.endsWith('/projects')) return json({ data: PROJECTS });
+    if (u.endsWith('/calendar/preferences')) {
+      if (method === 'PUT') {
+        const b = body as Partial<typeof calPrefs>;
+        calPrefs = { ...calPrefs, ...b, show: { ...calPrefs.show, ...(b.show ?? {}) } };
+      }
+      return json({ data: calPrefs });
+    }
     if (u.endsWith('/users/directory')) return json({ data: [{ id: 'me', username: 'me', firstName: 'Mo', lastName: 'Me' }, { id: 'u2', username: 'omar', firstName: 'Omar', lastName: 'Ahmed' }] });
     if (u.includes('/calendar?')) {
       const q = new URL(u, "http://test.local").searchParams;
@@ -197,7 +207,8 @@ describe('CalendarPage — how tasks look', () => {
     expect(key).toHaveClass('py-0', 'shrink-0'); // dense: the one-line chip keeps its 24px
     const title = within(c).getByText('Late invoice');
     expect(key.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(title).toHaveClass('truncate');
+    // tcal: calendar scheduling — names not cut (owner): two lines in comfortable rows (one, cut, in compact).
+    expect(title).toHaveClass('line-clamp-2');
     expect(c).toHaveAccessibleName(/^MICO-2 Late invoice, /);
   });
 
@@ -221,7 +232,8 @@ describe('CalendarPage — how tasks look', () => {
     renderPage('/calendar?view=week&date=2026-10-14');
     const c = await chip(/Prepare report/);
     expect(within(c).getByText('MICO-1')).toHaveAttribute('data-task-key', 'MICO-1');
-    expect(c).toHaveTextContent('MICO360 Platform · Mo Me');
+    // tcal: calendar scheduling — the week's All day bar is one line: its title and project (people in its tooltip and details).
+    expect(c).toHaveTextContent('Prepare report · MICO360 Platform');
     expect(c.textContent!.match(/MICO-1/g)).toHaveLength(1);
   });
 
@@ -380,9 +392,17 @@ describe('CalendarPage — busy days', () => {
     renderPage();
     const more = await screen.findByRole('button', { name: /3 more tasks on Thu 15 Oct/i });
     expect(more).toHaveTextContent('+3 more');
+    expect(within(day('2026-10-15')).getAllByRole('button', { name: /Busy day job/ })).toHaveLength(3);
+    // tcal: calendar scheduling — "+N more" opens the day's week in place (owner); the day's list has them all too.
     await userEvent.click(more);
+    expect(within(day('2026-10-15')).getAllByRole('button', { name: /Busy day job/ })).toHaveLength(6);
+    const fewer = within(day('2026-10-15')).getByRole('button', { name: /show fewer on Thu 15 Oct/i });
+    expect(fewer).toHaveAttribute('aria-expanded', 'true');
+    await userEvent.click(fewer);
+    expect(within(day('2026-10-15')).getAllByRole('button', { name: /Busy day job/ })).toHaveLength(3);
+    await userEvent.click(within(day('2026-10-15')).getByRole('button', { name: /^Thu 15 Oct/ }));
     const list = await screen.findByRole('dialog', { name: /Thu 15 Oct/ });
-    expect(within(list).getAllByRole('listitem')).toHaveLength(6);
+    expect(within(list).getAllByRole('button', { name: /Busy day job/ })).toHaveLength(6);
     await userEvent.click(within(list).getByRole('button', { name: /close/i }));
     // With a project filter, the day has fewer to show.
     await userEvent.click(screen.getByRole('button', { name: /^project/i }));
@@ -402,6 +422,8 @@ describe('CalendarPage — busy days', () => {
     vi.stubGlobal('ResizeObserver', FakeResizeObserver);
     tasks = Array.from({ length: 6 }, (_, i) => task({ id: `b${i}`, key: `MICO-${10 + i}`, title: `Busy day job ${i + 1}`, dueDate: '2026-10-15T00:00:00.000Z' }));
     renderPage();
+    // Calendar scheduling: two-line bars (comfortable) only where a week has room for three; a 120px day hasn't,
+    // so its bars take one line each.
     const more = await screen.findByRole('button', { name: /4 more tasks on Thu 15 Oct/i });
     expect(more).toHaveTextContent('+4 more');
     expect(within(day('2026-10-15')).getAllByRole('button', { name: /Busy day job/ })).toHaveLength(2);
@@ -438,10 +460,13 @@ describe('CalendarPage — meetings', () => {
     expect(within(list).queryAllByRole('link')).toHaveLength(0);
     await userEvent.click(within(list).getByRole('button', { name: /close/i }));
     await screen.findByRole('link', { name: /Vendor call/ });
-    await userEvent.click(screen.getByRole('button', { name: /more filters/i }));
-    await userEvent.click(screen.getByRole('checkbox', { name: /show meetings/i }));
+    // tcal: calendar scheduling — meetings are shown or hidden in "Show" (each person's own, remembered on the server).
+    await userEvent.click(screen.getByRole('button', { name: /^show/i }));
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Meetings' }));
     await waitFor(() => expect(screen.queryByRole('link', { name: /Weekly sync/ })).not.toBeInTheDocument());
-    expect(screen.getByTestId('where')).toHaveTextContent('meetings=0');
+    await waitFor(() => expect(requests).toContainEqual(expect.objectContaining({ method: 'PUT', url: expect.stringContaining('/calendar/preferences'), body: { show: { meetings: false } } })));
+    // An older address's meetings=0 still hides them (and Clear filters brings them back).
+    expect(calPrefs.show.meetings).toBe(false);
   });
 
   it('follows the project and word filters for meetings too', async () => {
@@ -566,7 +591,8 @@ describe('CalendarPage — rescheduling', () => {
     const d = await screen.findByRole('dialog', { name: /Prepare report/ });
     await userEvent.click(within(d).getByRole('button', { name: /change date/i }));
     fireEvent.change(within(d).getByLabelText('New due date'), { target: { value: '2026-10-16' } });
-    await userEvent.click(within(d).getByRole('button', { name: 'Save date' }));
+    // tcal: calendar scheduling — the start and due dates change together here ("Save dates").
+    await userEvent.click(within(d).getByRole('button', { name: 'Save dates' }));
     await waitFor(() => expect(requests).toContainEqual(expect.objectContaining({ method: 'PUT', url: expect.stringContaining('/tasks/t1'), body: { dueDate: '2026-10-16', expectedVersion: 3 } })));
     expect(await within(day('2026-10-16')).findByRole('button', { name: /Prepare report/ })).toBeInTheDocument();
     const toast = await screen.findByRole('status', { name: /moved/i });
@@ -669,7 +695,9 @@ describe('CalendarPage — agenda, states and phones', () => {
     Object.defineProperty(window, 'matchMedia', { value: mm, configurable: true, writable: true });
     renderPage();
     const list = await screen.findByRole('region', { name: /Sat 10 Oct/ });
-    expect(within(list).getByText(/nothing due/i)).toBeInTheDocument();
+    // tcal: calendar scheduling — today's list also holds the work already late from before (overdue first).
+    expect(within(list).getByRole('heading', { name: /due today and overdue/i })).toBeInTheDocument();
+    expect(within(list).getByRole('button', { name: /Late invoice.*overdue/ })).toBeInTheDocument();
     await userEvent.click(within(day('2026-10-14')).getByRole('button', { name: /Wed 14 Oct, 1 task/ }));
     const chosen = await screen.findByRole('region', { name: /Wed 14 Oct/ });
     expect(within(chosen).getByRole('button', { name: /Prepare report/ })).toBeInTheDocument();

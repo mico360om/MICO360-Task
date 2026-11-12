@@ -1,4 +1,5 @@
-import { useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
+import { useDismiss } from '../../lib/useDismiss';
 import type { CalendarView } from '../../lib/calendar';
 import { SearchableSelect, type SelectOption } from '../ui/SearchableSelect';
 import { DEFAULT_FILTERS, PRIORITIES, STATUS_FILTERS, activeFilterCount, type CalendarFilters } from '../../lib/calendar-model';
@@ -8,6 +9,7 @@ import { useShortcutHint } from '../shortcuts/ShortcutProvider';
 const VIEWS: { v: CalendarView; label: string }[] = [
   { v: 'month', label: 'Month' },
   { v: 'week', label: 'Week' },
+  { v: 'day', label: 'Day' },
   { v: 'agenda', label: 'Agenda' },
 ];
 
@@ -20,12 +22,15 @@ const pill = 'h-9 whitespace-nowrap rounded-xl border px-3 text-sm font-semibold
  * "+ Task" on the right. Its two groups join the title's line (display: contents), so where there
  * isn't room the right-hand group moves to the next line whole.
  */
-export function CalendarToolbar({ view, onView, period, unit, onPrev, onNext, onToday, cursor, onGoTo, onNew }: {
+export function CalendarToolbar({ view, onView, period, unit, onPrev, onNext, onToday, cursor, onGoTo, onNew, layout, onLayout }: {
   view: CalendarView;
   onView: (v: CalendarView) => void;
   period: string;
-  /** "month" or "week": what Previous and Next step by. */
-  unit: 'month' | 'week';
+  /** What Previous and Next step by. */
+  unit: 'month' | 'week' | 'day';
+  /** Calendar scheduling: the split view (≥ 1280 px) — the calendar left, the chosen day's list right; or the full width. */
+  layout?: 'split' | 'full';
+  onLayout?: (layout: 'split' | 'full') => void;
   onPrev: () => void;
   onNext: () => void;
   onToday: () => void;
@@ -48,6 +53,22 @@ export function CalendarToolbar({ view, onView, period, unit, onPrev, onNext, on
         <h2 aria-live="polite" className="ms-1.5 min-w-0 truncate font-display text-lg font-bold text-ink">{period}</h2>
       </div>
       <div className="ms-auto flex flex-wrap items-center gap-2">
+        {layout && onLayout ? (
+          <div role="group" aria-label="Layout" className="inline-flex rounded-xl border border-line bg-surface p-0.5">
+            {(['split', 'full'] as const).map((l) => (
+              <button
+                key={l}
+                type="button"
+                onClick={() => onLayout(l)}
+                aria-pressed={layout === l}
+                title={l === 'split' ? 'The calendar and the chosen day’s list side by side' : 'The calendar across the whole width'}
+                className={`min-h-[2rem] rounded-lg px-3 text-sm font-semibold transition-colors ${layout === l ? 'bg-ink/10 text-ink' : 'text-ink-2 hover:bg-ground hover:text-ink'}`}
+              >
+                {l === 'split' ? 'Split' : 'Full'}
+              </button>
+            ))}
+          </div>
+        ) : null}
         <div role="group" aria-label="View" className="inline-flex rounded-xl border border-line bg-surface p-0.5 [@media(pointer:coarse)]:p-0">
           {VIEWS.map(({ v, label }) => (
             <button
@@ -207,9 +228,85 @@ export function CalendarFilterBar({ filters, onChange, projectOptions, assigneeO
               <Check label="Show completed tasks" checked={filters.showCompleted} onChange={(v) => set({ showCompleted: v })} />
               <Check label="Show tasks of archived projects" checked={filters.showArchived} onChange={(v) => set({ showArchived: v })} />
               <Check label="Show repeats not created yet" checked={filters.showProjected} onChange={(v) => set({ showProjected: v })} />
-              <Check label="Show meetings" checked={filters.showMeetings} onChange={(v) => set({ showMeetings: v })} />
+              {/* Calendar scheduling: meetings are shown or hidden in "Show" (the person's own choice); an old address's meetings=0 still hides them. */}
+              {filters.showMeetings ? null : <Check label="Show meetings" checked={filters.showMeetings} onChange={(v) => set({ showMeetings: v })} />}
             </div>
           </fieldset>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+export interface ShowChoices {
+  tasks: boolean;
+  meetings: boolean;
+  blocks: boolean;
+  reminders: boolean;
+}
+
+/**
+ * Calendar scheduling: what the calendar shows — tasks, meetings, planned time (work blocks), reminders —
+ * and, for whoever runs projects, the Team's planned time. Each person's own, remembered.
+ */
+export function ShowMenu({ show, onShow, team, onTeam }: { show: ShowChoices; onShow: (patch: Partial<ShowChoices>) => void; team?: { available: boolean; on: boolean }; onTeam?: (on: boolean) => void }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  useDismiss(open, () => setOpen(false), rootRef, buttonRef);
+  // A box changes the moment it's clicked; the page's saved choices take over again whenever they
+  // change (the save came back, or failed and was put back).
+  const teamOn = team?.on ?? false;
+  const [mine, setMine] = useState({ show, teamOn });
+  const [seen, setSeen] = useState({ show, teamOn });
+  if (seen.show !== show || seen.teamOn !== teamOn) {
+    setSeen({ show, teamOn });
+    setMine({ show, teamOn });
+  }
+  const pick = (patch: Partial<ShowChoices>) => {
+    setMine((m) => ({ ...m, show: { ...m.show, ...patch } }));
+    onShow(patch);
+  };
+  const pickTeam = (on: boolean) => {
+    setMine((m) => ({ ...m, teamOn: on }));
+    onTeam?.(on);
+  };
+  const rows: { key: keyof ShowChoices; label: string }[] = [
+    { key: 'tasks', label: 'Tasks' },
+    { key: 'meetings', label: 'Meetings' },
+    { key: 'blocks', label: 'Planned time' },
+    { key: 'reminders', label: 'My reminders' },
+  ];
+  const hidden = rows.filter((r) => !mine.show[r.key]).length;
+  return (
+    <div ref={rootRef} className="relative">
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        aria-controls="calendar-show"
+        className={`${pill} ${open || hidden || mine.teamOn ? 'border-brand/60 text-brand' : 'border-line text-ink'} bg-surface hover:border-brand`}
+      >
+        Show{hidden ? ` (${4 - hidden} of 4)` : ''}
+        {mine.teamOn ? ' · Team' : ''}
+      </button>
+      {open ? (
+        <div id="calendar-show" className="absolute end-0 top-full z-30 mt-2 w-60 rounded-xl border border-line bg-surface p-2 shadow-lift animate-scale-in">
+          <fieldset>
+            <legend className="mb-1 px-2 text-xs font-bold uppercase tracking-wide text-ink-2">Show</legend>
+            <div className="flex flex-col">
+              {rows.map((r) => (
+                <Check key={r.key} label={r.label} checked={mine.show[r.key]} onChange={(v) => pick({ [r.key]: v })} />
+              ))}
+            </div>
+          </fieldset>
+          {team?.available && onTeam ? (
+            <fieldset className="mt-2 border-t border-line pt-2">
+              <legend className="mb-1 px-2 text-xs font-bold uppercase tracking-wide text-ink-2">Projects you run</legend>
+              <Check label="Team’s planned time" checked={mine.teamOn} onChange={pickTeam} />
+            </fieldset>
+          ) : null}
         </div>
       ) : null}
     </div>

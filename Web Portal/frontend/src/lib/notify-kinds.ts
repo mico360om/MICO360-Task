@@ -5,6 +5,7 @@ import { shiftDay, weekdayOf, zonedClock, zonedInstant } from './working-days';
 export const KIND_WORDS: Record<PolicyKind, { label: string; desc: string }> = {
   assigned: { label: 'Assigned to me', desc: 'A task or checklist item is given to you' },
   dueSoon: { label: 'Approaching deadlines', desc: 'Before a task is due, by its reminder schedule' },
+  reminders: { label: 'My reminders', desc: 'Reminders you set on tasks, or that whoever runs the project set for you' },
   overdue: { label: 'Overdue tasks', desc: 'A task of yours is late, every few working days' },
   escalation: { label: 'Escalations (projects I run)', desc: 'A task in a project you run is overdue or Blocked' },
   escalationAdmin: { label: 'Escalations to admins', desc: 'A task still overdue (or an approval still waiting) after the second step' },

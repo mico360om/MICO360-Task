@@ -17,7 +17,7 @@ import { OVERDUE_CLASS } from '../../lib/colour-classes';
 const dayMeta = (item: CalItem): string | undefined =>
   [item.kind === 'task' ? null : 'Not created yet', item.task.assignees?.map((a) => a.name).join(', ')].filter(Boolean).join(' · ') || undefined;
 
-function Shell({ label, onClose, children, wide = false }: { label: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
+export function Shell({ label, onClose, children, wide = false }: { label: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
   const ref = useDialog(onClose, { initialFocus: 'container' });
   return (
     <ModalPortal>
@@ -38,7 +38,7 @@ function Shell({ label, onClose, children, wide = false }: { label: string; onCl
   );
 }
 
-function Header({ title, onClose, sub }: { title: ReactNode; onClose: () => void; sub?: ReactNode }) {
+export function Header({ title, onClose, sub }: { title: ReactNode; onClose: () => void; sub?: ReactNode }) {
   return (
     <div className="flex flex-none items-start gap-3 border-b border-line px-5 py-4">
       <div className="min-w-0 flex-1">
@@ -189,6 +189,10 @@ export function TaskPreview({
   project,
   movable,
   onMove,
+  onMoveDates,
+  waitNote,
+  onPlanTime,
+  onRemind,
   onOpenTask,
   onClose,
 }: {
@@ -199,6 +203,12 @@ export function TaskPreview({
   project: ProjectLook | null;
   movable: boolean;
   onMove: (to: string, scope: MoveScope) => void;
+  /** Calendar scheduling: change the start and the due date together (the keyboard alternative to dragging a bar or its ends). */
+  onMoveDates?: (start: string | null, due: string | null, scope: MoveScope) => void;
+  /** "It will wait until 20 Nov." for a new start (tasks nobody has started — call 6). */
+  waitNote?: (start: string | null) => string | null;
+  onPlanTime?: () => void;
+  onRemind?: () => void;
   onOpenTask: (taskId: string) => void;
   onClose: () => void;
 }) {
@@ -206,7 +216,14 @@ export function TaskPreview({
   const s = STATUS_META[item.status];
   const [editing, setEditing] = useState(false);
   const [to, setTo] = useState(item.date);
+  const startOf = (item as { start?: string | null }).start ?? null;
+  const dueOf = (item as { due?: string | null }).due ?? (t.dueDate ? item.date : null);
+  const [startTo, setStartTo] = useState(startOf ?? '');
   const [scope, setScope] = useState<MoveScope>('occurrence');
+  const both = !!onMoveDates;
+  const changed = both ? (startTo || null) !== startOf || (to || null) !== dueOf : !!to && to !== item.date;
+  const badOrder = both && !!startTo && !!to && startTo > to;
+  const wait = both && waitNote ? waitNote(startTo || null) : null;
   const due = t.dueDate ? new Date(t.dueDate) : null;
   const timed = due && !(due.getUTCHours() === 0 && due.getUTCMinutes() === 0) && item.kind === 'task';
   const time = timed ? new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', timeZone }).format(due!) : null;
@@ -239,8 +256,13 @@ export function TaskPreview({
               {item.kind === 'task' && item.status !== 'done' && isWaitingForApproval(t) ? <ApprovalChip /> : null}
             </span>
           </Row>
+          {startOf ? (
+            <Row label="Starts">
+              <span>{fullDayLabel(startOf)}</span>
+            </Row>
+          ) : null}
           <Row label="Due">
-            <span>{fullDayLabel(item.date)}</span>
+            <span>{fullDayLabel(dueOf ?? item.date)}</span>
             {time ? <span> at {time}</span> : null}
             <span className={`ms-2 text-xs ${item.status === 'overdue' ? `font-semibold ${OVERDUE_CLASS.text}` : 'text-ink-2'}`}>({relative(item.date, today)})</span>
           </Row>
@@ -275,25 +297,47 @@ export function TaskPreview({
             className="mt-3 flex flex-col gap-3 rounded-xl border border-line bg-ground/60 p-3"
             onSubmit={(e) => {
               e.preventDefault();
-              if (to && to !== item.date) onMove(to, scope);
+              if (!changed || badOrder) return;
+              if (both) onMoveDates!(startTo || null, to || null, scope);
+              else if (to && to !== item.date) onMove(to, scope);
             }}
           >
-            <label className="flex flex-col gap-1 text-sm font-medium text-ink">
-              New due date
-              <input type="date" value={to} onChange={(e) => setTo(e.target.value)} required className="rounded-lg border border-line bg-surface px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20" />
-            </label>
-            {rule ? <ScopeChoice value={scope} onChange={setScope} /> : null}
+            <div className={both ? 'grid gap-3 sm:grid-cols-2' : ''}>
+              {both ? (
+                <label className="flex flex-col gap-1 text-sm font-medium text-ink">
+                  Start date
+                  <input type="date" value={startTo} max={to || undefined} onChange={(e) => setStartTo(e.target.value)} className="rounded-lg border border-line bg-surface px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20 [@media(pointer:coarse)]:min-h-11" />
+                </label>
+              ) : null}
+              <label className="flex flex-col gap-1 text-sm font-medium text-ink">
+                New due date
+                <input type="date" value={to} min={both && startTo ? startTo : undefined} onChange={(e) => setTo(e.target.value)} required={!both || !startTo} className="rounded-lg border border-line bg-surface px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20 [@media(pointer:coarse)]:min-h-11" />
+              </label>
+            </div>
+            {wait ? <p className="text-xs text-ink-2">{wait}</p> : null}
+            {badOrder ? <p role="alert" className="text-xs text-danger">The start can’t be after the due date.</p> : null}
+            {rule && to !== dueOf ? <ScopeChoice value={scope} onChange={setScope} /> : null}
             <div className="flex justify-end gap-2">
               <button type="button" onClick={() => setEditing(false)} className="rounded-lg px-3 py-2 text-sm font-medium text-ink-2 hover:bg-surface">Cancel</button>
-              <button type="submit" disabled={!to || to === item.date} className="rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">Save date</button>
+              <button type="submit" disabled={!changed || badOrder} className="rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{both ? 'Save dates' : 'Save date'}</button>
             </div>
           </form>
         ) : null}
       </div>
       <div className="flex flex-none flex-col-reverse gap-2 border-t border-line px-5 py-3 sm:flex-row sm:justify-end">
+        {onRemind ? (
+          <button type="button" onClick={onRemind} className="rounded-xl border border-line px-4 py-2 text-sm font-medium text-ink hover:border-brand hover:text-brand [@media(pointer:coarse)]:min-h-11">
+            Remind me
+          </button>
+        ) : null}
+        {onPlanTime ? (
+          <button type="button" onClick={onPlanTime} className="rounded-xl border border-line px-4 py-2 text-sm font-medium text-ink hover:border-brand hover:text-brand [@media(pointer:coarse)]:min-h-11">
+            Plan time
+          </button>
+        ) : null}
         {movable && !editing ? (
-          <button type="button" onClick={() => setEditing(true)} className="rounded-xl border border-line px-4 py-2 text-sm font-medium text-ink hover:border-brand hover:text-brand">
-            Change date
+          <button type="button" onClick={() => setEditing(true)} className="rounded-xl border border-line px-4 py-2 text-sm font-medium text-ink hover:border-brand hover:text-brand [@media(pointer:coarse)]:min-h-11">
+            {onMoveDates ? 'Change dates' : 'Change date'}
           </button>
         ) : null}
         <button type="button" onClick={() => onOpenTask(t.id)} className="rounded-xl bg-brand px-4 py-2 text-sm font-semibold text-white">

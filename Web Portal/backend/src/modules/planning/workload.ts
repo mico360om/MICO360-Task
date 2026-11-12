@@ -1,4 +1,5 @@
 import { dueDayKey, shiftDayKey, todayKey } from '../../lib/due-date';
+import { plannedMinutesByDay } from '../calendar/work-blocks';
 
 export type Priority = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
 
@@ -52,6 +53,8 @@ export interface WorkloadRows {
    * project — what suggestions weigh. Never sent to the page.
    */
   loads: { userId: string; dueDate: Date | null }[];
+  /** Calendar scheduling: the shown people's work blocks (planned hours), already in the asker's scope. */
+  planned?: { userId: string; startAt: Date; endAt: Date }[];
 }
 
 /**
@@ -95,6 +98,8 @@ export interface WorkloadCell {
   over: number;
   /** Suggested ones first, in the order of the plan; then the rest, most urgent first. */
   tasks: WorkloadCellTask[];
+  /** Calendar scheduling: minutes of work planned on this day (work blocks). */
+  plannedMinutes: number;
 }
 
 export interface WorkloadRow extends WorkloadPerson {
@@ -104,6 +109,8 @@ export interface WorkloadRow extends WorkloadPerson {
   total: number;
   /** The daily limit times the week's working days. */
   weekLimit: number;
+  /** Calendar scheduling: minutes of work planned in the week (work blocks). */
+  plannedMinutes: number;
   days: WorkloadCell[];
 }
 
@@ -213,6 +220,7 @@ export function buildWorkload(
   }
   const overdue = new Map(rows.overdue.map((o) => [o.userId, o.count]));
   for (const o of rows.overdue) if (o.count > 0) withWork.add(o.userId);
+  const plannedBy = plannedMinutesByDay(rows.planned ?? [], timeZone);
 
   // Narrowed to a project: its team, and whoever has its tasks.
   const keep = projectId ? new Set([...(team.get(projectId) ?? []), ...withWork]) : null;
@@ -282,7 +290,7 @@ export function buildWorkload(
         }
         const planned = new Set(plan.map((x) => x.id));
         const rest = list.filter((t) => !planned.has(t.id)).sort(urgentFirst).map((t) => toTask(t, null));
-        return { date, count: list.length, limit: max, over, tasks: [...plan, ...rest] };
+        return { date, count: list.length, limit: max, over, tasks: [...plan, ...rest], plannedMinutes: plannedBy.get(at(p.id, date)) ?? 0 };
       });
       return {
         ...p,
@@ -290,6 +298,7 @@ export function buildWorkload(
         overdue: overdue.get(p.id) ?? 0,
         total: row.reduce((n, c) => n + c.count, 0),
         weekLimit: limit * days.filter(isWorking).length,
+        plannedMinutes: row.reduce((n, c) => n + c.plannedMinutes, 0),
         days: row,
       };
     }),

@@ -636,4 +636,19 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   'GET /portal/training/certificates/:id/pdf': 'client',
   'POST /portal/training/courses/:id/feedback': 'client',
   'PUT /portal/training/tour': 'client',
+  // ---- Calendar scheduling -----------------------------------------------------------------------
+  // A task's planned time (work blocks) and its reminders: the task rule, then the block's / reminder's
+  // own (whose time, who set it); a person's Calendar choices are their own.
+  'GET /tasks/:id/work-blocks': 'object',
+  'POST /tasks/:id/work-blocks': 'object',
+  'PUT /tasks/:id/work-blocks/:blockId': 'object',
+  'DELETE /tasks/:id/work-blocks/:blockId': 'object',
+  'GET /tasks/:id/reminders': 'object',
+  'POST /tasks/:id/reminders': 'object',
+  'PUT /tasks/:id/reminders/:reminderId': 'object',
+  'DELETE /tasks/:id/reminders/:reminderId': 'object',
+  'POST /tasks/:id/reminders/:reminderId/mute': 'object',
+  'POST /tasks/:id/reminders/:reminderId/snooze': 'object',
+  'GET /calendar/preferences': 'own',
+  'PUT /calendar/preferences': 'own',
 };

@@ -197,6 +197,9 @@ export interface TaskListFilter {
   tagIds?: string[];
   dueBefore?: Date;
   dueAfter?: Date;
+  /** Calendar scheduling: tasks starting within [startAfter, startBefore] (each optional; a task without a start is left out). */
+  startBefore?: Date;
+  startAfter?: Date;
   /** Only tasks that carry a repeat rule (the newest copy of each series). */
   recurring?: boolean;
   /** Only tasks waiting for approval (task-approval). */

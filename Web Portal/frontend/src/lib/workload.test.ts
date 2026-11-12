@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { WorkloadCell, WorkloadPerson } from '../api/planning';
 import {
   cellLabel,
+  plannedWords,
   cellTone,
   dayHeading,
   filterPeople,
@@ -54,6 +55,17 @@ describe('cells', () => {
     expect(cellLabel('Hassan Ahmed', HASSAN.days[0]!)).toBe('Hassan Ahmed, Sunday 25 October: nothing due');
     expect(cellLabel('Hassan Ahmed', HASSAN.days[5]!)).toBe('Hassan Ahmed, Friday 30 October: a day off');
     expect(cellLabel('Omar Said', { date: '2026-10-30', count: 2, limit: 0, over: 2, tasks: [] })).toBe('Omar Said, Friday 30 October: a day off, 2 tasks due');
+  });
+});
+
+describe('planned work time (calendar scheduling: work blocks count in Workload as planned hours)', () => {
+  it('says the hours planned, in the cell’s words too', () => {
+    expect(plannedWords(0)).toBe('');
+    expect(plannedWords(45)).toBe('45 min planned');
+    expect(plannedWords(60)).toBe('1 h planned');
+    expect(plannedWords(150)).toBe('2 h 30 min planned');
+    expect(cellLabel('Omar Said', { date: '2026-10-28', count: 2, limit: 5, over: 0, tasks: [], plannedMinutes: 90 })).toBe('Omar Said, Wednesday 28 October: 2 tasks due, 1 h 30 min planned');
+    expect(cellLabel('Omar Said', { date: '2026-10-28', count: 0, limit: 5, over: 0, tasks: [], plannedMinutes: 60 })).toBe('Omar Said, Wednesday 28 October: nothing due, 1 h planned');
   });
 });
 

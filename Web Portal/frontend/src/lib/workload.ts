@@ -34,6 +34,14 @@ const dayMonth = (key: string) => plain(DAY_MONTH.format(at(key)));
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
+/** Calendar scheduling: "1 h 30 min planned" (work blocks); '' for none. */
+export function plannedWords(minutes: number | undefined): string {
+  if (!minutes || minutes <= 0) return '';
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return `${[h ? `${h} h` : '', m ? `${m} min` : ''].filter(Boolean).join(' ')} planned`;
+}
+
 /** What a screen reader hears for a cell: "Omar Said, Wednesday 28 October: 8 tasks due, 3 over the limit". */
 export function cellLabel(name: string, cell: WorkloadCell): string {
   const tone = cellTone(cell);
@@ -50,7 +58,8 @@ export function cellLabel(name: string, cell: WorkloadCell): string {
             : tone === 'at'
               ? `${due}, at the limit`
               : due;
-  return `${name}, ${longDay(cell.date)}: ${what}`;
+  const planned = plannedWords(cell.plannedMinutes);
+  return `${name}, ${longDay(cell.date)}: ${what}${planned ? `, ${planned}` : ''}`;
 }
 
 /** A person's week: "28 due · limit 25" and "over by 3", "at the limit" or "room for 21". */

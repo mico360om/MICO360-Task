@@ -111,7 +111,8 @@ export const DEFAULT_FILTERS: CalendarFilters = {
   showMeetings: true,
 };
 
-export function applyFilters(items: CalItem[], f: CalendarFilters, ctx: { myId: string }): CalItem[] {
+/** (Generic, so calendar scheduling's span items keep their type; the rule is unchanged.) */
+export function applyFilters<T extends CalItem>(items: T[], f: CalendarFilters, ctx: { myId: string }): T[] {
   const q = f.q.trim().toLocaleLowerCase('en');
   return items.filter((i) => {
     const t = i.task;

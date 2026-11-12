@@ -19,7 +19,7 @@ import { createAuthGuard, type UserStateLookup } from './modules/auth/auth-guard
 import { registerProjectRoutes } from './modules/projects/project-routes';
 import type { ProjectOverviewSource } from './modules/projects/project-overview';
 import type { ProjectService } from './modules/projects/project-service';
-import { registerTaskRoutes, type TaskMeetingLookup } from './modules/tasks/task-routes';
+import { registerTaskRoutes, type TaskMeetingLookup, type TaskRouteDeps } from './modules/tasks/task-routes';
 import { registerTaskApprovalRoutes, type ApprovalSource, type ApprovalViewer, type TaskApprovalDetails } from './modules/tasks/task-approval-routes';
 import type { TaskRecord } from './modules/tasks/task-repository';
 import { registerTaskExportRoutes } from './modules/tasks/task-export-routes';
@@ -54,6 +54,7 @@ import type { WelcomeService } from './modules/users/welcome-service';
 import type { Departments } from './modules/users/prisma-departments';
 import { registerNotificationRoutes } from './modules/notifications/notification-routes';
 import { registerNotifyPolicyRoutes, type NotifyPolicyRouteDeps } from './modules/notify-policy/policy-routes';
+import { registerCalendarRoutes, type CalendarRoutesDeps } from './modules/calendar/calendar-routes';
 import type { NotificationPolicy } from './modules/notify-policy/policy';
 import { registerDailyEmailRoutes, type DailyEmailRouteDeps } from './modules/daily-emails/daily-email-routes';
 import type { NotificationService } from './modules/notifications/notification-service';
@@ -222,6 +223,8 @@ export interface AppDeps extends AuthRouteDeps {
   checklistMine?: (userId: string, projectIds: string[] | null) => Promise<import('./modules/tasks/checklist-routes').MyChecklistItem[]>;
   /** 1.23.3: dated checklist items for the calendar, in the caller's scope. */
   checklistDue?: (opts: { from: string; to: string; userId: string; ownIds: string[] | null; listIds: string[] | null }) => Promise<unknown[]>;
+  /** Calendar scheduling: GET /calendar's work blocks, reminders and Team view (modules/calendar/calendar-extras). */
+  calendarExtras?: TaskRouteDeps['calendarExtras'];
   /** People's names by id (checklist: who deleted something, who an item was taken from). */
   namesOfUsers?: (userIds: string[]) => Promise<Map<string, string>>;
   /** External contacts on tasks: the people outside the company responsible for a task. */
@@ -265,6 +268,8 @@ export interface AppDeps extends AuthRouteDeps {
   notificationService?: NotificationService;
   /** Notification & Scheduling centre: the admin panel, the person's rules, working time, project/task reminders. */
   notifyPolicy?: Omit<NotifyPolicyRouteDeps, 'guard' | 'pickOf'>;
+  /** Calendar scheduling: work blocks, personal reminders and each person's Calendar choices. */
+  calendarScheduling?: Omit<CalendarRoutesDeps, 'guard'>;
   /** …and a person's company rules, for older apps' muted list. */
   notificationPolicyOf?: (userId: string) => Promise<NotificationPolicy>;
   /** Free times for Schedule meeting (busy meetings, working hours, names). */
@@ -822,6 +827,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           // 1.23.1: the tasks merged into a task (its "Merged from" panel opens from them).
           mergedFrom: deps.taskMergeService ? (id) => deps.taskMergeService!.mergedInto(id) : undefined,
           checklistDue: deps.checklistDue,
+          calendarExtras: deps.calendarExtras,
           projectOwnerOf: deps.projectService
             ? async (projectId) => (await deps.projectService!.getProject(projectId)).ownerId
             : undefined,
@@ -1011,6 +1017,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       }
       if (deps.notifyPolicy) {
         await registerNotifyPolicyRoutes(api, { ...deps.notifyPolicy, guard, pickOf });
+      }
+      if (deps.calendarScheduling) {
+        await registerCalendarRoutes(api, { ...deps.calendarScheduling, guard });
       }
       if (deps.dailyEmails) {
         await registerDailyEmailRoutes(api, { ...deps.dailyEmails, guard, audit: deps.auditService });
