@@ -159,11 +159,11 @@ describe('External contacts on MySQL (integration)', () => {
   });
 
   it('search finds a task by a contact’s name or company', async () => {
-    await repo.add(taskId, fields('Ahmed Al Said', { company: 'Occidental Oman' }), userId, 20);
+    await repo.add(taskId, fields('Ahmed Al Said', { company: 'Globex Oman' }), userId, 20);
     await createTaskSearchIndex({ prisma }).taskChanged(taskId);
     const engine = createTaskSearchEngine({ prisma, timeZone: 'Asia/Muscat' });
     const keys = async (q: string, projectIds: string[]) => (await engine.search({ q, scope: { projectIds }, limit: 50 })).hits.map((t) => t.key);
-    expect(await keys('occidental', [projectId])).toEqual(['XCON-1']);
+    expect(await keys('globex', [projectId])).toEqual(['XCON-1']);
     expect(await keys('ahmed', [projectId])).toEqual(['XCON-1']);
     expect(await keys('ahmed', [otherProjectId])).toEqual([]);
   });

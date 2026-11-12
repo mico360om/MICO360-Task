@@ -170,7 +170,7 @@ describe('admins tidy the list', () => {
     const t1 = await task(p1, todo, { assignees: [other] });
     const t2 = await task(p1, todo, { assignees: [other] });
     const keep = await guests.createForProject(p1, { name: 'Ahmed Al Harthy', company: 'Acme' }, owner);
-    const dup = await guests.createForProject(p1, { name: 'Ahmed AlHarthy', company: 'Occidental' }, owner);
+    const dup = await guests.createForProject(p1, { name: 'Ahmed AlHarthy', company: 'Globex' }, owner);
     await guests.addToTask(t1, keep.id, 'first', owner);
     await guests.addToTask(t1, dup.id, 'second', owner);
     await guests.addToTask(t2, dup.id, null, owner);
