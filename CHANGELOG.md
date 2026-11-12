@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.23.21] - 2026-11-12
+
 ### New features
 - Task archive: a task you no longer need on the boards can be archived ("Archive" in the task's ⋯ menu, for
   administrators and the people who run its project). It leaves every board, list, My Tasks, the calendar,
