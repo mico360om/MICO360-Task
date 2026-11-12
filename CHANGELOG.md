@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.23.23] - 2026-11-12
+
 ### Improvements
 - If a page's request is dropped on the way (a brief network blip), the site quietly tries again before showing an error or logging it.
 
