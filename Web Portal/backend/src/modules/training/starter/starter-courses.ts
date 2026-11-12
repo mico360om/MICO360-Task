@@ -4,8 +4,10 @@ import type { StarterCourse, StarterLesson, StarterQuestion } from './starter-ty
  * The starter courses (owner answer 3, ruling R17): one short English course per main module — step-by-step
  * guides with screenshots of the real website and a short quiz — plus the three video courses, which stay
  * drafts until an administrator adds the owner's YouTube / Vimeo links. Loaded once by training-starter.ts;
- * the pictures and PDFs are in backend/assets/training/starter (made by the capture script described in the
- * Training Center ledger). Keys never change once shipped.
+ * the pictures are in backend/assets/training/starter (made by the capture script described in the
+ * Training Center ledger). Keys never change once shipped. (1.23.25: the Tasks and Meetings courses no longer
+ * carry the old how-to slide PDFs — training videos replace them; training-starter-pdfs.ts removes them from
+ * sites that have them.)
  */
 
 // ── Small helpers (every starter quiz: pass mark 70, unlimited retakes, shuffled, no time limit) ─────
@@ -51,7 +53,6 @@ const tasks: StarterCourse = {
   completionRule: 'ALL_LESSONS',
   certificateOn: false,
   certificateMonths: null,
-  resources: [{ file: 'tasks-how-to.pdf', name: 'Tasks how-to slides (PDF)', mimeType: 'application/pdf' }],
   lessons: [
     {
       kind: 'GUIDE',
@@ -289,7 +290,6 @@ const meetings: StarterCourse = {
   completionRule: 'ALL_LESSONS',
   certificateOn: false,
   certificateMonths: null,
-  resources: [{ file: 'meetings-how-to.pdf', name: 'Meetings how-to slides (PDF)', mimeType: 'application/pdf' }],
   lessons: [
     {
       kind: 'GUIDE',
