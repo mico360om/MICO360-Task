@@ -121,8 +121,12 @@ function LoginRoute() {
  */
 function ChatRoute() {
   const [params, setParams] = useSearchParams();
+  // Another person's session taken over from another tab starts a fresh chat page: nothing waiting to be
+  // sent by the last person carries over.
+  const userId = useAuthStore((s) => s.user?.id);
   return (
     <ChatPage
+      key={userId}
       startDirectWith={params.get('dm')}
       openConversationId={params.get('conversation')}
       onOpened={() => setParams({}, { replace: true })}

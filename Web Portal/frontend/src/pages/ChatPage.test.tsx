@@ -45,6 +45,8 @@ let requests: { url: string; method: string; body?: unknown }[] = [];
 /** Per-test overrides: return a Response (or a promise of one) to handle the request, or undefined to fall through. */
 let override: (u: string, method: string, body: unknown) => Response | Promise<Response> | undefined;
 let c1Messages: ReturnType<typeof message>[];
+/** The mock server keeps what is sent to the channel (so a reload of its history shows it). */
+let keepSent = false;
 let inbox: unknown[];
 
 /** Uploads report progress over XMLHttpRequest; this one hands the request to the fetch mock. */
@@ -80,6 +82,7 @@ beforeEach(() => {
   requests = [];
   override = () => undefined;
   c1Messages = [message()];
+  keepSent = false;
   inbox = [];
   Object.defineProperty(navigator, 'onLine', { value: true, configurable: true });
   useAuthStore.getState().setSession({ user: { id: 'me', email: 'me@x', username: 'me', roles: ['EMPLOYEE'] }, accessToken: 'at', refreshToken: 'rt' });
@@ -99,7 +102,9 @@ beforeEach(() => {
     if (u.includes('/conversations/c1/messages') && method === 'GET') return json({ data: c1Messages });
     if (u.includes('/conversations/c1/messages') && method === 'POST') {
       const b = body as { body: string; clientId?: string; replyToId?: string };
-      return json({ data: message({ id: `srv-${posted.length}`, userId: 'me', body: b.body, clientId: b.clientId ?? null, createdAt: new Date().toISOString() }) }, 201);
+      const saved = message({ id: `srv-${posted.length}`, userId: 'me', body: b.body, clientId: b.clientId ?? null, createdAt: new Date().toISOString() });
+      if (keepSent) c1Messages = [...c1Messages, saved];
+      return json({ data: saved }, 201);
     }
     if (u.includes('/read') || u.includes('/delivered')) return new Response(null, { status: 204 });
     if (u.includes('/prefs') && method === 'PUT') return json({ data: { favorite: false, archived: false, muted: false, ...(body as object) } });
@@ -984,18 +989,41 @@ describe('ChatPage open in two tabs (one browser storage)', () => {
     Object.defineProperty(navigator, 'onLine', { value: on, configurable: true });
     act(() => { window.dispatchEvent(new Event(on ? 'online' : 'offline')); });
   };
-  /** Web Locks shared by the "tabs" (they share one window here): one holder per name at a time, the rest wait. */
+  const settle = (ms = 300) => act(async () => { await new Promise((r) => setTimeout(r, ms)); });
+  /**
+   * Web Locks as a browser has them for one site, shared by the "tabs" (here they share one window): one
+   * holder per name, the others wait in turn (a wait can be given up); query() lists what is held.
+   */
   function installLocks() {
-    const tails = new Map<string, Promise<unknown>>();
+    const held = new Set<string>();
+    const queues = new Map<string, Array<() => void>>();
+    const grant = (name: string) => queues.get(name)?.shift()?.();
     const locks = {
-      request: (name: string, cb: () => Promise<unknown>) => {
-        const run = (tails.get(name) ?? Promise.resolve()).then(() => cb());
-        tails.set(name, run.catch(() => undefined));
-        return run;
+      request(name: string, a: unknown, b?: unknown) {
+        const cb = (typeof a === 'function' ? a : b) as () => Promise<unknown>;
+        const signal = typeof a === 'object' && a ? (a as { signal?: AbortSignal }).signal : undefined;
+        return new Promise((resolve, reject) => {
+          const start = () => {
+            held.add(name);
+            Promise.resolve().then(cb).then(resolve, reject).finally(() => { held.delete(name); grant(name); });
+          };
+          if (!held.has(name) && !queues.get(name)?.length) return start();
+          const q = queues.get(name) ?? [];
+          queues.set(name, q);
+          q.push(start);
+          signal?.addEventListener('abort', () => {
+            const i = q.indexOf(start);
+            if (i >= 0) { q.splice(i, 1); reject(signal.reason); }
+          });
+        });
       },
+      query: async () => ({ held: [...held].map((name) => ({ name })), pending: [] }),
     };
     Object.defineProperty(navigator, 'locks', { value: locks, configurable: true });
   }
+  beforeEach(() => {
+    keepSent = true;
+  });
   afterEach(() => {
     delete (navigator as { locks?: unknown }).locks;
   });
@@ -1011,7 +1039,7 @@ describe('ChatPage open in two tabs (one browser storage)', () => {
     await userEvent.type(tabA.t.getByLabelText('Message'), 'from tab A{Enter}');
     await waitFor(() => expect(sendsOf('from tab A')).toHaveLength(1));
     // Tab A lets go of its sent message's stand-in about 3 s later.
-    await act(async () => { await new Promise((r) => setTimeout(r, 3500)); });
+    await settle(3500);
     expect(outboxBodies()).toEqual(['from tab B']);
 
     // Tab B is closed before its request is answered: the next visit sends the message, as the same message.
@@ -1025,45 +1053,106 @@ describe('ChatPage open in two tabs (one browser storage)', () => {
     expect(sendsOf('from tab A')).toHaveLength(1);
   }, 20_000);
 
-  it('a tab opened while another tab is sending a message does not send it again', async () => {
+  it('leaves a message to the open tab sending it: a tab opened meanwhile neither shows nor sends it', async () => {
     installLocks();
     let answer: (r: Response) => void = () => {};
     override = (u, method, body) =>
-      (u.includes('/conversations/c1/messages') && method === 'POST' && sendsOf('on its way').length === 1 && (body as { body: string }).body === 'on its way'
+      (u.includes('/conversations/c1/messages') && method === 'POST' && (body as { body: string }).body === 'on its way'
         ? new Promise<Response>((r) => { answer = r; })
         : undefined);
     const tabA = await openTab();
     await userEvent.type(tabA.t.getByLabelText('Message'), 'on its way{Enter}');
     await waitFor(() => expect(sendsOf('on its way')).toHaveLength(1));
-    const tabB = await openTab(); // finds it in the outbox while tab A's request is still out
-    expect(tabB.t.getByText('on its way')).toBeInTheDocument();
+    const tabB = await openTab();
+    await settle();
+    expect(tabB.t.queryByText('on its way')).not.toBeInTheDocument();
     const clientId = (sendsOf('on its way')[0]!.body as { clientId: string }).clientId;
     act(() => answer(json({ data: message({ id: 'srv-x', userId: 'me', body: 'on its way', clientId, createdAt: new Date().toISOString() }) }, 201)));
     await waitFor(() => expect(outboxBodies()).toEqual([]));
-    await act(async () => { await new Promise((r) => setTimeout(r, 300)); });
+    setOnline(true); // tab B's own flush finds nothing of tab A's to send
+    await settle();
     expect(sendsOf('on its way')).toHaveLength(1);
   });
 
-  it('both tabs offline, then back online: every message is sent exactly once', async () => {
+  it('offline in several tabs, then back online: each message is sent exactly once, a closed tab’s too', async () => {
     installLocks();
     const tabA = await openTab();
     const tabB = await openTab();
+    const tabC = await openTab();
     setOnline(false);
     await userEvent.type(tabA.t.getByLabelText('Message'), 'offline in A{Enter}');
     await userEvent.type(tabB.t.getByLabelText('Message'), 'offline in B{Enter}');
-    await waitFor(() => expect(outboxBodies()).toEqual(['offline in A', 'offline in B']));
+    await userEvent.type(tabC.t.getByLabelText('Message'), 'offline in C{Enter}');
+    await waitFor(() => expect(outboxBodies()).toEqual(['offline in A', 'offline in B', 'offline in C']));
+    tabC.unmount(); // closed before the connection came back
+    await settle(50);
     expect(sends()).toHaveLength(0);
-    setOnline(true);
+    setOnline(true); // both open tabs pick up tab C's message
     await waitFor(() => expect(outboxBodies()).toEqual([]));
-    await act(async () => { await new Promise((r) => setTimeout(r, 300)); });
+    await settle();
     expect(sendsOf('offline in A')).toHaveLength(1);
     expect(sendsOf('offline in B')).toHaveLength(1);
-    // Each tab still shows its own message once.
+    expect(sendsOf('offline in C')).toHaveLength(1);
     expect(tabA.t.getAllByText('offline in A')).toHaveLength(1);
     expect(tabB.t.getAllByText('offline in B')).toHaveLength(1);
   });
 
+  it('never sends an open tab’s text ahead of the file it sent before it', async () => {
+    installLocks();
+    let finish: (r: Response) => void = () => {};
+    override = (u) => (u.includes('/attachments') ? new Promise<Response>((r) => { finish = r; }) : undefined);
+    const tabA = await openTab();
+    const input = tabA.container.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [new File(['x'], 'plan.pdf', { type: 'application/pdf' })] } });
+    await waitFor(() => expect(posted.some((p) => p.url.includes('/attachments'))).toBe(true));
+    await userEvent.type(tabA.t.getByLabelText('Message'), 'after the file{Enter}');
+    await openTab(); // tab B opens (and its live connection comes back) while the file is uploading
+    setOnline(true);
+    await settle();
+    expect(sendsOf('after the file')).toHaveLength(0);
+    act(() => finish(json({ data: message({ id: 'f1', userId: 'me', body: '', attachments: [{ id: 'a1', messageId: 'f1', fileName: 'plan.pdf', mimeType: 'application/pdf', sizeBytes: 1, storageKey: 'k', createdAt: '', url: '/uploads/k' }] }) }, 201)));
+    await waitFor(() => expect(sendsOf('after the file')).toHaveLength(1));
+    const at = (pred: (p: { url: string; body: unknown }) => boolean) => posted.findIndex(pred);
+    expect(at((p) => p.url.includes('/attachments'))).toBeLessThan(at((p) => (p.body as { body?: string }).body === 'after the file'));
+  });
+
+  it('a request stuck in one tab doesn’t hold up another tab’s messages', async () => {
+    installLocks();
+    override = (u, method, body) =>
+      (u.includes('/conversations/c1/messages') && method === 'POST' && (body as { body: string }).body === 'stuck' ? new Promise<Response>(() => {}) : undefined);
+    const tabA = await openTab();
+    await userEvent.type(tabA.t.getByLabelText('Message'), 'stuck{Enter}');
+    await waitFor(() => expect(sendsOf('stuck')).toHaveLength(1));
+    const tabB = await openTab();
+    await userEvent.type(tabB.t.getByLabelText('Message'), 'from B{Enter}');
+    await waitFor(() => expect(sendsOf('from B')).toHaveLength(1));
+    await waitFor(() => expect(tabB.t.queryByText(/sending/i)).not.toBeInTheDocument());
+    expect(sendsOf('stuck')).toHaveLength(1);
+  });
+
+  it('a message the server refused in a closed tab comes back “Not sent”, and goes again only on Retry', async () => {
+    installLocks();
+    let refuse = true;
+    override = (u, method, body) =>
+      (u.includes('/conversations/c1/messages') && method === 'POST' && refuse && (body as { body: string }).body === 'refused' ? json({ error: { code: 'VALIDATION', message: 'Nope.' } }, 400) : undefined);
+    const tabC = await openTab();
+    await userEvent.type(tabC.t.getByLabelText('Message'), 'refused{Enter}');
+    await tabC.t.findByText(/not sent/i);
+    tabC.unmount();
+    await settle(50); // the browser lets go of a closed tab's locks
+    const tabA = await openTab();
+    expect(await tabA.t.findByText(/not sent/i)).toBeInTheDocument();
+    setOnline(true);
+    await settle();
+    expect(sendsOf('refused')).toHaveLength(1);
+    refuse = false;
+    await userEvent.click(tabA.t.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(sendsOf('refused')).toHaveLength(2));
+    await waitFor(() => expect(outboxBodies()).toEqual([]));
+  });
+
   it('a message discarded in another tab leaves this tab too, and is never sent again', async () => {
+    // No Web Locks here: the page can't tell which tabs are open, so it shows every waiting message.
     override = (u, method, body) =>
       (u.includes('/conversations/c1/messages') && method === 'POST' && (body as { body: string }).body === 'refused' ? json({ error: { code: 'VALIDATION', message: 'Nope.' } }, 400) : undefined);
     const tabB = await openTab();
@@ -1083,13 +1172,25 @@ describe('ChatPage open in two tabs (one browser storage)', () => {
     expect(sendsOf('refused')).toHaveLength(1);
   });
 
+  it('when another tab clears the browser’s storage, the messages waiting here are kept again', async () => {
+    const tab = await openTab();
+    setOnline(false);
+    await userEvent.type(tab.t.getByLabelText('Message'), 'still waiting{Enter}');
+    await waitFor(() => expect(outboxBodies()).toEqual(['still waiting']));
+    localStorage.clear();
+    act(() => { window.dispatchEvent(new StorageEvent('storage', { key: null, storageArea: localStorage })); });
+    expect(outboxBodies()).toEqual(['still waiting']);
+    expect(tab.t.getByText('still waiting')).toBeInTheDocument();
+  });
+
   it('reads a waiting message kept by an older version of the site (one list per person) and sends it once', async () => {
     localStorage.setItem('mico360.chat.outbox.me', JSON.stringify([
       { clientId: 'old-1', conversationId: 'c1', body: 'kept by the old version', createdAt: new Date().toISOString(), state: 'queued', replyTo: null, files: [] },
     ]));
+    installLocks();
     Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
     const tab = await openTab();
-    expect(tab.t.getByText('kept by the old version')).toBeInTheDocument();
+    expect(await tab.t.findByText('kept by the old version')).toBeInTheDocument();
     expect(tab.t.getByText(/waiting for connection/i)).toBeInTheDocument();
     setOnline(true);
     await waitFor(() => expect(sendsOf('kept by the old version')).toHaveLength(1));

@@ -35,7 +35,7 @@ import {
   type PendingMessage,
   type ShownMessage,
 } from '../lib/chat-model';
-import { dropFromOutbox, keepInOutbox, loadOutbox, outboxClientId, readOutboxEntry, withSendClaim } from '../lib/chat-outbox';
+import { BUSY_ELSEWHERE, dropFromOutbox, holdTab, keepInOutbox, orphanedOutbox, outboxClientId, readOutboxEntry, withSendClaim } from '../lib/chat-outbox';
 import { ChatSidebar, type SectionKey } from '../components/chat/ChatSidebar';
 import { Composer } from '../components/chat/Composer';
 import { MessageItem, type MessageActions } from '../components/chat/MessageItem';
@@ -223,11 +223,15 @@ export function ChatPage({ startDirectWith, openConversationId, onOpened }: Chat
   // Messages on their way. Text ones are also kept in the browser until the server has them, so
   // leaving the page, a reload or another tab never loses what was written (lib/chat-outbox: one
   // storage entry per message, written when it changes here, removed only once it is finished).
-  const [pending, setPending] = useState<PendingMessage[]>(() => (myId ? loadOutbox(myId) : []));
+  // The ones kept from an earlier visit, or left by a closed tab, are picked up once the page is open (below).
+  const [pending, setPending] = useState<PendingMessage[]>([]);
   const pendingRef = useRef(pending);
   pendingRef.current = pending;
+  /** This open chat page, as the other tabs know it: they leave its messages to it while it is open. */
+  const [tabId] = useState(() => newClientId());
+  useEffect(() => holdTab(tabId), [tabId]);
   /** Messages known to have a stored entry (kept here, or found there): once it's gone, another tab finished it. */
-  const [stored] = useState(() => new Set(pending.map((p) => p.clientId)));
+  const [stored] = useState(() => new Set<string>());
   /** Messages this tab knows are finished (sent, discarded, or finished by another tab): never sent again from here. */
   const [finished] = useState(() => new Set<string>());
   const activePending = useMemo(() => pending.filter((p) => p.conversationId === active?.id), [pending, active?.id]);
@@ -465,15 +469,20 @@ export function ChatPage({ startDirectWith, openConversationId, onOpened }: Chat
     if (myId) dropFromOutbox(myId, clientId);
     forgetHere(clientId);
   }, [myId, finished, forgetHere]);
-  /** Another tab finished this message. Its saved copy usually arrives first, and then the stand-in goes at once (below). */
+  /**
+   * Another tab finished this message. Its saved copy is fetched (the live connection may still be coming
+   * back) and the stand-in gives way to it at once (below), or goes after a moment if it never comes.
+   */
   const finishedElsewhere = useCallback((clientId: string) => {
     finished.add(clientId);
+    const conversationId = pendingRef.current.find((x) => x.clientId === clientId)?.conversationId;
+    if (conversationId) void qc.invalidateQueries({ queryKey: ['chat', 'messages', conversationId] });
     setTimeout(() => forgetHere(clientId), STAND_IN_GRACE_MS);
-  }, [finished, forgetHere]);
-  /** Keep a text message as it is now, for the next visit and the other tabs. */
+  }, [finished, forgetHere, qc]);
+  /** Keep a text message as it is now, written by this page, for the next visit and the other tabs. */
   const keep = useCallback((p: PendingMessage) => {
-    if (myId && keepInOutbox(myId, p)) stored.add(p.clientId);
-  }, [myId, stored]);
+    if (myId && keepInOutbox(myId, p, tabId)) stored.add(p.clientId);
+  }, [myId, tabId, stored]);
   /** This message had a stored entry and it is gone: another tab sent it, or it was discarded there. */
   const goneElsewhere = useCallback(
     (clientId: string) => !!myId && stored.has(clientId) && readOutboxEntry(myId, clientId) === null,
@@ -486,7 +495,9 @@ export function ChatPage({ startDirectWith, openConversationId, onOpened }: Chat
     updatePending(p.clientId, () => ({ state: 'sending', error: undefined }));
     try {
       // One tab at a time sends a given message; the next in line then finds whether it still waits.
-      await withSendClaim(p.clientId, () => sendOnce(p, retry));
+      const done = await withSendClaim(p.clientId, () => sendOnce(p, retry));
+      // Another tab was still sending it after a long wait: it stays waiting here for a later try.
+      if (done === BUSY_ELSEWHERE) updatePending(p.clientId, () => ({ state: 'queued' }));
     } finally {
       inFlight.current.delete(p.clientId);
     }
@@ -522,6 +533,11 @@ export function ChatPage({ startDirectWith, openConversationId, onOpened }: Chat
       else setTimeout(() => dropPending(p.clientId), STAND_IN_GRACE_MS);
       void qc.invalidateQueries({ queryKey: ['chat', 'conversations'] });
     } catch (err) {
+      // Another tab sent it meanwhile (or it was discarded there): nothing went wrong with it.
+      if (!file && goneElsewhere(p.clientId)) {
+        finishedElsewhere(p.clientId);
+        return;
+      }
       let next: Pick<PendingMessage, 'state' | 'error'>;
       if (err instanceof TypeError && isOffline()) {
         next = { state: 'queued' };
@@ -553,18 +569,24 @@ export function ChatPage({ startDirectWith, openConversationId, onOpened }: Chat
     for (const p of pendingRef.current) if (confirmed.has(p.clientId) && !inFlight.current.has(p.clientId)) dropPending(p.clientId);
   }, [messagesQ.data, dropPending]);
 
-  // Back online (or the live connection is back): send what was waiting — here, and what other tabs
-  // left in the outbox (a tab closed before it could send). The send lock keeps two open tabs from
-  // both sending one message.
-  const flushQueued = useCallback(() => {
+  // Pick up what waits in the outbox — kept from an earlier visit, or left by a tab that closed before
+  // it could send (the messages of a chat page still open elsewhere are left to it) — and, when asked
+  // and online, send what is waiting, oldest first.
+  const pickUp = useCallback(async (send: boolean) => {
+    const found = myId ? await orphanedOutbox(myId, tabId) : [];
     const here = new Set(pendingRef.current.map((p) => p.clientId));
-    const found = myId ? loadOutbox(myId).filter((p) => !here.has(p.clientId) && !finished.has(p.clientId)) : [];
-    if (found.length) {
-      for (const p of found) stored.add(p.clientId);
-      setPending((list) => [...list, ...found.filter((f) => !list.some((x) => x.clientId === f.clientId))].sort(oldestFirst));
+    const fresh = found.filter((p) => !here.has(p.clientId) && !finished.has(p.clientId));
+    if (fresh.length) {
+      for (const p of fresh) stored.add(p.clientId);
+      setPending((list) => [...list, ...fresh.filter((f) => !list.some((x) => x.clientId === f.clientId))].sort(oldestFirst));
     }
-    for (const p of [...pendingRef.current, ...found].sort(oldestFirst)) if (p.state === 'queued') void deliverRef.current(p);
-  }, [myId, stored, finished]);
+    if (!send || isOffline()) return;
+    for (const p of [...pendingRef.current, ...fresh].sort(oldestFirst)) if (p.state === 'queued') void deliverRef.current(p);
+  }, [myId, tabId, stored, finished]);
+  // Back online (or the live connection is back): send what was waiting.
+  const flushQueued = useCallback(() => {
+    void pickUp(true);
+  }, [pickUp]);
   useEffect(() => {
     window.addEventListener('online', flushQueued);
     return () => window.removeEventListener('online', flushQueued);
@@ -572,21 +594,30 @@ export function ChatPage({ startDirectWith, openConversationId, onOpened }: Chat
   useEffect(() => {
     if (connection === 'connected') flushQueued();
   }, [connection, flushQueued]);
-  // Kept from an earlier visit: send them now if we can.
+  // Kept from an earlier visit (or left by a closed tab): show them, and send them now if we can.
   useEffect(() => {
-    if (!isOffline()) flushQueued();
-  }, [flushQueued]);
+    void pickUp(true);
+  }, [pickUp]);
   // Another tab finished a message shown here (sent it, or it was discarded there): it goes here too.
   useEffect(() => {
     if (!myId) return;
     const onStorage = (e: StorageEvent) => {
-      if (e.storageArea && e.storageArea !== localStorage) return;
-      const ids = e.key === null ? [...stored] : [outboxClientId(myId, e.key)];
-      for (const id of ids) if (id && !inFlight.current.has(id) && !finished.has(id) && goneElsewhere(id)) finishedElsewhere(id);
+      try {
+        if (e.storageArea && e.storageArea !== localStorage) return;
+      } catch {
+        return;
+      }
+      if (e.key === null) {
+        // The browser's storage was cleared elsewhere: what still waits here is kept again.
+        for (const p of pendingRef.current) if (!finished.has(p.clientId)) keep(p);
+        return;
+      }
+      const id = outboxClientId(myId, e.key);
+      if (id && !inFlight.current.has(id) && !finished.has(id) && goneElsewhere(id)) finishedElsewhere(id);
     };
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
-  }, [myId, stored, finished, goneElsewhere, finishedElsewhere]);
+  }, [myId, finished, keep, goneElsewhere, finishedElsewhere]);
 
   function enqueue(conversationId: string, body: string, file?: File): PendingMessage {
     const p: PendingMessage = {
