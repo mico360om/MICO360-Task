@@ -40,6 +40,9 @@ export const RETIRED_VIDEO_COURSES: readonly { key: string; into: string }[] = [
   { key: 'starter:video-minutes', into: 'starter:meetings' },
 ];
 
+// 13 Nov: no starter downloads. The two how-to slide decks are retired (the training videos replace them); the
+// 1.23.25 hotfix removes them from sites that have them, and the starter update here never needs them.
+
 // ── Small helpers (every starter quiz: pass mark 70, unlimited retakes, shuffled, no time limit, no intro —
 //    the quiz's own first line says how many questions and the pass mark) ─────────────────────────────
 
@@ -173,7 +176,6 @@ const tasks: StarterCourse = {
   completionRule: 'ALL_LESSONS',
   certificateOn: false,
   certificateMonths: null,
-  resources: [{ file: 'tasks-how-to.pdf', name: 'Tasks how-to slides (PDF)', mimeType: 'application/pdf' }],
   lessons: [
     video('Video: Tasks', 2),
     {
@@ -423,7 +425,6 @@ const meetings: StarterCourse = {
   completionRule: 'ALL_LESSONS',
   certificateOn: false,
   certificateMonths: null,
-  resources: [{ file: 'meetings-how-to.pdf', name: 'Meetings how-to slides (PDF)', mimeType: 'application/pdf' }],
   lessons: [
     // One video for Meetings: start to finish (owner, 12 Nov) — no separate minutes video.
     video('Video: Meetings start to finish', 12),

@@ -176,10 +176,8 @@ describe('starter courses: the list', () => {
     expect(JSON.stringify(byKey('starter:mico-ai'))).not.toMatch(/How can I help, Omar/);
   });
 
-  it('the Tasks and Meetings courses carry the owner’s how-to slides', () => {
-    expect(byKey('starter:tasks').resources).toEqual([{ file: 'tasks-how-to.pdf', name: 'Tasks how-to slides (PDF)', mimeType: 'application/pdf' }]);
-    expect(byKey('starter:meetings').resources).toEqual([{ file: 'meetings-how-to.pdf', name: 'Meetings how-to slides (PDF)', mimeType: 'application/pdf' }]);
-    for (const c of STARTER_COURSES.filter((x) => !['starter:tasks', 'starter:meetings'].includes(x.key))) expect(c.resources ?? []).toEqual([]);
+  it('no starter course carries a download (the two how-to slide decks are retired: owner, 13 Nov)', () => {
+    for (const c of STARTER_COURSES) expect(c.resources ?? [], c.key).toEqual([]);
   });
 });
 
@@ -308,12 +306,11 @@ describe('starter courses: files', () => {
     for (const f of referenced) expect(filesInFolder, f).toContain(f);
   });
 
-  it('the folder holds nothing else: only referenced WebP pictures and the two PDFs (no videos, audio or slides)', () => {
+  it('the folder holds nothing else: only referenced WebP pictures (no PDFs, videos, audio or slides)', () => {
     for (const f of filesInFolder) {
       expect(referenced.has(f), `${f} is not used by any starter course`).toBe(true);
-      expect(['.webp', '.pdf'], f).toContain(extname(f));
+      expect(extname(f), f).toBe('.webp');
     }
-    expect(filesInFolder.filter((f) => f.endsWith('.pdf')).sort()).toEqual(['meetings-how-to.pdf', 'tasks-how-to.pdf']);
   });
 
   it('pictures are WebP, at most 1280 px wide and 120 KB each, 3 MB together — and pass the upload checks', async () => {
@@ -329,13 +326,5 @@ describe('starter courses: files', () => {
       expect(meta.width ?? 0, f).toBeLessThanOrEqual(1280);
     }
     expect(total).toBeLessThanOrEqual(3 * 1024 * 1024);
-  });
-
-  it('the two PDFs are real PDFs within the 25 MB document limit', () => {
-    for (const f of ['tasks-how-to.pdf', 'meetings-how-to.pdf']) {
-      const content = readFileSync(join(ASSETS, f));
-      expect(statSync(join(ASSETS, f)).size).toBeGreaterThan(1024 * 1024);
-      expect(checkTrainingUpload({ filename: f, mimeType: 'application/pdf', content }, 'RESOURCE').mimeType).toBe('application/pdf');
-    }
   });
 });

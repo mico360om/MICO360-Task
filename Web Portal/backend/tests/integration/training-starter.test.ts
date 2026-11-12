@@ -338,7 +338,7 @@ describe('Starter update to a new revision (R1, R4, R3)', () => {
       guide('Old guide B', [{ title: 'Only' }]),
       quizOf([q1('My Tasks'), { kind: 'ORDER', prompt: 'Put in order', explanation: 'So.', options: [{ text: 'Open', correct: true }, { text: 'Save', correct: true }] }]),
     ], { resources: [{ file: 'tasks-guide.pdf', name: 'Mod slides.pdf', mimeType: 'application/pdf' }] }),
-    base(U.edited, 'Edited basics', [guide('Edited guide', [{ title: 'One' }])]),
+    base(U.edited, 'Edited basics', [guide('Edited guide', [{ title: 'One' }])], { resources: [{ file: 'tasks-guide.pdf', name: 'Edited slides.pdf', mimeType: 'application/pdf' }] }),
     base(U.gone, 'Gone basics', [guide('Gone guide', [{ title: 'One' }])]),
     draftVideo(U.vMod),
     draftVideo(U.vEdited),
@@ -562,6 +562,23 @@ describe('Starter update to a new revision (R1, R4, R3)', () => {
     const after = (await courseOf(U.mod))!;
     const linked = after.lessons.filter((l) => l.videoId === 'dQw4w9WgXcQ');
     expect(linked.map((l) => l.id)).toEqual([mod.lessons[0]!.id]);
+  });
+
+  it('tolerates the starter downloads being gone already (the 1.23.25 hotfix removes them): untouched and edited courses', async () => {
+    const before = await liveSite();
+    // As the hotfix leaves a site: the starter download rows and their stored files removed, nothing else changed.
+    const gone = await prisma.trainingFile.findMany({ where: { kind: 'RESOURCE', starter: true, courseId: { in: [before.mod.id, before.edited.id] } } });
+    expect(gone).toHaveLength(2);
+    await prisma.trainingFile.deleteMany({ where: { id: { in: gone.map((f) => f.id) } } });
+    for (const f of gone) rmSync(join(privateDir, f.storageKey), { force: true });
+    const log = logger();
+    const out = await upgrader(rev2().map((c) => ({ ...c, resources: [] })), 2, log).run();
+    expect(log.warnings).toEqual([]);
+    expect(out.updated).toBe(2);
+    expect((await courseOf(U.mod))!.title).toBe('Mod basics (new)');
+    expect((await courseOf(U.edited))!.title).toBe('Edited basics');
+    expect(await prisma.trainingFile.count({ where: { kind: 'RESOURCE', courseId: { in: [before.mod.id, before.edited.id] } } })).toBe(0);
+    expect(((await prisma.systemSetting.findUniqueOrThrow({ where: { key: STARTER_REVISION_KEY } })).value as { revision: number }).revision).toBe(2);
   });
 
   it('a new site: the first load is the newest revision (nothing to update afterwards)', async () => {
