@@ -8,7 +8,7 @@ import { ConfirmDialog } from '../../ui/ConfirmDialog';
 import { fieldClass } from '../../ui/Field';
 import { stayOnEnter } from '../../../lib/enter-key';
 import { ChoiceGroup, FormRow, ManageDialog } from './ManageDialog';
-import { CourseStatusChip, Notice, SectionCard, StarterChip, errorCode, problemText } from './manage-ui';
+import { CourseStatusChip, Notice, SectionCard, errorCode, problemText } from './manage-ui';
 import { MANAGE_KEY, tc, useCourseCache } from './manage-queries';
 
 type Ask = 'unpublish' | 'archive' | 'delete';
@@ -22,8 +22,8 @@ function publishLabel(c: ManageCourse): string | null {
 
 /**
  * Publish, and the course's state: what stops it being published (a video lesson without its link…), Publish —
- * for a course published before, the author says whether it is a Minor fix (completions and certificates stay) or
- * a Major change (people who completed it review the changed lessons within N days) — Unpublish, Archive, and
+ * for a course published before, the author says whether it is a small fix (people keep their progress: completions
+ * and certificates stay) or a big change (people who finished it review the changed lessons within N days) — Unpublish, Archive, and
  * Delete for a draft never published.
  */
 export function PublishPanel({ course }: { course: ManageCourse }) {
@@ -85,11 +85,10 @@ export function PublishPanel({ course }: { course: ManageCourse }) {
       <div className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <CourseStatusChip status={course.status} />
-          {course.starter ? <StarterChip /> : null}
           {course.unpublishedChanges ? <Badge tone="info">Changes not published</Badge> : null}
           <span className="text-xs text-ink-2">{`Version ${course.version}`}</span>
         </div>
-        <p className="text-sm text-ink-2">{`${course.enrolled.toLocaleString('en-US')} enrolled · ${course.completed.toLocaleString('en-US')} completed`}</p>
+        <p className="text-sm text-ink-2">{`${course.enrolled.toLocaleString('en-US')} taking it · ${course.completed.toLocaleString('en-US')} finished`}</p>
         {done ? <Notice tone="ok">{done}</Notice> : null}
         {problem ? <Notice>{problem}</Notice> : null}
         {refused ? (
@@ -137,7 +136,7 @@ export function PublishPanel({ course }: { course: ManageCourse }) {
           {asking === 'delete'
             ? 'The draft, its lessons and its files are deleted. This can’t be undone.'
             : asking === 'archive'
-              ? 'It leaves the catalogue and can’t be assigned. Completions and certificates stay. Publish it again to bring it back.'
+              ? 'It leaves All courses and can’t be assigned. Completions and certificates stay. Publish it again to bring it back.'
               : 'It becomes a draft: learners can’t open it until you publish it again. Completions and certificates stay.'}
         </ConfirmDialog>
       ) : null}
@@ -145,7 +144,7 @@ export function PublishPanel({ course }: { course: ManageCourse }) {
   );
 }
 
-/** "What kind of change is this?" — Minor fix or Major change (with the days to review in). */
+/** "What kind of change is this?" — a small fix or a big change (with the days to review in). */
 function ChangeKindDialog({ course, busy, problem, onPublish, onClose }: { course: ManageCourse; busy: boolean; problem: string | null; onPublish: (c: { change: 'MINOR' | 'MAJOR'; reviewDays?: number }) => void; onClose: () => void }) {
   const ids = { days: useId(), err: useId() };
   const [kind, setKind] = useState<'MINOR' | 'MAJOR'>('MINOR');
@@ -170,8 +169,8 @@ function ChangeKindDialog({ course, busy, problem, onPublish, onClose }: { cours
           setDaysProblem(null);
         }}
         options={[
-          { value: 'MINOR', label: 'Minor fix', hint: 'A typo or a clearer picture: completions and certificates stay as they are.' },
-          { value: 'MAJOR', label: 'Major change', hint: 'People who completed it are asked to review the changed lessons. Their certificates stay valid meanwhile.' },
+          { value: 'MINOR', label: 'Small fix — people keep their progress', hint: 'A typo or a clearer picture: completions and certificates stay as they are.' },
+          { value: 'MAJOR', label: 'Big change — people take it again', hint: 'People who finished it go through the changed lessons again. Their certificates stay valid meanwhile.' },
         ]}
       />
       {kind === 'MAJOR' ? (

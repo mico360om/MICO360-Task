@@ -16,6 +16,7 @@ beforeEach(() => {
     vi.fn(async (url: string, init?: RequestInit) => {
       calls.push({ url: String(url), method: init?.method ?? 'GET' });
       if (String(url).endsWith('/tasks/carry-forward')) return json({ data: { carried: 3 } });
+      if (String(url).includes('/training/settings')) return json({ data: { tourOff: [], companies: [{ id: 'co-a', name: 'Alpha Co' }] } });
       return json({ data: [{ key: 'companyName', value: 'MICO Energy' }] });
     }),
   );
@@ -32,6 +33,16 @@ function renderPage() {
     </QueryClientProvider>,
   );
 }
+
+describe('SystemSettingsPage — Learning Hub', () => {
+  // 12 Nov (design §6, R8): the first-time tour switch moved here from the Learning Hub's own Settings tab.
+  it('has a small Learning Hub card with the first-time tour switch per company', async () => {
+    renderPage();
+    expect(await screen.findByRole('heading', { name: 'Learning Hub' })).toBeInTheDocument();
+    expect(await screen.findByRole('switch', { name: 'First-time tour: Alpha Co' })).toHaveAttribute('aria-checked', 'true');
+    expect(calls.some((c) => c.url.includes('/training/settings'))).toBe(true);
+  });
+});
 
 describe('SystemSettingsPage — backups', () => {
   it('has the Backups section', async () => {

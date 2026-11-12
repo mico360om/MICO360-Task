@@ -54,11 +54,19 @@ describe('Training Center → Reports', () => {
     expect(within(quizzes).getByText('Check yourself').closest('li')).toHaveTextContent(/9 attempts · 78% passed · average 81%/);
   });
 
-  it('a quiz nobody has handed in yet says so', async () => {
-    api.report.mockResolvedValue(report({ quizzes: [{ lessonId: 'l-new', courseTitle: 'Tasks basics', title: 'New quiz', attempts: 0, passRate: null, averageScore: null }] }));
+  it('a quiz nobody has handed in yet is left out (12 Nov); with none handed in at all, it says so', async () => {
+    const fresh = { lessonId: 'l-new', courseTitle: 'Tasks basics', title: 'New quiz', attempts: 0, passRate: null, averageScore: null };
+    api.report.mockResolvedValue(report({ quizzes: [fresh, report().quizzes[0]!] }));
+    const view = renderManage(<ReportsTab />);
+    let quizzes = await screen.findByRole('region', { name: 'Quiz results' });
+    expect(within(quizzes).queryByText('New quiz')).toBeNull();
+    expect(within(quizzes).getByText('Check yourself')).toBeInTheDocument();
+    view.unmount();
+    api.report.mockResolvedValue(report({ quizzes: [fresh] }));
     renderManage(<ReportsTab />);
-    const quizzes = await screen.findByRole('region', { name: 'Quiz results' });
-    expect(within(quizzes).getByText('New quiz').closest('li')).toHaveTextContent('No attempts yet');
+    quizzes = await screen.findByRole('region', { name: 'Quiz results' });
+    expect(within(quizzes).queryByText('New quiz')).toBeNull();
+    expect(within(quizzes).getByText('No quiz was handed in.')).toBeInTheDocument();
   });
 
   it('group by, course and period are sent to the server', async () => {

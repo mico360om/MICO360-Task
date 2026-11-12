@@ -28,24 +28,24 @@ beforeEach(() => {
 });
 
 describe('the Learning Hub’s tabs', () => {
-  it('everyone: My learning and Catalogue — real links, the open one marked', async () => {
+  it('everyone: My learning and All courses — real links, the open one marked', async () => {
     staff.access.mockResolvedValue(ACCESS);
     renderTabs('mine');
     await waitFor(() => expect(staff.access).toHaveBeenCalled());
-    expect(names()).toEqual(['My learning', 'Catalogue']);
+    expect(names()).toEqual(['My learning', 'All courses']);
     expect(within(bar()).getByRole('link', { name: 'My learning' })).toHaveAttribute('href', '/training');
     expect(within(bar()).getByRole('link', { name: 'My learning' })).toHaveAttribute('aria-current', 'page');
-    expect(within(bar()).getByRole('link', { name: 'Catalogue' })).toHaveAttribute('href', '/training?tab=catalogue');
-    expect(within(bar()).getByRole('link', { name: 'Catalogue' })).not.toHaveAttribute('aria-current');
+    expect(within(bar()).getByRole('link', { name: 'All courses' })).toHaveAttribute('href', '/training?tab=catalogue');
+    expect(within(bar()).getByRole('link', { name: 'All courses' })).not.toHaveAttribute('aria-current');
     // A finger's size on a touch screen; the row scrolls inside itself, never the page.
-    expect(within(bar()).getByRole('link', { name: 'Catalogue' }).className).toContain('!min-h-[44px]');
+    expect(within(bar()).getByRole('link', { name: 'All courses' }).className).toContain('!min-h-[44px]');
     expect(bar().className).toContain('overflow-x-auto');
   });
 
   it('administrators and Training managers: Manage and Reports too', async () => {
     staff.access.mockResolvedValue({ ...ACCESS, manager: true });
     renderTabs('reports');
-    await waitFor(() => expect(names()).toEqual(['My learning', 'Catalogue', 'Manage', 'Reports']));
+    await waitFor(() => expect(names()).toEqual(['My learning', 'All courses', 'Manage', 'Reports']));
     expect(within(bar()).getByRole('link', { name: 'Manage' })).toHaveAttribute('href', '/training/manage');
     expect(within(bar()).getByRole('link', { name: 'Reports' })).toHaveAttribute('href', '/training/manage?tab=reports');
     expect(within(bar()).getByRole('link', { name: 'Reports' })).toHaveAttribute('aria-current', 'page');
@@ -54,7 +54,7 @@ describe('the Learning Hub’s tabs', () => {
   it('a project manager with team reports: Reports (their team), not Manage', async () => {
     staff.access.mockResolvedValue({ ...ACCESS, teamReports: true });
     renderTabs('catalogue');
-    await waitFor(() => expect(names()).toEqual(['My learning', 'Catalogue', 'Reports']));
+    await waitFor(() => expect(names()).toEqual(['My learning', 'All courses', 'Reports']));
   });
 
   it('arrow keys, Home and End move along the tabs', async () => {
@@ -63,7 +63,7 @@ describe('the Learning Hub’s tabs', () => {
     await waitFor(() => expect(names()).toHaveLength(4));
     within(bar()).getByRole('link', { name: 'My learning' }).focus();
     await userEvent.keyboard('{ArrowRight}');
-    expect(within(bar()).getByRole('link', { name: 'Catalogue' })).toHaveFocus();
+    expect(within(bar()).getByRole('link', { name: 'All courses' })).toHaveFocus();
     await userEvent.keyboard('{End}');
     expect(within(bar()).getByRole('link', { name: 'Reports' })).toHaveFocus();
     await userEvent.keyboard('{ArrowRight}');

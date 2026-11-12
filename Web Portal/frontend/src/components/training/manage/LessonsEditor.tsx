@@ -116,7 +116,10 @@ export function LessonsEditor({ course }: { course: ManageCourse }) {
                     <button type="button" aria-expanded={isOpen} aria-controls={panelId} onClick={() => toggle(l.id)} className="block max-w-full text-left text-sm font-semibold text-ink [overflow-wrap:anywhere] hover:text-brand [@media(pointer:coarse)]:!min-h-11">
                       {l.title}
                     </button>
-                    <p className="text-xs text-ink-2">{`${LESSON_KIND_LABELS[l.kind]} · ${minutesText(l.minutes)}`}</p>
+                    <p className="text-xs text-ink-2">
+                      {`${LESSON_KIND_LABELS[l.kind]} · ${minutesText(l.minutes)}`}
+                      {l.kind === 'VIDEO' && !l.video ? <span className="text-warning"> · Hidden from learners until it has its link</span> : null}
+                    </p>
                   </div>
                   <div className="flex flex-none items-center">
                     <IconButton label={`Move “${l.title}” up`} disabled={i === 0 || moving} onClick={() => void move(i, -1)} buttonRef={(el) => keep(el, `${l.id}:up`)}>
@@ -317,7 +320,7 @@ function LessonEditor({ lesson, courseId }: { lesson: ManageLesson; courseId: st
 
 /** The saved video, played as learners see it (the privacy player: youtube-nocookie or Vimeo). */
 function VideoPreview({ lesson }: { lesson: ManageLesson }) {
-  if (!lesson.video) return <p className="rounded-lg bg-ground px-3 py-2 text-sm text-ink-2">No video yet: paste its link above and save. Until then the lesson says “Video coming soon” and the course can’t be published.</p>;
+  if (!lesson.video) return <p className="rounded-lg bg-ground px-3 py-2 text-sm text-ink-2">No video yet: paste its link above and save. Learners see the lesson as soon as it has its link — nothing to publish.</p>;
   return (
     <div className="flex flex-col gap-2">
       <p className="text-sm font-semibold text-ink">Preview</p>

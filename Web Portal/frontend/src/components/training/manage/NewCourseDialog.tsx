@@ -45,7 +45,7 @@ export function NewCourseDialog({ onClose }: { onClose: () => void }) {
   return (
     <ManageDialog title="New course" onClose={onClose} onSubmit={() => void create()} submitLabel="Create draft" busy={busy}>
       {error ? <Notice>{error}</Notice> : null}
-      <FormRow label="Title" htmlFor={ids.title} error={titleError} errorId={ids.titleErr} hint="Learners see it in My learning and the catalogue.">
+      <FormRow label="Title" htmlFor={ids.title} error={titleError} errorId={ids.titleErr} hint="Learners see it in My learning and All courses.">
         <input
           id={ids.title}
           value={title}

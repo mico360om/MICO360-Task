@@ -15,6 +15,7 @@ import { isMeetingReminders, reminderSummary } from '../components/admin/meeting
 import { BackupSettings } from '../components/admin/BackupSettings';
 import { AccountSettings } from '../components/admin/AccountSettings';
 import { ErrorLogSettings } from '../components/admin/ErrorLogSettings';
+import { TourSettingsCard } from '../components/training/manage/TourSettingsCard';
 
 const CARRY_STATUSES: { value: string; label: string }[] = [
   { value: 'BACKLOG', label: 'Backlog' },
@@ -266,6 +267,9 @@ export function SystemSettingsPage() {
 
         {/* 1.23.6: how long invitation links (and unused temporary passwords) last. */}
         <AccountSettings />
+
+        {/* 12 Nov: the Learning Hub's first-time tour, on or off per company (moved here from the Learning Hub). */}
+        <TourSettingsCard />
 
         {/* Meeting hours and meeting reminders moved into Notification & Scheduling (their cards link there). */}
         <MovedSettingCard heading="Meeting hours" headingId="meeting-hours-heading" text="The working days and hours meeting free times are suggested in — the company’s working time." tab="working-time" tabLabel="Working time" />

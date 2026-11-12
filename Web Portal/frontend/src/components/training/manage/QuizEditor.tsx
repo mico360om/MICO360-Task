@@ -16,14 +16,16 @@ const KIND_HINT: Record<QuestionKind, string> = {
 };
 
 /**
- * A quiz lesson: its pass mark, attempts (or unlimited), shuffled order, time limit and question bank, and its
+ * A quiz lesson: its pass mark, attempts (or unlimited) — and under "More options" (12 Nov: folded while none is
+ * on) its time limit, question bank and shuffled order — and its
  * questions — single choice, multiple choice, true/false and put-in-order — each with answers, the right ones,
  * feedback per answer and an explanation. Checked as the server checks it; "Save quiz" saves it all at once.
  */
 export function QuizEditor({ lesson, courseId }: { lesson: ManageLesson; courseId: string }) {
   const cache = useCourseCache(courseId);
-  const ids = { pass: useId(), attempts: useId(), minutes: useId(), draw: useId(), shuffleHint: useId(), problems: useId() };
+  const ids = { pass: useId(), attempts: useId(), minutes: useId(), draw: useId(), shuffleHint: useId(), problems: useId(), more: useId() };
   const [saved, setSaved] = useState(() => draftFromQuiz(lesson.quiz));
+  const [more, setMore] = useState(() => saved.timed || saved.bank || saved.shuffle);
   const [draft, setDraft] = useState<QuizDraft>(saved);
   const [checked, setChecked] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
@@ -92,47 +94,63 @@ export function QuizEditor({ lesson, courseId }: { lesson: ManageLesson; courseI
             <p className="text-xs text-ink-2">Learners can try as often as they like.</p>
           )}
         </div>
-        <div className="flex flex-col gap-1.5">
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-sm font-semibold text-ink">Time limit</span>
-            <Toggle on={draft.timed} onChange={() => set({ timed: !draft.timed })} label="Time limit" />
-          </div>
-          {draft.timed ? (
-            <>
-              <label htmlFor={ids.minutes} className="sr-only">Minutes allowed</label>
-              <div className="flex items-center gap-2">
-                <input id={ids.minutes} type="number" inputMode="numeric" min={1} max={LIMITS.timeLimitMax} value={draft.timeLimit} onChange={(e) => set({ timeLimit: e.target.value })} onKeyDown={stayOnEnter} className={fieldClass(false, 'w-full sm:w-32')} />
-                <span className="text-sm text-ink-2">minutes</span>
+        <div className="sm:col-span-2">
+          <button
+            type="button"
+            aria-expanded={more}
+            aria-controls={ids.more}
+            onClick={() => setMore((v) => !v)}
+            className="inline-flex items-center gap-1.5 rounded-lg text-sm font-semibold text-brand hover:underline [@media(pointer:coarse)]:!min-h-11"
+          >
+            <span aria-hidden="true" className={`inline-block transition-transform ${more ? 'rotate-90' : ''}`}>›</span>
+            More options
+          </button>
+        </div>
+        {more ? (
+          <div id={ids.more} className="grid gap-3 sm:col-span-2 sm:grid-cols-2">
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm font-semibold text-ink">Time limit</span>
+                <Toggle on={draft.timed} onChange={() => set({ timed: !draft.timed })} label="Time limit" />
               </div>
-            </>
-          ) : (
-            <p className="text-xs text-ink-2">No time limit.</p>
-          )}
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-sm font-semibold text-ink">Question bank</span>
-            <Toggle on={draft.bank} onChange={() => set({ bank: !draft.bank })} label="Question bank" />
-          </div>
-          {draft.bank ? (
-            <>
-              <label htmlFor={ids.draw} className="text-xs text-ink-2">Questions drawn for each attempt</label>
-              <div className="flex items-center gap-2">
-                <input id={ids.draw} type="number" inputMode="numeric" min={1} max={Math.max(1, draft.questions.length)} value={draft.drawCount} onChange={(e) => set({ drawCount: e.target.value })} onKeyDown={stayOnEnter} className={fieldClass(false, 'w-full sm:w-32')} />
-                <span className="text-sm text-ink-2">{`of ${draft.questions.length}`}</span>
+              {draft.timed ? (
+                <>
+                  <label htmlFor={ids.minutes} className="sr-only">Minutes allowed</label>
+                  <div className="flex items-center gap-2">
+                    <input id={ids.minutes} type="number" inputMode="numeric" min={1} max={LIMITS.timeLimitMax} value={draft.timeLimit} onChange={(e) => set({ timeLimit: e.target.value })} onKeyDown={stayOnEnter} className={fieldClass(false, 'w-full sm:w-32')} />
+                    <span className="text-sm text-ink-2">minutes</span>
+                  </div>
+                </>
+              ) : (
+                <p className="text-xs text-ink-2">No time limit.</p>
+              )}
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm font-semibold text-ink">Question bank</span>
+                <Toggle on={draft.bank} onChange={() => set({ bank: !draft.bank })} label="Question bank" />
               </div>
-            </>
-          ) : (
-            <p className="text-xs text-ink-2">Every question, every attempt.</p>
-          )}
-        </div>
-        <div className="flex items-center justify-between gap-3 sm:col-span-2">
-          <div className="min-w-0">
-            <span className="block text-sm font-semibold text-ink">Shuffle the questions</span>
-            <span id={ids.shuffleHint} className="block text-xs text-ink-2">A different order for each attempt.</span>
+              {draft.bank ? (
+                <>
+                  <label htmlFor={ids.draw} className="text-xs text-ink-2">Questions drawn for each attempt</label>
+                  <div className="flex items-center gap-2">
+                    <input id={ids.draw} type="number" inputMode="numeric" min={1} max={Math.max(1, draft.questions.length)} value={draft.drawCount} onChange={(e) => set({ drawCount: e.target.value })} onKeyDown={stayOnEnter} className={fieldClass(false, 'w-full sm:w-32')} />
+                    <span className="text-sm text-ink-2">{`of ${draft.questions.length}`}</span>
+                  </div>
+                </>
+              ) : (
+                <p className="text-xs text-ink-2">Every question, every attempt.</p>
+              )}
+            </div>
+            <div className="flex items-center justify-between gap-3 sm:col-span-2">
+              <div className="min-w-0">
+                <span className="block text-sm font-semibold text-ink">Shuffle the questions</span>
+                <span id={ids.shuffleHint} className="block text-xs text-ink-2">A different order for each attempt.</span>
+              </div>
+              <Toggle on={draft.shuffle} onChange={() => set({ shuffle: !draft.shuffle })} label="Shuffle the questions" describedBy={ids.shuffleHint} />
+            </div>
           </div>
-          <Toggle on={draft.shuffle} onChange={() => set({ shuffle: !draft.shuffle })} label="Shuffle the questions" describedBy={ids.shuffleHint} />
-        </div>
+        ) : null}
       </div>
 
       <ol aria-label="Questions" className="flex flex-col gap-3">

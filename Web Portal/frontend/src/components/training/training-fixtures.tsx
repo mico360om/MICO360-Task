@@ -17,6 +17,7 @@ export const mine = (over: Partial<MyCourseState> = {}): MyCourseState => ({
   dueDay: '2026-11-14',
   overdue: false,
   lastLessonId: 'l2',
+  nextLessonId: 'l2',
   startedAt: '2026-11-01T08:00:00.000Z',
   completedAt: null,
   certificate: null,

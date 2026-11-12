@@ -95,9 +95,12 @@ describe('Course editor: lessons', () => {
 
   it('a video lesson: its link is saved (the server’s refusal shown in its words), and the saved video is previewed', async () => {
     const v = lesson({ id: 'v', kind: 'VIDEO', title: 'Watch how' });
-    await open(v);
+    const lessons = await open(v);
+    // 12 Nov (R2): a video without its link is simply hidden from learners — it never stops Publish.
+    expect(within(lessons).getByText(/Hidden from learners until it has its link/)).toBeInTheDocument();
     let panel = await expand('Watch how');
     expect(within(panel).getByText(/No video yet/)).toBeInTheDocument();
+    expect(within(panel).queryByText(/can’t be published/)).toBeNull();
     api.updateLesson.mockRejectedValueOnce(new ApiError(400, 'VALIDATION', 'Use a YouTube or Vimeo link.'));
     await userEvent.type(within(panel).getByRole('textbox', { name: 'YouTube or Vimeo link' }), 'https://example.com/v');
     await userEvent.click(within(panel).getByRole('button', { name: 'Save lesson' }));
@@ -114,6 +117,7 @@ describe('Course editor: lessons', () => {
     const frame = await within(panel).findByTitle('Video preview: Watch how');
     expect(frame).toHaveAttribute('src', 'https://www.youtube-nocookie.com/embed/abc123def45');
     expect(within(panel).getByRole('link', { name: 'Open it on YouTube' })).toHaveAttribute('href', 'https://www.youtube.com/watch?v=abc123def45');
+    await waitFor(() => expect(within(lessons).queryByText(/Hidden from learners until it has its link/)).toBeNull());
   });
 
   it('a lesson’s title and minutes are saved (only what changed)', async () => {
@@ -178,6 +182,19 @@ describe('Course editor: a step-by-step guide', () => {
       ],
     });
 
+  it('shows one step open at a time (the first, to begin with); the others by their titles', async () => {
+    await open(guide());
+    const panel = await expand('Make a task');
+    const steps = within(panel).getByRole('list', { name: 'Steps' });
+    expect(within(steps).getByRole('button', { name: 'Step 1: Open My Tasks' })).toHaveAttribute('aria-expanded', 'true');
+    expect(within(steps).getByRole('textbox', { name: 'Step 1 title' })).toHaveValue('Open My Tasks');
+    expect(within(steps).getByRole('button', { name: 'Step 2: Press New task' })).toHaveAttribute('aria-expanded', 'false');
+    expect(within(steps).queryByRole('textbox', { name: 'Step 2 title' })).toBeNull();
+    await userEvent.click(within(steps).getByRole('button', { name: 'Step 2: Press New task' }));
+    expect(within(steps).getByRole('textbox', { name: 'Step 2 title' })).toHaveValue('Press New task');
+    expect(within(steps).queryByRole('textbox', { name: 'Step 1 title' })).toBeNull();
+  });
+
   it('moves a step up and saves the whole list in the new order', async () => {
     await open(guide());
     const panel = await expand('Make a task');
@@ -185,7 +202,9 @@ describe('Course editor: a step-by-step guide', () => {
     expect(within(steps).getByRole('textbox', { name: 'Step 1 title' })).toHaveValue('Open My Tasks');
     expect(within(panel).getByRole('button', { name: 'Save steps' })).toBeDisabled();
     await userEvent.click(within(steps).getByRole('button', { name: 'Move step 2 up' }));
-    expect(within(steps).getByRole('textbox', { name: 'Step 1 title' })).toHaveValue('Press New task');
+    expect(within(steps).getByRole('button', { name: 'Step 1: Press New task' })).toBeInTheDocument();
+    // The open step moved with its words.
+    expect(within(steps).getByRole('textbox', { name: 'Step 2 title' })).toHaveValue('Open My Tasks');
     expect(within(steps).getByRole('button', { name: 'Move step 1 down' })).toHaveFocus();
     expect(within(panel).getByText('Changes not saved yet')).toBeInTheDocument();
     await userEvent.click(within(panel).getByRole('button', { name: 'Save steps' }));
@@ -201,10 +220,15 @@ describe('Course editor: a step-by-step guide', () => {
     await open(guide());
     const panel = await expand('Make a task');
     const steps = within(panel).getByRole('list', { name: 'Steps' });
+    await userEvent.click(within(steps).getByRole('button', { name: 'Step 2: Press New task' }));
     await userEvent.clear(within(steps).getByRole('textbox', { name: 'Step 2 picture description' }));
+    // Another step open: the step with the problem opens again when Save finds it.
+    await userEvent.click(within(steps).getByRole('button', { name: 'Step 1: Open My Tasks' }));
     await userEvent.click(within(panel).getByRole('button', { name: 'Save steps' }));
     expect(await within(panel).findByText('Step 2: describe its picture for people who can’t see it.')).toBeInTheDocument();
+    expect(within(steps).getByRole('textbox', { name: 'Step 2 picture description' })).toBeInTheDocument();
     expect(api.saveSteps).not.toHaveBeenCalled();
+    await userEvent.click(within(steps).getByRole('button', { name: 'Step 1: Open My Tasks' }));
     api.uploadFile.mockResolvedValue(fileRef({ id: 'img2', name: 'shot.png', kind: 'IMAGE', mimeType: 'image/png' }));
     const shot = new File(['png'], 'shot.png', { type: 'image/png' });
     await userEvent.upload(within(steps).getByLabelText('Add a picture to step 1'), shot);
@@ -217,6 +241,8 @@ describe('Course editor: a step-by-step guide', () => {
     const panel = await expand('Make a task');
     await userEvent.click(within(panel).getByRole('button', { name: 'Add step' }));
     const steps = within(panel).getByRole('list', { name: 'Steps' });
+    // A new step opens (the others fold).
+    expect(within(steps).queryByRole('textbox', { name: 'Step 1 title' })).toBeNull();
     await userEvent.type(within(steps).getByRole('textbox', { name: 'Step 3 title' }), 'Save it');
     await userEvent.click(within(steps).getByRole('button', { name: 'Remove step 1' }));
     await userEvent.click(within(panel).getByRole('button', { name: 'Save steps' }));
@@ -282,6 +308,10 @@ describe('Course editor: a quiz', () => {
     const attempts = within(panel).getByRole('spinbutton', { name: 'Attempts allowed' });
     await userEvent.clear(attempts);
     await userEvent.type(attempts, '2');
+    // Time limit, question bank and shuffle are folded under More options (closed while none is on).
+    expect(within(panel).queryByRole('switch', { name: 'Time limit' })).toBeNull();
+    await userEvent.click(within(panel).getByRole('button', { name: 'More options' }));
+    expect(within(panel).getByRole('button', { name: 'More options' })).toHaveAttribute('aria-expanded', 'true');
     await userEvent.click(within(panel).getByRole('switch', { name: 'Time limit' }));
     await userEvent.click(within(panel).getByRole('switch', { name: 'Shuffle the questions' }));
     await userEvent.click(within(panel).getByRole('switch', { name: 'Question bank' }));
@@ -306,6 +336,13 @@ describe('Course editor: a quiz', () => {
         ],
       }),
     );
+  });
+
+  it('More options is open from the start when the quiz uses one of them (a shuffled quiz)', async () => {
+    await open(lesson({ id: 'q', kind: 'QUIZ', title: 'Check yourself', quiz: quiz({ shuffle: true }) }));
+    const panel = await expand('Check yourself');
+    expect(within(panel).getByRole('button', { name: 'More options' })).toHaveAttribute('aria-expanded', 'true');
+    expect(within(panel).getByRole('switch', { name: 'Shuffle the questions' })).toHaveAttribute('aria-checked', 'true');
   });
 
   it('put in order: the steps are written in the right order and can be moved', async () => {

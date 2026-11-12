@@ -86,10 +86,6 @@ export function CourseStatusChip({ status }: { status: CourseStatus }) {
   return <Badge tone={STATUS_TONE[status]} dot>{COURSE_STATUS_LABELS[status]}</Badge>;
 }
 
-export function StarterChip() {
-  return <Badge tone="brand">Starter</Badge>;
-}
-
 const CERT_TONE: Record<CertificateStatus, BadgeTone> = { VALID: 'success', EXPIRED: 'warning', REVOKED: 'danger' };
 export function CertificateStatusChip({ status }: { status: CertificateStatus }) {
   return <Badge tone={CERT_TONE[status]} dot>{CERTIFICATE_STATUS_LABELS[status]}</Badge>;
