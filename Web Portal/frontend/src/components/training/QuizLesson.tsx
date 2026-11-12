@@ -549,7 +549,7 @@ function QuizResultView({
         <h2 id="quiz-result" ref={heading} tabIndex={-1} className="font-display text-xl font-bold text-ink outline-none">
           {result.passed ? 'You passed' : 'Not passed this time'} — {result.scorePct}%
         </h2>
-        <p className="text-sm text-ink-2">{`${right} of ${result.questions.length} right · pass mark ${result.passMark}% · ${triesText(result.attemptsLeft)}`}</p>
+        <p className="text-sm text-ink-2">{`${right} of ${result.questions.length} right · pass mark ${result.passMark}%${result.passed ? '' : ` · ${triesText(result.attemptsLeft)}`}`}</p>
         {result.timedOut ? <p className="text-sm text-warning">Time ran out — your saved answers were handed in.</p> : null}
         {!result.passed && wrong.length ? (
           <div>

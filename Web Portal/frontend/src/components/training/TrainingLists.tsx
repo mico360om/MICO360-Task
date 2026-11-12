@@ -158,7 +158,7 @@ function UpNextCard({ course: c }: { course: CourseCard }) {
       </h2>
       <div className="min-w-0">
         <h3 className="break-words font-display text-xl font-bold text-ink">
-          <Link to={coursePath(side.base, c.id)} className="rounded outline-none hover:underline focus-visible:ring-2 focus-visible:ring-brand/40">
+          <Link to={coursePath(side.base, c.id)} className="rounded outline-none hover:underline focus-visible:ring-2 focus-visible:ring-brand/40 [@media(pointer:coarse)]:inline-flex [@media(pointer:coarse)]:!min-h-11 [@media(pointer:coarse)]:items-center">
             {c.title}
           </Link>
         </h3>
