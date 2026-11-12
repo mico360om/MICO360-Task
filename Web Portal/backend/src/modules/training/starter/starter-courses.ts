@@ -1,14 +1,47 @@
 import type { StarterCourse, StarterLesson, StarterQuestion } from './starter-types';
 
 /**
- * The starter courses (owner answer 3, ruling R17): one short English course per main module — step-by-step
- * guides with screenshots of the real website and a short quiz — plus the three video courses, which stay
- * drafts until an administrator adds the owner's YouTube / Vimeo links. Loaded once by training-starter.ts;
- * the pictures and PDFs are in backend/assets/training/starter (made by the capture script described in the
- * Training Center ledger). Keys never change once shipped.
+ * The starter courses (owner answer 3, ruling R17; simplified 12 Nov): "Getting started", then one short English
+ * course per main module. Each opens with its training video (a lesson hidden from learners until an
+ * administrator pastes the owner's YouTube / Vimeo link — R2, R4), then step-by-step guides with screenshots of the
+ * real website, then a short quiz. Loaded once by training-starter.ts and brought up to date there for courses
+ * nobody has edited (R1); the pictures and PDFs are in backend/assets/training/starter (the capture script is in
+ * the lane ledger). Keys never change once shipped; a lesson's earlier titles are kept in `was`.
  */
 
-// ── Small helpers (every starter quiz: pass mark 70, unlimited retakes, shuffled, no time limit) ─────
+/** Raised whenever this content changes, so sites update the starter courses nobody edited (R1). */
+export const STARTER_REVISION = 2;
+
+/** The starter keys 1.23.24 loaded (revision 1): a site that ran it has them, or an administrator deleted them. */
+export const LEGACY_STARTER_KEYS: readonly string[] = [
+  'starter:tasks',
+  'starter:board',
+  'starter:meetings',
+  'starter:calendar',
+  'starter:projects',
+  'starter:reports',
+  'starter:chat',
+  'starter:mico-ai',
+  'starter:admin',
+  'starter:portal',
+  'starter:video-tasks',
+  'starter:video-meetings',
+  'starter:video-minutes',
+];
+
+/**
+ * R4: the 1.23.24 draft video courses. Their link (if one was added) goes into the module course's video lesson;
+ * the course itself is removed when it has no link, was never edited and never published — and only when its
+ * module course was brought up to date (else the video would have nowhere to go). Meetings gets one video.
+ */
+export const RETIRED_VIDEO_COURSES: readonly { key: string; into: string }[] = [
+  { key: 'starter:video-tasks', into: 'starter:tasks' },
+  { key: 'starter:video-meetings', into: 'starter:meetings' },
+  { key: 'starter:video-minutes', into: 'starter:meetings' },
+];
+
+// ── Small helpers (every starter quiz: pass mark 70, unlimited retakes, shuffled, no time limit, no intro —
+//    the quiz's own first line says how many questions and the pass mark) ─────────────────────────────
 
 type Option = StarterQuestion['options'][number];
 
@@ -24,19 +57,108 @@ function multiple(prompt: string, options: Option[], explanation: string): Start
 function trueFalse(prompt: string, answer: boolean, explanation: string): StarterQuestion {
   return { kind: 'TRUE_FALSE', prompt, explanation, options: [{ text: 'True', correct: answer }, { text: 'False', correct: !answer }] };
 }
-/** The steps in the right order (the quiz shuffles them). */
+/** The steps in the right order (the quiz shuffles them). Kept for two quizzes only: the rest are single choice. */
 function order(prompt: string, steps: string[], explanation: string): StarterQuestion {
   return { kind: 'ORDER', prompt, explanation, options: steps.map((text) => ({ text, correct: true })) };
 }
-function quiz(title: string, questions: StarterQuestion[]): StarterLesson {
-  return {
-    kind: 'QUIZ',
-    title,
-    minutes: 3,
-    body: '<p>A few quick questions to check what you learned. You need 70% to pass, and you can try again as often as you like.</p>',
-    quiz: { passMark: 70, maxAttempts: null, shuffle: true, timeLimitMinutes: null, drawCount: null, questions },
-  };
+function quiz(title: string, questions: StarterQuestion[], minutes = 3): StarterLesson {
+  return { kind: 'QUIZ', title, minutes, quiz: { passMark: 70, maxAttempts: null, shuffle: true, timeLimitMinutes: null, drawCount: null, questions } };
 }
+/** The course's training video: hidden until the link is pasted (no words needed around it). */
+const video = (title: string, minutes: number): StarterLesson => ({ kind: 'VIDEO', title, minutes, videoUrl: null });
+
+// ── 0. Getting started ───────────────────────────────────────────────────────────────────────────
+
+const gettingStarted: StarterCourse = {
+  key: 'starter:getting-started',
+  title: 'Getting started',
+  summary: 'Sign in, find your way around, and keep up with your notices and settings.',
+  moduleKey: 'general',
+  audience: 'STAFF',
+  difficulty: 'BEGINNER',
+  status: 'PUBLISHED',
+  position: -1,
+  completionRule: 'ALL_LESSONS',
+  certificateOn: false,
+  certificateMonths: null,
+  lessons: [
+    video('Video: Getting started', 2),
+    {
+      kind: 'GUIDE',
+      title: 'Find your way around',
+      minutes: 5,
+      steps: [
+        {
+          title: 'Sign in',
+          body: '<p>Type your email or username and your password, then click <strong>Sign in</strong>. The first time, you may be asked for a 6-digit code from your email and to choose your own password.</p>',
+          image: 'start-sign-in.webp',
+          alt: 'The sign-in page: the Email or username and Password boxes and the Sign in button.',
+        },
+        {
+          title: 'Your Dashboard',
+          body: '<p>You start on the <strong>Dashboard</strong>. <strong>My Priorities Today</strong> lists what needs you first, and why. <strong>Customize dashboard</strong> chooses what the page shows.</p>',
+          image: 'start-dashboard.webp',
+          alt: 'The Dashboard with My Priorities Today: tasks due today and overdue, each with the reason it is listed.',
+        },
+        {
+          title: 'The side menu',
+          body: '<p>Every part of the site is in the menu on the left: My Tasks, Kanban Board, Projects, Calendar, Meetings, Chat, MICO AI and more. On a phone, open it with the ☰ button.</p>',
+          image: 'start-menu.webp',
+          alt: 'The side menu: Dashboard, My Tasks, Kanban Board, Projects, Calendar, Meetings, Learning Hub, Chat, MICO AI and Notifications.',
+        },
+        {
+          title: 'Search',
+          body: '<p>Click the search box at the top, or press <strong>Ctrl+K</strong>, and type a few letters to find a task, a project or a person. Type a page’s name to go there.</p>',
+          image: 'start-search.webp',
+          alt: 'The search box open at the top of the page, with the tasks, projects and people that match the words typed.',
+        },
+        {
+          title: 'Notifications',
+          body: '<p>The bell at the top shows new notices: tasks given to you, mentions, reminders and answers. Click one to open what it is about.</p>',
+          image: 'start-notifications.webp',
+          alt: 'The notifications list open under the bell, with a task given to you and a mention.',
+        },
+        {
+          title: 'Your settings',
+          body: '<p>Click your picture at the top right and choose <strong>Settings</strong> to change your profile, password, notifications, and your week start and time zone.</p>',
+          image: 'start-settings.webp',
+          alt: 'The account menu open under the person’s picture, with Your profile, Settings, Keyboard shortcuts and Tour of the site.',
+        },
+        {
+          title: 'The Learning Hub',
+          body: '<p><strong>Learning Hub</strong> in the menu has a short course for each part of the site. <strong>Up next</strong> shows the one to do first. <strong>Tour of the site</strong>, in the same account menu, shows you around again.</p>',
+        },
+      ],
+    },
+    quiz(
+      'Quiz: Getting started',
+      [
+        single(
+          'Where do you find every part of the site?',
+          [
+            right('The side menu on the left', 'Yes — on a phone, open it with the ☰ button.'),
+            wrong('The Dashboard', 'The Dashboard shows what to do first; the menu has every part.'),
+            wrong('Settings', 'Settings are your own preferences.'),
+            wrong('The bell', 'The bell shows your notices.'),
+          ],
+          'The side menu lists every part of the site.',
+        ),
+        single(
+          'How do you open the search from any page?',
+          [
+            right('Press Ctrl+K', 'Yes — or click the search box at the top.'),
+            wrong('Press Escape', 'Escape closes things.'),
+            wrong('Open Settings', 'Settings don’t search.'),
+            wrong('Open Chat', 'Chat searches only conversations.'),
+          ],
+          'Ctrl+K (or the search box at the top) finds tasks, projects and people.',
+        ),
+        trueFalse('The bell at the top shows your new notices.', true, 'Tasks given to you, mentions, reminders and answers arrive there.'),
+      ],
+      2,
+    ),
+  ],
+};
 
 // ── 1. Tasks ─────────────────────────────────────────────────────────────────────────────────────
 
@@ -53,6 +175,7 @@ const tasks: StarterCourse = {
   certificateMonths: null,
   resources: [{ file: 'tasks-how-to.pdf', name: 'Tasks how-to slides (PDF)', mimeType: 'application/pdf' }],
   lessons: [
+    video('Video: Tasks', 2),
     {
       kind: 'GUIDE',
       title: 'Find and add tasks',
@@ -77,7 +200,7 @@ const tasks: StarterCourse = {
         },
         {
           title: 'Fill in the details',
-          body: '<p>Pick the <strong>Project</strong> and type a <strong>Task title</strong>. The title is the only thing you must fill in.</p><p>You can also add a <strong>Description</strong>, a checklist, a <strong>Priority</strong>, a <strong>Due date</strong>, a <strong>Repeat</strong> and the people it is for under <strong>Assignees</strong>. If you pick nobody, the window tells you who will get it.</p>',
+          body: '<p>Pick the <strong>Project</strong> and type a <strong>Task title</strong> — the only thing you must fill in. Add a <strong>Due date</strong>, a <strong>Priority</strong> and the <strong>Assignees</strong> if you like.</p>',
         },
         {
           title: 'Save it',
@@ -141,10 +264,15 @@ const tasks: StarterCourse = {
         ],
         'The details panel holds the status, checklists and comments of the task.',
       ),
-      order(
-        'Put the steps for adding a task in order.',
-        ['Click New Task', 'Pick the project and type a task title', 'Add a due date and the people it is for', 'Click Create task'],
-        'Open the New task window, fill in the title (and anything else you need), then click Create task.',
+      single(
+        'How do you add a task from any page?',
+        [
+          right('Click New Task at the top (or press N)', 'Yes — the New task window opens.'),
+          wrong('Open Settings', 'Settings are your own preferences.'),
+          wrong('Send a chat message', 'Chat doesn’t make tasks.'),
+          wrong('Open the Calendar first', 'You can, but New Task works on every page.'),
+        ],
+        'New Task is at the top of every page; N opens it too.',
       ),
       single(
         'How do you mention a colleague in a comment?',
@@ -174,6 +302,7 @@ const board: StarterCourse = {
   certificateOn: false,
   certificateMonths: null,
   lessons: [
+    video('Video: Kanban board', 2),
     {
       kind: 'GUIDE',
       title: 'Read the board',
@@ -247,10 +376,15 @@ const board: StarterCourse = {
         'Each column is a status. Dropping a card in a column gives the task that status.',
       ),
       trueFalse('By default, unfinished tasks from earlier days move on to today’s board by themselves.', true, 'Unfinished work is carried forward to today, so it never gets lost on an old day.'),
-      order(
-        'Put these columns in the usual order of the work.',
-        ['Backlog', 'To Do', 'In Progress', 'Review', 'Done'],
-        'Work starts in the Backlog, then goes to To Do, In Progress and Review, and ends in Done.',
+      single(
+        'How do you see the whole month’s tasks on the board?',
+        [
+          right('Click Month', 'Yes — Day goes back to one day.'),
+          wrong('Click Table', 'Table shows the same tasks as rows.'),
+          wrong('Open Settings', 'The board’s views are at its top.'),
+          wrong('You can’t', 'Click Month.'),
+        ],
+        'Month shows the month’s tasks by their start, due and finish dates.',
       ),
       multiple(
         'Which of these does a card show?',
@@ -276,7 +410,7 @@ const board: StarterCourse = {
   ],
 };
 
-// ── 3. Meetings & minutes ────────────────────────────────────────────────────────────────────────
+// ── 3. Meetings & minutes (as 1.23.24 has them: vlhub/meetings-1.23.24-facts.md) ─────────────────────
 
 const meetings: StarterCourse = {
   key: 'starter:meetings',
@@ -291,6 +425,8 @@ const meetings: StarterCourse = {
   certificateMonths: null,
   resources: [{ file: 'meetings-how-to.pdf', name: 'Meetings how-to slides (PDF)', mimeType: 'application/pdf' }],
   lessons: [
+    // One video for Meetings: start to finish (owner, 12 Nov) — no separate minutes video.
+    video('Video: Meetings start to finish', 12),
     {
       kind: 'GUIDE',
       title: 'Plan a meeting',
@@ -298,23 +434,23 @@ const meetings: StarterCourse = {
       steps: [
         {
           title: 'Open Meetings',
-          body: '<p>Click <strong>Meetings</strong> in the side menu. <strong>Up next</strong> shows your next meeting, and the list groups meetings into Today, Next 7 days, Later and Past.</p>',
+          body: '<p>Click <strong>Meetings</strong> in the side menu. <strong>Up next</strong> shows your next meeting, and the list groups meetings into Today, Next 7 days, Later, Drafts and Past.</p>',
           image: 'meetings-list.webp',
-          alt: 'The Meetings page: counts at the top, the Up next card for tomorrow’s meeting, and meeting cards for today and the next 7 days.',
+          alt: 'The Meetings page: the four counts, the Up next card for the next meeting, and meeting cards for today and the next 7 days.',
         },
         {
           title: 'Schedule a meeting',
-          body: '<p>Click <strong>+ New meeting</strong>. In <strong>Schedule a meeting</strong>, type a <strong>Title</strong>, pick when it <strong>Starts</strong> and <strong>Ends</strong>, the <strong>Project</strong>, and the <strong>Location</strong> or an online link.</p>',
+          body: '<p>Click <strong>+ New meeting</strong>. In <strong>Schedule a meeting</strong>, type a <strong>Title</strong>, pick when it <strong>Starts</strong> and <strong>Ends</strong> (in company time), the <strong>Project</strong>, and the <strong>Location</strong> or an <strong>Online link</strong>. <strong>Repeat</strong> makes it a series.</p>',
           image: 'meetings-new.webp',
           alt: 'The Schedule a meeting window: Title, Starts, Ends, Repeat, Project, Location and Status on the left; Describe the meeting, Free times, People and Agenda on the right.',
         },
         {
           title: 'Add people and an agenda',
-          body: '<p>Under <strong>People</strong>, add team members, or a guest by email. Under <strong>Agenda</strong>, add the topics. Then click <strong>Schedule meeting</strong>.</p>',
+          body: '<p>Under <strong>People</strong>, add team members, or a guest by email. Under <strong>Agenda</strong>, add the topics. <strong>Free times</strong> suggests times that suit everyone. Then click <strong>Schedule meeting</strong>.</p>',
         },
         {
           title: 'Send the invitations',
-          body: '<p>The meeting’s page opens. Nothing is sent until you click <strong>Send invitations</strong>. People answer with Accept, Maybe or Decline, and you see their answers under <strong>People</strong>.</p>',
+          body: '<p>The meeting’s page opens. Nothing is sent until you click <strong>Send invitations</strong>, then <strong>Send to … people</strong>. Each person gets an email with a calendar file. Team members answer Accept, Maybe or Decline on the meeting’s page or in the Calendar.</p>',
           image: 'meetings-page.webp',
           alt: 'A scheduled meeting’s page: the Send invitations button, the Agenda with two topics, Live notes, and People with their answers.',
         },
@@ -324,35 +460,39 @@ const meetings: StarterCourse = {
       kind: 'GUIDE',
       title: 'Run the meeting and send the minutes',
       minutes: 6,
-      body: '<p>The organizer, project managers and administrators can write and send the minutes.</p>',
+      body: '<p>The organizer, project managers and administrators run the meeting and send the minutes.</p>',
       steps: [
         {
           title: 'Take notes as you go',
-          body: '<p>When the meeting begins, click <strong>Start meeting</strong>. Under <strong>Live notes</strong>, pick the kind of note — Discussion, Decision, Action Item, Issue, Question or Information — write it and click <strong>Add note</strong>. Tick <strong>Mark as a key point</strong> for the important ones.</p>',
+          body: '<p>Click <strong>Start meeting</strong>. Under <strong>Live notes</strong>, pick the kind of note — Discussion, Decision, Action Item, Issue, Question or Information — write it and click <strong>Add note</strong>. Tick <strong>Mark as a key point</strong> for the important ones.</p>',
           image: 'meetings-notes.webp',
           alt: 'The Live notes section: the note kinds, the writing box with Add note, and four notes — a discussion, a decision marked as a key point, an action item and an issue.',
         },
         {
           title: 'Turn actions into tasks',
-          body: '<p>An Action Item note has a <strong>Make it a task</strong> button: it adds a task to the project’s board, linked to the meeting. You can also add items under <strong>Action items</strong> with an owner and a due date; each person sees theirs in <strong>My Action Items</strong>.</p>',
+          body: '<p>On an Action Item note, <strong>Make it a task</strong> opens <strong>Create task from note</strong>: pick the project, due date and assignee, then click <strong>Create task</strong>. The task is listed under <strong>Action items</strong>, linked to the meeting. Each person sees theirs in <strong>My Action Items</strong>.</p>',
           image: 'meetings-actions.webp',
-          alt: 'The Action items section: three items, each with an owner, due date, priority, status and agenda topic, and the box to add another.',
+          alt: 'The Action items section: three items, each with an owner, due date, priority and status, and the box to add another.',
         },
         {
           title: 'End the meeting',
-          body: '<p>Click <strong>End meeting</strong> when you finish. The minutes section moves to the top of the page.</p>',
+          body: '<p>Click <strong>End meeting</strong> when you finish. A meeting whose end time has passed is completed by itself.</p>',
         },
         {
           title: 'Write the final minutes',
-          body: '<p>Under <strong>Final MOM</strong>, click <strong>Start from the notes</strong> (or <strong>Draft with AI</strong> when AI is set up). Check the summary, discussion, decisions, risks and next steps, then click <strong>Mark as final</strong>.</p>',
+          body: '<p>Under <strong>Final MOM</strong>, click <strong>Start from the notes</strong>, or <strong>Draft with AI</strong> (the bell tells you when the draft is ready). Check the summary, discussion, decisions, risks and next steps, click <strong>Save draft</strong>, then <strong>Mark as final</strong>.</p>',
           image: 'meetings-final-mom.webp',
           alt: 'The Final MOM section with the steps Notes, Final MOM, Approved and Emailed, and the Summary, Discussion, Decisions, Risks & open issues and Next steps boxes above the Mark as final button.',
         },
         {
           title: 'Email the minutes',
-          body: '<p>Click <strong>Email minutes…</strong>. Choose who gets them under <strong>To</strong> and <strong>Cc</strong>, check the preview and click <strong>Send to … people</strong>. Everyone gets one email with the minutes as a PDF.</p>',
+          body: '<p>Click <strong>Email minutes…</strong>. The meeting’s people are under <strong>To</strong>; add others to To or <strong>Cc</strong>, check the preview and click <strong>Send to … people</strong>. Everyone gets the minutes as one PDF, and <strong>Sent</strong> shows who got them.</p>',
           image: 'meetings-email.webp',
           alt: 'The Email the minutes window: four people ticked under To, boxes to add more people or Cc, and the subject and PDF attachment shown before the Send to 4 people button.',
+        },
+        {
+          title: 'Follow up',
+          body: '<p>A task made in the meeting shows <strong>From meeting</strong> in its details. When the task is done, its action item closes too.</p>',
         },
       ],
     },
@@ -360,12 +500,12 @@ const meetings: StarterCourse = {
       single(
         'When are the meeting invitations sent?',
         [
-          right('When you click Send invitations on the meeting’s page', 'Yes — nothing is sent before that.'),
+          right('When you click Send invitations on the meeting’s page and send them', 'Yes — nothing is sent before that.'),
           wrong('As soon as you click Schedule meeting', 'Scheduling saves the meeting; the invitations wait for Send invitations.'),
           wrong('The day before the meeting', 'They are sent when you click Send invitations.'),
           wrong('Never — people have to check the calendar', 'You send them from the meeting’s page.'),
         ],
-        'Invitations go out only when you click Send invitations.',
+        'Invitations go out only when you send them from the meeting’s page.',
       ),
       multiple(
         'Which kinds of live notes can you add?',
@@ -386,12 +526,12 @@ const meetings: StarterCourse = {
       single(
         'What does “Make it a task” do on an Action Item note?',
         [
-          right('It adds a task to the project’s board, linked to the meeting', 'Yes — the task stays linked to the meeting.'),
+          right('It makes a task, listed under Action items and linked to the meeting', 'Yes — the task stays linked to the meeting.'),
           wrong('It deletes the note', 'The note stays.'),
           wrong('It emails the note to everyone', 'Emails go out with the minutes, not from a note.'),
           wrong('It marks the note as a key point', 'That is the Mark as a key point box.'),
         ],
-        'Make it a task turns the action into a real task on the board.',
+        'Make it a task turns the action into a real task, linked to the meeting.',
       ),
     ]),
   ],
@@ -411,6 +551,7 @@ const calendar: StarterCourse = {
   certificateOn: false,
   certificateMonths: null,
   lessons: [
+    video('Video: Calendar', 2),
     {
       kind: 'GUIDE',
       title: 'Use the calendar',
@@ -467,9 +608,14 @@ const calendar: StarterCourse = {
         [right('Month'), right('Week'), right('Agenda'), wrong('Year', 'There is no Year view. The views are Month, Week and Agenda.')],
         'You can switch between Month, Week and Agenda.',
       ),
-      order(
-        'Put the steps for adding a task on a particular day in order.',
-        ['Click the day’s number', 'Click + Add a task on this day', 'Fill in the task', 'Click Create task'],
+      single(
+        'How do you add a task due on a particular day?',
+        [
+          right('Click the day’s number, then + Add a task on this day', 'Yes — that day becomes its due date.'),
+          wrong('Drag an empty box onto the day', 'Click the day’s number first.'),
+          wrong('Open Settings → Calendar & dates', 'That is for your week start and time zone.'),
+          wrong('Ask an administrator', 'Anyone can add a task on a day.'),
+        ],
         'The day you clicked becomes the task’s due date.',
       ),
       single(
@@ -500,6 +646,7 @@ const projects: StarterCourse = {
   certificateOn: false,
   certificateMonths: null,
   lessons: [
+    video('Video: Projects', 2),
     {
       kind: 'GUIDE',
       title: 'Find your projects',
@@ -576,10 +723,15 @@ const projects: StarterCourse = {
         ],
         'Task numbers are made from the code, so it stays the same.',
       ),
-      order(
-        'Put the steps for starting a project in order.',
-        ['Click + New project', 'Type the name and check the code', 'Pick the status, owner and team', 'Click Create project'],
-        'Name it, choose who owns it and who works on it, then create it.',
+      single(
+        'You aren’t an administrator and you create a project. What happens?',
+        [
+          right('You join its team as a manager', 'Yes — so you can keep running it.'),
+          wrong('It waits for an administrator to approve it', 'It is created at once.'),
+          wrong('It is hidden from you', 'You join its team as a manager.'),
+          wrong('Nothing: only administrators can create projects', 'Anyone can start a project.'),
+        ],
+        'If you aren’t an administrator, you join the new project’s team as a manager.',
       ),
       single(
         'Where do you add someone to a project’s team?',
@@ -610,6 +762,7 @@ const reports: StarterCourse = {
   certificateOn: false,
   certificateMonths: null,
   lessons: [
+    video('Video: Reports and KPIs', 2),
     {
       kind: 'GUIDE',
       title: 'Read and export reports',
@@ -675,9 +828,14 @@ const reports: StarterCourse = {
         ],
         'Choose one section under Export to use CSV.',
       ),
-      order(
-        'Put the steps for exporting one project’s report in order.',
-        ['Pick the project under Filter', 'Choose what to export', 'Click Excel or PDF'],
+      single(
+        'You want one project’s report in Excel. What do you do first?',
+        [
+          right('Pick the project under Filter', 'Yes — the export follows the filter.'),
+          wrong('Click CSV', 'CSV is for one section; pick the project first.'),
+          wrong('Open the project’s Team tab', 'Reports has its own filter.'),
+          wrong('Ask the project manager', 'Pick the project under Filter, then click Excel.'),
+        ],
         'The export follows the filter, so pick the project first.',
       ),
     ]),
@@ -698,6 +856,7 @@ const chat: StarterCourse = {
   certificateOn: false,
   certificateMonths: null,
   lessons: [
+    video('Video: Chat', 2),
     {
       kind: 'GUIDE',
       title: 'Talk with your team',
@@ -748,10 +907,15 @@ const chat: StarterCourse = {
         [right('Edit it'), right('Delete it'), right('Add a reaction'), wrong('Change who sent it', 'A message always shows who sent it.')],
         'Use More actions (⋯) to edit or delete your own message.',
       ),
-      order(
-        'Put the steps for starting a direct message in order.',
-        ['Click + next to Chat', 'Pick a teammate', 'Type your message', 'Press Enter'],
-        'Pick the person first, then write and send.',
+      single(
+        'How do you start a direct message?',
+        [
+          right('Click + next to Chat and pick a teammate', 'Yes — then type and press Enter.'),
+          wrong('Write @ and their name in a project channel', 'That mentions them in the channel.'),
+          wrong('Open their profile in Settings', 'Use + next to Chat.'),
+          wrong('Ask an administrator to add you', 'Anyone can message a teammate.'),
+        ],
+        'Click + next to Chat, pick the person, then write and send.',
       ),
       single(
         'What does the red number on Chat in the side menu mean?',
@@ -781,6 +945,7 @@ const micoAi: StarterCourse = {
   certificateOn: false,
   certificateMonths: null,
   lessons: [
+    video('Video: MICO AI', 2),
     {
       kind: 'GUIDE',
       title: 'Ask MICO AI',
@@ -839,10 +1004,15 @@ const micoAi: StarterCourse = {
         ],
         'MICO AI chats are private to the person who asked.',
       ),
-      order(
-        'Put the steps for asking MICO AI in order.',
-        ['Open MICO AI', 'Type your question', 'Press Enter', 'Check the answer’s sources'],
-        'Ask, then check the sources before you rely on the answer.',
+      single(
+        'What do you do before you share an important figure from an answer?',
+        [
+          right('Open its source and check it', 'Yes — answers link to the records they come from.'),
+          wrong('Ask the same question again', 'Check the source instead.'),
+          wrong('Nothing: answers are always right', 'Check important figures first.'),
+          wrong('Download the PDF report', 'The PDF has the same answer; check the source.'),
+        ],
+        'Answers link to their sources: check important figures before you share them.',
       ),
     ]),
   ],
@@ -863,6 +1033,7 @@ const admin: StarterCourse = {
   certificateOn: false,
   certificateMonths: null,
   lessons: [
+    video('Video: Admin setup', 3),
     {
       kind: 'GUIDE',
       title: 'Manage people',
@@ -904,7 +1075,7 @@ const admin: StarterCourse = {
       steps: [
         {
           title: 'System Settings',
-          body: '<p>Click <strong>System Settings</strong> for the company-wide settings: Notification &amp; Scheduling (working days, holidays, reminders), KPI targets, task carry-forward, the weekly management summary, accounts, the daily email and backups.</p>',
+          body: '<p>Click <strong>System Settings</strong> for the company-wide settings: Notification &amp; Scheduling (working days, holidays, reminders), KPI targets, task carry-forward, the weekly management summary, accounts, the daily email, backups and the Learning Hub tour.</p>',
           image: 'admin-settings.webp',
           alt: 'The System Settings page with the Notification & Scheduling, KPI targets, Task carry-forward, Weekly management summary and Accounts cards.',
         },
@@ -959,11 +1130,12 @@ const admin: StarterCourse = {
 };
 
 // ── 10. Client portal (clients) ──────────────────────────────────────────────────────────────────
+// 12 Nov: no sign-in lesson (a client who reads it is signed in already); the project pages come first.
 
 const portal: StarterCourse = {
   key: 'starter:portal',
   title: 'Client portal basics',
-  summary: 'Sign in to the Client portal, follow your projects, sign off finished work, and read the meeting minutes shared with you.',
+  summary: 'Follow your projects, sign off finished work, and read the meeting minutes shared with you.',
   moduleKey: 'portal',
   audience: 'CLIENTS',
   difficulty: 'BEGINNER',
@@ -972,24 +1144,14 @@ const portal: StarterCourse = {
   certificateOn: false,
   certificateMonths: null,
   lessons: [
+    video('Video: Client portal', 2),
     {
       kind: 'GUIDE',
-      title: 'Sign in and find your project',
-      minutes: 4,
-      body: '<p>If you got an invitation email, open its link and set your password there. If you were given a temporary password, follow these steps.</p>',
+      title: 'Your project, tasks and minutes',
+      was: ['Tasks, sign-off and minutes'],
+      minutes: 5,
+      body: '<p>What you can do depends on the access the project team gave you.</p>',
       steps: [
-        {
-          title: 'Sign in the first time',
-          body: '<p>On the sign-in page, type your email or username and your temporary password, then click <strong>Sign in</strong>. The first time, we may email you a 6-digit code to confirm your email address: type it and click <strong>Confirm and sign in</strong>.</p>',
-          image: 'portal-code.webp',
-          alt: 'The Check your email step: the 6-digit code box and the Confirm and sign in button.',
-        },
-        {
-          title: 'Choose your own password',
-          body: '<p>Type a new password twice and click <strong>Set my password and sign in</strong>. Use it from now on.</p>',
-          image: 'portal-password.webp',
-          alt: 'The Choose your own password step: New password, Type it again, and the Set my password and sign in button.',
-        },
         {
           title: 'Your projects',
           body: '<p><strong>Your projects</strong> shows the projects the team has shared with you and how far along each one is. Click a project to open it.</p>',
@@ -1002,14 +1164,6 @@ const portal: StarterCourse = {
           image: 'portal-project.webp',
           alt: 'A project in the Client portal: the Progress & tasks and Meetings & minutes tabs, the progress, the timeline and the milestones.',
         },
-      ],
-    },
-    {
-      kind: 'GUIDE',
-      title: 'Tasks, sign-off and minutes',
-      minutes: 4,
-      body: '<p>What you can do depends on the access the project team gave you.</p>',
-      steps: [
         {
           title: 'Open a task',
           body: '<p>In the task list, click a task to see its due date, status and description. <strong>Waiting for your sign-off</strong> means the team has finished it and needs your answer.</p>',
@@ -1055,10 +1209,15 @@ const portal: StarterCourse = {
         [right('Its progress'), right('The tasks shared with you'), right('Meetings & minutes'), wrong('The team’s private chat', 'The team’s chat is never shown in the Client portal.')],
         'You see the progress, timeline, milestones, the shared tasks and the shared minutes.',
       ),
-      order(
-        'Put the steps of a first sign-in with a temporary password in order.',
-        ['Type your username and temporary password', 'Type the 6-digit code from the email', 'Choose your own password', 'Open your project'],
-        'Confirm your email address, choose your own password, then open your project.',
+      single(
+        'Where do you see how much of your project is done?',
+        [
+          right('Progress & tasks, on the project’s page', 'Yes — with the timeline and milestones.'),
+          wrong('Change password', 'That only changes your password.'),
+          wrong('Notification settings', 'That chooses what you are told about.'),
+          wrong('The bell', 'The bell shows your notices.'),
+        ],
+        'Open your project: Progress & tasks shows how much is done.',
       ),
       single(
         'Where do you choose what you are told about?',
@@ -1074,51 +1233,5 @@ const portal: StarterCourse = {
   ],
 };
 
-// ── The three video courses (drafts until an administrator adds the owner's YouTube / Vimeo links) ─
-
-const VIDEO_NOTE = '<p><em>An administrator adds the video link (YouTube or Vimeo) and then publishes this course.</em></p>';
-
-const videoTasks: StarterCourse = {
-  key: 'starter:video-tasks',
-  title: 'How to use Tasks (video)',
-  summary: 'A short video tour of Tasks: adding a task, giving it to the right people and following it until it is done.',
-  moduleKey: 'tasks',
-  audience: 'STAFF',
-  difficulty: 'BEGINNER',
-  status: 'DRAFT',
-  completionRule: 'ALL_LESSONS',
-  certificateOn: false,
-  certificateMonths: null,
-  lessons: [{ kind: 'VIDEO', title: 'How to use Tasks', minutes: 2, body: `<p>Watch how a task is added, assigned and followed until it is done.</p>${VIDEO_NOTE}`, videoUrl: null }],
-};
-
-const videoMeetings: StarterCourse = {
-  key: 'starter:video-meetings',
-  title: 'How to use Meetings (video)',
-  summary: 'A video tour of Meetings: scheduling a meeting, inviting people, its agenda and notes, and sharing the minutes.',
-  moduleKey: 'meetings',
-  audience: 'STAFF',
-  difficulty: 'BEGINNER',
-  status: 'DRAFT',
-  completionRule: 'ALL_LESSONS',
-  certificateOn: false,
-  certificateMonths: null,
-  lessons: [{ kind: 'VIDEO', title: 'How to use Meetings', minutes: 5, body: `<p>Watch how a meeting is planned, held and followed up.</p>${VIDEO_NOTE}`, videoUrl: null }],
-};
-
-const videoMinutes: StarterCourse = {
-  key: 'starter:video-minutes',
-  title: 'How to run a meeting and make minutes (video)',
-  summary: 'A video on running a meeting: live notes, action items, and making and sending the final minutes (MOM).',
-  moduleKey: 'meetings',
-  audience: 'STAFF',
-  difficulty: 'BEGINNER',
-  status: 'DRAFT',
-  completionRule: 'ALL_LESSONS',
-  certificateOn: false,
-  certificateMonths: null,
-  lessons: [{ kind: 'VIDEO', title: 'How to run a meeting and make minutes', minutes: 4, body: `<p>Watch how notes taken during a meeting become the final minutes.</p>${VIDEO_NOTE}`, videoUrl: null }],
-};
-
-/** The starter courses, in catalogue order (see starter-types.ts). */
-export const STARTER_COURSES: StarterCourse[] = [tasks, board, meetings, calendar, projects, reports, chat, micoAi, admin, portal, videoTasks, videoMeetings, videoMinutes];
+/** The starter courses, in catalogue order (Getting started first: its position is -1). */
+export const STARTER_COURSES: StarterCourse[] = [gettingStarted, tasks, board, meetings, calendar, projects, reports, chat, micoAi, admin, portal];

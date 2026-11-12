@@ -8,6 +8,7 @@ import { createTrainingManage, type TrainingManage } from './training-manage';
 import { createTrainingReports, type TrainingReports } from './training-report-service';
 import { createTrainingSweeps } from './training-sweeps';
 import { createTrainingStarter } from './training-starter';
+import { createTrainingFinish } from './training-finish';
 import type { StarterCourse } from './starter/starter-types';
 import { registerTrainingRoutes, type TrainingRouteDeps } from './training-routes';
 import { registerPortalTrainingRoutes } from './portal-training-routes';
@@ -27,6 +28,7 @@ export function createTrainingFromPrisma(prisma: PrismaClient, d: Omit<TrainingD
   const manage = createTrainingManage(ctx, sync);
   const reports = createTrainingReports(ctx);
   const sweeps = createTrainingSweeps(ctx, sync);
+  const finish = createTrainingFinish(ctx);
   const starter = createTrainingStarter({
     prisma,
     files: d.files,
@@ -34,6 +36,8 @@ export function createTrainingFromPrisma(prisma: PrismaClient, d: Omit<TrainingD
     ...(starterAssetsDir !== undefined ? { assetsDir: starterAssetsDir } : {}),
     ...(d.now ? { now: d.now } : {}),
     ...(d.logger ? { logger: d.logger } : {}),
+    // R3: after a starter update, anyone who has now done every lesson is finished.
+    recheck: (courseIds) => finish.recheck(courseIds),
   });
   return { ctx, sync, learner, manage, reports, sweeps, starter };
 }
