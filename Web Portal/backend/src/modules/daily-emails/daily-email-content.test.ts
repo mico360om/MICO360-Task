@@ -830,6 +830,14 @@ describe('Release B: the Notification & Scheduling centre on the new daily email
     expect(withTasks.text.indexOf('While you were away')).toBeLessThan(withTasks.text.indexOf('Today at a glance'));
   });
 
+  it('seam review M-2: each held notice is cut to size (it sits outside the size ladder); an email of held notices alone says so in its subject', () => {
+    const long = 'x'.repeat(5000);
+    const email = dailyEmail(input({ tasks: [], completed: [], held: [{ title: `Escalation ${long}`, body: `RIG-1 · ${long}` }] }))!;
+    expect(email.html.length).toBeLessThan(60_000);
+    expect(email.text).not.toContain('x'.repeat(400));
+    expect(email.subject).toMatch(/^Today: 1 notice while you were away — /);
+  });
+
   it('a late task says working days late with the centre (its own company’s calendar), and plain days without it', () => {
     const late = task('RIG-51', { dueDate: new Date('2026-10-29T00:00:00Z') });
     const calls: string[] = [];

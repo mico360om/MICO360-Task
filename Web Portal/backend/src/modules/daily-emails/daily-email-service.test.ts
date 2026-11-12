@@ -1133,6 +1133,51 @@ describe('Notification & Scheduling centre: working days only, held notices fold
     expect(c.release).toHaveBeenCalledWith(['h1']);
   });
 
+  // Release B seam review I-1: an administrator's preview of someone's email (System settings → Daily emails) shows
+  // the notices held for them but never takes them (they still fold into the real email).
+  it('an administrator’s preview peeks at the held notices — it never takes them', async () => {
+    const take = vi.fn(async () => [{ id: 'h1', title: 'Escalation: RIG-7 is Blocked', body: null }]);
+    const peek = vi.fn(async () => [{ id: 'h1', title: 'Escalation: RIG-7 is Blocked', body: null }]);
+    const { repo } = memoryRepo(() => MORNING);
+    const service = createDailyEmailService({
+      repo,
+      people: { list: async () => [person('ada')], find: async (id) => (id === 'ada' ? person('ada') : null) },
+      tasks: { pending: async () => [task('RIG-1')], completedBetween: async () => [] },
+      send: async () => 'sent',
+      isConfigured: () => true,
+      companyTimeZone: TZ,
+      appUrl: 'https://task.example',
+      now: () => MORNING,
+      held: { take, peek, folded: vi.fn(async () => {}), release: vi.fn(async () => {}) },
+    });
+    const p = await service.preview('ada', 'PENDING');
+    expect(p?.text).toContain('While you were away (1)');
+    expect(peek).toHaveBeenCalled();
+    expect(take).not.toHaveBeenCalled();
+  });
+
+  // Seam review M-1: notices taken for an email whose building fails are let go again (never left taken).
+  it('an email that fails while being built lets the taken notices go', async () => {
+    const release = vi.fn(async (_ids: string[]) => {});
+    const { repo } = memoryRepo(() => MORNING);
+    const service = createDailyEmailService({
+      repo,
+      people: { list: async () => [person('ada')], find: async (id) => (id === 'ada' ? person('ada') : null) },
+      tasks: { pending: async () => [task('RIG-1', { dueDate: at('2026-10-15T00:00:00Z') })], completedBetween: async () => [] },
+      send: async () => 'sent',
+      isConfigured: () => true,
+      companyTimeZone: TZ,
+      appUrl: 'https://task.example',
+      now: () => MORNING,
+      lateDays: () => {
+        throw new Error('calendar unreadable');
+      },
+      held: { take: async () => [{ id: 'h9', title: 'A task is overdue', body: null }], peek: async () => [], folded: vi.fn(async () => {}), release },
+    });
+    await service.runSweep();
+    expect(release).toHaveBeenCalledWith(['h9']);
+  });
+
   it('held notices alone are enough for an email', async () => {
     const c = centre({ pending: [], held: [{ id: 'h1', title: 'No activity on RIG-3 for 5 working days', body: 'RIG-3 · Wire panel' }] });
     await c.service.runSweep();

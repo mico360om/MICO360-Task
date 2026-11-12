@@ -109,6 +109,8 @@ export function createPrismaRecurrencePort(prisma: PrismaClient, opts: PrismaRec
                 inspectionPlace: source.inspectionPlace ?? undefined,
                 // Needs approval: every copy does too (each starts fresh — not waiting, not approved).
                 needsApproval: source.needsApproval,
+                // Release B: its own reminder schedule (Notification & Scheduling) goes with the series.
+                reminderScheduleId: source.reminderScheduleId ?? undefined,
                 estimatedHours: source.estimatedHours ?? undefined,
                 startDate: at,
                 dueDate: nextDueDate,

@@ -496,7 +496,9 @@ function classify(input: DailyEmailInput) {
           ? `${plural(completed.length, 'task')} completed recently`
           : managed.length
             ? `${plural(managed.length, 'task')} to check in your projects`
-            : 'your day';
+            : held.length
+              ? `${plural(held.length, 'notice')} while you were away`
+              : 'your day';
   const subject = `Today: ${subjectWhat} — ${shortDay(today)}`;
   const counted = parts.glance || parts.urgent;
   const preheader = [
@@ -579,10 +581,12 @@ function blocksFor(input: DailyEmailInput, m: Model, limits: Limits, brand: Bran
   if (m.held.length) {
     const shown = m.held.slice(0, 10);
     const rows = shown.map((h, i): Piece => {
-      const line = h.body ? h.body.split('\n')[0]! : null;
+      // Cut to size (seam review M-2): the section sits outside the size ladder, so it stays small (~10 KB at most).
+      const title = clip(h.title, 200);
+      const line = h.body ? clip(h.body.split('\n')[0]!, 200) : null;
       return {
-        html: `<tr><td class="email-card" style="padding:9px 12px;background:${c.surface}${i === 0 ? '' : `;border-top:1px solid ${c.line}`}"><div class="email-text" dir="auto" style="font-size:14px;line-height:1.4;font-weight:700;color:${c.ink}">${escapeHtml(h.title)}</div>${line ? muted(line, c) : ''}</td></tr>`,
-        text: `- ${h.title}${line ? ` — ${line}` : ''}`,
+        html: `<tr><td class="email-card" style="padding:9px 12px;background:${c.surface}${i === 0 ? '' : `;border-top:1px solid ${c.line}`}"><div class="email-text" dir="auto" style="font-size:14px;line-height:1.4;font-weight:700;color:${c.ink}">${escapeHtml(title)}</div>${line ? muted(line, c) : ''}</td></tr>`,
+        text: `- ${title}${line ? ` — ${line}` : ''}`,
       };
     });
     const left = m.held.length - shown.length;

@@ -91,6 +91,8 @@ beforeEach(async () => {
   // Done on 16 Nov (planned time before that is history; after it is hidden).
   ids.doneTask = await task('RBS-7', ids.done, { dueDate: day('2026-11-20'), completedAt: at('2026-11-16T10:00:00Z') });
   ids.otherTask = await task('RBX-1', ids.otherTodo, { dueDate: day('2026-11-30') }, ids.other);
+  // RBS-1 waits on the live Blocked RBS-5; RBS-5 waits only on the archived RBS-2 (out of the way).
+  await prisma.taskDependency.createMany({ data: [{ taskId: ids.live, dependsOnTaskId: ids.blockedLive }, { taskId: ids.blockedLive, dependsOnTaskId: ids.archived }] });
 });
 
 describe('Release B seams — the task archive', () => {
@@ -144,6 +146,9 @@ describe('Release B seams — the task archive', () => {
     );
     const mine = facts.tasks.filter((t) => t.key.startsWith('RBS-')).map((t) => t.key).sort();
     expect(mine).toEqual(['RBS-1', 'RBS-5']);
+    // Seam review M-3: a blocker that was archived is out of the way (as Release A's daily email reads it).
+    expect(facts.tasks.find((t) => t.key === 'RBS-1')?.hasOpenBlocker).toBe(true);
+    expect(facts.tasks.find((t) => t.key === 'RBS-5')?.hasOpenBlocker).toBe(false);
   });
 
   it('KPIs: an archived open task leaves the open counts and Open blocked; an archived Done task still counts (its archivedAt is read)', async () => {

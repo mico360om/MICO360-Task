@@ -380,7 +380,7 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
    * The person's daily email as of `at` (null: nothing in it). `test`: "Send me a test" —
    * with every part turned off it shows them the whole email.
    */
-  async function build(kind: DailyEmailKind, person: DailyRecipient, at: Date, o: { test?: boolean } = {}): Promise<{ count: number; content: EmailContent | null; fromName?: string; heldIds?: string[] }> {
+  async function build(kind: DailyEmailKind, person: DailyRecipient, at: Date, o: { test?: boolean; peekHeld?: boolean } = {}): Promise<{ count: number; content: EmailContent | null; fromName?: string; heldIds?: string[] }> {
     if (kind !== 'PENDING') return { count: 0, content: null };
     const timeZone = zoneOf(person);
     // The person's day as it is now (not the record's): a retry after midnight is about the new day,
@@ -414,9 +414,17 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
     ]);
     // Notification & Scheduling: the notices held overnight fold in ("While you were away"; a test or a preview
     // shows them but leaves them), and overdue counts working days (each task's company's calendar).
-    const held = deps.held ? await (o.test ? deps.held.peek(person.id, at) : deps.held.take(person.id, at)).catch(() => []) : [];
+    const peekOnly = o.test || o.peekHeld;
+    const held = deps.held ? await (peekOnly ? deps.held.peek(person.id, at) : deps.held.take(person.id, at)).catch(() => []) : [];
+    const taken = !peekOnly && held.length ? held.map((h) => h.id) : [];
+    // Taken for this email: if it can't even be built, they are let go again (sent later, never left taken).
+    const letGoTaken = async () => {
+      if (taken.length) await deps.held?.release(taken).catch(() => {});
+    };
     if (deps.prepareLateDays) await deps.prepareLateDays([...tasks, ...completed, ...managed]).catch(() => {});
-    const content = dailyEmail(
+    let content: EmailContent | null;
+    try {
+      content = dailyEmail(
       {
         name: person.name,
         timeZone,
@@ -442,13 +450,17 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
       },
       brand ?? undefined,
     );
+    } catch (err) {
+      await letGoTaken();
+      throw err;
+    }
     // The delivery log's task count: today's open tasks — not handed in, not waiting for a later start day
     // (Coming up; board days are the company's days).
     return {
       count: tasks.filter((t) => !t.waitingSince && !isWaitingTask({ boardDate: t.boardDate ?? null, completedAt: t.completedAt }, deps.companyTimeZone, at)).length,
       content,
       ...sender,
-      ...(held.length && !o.test ? { heldIds: held.map((h) => h.id) } : {}),
+      ...(taken.length ? { heldIds: taken } : {}),
     };
   }
 
@@ -762,7 +774,8 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
     if (!person?.email) return null;
     const at = now();
     const { day } = localClock(at, zoneOf(person));
-    const { count, content } = await build(kind, person, at);
+    // An administrator's look at someone's email: their held notices are shown, never taken (seam review I-1).
+    const { count, content } = await build(kind, person, at, { peekHeld: true });
     return {
       userId: person.id,
       name: person.name,

@@ -99,8 +99,12 @@ export interface TaskCopy {
   files: OriginalFile[];
 }
 
-/** What is never carried over to a copy (the design's list; copyOf has no field for any of them). */
-export const NEVER_COPIED = ['comments', 'history', 'status', 'completion', 'approvals', 'repeat', 'merge', 'bin', 'meeting', 'clientVisible'] as const;
+/**
+ * What is never carried over to a copy (the design's list; copyOf has no field for any of them). Release B: nor
+ * the task's own reminder schedule, planned time or personal reminders — a copy follows its project's schedule
+ * as any new task does (it may be in another company, with other schedules), and people plan their own time.
+ */
+export const NEVER_COPIED = ['comments', 'history', 'status', 'completion', 'approvals', 'repeat', 'merge', 'bin', 'meeting', 'clientVisible', 'reminderSchedule', 'plannedTime', 'personalReminders'] as const;
 
 /** Added to the title of a copy made without a review (Bulk Duplicate, a later release). */
 export const COPY_SUFFIX = ' (copy)';

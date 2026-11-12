@@ -19,8 +19,10 @@ export const taskAudienceSelect = {
 } satisfies Prisma.TaskSelect;
 
 /**
- * The tasks the reminder and digest sweeps read: live, dated, in live projects — and never an archived
- * one (task archive: hidden but kept, no reminders until it is unarchived).
+ * The tasks the digest sweep reads: live, dated, in live projects — and never an archived one (task archive:
+ * hidden but kept, no reminders until it is unarchived). Release B: the deadline reminders and escalations are the
+ * Notification & Scheduling planner's (notify-policy/planner-sweep.ts, the same archive rule); the two constants stay
+ * for the task archive's places test.
  */
 export const DATED_SWEEP_TASKS = { deletedAt: null, archivedAt: null, dueDate: { not: null }, project: { is: { deletedAt: null } } } satisfies Prisma.TaskWhereInput;
 

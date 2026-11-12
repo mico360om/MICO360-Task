@@ -99,6 +99,22 @@ describe('Recurring tasks on MySQL (integration)', () => {
     expect((await port.listSeriesHeads()).map((h) => h.id).filter((id) => id === source.id || id === copy.id)).toEqual([copy.id]);
   });
 
+  // Release B (seam review I-2): a task's own reminder schedule (Notification & Scheduling) goes with the series.
+  it('the next copy keeps the task’s own reminder schedule', async () => {
+    const owner = await prisma.user.findUniqueOrThrow({ where: { email: 'recur-owner@mico360.test' } });
+    const company = await prisma.company.findFirstOrThrow({ where: { members: { some: { userId: owner.id } } } });
+    const schedule = await prisma.reminderSchedule.create({ data: { companyId: company.id, name: 'Critical (recur test)', steps: { before: [5, 2, 1], onDue: true, after: [], repeatEvery: 1 } } });
+    try {
+      const source = await recurringTask({ freq: 'WEEKLY', interval: 1 }, '2026-09-28');
+      await prisma.task.update({ where: { id: source.id }, data: { reminderScheduleId: schedule.id } });
+      const copy = await service.onTaskCompleted({ id: source.id, dueDate: source.dueDate, recurrenceRule: { freq: 'WEEKLY', interval: 1 }, recurrenceParentId: null });
+      expect((await prisma.task.findUniqueOrThrow({ where: { id: copy!.id } })).reminderScheduleId).toBe(schedule.id);
+    } finally {
+      await prisma.task.updateMany({ where: { reminderScheduleId: schedule.id }, data: { reminderScheduleId: null } });
+      await prisma.reminderSchedule.delete({ where: { id: schedule.id } });
+    }
+  });
+
   it('every copy keeps the series’ creator — who may delete the entire series (task-delete-rule)', async () => {
     const source = await recurringTask({ freq: 'WEEKLY', interval: 1 }, '2026-09-28');
     const first = await service.onTaskCompleted({ id: source.id, dueDate: source.dueDate, recurrenceRule: { freq: 'WEEKLY', interval: 1 }, recurrenceParentId: null });

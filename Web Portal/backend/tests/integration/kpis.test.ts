@@ -50,7 +50,7 @@ function wiring(now?: () => Date, notify: (n: unknown) => Promise<unknown> = asy
   });
 }
 
-async function task(o: { assignee?: string; due?: number | null; done?: number | null; created?: number; column?: string; deleted?: boolean; merged?: string; waiting?: number; title?: string }) {
+async function task(o: { assignee?: string; due?: number | null; done?: number | null; doneAt?: Date; created?: number; column?: string; deleted?: boolean; merged?: string; waiting?: number; title?: string }) {
   n += 1;
   const created = at(o.created ?? -20, '08:00');
   const t = await prisma.task.create({
@@ -61,7 +61,7 @@ async function task(o: { assignee?: string; due?: number | null; done?: number |
       columnId: cols[o.column ?? (o.done !== undefined && o.done !== null ? 'DONE' : o.waiting !== undefined ? 'REVIEW' : 'TODO')]!,
       createdById: w.people.admin,
       dueDate: o.due === null || o.due === undefined ? null : dueOn(o.due),
-      completedAt: o.done === null || o.done === undefined ? null : at(o.done, '11:00'),
+      completedAt: o.doneAt ?? (o.done === null || o.done === undefined ? null : at(o.done, '11:00')),
       approvalRequestedAt: o.waiting !== undefined ? at(o.waiting) : null,
       createdAt: created,
       deletedAt: o.deleted || o.merged ? at(-1) : null,
@@ -97,8 +97,9 @@ beforeAll(async () => {
   // Late against the agreed day: due -10; Ana (the assignee) moved it to -3 herself; finished -5 → 5 days late.
   t1 = await task({ assignee: w.people.ana, due: -3, done: -5 });
   await prisma.activity.create({ data: { taskId: t1, projectId: P, userId: w.people.ana, action: 'UPDATED', meta: { changes: [{ field: 'dueDate', from: shiftDayKey(today, -10), to: shiftDayKey(today, -3) }] }, createdAt: at(-12) } });
-  // On time: due tomorrow, finished today (well, this morning).
-  t2 = await task({ assignee: w.people.ana, due: 1, done: 0, title: 'KPI on time' });
+  // On time: due tomorrow, finished today (well, this morning) — Release B gate: never later than now (at 07:00 an
+  // 11:00 finish was still to come, so the task fell out of every window ending now).
+  t2 = await task({ assignee: w.people.ana, due: 1, done: 0, doneAt: new Date(Math.min(at(0, '11:00').getTime(), Date.now() - 60_000)), title: 'KPI on time' });
   // Handed in for approval on -5 (due -4), approved by Amy on -4: on time, 9 working hours to decide.
   t3 = await task({ assignee: w.people.ana, due: -4, done: -4 });
   await prisma.activity.createMany({

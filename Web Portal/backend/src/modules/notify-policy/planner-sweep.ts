@@ -135,7 +135,7 @@ export async function loadPlannerFacts(deps: Pick<PlannerSweepDeps, 'prisma' | '
       createdAt: true,
       column: { select: { category: true } },
       watchers: { select: { userId: true } },
-      dependencies: { select: { dependsOn: { select: { deletedAt: true, completedAt: true, column: { select: { category: true } } } } } },
+      dependencies: { select: { dependsOn: { select: { deletedAt: true, archivedAt: true, completedAt: true, column: { select: { category: true } } } } } },
       ...taskAudienceSelect,
     },
   });
@@ -210,7 +210,8 @@ export async function loadPlannerFacts(deps: Pick<PlannerSweepDeps, 'prisma' | '
       step2Ids: filterTaskRecipients(step2Of(companyId), facts, opts),
       enteredColumnAt: entered.get(t.id) ?? t.createdAt,
       lastActivityAt: later(worked.get(t.id), dueMoved.get(t.id), t.createdAt),
-      hasOpenBlocker: t.dependencies.some((d) => !d.dependsOn.deletedAt && !isTaskDone({ columnCategory: d.dependsOn.column?.category ?? null, completedAt: d.dependsOn.completedAt })),
+      // An archived blocker is out of the way (as Release A's daily email reads it: an archived task no longer blocks).
+      hasOpenBlocker: t.dependencies.some((d) => !d.dependsOn.deletedAt && !d.dependsOn.archivedAt && !isTaskDone({ columnCategory: d.dependsOn.column?.category ?? null, completedAt: d.dependsOn.completedAt })),
       projectPaused: project?.status === 'ON_HOLD' || project?.status === 'COMPLETED',
     });
   }
