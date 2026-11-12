@@ -107,6 +107,19 @@ describe('MeetingsPage', () => {
     expect(organizer.parentElement!.className).toMatch(/flex-wrap/);
   });
 
+  // Release B battery (meetings-cards-shots): with the Learning Hub's "Learn this feature" link in the title, the actions
+  // wrap at 1440/1280 px; the title must stay on their first line (it sat centred between the two rows).
+  it('keeps the title on the first line of the actions when they wrap', async () => {
+    renderPage();
+    const heading = await screen.findByRole('heading', { level: 1, name: 'Meetings' });
+    const line = heading.parentElement!;
+    const row = line.parentElement!;
+    expect(row.className).toMatch(/(^|\s)items-start(\s|$)/);
+    expect(row.className).not.toMatch(/(^|\s)items-center(\s|$)/);
+    expect(line.className).toMatch(/(^|\s)min-h-10(\s|$)/);
+    expect(line.className).toMatch(/(^|\s)content-center(\s|$)/);
+  });
+
   it('groups meetings into Today, Next 7 days, Drafts and Past', async () => {
     renderPage();
     await rowOf('Budget review');

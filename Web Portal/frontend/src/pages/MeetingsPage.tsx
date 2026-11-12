@@ -151,9 +151,10 @@ export function MeetingsPage() {
   return (
     <div>
       {/* One line: the title, the search, the filters, whose meetings and New meeting. */}
-      <div className="relative z-20 mb-3 flex flex-wrap items-center gap-x-4 gap-y-2 animate-fade-in-up">
-        <PageTitle eyebrow="Workspace" title="Meetings" learn="meetings" className="flex-none" />
-        <div className="flex min-w-0 flex-[1_1_36rem] flex-wrap items-center gap-2">
+      {/* Release B: when the actions wrap (the Learn link takes room), the title stays on their first line. */}
+      <div className="relative z-20 mb-3 flex flex-wrap items-start gap-x-4 gap-y-2 animate-fade-in-up">
+        <PageTitle eyebrow="Workspace" title="Meetings" learn="meetings" className="min-h-10 flex-none content-center [@media(pointer:coarse)]:min-h-11" />
+        <div className="flex min-h-10 min-w-0 flex-[1_1_36rem] flex-wrap items-center gap-2">
           <label className="relative min-w-[11rem] flex-1 sm:max-w-xs">
             <span className="pointer-events-none absolute inset-y-0 start-3 flex items-center text-ink-2">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
