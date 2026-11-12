@@ -126,7 +126,10 @@ export async function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDe
       return reply.send({ data: { user: toPublicUser(user), accessToken: deps.tokenService.issueAccessToken(user), refreshToken: spent.replay.refreshToken } });
     }
     const tokens = await deps.tokenService.issueTokens(user, { familyId: spent.familyId });
-    await deps.tokenService.recordSuccessor(refreshToken, tokens.refreshToken);
+    // A logout that raced this renewal ended the session: the new pair is ended too (review fix #4).
+    if (!(await deps.tokenService.completeRotation(refreshToken, tokens.refreshToken))) {
+      return reply.status(401).send({ error: SESSION_EXPIRED });
+    }
     return reply.send({ data: { user: toPublicUser(user), ...tokens } });
   });
 
@@ -174,11 +177,12 @@ export async function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDe
     return reply.send({ data: { user: toPublicUser(user), ...tokens } });
   });
 
-  // Server-side logout: revoke the presented refresh token so it can no longer mint sessions.
-  // Idempotent and non-enumerating — always 200, even for an unknown token.
+  // Server-side logout: the presented refresh token's whole session ends — every token rotated from the
+  // same sign-in, even one a renewal made a moment ago — and a late copy is refused plainly, not as theft
+  // (review fixes #4 and N2). Fingerprint keys stay. Idempotent and non-enumerating — always 200.
   app.post('/auth/logout', async (req, reply) => {
     const { refreshToken } = refreshSchema.parse(req.body);
-    await deps.tokenService.revokeRefreshToken(refreshToken);
+    await deps.tokenService.endSession(refreshToken);
     return reply.send({ data: { ok: true } });
   });
 

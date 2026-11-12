@@ -4,8 +4,11 @@ import { signToken, verifyToken, type TokenClaims } from '../../lib/tokens';
 /** Outcome of atomically spending a refresh token. */
 export type RotateResult =
   | { status: 'rotated'; userId: string; familyId: string | null }
-  /** Already spent (rotated / logged out / revoked) and not yet expired. */
-  | { status: 'reused'; userId: string; familyId: string | null; revokedAt: Date; successorEnc?: string | null }
+  /**
+   * Already spent (rotated / logged out / revoked) and not yet expired. `signedOut`: its session was
+   * ended by Log out (review fix N2) — a late copy is refused plainly, never treated as theft.
+   */
+  | { status: 'reused'; userId: string; familyId: string | null; revokedAt: Date; successorEnc?: string | null; signedOut?: boolean }
   | { status: 'invalid' };
 
 /** Persistence port for refresh tokens (Prisma-backed in prod, in-memory in tests). */
@@ -25,8 +28,20 @@ export interface RefreshTokenStore {
   rotate?(tokenHash: string, now: Date): Promise<RotateResult>;
   /** Revoke every live token in a rotation family (refresh-token reuse → likely theft). */
   revokeFamily?(familyId: string): Promise<void>;
-  /** Remember (sealed) the token a spent one was rotated to, so a lost reply can be retried. */
+  /**
+   * Remember (sealed) the token a spent one was rotated to, so a lost reply can be retried. Never over a
+   * sign-out mark (`endSession`): a renewal finishing after a logout must still see it.
+   */
   setSuccessor?(tokenHash: string, successorEnc: string): Promise<void>;
+  /**
+   * Log out (review fixes #4 and N2): end the session this token belongs to — every session token of its
+   * rotation family is revoked (one a renewal made a moment ago too) and marked signed out, so a late
+   * copy is refused plainly. Fingerprint keys are never touched (their families are their own); a
+   * fingerprint key presented here ends that key alone. Unknown token: nothing.
+   */
+  endSession?(tokenHash: string, at: Date): Promise<void>;
+  /** Was this token's session ended by Log out (endSession)? */
+  signedOut?(tokenHash: string): Promise<boolean>;
   /** Revoke every live fingerprint key of a user (their session was stolen). */
   revokeBiometricKeys?(userId: string): Promise<void>;
   /** Move the end of a user's live fingerprint keys on to `expiresAt` (never back, never reviving one). */
@@ -63,7 +78,7 @@ export interface TokenServiceDeps {
 
 export type RefreshOutcome =
   | { ok: true; userId: string; familyId: string | undefined; replay?: { refreshToken: string } }
-  | { ok: false; reason: 'invalid' | 'superseded' | 'reused' };
+  | { ok: false; reason: 'invalid' | 'superseded' | 'reused' | 'signed-out' };
 
 /** The longest a fingerprint key's JWT is signed for (a year); its stored end slides (issueBiometricKey). */
 const BIOMETRIC_KEY_MAX_TTL = 365 * 24 * 3600;
@@ -220,6 +235,8 @@ export function createTokenService({
     if (result.status === 'invalid' || result.userId !== claims.sub) return { ok: false, reason: 'invalid' };
     if (result.status === 'rotated') return { ok: true, userId: result.userId, familyId: result.familyId ?? undefined };
 
+    // Logged out (review fix N2): a renewal or another tab arriving late — not a stolen copy.
+    if (result.signedOut) return { ok: false, reason: 'signed-out' };
     const successor = await replayableSuccessor(result, at);
     if (successor) return { ok: true, userId: result.userId, familyId: result.familyId ?? undefined, replay: { refreshToken: successor } };
     if (at.getTime() - result.revokedAt.getTime() < reuseGraceMs) return { ok: false, reason: 'superseded' };
@@ -231,9 +248,32 @@ export function createTokenService({
     return { ok: false, reason: 'reused' };
   }
 
-  /** Revoke a single refresh token (server-side logout). */
+  /** Revoke a single refresh token. */
   async function revokeRefreshToken(token: string): Promise<void> {
     await refreshStore.revoke(hashRefreshToken(token));
+  }
+
+  /**
+   * Server-side logout (review fixes #4 and N2): the whole session the token belongs to ends, even when
+   * the token was already rotated by a renewal that raced the logout; a late copy of any of its tokens
+   * is then a plain refusal, so the person's fingerprint keys stay. A store without sessions: the token alone.
+   */
+  async function endSession(token: string): Promise<void> {
+    const hash = hashRefreshToken(token);
+    if (refreshStore.endSession) await refreshStore.endSession(hash, now());
+    else await refreshStore.revoke(hash);
+  }
+
+  /**
+   * After a renewal issued its new pair: remember the successor (a lost reply can be retried) and make
+   * sure no logout ended the session meanwhile — one that landed between the spend and the new token
+   * would otherwise miss it. False: it did; the new token is ended too and the renewal must be refused.
+   */
+  async function completeRotation(spentToken: string, successorRefreshToken: string): Promise<boolean> {
+    await recordSuccessor(spentToken, successorRefreshToken);
+    if (!refreshStore.signedOut || !(await refreshStore.signedOut(hashRefreshToken(spentToken)))) return true;
+    await endSession(successorRefreshToken);
+    return false;
   }
 
   /** Revoke every refresh token for a user (logout-everywhere / after a password change). */
@@ -254,6 +294,8 @@ export function createTokenService({
     refreshTokenValid,
     rotateRefreshToken,
     revokeRefreshToken,
+    endSession,
+    completeRotation,
     revokeAllForUser,
   };
 }
