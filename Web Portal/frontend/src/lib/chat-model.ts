@@ -337,32 +337,3 @@ export function saveCollapsed(state: Record<string, boolean>): void {
     /* storage unavailable: remembered for this visit only */
   }
 }
-
-const OUTBOX_KEY = (userId: string) => `mico360.chat.outbox.${userId}`;
-
-/**
- * Text messages not confirmed by the server yet, kept in the browser so leaving the page (or a
- * reload) doesn't lose them. They come back waiting to be sent again — with the same id, so a
- * message that did reach the server isn't stored twice. Files can't be kept this way.
- */
-export function saveOutbox(userId: string, pending: PendingMessage[]): void {
-  try {
-    const keep = pending.filter((p) => p.files.length === 0);
-    if (keep.length) localStorage.setItem(OUTBOX_KEY(userId), JSON.stringify(keep));
-    else localStorage.removeItem(OUTBOX_KEY(userId));
-  } catch {
-    /* storage unavailable: kept for this visit only */
-  }
-}
-
-export function loadOutbox(userId: string): PendingMessage[] {
-  try {
-    const raw = JSON.parse(localStorage.getItem(OUTBOX_KEY(userId)) ?? '[]') as unknown;
-    if (!Array.isArray(raw)) return [];
-    return raw
-      .filter((p): p is PendingMessage => !!p && typeof p === 'object' && typeof (p as PendingMessage).clientId === 'string' && typeof (p as PendingMessage).conversationId === 'string' && typeof (p as PendingMessage).body === 'string')
-      .map((p) => ({ ...p, files: [], state: p.state === 'failed' ? 'failed' : 'queued' }));
-  } catch {
-    return [];
-  }
-}

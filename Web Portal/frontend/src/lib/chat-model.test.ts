@@ -15,8 +15,6 @@ import {
   loadCollapsed,
   saveCollapsed,
   formatSize,
-  loadOutbox,
-  saveOutbox,
   type PendingMessage,
 } from './chat-model';
 import type { ApiMessage, ConversationSummary } from '../api/chat';
@@ -242,25 +240,5 @@ describe('formatSize', () => {
     expect(formatSize(512)).toBe('512 B');
     expect(formatSize(2048)).toBe('2 KB');
     expect(formatSize(3.5 * 1024 * 1024)).toBe('3.5 MB');
-  });
-});
-
-describe('outbox — messages not sent yet survive leaving the page', () => {
-  beforeEach(() => localStorage.clear());
-  const pending = (over: Partial<PendingMessage>): PendingMessage => ({
-    clientId: 'k1', conversationId: 'c1', body: 'later', createdAt: '2026-10-10T08:00:00.000Z', state: 'queued', replyTo: null, files: [], ...over,
-  });
-  it('keeps text messages that are waiting, sending or failed — per person — and comes back with them waiting', () => {
-    saveOutbox('me', [pending({ clientId: 'a', state: 'sending' }), pending({ clientId: 'b', state: 'failed', error: 'Too long.' }), pending({ clientId: 'c', files: [{ name: 'x.png', size: 1, type: 'image/png', progress: 0 }] })]);
-    const back = loadOutbox('me');
-    expect(back.map((p) => [p.clientId, p.state])).toEqual([['a', 'queued'], ['b', 'failed']]);
-    expect(loadOutbox('someone-else')).toEqual([]);
-  });
-  it('forgets the outbox once it is empty, and ignores anything unreadable', () => {
-    saveOutbox('me', [pending({})]);
-    saveOutbox('me', []);
-    expect(Object.keys(localStorage)).toEqual([]);
-    localStorage.setItem('mico360.chat.outbox.me', '{not json');
-    expect(loadOutbox('me')).toEqual([]);
   });
 });
