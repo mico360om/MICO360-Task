@@ -7,6 +7,7 @@ import { ChatPage, CHAT_PAGE_SIZE } from './ChatPage';
 import { useAuthStore } from '../stores/auth-store';
 import { isChatMuted } from '../lib/notificationSound';
 import { viewingConversation } from '../lib/chat-sound';
+import { holdTab } from '../lib/chat-outbox';
 
 // The realtime hooks open socket.io connections — stub them and capture the event handlers.
 type Handler = (...a: unknown[]) => void;
@@ -1130,6 +1131,48 @@ describe('ChatPage open in two tabs (one browser storage)', () => {
     await waitFor(() => expect(sendsOf('after the file')).toHaveLength(1));
     const at = (pred: (p: { url: string; body: unknown }) => boolean) => posted.findIndex(pred);
     expect(at((p) => p.url.includes('/attachments'))).toBeLessThan(at((p) => (p.body as { body?: string }).body === 'after the file'));
+  });
+
+  it('leaving Chat while a file is uploading: the text written after it is still sent after it, once', async () => {
+    installLocks();
+    let finish: (r: Response) => void = () => {};
+    override = (u) => (u.includes('/attachments') ? new Promise<Response>((r) => { finish = r; }) : undefined);
+    await openTab(); // tab B stays on Chat
+    const tabA = await openTab();
+    const input = tabA.container.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [new File(['x'], 'plan.pdf', { type: 'application/pdf' })] } });
+    await waitFor(() => expect(posted.some((p) => p.url.includes('/attachments'))).toBe(true));
+    await userEvent.type(tabA.t.getByLabelText('Message'), 'after the upload{Enter}');
+    setOnline(true); // tab B looks at the outbox (and starts waiting for tab A's page to go)
+    await settle(100);
+    tabA.unmount(); // the person leaves Chat in tab A; its upload is still going
+    await settle(200);
+    expect(sendsOf('after the upload')).toHaveLength(0);
+    act(() => finish(json({ data: message({ id: 'f9', userId: 'me', body: '', attachments: [{ id: 'a9', messageId: 'f9', fileName: 'plan.pdf', mimeType: 'application/pdf', sizeBytes: 1, storageKey: 'k', createdAt: '', url: '/uploads/k' }] }) }, 201)));
+    await waitFor(() => expect(sendsOf('after the upload')).toHaveLength(1));
+    await waitFor(() => expect(outboxBodies()).toEqual([]));
+    await settle();
+    expect(sendsOf('after the upload')).toHaveLength(1);
+    const at = (pred: (p: { url: string; body: unknown }) => boolean) => posted.findIndex(pred);
+    expect(at((p) => p.url.includes('/attachments'))).toBeLessThan(at((p) => (p.body as { body?: string }).body === 'after the upload'));
+  });
+
+  it('a message another open page keeps is sent from here once that page is gone, with nothing else happening', async () => {
+    installLocks();
+    const tab = await openTab();
+    // Another chat page (tab C) keeps a message and is closed before sending it (its request was cut).
+    const releaseC = holdTab('tab-c');
+    await settle(50);
+    const entry = { clientId: 'from-c', conversationId: 'c1', body: 'written in tab C', createdAt: new Date().toISOString(), state: 'queued', replyTo: null, files: [], owner: 'tab-c' };
+    const key = 'mico360.chat.outbox.me.from-c';
+    localStorage.setItem(key, JSON.stringify(entry));
+    act(() => { window.dispatchEvent(new StorageEvent('storage', { key, oldValue: null, newValue: JSON.stringify(entry), storageArea: localStorage })); });
+    await settle(100);
+    expect(sendsOf('written in tab C')).toHaveLength(0); // its page is still open
+    releaseC();
+    await waitFor(() => expect(sendsOf('written in tab C')).toHaveLength(1));
+    await waitFor(() => expect(tab.t.getAllByText('written in tab C')).toHaveLength(1));
+    await waitFor(() => expect(outboxBodies()).toEqual([]));
   });
 
   it('a request stuck in one tab doesn’t hold up another tab’s messages', async () => {

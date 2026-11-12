@@ -229,7 +229,6 @@ export function ChatPage({ startDirectWith, openConversationId, onOpened }: Chat
   pendingRef.current = pending;
   /** This open chat page, as the other tabs know it: they leave its messages to it while it is open. */
   const [tabId] = useState(() => newClientId());
-  useEffect(() => holdTab(tabId), [tabId]);
   /** Messages known to have a stored entry (kept here, or found there): once it's gone, another tab finished it. */
   const [stored] = useState(() => new Set<string>());
   /** Messages this tab knows are finished (sent, discarded, or finished by another tab): never sent again from here. */
@@ -452,6 +451,14 @@ export function ChatPage({ startDirectWith, openConversationId, onOpened }: Chat
   const filesRef = useRef(new Map<string, File>());
   const inFlight = useRef(new Set<string>());
   const chain = useRef<Promise<void>>(Promise.resolve());
+  // This page is open (see tabId). Left while messages are still going (an upload, then the text after
+  // it), it lets the other tabs take over only once it has finished — so they never send a later one first.
+  useEffect(() => {
+    const release = holdTab(tabId);
+    return () => {
+      void chain.current.finally(release);
+    };
+  }, [tabId]);
   const updatePending = useCallback((clientId: string, patch: (p: PendingMessage) => Partial<PendingMessage>) => {
     setPending((list) => list.map((p) => (p.clientId === clientId ? { ...p, ...patch(p) } : p)));
   }, []);
@@ -575,14 +582,7 @@ export function ChatPage({ startDirectWith, openConversationId, onOpened }: Chat
   const pickUp = useCallback(async (send: boolean) => {
     const { take: found, open } = myId ? await orphanedOutbox(myId, tabId, goneTabs.current) : { take: [], open: [] };
     // Messages of a chat page still open elsewhere: picked up here as soon as that page is gone.
-    for (const owner of open) {
-      if (watching.current.has(owner)) continue;
-      watching.current.set(owner, whenTabGone(owner, () => {
-        watching.current.delete(owner);
-        goneTabs.current.add(owner);
-        void pickUpRef.current(true);
-      }));
-    }
+    for (const owner of open) watchTab(owner);
     const here = new Set(pendingRef.current.map((p) => p.clientId));
     const fresh = found.filter((p) => !here.has(p.clientId) && !finished.has(p.clientId));
     if (fresh.length) {
@@ -598,6 +598,17 @@ export function ChatPage({ startDirectWith, openConversationId, onOpened }: Chat
   const watching = useRef(new Map<string, () => void>());
   /** Chat pages known to be gone (tab ids are never used again). */
   const goneTabs = useRef(new Set<string>());
+  /** Once that other chat page is gone (closed, or Chat left there), pick up what it left waiting. */
+  function watchTab(owner: string) {
+    if (owner === tabId || watching.current.has(owner) || goneTabs.current.has(owner)) return;
+    watching.current.set(owner, whenTabGone(owner, () => {
+      watching.current.delete(owner);
+      goneTabs.current.add(owner);
+      void pickUpRef.current(true);
+    }));
+  }
+  const watchTabRef = useRef(watchTab);
+  watchTabRef.current = watchTab;
   useEffect(() => () => {
     for (const stop of watching.current.values()) stop();
     watching.current.clear();
@@ -632,7 +643,14 @@ export function ChatPage({ startDirectWith, openConversationId, onOpened }: Chat
         return;
       }
       const id = outboxClientId(myId, e.key);
-      if (id && !inFlight.current.has(id) && !finished.has(id) && goneElsewhere(id)) finishedElsewhere(id);
+      if (!id) return;
+      if (e.newValue !== null) {
+        // Another open page keeps a message: should that page go before sending it, it is picked up here.
+        const owner = readOutboxEntry(myId, id)?.owner;
+        if (owner) watchTabRef.current(owner);
+        return;
+      }
+      if (!inFlight.current.has(id) && !finished.has(id) && goneElsewhere(id)) finishedElsewhere(id);
     };
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);

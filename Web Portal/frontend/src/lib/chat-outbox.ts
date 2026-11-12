@@ -206,7 +206,10 @@ export function whenTabGone(tabId: string, gone: () => void): () => void {
   const stop = new AbortController();
   locks
     .request(`${TAB_LOCK}${tabId}`, { signal: stop.signal }, async () => {
-      if (!stop.signal.aborted) setTimeout(gone, 0); // let go of the lock at once; act after
+      // Let go of the lock at once; act after (unless this page was left meanwhile).
+      setTimeout(() => {
+        if (!stop.signal.aborted) gone();
+      }, 0);
     })
     .catch(() => {});
   return () => stop.abort();
