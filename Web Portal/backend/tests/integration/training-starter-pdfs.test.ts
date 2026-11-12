@@ -94,6 +94,29 @@ async function snapshot() {
   };
 }
 
+/** The real client, with `trainingFile.deleteMany` inside a transaction replaced by `swap` (a stand-in for the database). */
+function onDelete(swap: (t: Prisma.TransactionClient, real: Prisma.TransactionClient['trainingFile'], args: Prisma.TrainingFileDeleteManyArgs) => Promise<Prisma.BatchPayload>): PrismaClient {
+  return new Proxy(prisma, {
+    get(target, prop) {
+      if (prop !== '$transaction') return Reflect.get(target, prop);
+      return (fn: (tx: Prisma.TransactionClient) => Promise<unknown>, opts?: object) =>
+        target.$transaction(
+          (tx) =>
+            fn(
+              new Proxy(tx, {
+                get(t, p) {
+                  if (p !== 'trainingFile') return Reflect.get(t, p);
+                  const files = Reflect.get(t, p) as Prisma.TransactionClient['trainingFile'];
+                  return new Proxy(files, { get: (ft, fp) => (fp === 'deleteMany' ? (args: Prisma.TrainingFileDeleteManyArgs) => swap(t, ft, args) : Reflect.get(ft, fp)) });
+                },
+              }),
+            ),
+          opts,
+        );
+    },
+  });
+}
+
 const theSlides = () => prisma.trainingFile.findMany({ where: { starter: true, kind: 'RESOURCE' }, orderBy: { name: 'asc' } });
 
 async function clean() {
@@ -149,7 +172,7 @@ describe('1.23.25: the old starter how-to PDFs are removed once', () => {
     const after = await snapshot();
     const gone = new Set(slides.map((f) => f.id));
     expect(after).toEqual({ ...before, files: before.files.filter((f) => !gone.has(f.id)) });
-    expect((await prisma.systemSetting.findUniqueOrThrow({ where: { key: REMOVED_STARTER_PDFS_KEY } })).value).toBe('2026-11-13T05:00:00.000Z');
+    expect((await prisma.systemSetting.findUniqueOrThrow({ where: { key: REMOVED_STARTER_PDFS_KEY } })).value).toEqual({ at: '2026-11-13T05:00:00.000Z', removed: 2, leftKeys: [] });
     expect(r.log.infos.map((i) => i.msg).join('\n')).toMatch(/how-to/i);
     expect(r.log.warnings).toEqual([]);
   });
@@ -220,7 +243,7 @@ describe('1.23.25: the old starter how-to PDFs are removed once', () => {
     expect(await removal(() => new Date('2026-11-14T05:00:00.000Z')).run()).toEqual({ already: false, removed: 0, filesLeft: 0, lessonsUnlinked: 0, restored: 0 });
     expect(await snapshot()).toEqual(before);
     expect(readdirSync(privateDir).sort()).toEqual(onDisk);
-    expect((await prisma.systemSetting.findUniqueOrThrow({ where: { key: REMOVED_STARTER_PDFS_KEY } })).value).toBe('2026-11-14T05:00:00.000Z');
+    expect((await prisma.systemSetting.findUniqueOrThrow({ where: { key: REMOVED_STARTER_PDFS_KEY } })).value).toEqual({ at: '2026-11-14T05:00:00.000Z', removed: 0, leftKeys: [] });
   });
 
   it('a site without the slides (new, or never loaded) only records the step', async () => {
@@ -237,20 +260,33 @@ describe('1.23.25: the old starter how-to PDFs are removed once', () => {
     expect(r.log.warnings).toEqual([]);
   });
 
-  it('a file that cannot be deleted is warned about (with its key); the download still goes', async () => {
+  it('a file that cannot be deleted (after a few tries) is warned about and kept in the record; later runs delete it', async () => {
     await loadAsShipped();
     const store = createTrainingFileStore(privateDir);
     const stuck = (await theSlides()).find((f) => f.name.startsWith('Meetings'))!;
+    let tries = 0;
+    const warnings: { msg: string; meta?: Record<string, unknown> }[] = [];
     const r = createStarterPdfRemoval({
       prisma,
-      files: { ...store, dir: store.dir, remove: async (key: string) => (key === stuck.storageKey ? Promise.reject(Object.assign(new Error('busy'), { code: 'EBUSY' })) : store.remove(key)) },
+      files: { ...store, dir: store.dir, remove: async (key: string) => (key === stuck.storageKey ? (tries++, Promise.reject(Object.assign(new Error('busy'), { code: 'EBUSY' }))) : store.remove(key)) },
       now: () => new Date('2026-11-13T05:00:00.000Z'),
       logger: { info() {}, warn: (msg: string, meta?: Record<string, unknown>) => warnings.push({ msg, meta }) },
     });
-    const warnings: { msg: string; meta?: Record<string, unknown> }[] = [];
-    expect(await r.run()).toMatchObject({ removed: 2, filesLeft: 1 });
+    expect(await r.run()).toMatchObject({ already: false, removed: 2, filesLeft: 1 });
+    expect(tries).toBe(3);
     expect(await theSlides()).toEqual([]);
     expect(warnings.some((w) => w.meta?.storageKey === stuck.storageKey)).toBe(true);
+    expect(existsSync(join(privateDir, stuck.storageKey))).toBe(true);
+    expect((await prisma.systemSetting.findUniqueOrThrow({ where: { key: REMOVED_STARTER_PDFS_KEY } })).value).toEqual({ at: '2026-11-13T05:00:00.000Z', removed: 2, leftKeys: [stuck.storageKey] });
+    const before = await snapshot();
+
+    // The next run (the file is free again) deletes it and empties the list, and touches nothing else.
+    const next = removal(() => new Date('2026-11-13T11:00:00.000Z'));
+    expect(await next.run()).toEqual({ already: true, removed: 0, filesLeft: 0, lessonsUnlinked: 0, restored: 0 });
+    expect(existsSync(join(privateDir, stuck.storageKey))).toBe(false);
+    expect((await prisma.systemSetting.findUniqueOrThrow({ where: { key: REMOVED_STARTER_PDFS_KEY } })).value).toEqual({ at: '2026-11-13T05:00:00.000Z', removed: 2, leftKeys: [] });
+    expect(await snapshot()).toEqual(before);
+    expect(await removal().run()).toEqual({ already: true, removed: 0, filesLeft: 0, lessonsUnlinked: 0, restored: 0 });
   });
 
   it('found by its starter course even if the name were different; other starter files (pictures) stay', async () => {
@@ -273,7 +309,10 @@ describe('1.23.25: the old starter how-to PDFs are removed once', () => {
     const doc = await prisma.trainingLesson.create({ data: { courseId: tasks.id, position: 2, kind: 'DOCUMENT', title: 'Read the slides', minutes: 5, fileId: slide.id } });
     await prisma.trainingLesson.update({ where: { id: doc.id }, data: { updatedAt: new Date('2026-11-12T09:30:00.000Z') } });
 
-    expect(await removal().run()).toMatchObject({ removed: 2, lessonsUnlinked: 1 });
+    const r = removal();
+    expect(await r.run()).toMatchObject({ removed: 2, lessonsUnlinked: 1 });
+    // An administrator needs to know: the lesson is named in a warning.
+    expect(r.log.warnings.some((w) => /document lesson/i.test(w.msg) && JSON.stringify(w.meta).includes(doc.id) && JSON.stringify(w.meta).includes('Read the slides'))).toBe(true);
     const now = await prisma.trainingLesson.findUniqueOrThrow({ where: { id: doc.id } });
     expect(now.fileId).toBeNull();
     expect(now.updatedAt.toISOString()).toBe('2026-11-12T09:30:00.000Z');
@@ -284,35 +323,12 @@ describe('1.23.25: the old starter how-to PDFs are removed once', () => {
     await loadAsShipped();
     const before = await snapshot();
     // A stand-in for anything that would mark the course edited when a download goes (a trigger, say).
-    const meddling = new Proxy(prisma, {
-      get(target, prop) {
-        if (prop !== '$transaction') return Reflect.get(target, prop);
-        return (fn: (tx: Prisma.TransactionClient) => Promise<unknown>, opts?: object) =>
-          target.$transaction(
-            (tx) =>
-              fn(
-                new Proxy(tx, {
-                  get(t, p) {
-                    if (p !== 'trainingFile') return Reflect.get(t, p);
-                    const files = Reflect.get(t, p) as Prisma.TransactionClient['trainingFile'];
-                    return new Proxy(files, {
-                      get(ft, fp) {
-                        if (fp !== 'deleteMany') return Reflect.get(ft, fp);
-                        return async (args: Prisma.TrainingFileDeleteManyArgs) => {
-                          const out = await ft.deleteMany(args);
-                          const ids = (await t.trainingCourse.findMany({ where: { starterKey: { in: ['starter:tasks', 'starter:meetings'] } }, select: { id: true } })).map((c) => c.id);
-                          await t.trainingCourse.updateMany({ where: { id: { in: ids } }, data: { updatedById: 'system', version: { increment: 1 }, updatedAt: new Date() } });
-                          await t.trainingLesson.updateMany({ where: { courseId: { in: ids } }, data: { updatedAt: new Date() } });
-                          return out;
-                        };
-                      },
-                    });
-                  },
-                }),
-              ),
-            opts,
-          );
-      },
+    const meddling = onDelete(async (t, real, args) => {
+      const out = await real.deleteMany(args);
+      const ids = (await t.trainingCourse.findMany({ where: { starterKey: { in: ['starter:tasks', 'starter:meetings'] } }, select: { id: true } })).map((c) => c.id);
+      await t.trainingCourse.updateMany({ where: { id: { in: ids } }, data: { updatedById: 'system', version: { increment: 1 }, updatedAt: new Date() } });
+      await t.trainingLesson.updateMany({ where: { courseId: { in: ids } }, data: { updatedAt: new Date() } });
+      return out;
     });
     const r = createStarterPdfRemoval({ prisma: meddling, files: createTrainingFileStore(privateDir), now: () => new Date('2026-11-13T05:00:00.000Z') });
     const out = await r.run();
@@ -329,6 +345,44 @@ describe('1.23.25: the old starter how-to PDFs are removed once', () => {
     const [a, b] = await Promise.all([r.run(), r.run()]);
     expect(a).toEqual({ already: false, removed: 2, filesLeft: 0, lessonsUnlinked: 0, restored: 0 });
     expect(b).toBe(a);
+    expect(await theSlides()).toEqual([]);
+  });
+
+  it('two servers at once: both finish without an error, the downloads go once and the record is written once', async () => {
+    await loadAsShipped();
+    const before = await snapshot();
+    const outs = await Promise.all([removal().run(), removal().run()]);
+    expect(outs.reduce((n, o) => n + o.removed, 0)).toBe(2);
+    expect(await theSlides()).toEqual([]);
+    expect(await prisma.systemSetting.count({ where: { key: REMOVED_STARTER_PDFS_KEY } })).toBe(1);
+    const after = await snapshot();
+    expect(after.courses).toEqual(before.courses);
+    expect(after.lessons).toEqual(before.lessons);
+  });
+
+  it('a database failure after the files went leaves the rows and no record; the next run finishes the job', async () => {
+    await loadAsShipped();
+    const slides = await theSlides();
+    const failing = onDelete(async () => Promise.reject(Object.assign(new Error('Lost connection to the server during query'), { code: 'P1017' })));
+    await expect(createStarterPdfRemoval({ prisma: failing, files: createTrainingFileStore(privateDir) }).run()).rejects.toThrow(/Lost connection/);
+    expect((await theSlides()).map((f) => f.id).sort()).toEqual(slides.map((f) => f.id).sort());
+    for (const f of slides) expect(existsSync(join(privateDir, f.storageKey))).toBe(false);
+    expect(await prisma.systemSetting.count({ where: { key: REMOVED_STARTER_PDFS_KEY } })).toBe(0);
+
+    expect(await removal().run()).toEqual({ already: false, removed: 2, filesLeft: 0, lessonsUnlinked: 0, restored: 0 });
+    expect(await theSlides()).toEqual([]);
+  });
+
+  it('a deadlock or write conflict is tried again in the same run', async () => {
+    await loadAsShipped();
+    let calls = 0;
+    const flaky = onDelete(async (_t, real, args) => {
+      calls++;
+      if (calls === 1) throw Object.assign(new Error('Transaction failed due to a write conflict or a deadlock. Please retry your transaction'), { code: 'P2034' });
+      return real.deleteMany(args);
+    });
+    expect(await createStarterPdfRemoval({ prisma: flaky, files: createTrainingFileStore(privateDir) }).run()).toMatchObject({ already: false, removed: 2 });
+    expect(calls).toBe(2);
     expect(await theSlides()).toEqual([]);
   });
 });
