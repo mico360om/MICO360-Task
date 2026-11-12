@@ -15,57 +15,6 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 ## [Unreleased]
 
 ### New features
-- Task archive: a task you no longer need on the boards can be archived ("Archive" in the task's ⋯ menu, for
-  administrators and the people who run its project). It leaves every board, list, My Tasks, the calendar,
-  the Timeline, Workload, dashboards, reminders and the daily email, and is read-only, but nothing is lost:
-  search still finds it (marked "Archived"), its panel says "Archived on 3 Nov by Ali — read-only" with
-  Unarchive, and the project page's "Archived tasks" lists them for anyone on the project. Archiving shows
-  "RIG-12 archived · Undo" for a few seconds. A finished task you archive still counts as done in every
-  figure (completion %, health, Management, the client's page), so archiving finished work never lowers a %;
-  an unfinished one leaves the figures until it is unarchived.
-- Reports: a finished task you archive still counts as done in every chart, tile and export (so archiving
-  never lowers a %). "Include archived" (off by default) also counts the unfinished archived tasks and lists
-  every archived task in the exports, marked "Archived".
-- A repeating task whose newest copy is archived keeps going: its future days still show on the calendar and
-  its schedule on the project's Inspections tab.
-- Change many tasks at once: tick tasks on My Tasks (Grid, List and Table), a project's Tasks tab, any Table
-  view, or on the Kanban board after pressing **Select** (a box on each card and on each column; Shift-click
-  ticks a range; Escape leaves). "Select all 143 matching" ticks every task the filters leave, and ticked
-  tasks stay ticked when the filters change ("12 selected (3 hidden by filters)"). The bar at the foot of the
-  window (a sheet on a phone) changes their status, priority, people (assign, reassign, unassign), due date
-  (set, clear, or move by days), project, categories and guests, duplicates them, archives or unarchives them,
-  moves them to the Recycle Bin or merges them — up to 500 tasks at a time (20 for Duplicate). Each change is
-  confirmed first ("Move 12 tasks to Done? 2 will be skipped: you can’t move tasks in Rig 3."), then summed up
-  ("18 updated · 2 not changed", the skipped ones listed with why, "Select the 2 skipped" to try again) with
-  Undo for 15 seconds.
-- Everyone can use bulk changes, and each task is changed only as its own rules allow — who may see it,
-  its project's team, approvals (a task that needs approval moved to Done waits for approval), the delete
-  rule, archive and the guests rule (a task with guests always keeps someone from the team); a task you
-  can't open is never named. Undo puts back only what nobody changed since, gives a moved task its old
-  number back, and erases copies made by Duplicate at once. The people on the tasks get one notice for the
-  whole change ("Sara assigned you 12 tasks in Rig 3"), open boards refresh once, and the Audit log keeps
-  one line for it.
-- A new daily email: wider (720 px on a computer, fitting any phone), compact and clear, in the site's colour
-  scheme and readable in light and dark mode, in Outlook, Gmail and phone mail apps. It opens with **Today at a
-  glance** — your open, in progress, not started and overdue tasks and how many you finished this week (Overdue
-  turns red when anything is late) — then **This week** (how many of this week's tasks are done, with a bar, and
-  the tasks you finished each day of the last 7 days against the week before) beside **By priority** (urgent,
-  high, normal, low, each with a bar). Then **Overdue** ("3 days late", with a red edge), **Due today**
-  ("today 14:00"), **Coming up** (the next 7 days, and tasks that start on a later day) and **Other open tasks**
-  (the rest, by project — nothing is left out), **Today's meetings** and **Completed yesterday**. Every task shows
-  its number, title, project, status and priority (word and colour), its day, its categories and guests ("Guest:
-  Ahmed (OXY)") and, when it has one, its checklist ("4/7 · 57%" with a small bar). Archived tasks are left out
-  (a finished one you archived still counts in This week and Your projects). Your week starts on your own week start and every day and time is in your own
-  time zone.
-- For people who run projects (and administrators, for the projects they run): **Your projects** — each project's
-  completion bar (as the Projects page counts it), how many tasks are overdue and how many wait for your approval
-  — above the list of others' overdue and waiting tasks. Only projects you can see.
-- Settings → Daily email has a switch for every part, in the email's order. The five new parts are on; if you had
-  turned "Your tasks" or "Recently completed" off, the new parts that go with them stay off. The phone app's and
-  the extension's switches keep working as before.
-- **Preview my email**, for everyone in Settings → Daily email (next to "Send me a test") and for administrators
-  in System settings → Daily email: your own email as it would be sent now, at a computer's or a phone's width —
-  only ever your own; it works before email is set up, and sends nothing.
 - **Notification & Scheduling** (System Settings → Notification & Scheduling, per company): one place for
   working time (days, hours, week start; the site's time zone shown), holidays, reminders, escalations,
   inactivity, quiet hours and channels, with "Preview for a person" showing what someone would get this
@@ -196,9 +145,6 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   administrator powers).
 
 ### Improvements
-- The daily email stays within Gmail's size limit on busy days by trimming the less urgent lists first (overdue
-  and due-today tasks keep the most rows), and says how many more there are and where. An email with nothing
-  in it is still not sent.
 - The Android app (unchanged) still moves only a task's due date on its calendar; the website's calendar now
   moves start and due together.
 - Quiet hours (outside working hours and on days off, unless changed): the bell still fills, but phone
@@ -220,6 +166,66 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   you pass or have no attempts left.
 - The site's security policy allows exactly YouTube's privacy-enhanced player and Vimeo's player to show
   lesson videos (no other site, no outside scripts).
+
+## [1.23.21] - 2026-11-12
+
+### New features
+- Task archive: a task you no longer need on the boards can be archived ("Archive" in the task's ⋯ menu, for
+  administrators and the people who run its project). It leaves every board, list, My Tasks, the calendar,
+  the Timeline, Workload, dashboards, reminders and the daily email, and is read-only, but nothing is lost:
+  search still finds it (marked "Archived"), its panel says "Archived on 3 Nov by Ali — read-only" with
+  Unarchive, and the project page's "Archived tasks" lists them for anyone on the project. Archiving shows
+  "RIG-12 archived · Undo" for a few seconds. A finished task you archive still counts as done in every
+  figure (completion %, health, Management, the client's page), so archiving finished work never lowers a %;
+  an unfinished one leaves the figures until it is unarchived.
+- Reports: a finished task you archive still counts as done in every chart, tile and export (so archiving
+  never lowers a %). "Include archived" (off by default) also counts the unfinished archived tasks and lists
+  every archived task in the exports, marked "Archived".
+- A repeating task whose newest copy is archived keeps going: its future days still show on the calendar and
+  its schedule on the project's Inspections tab.
+- Change many tasks at once: tick tasks on My Tasks (Grid, List and Table), a project's Tasks tab, any Table
+  view, or on the Kanban board after pressing **Select** (a box on each card and on each column; Shift-click
+  ticks a range; Escape leaves). "Select all 143 matching" ticks every task the filters leave, and ticked
+  tasks stay ticked when the filters change ("12 selected (3 hidden by filters)"). The bar at the foot of the
+  window (a sheet on a phone) changes their status, priority, people (assign, reassign, unassign), due date
+  (set, clear, or move by days), project, categories and guests, duplicates them, archives or unarchives them,
+  moves them to the Recycle Bin or merges them — up to 500 tasks at a time (20 for Duplicate). Each change is
+  confirmed first ("Move 12 tasks to Done? 2 will be skipped: you can’t move tasks in Rig 3."), then summed up
+  ("18 updated · 2 not changed", the skipped ones listed with why, "Select the 2 skipped" to try again) with
+  Undo for 15 seconds.
+- Everyone can use bulk changes, and each task is changed only as its own rules allow — who may see it,
+  its project's team, approvals (a task that needs approval moved to Done waits for approval), the delete
+  rule, archive and the guests rule (a task with guests always keeps someone from the team); a task you
+  can't open is never named. Undo puts back only what nobody changed since, gives a moved task its old
+  number back, and erases copies made by Duplicate at once. The people on the tasks get one notice for the
+  whole change ("Sara assigned you 12 tasks in Rig 3"), open boards refresh once, and the Audit log keeps
+  one line for it.
+- A new daily email: wider (720 px on a computer, fitting any phone), compact and clear, in the site's colour
+  scheme and readable in light and dark mode, in Outlook, Gmail and phone mail apps. It opens with **Today at a
+  glance** — your open, in progress, not started and overdue tasks and how many you finished this week (Overdue
+  turns red when anything is late) — then **This week** (how many of this week's tasks are done, with a bar, and
+  the tasks you finished each day of the last 7 days against the week before) beside **By priority** (urgent,
+  high, normal, low, each with a bar). Then **Overdue** ("3 days late", with a red edge), **Due today**
+  ("today 14:00"), **Coming up** (the next 7 days, and tasks that start on a later day) and **Other open tasks**
+  (the rest, by project — nothing is left out), **Today's meetings** and **Completed yesterday**. Every task shows
+  its number, title, project, status and priority (word and colour), its day, its categories and guests ("Guest:
+  Ahmed (OXY)") and, when it has one, its checklist ("4/7 · 57%" with a small bar). Archived tasks are left out
+  (a finished one you archived still counts in This week and Your projects). Your week starts on your own week start and every day and time is in your own
+  time zone.
+- For people who run projects (and administrators, for the projects they run): **Your projects** — each project's
+  completion bar (as the Projects page counts it), how many tasks are overdue and how many wait for your approval
+  — above the list of others' overdue and waiting tasks. Only projects you can see.
+- Settings → Daily email has a switch for every part, in the email's order. The five new parts are on; if you had
+  turned "Your tasks" or "Recently completed" off, the new parts that go with them stay off. The phone app's and
+  the extension's switches keep working as before.
+- **Preview my email**, for everyone in Settings → Daily email (next to "Send me a test") and for administrators
+  in System settings → Daily email: your own email as it would be sent now, at a computer's or a phone's width —
+  only ever your own; it works before email is set up, and sends nothing.
+
+### Improvements
+- The daily email stays within Gmail's size limit on busy days by trimming the less urgent lists first (overdue
+  and due-today tasks keep the most rows), and says how many more there are and where. An email with nothing
+  in it is still not sent.
 
 ## [1.23.20] - 2026-11-12
 
