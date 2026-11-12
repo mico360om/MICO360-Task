@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { BUSY_ELSEWHERE, dropFromOutbox, holdTab, keepInOutbox, loadOutbox, orphanedOutbox, outboxClientId, readOutboxEntry, withSendClaim } from './chat-outbox';
+import { BUSY_ELSEWHERE, dropFromOutbox, holdTab, keepInOutbox, loadOutbox, orphanedOutbox, outboxClientId, readOutboxEntry, whenTabGone, withSendClaim } from './chat-outbox';
 import type { PendingMessage } from './chat-model';
 
 const pending = (over: Partial<PendingMessage>): PendingMessage => ({
@@ -171,16 +171,37 @@ describe('only messages of tabs that are gone are picked up by another tab', () 
     keepInOutbox('me', pending({ clientId: 'mine', createdAt: '2026-10-10T08:02:00.000Z' }), 'tab-b');
     localStorage.setItem('mico360.chat.outbox.me.legacy-like', JSON.stringify(pending({ clientId: 'legacy-like', createdAt: '2026-10-10T08:03:00.000Z' })));
     // Tab B: its own are already on its page; tab A is open; tab-gone was closed; one without a writer (older version).
-    expect(ids(await orphanedOutbox('me', 'tab-b'))).toEqual(['from-closed', 'legacy-like']);
-    releaseA();
+    const now = await orphanedOutbox('me', 'tab-b');
+    expect(ids(now.take)).toEqual(['from-closed', 'legacy-like']);
+    expect(now.open).toEqual(['tab-a']); // to be picked up once it is gone
+    // Once this tab knows tab A is gone, its lock looking held a moment longer doesn't matter.
+    expect(ids((await orphanedOutbox('me', 'tab-b', new Set(['tab-a']))).take)).toEqual(['from-a', 'from-closed', 'legacy-like']);
+    let gone = false;
+    whenTabGone('tab-a', () => { gone = true; });
     await new Promise((r) => setTimeout(r, 0));
-    expect(ids(await orphanedOutbox('me', 'tab-b'))).toEqual(['from-a', 'from-closed', 'legacy-like']);
+    expect(gone).toBe(false);
+    releaseA();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(gone).toBe(true);
+    expect(ids((await orphanedOutbox('me', 'tab-b')).take)).toEqual(['from-a', 'from-closed', 'legacy-like']);
   });
 
   it('without Web Locks it can’t tell, and picks up every message not its own (the server keeps each once)', async () => {
     keepInOutbox('me', pending({ clientId: 'from-a' }), 'tab-a');
     keepInOutbox('me', pending({ clientId: 'mine', createdAt: '2026-10-10T08:02:00.000Z' }), 'tab-b');
-    expect(ids(await orphanedOutbox('me', 'tab-b'))).toEqual(['from-a']);
+    expect(await orphanedOutbox('me', 'tab-b')).toMatchObject({ take: [{ clientId: 'from-a' }], open: [] });
+  });
+
+  it('stops waiting for a tab to go when asked (this page is left first)', async () => {
+    installLocks();
+    holdTab('tab-a');
+    await Promise.resolve();
+    let gone = false;
+    const stop = whenTabGone('tab-a', () => { gone = true; });
+    stop();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(gone).toBe(false);
+    expect(() => whenTabGone('tab-x', () => {})()).not.toThrow();
   });
 
   it('a tab waits only so long for another tab sending the same message, then leaves it to that tab', async () => {

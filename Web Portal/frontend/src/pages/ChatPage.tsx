@@ -35,7 +35,7 @@ import {
   type PendingMessage,
   type ShownMessage,
 } from '../lib/chat-model';
-import { BUSY_ELSEWHERE, dropFromOutbox, holdTab, keepInOutbox, orphanedOutbox, outboxClientId, readOutboxEntry, withSendClaim } from '../lib/chat-outbox';
+import { BUSY_ELSEWHERE, dropFromOutbox, holdTab, keepInOutbox, orphanedOutbox, outboxClientId, readOutboxEntry, whenTabGone, withSendClaim } from '../lib/chat-outbox';
 import { ChatSidebar, type SectionKey } from '../components/chat/ChatSidebar';
 import { Composer } from '../components/chat/Composer';
 import { MessageItem, type MessageActions } from '../components/chat/MessageItem';
@@ -573,7 +573,16 @@ export function ChatPage({ startDirectWith, openConversationId, onOpened }: Chat
   // it could send (the messages of a chat page still open elsewhere are left to it) — and, when asked
   // and online, send what is waiting, oldest first.
   const pickUp = useCallback(async (send: boolean) => {
-    const found = myId ? await orphanedOutbox(myId, tabId) : [];
+    const { take: found, open } = myId ? await orphanedOutbox(myId, tabId, goneTabs.current) : { take: [], open: [] };
+    // Messages of a chat page still open elsewhere: picked up here as soon as that page is gone.
+    for (const owner of open) {
+      if (watching.current.has(owner)) continue;
+      watching.current.set(owner, whenTabGone(owner, () => {
+        watching.current.delete(owner);
+        goneTabs.current.add(owner);
+        void pickUpRef.current(true);
+      }));
+    }
     const here = new Set(pendingRef.current.map((p) => p.clientId));
     const fresh = found.filter((p) => !here.has(p.clientId) && !finished.has(p.clientId));
     if (fresh.length) {
@@ -583,6 +592,16 @@ export function ChatPage({ startDirectWith, openConversationId, onOpened }: Chat
     if (!send || isOffline()) return;
     for (const p of [...pendingRef.current, ...fresh].sort(oldestFirst)) if (p.state === 'queued') void deliverRef.current(p);
   }, [myId, tabId, stored, finished]);
+  const pickUpRef = useRef(pickUp);
+  pickUpRef.current = pickUp;
+  /** The other open chat pages this one waits on (see pickUp), each with its "stop waiting". */
+  const watching = useRef(new Map<string, () => void>());
+  /** Chat pages known to be gone (tab ids are never used again). */
+  const goneTabs = useRef(new Set<string>());
+  useEffect(() => () => {
+    for (const stop of watching.current.values()) stop();
+    watching.current.clear();
+  }, []);
   // Back online (or the live connection is back): send what was waiting.
   const flushQueued = useCallback(() => {
     void pickUp(true);

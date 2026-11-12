@@ -176,16 +176,40 @@ async function openTabs(): Promise<Set<string> | null> {
 }
 
 /**
- * The messages this tab should take over, oldest first: those whose tab is gone (closed, or its chat page
- * left) and those an older version kept (no tab named) — never this tab's own (already on its page), nor
- * those of another chat page that is still open. When the browser can't tell which tabs are open, every
- * message not this tab's own (the send lock and the server's one-copy-per-id still keep each sent once).
+ * The messages this tab should take over (`take`, oldest first): those whose tab is gone (closed, or its
+ * chat page left) and those an older version kept (no tab named) — never this tab's own (already on its
+ * page), nor those of another chat page that is still open (`open`: the tabs to wait for, see whenTabGone).
+ * When the browser can't tell which tabs are open, every message not this tab's own (the send lock and
+ * the server's one-copy-per-id still keep each sent once). `gone`: tabs already known to be gone (their
+ * lock may look held a moment longer).
  */
-export async function orphanedOutbox(userId: string, tabId: string): Promise<StoredMessage[]> {
+export async function orphanedOutbox(userId: string, tabId: string, gone: ReadonlySet<string> = new Set()): Promise<{ take: StoredMessage[]; open: string[] }> {
   const others = loadOutbox(userId).filter((p) => p.owner !== tabId);
-  if (!others.some((p) => p.owner)) return others;
-  const open = await openTabs();
-  return open ? others.filter((p) => !p.owner || !open.has(p.owner)) : others;
+  if (!others.some((p) => p.owner && !gone.has(p.owner))) return { take: others, open: [] };
+  const found = await openTabs();
+  if (!found) return { take: others, open: [] };
+  const live = new Set([...found].filter((t) => !gone.has(t)));
+  return {
+    take: others.filter((p) => !p.owner || !live.has(p.owner)),
+    open: [...new Set(others.map((p) => p.owner).filter((o): o is string => !!o && live.has(o)))],
+  };
+}
+
+/**
+ * Be told once another chat page is gone (its tab closed, or Chat left there) — the browser hands its
+ * lock on then — so its waiting messages are picked up even with nothing else happening here. Returns
+ * the function that stops waiting (this page is left first).
+ */
+export function whenTabGone(tabId: string, gone: () => void): () => void {
+  const locks = webLocks();
+  if (!locks || typeof AbortController === 'undefined') return () => {};
+  const stop = new AbortController();
+  locks
+    .request(`${TAB_LOCK}${tabId}`, { signal: stop.signal }, async () => {
+      if (!stop.signal.aborted) setTimeout(gone, 0); // let go of the lock at once; act after
+    })
+    .catch(() => {});
+  return () => stop.abort();
 }
 
 /**

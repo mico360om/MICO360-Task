@@ -1005,7 +1005,8 @@ describe('ChatPage open in two tabs (one browser storage)', () => {
         return new Promise((resolve, reject) => {
           const start = () => {
             held.add(name);
-            Promise.resolve().then(cb).then(resolve, reject).finally(() => { held.delete(name); grant(name); });
+            // A browser lets go of a lock a moment after its holder is done (or its tab closed).
+            Promise.resolve().then(cb).then(resolve, reject).finally(() => setTimeout(() => { held.delete(name); grant(name); }, 20));
           };
           if (!held.has(name) && !queues.get(name)?.length) return start();
           const q = queues.get(name) ?? [];
@@ -1095,6 +1096,21 @@ describe('ChatPage open in two tabs (one browser storage)', () => {
     expect(sendsOf('offline in C')).toHaveLength(1);
     expect(tabA.t.getAllByText('offline in A')).toHaveLength(1);
     expect(tabB.t.getAllByText('offline in B')).toHaveLength(1);
+  });
+
+  it('a tab closed just before the connection comes back: its message is sent, once, as soon as the browser lets go of it', async () => {
+    installLocks();
+    await openTab(); // tab A stays open
+    const tabC = await openTab();
+    setOnline(false);
+    await userEvent.type(tabC.t.getByLabelText('Message'), 'left behind{Enter}');
+    await waitFor(() => expect(outboxBodies()).toEqual(['left behind']));
+    tabC.unmount();
+    setOnline(true); // at once: the closed tab's lock isn't let go of yet
+    await waitFor(() => expect(sendsOf('left behind')).toHaveLength(1));
+    await waitFor(() => expect(outboxBodies()).toEqual([]));
+    await settle();
+    expect(sendsOf('left behind')).toHaveLength(1);
   });
 
   it('never sends an open tab’s text ahead of the file it sent before it', async () => {
