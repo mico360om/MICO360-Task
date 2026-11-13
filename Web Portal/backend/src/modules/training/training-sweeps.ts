@@ -1,6 +1,7 @@
 import { createPrismaReminderKeys, type ReminderKeyStore } from '../notify-policy/planner-sweep';
-import { inScope } from './training-access';
-import { trainingManagersFor, type TrainingContext } from './training-context';
+import { canLearn, inScope } from './training-access';
+import { courseFacts, trainingManagersFor, type TrainingContext } from './training-context';
+import { COURSE, createTrainingFinish, finishedUnsettled, type CourseRow } from './training-finish';
 import { readSetting, type PersonRecord } from './prisma-training-store';
 import { loadStates, pairKey, type PairState } from './training-read';
 import { planTrainingReminders, type PlannedNotice, type ReminderCertificate, type ReminderEnrolment, type ReminderRules } from './training-reminders';
@@ -15,6 +16,8 @@ import type { SyncResult, TrainingSync } from './training-sync';
  *               step is never sent twice (a failed send is not retried). The very first run after the
  *               upgrade records every key and sends nothing (system_settings `training.remindersSince`),
  *               so nobody gets a burst of old reminders.
+ *               Final review (1.23.32): someone with every module they see done isn't reminded (nothing is left for
+ *               them to do); when their own role or company shrank while part-way, they are finished here first.
  *   membership  every 15 minutes: the membership-following sync (training-sync.ts).
  */
 
@@ -96,12 +99,28 @@ export async function deliverReminders(notices: readonly PlannedNotice[], d: { k
 export function createTrainingSweeps(ctx: TrainingContext, sync: TrainingSync, deps: { keys?: ReminderKeyStore } = {}) {
   const { prisma } = ctx;
   const keys = deps.keys ?? createPrismaReminderKeys(prisma);
+  const finish = createTrainingFinish(ctx);
+
+  /**
+   * Final review (1.23.32): every module the person sees is done but they aren't finished — their own role or company
+   * shrank while part-way. They are finished now (the module records, the completion and the certificate, once) when
+   * they may take the course; either way they get no reminder. A failure is warned (the next run tries again).
+   */
+  async function settleFinished(course: CourseRow, p: PersonRecord, s: PairState): Promise<void> {
+    if (!canLearn(courseFacts(course), p)) return;
+    try {
+      await finish.settle(p.id, course, s, { person: p });
+    } catch (err) {
+      ctx.logger?.warn('training: finishing could not be checked for one person', { courseId: course.id, userId: p.id, err: String((err as Error)?.message ?? err) });
+    }
+  }
 
   /** Today's training notices (after expired certificates have started their retakes). */
   async function plan(): Promise<PlannedNotice[]> {
     await sync.applyExpiry();
-    const courses = await prisma.trainingCourse.findMany({ where: { status: 'PUBLISHED' }, select: { id: true, title: true } });
+    const courses = await prisma.trainingCourse.findMany({ where: { status: 'PUBLISHED' }, select: COURSE });
     if (courses.length === 0) return [];
+    const courseOf = new Map(courses.map((c) => [c.id, c]));
     const titles = new Map(courses.map((c) => [c.id, c.title]));
     const courseIds = courses.map((c) => c.id);
     const enrolments = await prisma.trainingEnrolment.findMany({ where: { withdrawnAt: null, courseId: { in: courseIds } }, select: { id: true, userId: true, courseId: true } });
@@ -131,6 +150,10 @@ export function createTrainingSweeps(ctx: TrainingContext, sync: TrainingSync, d
       const s = states.get(pairKey(e.userId, e.courseId));
       const p = people.get(e.userId)!;
       if (!s) continue;
+      if (finishedUnsettled(s)) {
+        await settleFinished(courseOf.get(e.courseId)!, p, s);
+        continue;
+      }
       const m = p.client ? { tms: [], admins: [] } : managersOf(p);
       reminderEnrolments.push({
         enrolmentId: e.id,

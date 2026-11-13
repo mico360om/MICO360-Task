@@ -54,6 +54,19 @@ const doneModuleIds = (state: PairState): string[] => state.units.filter((u) => 
 const finishedAll = (rule: string, state: PairState): boolean => (state.modules.length > 0 ? allUnitsDone(state.units) : isCourseComplete(rule, state.lessons, state.doneIds));
 
 /**
+ * Final review (1.23.32): a course with modules where every module the person sees is done, yet they aren't finished
+ * (nor reviewing; a retake whose modules are all done again counts) — their own role or company shrank while they were
+ * part-way, so what they still had to do is no longer theirs, and nothing they do next would finish them. The readers
+ * (the learner's My training, course page and badge; the reminders sweep) `settle` them (once, whoever is first).
+ * A withdrawn enrolment is left alone.
+ */
+export function finishedUnsettled(state: PairState): boolean {
+  const e = state.enrolment;
+  const status = state.state.status;
+  return !!e && !e.withdrawnAt && state.modules.length > 0 && status !== 'COMPLETED' && status !== 'REVIEW' && allUnitsDone(state.units);
+}
+
+/**
  * Batch 4b's delete impact, 1.23.31: the person's state as it would be read without this lesson — gone from their
  * lessons and from its module (each module's progress worked out again, a module left with no lesson gone, as
  * loadStates would read it), so `finishedAll` asks what settle would ask after the deletion.

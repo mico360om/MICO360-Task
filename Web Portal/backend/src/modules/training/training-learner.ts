@@ -5,7 +5,7 @@ import { CLIENT_WORDS } from '../clients/client-kind';
 import { canLearn, inScope, isManager, moduleShown } from './training-access';
 import { buildCertificatePdf, certificateFileName } from './training-certificate-pdf';
 import { certificateStatus, normaliseCode, verifyLink } from './training-certificates';
-import { COURSE, createTrainingFinish, type CourseRow } from './training-finish';
+import { COURSE, createTrainingFinish, finishedUnsettled, type CourseRow } from './training-finish';
 import { conflict, courseFacts, idOf, notFound, scopeOf, trainingManagersFor, type TrainingContext } from './training-context';
 import { loadPeople, readSetting, stringList, type PersonRecord } from './prisma-training-store';
 import { OTHER_UNIT, continueTarget } from './training-modules';
@@ -62,6 +62,10 @@ import { videoInfo } from './training-video';
  * lesson of a module hidden from them is "not found" (pictures and documents too); a Training manager or
  * administrator may read it (preview) but never take it (NOT_FOR_YOU). An old short course merged into the one course
  * (and a lesson removed as a duplicate) answers 404 COURSE_MOVED with where it lives now (the conversion's record).
+ *
+ * Final review (1.23.32): answered questions about a lesson of a module hidden from the reader aren't shown to them
+ * (their own always are); and someone whose own role or company shrank while part-way, leaving every module they see
+ * done, is finished (with the certificate) the next time My training, a course page or the badge reads their state.
  */
 export type LearnerMode = 'staff' | 'client';
 
@@ -308,6 +312,35 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync, 
     }
   }
 
+  /**
+   * Final review (1.23.32): the person's courses (with modules) where every module they see is done but they aren't
+   * finished — their own role or company shrank while part-way — are finished now (`settle`: the module records, the
+   * completion and the certificate, once), and those states read again. Only a course they may take; only those pairs,
+   * so an ordinary read costs nothing more. A failure is warned and the read goes on (the next one tries again).
+   */
+  async function settleFinished(p: PersonRecord, mode: LearnerMode, courses: readonly CourseRow[], states: Map<string, PairState>): Promise<Map<string, PairState>> {
+    const due = courses.filter((c) => {
+      const s = states.get(pairKey(p.id, c.id));
+      return !!s && learnable(c, p, mode) && finishedUnsettled(s);
+    });
+    if (due.length === 0) return states;
+    for (const c of due) {
+      try {
+        await finish.settle(p.id, c, states.get(pairKey(p.id, c.id))!, { person: p });
+      } catch (err) {
+        ctx.logger?.warn('training: finishing could not be checked for one person', { courseId: c.id, userId: p.id, err: String((err as Error)?.message ?? err) });
+      }
+    }
+    const again = await loadStates(ctx, due.map((c) => ({ userId: p.id, courseId: c.id })), asked(p));
+    return new Map([...states, ...again]);
+  }
+
+  /** One person on one course, read as they see it (and finished when only their own shrinking held it: settleFinished). */
+  async function stateOf(p: PersonRecord, course: CourseRow, mode: LearnerMode): Promise<PairState> {
+    const key = pairKey(p.id, course.id);
+    return (await settleFinished(p, mode, [course], new Map([[key, await loadState(ctx, p.id, course.id, p)]]))).get(key)!;
+  }
+
   // ── Cards ──
 
   async function certificateRefs(rows: { id: string; code: string; courseId: string; courseTitle: string; issuedAt: Date; expiresAt: Date | null; revokedAt: Date | null; learnerName?: string; completedAt?: Date | null }[]): Promise<CertificateRef[]> {
@@ -395,7 +428,7 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync, 
       select: COURSE,
       orderBy: [{ position: 'asc' }, { title: 'asc' }],
     });
-    const states = await loadStates(ctx, courses.map((c) => ({ userId: p.id, courseId: c.id })), asked(p));
+    const states = await settleFinished(p, mode, courses, await loadStates(ctx, courses.map((c) => ({ userId: p.id, courseId: c.id })), asked(p)));
     const out: { course: CourseRow; state: PairState }[] = [];
     for (const course of courses) {
       const state = states.get(pairKey(p.id, course.id))!;
@@ -469,7 +502,7 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync, 
       orderBy: [{ position: 'asc' }, { title: 'asc' }, { id: 'asc' }],
     });
     const takeable = courses.filter((c) => learnable(c, p, mode));
-    const states = await loadStates(ctx, takeable.map((c) => ({ userId: p.id, courseId: c.id })), asked(p));
+    const states = await settleFinished(p, mode, takeable, await loadStates(ctx, takeable.map((c) => ({ userId: p.id, courseId: c.id })), asked(p)));
     const moduleOf = new Map<string, string>();
     if (!filters.module) return { courses: takeable, states, moduleOf };
     const mine = takeable.filter((c) => {
@@ -516,9 +549,21 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync, 
     return rows.filter((r) => r.userId === p.id || colleagues.has(r.userId)).slice(0, 200);
   }
 
+  /**
+   * Final review (1.23.32): a course with modules — a question about a lesson that isn't one of the reader's (a module
+   * hidden from them, or a lesson gone since) is theirs only when they asked it; one about no lesson is everyone's. The
+   * conversion brought every merged short course's questions in (Admin settings and Reports ones too). A plain course:
+   * as before.
+   */
+  function questionsTheyMaySee<T extends { userId: string; lessonId: string | null }>(p: PersonRecord, state: PairState, rows: T[]): T[] {
+    if (!withModules(state)) return rows;
+    const theirs = new Set(state.lessons.map((l) => l.id));
+    return rows.filter((r) => r.userId === p.id || r.lessonId === null || theirs.has(r.lessonId));
+  }
+
   async function detailOf(p: PersonRecord, course: CourseRow, a: 'learn' | 'preview', mode: LearnerMode): Promise<CourseDetail> {
-    // A manager's preview follows their own view too: their modules, their lessons.
-    const state = await loadState(ctx, p.id, course.id, p);
+    // A manager's preview follows their own view too: their modules, their lessons (and the questions about them).
+    const state = await stateOf(p, course, mode);
     const card = (await cardsFor(p, [course], new Map([[pairKey(p.id, course.id), state]]))).get(course.id)!;
     const enrolled = !!state.enrolment && !state.enrolment.withdrawnAt;
     const outline = lessonOutline({ lessons: state.lessons, inOrder: course.inOrder && (a === 'learn' || enrolled), enrolment: state.enrolment, done: state.done });
@@ -530,7 +575,7 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync, 
           orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
           take: 500,
         })
-        .then((rows) => colleaguesOnly(p, rows)),
+        .then((rows) => colleaguesOnly(p, questionsTheyMaySee(p, state, rows))),
       prisma.trainingFeedback.findFirst({ where: { courseId: course.id, userId: p.id, kind: 'RATING' }, select: { rating: true } }),
     ]);
     return {

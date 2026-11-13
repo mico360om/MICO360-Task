@@ -49,6 +49,8 @@ const sweeps = createTrainingSweeps(ctx, sync);
 let w: CompanyWorld;
 let clientId: string;
 const courseIds: string[] = [];
+/** People a test made of its own (removed at the end). */
+const extraUsers: string[] = [];
 
 const clearKeys = async () => {
   await prisma.reminderLog.deleteMany({ where: { dedupeKey: { startsWith: 'np:tr:' } } });
@@ -97,7 +99,8 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  const users = [...Object.values(w.people), clientId];
+  const users = [...Object.values(w.people), clientId, ...extraUsers];
+  await prisma.trainingModuleDone.deleteMany({ where: { OR: [{ courseId: { in: courseIds } }, { userId: { in: users } }] } });
   await prisma.trainingAssignee.deleteMany({ where: { OR: [{ courseId: { in: courseIds } }, { userId: { in: users } }] } });
   await prisma.trainingAssignment.deleteMany({ where: { courseId: { in: courseIds } } });
   await prisma.trainingEnrolment.deleteMany({ where: { OR: [{ courseId: { in: courseIds } }, { userId: { in: users } }] } });
@@ -105,7 +108,7 @@ afterAll(async () => {
   await prisma.trainingCertificate.deleteMany({ where: { OR: [{ courseId: { in: courseIds } }, { userId: { in: users } }] } });
   await prisma.trainingCourse.deleteMany({ where: { id: { in: courseIds } } });
   await clearKeys();
-  await prisma.user.deleteMany({ where: { id: clientId } });
+  await prisma.user.deleteMany({ where: { id: { in: [clientId, ...extraUsers] } } });
   await dropCompanyWorld(prisma, w);
   await prisma.$disconnect();
 });
@@ -256,5 +259,48 @@ describe('the 15-minute membership sync (R7)', () => {
     expect((await enrolment(w.people.cat))?.withdrawnAt).toBeNull();
     expect((await enrolment(w.people.cat))?.completedAt).not.toBeNull();
     expect(sent.filter((n) => n.type === 'TRAINING_ASSIGNED' && n.userId === w.people.bob)).toHaveLength(1);
+  });
+});
+
+describe('someone whose own role shrank while part-way (final review 2)', () => {
+  it('the sweep finishes them (with the certificate) and reminds them of nothing; someone with a module of theirs left is reminded', async () => {
+    clockAt = at(0);
+    const adminRole = (await prisma.role.findUniqueOrThrow({ where: { name: 'ADMIN' } })).id;
+    const c = await prisma.trainingCourse.create({ data: { title: `Modules ${w.tag}`, moduleKey: 'general', audience: 'STAFF', status: 'PUBLISHED', publishedAt: new Date(), certificateOn: true } });
+    courseIds.push(c.id);
+    const lessonOf: Record<string, string> = {};
+    for (const [i, [title, moduleKey]] of ([['Tasks', 'tasks'], ['Reports', 'reports']] as const).entries()) {
+      const m = await prisma.trainingModule.create({ data: { courseId: c.id, position: i, title, moduleKey } });
+      lessonOf[moduleKey] = (await prisma.trainingLesson.create({ data: { courseId: c.id, moduleId: m.id, position: i, kind: 'GUIDE', title: `${title} guide` } })).id;
+    }
+    // Two administrators, each overdue with Tasks done and Reports not; one is then made an employee.
+    const [xan, yas] = await Promise.all(
+      ['xan', 'yas'].map(async (name) => {
+        const id = (
+          await prisma.user.create({
+            data: { email: `${name}.${w.tag}@world.test`, username: `${name}_${w.tag}`, passwordHash: 'x', firstName: name, lastName: w.tag, roles: { create: { roleId: adminRole } }, primaryCompanyId: w.companies.A, companies: { create: { companyId: w.companies.A } } },
+          })
+        ).id;
+        extraUsers.push(id);
+        return id;
+      }),
+    );
+    for (const userId of [xan!, yas!]) {
+      await assign(userId, c.id, { dueDay: shiftDayKey(T0, -1) });
+      await prisma.trainingProgress.create({ data: { userId, courseId: c.id, lessonId: lessonOf.tasks!, doneAt: at(-3) } });
+    }
+    await prisma.userRole.deleteMany({ where: { userId: xan!, roleId: adminRole } });
+
+    await run();
+    expect(of(c.id).map((n) => [n.userId, n.type])).toEqual([[yas, 'TRAINING_OVERDUE']]);
+    const e = await prisma.trainingEnrolment.findUniqueOrThrow({ where: { userId_courseId: { userId: xan!, courseId: c.id } } });
+    expect(e.completedAt).not.toBeNull();
+    expect(e.progressPct).toBe(100);
+    expect(await prisma.trainingCertificate.count({ where: { userId: xan!, courseId: c.id } })).toBe(1);
+    expect(await prisma.trainingCertificate.count({ where: { userId: yas!, courseId: c.id } })).toBe(0);
+    // The next run: nothing for them either (and still one certificate).
+    await run();
+    expect(of(c.id).filter((n) => n.userId === xan)).toEqual([]);
+    expect(await prisma.trainingCertificate.count({ where: { userId: xan!, courseId: c.id } })).toBe(1);
   });
 });

@@ -229,6 +229,7 @@ afterAll(async () => {
   await prisma.trainingAttempt.deleteMany({ where });
   await prisma.trainingProgress.deleteMany({ where });
   await prisma.trainingAssignee.deleteMany({ where });
+  await prisma.trainingAssignment.deleteMany({ where: { courseId: { in: courseIds } } });
   await prisma.trainingEnrolment.deleteMany({ where });
   await prisma.trainingCertificate.deleteMany({ where });
   await prisma.trainingFile.deleteMany({ where: { courseId: { in: courseIds } } });
@@ -594,5 +595,119 @@ describe('people are read once', () => {
     await passQuiz(lou, main, main.m.gs!.quiz!);
     await learner.learn(lou, { module: 'tasks' });
     expect(peopleReads).toBe(0);
+  });
+});
+
+// ── Final review (1.23.32) ──
+
+const ADMIN = async () => (await prisma.role.findUniqueOrThrow({ where: { name: 'ADMIN' } })).id;
+const promote = async (userId: string) => prisma.userRole.create({ data: { userId, roleId: await ADMIN() } });
+const demote = async (userId: string) => prisma.userRole.deleteMany({ where: { userId, roleId: await ADMIN() } });
+
+describe('answered questions follow the reader’s modules (final review 1)', () => {
+  it('an administrator’s answered question about an Admin settings lesson isn’t shown to an employee; one with no lesson and one about a lesson they see are', async () => {
+    const boss = await newPerson('quinn');
+    await promote(boss);
+    const emp = await newPerson('rae');
+    const ask = (body: string, lessonId?: string) => learner.feedback(boss, 'staff', main.id, { kind: 'QUESTION', body, ...(lessonId ? { lessonId } : {}) });
+    const hidden = await ask('How do I add a person?', main.m.admin!.guides[0]);
+    const loose = await ask('Where do I start?');
+    const seen = await ask('Where are my tasks?', main.m.tasks!.guides[0]);
+    await prisma.trainingFeedback.updateMany({ where: { id: { in: [hidden.id, loose.id, seen.id] } }, data: { status: 'ANSWERED', answer: 'Like this.', answeredById: w.people.admin, answeredAt: new Date() } });
+
+    const ids = async (userId: string) => (await learner.course(userId, 'staff', main.id)).questions.map((q) => q.id);
+    // A colleague in the same company who can't see Admin settings: the other two only.
+    const theirs = await ids(emp);
+    expect(theirs).toEqual(expect.arrayContaining([loose.id, seen.id]));
+    expect(theirs).not.toContain(hidden.id);
+    // A Training manager's preview follows her own view (she isn't an administrator).
+    const amys = await ids(w.people.amy);
+    expect(amys).toEqual(expect.arrayContaining([loose.id, seen.id]));
+    expect(amys).not.toContain(hidden.id);
+    // The administrator sees all three; the asker always sees their own, even once the lesson isn't theirs any more.
+    expect(await ids(w.people.admin)).toEqual(expect.arrayContaining([hidden.id, loose.id, seen.id]));
+    await demote(boss);
+    expect(await ids(boss)).toEqual(expect.arrayContaining([hidden.id, loose.id, seen.id]));
+  });
+});
+
+describe('a learner whose own role or company shrinks while part-way is finished at their next look (final review 2)', () => {
+  const certificatesOf = (userId: string, courseId: string) => prisma.trainingCertificate.findMany({ where: { userId, courseId } });
+  /** An administrator with every all-staff module done (not Reports or Admin settings), then made an employee. */
+  async function demotedWithStaffDone(name: string): Promise<string> {
+    const id = await newPerson(name);
+    await promote(id);
+    await finishModule(id, main, 'gs');
+    await finishModule(id, main, 'tasks');
+    expect((await learner.course(id, 'staff', main.id)).mine).toMatchObject({ status: 'IN_PROGRESS', modules: { done: 2, total: 4 } });
+    await demote(id);
+    return id;
+  }
+  const staffModules = () => expect.arrayContaining([main.m.gs!.id, main.m.tasks!.id]);
+
+  it('My training: finished, with the certificate for the modules they see — once', async () => {
+    const sid = await demotedWithStaffDone('sid');
+    const me = await learner.me(sid, 'staff');
+    expect(me.inProgress.map((c) => c.id)).not.toContain(main.id);
+    const card = me.completed.find((c) => c.id === main.id)!;
+    expect(card.mine).toMatchObject({ status: 'COMPLETED', progressPct: 100, modules: { done: 2, total: 2 }, certificate: { status: 'VALID' } });
+    const certs = await certificatesOf(sid, main.id);
+    expect(certs).toHaveLength(1);
+    expect(certs[0]!.moduleIds).toEqual(staffModules());
+    expect(certs[0]!.moduleIds).toHaveLength(2);
+    // Reading again changes nothing.
+    await learner.me(sid, 'staff');
+    await learner.course(sid, 'staff', main.id);
+    expect(await certificatesOf(sid, main.id)).toHaveLength(1);
+  });
+
+  it('the course page: finished, with the certificate (Continue no longer opens lesson 1 of an unfinished course)', async () => {
+    const tia = await demotedWithStaffDone('tia');
+    const d = await learner.course(tia, 'staff', main.id);
+    expect(d.mine).toMatchObject({ status: 'COMPLETED', progressPct: 100, modules: { done: 2, total: 2 }, newForRole: 0, certificate: { status: 'VALID' } });
+    expect(d.mine.completedAt).not.toBeNull();
+    expect(d.modules.map((m) => m.status)).toEqual(['DONE', 'DONE']);
+    expect(await certificatesOf(tia, main.id)).toHaveLength(1);
+  });
+
+  it('the Learning Hub badge (access): an overdue assignment of the course is no longer overdue', async () => {
+    const uli = await newPerson('uli');
+    await promote(uli);
+    const a = await prisma.trainingAssignment.create({ data: { courseId: main.id, targetKind: 'USER', targetId: uli, mandatory: true, dueDay: '2026-01-05', createdById: w.people.admin } });
+    await prisma.trainingAssignee.create({ data: { assignmentId: a.id, userId: uli, courseId: main.id, mandatory: true, dueDay: '2026-01-05' } });
+    await finishModule(uli, main, 'gs');
+    await finishModule(uli, main, 'tasks');
+    expect(await learner.access(uli)).toMatchObject({ overdue: 1, assigned: 1 });
+    await demote(uli);
+    expect(await learner.access(uli)).toMatchObject({ overdue: 0, assigned: 0 });
+    const e = await prisma.trainingEnrolment.findUniqueOrThrow({ where: { userId_courseId: { userId: uli, courseId: main.id } } });
+    expect(e).toMatchObject({ progressPct: 100 });
+    expect(e.completedAt).not.toBeNull();
+    expect(await certificatesOf(uli, main.id)).toHaveLength(1);
+  });
+
+  it('leaving the company a module is limited to: finished at the next look', async () => {
+    const co = await makeModuleCourse('Company limited', [
+      { key: 'gs', title: 'Getting started', moduleKey: 'general' },
+      { key: 'beta', title: 'Beta only', moduleKey: 'general' },
+    ]);
+    await prisma.trainingModule.update({ where: { id: co.m.beta!.id }, data: { companyIds: [w.companies.B] } });
+    const val = await newPerson('val');
+    await prisma.companyMember.create({ data: { companyId: w.companies.B, userId: val } });
+    await finishModule(val, co, 'gs');
+    expect((await learner.course(val, 'staff', co.id)).mine).toMatchObject({ status: 'IN_PROGRESS', modules: { done: 1, total: 2 } });
+    await prisma.companyMember.deleteMany({ where: { companyId: w.companies.B, userId: val } });
+    const d = await learner.course(val, 'staff', co.id);
+    expect(d.mine).toMatchObject({ status: 'COMPLETED', modules: { done: 1, total: 1 }, certificate: { status: 'VALID' } });
+    expect(d.modules.map((m) => m.id)).toEqual([co.m.gs!.id]);
+    expect(await certificatesOf(val, co.id)).toHaveLength(1);
+  });
+
+  it('nobody is finished early: someone part-way with a module of theirs left stays in progress', async () => {
+    const wes = await newPerson('wes');
+    await finishModule(wes, main, 'gs');
+    await learner.me(wes, 'staff');
+    expect((await learner.course(wes, 'staff', main.id)).mine).toMatchObject({ status: 'IN_PROGRESS', modules: { done: 1, total: 2 } });
+    expect(await certificatesOf(wes, main.id)).toHaveLength(0);
   });
 });
