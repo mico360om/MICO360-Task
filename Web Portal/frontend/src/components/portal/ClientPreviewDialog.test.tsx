@@ -112,7 +112,8 @@ describe('1.23.7 Preview as client (the dialog)', () => {
     expect(dialog).toContainElement(document.activeElement as HTMLElement);
     expect(document.body.style.overflow).toBe('hidden');
     expect(within(dialog).getByText('Huda Client · Gulf Builders')).toBeInTheDocument();
-    expect(await within(dialog).findByText(PREVIEW_ONLY)).toBeInTheDocument();
+    // The portal's pages load as their own chunk: the first import in a test takes over a second.
+    expect(await within(dialog).findByText(PREVIEW_ONLY, {}, { timeout: 5000 })).toBeInTheDocument();
     expect(await within(dialog).findByRole('heading', { level: 1, name: 'Your projects' })).toBeInTheDocument();
     expect(within(dialog).getByRole('link', { name: /Rig survey/ })).toBeInTheDocument();
     expect(calls.length).toBeGreaterThan(0);

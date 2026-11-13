@@ -10,6 +10,7 @@ import { MyTrainingPage } from './MyTrainingPage';
 const staff = vi.hoisted(() => ({
   access: vi.fn(),
   me: vi.fn(),
+  course: vi.fn(),
   catalogue: vi.fn(),
   learn: vi.fn(),
   start: vi.fn(),
@@ -45,6 +46,7 @@ beforeEach(() => {
   for (const f of Object.values(staff)) f.mockReset();
   staff.access.mockResolvedValue(ACCESS);
   staff.me.mockResolvedValue(myTraining());
+  staff.course.mockImplementation(async (id: string) => detail({ id }));
   staff.catalogue.mockResolvedValue({ courses: [card(), card({ id: 'c5', title: 'Reports for admins', summary: 'Read the reports.', moduleKey: 'reports', difficulty: 'ADVANCED', starter: false, rating: { average: null, count: 0 }, mine: notMine })] });
   staff.learn.mockResolvedValue({ courseId: null, module: 'training', count: 0 });
 });
@@ -57,14 +59,20 @@ describe('My learning (12 Nov: Up next, To do, Done)', () => {
     const upNext = await screen.findByRole('region', { name: 'Up next' });
     expect(within(upNext).getByRole('heading', { name: 'Tasks basics' })).toBeInTheDocument();
     expect(within(upNext).getByText('Overdue · was due 4 Nov')).toBeInTheDocument();
-    expect(within(upNext).getByText('40% done')).toBeInTheDocument();
-    expect(within(upNext).getByRole('progressbar')).toHaveAttribute('aria-valuenow', '40');
-    // To do: the rest, nearest due day before started-without-a-due-day; each course once.
-    const todo = screen.getByRole('region', { name: /^To do/ });
+    // How far along: the progress ring beside it (in lessons for a plain course), the time left and the due day.
+    const progress = screen.getByRole('region', { name: 'Your progress' });
+    expect(within(progress).getByRole('img', { name: '1 of 4 lessons done' })).toHaveTextContent('1 / 4');
+    expect(await within(progress).findByText('About 20 min left')).toBeInTheDocument();
+    expect(within(progress).getByText('Overdue · was due 4 Nov')).toBeInTheDocument();
+    // Its lessons as tiles (the course read once, as its page reads it).
+    expect(within(await screen.findByRole('region', { name: 'Your lessons' })).getAllByRole('listitem')).toHaveLength(4);
+    expect(staff.course).toHaveBeenCalledWith('c1');
+    // Other courses: the rest, nearest due day before started-without-a-due-day; each course once.
+    const todo = screen.getByRole('region', { name: /^Other courses/ });
     expect(within(todo).getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual(['Meetings & minutes', 'Calendar tips']);
     expect(within(todo).getByText('Due 20 Nov')).toBeInTheDocument();
-    // How far along, in lessons (R review: not a percentage on the cards); each card's own Start / Continue.
-    expect(within(within(todo).getByRole('link', { name: 'Calendar tips' }).closest('article')!).getByText('1 of 4 lessons')).toBeInTheDocument();
+    // How far along, in lessons (R review: not a percentage); each row's own Start / Continue.
+    expect(within(within(todo).getByRole('link', { name: 'Calendar tips' }).closest('li')!).getByText('1 of 4 lessons')).toBeInTheDocument();
     expect(within(todo).queryByText('60% done')).toBeNull();
     expect(within(todo).getByRole('link', { name: 'Start: Meetings & minutes' })).toHaveAttribute('href', '/training/courses/c2/lessons/l2');
     expect(within(todo).getByRole('link', { name: 'Continue: Calendar tips' })).toHaveAttribute('href', '/training/courses/c3/lessons/l2');
@@ -96,7 +104,7 @@ describe('My learning (12 Nov: Up next, To do, Done)', () => {
     const upNext = await screen.findByRole('region', { name: 'Up next' });
     expect(within(upNext).getByText('Due 20 Nov')).toBeInTheDocument();
     expect(within(upNext).queryByRole('progressbar')).toBeNull();
-    expect(screen.queryByRole('region', { name: /^To do/ })).toBeNull();
+    expect(screen.queryByRole('region', { name: /^Other courses/ })).toBeNull();
     await userEvent.click(within(upNext).getByRole('button', { name: 'Start' }));
     await waitFor(() => expect(staff.start).toHaveBeenCalledWith('c2'));
     expect(screen.getByTestId('where')).toHaveTextContent('/training/courses/c2/lessons/m1');
@@ -124,11 +132,19 @@ describe('My learning (12 Nov: Up next, To do, Done)', () => {
     expect(screen.getByTestId('where')).toHaveTextContent('/training?tab=catalogue');
   });
 
-  it('done but nothing to do: “Nothing to do right now” in place of Up next, the Done list below', async () => {
+  it('done but nothing to do: “All done, well done” in place of Up next (Review), the Done list below', async () => {
     staff.me.mockResolvedValue(myTraining({ assigned: [], inProgress: [] }));
     renderAt();
-    expect(await screen.findByText('Nothing to do right now')).toBeInTheDocument();
+    const finished = await screen.findByRole('region', { name: 'All done, well done' });
+    expect(within(finished).getByRole('link', { name: 'Review' })).toHaveAttribute('href', '/training/courses/c4/lessons/l2');
+    expect(screen.queryByText('Nothing to do right now')).toBeNull();
     expect(screen.getByRole('region', { name: /^Done/ })).toBeInTheDocument();
+  });
+
+  it('the subtitle: “Your training, one part at a time.”', async () => {
+    renderAt();
+    expect(screen.getByText('Your training, one part at a time.')).toBeInTheDocument();
+    expect(screen.queryByText('Short courses on the parts of the site you use.')).toBeNull();
   });
 });
 

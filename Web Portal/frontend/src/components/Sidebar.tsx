@@ -180,6 +180,9 @@ const I = {
   ),
 };
 
+/** The menu's icons for other parts of the site (the Learning Hub's module icons): the same object, never a copy. */
+export const NAV_ICONS = I;
+
 /**
  * Project KPIs and User KPIs: a gauge — My performance. Kept out of `I`, the icon set the Android app copies
  * (its menu has no such page).
@@ -203,6 +206,9 @@ const TRAINING_ICON = (
     <path d="M22 10v5" />
   </>
 );
+
+/** The Learning Hub's menu icon, for its module icons (training: the Learning Hub). */
+export const LEARNING_HUB_ICON = TRAINING_ICON;
 
 // Grouped so the rail reads as a few short sections rather than one long list.
 const WORKSPACE: NavItem[] = [

@@ -20,8 +20,9 @@ const isDifficulty = (v: string | null): v is Difficulty => v === 'BEGINNER' || 
 const MODULE_FILTER_ABOVE = 8;
 
 /**
- * The Learning Hub (12 Nov, simple and to the point): "My learning" — one "Up next" course to start, then To do and
- * Done — and "All courses" for the parts of the site the person can use. Administrators and Training managers also
+ * The Learning Hub (12 Nov, simple and to the point; 13 Nov new look): "My learning" — a learning dashboard (Up next,
+ * progress, every module as a tile, the certificate, other courses), then Done — and "All courses" for the parts of
+ * the site the person can use. Administrators and Training managers also
  * have Manage and Reports; people who run a project with assigned team courses, Reports (LearningHubTabs). The tour
  * is "Tour of the site" in the account menu.
  */
@@ -33,7 +34,7 @@ export function MyTrainingPage() {
 
   return (
     <div>
-      <PageHeader eyebrow="Workspace" title="Learning Hub" subtitle="Short courses on the parts of the site you use." learn="training" />
+      <PageHeader eyebrow="Workspace" title="Learning Hub" subtitle="Your training, one part at a time." learn="training" />
       <LearningHubTabs current={tab} />
       <div className="mt-4">{tab === 'mine' ? <MinePanel onCatalogue={() => navigate('/training?tab=catalogue')} /> : <CataloguePanel />}</div>
     </div>

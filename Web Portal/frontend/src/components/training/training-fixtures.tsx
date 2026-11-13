@@ -108,6 +108,33 @@ export const moduleDetail = (over: Partial<CourseDetail> = {}): CourseDetail => 
   ...over,
 });
 
+/**
+ * The same course as an administrator sees it: also Reports and Admin settings (administrators only), not started.
+ * The employee's `moduleDetail` never has them — the server leaves a hidden module out of `modules` and `lessons`.
+ */
+export const adminModuleDetail = (over: Partial<CourseDetail> = {}): CourseDetail => {
+  const base = moduleDetail();
+  return {
+    ...base,
+    lessonCount: 11,
+    minutes: 116,
+    mine: mine({ ...base.mine, modules: { done: 1, total: 5 } }),
+    lessons: [
+      ...base.lessons,
+      { id: 'r1', position: 7, kind: 'GUIDE', title: 'Read a report', minutes: 10, done: false, locked: false, review: false, moduleId: 'rp' },
+      { id: 'r2', position: 8, kind: 'QUIZ', title: 'Reports quiz', minutes: 5, done: false, locked: false, review: false, moduleId: 'rp' },
+      { id: 'a1', position: 9, kind: 'GUIDE', title: 'Add a person', minutes: 6, done: false, locked: false, review: false, moduleId: 'ad' },
+      { id: 'a2', position: 10, kind: 'QUIZ', title: 'Admin settings quiz', minutes: 5, done: false, locked: false, review: false, moduleId: 'ad' },
+    ],
+    modules: [
+      ...base.modules,
+      { id: 'rp', title: 'Reports', position: 3, status: 'NOT_STARTED', lessonsDone: 0, lessonCount: 2, minutes: 15, doneAt: null, newForRole: false, nextLessonId: 'r1', lessonIds: ['r1', 'r2'] },
+      { id: 'ad', title: 'Admin settings', position: 4, status: 'NOT_STARTED', lessonsDone: 0, lessonCount: 2, minutes: 11, doneAt: null, newForRole: false, nextLessonId: 'a1', lessonIds: ['a1', 'a2'] },
+    ],
+    ...over,
+  };
+};
+
 /** A certificate of the one course (completed on 3 Nov, issued on 5 Nov at the change). */
 export const certificate = (over: Partial<CertificateRef> = {}): CertificateRef => ({
   id: 'cert7',
