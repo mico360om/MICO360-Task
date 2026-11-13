@@ -237,6 +237,23 @@ describe('the service worker (public/sw.js)', () => {
     expect(await w.request('/assets/x.js', { origin: 'https://cdn.example' })).toBeNull();
   });
 
+  // 1.23.31 private file links: task and chat files come as /uploads/<key>?u=…&e=…&s=… — signed for one person,
+  // checked by the server on every download. The worker must never answer or keep them.
+  it('signed file links go straight to the network — as a picture, a fetch or a file opened in a tab — and are never kept', async () => {
+    const w = worker({ net: () => new Response('png-bytes', { status: 200, headers: { 'content-type': 'image/png' } }) });
+    await w.lifecycle('install');
+    const signed = '/uploads/3f2b9c1e-8d4a-4b7e-9f10-2a6c5d7e8f90.png?u=cmh3k2x9a0001qz8f7w6v5u4t&e=toi7c0&s=b1QNySDo1yrsaM_kqgUyFbd_wu5TxhhEs4cMBptut0s';
+    const fetchedBefore = w.fetched.length;
+    for (const mode of ['no-cors', 'cors', 'same-origin', 'navigate']) expect(await w.request(signed, { mode }), mode).toBeNull();
+    expect(await w.request(signed, { mode: 'navigate', origin: 'https://api.task.mico360.test' })).toBeNull();
+    expect(w.fetched.slice(fetchedBefore)).toEqual([]); // the worker itself fetched nothing for them
+    for (const [, store] of w.stores) expect([...store.keys()].filter((k) => k.startsWith('/uploads/'))).toEqual([]);
+    // Where the browser supports static routing, /uploads/* never even wakes the worker (a pathname-only
+    // pattern matches any query, so the signed links too).
+    expect(SOURCE).toContain("'/uploads/*'");
+    expect(SOURCE).toContain('/^\\/uploads\\//');
+  });
+
   it('on activate removes older caches of its own (only its own, v1 too) and takes over open pages', async () => {
     const w = worker();
     w.stores.set('mico360-assets-v0', new Map());
