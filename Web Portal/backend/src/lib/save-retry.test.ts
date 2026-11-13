@@ -266,6 +266,68 @@ describe('withSaveRetries: one call outside a transaction (Prisma’s own BEGIN,
     await expect(bad).rejects.toBe(notFound);
     await expect(good).resolves.toBe('good');
   });
+
+  // Review #1: a retry that holds its turn while it waits for a row lock must not stall everyone behind it.
+  it('a retry waits for its turn at most a short while: a stuck one never stalls the others', async () => {
+    let release!: () => void;
+    const stuck = new Promise<void>((r) => (release = r));
+    const seen = new Map<string, number>();
+    const client = fakeClient(async (p) => {
+      const key = String((p.args as { k: string }).k);
+      const attempt = (seen.get(key) ?? 0) + 1;
+      seen.set(key, attempt);
+      if (attempt === 1) throw unknown1020;
+      if (key === 'stuck') await stuck; // its retry waits on a lock that isn't let go
+      return key;
+    });
+    withSaveRetries(client, { logger: quiet().logger, ...noPause, laneWaitMs: 40 });
+    const a = client.call('Task', 'update', { k: 'stuck' });
+    await new Promise((r) => setTimeout(r, 5)); // a's retry holds the Task turn now
+    const started = Date.now();
+    await expect(client.call('Task', 'update', { k: 'other' })).resolves.toBe('other');
+    expect(Date.now() - started).toBeLessThan(1000); // waited about 40 ms, not until a let go
+    release();
+    await expect(a).resolves.toBe('stuck');
+  });
+});
+
+describe('withSaveRetries: the "don’t retry" scope ends with its try (review #2)', () => {
+  it('a save started inside a transaction but still running after it committed is retried as usual', async () => {
+    let n = 0;
+    const client = fakeClient(async (p) => {
+      if (p.runInTransaction) return 'ok';
+      if (++n === 1) throw unknown1020;
+      return 'later save';
+    });
+    withSaveRetries(client, { logger: quiet().logger, ...noPause });
+    let later!: Promise<unknown>;
+    await client.$transaction(async () => {
+      later = (async () => {
+        await new Promise((r) => setTimeout(r, 20)); // after the commit
+        return client.call('Task', 'update');
+      })();
+    });
+    await expect(later).resolves.toBe('later save');
+    expect(n).toBe(2);
+  });
+
+  it('the same after withoutSaveRetry’s work has finished', async () => {
+    let n = 0;
+    const client = fakeClient(async () => {
+      if (++n === 1) throw unknown1020;
+      return 'saved';
+    });
+    withSaveRetries(client, { logger: quiet().logger, ...noPause });
+    let later!: Promise<unknown>;
+    await withoutSaveRetry(async () => {
+      later = (async () => {
+        await new Promise((r) => setTimeout(r, 20));
+        return client.call('Task', 'update');
+      })();
+    });
+    await expect(later).resolves.toBe('saved');
+    expect(n).toBe(2);
+  });
 });
 
 describe('withSaveRetries: transactions are tried again whole', () => {
@@ -286,7 +348,55 @@ describe('withSaveRetries: transactions are tried again whole', () => {
     });
     expect(out).toBe(2);
     expect(original).toHaveBeenCalledTimes(2);
-    expect(lines).toEqual([{ level: 'info', msg: 'save conflict', ctx: { operation: 'transaction', attempts: 2, conflict: '1020', outcome: 'saved' } }]);
+    // Review #4: the line names what conflicted — the table MariaDB names ("in table 'tasks'"), never values.
+    expect(lines).toEqual([{ level: 'info', msg: 'save conflict', ctx: { operation: 'transaction', table: 'tasks', attempts: 2, conflict: '1020', outcome: 'saved' } }]);
+  });
+
+  it('a deadlock’s line names its model (P2034 says it); a conflict that names nothing says no table', async () => {
+    for (const [err, named] of [
+      [p2034, { model: 'JobLock' }],
+      [raw1020, { table: 'job_locks' }],
+      [unknown1213, {}],
+    ] as const) {
+      let n = 0;
+      const client = fakeClient(async () => 'ok');
+      const { lines, logger } = quiet();
+      withSaveRetries(client, { logger, ...noPause });
+      await client.$transaction(async () => {
+        if (++n === 1) throw err;
+      });
+      expect(lines[0]!.ctx).toEqual({ operation: 'transaction', ...named, attempts: 2, conflict: saveConflict(err), outcome: 'saved' });
+    }
+  });
+
+  // Review #1: retried transactions queue by the table their conflict names — one on another table never waits.
+  it('retried transactions wait their turn per conflicting table, not all together', async () => {
+    const onTable = (table: string) =>
+      Object.assign(new Error(`ConnectorError { kind: QueryError(Server(MysqlError { code: 1020, message: "Record has changed since last read in table '${table}'", state: "HY000" })) }`), {
+        name: 'PrismaClientUnknownRequestError',
+      });
+    let release!: () => void;
+    const stuck = new Promise<void>((r) => (release = r));
+    const client = fakeClient(async () => 'ok');
+    withSaveRetries(client, { logger: quiet().logger, ...noPause, laneWaitMs: 60_000 });
+    let x = 0;
+    const onX = client.$transaction(async () => {
+      if (++x === 1) throw onTable('tasks');
+      await stuck; // its retry holds the "tasks" turn
+      return 'x';
+    });
+    await new Promise((r) => setTimeout(r, 5));
+    let y = 0;
+    const started = Date.now();
+    await expect(
+      client.$transaction(async () => {
+        if (++y === 1) throw onTable('projects');
+        return 'y';
+      }),
+    ).resolves.toBe('y');
+    expect(Date.now() - started).toBeLessThan(1000);
+    release();
+    await expect(onX).resolves.toBe('x');
   });
 
   it('keeps the transaction’s options (timeouts) on every try and never adds an isolation level', async () => {

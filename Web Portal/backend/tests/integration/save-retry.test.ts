@@ -106,11 +106,21 @@ describe('with the save retry layer (the server’s client)', () => {
     const key = settingKey('tx');
     await prisma.systemSetting.create({ data: { key, value: 'start' } });
     let runs = 0;
-    const save = (who: string) =>
+    // Review #5: both first tries have read before either writes, however busy the machine (a later try finds
+    // these already settled and goes straight on).
+    const signal = () => {
+      let resolve!: () => void;
+      const promise = new Promise<void>((r) => (resolve = r));
+      return { promise, resolve };
+    };
+    const hasRead = { A: signal(), B: signal() };
+    const save = (who: 'A' | 'B') =>
       prisma.$transaction(async (tx) => {
         runs++;
         const row = await tx.systemSetting.findUniqueOrThrow({ where: { key } });
-        await sleep(60); // the other transaction writes and commits in this pause
+        hasRead[who].resolve();
+        await Promise.all([hasRead.A.promise, hasRead.B.promise]);
+        await sleep(30);
         await tx.systemSetting.update({ where: { key }, data: { value: `${String(row.value)} + ${who}` } });
         return who;
       });
