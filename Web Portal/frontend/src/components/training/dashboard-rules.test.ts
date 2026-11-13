@@ -83,7 +83,7 @@ describe('upNextModule', () => {
     const d = moduleDetail({
       resumeLessonId: 'x1',
       lessons: [...moduleDetail().lessons, { id: 'x1', position: 7, kind: 'DOCUMENT', title: 'House rules', minutes: 4, done: false, locked: false, review: false, moduleId: null }],
-      modules: [...moduleDetail().modules, { id: 'other', title: 'Other lessons', position: 3, status: 'NOT_STARTED', lessonsDone: 0, lessonCount: 1, minutes: 4, doneAt: null, newForRole: false, nextLessonId: 'x1', lessonIds: ['x1'] }],
+      modules: [...moduleDetail().modules, { id: 'other', title: 'Other lessons', moduleKey: null, position: 3, status: 'NOT_STARTED', lessonsDone: 0, lessonCount: 1, minutes: 4, doneAt: null, newForRole: false, nextLessonId: 'x1', lessonIds: ['x1'] }],
     });
     expect(upNextModule(d)).toMatchObject({ index: 3, total: 4, module: { id: 'other', title: 'Other lessons' } });
   });
@@ -159,7 +159,18 @@ describe('dashboardFocus: which course fills the dashboard', () => {
   });
 });
 
-describe('moduleKeyOf: a module’s feature, from its name', () => {
+describe('moduleKeyOf: a module’s feature — the server’s key, else its name', () => {
+  it('the server’s key wins: a renamed module keeps its feature’s icon, an administrator’s own module its feature', () => {
+    expect(moduleKeyOf({ id: 'm', title: 'Task basics', moduleKey: 'tasks' })).toBe('tasks');
+    expect(moduleKeyOf({ id: 'm', title: 'Kanban board', moduleKey: 'calendar' })).toBe('calendar');
+    expect(moduleKeyOf({ id: 'm', title: 'Safety at Acme', moduleKey: 'projects' })).toBe('projects');
+  });
+
+  it('no key (“Other lessons”, or an answer without one): the name decides', () => {
+    expect(moduleKeyOf({ id: 'm', title: 'Kanban board', moduleKey: null })).toBe('board');
+    expect(moduleKeyOf({ id: 'other', title: 'Other lessons', moduleKey: null })).toBeNull();
+  });
+
   it('the starter modules', () => {
     const keys = ['Getting started', 'Tasks', 'Kanban board', 'Projects', 'Calendar', 'Meetings & minutes', 'Chat', 'MICO AI', 'Reports', 'Admin settings'].map((title) => moduleKeyOf({ id: 'm', title }));
     expect(keys).toEqual(['general', 'tasks', 'board', 'projects', 'calendar', 'meetings', 'chat', 'mico-ai', 'reports', 'admin']);

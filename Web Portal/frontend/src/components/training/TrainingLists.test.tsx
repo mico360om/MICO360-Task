@@ -157,7 +157,7 @@ describe('My learning: the learning dashboard (13 Nov new look)', () => {
     const d = moduleDetail({
       resumeLessonId: 'x1',
       lessons: [...moduleDetail().lessons, { id: 'x1', position: 7, kind: 'DOCUMENT', title: 'House rules', minutes: 4, done: false, locked: false, review: false, moduleId: null }],
-      modules: [...moduleDetail().modules, { id: 'other', title: 'Other lessons', position: 3, status: 'NOT_STARTED', lessonsDone: 0, lessonCount: 1, minutes: 4, doneAt: null, newForRole: false, nextLessonId: 'x1', lessonIds: ['x1'] }],
+      modules: [...moduleDetail().modules, { id: 'other', title: 'Other lessons', moduleKey: null, position: 3, status: 'NOT_STARTED', lessonsDone: 0, lessonCount: 1, minutes: 4, doneAt: null, newForRole: false, nextLessonId: 'x1', lessonIds: ['x1'] }],
     });
     renderOnSide(<MyLearningSections data={only(oneCourse({ modules: { done: 1, total: 4 }, next: { lessonId: 'x1', lessonTitle: 'House rules', moduleTitle: 'Other lessons' } }))} />, { api: fakeLearner({ course: vi.fn(async () => d) }) });
     expect(await screen.findByText('· Module 4 of 4')).toBeInTheDocument();

@@ -61,10 +61,12 @@ const KEY_BY_TITLE: ReadonlyMap<string, TrainingModule> = new Map([
 ]);
 
 /**
- * A module's feature, for its icon. The learner's module outline has no feature key, so its name says it (the starter
- * modules are named after their feature); "Other lessons" and a module an administrator added: none (a neutral book).
+ * A module's feature, for its icon: the server's `moduleKey` (the feature it teaches, whatever it is called). Without
+ * one — "Other lessons", or only a name to go on (a list card's "next" module) — the name says it (the starter modules
+ * are named after their feature); otherwise none (a neutral book).
  */
-export function moduleKeyOf(m: Pick<ModuleOutline, 'id' | 'title'>): TrainingModule | null {
+export function moduleKeyOf(m: Pick<ModuleOutline, 'id' | 'title'> & { moduleKey?: ModuleOutline['moduleKey'] }): TrainingModule | null {
+  if (m.moduleKey) return m.moduleKey;
   if (m.id === 'other') return null;
   return KEY_BY_TITLE.get(m.title.trim().replace(/\s+/g, ' ').toLowerCase()) ?? null;
 }

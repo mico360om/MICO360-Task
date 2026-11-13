@@ -98,9 +98,9 @@ export const moduleDetail = (over: Partial<CourseDetail> = {}): CourseDetail => 
     { id: 'k2', position: 6, kind: 'QUIZ', title: 'Kanban board quiz', minutes: 5, done: false, locked: false, review: false, moduleId: 'kb' },
   ],
   modules: [
-    { id: 'gs', title: 'Getting started', position: 0, status: 'DONE', lessonsDone: 2, lessonCount: 2, minutes: 10, doneAt: '2026-11-03T08:00:00.000Z', newForRole: false, nextLessonId: null, lessonIds: ['g1', 'g2'] },
-    { id: 'tk', title: 'Tasks', position: 1, status: 'IN_PROGRESS', lessonsDone: 1, lessonCount: 3, minutes: 21, doneAt: null, newForRole: false, nextLessonId: 't2', lessonIds: ['t1', 't2', 't3'] },
-    { id: 'kb', title: 'Kanban board', position: 2, status: 'NOT_STARTED', lessonsDone: 0, lessonCount: 2, minutes: 8, doneAt: null, newForRole: false, nextLessonId: 'k1', lessonIds: ['k1', 'k2'] },
+    { id: 'gs', title: 'Getting started', moduleKey: 'general', position: 0, status: 'DONE', lessonsDone: 2, lessonCount: 2, minutes: 10, doneAt: '2026-11-03T08:00:00.000Z', newForRole: false, nextLessonId: null, lessonIds: ['g1', 'g2'] },
+    { id: 'tk', title: 'Tasks', moduleKey: 'tasks', position: 1, status: 'IN_PROGRESS', lessonsDone: 1, lessonCount: 3, minutes: 21, doneAt: null, newForRole: false, nextLessonId: 't2', lessonIds: ['t1', 't2', 't3'] },
+    { id: 'kb', title: 'Kanban board', moduleKey: 'board', position: 2, status: 'NOT_STARTED', lessonsDone: 0, lessonCount: 2, minutes: 8, doneAt: null, newForRole: false, nextLessonId: 'k1', lessonIds: ['k1', 'k2'] },
   ],
   resources: [],
   questions: [],
@@ -128,8 +128,8 @@ export const adminModuleDetail = (over: Partial<CourseDetail> = {}): CourseDetai
     ],
     modules: [
       ...base.modules,
-      { id: 'rp', title: 'Reports', position: 3, status: 'NOT_STARTED', lessonsDone: 0, lessonCount: 2, minutes: 15, doneAt: null, newForRole: false, nextLessonId: 'r1', lessonIds: ['r1', 'r2'] },
-      { id: 'ad', title: 'Admin settings', position: 4, status: 'NOT_STARTED', lessonsDone: 0, lessonCount: 2, minutes: 11, doneAt: null, newForRole: false, nextLessonId: 'a1', lessonIds: ['a1', 'a2'] },
+      { id: 'rp', title: 'Reports', moduleKey: 'reports', position: 3, status: 'NOT_STARTED', lessonsDone: 0, lessonCount: 2, minutes: 15, doneAt: null, newForRole: false, nextLessonId: 'r1', lessonIds: ['r1', 'r2'] },
+      { id: 'ad', title: 'Admin settings', moduleKey: 'admin', position: 4, status: 'NOT_STARTED', lessonsDone: 0, lessonCount: 2, minutes: 11, doneAt: null, newForRole: false, nextLessonId: 'a1', lessonIds: ['a1', 'a2'] },
     ],
     ...over,
   };

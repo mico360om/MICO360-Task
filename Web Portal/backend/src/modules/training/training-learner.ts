@@ -109,10 +109,18 @@ export function resumeLesson(s: PairState, outline: { items: readonly OutlineIte
   return outline.items.find((i) => i.review)?.id ?? s.continueAt?.lessonId ?? s.lessons[0]?.id ?? null;
 }
 
+/** The feature a module teaches (13 Nov new look: its icon); "Other lessons" (or an unknown key): none. */
+function unitModuleKey(s: PairState, u: UnitState): TrainingModule | null {
+  if (u.unitId === OTHER_UNIT) return null;
+  const key = s.modules.find((m) => m.id === u.unitId)?.moduleKey;
+  return key && (TRAINING_MODULES as readonly string[]).includes(key) ? (key as TrainingModule) : null;
+}
+
 function moduleOutline(s: PairState, u: UnitState): ModuleOutline {
   return {
     id: u.unitId,
     title: u.unit.title,
+    moduleKey: unitModuleKey(s, u),
     position: u.unit.position,
     status: u.status,
     lessonsDone: u.lessonsDone,

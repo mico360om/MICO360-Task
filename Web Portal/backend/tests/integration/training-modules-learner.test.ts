@@ -254,7 +254,9 @@ describe('the course page by module', () => {
       [gs.id, 'Getting started', 'NOT_STARTED'],
       [tasks.id, 'Tasks', 'NOT_STARTED'],
     ]);
-    expect(d.modules[0]).toEqual({ id: gs.id, title: 'Getting started', position: 1, status: 'NOT_STARTED', lessonsDone: 0, lessonCount: 2, minutes: 6, doneAt: null, newForRole: false, nextLessonId: gs.lessons[0], lessonIds: gs.lessons });
+    expect(d.modules[0]).toEqual({ id: gs.id, title: 'Getting started', moduleKey: 'general', position: 1, status: 'NOT_STARTED', lessonsDone: 0, lessonCount: 2, minutes: 6, doneAt: null, newForRole: false, nextLessonId: gs.lessons[0], lessonIds: gs.lessons });
+    // 13 Nov new look: each module says the feature it teaches (its icon), whatever its name.
+    expect(d.modules.map((m) => m.moduleKey)).toEqual(['general', 'tasks']);
     expect(d.modules[1]).toMatchObject({ lessonCount: 3, minutes: 9, nextLessonId: tasks.lessons[0], lessonIds: tasks.lessons });
     // Only their lessons (Reports and Admin settings aren't sent), each with its module.
     expect(d.lessons.map((l) => [l.id, l.moduleId])).toEqual([...gs.lessons.map((id) => [id, gs.id]), ...tasks.lessons.map((id) => [id, tasks.id])]);
@@ -309,10 +311,11 @@ describe('the course page by module', () => {
   it('“Other lessons”: lessons with no module come last, under their own heading', async () => {
     const ben = w.people.ben;
     const d = await learner.course(ben, 'staff', walk.id);
-    expect(d.modules.map((m) => [m.id, m.title])).toEqual([
-      [walk.m.tasks!.id, 'Tasks'],
-      [walk.m.chat!.id, 'Chat'],
-      ['other', 'Other lessons'],
+    expect(d.modules.map((m) => [m.id, m.title, m.moduleKey])).toEqual([
+      [walk.m.tasks!.id, 'Tasks', 'tasks'],
+      [walk.m.chat!.id, 'Chat', 'chat'],
+      // "Other lessons" teaches no one feature.
+      ['other', 'Other lessons', null],
     ]);
     expect(d.modules[2]).toMatchObject({ lessonIds: walk.loose, lessonCount: 1, nextLessonId: walk.loose[0] });
     expect(d.lessons.find((l) => l.id === walk.loose[0])!.moduleId).toBeNull();
@@ -541,7 +544,7 @@ describe('old short-course links', () => {
     const res = await app.inject({ method: 'GET', url: `/api/v1/portal/training/courses/${c.id}`, headers: { 'x-user': clientId } });
     expect(res.statusCode).toBe(200);
     const d = JSON.parse(res.body).data as CourseDetail;
-    expect(d.modules.map((m) => m.title)).toEqual(['Your portal']);
+    expect(d.modules.map((m) => [m.title, m.moduleKey])).toEqual([['Your portal', 'portal']]);
     expect(d.lessons.map((l) => [l.id, l.moduleId])).toEqual([[c.m.portal!.lessons[0], c.m.portal!.id]]);
     expect(d.mine).toMatchObject({ modules: { done: 0, total: 1 }, next: { lessonId: c.m.portal!.lessons[0], moduleTitle: 'Your portal' } });
     const hidden = await app.inject({ method: 'GET', url: `/api/v1/portal/training/lessons/${c.m.beta!.lessons[0]}`, headers: { 'x-user': clientId } });

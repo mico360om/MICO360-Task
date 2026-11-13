@@ -255,6 +255,8 @@ export interface LessonOutline {
 export interface ModuleOutline {
   id: string;
   title: string;
+  /** The feature it teaches (its icon on the learner's pages); null for "Other lessons". */
+  moduleKey: TrainingModule | null;
   position: number;
   status: ModuleStatus;
   lessonsDone: number;
