@@ -66,7 +66,7 @@ function Tile({
   );
   const common = { 'data-state': dataState, 'data-current': current ? 'true' : undefined };
   return to === null ? (
-    <div {...common} className={`${tileClass(current)} opacity-80`}>
+    <div {...common} className={`${tileClass(current)} border-dashed`}>
       {inner}
     </div>
   ) : (
@@ -118,7 +118,7 @@ export function ModuleTile({ module: m, index, moduleKey, to, current = false }:
       below={
         <>
           {m.status === 'IN_PROGRESS' ? (
-            <span data-tile-bar aria-hidden="true" className="block h-1.5 w-full overflow-hidden rounded-full bg-ground">
+            <span data-tile-bar aria-hidden="true" className="block h-1.5 w-full overflow-hidden rounded-full bg-line">
               <span className="block h-full rounded-full bg-brand" style={{ width: `${pct}%` }} />
             </span>
           ) : null}

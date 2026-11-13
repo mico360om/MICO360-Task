@@ -82,5 +82,16 @@ describe('LessonTile: a plain course’s lesson as a tile', () => {
     expect(container.querySelector('a')).toBeNull();
     expect(screen.getByText('Locked')).toBeInTheDocument();
     expect(screen.getByText('Finish the lessons before it first.')).toHaveClass('sr-only');
+    // No faded tile (opacity dropped the Locked text below 4.5:1); a dashed border marks it instead.
+    const tile = container.querySelector('[data-state="LOCKED"]') as HTMLElement;
+    expect(tile.className).not.toMatch(/opacity/);
+    expect(tile).toHaveClass('border-dashed');
+  });
+
+  it('the in-progress mini bar track uses the line colour, not the ground', () => {
+    const { container } = renderOnSide(<ol><li><ModuleTile module={{ ...tk, status: 'IN_PROGRESS', lessonsDone: 1, lessonCount: 3 } as never} index={0} moduleKey="tasks" to="/x" /></li></ol>, { api: fakeLearner() });
+    const bar = container.querySelector('[data-tile-bar]') as HTMLElement;
+    expect(bar).toHaveClass('bg-line');
+    expect(bar).not.toHaveClass('bg-ground');
   });
 });
