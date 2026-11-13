@@ -24,7 +24,19 @@ const ADMIN_FEATURES: readonly TrainingModule[] = ['reports', 'admin'];
 
 const sameSet = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((x) => b.includes(x));
 
-type Dialog = { kind: 'add' } | { kind: 'rename'; module: ManageModule } | { kind: 'audience'; module: ManageModule } | { kind: 'remove'; module: ManageModule };
+type Dialog =
+  | { kind: 'add' }
+  | { kind: 'rename'; module: ManageModule }
+  | { kind: 'audience'; module: ManageModule }
+  | { kind: 'remove'; module: ManageModule }
+  | { kind: 'switchOff'; module: ManageModule };
+
+/** Who sees the module is everyone the course is for ("All staff", or "Clients" in a clients' course): its lessons with no module reach nobody new. */
+const forEveryone = (m: Pick<ManageModule, 'enabled' | 'visibility'>): boolean => m.enabled && (m.visibility === 'All staff' || m.visibility === 'Clients');
+
+/** Words for switching a published course's module off: people who have done everything else finish now. */
+export const switchOffWords = (certificate: boolean): string =>
+  `Learners won’t see it or need it. Anyone who has done everything else finishes the course now${certificate ? ' and gets the certificate' : ''}.`;
 
 /**
  * The course's modules (any course: D6, 13 Nov): add, rename, move up or down, choose who sees each one (the same
@@ -84,6 +96,11 @@ export function ModulesEditor({ course }: { course: ManageCourse }) {
   const switching = useRef(new Set<string>());
   async function switchModule(m: ManageModule) {
     if (switching.current.has(m.id)) return;
+    // 1.23.32: switching a published course's module off can finish people (and give certificates): asked first.
+    if (m.enabled && course.status === 'PUBLISHED') {
+      setDialog({ kind: 'switchOff', module: m });
+      return;
+    }
     switching.current.add(m.id);
     say(null);
     try {
@@ -184,6 +201,17 @@ export function ModulesEditor({ course }: { course: ManageCourse }) {
           onSaved={(next) => {
             cache.setCourse(next);
             say(`Saved who sees “${dialog.module.title}”.`);
+          }}
+        />
+      ) : null}
+      {dialog?.kind === 'switchOff' ? (
+        <SwitchOffDialog
+          module={dialog.module}
+          certificate={course.certificateOn}
+          onClose={() => setDialog(null)}
+          onSwitched={(next) => {
+            cache.setCourse(next);
+            say(`Switched “${dialog.module.title}” off: learners don’t see it and don’t need it.`);
           }}
         />
       ) : null}
@@ -357,10 +385,44 @@ function ModuleAudienceDialog({ course, module, onClose, onSaved }: { course: Ma
   );
 }
 
-/** Remove a module (asked first): its lessons move to the module chosen, or to no module — never deleted. */
+/**
+ * Switch off a published course's module (asked first, 1.23.32): learners no longer see it or need it, so anyone who
+ * has done everything else finishes the course now (with the certificate when it gives one). A refusal stays here.
+ */
+function SwitchOffDialog({ module, certificate, onClose, onSwitched }: { module: ManageModule; certificate: boolean; onClose: () => void; onSwitched: (c: ManageCourse) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function switchOff() {
+    setBusy(true);
+    setError(null);
+    try {
+      const next = await tc().updateModule(module.id, { enabled: false });
+      onClose();
+      onSwitched(next);
+    } catch (err) {
+      setError(`Couldn’t switch the module off. ${problemText(err)}`);
+      setBusy(false);
+    }
+  }
+
+  return (
+    <ConfirmDialog title={`Switch off “${module.title}”?`} confirmLabel="Switch off" keepLabel="Keep it on" busy={busy} error={error} onConfirm={() => void switchOff()} onClose={onClose}>
+      <p>{switchOffWords(certificate)}</p>
+    </ConfirmDialog>
+  );
+}
+
+/**
+ * Remove a module (asked first): its lessons move to the module chosen, or to no module — never deleted. A module
+ * limited to some people (or switched off) whose lessons would go to no module says one line more (1.23.32): lessons
+ * with no module are shown to everyone who can see the course.
+ */
 function RemoveModuleDialog({ module, others, lessonCount, onClose, onRemoved }: { module: ManageModule; others: ManageModule[]; lessonCount: number; onClose: () => void; onRemoved: (c: ManageCourse) => void }) {
   const moveId = useId();
+  const warnId = useId();
   const [moveTo, setMoveTo] = useState('');
+  const widens = moveTo === '' && !forEveryone(module);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -382,10 +444,15 @@ function RemoveModuleDialog({ module, others, lessonCount, onClose, onRemoved }:
       {lessonCount > 0 ? (
         <div className="flex flex-col gap-1.5">
           <label htmlFor={moveId} className="font-semibold text-ink">{`Move its ${count(lessonCount, 'lesson')} to`}</label>
-          <select id={moveId} value={moveTo} onChange={(e) => setMoveTo(e.target.value)} disabled={busy} className={fieldClass(false, 'w-full')}>
+          <select id={moveId} value={moveTo} onChange={(e) => setMoveTo(e.target.value)} disabled={busy} aria-describedby={widens ? warnId : undefined} className={fieldClass(false, 'w-full')}>
             <option value="">No module</option>
             {others.map((m) => <option key={m.id} value={m.id}>{moduleChoice(m)}</option>)}
           </select>
+          {widens ? (
+            <p id={warnId} className="font-semibold text-warning">
+              Lessons with no module are shown to everyone who can see the course.
+            </p>
+          ) : null}
           <p className="mt-1">Lessons are never deleted. People keep their progress on them.</p>
         </div>
       ) : (

@@ -192,6 +192,40 @@ describe('Course editor: modules', () => {
     await waitFor(() => expect(api.updateModule).toHaveBeenLastCalledWith('m3', { enabled: true }));
   });
 
+  it('Switch off on a published course asks first (people may finish now and get their certificate); Keep it on sends nothing; Switch on doesn’t ask', async () => {
+    const published = withModules({ status: 'PUBLISHED', publishedAt: '2026-11-01T08:00:00.000Z', certificateOn: true });
+    api.updateModule.mockResolvedValue(published);
+    const region = await open(published);
+    await choose(region, 'Tasks', 'Switch off');
+    let ask = screen.getByRole('alertdialog', { name: 'Switch off “Tasks”?' });
+    expect(ask).toHaveTextContent('Learners won’t see it or need it. Anyone who has done everything else finishes the course now and gets the certificate.');
+    await userEvent.click(within(ask).getByRole('button', { name: 'Keep it on' }));
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+    expect(api.updateModule).not.toHaveBeenCalled();
+
+    await choose(region, 'Tasks', 'Switch off');
+    ask = screen.getByRole('alertdialog', { name: 'Switch off “Tasks”?' });
+    await userEvent.click(within(ask).getByRole('button', { name: 'Switch off' }));
+    await waitFor(() => expect(api.updateModule).toHaveBeenCalledWith('m2', { enabled: false }));
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+    expect(await within(region).findByText(/Switched “Tasks” off/)).toBeInTheDocument();
+
+    await choose(region, 'Reports', 'Switch on');
+    await waitFor(() => expect(api.updateModule).toHaveBeenLastCalledWith('m3', { enabled: true }));
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+  });
+
+  it('Switch off on a published course without a certificate says so without one; a refusal is shown in the window', async () => {
+    api.updateModule.mockRejectedValueOnce(new ApiError(409, 'WOULD_BREAK_PUBLISHED', 'Add a lesson people can see.'));
+    const region = await open(withModules({ status: 'PUBLISHED', publishedAt: '2026-11-01T08:00:00.000Z', certificateOn: false }));
+    await choose(region, 'Tasks', 'Switch off');
+    const ask = screen.getByRole('alertdialog', { name: 'Switch off “Tasks”?' });
+    expect(ask).toHaveTextContent('Learners won’t see it or need it. Anyone who has done everything else finishes the course now.');
+    expect(ask).not.toHaveTextContent('certificate');
+    await userEvent.click(within(ask).getByRole('button', { name: 'Switch off' }));
+    expect(await within(ask).findByText('Couldn’t switch the module off. Add a lesson people can see.')).toBeInTheDocument();
+  });
+
   it('a second Switch click while the first is still running sends nothing more', async () => {
     let finish!: (c: ManageCourse) => void;
     api.updateModule.mockReturnValue(new Promise<ManageCourse>((r) => { finish = r; }));
@@ -229,8 +263,41 @@ describe('Course editor: modules', () => {
     const region = await open();
     await choose(region, 'Getting started', 'Remove');
     const ask = screen.getByRole('alertdialog', { name: 'Remove the module “Getting started”?' });
+    // An all-staff module: nobody new sees its lessons, so nothing more is said.
+    expect(ask).not.toHaveTextContent('shown to everyone');
     await userEvent.click(within(ask).getByRole('button', { name: 'Remove module' }));
     await waitFor(() => expect(api.removeModule).toHaveBeenCalledWith('m1', null));
+  });
+
+  it('Remove a limited (or switched-off) module with “No module” chosen: one line says those lessons are then shown to everyone who can see the course', async () => {
+    const line = 'Lessons with no module are shown to everyone who can see the course.';
+    const modules = [
+      ...MODULES,
+      manageModule({ id: 'm4', title: 'Admin settings', position: 3, moduleKey: 'admin', visibility: 'Admins only' }),
+      manageModule({ id: 'm5', title: 'Chat', position: 4, moduleKey: 'chat', enabled: false, visibility: 'Off' }),
+    ];
+    const lessons = [...LESSONS, lesson({ id: 'l4', kind: 'GUIDE', title: 'Add a person', position: 3, moduleId: 'm4' }), lesson({ id: 'l5', kind: 'GUIDE', title: 'Send a message', position: 4, moduleId: 'm5' })];
+    const region = await open(withModules({ modules, lessons }));
+    await choose(region, 'Admin settings', 'Remove');
+    let ask = screen.getByRole('alertdialog', { name: 'Remove the module “Admin settings”?' });
+    const moveTo = within(ask).getByRole('combobox', { name: 'Move its 1 lesson to' });
+    expect(moveTo).toHaveValue('');
+    expect(ask).toHaveTextContent(line);
+    expect(moveTo).toHaveAccessibleDescription(line);
+    await userEvent.selectOptions(moveTo, 'm1');
+    expect(ask).not.toHaveTextContent(line);
+    await userEvent.click(within(ask).getByRole('button', { name: 'Keep it' }));
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+
+    await choose(region, 'Chat', 'Remove');
+    ask = screen.getByRole('alertdialog', { name: 'Remove the module “Chat”?' });
+    expect(ask).toHaveTextContent(line);
+  });
+
+  it('Remove a module of a clients’ course that is for every client: nothing more is said', async () => {
+    const region = await open(withModules({ audience: 'CLIENTS', moduleKey: 'portal', modules: MODULES.map((m) => (m.enabled ? { ...m, visibility: 'Clients' } : m)) }));
+    await choose(region, 'Tasks', 'Remove');
+    expect(screen.getByRole('alertdialog', { name: 'Remove the module “Tasks”?' })).not.toHaveTextContent('shown to everyone');
   });
 
   it('Remove a module without lessons: nothing to move', async () => {
