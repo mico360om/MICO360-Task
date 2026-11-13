@@ -43,6 +43,7 @@ import { OVERDUE_CLASS, healthColour, statusColour } from '../lib/colour-classes
 import { dashboardColumns, dashboardSpans, rowsForHeight } from '../lib/dashboard-layout';
 import { useElementWidth, useWindowHeight } from '../lib/useElementWidth';
 import { OverdueTrainingLink } from '../components/training/OverdueTrainingLink';
+import { InstallAppCard } from '../components/install/InstallAppCard';
 
 /** Traffic-light colour for a completion percentage, so the bar reads its health at a glance (1.23.8: the health colours). */
 const completionColor = (pct: number): string => healthColour(pct >= 67 ? 'ON_TRACK' : pct >= 34 ? 'AT_RISK' : 'LATE');
@@ -449,6 +450,9 @@ export function DashboardPage() {
 
       {/* Training Center: courses past their due day (red), opening My training. */}
       <OverdueTrainingLink />
+
+      {/* Installable website (13 Nov): "Install MICO360 Tasks on this device", until installed or Not now. */}
+      <InstallAppCard />
 
       {editing ? (
         <div id="customize-dashboard">

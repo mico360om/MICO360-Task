@@ -62,6 +62,18 @@ describe('webAppCsp', () => {
     expect(csp.replace(' https://www.youtube-nocookie.com https://player.vimeo.com', '')).not.toMatch(/youtube|ytimg|vimeo/);
   });
 
+  // Installable website: the policy needs no change for it — the manifest (manifest-src falls back to
+  // default-src), its icons (img-src) and the service worker (worker-src → script-src) are all 'self'.
+  it('allows the site’s own manifest, icons and service worker, and nothing from elsewhere for them', () => {
+    const directives = new Map(webAppCsp('task.mico360.com').split('; ').map((d) => [d.split(' ')[0]!, d.split(' ').slice(1)]));
+    expect(directives.has('manifest-src')).toBe(false);
+    expect(directives.get('default-src')).toEqual(["'self'"]);
+    expect(directives.get('img-src')).toContain("'self'");
+    expect(directives.has('worker-src')).toBe(false);
+    expect(directives.has('child-src')).toBe(false);
+    expect(directives.get('script-src')).toEqual(["'self'"]);
+  });
+
   it('never echoes an unsafe Host header', () => {
     const csp = webAppCsp("evil.example; script-src 'unsafe-inline'");
     expect(csp).toContain("connect-src 'self';");
@@ -260,6 +272,37 @@ describe('registerWebApp', () => {
     expect(res.headers['content-disposition']).toBe('attachment; filename="MICO360-Tasks-Chrome-Extension.zip"');
     expect(res.headers['cache-control']).toBe('no-cache');
     expect(res.rawPayload.toString()).toBe('PK-ext-bytes');
+  });
+
+  // Installable website (13 Nov 2026): the manifest, its icons and the offline page are plain files of the
+  // web build. The manifest is sent as a manifest and every one is checked for a newer copy (not
+  // fingerprinted); the offline page gets the page security headers like any page.
+  it('serves the web app manifest, its icons and the offline page', async () => {
+    mkdirSync(join(root, 'icons'), { recursive: true });
+    writeFileSync(join(root, 'manifest.webmanifest'), '{"name":"MICO360 Tasks"}');
+    writeFileSync(join(root, 'icons', 'icon-192.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    writeFileSync(join(root, 'apple-touch-icon.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    writeFileSync(join(root, 'offline.html'), '<!doctype html><title>You’re offline</title>');
+    const manifest = await app.inject({ method: 'GET', url: '/manifest.webmanifest' });
+    expect(manifest.statusCode).toBe(200);
+    expect(manifest.headers['content-type']).toMatch(/^application\/manifest\+json/);
+    expect(manifest.headers['cache-control']).toBe('no-cache');
+    expect(JSON.parse(manifest.body)).toEqual({ name: 'MICO360 Tasks' });
+    for (const url of ['/icons/icon-192.png', '/apple-touch-icon.png']) {
+      const icon = await app.inject({ method: 'GET', url });
+      expect(icon.statusCode, url).toBe(200);
+      expect(icon.headers['content-type'], url).toBe('image/png');
+      expect(icon.headers['cache-control'], url).toBe('no-cache');
+    }
+    const offline = await app.inject({ method: 'GET', url: '/offline.html', headers: { host: 'localhost:4000' } });
+    expect(offline.statusCode).toBe(200);
+    expect(offline.body).toContain('You’re offline');
+    expect(offline.headers['content-security-policy']).toContain("script-src 'self'");
+    expect(offline.headers['x-frame-options']).toBe('DENY');
+    // A missing icon is a real 404, never the app's page.
+    const missing = await app.inject({ method: 'GET', url: '/icons/nope.png' });
+    expect(missing.statusCode).toBe(404);
+    expect(missing.headers['content-type']).not.toMatch(/html/);
   });
 
   it('serves robots.txt from the web root as plain text', async () => {

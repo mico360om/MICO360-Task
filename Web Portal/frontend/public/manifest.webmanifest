@@ -1,0 +1,24 @@
+{
+  "id": "/",
+  "name": "MICO360 Tasks",
+  "short_name": "MICO360",
+  "description": "Projects, tasks, meetings and inspections for your team.",
+  "lang": "en",
+  "dir": "ltr",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "theme_color": "#8B1E1E",
+  "background_color": "#f4f2f0",
+  "categories": ["business", "productivity"],
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "New task", "short_name": "New task", "url": "/my-tasks?new=task", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }] },
+    { "name": "My Tasks", "short_name": "My Tasks", "url": "/my-tasks", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }] },
+    { "name": "Meetings", "short_name": "Meetings", "url": "/meetings", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }] }
+  ]
+}

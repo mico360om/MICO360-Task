@@ -1,15 +1,22 @@
 import { describe, it, expect, vi } from 'vitest';
 import { setUpServiceWorker } from './service-worker';
 
-function world(over: { search?: string; pathname?: string; protocol?: string; hostname?: string; sw?: boolean } = {}) {
+function world(over: { search?: string; pathname?: string; protocol?: string; hostname?: string; sw?: boolean; controlled?: boolean } = {}) {
   const posted: unknown[] = [];
   const unregister = vi.fn(async () => true);
-  const register = vi.fn(async () => ({}));
+  const update = vi.fn(async () => undefined);
+  const register = vi.fn(async () => ({ update }));
+  const changeListeners: (() => void)[] = [];
   const serviceWorker = {
     register,
     getRegistrations: vi.fn(async () => [{ unregister }]),
     ready: Promise.resolve({ active: { postMessage: (m: unknown) => void posted.push(m) } }),
+    controller: over.controlled ? {} : null,
+    addEventListener: (type: string, fn: () => void) => {
+      if (type === 'controllerchange') changeListeners.push(fn);
+    },
   };
+  const workerChanged = vi.fn();
   const deleted: string[] = [];
   const env = {
     prod: true,
@@ -17,8 +24,9 @@ function world(over: { search?: string; pathname?: string; protocol?: string; ho
     serviceWorker: over.sw === false ? undefined : serviceWorker,
     caches: { keys: async () => ['mico360-shell-v1', 'other-app'], delete: async (k: string) => void deleted.push(k) },
     loadedAssets: () => ['https://task.mico360.com/assets/index-abc.js', 'https://task.mico360.com/api/v1/me', 'https://task.mico360.com/assets/InspectionPage-x.js'],
+    onWorkerChanged: workerChanged,
   };
-  return { env, register, unregister, posted, deleted };
+  return { env, register, unregister, update, posted, deleted, workerChanged, takeOver: () => changeListeners.forEach((fn) => fn()) };
 }
 
 describe('setting up the service worker', () => {
@@ -52,9 +60,47 @@ describe('setting up the service worker', () => {
     expect(await setUpServiceWorker(world({ protocol: 'http:', hostname: 'localhost' }).env)).toBe('registered');
   });
 
+  // PWA (13 Nov): a new sw.js taking over an open page means a new version was deployed: the update
+  // check looks (the notice shows only if build-info.json says the page's build is older). The first
+  // worker taking over a page that had none is no update.
+  it('a new service worker taking over this page asks the update check to look', async () => {
+    const w = world({ controlled: true });
+    await setUpServiceWorker(w.env);
+    expect(w.workerChanged).not.toHaveBeenCalled();
+    w.takeOver();
+    expect(w.workerChanged).toHaveBeenCalledTimes(1);
+    const first = world({ controlled: false });
+    await setUpServiceWorker(first.env);
+    first.takeOver();
+    expect(first.workerChanged).not.toHaveBeenCalled();
+    // Once it has one, the next new worker counts.
+    first.takeOver();
+    expect(first.workerChanged).toHaveBeenCalledTimes(1);
+  });
+
   it('a registration that fails changes nothing for the page', async () => {
     const w = world();
     w.register.mockRejectedValueOnce(new Error('SecurityError'));
     expect(await setUpServiceWorker(w.env)).toBe('failed');
+  });
+});
+
+// Review (13 Nov): a new sw.js (or its kill switch) is looked for once at each page load — register() alone
+// doesn't look again when the worker is already registered, and a reload didn't make Chrome look either —
+// and never mid-session (a worker installing under an open page; the update watcher never asks).
+describe('the service worker is looked for at each page load, and only then', () => {
+  it('asks the browser once, after registering; a failed ask changes nothing', async () => {
+    const w = world();
+    expect(await setUpServiceWorker(w.env)).toBe('registered');
+    await vi.waitFor(() => expect(w.update).toHaveBeenCalledTimes(1));
+    const failing = world();
+    failing.update.mockRejectedValueOnce(new DOMException('gone', 'InvalidStateError'));
+    expect(await setUpServiceWorker(failing.env)).toBe('registered');
+  });
+
+  it('the update watcher never asks (no update() in it)', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { resolve } = await import('node:path');
+    expect(readFileSync(resolve(__dirname, 'update-recovery.ts'), 'utf8')).not.toMatch(/\.update\(\)/);
   });
 });

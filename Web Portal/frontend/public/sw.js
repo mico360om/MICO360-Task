@@ -6,6 +6,10 @@
  *   app); the last good page is kept and used only when the network can't be reached.
  * - The app's files under /assets/ have their content's hash in their names and never change: kept
  *   once fetched, and used from the cache.
+ * - Installable website (v2): the offline page, the manifest and the app icons (KEPT) are kept when it
+ *   installs. A page load with no signal and no last good page shows the offline page; the manifest and
+ *   icons come from the network when it answers, else from what was kept. Nothing personal: never an
+ *   API answer, an uploaded file or a download.
  * - Never cached: the API (/api/), the client page (/client/), uploaded files (/uploads/), the
  *   downloads (/downloads/), realtime (/socket.io/), email pictures, and every other request.
  *
@@ -15,7 +19,7 @@
  */
 const KILL_SWITCH = false;
 /** Changes when the way things are cached changes: older caches are removed when this one starts. */
-const VERSION = 'v1';
+const VERSION = 'v2';
 const PREFIX = 'mico360-';
 const SHELL_CACHE = `${PREFIX}shell-${VERSION}`;
 const ASSET_CACHE = `${PREFIX}assets-${VERSION}`;
@@ -23,6 +27,9 @@ const ASSET_CACHE = `${PREFIX}assets-${VERSION}`;
 const SHELL_KEY = '/__mico360-shell__';
 /** The app's files kept at most (the oldest go first): a few releases' worth. */
 const MAX_ASSETS = 300;
+/** Kept when it installs (v2), besides the page and its files: the offline page, the manifest and the icons. */
+const KEPT = ['/offline.html', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon-512.png', '/icons/icon-maskable-512.png', '/apple-touch-icon.png'];
+const OFFLINE_PAGE = '/offline.html';
 const NEVER = [/^\/api\//, /^\/client(\/|$)/, /^\/uploads\//, /^\/downloads\//, /^\/socket\.io\//, /^\/email-assets\//];
 
 /**
@@ -38,7 +45,31 @@ function networkRoutes() {
   return NETWORK_PATHS.map((pathname) => ({ condition: { urlPattern: new Pattern({ pathname }) }, source: 'network' }));
 }
 
+/**
+ * How long it waits for the network. A browser lets a new worker take over only once the old one has
+ * nothing in progress: one request the server never answers (a dropped connection on a phone, a stuck
+ * proxy) kept every update — and the kill switch — out until the browser was closed. So every wait ends:
+ * a page load then counts as no signal (the last good page), an app file fails as a dropped connection
+ * would, and the worker's own background work (keeping files) simply stops waiting.
+ */
+const PAGE_WAIT_MS = 30_000;
+const FILE_WAIT_MS = 120_000;
+const BACKGROUND_MS = 30_000;
+
+/** The promise, or a "no answer" failure after ms. */
+function within(promise, ms) {
+  let timer;
+  const late = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new TypeError('No answer in time')), ms);
+  });
+  return Promise.race([promise, late]).finally(() => clearTimeout(timer));
+}
+
+/** Background work: done, or given up on after ms (it may still finish; nothing waits for it). */
+const settleWithin = (promise, ms) => within(promise, ms).catch(() => undefined);
+
 const isAsset = (path) => path.startsWith('/assets/');
+const isKept = (path) => KEPT.includes(path);
 
 /** The page's own files (scripts, styles, its icon and fonts under /assets/), read from its HTML. */
 function assetsIn(html) {
@@ -47,10 +78,29 @@ function assetsIn(html) {
   return [...out];
 }
 
+/**
+ * The oldest go first — never what the current last good page loads: the files that keep their name
+ * across releases (the vendor chunks, the fonts) were fetched first and stay "oldest" for good, and
+ * trimming them left an offline reload blank (second review, 13 Nov).
+ */
 async function trimAssets() {
   const cache = await caches.open(ASSET_CACHE);
   const keys = await cache.keys();
-  for (let i = 0; i < keys.length - MAX_ASSETS; i++) await cache.delete(keys[i]);
+  let extra = keys.length - MAX_ASSETS;
+  if (extra <= 0) return;
+  const shell = await caches.match(SHELL_KEY);
+  const needed = new Set(shell ? assetsIn(await shell.text()) : []);
+  for (const request of keys) {
+    if (extra <= 0) break;
+    if (needed.has(new URL(request.url, self.location.origin).pathname)) continue;
+    await cache.delete(request);
+    extra -= 1;
+  }
+}
+
+/** Keeping a copy of an answer, after the answer: background work that may fail or give up, never the answer. */
+function keepCopy(event, work) {
+  event.waitUntil(settleWithin(Promise.resolve().then(work), BACKGROUND_MS));
 }
 
 async function cacheAssets(urls) {
@@ -74,16 +124,88 @@ async function cacheAssets(urls) {
   await trimAssets();
 }
 
-/** The page as it is now, and the files it loads first (so a first visit can already load again offline). */
+/**
+ * The page kept as the last good page, without the address it came from (a password-reset link's token
+ * in /reset?token=… is never kept with it).
+ */
+async function pageCopy(res) {
+  return new Response(await res.clone().arrayBuffer(), { status: res.status, statusText: res.statusText, headers: res.headers });
+}
+
+/**
+ * The page as it is now, and the files it loads first (so a first visit can already load again offline).
+ * A last good page kept already stays: a worker installing while a page of the older build is open must
+ * not swap it for the new build's (the open page's code is what was kept); the next page load updates it.
+ */
 async function cacheShell() {
   try {
     const res = await fetch('/', { cache: 'no-store', credentials: 'same-origin' });
     if (!res.ok) return;
     const html = await res.clone().text();
-    await (await caches.open(SHELL_CACHE)).put(SHELL_KEY, res);
+    if (!(await caches.match(SHELL_KEY))) await (await caches.open(SHELL_CACHE)).put(SHELL_KEY, await pageCopy(res));
     await cacheAssets(assetsIn(html));
   } catch {
     /* no signal while installing: kept on the next page load */
+  }
+}
+
+const pathOf = (request) => new URL(request.url, self.location.origin).pathname;
+
+/**
+ * Before an older version's caches go (v1 → v2): its last good page and its app files come along, so
+ * the rename loses nothing a page opened before it needs offline. What the current caches hold wins.
+ * Only the app files that fit come along (the newest first), and they go in before the current build's
+ * own: the oldest are what a later trim removes first, never the files of the build running now.
+ */
+async function carryOver(name) {
+  try {
+    if (name.startsWith(`${PREFIX}shell-`)) {
+      const old = await caches.open(name);
+      const kept = await old.match(SHELL_KEY);
+      if (!kept) return;
+      const target = await caches.open(SHELL_CACHE);
+      // Without the address it came from (as every last good page is kept now).
+      if (!(await target.match(SHELL_KEY))) await target.put(SHELL_KEY, await pageCopy(kept));
+      return;
+    }
+    if (!name.startsWith(`${PREFIX}assets-`)) return;
+    const old = await caches.open(name);
+    const oldFiles = (await old.keys()).filter((request) => isAsset(pathOf(request)));
+    if (!oldFiles.length) return;
+    const target = await caches.open(ASSET_CACHE);
+    const current = [];
+    for (const request of await target.keys()) {
+      const res = await target.match(request);
+      if (res) current.push([pathOf(request), res]);
+    }
+    const have = new Set(current.map(([path]) => path));
+    const candidates = oldFiles.filter((request) => !have.has(pathOf(request)));
+    const take = candidates.slice(Math.max(0, candidates.length - Math.max(0, MAX_ASSETS - current.length)));
+    if (!take.length) return;
+    try {
+      for (const request of take) {
+        const res = await old.match(request);
+        if (res) await target.put(pathOf(request), res);
+      }
+    } finally {
+      // Put again, the current build's files go to the newest end (a put replaces): whatever happened above.
+      for (const [path, res] of current) await target.put(path, res).catch(() => undefined);
+    }
+  } catch {
+    /* an older cache that can't be read is simply removed */
+  }
+}
+
+/** The offline page, the manifest and the icons, fetched fresh; one that can't be fetched now is skipped. */
+async function cacheKept() {
+  const cache = await caches.open(SHELL_CACHE);
+  for (const path of KEPT) {
+    try {
+      const res = await fetch(path, { cache: 'no-store', credentials: 'same-origin' });
+      if (res.ok) await cache.put(path, res);
+    } catch {
+      /* no signal while installing: kept on its next fetch */
+    }
   }
 }
 
@@ -92,12 +214,13 @@ async function removeEverything() {
 }
 
 /** A page load: the network first; the last good page only when the network can't be reached. */
-async function pageLoad(request) {
+async function pageLoad(request, event) {
   try {
-    const res = await fetch(request);
+    const res = await within(fetch(request), PAGE_WAIT_MS);
     const type = res.headers.get('content-type') || '';
     if (res.ok && type.includes('text/html')) {
-      await (await caches.open(SHELL_CACHE)).put(SHELL_KEY, res.clone());
+      const copy = res.clone();
+      keepCopy(event, async () => (await caches.open(SHELL_CACHE)).put(SHELL_KEY, await pageCopy(copy)));
       return res;
     }
     // The server answered, but not with the app (a proxy's 502 page while it restarts): the last good
@@ -110,20 +233,43 @@ async function pageLoad(request) {
   } catch (err) {
     const kept = await caches.match(SHELL_KEY);
     if (kept) return kept;
+    // No page was ever kept here: the plain offline page (v2), if it was.
+    const offlinePage = await caches.match(OFFLINE_PAGE);
+    if (offlinePage) return offlinePage;
+    throw err;
+  }
+}
+
+/** The manifest or an icon: the network first (kept up to date); what was kept only without signal. */
+async function keptFile(request, event) {
+  const path = new URL(request.url).pathname;
+  try {
+    const res = await within(fetch(request), PAGE_WAIT_MS);
+    if (res.ok) {
+      const copy = res.clone();
+      keepCopy(event, async () => (await caches.open(SHELL_CACHE)).put(path, copy));
+    }
+    return res;
+  } catch (err) {
+    const kept = await (await caches.open(SHELL_CACHE)).match(path);
+    if (kept) return kept;
     throw err;
   }
 }
 
 /** One of the app's files: from the cache when it's there (it never changes), else fetched and kept. */
-async function appFile(request) {
+async function appFile(request, event) {
   const path = new URL(request.url).pathname;
   const cache = await caches.open(ASSET_CACHE);
   const kept = await cache.match(path);
   if (kept) return kept;
-  const res = await fetch(request);
+  const res = await within(fetch(request), FILE_WAIT_MS);
   if (res.ok) {
-    await cache.put(path, res.clone());
-    await trimAssets();
+    const copy = res.clone();
+    keepCopy(event, async () => {
+      await cache.put(path, copy);
+      await trimAssets();
+    });
   }
   return res;
 }
@@ -142,7 +288,15 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     (async () => {
       await routed;
-      if (!KILL_SWITCH) await cacheShell();
+      if (!KILL_SWITCH) {
+        await settleWithin(
+          (async () => {
+            await cacheShell();
+            await cacheKept();
+          })(),
+          BACKGROUND_MS,
+        );
+      }
       await self.skipWaiting();
     })(),
   );
@@ -158,7 +312,11 @@ self.addEventListener('activate', (event) => {
         return;
       }
       const keep = new Set([SHELL_CACHE, ASSET_CACHE]);
-      for (const name of await caches.keys()) if (name.startsWith(PREFIX) && !keep.has(name)) await caches.delete(name);
+      for (const name of await caches.keys()) {
+        if (!name.startsWith(PREFIX) || keep.has(name)) continue;
+        await carryOver(name);
+        await caches.delete(name);
+      }
       await self.clients.claim();
     })(),
   );
@@ -167,7 +325,7 @@ self.addEventListener('activate', (event) => {
 // The page sends the files it loaded before this worker took over, so they are kept too.
 self.addEventListener('message', (event) => {
   const data = event.data || {};
-  if (data.type === 'cache-assets' && Array.isArray(data.urls) && !KILL_SWITCH) event.waitUntil(cacheAssets(data.urls));
+  if (data.type === 'cache-assets' && Array.isArray(data.urls) && !KILL_SWITCH) event.waitUntil(settleWithin(cacheAssets(data.urls), BACKGROUND_MS));
 });
 
 self.addEventListener('fetch', (event) => {
@@ -177,10 +335,16 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
   if (NEVER.some((re) => re.test(url.pathname))) return;
-  if (request.mode === 'navigate') {
-    event.respondWith(pageLoad(request));
+  // The offline page, the manifest and the icons — opened as a page too (the offline page is never the
+  // last good page).
+  if (isKept(url.pathname)) {
+    event.respondWith(keptFile(request, event));
     return;
   }
-  if (isAsset(url.pathname)) event.respondWith(appFile(request));
+  if (request.mode === 'navigate') {
+    event.respondWith(pageLoad(request, event));
+    return;
+  }
+  if (isAsset(url.pathname)) event.respondWith(appFile(request, event));
   // Anything else goes to the network as if there were no worker.
 });

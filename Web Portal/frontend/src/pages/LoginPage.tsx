@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { configApi } from '../api/config';
-import { androidAppLink, checkHostedApk, type AndroidAppLink } from '../lib/android-app-link';
+import { androidAppLink, checkHostedApk } from '../lib/android-app-link';
 import { LoginForm } from '../features/auth/LoginForm';
 import { createApiClient, ApiError } from '../lib/api-client';
 import { useAuthStore, type Session } from '../stores/auth-store';
@@ -64,9 +64,10 @@ export function LoginPage() {
   // not answer): keep the link — the reset page explains if it cannot send.
   const emailOff = configQ.data?.emailEnabled === false;
   const canReset = emailEnabled || configQ.isError;
-  // "Download for Android": the APK this site hosts at its own, unchanging address (or an address the
-  // administrator configured). A hosted file the site does not have would be a link that fails, so
-  // the site is asked first; until it answers, the button is offered.
+  // "Download for Android" (in the footer row since 13 Nov: Install App comes first): the APK this site
+  // hosts at its own, unchanging address (or an address the administrator configured). A hosted file
+  // the site does not have would be a link that fails, so the site is asked first and the link is left
+  // out when it has none; until it answers, the link is offered.
   const androidLink = androidAppLink(configQ.data?.androidAppUrl);
   const apkQ = useQuery({
     queryKey: ['android-apk', androidLink.href],
@@ -351,14 +352,10 @@ export function LoginPage() {
             </p>
           </div>
 
-          {/* App download badges */}
+          {/* The quiet links. The store badges went on 13 Nov (owner, P1): the website installs as an
+              app, and the Android APK is a plain link here and on About. */}
           <div className="mt-6 flex flex-col items-center gap-3">
-            <span className="text-xs font-semibold uppercase tracking-wider text-ink-3">Get the mobile app</span>
-            <div className="flex flex-wrap items-center justify-center gap-3">
-              <StoreBadge kind="android" link={androidLink} available={androidAvailable} />
-              <StoreBadge kind="ios" />
-            </div>
-            <div className="mt-1 flex items-center gap-3 text-xs text-ink-3">
+            <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-xs text-ink-3">
               {canReset ? (
                 <>
                   <Link to="/forgot" className="tap hover:text-brand">Forgot password?</Link>
@@ -368,6 +365,19 @@ export function LoginPage() {
               <Link to="/privacy" className="tap hover:text-brand">Privacy</Link>
               <span aria-hidden="true">·</span>
               <Link to="/terms" className="tap hover:text-brand">Terms</Link>
+              {androidAvailable ? (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <a
+                    href={androidLink.href}
+                    {...(androidLink.hosted ? { download: 'MICO360-Tasks.apk' } : { target: '_blank', rel: 'noopener noreferrer' })}
+                    title={androidLink.hosted ? 'The MICO360 Tasks app for Android phones (an .apk file to install)' : 'The MICO360 Tasks app for Android phones'}
+                    className="tap hover:text-brand"
+                  >
+                    Download for Android
+                  </a>
+                </>
+              ) : null}
             </div>
           </div>
         </div>
@@ -433,38 +443,5 @@ function BoardMock() {
         ))}
       </div>
     </div>
-  );
-}
-
-function StoreBadge({ kind, link, available = true }: { kind: 'android' | 'ios'; link?: AndroidAppLink; available?: boolean }) {
-  const android = kind === 'android';
-  // A download only while there is one: iOS isn't available yet, and the Android APK may not
-  // have been put on this site. Either is a label, not a link that goes nowhere.
-  const live = android && Boolean(link) && available;
-  const className = `inline-flex items-center gap-2.5 rounded-xl border px-4 py-2 transition ${
-    live ? 'border-line bg-ink text-surface hover:-translate-y-0.5 hover:shadow-lift' : 'cursor-default border-line bg-surface text-ink-3'
-  }`;
-  const Tag = live ? 'a' : 'span';
-  const linkProps = live && link
-    ? link.hosted
-      ? { href: link.href, download: 'MICO360-Tasks.apk' }
-      : { href: link.href, target: '_blank', rel: 'noopener noreferrer' }
-    : { 'aria-label': android ? 'Android app not available yet' : 'iOS app coming soon' };
-  return (
-    <Tag {...linkProps} className={className}>
-      <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
-        {android ? (
-          <path d="M7.2 6.6l-1-1.7a.4.4 0 01.7-.4l1 1.8a7 7 0 016.2 0l1-1.8a.4.4 0 01.7.4l-1 1.7A6.4 6.4 0 0119 12H5a6.4 6.4 0 012.2-5.4zM9 9.4a.8.8 0 100-1.6.8.8 0 000 1.6zm6 0a.8.8 0 100-1.6.8.8 0 000 1.6zM4.5 13h1.7v6a1.3 1.3 0 01-2.6 0v-6h.9zm14.3 0h.9v6a1.3 1.3 0 01-2.6 0v-6h1.7zM7 13h10v6.2A1.3 1.3 0 0115.7 20H8.3A1.3 1.3 0 017 18.7V13z" />
-        ) : (
-          <path d="M16.4 12.9c0-2 1.6-3 1.7-3-1-1.4-2.4-1.6-2.9-1.6-1.2-.1-2.4.7-3 .7s-1.6-.7-2.6-.7c-1.3 0-2.6.8-3.3 2-1.4 2.4-.4 6 1 8 .7 1 1.5 2 2.5 2s1.4-.7 2.6-.7 1.5.7 2.6.6c1 0 1.7-1 2.4-2 .5-.7.7-1.4.9-1.5-.1 0-1.9-.7-1.9-2.8zM14.5 6.3c.5-.7.9-1.6.8-2.6-.8 0-1.8.6-2.4 1.3-.5.6-1 1.6-.8 2.5.9.1 1.8-.5 2.4-1.2z" />
-        )}
-      </svg>
-      <span className="text-left leading-tight">
-        <span className={`block text-[11px] font-medium uppercase tracking-wide ${live ? 'opacity-80' : ''}`}>
-          {live ? 'Download for' : android ? 'Not available yet' : 'Coming soon on'}
-        </span>
-        <span className="block text-sm font-bold">{android ? 'Android (APK)' : 'iOS'}</span>
-      </span>
-    </Tag>
   );
 }

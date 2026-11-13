@@ -1,6 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { aboutApi, deployedWebBuild, type ReleaseEntry } from '../api/about';
+import { configApi } from '../api/config';
+import { androidAppLink, checkHostedApk } from '../lib/android-app-link';
 import { PageHeader } from '../components/ui/PageHeader';
 import { Card } from '../components/ui/Card';
 import { LoadError } from '../components/ui/LoadError';
@@ -18,6 +20,38 @@ const SECTIONS: { key: keyof ReleaseEntry['sections']; title: string; adminOnly?
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 /** '2026-10-16' → '16 October 2026'. */
 const releaseDay = (date: string) => (/^\d{4}-\d{2}-\d{2}$/.test(date) ? `${Number(date.slice(8, 10))} ${MONTHS[Number(date.slice(5, 7)) - 1]} ${date.slice(0, 4)}` : date);
+
+/**
+ * The Android app (owner, 13 Nov — P1): the website installs as an app first; the APK this site hosts
+ * (or a page the administrator set) is offered here and on the sign-in page's footer. A hosted file the
+ * site doesn't have is left out rather than offered as a link that fails.
+ */
+function AndroidApp() {
+  const configQ = useQuery({ queryKey: ['app-config'], queryFn: () => configApi(apiClient).get(), staleTime: Infinity, refetchOnWindowFocus: false });
+  const link = androidAppLink(configQ.data?.androidAppUrl);
+  const apkQ = useQuery({ queryKey: ['android-apk', link.href], queryFn: () => checkHostedApk(link.href), enabled: link.hosted, staleTime: Infinity, refetchOnWindowFocus: false });
+  if (link.hosted && apkQ.data === false) return null;
+  return (
+    <Card className="mb-6 p-5">
+      <section aria-labelledby="about-android">
+        <h2 id="about-android" className="font-display text-base font-bold text-ink">
+          Apps
+        </h2>
+        <p className="mt-1 text-sm text-ink-2">
+          Where your browser can, MICO360 Tasks installs as an app: Install App in your account menu (on iPhone and iPad, Add to Home Screen). An Android app is also available.
+        </p>
+        <a
+          href={link.href}
+          {...(link.hosted ? { download: 'MICO360-Tasks.apk' } : { target: '_blank', rel: 'noopener noreferrer' })}
+          title={link.hosted ? 'The MICO360 Tasks app for Android phones (an .apk file to install)' : 'The MICO360 Tasks app for Android phones'}
+          className="mt-2 inline-flex min-h-[28px] items-center text-sm font-semibold text-brand hover:underline [@media(pointer:coarse)]:min-h-11"
+        >
+          Download for Android
+        </a>
+      </section>
+    </Card>
+  );
+}
 
 function uptime(seconds: number): string {
   const d = Math.floor(seconds / 86400);
@@ -111,6 +145,8 @@ export function AboutPage() {
           </section>
         ) : null}
       </Card>
+
+      <AndroidApp />
 
       <h2 className="mb-3 font-display text-lg font-bold text-ink">Version history</h2>
       {releasesQ.isError ? (

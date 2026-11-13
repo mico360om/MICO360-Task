@@ -24,6 +24,13 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - Learning Hub (admins): assign a course to several people at once, shown as one entry you can withdraw whole or per person.
 - Learning Hub (admins): any course can have modules — add, rename, reorder or remove them, move lessons between them, and choose who sees each one.
 
+## [1.23.30] - 2026-11-13
+
+### Improvements
+- MICO360 Tasks can be installed as an app on phones, tablets and computers (Install App, or Add to Home Screen on iPhone and iPad).
+- A message tells you when a new version is ready, and a clear page shows when you’re offline.
+- The Android download link is now on the sign-in page and in About.
+
 ## [1.23.29] - 2026-11-13
 
 ### Bug fixes

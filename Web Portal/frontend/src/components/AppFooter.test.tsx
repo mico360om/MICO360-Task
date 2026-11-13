@@ -46,50 +46,38 @@ describe('AppFooter', () => {
     expect(screen.getByRole('link', { name: /about and version history/i }).getAttribute('href')).toBe('/about');
   });
 
-  it('asks to reload when a newer build has been deployed since this page was loaded', async () => {
+  // Installable website (13 Nov): a newer version is told by the update notice (UpdateToast: Refresh /
+  // Later), the one way for an installed app too — the footer no longer has a banner of its own.
+  it('leaves a newer version to the update notice: no banner of its own, nothing asked of build-info.json', async () => {
     deployedWeb = { version: '1.0.1', builtAt: '2099-01-01T00:00:00.000Z' };
-    renderFooter();
-    expect(await screen.findByText(/a new version of mico360 tasks is available/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /reload/i })).toBeInTheDocument();
-  });
-
-  it('says nothing about updates while this page is the deployed build', async () => {
     renderFooter();
     await screen.findByText(/Last Updated: 16\/10\/2026/);
     expect(screen.queryByText(/a new version/i)).toBeNull();
+    expect(screen.queryByRole('button', { name: /reload/i })).toBeNull();
+    expect(vi.mocked(fetch).mock.calls.some(([u]) => String(u).includes('build-info.json'))).toBe(false);
   });
 });
 
 describe('AppFooter: the apps', () => {
-  it('offers the Android app and the Chrome extension as downloads from this site', async () => {
+  // Owner, 13 Nov (P1): Install App comes first; the Android download moved to the sign-in page's footer
+  // and About.
+  it('offers the Chrome extension as a download from this site — and no longer the Android app', async () => {
+    androidAppUrl = '/downloads/MICO360-Tasks.apk';
     renderFooter();
     const apps = await screen.findByRole('navigation', { name: 'Get the apps' });
-    const android = await within(apps).findByRole('link', { name: /android app/i });
-    expect(android.getAttribute('href')).toBe('/downloads/MICO360-Tasks.apk');
-    expect(android.hasAttribute('download')).toBe(true);
     const extension = await within(apps).findByRole('link', { name: /chrome extension/i });
     expect(extension.getAttribute('href')).toBe('/downloads/MICO360-Tasks-Chrome-Extension.zip');
     expect(extension.hasAttribute('download')).toBe(true);
     // How to install a zipped extension, for anyone who hasn't done it before.
     expect(extension.getAttribute('title')).toMatch(/chrome:\/\/extensions.*Load unpacked/);
+    expect(within(apps).queryByRole('link', { name: /android/i })).toBeNull();
+    expect(document.body.innerHTML).not.toContain('MICO360-Tasks.apk');
   });
 
-  it('leaves out a download this site doesn’t have', async () => {
+  it('leaves out a download this site doesn’t have (with none left, no “Get the apps” at all)', async () => {
     missing.add('/downloads/MICO360-Tasks-Chrome-Extension.zip');
     renderFooter();
-    const apps = await screen.findByRole('navigation', { name: 'Get the apps' });
-    await within(apps).findByRole('link', { name: /android app/i });
-    await waitFor(() => expect(within(apps).queryByRole('link', { name: /chrome extension/i })).toBeNull());
-  });
-
-  it('opens an Android app page the administrator set (a store, say) instead of a file', async () => {
-    androidAppUrl = 'https://play.google.com/store/apps/details?id=com.mico360.tasks';
-    renderFooter();
-    const apps = await screen.findByRole('navigation', { name: 'Get the apps' });
-    await waitFor(() => expect(within(apps).getByRole('link', { name: /android app/i }).getAttribute('href')).toBe(androidAppUrl));
-    const android = within(apps).getByRole('link', { name: /android app/i });
-    expect(android.hasAttribute('download')).toBe(false);
-    expect(android.getAttribute('target')).toBe('_blank');
-    expect(android.getAttribute('rel')).toContain('noopener');
+    await screen.findByText(/Last Updated: 16\/10\/2026/);
+    await waitFor(() => expect(screen.queryByRole('navigation', { name: 'Get the apps' })).toBeNull());
   });
 });
