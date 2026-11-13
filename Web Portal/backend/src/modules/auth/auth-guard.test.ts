@@ -168,6 +168,17 @@ describe('auth guard with live user state (token version, status, current roles)
     expect(s.lookups).toBe(before); // still remembered: the made-up ids took no place
   });
 
+  it('accountState: a burst of pictures for one account not yet remembered reads it once', async () => {
+    const s = stateStore({ u1: { tokenVersion: 0, active: true, roles: ['EMPLOYEE'] } });
+    const guard = createAuthGuard(makeTokenService(), s.opts);
+    const all = await Promise.all(Array.from({ length: 5 }, () => guard.accountState('u1')));
+    expect(all.every((x) => x?.active)).toBe(true);
+    expect(s.lookups).toBe(1);
+    await Promise.all(Array.from({ length: 5 }, () => guard.accountState('nobody')));
+    expect(await guard.accountState('nobody')).toBeNull(); // still never remembered
+    expect(s.lookups).toBe(3); // the burst shared one read; the later call read again
+  });
+
   it('a full cache lets its oldest entry go, never everyone’s at once', async () => {
     const s = stateStore({ a: { tokenVersion: 0, active: true, roles: [] }, b: { tokenVersion: 0, active: true, roles: [] }, c: { tokenVersion: 0, active: true, roles: [] } });
     const guard = createAuthGuard(makeTokenService(), { ...s.opts, cacheMaxEntries: 2 });

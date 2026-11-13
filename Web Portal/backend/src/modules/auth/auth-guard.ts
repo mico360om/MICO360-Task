@@ -176,12 +176,14 @@ export function createAuthGuard(tokenService: TokenService, opts: AuthGuardOptio
     if (!userState) return null;
     const hit = cache.get(userId);
     if (opts.fresh !== true && hit && now() - hit.at < cacheTtlMs) return hit.state;
-    // A link can name anyone: an account that doesn't exist is never remembered (review, 1.23.29), so
-    // made-up ids can't crowd real sessions out of this shared cache.
-    const state = await userState(userId);
-    if (state) remember(userId, Promise.resolve(state));
-    else cache.delete(userId); // gone: nothing stale stays either
-    return state;
+    // One read for a burst (a page of pictures): the read in flight is shared. A link can name anyone, so an
+    // account that doesn't exist is forgotten as soon as that's known (review, 1.23.29): made-up ids can't
+    // crowd real sessions out of this shared cache, and nothing stale stays for an account that's gone.
+    const state = userState(userId);
+    remember(userId, state);
+    const found = await state;
+    if (!found && cache.get(userId)?.state === state) cache.delete(userId);
+    return found;
   }
 
   return { authenticate, requireRoles, forgetUser, sessionCurrent, accountState };
