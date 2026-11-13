@@ -644,7 +644,8 @@ export function createAiFeatureService({
     const title = typeof obj.title === 'string' && obj.title.trim() ? obj.title.trim() : input.text.trim();
     const rawDescription = typeof obj.description === 'string' ? obj.description.trim().slice(0, 4000) : '';
     const description = rawDescription && normalise(rawDescription) !== normalise(title) ? rawDescription : null;
-    const dueDate = typeof obj.dueDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(obj.dueDate) ? obj.dueDate : null;
+    // Review fix #29: a real day only (an impossible one is dropped).
+    const dueDate = isDay(obj.dueDate) ? obj.dueDate : null;
     const priority = PRIORITIES.includes(obj.priority as Priority) ? (obj.priority as Priority) : null;
     const recurrence = toRepeatRule(obj.repeat);
     const match = matchProject(input.text, typeof obj.project === 'string' ? obj.project : null, projects);
@@ -1118,8 +1119,15 @@ export function promptList<T>(items: T[], line: (item: T, short: boolean) => str
 const FREQUENCIES = ['DAILY', 'WEEKLY', 'MONTHLY', 'QUARTERLY', 'YEARLY'] as const;
 
 const normalise = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
-const isDay = (v: unknown): v is string =>
-  typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && new Date(`${v}T00:00:00Z`).toISOString().slice(0, 10) === v;
+/**
+ * A real calendar day written 'YYYY-MM-DD'. Review fix #29 (13 Nov 2026): an impossible one from the model
+ * ("2026-13-01") is no day — never thrown (toISOString of an invalid date), as tasks/recurrence's isDayKey.
+ */
+const isDay = (v: unknown): v is string => {
+  if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
+  const d = new Date(`${v}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
+};
 const wholeInt = (v: unknown, min: number, max: number): number | undefined =>
   typeof v === 'number' && Number.isFinite(v) ? Math.min(max, Math.max(min, Math.round(v))) : undefined;
 

@@ -122,6 +122,9 @@ export interface UpdateUserData {
   emailVerifiedAt?: Date | null;
 }
 
+/** The reads and writes a change that could remove an administrator makes while the administrators are held. */
+export type AdminHeldUsers = Pick<UserRepository, 'findById' | 'countActiveAdmins' | 'setStatus' | 'update' | 'softDelete'>;
+
 export interface UserRepository {
   create(data: CreateUserData): Promise<UserSummary>;
   findById(id: string): Promise<UserSummary | null>;
@@ -166,6 +169,13 @@ export interface UserRepository {
   unlock(id: string): Promise<UserSummary>;
   /** ACTIVE, non-deleted users with the ADMIN role, optionally not counting one user. */
   countActiveAdmins(excludeId?: string): Promise<number>;
+  /**
+   * Review fix #8 (13 Nov 2026): run `work` while every other change that could remove an administrator
+   * waits its turn — one transaction that locks a sentinel row first — so "is another active
+   * administrator left?" and the change are one step. Absent (simple fakes): `work` runs on the
+   * repository itself.
+   */
+  withAdminsHeld?<T>(work: (held: AdminHeldUsers) => Promise<T>): Promise<T>;
   /** Rename soft-deleted accounts that still hold this email or username (deleted before renaming existed). */
   releaseDeletedIdentity(email: string, username: string): Promise<void>;
 }

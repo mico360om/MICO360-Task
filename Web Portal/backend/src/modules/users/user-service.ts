@@ -5,7 +5,7 @@ import { hashPassword, verifyPassword } from '../../lib/password';
 import { isStrongPassword } from '../../lib/password-policy';
 import { WeakPasswordError } from '../auth/errors';
 import { assertRoleSet, assertSameKind, isClientRoles } from '../clients/client-kind';
-import type { NewUser, TemporaryPasswordMark, UpdateUserData, UserListFilter, UserRepository, UserStatus, UserSummary } from './user-repository';
+import type { AdminHeldUsers, NewUser, TemporaryPasswordMark, UpdateUserData, UserListFilter, UserRepository, UserStatus, UserSummary } from './user-repository';
 import { MY_PROJECTS_ONLY_REFUSED } from './user-preferences';
 
 export interface SessionTokens {
@@ -30,6 +30,11 @@ export interface UserServiceDeps {
   onDeleted?: (userId: string) => Promise<void>;
   /** After a person's first name, last name or username changed (the task search finds them by it). */
   onRenamed?: (userId: string) => void | Promise<void>;
+  /**
+   * Review follow-up to N1: an account's access changed without its sessions being ended (reactivated):
+   * the sign-in check reads it again (auth-guard forgetUser), so a sign-in straight after isn't refused.
+   */
+  onAccountChanged?: (userId: string) => void;
   /** 1.23: after an account is made inactive, suspended or deleted: forget what it connected (Microsoft Teams). */
   onDeactivated?: (userId: string) => Promise<void>;
   /**
@@ -67,7 +72,7 @@ const sameRoles = (a: string[], b: string[]) => a.length === b.length && a.every
 /** How long after a self-service password change the old live sockets are closed (see revokeAccess). */
 const OWN_CHANGE_SOCKET_GRACE_MS = 5000;
 
-export function createUserService({ users, revokeSessions, onSessionsRevoked, issueSession, forgetDevices, onDeleted, onRenamed, onDeactivated, onEmailChanged }: UserServiceDeps) {
+export function createUserService({ users, revokeSessions, onSessionsRevoked, issueSession, forgetDevices, onDeleted, onRenamed, onDeactivated, onEmailChanged, onAccountChanged }: UserServiceDeps) {
   /** Refuse an email or username someone else holds (case and spaces don't matter), naming the field. */
   async function assertFree(email: string, username: string, selfId?: string): Promise<void> {
     const clash = await users.findByEmailOrUsername(email.trim(), username.trim());
@@ -77,10 +82,28 @@ export function createUserService({ users, revokeSessions, onSessionsRevoked, is
   }
 
   /** Never leave the system without an administrator who can sign in. */
-  async function ensureAnotherActiveAdmin(id: string): Promise<void> {
-    if ((await users.countActiveAdmins(id)) === 0) {
+  async function ensureAnotherActiveAdmin(id: string, from: Pick<UserRepository, 'countActiveAdmins'> = users): Promise<void> {
+    if ((await from.countActiveAdmins(id)) === 0) {
       throw new ConflictError('This is the last active administrator. Make someone else an administrator first.', 'LAST_ADMIN');
     }
+  }
+
+  /**
+   * Review fix #8 (13 Nov 2026): a change that could leave the site without an administrator — a
+   * deactivation, a suspension, a deletion, a role change without ADMIN — is made with the
+   * administrators held (one such change at a time, site-wide): the person is read again inside, and
+   * "is another active administrator left?" and the write are one step. Two admins removing each other
+   * at the same moment: one change is made, the other is refused (LAST_ADMIN). What follows the change
+   * (sessions ended, links ended, …) runs after it is saved.
+   */
+  async function removingAdmin<T>(id: string, write: (held: AdminHeldUsers) => Promise<T>): Promise<T> {
+    const run = async (held: AdminHeldUsers) => {
+      const current = await held.findById(id);
+      if (!current) throw new NotFoundError('User not found.');
+      if (isActiveAdmin(current)) await ensureAnotherActiveAdmin(id, held);
+      return write(held);
+    };
+    return users.withAdminsHeld ? users.withAdminsHeld(run) : run(users);
   }
 
   function requireRoles(roleNames: string[] | undefined): string[] {
@@ -209,7 +232,11 @@ export function createUserService({ users, revokeSessions, onSessionsRevoked, is
     // Onboarding: a new address isn't verified: they confirm it with a code at their next sign-in (their
     // open sessions, the app and the extension keep working until then).
     if (emailChanged) next.emailVerifiedAt = null;
-    const updated = await users.update(id, next);
+    // A role list without ADMIN can take the role from an active administrator: checked and written held.
+    const updated =
+      next.roleNames !== undefined && !next.roleNames.includes(ADMIN)
+        ? await removingAdmin(id, (held) => held.update(id, next))
+        : await users.update(id, next);
     // A link already sent to the old address (a welcome or reset email) must not set this account's
     // password: a mistyped address could belong to someone else.
     if (emailChanged) {
@@ -270,7 +297,9 @@ export function createUserService({ users, revokeSessions, onSessionsRevoked, is
   async function setUserStatus(id: string, status: UserStatus): Promise<UserSummary> {
     const current = await getUser(id);
     if (status !== 'ACTIVE' && isActiveAdmin(current)) await ensureAnotherActiveAdmin(id);
-    const updated = await users.setStatus(id, status);
+    // Stopping an account is checked and written held (review fix #8); reactivating one never waits.
+    const updated = status === 'ACTIVE' ? await users.setStatus(id, status) : await removingAdmin(id, (held) => held.setStatus(id, status));
+    if (status === 'ACTIVE') onAccountChanged?.(id);
     if (status !== 'ACTIVE') {
       // A stopped account's welcome or reset link must not set a password (or work once it's reactivated).
       await users.endPasswordLinks(id);
@@ -283,7 +312,7 @@ export function createUserService({ users, revokeSessions, onSessionsRevoked, is
   async function deleteUser(id: string): Promise<void> {
     const current = await getUser(id);
     if (isActiveAdmin(current)) await ensureAnotherActiveAdmin(id);
-    await users.softDelete(id);
+    await removingAdmin(id, (held) => held.softDelete(id));
     await users.endPasswordLinks(id);
     await revokeAccess(id);
     await onDeactivated?.(id);

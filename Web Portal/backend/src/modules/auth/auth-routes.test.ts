@@ -281,6 +281,36 @@ describe('POST /api/v1/auth/logout', () => {
     expect(out.statusCode).toBe(200);
     await app.close();
   });
+
+  // Review fixes #4 (server part) and N2.
+  it('ends the whole session: a renewal that raced the logout leaves no live token behind', async () => {
+    const app = await makeApp([user()], createMemoryRefreshTokenStore(), undefined, { box: testBox });
+    const login = await app.inject({ method: 'POST', url: '/api/v1/auth/login', payload: { identifier: 'ada', password: 'CorrectHorse1' } });
+    const old = login.json().data.refreshToken as string;
+    const renewed = (await app.inject({ method: 'POST', url: '/api/v1/auth/refresh', payload: { refreshToken: old } })).json().data.refreshToken as string;
+    // The page still held the old token when Log out was clicked.
+    expect((await app.inject({ method: 'POST', url: '/api/v1/auth/logout', payload: { refreshToken: old } })).statusCode).toBe(200);
+    const late = await app.inject({ method: 'POST', url: '/api/v1/auth/refresh', payload: { refreshToken: renewed } });
+    expect(late.statusCode).toBe(401);
+    expect(late.json().error.code).toBe('INVALID_REFRESH_TOKEN');
+    await app.close();
+  });
+
+  it('a stale renewal long after the logout gets the plain 401 and the fingerprint key still signs in', async () => {
+    let clock = Date.now();
+    const app = await makeApp([user()], createMemoryRefreshTokenStore(), () => new Date(clock), { box: testBox });
+    const login = await app.inject({ method: 'POST', url: '/api/v1/auth/login', payload: { identifier: 'ada', password: 'CorrectHorse1' } });
+    const { refreshToken } = login.json().data as { refreshToken: string };
+    const key = (await app.inject({ method: 'POST', url: '/api/v1/auth/biometric-credential', payload: { refreshToken } })).json().data.refreshToken as string;
+    await app.inject({ method: 'POST', url: '/api/v1/auth/logout', payload: { refreshToken } });
+    clock += 60_000;
+    const stale = await app.inject({ method: 'POST', url: '/api/v1/auth/refresh', payload: { refreshToken } });
+    expect(stale.statusCode).toBe(401);
+    expect(stale.json().error).toEqual({ code: 'INVALID_REFRESH_TOKEN', message: 'Session expired. Please sign in again.' });
+    const viaKey = await app.inject({ method: 'POST', url: '/api/v1/auth/biometric-sign-in', payload: { credential: key } });
+    expect(viaKey.statusCode).toBe(200);
+    await app.close();
+  });
 });
 
 describe('Fingerprint sign-in: POST /auth/biometric-credential and /auth/biometric-sign-in', () => {

@@ -1138,3 +1138,86 @@ describe('Task form — days off and reminders', () => {
     expect(screen.queryByRole('button', { name: 'Reminders' })).toBeNull();
   });
 });
+
+// Review fix #25 (13 Nov 2026): one Idempotency-Key for the form's life, kept across retries — a retry
+// after a lost reply or a server error gets the task already made (the server answers it again), never a
+// second one. It changes only after a definite refusal (a 4xx other than "still in progress": nothing was
+// made, and the server would otherwise answer that refusal again).
+describe('New task: the same request key across retries', () => {
+  const keys = () => posts().map((c) => c.headers['Idempotency-Key']);
+  async function tryCreate(title = 'Pour slab') {
+    renderDialog();
+    await ready();
+    await userEvent.type(screen.getByLabelText(/^task title/i), title);
+    await userEvent.click(screen.getByRole('button', { name: 'Create task' }));
+  }
+  const again = async (n: number) => {
+    await userEvent.click(screen.getByRole('button', { name: 'Create task' }));
+    await waitFor(() => expect(posts()).toHaveLength(n));
+  };
+
+  it('a server error, then Create again: the same key (the server answers the task it already made)', async () => {
+    let n = 0;
+    override = (u, method) => (u.endsWith('/tasks') && method === 'POST' && ++n === 1 ? json({ error: { code: 'INTERNAL', message: 'Something went wrong.' } }, 500) : undefined);
+    await tryCreate();
+    expect(await screen.findByText(/Couldn’t create the task/)).toBeInTheDocument();
+    await again(2);
+    expect(keys()[0]).toBeTruthy();
+    expect(keys()[1]).toBe(keys()[0]);
+  });
+
+  it('…also when the draft was changed in between (an unclear failure: the first try may have made the task)', async () => {
+    let n = 0;
+    override = (u, method) => (u.endsWith('/tasks') && method === 'POST' && ++n === 1 ? json({ error: { code: 'DATABASE_BUSY', message: 'Busy.' } }, 503) : undefined);
+    await tryCreate();
+    await screen.findByText(/Couldn’t create the task/);
+    await userEvent.type(screen.getByLabelText(/^task title/i), ' now');
+    await again(2);
+    expect(keys()[1]).toBe(keys()[0]);
+  });
+
+  it('“still in progress” (409): the same key', async () => {
+    let n = 0;
+    override = (u, method) =>
+      u.endsWith('/tasks') && method === 'POST' && ++n === 1 ? json({ error: { code: 'IDEMPOTENCY_IN_PROGRESS', message: 'Still running.' } }, 409) : undefined;
+    await tryCreate();
+    await screen.findByText(/Couldn’t create the task/);
+    await again(2);
+    expect(keys()[1]).toBe(keys()[0]);
+  });
+
+  it('a definite refusal (400, 403, another 409): a new key, so the corrected try isn’t answered with the old refusal', async () => {
+    let n = 0;
+    const refusals = [
+      json({ error: { code: 'VALIDATION', message: 'Give the task a title.' } }, 400),
+      json({ error: { code: 'FORBIDDEN', message: 'You do not have access to this project.' } }, 403),
+      json({ error: { code: 'TASK_KEY_CONFLICT', message: 'Another task was created at the same moment. Please try again.' } }, 409),
+    ];
+    override = (u, method) => (u.endsWith('/tasks') && method === 'POST' ? refusals[n++] : undefined);
+    await tryCreate();
+    await screen.findByText(/Couldn’t create the task/);
+    await again(2);
+    await waitFor(() => expect(screen.getByText(/You do not have access/)).toBeInTheDocument());
+    await again(3);
+    await waitFor(() => expect(screen.getByText(/Another task was created/)).toBeInTheDocument());
+    await again(4);
+    expect(new Set(keys()).size).toBe(4);
+  });
+
+  it('offline with files (never queued): the next try keeps the key', async () => {
+    let n = 0;
+    override = (u, method) => {
+      if (u.endsWith('/tasks') && method === 'POST' && ++n === 1) throw new TypeError('Failed to fetch');
+      return undefined;
+    };
+    renderDialog();
+    await ready();
+    await userEvent.type(screen.getByLabelText(/^task title/i), 'With a file');
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [new File(['x'], 'plan.pdf', { type: 'application/pdf' })] } });
+    await userEvent.click(screen.getByRole('button', { name: 'Create task' }));
+    expect(await screen.findByText(/files can’t be attached offline/)).toBeInTheDocument();
+    await again(2);
+    expect(keys()[1]).toBe(keys()[0]);
+  });
+});
