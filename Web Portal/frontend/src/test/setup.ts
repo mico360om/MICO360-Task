@@ -6,6 +6,10 @@ import '@testing-library/jest-dom/vitest';
 // pristine (jsdom's internal logger never runs) without pulling in the canvas pkg.
 HTMLCanvasElement.prototype.getContext = (() => null) as typeof HTMLCanvasElement.prototype.getContext;
 
+// jsdom does no scrolling: window.scrollTo only logs "Not implemented" (the app shell scrolls to the top
+// when a link opens another page). A stand-in that does nothing keeps test output clean; tests spy on it.
+window.scrollTo = (() => {}) as typeof window.scrollTo;
+
 
 // jsdom does no layout, so the rich-text editor (ProseMirror) finds no element at a point and no
 // boxes for a range. Stand-ins: no element there, and empty boxes.
