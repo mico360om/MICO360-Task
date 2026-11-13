@@ -821,21 +821,40 @@ describe('review batch 4b: chat data consistency', () => {
     expect(ok.message.attachments.map((a) => a.storageKey)).toEqual(['a.pdf']);
   });
 
-  it('#18: the retry of a send whose message was saved without its file brings the file (completed), once', async () => {
+  it('#18 (review M2): a retry carrying a file never adds it to an earlier message of that client id — it gets that message back as it is', async () => {
     const dm = await svc.getOrCreateDirectConversation('u1', 'u2');
-    // What an old failure left: the message, no file.
-    const lost = await deps.messages.create(dm.id, 'u1', '', { clientId: 'f-2' });
-    expect(await svc.findSent(dm.id, 'u1', 'f-2', { upload: true })).toBeNull();
+    const old = await deps.messages.create(dm.id, 'u1', 'an old text message', { clientId: 'f-2' });
     const retry = await svc.postMessage(dm.id, 'u1', { body: '', attachment: file('b.pdf'), clientId: 'f-2' });
-    expect(retry).toMatchObject({ created: false, completed: true });
-    expect(retry.message.id).toBe(lost.id);
-    expect(retry.message.attachments.map((a) => a.storageKey)).toEqual(['b.pdf']);
-    expect((await svc.findSent(dm.id, 'u1', 'f-2', { upload: true }))?.id).toBe(lost.id);
-    const again = await svc.postMessage(dm.id, 'u1', { body: '', attachment: file('c.pdf'), clientId: 'f-2' });
-    expect(again.completed).toBeUndefined();
-    expect(again.message.attachments.map((a) => a.storageKey)).toEqual(['b.pdf']);
-    // A text message's retry (no file) is just the message, as before.
-    expect((await svc.findSent(dm.id, 'u1', 'f-2'))?.id).toBe(lost.id);
+    expect(retry.created).toBe(false);
+    expect(retry.message.id).toBe(old.id);
+    expect(retry.message.attachments).toEqual([]);
+    expect(await deps.attachments.listByMessages([old.id])).toEqual([]);
+  });
+
+  it('review I1: once the message and its file are saved, a failing read after it never fails the send', async () => {
+    let saved = false;
+    const s = createMessageService({
+      ...deps,
+      logger: { error: vi.fn() },
+      messages: {
+        ...deps.messages,
+        async createWithAttachment(conversationId, userId, body, extra, meta) {
+          const message = await deps.messages.create(conversationId, userId, body, extra);
+          const attachment = await deps.attachments.create(message.id, meta);
+          saved = true;
+          return { message, attachment };
+        },
+      },
+      participants: { ...deps.participants, async listByConversation(id) { if (saved) throw new Error('db blip'); return deps.participants.listByConversation(id); } },
+      reactions: { ...deps.reactions, async listByMessages(ids) { if (saved) throw new Error('db blip'); return deps.reactions.listByMessages(ids); } },
+    });
+    const dm = await s.getOrCreateDirectConversation('u1', 'u2');
+    const q = await s.postMessage(dm.id, 'u2', { body: 'which plan?' });
+    const sent = await s.postMessage(dm.id, 'u1', { body: 'this one', attachment: file('kept.pdf'), replyToId: q.message.id, clientId: 'i1' });
+    expect(sent.created).toBe(true);
+    expect(sent.message.attachments.map((a) => [a.storageKey, a.url])).toEqual([['kept.pdf', '/uploads/kept.pdf']]);
+    expect(sent.message.replyTo).toMatchObject({ id: q.message.id, body: 'which plan?', deleted: false });
+    expect(await s.fileInUse('kept.pdf')).toBe(false); // the in-memory store can't tell: false (the database one can)
   });
 
   it('N6: a chat file’s name is kept clean: no hidden or right-to-left characters, at most 180 characters, never empty', async () => {

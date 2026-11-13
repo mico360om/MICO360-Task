@@ -277,6 +277,9 @@ export function createPrismaChatAttachmentRepository(prisma: PrismaClient): Chat
     async deleteByMessage(messageId) {
       await prisma.chatAttachment.deleteMany({ where: { messageId } });
     },
+    async storageKeyInUse(storageKey) {
+      return (await prisma.chatAttachment.count({ where: { storageKey } })) > 0;
+    },
   };
 }
 

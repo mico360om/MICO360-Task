@@ -295,6 +295,34 @@ describe('review fix #19 / N12: an interrupted conversion is finished, never rep
     expect(f.noteService.releaseTaskClaim).not.toHaveBeenCalled();
   });
 
+  it('review M3: a retry by someone who may not use the earlier task’s project links the note but never shows them that task', async () => {
+    const f = fakes({ id: 'm1', title: 'Q4 Planning', projectId: null });
+    const r = resumable(f);
+    f.noteService.linkTask.mockRejectedValueOnce(new Error("Can't reach database server"));
+    await expect(r.svc.createTaskFromNote('m1', 'n1', 'u1', { projectId: 'p-secret' })).rejects.toThrow(/reach database/);
+    const assignUsers = vi.fn();
+    const other = createNoteTaskService({ ...f, taskService: { ...f.taskService, getTask: async (id: string) => r.tasks.get(id) as never }, assignees: { assignUsers } } as never);
+    const canUseProject = vi.fn(async (projectId: string) => projectId !== 'p-secret');
+    await expect(other.createTaskFromNote('m1', 'n1', 'u2', { projectId: 'p-mine', assigneeId: 'u2' }, { canUseProject })).rejects.toMatchObject({ code: 'NOTE_HAS_TASK', status: 409 });
+    expect(canUseProject).toHaveBeenCalledWith('p-secret');
+    expect(f.note.taskId).toBe('fixed'); // the note points at its task all the same
+    expect(assignUsers).not.toHaveBeenCalled();
+    expect(f.taskService.createTask).toHaveBeenCalledTimes(1);
+  });
+
+  it('review M4: a resumed action note whose item was never made says so (no second item is guessed at)', async () => {
+    const f = fakes({ id: 'm1', title: 'Q4 Planning', projectId: 'p1' });
+    const r = resumable(f);
+    r.addItem.mockRejectedValueOnce(new Error('db down'));
+    f.noteService.linkTask.mockRejectedValueOnce(new Error("Can't reach database server"));
+    await expect(r.svc.createTaskFromNote('m1', 'n1', 'u1', {})).rejects.toThrow(/reach database/);
+    const res = await r.svc.createTaskFromNote('m1', 'n1', 'u1', {});
+    expect((res.task as { id: string }).id).toBe('fixed');
+    expect(res.actionItem).toBeUndefined();
+    expect(res.actionItemError).toMatch(/action items/i);
+    expect(r.addItem).toHaveBeenCalledTimes(1);
+  });
+
   it('a create that failed with nothing saved gives the claim back (the note can be tried again)', async () => {
     const f = fakes({ id: 'm1', title: 'Q4 Planning', projectId: 'p1' });
     const r = resumable(f);

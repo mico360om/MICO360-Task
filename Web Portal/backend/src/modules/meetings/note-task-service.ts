@@ -149,6 +149,12 @@ export function createNoteTaskService(deps: NoteTaskDeps): NoteTaskService {
       if (claim.made) {
         const earlier = await findTask(claim.taskId);
         if (!earlier) throw new ConflictError('A task is being created from this note right now. Try again in a moment.', 'NOTE_HAS_TASK');
+        // Review M3: an earlier try may have put it in a project this person may not use. The note still points
+        // at its task (as it would have), but they are told only that the note has one — never shown it.
+        if (opts?.canUseProject && earlier.projectId !== projectId && !(await opts.canUseProject(earlier.projectId))) {
+          await noteService.linkTask(meetingId, noteId, earlier.id, undefined, claim.marker);
+          throw new ConflictError('A task has already been created from this note.', 'NOTE_HAS_TASK');
+        }
         task = earlier;
       } else {
         try {
@@ -185,8 +191,10 @@ export function createNoteTaskService(deps: NoteTaskDeps): NoteTaskService {
       let actionItem: ActionItemRecord | undefined;
       let actionItemError: string | undefined;
       if (note.type === 'ACTION' && deps.actionItems && claim.made) {
-        const listed = deps.actionItems.listByMeeting ? await deps.actionItems.listByMeeting(meetingId).catch(() => []) : [];
-        actionItem = listed.find((a) => a.sourceNoteId === note.id && a.taskId === task.id);
+        const listed = deps.actionItems.listByMeeting ? await deps.actionItems.listByMeeting(meetingId).catch(() => null) : null;
+        actionItem = listed?.find((a) => a.sourceNoteId === note.id && a.taskId === task.id);
+        // Review M4: the interrupted try made none (or it can't be told): said, never guessed at with a second one.
+        if (!actionItem) actionItemError = 'The task was created, but it couldn’t be added to the action items.';
       } else if (note.type === 'ACTION' && deps.actionItems) {
         const item = {
           description: title,

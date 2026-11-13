@@ -172,6 +172,8 @@ export interface ChatAttachmentRepository {
   listByMessages(messageIds: string[]): Promise<MessageAttachmentRecord[]>;
   /** Remove all attachment rows for a message (its files are removed via storage separately). */
   deleteByMessage(messageId: string): Promise<void>;
+  /** Review I1: does any file record use this stored file? (Asked before a file is removed after a failed send.) */
+  storageKeyInUse?(storageKey: string): Promise<boolean>;
 }
 
 /** A person as a page of messages names them. */

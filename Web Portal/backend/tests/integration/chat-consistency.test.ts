@@ -197,6 +197,9 @@ describe('#18 a message with a file is saved together with its file, or not at a
     expect(again.message.id).toBe(retry.message.id);
     expect(again.message.attachments.map((x) => x.storageKey)).toEqual([`${tag}-a.pdf`]);
     expect(await prisma.chatAttachment.count({ where: { message: { conversationId: conv.id } } })).toBe(1);
+    // Review I1: the upload route keeps a stored file a saved record uses.
+    expect(await service().fileInUse(`${tag}-a.pdf`)).toBe(true);
+    expect(await service().fileInUse(`${tag}-b.pdf`)).toBe(false);
   });
 
   it('two copies of the same upload racing make one message with one file', async () => {

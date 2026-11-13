@@ -418,16 +418,32 @@ describe('Chat routes — every author has a name, read-only direct chats (compa
 
 describe('Chat routes — review batch 4b', () => {
   /** The route-test repositories with a file store too (the in-memory one keeps rows). */
-  async function appWithFiles() {
+  async function appWithFiles(opts: { failAfterSave?: boolean; failSave?: boolean } = {}) {
     const repos = makeRepos();
     const rows: MessageAttachmentRecord[] = [];
     let n = 0;
+    let saved = false;
     const attachments: ChatAttachmentRepository = {
       async create(messageId, meta) { const r = { id: `att${n++}`, messageId, ...meta, createdAt: new Date() }; rows.push(r); return r; },
-      async listByMessages(ids) { return rows.filter((r) => ids.includes(r.messageId)); },
+      async listByMessages(ids) { if (opts.failAfterSave && saved) throw new Error('db blip after the save'); return rows.filter((r) => ids.includes(r.messageId)); },
       async deleteByMessage(messageId) { for (let i = rows.length - 1; i >= 0; i--) if (rows[i]!.messageId === messageId) rows.splice(i, 1); },
+      async storageKeyInUse(key) { return rows.some((r) => r.storageKey === key); },
     };
-    const chatService = createMessageService({ ...repos, attachments });
+    // As the database store: the message and its file in one go (or neither).
+    const messages: MessageRepository = {
+      ...repos.messages,
+      async createWithAttachment(conversationId, userId, body, extra, file) {
+        if (opts.failSave) throw new Error('the save failed');
+        const message = await repos.messages.create(conversationId, userId, body, extra);
+        const attachment = await attachments.create(message.id, file);
+        saved = true;
+        return { message, attachment };
+      },
+    };
+    const participants: ParticipantRepository = opts.failAfterSave
+      ? { ...repos.participants, async listByConversation(id) { if (saved) { saved = saved && true; throw new Error('db blip after the save'); } return repos.participants.listByConversation(id); } }
+      : repos.participants;
+    const chatService = createMessageService({ ...repos, messages, participants, attachments });
     const disk = fakeStorage();
     const authService = createAuthService({
       users: { async findByIdentifier() { return null; }, async findById() { return null; }, async applyFailedAttempt() {}, async resetFailedAttempts() {} },
@@ -468,26 +484,43 @@ describe('Chat routes — review batch 4b', () => {
     expect(disk.saved).toHaveLength(1);
   });
 
-  it('#18: the retry of an upload whose message lost its file stores the file and completes that message (200, shown to the others)', async () => {
+  it('#18: a retry with the client id of a message that has no file stores nothing and adds nothing to it (review M2: no back-dating)', async () => {
     const { app: a, repos, rows, disk } = await appWithFiles();
     const headers = await auth('u1');
     const convId = (await a.inject({ method: 'POST', url: '/api/v1/conversations/direct', headers, payload: { userId: 'u2' } })).json().data.id;
-    const lost = await repos.messages.create(convId, 'u1', '', { clientId: 'up-lost' });
-    userEvents.length = 0;
-    const mp = upload('plan.txt', 'up-lost');
+    const old = await repos.messages.create(convId, 'u1', 'an old text message', { clientId: 'up-old' });
+    const mp = upload('plan.txt', 'up-old');
     const res = await a.inject({ method: 'POST', url: `/api/v1/conversations/${convId}/attachments`, headers: { ...headers, ...mp.headers }, payload: mp.payload });
     expect(res.statusCode).toBe(200);
-    expect(res.json().data.id).toBe(lost.id);
-    expect(res.json().data.attachments.map((x: { fileName: string }) => x.fileName)).toEqual(['plan.txt']);
+    expect(res.json().data.id).toBe(old.id);
+    expect(res.json().data.attachments).toEqual([]);
+    expect(rows).toHaveLength(0);
+    expect(disk.saved).toHaveLength(0);
+  });
+
+  it('review I1: once the message and its file are saved, a failure in what follows never deletes the file', async () => {
+    const { app: a, repos, rows, disk } = await appWithFiles({ failAfterSave: true });
+    const headers = await auth('u1');
+    const convId = (await a.inject({ method: 'POST', url: '/api/v1/conversations/direct', headers, payload: { userId: 'u2' } })).json().data.id;
+    const mp = upload('plan.txt', 'up-i1');
+    const res = await a.inject({ method: 'POST', url: `/api/v1/conversations/${convId}/attachments`, headers: { ...headers, ...mp.headers }, payload: mp.payload });
     expect(rows).toHaveLength(1);
-    expect(disk.removed).toEqual([]);
-    const told = userEvents.filter((e) => e.event === 'chat:message' && e.userId === 'u2');
-    expect(told).toHaveLength(1);
-    expect((told[0]!.payload as { message: { attachments: unknown[] } }).message.attachments).toHaveLength(1);
-    // Once it has its file, a further retry stores nothing.
-    const again = await a.inject({ method: 'POST', url: `/api/v1/conversations/${convId}/attachments`, headers: { ...headers, ...mp.headers }, payload: mp.payload });
-    expect(again.statusCode).toBe(200);
     expect(disk.saved).toHaveLength(1);
+    expect(disk.removed).toEqual([]);
+    expect(res.statusCode).toBe(201);
+    expect(res.json().data.attachments.map((x: { storageKey: string }) => x.storageKey)).toEqual([disk.saved[0]]);
+    void repos;
+  });
+
+  it('review I1: when the save itself fails, the stored file is removed only if no record keeps it', async () => {
+    const { app: a, rows, disk } = await appWithFiles({ failSave: true });
+    const headers = await auth('u1');
+    const convId = (await a.inject({ method: 'POST', url: '/api/v1/conversations/direct', headers, payload: { userId: 'u2' } })).json().data.id;
+    const mp = upload('plan.txt', 'up-i1b');
+    const res = await a.inject({ method: 'POST', url: `/api/v1/conversations/${convId}/attachments`, headers: { ...headers, ...mp.headers }, payload: mp.payload });
+    expect(res.statusCode).toBe(500);
+    expect(rows).toHaveLength(0);
+    expect(disk.removed).toEqual(disk.saved);
   });
 
   it('#20: history takes the new cursor (before + beforeId) and still the old one (before only); an id alone is refused', async () => {

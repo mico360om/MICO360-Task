@@ -324,7 +324,7 @@ export function createMessageService(deps: MessageServiceDeps) {
     conversationId: string,
     userId: string,
     input: PostMessageInput,
-  ): Promise<{ message: MessageView; created: boolean; completed?: boolean }> {
+  ): Promise<{ message: MessageView; created: boolean }> {
     const conv = await load(conversationId);
     await assertAccess(conv, userId);
     const clientId = input.clientId?.trim() || null;
@@ -332,30 +332,32 @@ export function createMessageService(deps: MessageServiceDeps) {
     const attachment = input.attachment ? { ...input.attachment, fileName: safeUploadName(input.attachment.fileName, input.attachment.mimeType) } : undefined;
     const already = async () => (clientId && messages.findByClientId ? messages.findByClientId(conversationId, userId, clientId) : null);
     const earlier = await already();
-    if (earlier) {
-      // Review fix #18: a retry of a send whose message was saved without its file (before the two were saved
-      // together) brings the file now (`completed`); any other retry gets the first message back.
-      if (attachment && deps.attachments && !earlier.deletedAt && (await deps.attachments.listByMessages([earlier.id])).length === 0) {
-        await assertCanWrite(conv, userId);
-        await deps.attachments.create(earlier.id, attachment);
-        return { message: (await viewOf([earlier]))[0]!, created: false, completed: true };
-      }
-      return { message: (await viewOf([earlier]))[0]!, created: false };
-    }
+    // A retry gets the first message back (#18: with its file — the two are saved together), never a second one.
+    if (earlier) return { message: (await viewOf([earlier]))[0]!, created: false };
     await assertCanWrite(conv, userId);
     // A caption may be empty when a file is attached; a plain message may not.
     const text = cleanBody(input.body, !!attachment);
     let replyToId: string | null = null;
+    let parent: Message | null = null;
     if (input.replyToId) {
-      const parent = await messages.findById(input.replyToId);
+      parent = await messages.findById(input.replyToId);
       if (!parent || parent.conversationId !== conversationId || parent.deletedAt) throw new ValidationError('You can only reply to a message in this conversation.');
       replyToId = parent.id;
     }
     let message: Message;
+    /** Review I1: the saved message as its answer shows it, made from what was saved — no read after the save. */
+    let savedView: MessageView | null = null;
     try {
       if (attachment && deps.attachments && messages.createWithAttachment) {
         // Review fix #18: the message and its file together, or neither.
-        message = (await messages.createWithAttachment(conversationId, userId, text, { replyToId, clientId }, attachment)).message;
+        const saved = await messages.createWithAttachment(conversationId, userId, text, { replyToId, clientId }, attachment);
+        message = saved.message;
+        savedView = {
+          ...message,
+          reactions: [],
+          attachments: [{ ...saved.attachment, url: `${ATTACHMENT_URL_PREFIX}/${saved.attachment.storageKey}` }],
+          replyTo: parent ? { id: parent.id, userId: parent.userId, body: parent.body.slice(0, QUOTE_LENGTH), deleted: false } : null,
+        };
       } else {
         message = await messages.create(conversationId, userId, text, { replyToId, clientId });
         if (attachment && deps.attachments) await deps.attachments.create(message.id, attachment);
@@ -372,26 +374,31 @@ export function createMessageService(deps: MessageServiceDeps) {
     }
 
     if (conv.kind === 'DIRECT') {
-      // Someone who muted this conversation isn't told about each new message.
-      const others = (await participants.listByConversation(conversationId)).filter((p) => p.userId !== userId && !p.mutedAt);
-      for (const p of others) {
-        await bestEffort('direct message', () => deps.onDirectMessage?.({ conversationId, message, authorId: userId, recipientId: p.userId }));
-      }
+      // Someone who muted this conversation isn't told about each new message. Review I1: the message is saved —
+      // nothing from here on may turn the send into a failure (a file's retry would find its message anyway).
+      await bestEffort('direct message', async () => {
+        const others = (await participants.listByConversation(conversationId)).filter((p) => p.userId !== userId && !p.mutedAt);
+        for (const p of others) {
+          await bestEffort('direct message', () => deps.onDirectMessage?.({ conversationId, message, authorId: userId, recipientId: p.userId }));
+        }
+      });
     }
-    return { message: (await viewOf([message]))[0]!, created: true };
+    return { message: savedView ?? (await viewOf([message]))[0]!, created: true };
   }
 
   /**
-   * The message this sender already posted with this client id (a retry), or null. `upload`: a file's retry —
-   * also null while that message still lacks its file (#18: one saved before messages and files were saved
-   * together), so the retry stores the file and postMessage completes the message with it.
+   * Review I1: does a saved file record use this stored file? The upload route asks before removing a file after
+   * a failure — on any doubt (this read failing too) the file is kept.
    */
-  async function findSent(conversationId: string, userId: string, clientId: string, opts?: { upload?: boolean }): Promise<MessageView | null> {
+  async function fileInUse(storageKey: string): Promise<boolean> {
+    return deps.attachments?.storageKeyInUse ? deps.attachments.storageKeyInUse(storageKey) : false;
+  }
+
+  /** The message this sender already posted with this client id (a retry), or null. */
+  async function findSent(conversationId: string, userId: string, clientId: string): Promise<MessageView | null> {
     await assertAccess(await load(conversationId), userId);
     const m = messages.findByClientId ? await messages.findByClientId(conversationId, userId, clientId) : null;
-    if (!m) return null;
-    const view = (await viewOf([m]))[0]!;
-    return opts?.upload && deps.attachments && !m.deletedAt && view.attachments.length === 0 ? null : view;
+    return m ? (await viewOf([m]))[0]! : null;
   }
 
   async function sendMessage(conversationId: string, userId: string, body: string, attachment?: StoredFileMeta): Promise<Message> {
@@ -732,6 +739,7 @@ export function createMessageService(deps: MessageServiceDeps) {
     sendMessage,
     postMessage,
     findSent,
+    fileInUse,
     setPreferences,
     markDelivered,
     searchMessages,

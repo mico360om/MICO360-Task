@@ -70,9 +70,17 @@ export async function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDe
     return (await deps.accessibleProjectIds(req.user!.id, roles, pick)) ?? null;
   }
 
-  /** Deliver a chat event to a project channel's room, or to each participant of a DM. */
+  /**
+   * Deliver a chat event to a project channel's room, or to each participant of a DM. Live updates are best
+   * effort (review I1): what was saved is answered as saved; open screens catch up on their next read.
+   */
   async function announce(conversationId: string, event: string, payload: unknown): Promise<void> {
-    const t = await chat.conversationTargets(conversationId);
+    let t: Awaited<ReturnType<MessageService['conversationTargets']>>;
+    try {
+      t = await chat.conversationTargets(conversationId);
+    } catch {
+      return;
+    }
     if (t.kind === 'PROJECT' && t.projectId) {
       deps.broadcastToProject?.(t.projectId, event, payload);
     } else if (t.kind === 'DIRECT') {
@@ -174,10 +182,9 @@ export async function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDe
     const clientIdRaw = field('clientId');
     const clientId = clientIdRaw !== undefined ? clientIdSchema.parse(clientIdRaw) : undefined;
     const replyToId = field('replyToId') || undefined;
-    // A retried upload: the first one already arrived — answer with it, store nothing again (unless that
-    // message was saved without its file, before the two were saved together: then this retry brings it).
+    // A retried upload: the first one already arrived — answer with it, store nothing again.
     if (clientId) {
-      const earlier = await chat.findSent(id, req.user!.id, clientId, { upload: true });
+      const earlier = await chat.findSent(id, req.user!.id, clientId);
       if (earlier) return reply.status(200).send({ data: earlier });
     }
     const content = await file.toBuffer();
@@ -209,14 +216,11 @@ export async function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDe
         attachment: { fileName, mimeType: file.mimetype, sizeBytes: stored.sizeBytes, storageKey: stored.storageKey },
       });
     } catch (err) {
-      // No message, no file (#18: the two are saved together): don't leave an orphan upload behind.
-      await dropStored();
+      // No message, no file (#18: the two are saved together): don't leave an orphan upload behind — unless a
+      // saved record uses it (review I1: on any doubt, the file is kept).
+      const kept = await chat.fileInUse(stored.storageKey).catch(() => true);
+      if (!kept) await dropStored();
       throw err;
-    }
-    if (result.completed) {
-      // #18: a message saved without its file (before the two were saved together) has it now: shown to everyone.
-      await announce(id, 'chat:message', { conversationId: id, message: result.message });
-      return reply.status(200).send({ data: result.message });
     }
     if (!result.created) {
       // Two copies of the same upload raced: keep the first, drop this file.
