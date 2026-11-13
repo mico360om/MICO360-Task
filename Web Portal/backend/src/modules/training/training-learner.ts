@@ -175,7 +175,10 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync) 
         if (!e) return;
       }
     }
-    await prisma.trainingEnrolment.update({
+    // 1.23.27: one UPDATE statement (updateMany), not update() — Prisma's update() reads the row first in its own
+    // transaction, and MariaDB (the live server, innodb_snapshot_isolation ON) then refuses the write when a second
+    // click's request changed it in between (error 1020: a 500 for the double click).
+    await prisma.trainingEnrolment.updateMany({
       where: { id: e.id },
       data: {
         startedAt: e.startedAt ?? now,

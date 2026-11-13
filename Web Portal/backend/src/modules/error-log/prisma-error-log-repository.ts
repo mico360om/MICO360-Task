@@ -98,7 +98,10 @@ export function createPrismaErrorLogRepository(prisma: PrismaClient): ErrorLogRe
           }
         }
         const { patch, reopened } = nextGroupState(groupRow(found), o);
-        await prisma.errorGroup.update({
+        // 1.23.27: one UPDATE statement (updateMany), not update() — Prisma's update() reads the row first in its
+        // own transaction, and MariaDB (the live server, innodb_snapshot_isolation ON) then refuses the write when
+        // another report changed the row in between (error 1020). The counts are increments either way.
+        await prisma.errorGroup.updateMany({
           where: { id: found.id },
           data: {
             // The count adds up whatever else is written at the same time.
