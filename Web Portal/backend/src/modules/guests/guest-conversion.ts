@@ -106,21 +106,20 @@ export async function convertExternalContacts(prisma: PrismaClient, opts: { batc
           const target = onList.find((g) => !g.retiredAt) ?? onList[0];
           const fullest = [...its].sort((a, b) => guestFullness(b) - guestFullness(a) || a.createdAt.getTime() - b.createdAt.getTime())[0]!;
           try {
-            await prisma.$transaction(async (tx) => {
+            // 1.23.29: a save conflict runs the transaction again from the start (lib/save-retry), so what it
+            // did is counted from its answer, once it has committed — never from inside a try.
+            const done = await prisma.$transaction(async (tx) => {
+              const linked: string[] = [];
               const guest =
                 target ??
                 (await tx.guestContact.create({ data: { companyId, ...guestColumns(fullest), nameKey, createdById: fullest.createdById, createdAt: fullest.createdAt } }));
-              if (!target) result.guestsMade += 1;
               const extra = alsoRecorded(guest, its);
               if (extra && !(guest.notes ?? '').includes(extra)) {
                 await tx.guestContact.update({ where: { id: guest.id }, data: { notes: clipNotes([guest.notes, extra].filter(Boolean).join('\n')) } });
               }
               for (const row of its) {
                 const { count } = await tx.taskExternalContact.updateMany({ where: { id: row.id, guestId: null }, data: { guestId: guest.id, ...guestColumns(guest) } });
-                if (count) {
-                  result.rows += 1;
-                  touched.add(row.taskId);
-                }
+                if (count) linked.push(row.taskId);
               }
               // A task with two rows for this guest keeps its first (both remarks).
               for (const taskId of new Set(its.map((r) => r.taskId))) {
@@ -130,7 +129,11 @@ export async function convertExternalContacts(prisma: PrismaClient, opts: { batc
                 await tx.taskExternalContact.update({ where: { id: mine[0]!.id }, data: { remarks } });
                 await tx.taskExternalContact.deleteMany({ where: { id: { in: mine.slice(1).map((m) => m.id) } } });
               }
+              return { made: !target, linked };
             });
+            if (done.made) result.guestsMade += 1;
+            result.rows += done.linked.length;
+            for (const taskId of done.linked) touched.add(taskId);
           } catch (err) {
             // This person's rows wait for the next run; the others go on.
             for (const row of its) failed.add(row.id);

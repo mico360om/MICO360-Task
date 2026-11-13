@@ -27,6 +27,7 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - Removed or replaced files and profile pictures are deleted from storage.
 - Opening a new project chat at the same time as someone else works for both of you.
 - A duplicated meeting belongs to the person who made the copy.
+- Saving the same thing twice at once (a double click, or two people together) no longer shows an error.
 
 ## [1.23.27] - 2026-11-13
 

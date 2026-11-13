@@ -1,5 +1,7 @@
 import { ConflictError, NotFoundError, ValidationError } from '../../lib/http-errors';
 import { holidaysInRange, shiftDay, zonedDay, type Holiday, type WorkCalendar, type WorkHours } from '../../lib/working-days';
+import { isRetryableTxError } from '../../lib/sentinel-lock';
+import { withoutSaveRetry } from '../../lib/save-retry';
 import { starterHolidaysFor } from './oman-holidays';
 import type { PlannerCompanyRules } from './planner';
 import { BUILT_IN_SCHEDULES, DEFAULT_POLICY, normalizePolicy, normalizeSchedule, type NotificationPolicy, type ScheduleSteps } from './policy';
@@ -102,14 +104,16 @@ export function createNotifyPolicyService(deps: NotifyPolicyServiceDeps) {
     return run;
   }
 
+  // 1.23.29: a save conflict as lib/sentinel-lock reads it (MariaDB's 1020 too), or a unique clash.
   const retryable = (err: unknown) => {
     const e = err as { code?: string; message?: string };
-    return e?.code === 'P2034' || e?.code === 'P2002' || /deadlock|write conflict/i.test(e?.message ?? '');
+    return isRetryableTxError(err) || e?.code === 'P2034' || e?.code === 'P2002' || /deadlock|write conflict/i.test(e?.message ?? '');
   };
   async function setUpWithRetry(companyId: string): Promise<void> {
     for (let attempt = 0; ; attempt++) {
       try {
-        return await setUp(companyId);
+        // Its tries are its own: the server's retry layer stays out (lib/save-retry; never 3 × 3).
+        return await withoutSaveRetry(() => setUp(companyId));
       } catch (err) {
         if (attempt >= 2 || !retryable(err)) throw err;
         await new Promise((r) => setTimeout(r, 100 * (attempt + 1)));

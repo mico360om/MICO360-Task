@@ -1,5 +1,6 @@
 import { Prisma, type PrismaClient } from '@prisma/client';
 import type { TrainingFileStore } from './training-files';
+import { withoutSaveRetry } from '../../lib/save-retry';
 
 /**
  * 1.23.25: the Tasks and Meetings starter courses of 1.23.22–1.23.24 carried two how-to slide PDFs as
@@ -189,7 +190,8 @@ export function createStarterPdfRemoval(deps: StarterPdfRemovalDeps): { run(): P
     let out: { removed: number; lessonsUnlinked: number; restored: number };
     for (let attempt = 1; ; attempt++) {
       try {
-        out = await prisma.$transaction(work, { maxWait: 10_000, timeout: 60_000 });
+        // 1.23.29: its tries are its own: the server's retry layer stays out (lib/save-retry; never 3 × 3).
+        out = await withoutSaveRetry(() => prisma.$transaction(work, { maxWait: 10_000, timeout: 60_000 }));
         break;
       } catch (err) {
         if (attempt < 3 && retryable(err)) {

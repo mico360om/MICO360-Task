@@ -7,6 +7,8 @@ import { LEGACY_STARTER_KEYS, RETIRED_VIDEO_COURSES, STARTER_COURSES, STARTER_RE
 import type { StarterCourse, StarterLesson, StarterQuestion, StarterStep } from './starter/starter-types';
 import { checkTrainingUpload, type TrainingFileStore } from './training-files';
 import { LIMITS } from './training-types';
+import { isRetryableTxError } from '../../lib/sentinel-lock';
+import { withoutSaveRetry } from '../../lib/save-retry';
 
 /**
  * Starter content (R17): the shipped courses (starter/starter-courses.ts) loaded once by the server at
@@ -194,9 +196,10 @@ interface CopiedFile {
 /** Review M1: an administrator edited the course between the check and the write — it is left alone. */
 class EditedMeanwhile extends Error {}
 
+// 1.23.29: a save conflict as lib/sentinel-lock reads it (MariaDB's 1020 too), or a unique clash.
 const retryable = (err: unknown) => {
   const e = err as { code?: string; message?: string };
-  return e?.code === 'P2034' || e?.code === 'P2002' || /deadlock|write conflict/i.test(e?.message ?? '');
+  return isRetryableTxError(err) || e?.code === 'P2034' || e?.code === 'P2002' || /deadlock|write conflict/i.test(e?.message ?? '');
 };
 const isUniqueClash = (err: unknown) => (err as { code?: string })?.code === 'P2002';
 
@@ -352,7 +355,8 @@ export function createTrainingStarter(deps: TrainingStarterDeps): { run(): Promi
       try {
         const copied = await copyFiles(course, saved);
         const at = now();
-        await prisma.$transaction((tx) => create(tx, course, position, copied, at), { maxWait: 10_000, timeout: 60_000 });
+        // 1.23.29: its tries are its own (each copies the files again): the server's retry layer stays out.
+        await withoutSaveRetry(() => prisma.$transaction((tx) => create(tx, course, position, copied, at), { maxWait: 10_000, timeout: 60_000 }));
         return 'loaded';
       } catch (err) {
         await Promise.all(saved.map((k) => files.remove(k).catch(() => {})));

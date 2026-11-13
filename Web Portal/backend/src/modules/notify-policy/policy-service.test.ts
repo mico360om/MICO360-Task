@@ -153,4 +153,22 @@ describe('set-up at start-up (seen on a live server: several sweeps ask at once)
     expect((await service.rules('c1')).defaultScheduleId).toBeTruthy();
     expect(calls).toBe(2);
   });
+
+  // 1.23.29 — MariaDB's own refusal (1020) is one of them too (its words never matched before).
+  it('MariaDB’s save conflict (error 1020) is tried again as well', async () => {
+    const store = createMemoryPolicyStore(['c1']);
+    const real = store.addSchedules.bind(store);
+    let calls = 0;
+    store.addSchedules = async (c, rows) => {
+      calls++;
+      if (calls === 1)
+        throw Object.assign(new Error('ConnectorError { kind: QueryError(Server(MysqlError { code: 1020, message: "Record has changed since last read in table \'reminder_schedules\'", state: "HY000" })) }'), {
+          name: 'PrismaClientUnknownRequestError',
+        });
+      return real(c, rows);
+    };
+    const service = createNotifyPolicyService({ store, companyHours: async () => hours, timeZone: 'Asia/Muscat', cacheMs: 0 });
+    expect((await service.rules('c1')).defaultScheduleId).toBeTruthy();
+    expect(calls).toBe(2);
+  });
 });
