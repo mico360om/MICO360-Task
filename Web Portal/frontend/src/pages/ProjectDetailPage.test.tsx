@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { ProjectDetailPage } from './ProjectDetailPage';
 import { useAuthStore } from '../stores/auth-store';
+import { OVERDUE_CLASS, STATUS_CLASS } from '../lib/colour-classes';
 
 // Live updates: a stand-in socket the test can send events through.
 type Handler = (...a: unknown[]) => void;
@@ -445,6 +446,19 @@ describe('ProjectDetailPage', () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('Overdue').previousElementSibling).toHaveTextContent('1'));
     expect(screen.getByText('Completed').previousElementSibling).toHaveTextContent('1');
+  });
+
+  // 1.23.29 — the tiles' numbers in the site's colours: Overdue red (the overdue colour, as on every overdue
+  // date), Completed green (the Done colour); the tones named before weren't in the tile's table (no colour).
+  it('shows the Overdue number in the overdue red and the Completed number in the Done green', async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText('Overdue').previousElementSibling).toHaveTextContent('1'));
+    expect(screen.getByText('Overdue').previousElementSibling).toHaveClass(OVERDUE_CLASS.text);
+    expect(screen.getByText('Completed').previousElementSibling).toHaveClass(STATUS_CLASS.DONE.text);
+    expect(screen.getByText('Ongoing').previousElementSibling).toHaveClass('text-info');
+    for (const label of ['Total tasks', 'Completed', 'Ongoing', 'Overdue', 'Completion']) {
+      expect(screen.getByText(label).previousElementSibling!.className).not.toMatch(/undefined/);
+    }
   });
 
   it('shows one completion figure: "Work done" says the same share of tasks finished as the Completion tile', async () => {
