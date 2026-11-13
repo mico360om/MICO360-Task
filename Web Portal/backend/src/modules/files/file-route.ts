@@ -57,8 +57,9 @@ export function noLongerWorksPage(opts: { appUrl?: string; productName?: string 
 <meta name="robots" content="noindex, nofollow">
 <title>This file link no longer works</title>
 <style>
-:root{color-scheme:light dark;--bg:#f6f7f9;--card:#fff;--ink:#1d2433;--ink2:#4b5568;--brand:#1d4ed8;--line:#e2e6ee}
-@media (prefers-color-scheme:dark){:root{--bg:#0f141c;--card:#18202b;--ink:#eef2f8;--ink2:#b4bfd0;--brand:#7aa7ff;--line:#2a3443}}
+/* The website's own colours (index.css): light, and dark when the device prefers it. */
+:root{color-scheme:light dark;--bg:rgb(244 242 240);--card:rgb(255 255 255);--ink:rgb(33 27 26);--ink2:rgb(108 98 95);--brand:rgb(139 30 30);--line:rgb(230 223 220)}
+@media (prefers-color-scheme:dark){:root{--bg:rgb(24 20 19);--card:rgb(36 31 29);--ink:rgb(244 240 238);--ink2:rgb(178 168 163);--brand:rgb(224 122 102);--line:rgb(58 50 47)}}
 body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif}
 main{box-sizing:border-box;width:min(28rem,calc(100% - 32px));margin:16px;padding:24px;border:1px solid var(--line);border-radius:12px;background:var(--card)}
 h1{margin:0 0 8px;font-size:1.25rem;line-height:1.3}
