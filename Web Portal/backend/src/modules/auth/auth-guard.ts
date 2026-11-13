@@ -37,6 +37,8 @@ export interface AuthGuardOptions {
   userState?: UserStateLookup;
   /** How long a looked-up state is reused in-process. Default 10 seconds. */
   cacheTtlMs?: number;
+  /** Most accounts remembered at once (the oldest goes first). Default 10,000. */
+  cacheMaxEntries?: number;
   now?: () => number;
   /**
    * Manager View's project-settings rule (does this person run the project). Absent: an administrator in
@@ -63,16 +65,22 @@ function assertRouteFor(req: FastifyRequest, roles: readonly string[]): void {
 
 /** Route guards for JWT auth (T2.2) and role-based access control (T2.4). */
 export function createAuthGuard(tokenService: TokenService, opts: AuthGuardOptions = {}) {
-  const { userState, cacheTtlMs = 10_000, now = () => Date.now(), managerView: managerViewLookup } = opts;
+  const { userState, cacheTtlMs = 10_000, now = () => Date.now(), managerView: managerViewLookup, cacheMaxEntries = MAX_CACHE_ENTRIES } = opts;
   const cache = new Map<string, { at: number; state: Promise<UserState | null> }>();
+
+  /** Remember an account; when full, the oldest goes (1.23.29 review: never everyone's at once). */
+  function remember(userId: string, state: Promise<UserState | null>): void {
+    cache.delete(userId);
+    while (cache.size >= cacheMaxEntries) cache.delete(cache.keys().next().value!);
+    cache.set(userId, { at: now(), state });
+    state.catch(() => cache.delete(userId));
+  }
 
   function lookup(userId: string, fresh: boolean): Promise<UserState | null> {
     const hit = cache.get(userId);
     if (!fresh && hit && now() - hit.at < cacheTtlMs) return hit.state;
-    if (cache.size >= MAX_CACHE_ENTRIES) cache.clear();
     const state = userState!(userId);
-    cache.set(userId, { at: now(), state });
-    state.catch(() => cache.delete(userId));
+    remember(userId, state);
     return state;
   }
 
@@ -166,7 +174,14 @@ export function createAuthGuard(tokenService: TokenService, opts: AuthGuardOptio
    */
   async function accountState(userId: string, opts: { fresh?: boolean } = {}): Promise<UserState | null> {
     if (!userState) return null;
-    return lookup(userId, opts.fresh === true);
+    const hit = cache.get(userId);
+    if (opts.fresh !== true && hit && now() - hit.at < cacheTtlMs) return hit.state;
+    // A link can name anyone: an account that doesn't exist is never remembered (review, 1.23.29), so
+    // made-up ids can't crowd real sessions out of this shared cache.
+    const state = await userState(userId);
+    if (state) remember(userId, Promise.resolve(state));
+    else cache.delete(userId); // gone: nothing stale stays either
+    return state;
   }
 
   return { authenticate, requireRoles, forgetUser, sessionCurrent, accountState };

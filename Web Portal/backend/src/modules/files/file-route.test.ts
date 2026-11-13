@@ -18,7 +18,7 @@ import { registerUploads, storedName } from './file-route';
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
 const PDF = Buffer.from('%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n');
 const dir = mkdtempSync(join(tmpdir(), 'pf-route-'));
-const files: Record<string, Buffer> = { 'task-file.pdf': PDF, 'task-pic.png': PNG, 'chat-pic.png': PNG, 'dm-file.pdf': PDF, 'photo.png': PNG, 'old-photo.png': PNG, 'orphan.png': PNG, 'logo.png': PNG };
+const files: Record<string, Buffer> = { '00000002-aaaa-4bbb-8ccc-7461736b6669.pdf': PDF, '00000003-aaaa-4bbb-8ccc-7461736b7069.png': PNG, '00000004-aaaa-4bbb-8ccc-636861747069.png': PNG, '00000005-aaaa-4bbb-8ccc-646d66696c65.pdf': PDF, '00000009-aaaa-4bbb-8ccc-70686f746f30.png': PNG, '00000001-aaaa-4bbb-8ccc-6f6c6470686f.png': PNG, '00000006-aaaa-4bbb-8ccc-6f727068616e.png': PNG, '0000000a-aaaa-4bbb-8ccc-6c6f676f3030.png': PNG };
 beforeAll(() => {
   for (const [name, bytes] of Object.entries(files)) writeFileSync(join(dir, name), bytes);
 });
@@ -79,9 +79,9 @@ beforeEach(async () => {
   taskViewers = new Map([['t1', new Set(['amal', 'basim', 'client1'])]]);
   convViewers = new Map([['c1', new Set(['amal', 'client1'])], ['d1', new Set(['basim'])]]);
   deadTasks = new Set();
-  taskFiles = new Map([['task-file.pdf', ['t1']], ['task-pic.png', ['t1']]]);
-  chatFiles = new Map([['chat-pic.png', [{ conversationId: 'c1', deleted: false }]], ['dm-file.pdf', [{ conversationId: 'd1', deleted: false }]]]);
-  pictures = new Set(['/uploads/photo.png', '/uploads/logo.png']);
+  taskFiles = new Map([['00000002-aaaa-4bbb-8ccc-7461736b6669.pdf', ['t1']], ['00000003-aaaa-4bbb-8ccc-7461736b7069.png', ['t1']]]);
+  chatFiles = new Map([['00000004-aaaa-4bbb-8ccc-636861747069.png', [{ conversationId: 'c1', deleted: false }]], ['00000005-aaaa-4bbb-8ccc-646d66696c65.pdf', [{ conversationId: 'd1', deleted: false }]]]);
+  pictures = new Set(['/uploads/00000009-aaaa-4bbb-8ccc-70686f746f30.png', '/uploads/0000000a-aaaa-4bbb-8ccc-6c6f676f3030.png']);
   storeAsked = [];
   app = await makeApp();
 });
@@ -91,7 +91,7 @@ const get = (url: string, headers: Record<string, string> = {}) => app.inject({ 
 
 describe('a task or chat file without a working link: the plain page', () => {
   it('an unsigned address gets 403 and a short page that never says why', async () => {
-    const res = await get('/uploads/task-file.pdf');
+    const res = await get('/uploads/00000002-aaaa-4bbb-8ccc-7461736b6669.pdf');
     expect(res.statusCode).toBe(403);
     expect(res.headers['content-type']).toBe('text/html; charset=utf-8');
     expect(res.headers['cache-control']).toBe('no-store');
@@ -105,15 +105,15 @@ describe('a task or chat file without a working link: the plain page', () => {
   });
 
   it('the same words for every reason', async () => {
-    const unsigned = (await get('/uploads/task-pic.png')).body;
+    const unsigned = (await get('/uploads/00000003-aaaa-4bbb-8ccc-7461736b7069.png')).body;
     accounts.set('amal', { tokenVersion: 1, active: false, roles: ['EMPLOYEE'] });
-    const inactive = await get(links.sign('task-pic.png', amal));
+    const inactive = await get(links.sign('00000003-aaaa-4bbb-8ccc-7461736b7069.png', amal));
     expect(inactive.statusCode).toBe(403);
     expect(inactive.body).toBe(unsigned);
   });
 
   it('HEAD is refused the same way', async () => {
-    const res = await app.inject({ method: 'HEAD', url: '/uploads/task-file.pdf' });
+    const res = await app.inject({ method: 'HEAD', url: '/uploads/00000002-aaaa-4bbb-8ccc-7461736b6669.pdf' });
     expect(res.statusCode).toBe(403);
     expect(res.body).toBe('');
   });
@@ -121,7 +121,7 @@ describe('a task or chat file without a working link: the plain page', () => {
 
 describe('a signed link for someone who can see the task or chat', () => {
   it('a task’s PDF: 200, the bytes, and today’s safe headers (a download, revalidated before each use)', async () => {
-    const res = await get(links.sign('task-file.pdf', amal));
+    const res = await get(links.sign('00000002-aaaa-4bbb-8ccc-7461736b6669.pdf', amal));
     expect(res.statusCode).toBe(200);
     expect(res.rawPayload.equals(PDF)).toBe(true);
     expect(res.headers['x-content-type-options']).toBe('nosniff');
@@ -134,27 +134,27 @@ describe('a signed link for someone who can see the task or chat', () => {
   });
 
   it('a task’s picture shows in place (no attachment header)', async () => {
-    const res = await get(links.sign('task-pic.png', amal));
+    const res = await get(links.sign('00000003-aaaa-4bbb-8ccc-7461736b7069.png', amal));
     expect(res.statusCode).toBe(200);
     expect(res.headers['content-type']).toBe('image/png');
     expect(res.headers['content-disposition']).toBeUndefined();
   });
 
   it('a chat picture for someone in the conversation', async () => {
-    expect((await get(links.sign('chat-pic.png', amal))).statusCode).toBe(200);
+    expect((await get(links.sign('00000004-aaaa-4bbb-8ccc-636861747069.png', amal))).statusCode).toBe(200);
   });
 
   it('HEAD and Range are checked and served', async () => {
-    const head = await app.inject({ method: 'HEAD', url: links.sign('task-file.pdf', amal) });
+    const head = await app.inject({ method: 'HEAD', url: links.sign('00000002-aaaa-4bbb-8ccc-7461736b6669.pdf', amal) });
     expect(head.statusCode).toBe(200);
     expect(Number(head.headers['content-length'])).toBe(PDF.length);
-    const range = await get(links.sign('task-file.pdf', amal), { range: 'bytes=0-3' });
+    const range = await get(links.sign('00000002-aaaa-4bbb-8ccc-7461736b6669.pdf', amal), { range: 'bytes=0-3' });
     expect(range.statusCode).toBe(206);
     expect(range.body).toBe('%PDF');
   });
 
   it('If-None-Match answers 304 only while the person may still open it', async () => {
-    const url = links.sign('task-pic.png', amal);
+    const url = links.sign('00000003-aaaa-4bbb-8ccc-7461736b7069.png', amal);
     const etag = String((await get(url)).headers.etag);
     expect((await get(url, { 'if-none-match': etag })).statusCode).toBe(304);
     taskViewers.get('t1')!.delete('amal');
@@ -163,8 +163,8 @@ describe('a signed link for someone who can see the task or chat', () => {
   });
 
   it('a file still listed but gone from the disk is a 404, not an error', async () => {
-    taskFiles.set('missing.png', ['t1']);
-    expect((await get(links.sign('missing.png', amal))).statusCode).toBe(404);
+    taskFiles.set('00000007-aaaa-4bbb-8ccc-6d697373696e.png', ['t1']);
+    expect((await get(links.sign('00000007-aaaa-4bbb-8ccc-6d697373696e.png', amal))).statusCode).toBe(404);
   });
 
   it('a link made for a newer session than the remembered one works at once (a password just changed)', async () => {
@@ -174,10 +174,10 @@ describe('a signed link for someone who can see the task or chat', () => {
     let remembered: UserState = { tokenVersion: 1, active: true, roles: ['EMPLOYEE'] };
     const now: UserState = { tokenVersion: 2, active: true, roles: ['EMPLOYEE'] };
     await registerUploads(a, { root: dir, links, access, accountState: async (_id, o) => { if (o?.fresh) { fresh++; remembered = now; } return remembered; } });
-    expect((await a.inject({ method: 'GET', url: links.sign('task-pic.png', { id: 'amal', ver: 2 }) })).statusCode).toBe(200);
+    expect((await a.inject({ method: 'GET', url: links.sign('00000003-aaaa-4bbb-8ccc-7461736b7069.png', { id: 'amal', ver: 2 }) })).statusCode).toBe(200);
     expect(fresh).toBe(1);
     // A made-up signature never costs a fresh read.
-    const forged = links.sign('task-pic.png', { id: 'amal', ver: 2 }).replace(/s=.{4}/, 's=AAAA');
+    const forged = links.sign('00000003-aaaa-4bbb-8ccc-7461736b7069.png', { id: 'amal', ver: 2 }).replace(/s=.{4}/, 's=AAAA');
     expect((await a.inject({ method: 'GET', url: forged })).statusCode).toBe(403);
     expect(fresh).toBe(1);
     await a.close();
@@ -185,7 +185,7 @@ describe('a signed link for someone who can see the task or chat', () => {
 });
 
 describe('each reason a link is refused (403)', () => {
-  const pic = (who = amal) => get(links.sign('task-pic.png', who));
+  const pic = (who = amal) => get(links.sign('00000003-aaaa-4bbb-8ccc-7461736b7069.png', who));
 
   it('the account was deactivated', async () => {
     accounts.set('amal', { tokenVersion: 1, active: false, roles: ['EMPLOYEE'] });
@@ -210,51 +210,51 @@ describe('each reason a link is refused (403)', () => {
 
   it('the project was deleted — for an administrator too', async () => {
     deadTasks.add('t1'); // taskIsLive is false for a task of a deleted project
-    expect((await get(links.sign('task-file.pdf', { id: 'root', ver: 0 }))).statusCode).toBe(403);
+    expect((await get(links.sign('00000002-aaaa-4bbb-8ccc-7461736b6669.pdf', { id: 'root', ver: 0 }))).statusCode).toBe(403);
   });
 
   it('not a participant of the direct chat', async () => {
-    expect((await get(links.sign('dm-file.pdf', amal))).statusCode).toBe(403);
-    expect((await get(links.sign('dm-file.pdf', { id: 'basim', ver: 0 }))).statusCode).toBe(200); // a participant
+    expect((await get(links.sign('00000005-aaaa-4bbb-8ccc-646d66696c65.pdf', amal))).statusCode).toBe(403);
+    expect((await get(links.sign('00000005-aaaa-4bbb-8ccc-646d66696c65.pdf', { id: 'basim', ver: 0 }))).statusCode).toBe(200); // a participant
   });
 
   it('a client account named in the link (clients download through the Client portal only)', async () => {
-    expect((await get(links.sign('task-pic.png', { id: 'client1', ver: 0 }))).statusCode).toBe(403);
-    expect((await get(links.sign('chat-pic.png', { id: 'client1', ver: 0 }))).statusCode).toBe(403);
+    expect((await get(links.sign('00000003-aaaa-4bbb-8ccc-7461736b7069.png', { id: 'client1', ver: 0 }))).statusCode).toBe(403);
+    expect((await get(links.sign('00000004-aaaa-4bbb-8ccc-636861747069.png', { id: 'client1', ver: 0 }))).statusCode).toBe(403);
   });
 
   it('an unknown person', async () => {
-    expect((await get(links.sign('task-pic.png', { id: 'nobody', ver: 0 }))).statusCode).toBe(403);
+    expect((await get(links.sign('00000003-aaaa-4bbb-8ccc-7461736b7069.png', { id: 'nobody', ver: 0 }))).statusCode).toBe(403);
   });
 
   it('expired, changed, another person’s or another file’s link', async () => {
     const old = createFileLinks({ secret: 'pf-route-access-secret', now: () => Date.now() - 31 * 3600_000 });
-    expect((await get(old.sign('task-pic.png', amal))).statusCode).toBe(403);
-    const good = links.sign('task-pic.png', amal);
+    expect((await get(old.sign('00000003-aaaa-4bbb-8ccc-7461736b7069.png', amal))).statusCode).toBe(403);
+    const good = links.sign('00000003-aaaa-4bbb-8ccc-7461736b7069.png', amal);
     expect((await get(good.replace('u=amal', 'u=basim'))).statusCode).toBe(403);
-    expect((await get(good.replace('/task-pic.png', '/task-file.pdf'))).statusCode).toBe(403);
+    expect((await get(good.replace('/00000003-aaaa-4bbb-8ccc-7461736b7069.png', '/00000002-aaaa-4bbb-8ccc-7461736b6669.pdf'))).statusCode).toBe(403);
     expect((await get(`${good}&u=amal`)).statusCode).toBe(403); // a part given twice
     const other = createFileLinks({ secret: 'another-secret' });
-    expect((await get(other.sign('task-pic.png', amal))).statusCode).toBe(403);
+    expect((await get(other.sign('00000003-aaaa-4bbb-8ccc-7461736b7069.png', amal))).statusCode).toBe(403);
   });
 
   it('a deleted chat message’s file (rows not yet purged)', async () => {
-    chatFiles.set('chat-pic.png', [{ conversationId: 'c1', deleted: true }]);
-    expect((await get(links.sign('chat-pic.png', amal))).statusCode).toBe(403);
+    chatFiles.set('00000004-aaaa-4bbb-8ccc-636861747069.png', [{ conversationId: 'c1', deleted: true }]);
+    expect((await get(links.sign('00000004-aaaa-4bbb-8ccc-636861747069.png', amal))).statusCode).toBe(403);
   });
 });
 
 describe('public pictures and everything else', () => {
   it('a current photo or logo opens with no link, as before (any query is harmless)', async () => {
-    const res = await get('/uploads/photo.png');
+    const res = await get('/uploads/00000009-aaaa-4bbb-8ccc-70686f746f30.png');
     expect(res.statusCode).toBe(200);
     expect(res.headers['cross-origin-resource-policy']).toBe('cross-origin');
     expect(res.headers['cache-control']).toBe('private, no-cache');
-    expect((await get('/uploads/logo.png?v=2')).statusCode).toBe(200);
+    expect((await get('/uploads/0000000a-aaaa-4bbb-8ccc-6c6f676f3030.png?v=2')).statusCode).toBe(200);
   });
 
   it('a replaced photo, an erased file or an orphan: 404, kept by no one', async () => {
-    for (const name of ['old-photo.png', 'orphan.png', 'nothing-here.png']) {
+    for (const name of ['00000001-aaaa-4bbb-8ccc-6f6c6470686f.png', '00000006-aaaa-4bbb-8ccc-6f727068616e.png', '00000000-aaaa-4bbb-8ccc-6e6f7468696e.png']) {
       const res = await get(`/uploads/${name}`);
       expect(res.statusCode, name).toBe(404);
       expect(res.headers['cache-control'], name).toBe('no-store');
@@ -263,8 +263,8 @@ describe('public pictures and everything else', () => {
   });
 
   it('a deleted message’s file once its rows are purged: 404', async () => {
-    chatFiles.delete('chat-pic.png');
-    expect((await get(links.sign('chat-pic.png', amal))).statusCode).toBe(404);
+    chatFiles.delete('00000004-aaaa-4bbb-8ccc-636861747069.png');
+    expect((await get(links.sign('00000004-aaaa-4bbb-8ccc-636861747069.png', amal))).statusCode).toBe(404);
   });
 
   it('bad names never reach the database: 404', async () => {
@@ -279,7 +279,7 @@ describe('public pictures and everything else', () => {
   });
 
   it('face copies keep their own route', async () => {
-    expect((await get('/uploads/faces/photo.png.webp')).body).toBe('a face');
+    expect((await get('/uploads/faces/00000009-aaaa-4bbb-8ccc-70686f746f30.png.webp')).body).toBe('a face');
   });
 });
 
@@ -289,16 +289,16 @@ describe('on a server that serves the web app too (the live site, the Windows se
     writeFileSync(join(web, 'index.html'), '<!doctype html><title>MICO360</title><div id="root"></div>');
     const { registerWebApp } = await import('../../lib/web-app');
     const a = await buildApp({ authService, tokenService });
-    const access = createFileAccess({ store: { async rowsOf(k) { return { taskIds: k === 'task-pic.png' ? ['t1'] : [], chats: [] }; }, async isPublicPicture(u) { return u === '/uploads/photo.png'; }, async taskIsLive() { return true; } }, canViewTask: async () => true, canSeeConversation: async () => false });
+    const access = createFileAccess({ store: { async rowsOf(k) { return { taskIds: k === '00000003-aaaa-4bbb-8ccc-7461736b7069.png' ? ['t1'] : [], chats: [] }; }, async isPublicPicture(u) { return u === '/uploads/00000009-aaaa-4bbb-8ccc-70686f746f30.png'; }, async taskIsLive() { return true; } }, canViewTask: async () => true, canSeeConversation: async () => false });
     await registerUploads(a, { root: dir, links, access, accountState: async (id) => accounts.get(id) ?? null });
     await registerWebApp(a, { root: web });
     await a.ready();
-    const refused = await a.inject({ method: 'GET', url: '/uploads/task-pic.png', headers: { host: 'task.example' } });
+    const refused = await a.inject({ method: 'GET', url: '/uploads/00000003-aaaa-4bbb-8ccc-7461736b7069.png', headers: { host: 'task.example' } });
     expect(refused.statusCode).toBe(403);
     expect(refused.headers['content-security-policy']).toBe("default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
-    expect((await a.inject({ method: 'GET', url: links.sign('task-pic.png', amal) })).statusCode).toBe(200);
-    expect((await a.inject({ method: 'GET', url: '/uploads/photo.png' })).statusCode).toBe(200);
-    expect((await a.inject({ method: 'GET', url: '/uploads/nothing.png' })).statusCode).toBe(404);
+    expect((await a.inject({ method: 'GET', url: links.sign('00000003-aaaa-4bbb-8ccc-7461736b7069.png', amal) })).statusCode).toBe(200);
+    expect((await a.inject({ method: 'GET', url: '/uploads/00000009-aaaa-4bbb-8ccc-70686f746f30.png' })).statusCode).toBe(200);
+    expect((await a.inject({ method: 'GET', url: '/uploads/00000008-aaaa-4bbb-8ccc-6e6f7468696e.png' })).statusCode).toBe(404);
     expect((await a.inject({ method: 'GET', url: '/', headers: { host: 'task.example' } })).statusCode).toBe(200);
     await a.close();
     rmSync(web, { recursive: true, force: true });
@@ -312,11 +312,50 @@ describe('logs never keep a link', () => {
     const a = await buildApp({ authService, tokenService, logger: logger as never });
     const access = createFileAccess({ store: { async rowsOf() { throw new Error('database unreachable'); }, async isPublicPicture() { return false; }, async taskIsLive() { return true; } }, canViewTask: async () => true, canSeeConversation: async () => true });
     await registerUploads(a, { root: dir, links, access, accountState: async () => null });
-    const url = links.sign('task-pic.png', amal);
+    const url = links.sign('00000003-aaaa-4bbb-8ccc-7461736b7069.png', amal);
     const res = await a.inject({ method: 'GET', url });
     expect(res.statusCode).toBe(500);
-    expect(JSON.stringify(logged)).toContain('/uploads/task-pic.png');
+    expect(JSON.stringify(logged)).toContain('/uploads/00000003-aaaa-4bbb-8ccc-7461736b7069.png');
     expect(JSON.stringify(logged)).not.toContain('s=');
+    await a.close();
+  });
+});
+
+// Review (1.23.29): /uploads has no API rate limit. Nonsense names and made-up links must not be a cheap way
+// to make the server read its database.
+describe('nonsense and floods', () => {
+  it('a name that isn’t one this server stores (a random UUID and an extension) is 404 without asking the database', async () => {
+    for (const name of ['photo.png', 'company-logo.png', '00000000-aaaa-4bbb-8ccc.png', 'zzzzzzzz-aaaa-4bbb-8ccc-000000000000.png']) {
+      expect((await get(`/uploads/${name}`)).statusCode, name).toBe(404);
+    }
+    expect(storeAsked).toEqual([]);
+    expect(storedName('3f2b9c1e-8d4a-4b7e-9f10-2a6c5d7e8f90')).toBe('3f2b9c1e-8d4a-4b7e-9f10-2a6c5d7e8f90'); // no extension
+    expect(storedName('3f2b9c1e-8d4a-4b7e-9f10-2a6c5d7e8f90.JPEG')).toBe('3f2b9c1e-8d4a-4b7e-9f10-2a6c5d7e8f90.JPEG'); // v0.1.0: the uploader's own
+  });
+
+  it('one address that keeps getting names wrong or links refused waits a minute (429, no database work); others go on', async () => {
+    let clock = Date.now();
+    const a = await buildApp({ authService, tokenService });
+    let reads = 0;
+    const access = createFileAccess({ store: { async rowsOf(k) { reads++; return { taskIds: taskFiles.get(k) ?? [], chats: [] }; }, async isPublicPicture(u) { return pictures.has(u); }, async taskIsLive() { return true; } }, canViewTask: async (u) => u === 'amal', canSeeConversation: async () => false, classifyTtlMs: 0, decisionTtlMs: 0 });
+    await registerUploads(a, { root: dir, links, access, accountState: async (id) => accounts.get(id) ?? null, refusalsPerMinute: 3, now: () => clock });
+    const from = (ip: string, url: string) => a.inject({ method: 'GET', url, remoteAddress: ip });
+    const taskPic = '00000003-aaaa-4bbb-8ccc-7461736b7069.png';
+    // Plain unsigned addresses (stale pages) don't count: no link was tried.
+    for (let i = 0; i < 5; i++) expect((await from('10.0.0.1', `/uploads/${taskPic}`)).statusCode).toBe(403);
+    // Unknown names and refused links do.
+    expect((await from('10.0.0.1', '/uploads/00000000-0000-4000-8000-000000000000.png')).statusCode).toBe(404);
+    expect((await from('10.0.0.1', links.sign(taskPic, { id: 'basim', ver: 0 }))).statusCode).toBe(403);
+    expect((await from('10.0.0.1', links.sign(taskPic, { id: 'nobody', ver: 0 }))).statusCode).toBe(403);
+    const readsBefore = reads;
+    const blocked = await from('10.0.0.1', links.sign(taskPic, amal));
+    expect(blocked.statusCode).toBe(429);
+    expect(blocked.headers['cache-control']).toBe('no-store');
+    expect(blocked.headers['retry-after']).toBe('60');
+    expect(reads).toBe(readsBefore);
+    expect((await from('10.0.0.2', links.sign(taskPic, amal))).statusCode).toBe(200);
+    clock += 60_001;
+    expect((await from('10.0.0.1', links.sign(taskPic, amal))).statusCode).toBe(200);
     await a.close();
   });
 });

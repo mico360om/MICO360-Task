@@ -157,6 +157,31 @@ describe('auth guard with live user state (token version, status, current roles)
     expect(await guard.accountState('nobody')).toBeNull();
   });
 
+  // Review (1.23.29): a file link can name any person; made-up ones must not crowd real sessions out.
+  it('accountState never remembers an unknown person (made-up ids in file links can’t fill the shared cache)', async () => {
+    const s = stateStore({ u1: { tokenVersion: 0, active: true, roles: ['EMPLOYEE'] } });
+    const guard = createAuthGuard(makeTokenService(), { ...s.opts, cacheMaxEntries: 3 });
+    expect(await guard.accountState('u1')).not.toBeNull(); // u1 remembered
+    for (let i = 0; i < 10; i++) expect(await guard.accountState(`made-up-${i}`)).toBeNull();
+    const before = s.lookups;
+    expect(await guard.accountState('u1')).not.toBeNull();
+    expect(s.lookups).toBe(before); // still remembered: the made-up ids took no place
+  });
+
+  it('a full cache lets its oldest entry go, never everyone’s at once', async () => {
+    const s = stateStore({ a: { tokenVersion: 0, active: true, roles: [] }, b: { tokenVersion: 0, active: true, roles: [] }, c: { tokenVersion: 0, active: true, roles: [] } });
+    const guard = createAuthGuard(makeTokenService(), { ...s.opts, cacheMaxEntries: 2 });
+    await guard.accountState('a');
+    await guard.accountState('b');
+    await guard.accountState('c'); // a goes
+    const before = s.lookups;
+    await guard.accountState('b');
+    await guard.accountState('c');
+    expect(s.lookups).toBe(before);
+    await guard.accountState('a');
+    expect(s.lookups).toBe(before + 1);
+  });
+
   it('accountState is null without live account state (a link can never be checked, so it is refused)', async () => {
     const guard = createAuthGuard(makeTokenService());
     expect(await guard.accountState('u1')).toBeNull();

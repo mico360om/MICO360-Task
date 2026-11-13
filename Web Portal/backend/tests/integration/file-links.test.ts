@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { mkdtempSync, writeFileSync, rmSync, existsSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PrismaClient } from '@prisma/client';
@@ -88,7 +89,7 @@ async function cleanup() {
   await prisma.user.deleteMany({ where: { email: { in: EMAILS } } });
 }
 
-/** A stored file on disk, and its name. */
+/** A stored file on disk, and its name (a random UUID and an extension, as the server names them). */
 function stored(name: string): string {
   writeFileSync(join(dir, name), PNG);
   return name;
@@ -136,7 +137,7 @@ beforeEach(async () => {
 
 async function taskWithFile(title: string) {
   const t = await tasks.createTask({ title, projectId: ids.project!, columnId: ids.todo!, createdById: ids.admin!, assigneeIds: [ids.mate!] });
-  const key = stored(`pf-${t.id}.png`);
+  const key = stored(`${randomUUID()}.png`);
   await prisma.attachment.create({ data: { taskId: t.id, uploadedById: ids.mate!, filename: 'site.png', mimeType: 'image/png', sizeBytes: PNG.length, storageKey: key, url: `/uploads/${key}` } });
   return { task: t, key };
 }
@@ -204,7 +205,7 @@ describe('task files on a real database', () => {
 describe('chat files on a real database', () => {
   it('a channel file opens for the project’s people, and stops with the project', async () => {
     const conv = await chat.getOrCreateProjectConversation(ids.project!, ids.mate!);
-    const key = stored('pf-chat-channel.png');
+    const key = stored(`${randomUUID()}.png`);
     await chat.postMessage(conv.id, ids.mate!, { body: '', attachment: { fileName: 'site.png', mimeType: 'image/png', sizeBytes: PNG.length, storageKey: key } });
     expect(await open(key, 'mate')).toBe(200);
     expect(await open(key, 'admin')).toBe(200);
@@ -217,7 +218,7 @@ describe('chat files on a real database', () => {
 
   it('a direct chat’s file opens for its two people only; a deleted message’s file is gone (404)', async () => {
     const dm = await chat.getOrCreateDirectConversation(ids.mate!, ids.other!);
-    const key = stored('pf-chat-direct.png');
+    const key = stored(`${randomUUID()}.png`);
     const { message } = await chat.postMessage(dm.id, ids.mate!, { body: 'the drawing', attachment: { fileName: 'drawing.png', mimeType: 'image/png', sizeBytes: PNG.length, storageKey: key } });
     expect(await open(key, 'mate')).toBe(200);
     expect(await open(key, 'other')).toBe(200);
@@ -230,13 +231,13 @@ describe('chat files on a real database', () => {
 
 describe('public pictures on a real database', () => {
   it('a current photo and project picture open with no link; a replaced photo no longer does', async () => {
-    const first = stored('pf-photo-1.png');
-    const picture = stored('pf-project.png');
+    const first = stored(`${randomUUID()}.png`);
+    const picture = stored(`${randomUUID()}.png`);
     await prisma.user.update({ where: { id: ids.mate! }, data: { avatarUrl: `/uploads/${first}` } });
     await prisma.project.update({ where: { id: ids.project! }, data: { imageUrl: `/uploads/${picture}` } });
     expect(await open(first)).toBe(200);
     expect(await open(picture)).toBe(200);
-    const second = stored('pf-photo-2.png');
+    const second = stored(`${randomUUID()}.png`);
     await prisma.user.update({ where: { id: ids.mate! }, data: { avatarUrl: `/uploads/${second}` } });
     expect(await open(first)).toBe(404);
     expect(await open(second)).toBe(200);

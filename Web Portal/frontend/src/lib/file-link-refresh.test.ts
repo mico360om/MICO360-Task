@@ -85,7 +85,7 @@ describe('a list of files gets new links before its first one ends', () => {
     expect(qc.getQueryState(['attachments', 't2'])?.isInvalidated).toBe(false);
   });
 
-  it('never more than once a minute, even when the links are already past (a wrong clock)', async () => {
+  it('a wrong clock (links already past by it) reads a list a minute after it came, then at most hourly while the links stay the same', async () => {
     const q = await watch(['attachments', 't3'], () => [{ id: 'f', url: link('a.png', T0 - H) }]);
     expect(q.count()).toBe(1);
     await vi.advanceTimersByTimeAsync(59_000);
@@ -93,16 +93,19 @@ describe('a list of files gets new links before its first one ends', () => {
     expect(q.count()).toBe(1);
     await vi.advanceTimersByTimeAsync(2_000);
     await flush();
-    expect(q.count()).toBe(2);
-    await vi.advanceTimersByTimeAsync(30_000);
+    expect(q.count()).toBe(2); // the server sent the same links: its clock says they still work
+    await vi.advanceTimersByTimeAsync(59 * 60_000);
     await flush();
     expect(q.count()).toBe(2);
+    await vi.advanceTimersByTimeAsync(2 * 60_000);
+    await flush();
+    expect(q.count()).toBe(3);
     q.off();
   });
 });
 
 describe('a picture that doesn’t load, or a refused preview', () => {
-  it('reads again the list that holds that file — once a minute at most', async () => {
+  it('reads again the list that holds that file — once every ten minutes at most (a picture that can’t be shown for another reason never loops)', async () => {
     const url = link('pic.png', T0 + 28 * H);
     const q = await watch(['attachments', 't4'], () => [{ id: 'f', url }]);
     reportFileLinkFailed(`https://task.example${url}`);
@@ -112,6 +115,10 @@ describe('a picture that doesn’t load, or a refused preview', () => {
     await flush();
     expect(q.count()).toBe(2);
     await vi.advanceTimersByTimeAsync(61_000);
+    reportFileLinkFailed(`https://task.example${url}`);
+    await flush();
+    expect(q.count()).toBe(2);
+    await vi.advanceTimersByTimeAsync(9 * 60_000);
     reportFileLinkFailed(`https://task.example${url}`);
     await flush();
     expect(q.count()).toBe(3);

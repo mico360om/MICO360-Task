@@ -61,7 +61,8 @@ export async function registerAttachmentRoutes(app: FastifyInstance, deps: Attac
   // A Word / Excel / PowerPoint file as plain text, for viewing in the app.
   app.get('/attachments/:attachmentId/preview', { preHandler: guard.authenticate }, async (req, reply) => {
     const { attachmentId } = req.params as { attachmentId: string };
-    const rec = await attachmentService.get(attachmentId);
+    // 1.23.29: a binned task's (or deleted project's) file has no preview, administrators included.
+    const rec = await attachmentService.getLive(attachmentId);
     if (!(await canView(req, rec.taskId))) return reply.status(403).send(denied);
     try {
       const data = await attachmentService.preview(rec);

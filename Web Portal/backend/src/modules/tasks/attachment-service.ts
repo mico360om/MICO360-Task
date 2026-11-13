@@ -127,6 +127,18 @@ export function createAttachmentService({
   }
 
   /**
+   * 1.23.29 (review): one attachment of a live task — not in the Recycle Bin, its project not deleted —
+   * else NotFound (for administrators too: the Bin shows a file's name and size only).
+   */
+  async function getLive(id: string): Promise<AttachmentRecord> {
+    const rec = await get(id);
+    await ensureTask(rec.taskId).catch(() => {
+      throw new NotFoundError('Attachment not found.');
+    });
+    return rec;
+  }
+
+  /**
    * A plain-text preview of a Word, Excel or PowerPoint attachment; null when the file has none.
    * Throws PreviewError when it is damaged or too big to unpack safely.
    */
@@ -135,7 +147,7 @@ export function createAttachmentService({
     return officePreview(await storage.read(rec.storageKey), rec.filename);
   }
 
-  return { upload, list, remove, get, preview, setClientVisible };
+  return { upload, list, remove, get, getLive, preview, setClientVisible };
 }
 
 export type AttachmentService = ReturnType<typeof createAttachmentService>;

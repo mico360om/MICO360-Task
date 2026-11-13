@@ -30,9 +30,22 @@ export interface UploadsDeps {
   /** The website's address, for the plain page's way back (optional). */
   appUrl?: string;
   productName?: string;
+  /**
+   * Review (1.23.29): /uploads has no API rate limit, so one address may get at most this many answers a
+   * minute that cost the server work for nothing — an unknown name (404) or a link that was refused (403) —
+   * before it waits out the minute (429). Plain unsigned addresses (pages opened before the change) don't
+   * count. Default 120.
+   */
+  refusalsPerMinute?: number;
+  now?: () => number;
 }
 
 const MAX_NAME = 200;
+/** The names this server stores: a random UUID, and an extension (v0.1.0 kept the uploader's own). */
+const STORED_KEY = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:\.[^/\\%\0]{1,40})?$/i;
+const MINUTE = 60_000;
+/** Most addresses whose refusals are counted at once (the oldest go first). */
+const MAX_COUNTED = 10_000;
 /** How many session versions newer than the remembered one a signature is tried with (no database read). */
 const NEWER_VERSIONS = 5;
 
@@ -40,7 +53,8 @@ const NEWER_VERSIONS = 5;
 export function storedName(raw: unknown): string | null {
   if (typeof raw !== 'string' || raw.length === 0 || raw.length > MAX_NAME) return null;
   if (/[/\\%\0]/.test(raw) || raw.includes('..')) return null;
-  return raw;
+  // Only a name this server could have stored is looked up (anything else never reaches the database).
+  return STORED_KEY.test(raw) ? raw : null;
 }
 
 const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -79,6 +93,28 @@ ${home}
 `;
 }
 
+/** Per address: answers this minute that cost work for nothing (see UploadsDeps.refusalsPerMinute). */
+function refusalCounter(max: number, now: () => number) {
+  const seen = new Map<string, { start: number; count: number }>();
+  return {
+    blocked(ip: string): boolean {
+      const e = seen.get(ip);
+      return !!e && now() - e.start < MINUTE && e.count >= max;
+    },
+    count(ip: string): void {
+      const t = now();
+      let e = seen.get(ip);
+      if (!e || t - e.start >= MINUTE) {
+        seen.delete(ip);
+        while (seen.size >= MAX_COUNTED) seen.delete(seen.keys().next().value!);
+        e = { start: t, count: 0 };
+        seen.set(ip, e);
+      }
+      e.count += 1;
+    },
+  };
+}
+
 /** Registers the uploads folder's file route (and the reply's sendFile, which the web app's static files use too). */
 export async function registerUploads(app: FastifyInstance, deps: UploadsDeps): Promise<void> {
   const { default: fastifyStatic } = await import('@fastify/static');
@@ -92,6 +128,7 @@ export async function registerUploads(app: FastifyInstance, deps: UploadsDeps): 
   });
 
   const page = noLongerWorksPage({ appUrl: deps.appUrl, productName: deps.productName });
+  const refusals = refusalCounter(deps.refusalsPerMinute ?? 120, deps.now ?? (() => Date.now()));
   const notFound = (reply: FastifyReply) => reply.code(404).header('Cache-Control', 'no-store').send({ error: { code: 'NOT_FOUND', message: 'Not found.' } });
   const refused = (reply: FastifyReply) =>
     reply
@@ -120,17 +157,29 @@ export async function registerUploads(app: FastifyInstance, deps: UploadsDeps): 
   }
 
   app.get('/uploads/:file', async (req, reply) => {
+    const ip = req.ip;
+    if (refusals.blocked(ip)) {
+      return reply.code(429).header('Cache-Control', 'no-store').header('Retry-After', '60').send({ error: { code: 'RATE_LIMITED', message: 'Too many requests. Please wait a moment and try again.' } });
+    }
     const key = storedName((req.params as { file?: unknown }).file);
-    if (!key) return notFound(reply);
+    if (!key) {
+      refusals.count(ip);
+      return notFound(reply);
+    }
     const kind = await deps.access.classify(key);
-    if (kind.kind === 'unknown') return notFound(reply);
+    if (kind.kind === 'unknown') {
+      refusals.count(ip);
+      return notFound(reply);
+    }
     if (kind.kind === 'public') return reply.sendFile(key);
     // A task's or a chat's file: the cheap checks first, then the account, then the access queries.
     const link = deps.links.parse(req.query);
     if (!link || !deps.links.fresh(link)) return refused(reply);
     const account = await signer(key, link);
-    if (!account) return refused(reply);
-    if (!(await deps.access.mayOpen({ id: link.u, roles: account.roles }, kind))) return refused(reply);
+    if (!account || !(await deps.access.mayOpen({ id: link.u, roles: account.roles }, kind))) {
+      refusals.count(ip); // a link was tried and refused: it cost the account read (and the access check)
+      return refused(reply);
+    }
     return reply.sendFile(key);
   });
 }

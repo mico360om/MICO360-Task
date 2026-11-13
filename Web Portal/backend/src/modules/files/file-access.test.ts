@@ -84,15 +84,30 @@ describe('which stored file is which', () => {
     expect(await access.classify('old-photo.png')).toEqual({ kind: 'unknown' });
   });
 
-  it('remembers a name for a minute, then reads it again', async () => {
-    f.s.taskFiles.set('a.pdf', ['t1']);
-    await access.classify('a.pdf');
+  it('remembers a photo’s or an unknown name for a minute, then reads it again', async () => {
+    f.s.pictures.add('/uploads/photo.png');
+    await access.classify('photo.png');
+    await access.classify('nothing.png');
     const reads = f.s.reads;
     clock += 59_000;
-    await access.classify('a.pdf');
+    await access.classify('photo.png');
+    await access.classify('nothing.png');
     expect(f.s.reads).toBe(reads);
-    f.s.taskFiles.delete('a.pdf'); // erased
+    f.s.pictures.delete('/uploads/photo.png'); // replaced
     clock += 2_000;
+    expect(await access.classify('photo.png')).toEqual({ kind: 'unknown' });
+  });
+
+  it('a task’s or chat’s file only for 10 seconds (an undone merge moves its rows back; an erase removes them)', async () => {
+    f.s.taskFiles.set('a.pdf', ['main']);
+    expect(await access.classify('a.pdf')).toEqual({ kind: 'protected', taskIds: ['main'], chats: [] });
+    f.s.taskFiles.set('a.pdf', ['original']);
+    clock += 9_000;
+    expect((await access.classify('a.pdf')) as { taskIds: string[] }).toMatchObject({ taskIds: ['main'] });
+    clock += 1_001;
+    expect((await access.classify('a.pdf')) as { taskIds: string[] }).toMatchObject({ taskIds: ['original'] });
+    f.s.taskFiles.delete('a.pdf'); // erased
+    clock += 10_001;
     expect(await access.classify('a.pdf')).toEqual({ kind: 'unknown' });
   });
 

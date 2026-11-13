@@ -10,11 +10,15 @@ import type { Query, QueryClient } from '@tanstack/react-query';
  *   - a picture of a signed file that fails to load anywhere on the page, or a preview the server refuses
  *     (reportFileLinkFailed), has the lists holding that file read again.
  *
- * Never more than once a minute per list, so someone who really lost access never causes a loop (their
- * list then answers "no access" itself).
+ * Never more than once a minute per list on the timer — once an hour when the list came back with the same
+ * links (the device's clock is wrong: the server says they still work) — and once every ten minutes per list
+ * for failures (a picture that can't be shown for another reason, or someone who really lost access, whose
+ * list then answers "no access" itself, never loops).
  */
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
+/** The least time between two readings of a list because one of its pictures failed. */
+const FAILURE_GAP = 10 * MINUTE;
 /** setTimeout can't wait longer (about 24.8 days). */
 const MAX_DELAY = 2 ** 31 - 1;
 /** How deep an answer is searched for links (a history page: pages → messages → files → url). */
@@ -85,16 +89,22 @@ export function bindFileLinkRefresh(qc: QueryClient, opts: { now?: () => number;
   const now = opts.now ?? (() => Date.now());
   const watched = new Map<string, Watched>();
   const lastTimed = new Map<string, number>();
+  /** The earliest expiry a list had when the timer last read it again: the same again means a wrong clock. */
+  const timedFor = new Map<string, number | null>();
   const lastFailed = new Map<string, number>();
   let timer: ReturnType<typeof setTimeout> | null = null;
 
   const invalidate = (w: Watched) => void qc.invalidateQueries({ queryKey: w.query.queryKey, exact: true }).catch(() => undefined);
 
-  /** When a list is read again: an hour before its earliest link ends (a fifth of a short life), never within a minute of the last time. */
+  /**
+   * When a list is read again: an hour before its earliest link ends (a fifth of a short life), never within
+   * a minute of the last time — an hour when the last reading brought the very same links back.
+   */
   function dueAt(hash: string, w: Watched): number | null {
     if (w.earliest === null || w.query.state.isInvalidated) return null;
     const lead = Math.min(HOUR, Math.max(0, (w.earliest - w.receivedAt) / 5));
-    return Math.max(w.earliest - lead, w.receivedAt + MINUTE, (lastTimed.get(hash) ?? -Infinity) + MINUTE);
+    const gap = timedFor.has(hash) && timedFor.get(hash) === w.earliest ? HOUR : MINUTE;
+    return Math.max(w.earliest - lead, w.receivedAt + MINUTE, (lastTimed.get(hash) ?? -Infinity) + gap);
   }
 
   function schedule(): void {
@@ -115,6 +125,7 @@ export function bindFileLinkRefresh(qc: QueryClient, opts: { now?: () => number;
       const at = dueAt(hash, w);
       if (at === null || at > t) continue;
       lastTimed.set(hash, t);
+      timedFor.set(hash, w.earliest);
       invalidate(w);
     }
     schedule();
@@ -134,6 +145,7 @@ export function bindFileLinkRefresh(qc: QueryClient, opts: { now?: () => number;
     if (event.type === 'removed') {
       watched.delete(event.query.queryHash);
       lastTimed.delete(event.query.queryHash);
+      timedFor.delete(event.query.queryHash);
       lastFailed.delete(event.query.queryHash);
       schedule();
     } else if (event.type === 'added' || (event.type === 'updated' && (event.action.type === 'success' || event.action.type === 'invalidate'))) {
@@ -148,7 +160,7 @@ export function bindFileLinkRefresh(qc: QueryClient, opts: { now?: () => number;
     for (const [hash, w] of watched) {
       if (!w.paths.has(link.path)) continue;
       const last = lastFailed.get(hash);
-      if (last !== undefined && t - last < MINUTE) continue;
+      if (last !== undefined && t - last < FAILURE_GAP) continue;
       lastFailed.set(hash, t);
       invalidate(w);
     }

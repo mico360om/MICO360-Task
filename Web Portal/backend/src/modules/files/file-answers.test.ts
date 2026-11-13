@@ -252,3 +252,26 @@ describe('"Download my data": the files listed are signed for the person', () =>
     expect(data.profile.avatarUrl).toBe('/uploads/me.png'); // a photo stays public
   });
 });
+
+// Review (1.23.29): the Word/Excel/PowerPoint text preview was the one other way to a file's contents, and it
+// let an administrator through a binned task (canViewTask does). A binned task's files give nothing.
+describe('the text preview of a file of a binned task', () => {
+  it('is refused (404) for everyone, administrators included; a live task’s file goes on to the preview', async () => {
+    let live = true;
+    const rows = new Map<string, AttachmentRecord>([['a1', { id: 'a1', taskId: 't1', uploadedById: 'amal', filename: 'notes.txt', mimeType: 'text/plain', sizeBytes: 5, storageKey: 'k1.txt', url: '/uploads/k1.txt', createdAt: new Date() }]]);
+    const repo: AttachmentRepository = {
+      async create() { throw new Error('no'); },
+      async list() { return [...rows.values()]; },
+      async findById(id) { return rows.get(id) ?? null; },
+      async delete() {},
+    };
+    const attachmentService = createAttachmentService({ repo, storage, taskLookup: { async exists() { return live; } }, maxSizeBytes: 1024, allowedMimeTypes: [] });
+    const app = Fastify();
+    await registerAttachmentRoutes(app, { attachmentService, guard: guard(), canViewTask: async () => true, fileLinks: links });
+    await app.ready();
+    expect((await app.inject({ method: 'GET', url: '/attachments/a1/preview', headers: await bearer('amal') })).statusCode).toBe(415); // not an Office file: no preview
+    live = false;
+    expect((await app.inject({ method: 'GET', url: '/attachments/a1/preview', headers: await bearer('amal') })).statusCode).toBe(404);
+    await app.close();
+  });
+});

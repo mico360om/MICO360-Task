@@ -10,7 +10,8 @@ import type { PrismaClient } from '@prisma/client';
  *              the share-link page show them): served as before, no link asked for
  *   unknown    anything else — a replaced photo, an erased file, an orphan: 404
  *
- * Protected wins if a name were ever in both places. Names are remembered for a minute (most 10,000), and
+ * Protected wins if a name were ever in both places. Photos and unknown names are remembered for a minute,
+ * a task's or chat's file's rows for 10 seconds (most 10,000 names), and
  * each "yes, this person may open this task's / conversation's files" for 10 seconds, the API's own account
  * cache window (a "no" is asked again each time; a removal from a project forgets the person's "yes" at
  * once): a page of 50 pictures is a handful of database reads.
@@ -39,8 +40,13 @@ export interface FileAccessDeps {
   /** The chat's own rule: a project channel's live project and its people (or an administrator); a direct chat's participants. */
   canSeeConversation: (conversationId: string, userId: string) => Promise<boolean>;
   now?: () => number;
-  /** How long a name's kind is remembered. Default a minute. */
+  /** How long a photo's or an unknown name's kind is remembered. Default a minute. */
   classifyTtlMs?: number;
+  /**
+   * How long a task's or chat's file's rows are remembered (never longer than classifyTtlMs). Default 10
+   * seconds, as the decisions: an undone merge moves a file's rows back, an erase removes them (review, 1.23.29).
+   */
+  protectedTtlMs?: number;
   /** How long a person's "may open" is remembered, per task or conversation. Default 10 seconds. */
   decisionTtlMs?: number;
   /** Most entries in each memory. Default 10,000. */
@@ -49,12 +55,15 @@ export interface FileAccessDeps {
 
 /** A small memory with a time limit per entry; the least recently used go first when it is full. */
 function ttlCache<V>(ttlMs: number, max: number, now: () => number) {
-  const entries = new Map<string, { at: number; value: Promise<V> }>();
+  const entries = new Map<string, { at: number; ttl: number; value: Promise<V> }>();
   return {
-    /** `keep`: whether an answer is remembered (one it says no to is dropped once known; asked again next time). */
-    get(key: string, load: () => Promise<V>, keep?: (value: V) => boolean): Promise<V> {
+    /**
+     * `keep`: whether an answer is remembered (one it says no to is dropped once known; asked again next time).
+     * `ttlOf`: a shorter time for some answers.
+     */
+    get(key: string, load: () => Promise<V>, keep?: (value: V) => boolean, ttlOf?: (value: V) => number): Promise<V> {
       const hit = entries.get(key);
-      if (hit && now() - hit.at < ttlMs) {
+      if (hit && now() - hit.at < hit.ttl) {
         entries.delete(key);
         entries.set(key, hit);
         return hit.value;
@@ -62,12 +71,15 @@ function ttlCache<V>(ttlMs: number, max: number, now: () => number) {
       if (hit) entries.delete(key);
       while (entries.size >= max) entries.delete(entries.keys().next().value!);
       const value = load();
-      const entry = { at: now(), value };
+      const entry = { at: now(), ttl: ttlMs, value };
       entries.set(key, entry);
       const drop = () => {
         if (entries.get(key) === entry) entries.delete(key);
       };
-      value.then((v) => (keep && !keep(v) ? drop() : undefined), drop);
+      value.then((v) => {
+        if (keep && !keep(v)) drop();
+        else if (ttlOf) entry.ttl = Math.min(ttlMs, ttlOf(v));
+      }, drop);
       return value;
     },
     /** Forget the entries whose key starts with this (all of them without one). */
@@ -85,13 +97,15 @@ export function createFileAccess(deps: FileAccessDeps) {
   const decisions = ttlCache<boolean>(deps.decisionTtlMs ?? 10_000, max, now);
   /** Only a "yes" is remembered: a refusal is asked again next time (someone just added back opens at once). */
   const yes = (ok: boolean) => ok;
+  const protectedTtl = deps.protectedTtlMs ?? 10_000;
+  const kindTtl = (c: FileClass) => (c.kind === 'protected' ? protectedTtl : Number.POSITIVE_INFINITY);
 
   function classify(storageKey: string): Promise<FileClass> {
     return kinds.get(storageKey, async () => {
       const rows = await deps.store.rowsOf(storageKey);
       if (rows.taskIds.length > 0 || rows.chats.length > 0) return { kind: 'protected', taskIds: [...new Set(rows.taskIds)], chats: rows.chats };
       return (await deps.store.isPublicPicture(`/uploads/${storageKey}`)) ? { kind: 'public' } : { kind: 'unknown' };
-    });
+    }, undefined, kindTtl);
   }
 
   /** May this person open a protected file now: any row that keeps it lets them in. */
