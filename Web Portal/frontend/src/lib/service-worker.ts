@@ -52,11 +52,17 @@ export async function setUpServiceWorker(w: ServiceWorkerWorld): Promise<Service
     if (hadWorker) w.onWorkerChanged?.();
     hadWorker = true;
   });
+  let registration: unknown;
   try {
-    await w.serviceWorker.register('/sw.js', { scope: '/' });
+    registration = await w.serviceWorker.register('/sw.js', { scope: '/' });
   } catch {
     return 'failed';
   }
+  // Each page load looks for a new sw.js (or its kill switch): register() doesn't look again once it is
+  // registered. Only here, at a page load — never mid-session (review, 13 Nov), and a worker installing
+  // keeps the last good page there is.
+  const update = (registration as { update?: () => Promise<unknown> } | null)?.update;
+  if (typeof update === 'function') void update.call(registration).catch(() => undefined);
   // The files loaded before it took over (this first visit) are kept too, so a reload offline works.
   void w.serviceWorker.ready
     .then((reg) => {

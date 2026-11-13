@@ -4,7 +4,8 @@ import { setUpServiceWorker } from './service-worker';
 function world(over: { search?: string; pathname?: string; protocol?: string; hostname?: string; sw?: boolean; controlled?: boolean } = {}) {
   const posted: unknown[] = [];
   const unregister = vi.fn(async () => true);
-  const register = vi.fn(async () => ({}));
+  const update = vi.fn(async () => undefined);
+  const register = vi.fn(async () => ({ update }));
   const changeListeners: (() => void)[] = [];
   const serviceWorker = {
     register,
@@ -25,7 +26,7 @@ function world(over: { search?: string; pathname?: string; protocol?: string; ho
     loadedAssets: () => ['https://task.mico360.com/assets/index-abc.js', 'https://task.mico360.com/api/v1/me', 'https://task.mico360.com/assets/InspectionPage-x.js'],
     onWorkerChanged: workerChanged,
   };
-  return { env, register, unregister, posted, deleted, workerChanged, takeOver: () => changeListeners.forEach((fn) => fn()) };
+  return { env, register, unregister, update, posted, deleted, workerChanged, takeOver: () => changeListeners.forEach((fn) => fn()) };
 }
 
 describe('setting up the service worker', () => {
@@ -84,14 +85,22 @@ describe('setting up the service worker', () => {
   });
 });
 
-// Review (13 Nov): nothing asks the browser for a new service worker mid-session (reg.update()): a worker
-// installing under an open page must not happen outside the browser's own checks at page loads.
-describe('the service worker is only updated at page loads', () => {
-  it('no update() call in the page’s code', async () => {
+// Review (13 Nov): a new sw.js (or its kill switch) is looked for once at each page load — register() alone
+// doesn't look again when the worker is already registered, and a reload didn't make Chrome look either —
+// and never mid-session (a worker installing under an open page; the update watcher never asks).
+describe('the service worker is looked for at each page load, and only then', () => {
+  it('asks the browser once, after registering; a failed ask changes nothing', async () => {
+    const w = world();
+    expect(await setUpServiceWorker(w.env)).toBe('registered');
+    await vi.waitFor(() => expect(w.update).toHaveBeenCalledTimes(1));
+    const failing = world();
+    failing.update.mockRejectedValueOnce(new DOMException('gone', 'InvalidStateError'));
+    expect(await setUpServiceWorker(failing.env)).toBe('registered');
+  });
+
+  it('the update watcher never asks (no update() in it)', async () => {
     const { readFileSync } = await import('node:fs');
     const { resolve } = await import('node:path');
-    for (const f of ['update-recovery.ts', 'service-worker.ts']) {
-      expect(readFileSync(resolve(__dirname, f), 'utf8'), f).not.toMatch(/\.update\(\)/);
-    }
+    expect(readFileSync(resolve(__dirname, 'update-recovery.ts'), 'utf8')).not.toMatch(/\.update\(\)/);
   });
 });
