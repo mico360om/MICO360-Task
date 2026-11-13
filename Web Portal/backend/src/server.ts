@@ -1248,6 +1248,9 @@ async function main(): Promise<void> {
   // 1.23.1 (lib/job-gate): every job asks the database through this lock — it starts once the database
   // first answered, tries a blip once more, and starts nothing while the server stops (a deploy restart).
   const jobLock = jobs.lock(createPrismaJobLockStore(prisma));
+  // N7 + #34 (13 Nov 2026): a run hands its lease back as it ends, even when it throws (only while it still
+  // holds it), so each job runs as often as its timer says; the lease is the most a dead instance holds it.
+  // A tick that comes while the job's last run is still going is skipped (lib/job-gate).
   const SWEEP_LEASE_MS = 10 * 60 * 1000;
   // 1.22.4: a sweep that fails says so (some were dropped without a word), in the Error log too.
   const sweepFailed = (job: string, what: string) => (err: unknown) => {
@@ -1950,9 +1953,9 @@ async function main(): Promise<void> {
       release: (ids) => notificationHolds.release(ids),
     },
   });
-  // Job leases are held for their whole length (never released), so this one is under a minute or
-  // the sweep would only run every 10 minutes. Overlapping runs are harmless: each email is claimed
-  // once (a unique row) and each retry is retaken by one run only.
+  // N7: a run hands its lease back as it ends (lib/job-lock); the lease, under a minute, is the most a dead
+  // instance holds the sweep. Overlapping runs are harmless: each email is claimed once (a unique row) and
+  // each retry is retaken by one run only.
   const DAILY_EMAIL_LEASE_MS = 55 * 1000;
   const runDailyEmails = () =>
     runExclusive(jobLock, 'daily-task-emails', DAILY_EMAIL_LEASE_MS, () => new Date(), async () => {
