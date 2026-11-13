@@ -173,7 +173,7 @@ export interface ModuleInput { title: string; moduleKey?: TrainingModule; roleKe
 // ManageCourseRow += notice: string | null; limitedTo: string | null; everPublished: boolean; moduleCount: number
 // LIMITS        += moduleTitle: 160, modulesPerCourse: 30, peoplePerAssignment: 200
 export const ASSIGN_TARGET_KINDS = ['USER', 'GROUP', 'DEPARTMENT', 'COMPANY', 'PROJECT', 'PEOPLE'] as const;   // PEOPLE: several ticked people (R4), stored as USER rows sharing a batchId
-// AssignmentRow += batchId: string | null; members: { assignmentId: string; userId: string; name: string }[]   (targetKind may be 'PEOPLE' on a grouped row)
+// AssignmentRow.targetKind becomes TargetKind | 'PEOPLE'; AssignmentRow += batchId: string | null; members: { assignmentId: string; userId: string; name: string }[]
 export const REPORT_DATES = ['got', 'finished'] as const;          // R2 "Dates by"
 // ReportRow     += enrolments: number; selfStarted: number        (people = distinct persons)
 // TrainingReport += dates: ReportDates; modules: ModuleReportRow[] | null; learners: ModuleLearnerRow[] | null
@@ -364,7 +364,7 @@ export interface StarterModule { key: string /* 'module:getting-started' … */;
 export const STARTER_REVISION = 3;
 export const USER_TRAINING_KEY = 'starter:user-training';
 /** Revision 2's short courses, in the old order: key → module key (the conversion's map). */
-export const SHORT_COURSE_MODULES: readonly { courseKey: string; moduleKey: string }[];
+export const SHORT_COURSE_MODULES: readonly { courseKey: string; module: string }[];   // { courseKey: 'starter:tasks', module: 'module:tasks' } — module = a StarterModule key
 export const STARTER_COURSES: StarterCourse[] = [userTraining, portal];   // userTraining: title 'MICO360 Tasks User Training', moduleKey 'general', STAFF, position -1, certificateOn true, certificateMonths null; portal: certificateOn true
 // training-starter.ts
 /** Writes the course's lessons (and their modules) to match `course` — used by bringUpToDate and the conversion. */
@@ -399,7 +399,7 @@ Content decisions (the coverage table records each old lesson/step → new place
 ```ts
 export const ONE_COURSE_KEY = 'training.oneCourse';
 export interface OneCourseRecord { phase: 'content' | 'people' | 'assignments' | 'finish' | 'done'; at: string; courseId: string; moved: Record<string, { courseId: string; moduleId: string | null }>; removedLessons: Record<string, { courseId: string; moduleId: string | null }>; notMerged: string[]; noticesAt: string | null }
-export interface OneCourseDeps { prisma; files; ctx: TrainingContext; finish: TrainingFinish; content?: StarterCourse /* the combined course */; portalKey?: string; shortCourses?: readonly { courseKey: string; moduleKey: string }[]; assetsDir?: string | null; recordKey?: string; failAfter?: OneCourseRecord['phase'] /* tests: throw after this phase */ }
+export interface OneCourseDeps { prisma; files; ctx: TrainingContext; finish: TrainingFinish; content?: StarterCourse /* the combined course */; portalKey?: string; shortCourses?: readonly { courseKey: string; module: string }[]; assetsDir?: string | null; recordKey?: string; failAfter?: OneCourseRecord['phase'] /* tests: throw after this phase */ }
 export function createOneCourseConversion(d: OneCourseDeps): { run(): Promise<{ courseId: string } | null> };
 ```
 Phases (each re-runnable; the record is written after each; `run()` returns at once when `phase === 'done'`; returns null when the site never loaded short courses):
