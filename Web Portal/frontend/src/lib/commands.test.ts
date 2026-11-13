@@ -145,13 +145,9 @@ describe('matchNavCommands', () => {
   });
 });
 
-describe('owner, 13 Nov: pages that left the left menu stay reachable from the palette', () => {
-  it('the Recycle Bin for administrators and the people who run a project; the Error Log for administrators', () => {
-    expect(matchNavCommands('recycle bin', false, true).map((c) => c.to)).toContain('/recycle-bin');
-    expect(matchNavCommands('recycle bin', true).map((c) => c.to)).toContain('/recycle-bin');
-    expect(matchNavCommands('recycle bin', false, false).map((c) => c.to)).not.toContain('/recycle-bin');
-    expect(matchNavCommands('error log', true).map((c) => c.to)).toContain('/admin/error-log');
-    expect(matchNavCommands('error log', false, true).map((c) => c.to)).not.toContain('/admin/error-log');
+describe('owner, 13 Nov: the palette after the menu moves', () => {
+  it('still opens Companies and Audit Logs (unchanged entries); it stays the extension’s copy (no new pages)', () => {
     expect(matchNavCommands('companies', true).map((c) => c.to)).toContain('/admin/companies');
+    expect(matchNavCommands('audit', true).map((c) => c.to)).toContain('/admin/audit');
   });
 });
