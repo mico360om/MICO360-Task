@@ -74,10 +74,13 @@ export function createRealtime(httpServer: HttpServer, opts: RealtimeOptions) {
     socket.data.userId = userId;
     socket.data.roles = Array.isArray(claims.roles) ? claims.roles : [];
     socket.data.expiresAt = typeof claims.exp === 'number' ? claims.exp * 1000 : null;
+    // 1.23.29: the session's token version (checked below when live state is on): chat files sent live are
+    // signed with it (broadcastPersonal), like an answer to the same person's request.
+    socket.data.ver = typeof claims.ver === 'number' ? claims.ver : 0;
     // 1.23: client accounts have no live connection (the Client portal doesn't use one).
     if (isClientRoles(socket.data.roles as string[])) return next(new Error('unauthorized'));
     if (!opts.checkSession) return next();
-    const ver = typeof claims.ver === 'number' ? claims.ver : 0;
+    const ver = socket.data.ver as number;
     opts.checkSession(userId, ver).then(
       (session) => {
         if (!session || isClientRoles(session.roles)) return next(new Error('unauthorized'));
@@ -223,6 +226,37 @@ export function createRealtime(httpServer: HttpServer, opts: RealtimeOptions) {
   }
 
   /**
+   * 1.23.29 Private file links (design §7.4): one copy per socket, each made for that socket's person and
+   * session version — a chat message's files are signed for whoever receives it, never one copy for the
+   * whole room. The audience is a project's room and/or people's own rooms (each socket once). The room
+   * lookup is the in-memory adapter's own, done at once, so these copies keep their order with the room
+   * broadcasts around them (one Node process: Hostinger and the Windows server).
+   */
+  function broadcastPersonal(
+    audience: { projectId?: string | null; userIds?: string[] },
+    event: string,
+    build: (viewer: { id: string; ver: number }) => unknown,
+  ): void {
+    const rooms = [...(audience.projectId ? [projectRoom(audience.projectId)] : []), ...[...new Set(audience.userIds ?? [])].map(userRoom)];
+    const nsp = io.of('/');
+    const sent = new Set<string>();
+    const made = new Map<string, unknown>();
+    for (const room of rooms) {
+      for (const socketId of nsp.adapter.rooms.get(room) ?? []) {
+        if (sent.has(socketId)) continue;
+        sent.add(socketId);
+        const socket = nsp.sockets.get(socketId);
+        const id = socket?.data.userId as string | undefined;
+        if (!socket || !id) continue;
+        const ver = typeof socket.data.ver === 'number' ? (socket.data.ver as number) : 0;
+        const key = `${id}|${ver}`;
+        if (!made.has(key)) made.set(key, build({ id, ver }));
+        socket.emit(event, made.get(key));
+      }
+    }
+  }
+
+  /**
    * End every live connection of a user whose sessions were revoked (suspended, deleted, role or
    * password change). A server-side disconnect is final: clients don't auto-reconnect.
    */
@@ -289,7 +323,7 @@ export function createRealtime(httpServer: HttpServer, opts: RealtimeOptions) {
     }
   }
 
-  return { io, broadcast, broadcastToUser, broadcastToAudience, disconnectUser, leaveProject, refreshAccess, refreshProjectAudience, onlineUserIds: () => presence.online() };
+  return { io, broadcast, broadcastToUser, broadcastToAudience, broadcastPersonal, disconnectUser, leaveProject, refreshAccess, refreshProjectAudience, onlineUserIds: () => presence.online() };
 }
 
 export type Realtime = ReturnType<typeof createRealtime>;

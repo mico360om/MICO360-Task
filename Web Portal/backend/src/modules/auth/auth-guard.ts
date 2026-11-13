@@ -8,8 +8,11 @@ import { assertManagerView, inManagerView, type ManagerViewLookup } from './mana
 
 declare module 'fastify' {
   interface FastifyRequest {
-    /** `managerView`: an administrator with Manager View on (manager-view.ts). */
-    user?: { id: string; roles: string[]; managerView?: boolean };
+    /**
+     * `managerView`: an administrator with Manager View on (manager-view.ts). `ver`: the session's token
+     * version, already checked against the account (1.23.29: file links are signed with it).
+     */
+    user?: { id: string; roles: string[]; managerView?: boolean; ver?: number };
   }
 }
 
@@ -121,18 +124,19 @@ export function createAuthGuard(tokenService: TokenService, opts: AuthGuardOptio
     if (!claims.sub || claims.type !== 'access') throw new UnauthorizedError();
     const tokenRoles = Array.isArray(claims.roles) ? (claims.roles as string[]) : [];
 
+    const ver = typeof claims.ver === 'number' ? claims.ver : 0;
     if (!userState) {
-      req.user = { id: claims.sub, roles: tokenRoles };
+      req.user = { id: claims.sub, roles: tokenRoles, ver };
       assertRouteFor(req, tokenRoles);
       return;
     }
 
-    const state = await currentState(claims.sub, typeof claims.ver === 'number' ? claims.ver : 0);
+    const state = await currentState(claims.sub, ver);
     if (!state) {
       throw new UnauthorizedError('Your session has ended. Please sign in again.');
     }
     const managerView = inManagerView({ roles: state.roles, managerView: state.managerView });
-    req.user = { id: claims.sub, roles: state.roles, ...(managerView ? { managerView: true } : {}) };
+    req.user = { id: claims.sub, roles: state.roles, ver, ...(managerView ? { managerView: true } : {}) };
     assertRouteFor(req, state.roles);
     // Manager View: the one central check (manager-view.ts) — admin pages refused, project settings only for
     // a project they run, everything else as an administrator.
@@ -155,7 +159,17 @@ export function createAuthGuard(tokenService: TokenService, opts: AuthGuardOptio
     cache.delete(userId);
   }
 
-  return { authenticate, requireRoles, forgetUser, sessionCurrent };
+  /**
+   * 1.23.29 private file links: an account's live state (active, token version, roles) for the file route,
+   * through the same short cache as every request (`fresh`: read it again now). Null without live account
+   * state — a link can't be checked then, so it is refused.
+   */
+  async function accountState(userId: string, opts: { fresh?: boolean } = {}): Promise<UserState | null> {
+    if (!userState) return null;
+    return lookup(userId, opts.fresh === true);
+  }
+
+  return { authenticate, requireRoles, forgetUser, sessionCurrent, accountState };
 }
 
 export type AuthGuard = ReturnType<typeof createAuthGuard>;

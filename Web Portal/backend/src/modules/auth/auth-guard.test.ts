@@ -133,6 +133,35 @@ describe('auth guard with live user state (token version, status, current roles)
     await app.close();
   });
 
+  // 1.23.29 private file links: a link is signed with the person's session version, and the file route
+  // reads the account through the guard's own short cache.
+  it('puts the session version on the request (what file links are signed with)', async () => {
+    const s = stateStore({ u1: { tokenVersion: 4, active: true, roles: ['EMPLOYEE'] } });
+    const { app, tokenService } = await makeApp(s.opts);
+    const { accessToken } = await tokenService.issueTokens({ id: 'u1', roles: ['EMPLOYEE'], tokenVersion: 4 });
+    const res = await app.inject({ method: 'GET', url: '/me', headers: bearer(accessToken) });
+    expect(res.json().data).toMatchObject({ id: 'u1', ver: 4 });
+    await app.close();
+  });
+
+  it('accountState reads the account through the same 10-second cache (fresh on request)', async () => {
+    const s = stateStore({ u1: { tokenVersion: 2, active: true, roles: ['EMPLOYEE'] } });
+    const guard = createAuthGuard(makeTokenService(), s.opts);
+    expect(await guard.accountState('u1')).toMatchObject({ tokenVersion: 2, active: true });
+    s.set('u1', { tokenVersion: 3, active: false, roles: ['EMPLOYEE'] });
+    expect((await guard.accountState('u1'))?.tokenVersion).toBe(2); // cached
+    expect(s.lookups).toBe(1);
+    expect(await guard.accountState('u1', { fresh: true })).toMatchObject({ tokenVersion: 3, active: false });
+    s.advance(10_001);
+    expect((await guard.accountState('u1'))?.active).toBe(false);
+    expect(await guard.accountState('nobody')).toBeNull();
+  });
+
+  it('accountState is null without live account state (a link can never be checked, so it is refused)', async () => {
+    const guard = createAuthGuard(makeTokenService());
+    expect(await guard.accountState('u1')).toBeNull();
+  });
+
   it('accepts a newer token straight away even while an older state is cached', async () => {
     const s = stateStore({ u1: { tokenVersion: 0, active: true, roles: ['EMPLOYEE'] } });
     const { app, tokenService } = await makeApp(s.opts);

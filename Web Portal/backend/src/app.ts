@@ -159,6 +159,7 @@ import { registerHealthRoutes } from './modules/project-health/health-routes';
 import type { ProjectHealthService } from './modules/project-health/health-service';
 import type { PrioritiesService } from './modules/dashboard/priorities-service';
 import type { DashboardLayoutStore } from './modules/dashboard/dashboard-layout-store';
+import type { FileLinks, FileViewer } from './modules/files/file-links';
 
 export interface AppDeps extends AuthRouteDeps {
   /** Each person's own date settings (week start, time zone) — GET/PUT /users/me/preferences. */
@@ -281,6 +282,13 @@ export interface AppDeps extends AuthRouteDeps {
   chatService?: MessageService;
   /** Deliver a chat event to one user across their sockets (their DMs). */
   onChatUserEvent?: (userId: string, event: string, payload: unknown) => void;
+  /**
+   * 1.23.29: deliver one copy per connected socket, each made for its own person (realtime.broadcastPersonal):
+   * a live chat message with files, its links signed for whoever receives it.
+   */
+  onChatPersonalEvent?: (audience: { projectId?: string | null; userIds?: string[] }, event: string, build: (viewer: FileViewer) => unknown) => void;
+  /** 1.23.29 private file links: task and chat files' addresses in answers are signed for the person asking (modules/files). */
+  fileLinks?: FileLinks;
   /** File storage for chat attachments (same adapter as task attachments). */
   chatAttachmentStorage?: import('./modules/tasks/attachment-repository').AttachmentStorage;
   /** Avatar thumbnails: writes an uploaded photo's face copy (modules/users/avatar-faces.ts). */
@@ -483,6 +491,11 @@ export interface AppDeps extends AuthRouteDeps {
   meetingTeams?: MeetingTeamsLinks;
 }
 
+/** 1.23.29: a request's address as logs keep it — a stored file's path without its link (whose signature opens it). */
+export function loggedUrl(url: string): string {
+  return url.startsWith('/uploads/') ? url.split('?')[0]! : url;
+}
+
 /** Only the API is rate limited: static files (uploads, brand assets, the web app) and the liveness check are not. */
 function isRateLimitExempt(url: string): boolean {
   return !url.startsWith('/api/') || url === '/api/v1/health';
@@ -622,8 +635,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     // site's came at deploy restarts), not a bug: 503 with words that say to try again, still recorded
     // (the Error log keeps one row per kind, with its code).
     if (databaseConnectionCode(err)) {
-      if (deps.logger) deps.logger.error('request failed', { method: req.method, url: req.url, route: req.routeOptions?.url, status: 503, err, userId: req.user?.id });
-      else console.error(`[${req.method} ${req.url}] 503`, err);
+      if (deps.logger) deps.logger.error('request failed', { method: req.method, url: loggedUrl(req.url), route: req.routeOptions?.url, status: 503, err, userId: req.user?.id });
+      else console.error(`[${req.method} ${loggedUrl(req.url)}] 503`, err);
       return reply.status(503).header('Retry-After', '5').send({ error: { code: 'DATABASE_BUSY', message: DATABASE_BUSY_MESSAGE } });
     }
     const status = (err as { statusCode?: number }).statusCode ?? 500;
@@ -633,9 +646,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     if (status >= 500) {
       // Fastify's own logger is disabled; log structured JSON (or console fallback).
       // The route pattern and the person go to the Error log with it (1.22.4; never the address, which can carry a token).
-      if (deps.logger) deps.logger.error('request failed', { method: req.method, url: req.url, route: req.routeOptions?.url, status, err, userId: req.user?.id });
-      else console.error(`[${req.method} ${req.url}] ${status}`, err);
-      deps.errorReporter?.captureException(err, { method: req.method, url: req.url });
+      if (deps.logger) deps.logger.error('request failed', { method: req.method, url: loggedUrl(req.url), route: req.routeOptions?.url, status, err, userId: req.user?.id });
+      else console.error(`[${req.method} ${loggedUrl(req.url)}] ${status}`, err);
+      deps.errorReporter?.captureException(err, { method: req.method, url: loggedUrl(req.url) });
     }
     return reply.status(status).send({
       error: { code: status >= 500 ? 'INTERNAL' : 'REQUEST_ERROR', message: status >= 500 ? 'Something went wrong.' : (err as Error).message },
@@ -1064,6 +1077,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           guard,
           broadcastToProject: deps.onTaskEvent,
           broadcastToUser: deps.onChatUserEvent,
+          broadcastPersonal: deps.onChatPersonalEvent,
+          fileLinks: deps.fileLinks,
           storage: deps.chatAttachmentStorage,
           attachmentMaxSizeBytes: deps.attachmentMaxSizeBytes,
           attachmentAllowedMime: deps.attachmentAllowedMime,
@@ -1090,6 +1105,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
             : {}),
           onShownToClient: deps.onFileShownToClient,
           audit: deps.auditService,
+          fileLinks: deps.fileLinks,
         });
       }
       if (deps.dependencyService) {
@@ -1112,6 +1128,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           avatarMaxBytes: deps.attachmentMaxSizeBytes,
           avatarFaces: deps.avatarFaces,
           exportData: deps.dataExporter,
+          fileLinks: deps.fileLinks,
           timeZone: deps.appConfig?.timeZone,
           welcome: deps.welcomeService,
           // Onboarding: the duplicate check, "Send password reset", "Mark email as verified".

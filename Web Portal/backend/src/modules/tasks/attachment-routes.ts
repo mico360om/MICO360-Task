@@ -1,10 +1,12 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { AttachmentService } from './attachment-service';
+import type { AttachmentRecord } from './attachment-repository';
 import type { AuthGuard } from '../auth/auth-guard';
 import { noteActivity, type RecordTaskActivity } from '../activity/task-activity';
 import { ValidationError } from '../../lib/http-errors';
 import { PreviewError } from '../../lib/office-preview';
+import { signFiles, viewerOfRequest, type FileLinks } from '../files/file-links';
 
 export interface AttachmentRouteDeps {
   attachmentService: AttachmentService;
@@ -20,6 +22,8 @@ export interface AttachmentRouteDeps {
   /** 1.23.7: a file was just shown to clients (their notice). */
   onShownToClient?: (attachmentId: string) => void | Promise<void>;
   audit?: { record(entry: { userId: string | null; ip: string | null; module: string; action: string; entityId: string | null; newValue?: unknown }): Promise<unknown> };
+  /** 1.23.29 private file links: each file's `url` is signed for the person asking. Absent: the stored address. */
+  fileLinks?: FileLinks;
 }
 
 /** 1.23.7: who may tick "Show to client" on a file — as for a task's own tick. */
@@ -30,11 +34,13 @@ export async function registerAttachmentRoutes(app: FastifyInstance, deps: Attac
   const canView = (req: { user?: { id: string; roles?: string[] } }, taskId: string) =>
     deps.canViewTask ? deps.canViewTask(req.user!.id, req.user!.roles ?? [], taskId) : Promise.resolve(true);
   const denied = { error: { code: 'FORBIDDEN', message: 'You do not have access to this task.' } };
+  /** 1.23.29: a task's files as the person asking may open them (each link signed for them). */
+  const signed = (req: { user?: { id: string; ver?: number } }, files: AttachmentRecord[]) => signFiles(deps.fileLinks, files, viewerOfRequest(req));
 
   app.get('/tasks/:id/attachments', { preHandler: guard.authenticate }, async (req, reply) => {
     const { id } = req.params as { id: string };
     if (!(await canView(req, id))) return reply.status(403).send(denied);
-    return { data: await attachmentService.list(id) };
+    return { data: signed(req, await attachmentService.list(id)) };
   });
 
   app.post('/tasks/:id/attachments', { preHandler: guard.authenticate }, async (req, reply) => {
@@ -49,7 +55,7 @@ export async function registerAttachmentRoutes(app: FastifyInstance, deps: Attac
       content,
     });
     await noteActivity(deps.recordActivity, { taskId: id, userId: req.user!.id, action: 'ATTACHED', meta: { filename: rec.filename } });
-    return reply.status(201).send({ data: rec });
+    return reply.status(201).send({ data: signed(req, [rec])[0] });
   });
 
   // A Word / Excel / PowerPoint file as plain text, for viewing in the app.
@@ -82,7 +88,7 @@ export async function registerAttachmentRoutes(app: FastifyInstance, deps: Attac
         await deps.audit?.record({ userId: req.user!.id, ip: req.ip ?? null, module: 'client-view', action: visible ? 'client-view.file.shown' : 'client-view.file.hidden', entityId: attachmentId, newValue: { taskId: id, filename: record.filename } });
         if (visible) await Promise.resolve(deps.onShownToClient?.(attachmentId)).catch(() => undefined);
       }
-      return { data: record };
+      return { data: signed(req, [record])[0] };
     });
   }
 

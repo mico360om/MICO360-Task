@@ -168,3 +168,24 @@ describe('TRAINING_TOUR_AUTO (Learning Hub, R20)', () => {
     expect(() => tour('maybe')).toThrow();
   });
 });
+
+// 1.23.29 private file links: nothing new is needed to start (the live deploy sets no new variable).
+describe('file links (1.23.29)', () => {
+  const env = (extra: Record<string, string> = {}) => loadEnv({ ...base, NODE_ENV: 'development', ...extra } as NodeJS.ProcessEnv);
+  it('need no new setting: the key comes from JWT_ACCESS_SECRET, links last 30 hours', () => {
+    expect(env().FILE_LINK_SECRET).toBe('');
+    expect(env().FILE_LINK_MINUTES).toBe(1800);
+    expect(() => loadEnv({ ...base, NODE_ENV: 'production', JWT_ACCESS_SECRET: 'a'.repeat(40), JWT_REFRESH_SECRET: 'b'.repeat(40) } as NodeJS.ProcessEnv)).not.toThrow();
+  });
+  it('FILE_LINK_SECRET may set their own key; FILE_LINK_MINUTES a shorter life (tests), never longer than 30 hours', () => {
+    expect(env({ FILE_LINK_SECRET: 'x'.repeat(40) }).FILE_LINK_SECRET).toBe('x'.repeat(40));
+    expect(env({ FILE_LINK_MINUTES: '10' }).FILE_LINK_MINUTES).toBe(10);
+    expect(env({ FILE_LINK_MINUTES: '' }).FILE_LINK_MINUTES).toBe(1800);
+    expect(() => env({ FILE_LINK_MINUTES: '4' })).toThrow();
+    expect(() => env({ FILE_LINK_MINUTES: '1801' })).toThrow();
+  });
+  it('a short FILE_LINK_SECRET is refused in production', () => {
+    const prod = { ...base, NODE_ENV: 'production', JWT_ACCESS_SECRET: 'a'.repeat(40), JWT_REFRESH_SECRET: 'b'.repeat(40) };
+    expect(() => loadEnv({ ...prod, FILE_LINK_SECRET: 'short' } as NodeJS.ProcessEnv)).toThrow(/FILE_LINK_SECRET/);
+  });
+});

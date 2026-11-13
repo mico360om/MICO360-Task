@@ -7,6 +7,7 @@ import type { AttachmentStorage } from '../tasks/attachment-repository';
 import { sniffMime, SNIFFABLE } from '../../lib/magic-mime';
 import { ValidationError } from '../../lib/http-errors';
 import { NO_PICK, type PickOf } from '../companies/company-pick';
+import { signMessageFiles, viewerOfRequest, type FileLinks, type FileViewer } from '../files/file-links';
 
 /** A client id lets a retried send be recognised (letters, digits, - and _ only). */
 const clientIdSchema = z.string().regex(/^[\w-]{1,64}$/);
@@ -48,6 +49,13 @@ export interface ChatRouteDeps {
   accessibleProjectIds?: (userId: string, roles: string[], pick?: string | null) => Promise<string[] | null>;
   /** companies: the request's picked company (X-Company-Id). Absent: no pick. */
   pickOf?: PickOf;
+  /** 1.23.29 private file links: each file's `url` is signed for the person it is sent to. Absent: the stored address. */
+  fileLinks?: FileLinks;
+  /**
+   * 1.23.29: one copy per connected socket, each made for its own person (realtime.broadcastPersonal) — how a
+   * live message with files is sent, never one copy for the whole room. Absent: the room broadcast.
+   */
+  broadcastPersonal?: (audience: { projectId?: string | null; userIds?: string[] }, event: string, build: (viewer: FileViewer) => unknown) => void;
 }
 
 export async function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): Promise<void> {
@@ -64,6 +72,10 @@ export async function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDe
     return (await deps.accessibleProjectIds(req.user!.id, roles, pick)) ?? null;
   }
 
+  /** 1.23.29: a message as this request's person may open its files (each link signed for them). */
+  const signed = <M extends { attachments?: { storageKey: string; url: string }[] }>(req: FastifyRequest, message: M): M =>
+    signMessageFiles(deps.fileLinks, message, viewerOfRequest(req));
+
   /** Deliver a chat event to a project channel's room, or to each participant of a DM. */
   async function announce(conversationId: string, event: string, payload: unknown): Promise<void> {
     const t = await chat.conversationTargets(conversationId);
@@ -72,6 +84,23 @@ export async function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDe
     } else if (t.kind === 'DIRECT') {
       for (const uid of t.userIds) deps.broadcastToUser?.(uid, event, payload);
     }
+  }
+
+  /**
+   * 1.23.29 Private file links (design §7.4): a new message with files goes to each connected person with
+   * its links signed for them — the same people as the room broadcast (the channel's room, or each person of
+   * a direct chat). A message without files keeps the one room broadcast.
+   */
+  async function announceMessage(conversationId: string, message: { attachments?: { storageKey: string; url: string }[] }): Promise<void> {
+    const links = deps.fileLinks;
+    const personal = deps.broadcastPersonal;
+    if (!links || !personal || !message.attachments || message.attachments.length === 0) {
+      await announce(conversationId, 'chat:message', { conversationId, message });
+      return;
+    }
+    const t = await chat.conversationTargets(conversationId);
+    const audience = t.kind === 'PROJECT' && t.projectId ? { projectId: t.projectId } : t.kind === 'DIRECT' ? { userIds: t.userIds } : null;
+    if (audience) personal(audience, 'chat:message', (viewer) => ({ conversationId, message: signMessageFiles(links, message, viewer) }));
   }
 
   // The signed-in user's conversation inbox (project channels + DMs) with unread counts.
@@ -84,7 +113,7 @@ export async function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDe
     const { id } = req.params as { id: string };
     const conversation = await chat.getOrCreateProjectConversation(id, req.user!.id);
     const { messages, authors } = await chat.listMessages(conversation.id, req.user!.id, {});
-    return { data: { conversation, messages, authors } };
+    return { data: { conversation, messages: messages.map((m) => signed(req, m)), authors } };
   });
 
   // Get-or-create a 1:1 direct conversation with another user (companies: a new one only with a
@@ -101,7 +130,7 @@ export async function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDe
     const { before, limit } = historyQuery.parse(req.query);
     const { messages, authors } = await chat.listMessages(id, req.user!.id, { before, limit });
     // companies: `authors` names everyone on the page, also people the reader doesn't otherwise know.
-    return { data: messages, authors };
+    return { data: messages.map((m) => signed(req, m)), authors };
   });
 
   // Send. A retry with the same clientId gets the first message back (200) — never a duplicate.
@@ -109,9 +138,9 @@ export async function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDe
     const { id } = req.params as { id: string };
     const { body, replyToId, clientId } = sendSchema.parse(req.body);
     const { message, created } = await chat.postMessage(id, req.user!.id, { body, replyToId, clientId });
-    if (!created) return reply.status(200).send({ data: message });
-    await announce(id, 'chat:message', { conversationId: id, message });
-    return reply.status(201).send({ data: message });
+    if (!created) return reply.status(200).send({ data: signed(req, message) });
+    await announceMessage(id, message);
+    return reply.status(201).send({ data: signed(req, message) });
   });
 
   // The caller's own settings for a conversation: favorite, archived, muted.
@@ -171,7 +200,7 @@ export async function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDe
     // A retried upload: the first one already arrived — answer with it, store nothing again.
     if (clientId) {
       const earlier = await chat.findSent(id, req.user!.id, clientId);
-      if (earlier) return reply.status(200).send({ data: earlier });
+      if (earlier) return reply.status(200).send({ data: signed(req, earlier) });
     }
     const content = await file.toBuffer();
     if (content.length === 0) throw new ValidationError('File is empty.');
@@ -205,10 +234,10 @@ export async function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDe
     if (!result.created) {
       // Two copies of the same upload raced: keep the first, drop this file.
       await storage.remove(stored.storageKey).catch(() => {});
-      return reply.status(200).send({ data: result.message });
+      return reply.status(200).send({ data: signed(req, result.message) });
     }
-    await announce(id, 'chat:message', { conversationId: id, message: result.message });
-    return reply.status(201).send({ data: result.message });
+    await announceMessage(id, result.message);
+    return reply.status(201).send({ data: signed(req, result.message) });
   });
 
   app.patch('/messages/:id', { preHandler: guard.authenticate }, async (req) => {
