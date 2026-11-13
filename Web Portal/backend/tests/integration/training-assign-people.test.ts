@@ -179,3 +179,57 @@ describe('assigning several people at once', () => {
     expect((await post('admin', { courseIds: [courseId], targetKind: 'GROUP' })).status).toBe(400);
   });
 });
+
+describe('a request’s assignments are written together (cleanup batch)', () => {
+  it('a failure while they are written leaves none of them, and nobody is told', async () => {
+    const c = await readyCourse('People all or none');
+    const people = [w.people.ana, w.people.cat, w.people.ben, w.people.amy];
+    // The database refuses part-way: one by one, the third write fails; all at once, a repeated row (same id) fails the statement.
+    let creates = 0;
+    const assignments = new Proxy(prisma.trainingAssignment, {
+      get: (models, name) => {
+        if (name === 'create') {
+          return async (args: Parameters<typeof prisma.trainingAssignment.create>[0]) => {
+            if (++creates === 3) throw new Error('the database refused a row');
+            return prisma.trainingAssignment.create(args);
+          };
+        }
+        if (name === 'createMany') {
+          return (args: { data: Record<string, unknown>[] }) => prisma.trainingAssignment.createMany({ ...args, data: [...args.data, { ...args.data[0]! }] } as Parameters<typeof prisma.trainingAssignment.createMany>[0]);
+        }
+        const v = Reflect.get(models, name);
+        return typeof v === 'function' ? v.bind(models) : v;
+      },
+    });
+    const failing = new Proxy(prisma, {
+      get: (target, key) => {
+        if (key === 'trainingAssignment') return assignments;
+        const v = Reflect.get(target, key);
+        return typeof v === 'function' ? v.bind(target) : v;
+      },
+    });
+    const broken = { ...ctx, prisma: failing };
+    notices.length = 0;
+    await expect(createTrainingManage(broken, createTrainingSync(broken)).assign(w.people.admin, { courseIds: [c], targetKind: 'PEOPLE', userIds: people, mandatory: true })).rejects.toThrow();
+    expect(await prisma.trainingAssignment.count({ where: { courseId: c } })).toBe(0);
+    expect(await prisma.trainingAssignee.count({ where: { courseId: c } })).toBe(0);
+    expect(notices).toEqual([]);
+    // And the same request, with nothing failing, writes them all (one batch).
+    const made = (await data<{ assignments: AssignmentRow[] }>(post('admin', { courseIds: [c], targetKind: 'PEOPLE', userIds: people }), 201)).assignments;
+    expect(made).toHaveLength(1);
+    expect(made[0]).toMatchObject({ targetLabel: '4 people', people: 4 });
+    const rows = await prisma.trainingAssignment.findMany({ where: { courseId: c } });
+    expect(rows).toHaveLength(4);
+    expect(new Set(rows.map((r) => r.batchId)).size).toBe(1);
+    expect(notices.filter((n) => n.type === 'TRAINING_ASSIGNED').map((n) => n.userId).sort()).toEqual([...people].sort());
+  });
+
+  it('several courses to a group: one row per course, all written', async () => {
+    const c1 = await readyCourse('Group one');
+    const c2 = await readyCourse('Group two');
+    const made = (await data<{ assignments: AssignmentRow[] }>(post('admin', { courseIds: [c1, c2], targetKind: 'COMPANY', targetId: w.companies.A }), 201)).assignments;
+    expect(made.map((a) => a.courseId)).toEqual([c1, c2]);
+    expect(made.every((a) => a.targetKind === 'COMPANY' && a.batchId === null)).toBe(true);
+    expect(await prisma.trainingAssignment.count({ where: { courseId: { in: [c1, c2] }, targetKind: 'COMPANY' } })).toBe(2);
+  });
+});

@@ -1280,30 +1280,34 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync, o
     }
     const scope = scopeOf(actor);
     const now = ctx.clock();
-    const created = [];
     // PEOPLE: one batch id for every row made together (one USER row per person and course).
     const batchId = input.targetKind === 'PEOPLE' ? newRowId() : null;
-    for (const c of courses) {
-      for (const t of targets) {
-        created.push(
-          await prisma.trainingAssignment.create({
-            data: {
-              courseId: c.id,
-              targetKind: t.kind,
-              targetId: t.id,
-              mandatory: input.mandatory,
-              dueDay: input.dueDay ?? null,
-              dueDays: input.dueDays ?? null,
-              scopeCompanyIds: scope === null ? Prisma.DbNull : scope,
-              batchId,
-              createdById: actor.id,
-              createdAt: now,
-            },
-          }),
-        );
-      }
-    }
-    await sync.assignments(created.map((a) => a.id));
+    const rows = courses.flatMap((c) =>
+      targets.map(
+        (t): Prisma.TrainingAssignmentCreateManyInput => ({
+          id: newRowId(),
+          courseId: c.id,
+          targetKind: t.kind,
+          targetId: t.id,
+          mandatory: input.mandatory,
+          dueDay: input.dueDay ?? null,
+          dueDays: input.dueDays ?? null,
+          scopeCompanyIds: scope === null ? Prisma.DbNull : scope,
+          batchId,
+          createdById: actor.id,
+          createdAt: now,
+        }),
+      ),
+    );
+    // Every row of the request at once (up to 200 people × 20 courses): a failure half-way leaves none, so a retry
+    // never makes doubles; then one sync for them all.
+    await prisma.$transaction(chunks(rows, 500).map((part) => prisma.trainingAssignment.createMany({ data: part })));
+    const ids = rows.map((r) => r.id!);
+    const order = new Map(ids.map((rid, i) => [rid, i]));
+    const created = (await Promise.all(chunks(ids).map((part) => prisma.trainingAssignment.findMany({ where: { id: { in: part } } }))))
+      .flat()
+      .sort((a, b) => order.get(a.id)! - order.get(b.id)!);
+    await sync.assignments(ids);
     for (const a of created) await audit(actor, meta, 'training.assignment.create', a.id, { newValue: { courseId: a.courseId, targetKind: a.targetKind, targetId: a.targetId, mandatory: a.mandatory, dueDay: a.dueDay, dueDays: a.dueDays } });
     return { assignments: await assignmentRows(actor, created) };
   }
