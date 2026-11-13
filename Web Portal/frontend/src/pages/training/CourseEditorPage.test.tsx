@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import CourseEditorDefault, { CourseEditorPage } from './CourseEditorPage';
 import { fakeTrainingApi, lesson, manageCourse, manageModule, type FakeTrainingApi } from '../../components/training/manage/test-api';
@@ -248,6 +248,23 @@ describe('Course editor: publish', () => {
     api.manageCourse.mockResolvedValue({ ...published, unpublishedChanges: true });
     renderManage(<CourseEditorPage />, { path: '/training/manage/courses/c1?publish=1', route: PATH.route, seed: (qc) => qc.setQueryData(manageKeys.course('c1'), published) });
     expect(await screen.findByRole('dialog', { name: 'What kind of change is this?' })).toBeInTheDocument();
+  });
+
+  it('?publish=1 from a fresh cached course (no refetch): no window now, and none later when an edit makes changes unpublished', async () => {
+    const published = manageCourse({ status: 'PUBLISHED', publishedAt: '2026-11-01T08:00:00.000Z', unpublishedChanges: false, version: 2 });
+    const { qc } = renderManage(<CourseEditorPage />, {
+      path: '/training/manage/courses/c1?publish=1',
+      route: PATH.route,
+      seed: (q) => {
+        q.setQueryDefaults(manageKeys.course('c1'), { staleTime: 60_000 });
+        q.setQueryData(manageKeys.course('c1'), published);
+      },
+    });
+    await screen.findByRole('region', { name: 'Publish' });
+    expect(api.manageCourse).not.toHaveBeenCalled();
+    act(() => qc.setQueryData(manageKeys.course('c1'), { ...published, unpublishedChanges: true }));
+    expect(await screen.findByText('Changes not published')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
   it('?publish=1 on a course that can’t be published yet: no window, the reasons are in the Publish panel', async () => {

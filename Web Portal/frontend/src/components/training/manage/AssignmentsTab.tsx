@@ -206,21 +206,21 @@ export function AssignmentsTab() {
                     ) : null}
                   </div>
                   {isPeople && !a.batchId ? null : (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => {
-                      withdraw.reset();
-                      setWithdrawing(
-                        isPeople && a.batchId
-                          ? { courseTitle: a.courseTitle, text: `“${a.courseTitle}” for ${a.targetLabel}.`, run: () => tc().withdrawBatch(a.batchId!) }
-                          : { courseTitle: a.courseTitle, text: `“${a.courseTitle}” for ${TARGET_KIND_LABELS[a.targetKind].toLowerCase()} ${a.targetLabel}.`, run: () => tc().withdraw(a.id) },
-                      );
-                    }}
-                    className={rowButton}
-                  >
-                    {isPeople ? 'Withdraw all' : 'Withdraw'}
-                  </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => {
+                        withdraw.reset();
+                        setWithdrawing(
+                          isPeople
+                            ? { courseTitle: a.courseTitle, text: `“${a.courseTitle}” for ${a.targetLabel}.`, run: () => tc().withdrawBatch(a.batchId!) }
+                            : { courseTitle: a.courseTitle, text: `“${a.courseTitle}” for ${TARGET_KIND_LABELS[a.targetKind].toLowerCase()} ${a.targetLabel}.`, run: () => tc().withdraw(a.id) },
+                        );
+                      }}
+                      className={rowButton}
+                    >
+                      {isPeople ? 'Withdraw all' : 'Withdraw'}
+                    </Button>
                   )}
                 </li>
               );

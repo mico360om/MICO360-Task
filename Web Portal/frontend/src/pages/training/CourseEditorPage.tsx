@@ -38,14 +38,14 @@ export function CourseEditorPage() {
   const { id = '' } = useParams<{ id: string }>();
   const [params, setParams] = useSearchParams();
   const [arrival] = useState(() => ({ id, publish: params.get('publish') === '1' }));
-  // ?publish=1 stays armed until the first refresh after arrival has finished (the cached course may be out of date).
+  // ?publish=1 stays armed until the first settled state (data present, nothing fetching): a stale cached copy is refreshed first, a fresh one is not.
   const [armed, setArmed] = useState(true);
   const courseQ = useQuery({ queryKey: manageKeys.course(id), queryFn: () => tc().manageCourse(id), enabled: !!id });
   const optionsQ = useManageOptions(courseQ.isSuccess);
   const course = courseQ.data;
   usePageName(course ? course.title : 'Edit course');
 
-  const refreshed = courseQ.isFetchedAfterMount && !courseQ.isFetching;
+  const refreshed = courseQ.isSuccess && !courseQ.isFetching;
   useEffect(() => {
     if (refreshed) setArmed(false);
   }, [refreshed]);
