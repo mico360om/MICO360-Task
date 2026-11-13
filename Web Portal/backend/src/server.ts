@@ -3,7 +3,7 @@ import { aiJobRetryDelays, getEnv, parseTrustProxy } from './config/env';
 import { prisma } from './lib/prisma';
 import { poolSizeOf, withPoolDefaults } from './lib/db-pool';
 import { buildApp } from './app';
-import { createPrismaIdempotencyStore } from './lib/idempotency';
+import { createPrismaIdempotencyStore, IDEMPOTENCY_RETENTION_MS } from './lib/idempotency';
 import { uploadResponseHeaders } from './lib/upload-safety';
 import { corsOrigin, parseCorsOrigins } from './lib/cors-origins';
 import { registerWebApp, androidAppLink, downloadsDirFor, emailDownloadLinks } from './lib/web-app';
@@ -123,6 +123,7 @@ import { releaseOf, stampDueChange, type StampDeps } from './modules/kpis/kpi-st
 import { createPrismaNotificationRepository, createPrismaPreferenceStore, createPrismaReminderLogStore, pruneReminderLog } from './modules/notifications/prisma-notification-repository';
 import type { NotificationRecord } from './modules/notifications/notification-repository';
 import { buildDigests } from './modules/notifications/notification-digest';
+import { sendDigests } from './modules/notifications/digest-dispatch';
 import { createDailyEmailService } from './modules/daily-emails/daily-email-service';
 import { createPrismaDailyEmailCheckStore, createPrismaDailyEmailRepository } from './modules/daily-emails/prisma-daily-email-repository';
 import { createPrismaDailyEmailSources } from './modules/daily-emails/prisma-daily-email-sources';
@@ -159,6 +160,8 @@ import { createPrismaDeviceTokenRepository } from './modules/device-tokens/prism
 import { createPushSender, type PushSender } from './modules/device-tokens/push-sender';
 import { createFcmTransport, parseServiceAccount } from './modules/device-tokens/fcm-transport';
 import { createPrismaUserStateLookup } from './modules/auth/prisma-user-state-lookup';
+import { createAuthGuard } from './modules/auth/auth-guard';
+import { createSessionRevoker } from './modules/auth/session-revoker';
 import { createClientAccessService } from './modules/client-view/client-access-service';
 import { createPrismaClientShareStore } from './modules/client-view/prisma-client-share-store';
 import { createPrismaClientViewSource } from './modules/client-view/client-view-source';
@@ -494,7 +497,8 @@ async function main(): Promise<void> {
       columnsOf: (projectId) => prisma.kanbanColumn.findMany({ where: { projectId }, select: { id: true, category: true, position: true, enabled: true } }),
     },
     // An approval or send-back is saved: a step after it that fails (a notice, the comment) is logged.
-    onError: (err, taskId) => logger.error('task approvals: a step after the decision failed', { err, taskId }),
+    // Review fix #15: so is a step after a new task was saved (its history line, its approvers' notice).
+    onError: (err, taskId, what) => logger.error(what ? `new task: ${what} failed` : 'task approvals: a step after the decision failed', { err, taskId }),
     // A re-opened task goes back to what its checklist says (it was forced to 100% when completed).
     checklistPercent: (taskId) => checklistPercentOf(prisma, taskId),
     onCreated: (task, info) => onTaskCreated(task, info),
@@ -712,6 +716,8 @@ async function main(): Promise<void> {
   // Late-bound to the realtime server (below): a suspended / deleted / demoted user's open sockets
   // are closed, not left streaming until the tab is closed.
   let onSessionsRevoked: (userId: string) => void = () => {};
+  // Late-bound to the shared sign-in check (below): an account change it must read again at once.
+  let forgetAccountState: (userId: string) => void = () => {};
   // Late-bound to the token service (below): a self password change hands the caller a fresh session.
   let issueSession: (u: { id: string; roles: string[]; tokenVersion: number }) => Promise<{ accessToken: string; refreshToken: string }> = async () => {
     throw new Error('token service not ready');
@@ -743,6 +749,8 @@ async function main(): Promise<void> {
     users: userMgmtRepository,
     revokeSessions: (userId) => revokeSessions(userId),
     onSessionsRevoked: (userId) => onSessionsRevoked(userId),
+    // Review follow-up to N1: a reactivated account is read again by the sign-in check at once.
+    onAccountChanged: (userId) => forgetAccountState(userId),
     issueSession: (u) => issueSession(u),
     // The device-token repository is created below; this runs only when access is revoked.
     forgetDevices: (userId) => deviceTokenRepository.deleteForUser(userId).then(() => undefined),
@@ -1868,23 +1876,19 @@ async function main(): Promise<void> {
       { timeZone: companyTz },
     );
     const userById = new Map(users.map((u) => [u.id, u]));
-    for (const digest of digests) {
-      const user = userById.get(digest.userId);
-      if (!user) continue;
-      // A muted digest isn’t written.
-      if (isMuted(normalizePreferences(user.notificationPrefs), 'TASK_DIGEST')) continue;
-      // A per-day marker keeps the digest to once daily even as the sweep re-runs hourly.
-      const dedupe = `digest:${digest.userId}:${day}`;
-      if (await reminderLogStore.has(dedupe)) continue;
-      await reminderLogStore.add(dedupe);
-      const summary = `${digest.overdue.length} overdue · ${digest.dueToday.length} due today`;
-      const items = [...digest.overdue.map((i) => `${i.key} ${i.title} (overdue, due ${i.dueDate})`), ...digest.dueToday.map((i) => `${i.key} ${i.title} (due today)`)];
-      const lines = items.map((i) => `• ${i}`).join('\n');
-      // In-app notification — reliable regardless of email deliverability. Nothing stored means
-      // the type is suppressed for this user, so no email either.
-      // The morning emails (pending tasks, completed yesterday) are the daily task emails below.
-      await notificationService.notify({ userId: digest.userId, type: 'TASK_DIGEST', title: `Your daily digest — ${summary}`, body: lines, entityType: 'digest', entityId: day });
-    }
+    // Review fix #28: each digest is sent, then marked sent for the day, one person at a time
+    // (digest-dispatch.ts); one person's failure is logged and the others still get theirs.
+    // The morning emails (pending tasks, completed yesterday) are the daily task emails below.
+    await sendDigests(digests, {
+      day,
+      prefsOf: (userId) => {
+        const user = userById.get(userId);
+        return user ? (user.notificationPrefs ?? null) : undefined;
+      },
+      store: reminderLogStore,
+      notify: (n) => notificationService.notify(n),
+      onError: (err, userId) => logger.error('daily digest: one person’s digest failed (tried again next hour)', { err, userId }),
+    });
   }
 
   // Tasks scheduled for the future: the morning a waiting task starts, its people are told once
@@ -2186,14 +2190,24 @@ async function main(): Promise<void> {
     logger,
   });
   const boundEvents = onboardingEvents;
-  // A password change, an administrator's reset, a deactivation or a deletion ends every sign-in — the
-  // ones half-way through the emailed-code step too.
-  const revokeTokens = revokeSessions;
-  const endChallenges = (userId: string) => signInChallenges.endAll(userId).catch((err) => logger.warn('could not end sign-in codes', { userId, error: err instanceof Error ? err.message : String(err) }));
-  revokeSessions = async (userId) => {
-    await revokeTokens(userId);
-    await endChallenges(userId);
-  };
+  // Live account state (token version, status, current roles) for the HTTP guard and sockets:
+  // a suspended, deleted or demoted user loses access at once, not when their token expires.
+  const userStateLookup = createPrismaUserStateLookup(prisma);
+  // Review fix N1 (13 Nov 2026): ONE sign-in check for every route (buildApp below takes it), so the
+  // session ending below can make it forget an account's cached state at once.
+  const managerViewLookup = createPrismaManagerViewLookup(prisma);
+  const authGuard = createAuthGuard(tokenService, { userState: userStateLookup, managerView: managerViewLookup });
+  forgetAccountState = (userId) => authGuard.forgetUser(userId);
+  // A password change, an administrator's reset, a deactivation, a deletion or a role change ends every
+  // sign-in — the ones half-way through the emailed-code step and unused emailed login codes too (review
+  // fix #33) — and the sign-in check reads the account again on its next request (N1).
+  const revokeAllSessions = createSessionRevoker({
+    revokeTokens: (userId) => tokenService.revokeAllForUser(userId),
+    endCodes: (userId) => endEveryCode(prisma, userId),
+    forgetAccountState: (userId) => authGuard.forgetUser(userId),
+    onError: (err, what, userId) => logger.warn(`could not finish ${what}`, { userId, error: err instanceof Error ? err.message : String(err) }),
+  });
+  revokeSessions = revokeAllSessions;
   // Invitations past their 7 days: ended and audited once each, every hour.
   const invitationSweep = createInvitationSweep({ store: createPrismaExpiredInvitationStore(prisma), audit: auditService });
   jobs.every(60 * 60 * 1000, () => invitationSweep.run().catch(sweepFailed('invitation-expiry', 'invitation expiry sweep')));
@@ -2205,10 +2219,7 @@ async function main(): Promise<void> {
     ttlSeconds: env.PASSWORD_RESET_TTL_SECONDS,
     appUrl: env.APP_URL,
     hashPassword,
-    revokeSessions: async (userId) => {
-      await tokenService.revokeAllForUser(userId);
-      await endChallenges(userId);
-    },
+    revokeSessions: revokeAllSessions,
     onSessionsRevoked: (userId) => onSessionsRevoked(userId),
     forgetDevices: (userId) => deviceTokenRepository.deleteForUser(userId).then(() => undefined),
     logger,
@@ -2223,10 +2234,6 @@ async function main(): Promise<void> {
   let broadcast: (projectId: string, event: string, payload: unknown) => void = () => {};
   let broadcastToUser: (userId: string, event: string, payload: unknown) => void = () => {};
   let broadcastToAudience: (audience: { projectId?: string | null; userIds?: string[] }, event: string, payload: unknown) => void = () => {};
-
-  // Live account state (token version, status, current roles) for the HTTP guard and sockets:
-  // a suspended, deleted or demoted user loses access at once, not when their token expires.
-  const userStateLookup = createPrismaUserStateLookup(prisma);
 
   // Duplicate Task: a copy is made as any new task in the chosen project (the same pipeline as POST /tasks:
   // its scope, tags, contacts and assignee rules), then gets the original's watchers who can see that
@@ -2247,6 +2254,8 @@ async function main(): Promise<void> {
       // 1.24: a copy's guests and categories go through the same checks as a new task's.
       guestService,
       categoryService,
+      // Review fix #15: a step after the copy was saved that failed is logged (the copy stands).
+      onError: (err, what, taskId) => logger.error(`duplicating a task: ${what} failed`, { err, taskId }),
     },
     timeZone: companyTz,
     onError: (err, what) => logger.error(`duplicating a task: ${what} failed`, { err }),
@@ -2543,6 +2552,8 @@ async function main(): Promise<void> {
   clientNotices = notices;
   onClientReply = (reply) => notices.taskReply(reply);
 
+  // Repeated requests (Idempotency-Key): the routes' store, and the daily clean-up below (review fix #27).
+  const idempotencyStore = createPrismaIdempotencyStore(prisma);
   const app = await buildApp({
     about: { release },
     seriesInstanceCount: (seriesId) => recurrencePort.countInstances(seriesId),
@@ -2564,7 +2575,9 @@ async function main(): Promise<void> {
     // Manager View (owner, 10 Nov): the switch, and the project-settings rule (does this person run the project:
     // the team rule — an administrator needn't belong to the project's company).
     managerViewStore: createPrismaManagerViewStore(prisma),
-    managerViewLookup: createPrismaManagerViewLookup(prisma),
+    managerViewLookup,
+    // Review fix N1: the routes use the guard the session ending forgets accounts in.
+    authGuard,
     clientAccounts,
     portal,
     clientMinutes: {
@@ -2824,7 +2837,7 @@ async function main(): Promise<void> {
     trustProxy: parseTrustProxy(env.TRUST_PROXY),
     rateLimitMax: env.RATE_LIMIT_MAX,
     authRateLimitMax: env.AUTH_RATE_LIMIT_MAX,
-    idempotencyStore: createPrismaIdempotencyStore(prisma),
+    idempotencyStore,
     dataExporter: createPrismaDataExporter(prisma),
     clientView: {
       service: clientAccessService,
@@ -3045,6 +3058,11 @@ async function main(): Promise<void> {
   // Bulk changes (review M11): the rows kept for Undo go a day after their window (the Audit log keeps the record).
   const runBulkPrune = () =>
     runExclusive(jobLock, 'bulk-undo-prune', SWEEP_LEASE_MS, () => new Date(), async () => {
+      // Review fix #27: repeated-request records past their 24 hours go too, every day (not only now and then
+      // when a new request comes in).
+      await idempotencyStore
+        .purgeOlderThan(new Date(Date.now() - IDEMPOTENCY_RETENTION_MS))
+        .catch((err) => logger.error('repeated requests: the daily clean-up failed', { err }));
       const { count } = await prisma.taskBulkAction.deleteMany({ where: { undoUntil: { lt: new Date(Date.now() - 24 * 60 * 60 * 1000) } } });
       if (count) logger.info('Bulk changes: Undo records past their window removed', { rows: count });
     }).catch(sweepFailed('bulk-undo-prune', 'bulk change clean-up'));

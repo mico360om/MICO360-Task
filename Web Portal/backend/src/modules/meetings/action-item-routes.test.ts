@@ -136,6 +136,28 @@ describe('Action item routes', () => {
     expect(other.json().data).toHaveLength(0);
   });
 
+  // Review fix #30 (13 Nov 2026): openOnly=false means false (z.coerce.boolean read "false" as true).
+  it('openOnly: true/1 leave out finished items; false/0 keep them; anything else is a 400', async () => {
+    const app = await makeApp();
+    const id = await ownedMeeting(app, 'u1');
+    const auth = `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}`;
+    const done = (await app.inject({ method: 'POST', url: `/api/v1/meetings/${id}/action-items`, headers: { authorization: auth }, payload: { description: 'Done one', assigneeId: 'u2' } })).json().data.id;
+    await app.inject({ method: 'PATCH', url: `/api/v1/action-items/${done}`, headers: { authorization: auth }, payload: { status: 'COMPLETED' } });
+    const open = (await app.inject({ method: 'POST', url: `/api/v1/meetings/${id}/action-items`, headers: { authorization: auth }, payload: { description: 'Open one', assigneeId: 'u2' } })).json().data.id;
+    const u2 = { authorization: `Bearer ${await tokenFor('u2', ['EMPLOYEE'])}` };
+    const ids = async (q: string) => {
+      const res = await app.inject({ method: 'GET', url: `/api/v1/me/action-items${q}`, headers: u2 });
+      return res.statusCode === 200 ? res.json().data.map((x: { id: string }) => x.id).sort() : res.statusCode;
+    };
+    const both = [done, open].sort();
+    expect(await ids('')).toEqual(both);
+    expect(await ids('?openOnly=true')).toEqual([open]);
+    expect(await ids('?openOnly=1')).toEqual([open]);
+    expect(await ids('?openOnly=false')).toEqual(both);
+    expect(await ids('?openOnly=0')).toEqual(both);
+    expect(await ids('?openOnly=maybe')).toBe(400);
+  });
+
   it('1.23.0: PATCH sets an item’s topic — one of the same meeting’s, else 400', async () => {
     const authService = createAuthService({ users: { async findByIdentifier() { return null; }, async findById() { return null; }, async applyFailedAttempt() {}, async resetFailedAttempts() {} }, maxAttempts: 5 });
     const meetings = meetingRepo();

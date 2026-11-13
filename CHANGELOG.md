@@ -22,6 +22,22 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - Pages you open from a link start at the top: My Action Items no longer opens with its title hidden under the top bar.
 - MICO AI answers and their tables show the names of tasks, projects, meetings and people instead of internal codes.
 
+## [1.23.26] - 2026-11-13
+
+### Security
+- Two administrators can no longer remove each other at the same moment and leave the site without an administrator.
+- Logging out now ends the whole session, even if it was being renewed at that moment; a late renewal after logging out no longer turns off fingerprint sign-in.
+- A deactivated account or a changed password stops working immediately.
+- Unused emailed sign-in codes end when the password is reset or changed, or the account is deactivated.
+- A repeated request is answered only while the session is still valid.
+
+### Bug fixes
+- No duplicate tasks after a server hiccup: a saved task is always reported as saved, and the New task and Duplicate forms send a retry as the same request.
+- A sent request no longer stays stuck as "in progress".
+- Impossible dates suggested by AI are ignored instead of causing an error.
+- The daily digest is no longer lost if a notice fails, and one person's failure no longer stops everyone else's.
+- openOnly=false works when listing your action items.
+
 ## [1.23.25] - 2026-11-13
 
 ### Bug fixes

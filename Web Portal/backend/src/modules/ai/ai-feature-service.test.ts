@@ -189,6 +189,19 @@ describe('AiFeatureService: describing a task in plain English', () => {
     expect(await parse({ freq: 'DAILY', interval: 500 })).toEqual({ freq: 'DAILY', interval: 99 });
   });
 
+  // Review fix #29 (13 Nov 2026): an impossible date from the model is dropped, never a 500.
+  it('drops an impossible date instead of failing: a repeat’s end, and the due date', async () => {
+    const parse = async (answer: Record<string, unknown>) => describing({ title: 'X', ...answer }).svc.parseTask({ text: 'x', today: '2026-11-13' }, me);
+    for (const until of ['2026-13-01', '2026-99-01', '2026-00-10', '2026-02-32']) {
+      expect((await parse({ repeat: { freq: 'DAILY', interval: 1, until } })).recurrence).toEqual({ freq: 'DAILY', interval: 1 });
+    }
+    for (const dueDate of ['2026-13-01', '2026-02-30', '2026-00-10', '2026-04-31']) {
+      expect((await parse({ dueDate })).dueDate).toBeNull();
+    }
+    expect((await parse({ dueDate: '2026-12-31' })).dueDate).toBe('2026-12-31');
+    expect((await parse({ dueDate: '2028-02-29' })).dueDate).toBe('2028-02-29');
+  });
+
   it('leaves the description out when it only repeats the title', async () => {
     const { svc } = describing({ title: 'Call the client', description: 'Call the client.' });
     expect((await svc.parseTask({ text: 'call the client', today: '2026-09-14' }, me)).description).toBeNull();
@@ -449,6 +462,9 @@ describe('AiFeatureService: filling the meeting form from a sentence', () => {
     expect([bad.startTime, bad.minutes, bad.date]).toEqual([null, null, null]);
     expect((await read({ minutes: 5000 })).minutes).toBeNull();
     expect((await read({ startTime: '09:30', minutes: 45 })).startTime).toBe('09:30');
+    // Review fix #29: impossible dates are dropped, never thrown (a 500 on "Describe").
+    expect((await read({ date: '2026-13-01' })).date).toBeNull();
+    expect((await read({ repeat: { freq: 'WEEKLY', interval: 1, until: '2026-99-01' } })).recurrence).toEqual({ freq: 'WEEKLY', interval: 1 });
   });
 
   it('matches names to people, by the ids the model gives, checked against active users', async () => {
