@@ -88,7 +88,7 @@ function server(routes) {
 
 describe('the background poll', () => {
   const deps = ({ local, ...over } = {}) => ({
-    local: fakeStorage({ lastUnread: 1, lastUnreadUser: 'me', ...local }),
+    local: fakeStorage({ sessionUserId: 'me', lastUnread: 1, lastUnreadUser: 'me', ...local }),
     session: fakeStorage(),
     notifications: { create: vi.fn() },
     setBadge: vi.fn(),

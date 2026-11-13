@@ -6,7 +6,7 @@ import { CHAT_INBOX_KEY, chatInboxQuery } from '../lib/chat-inbox-query';
 import { withConversationRead } from '../lib/chat-badge';
 import { projectsApi } from '../api/projects';
 import { usersApi } from '../api/users';
-import { ApiError } from '../lib/api-client';
+import { ApiError, SessionChangedError } from '../lib/api-client';
 import { useAuthStore } from '../stores/auth-store';
 import { Link } from 'react-router-dom';
 import { EmptyState } from '../components/ui/EmptyState';
@@ -522,7 +522,9 @@ export function ChatPage({ startDirectWith, openConversationId, onOpened }: Chat
       return;
     }
     try {
-      const api = chatApi(apiClient);
+      // Sent only as this page's person (batch 2): a message still waiting its turn when someone else
+      // signs in on this browser is never sent as them — it stays kept for its person.
+      const api = chatApi(myId ? apiClient.forUser(myId) : apiClient);
       const opts = { clientId: p.clientId, replyToId: p.replyTo?.id };
       const saved = file
         ? await api.uploadAttachment(p.conversationId, file, p.body || undefined, {
@@ -540,6 +542,8 @@ export function ChatPage({ startDirectWith, openConversationId, onOpened }: Chat
       else setTimeout(() => dropPending(p.clientId), STAND_IN_GRACE_MS);
       void qc.invalidateQueries({ queryKey: ['chat', 'conversations'] });
     } catch (err) {
+      // Someone else is signed in now: nothing was sent, and nothing is said on their screen.
+      if (err instanceof SessionChangedError) return;
       // Another tab sent it meanwhile (or it was discarded there): nothing went wrong with it.
       if (!file && goneElsewhere(p.clientId)) {
         finishedElsewhere(p.clientId);

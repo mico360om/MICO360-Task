@@ -32,6 +32,19 @@ export class AuthUnavailableError extends Error {
 }
 
 /**
+ * Batch 2 (reviews #5, #7): a request bound to one person (a replayed change, the background poll) while
+ * someone else's session — or none — is held. It is never sent; a replay pauses (`outcome: 'pause'`) and
+ * the change waits for the person who made it.
+ */
+export class SessionChangedError extends Error {
+  constructor(message = 'Signed in as someone else: this change waits for the person who made it.') {
+    super(message);
+    this.name = 'SessionChangedError';
+    this.outcome = 'pause';
+  }
+}
+
+/**
  * A 2xx reply that isn't the API's JSON (M6): a Wi-Fi sign-in page or a proxy answered instead of the
  * server. Treated like being offline — it carries no status — so it is never cached or taken as saved.
  */

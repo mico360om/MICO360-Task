@@ -168,7 +168,8 @@ async function boot() {
   // Reads show this person's changes still waiting to sync on top (H3).
   const api = createApi({ auth, cache, pending: () => pendingItems(storage, myId) });
   // A replayed edit or move keeps the task's offline copy at the version it made (H1).
-  const performMutation = makePerformMutation((path, init) => auth.authedFetch(path, init), { onTask: (t) => rememberTask(cache, t) });
+  // Each change goes only as the person who made it (batch 2, review #7).
+  const performMutation = makePerformMutation((path, init, as) => auth.authedFetch(path, init, as), { onTask: (t) => rememberTask(cache, t) });
 
   const state = { online: navigator.onLine, syncing: false, pending: 0, failed: 0, unread: 0 };
   // M12: who is signed in comes from the session (sign-in and refresh replies), so it is known even

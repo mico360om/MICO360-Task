@@ -14,6 +14,15 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### Security
+- Logging out can no longer be undone by a sign-in renewal that was still on its way.
+- A request started by one person is never re-sent as another person who signs in on the same browser.
+- Changes waiting offline are only sent for the person who made them.
+- The Chrome extension's saved pages belong to the person who opened them.
+
+### Bug fixes
+- Unsent chat drafts and waiting messages are removed when you log out, and are never shown to the next person on the same browser.
+
 ## [1.23.26] - 2026-11-13
 
 ### Security

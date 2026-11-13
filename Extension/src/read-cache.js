@@ -21,6 +21,27 @@ export async function pruneCache(storage, keep = MAX_CACHE_ENTRIES) {
 }
 
 /**
+ * Whose session the extension holds now, as each saved copy is stamped (batch 2, review #6): the person
+ * and the server, from the session kept in chrome.storage.local (null when nobody is signed in).
+ */
+async function sessionStamp(storage) {
+  try {
+    const o = (await storage.get(['sessionUserId', 'sessionApiBase'])) || {};
+    return { owner: o.sessionUserId || null, apiBase: o.sessionApiBase || null };
+  } catch {
+    return { owner: null, apiBase: null };
+  }
+}
+
+/**
+ * A saved copy is the stamped person's, on the stamped server: served, peeked and changed only for them.
+ * A copy kept by an older version carries no stamp — whose it is can't be told — so it is never used
+ * (it is replaced on the next read, or pruned).
+ */
+const stampedFor = (env, who) => !!env && 'owner' in env && env.owner === who.owner && env.apiBase === who.apiBase;
+const sameHolder = (a, b) => a.owner === b.owner && a.apiBase === b.apiBase;
+
+/**
  * Read-through cache for API GETs (offline support). A successful fetch is cached in the given
  * chrome.storage.local-compatible store ({ get(key|null), set(obj), remove(keys) }); when a later
  * fetch can't reach the server (offline / server down) the last cached value is returned marked
@@ -29,8 +50,12 @@ export async function pruneCache(storage, keep = MAX_CACHE_ENTRIES) {
  * - A real HTTP answer such as 401/403/404 is NOT masked with old data (XP-01).
  * - Caching is best-effort: a failed write (e.g. storage full) never turns fresh data into an error
  *   or into stale data; it evicts old entries and retries once (EXT-05).
+ * - Batch 2 (review #6): each copy is stamped `{ owner, apiBase }` — the person and server signed in as
+ *   it was read — and only ever served to them. An answer that comes back after the session changed
+ *   (signed out, someone else signed in, another server) is handed to its caller but never saved.
+ *   `whose()` tells the session now (default: the one kept in `storage`).
  */
-export function createReadCache(storage, { now = Date.now, maxEntries = MAX_CACHE_ENTRIES } = {}) {
+export function createReadCache(storage, { now = Date.now, maxEntries = MAX_CACHE_ENTRIES, whose = () => sessionStamp(storage) } = {}) {
   const cacheKey = (key) => `${CACHE_PREFIX}${key}`;
 
   /** Keep only the `keep` most recently cached entries. Returns how many were removed. */
@@ -53,6 +78,7 @@ export function createReadCache(storage, { now = Date.now, maxEntries = MAX_CACH
 
   async function read(key, fetcher) {
     const k = cacheKey(key);
+    const asked = await whose();
     let data;
     try {
       data = await fetcher();
@@ -65,19 +91,23 @@ export function createReadCache(storage, { now = Date.now, maxEntries = MAX_CACH
       } catch {
         env = undefined;
       }
-      if (env) return { data: env.data, stale: true, cachedAt: env.cachedAt };
+      // Only the copy of the person (and server) who asked — and still holds the session now.
+      if (stampedFor(env, asked) && sameHolder(asked, await whose())) return { data: env.data, stale: true, cachedAt: env.cachedAt };
       throw error;
     }
     const cachedAt = now();
-    await save(k, { data, cachedAt });
+    const held = await whose();
+    // The session changed while it was on its way: the answer is its caller's, but never saved for the next person.
+    if (sameHolder(asked, held)) await save(k, { data, cachedAt, owner: held.owner, apiBase: held.apiBase });
     return { data, stale: false, cachedAt };
   }
 
-  /** Return the cached value for a key without fetching (or undefined). */
+  /** Return the cached value for a key without fetching (or undefined) — only the signed-in person's own. */
   async function peek(key) {
     const k = cacheKey(key);
     const o = await storage.get(k);
-    return o && o[k] ? o[k].data : undefined;
+    const env = o && o[k];
+    return stampedFor(env, await whose()) ? env.data : undefined;
   }
 
   /**
@@ -90,8 +120,9 @@ export function createReadCache(storage, { now = Date.now, maxEntries = MAX_CACH
     try {
       const o = await storage.get(k);
       const env = o && o[k];
-      if (!env || !env.data || typeof env.data !== 'object' || Array.isArray(env.data)) return false;
-      return save(k, { data: { ...env.data, ...patch }, cachedAt: now() });
+      const who = await whose();
+      if (!stampedFor(env, who) || !env.data || typeof env.data !== 'object' || Array.isArray(env.data)) return false;
+      return save(k, { data: { ...env.data, ...patch }, cachedAt: now(), owner: who.owner, apiBase: who.apiBase });
     } catch {
       return false;
     }
@@ -106,10 +137,11 @@ export function createReadCache(storage, { now = Date.now, maxEntries = MAX_CACH
     try {
       const o = await storage.get(k);
       const env = o && o[k];
-      if (!env || env.data == null) return false;
+      const who = await whose();
+      if (!stampedFor(env, who) || env.data == null) return false;
       const data = change(env.data);
       if (data === undefined) return false;
-      return save(k, { data, cachedAt: env.cachedAt });
+      return save(k, { data, cachedAt: env.cachedAt, owner: who.owner, apiBase: who.apiBase });
     } catch {
       return false;
     }

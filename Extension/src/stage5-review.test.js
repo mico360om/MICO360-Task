@@ -201,14 +201,14 @@ describe('#7 every direct message that reaches this device is reported delivered
 
   it('also when the unread count didn’t rise (a second message, or a muted conversation, makes no new notification)', async () => {
     const calls = [];
-    const local = fakeStorage({ lastUnread: 3, lastUnreadUser: 'me' });
+    const local = fakeStorage({ sessionUserId: 'me', lastUnread: 3, lastUnreadUser: 'me' });
     await pollNotifications({ authedFetch: serve(routes(3), calls), local, session: fakeStorage(), notifications: { create: vi.fn() }, setBadge: vi.fn(), userId: 'me' });
     expect(calls).toContain('POST /conversations/c1/delivered');
   });
 
   it('the count is saved before the reports go, so a worker stopped in the middle doesn’t alert twice', async () => {
     const calls = [];
-    const local = fakeStorage({ lastUnread: 1, lastUnreadUser: 'me' });
+    const local = fakeStorage({ sessionUserId: 'me', lastUnread: 1, lastUnreadUser: 'me' });
     const set = local.set.bind(local);
     local.set = vi.fn(async (o) => { calls.push(`save ${Object.keys(o).join(',')}`); return set(o); });
     await pollNotifications({ authedFetch: serve(routes(2), calls), local, session: fakeStorage(), notifications: { create: vi.fn() }, setBadge: vi.fn(), userId: 'me' });

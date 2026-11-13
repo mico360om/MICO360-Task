@@ -5,6 +5,7 @@
  * each conversation's unsent draft.
  */
 import { dayText } from './day-words';
+import { readUserValue, writeUserValue } from './user-storage';
 import type { ApiMessage, ApiParticipant, ConversationPrefs, ConversationSummary, ReplyQuote } from '../api/chat';
 
 /** Consecutive messages from one person within this window form one group (one name, one avatar). */
@@ -224,24 +225,23 @@ export function validateAttachment(file: Pick<File, 'name' | 'size' | 'type'>): 
   return null;
 }
 
-const DRAFT_KEY = (conversationId: string) => `mico360.chat.draft.${conversationId}`;
+/**
+ * Batch 2 (review #9): a draft is the person's own — kept under their per-user storage
+ * (`mico360.u.<userId>.chat.draft.<conversationId>`), so signing out clears it and the next person on the
+ * same browser never sees it. Drafts an older version kept by conversation only (`mico360.chat.draft.<id>`)
+ * can't be told apart by person: they are never read, and go at sign-out (lib/user-storage).
+ */
+const DRAFT_NAME = (conversationId: string) => `chat.draft.${conversationId}`;
 
-/** This conversation's unsent text ('' when none). */
-export function loadDraft(conversationId: string): string {
-  try {
-    return localStorage.getItem(DRAFT_KEY(conversationId)) ?? '';
-  } catch {
-    return '';
-  }
+/** This person's unsent text in this conversation ('' when none, or nobody is signed in). */
+export function loadDraft(userId: string | null | undefined, conversationId: string): string {
+  return readUserValue(userId, DRAFT_NAME(conversationId)) ?? '';
 }
 
-export function saveDraft(conversationId: string, text: string): void {
-  try {
-    if (text.trim()) localStorage.setItem(DRAFT_KEY(conversationId), text);
-    else localStorage.removeItem(DRAFT_KEY(conversationId));
-  } catch {
-    /* storage unavailable: the draft lives only in the page */
-  }
+/** Keep (or, when blank, forget) this person's unsent text in this conversation. */
+export function saveDraft(userId: string | null | undefined, conversationId: string, text: string): void {
+  // Storage unavailable: the draft lives only in the page (writeUserValue never throws).
+  writeUserValue(userId, DRAFT_NAME(conversationId), text.trim() ? text : null);
 }
 
 /** A new id for a message being sent (lets the server recognise a retry). */

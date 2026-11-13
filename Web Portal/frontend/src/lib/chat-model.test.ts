@@ -156,12 +156,20 @@ describe('validateAttachment', () => {
 describe('drafts', () => {
   beforeEach(() => localStorage.clear());
   it('keeps a separate draft per conversation, and forgets it once empty', () => {
-    saveDraft('c1', 'hello');
-    saveDraft('c2', 'مرحبا');
-    expect(loadDraft('c1')).toBe('hello');
-    expect(loadDraft('c2')).toBe('مرحبا');
-    saveDraft('c1', '   ');
-    expect(loadDraft('c1')).toBe('');
+    saveDraft('me', 'c1', 'hello');
+    saveDraft('me', 'c2', 'مرحبا');
+    expect(loadDraft('me', 'c1')).toBe('hello');
+    expect(loadDraft('me', 'c2')).toBe('مرحبا');
+    saveDraft('me', 'c1', '   ');
+    expect(loadDraft('me', 'c1')).toBe('');
+  });
+
+  it('batch 2: a draft is the person’s own — another person, or nobody, never reads it', () => {
+    saveDraft('me', 'c1', 'mine');
+    expect(loadDraft('someone-else', 'c1')).toBe('');
+    expect(loadDraft(null, 'c1')).toBe('');
+    saveDraft(null, 'c1', 'nobody’s');
+    expect(Object.keys(localStorage)).toEqual(['mico360.u.me.chat.draft.c1']);
   });
 });
 
