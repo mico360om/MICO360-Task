@@ -382,6 +382,7 @@ describe('one course with modules: by module and by person', () => {
   let cm = '';
   let m1 = '';
   let quizNone = '';
+  let quizAdmin = '';
 
   beforeAll(async () => {
     const P = w.people;
@@ -404,6 +405,10 @@ describe('one course with modules: by module and by person', () => {
     quizNone = (await prisma.trainingLesson.create({ data: { courseId: cm, moduleId: mods.tasks!.id, kind: 'QUIZ', title: 'Tasks check', position: 15 } })).id;
     const qz = await prisma.trainingQuiz.create({ data: { lessonId: quizNone, passMark: 70 } });
     for (const n of [0, 1, 2]) await prisma.trainingQuestion.create({ data: { quizId: qz.id, kind: 'SINGLE', prompt: `Q${n}`, position: n, options: { create: [{ text: 'A', correct: true, position: 0 }, { text: 'B', position: 1 }] } } });
+
+    // And one in the administrators' module.
+    quizAdmin = (await prisma.trainingLesson.create({ data: { courseId: cm, moduleId: mods.admin!.id, kind: 'QUIZ', title: 'Admin check', position: 35 } })).id;
+    await prisma.trainingQuiz.create({ data: { lessonId: quizAdmin, passMark: 70 } });
 
     await enrol(P.ana, cm, { started: true });
     await enrol(P.admin, cm, { started: true });
@@ -463,6 +468,19 @@ describe('one course with modules: by module and by person', () => {
     expect(r.quizzes.find((q) => q.lessonId === quizNone)).toMatchObject({ title: 'Tasks check', moduleTitle: 'Tasks', attempts: 0, people: 0, passRate: null, averageScore: null, questions: 3 });
     const old = (await data<TrainingReport>('admin', '/training/reports')).quizzes.find((q) => q.lessonId === quizLesson);
     expect(old).toMatchObject({ moduleTitle: null, questions: 2, people: 2 });
+  });
+
+  it('a reader who is not a manager sees only the modules and quizzes shown to them; managers see all', async () => {
+    // Ben runs a project (TEAM scope): not an administrator, so the administrators' modules and their quiz stay hidden.
+    const ben = await data<TrainingReport>('ben', `/training/reports?by=person&courseId=${cm}`);
+    expect(ben.modules!.map((m) => m.title)).toEqual(['Getting started', 'Tasks']);
+    const benQuizzes = ben.quizzes.filter((q) => [quizNone, quizAdmin].includes(q.lessonId)).map((q) => q.title);
+    expect(benQuizzes).toEqual(['Tasks check']);
+    for (const who of ['admin', 'amy'] as const) {
+      const r = await data<TrainingReport>(who, `/training/reports?by=person&courseId=${cm}`);
+      expect(r.modules!.map((m) => m.title), who).toEqual(['Getting started', 'Tasks', 'Reports', 'Admin settings']);
+      expect(r.quizzes.filter((q) => [quizNone, quizAdmin].includes(q.lessonId)).map((q) => q.moduleTitle).sort(), who).toEqual(['Admin settings', 'Tasks']);
+    }
   });
 
   it('the files carry By module and By person', async () => {

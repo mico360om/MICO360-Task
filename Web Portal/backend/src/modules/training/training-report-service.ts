@@ -4,9 +4,9 @@ import { zonedStartOfDay } from '../../lib/due-date';
 import { formatDay } from '../../lib/export-format';
 import { daysBetween, shiftDay } from '../../lib/working-days';
 import { XLSX_CONTENT_TYPE } from '../../lib/xlsx-writer';
-import { courseVisible, inScope, isManager, reportScope } from './training-access';
+import { courseVisible, inScope, isManager, moduleShown, reportScope } from './training-access';
 import { courseFacts, type TrainingContext } from './training-context';
-import type { PersonRecord } from './prisma-training-store';
+import { stringList, type PersonRecord } from './prisma-training-store';
 import { loadStates } from './training-read';
 import { aggregateReport, quizQuestionStats, type ReportEnrolment, type ReportPerson } from './training-reports';
 import type { Paper, StoredQuestion } from './training-quiz';
@@ -232,10 +232,16 @@ export function createTrainingReports(ctx: TrainingContext) {
       if (list) list.push(a);
       else attemptsOf.set(a.lessonId, [a]);
     }
-    const quizModules = quizLessons.some((l) => l.moduleId)
-      ? new Map((await prisma.trainingModule.findMany({ where: { courseId: { in: quizCourseIds } }, select: { id: true, title: true } })).map((m) => [m.id, m.title]))
-      : new Map<string, string>();
+    // A reader who isn't a manager never sees a module (or its quiz) that isn't shown to them; managers see all.
+    const manager = isManager(viewer);
+    const quizModules = new Map<string, { title: string; shown: boolean }>();
+    if (quizLessons.some((l) => l.moduleId)) {
+      for (const m of await prisma.trainingModule.findMany({ where: { courseId: { in: quizCourseIds } }, select: { id: true, title: true, moduleKey: true, roleKeys: true, companyIds: true, enabled: true } })) {
+        quizModules.set(m.id, { title: m.title, shown: manager || moduleShown({ moduleKey: m.moduleKey, roleKeys: stringList(m.roleKeys), companyIds: stringList(m.companyIds), enabled: m.enabled }, viewer) });
+      }
+    }
     const quizzes = quizLessons
+      .filter((l) => !l.moduleId || quizModules.get(l.moduleId)?.shown !== false)
       .map((l) => {
         const mine = attemptsOf.get(l.id) ?? [];
         return {
@@ -246,13 +252,13 @@ export function createTrainingReports(ctx: TrainingContext) {
           passRate: pct(mine.filter((a) => a.passed).length, mine.length),
           averageScore: average(mine.map((a) => a.scorePct ?? 0)),
           people: new Set(mine.map((a) => a.userId)).size,
-          moduleTitle: l.moduleId ? (quizModules.get(l.moduleId) ?? null) : null,
+          moduleTitle: l.moduleId ? (quizModules.get(l.moduleId)?.title ?? null) : null,
           questions: l.quiz?._count.questions ?? 0,
         };
       })
       .sort((a, b) => a.courseTitle.localeCompare(b.courseTitle, 'en'));
 
-    const { modules, learners } = q.courseId ? await byModuleAndPerson(q.courseId, states, people) : { modules: null, learners: null };
+    const { modules, learners } = q.courseId ? await byModuleAndPerson(q.courseId, states, people, viewer) : { modules: null, learners: null };
     return { scope, by: q.by, dates: q.dates, totals, rows: grouped, overdue: overdue.slice(0, 500), expiring: expiring.slice(0, 500), quizzes, modules, learners };
   }
 
@@ -261,11 +267,13 @@ export function createTrainingReports(ctx: TrainingContext) {
    * hidden or switched-off module never counts for anyone) by done / in progress / not started, and per person
    * how many of theirs they have done, when they last learned and their newest valid certificate.
    */
-  async function byModuleAndPerson(courseId: string, states: Awaited<ReturnType<typeof loadStates>>, people: ReadonlyMap<string, PersonRecord>): Promise<Pick<TrainingReport, 'modules' | 'learners'>> {
-    const courseModules = await prisma.trainingModule.findMany({ where: { courseId }, select: { id: true, title: true }, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }] });
+  async function byModuleAndPerson(courseId: string, states: Awaited<ReturnType<typeof loadStates>>, people: ReadonlyMap<string, PersonRecord>, viewer: PersonRecord): Promise<Pick<TrainingReport, 'modules' | 'learners'>> {
+    const courseModules = await prisma.trainingModule.findMany({ where: { courseId }, select: { id: true, title: true, moduleKey: true, roleKeys: true, companyIds: true, enabled: true }, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }] });
     if (courseModules.length === 0) return { modules: null, learners: null };
     const all = [...states.values()].filter((s) => s.courseId === courseId);
-    const modules: ModuleReportRow[] = courseModules.map((m) => {
+    // Managers see every module; anyone else only the modules shown to them.
+    const listed = isManager(viewer) ? courseModules : courseModules.filter((m) => moduleShown({ moduleKey: m.moduleKey, roleKeys: stringList(m.roleKeys), companyIds: stringList(m.companyIds), enabled: m.enabled }, viewer));
+    const modules: ModuleReportRow[] = listed.map((m) => {
       const mine = all.map((s) => s.units.find((u) => u.unit.id === m.id)).filter((u): u is NonNullable<typeof u> => !!u);
       const done = mine.filter((u) => u.status === 'DONE').length;
       const inProgress = mine.filter((u) => u.status === 'IN_PROGRESS').length;
