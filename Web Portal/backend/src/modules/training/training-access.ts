@@ -93,7 +93,12 @@ export interface ModuleFacts {
   enabled: boolean;
 }
 
-/** A module is shown when it is on and the person has the feature, the group and the company — never more than their feature access. */
+/**
+ * A module is shown when it is on and the person has the feature, the group and the company — never more than their
+ * feature access. A client (who only ever sees courses for clients): on and their company — features and staff groups
+ * don't apply to them (ruling 13 Nov, Task 3 review).
+ */
 export function moduleShown(m: ModuleFacts, p: LearnerFacts): boolean {
+  if (p.client) return m.enabled && companiesMatch(m.companyIds, p);
   return m.enabled && moduleVisible(m.moduleKey, p) && groupsMatch(m.roleKeys, p) && companiesMatch(m.companyIds, p);
 }

@@ -99,7 +99,7 @@ describe('moduleShown', () => {
   it('never more than the feature access', () => {
     for (const k of ['reports', 'admin']) {
       expect(moduleShown(m({ moduleKey: k }), admin)).toBe(true);
-      for (const p of [staff(), runner, tm, client]) expect(moduleShown(m({ moduleKey: k }), p)).toBe(false);
+      for (const p of [staff(), runner, tm]) expect(moduleShown(m({ moduleKey: k }), p)).toBe(false);
     }
     expect(moduleShown(m({ moduleKey: 'management' }), admin)).toBe(true);
     expect(moduleShown(m({ moduleKey: 'management' }), runner)).toBe(true);
@@ -111,5 +111,16 @@ describe('moduleShown', () => {
     expect(moduleShown(m({ companyIds: ['A'] }), b)).toBe(false);
     expect(moduleShown(m({ companyIds: ['A'] }), admin)).toBe(true);
     for (const p of [admin, staff(), runner, tm, client]) expect(moduleShown(m({ enabled: false }), p)).toBe(false);
+  });
+  it('a client (in a course for clients): on and their company — the feature and the groups don’t apply', () => {
+    const clientB = staff({ client: true, companyIds: ['B'] });
+    for (const k of ['portal', 'general', 'tasks', 'reports', 'admin', 'management']) expect(moduleShown(m({ moduleKey: k }), client)).toBe(true);
+    expect(moduleShown(m({ roleKeys: ['admins'] }), client)).toBe(true);
+    expect(moduleShown(m({ roleKeys: ['training-managers'] }), client)).toBe(true);
+    expect(moduleShown(m({ companyIds: ['A'] }), client)).toBe(true);
+    expect(moduleShown(m({ companyIds: ['A'] }), clientB)).toBe(false);
+    expect(moduleShown(m({ enabled: false }), client)).toBe(false);
+    // Staff are unchanged: the Client portal module is still not theirs.
+    expect(moduleShown(m({ moduleKey: 'portal' }), staff())).toBe(false);
   });
 });

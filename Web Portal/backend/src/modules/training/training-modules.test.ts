@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { LearnerFacts, ModuleFacts } from './training-access';
-import { OTHER_UNIT, allUnitsDone, certificateCovers, continueTarget, orderedLessonIds, unitProgress, unitsFor, visibilityWords, type Unit, type UnitLesson } from './training-modules';
+import { OTHER_UNIT, allUnitsDone, certificateCovers, certificateCoversUnits, continueTarget, orderedLessonIds, unitProgress, unitsFor, visibilityWords, type Unit, type UnitLesson } from './training-modules';
 
 const staff = (o: Partial<LearnerFacts> = {}): LearnerFacts => ({ id: 'u', client: false, admin: false, trainingManager: false, runsProject: false, companyIds: ['A'], ...o });
 const admin = staff({ admin: true, companyIds: [] });
@@ -90,6 +90,27 @@ describe('certificateCovers', () => {
     expect(certificateCovers(null, ['a'])).toBe(false);
     expect(certificateCovers(['a', 'b'], ['a'])).toBe(true);
     expect(certificateCovers(['a'], ['a', 'b'])).toBe(false);
+  });
+});
+
+describe('certificateCoversUnits', () => {
+  const at = (s: string) => new Date(`${s}T10:00:00.000Z`);
+  const issuedAt = at('2026-11-05');
+  it('a certificate listing its modules covers exactly those', () => {
+    expect(certificateCoversUnits({ moduleIds: ['a', 'b'], issuedAt }, [{ unitId: 'a', doneAt: at('2026-11-09') }])).toBe(true);
+    expect(certificateCoversUnits({ moduleIds: ['a'], issuedAt }, [{ unitId: 'a', doneAt: at('2026-11-01') }, { unitId: 'b', doneAt: at('2026-11-01') }])).toBe(false);
+  });
+  it('one with no list (issued before the course had modules) covers the modules done on or before its issue', () => {
+    expect(certificateCoversUnits({ moduleIds: null, issuedAt }, [{ unitId: 'a', doneAt: at('2026-11-01') }, { unitId: 'b', doneAt: issuedAt }])).toBe(true);
+    expect(certificateCoversUnits({ moduleIds: null, issuedAt }, [{ unitId: 'a', doneAt: at('2026-11-01') }, { unitId: 'b', doneAt: at('2026-11-06') }])).toBe(false);
+    expect(certificateCoversUnits({ moduleIds: null, issuedAt }, [{ unitId: 'a', doneAt: null }])).toBe(false);
+    expect(certificateCoversUnits({ moduleIds: null, issuedAt }, [])).toBe(true);
+  });
+  it('… and a module that already held a lesson then (a lesson done again later moves its done time)', () => {
+    expect(certificateCoversUnits({ moduleIds: null, issuedAt }, [{ unitId: 'a', doneAt: at('2026-11-09'), firstLessonAt: at('2026-10-01') }])).toBe(true);
+    expect(certificateCoversUnits({ moduleIds: null, issuedAt }, [{ unitId: 'c', doneAt: at('2026-11-09'), firstLessonAt: at('2026-11-07') }])).toBe(false);
+    // A listing certificate ignores the times.
+    expect(certificateCoversUnits({ moduleIds: ['a'], issuedAt }, [{ unitId: 'c', doneAt: at('2026-11-01'), firstLessonAt: at('2026-10-01') }])).toBe(false);
   });
 });
 

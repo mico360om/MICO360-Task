@@ -112,6 +112,22 @@ export function certificateCovers(moduleIds: readonly string[] | null, doneUnitI
   return doneUnitIds.every((id) => have.has(id));
 }
 
+/**
+ * D3 (ruling 13 Nov, Task 3 review): does a certificate cover these done units? One listing its modules covers the
+ * units it lists. One with no list (issued before the course had modules) covers the units done on or before it was
+ * issued — and, as doing a lesson again later moves its done time, a unit that already held a lesson then
+ * (`firstLessonAt`: its oldest lesson's creation): finishing the course for that certificate included it. A unit
+ * made only of lessons added later must be listed to count.
+ */
+export function certificateCoversUnits(
+  c: { moduleIds: readonly string[] | null; issuedAt: Date },
+  done: readonly { unitId: string; doneAt: Date | null; firstLessonAt?: Date | null }[],
+): boolean {
+  if (c.moduleIds) return certificateCovers(c.moduleIds, done.map((u) => u.unitId));
+  const by = c.issuedAt.getTime();
+  return done.every((u) => (!!u.doneAt && u.doneAt.getTime() <= by) || (!!u.firstLessonAt && u.firstLessonAt.getTime() <= by));
+}
+
 const GROUP_WORDS: Readonly<Record<string, string>> = {
   admins: 'Admins',
   employees: 'Employees',

@@ -1,9 +1,9 @@
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { withRowLock } from '../../lib/sentinel-lock';
-import { addMonths, newCertificateCode } from './training-certificates';
+import { addMonths, certificateStatus, newCertificateCode } from './training-certificates';
 import type { TrainingContext } from './training-context';
 import { stringList, type PersonRecord } from './prisma-training-store';
-import { OTHER_UNIT, allUnitsDone, certificateCovers } from './training-modules';
+import { OTHER_UNIT, allUnitsDone, certificateCoversUnits } from './training-modules';
 import { loadStates, pairKey, type PairState } from './training-read';
 import { cycleStart, isCourseComplete, retakeActive, reviewPending } from './training-state';
 
@@ -68,7 +68,15 @@ export function createTrainingFinish(ctx: TrainingContext) {
     return { companyId, issuerName: issuer ? (`${issuer.firstName} ${issuer.lastName}`.trim() || issuer.username).slice(0, 200) : null };
   }
 
-  async function writeCertificate(db: Db, p: PersonRecord, course: CourseRow, state: PairState, facts: { companyId: string | null; issuerName: string | null }, o: { keepOld?: boolean; completedAt?: Date }): Promise<string> {
+  /** `expiresAt`: a D3 update keeps the expiry of the certificate it updates; otherwise from the course's months. */
+  async function writeCertificate(
+    db: Db,
+    p: PersonRecord,
+    course: CourseRow,
+    state: PairState,
+    facts: { companyId: string | null; issuerName: string | null },
+    o: { keepOld?: boolean; completedAt?: Date; expiresAt?: Date | null },
+  ): Promise<string> {
     const now = ctx.clock();
     // M10: an expired certificate stays EXPIRED (never revoked); only one still valid is replaced (rare: no retake then).
     // D3 (`keepOld`): the certificate for a grown role is added; the one held stays valid.
@@ -92,7 +100,7 @@ export function createTrainingFinish(ctx: TrainingContext) {
             issuedAt: now,
             completedAt: o.completedAt ?? now,
             ...(moduleIds ? { moduleIds } : {}),
-            expiresAt: course.certificateMonths ? addMonths(now, course.certificateMonths) : null,
+            expiresAt: o.expiresAt !== undefined ? o.expiresAt : course.certificateMonths ? addMonths(now, course.certificateMonths) : null,
           },
           select: { id: true },
         });
@@ -135,16 +143,43 @@ export function createTrainingFinish(ctx: TrainingContext) {
   }
 
   /**
-   * D3: a finished course whose person now has every module of a grown role done — an updated certificate when
-   * their newest valid one doesn't cover those modules (the old one stays valid). One at a time per person and
-   * course: the enrolment row is locked first, and the newest certificate read again behind the lock.
+   * The done modules' times for a certificate with no module list: done at the earlier of its lessons' last done
+   * time and its record, and when its oldest lesson was made (doing a lesson again moves its done time, so whether
+   * the module held a lesson when the certificate was issued is what tells it was finished for that certificate).
+   */
+  async function unitTimes(units: PairState['units']): Promise<{ unitId: string; doneAt: Date | null; firstLessonAt: Date | null }[]> {
+    const lessonIds = units.flatMap((u) => u.unit.lessonIds);
+    const made = new Map((lessonIds.length ? await prisma.trainingLesson.findMany({ where: { id: { in: lessonIds } }, select: { id: true, createdAt: true } }) : []).map((l) => [l.id, l.createdAt.getTime()]));
+    const earliest = (list: (number | null | undefined)[]) => {
+      const times = list.filter((t): t is number => typeof t === 'number');
+      return times.length ? new Date(Math.min(...times)) : null;
+    };
+    return units.map((u) => ({ unitId: u.unitId, doneAt: earliest([u.doneAt?.getTime(), u.recordedAt?.getTime()]), firstLessonAt: earliest(u.unit.lessonIds.map((id) => made.get(id))) }));
+  }
+
+  /**
+   * D3: a finished course whose person now has every module of a grown role done — an updated certificate when their
+   * newest certificate for the course (whatever its state) is valid and doesn't cover those modules. Revoked (a
+   * manager's decision) or expired: nothing. The new one keeps the old one's expiry (one cycle, one expiry) and the
+   * old one stays valid. One at a time per person and course: the enrolment row is locked first, and the newest
+   * certificate read again behind the lock.
    */
   async function updatedCertificate(userId: string, course: CourseRow, state: PairState, person: PersonRecord | null | undefined): Promise<string | null> {
-    const covered = doneModuleIds(state);
-    const newest = (db: Db) =>
-      db.trainingCertificate.findFirst({ where: validWhere(userId, course.id, ctx.clock()), orderBy: [{ issuedAt: 'desc' }, { id: 'desc' }], select: { moduleIds: true } });
-    const covers = (c: { moduleIds: Prisma.JsonValue } | null) => !c || certificateCovers(c.moduleIds === null ? null : stringList(c.moduleIds), covered);
-    if (covers(await newest(prisma))) return null;
+    const units = state.units.filter((u) => u.status === 'DONE' && u.unitId !== OTHER_UNIT);
+    let times: Awaited<ReturnType<typeof unitTimes>> | null = null;
+    /** The certificate to update (its expiry), or null when there is nothing to do. */
+    const toUpdate = async (db: Db): Promise<{ expiresAt: Date | null } | null> => {
+      const c = await db.trainingCertificate.findFirst({
+        where: { userId, courseId: course.id },
+        orderBy: [{ issuedAt: 'desc' }, { id: 'desc' }],
+        select: { moduleIds: true, issuedAt: true, revokedAt: true, expiresAt: true },
+      });
+      if (!c || certificateStatus(c, ctx.clock()) !== 'VALID') return null;
+      const moduleIds = c.moduleIds === null ? null : stringList(c.moduleIds);
+      const done = moduleIds ? units.map((u) => ({ unitId: u.unitId, doneAt: u.doneAt })) : (times ??= await unitTimes(units));
+      return certificateCoversUnits({ moduleIds, issuedAt: c.issuedAt }, done) ? null : { expiresAt: c.expiresAt };
+    };
+    if (!(await toUpdate(prisma))) return null;
     const p = person === undefined ? await ctx.person(userId) : person;
     if (!p) return null;
     const facts = await certificateFacts(p, course);
@@ -152,7 +187,10 @@ export function createTrainingFinish(ctx: TrainingContext) {
     return withRowLock(
       prisma,
       (tx) => tx.$queryRaw`SELECT id FROM training_enrolments WHERE id = ${enrolmentId} FOR UPDATE`,
-      async (tx) => (covers(await newest(tx)) ? null : writeCertificate(tx, p, course, state, facts, { keepOld: true })),
+      async (tx) => {
+        const old = await toUpdate(tx);
+        return old ? writeCertificate(tx, p, course, state, facts, { keepOld: true, expiresAt: old.expiresAt }) : null;
+      },
     );
   }
 

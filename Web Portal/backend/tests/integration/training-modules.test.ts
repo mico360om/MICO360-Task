@@ -50,6 +50,7 @@ interface ModSpec {
   title: string;
   moduleKey: string;
   enabled?: boolean;
+  companyIds?: string[];
   lessons?: LessonKind[];
 }
 interface MadeModule {
@@ -73,7 +74,9 @@ async function makeModuleCourse(title: string, mods: ModSpec[], o: Record<string
   courseIds.push(c.id);
   const made: MadeCourse = { id: c.id, m: {}, right: new Map() };
   for (const [i, spec] of mods.entries()) {
-    const mod = await prisma.trainingModule.create({ data: { courseId: c.id, position: i + 1, title: spec.title, moduleKey: spec.moduleKey, enabled: spec.enabled ?? true } });
+    const mod = await prisma.trainingModule.create({
+      data: { courseId: c.id, position: i + 1, title: spec.title, moduleKey: spec.moduleKey, enabled: spec.enabled ?? true, ...(spec.companyIds ? { companyIds: spec.companyIds } : {}) },
+    });
     const mm: MadeModule = { id: mod.id, title: spec.title, guide: null, quiz: null, lessons: [] };
     for (const kind of spec.lessons ?? ['GUIDE', 'QUIZ']) {
       const lesson = await prisma.trainingLesson.create({
@@ -159,6 +162,7 @@ afterAll(async () => {
   await prisma.trainingCertificate.deleteMany({ where });
   await prisma.trainingCourse.deleteMany({ where: { id: { in: courseIds } } });
   await prisma.notification.deleteMany({ where: { userId: { in: extraUsers } } });
+  await prisma.clientProjectGrant.deleteMany({ where: { userId: { in: extraUsers } } });
   await prisma.user.deleteMany({ where: { id: { in: extraUsers } } });
   await dropCompanyWorld(prisma, w);
   await prisma.$disconnect();
@@ -185,6 +189,24 @@ describe('who sees which module', () => {
     expect(ana.state).toMatchObject({ status: 'NOT_STARTED', progressPct: 0 });
     expect(ana.units[0]).toMatchObject({ status: 'NOT_STARTED', lessonsDone: 0, lessonCount: 2, minutes: 6, newForRole: false, doneAt: null });
     expect(ana.continueAt).toEqual({ unitId: main.m.gs!.id, lessonId: main.m.gs!.guide });
+  });
+
+  it('a client sees a client course’s modules by company only (feature and groups don’t apply)', async () => {
+    const role = await prisma.role.upsert({ where: { name: 'CLIENT' }, create: { name: 'CLIENT' }, update: {} });
+    const client = await prisma.user.create({ data: { email: `mclient.${w.tag}@world.test`, username: `mclient_${w.tag}`, passwordHash: 'x', firstName: 'Client', lastName: w.tag, roles: { create: { roleId: role.id } } } });
+    extraUsers.push(client.id);
+    await prisma.clientProjectGrant.create({ data: { userId: client.id, projectId: w.projects.PA, progress: true } });
+    const c = await makeModuleCourse(
+      'Client modules',
+      [
+        { key: 'portal', title: 'Your portal', moduleKey: 'portal' },
+        { key: 'reports', title: 'Your reports', moduleKey: 'reports' },
+        { key: 'beta', title: 'Beta only', moduleKey: 'general', companyIds: [w.companies.B] },
+      ],
+      { audience: 'CLIENTS', moduleKey: 'portal' },
+    );
+    const s = await loadState(ctx, client.id, c.id);
+    expect(s.units.map((u) => u.unit.title)).toEqual(['Your portal', 'Your reports']);
   });
 
   it('uses the people given, and a missing account sees no restricted module', async () => {
@@ -292,6 +314,75 @@ describe('finishing a module course', () => {
     // Doing a lesson again changes nothing: the newest certificate covers every module.
     await learner.complete(ana, 'staff', main.m.reports!.guide!);
     expect(await certificates(ana, main.id)).toHaveLength(2);
+
+    // A manager revokes the updated certificate: the next lesson done doesn't bring one back (review fix 1).
+    await prisma.trainingCertificate.update({ where: { id: certs[1]!.id }, data: { revokedAt: new Date(), revokedReason: 'Revoked by a manager' } });
+    await learner.complete(ana, 'staff', main.m.tasks!.guide!);
+    const after = await certificates(ana, main.id);
+    expect(after).toHaveLength(2);
+    expect(after[1]!.revokedAt).not.toBeNull();
+    expect(after[0]!.revokedAt).toBeNull();
+  });
+
+  it('D3 with an expiry: the updated certificate keeps the expiry of the one it updates', async () => {
+    const c = await makeModuleCourse('Expiring', FOUR, { certificateMonths: 1 });
+    const lea = await newPerson('lea');
+    clockAt = new Date(Date.now() - 5 * 86_400_000);
+    try {
+      await finishModule(lea, c, 'gs');
+      await finishModule(lea, c, 'tasks');
+    } finally {
+      clockAt = null;
+    }
+    await setAdmin(lea, true);
+    await finishModule(lea, c, 'reports');
+    await finishModule(lea, c, 'admin');
+    const certs = await certificates(lea, c.id);
+    expect(certs).toHaveLength(2);
+    expect(certs[0]!.revokedAt).toBeNull();
+    expect(certs[1]!.expiresAt!.getTime()).toBe(certs[0]!.expiresAt!.getTime());
+    expect(ids(certs[1]!.moduleIds)).toHaveLength(4);
+  });
+
+  it('a certificate from before the course had modules covers what was done by then: a repeat adds nothing, a later module does', async () => {
+    const c = await prisma.trainingCourse.create({ data: { title: `Split later ${w.tag}`, moduleKey: 'general', audience: 'STAFF', status: 'PUBLISHED', publishedAt: new Date(), certificateOn: true } });
+    courseIds.push(c.id);
+    const guide = async (title: string, moduleId: string | null = null) =>
+      (await prisma.trainingLesson.create({ data: { courseId: c.id, moduleId, position: position++, kind: 'GUIDE', title, steps: { create: [{ position: 0, title: 'S', body: '<p>S</p>' }] } } })).id;
+    const g1 = await guide('One');
+    const g2 = await guide('Two');
+    const mo = await newPerson('mo');
+    await learner.complete(mo, 'staff', g1);
+    expect((await learner.complete(mo, 'staff', g2)).courseCompleted).toBe(true);
+    let certs = await certificates(mo, c.id);
+    expect(certs).toHaveLength(1);
+    expect(certs[0]!.moduleIds).toBeNull();
+
+    // An admin splits the course into two modules afterwards.
+    const mA = await prisma.trainingModule.create({ data: { courseId: c.id, position: 1, title: 'Part A', moduleKey: 'tasks' } });
+    const mB = await prisma.trainingModule.create({ data: { courseId: c.id, position: 2, title: 'Part B', moduleKey: 'tasks' } });
+    await prisma.trainingLesson.update({ where: { id: g1 }, data: { moduleId: mA.id } });
+    await prisma.trainingLesson.update({ where: { id: g2 }, data: { moduleId: mB.id } });
+    await new Promise((r) => setTimeout(r, 20));
+    await learner.complete(mo, 'staff', g1);
+    await learner.complete(mo, 'staff', g1);
+    expect(await certificates(mo, c.id)).toHaveLength(1);
+
+    // A module added later and finished after the certificate: an updated one listing every module.
+    const mC = await prisma.trainingModule.create({ data: { courseId: c.id, position: 3, title: 'Part C', moduleKey: 'calendar' } });
+    const g3 = await guide('Three', mC.id);
+    const s = await loadState(ctx, mo, c.id);
+    expect(s.state.status).toBe('COMPLETED');
+    expect(s.units.map((u) => [u.unit.title, u.newForRole])).toEqual([
+      ['Part A', false],
+      ['Part B', false],
+      ['Part C', true],
+    ]);
+    await learner.complete(mo, 'staff', g3);
+    certs = await certificates(mo, c.id);
+    expect(certs).toHaveLength(2);
+    expect(certs[0]!.revokedAt).toBeNull();
+    expect(ids(certs[1]!.moduleIds)).toEqual(sorted([mA.id, mB.id, mC.id]));
   });
 
   it('role shrink: an admin with all four done, demoted, stays completed with no new certificate', async () => {
