@@ -8,7 +8,7 @@ import { playChime, isChatMuted, primeAudio } from '../lib/notificationSound';
 import { NOTIFICATIONS_KEY, UNREAD_COUNT_KEY } from '../api/notifications';
 import { chatApi, type ConversationSummary } from '../api/chat';
 import { claimChime, shouldChime, viewingConversation } from '../lib/chat-sound';
-import { CHAT_INBOX_KEY, chatInboxQuery } from '../lib/chat-inbox-query';
+import { CHAT_INBOX_KEY, chatInboxQuery, refreshInboxSoon } from '../lib/chat-inbox-query';
 import { needsDeliveryAck } from '../lib/chat-model';
 
 /** How long after a message the bell is refreshed: time for the server to store its notification, and one refresh for a burst. */
@@ -83,8 +83,9 @@ export function ChatSoundNotifier() {
     const message = (payload as { message?: { id?: string; userId?: string } }).message;
     const authorId = message?.userId;
     if (!authorId || authorId === myId) return; // nothing to announce for your own messages
-    // Unread counts, a conversation that is new to this person, and the delivery report above.
-    refreshInbox();
+    // Unread counts, a conversation that is new to this person, and the delivery report above — once
+    // per burst of messages (review #35: a busy project channel made every online member refetch it each time).
+    refreshInboxSoon(qc);
     // A direct message or a mention has just created a notification: show it now (once per burst).
     if (!bellTimer.current) {
       bellTimer.current = setTimeout(() => {
