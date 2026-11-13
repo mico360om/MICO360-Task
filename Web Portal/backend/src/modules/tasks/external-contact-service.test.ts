@@ -21,9 +21,9 @@ beforeEach(() => {
 
 describe('external contacts: adding', () => {
   it('adds a cleaned contact at the end of the task’s list, remembering who added it', async () => {
-    const a = await s.service.add('t1', { name: ' Ahmed Al Said ', company: 'OXY', email: '' }, 'u1');
+    const a = await s.service.add('t1', { name: ' Ahmed Al Said ', company: 'Acme', email: '' }, 'u1');
     const b = await s.service.add('t1', { name: 'Sara Nasser' }, 'u2');
-    expect(a).toMatchObject({ taskId: 't1', name: 'Ahmed Al Said', company: 'OXY', email: null, position: 0, createdById: 'u1' });
+    expect(a).toMatchObject({ taskId: 't1', name: 'Ahmed Al Said', company: 'Acme', email: null, position: 0, createdById: 'u1' });
     expect(b.position).toBe(1);
     expect((await s.service.list('t1')).map((c) => c.name)).toEqual(['Ahmed Al Said', 'Sara Nasser']);
   });
@@ -51,16 +51,16 @@ describe('external contacts: adding', () => {
 
 describe('external contacts: changing and removing', () => {
   it('changes only the fields sent, and says what it was before', async () => {
-    const c = await s.service.add('t1', { name: 'Ahmed', company: 'OXY', phone: '+968 1234' }, 'u1');
+    const c = await s.service.add('t1', { name: 'Ahmed', company: 'Acme', phone: '+968 1234' }, 'u1');
     const { before, after, changed } = await s.service.update(c.id, { name: 'Ahmed Al Said', remarks: 'Site lead' });
-    expect(before).toMatchObject({ name: 'Ahmed', company: 'OXY', remarks: null });
-    expect(after).toMatchObject({ name: 'Ahmed Al Said', company: 'OXY', phone: '+968 1234', remarks: 'Site lead' });
+    expect(before).toMatchObject({ name: 'Ahmed', company: 'Acme', remarks: null });
+    expect(after).toMatchObject({ name: 'Ahmed Al Said', company: 'Acme', phone: '+968 1234', remarks: 'Site lead' });
     expect(changed).toBe(true);
     expect((await s.service.update(c.id, { name: 'Ahmed Al Said' })).changed).toBe(false);
   });
 
   it('clears a field sent empty, and checks the result', async () => {
-    const c = await s.service.add('t1', { name: 'Ahmed', company: 'OXY' }, 'u1');
+    const c = await s.service.add('t1', { name: 'Ahmed', company: 'Acme' }, 'u1');
     expect((await s.service.update(c.id, { company: '' })).after.company).toBeNull();
     await expect(s.service.update(c.id, { name: ' ' })).rejects.toBeInstanceOf(ValidationError);
   });
@@ -77,14 +77,14 @@ describe('external contacts: changing and removing', () => {
 
 describe('external contacts: suggestions from the project', () => {
   it('suggests each earlier contact once (the newest details), newest first, at most 10', async () => {
-    await s.service.add('t1', { name: 'Ahmed Al Said', company: 'OXY', phone: '+968 1111' }, 'u1');
-    await s.service.add('t2', { name: 'ahmed al said', company: 'oxy', phone: '+968 2222' }, 'u1');
+    await s.service.add('t1', { name: 'Ahmed Al Said', company: 'Acme', phone: '+968 1111' }, 'u1');
+    await s.service.add('t2', { name: 'ahmed al said', company: 'acme', phone: '+968 2222' }, 'u1');
     await s.service.add('t2', { name: 'Aisha Hamed', company: 'PDO' }, 'u1');
     await s.service.add('t3', { name: 'Ahmed Elsewhere', company: 'Other' }, 'u1');
     const hits = await s.service.suggest('p1', 'a');
     expect(hits).toEqual([
       { name: 'Aisha Hamed', company: 'PDO', designation: null, email: null, phone: null, remarks: null },
-      { name: 'ahmed al said', company: 'oxy', designation: null, email: null, phone: '+968 2222', remarks: null },
+      { name: 'ahmed al said', company: 'acme', designation: null, email: null, phone: '+968 2222', remarks: null },
     ]);
     for (let i = 0; i < 15; i++) await s.service.add('t1', { name: `Bader ${i}` }, 'u1');
     expect(await s.service.suggest('p1', 'bad')).toHaveLength(10);
@@ -101,7 +101,7 @@ describe('external contacts: suggestions from the project', () => {
 
 describe('external contacts given with a new task', () => {
   it('are checked and cleaned before the task is made', () => {
-    expect(checkNewTaskContacts([{ name: ' Ahmed ', company: 'OXY' }])).toEqual([{ name: 'Ahmed', company: 'OXY', designation: null, email: null, phone: null, remarks: null }]);
+    expect(checkNewTaskContacts([{ name: ' Ahmed ', company: 'Acme' }])).toEqual([{ name: 'Ahmed', company: 'Acme', designation: null, email: null, phone: null, remarks: null }]);
     expect(checkNewTaskContacts(undefined)).toEqual([]);
     const err = (() => {
       try {
@@ -124,7 +124,7 @@ describe('external contacts — the task search index follows them', () => {
     const service = createExternalContactService({ repo, taskLookup: { exists: async (id) => liveTasks.has(id) }, onChanged: (taskId) => void changed.push(taskId) });
     const c = await service.add('t1', { name: 'Ahmed Al Said' }, 'u1');
     await service.update(c.id, { name: 'Ahmed Al Said' }); // unchanged: nothing to re-index
-    await service.update(c.id, { name: 'Ahmed Al Said', company: 'OXY' });
+    await service.update(c.id, { name: 'Ahmed Al Said', company: 'Acme' });
     await service.remove(c.id);
     expect(changed).toEqual(['t1', 't1', 't1']);
   });

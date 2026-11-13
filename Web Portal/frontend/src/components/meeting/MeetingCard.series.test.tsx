@@ -20,8 +20,8 @@ const card = (meeting: Meeting) =>
 
 describe('the Series chip on a meeting card', () => {
   it('names the series and opens its page', () => {
-    card(m({ seriesId: 's1', seriesName: 'Monthly OXY review' }));
-    const chip = screen.getByRole('link', { name: 'Series: Monthly OXY review' });
+    card(m({ seriesId: 's1', seriesName: 'Monthly site review' }));
+    const chip = screen.getByRole('link', { name: 'Series: Monthly site review' });
     expect(chip).toHaveAttribute('href', '/meetings/series/s1');
     // The card's own link still opens the meeting.
     expect(screen.getByRole('link', { name: 'Monthly 3' })).toHaveAttribute('href', '/meetings/m1');

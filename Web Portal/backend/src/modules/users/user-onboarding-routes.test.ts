@@ -31,14 +31,14 @@ let lookups: unknown[];
 const lookup: IdentityLookup = {
   async byEmail(email) {
     lookups.push(['email', email]);
-    return email.toLowerCase() === 'ahmed@oxy.com' ? { id: 'c1', name: 'Ahmed Al Harthy', username: 'ahmed', kind: 'client', organisation: 'OXY', status: 'ACTIVE' } : null;
+    return email.toLowerCase() === 'ahmed@acme.com' ? { id: 'c1', name: 'Ahmed Al Harthy', username: 'ahmed', kind: 'client', organisation: 'Acme', status: 'ACTIVE' } : null;
   },
   async byUsername(username) {
-    return username.toLowerCase() === 'ahmed' ? { id: 'c1', name: 'Ahmed Al Harthy', username: 'ahmed', kind: 'client', organisation: 'OXY', status: 'ACTIVE' } : null;
+    return username.toLowerCase() === 'ahmed' ? { id: 'c1', name: 'Ahmed Al Harthy', username: 'ahmed', kind: 'client', organisation: 'Acme', status: 'ACTIVE' } : null;
   },
   async sameName(firstName, lastName, opts) {
     lookups.push(['name', firstName, lastName, opts]);
-    return firstName === 'Saif' ? [{ id: 'c2', name: 'Saif Al Said', username: 'saif', kind: 'client', organisation: 'OXY', status: 'ACTIVE' }] : [];
+    return firstName === 'Saif' ? [{ id: 'c2', name: 'Saif Al Said', username: 'saif', kind: 'client', organisation: 'Acme', status: 'ACTIVE' }] : [];
   },
 };
 
@@ -183,20 +183,20 @@ describe('The duplicate check while typing (administrators)', () => {
       method: 'POST',
       url: '/api/v1/users/identity-check',
       headers: await adminHeaders(),
-      payload: { email: ' Ahmed@OXY.com ', username: 'AHMED', firstName: 'Saif', lastName: 'Al Said', organisation: 'oxy', client: true },
+      payload: { email: ' Ahmed@Acme.com ', username: 'AHMED', firstName: 'Saif', lastName: 'Al Said', organisation: 'acme', client: true },
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().data).toEqual({
-      email: { id: 'c1', name: 'Ahmed Al Harthy', username: 'ahmed', kind: 'client', organisation: 'OXY', status: 'ACTIVE' },
-      username: { id: 'c1', name: 'Ahmed Al Harthy', username: 'ahmed', kind: 'client', organisation: 'OXY', status: 'ACTIVE' },
-      sameName: [{ id: 'c2', name: 'Saif Al Said', username: 'saif', kind: 'client', organisation: 'OXY', status: 'ACTIVE' }],
+      email: { id: 'c1', name: 'Ahmed Al Harthy', username: 'ahmed', kind: 'client', organisation: 'Acme', status: 'ACTIVE' },
+      username: { id: 'c1', name: 'Ahmed Al Harthy', username: 'ahmed', kind: 'client', organisation: 'Acme', status: 'ACTIVE' },
+      sameName: [{ id: 'c2', name: 'Saif Al Said', username: 'saif', kind: 'client', organisation: 'Acme', status: 'ACTIVE' }],
     });
     // The email is looked up trimmed.
-    expect(lookups[0]).toEqual(['email', 'Ahmed@OXY.com']);
+    expect(lookups[0]).toEqual(['email', 'Ahmed@Acme.com']);
   });
 
   it('the account being edited isn’t a clash with itself', async () => {
-    const res = await app.inject({ method: 'POST', url: '/api/v1/users/identity-check', headers: await adminHeaders(), payload: { email: 'ahmed@oxy.com', excludeId: 'c1' } });
+    const res = await app.inject({ method: 'POST', url: '/api/v1/users/identity-check', headers: await adminHeaders(), payload: { email: 'ahmed@acme.com', excludeId: 'c1' } });
     expect(res.json().data).toEqual({ email: null, username: null, sameName: [] });
   });
 

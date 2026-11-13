@@ -90,7 +90,7 @@ export function readableOn(hex) {
 
 /**
  * Two letters for the tile: the first letters of the first two words (any script), from letters
- * only — "(OXY) Pipeline" is "OP". A name without a letter keeps its digits ("2026" → "20").
+ * only — "(Acme) Pipeline" is "AP". A name without a letter keeps its digits ("2026" → "20").
  */
 export function projectInitials(name) {
   const letters = letterWords(name);

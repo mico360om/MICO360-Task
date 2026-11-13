@@ -78,7 +78,7 @@ function NameField({ id, value, onChange, label = 'Series name' }: { id: string;
   return (
     <div className="flex flex-col gap-1.5">
       <FieldLabel htmlFor={id} required>{label}</FieldLabel>
-      <input id={id} dir="auto" value={value} maxLength={NAME_MAX} onChange={(e) => onChange(e.target.value)} placeholder="Monthly OXY review" className={fieldClass(false)} />
+      <input id={id} dir="auto" value={value} maxLength={NAME_MAX} onChange={(e) => onChange(e.target.value)} placeholder="Monthly site review" className={fieldClass(false)} />
     </div>
   );
 }

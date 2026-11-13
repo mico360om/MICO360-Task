@@ -98,11 +98,11 @@ describe('Teams meetings in Microsoft Graph', () => {
   });
 
   it('creates, updates and deletes an online meeting as the signed-in person', async () => {
-    const made = await client.createMeeting(access, { subject: 'Monthly OXY review', start: new Date('2026-12-03T06:00:00Z'), end: new Date('2026-12-03T07:00:00Z') });
+    const made = await client.createMeeting(access, { subject: 'Monthly site review', start: new Date('2026-12-03T06:00:00Z'), end: new Date('2026-12-03T07:00:00Z') });
     expect(made.joinWebUrl).toMatch(/^https:\/\/teams\.microsoft\.com\/l\/meetup-join\//);
-    expect(ms.meetings.get(made.id)).toMatchObject({ subject: 'Monthly OXY review', startDateTime: '2026-12-03T06:00:00.000Z', endDateTime: '2026-12-03T07:00:00.000Z' });
-    await client.updateMeeting(access, made.id, { subject: 'Monthly OXY review (moved)', start: new Date('2026-12-04T06:00:00Z'), end: new Date('2026-12-04T07:30:00Z') });
-    expect(ms.meetings.get(made.id)).toMatchObject({ subject: 'Monthly OXY review (moved)', startDateTime: '2026-12-04T06:00:00.000Z', endDateTime: '2026-12-04T07:30:00.000Z' });
+    expect(ms.meetings.get(made.id)).toMatchObject({ subject: 'Monthly site review', startDateTime: '2026-12-03T06:00:00.000Z', endDateTime: '2026-12-03T07:00:00.000Z' });
+    await client.updateMeeting(access, made.id, { subject: 'Monthly site review (moved)', start: new Date('2026-12-04T06:00:00Z'), end: new Date('2026-12-04T07:30:00Z') });
+    expect(ms.meetings.get(made.id)).toMatchObject({ subject: 'Monthly site review (moved)', startDateTime: '2026-12-04T06:00:00.000Z', endDateTime: '2026-12-04T07:30:00.000Z' });
     expect(await client.deleteMeeting(access, made.id)).toBe('deleted');
     expect(ms.meetings.has(made.id)).toBe(false);
     // Already gone at Microsoft: nothing to do.

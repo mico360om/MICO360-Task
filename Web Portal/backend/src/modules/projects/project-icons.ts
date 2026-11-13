@@ -48,7 +48,7 @@ const wordsOf = (name: string, kind: RegExp) =>
 
 /**
  * Two letters for the project's tile, as the web app shows them: the first letters of the first
- * two words (any script), from letters only — "(OXY) Pipeline" is "OP". A name without a letter
+ * two words (any script), from letters only — "(Acme) Pipeline" is "AP". A name without a letter
  * keeps its digits ("2026" → "20").
  */
 export function projectInitials(name: string): string {

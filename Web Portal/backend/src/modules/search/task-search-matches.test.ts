@@ -12,7 +12,7 @@ const task = (over: Partial<TaskSearchLive> = {}): TaskSearchLive => ({
   ],
   checklist: [{ text: 'Photograph the scaffold tags', done: false }],
   assignees: [{ firstName: 'Bilal', lastName: 'Ahmed', username: 'bilal.a' }],
-  contacts: [{ name: 'Ahmed Al Said', company: 'OXY', designation: 'Site lead', email: 'ahmed@oxy.com', phone: '+968 9912 3456', remarks: null }],
+  contacts: [{ name: 'Ahmed Al Said', company: 'Acme', designation: 'Site lead', email: 'ahmed@acme.com', phone: '+968 9912 3456', remarks: null }],
   tags: [{ name: 'Safety' }],
   files: [{ filename: 'Permit-Scan.pdf' }],
   ...over,
@@ -59,10 +59,10 @@ describe('describeMatches — where a task matched, for the results', () => {
   });
 
   it('finds an external contact by any of their details, shown together', () => {
-    for (const q of ['oxy', 'ahmed@oxy', '9912', 'al said']) {
+    for (const q of ['acme', 'ahmed@acme', '9912', 'al said']) {
       const [m] = describeMatches(task({ assignees: [] }), [q], { timeZone: tz }).matches;
       expect(m?.field, q).toBe('contact');
-      expect(m?.snippet).toBe('Ahmed Al Said · OXY · Site lead · ahmed@oxy.com · +968 9912 3456');
+      expect(m?.snippet).toBe('Ahmed Al Said · Acme · Site lead · ahmed@acme.com · +968 9912 3456');
     }
   });
 

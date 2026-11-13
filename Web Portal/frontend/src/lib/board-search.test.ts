@@ -113,9 +113,9 @@ describe('matchesBoardSearch', () => {
   });
 
   it('1.24: finds a card by its guests (name or company) and its categories', () => {
-    const c = { ...card('MICO-1', 'Site visit'), guests: [{ id: 'g1', name: 'Ahmed Al Harthy', company: 'OXY' }], categories: [{ id: 'k1', name: 'Electrical', color: 'gold', retired: false }] } as TaskCardTask;
+    const c = { ...card('MICO-1', 'Site visit'), guests: [{ id: 'g1', name: 'Ahmed Al Harthy', company: 'Acme' }], categories: [{ id: 'k1', name: 'Electrical', color: 'gold', retired: false }] } as TaskCardTask;
     expect(matchesBoardSearch(c, read('harthy'), {})).toBe(true);
-    expect(matchesBoardSearch(c, read('oxy'), {})).toBe(true);
+    expect(matchesBoardSearch(c, read('acme'), {})).toBe(true);
     expect(matchesBoardSearch(c, read('electric'), {})).toBe(true);
     expect(matchesBoardSearch(c, read('civil'), {})).toBe(false);
   });

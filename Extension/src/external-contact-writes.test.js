@@ -9,7 +9,7 @@ import { fakeStorage, jsonRes } from './test-helpers.js';
 const A = 'user-a';
 const body = (r) => JSON.parse(r.init.body);
 const req = (kind, payload, idempotencyKey) => mutationRequest({ kind, payload, ...(idempotencyKey ? { idempotencyKey } : {}) });
-const ahmed = { name: 'Ahmed Al Said', company: 'OXY', designation: 'Site lead', email: 'ahmed@oxy.com', phone: '+968 9912 3456', remarks: null };
+const ahmed = { name: 'Ahmed Al Said', company: 'Acme', designation: 'Site lead', email: 'ahmed@acme.com', phone: '+968 9912 3456', remarks: null };
 
 describe('external contact changes, as requests', () => {
   it('adding one posts its six fields to the task (with its Idempotency-Key); a change or a removal goes to the contact itself', () => {
@@ -79,14 +79,14 @@ describe('an older failed contact change that a newer synced one replaced (revie
 
   it('a later change keeps the older change’s other fields to try again; it is replaced only when none are left', async () => {
     const { supersede, SUPERSEDED_MESSAGE } = await import('./task-writes.js');
-    const company = failed('contact.update', { id: 't1', contactId: 'x1', patch: { company: 'OXY' }, name: 'Ahmed' });
+    const company = failed('contact.update', { id: 't1', contactId: 'x1', patch: { company: 'Acme' }, name: 'Ahmed' });
     const phone = at('contact.update', { id: 't1', contactId: 'x1', patch: { phone: '+968 1' }, name: 'Ahmed' }, 'new');
     expect(supersede(phone, company)).toBe(company); // a {company} change failed, a {phone} change went: try the company again
-    const both = failed('contact.update', { id: 't1', contactId: 'x1', patch: { company: 'OXY', phone: '+968 0' }, name: 'Ahmed' });
+    const both = failed('contact.update', { id: 't1', contactId: 'x1', patch: { company: 'Acme', phone: '+968 0' }, name: 'Ahmed' });
     const rest = supersede(phone, both);
     expect(rest.superseded).toBeFalsy();
-    expect(rest.payload.patch).toEqual({ company: 'OXY' });
-    expect(both.payload.patch).toEqual({ company: 'OXY', phone: '+968 0' }); // never changed in place
+    expect(rest.payload.patch).toEqual({ company: 'Acme' });
+    expect(both.payload.patch).toEqual({ company: 'Acme', phone: '+968 0' }); // never changed in place
     const onlyPhone = failed('contact.update', { id: 't1', contactId: 'x1', patch: { phone: '+968 0' }, name: 'Ahmed' });
     expect(supersede(phone, onlyPhone)).toMatchObject({ superseded: true, lastError: SUPERSEDED_MESSAGE });
     // Another contact's changes are never touched.
@@ -97,7 +97,7 @@ describe('an older failed contact change that a newer synced one replaced (revie
   it('a later removal replaces the older changes of that contact; a later change leaves an older removal alone', async () => {
     const { supersede } = await import('./task-writes.js');
     const del = at('contact.delete', { id: 't1', contactId: 'x1', name: 'Ahmed' }, 'new');
-    expect(supersede(del, failed('contact.update', { id: 't1', contactId: 'x1', patch: { company: 'OXY' } })).superseded).toBe(true);
+    expect(supersede(del, failed('contact.update', { id: 't1', contactId: 'x1', patch: { company: 'Acme' } })).superseded).toBe(true);
     expect(supersede(del, failed('contact.delete', { id: 't1', contactId: 'x1' })).superseded).toBe(true);
     const olderDelete = failed('contact.delete', { id: 't1', contactId: 'x1' });
     expect(supersede(at('contact.update', { id: 't1', contactId: 'x1', patch: { phone: '1' } }, 'new'), olderDelete)).toBe(olderDelete);

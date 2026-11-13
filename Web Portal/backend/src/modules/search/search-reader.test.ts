@@ -9,7 +9,7 @@ const ctx: ReaderContext = {
   projects: [
     { id: 'p-mico', code: 'MICO', name: 'MICO360 Implementation' },
     { id: 'p-rig', code: 'RIG', name: 'Rig 7 Overhaul' },
-    { id: 'p-oxy', code: 'OXY', name: 'Oxy Monthly Works' },
+    { id: 'p-acme', code: 'ACME', name: 'Acme Monthly Works' },
     { id: 'p-hr', code: 'HR2', name: 'Human Resources' },
   ],
   people: [
@@ -118,7 +118,7 @@ const TABLE: [string, Want][] = [
   ['mico tasks about valves', { chips: ['Tasks', 'MICO'], words: 'valves' }],
   ['in RIG', { chips: ['RIG'], words: '', filters: { projectId: 'p-rig' } }],
   ['project MICO', { chips: ['MICO'], words: '', filters: { projectId: 'p-mico' } }],
-  ['pump in Oxy Monthly Works', { chips: ['OXY'], words: 'pump', filters: { projectId: 'p-oxy' } }],
+  ['pump in Acme Monthly Works', { chips: ['ACME'], words: 'pump', filters: { projectId: 'p-acme' } }],
   ['HR2 meetings', { chips: ['Meetings', 'HR2'], words: '', filters: { projectId: 'p-hr' } }],
   // Kinds
   ['meeting notes about pump', { chips: ['Meeting notes'], words: 'pump', filters: { kinds: ['note'] } }],

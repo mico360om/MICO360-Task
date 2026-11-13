@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { extname, join, resolve } from 'node:path';
 import sharp from 'sharp';
 import { STARTER_COURSES } from './starter-courses';
@@ -120,10 +120,8 @@ describe('starter courses: the list', () => {
     }
   });
 
-  it('the Tasks and Meetings courses carry the owner’s how-to slides', () => {
-    expect(byKey('starter:tasks').resources).toEqual([{ file: 'tasks-how-to.pdf', name: 'Tasks how-to slides (PDF)', mimeType: 'application/pdf' }]);
-    expect(byKey('starter:meetings').resources).toEqual([{ file: 'meetings-how-to.pdf', name: 'Meetings how-to slides (PDF)', mimeType: 'application/pdf' }]);
-    for (const c of STARTER_COURSES.filter((x) => !['starter:tasks', 'starter:meetings'].includes(x.key))) expect(c.resources ?? []).toEqual([]);
+  it('no starter course carries a download (1.23.25: the old how-to slide PDFs are gone; training videos replace them)', () => {
+    for (const c of STARTER_COURSES) expect(c.resources ?? [], c.key).toEqual([]);
   });
 });
 
@@ -252,12 +250,12 @@ describe('starter courses: files', () => {
     for (const f of referenced) expect(filesInFolder, f).toContain(f);
   });
 
-  it('the folder holds nothing else: only referenced WebP pictures and the two PDFs (no videos, audio or slides)', () => {
+  it('the folder holds nothing else: only referenced WebP pictures (no PDFs, videos, audio or slides)', () => {
     for (const f of filesInFolder) {
       expect(referenced.has(f), `${f} is not used by any starter course`).toBe(true);
-      expect(['.webp', '.pdf'], f).toContain(extname(f));
+      expect(extname(f), f).toBe('.webp');
     }
-    expect(filesInFolder.filter((f) => f.endsWith('.pdf')).sort()).toEqual(['meetings-how-to.pdf', 'tasks-how-to.pdf']);
+    expect(filesInFolder.filter((f) => f.endsWith('.pdf'))).toEqual([]);
   });
 
   it('pictures are WebP, at most 1280 px wide and 120 KB each, 3 MB together — and pass the upload checks', async () => {
@@ -275,11 +273,4 @@ describe('starter courses: files', () => {
     expect(total).toBeLessThanOrEqual(3 * 1024 * 1024);
   });
 
-  it('the two PDFs are real PDFs within the 25 MB document limit', () => {
-    for (const f of ['tasks-how-to.pdf', 'meetings-how-to.pdf']) {
-      const content = readFileSync(join(ASSETS, f));
-      expect(statSync(join(ASSETS, f)).size).toBeGreaterThan(1024 * 1024);
-      expect(checkTrainingUpload({ filename: f, mimeType: 'application/pdf', content }, 'RESOURCE').mimeType).toBe('application/pdf');
-    }
-  });
 });

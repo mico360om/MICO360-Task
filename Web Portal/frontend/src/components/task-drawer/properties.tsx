@@ -372,7 +372,7 @@ function RepeatField({ task, timeZone, onSet }: { task: ApiTask; timeZone: strin
 const NO_GUESTS: DrawerGuest[] = [];
 
 /**
- * Who is on the task (1.24 "Assigned"): its team members, then its guests ("Ahmed Al Harthy · OXY ·
+ * Who is on the task (1.24 "Assigned"): its team members, then its guests ("Ahmed Al Harthy · Acme ·
  * Guest" — open for their details). Add assignee picks an "Internal user" from the project's team or,
  * with the switch, a "Guest" from the company's guest list (or a new one). Taking off the last team
  * member of a task with guests is refused by the server, whose reason is shown.

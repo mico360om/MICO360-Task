@@ -74,7 +74,7 @@ export function UsernameTaken({ id, match, onOpen }: { id: string; match: Identi
   );
 }
 
-/** A gentle warning, never a refusal: "A client named Saif Al Said at OXY already exists". */
+/** A gentle warning, never a refusal: "A client named Saif Al Said at Acme already exists". */
 export function SameNameWarning({ matches, onOpen }: { matches: IdentityMatch[]; onOpen?: (id: string) => void }) {
   const m = matches[0];
   if (!m) return null;

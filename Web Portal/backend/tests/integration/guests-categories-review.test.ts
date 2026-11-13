@@ -37,31 +37,31 @@ afterAll(async () => {
 
 describe('what a project’s viewers see of the guest list', () => {
   it('no admin notes, no creator — on the list, the duplicate check and a 409', async () => {
-    const g = await guests.createForProject(world.projects.PA, { name: 'Noted Guest', company: 'OXY' }, world.people.ana);
+    const g = await guests.createForProject(world.projects.PA, { name: 'Noted Guest', company: 'Acme' }, world.people.ana);
     await guests.adminUpdate(g.id, { notes: 'Also recorded: phone 1 (SECRET-9)' });
     const list = (await api.get(world.as.ana, `/projects/${world.projects.PA}/guests?q=noted`)) as Record<string, unknown>[];
     expect(list).toHaveLength(1);
     for (const key of ['notes', 'createdById', 'mergedIntoId']) expect(list[0]).not.toHaveProperty(key);
-    const check = (await api.post(world.as.ana, `/projects/${world.projects.PA}/guests/check`, { name: 'Noted Guest', company: 'oxy' })).json() as { data: { same: Record<string, unknown>[] } };
+    const check = (await api.post(world.as.ana, `/projects/${world.projects.PA}/guests/check`, { name: 'Noted Guest', company: 'acme' })).json() as { data: { same: Record<string, unknown>[] } };
     expect(check.data.same[0]).not.toHaveProperty('notes');
-    const dup = (await api.post(world.as.ana, `/projects/${world.projects.PA}/guests`, { name: 'Noted Guest', company: 'OXY' })).json() as { error: { details: { matches: Record<string, unknown>[] } } };
+    const dup = (await api.post(world.as.ana, `/projects/${world.projects.PA}/guests`, { name: 'Noted Guest', company: 'Acme' })).json() as { error: { details: { matches: Record<string, unknown>[] } } };
     expect(dup.error.details.matches[0]).not.toHaveProperty('notes');
   });
 
   it('on a project shared with another company, its people see only the guests on that project’s tasks', async () => {
-    const onIt = await guests.createForProject(world.projects.PAB, { name: 'Shared Sam', company: 'OXY', email: 'sam@oxy.com' }, world.people.ana);
-    await guests.createForProject(world.projects.PA, { name: 'Private Pat', company: 'OXY', email: 'pat@oxy.com' }, world.people.ana);
+    const onIt = await guests.createForProject(world.projects.PAB, { name: 'Shared Sam', company: 'Acme', email: 'sam@acme.com' }, world.people.ana);
+    await guests.createForProject(world.projects.PA, { name: 'Private Pat', company: 'Acme', email: 'pat@acme.com' }, world.people.ana);
     await guests.addToTask(world.tasks.TAB1, onIt.id, null, world.people.ben);
     // ana (company A, the list's company) sees the whole list; ben (company B only) sees Sam alone.
     const ana = ((await api.get(world.as.ana, `/projects/${world.projects.PAB}/guests`)) as { name: string }[]).map((g) => g.name);
     expect(ana).toEqual(expect.arrayContaining(['Private Pat', 'Shared Sam']));
     expect(((await api.get(world.as.ben, `/projects/${world.projects.PAB}/guests`)) as { name: string }[]).map((g) => g.name)).toEqual(['Shared Sam']);
-    const check = (await api.post(world.as.ben, `/projects/${world.projects.PAB}/guests/check`, { name: 'Private Pat', company: 'OXY' })).json() as { data: { same: unknown[]; similar: unknown[] } };
+    const check = (await api.post(world.as.ben, `/projects/${world.projects.PAB}/guests/check`, { name: 'Private Pat', company: 'Acme' })).json() as { data: { same: unknown[]; similar: unknown[] } };
     expect(check.data).toEqual({ same: [], similar: [] });
     // The app's suggestions and its "add a contact" follow the same rule: Pat's stored details never come back.
     const contacts = createExternalContactService({ repo: createPrismaExternalContactRepository(prisma), taskLookup: createPrismaTaskLookup(prisma) });
     expect(await contacts.suggest(world.projects.PAB, 'pat', { id: world.people.ben, roles: ['EMPLOYEE'] })).toEqual([]);
-    const added = await contacts.add(world.tasks.TAB1, { name: 'Private Pat', company: 'OXY' }, world.people.ben);
+    const added = await contacts.add(world.tasks.TAB1, { name: 'Private Pat', company: 'Acme' }, world.people.ben);
     expect(added.email).toBeNull();
   });
 });
@@ -70,8 +70,8 @@ describe('a merge across companies', () => {
   it('the same person on both companies’ lists stays on the merged task for Undo to give back', async () => {
     const merges = createTaskMergeService({ prisma, timeZone: 'Asia/Muscat', readFile: async () => null });
     const admin = world.as.admin;
-    const a = await guests.createForProject(world.projects.PA, { name: 'Twin Ahmed', company: 'OXY' }, world.people.ana);
-    const b = await guests.createForProject(world.projects.PB, { name: 'Twin Ahmed', company: 'OXY' }, world.people.ben);
+    const a = await guests.createForProject(world.projects.PA, { name: 'Twin Ahmed', company: 'Acme' }, world.people.ana);
+    const b = await guests.createForProject(world.projects.PB, { name: 'Twin Ahmed', company: 'Acme' }, world.people.ben);
     await guests.addToTask(world.tasks.TA1, a.id, null, world.people.ana);
     await guests.addToTask(world.tasks.TB1, b.id, 'from B', world.people.ben);
     const r = await merges.merge(admin, { taskIds: [world.tasks.TA1, world.tasks.TB1], mainTaskId: world.tasks.TA1, people: { [world.people.ben]: 'LEAVE_OFF' } as never });
@@ -110,7 +110,7 @@ describe('the old way in writes true history', () => {
 
 describe('the minute sweep heals', () => {
   it('an open task with guests and nobody from the team gets its person responsible (once); drifted rows show their guest again; a category of another project becomes this one’s by name', async () => {
-    const g = await guests.createForProject(world.projects.PA, { name: 'Heal Hadi', company: 'OXY' }, world.people.ana);
+    const g = await guests.createForProject(world.projects.PA, { name: 'Heal Hadi', company: 'Acme' }, world.people.ana);
     await guests.addToTask(world.tasks.TA2, g.id, null, world.people.cat);
     await prisma.taskAssignee.deleteMany({ where: { taskId: world.tasks.TA2 } });
     await prisma.taskExternalContact.updateMany({ where: { guestId: g.id }, data: { name: 'Old name' } });

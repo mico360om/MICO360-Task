@@ -58,12 +58,12 @@ export function checkExternalContact(draft) {
   return Object.keys(problems).length > 0 ? { ok: false, problems } : { ok: true, contact };
 }
 
-/** "Ahmed Al Said (OXY)", or just the name when there is no company. */
+/** "Ahmed Al Said (Acme)", or just the name when there is no company. */
 export function externalContactLabel(contact) {
   return contact.company ? `${contact.name} (${contact.company})` : contact.name;
 }
 
-/** The card line: "External: Ahmed Al Said (OXY)", "… and 2 more"; null when there are none. */
+/** The card line: "External: Ahmed Al Said (Acme)", "… and 2 more"; null when there are none. */
 export function externalContactsLine(summary) {
   if (!summary || summary.count < 1) return null;
   const more = summary.count > 1 ? ` and ${summary.count - 1} more` : '';
@@ -82,12 +82,12 @@ export function mailHref(email) {
   return address ? `mailto:${address}` : null;
 }
 
-/** "OXY · Site lead": a contact's company and designation, whichever are given ('' for neither). */
+/** "Acme · Site lead": a contact's company and designation, whichever are given ('' for neither). */
 export function contactRoleLine(contact) {
   return [contact.company, contact.designation].filter(Boolean).join(' · ');
 }
 
-/** An earlier contact as a suggestion reads: "Ahmed Al Said · OXY · Site lead". */
+/** An earlier contact as a suggestion reads: "Ahmed Al Said · Acme · Site lead". */
 export function suggestionText(contact) {
   return [contact.name, contactRoleLine(contact)].filter(Boolean).join(' · ');
 }

@@ -79,7 +79,7 @@ describe('repeat copies keep guests and categories', () => {
     const t = await task('GCF1');
     const civil = await category('GCF1', 'Civil');
     await prisma.taskCategory.create({ data: { taskId: t, categoryId: civil } });
-    const g = await guests.createForProject(P.GCF1!.id, { name: 'Ahmed', company: 'OXY' }, admin.id);
+    const g = await guests.createForProject(P.GCF1!.id, { name: 'Ahmed', company: 'Acme' }, admin.id);
     await guests.addToTask(t, g.id, 'Signs off', admin.id);
     await prisma.task.update({ where: { id: t }, data: { recurrenceRule: { freq: 'WEEKLY', interval: 1 } } });
     const port = createPrismaRecurrencePort(prisma, { timeZone: TZ, now: () => NOW });
@@ -106,9 +106,9 @@ describe('moving a task to another project', () => {
 
   it('to another company’s project: its guests are copied onto that company’s list and relinked', async () => {
     const t = await task('GCF1');
-    const g = await guests.createForProject(P.GCF1!.id, { name: 'Ahmed', company: 'OXY', email: 'a@oxy.com' }, admin.id);
+    const g = await guests.createForProject(P.GCF1!.id, { name: 'Ahmed', company: 'Acme', email: 'a@acme.com' }, admin.id);
     await guests.addToTask(t, g.id, 'note', admin.id);
-    const theirs = await guests.createForProject(P.GCF3!.id, { name: 'ahmed', email: 'A@oxy.com' }, admin.id);
+    const theirs = await guests.createForProject(P.GCF3!.id, { name: 'ahmed', email: 'A@acme.com' }, admin.id);
     const preview = await moves.preview(admin, [t], P.GCF3!.id);
     expect(preview.tasks[0]).toMatchObject({ guestsCopied: 1, categoriesDropped: [] });
     await moves.moveTask(admin, t, { projectId: P.GCF3!.id, assignees: 'ADD_TO_TEAM' });

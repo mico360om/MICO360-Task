@@ -23,7 +23,7 @@ export interface ReportTask {
   approvalRequestedAt?: Date | null;
   /** 1.23.1: the numbers of the tasks merged into it (merged tasks themselves are never rows). */
   mergedFrom?: string[];
-  /** 1.24: its guests ("Ahmed (OXY)") and its categories' names, in order (the task list exports). */
+  /** 1.24: its guests ("Ahmed (Acme)") and its categories' names, in order (the task list exports). */
   guests?: string[];
   categories?: string[];
   /** 1.23.5: the weight it counts with (its own, else its project's default for its priority)… */

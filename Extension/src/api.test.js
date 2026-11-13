@@ -124,9 +124,9 @@ describe('quick capture calls (Stage 2)', () => {
 
   it('asks afresh for the earlier external contacts on a project that match what was typed (never kept offline)', async () => {
     const store = fakeStorage();
-    const auth = fakeAuth(() => json({ data: [{ name: 'Ahmed Al Said', company: 'OXY', designation: null, email: null, phone: null, remarks: null }] }));
+    const auth = fakeAuth(() => json({ data: [{ name: 'Ahmed Al Said', company: 'Acme', designation: null, email: null, phone: null, remarks: null }] }));
     const api = createApi({ auth, cache: createReadCache(store) });
-    expect(await api.projects.externalContacts('p1', 'Ahmed Al')).toEqual([{ name: 'Ahmed Al Said', company: 'OXY', designation: null, email: null, phone: null, remarks: null }]);
+    expect(await api.projects.externalContacts('p1', 'Ahmed Al')).toEqual([{ name: 'Ahmed Al Said', company: 'Acme', designation: null, email: null, phone: null, remarks: null }]);
     expect(auth.authedFetch).toHaveBeenCalledWith('/projects/p1/external-contacts?q=Ahmed%20Al', undefined);
     expect(Object.keys(store.data).filter((k) => k.includes('external'))).toEqual([]);
   });

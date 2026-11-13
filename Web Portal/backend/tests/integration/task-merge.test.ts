@@ -177,7 +177,7 @@ async function fullTask(title: string, extra: Partial<Parameters<typeof taskServ
   files.set(storageKey, Buffer.from('the same report'));
   await prisma.attachment.create({ data: { taskId: t.id, uploadedById: manager.id, filename: 'report.pdf', mimeType: 'application/pdf', sizeBytes: 15, storageKey, url: `/uploads/${storageKey}` } });
   await prisma.attachment.create({ data: { taskId: t.id, uploadedById: manager.id, filename: `${title}.png`, mimeType: 'image/png', sizeBytes: 9, storageKey: `${t.id}-own.png`, url: `/uploads/${t.id}-own.png` } });
-  await prisma.taskExternalContact.create({ data: { taskId: t.id, name: 'Ahmed', email: 'ahmed@oxy.test', ...(n === 1 ? {} : { company: 'OXY', phone: '+968 9123 4567' }), position: 0 } });
+  await prisma.taskExternalContact.create({ data: { taskId: t.id, name: 'Ahmed', email: 'ahmed@acme.test', ...(n === 1 ? {} : { company: 'Acme', phone: '+968 9123 4567' }), position: 0 } });
   await prisma.taskExternalContact.create({ data: { taskId: t.id, name: `${title} contact`, email: `${n}@supplier.test`, position: 1 } });
   await prisma.taskWatcher.create({ data: { taskId: t.id, userId: mateId } });
   const tag = await prisma.tag.upsert({ where: { name: `mg-${n}` }, update: {}, create: { name: `mg-${n}` } });
@@ -239,8 +239,8 @@ describe('Merging tasks (integration)', () => {
     expect(m.watchers).toEqual([mateId]);
     expect(m.tags).toHaveLength(3);
     expect(m.contacts).toHaveLength(3);
-    const ahmed = m.contacts.find((c) => c.email === 'ahmed@oxy.test')!;
-    expect(ahmed).toMatchObject({ company: 'OXY', phone: '+968 9123 4567' });
+    const ahmed = m.contacts.find((c) => c.email === 'ahmed@acme.test')!;
+    expect(ahmed).toMatchObject({ company: 'Acme', phone: '+968 9123 4567' });
     expect(m.blockedBy).toEqual([blocker.id]);
     // The main task's fields: the choices, the descriptions joined under a heading.
     expect(m.fields).toMatchObject({ priority: 'HIGH', title: 'Inspect pump', description: `Main notes\n\n— From ${other.key} · Pump check —\nOther notes`, mergedIntoId: null, deletedAt: null });

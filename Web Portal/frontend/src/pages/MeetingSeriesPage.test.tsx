@@ -13,7 +13,7 @@ function json(body: unknown, status = 200): Response {
 }
 const day = (offset: number) => new Date(Date.now() + offset * 86_400_000).toISOString();
 const page = (over: Record<string, unknown> = {}) => ({
-  series: { id: 's1', name: 'Monthly OXY review', projectId: 'p1', companyId: null, auto: false, createdById: 'me' },
+  series: { id: 's1', name: 'Monthly site review', projectId: 'p1', companyId: null, auto: false, createdById: 'me' },
   meetings: [
     { id: 'm1', title: 'Monthly 1', status: 'COMPLETED', startAt: day(-60), endAt: null, timeZone: null, minutesFinal: true, repeats: false },
     { id: 'm2', title: 'Monthly 2', status: 'COMPLETED', startAt: day(-30), endAt: null, timeZone: null, minutesFinal: false, repeats: false },
@@ -42,7 +42,7 @@ beforeEach(() => {
     if (u.endsWith('/meeting-series/s1') && method === 'GET') return pageData ? json({ data: pageData }) : json({ error: { code: 'NOT_FOUND', message: 'Series not found.' } }, 404);
     if (u.endsWith('/meeting-series/s1') && method === 'PATCH') return json({ data: { id: 's1', name: body?.name } });
     if (u.endsWith('/meeting-series/s1/candidates')) return json({ data: [{ id: 'm9', title: 'Kick-off', status: 'SCHEDULED', startAt: day(-90), endAt: null, timeZone: null, minutesFinal: false, repeats: false }] });
-    if (u.endsWith('/meeting-series/s1/prefill')) return json({ data: { seriesId: 's1', seriesName: 'Monthly OXY review', title: 'Monthly OXY review', projectId: 'p1', companyId: null, location: null, onlineLink: null, durationMinutes: 60, description: null, people: [], agendaItems: [] } });
+    if (u.endsWith('/meeting-series/s1/prefill')) return json({ data: { seriesId: 's1', seriesName: 'Monthly site review', title: 'Monthly site review', projectId: 'p1', companyId: null, location: null, onlineLink: null, durationMinutes: 60, description: null, people: [], agendaItems: [] } });
     if (method === 'DELETE' || method === 'POST') return new Response(null, { status: 204 });
     if (u.endsWith('/projects')) return json({ data: [{ id: 'p1', name: 'Pump Station', code: 'PUMP', status: 'ACTIVE' }] });
     if (u.endsWith('/users/directory')) return json({ data: [] });
@@ -72,7 +72,7 @@ function renderPage() {
 describe('the Series page', () => {
   it('shows the series, its meetings to come and earlier ones, and its open action items', async () => {
     renderPage();
-    expect(await screen.findByRole('heading', { level: 1, name: 'Monthly OXY review' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Monthly site review' })).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText('Pump Station')).toBeInTheDocument());
     const upcoming = screen.getByRole('heading', { name: /^Coming up/ }).closest('section')!;
     expect(within(upcoming).getByRole('link', { name: /Monthly 3/ })).toHaveAttribute('href', '/meetings/m3');
@@ -95,7 +95,7 @@ describe('the Series page', () => {
   it('adds existing meetings from the picker', async () => {
     renderPage();
     await userEvent.click(await screen.findByRole('button', { name: 'Add existing meetings' }));
-    const dialog = await screen.findByRole('dialog', { name: 'Add meetings to “Monthly OXY review”' });
+    const dialog = await screen.findByRole('dialog', { name: 'Add meetings to “Monthly site review”' });
     await userEvent.click(await within(dialog).findByRole('checkbox', { name: /Kick-off/ }));
     await userEvent.click(within(dialog).getByRole('button', { name: 'Add meeting' }));
     await waitFor(() => expect(calls.find((c) => c.method === 'POST' && c.url.endsWith('/meeting-series/s1/meetings'))?.body).toEqual({ meetingIds: ['m9'] }));
@@ -107,9 +107,9 @@ describe('the Series page', () => {
     await userEvent.click(screen.getByRole('menuitem', { name: 'Rename…' }));
     const rename = await screen.findByRole('dialog', { name: 'Rename the series' });
     await userEvent.clear(within(rename).getByLabelText(/series name/i));
-    await userEvent.type(within(rename).getByLabelText(/series name/i), 'OXY monthly');
+    await userEvent.type(within(rename).getByLabelText(/series name/i), 'Acme monthly');
     await userEvent.click(within(rename).getByRole('button', { name: 'Save' }));
-    await waitFor(() => expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ name: 'OXY monthly' }));
+    await waitFor(() => expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ name: 'Acme monthly' }));
 
     await userEvent.click(screen.getByRole('button', { name: 'More series actions' }));
     await userEvent.click(screen.getByRole('menuitem', { name: 'Merge another series into this one…' }));
@@ -129,13 +129,13 @@ describe('the Series page', () => {
   it('opens the new-meeting form pre-filled for "New meeting in this series"', async () => {
     renderPage();
     await userEvent.click(await screen.findByRole('button', { name: '+ New meeting in this series' }));
-    expect(await screen.findByRole('dialog', { name: 'New meeting' })).toHaveTextContent('In the series “Monthly OXY review”');
+    expect(await screen.findByRole('dialog', { name: 'New meeting' })).toHaveTextContent('In the series “Monthly site review”');
   });
 
   it('offers only what the person may do: no buttons for someone who may only look', async () => {
     pageData = page({ canManage: false, canDelete: false, canAdd: false, removable: [], mergeOptions: [] });
     renderPage();
-    await screen.findByRole('heading', { level: 1, name: 'Monthly OXY review' });
+    await screen.findByRole('heading', { level: 1, name: 'Monthly site review' });
     expect(screen.queryByRole('button', { name: 'More series actions' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /new meeting in this series/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /remove .* from the series/i })).not.toBeInTheDocument();

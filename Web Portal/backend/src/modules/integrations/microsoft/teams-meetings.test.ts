@@ -70,7 +70,7 @@ beforeEach(async () => {
   await connect('org');
 });
 
-async function oneOff(title = 'OXY review', start = at(24), organizerId = 'org') {
+async function oneOff(title = 'Site review', start = at(24), organizerId = 'org') {
   return meetingService.createMeeting({ title, organizerId, createdById: organizerId, status: 'SCHEDULED', startAt: start, endAt: new Date(start.getTime() + HOUR), timeZone: TZ });
 }
 
@@ -90,7 +90,7 @@ describe('making a Teams link', () => {
     const out = await teams.makeLink(m.id, { id: 'org' });
     expect(out).toEqual({ made: true, notice: null });
     const [made] = [...ms.meetings.values()];
-    expect(made).toMatchObject({ subject: 'OXY review', startDateTime: m.startAt.toISOString(), endDateTime: m.endAt!.toISOString(), ownerOid: ms.user.id });
+    expect(made).toMatchObject({ subject: 'Site review', startDateTime: m.startAt.toISOString(), endDateTime: m.endAt!.toISOString(), ownerOid: ms.user.id });
     expect(row(m.id)).toMatchObject({ onlineLink: made!.joinWebUrl, onlineMeetingProvider: 'TEAMS', teamsLinkPending: false });
     expect(store.ids.get(m.id)).toEqual({ teamsId: made!.id, ownerId: 'org' });
   });
@@ -160,9 +160,9 @@ describe('keeping the Teams meeting in step', () => {
   it('a new time or title updates the Teams meeting', async () => {
     const m = await oneOff();
     await teams.makeLink(m.id, { id: 'org' });
-    await meetingService.updateMeeting(m.id, { title: 'OXY review (moved)', startAt: at(50), endAt: at(52) });
+    await meetingService.updateMeeting(m.id, { title: 'Site review (moved)', startAt: at(50), endAt: at(52) });
     await teams.idle();
-    expect([...ms.meetings.values()][0]).toMatchObject({ subject: 'OXY review (moved)', startDateTime: at(50).toISOString(), endDateTime: at(52).toISOString() });
+    expect([...ms.meetings.values()][0]).toMatchObject({ subject: 'Site review (moved)', startDateTime: at(50).toISOString(), endDateTime: at(52).toISOString() });
   });
 
   it('a change that isn’t a time or a title doesn’t call Microsoft again', async () => {

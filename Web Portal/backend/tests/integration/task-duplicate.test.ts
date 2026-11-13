@@ -77,7 +77,7 @@ beforeAll(async () => {
       tags: { create: [{ tag: { connectOrCreate: { where: { name: `dup-safety-${w.tag}` }, create: { name: `dup-safety-${w.tag}`, color: '#123456' } } } }] },
       assignees: { create: [{ userId: w.people.ana }] },
       watchers: { create: [{ userId: w.people.ana }, { userId: w.people.cat }] },
-      externalContacts: { create: [{ name: 'Ahmed Al Said', company: 'OXY', position: 0, createdById: w.people.cat }] },
+      externalContacts: { create: [{ name: 'Ahmed Al Said', company: 'Acme', position: 0, createdById: w.people.cat }] },
     },
   });
   // Nested checklists: ticked, assigned and dated items — the copy gets them unticked, with no people or dates.
@@ -159,7 +159,7 @@ describe('Duplicate Task on MySQL', () => {
       weight: 3,
       assigneeIds: [w.people.cat],
       checklists: [{ title: 'Before', items: [{ text: 'Valves', children: [{ text: 'Main valve' }] }, { text: 'Gauges' }] }],
-      externalContacts: [{ name: 'Ahmed Al Said', company: 'OXY' }],
+      externalContacts: [{ name: 'Ahmed Al Said', company: 'Acme' }],
       copyFiles: true,
     });
     expect(res.statusCode, res.body).toBe(201);

@@ -70,7 +70,7 @@ function propertyTest(property: string, fallback: (ch: string) => boolean, works
 const isLetter = propertyTest('L', isLetterFallback, (re) => re.test('a') && re.test('أ') && !re.test('(') && !re.test('1') && !re.test('{'));
 const isNumber = propertyTest('N', isNumberFallback, (re) => re.test('1') && re.test('٣') && !re.test('a') && !re.test('{'));
 
-/** The words of a name as their characters of one kind: "Mohammed (OXY)" → ["Mohammed", "OXY"] for letters. */
+/** The words of a name as their characters of one kind: "Mohammed (Acme)" → ["Mohammed", "Acme"] for letters. */
 const wordsOf = (name: string, keep: (ch: string) => boolean): string[] =>
   name
     .trim()
@@ -78,7 +78,7 @@ const wordsOf = (name: string, keep: (ch: string) => boolean): string[] =>
     .map((w) => [...w].filter(keep).join(''))
     .filter(Boolean);
 
-/** The words of a name as their letters: "Mohammed (OXY)" → ["Mohammed", "OXY"]. */
+/** The words of a name as their letters: "Mohammed (Acme)" → ["Mohammed", "Acme"]. */
 export function letterWords(name: string): string[] {
   return wordsOf(name, isLetter);
 }
@@ -88,7 +88,7 @@ export function numberWords(name: string): string[] {
   return wordsOf(name, isNumber);
 }
 
-/** A person's initials: the first letters of the first two words ("Mohammed (OXY)" → "MO"), one for one word, "?" for none. */
+/** A person's initials: the first letters of the first two words ("Mohammed (Acme)" → "MA"), one for one word, "?" for none. */
 export function personInitials(name: string): string {
   const words = letterWords(name);
   if (words.length === 0) return '?';

@@ -43,7 +43,7 @@ const attendee = (over: Partial<AttendeeRecord>): AttendeeRecord => ({
   id: `a-${Math.random()}`, meetingId: 'm1', userId: null, externalName: null, externalEmail: null, role: 'REQUIRED', attendance: 'INVITED',
   response: 'PENDING', respondedAt: null, invitedAt: null, department: null, createdAt: NOW, ...over,
 });
-const person = (id: string, over: Partial<ReminderPerson> = {}): ReminderPerson => ({ userId: id, name: id.toUpperCase(), email: `${id}@oxy.test`, timeZone: null, muted: false, ...over });
+const person = (id: string, over: Partial<ReminderPerson> = {}): ReminderPerson => ({ userId: id, name: id.toUpperCase(), email: `${id}@acme.test`, timeZone: null, muted: false, ...over });
 
 describe('reminderRecipients: who is reminded', () => {
   const people = new Map<string, ReminderPerson>([
@@ -71,7 +71,7 @@ describe('reminderRecipients: who is reminded', () => {
       attendee({ externalName: 'Guest One', externalEmail: 'Guest@Client.test' }),
       attendee({ externalName: 'Guest again', externalEmail: 'guest@client.test' }),
       attendee({ externalName: 'No thanks', externalEmail: 'no@client.test', response: 'DECLINED' }),
-      attendee({ externalName: 'Ann twice', externalEmail: 'ANN@oxy.test' }),
+      attendee({ externalName: 'Ann twice', externalEmail: 'ANN@acme.test' }),
       attendee({ externalName: 'No address' }),
       attendee({ userId: 'ann' }),
     ], people);

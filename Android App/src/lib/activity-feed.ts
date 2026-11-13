@@ -172,7 +172,7 @@ function someOf(names: string[], shown = 3): string {
   return names.length <= shown + 1 ? listText(names) : `${names.slice(0, shown).join(', ')} and ${names.length - shown} more`;
 }
 const quote = (s: string) => `“${s}”`;
-/** An external contact as a line names them: "Ahmed Al Said (OXY)", or just the name. */
+/** An external contact as a line names them: "Ahmed Al Said (Acme)", or just the name. */
 const contactName = (e: FeedEntry): string | null => {
   const name = str(e.meta?.name);
   const company = str(e.meta?.company);
@@ -382,7 +382,7 @@ function lineOf(kind: TimelineKind, entries: FeedEntry[]): TimelineItem | null {
       return { ...base, text: names.length === 1 ? `${verb} the blocker ${names[0]}` : `${verb} the blockers ${someOf(names)}` };
     }
     case 'external': {
-      // "added an external contact: Ahmed Al Said (OXY)"; a run names each person once.
+      // "added an external contact: Ahmed Al Said (Acme)"; a run names each person once.
       const verb = EXTERNAL_VERB[newest.action] ?? 'changed';
       const names = [...new Set(chronological.map(contactName).filter((n): n is string => Boolean(n)))];
       if (names.length <= 1) return { ...base, text: names[0] ? `${verb} an external contact: ${names[0]}` : `${verb} an external contact` };

@@ -9,8 +9,8 @@ describe('Avatar', () => {
   });
 
   it('builds the initials from letters only, so a name with brackets doesn’t show a bracket', () => {
-    render(<Avatar name="Mohammed (OXY)" />);
-    expect(screen.getByLabelText('Mohammed (OXY)')).toHaveTextContent(/^MO$/);
+    render(<Avatar name="Mohammed (Acme)" />);
+    expect(screen.getByLabelText('Mohammed (Acme)')).toHaveTextContent(/^MA$/);
   });
 
   it('exposes the full name as an accessible title', () => {

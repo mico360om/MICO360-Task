@@ -19,10 +19,10 @@ import {
 describe('checking an external contact', () => {
   it('keeps the six fields, trimmed, and turns blanks into nothing', () => {
     expect(
-      checkExternalContact({ name: '  Ahmed Al Said ', company: ' OXY ', designation: '', email: ' ahmed@oxy.com ', phone: ' +968 9912 3456 ', remarks: '  Site lead\nCall before 10  ' }),
+      checkExternalContact({ name: '  Ahmed Al Said ', company: ' Acme ', designation: '', email: ' ahmed@acme.com ', phone: ' +968 9912 3456 ', remarks: '  Site lead\nCall before 10  ' }),
     ).toEqual({
       ok: true,
-      contact: { name: 'Ahmed Al Said', company: 'OXY', designation: null, email: 'ahmed@oxy.com', phone: '+968 9912 3456', remarks: 'Site lead\nCall before 10' },
+      contact: { name: 'Ahmed Al Said', company: 'Acme', designation: null, email: 'ahmed@acme.com', phone: '+968 9912 3456', remarks: 'Site lead\nCall before 10' },
     });
     expect(checkExternalContact({ name: 'Sara' })).toEqual({
       ok: true,
@@ -31,7 +31,7 @@ describe('checking an external contact', () => {
   });
 
   it('needs a name', () => {
-    expect(checkExternalContact({ name: '   ', company: 'OXY' })).toEqual({ ok: false, problems: { name: 'Enter the contact’s name.' } });
+    expect(checkExternalContact({ name: '   ', company: 'Acme' })).toEqual({ ok: false, problems: { name: 'Enter the contact’s name.' } });
     expect(checkExternalContact({})).toEqual({ ok: false, problems: { name: 'Enter the contact’s name.' } });
   });
 
@@ -72,7 +72,7 @@ describe('checking an external contact', () => {
 
 describe('naming external contacts', () => {
   it('names a contact with their company', () => {
-    expect(externalContactLabel({ name: 'Ahmed Al Said', company: 'OXY' })).toBe('Ahmed Al Said (OXY)');
+    expect(externalContactLabel({ name: 'Ahmed Al Said', company: 'Acme' })).toBe('Ahmed Al Said (Acme)');
     expect(externalContactLabel({ name: 'Ahmed Al Said', company: null })).toBe('Ahmed Al Said');
   });
 
@@ -80,56 +80,56 @@ describe('naming external contacts', () => {
     expect(summarizeExternalContacts([])).toBeNull();
     expect(
       summarizeExternalContacts([
-        { name: 'Ahmed Al Said', company: 'OXY' },
+        { name: 'Ahmed Al Said', company: 'Acme' },
         { name: 'Sara Nasser', company: 'PDO' },
-        { name: 'Ali', company: 'oxy' },
+        { name: 'Ali', company: 'acme' },
       ]),
-    ).toEqual({ count: 3, name: 'Ahmed Al Said', company: 'OXY', names: ['Ahmed Al Said', 'Sara Nasser', 'Ali'], companies: ['OXY', 'PDO'] });
+    ).toEqual({ count: 3, name: 'Ahmed Al Said', company: 'Acme', names: ['Ahmed Al Said', 'Sara Nasser', 'Ali'], companies: ['Acme', 'PDO'] });
   });
 
   it('writes the card line, with how many more there are', () => {
     expect(externalContactsLine(null)).toBeNull();
-    expect(externalContactsLine({ count: 1, name: 'Ahmed Al Said', company: 'OXY' })).toBe('External: Ahmed Al Said (OXY)');
+    expect(externalContactsLine({ count: 1, name: 'Ahmed Al Said', company: 'Acme' })).toBe('External: Ahmed Al Said (Acme)');
     expect(externalContactsLine({ count: 2, name: 'Ahmed Al Said', company: null })).toBe('External: Ahmed Al Said and 1 more');
-    expect(externalContactsLine({ count: 4, name: 'Ahmed Al Said', company: 'OXY' })).toBe('External: Ahmed Al Said (OXY) and 3 more');
+    expect(externalContactsLine({ count: 4, name: 'Ahmed Al Said', company: 'Acme' })).toBe('External: Ahmed Al Said (Acme) and 3 more');
   });
 
   it('makes call and email links', () => {
     expect(phoneHref('+968 9912-3456')).toBe('tel:+96899123456');
     expect(phoneHref('')).toBeNull();
-    expect(mailHref('ahmed@oxy.com')).toBe('mailto:ahmed@oxy.com');
+    expect(mailHref('ahmed@acme.com')).toBe('mailto:ahmed@acme.com');
     expect(mailHref(null)).toBeNull();
   });
 });
 
 describe('finding tasks by their external contacts', () => {
   const summary = summarizeExternalContacts([
-    { name: 'Ahmed Al Said', company: 'OXY Oman' },
+    { name: 'Ahmed Al Said', company: 'Acme Oman' },
     { name: 'Sara Nasser', company: null },
   ]);
 
   it('matches a contact’s name or company, ignoring case', () => {
     expect(matchesExternalContact(summary, 'sara')).toBe(true);
-    expect(matchesExternalContact(summary, 'oxy')).toBe(true);
+    expect(matchesExternalContact(summary, 'acme')).toBe(true);
     expect(matchesExternalContact(summary, 'pdo')).toBe(false);
     expect(matchesExternalContact(null, 'sara')).toBe(false);
   });
 
   it('filters by company, ignoring case and extra spaces', () => {
-    expect(hasExternalCompany(summary, 'oxy  oman')).toBe(true);
-    expect(hasExternalCompany(summary, 'OXY')).toBe(false);
-    expect(hasExternalCompany(null, 'OXY')).toBe(false);
+    expect(hasExternalCompany(summary, 'acme  oman')).toBe(true);
+    expect(hasExternalCompany(summary, 'Acme')).toBe(false);
+    expect(hasExternalCompany(null, 'Acme')).toBe(false);
   });
 
   it('lists the companies to filter by, A to Z, each once', () => {
     expect(
       externalCompanyOptions([
-        { externalSummary: summarizeExternalContacts([{ name: 'A', company: 'PDO' }, { name: 'B', company: 'oxy' }]) },
+        { externalSummary: summarizeExternalContacts([{ name: 'A', company: 'PDO' }, { name: 'B', company: 'acme' }]) },
         { externalSummary: null },
         {},
-        { externalSummary: summarizeExternalContacts([{ name: 'C', company: 'OXY' }]) },
+        { externalSummary: summarizeExternalContacts([{ name: 'C', company: 'Acme' }]) },
       ]),
-    ).toEqual(['oxy', 'PDO']);
+    ).toEqual(['acme', 'PDO']);
   });
 });
 
@@ -148,10 +148,10 @@ describe('the words every app uses for external contacts', () => {
   });
 
   it('writes a contact’s company and designation as one line, and a suggestion with both', () => {
-    expect(contactRoleLine({ company: 'OXY', designation: 'Site lead' })).toBe('OXY · Site lead');
+    expect(contactRoleLine({ company: 'Acme', designation: 'Site lead' })).toBe('Acme · Site lead');
     expect(contactRoleLine({ company: null, designation: 'Site lead' })).toBe('Site lead');
     expect(contactRoleLine({ company: null, designation: null })).toBe('');
-    expect(suggestionText({ name: 'Ahmed Al Said', company: 'OXY', designation: 'Site lead' })).toBe('Ahmed Al Said · OXY · Site lead');
+    expect(suggestionText({ name: 'Ahmed Al Said', company: 'Acme', designation: 'Site lead' })).toBe('Ahmed Al Said · Acme · Site lead');
     expect(suggestionText({ name: 'Sara', company: null, designation: null })).toBe('Sara');
   });
 });

@@ -80,7 +80,7 @@ beforeEach(async () => {
 });
 
 async function create(payload: Record<string, unknown>, who = 'org', roles?: string[]) {
-  return app.inject({ method: 'POST', url: '/api/v1/meetings', headers: await auth(who, roles), payload: { title: 'OXY review', startAt: at(24), endAt: at(25), status: 'SCHEDULED', ...payload } });
+  return app.inject({ method: 'POST', url: '/api/v1/meetings', headers: await auth(who, roles), payload: { title: 'Site review', startAt: at(24), endAt: at(25), status: 'SCHEDULED', ...payload } });
 }
 
 describe('New meeting with "Create a Teams link"', () => {
@@ -91,7 +91,7 @@ describe('New meeting with "Create a Teams link"', () => {
     const [made] = [...ms.meetings.values()];
     expect(m).toMatchObject({ onlineLink: made!.joinWebUrl, onlineMeetingProvider: 'TEAMS', teamsLinkPending: false });
     expect(m.teamsNotice).toBeUndefined();
-    expect(made).toMatchObject({ subject: 'OXY review', startDateTime: at(24), endDateTime: at(25) });
+    expect(made).toMatchObject({ subject: 'Site review', startDateTime: at(24), endDateTime: at(25) });
     expect(res.body).not.toMatch(/onlineMeetingId|onlineMeetingOwnerId/);
     expect(res.body).not.toContain(made!.id);
   });
@@ -146,9 +146,9 @@ describe('Editing a meeting', () => {
 
   it('a new time or title updates the Teams meeting', async () => {
     const m = await teamsMeeting();
-    await put(m.id, { title: 'OXY review (moved)', startAt: at(48), endAt: at(50), teamsLink: true });
+    await put(m.id, { title: 'Site review (moved)', startAt: at(48), endAt: at(50), teamsLink: true });
     await teams.idle();
-    expect([...ms.meetings.values()][0]).toMatchObject({ subject: 'OXY review (moved)', startDateTime: at(48), endDateTime: at(50) });
+    expect([...ms.meetings.values()][0]).toMatchObject({ subject: 'Site review (moved)', startDateTime: at(48), endDateTime: at(50) });
   });
 
   it('unticking takes the link away and deletes the Teams meeting', async () => {

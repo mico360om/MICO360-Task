@@ -24,7 +24,7 @@ const MEMBERS = [person('u1', 'Mona', 'Owner'), person('u9', 'Omar', 'Ahmed')];
 const guest = (id: string, name: string, company: string | null, extra: Record<string, unknown> = {}) => ({
   id, companyId: 'co1', name, company, designation: null, email: null, phone: null, notes: null, retiredAt: null, mergedIntoId: null, createdById: 'u1', createdAt: '', updatedAt: '', ...extra,
 });
-const AHMED = guest('g1', 'Ahmed Al Harthy', 'OXY', { email: 'ahmed@oxy.com' });
+const AHMED = guest('g1', 'Ahmed Al Harthy', 'Acme', { email: 'ahmed@acme.com' });
 const SARA = guest('g2', 'Sara Nasser', 'PDO');
 const LISTS: Record<string, ReturnType<typeof guest>[]> = { p1: [AHMED, SARA], p3: [AHMED, SARA], p2: [guest('g7', 'Sara Nasser', 'PDO', { companyId: 'co2' })] };
 const taskGuest = (g: ReturnType<typeof guest>, linkId: string) => ({
@@ -33,7 +33,7 @@ const taskGuest = (g: ReturnType<typeof guest>, linkId: string) => ({
 const TASK = {
   id: 't1', key: 'MICO-12', title: 'Rig inspection', description: '', projectId: 'p1', columnId: 'p1-c1', columnCategory: 'TODO', position: 0, priority: 'NORMAL',
   startDate: null, dueDate: null, progress: 0, completedAt: null, createdAt: '', updatedAt: '', version: 3, recurrenceRule: null, recurrenceParentId: null, recurrenceNextId: null,
-  guests: [{ id: 'g1', name: 'Ahmed Al Harthy', company: 'OXY' }],
+  guests: [{ id: 'g1', name: 'Ahmed Al Harthy', company: 'Acme' }],
   taskGuests: [taskGuest(AHMED, 'x1')],
 } as unknown as ApiTask;
 
@@ -104,10 +104,10 @@ describe('Task form: guests in the Assign box', () => {
     await userEvent.click(within(mode).getByRole('radio', { name: GUEST_WORDS.guest }));
     expect(screen.queryByRole('combobox', { name: 'Add people' })).toBeNull();
     await userEvent.click(screen.getByRole('combobox', { name: GUEST_WORDS.search }));
-    await userEvent.click(await screen.findByRole('option', { name: /^Ahmed Al Harthy \(OXY\)/ }));
+    await userEvent.click(await screen.findByRole('option', { name: /^Ahmed Al Harthy \(Acme\)/ }));
     const [first, second] = chips();
     expect(first).toHaveTextContent('Mona Owner');
-    expect(second).toHaveTextContent('Ahmed Al Harthy · OXY');
+    expect(second).toHaveTextContent('Ahmed Al Harthy · Acme');
     expect(within(second!).getByText(GUEST_WORDS.badge)).toBeInTheDocument();
     // Back to the team: the people search again.
     await userEvent.click(within(mode).getByRole('radio', { name: GUEST_WORDS.internal }));
@@ -139,7 +139,7 @@ describe('Task form: guests in the Assign box', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(GUEST_WORDS.needsTeam);
     expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/tasks'))).toBe(false);
     // The guest taken off again: nothing in the way.
-    await userEvent.click(screen.getByRole('button', { name: 'Remove Ahmed Al Harthy (OXY)' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Remove Ahmed Al Harthy (Acme)' }));
     expect(screen.queryByText(GUEST_WORDS.needsTeam)).toBeNull();
   });
 
@@ -151,21 +151,21 @@ describe('Task form: guests in the Assign box', () => {
     const form = screen.getByRole('group', { name: GUEST_WORDS.newGuest });
     await userEvent.type(within(form).getByRole('textbox', { name: /^Name/ }), 'Ahmed Al Harthy');
     await userEvent.click(await within(form).findByRole('button', { name: GUEST_WORDS.useThem }));
-    expect(chips().map((li) => li.textContent)).toEqual([expect.stringContaining('Mona Owner'), expect.stringContaining('Ahmed Al Harthy · OXY')]);
+    expect(chips().map((li) => li.textContent)).toEqual([expect.stringContaining('Mona Owner'), expect.stringContaining('Ahmed Al Harthy · Acme')]);
     expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/projects/p1/guests'))).toBe(false);
   });
 
   it('editing applies the guest changes after the task save: team members added first, then guests added and removed, team members removed last', async () => {
     const { onClose } = renderDialog({ task: TASK });
     await ready();
-    await waitFor(() => expect(chips().map((li) => li.textContent)).toEqual([expect.stringContaining('Omar Ahmed'), expect.stringContaining('Ahmed Al Harthy · OXY')]));
+    await waitFor(() => expect(chips().map((li) => li.textContent)).toEqual([expect.stringContaining('Omar Ahmed'), expect.stringContaining('Ahmed Al Harthy · Acme')]));
     // Team: Mona in, Omar out. Guests: Sara in, Ahmed out.
     const people = screen.getByRole('combobox', { name: 'Add people' });
     await userEvent.click(people);
     await userEvent.type(people, 'Mon');
     await userEvent.click(await screen.findByRole('option', { name: /Mona Owner/ }));
     await userEvent.click(screen.getByRole('button', { name: 'Remove Omar Ahmed' }));
-    await userEvent.click(screen.getByRole('button', { name: 'Remove Ahmed Al Harthy (OXY)' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Remove Ahmed Al Harthy (Acme)' }));
     await pickGuest(/^Sara Nasser/);
     await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
     await waitFor(() => expect(onClose).toHaveBeenCalled());
@@ -186,12 +186,12 @@ describe('Task form: guests in the Assign box', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Project' }));
     await userEvent.click(await screen.findByRole('option', { name: /Rig Works/ }));
     await ready();
-    expect(screen.getByRole('button', { name: 'Remove Ahmed Al Harthy (OXY)' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Remove Ahmed Al Harthy (Acme)' })).toBeInTheDocument();
     // Another company's project, whose list hasn't got them.
     await userEvent.click(screen.getByRole('button', { name: 'Project' }));
     await userEvent.click(await screen.findByRole('option', { name: /Ops Board/ }));
-    await waitFor(() => expect(screen.queryByRole('button', { name: 'Remove Ahmed Al Harthy (OXY)' })).toBeNull());
-    expect(screen.getByText(/Ahmed Al Harthy \(OXY\) isn’t on Ops Board’s guest list/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Remove Ahmed Al Harthy (Acme)' })).toBeNull());
+    expect(screen.getByText(/Ahmed Al Harthy \(Acme\) isn’t on Ops Board’s guest list/)).toBeInTheDocument();
     expect(calls.some((c) => /\/projects\/p2\/guests\?q=Ahmed/.test(c.url))).toBe(true);
     expect(calls.some((c) => /\/projects\/p3\/guests\?q=Ahmed/.test(c.url))).toBe(false);
   });

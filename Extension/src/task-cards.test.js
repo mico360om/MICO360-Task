@@ -55,10 +55,10 @@ describe('what a board card shows (as the web’s TaskCard)', () => {
   });
 
   it('names the task’s external contacts in short, as the web’s card does, and says so in its label', () => {
-    const externalSummary = { count: 2, name: 'Ahmed Al Said', company: 'OXY', names: ['Ahmed Al Said', 'Sara'], companies: ['OXY'] };
+    const externalSummary = { count: 2, name: 'Ahmed Al Said', company: 'Acme', names: ['Ahmed Al Said', 'Sara'], companies: ['Acme'] };
     const f = cardFacts(task({ externalSummary }), { timeZone: TZ, now: NOW });
-    expect(f.external).toBe('External: Ahmed Al Said (OXY) and 1 more');
-    expect(cardLabel(task(), f)).toMatch(/, External: Ahmed Al Said \(OXY\) and 1 more$/);
+    expect(f.external).toBe('External: Ahmed Al Said (Acme) and 1 more');
+    expect(cardLabel(task(), f)).toMatch(/, External: Ahmed Al Said \(Acme\) and 1 more$/);
     expect(cardFacts(task(), { timeZone: TZ, now: NOW }).external).toBeNull();
     expect(cardFacts(task({ externalSummary: null }), { timeZone: TZ, now: NOW }).external).toBeNull();
   });
@@ -66,7 +66,7 @@ describe('what a board card shows (as the web’s TaskCard)', () => {
   it('initials as the web’s avatars make them: from letters only, “?” when there is none', () => {
     expect(personInitials('Omar  Ahmed Ali')).toBe('OA');
     expect(personInitials('bilal')).toBe('B');
-    expect(personInitials('Mohammed (OXY)')).toBe('MO');
+    expect(personInitials('Mohammed (Acme)')).toBe('MA');
     expect(personInitials('Sara - Ahmed')).toBe('SA');
     expect(personInitials('  ')).toBe('?');
   });
@@ -120,7 +120,7 @@ const webInitials = await load('Web Portal/frontend/src/lib/initials.ts');
 
 describe.skipIf(!webInitials)('a card’s faces match the web’s avatars (lib/initials.ts, used by components/ui/Avatar.tsx)', () => {
   it('the same initials for every name', () => {
-    const names = ['Omar Ahmed', ' omar  bin said ', 'Mohammed (OXY)', 'Yaqoob (OXY IT)', '"Sara" Ahmed', 'Sara - Ahmed', 'Crew 3 North', '(2) Bilal Khan', 'محمد علي', 'فاطمة (OXY)', 'Layla', '(OXY)', 'Omar 42', 'émile zola', '🚀 Launch', '', '   ', '123 - !'];
+    const names = ['Omar Ahmed', ' omar  bin said ', 'Mohammed (Acme)', 'Yaqoob (Acme IT)', '"Sara" Ahmed', 'Sara - Ahmed', 'Crew 3 North', '(2) Bilal Khan', 'محمد علي', 'فاطمة (Acme)', 'Layla', '(Acme)', 'Omar 42', 'émile zola', '🚀 Launch', '', '   ', '123 - !'];
     for (const n of names) expect(personInitials(n), JSON.stringify(n)).toBe(webInitials.personInitials(n));
   });
 });

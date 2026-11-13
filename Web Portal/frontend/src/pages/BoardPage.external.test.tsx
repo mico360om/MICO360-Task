@@ -26,7 +26,7 @@ beforeEach(() => {
   clearQueue(localStorageQueueStore);
   localStorage.clear();
   tasks = [
-    task('t1', 'MICO-1', 'Rig inspection', [{ id: 'g1', name: 'Ahmed Al Said', company: 'OXY' }, { id: 'g2', name: 'Sara Nasser', company: 'PDO' }]),
+    task('t1', 'MICO-1', 'Rig inspection', [{ id: 'g1', name: 'Ahmed Al Said', company: 'Acme' }, { id: 'g2', name: 'Sara Nasser', company: 'PDO' }]),
     task('t2', 'MICO-2', 'Pipeline survey', [{ id: 'g3', name: 'Salim', company: 'PDO' }]),
     task('t3', 'MICO-3', 'Internal only', []),
   ];
@@ -63,15 +63,15 @@ function renderPage() {
 describe('BoardPage: guests', () => {
   it('each card says who outside the company is named on it', async () => {
     renderPage();
-    expect(await screen.findByText('Guest: Ahmed Al Said (OXY) and 1 more')).toBeInTheDocument();
+    expect(await screen.findByText('Guest: Ahmed Al Said (Acme) and 1 more')).toBeInTheDocument();
     expect(screen.getByText('Guest: Salim (PDO)')).toBeInTheDocument();
     expect(screen.queryByText(/^External:/)).toBeNull();
   });
 
   it('an older server’s rows (contacts in short, no guests) still show the line', async () => {
-    tasks = [task('t1', 'MICO-1', 'Rig inspection', undefined, { count: 2, name: 'Ahmed Al Said', company: 'OXY', names: ['Ahmed Al Said', 'Sara'], companies: ['OXY'] })];
+    tasks = [task('t1', 'MICO-1', 'Rig inspection', undefined, { count: 2, name: 'Ahmed Al Said', company: 'Acme', names: ['Ahmed Al Said', 'Sara'], companies: ['Acme'] })];
     renderPage();
-    expect(await screen.findByText('Guest: Ahmed Al Said (OXY) and 1 more')).toBeInTheDocument();
+    expect(await screen.findByText('Guest: Ahmed Al Said (Acme) and 1 more')).toBeInTheDocument();
   });
 
   it('filters the board by guest company', async () => {
@@ -79,7 +79,7 @@ describe('BoardPage: guests', () => {
     await screen.findByText('Rig inspection');
     expect(screen.queryByRole('button', { name: 'Filter by external company' })).toBeNull();
     await userEvent.click(screen.getByRole('button', { name: 'Filter by guest company' }));
-    await userEvent.click(await screen.findByRole('option', { name: 'OXY' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Acme' }));
     await waitFor(() => expect(screen.queryByText('Pipeline survey')).toBeNull());
     expect(screen.getByText('Rig inspection')).toBeInTheDocument();
     expect(screen.queryByText('Internal only')).toBeNull();
@@ -94,7 +94,7 @@ describe('BoardPage: guests', () => {
     expect(screen.getByText('Pipeline survey')).toBeInTheDocument();
     // With the company too: nothing is left, and the board says so.
     await userEvent.click(screen.getByRole('button', { name: 'Filter by guest company' }));
-    await userEvent.click(await screen.findByRole('option', { name: 'OXY' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Acme' }));
     expect(await screen.findByText('No cards on this board match these filters.')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Show every card' }));
     await waitFor(() => expect(screen.getByText('Internal only')).toBeInTheDocument());

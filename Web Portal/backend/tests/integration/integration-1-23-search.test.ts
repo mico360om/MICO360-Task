@@ -43,7 +43,7 @@ beforeAll(async () => {
   const column = await prisma.kanbanColumn.create({ data: { projectId, name: 'To do', category: 'TODO', position: 0 } });
   taskId = (await prisma.task.create({ data: { key: `I${T}-1`, title: 'Handover pack', projectId, columnId: column.id, createdById: owner, clientVisible: true } })).id;
   await prisma.comment.create({ data: { taskId, userId: client, body: `Please send the ${w('commissioning')} sheets`, fromClient: true } });
-  seriesId = (await prisma.meetingSeries.create({ data: { name: `Monthly ${w('oxyreview')}`, projectId, createdById: owner } })).id;
+  seriesId = (await prisma.meetingSeries.create({ data: { name: `Monthly ${w('sitereview')}`, projectId, createdById: owner } })).id;
   meetingId = (
     await prisma.meeting.create({
       data: {
@@ -76,7 +76,7 @@ describe('1.23 integration: search with Teams links, meeting series and client a
   });
 
   it('a series’ name finds nothing of its own (its meetings are found by their words)', async () => {
-    expect(await found(w('oxyreview'))).toEqual([]);
+    expect(await found(w('sitereview'))).toEqual([]);
   });
 
   it('a client’s comment is found like any comment, by staff', async () => {

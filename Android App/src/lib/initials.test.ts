@@ -7,7 +7,7 @@ describe('initials from letters only', () => {
   it('the first letter of the first two words; brackets, dashes and numbers left out', () => {
     expect(personInitials('Ada Lovelace')).toBe('AL');
     expect(personInitials(' omar  bin said ')).toBe('OB');
-    expect(personInitials('Mohammed (OXY)')).toBe('MO');
+    expect(personInitials('Mohammed (Acme)')).toBe('MA');
     expect(personInitials('Sara - Ahmed')).toBe('SA');
     expect(personInitials('(2) Bilal Khan')).toBe('BK');
     expect(personInitials('محمد علي')).toBe('مع');
@@ -43,7 +43,7 @@ const webInitials = resolve(__dirname, '../../../Web Portal/frontend/src/lib/ini
 describe.skipIf(!existsSync(webInitials))('the same as the website', () => {
   it('makes the same initials from every name', async () => {
     const web = (await import(/* @vite-ignore */ webInitials)) as { letterWords: (n: string) => string[]; personInitials: (n: string) => string };
-    const names = ['Ada Lovelace', ' omar  bin said ', 'Mohammed (OXY)', 'Yaqoob (OXY IT)', '"Sara" Ahmed', 'Sara - Ahmed', 'Crew 3 North', '(2) Bilal Khan', 'محمد علي', 'فاطمة (OXY)', 'مُحَمَّد', 'Layla', '(OXY)', 'Omar 42', 'émile zola', '🚀 Launch', 'Ünïcode Work', '', '   ', '123 - !', '— · —'];
+    const names = ['Ada Lovelace', ' omar  bin said ', 'Mohammed (Acme)', 'Yaqoob (Acme IT)', '"Sara" Ahmed', 'Sara - Ahmed', 'Crew 3 North', '(2) Bilal Khan', 'محمد علي', 'فاطمة (Acme)', 'مُحَمَّد', 'Layla', '(Acme)', 'Omar 42', 'émile zola', '🚀 Launch', 'Ünïcode Work', '', '   ', '123 - !', '— · —'];
     for (const n of names) {
       expect(personInitials(n), n).toBe(web.personInitials(n));
       expect(letterWords(n), n).toEqual(web.letterWords(n));

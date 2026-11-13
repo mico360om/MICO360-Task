@@ -32,7 +32,7 @@ let column: string;
 
 async function binnedTaskWithGuestAndCategory(title: string) {
   const t = await tasks.createTask({ title, projectId: world.projects.PA, columnId: column, createdById: world.people.ana, assigneeIds: [world.people.ana] });
-  const guest = await guests.createForProject(world.projects.PA, { name: `${title} guest`, company: 'OXY' }, world.people.ana);
+  const guest = await guests.createForProject(world.projects.PA, { name: `${title} guest`, company: 'Acme' }, world.people.ana);
   await guests.addToTask(t.id, guest.id, 'gate 3', world.people.ana);
   const category = await categories.create(world.projects.PA, { name: `${title} cat` }, world.people.ana);
   await categories.setForTask(t.id, [category.id], world.people.ana);
@@ -63,7 +63,7 @@ describe('a task in the Recycle Bin keeps its guests and categories', () => {
     expect(row?.taskCount).toBe(1);
     // The bin's read-only view names them.
     const detail = await bin.detail(admin, task.id);
-    expect(detail.contacts).toEqual([{ name: 'Binned survey guest', company: 'OXY' }]);
+    expect(detail.contacts).toEqual([{ name: 'Binned survey guest', company: 'Acme' }]);
     expect(detail.categories).toEqual([{ id: category.id, name: 'Binned survey cat', color: category.color, retired: false }]);
   });
 
