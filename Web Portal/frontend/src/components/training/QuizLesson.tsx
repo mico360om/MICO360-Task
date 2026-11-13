@@ -94,7 +94,7 @@ export function QuizLesson({ lesson, onDone }: { lesson: LessonView; onDone: (do
     // The lesson's attempts and best score change: read it again for the start.
     void qc.invalidateQueries({ queryKey: sideKeys.lesson(side, lesson.id), exact: true });
     // Passed: the lesson is done (the course may be finished, a certificate ready).
-    if (r.passed) onDone({ courseProgressPct: lesson.courseProgressPct, courseCompleted: r.courseCompleted, certificateId: r.certificateId, nextLessonId: lesson.nextLessonId });
+    if (r.passed) onDone({ courseProgressPct: lesson.courseProgressPct, courseCompleted: r.courseCompleted, certificateId: r.certificateId, nextLessonId: lesson.nextLessonId, moduleDone: null });
   };
 
   if (paper) return <QuizPaper paper={paper} onResult={handedIn} />;

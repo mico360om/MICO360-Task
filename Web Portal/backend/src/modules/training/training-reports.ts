@@ -73,6 +73,8 @@ function rowOf(key: string, label: string, list: readonly ReportEnrolment[]): Re
     overdue: list.filter((e) => e.overdue).length,
     completionRate: list.length ? Math.round((completed / list.length) * 100) : null,
     averageScore: scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : null,
+    enrolments: list.length,
+    selfStarted: list.filter((e) => e.started && !e.assigned).length,
   };
 }
 

@@ -81,6 +81,13 @@ export type QuestionKind = (typeof QUESTION_KINDS)[number];
 export const TARGET_KINDS = ['USER', 'GROUP', 'DEPARTMENT', 'COMPANY', 'PROJECT'] as const;
 export type TargetKind = (typeof TARGET_KINDS)[number];
 
+/** What the Assign form offers; PEOPLE is several ticked people, stored as USER rows sharing a batchId. */
+export const ASSIGN_TARGET_KINDS = ['USER', 'GROUP', 'DEPARTMENT', 'COMPANY', 'PROJECT', 'PEOPLE'] as const;
+
+/** A module's state for one person in the one course. */
+export const MODULE_STATUSES = ['NOT_STARTED', 'IN_PROGRESS', 'DONE'] as const;
+export type ModuleStatus = (typeof MODULE_STATUSES)[number];
+
 export const RULE_TARGET_KINDS = ['GROUP', 'DEPARTMENT', 'COMPANY'] as const;
 export type RuleTargetKind = (typeof RULE_TARGET_KINDS)[number];
 
@@ -101,6 +108,10 @@ export type CertificateStatus = (typeof CERTIFICATE_STATUSES)[number];
 
 export const REPORT_BY = ['course', 'person', 'department', 'role', 'company', 'project'] as const;
 export type ReportBy = (typeof REPORT_BY)[number];
+
+/** Reports "Dates by": when people got the training, or when they finished it. */
+export const REPORT_DATES = ['got', 'finished'] as const;
+export type ReportDates = (typeof REPORT_DATES)[number];
 
 /** Notice types sent through the Notification & Scheduling engine (one "Training" Settings row). */
 export const TRAINING_NOTICE_TYPES = [
@@ -146,6 +157,9 @@ export const LIMITS = {
   reviewDaysMax: 180,
   timeLimitMax: 240,
   maxAttemptsMax: 50,
+  moduleTitle: 160,
+  modulesPerCourse: 30,
+  peoplePerAssignment: 200,
 } as const;
 
 // ── Shapes the API answers with ──────────────────────────────────────────────────────────────────────
@@ -166,6 +180,10 @@ export interface CertificateRef {
   issuedAt: string;
   expiresAt: string | null;
   status: CertificateStatus;
+  /** When the person finished the course (the certificate's date line). */
+  completedAt: string;
+  learnerName: string;
+  verifyUrl: string;
 }
 
 /** The person's own state on a course (none yet: NOT_STARTED, enrolled false). */
@@ -185,6 +203,13 @@ export interface MyCourseState {
   startedAt: string | null;
   completedAt: string | null;
   certificate: CertificateRef | null;
+  lessonsDone: number;
+  /** Modules done of those the person sees; null for a course without modules. */
+  modules: { done: number; total: number } | null;
+  /** Modules new for the person's role since they last finished (D3 never undoes completion). */
+  newForRole: number;
+  /** What Continue opens. */
+  next: { lessonId: string; lessonTitle: string; moduleTitle: string | null } | null;
 }
 
 export interface CourseCard {
@@ -224,6 +249,21 @@ export interface LessonOutline {
   locked: boolean;
   /** Changed by a Major change since they finished: review it. */
   review: boolean;
+  moduleId: string | null;
+}
+
+export interface ModuleOutline {
+  id: string;
+  title: string;
+  position: number;
+  status: ModuleStatus;
+  lessonsDone: number;
+  lessonCount: number;
+  minutes: number;
+  doneAt: string | null;
+  newForRole: boolean;
+  nextLessonId: string | null;
+  lessonIds: string[];
 }
 
 export interface QuestionAndAnswer {
@@ -242,6 +282,8 @@ export interface CourseDetail extends CourseCard {
   version: number;
   certificateMonths: number | null;
   lessons: LessonOutline[];
+  /** The modules the person sees, in order; [] for a course without modules. */
+  modules: ModuleOutline[];
   resources: FileRef[];
   questions: QuestionAndAnswer[];
   myRating: number | null;
@@ -306,6 +348,7 @@ export interface LessonView {
   courseProgressPct: number;
   /** "Mark as watched" may be used after this many seconds on the lesson (no player events). */
   watchFallbackSeconds: number;
+  module: { id: string; title: string; lessonIndex: number; lessonCount: number } | null;
 }
 
 export interface LessonDone {
@@ -313,6 +356,8 @@ export interface LessonDone {
   courseCompleted: boolean;
   certificateId: string | null;
   nextLessonId: string | null;
+  /** The module this lesson just finished, when it did. */
+  moduleDone: { id: string; title: string } | null;
 }
 
 export interface PaperQuestion {
@@ -391,6 +436,7 @@ export interface VerifyResult {
   issuedAt: string;
   expiresAt: string | null;
   status: CertificateStatus;
+  completedAt: string;
 }
 
 export interface TrainingAccess {
@@ -429,6 +475,11 @@ export interface ManageCourseRow {
   /** Lessons edited since the last publish (Publish asks Minor fix / Major change). */
   unpublishedChanges: boolean;
   updatedAt: string;
+  notice: string | null;
+  /** Who it is limited to, in words; null: everyone it is meant for. */
+  limitedTo: string | null;
+  everPublished: boolean;
+  moduleCount: number;
 }
 
 export interface ManageOption {
@@ -468,6 +519,29 @@ export interface ManageLesson {
   steps: LessonStep[];
   quiz: ManageQuiz | null;
   changedVersion: number;
+  moduleId: string | null;
+}
+
+export interface ManageModule {
+  id: string;
+  title: string;
+  position: number;
+  moduleKey: TrainingModule;
+  roleKeys: RoleKey[];
+  companyIds: string[];
+  enabled: boolean;
+  offReason: 'REMOVED' | null;
+  starter: boolean;
+  /** Who sees it, in words (visibilityWords). */
+  visibility: string;
+}
+
+export interface ModuleInput {
+  title: string;
+  moduleKey?: TrainingModule;
+  roleKeys?: RoleKey[];
+  companyIds?: string[];
+  enabled?: boolean;
 }
 
 export interface ManageCourse {
@@ -492,6 +566,8 @@ export interface ManageCourse {
   publishedAt: string | null;
   unpublishedChanges: boolean;
   lessons: ManageLesson[];
+  modules: ManageModule[];
+  notice: string | null;
   resources: FileRef[];
   /** Why Publish is refused today (e.g. a video lesson without its link); empty: ready. */
   publishProblems: string[];
@@ -513,13 +589,16 @@ export interface AssignmentRow {
   id: string;
   courseId: string;
   courseTitle: string;
-  targetKind: TargetKind;
+  targetKind: TargetKind | 'PEOPLE';
   targetId: string;
   targetLabel: string;
   mandatory: boolean;
   dueDay: string | null;
   dueDays: number | null;
   ruleId: string | null;
+  batchId: string | null;
+  /** The people of a PEOPLE assignment (one row each). */
+  members: { assignmentId: string; userId: string; name: string }[];
   people: number;
   completed: number;
   overdue: number;
@@ -556,17 +635,53 @@ export interface ReportRow {
   completionRate: number | null;
   /** Average best quiz score (percent) of those who took one; null: none. */
   averageScore: number | null;
+  /** Enrolments (a person can have several); people = distinct persons. */
+  enrolments: number;
+  selfStarted: number;
+}
+
+export interface ModuleReportRow {
+  moduleId: string;
+  title: string;
+  people: number;
+  done: number;
+  inProgress: number;
+  notStarted: number;
+}
+
+export interface ModuleLearnerRow {
+  userId: string;
+  name: string;
+  modulesDone: number;
+  modulesRequired: number;
+  lastActivityAt: string | null;
+  certificate: { id: string; code: string } | null;
 }
 
 export interface TrainingReport {
   /** ALL (administrators), COMPANIES (a Training manager's), TEAM (a project manager's team). */
   scope: 'ALL' | 'COMPANIES' | 'TEAM';
   by: ReportBy;
+  dates: ReportDates;
   totals: ReportRow;
   rows: ReportRow[];
   overdue: { userId: string; name: string; courseId: string; courseTitle: string; dueDay: string; daysLate: number; mandatory: boolean; client: boolean }[];
   expiring: { certificateId: string; userId: string; name: string; courseId: string; courseTitle: string; expiresAt: string }[];
-  quizzes: { lessonId: string; courseTitle: string; title: string; attempts: number; passRate: number | null; averageScore: number | null }[];
+  quizzes: {
+    lessonId: string;
+    courseTitle: string;
+    title: string;
+    attempts: number;
+    passRate: number | null;
+    averageScore: number | null;
+    people: number;
+    moduleTitle: string | null;
+    questions: number;
+  }[];
+  /** Per module of the one course; null for other reports. */
+  modules: ModuleReportRow[] | null;
+  /** Per person of the one course; null for other reports. */
+  learners: ModuleLearnerRow[] | null;
 }
 
 export interface QuizReport {

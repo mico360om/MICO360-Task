@@ -50,6 +50,10 @@ export const courseRow = (over: Partial<ManageCourseRow> & Pick<ManageCourseRow,
   completed: 4,
   unpublishedChanges: false,
   updatedAt: '2026-11-03T08:00:00.000Z',
+  notice: null,
+  limitedTo: null,
+  everPublished: true,
+  moduleCount: 0,
   ...over,
 });
 
@@ -67,6 +71,7 @@ export const lesson = (over: Partial<ManageLesson> & Pick<ManageLesson, 'id' | '
   steps: [],
   quiz: over.kind === 'QUIZ' ? quiz() : null,
   changedVersion: 1,
+  moduleId: null,
   ...over,
 });
 
@@ -92,6 +97,8 @@ export const manageCourse = (over: Partial<ManageCourse> = {}): ManageCourse => 
   publishedAt: null,
   unpublishedChanges: false,
   lessons: [],
+  modules: [],
+  notice: null,
   resources: [],
   publishProblems: [],
   enrolled: 0,
@@ -137,6 +144,8 @@ export const assignmentRow = (over: Partial<AssignmentRow> & Pick<AssignmentRow,
   createdAt: '2026-11-03T08:00:00.000Z',
   createdByName: 'Tara Trainer',
   frozen: false,
+  batchId: null,
+  members: [],
   ...over,
 });
 
@@ -178,6 +187,8 @@ export const certificateRow = (over: Partial<ManageCertificateRow> & Pick<Manage
   status: 'VALID',
   userId: 'u-sam',
   learnerName: 'Sam Shared',
+  completedAt: '2026-11-03T08:00:00.000Z',
+  verifyUrl: 'https://tasks.example.com/verify/TC-ABCD-EFGH-JKLM',
   ...over,
 });
 
@@ -189,17 +200,22 @@ export const reportRow = (over: Partial<ReportRow> & Pick<ReportRow, 'key' | 'la
   overdue: 1,
   completionRate: 40,
   averageScore: 82,
+  enrolments: 10,
+  selfStarted: 2,
   ...over,
 });
 
 export const report = (over: Partial<TrainingReport> = {}): TrainingReport => ({
   scope: 'ALL',
   by: 'course',
+  dates: 'got',
   totals: reportRow({ key: 'all', label: 'All' }),
   rows: [reportRow({ key: 'c1', label: 'Tasks basics' })],
   overdue: [{ userId: 'u-sam', name: 'Sam Shared', courseId: 'c1', courseTitle: 'Tasks basics', dueDay: '2026-11-01', daysLate: 4, mandatory: true, client: false }],
   expiring: [{ certificateId: 'cert1', userId: 'u-sam', name: 'Sam Shared', courseId: 'c1', courseTitle: 'Tasks basics', expiresAt: '2026-11-30T08:00:00.000Z' }],
-  quizzes: [{ lessonId: 'l-quiz', courseTitle: 'Tasks basics', title: 'Check yourself', attempts: 9, passRate: 78, averageScore: 81 }],
+  quizzes: [{ lessonId: 'l-quiz', courseTitle: 'Tasks basics', title: 'Check yourself', attempts: 9, passRate: 78, averageScore: 81, people: 9, moduleTitle: null, questions: 4 }],
+  modules: null,
+  learners: null,
   ...over,
 });
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canLearn, courseVisible, inScope, isManager, moduleVisible, reportScope, type CourseFacts, type LearnerFacts } from './training-access';
+import { canLearn, courseVisible, inScope, isManager, moduleShown, moduleVisible, reportScope, type CourseFacts, type LearnerFacts } from './training-access';
 
 const staff = (o: Partial<LearnerFacts> = {}): LearnerFacts => ({ id: 'u', client: false, admin: false, trainingManager: false, runsProject: false, companyIds: ['A'], ...o });
 const admin = staff({ admin: true, companyIds: [] });
@@ -90,5 +90,26 @@ describe('R5 who manages and in what scope', () => {
     expect(inScope(['A'], staff({ companyIds: ['B'] }))).toBe(false);
     expect(inScope(['A'], staff({ companyIds: [] }))).toBe(false);
     expect(inScope(['A'], client)).toBe(true);
+  });
+});
+
+describe('moduleShown', () => {
+  const m = (o: Partial<{ moduleKey: string; roleKeys: string[]; companyIds: string[]; enabled: boolean }> = {}) => ({ moduleKey: 'tasks', roleKeys: [], companyIds: [], enabled: true, ...o });
+  const b = staff({ companyIds: ['B'] });
+  it('never more than the feature access', () => {
+    for (const k of ['reports', 'admin']) {
+      expect(moduleShown(m({ moduleKey: k }), admin)).toBe(true);
+      for (const p of [staff(), runner, tm, client]) expect(moduleShown(m({ moduleKey: k }), p)).toBe(false);
+    }
+    expect(moduleShown(m({ moduleKey: 'management' }), admin)).toBe(true);
+    expect(moduleShown(m({ moduleKey: 'management' }), runner)).toBe(true);
+    expect(moduleShown(m({ moduleKey: 'management' }), staff())).toBe(false);
+  });
+  it('groups, companies and the switch', () => {
+    expect(moduleShown(m({ roleKeys: ['training-managers'] }), tm)).toBe(true);
+    expect(moduleShown(m({ roleKeys: ['training-managers'] }), staff())).toBe(false);
+    expect(moduleShown(m({ companyIds: ['A'] }), b)).toBe(false);
+    expect(moduleShown(m({ companyIds: ['A'] }), admin)).toBe(true);
+    for (const p of [admin, staff(), runner, tm, client]) expect(moduleShown(m({ enabled: false }), p)).toBe(false);
   });
 });

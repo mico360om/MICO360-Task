@@ -19,7 +19,7 @@ export const ROLE_LABELS: Readonly<Record<RoleKey, string>> = {
   'project-runners': 'People who run a project',
   'training-managers': 'Training managers',
 };
-export const TARGET_KIND_LABELS: Readonly<Record<TargetKind, string>> = { USER: 'Person', GROUP: 'Group', DEPARTMENT: 'Department', COMPANY: 'Company', PROJECT: 'Project' };
+export const TARGET_KIND_LABELS: Readonly<Record<TargetKind | 'PEOPLE', string>> = { USER: 'Person', GROUP: 'Group', DEPARTMENT: 'Department', COMPANY: 'Company', PROJECT: 'Project', PEOPLE: 'People' };
 export const CERTIFICATE_STATUS_LABELS: Readonly<Record<CertificateStatus, string>> = { VALID: 'Valid', EXPIRED: 'Expired', REVOKED: 'Revoked' };
 
 /** "1 lesson", "3 lessons". */

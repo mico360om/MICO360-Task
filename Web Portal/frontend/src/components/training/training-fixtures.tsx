@@ -21,6 +21,10 @@ export const mine = (over: Partial<MyCourseState> = {}): MyCourseState => ({
   startedAt: '2026-11-01T08:00:00.000Z',
   completedAt: null,
   certificate: null,
+  lessonsDone: 1,
+  modules: null,
+  newForRole: 0,
+  next: null,
   ...over,
 });
 
@@ -47,11 +51,12 @@ export const detail = (over: Partial<CourseDetail> = {}): CourseDetail => ({
   version: 1,
   certificateMonths: 12,
   lessons: [
-    { id: 'l1', position: 0, kind: 'VIDEO', title: 'Welcome', minutes: 3, done: true, locked: false, review: false },
-    { id: 'l2', position: 1, kind: 'GUIDE', title: 'Make a task', minutes: 8, done: false, locked: false, review: false },
-    { id: 'l3', position: 2, kind: 'DOCUMENT', title: 'The cheat sheet', minutes: 4, done: false, locked: true, review: false },
-    { id: 'l4', position: 3, kind: 'QUIZ', title: 'Check yourself', minutes: 10, done: false, locked: true, review: false },
+    { id: 'l1', position: 0, kind: 'VIDEO', title: 'Welcome', minutes: 3, done: true, locked: false, review: false, moduleId: null },
+    { id: 'l2', position: 1, kind: 'GUIDE', title: 'Make a task', minutes: 8, done: false, locked: false, review: false, moduleId: null },
+    { id: 'l3', position: 2, kind: 'DOCUMENT', title: 'The cheat sheet', minutes: 4, done: false, locked: true, review: false, moduleId: null },
+    { id: 'l4', position: 3, kind: 'QUIZ', title: 'Check yourself', minutes: 10, done: false, locked: true, review: false, moduleId: null },
   ],
+  modules: [],
   resources: [{ id: 'f1', name: 'Tasks guide.pdf', mimeType: 'application/pdf', sizeBytes: 3_600_000, kind: 'RESOURCE' }],
   questions: [
     { id: 'q1', question: 'Can I assign a task to two people?', answer: 'Yes — add both as assignees.', askedAt: '2026-11-02T08:00:00.000Z', answeredAt: '2026-11-03T08:00:00.000Z', mine: false },
@@ -81,6 +86,7 @@ export const lesson = (over: Partial<LessonView> = {}): LessonView => ({
   progress: { done: false, videoSeconds: 0, watchedPct: 0, stepIndex: 0 },
   courseProgressPct: 25,
   watchFallbackSeconds: 30,
+  module: null,
   ...over,
 });
 
@@ -101,11 +107,11 @@ export const myTraining = (over: Partial<MyTraining> = {}): MyTraining => ({
         progressPct: 100,
         dueDay: null,
         completedAt: '2026-11-05T08:00:00.000Z',
-        certificate: { id: 'cert1', code: 'TC-ABCD-EFGH-JKLM', courseId: 'c4', courseTitle: 'Kanban board', issuedAt: '2026-11-05T08:00:00.000Z', expiresAt: '2027-11-05T08:00:00.000Z', status: 'VALID' },
+        certificate: { id: 'cert1', code: 'TC-ABCD-EFGH-JKLM', courseId: 'c4', courseTitle: 'Kanban board', issuedAt: '2026-11-05T08:00:00.000Z', expiresAt: '2027-11-05T08:00:00.000Z', status: 'VALID', completedAt: '2026-11-05T08:00:00.000Z', learnerName: 'Sam Shared', verifyUrl: 'https://tasks.example.com/verify/TC-ABCD-EFGH-JKLM' },
       }),
     }),
   ],
-  certificates: [{ id: 'cert1', code: 'TC-ABCD-EFGH-JKLM', courseId: 'c4', courseTitle: 'Kanban board', issuedAt: '2026-11-05T08:00:00.000Z', expiresAt: '2027-11-05T08:00:00.000Z', status: 'VALID' }],
+  certificates: [{ id: 'cert1', code: 'TC-ABCD-EFGH-JKLM', courseId: 'c4', courseTitle: 'Kanban board', issuedAt: '2026-11-05T08:00:00.000Z', expiresAt: '2027-11-05T08:00:00.000Z', status: 'VALID', completedAt: '2026-11-05T08:00:00.000Z', learnerName: 'Sam Shared', verifyUrl: 'https://tasks.example.com/verify/TC-ABCD-EFGH-JKLM' }],
   ...over,
 });
 

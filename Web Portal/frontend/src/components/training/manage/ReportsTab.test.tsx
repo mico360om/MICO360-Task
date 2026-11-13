@@ -55,7 +55,7 @@ describe('Training Center → Reports', () => {
   });
 
   it('a quiz nobody has handed in yet is left out (12 Nov); with none handed in at all, it says so', async () => {
-    const fresh = { lessonId: 'l-new', courseTitle: 'Tasks basics', title: 'New quiz', attempts: 0, passRate: null, averageScore: null };
+    const fresh = { lessonId: 'l-new', courseTitle: 'Tasks basics', title: 'New quiz', attempts: 0, passRate: null, averageScore: null, people: 0, moduleTitle: null, questions: 3 };
     api.report.mockResolvedValue(report({ quizzes: [fresh, report().quizzes[0]!] }));
     const view = renderManage(<ReportsTab />);
     let quizzes = await screen.findByRole('region', { name: 'Quiz results' });

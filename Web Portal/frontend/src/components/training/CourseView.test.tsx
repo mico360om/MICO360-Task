@@ -69,7 +69,7 @@ describe('a course’s page', () => {
   });
 
   it('completed: the certificate right under the title (code, PDF, online check), then Review (from the first lesson)', async () => {
-    const cert = { id: 'cert1', code: 'TC-ABCD-EFGH-JKLM', courseId: 'c1', courseTitle: 'Tasks basics', issuedAt: '2026-11-05T08:00:00.000Z', expiresAt: '2027-11-05T08:00:00.000Z', status: 'VALID' as const };
+    const cert = { id: 'cert1', code: 'TC-ABCD-EFGH-JKLM', courseId: 'c1', courseTitle: 'Tasks basics', issuedAt: '2026-11-05T08:00:00.000Z', expiresAt: '2027-11-05T08:00:00.000Z', status: 'VALID' as const, completedAt: '2026-11-05T08:00:00.000Z', learnerName: 'Sam Shared', verifyUrl: 'https://tasks.example.com/verify/TC-ABCD-EFGH-JKLM' };
     const api = fakeLearner({ course: vi.fn(async () => detail({ mine: mine({ status: 'COMPLETED', progressPct: 100, completedAt: '2026-11-05T08:00:00.000Z', certificate: cert }) })) });
     page(api);
     const box = (await screen.findByRole('heading', { name: 'Certificate' })).closest('section')!;

@@ -39,7 +39,7 @@ export function moduleVisible(moduleKey: string, p: LearnerFacts): boolean {
 }
 
 /** R2: the course's staff groups (any one matching is enough; none: everyone). */
-function groupsMatch(roleKeys: readonly string[], p: LearnerFacts): boolean {
+export function groupsMatch(roleKeys: readonly string[], p: LearnerFacts): boolean {
   if (roleKeys.length === 0) return true;
   return roleKeys.some(
     (k) => (k === 'admins' && p.admin) || (k === 'employees' && !p.admin) || (k === 'project-runners' && p.runsProject) || (k === 'training-managers' && p.trainingManager),
@@ -47,7 +47,7 @@ function groupsMatch(roleKeys: readonly string[], p: LearnerFacts): boolean {
 }
 
 /** R3: limited to companies — staff in one of them (administrators always), clients through their projects. */
-function companiesMatch(companyIds: readonly string[], p: LearnerFacts): boolean {
+export function companiesMatch(companyIds: readonly string[], p: LearnerFacts): boolean {
   if (companyIds.length === 0) return true;
   if (!p.client && p.admin) return true;
   return p.companyIds.some((c) => companyIds.includes(c));
@@ -83,4 +83,17 @@ export function reportScope(p: LearnerFacts): 'ALL' | 'COMPANIES' | 'TEAM' | nul
 export function inScope(scopeCompanyIds: readonly string[] | null, p: Pick<LearnerFacts, 'companyIds'>): boolean {
   if (scopeCompanyIds === null) return true;
   return p.companyIds.some((c) => scopeCompanyIds.includes(c));
+}
+
+/** What the rules need to know about one module of the one course. */
+export interface ModuleFacts {
+  moduleKey: string;
+  roleKeys: readonly string[];
+  companyIds: readonly string[];
+  enabled: boolean;
+}
+
+/** A module is shown when it is on and the person has the feature, the group and the company — never more than their feature access. */
+export function moduleShown(m: ModuleFacts, p: LearnerFacts): boolean {
+  return m.enabled && moduleVisible(m.moduleKey, p) && groupsMatch(m.roleKeys, p) && companiesMatch(m.companyIds, p);
 }

@@ -4,7 +4,7 @@ import { HttpError, ValidationError } from '../../lib/http-errors';
 import { sanitizeRichHtml, isRichEmpty, parseRichHtml } from '../../lib/rich-text';
 import { LIVE_PROJECT_WHERE } from '../companies/company-access';
 import { inScope } from './training-access';
-import { certificateStatus } from './training-certificates';
+import { certificateStatus, verifyLink } from './training-certificates';
 import { conflict, courseFacts, forbidden, idOf, managerOf, notFound, scopeOf, type TrainingContext } from './training-context';
 import { checkTrainingUpload, type TrainingUpload } from './training-files';
 import { createTrainingFinish } from './training-finish';
@@ -352,6 +352,7 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
       steps,
       quiz,
       changedVersion: l.changedVersion,
+      moduleId: null,
     };
   }
 
@@ -411,6 +412,8 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
       publishedAt: iso(c.publishedAt),
       unpublishedChanges: changedSincePublish(c, lessons.map((l) => l.updatedAt)),
       lessons: lessons.map((l) => toLesson(l, byId)),
+      modules: [],
+      notice: null,
       resources: files.filter((f) => f.courseId === c.id && f.kind === 'RESOURCE').map(fileRef),
       publishProblems: problemsOf(lessons),
       enrolled,
@@ -513,6 +516,10 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
           completed: countOf(completed, c.id),
           unpublishedChanges: changedSincePublish(c, mine.map((l) => l.updatedAt)),
           updatedAt: c.updatedAt.toISOString(),
+          notice: null,
+          limitedTo: null,
+          everPublished: c.publishedAt !== null,
+          moduleCount: 0,
         };
       }),
     };
@@ -1047,6 +1054,8 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
         createdAt: r.createdAt.toISOString(),
         createdByName: creator(r.createdById),
         frozen: r.frozenAt !== null,
+        batchId: null,
+        members: [],
       };
     });
   }
@@ -1417,7 +1426,7 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
 
   // ── Certificates ────────────────────────────────────────────────────────────────────────────────
 
-  const certRef = (c: { id: string; code: string; courseId: string; courseTitle: string; issuedAt: Date; expiresAt: Date | null; revokedAt: Date | null }): CertificateRef => ({
+  const certRef = (c: { id: string; code: string; courseId: string; courseTitle: string; issuedAt: Date; expiresAt: Date | null; revokedAt: Date | null; learnerName?: string; completedAt?: Date | null }): CertificateRef => ({
     id: c.id,
     code: c.code,
     courseId: c.courseId,
@@ -1425,6 +1434,9 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
     issuedAt: c.issuedAt.toISOString(),
     expiresAt: iso(c.expiresAt),
     status: certificateStatus(c, ctx.clock()),
+    completedAt: (c.completedAt ?? c.issuedAt).toISOString(),
+    learnerName: c.learnerName ?? '',
+    verifyUrl: verifyLink(ctx.appUrl, c.code),
   });
 
   async function listCertificates(actorId: string, rawQuery: unknown) {

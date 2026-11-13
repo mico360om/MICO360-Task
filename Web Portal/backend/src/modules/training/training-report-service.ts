@@ -232,11 +232,14 @@ export function createTrainingReports(ctx: TrainingContext) {
           attempts: mine.length,
           passRate: pct(mine.filter((a) => a.passed).length, mine.length),
           averageScore: average(mine.map((a) => a.scorePct ?? 0)),
+          people: new Set(mine.map((a) => a.userId)).size,
+          moduleTitle: null,
+          questions: 0,
         };
       })
       .sort((a, b) => a.courseTitle.localeCompare(b.courseTitle));
 
-    return { scope, by: q.by, totals, rows: grouped, overdue: overdue.slice(0, 500), expiring: expiring.slice(0, 500), quizzes };
+    return { scope, by: q.by, dates: 'got', totals, rows: grouped, overdue: overdue.slice(0, 500), expiring: expiring.slice(0, 500), quizzes, modules: null, learners: null };
   }
 
   async function quizReport(viewerId: string, lessonIdRaw: unknown): Promise<QuizReport> {

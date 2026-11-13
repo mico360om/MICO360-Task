@@ -5,6 +5,8 @@ import { buildTrainingReportPdf, buildTrainingReportXlsx, trainingReportFileName
 import type { ReportRow, TrainingReport } from './training-types';
 
 const row = (key: string, label: string, o: Partial<ReportRow> = {}): ReportRow => ({
+  enrolments: 0,
+  selfStarted: 0,
   key,
   label,
   people: 4,
@@ -19,14 +21,17 @@ const row = (key: string, label: string, o: Partial<ReportRow> = {}): ReportRow 
 
 const report: TrainingReport = {
   scope: 'COMPANIES',
+  dates: 'got',
+  modules: null,
+  learners: null,
   by: 'course',
   totals: row('total', 'All courses', { people: 7, completed: 3, completionRate: 43, averageScore: 80 }),
   rows: [row('c1', 'Tasks basics'), row('c2', 'Meetings & minutes', { completionRate: null, averageScore: null, people: 0, assigned: 0, started: 0, completed: 0, overdue: 0 })],
   overdue: [{ userId: 'u1', name: 'Ana Alpha', courseId: 'c1', courseTitle: 'Tasks basics', dueDay: '2026-11-04', daysLate: 5, mandatory: true, client: false }],
   expiring: [{ certificateId: 'x1', userId: 'u2', name: 'Ben Beta', courseId: 'c1', courseTitle: 'Tasks basics', expiresAt: '2026-11-30T08:00:00.000Z' }],
-  quizzes: [{ lessonId: 'l1', courseTitle: 'Tasks basics', title: 'Tasks quiz', attempts: 9, passRate: 78, averageScore: 81 }],
+  quizzes: [{ lessonId: 'l1', courseTitle: 'Tasks basics', title: 'Tasks quiz', attempts: 9, passRate: 78, averageScore: 81, people: 5, moduleTitle: null, questions: 4 }],
 };
-const empty: TrainingReport = { scope: 'TEAM', by: 'person', totals: row('total', 'Everyone', { people: 0, assigned: 0, started: 0, completed: 0, overdue: 0, completionRate: null, averageScore: null }), rows: [], overdue: [], expiring: [], quizzes: [] };
+const empty: TrainingReport = { scope: 'TEAM', by: 'person', dates: 'got', totals: row('total', 'Everyone', { people: 0, assigned: 0, started: 0, completed: 0, overdue: 0, completionRate: null, averageScore: null }), rows: [], overdue: [], expiring: [], quizzes: [], modules: null, learners: null };
 const meta: ReportFileMeta = { generatedBy: 'Tariq Training', timeZone: 'Asia/Muscat', now: new Date('2026-11-11T08:00:00Z'), filters: ['Course: all courses', '1 Oct 2026 – 31 Oct 2026'] };
 
 describe('training report as Excel', () => {

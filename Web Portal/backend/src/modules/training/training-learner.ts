@@ -202,9 +202,20 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync) 
 
   // ── Cards ──
 
-  async function certificateRefs(rows: { id: string; code: string; courseId: string; courseTitle: string; issuedAt: Date; expiresAt: Date | null; revokedAt: Date | null }[]): Promise<CertificateRef[]> {
+  async function certificateRefs(rows: { id: string; code: string; courseId: string; courseTitle: string; issuedAt: Date; expiresAt: Date | null; revokedAt: Date | null; learnerName?: string; completedAt?: Date | null }[]): Promise<CertificateRef[]> {
     const now = ctx.clock();
-    return rows.map((c) => ({ id: c.id, code: c.code, courseId: c.courseId, courseTitle: c.courseTitle, issuedAt: c.issuedAt.toISOString(), expiresAt: iso(c.expiresAt), status: certificateStatus(c, now) }));
+    return rows.map((c) => ({
+      id: c.id,
+      code: c.code,
+      courseId: c.courseId,
+      courseTitle: c.courseTitle,
+      issuedAt: c.issuedAt.toISOString(),
+      expiresAt: iso(c.expiresAt),
+      status: certificateStatus(c, now),
+      completedAt: (c.completedAt ?? c.issuedAt).toISOString(),
+      learnerName: c.learnerName ?? '',
+      verifyUrl: verifyLink(ctx.appUrl, c.code),
+    }));
   }
 
   function mineOf(s: PairState, certificate: CertificateRef | null, inOrder: boolean): MyCourseState {
@@ -223,6 +234,10 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync) 
       startedAt: iso(e?.startedAt),
       completedAt: s.state.status === 'COMPLETED' || s.state.status === 'REVIEW' ? iso(e?.completedAt) : null,
       certificate,
+      lessonsDone: s.doneIds.size,
+      modules: null,
+      newForRole: 0,
+      next: null,
     };
   }
 
@@ -379,9 +394,10 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync) 
       inOrder: course.inOrder,
       version: course.version,
       certificateMonths: course.certificateMonths,
+      modules: [],
       lessons: state.lessons.map((l, i) => {
         const o = outline.items[i]!;
-        return { id: l.id, position: l.position, kind: l.kind, title: l.title, minutes: l.minutes, done: o.done, locked: o.locked, review: o.review };
+        return { id: l.id, position: l.position, kind: l.kind, title: l.title, minutes: l.minutes, done: o.done, locked: o.locked, review: o.review, moduleId: null };
       }),
       resources: resources.map(fileRef),
       questions: questions.map((f) => ({ id: f.id, question: f.body ?? '', answer: f.status === 'ANSWERED' ? f.answer : null, askedAt: f.createdAt.toISOString(), answeredAt: f.status === 'ANSWERED' ? iso(f.answeredAt) : null, mine: f.userId === p.id })),
@@ -419,6 +435,7 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync) 
       courseCompleted,
       certificateId,
       nextLessonId: i >= 0 ? (state.lessons[i + 1]?.id ?? null) : null,
+      moduleDone: null,
     };
   }
 
@@ -676,6 +693,7 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync) 
         progress: { done: state.doneIds.has(lesson.id), videoSeconds: progress?.videoSeconds ?? 0, watchedPct: progress?.watchedPct ?? 0, stepIndex: Math.min(progress?.stepIndex ?? 0, Math.max(0, steps.length - 1)) },
         courseProgressPct: state.state.progressPct,
         watchFallbackSeconds: watchFallbackSeconds(lesson.minutes),
+        module: null,
       };
     },
 
@@ -897,7 +915,7 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync) 
         select: { code: true, courseTitle: true, learnerName: true, issuedAt: true, expiresAt: true, revokedAt: true },
       });
       if (!code || !row || row.code !== code) throw notFound('Certificate');
-      return { courseTitle: row.courseTitle, learnerName: row.learnerName, issuedAt: row.issuedAt.toISOString(), expiresAt: iso(row.expiresAt), status: certificateStatus(row, ctx.clock()) };
+      return { courseTitle: row.courseTitle, learnerName: row.learnerName, issuedAt: row.issuedAt.toISOString(), expiresAt: iso(row.expiresAt), status: certificateStatus(row, ctx.clock()), completedAt: row.issuedAt.toISOString() };
     },
   };
 }

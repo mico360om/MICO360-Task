@@ -39,11 +39,11 @@ const enrolments = [
 describe('report rows', () => {
   it('by course: people, assigned, started, completed (a review still counts), overdue, rates', () => {
     const r = aggregateReport('course', enrolments, people, labels);
-    expect(r.rows).toEqual([
+    expect(r.rows).toMatchObject([
       { key: 'c2', label: 'Meetings', people: 1, assigned: 1, started: 1, completed: 0, overdue: 1, completionRate: 0, averageScore: null },
       { key: 'c1', label: 'Tasks basics', people: 3, assigned: 2, started: 2, completed: 2, overdue: 0, completionRate: 67, averageScore: 90 },
     ]);
-    expect(r.totals).toEqual({ key: 'all', label: 'All', people: 4, assigned: 3, started: 3, completed: 2, overdue: 1, completionRate: 50, averageScore: 90 });
+    expect(r.totals).toMatchObject({ key: 'all', label: 'All', people: 4, assigned: 3, started: 3, completed: 2, overdue: 1, completionRate: 50, averageScore: 90 });
   });
 
   it('by person, department, role, company (a person in two companies counts in both) and project', () => {
