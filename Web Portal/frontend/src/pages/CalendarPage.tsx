@@ -6,7 +6,7 @@ import { calendarApi, DEFAULT_CALENDAR_PREFS, type CalBlock, type CalReminder, t
 import { meetingsApi } from '../api/meetings';
 import { schedulingApi } from '../api/scheduling';
 import { columnsApi } from '../api/columns';
-import { filterCalendarMeetings, groupMeetingsByDay, meetingItems, meetingRange, type CalMeeting } from '../lib/calendar-meetings';
+import { filterCalendarMeetings, groupMeetingsByDay, invitedMeetingIds, meetingItems, meetingRange, type CalMeeting } from '../lib/calendar-meetings';
 import { checklistByDay as checklistItemsByDay } from '../lib/calendar-checklist';
 import { projectsApi } from '../api/projects';
 import { useProjectsWithAll } from '../lib/useProjectsWith';
@@ -226,7 +226,11 @@ export function CalendarPage() {
   }, [shown]);
   const rawMeetings = useMemo(() => (Array.isArray(meetingsQ.data) ? (meetingsQ.data as PanelMeeting[]) : []), [meetingsQ.data]);
   const meetingById = useMemo(() => new Map(rawMeetings.map((m) => [m.id, m])), [rawMeetings]);
-  const shownMeetings = useMemo(() => (show.meetings ? filterCalendarMeetings(meetingItems(rawMeetings, timeZone), filters, { myId }) : []), [rawMeetings, timeZone, filters, myId, show.meetings]);
+  // 1.23.29: "My tasks" keeps the meetings I'm invited to and haven't declined too (invitedMeetingIds).
+  const shownMeetings = useMemo(
+    () => (show.meetings ? filterCalendarMeetings(meetingItems(rawMeetings, timeZone), filters, { myId, invitedIds: invitedMeetingIds(rawMeetings) }) : []),
+    [rawMeetings, timeZone, filters, myId, show.meetings],
+  );
   const meetingsByDay = useMemo(() => groupMeetingsByDay(shownMeetings), [shownMeetings]);
   const meetingEnd = useCallback((id: string) => meetingById.get(id)?.endAt ?? null, [meetingById]);
   const checklistByDay = useMemo(

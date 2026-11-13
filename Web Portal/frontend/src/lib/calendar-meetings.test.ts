@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { filterCalendarMeetings, groupMeetingsByDay, meetingItems, meetingRange } from './calendar-meetings';
+import { filterCalendarMeetings, groupMeetingsByDay, invitedMeetingIds, meetingItems, meetingRange } from './calendar-meetings';
 import { DEFAULT_FILTERS } from './calendar-model';
 import type { Meeting } from '../api/meetings';
 
@@ -53,9 +53,10 @@ describe('meetings on the calendar', () => {
 
   // 1.23.29 — "My tasks" keeps the meetings I organise AND the ones I'm invited to and haven't declined (the
   // meeting reminders' rule: the organiser, then each invitee who didn't decline). The list says my own row
-  // and answer (myAttendeeId, myResponse).
+  // and answer (myAttendeeId, myResponse), handed to the filter as `invitedIds` — the calendar items keep the
+  // shape the Android app's and the extension's copies compare against (their drift tests).
   it('“My tasks”: meetings I organise, or am invited to and haven’t declined', () => {
-    const items = meetingItems([
+    const listed = [
       meeting({ id: 'organised' }),
       { ...meeting({ id: 'invited', organizerId: 'u2' }), myAttendeeId: 'a1', myResponse: 'PENDING' },
       { ...meeting({ id: 'going', organizerId: 'u2' }), myAttendeeId: 'a2', myResponse: 'ACCEPTED' },
@@ -63,12 +64,16 @@ describe('meetings on the calendar', () => {
       { ...meeting({ id: 'declined', organizerId: 'u2' }), myAttendeeId: 'a4', myResponse: 'DECLINED' },
       { ...meeting({ id: 'not-mine', organizerId: 'u2' }), myAttendeeId: null, myResponse: null },
       meeting({ id: 'older-server', organizerId: 'u2' }), // no myAttendeeId at all
-    ], TZ);
-    const mine = filterCalendarMeetings(items, { ...DEFAULT_FILTERS, mine: true }, { myId: 'u1' }).map((i) => i.id);
+    ];
+    const invitedIds = invitedMeetingIds(listed);
+    expect([...invitedIds].sort()).toEqual(['going', 'invited', 'maybe']);
+    const mine = filterCalendarMeetings(meetingItems(listed, TZ), { ...DEFAULT_FILTERS, mine: true }, { myId: 'u1', invitedIds }).map((i) => i.id);
     expect(mine).toEqual(['organised', 'invited', 'going', 'maybe']);
     // Organising and having declined my own row: still mine (I run it).
-    const own = meetingItems([{ ...meeting({ id: 'own' }), myAttendeeId: 'a5', myResponse: 'DECLINED' }], TZ);
-    expect(filterCalendarMeetings(own, { ...DEFAULT_FILTERS, mine: true }, { myId: 'u1' }).map((i) => i.id)).toEqual(['own']);
+    const own = [{ ...meeting({ id: 'own' }), myAttendeeId: 'a5', myResponse: 'DECLINED' }];
+    expect(filterCalendarMeetings(meetingItems(own, TZ), { ...DEFAULT_FILTERS, mine: true }, { myId: 'u1', invitedIds: invitedMeetingIds(own) }).map((i) => i.id)).toEqual(['own']);
+    // The items themselves keep their shape (no field the app's and extension's copies don't make).
+    expect(Object.keys(meetingItems(listed, TZ)[1]!).sort()).toEqual(Object.keys(meetingItems([meeting({ id: 'x' })], TZ)[0]!).sort());
   });
 
   it('groups by day and asks the server for the whole visible range', () => {

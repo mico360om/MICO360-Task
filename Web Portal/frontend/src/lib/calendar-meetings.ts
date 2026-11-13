@@ -21,8 +21,6 @@ export interface CalMeeting {
   location: string | null;
   recurring: boolean;
   cancelled: boolean;
-  /** 1.23.29: I'm on its people and haven't declined (my own row and answer, as the list says them). */
-  invited: boolean;
 }
 
 /** A meeting from the list, with my own row and answer (the meetings list says them; older servers leave them out). */
@@ -34,6 +32,15 @@ export type ListedMeeting = Meeting & { myAttendeeId?: string | null; myResponse
  */
 export function invitedNotDeclined(m: Pick<ListedMeeting, 'myAttendeeId' | 'myResponse'>): boolean {
   return !!m.myAttendeeId && m.myResponse !== 'DECLINED';
+}
+
+/**
+ * The meetings I'm invited to and haven't declined, for "My tasks" (filterCalendarMeetings' `invitedIds`). Kept
+ * beside the items rather than in them: CalMeeting is the shape the Android app's and the extension's copies of
+ * this file make (their drift tests compare it), and those copies don't change in this release.
+ */
+export function invitedMeetingIds(meetings: readonly ListedMeeting[]): Set<string> {
+  return new Set(meetings.filter(invitedNotDeclined).map((m) => m.id));
 }
 
 function clock(iso: string, timeZone: string): string {
@@ -56,18 +63,20 @@ export function meetingItems(meetings: ListedMeeting[], timeZone: string): CalMe
       location: m.location,
       recurring: !!seriesIdOf(m),
       cancelled: m.status === 'CANCELLED',
-      invited: invitedNotDeclined(m),
     }));
 }
 
-/** The calendar's filters, for meetings: task-only filters (status, priority, assignee) hide them. */
-export function filterCalendarMeetings(items: CalMeeting[], f: CalendarFilters, ctx: { myId: string }): CalMeeting[] {
+/**
+ * The calendar's filters, for meetings: task-only filters (status, priority, assignee) hide them. `invitedIds`
+ * (1.23.29, invitedMeetingIds): the meetings I'm invited to and haven't declined, which "My tasks" keeps too.
+ */
+export function filterCalendarMeetings(items: CalMeeting[], f: CalendarFilters, ctx: { myId: string; invitedIds?: ReadonlySet<string> }): CalMeeting[] {
   if (!f.showMeetings || f.statuses.length || f.priorities.length || f.assigneeId) return [];
   const q = f.q.trim().toLocaleLowerCase('en');
   return items.filter((m) => {
     if (f.projectId && m.projectId !== f.projectId) return false;
     // "My tasks": meetings I organise, or am invited to and haven't declined (1.23.29).
-    if (f.mine && m.organizerId !== ctx.myId && !m.invited) return false;
+    if (f.mine && m.organizerId !== ctx.myId && !ctx.invitedIds?.has(m.id)) return false;
     if (!f.showCompleted && m.status === 'COMPLETED') return false;
     if (q && !m.title.toLocaleLowerCase('en').includes(q)) return false;
     return true;

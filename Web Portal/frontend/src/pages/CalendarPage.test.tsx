@@ -441,6 +441,21 @@ describe('CalendarPage — meetings', () => {
     ];
   });
 
+  // 1.23.29 — "My tasks" keeps the meetings I'm invited to and haven't declined (the list's myAttendeeId/myResponse).
+  it('“My tasks” shows the meetings I organise and the ones I’m invited to, not the ones I declined', async () => {
+    meetingRows = [
+      meeting({ id: 'org', title: 'Organised by me', recurrenceRule: null, startAt: '2026-10-14T06:00:00.000Z' }),
+      { ...meeting({ id: 'inv', title: 'Invited to', recurrenceRule: null, organizerId: 'u2', startAt: '2026-10-14T08:00:00.000Z' }), myAttendeeId: 'a1', myResponse: 'PENDING' },
+      { ...meeting({ id: 'dec', title: 'Declined one', recurrenceRule: null, organizerId: 'u2', startAt: '2026-10-14T10:00:00.000Z' }), myAttendeeId: 'a2', myResponse: 'DECLINED' },
+      { ...meeting({ id: 'other', title: 'Not mine', recurrenceRule: null, organizerId: 'u2', startAt: '2026-10-14T11:00:00.000Z' }), myAttendeeId: null, myResponse: null },
+    ];
+    renderPage('/calendar?view=agenda&mine=1');
+    expect(await screen.findByRole('link', { name: /Invited to/ })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Organised by me/ })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Declined one/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Not mine/ })).not.toBeInTheDocument();
+  });
+
   it('shows meetings on their day, in company time, each opening its page', async () => {
     renderPage();
     await screen.findByRole('link', { name: /Vendor call/ });
