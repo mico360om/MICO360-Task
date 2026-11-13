@@ -609,6 +609,7 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   'POST /training/manage/assignments/preview': 'people',
   'POST /training/manage/assignments': 'people',
   'DELETE /training/manage/assignments/:id': 'people',
+  'DELETE /training/manage/assignment-batches/:batchId': 'people',
   'GET /training/manage/rules': 'people',
   'POST /training/manage/rules': 'people',
   'PATCH /training/manage/rules/:id': 'people',

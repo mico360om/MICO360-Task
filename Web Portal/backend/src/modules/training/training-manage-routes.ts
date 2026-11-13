@@ -106,6 +106,10 @@ export async function registerTrainingManageRoutes(app: FastifyInstance, deps: T
     await manage.withdrawAssignment(me(req), p(req), meta(req));
     return reply.status(204).send();
   });
+  app.delete('/training/manage/assignment-batches/:batchId', auth, async (req, reply) => {
+    await manage.withdrawBatch(me(req), (req.params as { batchId: string }).batchId, meta(req));
+    return reply.status(204).send();
+  });
   app.get('/training/manage/rules', auth, async (req) => ({ data: await manage.listRules(me(req)) }));
   app.post('/training/manage/rules', auth, async (req, reply) => reply.status(201).send({ data: await manage.createRule(me(req), req.body, meta(req)) }));
   app.patch('/training/manage/rules/:id', auth, async (req) => ({ data: await manage.updateRule(me(req), p(req), req.body, meta(req)) }));

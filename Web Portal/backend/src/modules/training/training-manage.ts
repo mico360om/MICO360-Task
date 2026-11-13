@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { HttpError, ValidationError } from '../../lib/http-errors';
+import { newRowId } from '../../lib/row-id';
 import { sanitizeRichHtml, isRichEmpty, parseRichHtml } from '../../lib/rich-text';
 import { LIVE_PROJECT_WHERE } from '../companies/company-access';
 import { inScope } from './training-access';
@@ -13,6 +14,7 @@ import { reaches, targetMatches, type AssignmentFacts } from './training-targets
 import type { TrainingSync } from './training-sync';
 import { normaliseVideoLink, videoInfo } from './training-video';
 import {
+  ASSIGN_TARGET_KINDS,
   AUDIENCES,
   COMPLETION_RULES,
   COURSE_STATUSES,
@@ -26,7 +28,6 @@ import {
   QUESTION_KINDS,
   ROLE_KEYS,
   RULE_TARGET_KINDS,
-  TARGET_KINDS,
   TRAINING_MODULES,
   type AssignmentRow,
   type CertificateRef,
@@ -128,14 +129,25 @@ const dueFields = {
 export const assignmentInputSchema = z
   .object({
     courseIds: z.array(id).min(1, 'Choose a course.').max(20, 'Choose at most 20 courses at a time.'),
-    targetKind: z.enum(TARGET_KINDS),
-    targetId: id,
+    targetKind: z.enum(ASSIGN_TARGET_KINDS),
+    /** Not sent for PEOPLE (13 Nov, R4: several ticked people, one USER assignment each sharing a batchId). */
+    targetId: id.optional(),
+    userIds: z.array(id).max(LIMITS.peoplePerAssignment, `Choose at most ${LIMITS.peoplePerAssignment} people at a time.`).optional(),
     mandatory: z.boolean(),
     ...dueFields,
     /** 12 Nov (owner answer 2): only people who join from now on — an onboarding rule underneath. */
     newStaffOnly: z.boolean().optional(),
   })
-  .refine((a) => !(a.dueDay && a.dueDays), { message: 'Choose either a due day or a number of days, not both.', path: ['dueDays'] });
+  .refine((a) => !(a.dueDay && a.dueDays), { message: 'Choose either a due day or a number of days, not both.', path: ['dueDays'] })
+  .superRefine((a, c) => {
+    if (a.targetKind !== 'PEOPLE') {
+      if (!a.targetId) c.addIssue({ code: 'custom', message: 'Choose who it is for.', path: ['targetId'] });
+      return;
+    }
+    if (!a.userIds || a.userIds.length === 0) c.addIssue({ code: 'custom', message: 'Choose at least one person.', path: ['userIds'] });
+    else if (new Set(a.userIds).size !== a.userIds.length) c.addIssue({ code: 'custom', message: 'Each person can be chosen only once.', path: ['userIds'] });
+    if (a.newStaffOnly) c.addIssue({ code: 'custom', message: '“New staff only” is for a group, a department or a company.', path: ['newStaffOnly'] });
+  });
 export type AssignmentInputParsed = z.infer<typeof assignmentInputSchema>;
 
 export const ruleInputSchema = z.object({
@@ -988,31 +1000,43 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
     if (input.dueDay) throw new ValidationError('New staff get it when they join: give a number of days after that, not a day.', { field: 'dueDay' });
   }
 
+  /** The targets to create or preview: the one target, or each ticked person as a USER (each checked like a USER target). */
+  async function checkedTargets(actor: PersonRecord, input: AssignmentInputParsed): Promise<{ kind: string; id: string; label: string }[]> {
+    if (input.targetKind === 'PEOPLE') {
+      const out: { kind: string; id: string; label: string }[] = [];
+      for (const uid of input.userIds ?? []) out.push({ kind: 'USER', id: uid, label: await checkTarget(actor, 'USER', uid) });
+      return out;
+    }
+    return [{ kind: input.targetKind, id: input.targetId!, label: await checkTarget(actor, input.targetKind, input.targetId!) }];
+  }
+
   async function previewAssignment(actorId: string, body: unknown): Promise<{ reach: number; already: number; skipped: { name: string; reason: string }[] }> {
     const actor = await managerOf(ctx, actorId);
     const input = assignmentInputSchema.parse(body ?? {});
     if (input.newStaffOnly) checkNewStaff(input);
     const courses = await publishedCourses(input.courseIds);
-    await checkTarget(actor, input.targetKind, input.targetId);
+    const targets = await checkedTargets(actor, input);
     checkDue(input);
     // Nobody there today gets it: only people who join from now on.
     if (input.newStaffOnly) return { reach: 0, already: 0, skipped: [] };
-    const people = [...(await ctx.people()).values()];
+    const people = input.targetKind === 'PEOPLE' ? [...(await ctx.people(input.userIds)).values()] : [...(await ctx.people()).values()];
     const enrolments = await prisma.trainingEnrolment.findMany({ where: { courseId: { in: courses.map((c) => c.id) }, withdrawnAt: null }, select: { userId: true, courseId: true } });
     const has = new Set(enrolments.map((e) => `${e.userId}|${e.courseId}`));
     const reached = new Set<string>();
     const skipped: { name: string; reason: string }[] = [];
     const seen = new Set<string>();
     for (const course of courses) {
-      const facts = draftFacts(actor, course.id, input);
       const cf = courseFacts(course);
-      for (const p of people) {
-        if (reaches(facts, cf, p)) reached.add(p.id);
-        else if (p.active && targetMatches(facts, p) && inScope(facts.scopeCompanyIds, p)) {
-          const reason = courses.length === 1 ? 'can’t see this course' : `can’t see “${course.title}”`;
-          const key = `${p.id}|${reason}`;
-          if (!seen.has(key) && skipped.length < 50) skipped.push({ name: p.name, reason });
-          seen.add(key);
+      for (const t of targets) {
+        const facts = draftFacts(actor, course.id, { ...input, targetKind: t.kind, targetId: t.id });
+        for (const p of people) {
+          if (reaches(facts, cf, p)) reached.add(p.id);
+          else if (p.active && targetMatches(facts, p) && inScope(facts.scopeCompanyIds, p)) {
+            const reason = courses.length === 1 ? 'can’t see this course' : `can’t see “${course.title}”`;
+            const key = `${p.id}|${reason}`;
+            if (!seen.has(key) && skipped.length < 50) skipped.push({ name: p.name, reason });
+            seen.add(key);
+          }
         }
       }
     }
@@ -1046,7 +1070,7 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
       const p = id ? people.get(id) : undefined;
       return p && (!scope || p.admin || inScope(scope, p)) ? p.name : null;
     };
-    return rows.map((r) => {
+    const singles = rows.map((r) => {
       const mine = byAssignment.get(r.id) ?? [];
       const completed = mine.filter((a) => done.has(`${a.userId}|${a.courseId}`)).length;
       const overdue = mine.filter((a) => a.dueDay && a.dueDay < today && !done.has(`${a.userId}|${a.courseId}`)).length;
@@ -1067,10 +1091,38 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
         createdAt: r.createdAt.toISOString(),
         createdByName: creator(r.createdById),
         frozen: r.frozenAt !== null,
-        batchId: null,
+        batchId: r.batchId,
         members: [],
-      };
+      } satisfies AssignmentRow;
     });
+    // R4: the USER rows made together for several people (same batch and course) are one "<n> people" entry.
+    const out: AssignmentRow[] = [];
+    const groups = new Map<string, AssignmentRow>();
+    singles.forEach((row, i) => {
+      const r = rows[i]!;
+      if (!r.batchId || r.targetKind !== 'USER') {
+        out.push({ ...row, batchId: null });
+        return;
+      }
+      const key = `${r.batchId}|${r.courseId}`;
+      const member = { assignmentId: r.id, userId: r.targetId, name: labels.get(`USER|${r.targetId}`) ?? 'A former account' };
+      const g = groups.get(key);
+      if (g) {
+        g.members.push(member);
+        g.people += row.people;
+        g.completed += row.completed;
+        g.overdue += row.overdue;
+        return;
+      }
+      const entry: AssignmentRow = { ...row, targetKind: 'PEOPLE', targetId: r.batchId, targetLabel: '', members: [member] };
+      groups.set(key, entry);
+      out.push(entry);
+    });
+    for (const g of groups.values()) {
+      g.members.sort((a, b) => a.name.localeCompare(b.name, 'en') || a.userId.localeCompare(b.userId, 'en'));
+      g.targetLabel = g.members.length === 1 ? '1 person' : `${g.members.length} people`;
+    }
+    return out;
   }
 
   /** Each target's label; M6: outside a Training manager's companies people, companies and projects are never named. */
@@ -1138,34 +1190,40 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
     const input = assignmentInputSchema.parse(body ?? {});
     if (input.newStaffOnly) checkNewStaff(input);
     const courses = await publishedCourses(input.courseIds);
-    const label = await checkTarget(actor, input.targetKind, input.targetId);
+    const targets = await checkedTargets(actor, input);
+    const label = targets[0]!.label;
     checkDue(input);
     if (input.newStaffOnly) {
       // Owner answer 2: the onboarding rule behind "New staff only" (listed in Assigned; switched off, never deleted there).
       const name = [...`New staff: ${label}`].slice(0, LIMITS.ruleName).join('');
-      const { rule, assignmentIds } = await makeRule(actor, { name, targetKind: input.targetKind, targetId: input.targetId, mandatory: input.mandatory, dueDays: input.dueDays ?? null, active: true }, courses);
+      const { rule, assignmentIds } = await makeRule(actor, { name, targetKind: input.targetKind, targetId: input.targetId!, mandatory: input.mandatory, dueDays: input.dueDays ?? null, active: true }, courses);
       await audit(actor, meta, 'training.assignment.new-staff', rule.id, { newValue: { courseIds: courses.map((c) => c.id), targetKind: input.targetKind, targetId: input.targetId } });
       return { assignments: await assignmentRows(actor, await prisma.trainingAssignment.findMany({ where: { id: { in: assignmentIds } }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] })) };
     }
     const scope = scopeOf(actor);
     const now = ctx.clock();
     const created = [];
+    // PEOPLE: one batch id for every row made together (one USER row per person and course).
+    const batchId = input.targetKind === 'PEOPLE' ? newRowId() : null;
     for (const c of courses) {
-      created.push(
-        await prisma.trainingAssignment.create({
-          data: {
-            courseId: c.id,
-            targetKind: input.targetKind,
-            targetId: input.targetId,
-            mandatory: input.mandatory,
-            dueDay: input.dueDay ?? null,
-            dueDays: input.dueDays ?? null,
-            scopeCompanyIds: scope === null ? Prisma.DbNull : scope,
-            createdById: actor.id,
-            createdAt: now,
-          },
-        }),
-      );
+      for (const t of targets) {
+        created.push(
+          await prisma.trainingAssignment.create({
+            data: {
+              courseId: c.id,
+              targetKind: t.kind,
+              targetId: t.id,
+              mandatory: input.mandatory,
+              dueDay: input.dueDay ?? null,
+              dueDays: input.dueDays ?? null,
+              scopeCompanyIds: scope === null ? Prisma.DbNull : scope,
+              batchId,
+              createdById: actor.id,
+              createdAt: now,
+            },
+          }),
+        );
+      }
     }
     await sync.assignments(created.map((a) => a.id));
     for (const a of created) await audit(actor, meta, 'training.assignment.create', a.id, { newValue: { courseId: a.courseId, targetKind: a.targetKind, targetId: a.targetId, mandatory: a.mandatory, dueDay: a.dueDay, dueDays: a.dueDays } });
@@ -1192,6 +1250,18 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
     }
     const withdrawn = await sync.withdrawAssignments([a.id], actor.id);
     await audit(actor, meta, 'training.assignment.withdraw', a.id, { oldValue: { courseId: a.courseId, targetKind: a.targetKind, targetId: a.targetId }, newValue: { enrolmentsWithdrawn: withdrawn } });
+  }
+
+  /** R4: withdraw every person of a "several people" assignment that this manager may change. */
+  async function withdrawBatch(actorId: string, batchId: unknown, meta?: Meta): Promise<void> {
+    const actor = await managerOf(ctx, actorId);
+    const bid = idOf(batchId, 'Assignment');
+    const rows = await prisma.trainingAssignment.findMany({ where: { batchId: bid, withdrawnAt: null, ruleId: null }, select: { id: true, courseId: true, targetId: true, scopeCompanyIds: true } });
+    if (rows.length === 0) throw notFound('Assignment');
+    const mine = rows.filter((r) => mayChange(actor, r.scopeCompanyIds));
+    if (mine.length === 0) throw forbidden('Only an administrator (or a Training manager of the same companies) can withdraw this assignment.');
+    const withdrawn = await sync.withdrawAssignments(mine.map((r) => r.id), actor.id);
+    await audit(actor, meta, 'training.assignment.withdraw-batch', bid, { oldValue: { assignments: mine.length, people: [...new Set(mine.map((r) => r.targetId))].length }, newValue: { enrolmentsWithdrawn: withdrawn } });
   }
 
   // ── Onboarding rules (R8) ───────────────────────────────────────────────────────────────────────
@@ -1535,6 +1605,7 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
     previewAssignment,
     assign,
     withdrawAssignment,
+    withdrawBatch,
     listRules,
     createRule,
     updateRule,
