@@ -1,4 +1,4 @@
-import { useRef, type KeyboardEvent } from 'react';
+import { useLayoutEffect, useRef, type KeyboardEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { useTrainingAccess } from './training-queries';
 
@@ -30,6 +30,23 @@ export function hubTabs(access: { manager?: boolean; teamReports?: boolean } | u
 export function LearningHubTabs({ current }: { current: HubTab | null }) {
   const tabs = hubTabs(useTrainingAccess().data);
   const links = useRef(new Map<HubTab, HTMLAnchorElement>());
+  const strip = useRef<HTMLElement>(null);
+  const tabKeys = tabs.map((t) => t.key).join();
+
+  // The row starts at its start edge (0 is the start in left-to-right and right-to-left); if the open tab is not fully
+  // inside it, move by the least that brings it in (a bigger scrollLeft shows what is further along, whichever way the
+  // text runs). Instant, never centred, never the page.
+  useLayoutEffect(() => {
+    const nav = strip.current;
+    if (!nav) return;
+    nav.scrollLeft = 0;
+    const open = current ? links.current.get(current) : undefined;
+    if (!open) return;
+    const box = nav.getBoundingClientRect();
+    const tab = open.getBoundingClientRect();
+    if (tab.right > box.right) nav.scrollLeft += tab.right - box.right;
+    else if (tab.left < box.left) nav.scrollLeft -= box.left - tab.left;
+  }, [current, tabKeys]);
 
   const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
     if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft' && e.key !== 'Home' && e.key !== 'End') return;
@@ -42,7 +59,7 @@ export function LearningHubTabs({ current }: { current: HubTab | null }) {
   };
 
   return (
-    <nav aria-label="Learning Hub" onKeyDown={onKeyDown} className="-mb-px flex min-w-0 gap-1 overflow-x-auto border-b border-line">
+    <nav ref={strip} aria-label="Learning Hub" onKeyDown={onKeyDown} className="-mb-px flex min-w-0 gap-1 overflow-x-auto border-b border-line">
       {tabs.map((t) => {
         const here = t.key === current;
         return (
