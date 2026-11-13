@@ -594,6 +594,12 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   'POST /training/manage/courses/:id/publish': 'shared',
   'POST /training/manage/courses/:id/unpublish': 'shared',
   'POST /training/manage/courses/:id/archive': 'shared',
+  // 1.23.31 Learning Hub as one course: Duplicate (R3) and modules in any course (D6) — authoring, like the rest.
+  'POST /training/manage/courses/:id/duplicate': 'shared',
+  'POST /training/manage/courses/:id/modules': 'shared',
+  'PATCH /training/manage/modules/:id': 'shared',
+  'POST /training/manage/modules/:id/remove': 'shared',
+  'PUT /training/manage/courses/:id/module-order': 'shared',
   'POST /training/manage/courses/:id/lessons': 'shared',
   'PATCH /training/manage/lessons/:id': 'shared',
   'DELETE /training/manage/lessons/:id': 'shared',

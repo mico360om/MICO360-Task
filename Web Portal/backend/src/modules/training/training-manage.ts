@@ -8,7 +8,9 @@ import { inScope } from './training-access';
 import { certificateStatus, verifyLink } from './training-certificates';
 import { conflict, courseFacts, forbidden, idOf, managerOf, notFound, scopeOf, type TrainingContext } from './training-context';
 import { checkTrainingUpload, type TrainingUpload } from './training-files';
+import { createTrainingDuplicate } from './training-duplicate';
 import { createTrainingFinish } from './training-finish';
+import { courseLimitedTo, courseNotice, createModuleOps, readNotMerged, type ModuleAfter } from './training-manage-modules';
 import { readSetting, stringList, writeSetting, type PersonRecord } from './prisma-training-store';
 import { reaches, targetMatches, type AssignmentFacts } from './training-targets';
 import type { TrainingSync } from './training-sync';
@@ -89,7 +91,8 @@ export const lessonInputSchema = z.object({
   videoUrl: z.string().max(LIMITS.videoUrl).nullable().optional(),
   fileId: id.nullable().optional(),
 });
-const lessonPatchSchema = lessonInputSchema.partial();
+/** 1.23.31: `moduleId` moves the lesson to a module of its course (last in it); null: no module. */
+const lessonPatchSchema = lessonInputSchema.partial().extend({ moduleId: id.nullable().optional() });
 
 const stepSchema = z.object({
   title: words(LIMITS.stepTitle).nullable().optional(),
@@ -166,7 +169,12 @@ const orderSchema = z.object({ lessonIds: z.array(id).max(LIMITS.lessonsPerCours
 const answerSchema = z.object({ answer: required(LIMITS.feedbackAnswer, 'an answer') });
 const revokeSchema = z.object({ reason: required(LIMITS.revokeReason, 'a reason') });
 const settingsSchema = z.object({ tourOff: z.array(id).max(500) });
-const courseListQuery = z.object({ status: z.enum(COURSE_STATUSES).or(z.literal('')).optional(), module: z.enum(TRAINING_MODULES).or(z.literal('')).optional(), q: z.string().max(LIMITS.search).optional() });
+const courseListQuery = z.object({
+  status: z.enum(COURSE_STATUSES).or(z.literal('')).optional(),
+  module: z.enum(TRAINING_MODULES).or(z.literal('')).optional(),
+  audience: z.enum(AUDIENCES).or(z.literal('')).optional(),
+  q: z.string().max(LIMITS.search).optional(),
+});
 const feedbackListQuery = z.object({ kind: z.enum(FEEDBACK_KINDS).or(z.literal('')).optional(), status: z.enum(FEEDBACK_STATUSES).or(z.literal('')).optional() });
 const certificateListQuery = z.object({ courseId: id.or(z.literal('')).optional(), q: z.string().max(LIMITS.search).optional() });
 const assignmentListQuery = z.object({ courseId: id.or(z.literal('')).optional() });
@@ -290,9 +298,14 @@ function chunks<T>(list: readonly T[], size = 300): T[][] {
   return out;
 }
 
-export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
+/** The one-course conversion's record (training-one-course's ONE_COURSE_KEY): its edited short courses get Manage's notice. */
+const ONE_COURSE_KEY = 'training.oneCourse';
+
+/** `oneCourseKey`: the conversion record's settings key (tests use their own). */
+export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync, o: { oneCourseKey?: string } = {}) {
   const { prisma } = ctx;
   const finish = createTrainingFinish(ctx);
+  const oneCourseKey = o.oneCourseKey ?? ONE_COURSE_KEY;
 
   /** R3: after lessons went from under people (a link cleared, a lesson removed), finish anyone now done. */
   async function recheck(courseId: string): Promise<void> {
@@ -332,6 +345,9 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
   /** A content change to the course itself (Publish then asks Minor fix / Major change). */
   const touchCourse = (courseId: string, actor: PersonRecord) => prisma.trainingCourse.update({ where: { id: courseId }, data: { updatedById: actor.id, updatedAt: ctx.clock() } });
   const touchLesson = (lessonId: string) => prisma.trainingLesson.update({ where: { id: lessonId }, data: { updatedAt: ctx.clock() } });
+  /** 1.23.31 (D6): modules in any course, and Duplicate (R3). */
+  const modules = createModuleOps(ctx, { manageCourse, touchCourse, audit, recheck, assertShownPublishable });
+  const copies = createTrainingDuplicate(ctx, { manageCourse, audit });
 
   function toLesson(l: LessonRow, files: Map<string, FileRow>): ManageLesson {
     const steps: LessonStep[] = l.steps.map((s) => ({ id: s.id, position: s.position, title: s.title, body: s.body, image: s.imageFileId ? { fileId: s.imageFileId, alt: s.imageAlt } : null }));
@@ -365,7 +381,7 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
       steps,
       quiz,
       changedVersion: l.changedVersion,
-      moduleId: null,
+      moduleId: l.moduleId,
     };
   }
 
@@ -403,6 +419,7 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
       prisma.trainingEnrolment.count({ where: { courseId: c.id, withdrawnAt: null, completedAt: { not: null } } }),
     ]);
     const signature = c.signatureFileId ? byId.get(c.signatureFileId) : undefined;
+    const [courseModules, notMerged] = await Promise.all([modules.manageModules(c), readNotMerged(prisma, oneCourseKey)]);
     return {
       id: c.id,
       title: c.title,
@@ -425,8 +442,8 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
       publishedAt: iso(c.publishedAt),
       unpublishedChanges: changedSincePublish(c, lessons.map((l) => l.updatedAt)),
       lessons: lessons.map((l) => toLesson(l, byId)),
-      modules: [],
-      notice: null,
+      modules: courseModules,
+      notice: courseNotice(c, notMerged),
       resources: files.filter((f) => f.courseId === c.id && f.kind === 'RESOURCE').map(fileRef),
       publishProblems: problemsOf(lessons),
       enrolled,
@@ -499,16 +516,19 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
     const q = courseListQuery.parse(rawQuery ?? {});
     const text = q.q?.trim();
     const courses = await prisma.trainingCourse.findMany({
-      where: { ...(q.status ? { status: q.status } : {}), ...(q.module ? { moduleKey: q.module } : {}), ...(text ? { title: { contains: text } } : {}) },
+      where: { ...(q.status ? { status: q.status } : {}), ...(q.module ? { moduleKey: q.module } : {}), ...(q.audience ? { audience: q.audience } : {}), ...(text ? { title: { contains: text } } : {}) },
       orderBy: [{ title: 'asc' }, { id: 'asc' }],
       take: 1000,
     });
     const ids = courses.map((c) => c.id);
     if (ids.length === 0) return { courses: [] };
-    const [lessons, enrolled, completed] = await Promise.all([
+    const [lessons, enrolled, completed, moduleCounts, notMerged, names] = await Promise.all([
       prisma.trainingLesson.findMany({ where: { courseId: { in: ids } }, select: { courseId: true, minutes: true, updatedAt: true } }),
       prisma.trainingEnrolment.groupBy({ by: ['courseId'], where: { courseId: { in: ids }, withdrawnAt: null }, _count: { _all: true } }),
       prisma.trainingEnrolment.groupBy({ by: ['courseId'], where: { courseId: { in: ids }, withdrawnAt: null, completedAt: { not: null } }, _count: { _all: true } }),
+      modules.moduleCounts(ids),
+      readNotMerged(prisma, oneCourseKey),
+      modules.companyNames(courses.flatMap((c) => stringList(c.companyIds))),
     ]);
     const countOf = (rows: { courseId: string; _count: { _all: number } }[], cid: string) => rows.find((r) => r.courseId === cid)?._count._all ?? 0;
     return {
@@ -529,10 +549,10 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
           completed: countOf(completed, c.id),
           unpublishedChanges: changedSincePublish(c, mine.map((l) => l.updatedAt)),
           updatedAt: c.updatedAt.toISOString(),
-          notice: null,
-          limitedTo: null,
+          notice: courseNotice(c, notMerged),
+          limitedTo: courseLimitedTo({ audience: c.audience, moduleKey: c.moduleKey, roleKeys: stringList(c.roleKeys), companyIds: stringList(c.companyIds) }, names),
           everPublished: c.publishedAt !== null,
-          moduleCount: 0,
+          moduleCount: moduleCounts.get(c.id) ?? 0,
         };
       }),
     };
@@ -652,6 +672,27 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
     if (fresh.length) throw new HttpError(`This course is published, and this change would leave it unfinished: ${fresh[0]} Unpublish it first to rework it.`, 'WOULD_BREAK_PUBLISHED', 409, { problems: fresh });
   }
 
+  /**
+   * M8 for modules (1.23.31): a module switched off, removed or a lesson moved must leave a PUBLISHED course's lessons
+   * people can see (those in a module switched on, or in none) as finished as they were — never no lesson at all, a
+   * quiz without questions now shown, and so on. A course without modules is never asked.
+   */
+  async function assertShownPublishable(courseId: string, after: ModuleAfter): Promise<void> {
+    const course = await prisma.trainingCourse.findUnique({ where: { id: courseId }, select: { status: true } });
+    if (course?.status !== 'PUBLISHED') return;
+    const [rows, mods] = await Promise.all([lessonsOf(courseId), prisma.trainingModule.findMany({ where: { courseId }, select: { id: true, enabled: true } })]);
+    if (mods.length === 0) return;
+    const now = new Map(mods.map((m) => [m.id, m.enabled]));
+    const next = new Map([...now, ...(after.enabled ?? new Map<string, boolean>())]);
+    if (after.removed) next.delete(after.removed);
+    // A lesson with no module (or a module that is gone) shows under "Other lessons".
+    const shown = (moduleId: string | null, on: ReadonlyMap<string, boolean>) => moduleId === null || !on.has(moduleId) || on.get(moduleId) === true;
+    const before = new Set(publishProblems(rows.filter((l) => shown(l.moduleId, now)).map(toProblem)));
+    const moduleAfter = (l: LessonRow) => (after.moduleOf?.has(l.id) ? after.moduleOf.get(l.id)! : l.moduleId);
+    const fresh = publishProblems(rows.filter((l) => shown(moduleAfter(l), next)).map(toProblem)).filter((x) => !before.has(x));
+    if (fresh.length) throw new HttpError(`This course is published, and this change would leave it unfinished: ${fresh[0]} Unpublish it first to rework it.`, 'WOULD_BREAK_PUBLISHED', 409, { problems: fresh });
+  }
+
   async function lessonFields(courseId: string, kind: string, input: z.infer<typeof lessonPatchSchema>): Promise<Prisma.TrainingLessonUncheckedUpdateInput> {
     const data: Prisma.TrainingLessonUncheckedUpdateInput = {};
     if (input.title !== undefined) data.title = input.title;
@@ -702,6 +743,9 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
     const input = lessonPatchSchema.parse(body ?? {});
     if (input.kind !== undefined && input.kind !== l.kind) throw new ValidationError('A lesson’s kind can’t change: add a new lesson instead.', { field: 'kind' });
     const data = await lessonFields(l.courseId, l.kind, input);
+    // 1.23.31 (D6): moved to another module of its course (or none) — last in it; the course's change, not the lesson's.
+    const moving = input.moduleId !== undefined && input.moduleId !== l.moduleId;
+    if (moving) await modules.checkLessonModule(l.courseId, input.moduleId!);
     await assertStillPublishable(l.courseId, (lessons, rows) =>
       lessons.map((x, i) =>
         rows[i]!.id !== l.id
@@ -714,9 +758,16 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
     const VIDEO_FIELDS = new Set(['videoProvider', 'videoId', 'videoHash', 'videoUrl']);
     const current = l as unknown as Record<string, unknown>;
     const contentChanged = Object.entries(data).some(([k, v]) => !VIDEO_FIELDS.has(k) && (current[k] ?? null) !== (v ?? null));
+    if (moving) {
+      await assertShownPublishable(l.courseId, { moduleOf: new Map([[l.id, input.moduleId!]]) });
+      const last = await prisma.trainingLesson.findFirst({ where: { courseId: l.courseId }, orderBy: [{ position: 'desc' }], select: { position: true } });
+      Object.assign(data, { moduleId: input.moduleId, position: (last?.position ?? -1) + 1 });
+    }
     await prisma.trainingLesson.update({ where: { id: l.id }, data: { ...data, updatedAt: contentChanged ? ctx.clock() : l.updatedAt } });
+    if (moving) await touchCourse(l.courseId, actor);
     await audit(actor, meta, 'training.lesson.update', l.id, { newValue: { ...input, body: input.body === undefined ? undefined : '(changed)' } });
-    if (l.kind === 'VIDEO' && l.videoId && 'videoId' in data && !data.videoId) await recheck(l.courseId);
+    // A lesson leaving a module (or a video's link cleared) can leave people with everything done (R3).
+    if (moving || (l.kind === 'VIDEO' && l.videoId && 'videoId' in data && !data.videoId)) await recheck(l.courseId);
     return manageLesson(l.id);
   }
 
@@ -1590,6 +1641,11 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
     publish,
     unpublish: (actorId: string, courseId: unknown, meta?: Meta) => setStatus(actorId, courseId, 'DRAFT', meta),
     archive: (actorId: string, courseId: unknown, meta?: Meta) => setStatus(actorId, courseId, 'ARCHIVED', meta),
+    duplicate: copies.duplicate,
+    addModule: modules.addModule,
+    updateModule: modules.updateModule,
+    removeModule: modules.removeModule,
+    reorderModules: modules.reorderModules,
     addLesson,
     updateLesson,
     deleteLesson,

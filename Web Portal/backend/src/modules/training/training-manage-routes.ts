@@ -67,6 +67,14 @@ export async function registerTrainingManageRoutes(app: FastifyInstance, deps: T
   app.post('/training/manage/courses/:id/publish', auth, async (req) => ({ data: await manage.publish(me(req), p(req), req.body, meta(req)) }));
   app.post('/training/manage/courses/:id/unpublish', auth, async (req) => ({ data: await manage.unpublish(me(req), p(req), meta(req)) }));
   app.post('/training/manage/courses/:id/archive', auth, async (req) => ({ data: await manage.archive(me(req), p(req), meta(req)) }));
+  // R3: a copy of the course as an unpublished draft (its id opens the editor).
+  app.post('/training/manage/courses/:id/duplicate', auth, async (req, reply) => reply.status(201).send({ data: await manage.duplicate(me(req), p(req), meta(req)) }));
+
+  // ── Modules (1.23.31, D6: any course) ──
+  app.post('/training/manage/courses/:id/modules', auth, async (req, reply) => reply.status(201).send({ data: await manage.addModule(me(req), p(req), req.body, meta(req)) }));
+  app.patch('/training/manage/modules/:id', auth, async (req) => ({ data: await manage.updateModule(me(req), p(req), req.body, meta(req)) }));
+  app.post('/training/manage/modules/:id/remove', auth, async (req) => ({ data: await manage.removeModule(me(req), p(req), req.body, meta(req)) }));
+  app.put('/training/manage/courses/:id/module-order', auth, async (req) => ({ data: await manage.reorderModules(me(req), p(req), req.body, meta(req)) }));
 
   // ── Lessons, steps, quizzes ──
   app.post('/training/manage/courses/:id/lessons', auth, async (req, reply) => reply.status(201).send({ data: await manage.addLesson(me(req), p(req), req.body, meta(req)) }));

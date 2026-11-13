@@ -3,7 +3,7 @@ import { withRowLock } from '../../lib/sentinel-lock';
 import { addMonths, certificateStatus, newCertificateCode } from './training-certificates';
 import type { TrainingContext } from './training-context';
 import { stringList, type PersonRecord } from './prisma-training-store';
-import { OTHER_UNIT, allUnitsDone, certificateCoversUnits } from './training-modules';
+import { OTHER_UNIT, allUnitsDone, certificateCoversUnits, unitProgress } from './training-modules';
 import { loadStates, pairKey, type PairState } from './training-read';
 import { cycleStart, isCourseComplete, retakeActive, reviewPending } from './training-state';
 
@@ -52,6 +52,25 @@ const doneModuleIds = (state: PairState): string[] => state.units.filter((u) => 
 
 /** Everything the person needs is done: every module they see (1.23.30), else every lesson by the completion rule (R9). */
 const finishedAll = (rule: string, state: PairState): boolean => (state.modules.length > 0 ? allUnitsDone(state.units) : isCourseComplete(rule, state.lessons, state.doneIds));
+
+/**
+ * Batch 4b's delete impact, 1.23.31: the person's state as it would be read without this lesson — gone from their
+ * lessons and from its module (each module's progress worked out again, a module left with no lesson gone, as
+ * loadStates would read it), so `finishedAll` asks what settle would ask after the deletion.
+ */
+export function stateWithout(state: PairState, lessonId: string, rule: string): PairState {
+  const lessons = state.lessons.filter((l) => l.id !== lessonId);
+  if (state.modules.length === 0) return { ...state, lessons };
+  const byId = new Map(lessons.map((l) => [l.id, l]));
+  const since = cycleStart(state.enrolment);
+  const units = state.units.flatMap((u) => {
+    const lessonIds = u.unit.lessonIds.filter((id) => id !== lessonId);
+    if (lessonIds.length === 0) return [];
+    const unit = { ...u.unit, lessonIds };
+    return [{ ...u, ...unitProgress(unit, rule, lessonIds.map((id) => byId.get(id)!), state.doneIds, state.done, u.recordedAt, since), unit }];
+  });
+  return { ...state, lessons, units };
+}
 
 /** The person's certificates on the course still valid at `now` (not revoked, not expired). */
 const validWhere = (userId: string, courseId: string, now: Date) => ({ userId, courseId, revokedAt: null, OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] });
@@ -306,6 +325,7 @@ export function createTrainingFinish(ctx: TrainingContext) {
   /**
    * Batch 4b (owner, 13 Nov): how many people `recheck` would finish if this lesson were deleted now — the same
    * people (open enrolments of a published course, not finished or in review) and the same rule, read only.
+   * 1.23.31: a course with modules asks whether every module the person sees would be done (stateWithout).
    */
   async function finishingWithout(courseId: string, lessonId: string): Promise<number> {
     const course = await prisma.trainingCourse.findUnique({ where: { id: courseId }, select: COURSE });
@@ -320,7 +340,7 @@ export function createTrainingFinish(ctx: TrainingContext) {
       for (const userId of part) {
         const state = states.get(pairKey(userId, courseId));
         if (!state?.enrolment || state.state.status === 'COMPLETED' || state.state.status === 'REVIEW') continue;
-        if (isCourseComplete(course.completionRule, state.lessons.filter((l) => l.id !== lessonId), state.doneIds)) finishing++;
+        if (finishedAll(course.completionRule, stateWithout(state, lessonId, course.completionRule))) finishing++;
       }
     }
     return finishing;
