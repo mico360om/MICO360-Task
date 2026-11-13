@@ -8,7 +8,7 @@
 > 3. Old or expired links show a short page ("This link no longer works; open the task or chat in MICO360 Tasks") and never say why.
 > 4. Replaced profile photos stop opening; only each person's current photo stays public.
 >
-> Also (owner rule, 13 Nov): nothing under `Android App/` or `Extension/` changes. Both keep working through the same-field, same-path signed links, proved by the client check script and their existing test suites; the compatibility tests §10 asks for live in the backend's tests instead (they import the app's and the extension's own helpers). Pre-release owner check 1 (§13) is done: live answers carry no CDN or cache-hit headers. Built as release 1.23.29 on `fix/protected-files`.
+> Also (owner rule, 13 Nov): nothing under `Android App/` or `Extension/` changes. Both keep working through the same-field, same-path signed links, proved by the client check script and their existing test suites; the compatibility tests §10 asks for live in the backend's tests instead (they import the app's and the extension's own helpers). Pre-release owner check 1 (§13) is done: live answers carry no CDN or cache-hit headers. Built on `fix/protected-files`; ships as release 1.23.30 (renumbered 13 Nov: a save-conflicts fix took 1.23.29).
 
 Code read at `D:/mico-release/wt-int127` (branch `integrate/1.23.27`, commit `d2c37115`). Evidence is given as `path:line`, relative to that folder unless the path is absolute. Older app releases were read with `git show v1.1.0:…` and `git show v1.0.1:…`.
 
