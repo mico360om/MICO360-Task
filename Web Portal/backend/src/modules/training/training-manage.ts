@@ -95,6 +95,8 @@ export const lessonInputSchema = z.object({
 });
 /** 1.23.31: `moduleId` moves the lesson to a module of its course (last in it); null: no module. */
 const lessonPatchSchema = lessonInputSchema.partial().extend({ moduleId: id.nullable().optional() });
+/** Final review (1.23.32): a new lesson may go straight into a module of its course (last in it); null or not sent: no module. */
+const lessonAddSchema = lessonInputSchema.extend({ moduleId: id.nullable().optional() });
 
 const stepSchema = z.object({
   title: words(LIMITS.stepTitle).nullable().optional(),
@@ -741,17 +743,20 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync, o
   async function addLesson(actorId: string, courseId: unknown, body: unknown, meta?: Meta): Promise<ManageLesson> {
     const actor = await managerOf(ctx, actorId);
     const c = await courseRow(courseId);
-    const input = lessonInputSchema.parse(body ?? {});
+    const input = lessonAddSchema.parse(body ?? {});
     const count = await prisma.trainingLesson.count({ where: { courseId: c.id } });
     if (count >= LIMITS.lessonsPerCourse) throw new ValidationError(`A course has at most ${LIMITS.lessonsPerCourse} lessons.`);
+    const moduleId = input.moduleId ?? null;
+    await modules.checkLessonModule(c.id, moduleId);
     const data = await lessonFields(c.id, input.kind, input);
+    // Last in the course, so last in its module too (a module's lessons are in course order).
     const last = await prisma.trainingLesson.findFirst({ where: { courseId: c.id }, orderBy: [{ position: 'desc' }], select: { position: true } });
     const created = await prisma.trainingLesson.create({
-      data: { ...(data as Prisma.TrainingLessonUncheckedCreateInput), courseId: c.id, kind: input.kind, title: input.title, minutes: input.minutes ?? 5, position: (last?.position ?? -1) + 1, changedVersion: c.version },
+      data: { ...(data as Prisma.TrainingLessonUncheckedCreateInput), courseId: c.id, moduleId, kind: input.kind, title: input.title, minutes: input.minutes ?? 5, position: (last?.position ?? -1) + 1, changedVersion: c.version },
     });
     if (input.kind === 'QUIZ') await prisma.trainingQuiz.create({ data: { lessonId: created.id } });
     await touchCourse(c.id, actor);
-    await audit(actor, meta, 'training.lesson.create', created.id, { newValue: { courseId: c.id, kind: input.kind, title: input.title } });
+    await audit(actor, meta, 'training.lesson.create', created.id, { newValue: { courseId: c.id, kind: input.kind, title: input.title, moduleId } });
     return manageLesson(created.id);
   }
 

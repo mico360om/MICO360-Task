@@ -308,6 +308,35 @@ describe('lessons and modules', () => {
     expect(c.lessons.map((l) => l.title).sort()).toEqual(['Four', 'One', 'Three', 'Two']);
     expect(audits.filter((a) => a.action === 'training.module.remove').length).toBeGreaterThanOrEqual(3);
   });
+
+  it('a new lesson goes straight into a module of its course, last in it; none sent: no module; another course’s module is refused (final review 3)', async () => {
+    let k = await newCourse('Adding into');
+    const loose = await guideLesson(k.id, 'Loose');
+    k = await addModule(k.id, { title: 'First' });
+    k = await addModule(k.id, { title: 'Second' });
+    const first = moduleNamed(k, 'First').id;
+    const second = moduleNamed(k, 'Second').id;
+    await moveLesson(loose.id, first);
+    expect((await addLesson(k.id, { kind: 'GUIDE', title: 'Into second', moduleId: second })).moduleId).toBe(second);
+    expect((await addLesson(k.id, { kind: 'VIDEO', title: 'Into first', moduleId: first })).moduleId).toBe(first);
+    expect((await addLesson(k.id, { kind: 'GUIDE', title: 'Nowhere', moduleId: null })).moduleId).toBeNull();
+    expect((await addLesson(k.id, { kind: 'QUIZ', title: 'Nowhere either' })).moduleId).toBeNull();
+    k = await getCourse(k.id);
+    const inModule = (id: string | null) => [...k.lessons].filter((l) => l.moduleId === id).sort((x, y) => x.position - y.position).map((l) => l.title);
+    expect(inModule(first)).toEqual(['Loose', 'Into first']);
+    expect(inModule(second)).toEqual(['Into second']);
+    expect(inModule(null)).toEqual(['Nowhere', 'Nowhere either']);
+
+    const other = await newCourse('Not this one');
+    const theirs = (await addModule(other.id, { title: 'Theirs' })).modules[0]!.id;
+    const before = await prisma.trainingLesson.count({ where: { courseId: k.id } });
+    for (const moduleId of [theirs, 'nope']) {
+      const refused = await call('amy', 'POST', `/training/manage/courses/${k.id}/lessons`, { kind: 'GUIDE', title: 'Wrong', moduleId });
+      expect(refused.status).toBe(400);
+      expect(refused.body.error!.message).toBe('Choose a module of this course.');
+    }
+    expect(await prisma.trainingLesson.count({ where: { courseId: k.id } })).toBe(before);
+  });
 });
 
 describe('a module change on a published course', () => {
