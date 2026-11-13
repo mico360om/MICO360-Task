@@ -340,9 +340,12 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync, o
     return l;
   }
 
-  /** A content change to the course itself (Publish then asks Minor fix / Major change). */
-  const touchCourse = (courseId: string, actor: PersonRecord) => prisma.trainingCourse.update({ where: { id: courseId }, data: { updatedById: actor.id, updatedAt: ctx.clock() } });
-  const touchLesson = (lessonId: string) => prisma.trainingLesson.update({ where: { id: lessonId }, data: { updatedAt: ctx.clock() } });
+  /**
+   * A content change to the course itself (Publish then asks Minor fix / Major change). One statement each (never
+   * update(), which reads first): a double click, or two managers saving at once, never meet MariaDB's error 1020.
+   */
+  const touchCourse = (courseId: string, actor: PersonRecord) => prisma.trainingCourse.updateMany({ where: { id: courseId }, data: { updatedById: actor.id, updatedAt: ctx.clock() } });
+  const touchLesson = (lessonId: string) => prisma.trainingLesson.updateMany({ where: { id: lessonId }, data: { updatedAt: ctx.clock() } });
   /** 1.23.31 (D6): modules in any course, and Duplicate (R3). */
   const modules = createModuleOps(ctx, { manageCourse, touchCourse, audit, recheck, assertShownPublishable });
   const copies = createTrainingDuplicate(ctx, { manageCourse, audit });

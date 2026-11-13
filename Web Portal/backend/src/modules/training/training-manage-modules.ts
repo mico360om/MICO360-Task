@@ -171,9 +171,16 @@ export function createModuleOps(ctx: TrainingContext, d: ModuleOpsDeps) {
     });
   }
 
-  /** Every module change ends the same way: the course edited, audited, finishing checked again, the editor's course. */
+  /**
+   * Every module change ends the same way: the course edited, audited, finishing checked again, the editor's course.
+   * The change is saved by then: a mark that can't be written (warned) never skips the audit or the check.
+   */
   async function done(actor: PersonRecord, meta: Meta, courseId: string, action: string, entityId: string, values: { oldValue?: unknown; newValue?: unknown }): Promise<ManageCourse> {
-    await d.touchCourse(courseId, actor);
+    try {
+      await d.touchCourse(courseId, actor);
+    } catch (err) {
+      ctx.logger?.warn('training: a course could not be marked as changed after a module change', { courseId, action, err: String((err as Error)?.message ?? err) });
+    }
     await d.audit(actor, meta, action, entityId, values);
     await d.recheck(courseId);
     return d.manageCourse(courseId);

@@ -16,6 +16,7 @@ import { trainingContext, type TrainingContext } from '../../src/modules/trainin
 import { createTrainingFileStore, type TrainingFileStore } from '../../src/modules/training/training-files';
 import { createTrainingSync } from '../../src/modules/training/training-sync';
 import { createTrainingManage } from '../../src/modules/training/training-manage';
+import { createModuleOps } from '../../src/modules/training/training-manage-modules';
 import { registerTrainingManageRoutes } from '../../src/modules/training/training-manage-routes';
 import { untouchedStarter } from '../../src/modules/training/training-starter';
 import type { FileRef, ManageCourse, ManageCourseRow, ManageLesson } from '../../src/modules/training/training-types';
@@ -646,5 +647,53 @@ describe('deleting a lesson of a course with modules: how many people it finishe
     expect(await finished(w.people.ben, c.id)).toBe(false);
     await prisma.trainingProgress.create({ data: { userId: w.people.ben, courseId: c.id, lessonId: ids['Two 1']!, doneAt: new Date() } });
     expect((await impact(ids['One 1']!)).finishing).toBe(1);
+  });
+});
+
+// ── Cleanup batch CB-1 (1.23.31): concurrent and half-failed edits ──
+
+describe('module edits at the same moment (cleanup batch)', () => {
+  it('module switches on the same course at once all succeed (the course is marked changed in one statement)', async () => {
+    let c = await newCourse('All at once');
+    for (const t of ['A', 'B', 'C', 'D', 'E', 'F']) c = await addModule(c.id, { title: t });
+    for (const enabled of [false, true, false, true]) {
+      const replies = await Promise.all(c.modules.map((m) => call('amy', 'PATCH', `/training/manage/modules/${m.id}`, { enabled })));
+      expect(
+        replies.map((r) => r.status),
+        JSON.stringify(replies.find((r) => r.status !== 200)?.body),
+      ).toEqual(c.modules.map(() => 200));
+      expect((await getCourse(c.id)).modules.map((m) => m.enabled)).toEqual(c.modules.map(() => enabled));
+    }
+    // Two people saving the same course's lessons' modules at once, too.
+    const lessons = [await guideLesson(c.id, 'One'), await guideLesson(c.id, 'Two')];
+    const moved = await Promise.all(lessons.map((l, i) => call('amy', 'PATCH', `/training/manage/lessons/${l.id}`, { moduleId: c.modules[i]!.id })));
+    expect(moved.map((r) => r.status)).toEqual([200, 200]);
+    const row = await prisma.trainingCourse.findUniqueOrThrow({ where: { id: c.id }, select: { updatedById: true } });
+    expect(row.updatedById).toBe(w.people.amy);
+  });
+
+  it('a module change whose “course changed” mark fails is still audited and finishing is still checked again', async () => {
+    const c = await newCourse('Mark fails');
+    const seen: string[] = [];
+    const ops = createModuleOps(ctx, {
+      manageCourse: async (id) => {
+        seen.push('course');
+        return { id } as ManageCourse;
+      },
+      touchCourse: async () => {
+        throw new Error('the database went away for a moment');
+      },
+      audit: async (_a, _m, action) => {
+        seen.push(action);
+      },
+      recheck: async () => {
+        seen.push('recheck');
+      },
+      assertShownPublishable: async () => {},
+    });
+    const out = await ops.addModule(w.people.amy, c.id, { title: 'Still here' });
+    expect(out.id).toBe(c.id);
+    expect(seen).toEqual(['training.module.create', 'recheck', 'course']);
+    expect(await prisma.trainingModule.count({ where: { courseId: c.id, title: 'Still here' } })).toBe(1);
   });
 });
