@@ -280,6 +280,29 @@ describe('starter content revision 3: what the modules say', () => {
     expect(JSON.stringify(lessonsOf('module:chat'))).not.toMatch(/reaction, reply and more buttons/);
     expect(JSON.stringify(lessonsOf('module:mico-ai'))).not.toMatch(/How can I help, Omar/);
   });
+
+  it('Chat uses the 1.23.29 words: + (New message) and its Search people… picker, in the step, its picture’s description and the quiz', () => {
+    const step = guideSteps(lessonsOf('module:chat')).find((s) => s.title === 'Start a direct message')!;
+    expect(step.body).toContain('<strong>+</strong> (<strong>New message</strong>)');
+    expect(step.body).toContain('<strong>Search people…</strong>');
+    expect(step.image).toBe('chat-direct.webp');
+    expect(step.alt).toMatch(/New message/);
+    expect(step.alt).toMatch(/Search people…/);
+    const quiz = lessonsOf('module:chat').find((l) => l.kind === 'QUIZ')!;
+    const q = quiz.kind === 'QUIZ' ? quiz.quiz.questions.find((x) => x.prompt === 'How do you start a direct message?')! : null;
+    expect(q?.kind).toBe('SINGLE');
+    expect(q?.options.filter((o) => o.correct).map((o) => o.text)).toEqual(['Click + (New message) next to Chat and pick the person']);
+    expect(q?.explanation).toContain('Search people…');
+    // The words the site used before 1.23.29 are gone from the whole course.
+    expect(courseText(training())).not.toMatch(/Message a teammate|New direct message|Start one\b/);
+  });
+
+  it('Reports teaches who can open it where it is opened (the quiz asks “Who can open Reports?”)', () => {
+    const open = guideSteps(lessonsOf('module:reports')).find((s) => s.title === 'Open Reports')!;
+    expect(open.body).toMatch(/<strong>Reports<\/strong> in the side menu \(only administrators see it\)/);
+    const prompts = questions({ ...training(), lessons: lessonsOf('module:reports') }).map((q) => q.prompt);
+    expect(prompts).toContain('Who can open Reports?');
+  });
 });
 
 describe('starter content revision 3: quizzes', () => {

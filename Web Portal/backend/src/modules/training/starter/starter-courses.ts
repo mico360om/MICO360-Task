@@ -750,7 +750,7 @@ const reports: StarterLesson[] = [
     steps: [
       {
         title: 'Open Reports',
-        body: '<p>Click <strong>Reports</strong> in the side menu. The tiles at the top show the total tasks, how many are completed and overdue, and the on-time rate. Below them are the tasks by status and the on-time delivery.</p>',
+        body: '<p>Click <strong>Reports</strong> in the side menu (only administrators see it). The tiles at the top show the total tasks, how many are completed and overdue, and the on-time rate. Below them are the tasks by status and the on-time delivery.</p>',
         image: 'reports-page.webp',
         alt: 'The Reports page: the Export choice with Excel, PDF and CSV buttons, the Filter bar, four tiles and the Tasks by status chart.',
       },
@@ -861,9 +861,9 @@ const chat: StarterLesson[] = [
       },
       {
         title: 'Start a direct message',
-        body: '<p>Click <strong>+</strong> next to Chat and pick a teammate under <strong>Message a teammate…</strong>.</p>',
+        body: '<p>Click <strong>+</strong> (<strong>New message</strong>) next to Chat, then pick the person under <strong>Search people…</strong>. Type part of a name to find them.</p>',
         image: 'chat-direct.webp',
-        alt: 'The Message a teammate list open in Chat, showing colleagues’ names to pick from.',
+        alt: 'Chat with New message open: the Search people… box and a list of colleagues’ names and usernames to pick from.',
       },
       {
         title: 'Edit, delete or mute',
@@ -905,12 +905,12 @@ const chat: StarterLesson[] = [
     single(
       'How do you start a direct message?',
       [
-        right('Click + next to Chat and pick a teammate', 'Yes — then type and press Enter.'),
+        right('Click + (New message) next to Chat and pick the person', 'Yes — then type and press Enter.'),
         wrong('Write @ and their name in a project channel', 'That mentions them in the channel.'),
-        wrong('Open their profile in Settings', 'Use + next to Chat.'),
-        wrong('Ask an administrator to add you', 'Anyone can message a teammate.'),
+        wrong('Open their profile in Settings', 'Use + (New message) next to Chat.'),
+        wrong('Ask an administrator to add you', 'Anyone can start one with New message.'),
       ],
-      'Click + next to Chat, pick the person, then write and send.',
+      'Click + (New message) next to Chat, pick the person under Search people…, then write and send.',
     ),
     single(
       'What does the red number on Chat in the side menu mean?',
