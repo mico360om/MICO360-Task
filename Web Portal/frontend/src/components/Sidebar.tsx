@@ -446,19 +446,26 @@ function FlyoutGroup({ label, icon, items, onNavigate }: { label: string; icon: 
   };
   const parentItem = (key: string) => menu.current?.querySelector<HTMLElement>(`[data-submenu="${CSS.escape(key)}"]`) ?? null;
   /** Open an item's own list beside it (and move into it from the keyboard or a click). */
-  const showSub = (key: string, withFocus: boolean) => {
-    if (leave.current) clearTimeout(leave.current);
-    if (subLeave.current) clearTimeout(subLeave.current);
-    focusSubFirst.current = withFocus;
-    if (subRef.current?.key === key) {
-      if (withFocus) subMenu.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
-      return;
-    }
+  /** Beside the list, level with its item, inside the window. */
+  const subPlace = (key: string) => {
     const r = parentItem(key)?.getBoundingClientRect();
     const m = menu.current?.getBoundingClientRect();
     const count = items.find((i) => i.key === key)?.children?.length ?? 1;
     const top = Math.max(8, Math.min((r?.top ?? 0) - 4, window.innerHeight - (16 + count * 40) - 8));
-    setSub({ key, top, left: (m?.right ?? r?.right ?? 0) + 4 });
+    return { key, top, left: (m?.right ?? r?.right ?? 0) + 4 };
+  };
+  const placeSub = (key: string) => {
+    if (subRef.current?.key === key) setSub(subPlace(key));
+  };
+  const showSub = (key: string, withFocus: boolean) => {
+    if (leave.current) clearTimeout(leave.current);
+    if (subLeave.current) clearTimeout(subLeave.current);
+    if (subRef.current?.key === key) {
+      if (withFocus) subMenu.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+      return;
+    }
+    focusSubFirst.current = withFocus;
+    setSub(subPlace(key));
   };
   const hideSub = (refocus: boolean) => {
     const key = subRef.current?.key;
@@ -493,9 +500,15 @@ function FlyoutGroup({ label, icon, items, onNavigate }: { label: string; icon: 
     const onScroll = (e: Event) => {
       if (e.target instanceof Node && inside(e.target)) return;
       const r = button.current?.getBoundingClientRect();
-      closeSub();
-      if (!r || r.bottom < 0 || r.top > window.innerHeight || r.width === 0) setOpen(false);
-      else measure();
+      if (!r || r.bottom < 0 || r.top > window.innerHeight || r.width === 0) {
+        closeSub();
+        setOpen(false);
+        return;
+      }
+      measure();
+      // The inner list follows its item (a scroll elsewhere on the page never closes it under the keyboard).
+      const open = subRef.current;
+      if (open) requestAnimationFrame(() => placeSub(open.key));
     };
     // Escape closes the inner list first (back on its item), then the list — wherever the focus is (a list
     // opened by hover has none of it).
@@ -523,7 +536,10 @@ function FlyoutGroup({ label, icon, items, onNavigate }: { label: string; icon: 
     };
   }, [open]);
   useEffect(() => {
-    if (sub && focusSubFirst.current) subMenu.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+    if (!sub || !focusSubFirst.current) return;
+    // Once, as it opens (moving it beside its item again later never takes the focus back to its first link).
+    focusSubFirst.current = false;
+    subMenu.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
   }, [sub]);
   useEffect(() => () => {
     if (leave.current) clearTimeout(leave.current);

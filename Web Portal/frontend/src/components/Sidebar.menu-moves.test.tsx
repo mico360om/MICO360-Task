@@ -224,6 +224,27 @@ describe('review minors: the rail’s Third Party list and keyboard focus', () =
     expect(document.activeElement === clients || document.activeElement === within(admin).getByRole('menuitem', { name: 'Third Party' })).toBe(true);
   });
 
+  it('a scroll elsewhere on the page keeps Third Party’s list open, and the keyboard where it was', async () => {
+    screenIs('desktop');
+    renderMenu();
+    const user = userEvent.setup();
+    await user.click(within(nav()).getByRole('button', { name: 'Admin' }));
+    await user.click(within(screen.getByRole('menu', { name: 'Admin' })).getByRole('menuitem', { name: 'Third Party' }));
+    await user.keyboard('{ArrowDown}');
+    const guests = within(screen.getByRole('menu', { name: 'Third Party' })).getByRole('menuitem', { name: 'Guest contacts' });
+    expect(document.activeElement).toBe(guests);
+    // jsdom draws nothing (every box is 0×0, read as "out of sight"): give the boxes a size, as a browser does.
+    const realRect = Element.prototype.getBoundingClientRect;
+    Element.prototype.getBoundingClientRect = () => ({ top: 100, bottom: 140, left: 0, right: 64, width: 64, height: 40, x: 0, y: 100, toJSON: () => ({}) }) as DOMRect;
+    await act(async () => {
+      fireEvent.scroll(window);
+      await new Promise((r) => requestAnimationFrame(() => r(null)));
+    });
+    Element.prototype.getBoundingClientRect = realRect;
+    expect(screen.getByRole('menu', { name: 'Third Party' })).toBeInTheDocument();
+    expect(document.activeElement?.textContent).toBe('Guest contacts');
+  });
+
   it('the Admin list owns Third Party’s list for screen readers', async () => {
     screenIs('desktop');
     renderMenu();
