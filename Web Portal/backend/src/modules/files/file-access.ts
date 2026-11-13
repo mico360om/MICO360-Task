@@ -11,8 +11,9 @@ import type { PrismaClient } from '@prisma/client';
  *   unknown    anything else — a replaced photo, an erased file, an orphan: 404
  *
  * Protected wins if a name were ever in both places. Names are remembered for a minute (most 10,000), and
- * each "may this person open files of this task / conversation" for 10 seconds, the API's own account
- * cache window: a page of 50 pictures is a handful of database reads.
+ * each "yes, this person may open this task's / conversation's files" for 10 seconds, the API's own account
+ * cache window (a "no" is asked again each time; a removal from a project forgets the person's "yes" at
+ * once): a page of 50 pictures is a handful of database reads.
  */
 export interface FileChatRow {
   conversationId: string;
@@ -50,7 +51,8 @@ export interface FileAccessDeps {
 function ttlCache<V>(ttlMs: number, max: number, now: () => number) {
   const entries = new Map<string, { at: number; value: Promise<V> }>();
   return {
-    get(key: string, load: () => Promise<V>): Promise<V> {
+    /** `keep`: whether an answer is remembered (one it says no to is dropped once known; asked again next time). */
+    get(key: string, load: () => Promise<V>, keep?: (value: V) => boolean): Promise<V> {
       const hit = entries.get(key);
       if (hit && now() - hit.at < ttlMs) {
         entries.delete(key);
@@ -60,8 +62,12 @@ function ttlCache<V>(ttlMs: number, max: number, now: () => number) {
       if (hit) entries.delete(key);
       while (entries.size >= max) entries.delete(entries.keys().next().value!);
       const value = load();
-      entries.set(key, { at: now(), value });
-      value.catch(() => entries.delete(key));
+      const entry = { at: now(), value };
+      entries.set(key, entry);
+      const drop = () => {
+        if (entries.get(key) === entry) entries.delete(key);
+      };
+      value.then((v) => (keep && !keep(v) ? drop() : undefined), drop);
       return value;
     },
     /** Forget the entries whose key starts with this (all of them without one). */
@@ -77,6 +83,8 @@ export function createFileAccess(deps: FileAccessDeps) {
   const max = deps.maxEntries ?? 10_000;
   const kinds = ttlCache<FileClass>(deps.classifyTtlMs ?? 60_000, max, now);
   const decisions = ttlCache<boolean>(deps.decisionTtlMs ?? 10_000, max, now);
+  /** Only a "yes" is remembered: a refusal is asked again next time (someone just added back opens at once). */
+  const yes = (ok: boolean) => ok;
 
   function classify(storageKey: string): Promise<FileClass> {
     return kinds.get(storageKey, async () => {
@@ -91,12 +99,12 @@ export function createFileAccess(deps: FileAccessDeps) {
     if (file.kind !== 'protected') return false;
     for (const taskId of file.taskIds) {
       // Both checks: canViewTask lets an administrator through a binned task; the Bin shows names and sizes only.
-      const ok = await decisions.get(`${person.id}|t|${taskId}`, async () => (await deps.store.taskIsLive(taskId)) && (await deps.canViewTask(person.id, person.roles, taskId)));
+      const ok = await decisions.get(`${person.id}|t|${taskId}`, async () => (await deps.store.taskIsLive(taskId)) && (await deps.canViewTask(person.id, person.roles, taskId)), yes);
       if (ok) return true;
     }
     for (const chat of file.chats) {
       if (chat.deleted) continue;
-      const ok = await decisions.get(`${person.id}|c|${chat.conversationId}`, () => deps.canSeeConversation(chat.conversationId, person.id));
+      const ok = await decisions.get(`${person.id}|c|${chat.conversationId}`, () => deps.canSeeConversation(chat.conversationId, person.id), yes);
       if (ok) return true;
     }
     return false;

@@ -156,6 +156,13 @@ describe('who may open a protected file now', () => {
     expect(await access.mayOpen(basim, taskFile)).toBe(false);
   });
 
+  it('a refusal is never remembered: someone added (back) to the project opens the file at once', async () => {
+    canViewTask.get('t1')!.delete('amal');
+    expect(await access.mayOpen(amal, taskFile)).toBe(false);
+    canViewTask.get('t1')!.add('amal');
+    expect(await access.mayOpen(amal, taskFile)).toBe(true);
+  });
+
   it('a page of pictures from one task costs one check', async () => {
     for (let i = 0; i < 50; i++) await access.mayOpen(amal, taskFile);
     expect(viewChecks).toBe(1);
