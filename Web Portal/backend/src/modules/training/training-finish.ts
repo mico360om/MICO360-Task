@@ -146,7 +146,30 @@ export function createTrainingFinish(ctx: TrainingContext) {
     return { finished };
   }
 
-  return { issueCertificate, settle, recheck };
+  /**
+   * Batch 4b (owner, 13 Nov): how many people `recheck` would finish if this lesson were deleted now — the same
+   * people (open enrolments of a published course, not finished or in review) and the same rule, read only.
+   */
+  async function finishingWithout(courseId: string, lessonId: string): Promise<number> {
+    const course = await prisma.trainingCourse.findUnique({ where: { id: courseId }, select: COURSE });
+    if (!course || course.status !== 'PUBLISHED') return 0;
+    const open = await prisma.trainingEnrolment.findMany({
+      where: { courseId, withdrawnAt: null, OR: [{ completedAt: null }, { retakeFrom: { not: null } }, { reviewFrom: { not: null }, reviewDoneAt: null }] },
+      select: { userId: true },
+    });
+    let finishing = 0;
+    for (const part of chunks(open.map((e) => e.userId), 200)) {
+      const states = await loadStates(ctx, part.map((userId) => ({ userId, courseId })));
+      for (const userId of part) {
+        const state = states.get(pairKey(userId, courseId));
+        if (!state?.enrolment || state.state.status === 'COMPLETED' || state.state.status === 'REVIEW') continue;
+        if (isCourseComplete(course.completionRule, state.lessons.filter((l) => l.id !== lessonId), state.doneIds)) finishing++;
+      }
+    }
+    return finishing;
+  }
+
+  return { issueCertificate, settle, recheck, finishingWithout };
 }
 
 export type TrainingFinish = ReturnType<typeof createTrainingFinish>;

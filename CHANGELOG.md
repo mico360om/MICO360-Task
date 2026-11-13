@@ -17,6 +17,7 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 ### Improvements
 - The Recycle Bin, Error Log and Audit Logs are now in the account menu under your name; Companies is inside System Settings; Clients and Guest contacts are together under a new Third Party item in the left menu.
 - Oman's holiday list now includes Accession Day (11 January).
+- Deleting the quiz of a published certificate course now shows how many people would be finished and certified, and asks first.
 
 ### Bug fixes
 - Two people starting a chat with each other at the same moment get one conversation.

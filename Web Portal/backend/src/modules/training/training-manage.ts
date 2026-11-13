@@ -710,6 +710,18 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
     await recheck(l.courseId);
   }
 
+  /**
+   * Batch 4b (owner, 13 Nov): before a lesson is deleted, how many people the deletion would finish (and certify,
+   * when the course gives a certificate) — worked out from everyone's progress now; nothing is changed.
+   */
+  async function lessonDeleteImpact(actorId: string, lessonId: unknown): Promise<{ finishing: number; certificate: boolean; published: boolean }> {
+    await managerOf(ctx, actorId);
+    const l = await lessonRow(lessonId);
+    const c = await prisma.trainingCourse.findUnique({ where: { id: l.courseId }, select: { status: true, certificateOn: true } });
+    if (!c) throw notFound();
+    return { finishing: await finish.finishingWithout(l.courseId, l.id), certificate: c.certificateOn, published: c.status === 'PUBLISHED' };
+  }
+
   async function reorderLessons(actorId: string, courseId: unknown, body: unknown, meta?: Meta): Promise<ManageCourse> {
     const actor = await managerOf(ctx, actorId);
     const c = await courseRow(courseId);
@@ -1498,6 +1510,7 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
     addLesson,
     updateLesson,
     deleteLesson,
+    lessonDeleteImpact,
     reorderLessons,
     saveSteps,
     saveQuiz,

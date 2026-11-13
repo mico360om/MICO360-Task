@@ -75,6 +75,7 @@ export async function registerTrainingManageRoutes(app: FastifyInstance, deps: T
     await manage.deleteLesson(me(req), p(req), meta(req));
     return reply.status(204).send();
   });
+  app.get('/training/manage/lessons/:id/delete-impact', auth, async (req) => ({ data: await manage.lessonDeleteImpact(me(req), p(req)) }));
   app.put('/training/manage/courses/:id/lesson-order', auth, async (req) => ({ data: await manage.reorderLessons(me(req), p(req), req.body, meta(req)) }));
   app.put('/training/manage/lessons/:id/steps', auth, async (req) => ({ data: await manage.saveSteps(me(req), p(req), req.body, meta(req)) }));
   app.put('/training/manage/lessons/:id/quiz', auth, async (req) => ({ data: await manage.saveQuiz(me(req), p(req), req.body, meta(req)) }));
