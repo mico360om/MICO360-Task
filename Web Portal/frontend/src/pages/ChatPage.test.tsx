@@ -158,11 +158,29 @@ describe('ChatPage', () => {
 
   it('tells assistive tech whether the new-message picker is open', async () => {
     renderWithQuery(<ChatPage />);
-    const toggle = await screen.findByRole('button', { name: 'New direct message' });
+    const toggle = await screen.findByRole('button', { name: 'New message', expanded: false });
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByRole('button', { name: 'Start a direct message' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Search people' })).toBeInTheDocument();
+  });
+
+  // 1.23.29 — one plain name for starting a direct chat: "New message" (the list's "+", its tooltip, and the
+  // empty page's button); the picker under it is a hint ("Search people…"), never a third name.
+  it('names starting a direct chat “New message” everywhere, the picker a plain “Search people…” hint', async () => {
+    renderWithQuery(<ChatPage />);
+    const toggle = await screen.findByRole('button', { name: 'New message', expanded: false });
+    expect(toggle).toHaveAttribute('title', 'New message');
+    fireEvent.click(toggle);
+    const picker = screen.getByRole('button', { name: 'Search people' });
+    expect(picker).toHaveTextContent('Search people…');
+    // The empty "Direct messages" list offers the same action under the same name (it said "Start one").
+    const emptyDms = screen.getByText(/No direct messages yet\./).closest('li')!;
+    expect(within(emptyDms).getByRole('button', { name: 'New message' })).toBeInTheDocument();
+    const words = /New direct message|Start a direct message|Message a teammate|Start one/;
+    expect(document.body.textContent ?? '').not.toMatch(words);
+    const named = [...document.querySelectorAll('[aria-label],[title],[placeholder]')].map((el) => `${el.getAttribute('aria-label')} ${el.getAttribute('title')} ${el.getAttribute('placeholder')}`);
+    expect(named.filter((n) => words.test(n))).toEqual([]);
   });
 
   it('opens a direct conversation with the person it is asked for (search result → chat)', async () => {
@@ -286,7 +304,8 @@ describe('ChatPage', () => {
     const jump = await screen.findByRole('button', { name: /1 new message/i });
     await userEvent.click(jump);
     expect(thread.scrollTop).toBe(2000);
-    expect(screen.queryByRole('button', { name: /new message/i })).not.toBeInTheDocument();
+    // The jump button ("1 new message") is gone (1.23.29: the list's "+" is called "New message" too).
+    expect(screen.queryByRole('button', { name: /\d+ new messages?/i })).not.toBeInTheDocument();
   });
 
   it('keeps the editor open and explains when an edit fails (WEB-14)', async () => {
@@ -573,9 +592,9 @@ describe('ChatPage with nothing to read yet', () => {
     expect(screen.queryByText('Select a conversation')).not.toBeInTheDocument();
     expect(pane.closest('section')).toHaveTextContent(/each project gets its own channel/i);
     await userEvent.click(await within(pane.closest('section')!).findByRole('button', { name: 'New message' }));
-    // The same picker as the list's "+": open, ready to choose someone.
-    expect(screen.getByRole('button', { name: 'New direct message' })).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByRole('button', { name: 'Start a direct message' })).toBeInTheDocument();
+    // The same picker as the list's "+" (also "New message"): open, ready to choose someone.
+    expect(screen.getByRole('button', { name: 'New message', expanded: true })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Search people' })).toBeInTheDocument();
   });
 
   it('with nobody else on the team yet, points to Projects instead of an empty list of people', async () => {

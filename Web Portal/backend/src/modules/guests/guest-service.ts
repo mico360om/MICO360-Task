@@ -319,7 +319,11 @@ export function createGuestService(deps: GuestServiceDeps) {
     if (others.length !== ids.length) throw new NotFoundError('One of those guests isn’t on the list any more.');
     if (others.some((g) => g.companyId !== keep.companyId)) throw new ValidationError('Only guests on the same company’s list can be merged.');
     const moved: { taskId: string; from: { name: string; company: string | null } }[] = [];
+    const notesBefore = keep.notes;
     await prisma.$transaction(async (tx) => {
+      // 1.23.29: a save conflict runs this again from the start (lib/save-retry): each try begins afresh.
+      moved.length = 0;
+      keep.notes = notesBefore;
       for (const other of others) {
         const rows = await tx.taskExternalContact.findMany({ where: { guestId: other.id } });
         for (const row of rows) {

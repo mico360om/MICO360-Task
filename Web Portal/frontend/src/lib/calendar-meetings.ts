@@ -23,11 +23,31 @@ export interface CalMeeting {
   cancelled: boolean;
 }
 
+/** A meeting from the list, with my own row and answer (the meetings list says them; older servers leave them out). */
+export type ListedMeeting = Meeting & { myAttendeeId?: string | null; myResponse?: string | null };
+
+/**
+ * 1.23.29 — invited and not declined: the meeting reminders' rule (server meeting-reminders `reminderRecipients`:
+ * the organiser, then each person on the meeting whose answer isn't DECLINED).
+ */
+export function invitedNotDeclined(m: Pick<ListedMeeting, 'myAttendeeId' | 'myResponse'>): boolean {
+  return !!m.myAttendeeId && m.myResponse !== 'DECLINED';
+}
+
+/**
+ * The meetings I'm invited to and haven't declined, for "My tasks" (filterCalendarMeetings' `invitedIds`). Kept
+ * beside the items rather than in them: CalMeeting is the shape the Android app's and the extension's copies of
+ * this file make (their drift tests compare it), and those copies don't change in this release.
+ */
+export function invitedMeetingIds(meetings: readonly ListedMeeting[]): Set<string> {
+  return new Set(meetings.filter(invitedNotDeclined).map((m) => m.id));
+}
+
 function clock(iso: string, timeZone: string): string {
   return new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone }).format(new Date(iso));
 }
 
-export function meetingItems(meetings: Meeting[], timeZone: string): CalMeeting[] {
+export function meetingItems(meetings: ListedMeeting[], timeZone: string): CalMeeting[] {
   return [...meetings]
     .sort((a, b) => Date.parse(a.startAt) - Date.parse(b.startAt))
     .map((m) => ({
@@ -46,13 +66,17 @@ export function meetingItems(meetings: Meeting[], timeZone: string): CalMeeting[
     }));
 }
 
-/** The calendar's filters, for meetings: task-only filters (status, priority, assignee) hide them. */
-export function filterCalendarMeetings(items: CalMeeting[], f: CalendarFilters, ctx: { myId: string }): CalMeeting[] {
+/**
+ * The calendar's filters, for meetings: task-only filters (status, priority, assignee) hide them. `invitedIds`
+ * (1.23.29, invitedMeetingIds): the meetings I'm invited to and haven't declined, which "My tasks" keeps too.
+ */
+export function filterCalendarMeetings(items: CalMeeting[], f: CalendarFilters, ctx: { myId: string; invitedIds?: ReadonlySet<string> }): CalMeeting[] {
   if (!f.showMeetings || f.statuses.length || f.priorities.length || f.assigneeId) return [];
   const q = f.q.trim().toLocaleLowerCase('en');
   return items.filter((m) => {
     if (f.projectId && m.projectId !== f.projectId) return false;
-    if (f.mine && m.organizerId !== ctx.myId) return false;
+    // "My tasks": meetings I organise, or am invited to and haven't declined (1.23.29).
+    if (f.mine && m.organizerId !== ctx.myId && !ctx.invitedIds?.has(m.id)) return false;
     if (!f.showCompleted && m.status === 'COMPLETED') return false;
     if (q && !m.title.toLocaleLowerCase('en').includes(q)) return false;
     return true;

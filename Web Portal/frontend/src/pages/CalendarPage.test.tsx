@@ -441,6 +441,21 @@ describe('CalendarPage — meetings', () => {
     ];
   });
 
+  // 1.23.29 — "My tasks" keeps the meetings I'm invited to and haven't declined (the list's myAttendeeId/myResponse).
+  it('“My tasks” shows the meetings I organise and the ones I’m invited to, not the ones I declined', async () => {
+    meetingRows = [
+      meeting({ id: 'org', title: 'Organised by me', recurrenceRule: null, startAt: '2026-10-14T06:00:00.000Z' }),
+      { ...meeting({ id: 'inv', title: 'Invited to', recurrenceRule: null, organizerId: 'u2', startAt: '2026-10-14T08:00:00.000Z' }), myAttendeeId: 'a1', myResponse: 'PENDING' },
+      { ...meeting({ id: 'dec', title: 'Declined one', recurrenceRule: null, organizerId: 'u2', startAt: '2026-10-14T10:00:00.000Z' }), myAttendeeId: 'a2', myResponse: 'DECLINED' },
+      { ...meeting({ id: 'other', title: 'Not mine', recurrenceRule: null, organizerId: 'u2', startAt: '2026-10-14T11:00:00.000Z' }), myAttendeeId: null, myResponse: null },
+    ];
+    renderPage('/calendar?view=agenda&mine=1');
+    expect(await screen.findByRole('link', { name: /Invited to/ })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Organised by me/ })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Declined one/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Not mine/ })).not.toBeInTheDocument();
+  });
+
   it('shows meetings on their day, in company time, each opening its page', async () => {
     renderPage();
     await screen.findByRole('link', { name: /Vendor call/ });
@@ -676,6 +691,24 @@ describe('CalendarPage — agenda, states and phones', () => {
     expect(await screen.findByText(/no tasks match/i)).toBeInTheDocument();
     await userEvent.click(screen.getAllByRole('button', { name: /clear filters/i })[0]!);
     expect(await chip(/Prepare report/)).toBeInTheDocument();
+  });
+
+  // 1.23.29 — Agenda days can't be clicked: its empty page has its own words and a New task button (the
+  // toolbar's "+ Task" is hidden on phones); Month, Week and Day keep "Click a day to add a task on it."
+  it('an empty agenda says “Nothing planned in these days.” and offers New task — never “Click a day”', async () => {
+    tasks = [];
+    renderPage('/calendar?view=agenda');
+    expect(await screen.findByText('Nothing planned in these days.')).toBeInTheDocument();
+    expect(screen.queryByText(/click a day/i)).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'New task' }));
+    expect(await screen.findByRole('dialog', { name: 'New task' })).toBeInTheDocument();
+  });
+
+  it('an empty month keeps its own words (its days can be clicked)', async () => {
+    tasks = [];
+    renderPage('/calendar?view=month');
+    expect(await screen.findByText(/click a day to add a task on it/i)).toBeInTheDocument();
+    expect(screen.queryByText('Nothing planned in these days.')).not.toBeInTheDocument();
   });
 
   it('shows a loading state, then an error with Retry', async () => {
