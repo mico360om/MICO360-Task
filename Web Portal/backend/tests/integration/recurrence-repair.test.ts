@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { PrismaClient, Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { createPrismaRecurrencePort } from '../../src/modules/tasks/prisma-recurrence-port';
 import { createRecurrenceService, REPAIR_WINDOW_DAYS } from '../../src/modules/tasks/recurrence-service';
 import { createStatusChangeEffects } from '../../src/modules/tasks/task-status-effects';
@@ -9,6 +9,7 @@ import type { RecurrenceRule } from '../../src/modules/tasks/recurrence';
 import { runBackfill } from './company-helpers';
 import { batch4aWorld } from './batch4a-helpers';
 import { portabilityProblems } from '../../src/lib/sql-portability';
+import { testPrisma } from './test-prisma';
 
 // Review fix #14 (13 Nov 2026): completing a repeating task commits the move first, then makes the next
 // copy; when that step failed once, the series stopped for good — a retry changed nothing (same column)
@@ -16,7 +17,8 @@ import { portabilityProblems } from '../../src/lib/sql-portability';
 // of a recently completed on-completion series, strictly: only when no copy of it exists anywhere (in
 // the Recycle Bin, archived, merged or moved to another project), within the last REPAIR_WINDOW_DAYS,
 // for a rule still running. Requires a running MySQL (TEST_DATABASE_URL) with migrations applied.
-const prisma = new PrismaClient({ datasources: { db: { url: process.env.TEST_DATABASE_URL } } });
+// As the server's client (lib/prisma.ts): save conflicts are tried again, as on the live site (1.23.31).
+const prisma = testPrisma();
 const world = batch4aWorld(prisma, 'RRP');
 const TZ = 'Asia/Muscat';
 const DAY = 24 * 60 * 60 * 1000;

@@ -1,13 +1,14 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { PrismaClient } from '@prisma/client';
 import { createPrismaDailyEmailRepository } from '../../src/modules/daily-emails/prisma-daily-email-repository';
 import { createPrismaDailyEmailSources } from '../../src/modules/daily-emails/prisma-daily-email-sources';
 import { createDailyEmailService } from '../../src/modules/daily-emails/daily-email-service';
 import type { DailyTask } from '../../src/modules/daily-emails/daily-email-content';
+import { testPrisma } from './test-prisma';
 
 // Requires a running MySQL (TEST_DATABASE_URL) with migrations applied. Nothing is emailed: the
 // sender only writes down what it was given.
-const prisma = new PrismaClient({ datasources: { db: { url: process.env.TEST_DATABASE_URL } } });
+// As the server's client (lib/prisma.ts): save conflicts are tried again, as on the live site (1.23.31).
+const prisma = testPrisma();
 const repo = createPrismaDailyEmailRepository(prisma);
 const sources = createPrismaDailyEmailSources(prisma);
 const EMAILS = ['dadm-ada@mico360.test', 'dadm-bo@mico360.test'];

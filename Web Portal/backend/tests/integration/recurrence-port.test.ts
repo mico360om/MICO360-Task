@@ -1,13 +1,15 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { PrismaClient, Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { createPrismaRecurrencePort } from '../../src/modules/tasks/prisma-recurrence-port';
 import { createRecurrenceService } from '../../src/modules/tasks/recurrence-service';
 import { createPrismaTaskRepository } from '../../src/modules/tasks/prisma-task-repository';
 import type { RecurrenceRule } from '../../src/modules/tasks/recurrence';
 import { runBackfill } from './company-helpers';
+import { testPrisma } from './test-prisma';
 
 // Requires a running MySQL (TEST_DATABASE_URL) with migrations applied.
-const prisma = new PrismaClient({ datasources: { db: { url: process.env.TEST_DATABASE_URL } } });
+// As the server's client (lib/prisma.ts): save conflicts are tried again, as on the live site (1.23.31).
+const prisma = testPrisma();
 const TZ = 'Asia/Muscat';
 const NOW = new Date('2026-10-01T06:00:00Z'); // 10:00 on 1 Oct in Muscat
 const port = createPrismaRecurrencePort(prisma, { timeZone: TZ, now: () => NOW });

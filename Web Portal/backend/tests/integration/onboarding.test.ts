@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { PrismaClient } from '@prisma/client';
 import { portabilityProblems } from '../../src/lib/sql-portability';
 import { createPrismaSignInChallengeStore, endEveryCode } from '../../src/modules/auth/prisma-sign-in-challenge-store';
 import { createSignInChallenges } from '../../src/modules/auth/sign-in-challenge';
@@ -17,10 +16,12 @@ import { createInvitationSweep, createPrismaExpiredInvitationStore } from '../..
 import { createUserService } from '../../src/modules/users/user-service';
 import { createClientAccounts } from '../../src/modules/clients/client-accounts';
 import { generateResetToken } from '../../src/lib/reset-token';
+import { testPrisma } from './test-prisma';
 
 // Onboarding on the real database (TEST_DATABASE_URL, migrations applied). Only this file's people
 // (emails ending in @onb.test) are made and removed: the shared test database may hold others.
-const prisma = new PrismaClient({ datasources: { db: { url: process.env.TEST_DATABASE_URL } } });
+// As the server's client (lib/prisma.ts): save conflicts are tried again, as on the live site (1.23.31).
+const prisma = testPrisma();
 const DOMAIN = '@onb.test';
 const MIN = 60_000;
 const DAY = 24 * 60 * MIN;

@@ -1,18 +1,19 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { PrismaClient } from '@prisma/client';
 import { createNoteService, TASK_CLAIM_PREFIX, type NoteService } from '../../src/modules/meetings/note-service';
 import { createPrismaNoteRepository } from '../../src/modules/meetings/prisma-note-repository';
 import { createNoteTaskService } from '../../src/modules/meetings/note-task-service';
 import { NotFoundError } from '../../src/lib/http-errors';
 import { newRowId } from '../../src/lib/row-id';
 import { createPrismaTaskRepository } from '../../src/modules/tasks/prisma-task-repository';
+import { testPrisma } from './test-prisma';
 
 // Requires a running MySQL or MariaDB (TEST_DATABASE_URL) with migrations applied.
 // Review fix #19 + N12 (batch 4b), from verify35/repro/E/note-task-repro.ts: turning a note into a task left
 // "pending:<uuid>" in meeting_notes.taskId when the link write failed after the task was saved, and every retry
 // got 409 — the note was stuck for good (and the website showed the pending value as a task link).
-const prisma = new PrismaClient({ datasources: { db: { url: process.env.TEST_DATABASE_URL } } });
+// As the server's client (lib/prisma.ts): save conflicts are tried again, as on the live site (1.23.31).
+const prisma = testPrisma();
 const tag = randomBytes(3).toString('hex');
 let userId = '';
 let meetingId = '';

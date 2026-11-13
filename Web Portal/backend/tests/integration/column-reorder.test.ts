@@ -1,14 +1,15 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { PrismaClient } from '@prisma/client';
 import { createPrismaColumnRepository } from '../../src/modules/projects/prisma-column-repository';
 import { createColumnService } from '../../src/modules/projects/column-service';
 import { batch4aWorld, outcome } from './batch4a-helpers';
+import { testPrisma } from './test-prisma';
 
 // Review fix #26 (13 Nov 2026): the website reordered a project's columns with many separate requests
 // (temporary negative positions, then the final ones); stopped half-way, the board showed the columns
 // reversed and the next drag failed (P2002). One request now reorders them all in one transaction,
 // under a hold on the project's row. Requires a running MySQL (TEST_DATABASE_URL) with migrations applied.
-const prisma = new PrismaClient({ datasources: { db: { url: process.env.TEST_DATABASE_URL } } });
+// As the server's client (lib/prisma.ts): save conflicts are tried again, as on the live site (1.23.31).
+const prisma = testPrisma();
 const world = batch4aWorld(prisma, 'CRO');
 const repo = createPrismaColumnRepository(prisma);
 const columns = createColumnService({ columns: repo });

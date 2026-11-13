@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { PrismaClient } from '@prisma/client';
 import { createPrismaTaskRepository } from '../../src/modules/tasks/prisma-task-repository';
 import { TaskVersionConflictError } from '../../src/modules/tasks/task-repository';
+import { testPrisma } from './test-prisma';
 
 // Requires a running MySQL (TEST_DATABASE_URL) with migrations applied.
-const prisma = new PrismaClient({ datasources: { db: { url: process.env.TEST_DATABASE_URL } } });
+// As the server's client (lib/prisma.ts): save conflicts are tried again, as on the live site (1.23.31).
+const prisma = testPrisma();
 const repo = createPrismaTaskRepository(prisma);
 let taskId = '';
 
