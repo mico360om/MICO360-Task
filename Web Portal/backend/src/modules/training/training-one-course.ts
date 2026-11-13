@@ -678,8 +678,15 @@ export function createOneCourseConversion(d: OneCourseDeps): { run(): Promise<{ 
     const staff = await missingCertificates(course, (p) => !p.client);
     const clients = await clientGuide();
     failed += staff.failed + clients.failed;
-    // Not done until everyone is: the phase is safe to run again, and the next start does.
-    if (failed > 0) throw new Error(`Learning Hub: ${failed} ${failed === 1 ? 'person' : 'people'} could not be finished at the change; the finish is tried again at the next start.`);
+    // Not done until everyone is: the phase is safe to run again, and the next start does. Someone who always fails
+    // holds it open at every start, so it is said at the error level (a warning where the log has none).
+    if (failed > 0) {
+      const message = `Learning Hub: ${failed} ${failed === 1 ? 'person' : 'people'} could not be finished at the change; the finish is tried again at the next start.`;
+      const meta = { courseId: course.id, failed };
+      if (ctx.logger?.error) ctx.logger.error(message, meta);
+      else warn(message, meta);
+      throw new Error(message);
+    }
     return { finished, certificatesAdded: staff.issued, clientCertificates: clients.issued };
   }
 

@@ -1156,3 +1156,42 @@ describe('finishing for the conversion (completeAt) and a retake', () => {
     expect((await prisma.trainingEnrolment.findUniqueOrThrow({ where: { userId_courseId: { userId, courseId: c.id } } })).completedAt).toEqual(T('2026-11-12T00:00:00.000Z'));
   });
 });
+
+describe('someone who can’t be finished at the change (cleanup batch)', () => {
+  it('an error line (a warning where the log has no error level) says how many and that it is tried again; the start still fails', async () => {
+    clockAt = NOW;
+    const w = await buildWorld();
+    await finished(w, 'emp', 'a', T('2026-10-01T08:00:00.000Z'));
+    await finished(w, 'emp', 'b', T('2026-10-05T08:00:00.000Z'));
+    await enrol(w, 'emp2', 'a', { lastLessonId: lessonOf(w, 'a', 'A guide') });
+    const alwaysFails: typeof finish = {
+      ...finish,
+      completeAt: async () => {
+        throw new Error('this person can never be finished');
+      },
+      settle: async () => {
+        throw new Error('this person can never be finished');
+      },
+    };
+    const said = /^Learning Hub: (\d+) (person|people) could not be finished at the change; the finish is tried again at the next start\.$/;
+    // A log with an error level.
+    const errors: { msg: string; meta?: Record<string, unknown> }[] = [];
+    const withErrors = { ...ctx, logger: { ...ctx.logger!, error: (msg: string, meta?: Record<string, unknown>) => void errors.push({ msg, ...(meta ? { meta } : {}) }) } };
+    logs.length = 0;
+    await expect(conversion(w, { ctx: withErrors, finish: alwaysFails }).run()).rejects.toThrow(said);
+    const each = logs.filter((l) => l.level === 'warn' && /could not be (checked|written) .*at the change/.test(l.msg)).length;
+    expect(each).toBeGreaterThan(0);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]!.msg).toMatch(said);
+    expect(Number(said.exec(errors[0]!.msg)![1])).toBe(each);
+    expect(errors[0]!.meta).toMatchObject({ failed: each, courseId: (await combined(w)).id });
+    expect((await record(w))!.phase).toBe('assignments');
+    // A log with only warnings: the same line as a warning.
+    logs.length = 0;
+    await expect(conversion(w, { finish: alwaysFails }).run()).rejects.toThrow(said);
+    expect(logs.filter((l) => l.level === 'warn' && said.test(l.msg))).toHaveLength(1);
+    // Once it can be, the next start finishes it.
+    await conversion(w).run();
+    expect((await record(w))!.phase).toBe('done');
+  });
+});
