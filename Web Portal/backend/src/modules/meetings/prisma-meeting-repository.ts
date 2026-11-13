@@ -102,12 +102,18 @@ async function hideMinutesMovedAway(tx: Prisma.TransactionClient, meetingId: str
  * projects' ids only filter the person's own meetings; nothing of a project they can't see is returned);
  * otherwise the person's own meetings (with an active company of their own) and their projects' meetings.
  * `{}` (no condition) when the scope has none (an administrator listing everything).
+ *
+ * A person's own meetings are those they organize, created or attend — meeting-access.ts's people of a
+ * meeting (review #21: a creator who handed a meeting to another organizer, or copied one with
+ * Duplicate, may open it, so it stays in their lists and search).
  */
+export const ownMeetingWhere = (userId: string): Prisma.MeetingWhereInput[] => [{ organizerId: userId }, { createdById: userId }, { attendees: { some: { userId } } }];
+
 export async function meetingScopeWhere(prisma: Pick<PrismaClient, 'projectCompany' | 'companyMember'>, scope: NonNullable<MeetingListFilter['scope']>): Promise<Prisma.MeetingWhereInput> {
   if (scope.pick) {
     const { companyId, everyone } = scope.pick;
     const ofCompany = (await prisma.projectCompany.findMany({ where: { companyId }, select: { projectId: true } })).map((r) => r.projectId);
-    const own: Prisma.MeetingWhereInput = everyone ? {} : { OR: [{ organizerId: scope.userId }, { attendees: { some: { userId: scope.userId } } }] };
+    const own: Prisma.MeetingWhereInput = everyone ? {} : { OR: ownMeetingWhere(scope.userId) };
     return {
       OR: [
         { projectId: { in: scope.projectIds ?? [] } },
@@ -118,9 +124,7 @@ export async function meetingScopeWhere(prisma: Pick<PrismaClient, 'projectCompa
   }
   if (scope.projectIds === null) return {};
   // companies: being one of a meeting's people counts only with an active company of their own.
-  const or: Prisma.MeetingWhereInput[] = scope.admin || (await hasActiveCompany(prisma, scope.userId))
-    ? [{ organizerId: scope.userId }, { attendees: { some: { userId: scope.userId } } }]
-    : [{ id: '' }];
+  const or: Prisma.MeetingWhereInput[] = scope.admin || (await hasActiveCompany(prisma, scope.userId)) ? ownMeetingWhere(scope.userId) : [{ id: '' }];
   if (scope.projectIds.length > 0) or.push({ projectId: { in: scope.projectIds } });
   return { OR: or };
 }
@@ -259,7 +263,7 @@ export function createPrismaMeetingRepository(
       if (meetingIds.length === 0) return new Set<string>();
       if (projectIds === null) return new Set(meetingIds);
       // companies: being one of a meeting's people counts only with an active company of their own.
-      const own = (await hasActiveCompany(prisma, userId)) ? [{ organizerId: userId }, { createdById: userId }, { attendees: { some: { userId } } }] : [];
+      const own = (await hasActiveCompany(prisma, userId)) ? ownMeetingWhere(userId) : [];
       const rows = await prisma.meeting.findMany({
         where: {
           id: { in: meetingIds },
