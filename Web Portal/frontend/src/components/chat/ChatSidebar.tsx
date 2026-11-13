@@ -269,7 +269,8 @@ export function ChatSidebar(p: ChatSidebarProps) {
                     {p.dmOptions.length ? (
                       <>
                         {' '}
-                        <button type="button" onClick={p.onToggleDm} className="font-semibold text-brand hover:underline">Start one</button>
+                        {/* 1.23.29: the action's one name, as on the "+" above and the empty page's button. */}
+                        <button type="button" onClick={p.onToggleDm} className="font-semibold text-brand hover:underline">New message</button>
                       </>
                     ) : null}
                   </li>

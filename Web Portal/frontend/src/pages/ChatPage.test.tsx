@@ -174,7 +174,10 @@ describe('ChatPage', () => {
     fireEvent.click(toggle);
     const picker = screen.getByRole('button', { name: 'Search people' });
     expect(picker).toHaveTextContent('Search people…');
-    const words = /New direct message|Start a direct message|Message a teammate/;
+    // The empty "Direct messages" list offers the same action under the same name (it said "Start one").
+    const emptyDms = screen.getByText(/No direct messages yet\./).closest('li')!;
+    expect(within(emptyDms).getByRole('button', { name: 'New message' })).toBeInTheDocument();
+    const words = /New direct message|Start a direct message|Message a teammate|Start one/;
     expect(document.body.textContent ?? '').not.toMatch(words);
     const named = [...document.querySelectorAll('[aria-label],[title],[placeholder]')].map((el) => `${el.getAttribute('aria-label')} ${el.getAttribute('title')} ${el.getAttribute('placeholder')}`);
     expect(named.filter((n) => words.test(n))).toEqual([]);
