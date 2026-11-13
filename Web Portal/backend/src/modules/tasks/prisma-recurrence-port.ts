@@ -19,6 +19,13 @@ const KEY_ATTEMPTS = 5;
 export const lockSourceSql = (taskId: string): Prisma.Sql =>
   Prisma.sql`SELECT (recurrenceRule IS NOT NULL) AS hasRule, inspectionFormId AS formId, (completedAt IS NOT NULL AND deletedAt IS NULL) AS stillDone, version FROM tasks WHERE id = ${taskId} FOR UPDATE`;
 
+/**
+ * 1.23.27: the series' inspection form, read under a shared hold before a copy is made (a form deleted meanwhile
+ * makes no copy). LOCK IN SHARE MODE, not FOR SHARE — MariaDB (the live server) refuses FOR SHARE (error 1064).
+ * The start-up database check sends the same text.
+ */
+export const lockFormSql = (formId: string): Prisma.Sql => Prisma.sql`SELECT deletedAt FROM inspection_forms WHERE id = ${formId} LOCK IN SHARE MODE`;
+
 export interface PrismaRecurrencePortOptions {
   /** Company time zone — the new occurrence lands on today's board in this zone. */
   timeZone?: string;
@@ -89,9 +96,8 @@ export function createPrismaRecurrencePort(prisma: PrismaClient, opts: PrismaRec
             // no copy, nor does a source whose repeat (or form) changed meanwhile. The locks make it
             // right whichever commits first — a form delete waits for this, or this sees it — and are
             // taken in the delete's order (the form, then the task), so the two can't deadlock.
-            // 1.23.27: LOCK IN SHARE MODE, not FOR SHARE — MariaDB (the live server) refuses FOR SHARE (1064).
             if (source.inspectionFormId) {
-              const [form] = await tx.$queryRaw<Array<{ deletedAt: Date | null }>>`SELECT deletedAt FROM inspection_forms WHERE id = ${source.inspectionFormId} LOCK IN SHARE MODE`;
+              const [form] = await tx.$queryRaw<Array<{ deletedAt: Date | null }>>(lockFormSql(source.inspectionFormId));
               if (!form || form.deletedAt) return null;
             }
             const [locked] = await tx.$queryRaw<Array<{ hasRule: number | bigint; formId: string | null; stillDone: number | bigint; version: number | bigint }>>(lockSourceSql(sourceTaskId));

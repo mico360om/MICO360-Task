@@ -47,6 +47,14 @@ const hash = (text: string) => createHash('sha1').update(text).digest('hex').sli
 // The body is cut whole characters only (never inside an emoji's pair: review I2).
 const textOf = (head: Buffer | null, body: Buffer | null) => `${(head ?? Buffer.alloc(0)).toString('utf8').trim()}\n${cutChars((body ?? Buffer.alloc(0)).toString('utf8'), TEXT_CHARS)}`.trim();
 
+/**
+ * One page of a model's vectors, newest first. `vector` quoted: a keyword in MariaDB 11.7 and later (the live server;
+ * unquoted it was error 1064). The start-up database check sends the same text (1.23.27).
+ */
+export const vectorPageSql = (model: string, dims: number, limit: number, offset: number): Prisma.Sql =>
+  Prisma.sql`SELECT kind, recordId AS id, \`vector\` FROM search_embeddings WHERE model = ${model} AND dims = ${dims}
+        ORDER BY embeddedAt DESC, recordId LIMIT ${limit} OFFSET ${offset}`;
+
 export function createSemanticSearch({ prisma, ai, logger, now = () => new Date() }: SemanticDeps) {
   /** Is meaning search on (an embedding model set up)? */
   async function ready(): Promise<boolean> {
@@ -119,8 +127,7 @@ export function createSemanticSearch({ prisma, ai, logger, now = () => new Date(
     const PAGE = 2000;
     for (let offset = 0; offset < MAX_COMPARED; offset += PAGE) {
       if (opts.signal?.aborted) break;
-      const rows = await prisma.$queryRaw<{ kind: string; id: string; vector: Buffer }[]>`SELECT kind, recordId AS id, \`vector\` FROM search_embeddings WHERE model = ${model.id} AND dims = ${q.length}
-        ORDER BY embeddedAt DESC, recordId LIMIT ${PAGE} OFFSET ${offset}`;
+      const rows = await prisma.$queryRaw<{ kind: string; id: string; vector: Buffer }[]>(vectorPageSql(model.id, q.length, PAGE, offset));
       for (const r of rows) {
         const score = cosine(q, fromVector(r.vector));
         if (best.length < limit || score > best[best.length - 1]!.score) {

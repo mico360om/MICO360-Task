@@ -456,6 +456,22 @@ describe('progress, order and completion (a course in order, with a certificate)
     expect([a.status, b.status]).toEqual([200, 200]);
     expect(await prisma.trainingCertificate.count({ where: { userId: w.people.ben, courseId: quick.id } })).toBe(1);
   });
+
+  // 1.23.27 integration (MariaDB 11.8.9 like live, innodb_snapshot_isolation ON): with the lesson's progress row already
+  // there (a step saved), both requests update it — Prisma's update()/upsert() read it first in their own transaction,
+  // and MariaDB refused the later write (error 1020: a 500 for the second click).
+  it('a double click on a lesson already part-way (its step saved) completes once, both answered', async () => {
+    const twoSteps = await makeCourse('Two steps', { moduleKey: 'general' }, [{ kind: 'GUIDE', title: 'Two steps', steps: [{ title: 'First' }, { title: 'Second' }] }]);
+    const lesson = twoSteps.lessons[0]!.id;
+    for (let round = 0; round < 5; round++) {
+      await prisma.trainingProgress.deleteMany({ where: { lessonId: lesson } });
+      await prisma.trainingEnrolment.deleteMany({ where: { courseId: twoSteps.id } });
+      await data(call('ben', 'PUT', `/training/lessons/${lesson}/progress`, { stepIndex: 0 }));
+      const [a, b] = await Promise.all([call('ben', 'POST', `/training/lessons/${lesson}/complete`), call('ben', 'POST', `/training/lessons/${lesson}/complete`)]);
+      expect([a.status, b.status, round]).toEqual([200, 200, round]);
+      expect(await prisma.trainingProgress.count({ where: { lessonId: lesson, userId: w.people.ben, doneAt: { not: null } } })).toBe(1);
+    }
+  });
 });
 
 describe('certificates', () => {

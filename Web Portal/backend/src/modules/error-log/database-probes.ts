@@ -9,7 +9,8 @@ import { healthProbe } from '../project-health/prisma-health-source';
 import { kpiProbe } from '../kpis/prisma-kpi-source';
 import { LOCK_COLUMN_SQL, LOCK_PROJECT_COLUMNS_SQL, LOCK_PROJECT_SQL } from '../projects/prisma-column-repository';
 import { LOCK_TASK_VERSION_SQL } from '../tasks/prisma-assignee-repository';
-import { lockSourceSql } from '../tasks/prisma-recurrence-port';
+import { lockFormSql, lockSourceSql } from '../tasks/prisma-recurrence-port';
+import { vectorPageSql } from '../search/search-semantic';
 
 /** An id no row has: every probe below looks only there (nothing found, nothing written). */
 export const NOWHERE = '~database-check~';
@@ -140,11 +141,14 @@ export function databaseProbes({
         await tx.$queryRawUnsafe(LOCK_PROJECT_COLUMNS_SQL, NOWHERE);
         await tx.$queryRawUnsafe(LOCK_TASK_VERSION_SQL, NOWHERE);
         await tx.$queryRaw(lockSourceSql(NOWHERE));
+        await tx.$queryRaw(lockFormSql(NOWHERE));
         await tx.$queryRaw`SELECT name FROM job_locks WHERE name = ${NOWHERE} FOR UPDATE`;
       });
       await prisma.jobLock.updateMany({ where: { name: NOWHERE, holder: NOWHERE, lockedUntil: { gt: new Date() } }, data: { lockedUntil: new Date() } });
     },
   });
+  // 1.23.27: the meaning search's vectors as its questions read them (the column's name is a keyword in MariaDB 11.7+).
+  probes.push({ name: 'the meaning search (vectors)', run: async () => void (await prisma.$queryRaw(vectorPageSql(NOWHERE, 0, 1, 0))) });
   // Onboarding: the sign-in codes' table and the new account columns (no raw SQL: Prisma's own, checked
   // here so a missed migration shows at start-up, not at someone's sign-in).
   probes.push({
