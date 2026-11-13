@@ -22,6 +22,12 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ### Bug fixes
 - Unsent chat drafts and waiting messages are removed when you log out, and are never shown to the next person on the same browser.
+- Meetings you created stay in your Meetings list and in search after you hand them to another organizer.
+- Top-bar search finds your newest meetings however many meetings there are, and stops showing a meeting as soon as you are taken off it.
+- The chat conversation list loads faster when you have many conversations.
+- Meeting page: the Series panel shows earlier meetings' titles in full, wrapping by word, instead of one letter per line.
+- Pages you open from a link start at the top: My Action Items no longer opens with its title hidden under the top bar.
+- MICO AI answers and their tables show the names of tasks, projects, meetings and people instead of internal codes.
 
 ## [1.23.26] - 2026-11-13
 

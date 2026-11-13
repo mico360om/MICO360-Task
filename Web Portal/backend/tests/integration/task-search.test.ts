@@ -322,7 +322,7 @@ describe('Task search on MySQL (integration)', () => {
     });
 
     it('the top bar (global search) lists the number first too', async () => {
-      const service = createSearchService({ data: { getSearchData: async () => ({ tasks: [], projects: [], users: [], meetings: [] }) }, tasks: engine });
+      const service = createSearchService({ data: { getSearchData: async () => ({ tasks: [], projects: [], users: [] }) }, tasks: engine });
       expect((await service.search('srn 142', { allowedProjectIds: [p.n, p.n2] })).tasks[0]?.key).toBe('SRN-142');
       expect((await service.search('SRN142', { allowedProjectIds: [p.n, p.n2] })).tasks.map((x) => x.key)).toEqual(['SRN-142']);
       expect((await service.search('srn277', { allowedProjectIds: [p.n] })).tasks.map((x) => x.key)).toEqual(['SRN-9']);

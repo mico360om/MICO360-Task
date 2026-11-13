@@ -4,6 +4,11 @@ import { createSearchService } from '../../src/modules/search/search-service';
 import { createPrismaSearchDataSource } from '../../src/modules/search/prisma-search-data-source';
 import { createTaskSearchIndex } from '../../src/modules/search/task-search-index';
 import { createTaskSearchEngine } from '../../src/modules/search/task-search-engine';
+import { createSearchIndex } from '../../src/modules/search/search-index';
+import { createSearchEngine } from '../../src/modules/search/search-engine';
+import { createSearchScope } from '../../src/modules/search/search-scope';
+import { createTopBarMeetings } from '../../src/modules/search/top-bar-meetings';
+import { createCompanyAccess } from '../../src/modules/companies/company-access';
 import { createPrismaMicoAiData } from '../../src/modules/mico-ai/prisma-mico-ai-data';
 import { createMicoAiTools } from '../../src/modules/mico-ai/mico-ai-tools';
 import type { Viewer as AiViewer } from '../../src/modules/mico-ai/mico-ai-data';
@@ -57,6 +62,10 @@ const micoData = createPrismaMicoAiData({
 const tools = createMicoAiTools({ data: micoData, timeZone: 'Asia/Muscat' });
 const searchIndex = createTaskSearchIndex({ prisma });
 const taskSearch = createTaskSearchEngine({ prisma, index: searchIndex, timeZone: 'Asia/Muscat' });
+// Review #22/#10: the top bar's meetings come from the index (search everything's engine and scope), as server.ts wires them.
+const index = createSearchIndex({ prisma });
+const engine = createSearchEngine({ prisma, timeZone: 'Asia/Muscat' });
+const companyAccess = createCompanyAccess(prisma);
 
 let w: CompanyWorld;
 let api: CompanyApp;
@@ -77,14 +86,25 @@ beforeAll(async () => {
   await prisma.$connect();
   w = await buildCompanyWorld(prisma);
   for (const taskId of Object.values(w.tasks)) await searchIndex.taskChanged(taskId);
-  api = await buildCompanyApp(prisma, () => ({
-    searchService: createSearchService({ data: createPrismaSearchDataSource(prisma), tasks: taskSearch }),
-    taskSearch,
-  }));
+  for (const id of Object.values(w.meetings)) await index.meetingChanged(id);
+  api = await buildCompanyApp(prisma, (base) => {
+    const scope = createSearchScope({
+      prisma,
+      accessibleProjectIds: (u, r, pick) => base.projectAccess!.accessibleProjectIds(u, r, pick),
+      manageableProjectIds: (u, r, ids) => base.projectAuthz!.manageableProjectIds(u, r, ids),
+      myProjectsOnly: (viewer) => companyAccess.myProjectsOnly(viewer),
+    });
+    return {
+      searchService: createSearchService({ data: createPrismaSearchDataSource(prisma), tasks: taskSearch }),
+      taskSearch,
+      searchEverything: { engine, scope, meetings: createTopBarMeetings({ prisma, engine }), timeZone: 'Asia/Muscat' },
+    };
+  });
 });
 
 afterAll(async () => {
   await api?.close();
+  if (w) await prisma.searchIndex.deleteMany({ where: { meetingId: { in: Object.values(w.meetings) } } });
   await dropCompanyWorld(prisma, w);
   await prisma.$disconnect();
 });
@@ -92,7 +112,7 @@ afterAll(async () => {
 describe('search and MICO AI follow companies and the pick (companies)', () => {
   it('search: ana never finds Beta’s words; cat with pick Alpha finds only Alpha’s', async () => {
     const { ana, cat } = w.as;
-    const empty = { tasks: [], projects: [], users: [], meetings: [] };
+    const empty = { tasks: [], projects: [], users: [], meetings: [], more: [] };
     expect(await search(ana, 'ZZBETA')).toEqual(empty);
     expect(await search(ana, 'ZZGAMMA')).toEqual(empty);
     expect(projectIdsOf(await search(cat, 'ZZ', { pick: w.companies.A }))).toEqual([w.projects.PA]);

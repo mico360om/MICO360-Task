@@ -86,6 +86,11 @@ export interface ParticipantRepository {
   remove(conversationId: string, userId: string): Promise<void>;
   find(conversationId: string, userId: string): Promise<Participant | null>;
   listByConversation(conversationId: string): Promise<Participant[]>;
+  /**
+   * Review #35: every participant row of these conversations in one read, each conversation's rows in
+   * listByConversation's order (the conversation list). Absent: one read per conversation.
+   */
+  listByConversations?(conversationIds: string[]): Promise<Participant[]>;
   /** Conversation ids the user is an explicit participant of (DIRECT conversations). */
   listConversationIdsForUser(userId: string): Promise<string[]>;
   /** Upsert the user's read marker for a conversation. */
@@ -117,6 +122,10 @@ export interface MessageRepository {
   /** Count messages after `after` (null = all) excluding those authored by `excludeUserId`. */
   countAfter(conversationId: string, after: Date | null, excludeUserId: string): Promise<number>;
   latest(conversationId: string): Promise<Message | null>;
+  /** Review #35: `latest` of each of these conversations in one go (a conversation with no message is absent). */
+  latestMany?(conversationIds: string[]): Promise<Map<string, Message>>;
+  /** Review #35: `countAfter` of each conversation asked, in one go (every one asked is in the answer). */
+  countAfterMany?(asks: { conversationId: string; after: Date | null }[], excludeUserId: string): Promise<Map<string, number>>;
 }
 
 export interface ReactionRepository {
@@ -173,6 +182,8 @@ export interface ChatMemberLookup {
    * A new direct chat needs it, and a direct chat without it is read-only. Absent: always true.
    */
   colleagues?(userId: string, otherId: string): Promise<boolean>;
+  /** Review #35: which of these people are `colleagues` of this person, in one go. Absent: asked one by one. */
+  colleaguesAmong?(userId: string, otherIds: string[]): Promise<Set<string>>;
   /** companies: names and pictures of these people (whatever their status), so every author on a page of messages has a name. */
   people?(userIds: string[]): Promise<ChatPerson[]>;
 }

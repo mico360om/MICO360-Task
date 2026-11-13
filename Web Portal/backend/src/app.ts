@@ -748,9 +748,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       // projectAccess.accessibleProjectIds — a call naming the pick is a list.)
       const myProjectsOnly = companies ? (viewer: { id: string; roles: string[] }) => companies.myProjectsOnly(viewer) : undefined;
       const companyPeople = companies ? (companyId: string) => companies.projectCompanyPeople([companyId]) : undefined;
-      // companies: a person's active companies, and who a search may find (colleagues, the viewer too;
-      // with a pick that company's people; an administrator without a pick everyone: null).
-      const companiesOf = companies ? (userId: string) => companies.activeCompanyIds(userId) : undefined;
+      // companies: who a search may find (colleagues, the viewer too; with a pick that company's people;
+      // an administrator without a pick everyone: null).
       const searchPeople = companies
         ? async (viewer: { id: string; roles: string[] }, pick: string | null): Promise<ReadonlySet<string> | null> => {
             if (pick) return new Set(await companies.projectCompanyPeople([pick]));
@@ -1155,7 +1154,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       }
       if (deps.searchService) {
         // companies: both searches follow the pick; people are colleagues (with a pick, that company's).
-        await registerSearchRoutes(api, { searchService: deps.searchService, guard, accessibleProjectIds, taskSearch: deps.taskSearch, pickOf, peopleFor: searchPeople, companiesOf, myProjectsOnly, everything: deps.searchEverything, savedSearches: deps.savedSearches, logger: deps.logger, ...(deps.searchPerMinute ? { perMinute: deps.searchPerMinute } : {}) });
+        await registerSearchRoutes(api, { searchService: deps.searchService, guard, accessibleProjectIds, taskSearch: deps.taskSearch, pickOf, peopleFor: searchPeople, everything: deps.searchEverything, savedSearches: deps.savedSearches, logger: deps.logger, ...(deps.searchPerMinute ? { perMinute: deps.searchPerMinute } : {}) });
       }
       if (deps.meetingService) {
         await registerMeetingRoutes(api, {

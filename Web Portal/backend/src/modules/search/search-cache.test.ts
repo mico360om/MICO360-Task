@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { createCachedSearchDataSource } from './search-service';
 import type { SearchData } from './search-service';
 
-const empty: SearchData = { tasks: [], projects: [], users: [], meetings: [] };
+const empty: SearchData = { tasks: [], projects: [], users: [] };
 
 describe('createCachedSearchDataSource', () => {
   it('loads once within the TTL and reloads after it expires', async () => {

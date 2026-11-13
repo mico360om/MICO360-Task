@@ -23,13 +23,17 @@ export function SeriesMeetingRow({ m, timeZone, now, current = false, actions }:
   const body = (
     <>
       <span className={`w-[4.75rem] flex-none text-sm tabular-nums text-ink-2 ${DENSE_TEXT}`}>{seriesDay(m.startAt, timeZone, now)}</span>
-      <span className={`min-w-0 flex-1 text-sm [overflow-wrap:anywhere] ${DENSE_TEXT} ${m.status === 'CANCELLED' ? 'text-ink-3 line-through' : current ? 'font-semibold text-ink' : 'text-ink'}`}>
-        <bdi>{m.title}</bdi>
-      </span>
-      <span className="flex flex-none flex-wrap items-center justify-end gap-1">
-        {current ? <Badge tone="brand">This meeting</Badge> : null}
-        {m.status !== 'SCHEDULED' ? <Badge tone={meetingStatusTone(m.status)}>{MEETING_STATUS_LABELS[m.status]}</Badge> : null}
-        {m.minutesFinal ? <Badge tone="success">Minutes final</Badge> : null}
+      {/* The title and its badges share what's left: in a narrow panel (the meeting page's 22rem side
+          column) the badges go under the title instead of squeezing it to a letter a line. */}
+      <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
+        <span className={`min-w-[min(10rem,100%)] flex-1 text-sm [overflow-wrap:break-word] ${DENSE_TEXT} ${m.status === 'CANCELLED' ? 'text-ink-3 line-through' : current ? 'font-semibold text-ink' : 'text-ink'}`}>
+          <bdi>{m.title}</bdi>
+        </span>
+        <span className="flex flex-none flex-wrap items-center gap-1 empty:hidden">
+          {current ? <Badge tone="brand">This meeting</Badge> : null}
+          {m.status !== 'SCHEDULED' ? <Badge tone={meetingStatusTone(m.status)}>{MEETING_STATUS_LABELS[m.status]}</Badge> : null}
+          {m.minutesFinal ? <Badge tone="success">Minutes final</Badge> : null}
+        </span>
       </span>
     </>
   );

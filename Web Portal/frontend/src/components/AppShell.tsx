@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { Outlet, useLocation, useSearchParams } from 'react-router-dom';
+import { Outlet, useLocation, useNavigationType, useSearchParams } from 'react-router-dom';
 import { Sidebar, SidebarBody } from './Sidebar';
 import { useManagementLink } from '../lib/useManagementLink';
 import { ChatSoundNotifier } from './ChatSoundNotifier';
@@ -82,6 +82,17 @@ function MobileMenu({ isAdmin, adminMenu, canLead, chatUnread, trainingOverdue, 
 export function AppShell() {
   const isAdmin = useAuthStore((s) => s.isAdmin);
   const location = useLocation();
+  // A link to another page opens it at its top (sb3 4b): the window kept the last page's scroll, so a
+  // short page (My Action Items) opened with its title under the sticky top bar. Not for a place on a
+  // page (#…: the page scrolls there itself), a change within the page (filters), or Back and Forward.
+  // At once (the site scrolls smoothly otherwise), before the page's own effects — but after its layout
+  // effects: a page that scrolls the window when it opens must do so in an effect, not a layout effect.
+  const navigationType = useNavigationType();
+  useLayoutEffect(() => {
+    if (navigationType === 'POP' || location.hash) return;
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+    // Only a new page: its path, never its query or hash alone.
+  }, [location.pathname]);
   const qc = useQueryClient();
   const [drawerOpen, setDrawerOpen] = useState(false);
   // Unread chat messages, live: on the sidebar's Chat icon and, on a phone, the menu button.

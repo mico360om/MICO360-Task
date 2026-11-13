@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useInfiniteQuery, useQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { chatApi, type ApiChatAttachment, type ApiMessage, type ConversationPrefs, type ConversationSummary, type MessageAuthor, type ReadOnlyNote } from '../api/chat';
-import { CHAT_INBOX_KEY, chatInboxQuery } from '../lib/chat-inbox-query';
+import { CHAT_INBOX_KEY, chatInboxQuery, refreshInboxSoon } from '../lib/chat-inbox-query';
 import { withConversationRead } from '../lib/chat-badge';
 import { projectsApi } from '../api/projects';
 import { usersApi } from '../api/users';
@@ -270,7 +270,8 @@ export function ChatPage({ startDirectWith, openConversationId, onOpened }: Chat
 
   // ── Live updates ──
   const onRealtime = (event: string, payload: ChatEventPayload) => {
-    void qc.invalidateQueries({ queryKey: ['chat', 'conversations'] });
+    // The list (unread counts, receipts, previews): once per burst of events (review #35).
+    refreshInboxSoon(qc);
     // Receipts come from the inbox summary; your settings and your projects need no message refresh.
     if (event === 'chat:read' || event === 'chat:delivered' || event === 'chat:prefs' || event === 'project:removed') return;
     const cid = typeof payload.conversationId === 'string' ? payload.conversationId : undefined;

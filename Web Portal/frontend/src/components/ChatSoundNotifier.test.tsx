@@ -5,6 +5,7 @@ import { ChatSoundNotifier } from './ChatSoundNotifier';
 import { useAuthStore } from '../stores/auth-store';
 import { NOTIFICATIONS_KEY, UNREAD_COUNT_KEY } from '../api/notifications';
 import { setViewingConversation } from '../lib/chat-sound';
+import { INBOX_REFRESH_DEBOUNCE_MS } from '../lib/chat-inbox-query';
 
 type Handler = (...a: unknown[]) => void;
 const handlers: Record<string, Handler> = {};
@@ -102,7 +103,16 @@ describe('ChatSoundNotifier confirms delivery', () => {
   it('refreshes the conversation list when someone else’s message arrives (unread counts, new conversations)', () => {
     const { refreshed } = mount();
     act(() => handlers['chat:message']?.({ conversationId: 'd9', message: { id: 'm9', userId: 'u2' } }));
+    act(() => { vi.advanceTimersByTime(INBOX_REFRESH_DEBOUNCE_MS); });
     expect(refreshed(['chat', 'conversations'])).toBe(true);
+  });
+
+  it('a burst of messages in a busy project channel refreshes the list once, not once each (review #35)', () => {
+    const { invalidate } = mount();
+    for (let i = 0; i < 20; i++) act(() => handlers['chat:message']?.({ conversationId: 'p1', message: { id: `b${i}`, userId: 'u2' } }));
+    act(() => { vi.advanceTimersByTime(INBOX_REFRESH_DEBOUNCE_MS); });
+    const inboxRefreshes = invalidate.mock.calls.filter(([arg]) => JSON.stringify((arg as { queryKey?: unknown }).queryKey) === JSON.stringify(['chat', 'conversations']));
+    expect(inboxRefreshes).toHaveLength(1);
   });
 });
 

@@ -451,13 +451,20 @@ export function createMessageService(deps: MessageServiceDeps) {
    * a project channel counts only for the project's team — from when they last read it or, never
    * opened, from when they joined the team (an administrator's view of other projects never counts).
    */
-  async function unreadFor(conv: Conversation, userId: string, lastReadAt: Date | null, team: Map<string, Date> | null): Promise<number> {
+  /**
+   * Unread messages count from here (null: every one); undefined: none count — a channel of a project
+   * the person isn't on the team of (an administrator's access to every project).
+   */
+  function unreadFrom(conv: Conversation, lastReadAt: Date | null, team: Map<string, Date> | null): Date | null | undefined {
     if (conv.kind === 'PROJECT' && team) {
       const since = conv.projectId ? team.get(conv.projectId) : undefined;
-      if (!since) return 0;
-      return messages.countAfter(conv.id, lastReadAt ?? since, userId);
+      return since ? (lastReadAt ?? since) : undefined;
     }
-    return messages.countAfter(conv.id, lastReadAt, userId);
+    return lastReadAt;
+  }
+  async function unreadFor(conv: Conversation, userId: string, lastReadAt: Date | null, team: Map<string, Date> | null): Promise<number> {
+    const after = unreadFrom(conv, lastReadAt, team);
+    return after === undefined ? 0 : messages.countAfter(conv.id, after, userId);
   }
 
   async function unreadCount(conversationId: string, userId: string): Promise<number> {
@@ -483,7 +490,9 @@ export function createMessageService(deps: MessageServiceDeps) {
     const byId = new Map<string, Conversation>();
     for (const c of participantConvs) if (c.kind === 'DIRECT') byId.set(c.id, c);
     for (const c of projectConvs) byId.set(c.id, c);
-    const summaries = await Promise.all(
+    // Review #35: a few reads for the whole list when the stores can (the Prisma ones); one conversation at a time otherwise.
+    const batched = participants.listByConversations && messages.latestMany && messages.countAfterMany;
+    const summaries = batched ? await summariesAtOnce([...byId.values()], userId, team) : await Promise.all(
       [...byId.values()].map(async (conversation) => {
         const p = await participants.find(conversation.id, userId);
         const latest = await messages.latest(conversation.id);
@@ -502,6 +511,64 @@ export function createMessageService(deps: MessageServiceDeps) {
     return summaries.sort(
       (a, b) => (b.lastMessage?.createdAt.getTime() ?? 0) - (a.lastMessage?.createdAt.getTime() ?? 0),
     );
+  }
+
+  /**
+   * Review #35: the conversation list's summaries in a few reads, however many conversations there are —
+   * the very answer the one-at-a-time reads give (its participants in the same order, the same unread
+   * counts, last messages, settings and read-only notes).
+   */
+  async function summariesAtOnce(list: Conversation[], userId: string, team: Map<string, Date> | null): Promise<ConversationSummary[]> {
+    const ids = list.map((c) => c.id);
+    const [rows, latest] = await Promise.all([participants.listByConversations!(ids), messages.latestMany!(ids)]);
+    const people = new Map<string, Participant[]>();
+    for (const r of rows) people.set(r.conversationId, [...(people.get(r.conversationId) ?? []), r]);
+    const mine = new Map(rows.filter((r) => r.userId === userId).map((r) => [r.conversationId, r]));
+    const asks = list.flatMap((c) => {
+      const after = unreadFrom(c, mine.get(c.id)?.lastReadAt ?? null, team);
+      return after === undefined ? [] : [{ conversationId: c.id, after }];
+    });
+    const [unread, readOnly] = await Promise.all([
+      asks.length ? messages.countAfterMany!(asks, userId) : Promise.resolve(new Map<string, number>()),
+      readOnlyAll(list, userId, people),
+    ]);
+    return list.map((conversation) => {
+      const latestOne = latest.get(conversation.id);
+      return {
+        conversation,
+        participants: (people.get(conversation.id) ?? []).map(publicParticipant),
+        unread: unread.get(conversation.id) ?? 0,
+        lastMessage: latestOne ? redact(latestOne) : null,
+        prefs: prefsOf(mine.get(conversation.id) ?? null),
+        readOnly: readOnly.get(conversation.id) ?? null,
+      };
+    });
+  }
+
+  /** readOnlyAmong for every direct chat of a list: who of the others are colleagues, and the names, each read once. */
+  async function readOnlyAll(list: Conversation[], userId: string, people: Map<string, Participant[]>): Promise<Map<string, ReadOnlyNote>> {
+    const out = new Map<string, ReadOnlyNote>();
+    const direct = list.filter((c) => c.kind === 'DIRECT');
+    if (!members.colleagues || direct.length === 0) return out;
+    const everyoneIn = (c: Conversation) => (people.get(c.id) ?? []).map((p) => p.userId);
+    if (!members.colleaguesAmong) {
+      for (const c of direct) out.set(c.id, await readOnlyAmong(c, userId, everyoneIn(c)));
+      return out;
+    }
+    const colleagues = await members.colleaguesAmong(userId, [...new Set(direct.flatMap(everyoneIn))].filter((id) => id !== userId));
+    // As readOnlyAmong: the first other person in it who isn't a colleague names the note.
+    const stranger = new Map<string, string>();
+    for (const c of direct) {
+      const other = everyoneIn(c).find((id) => id !== userId && !colleagues.has(id));
+      if (other) stranger.set(c.id, other);
+    }
+    if (stranger.size === 0) return out;
+    const named = new Map((members.people ? await members.people([...new Set(stranger.values())]) : []).map((p) => [p.id, p]));
+    for (const [conversationId, other] of stranger) {
+      const person = named.get(other);
+      out.set(conversationId, { message: dmReadOnlyMessage(person ? firstName(person) : 'this person') });
+    }
+    return out;
   }
 
   /** Favorite, archive or mute a conversation — for this person only. */

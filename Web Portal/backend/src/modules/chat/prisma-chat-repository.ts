@@ -12,6 +12,9 @@ import { sharesProjectCompanyWhere, visibleProjectWhere } from '../companies/com
 import { STAFF_ONLY_WHERE } from '../clients/client-kind';
 
 type ConvRow = { id: string; kind: string; projectId: string | null; createdAt: Date };
+/** Review #35: the conversation list's batch reads go this many conversations at a time. */
+const BATCH = 500;
+const batches = <T,>(list: readonly T[]): T[][] => Array.from({ length: Math.ceil(list.length / BATCH) }, (_, i) => list.slice(i * BATCH, (i + 1) * BATCH));
 const toConv = (c: ConvRow): Conversation => ({ id: c.id, kind: c.kind as Conversation['kind'], projectId: c.projectId, createdAt: c.createdAt });
 
 export function createPrismaConversationRepository(prisma: PrismaClient): ConversationRepository {
@@ -67,7 +70,15 @@ export function createPrismaParticipantRepository(prisma: PrismaClient): Partici
       return prisma.conversationParticipant.findUnique({ where: { conversationId_userId: { conversationId, userId } } });
     },
     async listByConversation(conversationId) {
-      return prisma.conversationParticipant.findMany({ where: { conversationId } });
+      // In the primary key's order (as before, now said): the batch read below gives the same.
+      return prisma.conversationParticipant.findMany({ where: { conversationId }, orderBy: { userId: 'asc' } });
+    },
+    async listByConversations(conversationIds) {
+      const out = [];
+      for (const ids of batches([...new Set(conversationIds)])) {
+        out.push(...(await prisma.conversationParticipant.findMany({ where: { conversationId: { in: ids } }, orderBy: [{ conversationId: 'asc' }, { userId: 'asc' }] })));
+      }
+      return out;
     },
     async listConversationIdsForUser(userId) {
       const rows = await prisma.conversationParticipant.findMany({ where: { userId }, select: { conversationId: true } });
@@ -139,6 +150,33 @@ export function createPrismaMessageRepository(prisma: PrismaClient): MessageRepo
     },
     async latest(conversationId) {
       return prisma.chatMessage.findFirst({ where: { conversationId }, orderBy: { createdAt: 'desc' } });
+    },
+    async latestMany(conversationIds) {
+      const out = new Map<string, Awaited<ReturnType<typeof prisma.chatMessage.findFirstOrThrow>>>();
+      for (const ids of batches([...new Set(conversationIds)])) {
+        // Each conversation's last moment, then the messages of that moment.
+        const last = await prisma.chatMessage.groupBy({ by: ['conversationId'], where: { conversationId: { in: ids } }, _max: { createdAt: true } });
+        const at = last.flatMap((g) => (g._max.createdAt ? [{ conversationId: g.conversationId, createdAt: g._max.createdAt }] : []));
+        if (at.length === 0) continue;
+        for (const m of await prisma.chatMessage.findMany({ where: { OR: at } })) {
+          // Two in the same millisecond: the higher id, as `latest` reads it (its index ends with the id).
+          const kept = out.get(m.conversationId);
+          if (!kept || m.id > kept.id) out.set(m.conversationId, m);
+        }
+      }
+      return out;
+    },
+    async countAfterMany(asks, excludeUserId) {
+      const out = new Map(asks.map((a) => [a.conversationId, 0]));
+      for (const part of batches(asks)) {
+        const rows = await prisma.chatMessage.groupBy({
+          by: ['conversationId'],
+          where: { deletedAt: null, userId: { not: excludeUserId }, OR: part.map((a) => ({ conversationId: a.conversationId, ...(a.after ? { createdAt: { gt: a.after } } : {}) })) },
+          _count: { _all: true },
+        });
+        for (const r of rows) out.set(r.conversationId, r._count._all);
+      }
+      return out;
     },
   };
 }
@@ -247,6 +285,18 @@ export function createPrismaChatMemberLookup(prisma: PrismaClient): ChatMemberLo
         where: { status: 'ACTIVE', AND: [{ members: { some: { userId } } }, { members: { some: { userId: otherId } } }] },
       });
       return shared > 0;
+    },
+    async colleaguesAmong(userId, otherIds) {
+      // The same rule as `colleagues`, for many people in two reads.
+      const ids = [...new Set(otherIds)].filter((id) => id !== userId);
+      if (ids.length === 0) return new Set<string>();
+      const admins = new Set((await prisma.userRole.findMany({ where: { userId: { in: [userId, ...ids] }, role: { name: 'ADMIN' } }, select: { userId: true } })).map((r) => r.userId));
+      if (admins.has(userId)) return new Set(ids);
+      const rest = ids.filter((id) => !admins.has(id));
+      const sharing = rest.length
+        ? await prisma.companyMember.findMany({ where: { userId: { in: rest }, company: { status: 'ACTIVE', members: { some: { userId } } } }, select: { userId: true } })
+        : [];
+      return new Set([...ids.filter((id) => admins.has(id)), ...sharing.map((r) => r.userId)]);
     },
     async people(userIds) {
       const ids = [...new Set(userIds)];

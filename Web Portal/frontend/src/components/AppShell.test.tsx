@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import { MemoryRouter, Routes, Route, useNavigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -48,6 +48,54 @@ afterEach(() => {
   clearQueue(localStorageQueueStore);
   useCompanyStore.setState({ pick: null, notice: null, noticeName: null, names: {}, userId: null });
   localStorage.removeItem('mico360.u.u1.company.pick');
+});
+
+/** Buttons that navigate the way links and the browser do (sb3 4b). */
+function Nav() {
+  const navigate = useNavigate();
+  return (
+    <>
+      <button onClick={() => navigate('/settings')}>to settings</button>
+      <button onClick={() => navigate('/profile#notifications')}>to a place on the profile</button>
+      <button onClick={() => navigate('/settings?tab=email')}>same page, other filter</button>
+      <button onClick={() => navigate(-1)}>back</button>
+    </>
+  );
+}
+function renderNav(path = '/dashboard') {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={qc}>
+      <MemoryRouter initialEntries={[path]}>
+        <Routes>
+          <Route element={<AppShell />}>
+            {['/dashboard', '/settings', '/profile'].map((p) => <Route key={p} path={p} element={<Nav />} />)}
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
+
+describe('AppShell: a link to another page opens it at its top (sb3 4b)', () => {
+  // The window kept its scroll from the page before: a short page (My Action Items) opened with its title under the top bar.
+  it('a link to another page scrolls the window to the top, at once', async () => {
+    const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+    renderNav();
+    scrollTo.mockClear();
+    await userEvent.click(screen.getAllByRole('button', { name: 'to settings' })[0]!);
+    expect(scrollTo).toHaveBeenCalledWith({ top: 0, left: 0, behavior: 'instant' });
+  });
+
+  it('leaves the scroll alone for a place on a page (#…), a change on the same page, and Back', async () => {
+    const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+    renderNav('/settings');
+    scrollTo.mockClear();
+    await userEvent.click(screen.getAllByRole('button', { name: 'same page, other filter' })[0]!);
+    await userEvent.click(screen.getAllByRole('button', { name: 'to a place on the profile' })[0]!);
+    await userEvent.click(screen.getAllByRole('button', { name: 'back' })[0]!);
+    expect(scrollTo).not.toHaveBeenCalled();
+  });
 });
 
 describe('AppShell', () => {
