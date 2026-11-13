@@ -13,6 +13,7 @@ const base: CertificatePdf = {
   courseTitle: 'Tasks basics',
   // 23:30 UTC on 10 Nov is 11 Nov in Muscat: the day is read in the site's zone.
   issuedAt: new Date('2026-11-10T23:30:00Z'),
+  completedAt: new Date('2026-11-02T10:00:00Z'),
   expiresAt: null,
   scorePct: null,
   issuerName: null,
@@ -26,13 +27,24 @@ const base: CertificatePdf = {
 const textOf = (buf: Buffer) => inspectPdf(buf).pages.map((p) => p.join('\n'));
 
 describe('certificate PDF (A4, the PDF standard)', () => {
+  it('says on <completedAt>; the Issued row only when it is another day; a QR code is drawn on one page', () => {
+    const text = textOf(buildCertificatePdf(base))[0]!;
+    expect(text).toContain('on 2 Nov 2026');
+    const later = { now: new Date('2026-12-20T08:00:00Z') };
+    expect(textOf(buildCertificatePdf(base, later))[0]!).toContain('11 Nov 2026');
+    expect(textOf(buildCertificatePdf({ ...base, completedAt: base.issuedAt }, later))[0]!.match(/11 Nov 2026/g)).toHaveLength(2);
+    const withQr = buildCertificatePdf(base);
+    expect(withQr.length).toBeGreaterThan(buildCertificatePdf({ ...base, verifyUrl: '' }).length);
+    expect(textOf(buildCertificatePdf({ ...base, learnerName: 'A'.repeat(90), courseTitle: 'B '.repeat(60), issuerName: 'Tariq', signature: LOGO, status: 'REVOKED', revokedReason: 'x'.repeat(80), company: { companyName: 'Alpha', logo: LOGO } }))).toHaveLength(1);
+  });
+
   it('one page: the title, learner, course, completion day, code and the verification link', () => {
     const buf = buildCertificatePdf(base, { now: new Date('2026-11-11T08:00:00Z') });
     expect(buf.subarray(0, 5).toString()).toBe('%PDF-');
     const pages = textOf(buf);
     expect(pages).toHaveLength(1);
     const text = pages[0]!;
-    for (const words of ['Certificate of completion', 'This certifies that', 'Ana Alpha', 'has completed', 'Tasks basics', '11 Nov 2026', 'TC-ABCD-EFGH-JKMN', 'https://task.example.com/verify/TC-ABCD-EFGH-JKMN', 'Printed', 'Issued through MICO360 Tasks · Learning Hub']) {
+    for (const words of ['Certificate of completion', 'This certifies that', 'Ana Alpha', 'has completed', 'Tasks basics', 'Completed', '2 Nov 2026', 'Issued', '11 Nov 2026', 'TC-ABCD-EFGH-JKMN', 'https://task.example.com/verify/TC-ABCD-EFGH-JKMN', 'Printed', 'Issued through MICO360 Tasks · Learning Hub']) {
       expect(text).toContain(words);
     }
     expect(text).not.toContain('Training Center');

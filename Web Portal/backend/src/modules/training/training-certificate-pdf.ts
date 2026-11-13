@@ -9,6 +9,7 @@ import { PdfDocument, PDF_STANDARD, type KeyValueRow, type RGB } from '../../lib
 import { BRAND, formatDay, printedLine, slugPart } from '../../lib/export-format';
 import { zonedDayKey } from '../../lib/due-date';
 import { resolveBrand } from '../email/brand';
+import { qrMatrix } from './training-qr';
 import type { CertificateStatus } from './training-types';
 
 export interface CertificatePdf {
@@ -16,6 +17,8 @@ export interface CertificatePdf {
   learnerName: string;
   courseTitle: string;
   issuedAt: Date;
+  /** The day the person finished the course (older certificates: the issue day). */
+  completedAt: Date;
   expiresAt: Date | null;
   scorePct: number | null;
   issuerName: string | null;
@@ -56,9 +59,10 @@ export function buildCertificatePdf(c: CertificatePdf, opts: { printedBy?: strin
   doc.text(c.learnerName, { align: 'center', bold: true, size: 22, gap: S.l });
   doc.text('has completed', { align: 'center', color: MUTED, gap: S.m });
   doc.text(c.courseTitle, { align: 'center', bold: true, size: 16, gap: S.s });
-  doc.text(`on ${day(c.issuedAt)}`, { align: 'center', gap: S.xl * 2 });
+  doc.text(`on ${day(c.completedAt)}`, { align: 'center', gap: S.xl * 2 });
 
-  const left: KeyValueRow[] = [['Completed', day(c.issuedAt)]];
+  const left: KeyValueRow[] = [['Completed', day(c.completedAt)]];
+  if (day(c.issuedAt) !== day(c.completedAt)) left.push(['Issued', day(c.issuedAt)]);
   if (c.scorePct !== null) left.push(['Quiz score', `${c.scorePct}%`]);
   if (c.expiresAt) left.push([c.status === 'EXPIRED' ? 'Expired on' : 'Valid until', day(c.expiresAt)]);
   const right: KeyValueRow[] = [['Certificate code', c.code]];
@@ -68,10 +72,19 @@ export function buildCertificatePdf(c: CertificatePdf, opts: { printedBy?: strin
   doc.spacer(S.m);
   // The whole link on one line of its own (a narrow column would break it).
   doc.styledText([{ text: 'Check this certificate at ' }, { text: c.verifyUrl, href: c.verifyUrl }], { size: PDF_STANDARD.type.data, gap: S.s });
+  if (c.verifyUrl) {
+    try {
+      doc.spacer(S.s);
+      doc.qr(qrMatrix(c.verifyUrl), 96);
+      doc.spacer(S.s);
+    } catch {
+      // A link too long for a QR code: the written link above still works.
+    }
+  }
   doc.rule();
 
   if (c.issuerName) {
-    doc.spacer(S.xl * 2);
+    doc.spacer(S.xl);
     doc.text('Issued by', { color: MUTED, size: PDF_STANDARD.type.small, gap: S.xs });
     const picture = c.signature ? doc.prepareImage(c.signature) : null;
     const who = c.issuerTitle ? `${c.issuerName}, ${c.issuerTitle}` : c.issuerName;

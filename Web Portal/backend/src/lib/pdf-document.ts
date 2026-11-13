@@ -899,6 +899,29 @@ export class PdfDocument {
     return this;
   }
 
+  /**
+   * A QR code drawn as filled squares (vector, no picture and no text), `size` points on a side including the
+   * 4-module quiet zone, centred, kept whole on one page. `matrix` rows are dark (true) / light modules.
+   */
+  qr(matrix: boolean[][], size: number): this {
+    const n = matrix.length;
+    if (n === 0) return this;
+    this.ensure(size);
+    const unit = size / (n + 8);
+    const x0 = this.margin + (this.contentWidth - size) / 2;
+    const top = this.y;
+    this.ink.save().rect(x0, top, size, size).fill('#ffffff');
+    this.ink.fillColor('#000000');
+    matrix.forEach((row, r) =>
+      row.forEach((dark, c) => {
+        if (dark) this.ink.rect(x0 + (c + 4) * unit, top + (r + 4) * unit, unit + 0.15, unit + 0.15);
+      }),
+    );
+    this.ink.fill().restore();
+    this.y = top + size;
+    return this;
+  }
+
   /** Add empty vertical space (points). At the top of a page, or at a page break, the space is dropped. */
   spacer(height: number): this {
     if (this.atTop) return this;
