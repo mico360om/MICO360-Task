@@ -52,6 +52,16 @@ describe('withSentinelLock (review fix #8)', () => {
     expect(prisma.$transaction).toHaveBeenCalledTimes(3);
   });
 
+  it('a long one-off step may ask for more time; never an isolation level', async () => {
+    const { prisma } = fakePrisma(0, null);
+    await withSentinelLock(prisma as never, 'one-off', async () => 1);
+    await withSentinelLock(prisma as never, 'one-off', async () => 1, { timeoutMs: 120_000 });
+    expect(prisma.$transaction.mock.calls.map((c) => (c as unknown[])[1])).toEqual([
+      { maxWait: 15_000, timeout: 30_000 },
+      { maxWait: 15_000, timeout: 120_000 },
+    ]);
+  });
+
   it('gives up after its tries, with the database’s own error', async () => {
     const deadlock = Object.assign(new Error('Transaction failed due to a write conflict or a deadlock. Please retry your transaction'), { code: 'P2034' });
     const { prisma } = fakePrisma(10, deadlock);

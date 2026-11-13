@@ -17,6 +17,8 @@ export interface SentinelLockOptions {
   attempts?: number;
   /** The pause before a retry grows from this (ms; default 25, with jitter). */
   pauseMs?: number;
+  /** How long the transaction may run (ms; default 30 000) — a long one-off step (the one-course conversion) asks for more. */
+  timeoutMs?: number;
 }
 
 const TX = { maxWait: 15_000, timeout: 30_000 } as const;
@@ -55,11 +57,12 @@ export async function withRowLock<L, T>(
   prisma: PrismaClient,
   lock: (tx: Prisma.TransactionClient) => Promise<L>,
   work: (tx: Prisma.TransactionClient, locked: L) => Promise<T>,
-  { attempts = 4, pauseMs = 25 }: SentinelLockOptions = {},
+  { attempts = 4, pauseMs = 25, timeoutMs }: SentinelLockOptions = {},
 ): Promise<T> {
+  const options = timeoutMs ? { ...TX, timeout: timeoutMs } : TX;
   for (let attempt = 1; ; attempt++) {
     try {
-      return await prisma.$transaction(async (tx) => work(tx, await lock(tx)), TX);
+      return await prisma.$transaction(async (tx) => work(tx, await lock(tx)), options);
     } catch (err) {
       if (attempt >= attempts || !isRetryableTxError(err)) throw err;
       if (pauseMs > 0) await pause(pauseMs * attempt + Math.floor(Math.random() * pauseMs));

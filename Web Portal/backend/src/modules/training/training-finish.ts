@@ -114,9 +114,10 @@ export function createTrainingFinish(ctx: TrainingContext) {
   /**
    * The person's certificate for the course: its completion day (default now) and, for a course with modules, the
    * modules it covers. A still-valid certificate is replaced (revoked), unless `keepOld` (D3: the old stays valid).
+   * `db`: the caller's transaction (the one-course conversion writes it behind a row lock); default the database.
    */
-  async function issueCertificate(p: PersonRecord, course: CourseRow, state: PairState, o: { keepOld?: boolean; completedAt?: Date } = {}): Promise<string> {
-    return writeCertificate(prisma, p, course, state, await certificateFacts(p, course), o);
+  async function issueCertificate(p: PersonRecord, course: CourseRow, state: PairState, o: { keepOld?: boolean; completedAt?: Date } = {}, db: Db = prisma): Promise<string> {
+    return writeCertificate(db, p, course, state, await certificateFacts(p, course), o);
   }
 
   /**
@@ -243,13 +244,16 @@ export function createTrainingFinish(ctx: TrainingContext) {
   /**
    * The conversion (1.23.30): a person whose modules are all done is finished on `completedAt` (the day of their
    * last module), quietly — no notice — with the certificate when the course gives one. Nothing happens when they
-   * are already finished (or reviewing), or still have something to do.
+   * are already finished (or reviewing), still have something to do, or are retaking and `completedAt` is before
+   * the retake began (1.23.31).
    */
   async function completeAt(userId: string, course: CourseRow, state: PairState, completedAt: Date, person: PersonRecord): Promise<{ completed: boolean; certificateId: string | null }> {
     const e = state.enrolment;
     const status = state.state.status;
     const nothing = { completed: false, certificateId: null };
     if (!e || status === 'COMPLETED' || status === 'REVIEW' || !finishedAll(course.completionRule, state)) return nothing;
+    // A retake counts from its start: a day before it would leave them retaking with a certificate they haven't earned again.
+    if (retakeActive(e) && completedAt.getTime() < e.retakeFrom!.getTime()) return nothing;
     await recordModules(userId, course.id, state);
     const where = retakeActive(e) ? { id: e.id, completedAt: { lt: e.retakeFrom! } } : { id: e.id, completedAt: null };
     const won = await prisma.trainingEnrolment.updateMany({

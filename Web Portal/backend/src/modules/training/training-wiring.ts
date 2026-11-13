@@ -10,6 +10,8 @@ import { createTrainingSweeps } from './training-sweeps';
 import { createTrainingStarter } from './training-starter';
 import { createTrainingFinish } from './training-finish';
 import { createStarterPdfRemoval } from './training-starter-pdfs';
+import { createOneCourseConversion } from './training-one-course';
+import { USER_TRAINING_KEY } from './starter/starter-courses';
 import type { StarterCourse } from './starter/starter-types';
 import { registerTrainingRoutes, type TrainingRouteDeps } from './training-routes';
 import { registerPortalTrainingRoutes } from './portal-training-routes';
@@ -19,8 +21,9 @@ import { registerTrainingReportRoutes } from './training-report-routes';
 /**
  * The Training Center wired to the database: the learner side (staff and the Client portal), the
  * Training Center (authoring, assignments, rules, feedback, certificates, settings), the reports, the
- * sweeps (hourly reminders, the 15-minute membership sync), the starter content loaded once at boot and the
- * one-off removal of the old starter how-to PDFs (1.23.25).
+ * sweeps (hourly reminders, the 15-minute membership sync), the starter content loaded once at boot (with the
+ * one-course conversion of 1.23.31 run first in its update) and the one-off removal of the old starter how-to
+ * PDFs (1.23.25).
  */
 export function createTrainingFromPrisma(prisma: PrismaClient, d: Omit<TrainingDeps, 'prisma'> & { starterCourses?: readonly StarterCourse[]; starterAssetsDir?: string | null }) {
   const { starterCourses, starterAssetsDir, ...rest } = d;
@@ -31,6 +34,17 @@ export function createTrainingFromPrisma(prisma: PrismaClient, d: Omit<TrainingD
   const reports = createTrainingReports(ctx);
   const sweeps = createTrainingSweeps(ctx, sync);
   const finish = createTrainingFinish(ctx);
+  // 1.23.31: the built-in short courses become one course, once (run first in the starter update to revision 3).
+  const combined = starterCourses?.find((c) => c.key === USER_TRAINING_KEY);
+  const oneCourse = createOneCourseConversion({
+    prisma,
+    files: d.files,
+    ctx,
+    finish,
+    sync,
+    ...(combined ? { content: combined } : {}),
+    ...(starterAssetsDir !== undefined ? { assetsDir: starterAssetsDir } : {}),
+  });
   const starter = createTrainingStarter({
     prisma,
     files: d.files,
@@ -40,6 +54,7 @@ export function createTrainingFromPrisma(prisma: PrismaClient, d: Omit<TrainingD
     ...(d.logger ? { logger: d.logger } : {}),
     // R3: after a starter update, anyone who has now done every lesson is finished.
     recheck: (courseIds) => finish.recheck(courseIds),
+    convert: () => oneCourse.run(),
   });
   // 1.23.25: the old Tasks and Meetings how-to slide PDFs leave sites that have them (once).
   const starterPdfs = createStarterPdfRemoval({ prisma, files: d.files, ...(d.now ? { now: d.now } : {}), ...(d.logger ? { logger: d.logger } : {}) });

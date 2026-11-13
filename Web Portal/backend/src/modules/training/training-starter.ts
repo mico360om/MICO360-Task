@@ -59,6 +59,43 @@ export function pictureMimeOf(file: string): string | null {
 
 type Warn = (message: string) => void;
 
+/**
+ * One starter asset's bytes (`assetsDir`/`file`), checked like an upload; null (with a warning) when there is no
+ * folder, or the file is missing or not what it says. Used by the loader and by the one-course conversion.
+ */
+export async function readStarterAsset(
+  assetsDir: string | null,
+  courseKey: string,
+  file: string,
+  mimeType: string | null,
+  kind: 'IMAGE' | 'RESOURCE',
+  name: string,
+  warn: (message: string, meta?: Record<string, unknown>) => void,
+): Promise<{ content: Buffer; mimeType: string; name: string } | null> {
+  if (!assetsDir) {
+    warn(`Training starter: no starter assets folder; ${file} is left out.`, { course: courseKey });
+    return null;
+  }
+  if (!mimeType || basename(file) !== file) {
+    warn(`Training starter: ${file} is not a file the starter content can use; it is left out.`, { course: courseKey });
+    return null;
+  }
+  let content: Buffer;
+  try {
+    content = await readFile(join(assetsDir, file));
+  } catch {
+    warn(`Training starter: ${file} is missing from the starter assets; it is left out.`, { course: courseKey });
+    return null;
+  }
+  try {
+    const checked = checkTrainingUpload({ filename: name, mimeType, content }, kind);
+    return { content, mimeType: checked.mimeType, name: checked.name };
+  } catch (err) {
+    warn(`Training starter: ${file} was refused (${(err as Error).message}); it is left out.`, { course: courseKey });
+    return null;
+  }
+}
+
 const clamp = (n: number, min: number, max: number) => Math.min(max, Math.max(min, Math.round(n)));
 
 /**
@@ -342,30 +379,7 @@ export function createTrainingStarter(deps: TrainingStarterDeps): { run(): Promi
   const warn = (message: string, meta?: Record<string, unknown>) => deps.logger?.warn(message, meta);
 
   /** One asset's bytes, checked like an upload; null (with a warning) when missing or not what it says. */
-  async function asset(courseKey: string, file: string, mimeType: string | null, kind: 'IMAGE' | 'RESOURCE', name: string): Promise<{ content: Buffer; mimeType: string; name: string } | null> {
-    if (!assetsDir) {
-      warn(`Training starter: no starter assets folder; ${file} is left out.`, { course: courseKey });
-      return null;
-    }
-    if (!mimeType || basename(file) !== file) {
-      warn(`Training starter: ${file} is not a file the starter content can use; it is left out.`, { course: courseKey });
-      return null;
-    }
-    let content: Buffer;
-    try {
-      content = await readFile(join(assetsDir, file));
-    } catch {
-      warn(`Training starter: ${file} is missing from the starter assets; it is left out.`, { course: courseKey });
-      return null;
-    }
-    try {
-      const checked = checkTrainingUpload({ filename: name, mimeType, content }, kind);
-      return { content, mimeType: checked.mimeType, name: checked.name };
-    } catch (err) {
-      warn(`Training starter: ${file} was refused (${(err as Error).message}); it is left out.`, { course: courseKey });
-      return null;
-    }
-  }
+  const asset = (courseKey: string, file: string, mimeType: string | null, kind: 'IMAGE' | 'RESOURCE', name: string) => readStarterAsset(assetsDir, courseKey, file, mimeType, kind, name, warn);
 
   /** Copies the course's pictures and downloads into the private folder (files left out are warned about). */
   async function copyFiles(course: StarterCourse, saved: string[]): Promise<{ pictures: Map<string, CopiedFile>; resources: CopiedFile[] }> {
