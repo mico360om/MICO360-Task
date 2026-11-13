@@ -678,6 +678,24 @@ describe('CalendarPage — agenda, states and phones', () => {
     expect(await chip(/Prepare report/)).toBeInTheDocument();
   });
 
+  // 1.23.29 — Agenda days can't be clicked: its empty page has its own words and a New task button (the
+  // toolbar's "+ Task" is hidden on phones); Month, Week and Day keep "Click a day to add a task on it."
+  it('an empty agenda says “Nothing planned in these days.” and offers New task — never “Click a day”', async () => {
+    tasks = [];
+    renderPage('/calendar?view=agenda');
+    expect(await screen.findByText('Nothing planned in these days.')).toBeInTheDocument();
+    expect(screen.queryByText(/click a day/i)).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'New task' }));
+    expect(await screen.findByRole('dialog', { name: 'New task' })).toBeInTheDocument();
+  });
+
+  it('an empty month keeps its own words (its days can be clicked)', async () => {
+    tasks = [];
+    renderPage('/calendar?view=month');
+    expect(await screen.findByText(/click a day to add a task on it/i)).toBeInTheDocument();
+    expect(screen.queryByText('Nothing planned in these days.')).not.toBeInTheDocument();
+  });
+
   it('shows a loading state, then an error with Retry', async () => {
     let fail = true;
     override = (u) => (u.includes('/calendar?') && fail ? json({ error: { code: 'ERR', message: 'boom' } }, 500) : undefined);
