@@ -75,7 +75,7 @@ describe('Teams links in the database', () => {
   });
 
   it('a one-off: the columns are set, the meeting answer shows the marker but never the Graph id', async () => {
-    const m = await meetings.createMeeting({ title: 'OXY review', organizerId: userId, createdById: userId, status: 'SCHEDULED', startAt: at(24), endAt: at(25) });
+    const m = await meetings.createMeeting({ title: 'Site review', organizerId: userId, createdById: userId, status: 'SCHEDULED', startAt: at(24), endAt: at(25) });
     expect((await teams.makeLink(m.id, { id: userId })).made).toBe(true);
     const row = await prisma.meeting.findUniqueOrThrow({ where: { id: m.id } });
     const [made] = [...ms.meetings.values()];

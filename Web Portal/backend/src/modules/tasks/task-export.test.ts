@@ -36,7 +36,7 @@ const task = (over: Partial<TaskExportData> = {}): TaskExportData => ({
   isMilestone: false,
   meeting: null,
   externalContacts: [
-    { name: 'Ahmed Al Said', company: 'OXY', designation: 'Site lead', email: 'ahmed@oxy.com', phone: '+968 9912 3456', remarks: 'Call before 10 am' },
+    { name: 'Ahmed Al Said', company: 'Acme', designation: 'Site lead', email: 'ahmed@acme.com', phone: '+968 9912 3456', remarks: 'Call before 10 am' },
     { name: 'سالم الهنائي', company: null, designation: null, email: null, phone: null, remarks: null },
   ],
   checklist: [
@@ -144,7 +144,7 @@ describe('taskSheets', () => {
     // tgc: 1.24 — a guest's remarks are this task's note for them.
     expect(sheet.columns.map((c) => c.header)).toEqual(['Name', 'Company', 'Designation', 'Email', 'Phone', 'Note for this task']);
     expect(sheet.rows).toEqual([
-      ['Ahmed Al Said', 'OXY', 'Site lead', 'ahmed@oxy.com', '+968 9912 3456', 'Call before 10 am'],
+      ['Ahmed Al Said', 'Acme', 'Site lead', 'ahmed@acme.com', '+968 9912 3456', 'Call before 10 am'],
       ['سالم الهنائي', '', '', '', '', ''],
     ]);
     expect(taskSheets(task({ externalContacts: [] }), ctx)[1]!.rows).toEqual([]);
@@ -154,7 +154,7 @@ describe('taskSheets', () => {
     const details = taskSheets(task({ categories: ['Civil', 'HSE'] }), ctx)[0]!;
     const field = (name: string) => details.rows.find((r) => r[0] === name)?.[1];
     expect(field('Categories')).toBe('Civil, HSE');
-    expect(field('Guests')).toBe('Ahmed Al Said (OXY), سالم الهنائي');
+    expect(field('Guests')).toBe('Ahmed Al Said (Acme), سالم الهنائي');
   });
 });
 
@@ -281,7 +281,7 @@ describe('taskPdf: external contacts', () => {
     const text = textOf(taskPdf(task(), ctx));
     const joined = text.join(' ');
     expect(text).toContain('Guests');
-    for (const value of ['Ahmed Al Said', 'OXY · Site lead', 'ahmed@oxy.com', '+968 9912 3456', 'Call before 10 am', 'سالم الهنائي']) expect(joined, value).toContain(value);
+    for (const value of ['Ahmed Al Said', 'Acme · Site lead', 'ahmed@acme.com', '+968 9912 3456', 'Call before 10 am', 'سالم الهنائي']) expect(joined, value).toContain(value);
     expect(text.indexOf('Guests')).toBeLessThan(text.indexOf('Description'));
   });
 
@@ -654,6 +654,6 @@ describe('1.24: categories and guest history in the task PDF', () => {
     const joined = textOf(taskPdf(task({ categories: ['Civil', 'HSE'] }), ctx)).join(' ');
     expect(joined).toContain('Civil, HSE');
     expect(describeActivity('CATEGORY_ADDED', { name: 'Civil' })).toBe('Added category Civil');
-    expect(describeActivity('EXTERNAL_CONTACT_ADDED', { name: 'Ahmed', company: 'OXY' })).toBe('Assigned guest Ahmed (OXY)');
+    expect(describeActivity('EXTERNAL_CONTACT_ADDED', { name: 'Ahmed', company: 'Acme' })).toBe('Assigned guest Ahmed (Acme)');
   });
 });

@@ -266,12 +266,12 @@ describe('GlobalSearch', () => {
   });
 
   it('a task found by one of its external contacts says which one', async () => {
-    const contact = { field: 'contact', label: 'External contact', snippet: 'Ahmed Al Said · Occidental Oman', ranges: [{ start: 16, end: 26 }] };
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(json({ data: { tasks: [{ id: 't5', key: 'RIG-5', title: 'Inspect the rig', projectId: 'p2', external: ['Ahmed Al Said', 'Occidental Oman'], matches: [contact] }], projects: [], users: [] } }))));
+    const contact = { field: 'contact', label: 'External contact', snippet: 'Ahmed Al Said · Globex Oman', ranges: [{ start: 16, end: 22 }] };
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(json({ data: { tasks: [{ id: 't5', key: 'RIG-5', title: 'Inspect the rig', projectId: 'p2', external: ['Ahmed Al Said', 'Globex Oman'], matches: [contact] }], projects: [], users: [] } }))));
     setup(<GlobalSearch debounceMs={0} />);
-    await userEvent.type(screen.getByRole('searchbox', { name: /search/i }), 'occidental');
-    const line = await screen.findByText((_, el) => el?.textContent === 'External contact: Ahmed Al Said · Occidental Oman' && el.tagName === 'SPAN' && el.classList.contains('block'));
-    expect(line.querySelector('mark')?.textContent).toBe('Occidental');
+    await userEvent.type(screen.getByRole('searchbox', { name: /search/i }), 'globex');
+    const line = await screen.findByText((_, el) => el?.textContent === 'External contact: Ahmed Al Said · Globex Oman' && el.tagName === 'SPAN' && el.classList.contains('block'));
+    expect(line.querySelector('mark')?.textContent).toBe('Globex');
   });
 
   describe('tasks found by the full task search', () => {

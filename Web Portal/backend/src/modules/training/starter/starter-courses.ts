@@ -5,8 +5,9 @@ import type { StarterCourse, StarterLesson, StarterQuestion } from './starter-ty
  * course per main module. Each opens with its training video (a lesson hidden from learners until an
  * administrator pastes the owner's YouTube / Vimeo link — R2, R4), then step-by-step guides with screenshots of the
  * real website, then a short quiz. Loaded once by training-starter.ts and brought up to date there for courses
- * nobody has edited (R1); the pictures and PDFs are in backend/assets/training/starter (the capture script is in
- * the lane ledger). Keys never change once shipped; a lesson's earlier titles are kept in `was`.
+ * nobody has edited (R1); the pictures are in backend/assets/training/starter (the capture script is in the lane
+ * ledger). Keys never change once shipped; a lesson's earlier titles are kept in `was`. No downloads: the old
+ * how-to slide PDFs are gone (1.23.25 — training-starter-pdfs.ts removes them from sites that have them).
  */
 
 /** Raised whenever this content changes, so sites update the starter courses nobody edited (R1). */

@@ -176,7 +176,7 @@ describe('starter courses: the list', () => {
     expect(JSON.stringify(byKey('starter:mico-ai'))).not.toMatch(/How can I help, Omar/);
   });
 
-  it('no starter course carries a download (the two how-to slide decks are retired: owner, 13 Nov)', () => {
+  it('no starter course carries a download (1.23.25: the old how-to slide PDFs are gone; training videos replace them)', () => {
     for (const c of STARTER_COURSES) expect(c.resources ?? [], c.key).toEqual([]);
   });
 });
@@ -311,6 +311,7 @@ describe('starter courses: files', () => {
       expect(referenced.has(f), `${f} is not used by any starter course`).toBe(true);
       expect(extname(f), f).toBe('.webp');
     }
+    expect(filesInFolder.filter((f) => f.endsWith('.pdf'))).toEqual([]);
   });
 
   it('pictures are WebP, at most 1280 px wide and 120 KB each, 3 MB together — and pass the upload checks', async () => {

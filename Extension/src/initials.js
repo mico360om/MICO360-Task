@@ -5,7 +5,7 @@
  * no letter ("-", "3", "(2)") is skipped. Pure (no DOM).
  */
 
-/** The words of a name as their letters: "Mohammed (OXY)" → ["Mohammed", "OXY"]. */
+/** The words of a name as their letters: "Mohammed (Acme)" → ["Mohammed", "Acme"]. */
 export function letterWords(name) {
   return String(name ?? '')
     .trim()
@@ -14,7 +14,7 @@ export function letterWords(name) {
     .filter(Boolean);
 }
 
-/** A person's initials: the first letters of the first two words ("Mohammed (OXY)" → "MO"), one for one word, "?" for none. */
+/** A person's initials: the first letters of the first two words ("Mohammed (Acme)" → "MA"), one for one word, "?" for none. */
 export function personInitials(name) {
   const words = letterWords(name);
   if (words.length === 0) return '?';

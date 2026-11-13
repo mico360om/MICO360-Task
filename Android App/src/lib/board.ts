@@ -122,7 +122,7 @@ export interface CardView {
   singleName: string | null;
   /** Subtasks done, comments and files — each only when there is some. */
   counts: CardBadge[];
-  /** "External: Ahmed Al Said (OXY) and 2 more", or null with no external contacts. */
+  /** "External: Ahmed Al Said (Acme) and 2 more", or null with no external contacts. */
   externalText: string | null;
   /** Everything the card shows, in words (TalkBack). */
   label: string;

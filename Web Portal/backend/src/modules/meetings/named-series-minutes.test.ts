@@ -20,7 +20,7 @@ const base: MinutesData = {
   generatedByName: 'Ada',
 };
 const series: MinutesData['series'] = {
-  name: 'Monthly OXY review',
+  name: 'Monthly site review',
   openFromEarlier: [
     { description: 'Send the drawings', ownerName: 'Bilal', dueDate: '2026-10-20', statusLabel: 'In progress', priorityLabel: 'High', open: true, meetingStartAt: '2026-10-06T06:00:00.000Z' },
     { description: 'Book the crane', ownerName: null, dueDate: null, statusLabel: 'Open', priorityLabel: 'Normal', open: true, meetingStartAt: '2026-09-01T06:00:00.000Z' },
@@ -32,7 +32,7 @@ describe('the minutes PDF of a meeting in a series', () => {
   it('names the series among the facts, without a meeting number', () => {
     const t = text({ ...base, series });
     expect(t).toContain('Series');
-    expect(t).toContain('Monthly OXY review');
+    expect(t).toContain('Monthly site review');
     expect(t).not.toMatch(/meeting 3|Meeting 3 of/);
   });
 
@@ -54,9 +54,9 @@ describe('the minutes PDF of a meeting in a series', () => {
 
   it('leaves both out for a meeting in no series, and the section when nothing is open', () => {
     expect(text(base)).not.toContain('Open from earlier meetings');
-    expect(text(base)).not.toContain('Monthly OXY review');
-    const none = text({ ...base, series: { name: 'Monthly OXY review', openFromEarlier: [] } });
-    expect(none).toContain('Monthly OXY review');
+    expect(text(base)).not.toContain('Monthly site review');
+    const none = text({ ...base, series: { name: 'Monthly site review', openFromEarlier: [] } });
+    expect(none).toContain('Monthly site review');
     expect(none).not.toContain('Open from earlier meetings');
   });
 });
@@ -64,7 +64,7 @@ describe('the minutes PDF of a meeting in a series', () => {
 describe('the AI Final MOM draft of a meeting in a series', () => {
   it('is given the series and its open items from earlier meetings', () => {
     const facts = minutesFacts({ ...base, series });
-    expect(facts).toContain('Series: Monthly OXY review');
+    expect(facts).toContain('Series: Monthly site review');
     expect(facts).toContain('Open action items from earlier meetings of the series:');
     expect(facts).toContain('- Send the drawings — owner Bilal, due 2026-10-20, In progress (from the meeting of 6 Oct 2026)');
     expect(facts).toContain('- Book the crane — owner unassigned, due none, Open (from the meeting of 1 Sep 2026)');

@@ -2092,6 +2092,13 @@ async function main(): Promise<void> {
     }).catch(sweepFailed('training-starter', 'training starter courses'));
   // At boot, then every 6 hours (a no-op once loaded; tries again when a course could not load).
   jobs.every(6 * 60 * 60 * 1000, runTrainingStarter, { firstAfterMs: 20 * 1000 });
+  // 1.23.25: the old Tasks and Meetings how-to slide PDFs (made from videos showing sample data that is no
+  // longer used) leave a site that has them — once, at boot; then a no-op that tries again if it failed.
+  const runTrainingStarterPdfs = () =>
+    runExclusive(jobLock, 'training-starter-pdfs', SWEEP_LEASE_MS, () => new Date(), async () => {
+      await training.starterPdfs.run();
+    }).catch(sweepFailed('training-starter-pdfs', 'removing the old starter how-to PDFs'));
+  jobs.every(6 * 60 * 60 * 1000, runTrainingStarterPdfs, { firstAfterMs: 15 * 1000 });
   const runTrainingReminders = () =>
     runExclusive(jobLock, 'training-reminders', SWEEP_LEASE_MS, () => new Date(), async () => {
       const r = await training.sweeps.reminders.run();

@@ -109,12 +109,12 @@ describe('reportSheets', () => {
 
   it('1.24: names each task’s guests and categories (Excel columns; the PDF under the title)', () => {
     const b = bundle();
-    b.tasks[0] = { ...b.tasks[0]!, guests: ['Ahmed (OXY)', 'Sara'], categories: ['Civil', 'HSE'] };
+    b.tasks[0] = { ...b.tasks[0]!, guests: ['Ahmed (Acme)', 'Sara'], categories: ['Civil', 'HSE'] };
     const row = reportSheets(b, meta, ['tasks'])[0]!.rows[0]!;
-    expect(row[6]).toBe('Ahmed (OXY), Sara');
+    expect(row[6]).toBe('Ahmed (Acme), Sara');
     expect(row[7]).toBe('Civil, HSE');
     const text = textOf(reportPdf(b, meta, ['tasks'])).join(' ');
-    expect(text).toContain('Guests: Ahmed (OXY), Sara');
+    expect(text).toContain('Guests: Ahmed (Acme), Sara');
     expect(text).toContain('Categories: Civil, HSE');
   });
 

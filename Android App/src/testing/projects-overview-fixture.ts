@@ -45,7 +45,7 @@ export const LIST: ProjectOverview[] = [
   }),
   row({ id: 'p3', name: 'alpha site', code: 'ALP', status: 'PLANNING', mine: true }),
   row({
-    id: 'p4', name: 'Beta Plant', code: 'BET', clientName: 'Oxy', status: 'ON_HOLD', ownerId: 'u1', owner: ANN, targetDate: '2026-10-28',
+    id: 'p4', name: 'Beta Plant', code: 'BET', clientName: 'Acme', status: 'ON_HOLD', ownerId: 'u1', owner: ANN, targetDate: '2026-10-28',
     stats: { total: 5, done: 1, open: 4, overdue: 0, nextDue: '2026-11-19', lastActivityAt: '2026-10-01T10:00:00.000Z' },
     team: [ANN, ZED], teamCount: 2,
   }),

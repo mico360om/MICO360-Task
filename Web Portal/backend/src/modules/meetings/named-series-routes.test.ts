@@ -75,19 +75,19 @@ describe('meeting series over the API', () => {
     const t = await setup();
     const a = await t.one('Monthly 1', '2026-10-06T06:00:00Z');
     const b = await t.one('Monthly 2', '2026-11-03T06:00:00Z');
-    const made = await t.call('POST', '/meeting-series', { name: 'Monthly OXY review', meetingId: a.id });
+    const made = await t.call('POST', '/meeting-series', { name: 'Monthly site review', meetingId: a.id });
     expect(made.statusCode).toBe(201);
     const series = made.json().data;
-    expect(series).toMatchObject({ name: 'Monthly OXY review', projectId: 'p1' });
+    expect(series).toMatchObject({ name: 'Monthly site review', projectId: 'p1' });
     expect((await t.call('POST', `/meeting-series/${series.id}/meetings`, { meetingIds: [b.id] })).statusCode).toBe(204);
 
     const ctx = (await t.call('GET', `/meetings/${b.id}/series`)).json().data;
-    expect(ctx).toMatchObject({ series: { id: series.id, name: 'Monthly OXY review' }, position: 2, total: 2, previous: { id: a.id }, next: null });
+    expect(ctx).toMatchObject({ series: { id: series.id, name: 'Monthly site review' }, position: 2, total: 2, previous: { id: a.id }, next: null });
     const page = (await t.call('GET', `/meeting-series/${series.id}`)).json().data;
     expect(page.meetings.map((m: { id: string }) => m.id)).toEqual([a.id, b.id]);
     // The meetings list names each meeting's series (the cards' chip).
     const list = (await t.call('GET', '/meetings')).json().data as Array<{ id: string; seriesId: string | null; seriesName: string | null }>;
-    expect(list.find((m) => m.id === b.id)).toMatchObject({ seriesId: series.id, seriesName: 'Monthly OXY review' });
+    expect(list.find((m) => m.id === b.id)).toMatchObject({ seriesId: series.id, seriesName: 'Monthly site review' });
     // A meeting in no series says so.
     const c = await t.one('Alone', '2026-11-10T06:00:00Z');
     expect((await t.call('GET', `/meetings/${c.id}/series`)).json()).toEqual({ data: null });
@@ -212,9 +212,9 @@ describe('meeting series over the API', () => {
   it('pre-fills "New meeting in this series"', async () => {
     const t = await setup();
     const res = await t.call('POST', '/meetings', { title: 'Monthly 1', startAt: '2026-10-06T06:00:00Z', endAt: '2026-10-06T07:30:00Z', projectId: 'p1', location: 'Room 4' });
-    const s = (await t.call('POST', '/meeting-series', { name: 'Monthly OXY review', meetingId: res.json().data.id })).json().data;
+    const s = (await t.call('POST', '/meeting-series', { name: 'Monthly site review', meetingId: res.json().data.id })).json().data;
     const pre = (await t.call('GET', `/meeting-series/${s.id}/prefill`)).json().data;
-    expect(pre).toMatchObject({ seriesId: s.id, title: 'Monthly OXY review', projectId: 'p1', location: 'Room 4', durationMinutes: 90 });
+    expect(pre).toMatchObject({ seriesId: s.id, title: 'Monthly site review', projectId: 'p1', location: 'Room 4', durationMinutes: 90 });
   });
 
   // ── Review fixes (5 Nov) ──

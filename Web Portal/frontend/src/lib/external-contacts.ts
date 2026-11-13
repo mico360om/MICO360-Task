@@ -3,7 +3,7 @@
  * client's engineer, a supplier's site lead), kept apart from the people the task is assigned to.
  * Each task keeps its own copy of each contact (there is no shared address book). These are the
  * rules every part uses — the limits, how a contact is checked and cleaned, how it is named on a
- * card ("External: Ahmed Al Said (OXY) and 2 more") and how tasks are found by it. Shared
+ * card ("External: Ahmed Al Said (Acme) and 2 more") and how tasks are found by it. Shared
  * byte-for-byte by the website, the Android app and the server (copy tests fail on drift).
  */
 
@@ -83,7 +83,7 @@ export function checkExternalContact(draft: ExternalContactDraft): ExternalConta
   return Object.keys(problems).length > 0 ? { ok: false, problems } : { ok: true, contact };
 }
 
-/** "Ahmed Al Said (OXY)", or just the name when there is no company. */
+/** "Ahmed Al Said (Acme)", or just the name when there is no company. */
 export function externalContactLabel(contact: { name: string; company?: string | null }): string {
   return contact.company ? `${contact.name} (${contact.company})` : contact.name;
 }
@@ -105,7 +105,7 @@ export function summarizeExternalContacts(contacts: { name: string; company?: st
   return { count: contacts.length, name: first.name, company: first.company ?? null, names: contacts.map((c) => c.name), companies };
 }
 
-/** The card line: "External: Ahmed Al Said (OXY)", "… and 2 more"; null when there are none. */
+/** The card line: "External: Ahmed Al Said (Acme)", "… and 2 more"; null when there are none. */
 export function externalContactsLine(summary: Pick<ExternalContactSummary, 'count' | 'name' | 'company'> | null | undefined): string | null {
   if (!summary || summary.count < 1) return null;
   const more = summary.count > 1 ? ` and ${summary.count - 1} more` : '';
@@ -145,12 +145,12 @@ export function externalCompanyOptions(tasks: { externalSummary?: Pick<ExternalC
   return [...byKey.values()].sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }));
 }
 
-/** "OXY · Site lead": a contact's company and designation, whichever are given ('' for neither). */
+/** "Acme · Site lead": a contact's company and designation, whichever are given ('' for neither). */
 export function contactRoleLine(contact: { company?: string | null; designation?: string | null }): string {
   return [contact.company, contact.designation].filter((v): v is string => Boolean(v)).join(' · ');
 }
 
-/** An earlier contact as a suggestion reads: "Ahmed Al Said · OXY · Site lead". */
+/** An earlier contact as a suggestion reads: "Ahmed Al Said · Acme · Site lead". */
 export function suggestionText(contact: { name: string; company?: string | null; designation?: string | null }): string {
   return [contact.name, contactRoleLine(contact)].filter(Boolean).join(' · ');
 }

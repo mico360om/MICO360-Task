@@ -13,7 +13,7 @@ function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 }
 const AHMED = {
-  linkId: 'x1', guestId: 'g1', taskId: 't1', name: 'Ahmed Al Harthy', company: 'OXY', designation: 'Site lead', email: 'ahmed@oxy.com', phone: '+968 9912 3456', note: null, position: 0, addedById: 'u1', addedAt: '', retired: false,
+  linkId: 'x1', guestId: 'g1', taskId: 't1', name: 'Ahmed Al Harthy', company: 'Acme', designation: 'Site lead', email: 'ahmed@acme.com', phone: '+968 9912 3456', note: null, position: 0, addedById: 'u1', addedAt: '', retired: false,
 };
 const HUDA = { id: 'g5', companyId: 'co1', name: 'Huda Saleh', company: 'Daleel', designation: null, email: null, phone: null, notes: null, retiredAt: null, mergedIntoId: null, createdById: null, createdAt: '', updatedAt: '' };
 const CATS = [
@@ -54,7 +54,7 @@ beforeEach(() => {
         return json({
           data: {
             id: 't1', key: 'MICO-1', title: 'Rig inspection', description: null, projectId: 'p1', columnId: 'c1', position: 0, priority: 'NORMAL', startDate: null, dueDate: null,
-            progress: 0, completedAt: null, createdAt: '', updatedAt: '', guests: [{ id: 'g1', name: 'Ahmed Al Harthy', company: 'OXY' }], taskGuests: [AHMED], categories: taskCategories,
+            progress: 0, completedAt: null, createdAt: '', updatedAt: '', guests: [{ id: 'g1', name: 'Ahmed Al Harthy', company: 'Acme' }], taskGuests: [AHMED], categories: taskCategories,
           },
         });
       }
@@ -77,7 +77,7 @@ function wrap() {
   );
   return { invalidate };
 }
-const ahmed = () => screen.findByRole('button', { name: 'Ahmed Al Harthy · OXY · Guest' });
+const ahmed = () => screen.findByRole('button', { name: 'Ahmed Al Harthy · Acme · Guest' });
 const refreshed = (invalidate: ReturnType<typeof vi.spyOn>) => {
   expect(invalidate).toHaveBeenCalledWith({ queryKey: ['task', 't1'] });
   expect(invalidate).toHaveBeenCalledWith({ queryKey: ['task-activity', 't1'] });

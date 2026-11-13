@@ -76,7 +76,7 @@ beforeAll(async () => {
   const assigned = await task('assigned', p.a, col.aTodo, 'Generator service');
   await prisma.taskAssignee.create({ data: { taskId: assigned, userId: bilal } });
   const contact = await task('contact', p.a, col.aTodo, 'Pipe delivery');
-  await prisma.taskExternalContact.create({ data: { taskId: contact, name: 'Khalid Al-Hassan', company: 'Occidental Oman', designation: 'Logistics lead', email: 'khalid@oxy.example', phone: '+968 9555 1234', remarks: 'Calls after noon' } });
+  await prisma.taskExternalContact.create({ data: { taskId: contact, name: 'Khalid Al-Hassan', company: 'Globex Oman', designation: 'Logistics lead', email: 'khalid@acme.example', phone: '+968 9555 1234', remarks: 'Calls after noon' } });
   const tagged = await task('tagged', p.a, col.aTodo, 'Toolbox talk');
   const tag = await prisma.tag.create({ data: { name: 'srch-safety' } });
   await prisma.taskTag.create({ data: { taskId: tagged, tagId: tag.id } });
@@ -138,7 +138,7 @@ describe('Task search on MySQL (integration)', () => {
     expect(await where('base plates')).toEqual(['SRCA', 'Site handover', 'checklist']);
     expect(await where('srch-bilal')).toEqual(['SRCA', 'Generator service', 'assignee']);
     expect(await where('nasser')).toBeNull(); // only a comment author — not a field of the task
-    for (const q of ['al-hassan', 'occidental', 'logistics', 'khalid@oxy', '9555', 'after noon']) expect(await where(q), q).toEqual(['SRCA', 'Pipe delivery', 'contact']);
+    for (const q of ['al-hassan', 'globex', 'logistics', 'khalid@acme', '9555', 'after noon']) expect(await where(q), q).toEqual(['SRCA', 'Pipe delivery', 'contact']);
     expect(await where('srch-safety')).toEqual(['SRCA', 'Toolbox talk', 'tag']);
     expect(await where('policy_2026')).toEqual(['SRCA', 'Insurance renewal', 'file']);
     expect(await where('srcb-77')).toEqual(['SRCA', 'Moved task', 'key']);

@@ -16,7 +16,7 @@ function Where() {
 }
 const PROJECTS = [{ id: 'p1', code: 'RIG', name: 'Rig Inspection', status: 'ACTIVE' }];
 const CATEGORIES = { requireCategory: false, canManage: false, categories: [{ id: 'c1', projectId: 'p1', name: 'Civil', color: 'teal', position: 0, retired: false, retiredAt: null }] };
-const GUESTS = [{ id: 'g1', companyId: 'co', name: 'Ahmed', company: 'OXY', designation: null, email: null, phone: null, notes: null, retiredAt: null, mergedIntoId: null, createdById: null, createdAt: '', updatedAt: '' }];
+const GUESTS = [{ id: 'g1', companyId: 'co', name: 'Ahmed', company: 'Acme', designation: null, email: null, phone: null, notes: null, retiredAt: null, mergedIntoId: null, createdById: null, createdAt: '', updatedAt: '' }];
 function serve() {
   const asked: URL[] = [];
   vi.stubGlobal(
@@ -42,11 +42,11 @@ afterEach(() => {
 
 describe('Search results: guests and categories (1.24)', () => {
   it('keeps the filters in the address and asks the server for tasks with them', () => {
-    const f = everythingFilters(new URLSearchParams('q=pump&project=p1&category=c1&guest=g1&guestCompany=OXY'));
-    expect(f).toMatchObject({ projectId: 'p1', category: 'c1', guest: 'g1', guestCompany: 'OXY', type: 'task' });
+    const f = everythingFilters(new URLSearchParams('q=pump&project=p1&category=c1&guest=g1&guestCompany=Acme'));
+    expect(f).toMatchObject({ projectId: 'p1', category: 'c1', guest: 'g1', guestCompany: 'Acme', type: 'task' });
     expect(hasEverythingFilters(f)).toBe(true);
-    expect(everythingAddress(f)).toBe('q=pump&type=task&project=p1&category=c1&guest=g1&guestCompany=OXY');
-    expect(Object.fromEntries(new URLSearchParams(allQuery(f)))).toMatchObject({ category: 'c1', guest: 'g1', guestCompany: 'OXY', type: 'task' });
+    expect(everythingAddress(f)).toBe('q=pump&type=task&project=p1&category=c1&guest=g1&guestCompany=Acme');
+    expect(Object.fromEntries(new URLSearchParams(allQuery(f)))).toMatchObject({ category: 'c1', guest: 'g1', guestCompany: 'Acme', type: 'task' });
   });
 
   it('offers them once a project is picked; picking one asks for tasks', async () => {
@@ -67,8 +67,8 @@ describe('Search results: guests and categories (1.24)', () => {
     await userEvent.selectOptions(await screen.findByLabelText('Category'), 'c1');
     await waitFor(() => expect(Object.fromEntries(asked[asked.length - 1]!.searchParams)).toMatchObject({ projectId: 'p1', category: 'c1', type: 'task' }));
     await userEvent.selectOptions(screen.getByLabelText('Guest'), 'g1');
-    await userEvent.selectOptions(screen.getByLabelText('Guest company'), 'OXY');
-    await waitFor(() => expect(Object.fromEntries(asked[asked.length - 1]!.searchParams)).toMatchObject({ guest: 'g1', guestCompany: 'OXY' }));
+    await userEvent.selectOptions(screen.getByLabelText('Guest company'), 'Acme');
+    await waitFor(() => expect(Object.fromEntries(asked[asked.length - 1]!.searchParams)).toMatchObject({ guest: 'g1', guestCompany: 'Acme' }));
     await userEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
     await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('?q=pump'));
   });

@@ -24,7 +24,7 @@ export interface ReminderWordingInput {
 export interface ReminderWording {
   /** "Meeting in 15 minutes: Core switch go-live review" — the bell's and the phone's headline. */
   title: string;
-  /** "09:00–10:00 · OXY HQ – Meeting room 2 · Join online". */
+  /** "09:00–10:00 · Head office – Meeting room 2 · Join online". */
   body: string;
   /** "starts in 15 minutes" / "starts tomorrow at 09:00" — for the email's sentence. */
   startsIn: string;

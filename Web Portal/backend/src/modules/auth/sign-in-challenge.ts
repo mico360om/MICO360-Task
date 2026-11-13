@@ -77,7 +77,7 @@ export interface ChallengeView {
   /** The secret the website sends back with the code (or to ask for another). */
   token: string;
   kind: ChallengeKind;
-  /** "a•••@oxy.com" */
+  /** "a•••@acme.com" */
   sentTo: string;
   /** False when signing in again reused the open challenge: the code already sent still works. */
   codeSent: boolean;

@@ -57,7 +57,7 @@ beforeEach(async () => {
   });
 });
 
-const ahmed = { name: 'Ahmed Al Said', company: 'OXY', designation: 'Site lead', email: 'ahmed@oxy.com', phone: '+968 9912 3456', remarks: 'Call before 10' };
+const ahmed = { name: 'Ahmed Al Said', company: 'Acme', designation: 'Site lead', email: 'ahmed@acme.com', phone: '+968 9912 3456', remarks: 'Call before 10' };
 
 describe('External contact routes', () => {
   it('adds a contact (201), lists it, and the task’s details carry it', async () => {
@@ -70,7 +70,7 @@ describe('External contact routes', () => {
   });
 
   it('refuses a contact without a name in plain words, saying which field', async () => {
-    const res = await app.inject({ method: 'POST', url: `/api/v1/tasks/${taskId}/external-contacts`, headers: await bearer('sara'), payload: { company: 'OXY', email: 'bad' } });
+    const res = await app.inject({ method: 'POST', url: `/api/v1/tasks/${taskId}/external-contacts`, headers: await bearer('sara'), payload: { company: 'Acme', email: 'bad' } });
     expect(res.statusCode).toBe(400);
     expect(res.json().error).toEqual({
       code: 'VALIDATION',
@@ -81,18 +81,18 @@ describe('External contact routes', () => {
 
   it('changes and removes a contact, writing each to the task’s history', async () => {
     const headers = await bearer('sara');
-    const id = (await app.inject({ method: 'POST', url: `/api/v1/tasks/${taskId}/external-contacts`, headers, payload: { name: 'Ahmed', company: 'OXY' } })).json().data.id;
+    const id = (await app.inject({ method: 'POST', url: `/api/v1/tasks/${taskId}/external-contacts`, headers, payload: { name: 'Ahmed', company: 'Acme' } })).json().data.id;
     const put = await app.inject({ method: 'PUT', url: `/api/v1/external-contacts/${id}`, headers, payload: { name: 'Ahmed Al Said', phone: '+968 1234' } });
     expect(put.statusCode).toBe(200);
-    expect(put.json().data).toMatchObject({ id, name: 'Ahmed Al Said', company: 'OXY', phone: '+968 1234' });
+    expect(put.json().data).toMatchObject({ id, name: 'Ahmed Al Said', company: 'Acme', phone: '+968 1234' });
     // Saving it unchanged writes no history.
     await app.inject({ method: 'PUT', url: `/api/v1/external-contacts/${id}`, headers, payload: { name: 'Ahmed Al Said' } });
     const del = await app.inject({ method: 'DELETE', url: `/api/v1/external-contacts/${id}`, headers });
     expect(del.statusCode).toBe(204);
     expect(activity).toEqual([
-      { taskId, userId: 'sara', action: 'EXTERNAL_CONTACT_ADDED', meta: { name: 'Ahmed', company: 'OXY' } },
-      { taskId, userId: 'sara', action: 'EXTERNAL_CONTACT_CHANGED', meta: { name: 'Ahmed Al Said', company: 'OXY' } },
-      { taskId, userId: 'sara', action: 'EXTERNAL_CONTACT_REMOVED', meta: { name: 'Ahmed Al Said', company: 'OXY' } },
+      { taskId, userId: 'sara', action: 'EXTERNAL_CONTACT_ADDED', meta: { name: 'Ahmed', company: 'Acme' } },
+      { taskId, userId: 'sara', action: 'EXTERNAL_CONTACT_CHANGED', meta: { name: 'Ahmed Al Said', company: 'Acme' } },
+      { taskId, userId: 'sara', action: 'EXTERNAL_CONTACT_REMOVED', meta: { name: 'Ahmed Al Said', company: 'Acme' } },
     ]);
     const again = await app.inject({ method: 'DELETE', url: `/api/v1/external-contacts/${id}`, headers });
     expect(again.statusCode).toBe(404);

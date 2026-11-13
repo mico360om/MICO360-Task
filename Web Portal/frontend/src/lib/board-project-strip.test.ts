@@ -33,7 +33,7 @@ describe('projectDates', () => {
 describe('projectPlace', () => {
   it('its client when it has one, else its main company', () => {
     const companies = [{ name: 'Prolens Projects LLC', isMain: true }, { name: 'Other Co', isMain: false }];
-    expect(projectPlace({ clientName: 'OXY Oman', companies })).toEqual({ label: 'Client', name: 'OXY Oman' });
+    expect(projectPlace({ clientName: 'Acme Oman', companies })).toEqual({ label: 'Client', name: 'Acme Oman' });
     expect(projectPlace({ clientName: null, companies })).toEqual({ label: 'Company', name: 'Prolens Projects LLC' });
     expect(projectPlace({ clientName: '  ', companies: [] })).toBeNull();
   });

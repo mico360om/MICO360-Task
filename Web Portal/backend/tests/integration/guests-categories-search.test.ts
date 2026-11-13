@@ -34,8 +34,8 @@ beforeAll(async () => {
   }
   electrical = (await prisma.projectCategory.create({ data: { projectId, name: `Electrical${L}`, nameKey: `electrical${L}`, color: 'gold' } })).id;
   await prisma.taskCategory.create({ data: { taskId: t.wired!, categoryId: electrical } });
-  guestId = (await prisma.guestContact.create({ data: { companyId: 'company_prolens', name: `Ahmed ${L}`, nameKey: `ahmed${L}`, company: `Oxy ${L}` } })).id;
-  await prisma.taskExternalContact.create({ data: { taskId: t.guested!, guestId, name: `Ahmed ${L}`, company: `Oxy ${L}` } });
+  guestId = (await prisma.guestContact.create({ data: { companyId: 'company_prolens', name: `Ahmed ${L}`, nameKey: `ahmed${L}`, company: `Acme ${L}` } })).id;
+  await prisma.taskExternalContact.create({ data: { taskId: t.guested!, guestId, name: `Ahmed ${L}`, company: `Acme ${L}` } });
   for (const id of Object.values(t)) await index.taskChanged(id);
 });
 afterAll(async () => {
@@ -62,7 +62,7 @@ describe('search by guests and categories (1.24)', () => {
 
   it('the page’s Guest, Guest company and Category filters: tasks only', async () => {
     expect(await run(`pump ${L}`, { guestIds: [guestId] })).toEqual([t.guested]);
-    expect(await run(`pump ${L}`, { guestCompany: `oxy${L}` })).toEqual([t.guested]);
+    expect(await run(`pump ${L}`, { guestCompany: `acme${L}` })).toEqual([t.guested]);
     expect(await run(`pump ${L}`, { categoryIds: [electrical] })).toEqual([t.wired]);
     const all = await engine.search({ q: `pump ${L}`, scope: everyone, viewerId: owner, limit: 50, categoryIds: [electrical] });
     expect(all.hits.every((h) => h.kind === 'task')).toBe(true);

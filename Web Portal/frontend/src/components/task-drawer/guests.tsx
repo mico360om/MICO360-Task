@@ -42,7 +42,7 @@ export function drawerGuests(task: Pick<ApiTask, 'taskGuests' | 'guests'>): Draw
   return (task.guests ?? []).map((g) => ({ guestId: g.id, linkId: g.id, name: g.name, company: g.company ?? null, designation: null, email: null, phone: null, note: null, retired: false }));
 }
 
-/** "Ahmed Al Harthy · OXY · Guest" — a guest's chip on the panel (and its name for a screen reader). */
+/** "Ahmed Al Harthy · Acme · Guest" — a guest's chip on the panel (and its name for a screen reader). */
 export const guestChipName = (g: { name: string; company: string | null }) => [g.name, g.company, GUEST_WORDS.badge].filter(Boolean).join(' · ');
 
 /** Copy text: the clipboard where the browser allows it, else the old way (a selected hidden box). */

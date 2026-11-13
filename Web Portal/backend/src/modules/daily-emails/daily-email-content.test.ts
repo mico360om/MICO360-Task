@@ -424,7 +424,7 @@ describe('a task’s row', () => {
     checklist: { done: 4, total: 7 },
     blocked: true,
     categories: [{ name: 'Electrical', color: '#7C3AED' }],
-    guests: [{ name: 'Ahmed', company: 'OXY' }],
+    guests: [{ name: 'Ahmed', company: 'Acme' }],
   });
 
   it('number, title (a link), project, status and priority badges in the scheme’s colours, how late, the checklist with a bar, categories and guests', () => {
@@ -441,8 +441,8 @@ describe('a task’s row', () => {
     expect(html).toContain('>4/7 · 57%<');
     expect(html).toMatch(/class="em-f-status-done" width="57%"/);
     expect(html).toContain('<span style="color:#7C3AED">●</span>&nbsp;Electrical</span>');
-    expect(html).toContain('>Guest: Ahmed (OXY)</span>');
-    expect(text).toContain('- RIG-7 Replace the pump seal — 3 days late\n  Rig Inspection (Acme Drilling) · Due Sun 1 Nov · In Progress · Urgent · Blocked · Electrical · Guest: Ahmed (OXY) · Checklist 4/7 (57%)');
+    expect(html).toContain('>Guest: Ahmed (Acme)</span>');
+    expect(text).toContain('- RIG-7 Replace the pump seal — 3 days late\n  Rig Inspection (Acme Drilling) · Due Sun 1 Nov · In Progress · Urgent · Blocked · Electrical · Guest: Ahmed (Acme) · Checklist 4/7 (57%)');
   });
 
   it('a normal priority, an empty checklist and no categories or guests are left out', () => {
@@ -794,9 +794,9 @@ describe('review fixes', () => {
     expect(build({ tasks: [task('RIG-30', { boardDate: board('2026-11-04') })] }).subject).toBe('Today: 1 open task — Wed 4 Nov');
   });
 
-  it('merge (guests lane’s case): a guest’s name and company only, as a "Guest: Ahmed (OXY)" chip; a guest without a company by name', () => {
-    const { text, html } = build({ tasks: [task('RIG-1', { guests: [{ name: 'Ahmed', company: 'OXY' }, { name: 'Sara', company: null }], categories: [{ name: 'Civil', color: '#2E7D53' }, { name: 'HSE' }] })] });
-    expect(text).toContain('Guest: Ahmed (OXY) · Guest: Sara');
+  it('merge (guests lane’s case): a guest’s name and company only, as a "Guest: Ahmed (Acme)" chip; a guest without a company by name', () => {
+    const { text, html } = build({ tasks: [task('RIG-1', { guests: [{ name: 'Ahmed', company: 'Acme' }, { name: 'Sara', company: null }], categories: [{ name: 'Civil', color: '#2E7D53' }, { name: 'HSE' }] })] });
+    expect(text).toContain('Guest: Ahmed (Acme) · Guest: Sara');
     expect(text).toContain('Civil · HSE');
     expect(html).toContain('>Guest: Sara</span>');
     expect(html).toContain('<span style="color:#2E7D53">●</span>&nbsp;Civil</span>');

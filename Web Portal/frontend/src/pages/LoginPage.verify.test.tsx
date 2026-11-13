@@ -8,16 +8,16 @@ import { useAuthStore } from '../stores/auth-store';
 
 /**
  * Onboarding: an account whose email address isn't confirmed enters the 6-digit code we email before
- * it gets a session — "Check your email — enter the 6-digit code we sent to a•••@oxy.com".
+ * it gets a session — "Check your email — enter the 6-digit code we sent to a•••@acme.com".
  */
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 }
-const SESSION = { user: { id: 'u1', email: 'ahmed@oxy.com', username: 'ahmed', roles: ['CLIENT'] }, accessToken: 'at', refreshToken: 'rt' };
+const SESSION = { user: { id: 'u1', email: 'ahmed@acme.com', username: 'ahmed', roles: ['CLIENT'] }, accessToken: 'at', refreshToken: 'rt' };
 const challenge = (o: Record<string, unknown> = {}) => ({
   token: 'secret-challenge-token',
   kind: 'VERIFY_EMAIL',
-  sentTo: 'a•••@oxy.com',
+  sentTo: 'a•••@acme.com',
   codeSent: true,
   resendAt: new Date(Date.now() + 60_000).toISOString(),
   expiresAt: new Date(Date.now() + 600_000).toISOString(),
@@ -81,7 +81,7 @@ describe('Sign-in: “Check your email” (a code before the first session)', ()
     await signIn();
     expect(sent.find((s) => s.url.endsWith('/auth/login'))!.body).toMatchObject({ identifier: 'ahmed', password: 'Secret123', acceptChallenge: true });
     expect(await screen.findByRole('heading', { name: 'Check your email' })).toBeInTheDocument();
-    expect(screen.getByText((_, el) => el?.tagName === 'P' && /^Enter the 6-digit code we sent to a•••@oxy\.com to confirm it’s your email address\.$/.test(el.textContent ?? ''))).toBeInTheDocument();
+    expect(screen.getByText((_, el) => el?.tagName === 'P' && /^Enter the 6-digit code we sent to a•••@acme\.com to confirm it’s your email address\.$/.test(el.textContent ?? ''))).toBeInTheDocument();
     expect(useAuthStore.getState().isAuthenticated).toBe(false);
     await waitFor(() => expect(codeBox()).toHaveFocus());
     expect(codeBox()).toHaveAttribute('autocomplete', 'one-time-code');

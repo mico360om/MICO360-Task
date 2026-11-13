@@ -33,7 +33,7 @@ const original = (over: Partial<OriginalTask> = {}): OriginalTask => ({
     { title: 'Before', items: [{ text: 'Valves', children: [{ text: 'Main valve' }, { text: 'Spare valve', children: [{ text: 'Seal' }] }] }, { text: 'Gauges' }] },
     { title: 'After', items: [{ text: 'Report' }] },
   ],
-  externalContacts: [{ name: 'Ahmed Al Said', company: 'OXY', designation: null, email: null, phone: null, remarks: null }],
+  externalContacts: [{ name: 'Ahmed Al Said', company: 'Acme', designation: null, email: null, phone: null, remarks: null }],
   guests: [],
   categories: [],
   files: [
@@ -62,7 +62,7 @@ describe('copyOf: what a copy carries', () => {
       assigneeIds: ['omar', 'sara', 'left'],
       watcherIds: ['nadia', 'outsider'],
     });
-    expect(c.externalContacts).toEqual([{ name: 'Ahmed Al Said', company: 'OXY', designation: null, email: null, phone: null, remarks: null }]);
+    expect(c.externalContacts).toEqual([{ name: 'Ahmed Al Said', company: 'Acme', designation: null, email: null, phone: null, remarks: null }]);
     expect(c.files.map((f) => f.filename)).toEqual(['plan.pdf', 'site.dwg', 'photo.png']);
   });
 
@@ -304,7 +304,7 @@ describe('guests and categories on a copy (Duplicate × Guests + categories)', (
     original({
       externalContacts: [],
       guests: [
-        { guestId: 'g1', note: 'Bring the permit', name: 'Ahmed Al Said', company: 'OXY', designation: 'Site lead', email: 'ahmed@oxy.test', phone: '+968 1', retired: false },
+        { guestId: 'g1', note: 'Bring the permit', name: 'Ahmed Al Said', company: 'Acme', designation: 'Site lead', email: 'ahmed@acme.test', phone: '+968 1', retired: false },
         { guestId: 'g2', note: null, name: 'Old Contact', company: null, designation: null, email: null, phone: null, retired: true },
       ],
       categories: [
@@ -369,7 +369,7 @@ describe('guests and categories on a copy (Duplicate × Guests + categories)', (
 
   it('the review form is filled in with its guests (as the Assign box shows them) and its categories', async () => {
     const p = await guestWorld(withGuests()).service.prefill(me, 'orig');
-    expect(p.task.guests).toEqual([{ id: 'g1', name: 'Ahmed Al Said', company: 'OXY', designation: 'Site lead', email: 'ahmed@oxy.test', phone: '+968 1', note: 'Bring the permit' }]);
+    expect(p.task.guests).toEqual([{ id: 'g1', name: 'Ahmed Al Said', company: 'Acme', designation: 'Site lead', email: 'ahmed@acme.test', phone: '+968 1', note: 'Bring the permit' }]);
     expect(p.task.categoryIds).toEqual(['c1']);
   });
 

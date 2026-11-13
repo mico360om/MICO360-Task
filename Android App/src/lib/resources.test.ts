@@ -152,7 +152,7 @@ describe('resourcesApi.tasks', () => {
   it('manages a task’s external contacts: list, add (with its key), change, remove, and suggests earlier ones from the project', async () => {
     const { client, calls } = fakeClient();
     const api = resourcesApi(client).tasks;
-    const ahmed = { name: 'Ahmed Al Said', company: 'OXY', designation: null, email: null, phone: '+968 1', remarks: null };
+    const ahmed = { name: 'Ahmed Al Said', company: 'Acme', designation: null, email: null, phone: '+968 1', remarks: null };
     await api.externalContacts('t1');
     await api.addExternalContact('t1', ahmed);
     await api.updateExternalContact('x1', { phone: '' });
@@ -167,7 +167,7 @@ describe('resourcesApi.tasks', () => {
 
   it('creates a task with its external contacts in the same call', async () => {
     const { client, calls } = fakeClient();
-    const ahmed = { name: 'Ahmed', company: 'OXY', designation: null, email: null, phone: null, remarks: null };
+    const ahmed = { name: 'Ahmed', company: 'Acme', designation: null, email: null, phone: null, remarks: null };
     await resourcesApi(client).tasks.create({ title: 'X', projectId: 'p1', columnId: 'c1', externalContacts: [ahmed] });
     expect(calls[0]).toEqual({ method: 'POST', path: '/tasks', body: { title: 'X', projectId: 'p1', columnId: 'c1', externalContacts: [ahmed] } });
   });

@@ -111,7 +111,7 @@ describe('Writes to a merged task’s id (integration)', () => {
   });
 
   it('an external contact lands on the main task', async () => {
-    const res = await app.post(mate, `/tasks/${other.id}/external-contacts`, { name: 'Ahmed Al Said', company: 'OXY' });
+    const res = await app.post(mate, `/tasks/${other.id}/external-contacts`, { name: 'Ahmed Al Said', company: 'Acme' });
     expect(res.statusCode).toBe(201);
     expect(res.json()).toMatchObject({ data: { name: 'Ahmed Al Said' }, mergedInto: mergedInto() });
     expect(await prisma.taskExternalContact.count({ where: { taskId: main.id } })).toBe(1);

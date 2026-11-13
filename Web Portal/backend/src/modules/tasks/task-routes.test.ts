@@ -394,10 +394,10 @@ describe('Task routes', () => {
       method: 'POST',
       url: '/api/v1/tasks',
       headers,
-      payload: { title: 'Site check', projectId: 'p1', columnId: 'c1', externalContacts: [{ name: ' Ahmed Al Said ', company: 'OXY', email: '' }] },
+      payload: { title: 'Site check', projectId: 'p1', columnId: 'c1', externalContacts: [{ name: ' Ahmed Al Said ', company: 'Acme', email: '' }] },
     });
     expect(res.statusCode).toBe(201);
-    expect(mem.externalContacts.get(res.json().data.id)).toEqual([{ name: 'Ahmed Al Said', company: 'OXY', designation: null, email: null, phone: null, remarks: null }]);
+    expect(mem.externalContacts.get(res.json().data.id)).toEqual([{ name: 'Ahmed Al Said', company: 'Acme', designation: null, email: null, phone: null, remarks: null }]);
     const bad = await app2.inject({
       method: 'POST',
       url: '/api/v1/tasks',
@@ -463,13 +463,13 @@ describe('Task routes', () => {
     const headers = { authorization: `Bearer ${await token(['EMPLOYEE'])}` };
     const post = (title: string, externalContacts: { name: string; company?: string }[]) =>
       app.inject({ method: 'POST', url: '/api/v1/tasks', headers, payload: { title, projectId: 'p1', columnId: 'c1', externalContacts } });
-    await post('Rig inspection', [{ name: 'Ahmed Al Said', company: 'OXY Oman' }]);
-    await post('Pipeline survey', [{ name: 'Sara Nasser', company: 'PDO' }, { name: 'Ali', company: 'oxy  oman' }]);
+    await post('Rig inspection', [{ name: 'Ahmed Al Said', company: 'Acme Oman' }]);
+    await post('Pipeline survey', [{ name: 'Sara Nasser', company: 'PDO' }, { name: 'Ali', company: 'acme  oman' }]);
     await post('Internal only', []);
     const titles = async (qs: string) => (await app.inject({ method: 'GET', url: `/api/v1/tasks?${qs}`, headers })).json().data.map((t: { title: string }) => t.title);
     expect(await titles('q=ahmed')).toEqual(['Rig inspection']);
     expect(await titles('q=pdo')).toEqual(['Pipeline survey']);
-    expect(await titles(`externalCompany=${encodeURIComponent('OXY Oman')}`)).toEqual(['Rig inspection', 'Pipeline survey']);
+    expect(await titles(`externalCompany=${encodeURIComponent('Acme Oman')}`)).toEqual(['Rig inspection', 'Pipeline survey']);
     expect(await titles('externalCompany=PDO')).toEqual(['Pipeline survey']);
   });
 

@@ -19,6 +19,11 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - Learning Hub: each course starts with its training video once the link is added, a new 'Getting started' course, and lesson pictures updated to the current version.
 - Learning Hub (admins): fewer tabs, a 'New staff only' choice when assigning a course, and the tour switch moved to System Settings.
 
+## [1.23.25] - 2026-11-13
+
+### Bug fixes
+- Learning Hub: the two old how-to slide PDFs are removed from the Tasks and Meetings courses; new training videos replace them.
+
 ## [1.23.24] - 2026-11-12
 
 ### Bug fixes
@@ -229,7 +234,7 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   ("today 14:00"), **Coming up** (the next 7 days, and tasks that start on a later day) and **Other open tasks**
   (the rest, by project — nothing is left out), **Today's meetings** and **Completed yesterday**. Every task shows
   its number, title, project, status and priority (word and colour), its day, its categories and guests ("Guest:
-  Ahmed (OXY)") and, when it has one, its checklist ("4/7 · 57%" with a small bar). Archived tasks are left out
+  Ahmed (Acme)") and, when it has one, its checklist ("4/7 · 57%" with a small bar). Archived tasks are left out
   (a finished one you archived still counts in This week and Your projects). Your week starts on your own week start and every day and time is in your own
   time zone.
 - For people who run projects (and administrators, for the projects they run): **Your projects** — each project's
@@ -254,13 +259,13 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   on a task for the record. The Assign box (New task, Edit task and the task panel) has a switch
   **Internal user | Guest**: pick a guest from your company's list, or add a new one (name required;
   company, designation, email and phone if you have them). If the same person is already on the list, the
-  form says so ("Ahmed Al Harthy (OXY) is already on the list — use them?"). A task can have several team
+  form says so ("Ahmed Al Harthy (Acme) is already on the list — use them?"). A task can have several team
   members and several guests, and always needs at least one person from your team, who looks after it.
   Guests never sign in, never get emails or notices, take no licence and are never shown to clients.
 - Guests show on the task's right side under Assigned (with a Guest badge; their phone and email with a
-  Copy button, and a note for this task), on cards and rows ("Guest: Ahmed (OXY)"), in the Table view's
+  Copy button, and a note for this task), on cards and rows ("Guest: Ahmed (Acme)"), in the Table view's
   Guests column, in the task PDF and Excel, in the report's task list, and in the daily email of the person
-  looking after the task ("with guest Ahmed (OXY)"). Filter by **Guest** and **Guest company** on the
+  looking after the task ("with guest Ahmed (Acme)"). Filter by **Guest** and **Guest company** on the
   board, My Tasks, the project's Tasks tab, the Table view and Search results.
 - Today's external contacts become guests on your company's list by themselves (the same person on several
   tasks becomes one guest; other details found are kept in the guest's notes). An open task that had
@@ -281,7 +286,7 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   a guest of another company is copied onto the new project's company list. Merging tasks keeps every
   category and each guest once (Undo gives them back); repeating copies keep both; "Save as template"
   keeps a project's categories, and a project made from that template starts with them.
-- The task history says "assigned guest Ahmed (OXY)", "removed guest …", "added category Electrical".
+- The task history says "assigned guest Ahmed (Acme)", "removed guest …", "added category Electrical".
 - Search this board also finds a card by its guests (name or company) and its categories. Duplicate copies
   a task's guests (with their notes for the task) and its categories, never retired ones.
 - A task in the Recycle Bin keeps its guests and categories: its categories count as in use (they can be
@@ -646,7 +651,7 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   new password).
 - Email verification: someone given a temporary password, or whose email address was changed, enters a
   6-digit code we email them before their first sign-in ("Check your email — enter the code we sent to
-  a•••@oxy.com"; codes last 10 minutes, Resend code). Using an invitation or reset link, or signing in with
+  a•••@acme.com"; codes last 10 minutes, Resend code). Using an invitation or reset link, or signing in with
   an emailed code, confirms the address too. Everyone who has already signed in counts as confirmed, so
   no one is asked after the update. The Android app and the extension say "Confirm your email on the
   website first" until it is done. Administrators can mark an address as verified by hand, with a reason,
@@ -953,11 +958,11 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   finds items by meaning, not only by their words.
 - The top-bar search also shows the best notes, minutes, files and inspections it finds, and always
   offers "See all results".
-- Meeting series: related meetings can be linked into a named series (for example "Monthly OXY
+- Meeting series: related meetings can be linked into a named series (for example "Monthly site
   review", made by hand each month). On a meeting: ⋯ → "Add to a series…" picks one of the project's
   series or makes a new one (named after the meeting); "Remove from series…" takes it out. The
   meeting's organizer, the project's owner and managers, and administrators can do this.
-- Each meeting of a series says so under its title — "Series: Monthly OXY review · 3 of 5 · ‹ Previous
+- Each meeting of a series says so under its title — "Series: Monthly site review · 3 of 5 · ‹ Previous
   (3 Nov) · Next (3 Dec) ›" — and lists the series' meetings (earlier ones, this one marked, those to
   come, with "Minutes final"). Only meetings the person may open are counted and shown: someone who
   can open just one meeting sees the series' name and nothing of the others.
@@ -1428,7 +1433,7 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   them. Typing a name suggests contacts used before on the project's tasks; picking one copies their
   details.
 - New task and Edit task have an External contacts field, on the website and in the Android app.
-- Cards and task lists say who is responsible outside the company ("External: Ahmed Al Said (OXY)
+- Cards and task lists say who is responsible outside the company ("External: Ahmed Al Said (Acme)
   and 2 more"); My Tasks and the board can be filtered by external company, and search finds a task
   by a contact's name or company.
 - The task's PDF and Excel export list its external contacts with all their details, its history
@@ -1452,7 +1457,7 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - Administrators choose the reminder times in System Settings → Meeting reminders: switch them off
   for everyone, or set up to five times from 5 minutes to 7 days before, each with "also by email".
 - Meeting reminders say the time in the meeting's time zone ("Meeting in 15 minutes: Core switch
-  go-live review · 09:00–10:00 · OXY HQ – Meeting room 2 · Join online"), with your own time added
+  go-live review · 09:00–10:00 · Head office – Meeting room 2 · Join online"), with your own time added
   when your time zone differs. Each one is sent once; a moved meeting is reminded at its new time,
   and cancelled or draft meetings, people who declined and people taken off a meeting get none.
   They replace the single reminder email an hour before.
@@ -1678,7 +1683,7 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   scrolled from the keyboard.
 
 ### Bug fixes
-- Initials are made from letters only: "Mohammed (OXY)" shows MO and "(OXY) Pipeline" shows OP (they
+- Initials are made from letters only: "Mohammed (Acme)" shows MA and "(Acme) Pipeline" shows AP (they
   showed "M(" and "(P"), on the website, in PDFs and emails. The Android app and the Chrome
   extension follow in their next update.
 - The project page showed two completion figures (9% on the tile, 41% under Work done); Work done

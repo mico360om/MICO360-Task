@@ -9,6 +9,7 @@ import { createTrainingReports, type TrainingReports } from './training-report-s
 import { createTrainingSweeps } from './training-sweeps';
 import { createTrainingStarter } from './training-starter';
 import { createTrainingFinish } from './training-finish';
+import { createStarterPdfRemoval } from './training-starter-pdfs';
 import type { StarterCourse } from './starter/starter-types';
 import { registerTrainingRoutes, type TrainingRouteDeps } from './training-routes';
 import { registerPortalTrainingRoutes } from './portal-training-routes';
@@ -18,7 +19,8 @@ import { registerTrainingReportRoutes } from './training-report-routes';
 /**
  * The Training Center wired to the database: the learner side (staff and the Client portal), the
  * Training Center (authoring, assignments, rules, feedback, certificates, settings), the reports, the
- * sweeps (hourly reminders, the 15-minute membership sync) and the starter content loaded once at boot.
+ * sweeps (hourly reminders, the 15-minute membership sync), the starter content loaded once at boot and the
+ * one-off removal of the old starter how-to PDFs (1.23.25).
  */
 export function createTrainingFromPrisma(prisma: PrismaClient, d: Omit<TrainingDeps, 'prisma'> & { starterCourses?: readonly StarterCourse[]; starterAssetsDir?: string | null }) {
   const { starterCourses, starterAssetsDir, ...rest } = d;
@@ -39,7 +41,9 @@ export function createTrainingFromPrisma(prisma: PrismaClient, d: Omit<TrainingD
     // R3: after a starter update, anyone who has now done every lesson is finished.
     recheck: (courseIds) => finish.recheck(courseIds),
   });
-  return { ctx, sync, learner, manage, reports, sweeps, starter };
+  // 1.23.25: the old Tasks and Meetings how-to slide PDFs leave sites that have them (once).
+  const starterPdfs = createStarterPdfRemoval({ prisma, files: d.files, ...(d.now ? { now: d.now } : {}), ...(d.logger ? { logger: d.logger } : {}) });
+  return { ctx, sync, learner, manage, reports, sweeps, starter, starterPdfs };
 }
 
 /** What app.ts needs to register the Training Center's routes. */

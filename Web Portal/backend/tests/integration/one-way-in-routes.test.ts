@@ -115,7 +115,7 @@ describe('the Android app’s default: an invitation and a typed password togeth
 
   it('POST /clients: the same', async () => {
     const email = `saif${DOMAIN}`;
-    const res = await post('/clients', { email, username: 'owi-saif', firstName: 'Saif', lastName: 'S', organisation: 'OXY', sendWelcome: true, password: TYPED });
+    const res = await post('/clients', { email, username: 'owi-saif', firstName: 'Saif', lastName: 'S', organisation: 'Acme', sendWelcome: true, password: TYPED });
     await expectExactlyAnInvitation(res, email);
   });
 
@@ -123,7 +123,7 @@ describe('the Android app’s default: an invitation and a typed password togeth
     for (const [url, extra] of [
       ['/users', { roleNames: ['EMPLOYEE'], sendWelcome: true, generatePassword: 'words' }],
       ['/users', { roleNames: ['EMPLOYEE'], password: TYPED, generatePassword: 'characters' }],
-      ['/clients', { organisation: 'OXY', sendWelcome: true, generatePassword: 'words' }],
+      ['/clients', { organisation: 'Acme', sendWelcome: true, generatePassword: 'words' }],
     ] as const) {
       const res = await post(url, { email: `x${DOMAIN}`, username: 'owi-x', firstName: 'X', lastName: 'Y', ...extra });
       expect(res.statusCode, url).toBe(400);

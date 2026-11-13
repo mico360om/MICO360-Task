@@ -213,7 +213,7 @@ export function filterByExternalCompany<T extends { externalSummary?: ExternalCo
   return company.trim() ? tasks.filter((t) => hasExternalCompany(t.externalSummary, company)) : [...tasks];
 }
 
-/** The company filter's button: "External company: Any company" / "External company: OXY". */
+/** The company filter's button: "External company: Any company" / "External company: Acme". */
 export function companyFilterLabel(company: string): string {
   return `${EXTERNAL_CONTACT_WORDS.filter}: ${company.trim() || EXTERNAL_CONTACT_WORDS.anyCompany}`;
 }

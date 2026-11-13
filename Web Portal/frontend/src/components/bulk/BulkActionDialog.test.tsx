@@ -51,7 +51,7 @@ beforeEach(() => {
           { id: 'k2', projectId: 'p1', name: 'Civil', color: 'green', position: 1, retired: false, retiredAt: null },
         ] } });
       }
-      if (u.includes('/projects/p1/guests')) return json({ data: [{ id: 'g1', name: 'Ahmed Al Harthy', company: 'OXY', designation: null, email: null, phone: null, retiredAt: null }] });
+      if (u.includes('/projects/p1/guests')) return json({ data: [{ id: 'g1', name: 'Ahmed Al Harthy', company: 'Acme', designation: null, email: null, phone: null, retiredAt: null }] });
       return json({ data: [] });
     }),
   );

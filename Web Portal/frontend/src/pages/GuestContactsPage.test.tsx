@@ -37,8 +37,8 @@ const guest = (over: Partial<ApiAdminGuest> & Pick<ApiAdminGuest, 'id' | 'name'>
   ...over,
 });
 
-const ahmed = guest({ id: 'g1', name: 'Ahmed Al Harthy', company: 'OXY', designation: 'Site engineer', email: 'ahmed@oxy.com', phone: '+968 9123 4567', notes: 'Prefers WhatsApp', taskCount: 3 });
-const ahmed2 = guest({ id: 'g2', name: 'Ahmed Alharthy', company: 'OXY', phone: '91234567', taskCount: 2 });
+const ahmed = guest({ id: 'g1', name: 'Ahmed Al Harthy', company: 'Acme', designation: 'Site engineer', email: 'ahmed@acme.com', phone: '+968 9123 4567', notes: 'Prefers WhatsApp', taskCount: 3 });
+const ahmed2 = guest({ id: 'g2', name: 'Ahmed Alharthy', company: 'Acme', phone: '91234567', taskCount: 2 });
 const sara = guest({ id: 'g3', name: 'Sara Ali', company: 'PDO', taskCount: 0 });
 const omar = guest({ id: 'g4', name: 'Omar Said', company: 'Shell', companyId: 'c2', companyName: 'Beta Co', taskCount: 1 });
 const retired = guest({ id: 'g5', name: 'Laila Old', company: 'BP', retiredAt: '2026-10-20T06:00:00.000Z', taskCount: 4 });
@@ -160,8 +160,8 @@ describe('GuestContactsPage', () => {
     const headers = within(table).getAllByRole('columnheader').map((h) => h.textContent?.trim());
     expect(headers.slice(1)).toEqual(['Name', 'Company', 'Designation', 'Email', 'Phone', 'Company list', 'Tasks', 'Actions']);
     expect(await rows()).toEqual([
-      ['Ahmed Al Harthy', 'OXY', 'Site engineer', 'ahmed@oxy.com', '+968 9123 4567', 'Prolens Projects LLC', 'On 3 tasks'],
-      ['Ahmed Alharthy', 'OXY', '—', '—', '91234567', 'Prolens Projects LLC', 'On 2 tasks'],
+      ['Ahmed Al Harthy', 'Acme', 'Site engineer', 'ahmed@acme.com', '+968 9123 4567', 'Prolens Projects LLC', 'On 3 tasks'],
+      ['Ahmed Alharthy', 'Acme', '—', '—', '91234567', 'Prolens Projects LLC', 'On 2 tasks'],
       ['Omar Said', 'Shell', '—', '—', '—', 'Beta Co', 'On 1 task'],
       ['Sara Ali', 'PDO', '—', '—', '—', 'Prolens Projects LLC', 'Not on any task'],
     ]);
@@ -200,9 +200,9 @@ describe('GuestContactsPage', () => {
     await waitFor(async () => expect(await names()).toHaveLength(5));
 
     // Search: name, company, email or phone (the server's q), once typing pauses.
-    await userEvent.type(screen.getByRole('searchbox', { name: 'Search guests' }), 'oxy');
+    await userEvent.type(screen.getByRole('searchbox', { name: 'Search guests' }), 'acme');
     await waitFor(async () => expect(await names()).toEqual(['Ahmed Al Harthy', 'Ahmed Alharthy']));
-    expect(requests('GET', '/guests?q=oxy&status=all')).toHaveLength(1);
+    expect(requests('GET', '/guests?q=acme&status=all')).toHaveLength(1);
   });
 
   it('nothing matching says so; an empty list says how guests are added', async () => {
@@ -225,7 +225,7 @@ describe('GuestContactsPage', () => {
   it('Edit: checks the details as the task forms do, then saves them for every task with the guest', async () => {
     renderPage();
     await rows();
-    await userEvent.click(within(row('Ahmed Al Harthy')).getByRole('button', { name: 'Edit Ahmed Al Harthy (OXY)' }));
+    await userEvent.click(within(row('Ahmed Al Harthy')).getByRole('button', { name: 'Edit Ahmed Al Harthy (Acme)' }));
     const dialog = screen.getByRole('dialog', { name: 'Edit guest' });
     expect(within(dialog).getByText('Every task with this guest shows the new details.')).toBeInTheDocument();
     expect(within(dialog).getByLabelText(/^Name/)).toHaveValue('Ahmed Al Harthy');
@@ -246,15 +246,15 @@ describe('GuestContactsPage', () => {
 
     await userEvent.type(within(dialog).getByLabelText(/^Name/), ' Ahmed Al Harthy ');
     await userEvent.clear(within(dialog).getByLabelText(/^Email/));
-    await userEvent.type(within(dialog).getByLabelText(/^Email/), 'ahmed.h@oxy.com');
+    await userEvent.type(within(dialog).getByLabelText(/^Email/), 'ahmed.h@acme.com');
     await userEvent.clear(within(dialog).getByLabelText(/^Designation/));
     await userEvent.clear(notes);
     await userEvent.type(notes, ' Call before 9 ');
     await userEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-    expect(requests('PUT', '/guests/g1')[0]!.body).toEqual({ name: 'Ahmed Al Harthy', company: 'OXY', designation: null, email: 'ahmed.h@oxy.com', phone: '+968 9123 4567', notes: 'Call before 9' });
-    expect(screen.getByRole('status')).toHaveTextContent('Ahmed Al Harthy (OXY) saved.');
-    await waitFor(async () => expect((await rows())[0]).toEqual(['Ahmed Al Harthy', 'OXY', '—', 'ahmed.h@oxy.com', '+968 9123 4567', 'Prolens Projects LLC', 'On 3 tasks']));
+    expect(requests('PUT', '/guests/g1')[0]!.body).toEqual({ name: 'Ahmed Al Harthy', company: 'Acme', designation: null, email: 'ahmed.h@acme.com', phone: '+968 9123 4567', notes: 'Call before 9' });
+    expect(screen.getByRole('status')).toHaveTextContent('Ahmed Al Harthy (Acme) saved.');
+    await waitFor(async () => expect((await rows())[0]).toEqual(['Ahmed Al Harthy', 'Acme', '—', 'ahmed.h@acme.com', '+968 9123 4567', 'Prolens Projects LLC', 'On 3 tasks']));
   });
 
   it('Edit: the server’s refusal shows in the window, which stays open', async () => {
@@ -287,7 +287,7 @@ describe('GuestContactsPage', () => {
   it('Remove: only a guest on no task — otherwise it says why; it asks first', async () => {
     renderPage();
     await rows();
-    const inUse = within(row('Ahmed Al Harthy')).getByRole('button', { name: 'Remove Ahmed Al Harthy (OXY)' });
+    const inUse = within(row('Ahmed Al Harthy')).getByRole('button', { name: 'Remove Ahmed Al Harthy (Acme)' });
     expect(inUse).toHaveAttribute('aria-disabled', 'true');
     expect(inUse).toHaveAttribute('title', GUEST_WORDS.inUse);
     await userEvent.click(inUse);
@@ -319,11 +319,11 @@ describe('GuestContactsPage', () => {
     renderPage();
     await rows();
     const merge = () => screen.getByRole('button', { name: /^Merge/ });
-    await userEvent.click(screen.getByRole('checkbox', { name: 'Select Ahmed Al Harthy (OXY)' }));
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Select Ahmed Al Harthy (Acme)' }));
     expect(screen.getByText('1 guest ticked')).toBeInTheDocument();
     // One is not enough.
     expect(merge()).toHaveAttribute('aria-disabled', 'true');
-    await userEvent.click(screen.getByRole('checkbox', { name: 'Select Ahmed Alharthy (OXY)' }));
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Select Ahmed Alharthy (Acme)' }));
     expect(screen.getByText('2 guests ticked')).toBeInTheDocument();
     expect(merge()).not.toHaveAttribute('aria-disabled');
     await userEvent.click(merge());
@@ -331,15 +331,15 @@ describe('GuestContactsPage', () => {
     const dialog = screen.getByRole('dialog', { name: 'Merge guests' });
     // The one on the most tasks is kept unless another is chosen.
     expect(within(dialog).getByRole('radio', { name: /Ahmed Al Harthy/ })).toBeChecked();
-    expect(within(dialog).getByText(/^Every task with the others moves to/)).toHaveTextContent('Every task with the others moves to Ahmed Al Harthy (OXY).');
+    expect(within(dialog).getByText(/^Every task with the others moves to/)).toHaveTextContent('Every task with the others moves to Ahmed Al Harthy (Acme).');
     await userEvent.click(within(dialog).getByRole('radio', { name: /Ahmed Alharthy/ }));
-    expect(within(dialog).getByText(/^Every task with the others moves to/)).toHaveTextContent('Every task with the others moves to Ahmed Alharthy (OXY).');
+    expect(within(dialog).getByText(/^Every task with the others moves to/)).toHaveTextContent('Every task with the others moves to Ahmed Alharthy (Acme).');
     expect(requests('POST', '/guests/merge')).toHaveLength(0);
     await userEvent.click(within(dialog).getByRole('button', { name: 'Merge 2 guests' }));
     await waitFor(() => expect(requests('POST', '/guests/merge')).toHaveLength(1));
     expect(requests('POST', '/guests/merge')[0]!.body).toEqual({ keepId: 'g2', mergeIds: ['g1'] });
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-    expect(screen.getByRole('status')).toHaveTextContent('Merged into Ahmed Alharthy (OXY), 3 tasks updated.');
+    expect(screen.getByRole('status')).toHaveTextContent('Merged into Ahmed Alharthy (Acme), 3 tasks updated.');
     await waitFor(async () => expect(await names()).toEqual(['Ahmed Alharthy', 'Omar Said', 'Sara Ali']));
     // The ticks are cleared.
     expect(screen.queryByText(/ticked/)).toBeNull();
@@ -348,7 +348,7 @@ describe('GuestContactsPage', () => {
   it('Merge: guests of different companies can’t be merged — it says so', async () => {
     renderPage();
     await rows();
-    await userEvent.click(screen.getByRole('checkbox', { name: 'Select Ahmed Al Harthy (OXY)' }));
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Select Ahmed Al Harthy (Acme)' }));
     await userEvent.click(screen.getByRole('checkbox', { name: 'Select Omar Said (Shell)' }));
     expect(screen.getByText('Only guests on the same company’s list can be merged. Tick guests of one company.')).toBeInTheDocument();
     const merge = screen.getByRole('button', { name: /^Merge/ });
@@ -357,7 +357,7 @@ describe('GuestContactsPage', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
     await userEvent.click(screen.getByRole('button', { name: 'Clear' }));
     expect(screen.queryByText(/ticked/)).toBeNull();
-    expect(screen.getByRole('checkbox', { name: 'Select Ahmed Al Harthy (OXY)' })).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Select Ahmed Al Harthy (Acme)' })).not.toBeChecked();
   });
 
   it('one company on the site: no company picker and no company column', async () => {
@@ -377,10 +377,10 @@ describe('GuestContactsPage', () => {
     expect(screen.queryByRole('table')).toBeNull();
     const card = within(list).getAllByRole('listitem')[0]!;
     expect(card).toHaveTextContent('Ahmed Al Harthy');
-    expect(card).toHaveTextContent('ahmed@oxy.com');
+    expect(card).toHaveTextContent('ahmed@acme.com');
     expect(card).toHaveTextContent('On 3 tasks');
-    expect(within(card).getByRole('button', { name: 'Edit Ahmed Al Harthy (OXY)' })).toBeInTheDocument();
-    expect(within(card).getByRole('checkbox', { name: 'Select Ahmed Al Harthy (OXY)' })).toBeInTheDocument();
+    expect(within(card).getByRole('button', { name: 'Edit Ahmed Al Harthy (Acme)' })).toBeInTheDocument();
+    expect(within(card).getByRole('checkbox', { name: 'Select Ahmed Al Harthy (Acme)' })).toBeInTheDocument();
   });
 });
 

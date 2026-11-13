@@ -26,7 +26,7 @@ export function formatDueDay(due, timeZone = DEFAULT_TIME_ZONE) {
   return dayText(key);
 }
 
-/** Two letters for a person's avatar, from letters only: "Mohammed (OXY)" is "MO" (the web's Avatar, lib/initials.ts). */
+/** Two letters for a person's avatar, from letters only: "Mohammed (Acme)" is "MA" (the web's Avatar, lib/initials.ts). */
 export { personInitials };
 
 /**
@@ -60,7 +60,7 @@ export function cardFacts(task, { timeZone = DEFAULT_TIME_ZONE, now = new Date()
     // Finished, waiting for a project manager's approval (not done yet) — the web card's badge.
     awaitingApproval: isWaitingForApproval(task),
     progress: Math.max(0, Math.min(100, Number(task.progress) || 0)),
-    // Its external contacts in short: "External: Ahmed Al Said (OXY) and 2 more" (null for none).
+    // Its external contacts in short: "External: Ahmed Al Said (Acme) and 2 more" (null for none).
     external: externalContactsLine(task.externalSummary),
   };
 }

@@ -11,7 +11,7 @@ import {
   taskCategoryChoices,
 } from './guest-category-filter';
 
-const ahmed = { id: 'g1', name: 'Ahmed Al Harthy', company: 'OXY' };
+const ahmed = { id: 'g1', name: 'Ahmed Al Harthy', company: 'Acme' };
 const sara = { id: 'g2', name: 'Sara Nasser', company: 'PDO' };
 const salim = { id: 'g3', name: 'Salim', company: null };
 const elec = { id: 'c1', name: 'Electrical', color: 'teal', retired: false };
@@ -31,7 +31,7 @@ describe('Guest, Guest company and Category filters (1.24)', () => {
     expect(tasks.filter((t) => matchesGuestCategory(t, EMPTY_GUEST_CATEGORY_FILTERS))).toHaveLength(4);
     expect(tasks.filter((t) => matchesGuestCategory(t, { ...EMPTY_GUEST_CATEGORY_FILTERS, guest: 'g2' }))).toEqual([tasks[0]]);
     // The company case and spaces aside.
-    expect(tasks.filter((t) => matchesGuestCategory(t, { ...EMPTY_GUEST_CATEGORY_FILTERS, guestCompany: ' oxy ' }))).toEqual([tasks[0]]);
+    expect(tasks.filter((t) => matchesGuestCategory(t, { ...EMPTY_GUEST_CATEGORY_FILTERS, guestCompany: ' acme ' }))).toEqual([tasks[0]]);
     expect(tasks.filter((t) => matchesGuestCategory(t, { ...EMPTY_GUEST_CATEGORY_FILTERS, category: 'c1' }))).toEqual([tasks[0], tasks[1]]);
     expect(tasks.filter((t) => matchesGuestCategory(t, { ...EMPTY_GUEST_CATEGORY_FILTERS, category: 'c2', guest: 'g3' }))).toEqual([tasks[1]]);
     expect(tasks.filter((t) => matchesGuestCategory(t, { ...EMPTY_GUEST_CATEGORY_FILTERS, category: 'c2', guest: 'g1' }))).toEqual([]);
@@ -43,20 +43,20 @@ describe('Guest, Guest company and Category filters (1.24)', () => {
 
   it('a search word matches a guest’s name or company (case aside), or an older server’s contacts in short', () => {
     expect(tasks.filter((t) => guestsMatchWords(t, 'sara'))).toEqual([tasks[0]]);
-    expect(tasks.filter((t) => guestsMatchWords(t, 'OXY'))).toEqual([tasks[0]]);
+    expect(tasks.filter((t) => guestsMatchWords(t, 'Acme'))).toEqual([tasks[0]]);
     expect(tasks.filter((t) => guestsMatchWords(t, 'petro'))).toEqual([tasks[3]]);
     expect(tasks.filter((t) => guestsMatchWords(t, ' '))).toEqual([]);
   });
 
   it('counts how many are in use', () => {
     expect(guestCategoryFiltersActive(EMPTY_GUEST_CATEGORY_FILTERS)).toBe(0);
-    expect(guestCategoryFiltersActive({ guest: 'g1', guestCompany: 'OXY', category: '' })).toBe(2);
+    expect(guestCategoryFiltersActive({ guest: 'g1', guestCompany: 'Acme', category: '' })).toBe(2);
   });
 
   it('the Guest choices: “Any guest” first, then each guest once, A to Z, by name (company)', () => {
     expect(guestFilterOptions(tasks, '')).toEqual([
       { value: '', label: 'Guest: Any guest' },
-      { value: 'g1', label: 'Ahmed Al Harthy (OXY)' },
+      { value: 'g1', label: 'Ahmed Al Harthy (Acme)' },
       { value: 'g3', label: 'Salim' },
       { value: 'g2', label: 'Sara Nasser (PDO)' },
     ]);
@@ -73,7 +73,7 @@ describe('Guest, Guest company and Category filters (1.24)', () => {
   it('the Guest company choices: the guests’ companies (and an older server’s contacts’), each once, A to Z', () => {
     expect(guestCompanyFilterOptions(tasks, '')).toEqual([
       { value: '', label: 'Guest company: Any company' },
-      { value: 'OXY', label: 'OXY' },
+      { value: 'Acme', label: 'Acme' },
       { value: 'PDO', label: 'PDO' },
       { value: 'Petrogas', label: 'Petrogas' },
     ]);
