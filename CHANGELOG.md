@@ -40,6 +40,10 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - Reordering board columns is saved all at once.
 - Background jobs run as often as intended.
 - Swapping a task's assignee in Workload no longer overwrites someone else's newer change.
+- Repeating inspection checks now get their next copy on the live site's database, which refused the step that makes it.
+- Search by meaning (AI search) can now prepare its index on the live site's database.
+- Clicking a Learning Hub lesson's button twice quickly no longer shows an error.
+- The Error log no longer loses a report when the same error happens many times at once.
 
 ## [1.23.26] - 2026-11-13
 
