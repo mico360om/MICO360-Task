@@ -3,6 +3,8 @@ import { Prisma, type PrismaClient } from '@prisma/client';
 import { ConflictError, ForbiddenError, HttpError, NotFoundError, ValidationError } from '../../lib/http-errors';
 import { managedVisibleWhere } from '../projects/project-managers';
 import { firstFreeKey, highestKeyNumber, isTaskKeyConflict } from '../tasks/prisma-task-repository';
+import { DEPENDENCY_LOCK } from '../tasks/prisma-dependency-repository';
+import { isRetryableTxError } from '../../lib/sentinel-lock';
 import { matchingColumn } from '../tasks/task-move';
 import { boardDateFromKey, boardDateKey } from '../tasks/board-date';
 import { defaultCompanyTimeZone } from '../tasks/task-status';
@@ -700,10 +702,13 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
     if (ids.length < MIN_MERGE_TASKS) throw new ValidationError('Choose at least 2 tasks to merge.');
     if (!ids.includes(input.mainTaskId)) throw new ValidationError('The main task must be one of the tasks being merged.');
     let saved: { result: MergeResult; statusChange: StatusChange | null } | null = null;
+    await ensureLinksHoldRow();
     for (let attempt = 0; !saved; attempt++) {
       try {
         saved = await prisma.$transaction((tx) => mergeIn(tx, actor, ids, input), TX);
       } catch (err) {
+        // Batch 4b: waiting behind a link being added can make the database pick this one to start again.
+        if (isRetryableTxError(err) && attempt < KEY_ATTEMPTS - 1) continue;
         if (!isTaskKeyConflict(err)) throw err;
         if (attempt >= KEY_ATTEMPTS - 1) throw new ConflictError('Another task took that number at the same moment. Please try again.', 'TASK_KEY_CONFLICT');
       }
@@ -726,8 +731,18 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
     return result;
   }
 
+  /**
+   * Batch 4b (left over from 4a): a merge moves blocker links onto the main task, so it takes the site-wide hold
+   * that adding a link takes ("task-dependencies", a job_locks row) — first, before anything else, in the order a
+   * new link takes it — and its loop check reads the links as they are. The row is made once beforehand (locking a
+   * missing row would take a gap lock, as lib/sentinel-lock explains).
+   */
+  const ensureLinksHoldRow = () => prisma.jobLock.createMany({ data: [{ name: DEPENDENCY_LOCK, lockedUntil: new Date(0) }], skipDuplicates: true });
+  const holdLinks = (tx: Prisma.TransactionClient) => tx.$queryRaw`SELECT name FROM job_locks WHERE name = ${DEPENDENCY_LOCK} FOR UPDATE`;
+
   /** The merge itself, in one transaction: any failure rolls every change back. */
   async function mergeIn(tx: Prisma.TransactionClient, actor: MergeActor, ids: string[], input: MergeInput): Promise<{ result: MergeResult; statusChange: StatusChange | null }> {
+    await holdLinks(tx);
     // Hold the tasks: nothing else changes them (or adds to them) until the merge is saved. The merge's
     // time is taken once they are held: anything a merged task gets after it came later (adoptLate).
     await tx.$queryRaw`SELECT id FROM tasks WHERE id IN (${Prisma.join(ids)}) FOR UPDATE`;
@@ -1401,7 +1416,16 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
   }
 
   async function undo(actor: MergeActor, mergeId: string): Promise<UndoResult> {
-    const { result, statusChange } = await prisma.$transaction((tx) => undoIn(tx, actor, mergeId), TX);
+    await ensureLinksHoldRow();
+    let done: { result: UndoResult; statusChange: StatusChange | null } | null = null;
+    for (let attempt = 0; !done; attempt++) {
+      try {
+        done = await prisma.$transaction((tx) => undoIn(tx, actor, mergeId), TX);
+      } catch (err) {
+        if (!isRetryableTxError(err) || attempt >= KEY_ATTEMPTS - 1) throw err;
+      }
+    }
+    const { result, statusChange } = done;
     try {
       if (statusChange) await deps.onStatusChanged?.(result.mainTaskId, statusChange.prevColumnId, actor.id);
       await deps.onUndone?.({ ...result, actorId: actor.id });
@@ -1413,7 +1437,9 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
 
   async function undoIn(tx: Prisma.TransactionClient, actor: MergeActor, mergeId: string): Promise<{ result: UndoResult; statusChange: StatusChange | null }> {
     // Hold the merge first, then its tasks — before anything is read, so two Undos (or an edit and an
-    // Undo) never act on what was there before the other: the second sees the first's result.
+    // Undo) never act on what was there before the other: the second sees the first's result. Undo moves
+    // blocker links back, so the links' hold comes before both (batch 4b).
+    await holdLinks(tx);
     const [held] = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM task_merges WHERE id = ${mergeId} FOR UPDATE`;
     if (!held) throw new NotFoundError('Merge not found.');
     const head = (await tx.taskMerge.findUnique({ where: { id: mergeId }, select: { mainTaskId: true, taskIds: true } }))!;
@@ -1646,6 +1672,7 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
    */
   async function selfCheck(nowhere = '~database-check~'): Promise<void> {
     await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT name FROM job_locks WHERE name = ${nowhere} FOR UPDATE`;
       await tx.$queryRaw`SELECT id FROM task_merges WHERE id = ${nowhere} FOR UPDATE`;
       await tx.$queryRaw`SELECT id FROM tasks WHERE id IN (${Prisma.join([nowhere])}) FOR UPDATE`;
     }, TX);
