@@ -47,12 +47,14 @@ export function lessonGroups(course: Pick<ManageCourse, 'lessons' | 'modules'>):
 /**
  * The lessons in order: open one to edit it, move it up or down, delete it, or add a lesson. In a course with
  * modules they are shown under their modules (moving up or down stays within the module) and each one has a Module
- * choice that moves it to another module (last in it) or to no module.
+ * choice that moves it to another module (last in it) or to no module. Each module has its own Add lesson (1.23.32:
+ * the new lesson goes last in it); Add lesson above adds one with no module.
  */
 export function LessonsEditor({ course }: { course: ManageCourse }) {
   const cache = useCourseCache(course.id);
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
-  const [adding, setAdding] = useState(false);
+  /** The Add lesson window, and the module the new lesson goes into (null: no module). */
+  const [adding, setAdding] = useState<{ module: ManageModule | null } | null>(null);
   const [deleting, setDeleting] = useState<ManageLesson | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteProblem, setDeleteProblem] = useState<string | null>(null);
@@ -65,6 +67,7 @@ export function LessonsEditor({ course }: { course: ManageCourse }) {
   const lessons = groups.flatMap((g) => g.lessons);
   const modules = modulesInOrder(course);
   const withModules = modules.length > 0;
+  const full = lessons.length >= LIMITS.lessonsPerCourse;
 
   // After a move, the moved lesson's button keeps the focus (the other one when it reached an end); after a change of
   // module, its Module choice in its new place (the row is drawn again there, so wait until the lesson shows in it).
@@ -213,19 +216,19 @@ export function LessonsEditor({ course }: { course: ManageCourse }) {
         lessons.length ? (
           <>
             <p>{`${count(lessons.length, 'lesson')} · about ${minutesText(total)}`}</p>
-            {withModules ? <p className="mt-0.5 text-xs">A new lesson starts with no module: choose one in its Module box.</p> : null}
+            {withModules ? <p className="mt-0.5 text-xs">A module’s own Add lesson puts the new lesson in it; Add lesson above adds one with no module.</p> : null}
           </>
         ) : undefined
       }
       actions={
-        <Button onClick={() => setAdding(true)} disabled={lessons.length >= LIMITS.lessonsPerCourse} className="!min-h-[44px]">
+        <Button onClick={() => setAdding({ module: null })} disabled={full} className="!min-h-[44px]">
           {Glyph.plus}
           Add lesson
         </Button>
       }
     >
       {problem ? <div className="mb-3"><Notice>{problem}</Notice></div> : null}
-      {lessons.length === 0 ? (
+      {lessons.length === 0 && !withModules ? (
         <p className="rounded-lg bg-ground px-3 py-3 text-sm text-ink-2">No lessons yet. Add a video, a step-by-step guide, a document or a quiz.</p>
       ) : withModules ? (
         <div className="flex flex-col gap-4">
@@ -234,6 +237,19 @@ export function LessonsEditor({ course }: { course: ManageCourse }) {
               <div className="flex flex-wrap items-center gap-2">
                 <h3 dir="auto" className="text-sm font-bold text-ink [overflow-wrap:anywhere]">{g.heading}</h3>
                 {g.module && !g.module.enabled ? <span className="rounded-md bg-warning-soft px-1.5 py-0.5 text-[11px] font-semibold text-warning">Off</span> : null}
+                {g.module ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setAdding({ module: g.module })}
+                    disabled={full}
+                    aria-label={`Add lesson to “${g.module.title}”`}
+                    className={`ms-auto !px-2 ${TOUCH_TALL}`}
+                  >
+                    {Glyph.plus}
+                    Add lesson
+                  </Button>
+                ) : null}
               </div>
               {g.lessons.length ? (
                 <ol aria-label={g.listLabel} className="flex flex-col gap-2">
@@ -253,7 +269,9 @@ export function LessonsEditor({ course }: { course: ManageCourse }) {
       {adding ? (
         <AddLessonDialog
           courseId={course.id}
-          onClose={() => setAdding(false)}
+          module={adding.module}
+          withModules={withModules}
+          onClose={() => setAdding(null)}
           onAdded={(l) => {
             setOpen((s) => new Set([...s, l.id]));
             cache.refresh();
@@ -321,8 +339,11 @@ function QuizDeleteDialog({ lesson, busy, error, onConfirm, onClose }: { lesson:
   );
 }
 
-/** "Add lesson": its kind, title and minutes. */
-function AddLessonDialog({ courseId, onClose, onAdded }: { courseId: string; onClose: () => void; onAdded: (l: ManageLesson) => void }) {
+/**
+ * "Add lesson": its kind, title and minutes. From a module's own Add lesson it goes last in that module; in a course
+ * with modules, Add lesson above adds it with no module (and says so: everyone who can see the course sees it).
+ */
+function AddLessonDialog({ courseId, module, withModules, onClose, onAdded }: { courseId: string; module: ManageModule | null; withModules: boolean; onClose: () => void; onAdded: (l: ManageLesson) => void }) {
   const ids = { title: useId(), titleErr: useId(), minutes: useId() };
   const [kind, setKind] = useState<LessonKind>('GUIDE');
   const [title, setTitle] = useState('');
@@ -339,7 +360,7 @@ function AddLessonDialog({ courseId, onClose, onAdded }: { courseId: string; onC
     setBusy(true);
     setError(null);
     try {
-      const l = await tc().addLesson(courseId, { kind, title: t, minutes: m });
+      const l = await tc().addLesson(courseId, { kind, title: t, minutes: m, ...(module ? { moduleId: module.id } : {}) });
       onAdded(l);
       onClose();
     } catch (err) {
@@ -349,8 +370,13 @@ function AddLessonDialog({ courseId, onClose, onAdded }: { courseId: string; onC
   }
 
   return (
-    <ManageDialog title="Add lesson" onClose={onClose} onSubmit={() => void add()} submitLabel="Add lesson" busy={busy}>
+    <ManageDialog title="Add lesson" eyebrow={module?.title} onClose={onClose} onSubmit={() => void add()} submitLabel="Add lesson" busy={busy}>
       {error ? <Notice>{error}</Notice> : null}
+      {module ? (
+        <p dir="auto" className="text-sm text-ink-2 [overflow-wrap:anywhere]">{`It goes last in “${module.title}”.`}</p>
+      ) : withModules ? (
+        <p className="text-sm text-ink-2">It has no module: everyone who can see the course sees it.</p>
+      ) : null}
       <ChoiceGroup<LessonKind> legend="Kind" name={`${courseId}-new-lesson-kind`} value={kind} onChange={setKind} options={LESSON_KINDS.map((k) => ({ value: k, label: LESSON_KIND_LABELS[k], hint: KIND_HINTS[k] }))} />
       <FormRow label="Title" htmlFor={ids.title} error={titleError} errorId={ids.titleErr}>
         <input

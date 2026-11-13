@@ -236,6 +236,31 @@ describe('Course editor: lessons in modules', () => {
     expect(titles(within(lessons).getByRole('list', { name: 'Lessons with no module' }))).toEqual(['Handbook']);
   });
 
+  it('each module has its own Add lesson: the new lesson goes into that module (the one above adds it with no module)', async () => {
+    const lessons = await openModules();
+    expect(within(lessons).getAllByRole('button', { name: /^Add lesson to “/ }).map((b) => b.getAttribute('aria-label'))).toEqual([
+      'Add lesson to “Getting started”',
+      'Add lesson to “Tasks”',
+      'Add lesson to “Reports”',
+    ]);
+    api.addLesson.mockResolvedValueOnce(lesson({ id: 'n', kind: 'GUIDE', title: 'Assign a task', position: 5, moduleId: 'm2' }));
+    await userEvent.click(within(lessons).getByRole('button', { name: 'Add lesson to “Tasks”' }));
+    let dialog = screen.getByRole('dialog', { name: 'Add lesson' });
+    expect(dialog).toHaveTextContent('It goes last in “Tasks”.');
+    await userEvent.type(within(dialog).getByRole('textbox', { name: 'Title' }), 'Assign a task');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Add lesson' }));
+    await waitFor(() => expect(api.addLesson).toHaveBeenCalledWith('c1', { kind: 'GUIDE', title: 'Assign a task', minutes: 5, moduleId: 'm2' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+
+    api.addLesson.mockResolvedValueOnce(lesson({ id: 'o', kind: 'GUIDE', title: 'Read me', position: 6, moduleId: null }));
+    await userEvent.click(within(lessons).getByRole('button', { name: 'Add lesson' }));
+    dialog = screen.getByRole('dialog', { name: 'Add lesson' });
+    expect(dialog).toHaveTextContent('It has no module: everyone who can see the course sees it.');
+    await userEvent.type(within(dialog).getByRole('textbox', { name: 'Title' }), 'Read me');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Add lesson' }));
+    await waitFor(() => expect(api.addLesson).toHaveBeenLastCalledWith('c1', { kind: 'GUIDE', title: 'Read me', minutes: 5 }));
+  });
+
   it('each lesson has a Module choice: every module, then No module', async () => {
     const lessons = await openModules();
     const select = within(lessons).getByRole('combobox', { name: 'Module for “Make a task”' });

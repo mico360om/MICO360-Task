@@ -737,6 +737,8 @@ export interface LessonInput {
   videoUrl?: string | null;
   /** DOCUMENT: a file uploaded to the course with kind DOCUMENT. */
   fileId?: string | null;
+  /** 1.23.32: a module of the course the new lesson goes into (last in it); null or not sent: no module. */
+  moduleId?: string | null;
 }
 
 /** PATCH /training/manage/lessons/:id: the lesson's fields, and the module it belongs to (null: no module; it goes last in its new module). */
