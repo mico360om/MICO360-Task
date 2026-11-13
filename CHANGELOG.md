@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.23.30] - 2026-11-13
+
 ### Improvements
 - MICO360 Tasks can be installed as an app on phones, tablets and computers (Install App, or Add to Home Screen on iPhone and iPad).
 - A message tells you when a new version is ready, and a clear page shows when you’re offline.
