@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { DIFFICULTIES, MODULE_LABELS, type CatalogueFilters, type CertificateRef, type CourseCard, type CourseDetail, type Difficulty, type MyTraining, type TrainingModule } from '../../api/training';
 import { OVERDUE_CLASS, STATUS_CLASS } from '../../lib/colour-classes';
 import { downloadBlob, fileNameOf } from '../../lib/download';
+import { useMediaQuery } from '../../lib/useMediaQuery';
 import { Button, buttonClass } from '../ui/Button';
 import { CertificatePanel } from './CertificatePanel';
 import { ModuleIcon } from './ModuleIcon';
@@ -146,46 +147,66 @@ export function MyLearningSections({ data, onBrowse }: { data: Pick<MyTraining, 
   );
 }
 
+const DASHBOARD_WIDE = '(min-width: 64em)';
+
 /**
  * The dashboard of one course. From 1024 px two columns — main (about 2/3): Up next, then the tiles; side (about 1/3):
- * progress, the certificate, other courses. On a phone one column in the order Up next, progress, tiles, certificate,
- * other courses (the columns' wrappers step aside — `contents` — and `order` places each card). The course is read
+ * progress, the certificate, other courses. Below that one column in the order Up next, progress, tiles, certificate,
+ * other courses (rendered in that order, so the reading order matches the picture). The course is read
  * once with `useCourse` (the course page's own cached read); until it comes (or if it can't), Up next and the ring
  * work from the list's card.
  */
 function LearningDashboard({ course: c, allDone, others, onBrowse }: { course: CourseCard; allDone: boolean; others: CourseCard[]; onBrowse?: () => void }) {
   const q = useCourse(c.id);
+  const wide = useMediaQuery(DASHBOARD_WIDE);
   const d = q.data ?? null;
   const next = d && !allDone ? upNextModule(d) : null;
-  return (
-    <div data-learning-dashboard={c.id} className="flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,2fr)_minmax(16rem,1fr)] lg:items-start lg:gap-5">
-      <div className="contents lg:flex lg:min-w-0 lg:flex-col lg:gap-5">
-        <div className="order-1 min-w-0">{allDone ? <AllDoneCard course={c} onBrowse={onBrowse} /> : <UpNextCard course={c} detail={d} next={next} />}</div>
-        {d ? (
-          <div className="order-3 min-w-0 empty:hidden">
-            <UnitGrid course={d} next={next} resumeLessonId={allDone ? null : (c.mine.next?.lessonId ?? d.resumeLessonId)} />
-          </div>
-        ) : q.isPending ? (
-          <p role="status" className="order-3 text-sm text-ink-2">
-            <span className="animate-pulse motion-reduce:animate-none">Loading the course…</span>
-          </p>
-        ) : null}
+  const upNext = <div className="min-w-0">{allDone ? <AllDoneCard course={c} onBrowse={onBrowse} /> : <UpNextCard course={c} detail={d} next={next} />}</div>;
+  const tiles = d ? (
+    <div className="min-w-0 empty:hidden">
+      <UnitGrid course={d} next={next} resumeLessonId={allDone ? null : (c.mine.next?.lessonId ?? d.resumeLessonId)} />
+    </div>
+  ) : q.isPending ? (
+    <p role="status" className="text-sm text-ink-2">
+      <span className="animate-pulse motion-reduce:animate-none">Loading the course…</span>
+    </p>
+  ) : null;
+  const progress = (
+    <div className="min-w-0">
+      <ProgressCard course={c} detail={d} finished={allDone} />
+    </div>
+  );
+  const certificate = d ? (
+    <div className="min-w-0 empty:hidden">
+      <CertificatePanel course={d} />
+    </div>
+  ) : null;
+  const more = others.length ? (
+    <div className="min-w-0">
+      <OtherCourses courses={others} />
+    </div>
+  ) : null;
+  // The page's order is the reading order at every size: two columns from 1024 px; below, one column with Progress
+  // right after Up next (the DOM follows, so a screen reader hears what the eye sees).
+  return wide ? (
+    <div data-learning-dashboard={c.id} className="grid grid-cols-[minmax(0,2fr)_minmax(16rem,1fr)] items-start gap-5">
+      <div className="flex min-w-0 flex-col gap-5">
+        {upNext}
+        {tiles}
       </div>
-      <div className="contents lg:flex lg:min-w-0 lg:flex-col lg:gap-4">
-        <div className="order-2 min-w-0">
-          <ProgressCard course={c} detail={d} finished={allDone} />
-        </div>
-        {d ? (
-          <div className="order-4 min-w-0 empty:hidden">
-            <CertificatePanel course={d} />
-          </div>
-        ) : null}
-        {others.length ? (
-          <div className="order-5 min-w-0">
-            <OtherCourses courses={others} />
-          </div>
-        ) : null}
+      <div className="flex min-w-0 flex-col gap-4">
+        {progress}
+        {certificate}
+        {more}
       </div>
+    </div>
+  ) : (
+    <div data-learning-dashboard={c.id} className="flex flex-col gap-4">
+      {upNext}
+      {progress}
+      {tiles}
+      {certificate}
+      {more}
     </div>
   );
 }
@@ -357,7 +378,7 @@ function ProgressCard({ course: c, detail: d, finished }: { course: CourseCard; 
 }
 
 /**
- * Every module of the person's as a tile (4 a row from 1280 px, 3 from 1024, 2 from 768, a list on a phone), the current
+ * Every module of the person's as a tile (4 a row from 1280 px — 3 at most in the Client portal, whose page is narrower — 3 from 1024, 2 from 768, a list on a phone), the current
  * one marked; a plain course's lessons the same way. A course with nothing to show: no grid (never an empty one).
  */
 function UnitGrid({ course: d, next, resumeLessonId }: { course: CourseDetail; next: ReturnType<typeof upNextModule>; resumeLessonId: string | null }) {
@@ -371,7 +392,7 @@ function UnitGrid({ course: d, next, resumeLessonId }: { course: CourseDetail; n
       <h2 id={id} className="font-display text-base font-bold text-ink">
         {byModule ? 'Your modules' : 'Your lessons'}
       </h2>
-      <ol className="grid gap-2 md:grid-cols-2 md:gap-3 lg:grid-cols-3 xl:grid-cols-4">
+      <ol data-unit-grid className={`grid gap-2 md:grid-cols-2 md:gap-3 lg:grid-cols-3 ${side.portal ? '' : 'xl:grid-cols-4'}`}>
         {byModule
           ? d.modules.map((m, i) => (
               <li key={m.id} className="min-w-0">
@@ -420,6 +441,7 @@ function OtherCourseRow({ course: c }: { course: CourseCard }) {
         </h3>
         <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-ink-2">
           <span>{progressWords(c)}</span>
+          {c.mine.mandatory ? <MandatoryChip /> : null}
           <CardChipView mine={c.mine} />
         </p>
       </div>

@@ -261,6 +261,22 @@ describe('the course page’s new look (13 Nov)', () => {
   const main = () => document.querySelector<HTMLElement>('[data-course-main]')!;
   const before = (a: Element, b: Element) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
 
+  it('Client portal, from 1024 px: only the panel and the certificate card are sticky; Questions are not inside the sticky part', async () => {
+    windowWidth(1280);
+    try {
+      modulePage(fakeLearner({ course: vi.fn(async () => due()) }), '/portal/training/courses/u1', true);
+      await screen.findByRole('heading', { level: 1, name: 'MICO360 Tasks User Training' });
+      const sticky = side().querySelector<HTMLElement>('[data-course-sticky]')!;
+      expect(sticky.className).toContain('lg:sticky');
+      expect(within(sticky).getByRole('button', { name: 'Continue' })).toBeInTheDocument();
+      expect(within(sticky).getByRole('region', { name: 'Certificate' })).toBeInTheDocument();
+      expect(within(sticky).queryByRole('heading', { name: 'Questions' })).toBeNull();
+      expect(within(side()).getByRole('heading', { name: 'Questions' })).toBeInTheDocument();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('from 1024 px two columns: the modules (with their icons) on the left; on the right a sticky panel — the ring, Due, one main button, the certificate card, Questions', async () => {
     windowWidth(1280);
     try {
@@ -269,7 +285,9 @@ describe('the course page’s new look (13 Nov)', () => {
       expect(within(main()).getByRole('region', { name: 'Modules' })).toBeInTheDocument();
       expect(within(main()).getByRole('button', { name: /^Tasks/ }).querySelector('[data-module-icon="tasks"]')).not.toBeNull();
       const panel = within(side());
-      expect(side().className).toContain('lg:sticky');
+      // Staff: no sticky at all (its main clips sideways).
+      expect(side().className).not.toContain('sticky');
+      expect(side().querySelector('[data-course-sticky]')!.className).not.toContain('sticky');
       expect(panel.getByRole('img', { name: '1 of 3 modules done' })).toHaveTextContent('1 / 3');
       expect(panel.getByText('modules done')).toBeInTheDocument();
       expect(panel.getByText('About 20 min left')).toBeInTheDocument();

@@ -1,8 +1,9 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ApiError } from '../../lib/api-client';
 import { CourseGrid, MyLearningSections } from './TrainingLists';
+import { windowWidth } from '../../test/window-width';
 import { adminModuleDetail, card, certificate, detail, fakeLearner, mine, moduleCard, moduleDetail, myTraining, renderOnSide } from './training-fixtures';
 
 const notStarted = mine({ enrolled: false, assigned: false, mandatory: false, status: 'NOT_STARTED', progressPct: 0, dueDay: null, lessonsDone: 0, nextLessonId: 'l1' });
@@ -316,6 +317,57 @@ describe('My learning: the learning dashboard (13 Nov new look)', () => {
     expect(within(other).getByRole('link', { name: 'Continue: Calendar tips' })).toHaveAttribute('href', '/training/courses/c3/lessons/l2');
     expect(container.querySelector(NESTED)).toBeNull();
     await screen.findByRole('region', { name: 'Your lessons' });
+  });
+
+  it('Other courses: a mandatory course keeps its Mandatory marker (an optional one has none)', async () => {
+    const data = myTraining({
+      assigned: [
+        card({ id: 'c1', title: 'Tasks basics', mine: mine({ overdue: true, dueDay: '2026-11-04' }) }),
+        card({ id: 'c2', title: 'Meetings & minutes', moduleKey: 'meetings', mine: mine({ mandatory: true, status: 'NOT_STARTED', progressPct: 0, dueDay: '2026-12-20' }) }),
+        card({ id: 'c5', title: 'Chat tips', moduleKey: 'chat', mine: mine({ mandatory: false, status: 'NOT_STARTED', progressPct: 0, dueDay: null }) }),
+      ],
+    });
+    renderOnSide(<MyLearningSections data={data} />, { api: fakeLearner() });
+    const other = screen.getByRole('region', { name: /^Other courses/ });
+    expect(within(within(other).getByRole('link', { name: 'Meetings & minutes' }).closest('li')!).getByText('Mandatory')).toBeInTheDocument();
+    expect(within(within(other).getByRole('link', { name: 'Chat tips' }).closest('li')!).queryByText('Mandatory')).toBeNull();
+    await screen.findByRole('region', { name: 'Your lessons' });
+  });
+
+  describe('reading order equals the visual order', () => {
+    afterEach(() => vi.unstubAllGlobals());
+    const order = () => [document.querySelector('[data-up-next]'), document.querySelector('[data-progress]')];
+    it('below 1024 px: Up next, Progress, then the tiles', async () => {
+      windowWidth(768);
+      renderOnSide(<MyLearningSections data={myTraining()} />, { api: fakeLearner() });
+      await screen.findByRole('region', { name: 'Your lessons' });
+      const [up, progress] = order();
+      const tiles = screen.getByRole('region', { name: 'Your lessons' });
+      expect(up!.compareDocumentPosition(progress!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(progress!.compareDocumentPosition(tiles) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+    it('from 1024 px: Up next, the tiles, then Progress in the side column', async () => {
+      windowWidth(1280);
+      renderOnSide(<MyLearningSections data={myTraining()} />, { api: fakeLearner() });
+      const tiles = await screen.findByRole('region', { name: 'Your lessons' });
+      const [up, progress] = order();
+      expect(up!.compareDocumentPosition(tiles) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(tiles.compareDocumentPosition(progress!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+  });
+
+  it('the tile grid: 4 a row from 1280 px on the staff side, 3 at most in the Client portal (its page is narrower)', async () => {
+    const data = myTraining({ assigned: [moduleCard()], inProgress: [], completed: [], certificates: [] });
+    const api = () => fakeLearner({ course: vi.fn(async () => moduleDetail()) });
+    const staffSide = renderOnSide(<MyLearningSections data={data} />, { api: api() });
+    await screen.findByRole('region', { name: 'Your modules' });
+    expect(document.querySelector('[data-unit-grid]')!.className).toContain('xl:grid-cols-4');
+    staffSide.unmount();
+    renderOnSide(<MyLearningSections data={data} />, { api: api(), portal: true });
+    await screen.findByRole('region', { name: 'Your modules' });
+    const cls = document.querySelector('[data-unit-grid]')!.className;
+    expect(cls).toContain('lg:grid-cols-3');
+    expect(cls).not.toContain('xl:grid-cols-4');
   });
 
   it('the course can’t be read: Up next still works from the list (no tiles, no error)', async () => {

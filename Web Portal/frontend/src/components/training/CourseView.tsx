@@ -201,11 +201,14 @@ function CourseBody({ course: c, openModule }: { course: CourseDetail; openModul
         {finished ? <RateCourse course={c} /> : null}
       </div>
 
-      {/* Sticky beside the course (the staff shell's main clips sideways, which stops it sticking there; the portal's
-          doesn't). Questions stay in this column on a phone too, so a question being written never moves. */}
-      <div data-course-side className={`flex min-w-0 flex-col gap-4 lg:sticky ${side.portal ? 'lg:top-4' : 'lg:top-[4.5rem]'}`}>
-        {wide ? panel : null}
-        {wide ? certificateCard : null}
+      {/* Beside the course. Only the progress panel and the certificate card stick (the Client portal's main lets them;
+          the staff shell's main clips sideways, so there they simply scroll): a tall sticky column would hide Questions
+          below the fold. Questions stay in this column on a phone too, so a question being written never moves. */}
+      <div data-course-side className="flex min-w-0 flex-col gap-4">
+        <div data-course-sticky className={`flex min-w-0 flex-col gap-4 ${side.portal ? 'lg:sticky lg:top-4' : ''}`}>
+          {wide ? panel : null}
+          {wide ? certificateCard : null}
+        </div>
         <Questions course={c} />
       </div>
     </div>
