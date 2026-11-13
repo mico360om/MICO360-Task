@@ -227,6 +227,7 @@ export const result = (over: Partial<AttemptResult> = {}): AttemptResult => ({
   ],
   courseCompleted: false,
   certificateId: null,
+  moduleDone: null,
   ...over,
 });
 
