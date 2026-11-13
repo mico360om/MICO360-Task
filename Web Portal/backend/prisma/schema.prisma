@@ -2768,6 +2768,7 @@ model TrainingCourse {
   createdAt         DateTime         @default(now())
   updatedAt         DateTime         @updatedAt
   lessons           TrainingLesson[]
+  modules           TrainingModule[]
 
   @@index([status])
   @@index([moduleKey])
@@ -2794,6 +2795,8 @@ model TrainingLesson {
   fileId         String?        @db.VarChar(191)
   /// The course version this lesson last changed in by a "Major change" (people who finished before review it).
   changedVersion Int            @default(1)
+  /// The module of the course this lesson belongs to (Learning Hub one course, 1.23.30); null: none.
+  moduleId       String?        @db.VarChar(191)
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
   course         TrainingCourse @relation(fields: [courseId], references: [id], onDelete: Cascade)
@@ -2801,6 +2804,7 @@ model TrainingLesson {
   quiz           TrainingQuiz?
 
   @@index([courseId, position])
+  @@index([moduleId])
   @@map("training_lessons")
 }
 
@@ -2908,6 +2912,8 @@ model TrainingAssignment {
   scopeCompanyIds Json?
   /// Stopped following membership (a rule switched off): nobody new gets it, nobody loses it.
   frozenAt        DateTime?
+  /// Assignments made together (one grouped request) share a batch id.
+  batchId         String?   @db.VarChar(191)
   createdById     String?   @db.VarChar(191)
   createdAt       DateTime  @default(now())
   withdrawnAt     DateTime?
@@ -2915,6 +2921,7 @@ model TrainingAssignment {
 
   @@index([courseId])
   @@index([ruleId])
+  @@index([batchId])
   @@index([withdrawnAt])
   @@map("training_assignments")
 }
@@ -3020,6 +3027,10 @@ model TrainingCertificate {
   issuerTitle     String?   @db.VarChar(120)
   signatureFileId String?   @db.VarChar(191)
   issuedAt        DateTime  @default(now())
+  /// The day the last needed module was finished (printed on the certificate); null: use issuedAt.
+  completedAt     DateTime?
+  /// The modules the certificate covers (JSON array of module ids); null: not recorded.
+  moduleIds       Json?
   expiresAt       DateTime?
   revokedAt       DateTime?
   revokedReason   String?   @db.VarChar(200)
@@ -3029,6 +3040,52 @@ model TrainingCertificate {
   @@index([courseId])
   @@index([expiresAt])
   @@map("training_certificates")
+}
+
+/// A module of a course (Learning Hub one course, 1.23.30): the group of lessons and a quiz for one feature.
+model TrainingModule {
+  id           String         @id @default(cuid())
+  courseId     String         @db.VarChar(191)
+  position     Int            @default(0)
+  title        String         @db.VarChar(160)
+  /// The feature it teaches (visibility follows feature access).
+  moduleKey    String         @default("general") @db.VarChar(24)
+  /// Staff groups it is for; null or empty: everyone.
+  roleKeys     Json?
+  /// Limited to these companies (JSON array of ids); null or empty: every company.
+  companyIds   Json?
+  /// Off: hidden from learners and not needed for completion.
+  enabled      Boolean        @default(true)
+  /// Why it is off: 'REMOVED' (the site removed the feature); null otherwise.
+  offReason    String?        @db.VarChar(16)
+  /// Built-in modules ('module:tasks' ...); null for modules people made.
+  starterKey   String?        @db.VarChar(64)
+  /// The built-in short course this module replaced.
+  fromCourseId String?        @db.VarChar(191)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  course       TrainingCourse @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@unique([courseId, starterKey])
+  @@index([courseId, position])
+  @@map("training_modules")
+}
+
+/// A person finished a module (recorded, so a module appearing or changing later never undoes it).
+model TrainingModuleDone {
+  id        String   @id @default(cuid())
+  userId    String   @db.VarChar(191)
+  courseId  String   @db.VarChar(191)
+  moduleId  String   @db.VarChar(191)
+  doneAt    DateTime
+  /// 'LEARNED' | 'CONVERTED' (carried over from a short course)
+  via       String   @default("LEARNED") @db.VarChar(12)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, moduleId])
+  @@index([userId, courseId])
+  @@index([courseId])
+  @@map("training_module_done")
 }
 
 /// An onboarding rule: new accounts in a group get these courses (one assignment per course, ruleId).
