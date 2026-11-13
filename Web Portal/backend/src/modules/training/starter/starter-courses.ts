@@ -847,7 +847,7 @@ const chat: StarterLesson[] = [
         title: 'Open Chat',
         body: '<p>Click <strong>Chat</strong> in the side menu. A red number on it means you have unread messages. Every project has its own channel under <strong>Project channels</strong>; one-to-one talks are under <strong>Direct messages</strong>.</p>',
         image: 'chat-channel.webp',
-        alt: 'Chat with a project channel open: messages from four colleagues, and the message box at the bottom.',
+        alt: 'Chat with a project channel open: messages from three colleagues and one of yours, the Project channels and Direct messages lists, and the message box at the bottom.',
       },
       {
         title: 'Send a message',
