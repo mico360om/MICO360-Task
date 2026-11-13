@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.23.26] - 2026-11-13
+
 ### Security
 - Two administrators can no longer remove each other at the same moment and leave the site without an administrator.
 - Logging out now ends the whole session, even if it was being renewed at that moment; a late renewal after logging out no longer turns off fingerprint sign-in.
