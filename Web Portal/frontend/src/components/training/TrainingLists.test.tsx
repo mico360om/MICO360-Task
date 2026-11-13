@@ -36,6 +36,14 @@ describe('course cards (R1: a small Start / Continue / Review beside the whole-c
     expect(within(first).getByRole('button', { name: 'Start: Tasks basics' }).closest('.relative.z-10')).not.toBeNull();
   });
 
+  it('a finished course with no lesson to open still offers Review, to the course page', () => {
+    renderOnSide(
+      <CourseGrid courses={[card({ id: 'c9', title: 'Finished course', lessonCount: 3, mine: mine({ status: 'COMPLETED', progressPct: 100, dueDay: null, lessonsDone: 3, next: null, nextLessonId: null, completedAt: '2026-11-05T08:00:00.000Z' }) })]} />,
+      { api: fakeLearner() },
+    );
+    expect(within(cardOf('Finished course')).getByRole('link', { name: 'Review: Finished course' })).toHaveAttribute('href', '/training/courses/c9');
+  });
+
   it('a started card says how far along in lessons (not a percentage); New for your role when modules were added for them', () => {
     renderOnSide(
       <CourseGrid

@@ -151,7 +151,8 @@ function CardAction({ course: c }: { course: CourseCard }) {
   const words = ACTION_WORDS[go.action];
   const name = `${words}: ${c.title}`;
   // Nothing to open: no button (the card itself opens the course's page).
-  if (go.needsStart ? c.lessonCount < 1 : !go.hasLesson) return null;
+  // A finished course (Review) with no lesson pointed at still opens its page.
+  if (go.needsStart ? c.lessonCount < 1 : !go.hasLesson && go.action !== 'review' && go.action !== 'changes') return null;
   return (
     <>
       {go.needsStart ? (

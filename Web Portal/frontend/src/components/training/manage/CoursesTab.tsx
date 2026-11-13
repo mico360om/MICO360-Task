@@ -125,7 +125,7 @@ export function CoursesTab() {
               <div className="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-x-4 gap-y-1.5">
                 <div className="min-w-0 flex-[1_1_18rem]">
                   <div className="flex flex-wrap items-center gap-2">
-                    <Link to={`/training/manage/courses/${encodeURIComponent(c.id)}`} dir="auto" className="min-w-0 font-semibold text-ink [overflow-wrap:anywhere] hover:text-brand hover:underline">
+                    <Link to={`/training/manage/courses/${encodeURIComponent(c.id)}`} dir="auto" className="inline-flex min-w-0 items-center font-semibold text-ink [overflow-wrap:anywhere] hover:text-brand hover:underline [@media(pointer:coarse)]:!min-h-11">
                       {c.title}
                     </Link>
                     <CourseStatusChip status={c.status} />

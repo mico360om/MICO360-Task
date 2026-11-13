@@ -293,4 +293,29 @@ describe('Learning Hub → Manage → Assigned', () => {
     await userEvent.click(within(confirm).getByRole('button', { name: 'Withdraw' }));
     await waitFor(() => expect(api.withdrawBatch).toHaveBeenCalledWith('batch-1'));
   });
+
+  it('a people row with no batch has no “Withdraw all” (it would withdraw one row); its members keep their own Withdraw', async () => {
+    api.assignments.mockResolvedValue({
+      assignments: [
+        assignmentRow({
+          id: 'b2',
+          batchId: null,
+          targetKind: 'PEOPLE',
+          targetId: '',
+          targetLabel: '2 people',
+          people: 2,
+          members: [
+            { assignmentId: 'm1', userId: 'u-omar', name: 'Omar Ahmed' },
+            { assignmentId: 'm2', userId: 'u-sam', name: 'Sam Shared' },
+          ],
+        }),
+      ],
+    });
+    renderManage(<AssignmentsTab />);
+    const list = await screen.findByRole('list', { name: 'Assigned' });
+    const row = within(list).getAllByRole('listitem')[0]!;
+    expect(within(row).queryByRole('button', { name: 'Withdraw all' })).toBeNull();
+    await userEvent.click(within(row).getByRole('button', { name: /Show people/ }));
+    expect(within(row).getByRole('button', { name: 'Withdraw Omar Ahmed' })).toBeInTheDocument();
+  });
 });

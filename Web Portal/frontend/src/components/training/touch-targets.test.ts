@@ -23,4 +23,17 @@ describe('Learning Hub touch targets', () => {
     const weak = ROOTS.flatMap(files).filter((f) => /\[@media\(pointer:coarse\)\]:min-h-11/.test(readFileSync(f, 'utf8')));
     expect(weak).toEqual([]);
   });
+
+  const slash = (p: string) => p.split(String.fromCharCode(92)).join('/');
+  it('the one-course lane’s files are scanned and carry the important 44 px class where they have buttons or links', () => {
+    const all = ROOTS.flatMap(files);
+    for (const name of ['manage/AssignmentsTab.tsx', 'manage/CoursesTab.tsx', 'manage/CourseRowMenu.tsx', 'manage/ModulesEditor.tsx', 'manage/ReportsTab.tsx', 'manage/CertificatesTab.tsx', 'CertificateView.tsx', 'ModuleList.tsx', 'QrCode.tsx']) {
+      expect(all.some((f) => slash(f).endsWith(`/training/${name}`)), name).toBe(true);
+    }
+    const mustHave = ['manage/AssignmentsTab.tsx', 'manage/CoursesTab.tsx', 'manage/ModulesEditor.tsx', 'manage/ReportsTab.tsx', 'manage/CertificatesTab.tsx', 'CertificateView.tsx'];
+    for (const name of mustHave) {
+      const f = all.find((x) => slash(x).endsWith(`/training/${name}`))!;
+      expect(readFileSync(f, 'utf8'), name).toMatch(/!min-h-11|TOUCH_MIN|!min-h-\[44px\]/);
+    }
+  });
 });

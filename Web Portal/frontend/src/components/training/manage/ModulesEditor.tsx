@@ -80,13 +80,19 @@ export function ModulesEditor({ course }: { course: ManageCourse }) {
     }
   }
 
+  // A module whose switch request is running ignores another click (it would send a second toggle and flip the label back).
+  const switching = useRef(new Set<string>());
   async function switchModule(m: ManageModule) {
+    if (switching.current.has(m.id)) return;
+    switching.current.add(m.id);
     say(null);
     try {
       cache.setCourse(await tc().updateModule(m.id, { enabled: !m.enabled }));
       say(m.enabled ? `Switched “${m.title}” off: learners don’t see it and don’t need it.` : `Switched “${m.title}” on: the people it is for see it.`);
     } catch (err) {
       say(null, `Couldn’t switch the module ${m.enabled ? 'off' : 'on'}. ${problemText(err)}`);
+    } finally {
+      switching.current.delete(m.id);
     }
   }
 

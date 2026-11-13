@@ -192,6 +192,17 @@ describe('Course editor: modules', () => {
     await waitFor(() => expect(api.updateModule).toHaveBeenLastCalledWith('m3', { enabled: true }));
   });
 
+  it('a second Switch click while the first is still running sends nothing more', async () => {
+    let finish!: (c: ManageCourse) => void;
+    api.updateModule.mockReturnValue(new Promise<ManageCourse>((r) => { finish = r; }));
+    const region = await open();
+    await choose(region, 'Tasks', 'Switch off');
+    await choose(region, 'Tasks', 'Switch off');
+    expect(api.updateModule).toHaveBeenCalledTimes(1);
+    finish(withModules());
+    await waitFor(() => expect(within(region).getByText(/Switched “Tasks” off/)).toBeInTheDocument());
+  });
+
   it('a refused change is shown in the server’s words', async () => {
     api.updateModule.mockRejectedValue(new ApiError(403, 'FORBIDDEN', 'You can’t manage this course.'));
     const region = await open();

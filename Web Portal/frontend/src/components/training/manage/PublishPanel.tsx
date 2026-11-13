@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { LIMITS, type ManageCourse } from '../../../api/training';
@@ -60,6 +60,13 @@ export function PublishPanel({ course, startPublishing = false }: { course: Mana
   const [asking, setAsking] = useState<CourseAsk | null>(null);
   const [choosing, setChoosing] = useState(() => startPublishing && !!label && !refused && !neverPublished);
   const [busy, setBusy] = useState(false);
+  // The editor can open from a cached course that doesn't yet say "unpublished changes"; the window then opens once, when fresh data does.
+  const opened = useRef(startPublishing && !!label && !refused && !neverPublished);
+  useEffect(() => {
+    if (!startPublishing || opened.current || !label || refused || neverPublished) return;
+    opened.current = true;
+    setChoosing(true);
+  }, [startPublishing, label, refused, neverPublished]);
   const [problem, setProblem] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
 

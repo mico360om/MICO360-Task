@@ -177,7 +177,7 @@ export function AssignmentsTab() {
                             if (!next.delete(a.id)) next.add(a.id);
                             return next;
                           })}
-                          className="mt-1 inline-flex min-h-[32px] items-center rounded-md text-xs font-semibold text-brand underline-offset-2 hover:underline [@media(pointer:coarse)]:min-h-11"
+                          className="mt-1 inline-flex min-h-[32px] items-center rounded-md text-xs font-semibold text-brand underline-offset-2 hover:underline [@media(pointer:coarse)]:!min-h-11"
                         >
                           {shown ? 'Hide people' : 'Show people'}
                         </button>
@@ -205,6 +205,7 @@ export function AssignmentsTab() {
                       </>
                     ) : null}
                   </div>
+                  {isPeople && !a.batchId ? null : (
                   <Button
                     variant="secondary"
                     size="sm"
@@ -220,6 +221,7 @@ export function AssignmentsTab() {
                   >
                     {isPeople ? 'Withdraw all' : 'Withdraw'}
                   </Button>
+                  )}
                 </li>
               );
             }

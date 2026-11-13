@@ -38,10 +38,17 @@ export function CourseEditorPage() {
   const { id = '' } = useParams<{ id: string }>();
   const [params, setParams] = useSearchParams();
   const [arrival] = useState(() => ({ id, publish: params.get('publish') === '1' }));
+  // ?publish=1 stays armed until the first refresh after arrival has finished (the cached course may be out of date).
+  const [armed, setArmed] = useState(true);
   const courseQ = useQuery({ queryKey: manageKeys.course(id), queryFn: () => tc().manageCourse(id), enabled: !!id });
   const optionsQ = useManageOptions(courseQ.isSuccess);
   const course = courseQ.data;
   usePageName(course ? course.title : 'Edit course');
+
+  const refreshed = courseQ.isFetchedAfterMount && !courseQ.isFetching;
+  useEffect(() => {
+    if (refreshed) setArmed(false);
+  }, [refreshed]);
 
   // Once read, ?publish=1 leaves the address (a reload or Back doesn't open the window again).
   useEffect(() => {
@@ -99,7 +106,7 @@ export function CourseEditorPage() {
       {course.notice ? <CourseNoticeLine text={course.notice} className="mb-4" /> : null}
       <div className="grid min-w-0 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <div className="min-w-0 lg:order-last lg:sticky lg:top-4">
-          <PublishPanel key={course.id} course={course} startPublishing={arrival.publish && arrival.id === course.id} />
+          <PublishPanel key={course.id} course={course} startPublishing={armed && arrival.publish && arrival.id === course.id} />
         </div>
         <div className="flex min-w-0 flex-col gap-4">
           <CourseDetailsForm key={course.id} course={course} options={optionsQ.data} />

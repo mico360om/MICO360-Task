@@ -5,6 +5,7 @@ import CourseEditorDefault, { CourseEditorPage } from './CourseEditorPage';
 import { fakeTrainingApi, lesson, manageCourse, manageModule, type FakeTrainingApi } from '../../components/training/manage/test-api';
 import { renderManage } from '../../components/training/manage/test-render';
 import { ApiError } from '../../lib/api-client';
+import { manageKeys } from '../../components/training/manage/manage-queries';
 
 let api: FakeTrainingApi;
 const fake = vi.hoisted(() => ({ api: null as FakeTrainingApi | null }));
@@ -240,6 +241,13 @@ describe('Course editor: publish', () => {
     await waitFor(() => expect(where.path).toBe('/training/manage/courses/c1'));
     await userEvent.click(within(dialog).getByRole('button', { name: 'Publish' }));
     await waitFor(() => expect(api.publish).toHaveBeenCalledWith('c1', { change: 'MINOR' }));
+  });
+
+  it('?publish=1 from a cached course with no unpublished changes: the window opens once the fresh copy says there are', async () => {
+    const published = manageCourse({ status: 'PUBLISHED', publishedAt: '2026-11-01T08:00:00.000Z', unpublishedChanges: false, version: 2 });
+    api.manageCourse.mockResolvedValue({ ...published, unpublishedChanges: true });
+    renderManage(<CourseEditorPage />, { path: '/training/manage/courses/c1?publish=1', route: PATH.route, seed: (qc) => qc.setQueryData(manageKeys.course('c1'), published) });
+    expect(await screen.findByRole('dialog', { name: 'What kind of change is this?' })).toBeInTheDocument();
   });
 
   it('?publish=1 on a course that can’t be published yet: no window, the reasons are in the Publish panel', async () => {
