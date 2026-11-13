@@ -45,6 +45,29 @@ function networkRoutes() {
   return NETWORK_PATHS.map((pathname) => ({ condition: { urlPattern: new Pattern({ pathname }) }, source: 'network' }));
 }
 
+/**
+ * How long it waits for the network. A browser lets a new worker take over only once the old one has
+ * nothing in progress: one request the server never answers (a dropped connection on a phone, a stuck
+ * proxy) kept every update — and the kill switch — out until the browser was closed. So every wait ends:
+ * a page load then counts as no signal (the last good page), an app file fails as a dropped connection
+ * would, and the worker's own background work (keeping files) simply stops waiting.
+ */
+const PAGE_WAIT_MS = 30_000;
+const FILE_WAIT_MS = 60_000;
+const BACKGROUND_MS = 30_000;
+
+/** The promise, or a "no answer" failure after ms. */
+function within(promise, ms) {
+  let timer;
+  const late = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new TypeError('No answer in time')), ms);
+  });
+  return Promise.race([promise, late]).finally(() => clearTimeout(timer));
+}
+
+/** Background work: done, or given up on after ms (it may still finish; nothing waits for it). */
+const settleWithin = (promise, ms) => within(promise, ms).catch(() => undefined);
+
 const isAsset = (path) => path.startsWith('/assets/');
 const isKept = (path) => KEPT.includes(path);
 
@@ -170,7 +193,7 @@ async function removeEverything() {
 /** A page load: the network first; the last good page only when the network can't be reached. */
 async function pageLoad(request) {
   try {
-    const res = await fetch(request);
+    const res = await within(fetch(request), PAGE_WAIT_MS);
     const type = res.headers.get('content-type') || '';
     if (res.ok && type.includes('text/html')) {
       await (await caches.open(SHELL_CACHE)).put(SHELL_KEY, await pageCopy(res));
@@ -197,7 +220,7 @@ async function pageLoad(request) {
 async function keptFile(request) {
   const path = new URL(request.url).pathname;
   try {
-    const res = await fetch(request);
+    const res = await within(fetch(request), PAGE_WAIT_MS);
     if (res.ok) {
       try {
         await (await caches.open(SHELL_CACHE)).put(path, res.clone());
@@ -219,7 +242,7 @@ async function appFile(request) {
   const cache = await caches.open(ASSET_CACHE);
   const kept = await cache.match(path);
   if (kept) return kept;
-  const res = await fetch(request);
+  const res = await within(fetch(request), FILE_WAIT_MS);
   if (res.ok) {
     await cache.put(path, res.clone());
     await trimAssets();
@@ -242,8 +265,13 @@ self.addEventListener('install', (event) => {
     (async () => {
       await routed;
       if (!KILL_SWITCH) {
-        await cacheShell();
-        await cacheKept();
+        await settleWithin(
+          (async () => {
+            await cacheShell();
+            await cacheKept();
+          })(),
+          BACKGROUND_MS,
+        );
       }
       await self.skipWaiting();
     })(),
@@ -273,7 +301,7 @@ self.addEventListener('activate', (event) => {
 // The page sends the files it loaded before this worker took over, so they are kept too.
 self.addEventListener('message', (event) => {
   const data = event.data || {};
-  if (data.type === 'cache-assets' && Array.isArray(data.urls) && !KILL_SWITCH) event.waitUntil(cacheAssets(data.urls));
+  if (data.type === 'cache-assets' && Array.isArray(data.urls) && !KILL_SWITCH) event.waitUntil(settleWithin(cacheAssets(data.urls), BACKGROUND_MS));
 });
 
 self.addEventListener('fetch', (event) => {

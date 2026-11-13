@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import vm from 'node:vm';
@@ -65,7 +65,9 @@ function worker(opts: { kill?: boolean; net?: Net; putFails?: boolean } = {}) {
   class URLPattern {
     constructor(public init: { pathname: string }) {}
   }
-  vm.runInContext(source, vm.createContext({ self, caches, fetch: fetchFn, URL, URLPattern, Response, Headers, console }));
+  // Timers through the test's own (so fake timers reach the worker).
+  const timers = { setTimeout: (fn: () => void, ms: number) => globalThis.setTimeout(fn, ms), clearTimeout: (t: ReturnType<typeof setTimeout>) => globalThis.clearTimeout(t) };
+  vm.runInContext(source, vm.createContext({ self, caches, fetch: fetchFn, URL, URLPattern, Response, Headers, console, ...timers }));
 
   async function lifecycle(type: 'install' | 'activate', extra: Record<string, unknown> = {}) {
     let done: unknown;
@@ -323,6 +325,70 @@ describe('the service worker (public/sw.js)', () => {
     const kept = w.stores.get('mico360-shell-v2')!.get('/__mico360-shell__')!;
     expect(kept.url).not.toContain('secret-token');
     expect(kept.headers.get('content-type')).toMatch(/text\/html/);
+  });
+
+  // Coordinator follow-up (13 Nov): a new worker waits until the old one has nothing in progress. One
+  // request the server never answers (a dropped connection on a phone, a stuck proxy) kept every update —
+  // and the kill switch — out until the browser closed (reproduced in Chrome). Every wait now has an end.
+  describe('nothing it waits for can hold up an update', () => {
+    const never = () => new Promise<Response>(() => {});
+    afterEach(() => vi.useRealTimers());
+
+    it('a page load the server never answers: the last good page after 30 s (the offline page if none)', async () => {
+      vi.useFakeTimers();
+      const w = worker({ net: () => html('<title>kept</title>') });
+      await w.request('/projects', { mode: 'navigate' });
+      w.setNet(never);
+      const page = w.request('/inspections/i1', { mode: 'navigate' });
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(await (await page)!.text()).toContain('kept');
+      const fresh = worker({ net: (url) => (url.endsWith('/offline.html') ? new Response('<title>You’re offline</title>', { status: 200, headers: { 'content-type': 'text/html' } }) : html()) });
+      await fresh.lifecycle('install');
+      fresh.stores.get('mico360-shell-v2')!.delete('/__mico360-shell__');
+      fresh.setNet(never);
+      const offlinePage = fresh.request('/x', { mode: 'navigate' });
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(await (await offlinePage)!.text()).toContain('offline');
+    });
+
+    it('an app file the server never answers: fails after 60 s, as a dropped connection would', async () => {
+      vi.useFakeTimers();
+      const w = worker({ net: never });
+      const file = w.request('/assets/never-1.js');
+      const failed = expect(file).rejects.toThrow();
+      await vi.advanceTimersByTimeAsync(60_000);
+      await failed;
+    });
+
+    it('the manifest or an icon the server never answers: the kept copy after 30 s', async () => {
+      vi.useFakeTimers();
+      const w = worker({ net: () => js('kept icon') });
+      await w.request('/icons/icon-192.png');
+      w.setNet(never);
+      const icon = w.request('/icons/icon-192.png');
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(await (await icon)!.text()).toBe('kept icon');
+    });
+
+    it('keeping the page’s files (its message) and installing end within 30 s whatever the server does', async () => {
+      vi.useFakeTimers();
+      const w = worker({ net: never });
+      let kept = false;
+      void w.message({ type: 'cache-assets', urls: ['/assets/a.js'] }).then(() => (kept = true));
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(kept).toBe(true);
+      let installed = false;
+      void w.lifecycle('install').then(() => (installed = true));
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(installed).toBe(true);
+      expect(w.self.skipWaiting).toHaveBeenCalled();
+    });
+
+    it('an answer in time is used as before (nothing waits for the timer)', async () => {
+      vi.useFakeTimers();
+      const w = worker({ net: () => html('<title>fresh</title>') });
+      expect(await (await w.request('/projects', { mode: 'navigate' }))!.text()).toContain('fresh');
+    });
   });
 
   it('the never list is unchanged by v2 (the API, client pages, uploads, downloads, realtime, email pictures)', () => {
