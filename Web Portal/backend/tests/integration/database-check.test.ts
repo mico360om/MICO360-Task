@@ -183,11 +183,31 @@ describe('board and task holds, as the start-up check sends them', () => {
       const probe = databaseProbes({ prisma: client, taskSearch, timeZone: 'Asia/Muscat' }).find((p) => p.name.startsWith('board and task holds'));
       expect(probe).toBeDefined();
       await probe!.run();
-      for (const hold of [/FROM kanban_columns WHERE id = \? FOR UPDATE/, /FROM projects WHERE id = \? FOR UPDATE/, /FROM kanban_columns WHERE projectId = \? FOR UPDATE/, /SELECT version FROM tasks WHERE id = \? AND deletedAt IS NULL FOR UPDATE/, /AS stillDone, version FROM tasks WHERE id = \? FOR UPDATE/, /FROM job_locks WHERE name = \? FOR UPDATE/]) {
+      for (const hold of [/FROM kanban_columns WHERE id = \? FOR UPDATE/, /FROM projects WHERE id = \? FOR UPDATE/, /FROM kanban_columns WHERE projectId = \? FOR UPDATE/, /SELECT version FROM tasks WHERE id = \? AND deletedAt IS NULL FOR UPDATE/, /AS stillDone, version FROM tasks WHERE id = \? FOR UPDATE/, /FROM job_locks WHERE name = \? FOR UPDATE/, /SELECT deletedAt FROM inspection_forms WHERE id = \? LOCK IN SHARE MODE/]) {
         expect(sent.some((q) => hold.test(q)), String(hold)).toBe(true);
       }
       const problems = sent.flatMap((sql) => portabilityProblems(sql).map((p) => `${p}: ${sql}`));
       expect(problems).toEqual([]);
+    } finally {
+      await client.$disconnect();
+    }
+  });
+});
+
+// 1.23.27 — what the first MariaDB 11.8.9 run of this suite found (live-only failures the check didn't send):
+// the repeat copy's form hold (it said FOR SHARE) is in the holds probe above; the meaning search's vectors here.
+describe('the meaning search’s vectors, as the start-up check reads them', () => {
+  it('the probe reads the vector column as the search does (quoted: a keyword in MariaDB 11.7+), portably', async () => {
+    const sent: string[] = [];
+    const client = new PrismaClient({ datasources: { db: { url } }, log: [{ emit: 'event', level: 'query' }] });
+    client.$on('query', (e) => void sent.push(e.query));
+    try {
+      const { taskSearch } = engines(client);
+      const probe = databaseProbes({ prisma: client, taskSearch, timeZone: 'Asia/Muscat' }).find((p) => p.name === 'the meaning search (vectors)');
+      expect(probe).toBeDefined();
+      await probe!.run();
+      expect(sent.some((q) => /FROM search_embeddings/.test(q) && q.includes('`vector`'))).toBe(true);
+      expect(sent.flatMap((sql) => portabilityProblems(sql).map((p) => `${p}: ${sql}`))).toEqual([]);
     } finally {
       await client.$disconnect();
     }

@@ -191,12 +191,16 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync) 
 
   /** A lesson's progress row, written once even when two requests arrive together. */
   async function writeProgress(userId: string, courseId: string, lessonId: string, data: { doneAt?: Date; stepIndex?: number; videoSeconds?: number; videoDuration?: number; watchedPct?: number }): Promise<void> {
-    const where = { userId_lessonId: { userId, lessonId } };
+    // 1.23.27: single UPDATE statements (updateMany), then a create when there is no row — not upsert()/update(),
+    // which read the row first in their own transaction: MariaDB (the live server, innodb_snapshot_isolation ON)
+    // then refused the write when a second click's request changed the row in between (error 1020: a 500).
+    const where = { userId, lessonId };
+    if ((await prisma.trainingProgress.updateMany({ where, data })).count > 0) return;
     try {
-      await prisma.trainingProgress.upsert({ where, create: { userId, courseId, lessonId, ...data }, update: data });
+      await prisma.trainingProgress.create({ data: { userId, courseId, lessonId, ...data } });
     } catch (err) {
       if (!isUnique(err)) throw err;
-      await prisma.trainingProgress.update({ where, data });
+      await prisma.trainingProgress.updateMany({ where, data });
     }
   }
 
