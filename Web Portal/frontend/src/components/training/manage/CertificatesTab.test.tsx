@@ -39,6 +39,7 @@ describe('Training Center → Certificates', () => {
     expect(within(sam).getByText('Tasks basics')).toBeInTheDocument();
     expect(within(sam).getByText('TC-AAAA-BBBB-CCCC')).toBeInTheDocument();
     expect(within(sam).getByText(/Issued 3 Nov/)).toBeInTheDocument();
+    expect(within(sam).getByText('Completed 3 Nov')).toBeInTheDocument();
     expect(within(sam).getByText(/Expires 3 Nov 2027/)).toBeInTheDocument();
     expect(within(sam).getByText('Valid')).toBeInTheDocument();
     expect(within(sam).getByRole('button', { name: 'Revoke' })).toBeInTheDocument();

@@ -61,6 +61,9 @@ export function assignedLines(rows: readonly AssignmentRow[]): AssignedLine[] {
 }
 
 const rowButton = '!min-h-[40px] [@media(pointer:coarse)]:!min-h-11';
+/** What a Withdraw confirmation is about: one assignment, one person of a group of people, or all of them. */
+type Withdrawing = { courseTitle: string; text: string; run: () => Promise<unknown> };
+
 const them = (n: number, one: string, many: string) => (n === 1 ? one : many);
 
 /**
@@ -76,7 +79,8 @@ export function AssignmentsTab() {
   const [courseId, setCourseId] = useState(params.get('course') ?? '');
   const [assigning, setAssigning] = useState(params.get('assign') === '1');
   const [done, setDone] = useState<string | null>(null);
-  const [withdrawing, setWithdrawing] = useState<AssignmentRow | null>(null);
+  const [withdrawing, setWithdrawing] = useState<Withdrawing | null>(null);
+  const [open, setOpen] = useState<Set<string>>(() => new Set());
   const [switchingOff, setSwitchingOff] = useState<NewStaffLine | null>(null);
   const [switchProblem, setSwitchProblem] = useState<string | null>(null);
   const coursesQ = useManageCourses();
@@ -88,7 +92,7 @@ export function AssignmentsTab() {
   };
 
   const withdraw = useMutation({
-    mutationFn: (id: string) => tc().withdraw(id),
+    mutationFn: (w: Withdrawing) => w.run(),
     onSuccess: () => {
       setWithdrawing(null);
       setDone('Withdrawn. Finished courses are kept.');
@@ -142,6 +146,9 @@ export function AssignmentsTab() {
           {lines.map((line) => {
             if (line.kind === 'assignment') {
               const a = line.row;
+              const isPeople = a.targetKind === 'PEOPLE';
+              const shown = isPeople && open.has(a.id);
+              const membersId = `members-${a.id}`;
               return (
                 <li key={a.id} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-2.5">
                   <div className="min-w-0 flex-[1_1_18rem]">
@@ -149,23 +156,69 @@ export function AssignmentsTab() {
                       <span dir="auto" className="font-semibold text-ink [overflow-wrap:anywhere]">{a.courseTitle}</span>
                       <Badge tone={a.mandatory ? 'brand' : 'neutral'}>{a.mandatory ? 'Mandatory' : 'Optional'}</Badge>
                     </div>
-                    <p dir="auto" className="mt-0.5 text-sm text-ink [overflow-wrap:anywhere]">{`${TARGET_KIND_LABELS[a.targetKind]}: ${a.targetLabel}`}</p>
+                    {isPeople ? (
+                      <p dir="auto" className="mt-0.5 text-sm text-ink [overflow-wrap:anywhere]">{a.targetLabel}</p>
+                    ) : (
+                      <p dir="auto" className="mt-0.5 text-sm text-ink [overflow-wrap:anywhere]">{`${TARGET_KIND_LABELS[a.targetKind]}: ${a.targetLabel}`}</p>
+                    )}
                     <p className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-ink-2">
                       <span>{dueText(a)}</span>
                       <span>{peopleText(a)}</span>
                       <span>{a.createdByName ? `By ${a.createdByName} · ${instantWords(a.createdAt, timeZone)}` : `Added ${instantWords(a.createdAt, timeZone)}`}</span>
                     </p>
+                    {isPeople ? (
+                      <>
+                        <button
+                          type="button"
+                          aria-expanded={shown}
+                          aria-controls={membersId}
+                          onClick={() => setOpen((cur) => {
+                            const next = new Set(cur);
+                            if (!next.delete(a.id)) next.add(a.id);
+                            return next;
+                          })}
+                          className="mt-1 inline-flex min-h-[32px] items-center rounded-md text-xs font-semibold text-brand underline-offset-2 hover:underline [@media(pointer:coarse)]:min-h-11"
+                        >
+                          {shown ? 'Hide people' : 'Show people'}
+                        </button>
+                        {shown ? (
+                          <ul id={membersId} aria-label={`People in ${a.courseTitle}`} className="mt-1 divide-y divide-line rounded-lg border border-line">
+                            {a.members.map((m) => (
+                              <li key={m.assignmentId} className="flex items-center justify-between gap-3 px-3 py-1">
+                                <span dir="auto" className="min-w-0 text-sm text-ink [overflow-wrap:anywhere]">{m.name}</span>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  aria-label={`Withdraw ${m.name}`}
+                                  onClick={() => {
+                                    withdraw.reset();
+                                    setWithdrawing({ courseTitle: a.courseTitle, text: `“${a.courseTitle}” for ${m.name}.`, run: () => tc().withdraw(m.assignmentId) });
+                                  }}
+                                  className={rowButton}
+                                >
+                                  Withdraw
+                                </Button>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
+                      </>
+                    ) : null}
                   </div>
                   <Button
                     variant="secondary"
                     size="sm"
                     onClick={() => {
                       withdraw.reset();
-                      setWithdrawing(a);
+                      setWithdrawing(
+                        isPeople && a.batchId
+                          ? { courseTitle: a.courseTitle, text: `“${a.courseTitle}” for ${a.targetLabel}.`, run: () => tc().withdrawBatch(a.batchId!) }
+                          : { courseTitle: a.courseTitle, text: `“${a.courseTitle}” for ${TARGET_KIND_LABELS[a.targetKind].toLowerCase()} ${a.targetLabel}.`, run: () => tc().withdraw(a.id) },
+                      );
                     }}
                     className={rowButton}
                   >
-                    Withdraw
+                    {isPeople ? 'Withdraw all' : 'Withdraw'}
                   </Button>
                 </li>
               );
@@ -230,10 +283,10 @@ export function AssignmentsTab() {
           keepLabel="Keep it"
           busy={withdraw.isPending}
           error={withdraw.isError ? `Couldn’t withdraw it. ${problemText(withdraw.error)}` : null}
-          onConfirm={() => withdraw.mutate(withdrawing.id)}
+          onConfirm={() => withdraw.mutate(withdrawing)}
           onClose={() => setWithdrawing(null)}
         >
-          <p dir="auto">{`“${withdrawing.courseTitle}” for ${TARGET_KIND_LABELS[withdrawing.targetKind].toLowerCase()} ${withdrawing.targetLabel}.`}</p>
+          <p dir="auto">{withdrawing.text}</p>
           <p className="mt-2">Finished courses are kept. Unfinished courses from it are withdrawn, unless the person has the course another way.</p>
         </ConfirmDialog>
       ) : null}

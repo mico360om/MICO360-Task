@@ -205,4 +205,92 @@ describe('Learning Hub → Manage → Assigned', () => {
     // A fixed day is back for a person.
     expect(within(dialog).getByRole('radio', { name: 'A day' })).toBeInTheDocument();
   });
+
+  it('Assign to several people: a searchable checklist, chips with remove buttons, “n people chosen”, sent as PEOPLE with userIds', async () => {
+    api.previewAssignment.mockResolvedValue({ reach: 2, already: 0, skipped: [] });
+    api.assign.mockResolvedValue({ assignments: [] });
+    renderManage(<AssignmentsTab />);
+    await screen.findByRole('list', { name: 'Assigned' });
+    await userEvent.click(screen.getByRole('button', { name: 'Assign a course' }));
+    const dialog = screen.getByRole('dialog', { name: 'Assign a course' });
+    const radios = within(dialog).getAllByRole('radio').map((r) => (r.closest('label') as HTMLElement).textContent);
+    expect(radios[0]).toBe('People');
+    await userEvent.click(await within(dialog).findByRole('checkbox', { name: 'Tasks basics' }));
+    await userEvent.click(within(dialog).getByRole('radio', { name: 'People' }));
+    // Staff course: clients aren't offered.
+    expect(within(dialog).queryByRole('checkbox', { name: /Huda Client/ })).toBeNull();
+    expect(within(dialog).getByText('0 people chosen')).toBeInTheDocument();
+    await userEvent.click(within(dialog).getByRole('checkbox', { name: /Sam Shared/ }));
+    await userEvent.click(within(dialog).getByRole('checkbox', { name: /Omar Ahmed/ }));
+    expect(within(dialog).getByText('2 people chosen')).toBeInTheDocument();
+    await waitFor(() => expect(api.previewAssignment).toHaveBeenLastCalledWith({ courseIds: ['c1'], targetKind: 'PEOPLE', userIds: ['u-sam', 'u-omar'], mandatory: true, dueDay: null, dueDays: null }));
+    // Search narrows the list; chips remove one person.
+    await userEvent.type(within(dialog).getByRole('searchbox', { name: 'Find a person' }), 'omar');
+    expect(within(dialog).queryByRole('checkbox', { name: /Sam Shared/ })).toBeNull();
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Remove Sam Shared' }));
+    expect(within(dialog).getByText('1 person chosen')).toBeInTheDocument();
+    await userEvent.clear(within(dialog).getByRole('searchbox', { name: 'Find a person' }));
+    await userEvent.click(within(dialog).getByRole('checkbox', { name: /Sam Shared/ }));
+    await waitFor(() => expect(within(dialog).getByRole('button', { name: 'Assign' })).toBeEnabled());
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Assign' }));
+    await waitFor(() => expect(api.assign).toHaveBeenCalledWith({ courseIds: ['c1'], targetKind: 'PEOPLE', userIds: ['u-omar', 'u-sam'], mandatory: true, dueDay: null, dueDays: null }));
+    expect(api.assign.mock.calls[0]![0]).not.toHaveProperty('targetId');
+  });
+
+  it('People: a client course offers clients; New staff only isn’t offered; nobody ticked keeps Assign off', async () => {
+    api.courses.mockResolvedValue({ courses: [courseRow({ id: 'c9', title: 'Client guide', audience: 'CLIENTS' })] });
+    renderManage(<AssignmentsTab />);
+    await screen.findByRole('list', { name: 'Assigned' });
+    await userEvent.click(screen.getByRole('button', { name: 'Assign a course' }));
+    const dialog = screen.getByRole('dialog', { name: 'Assign a course' });
+    await userEvent.click(await within(dialog).findByRole('checkbox', { name: 'Client guide' }));
+    await userEvent.click(within(dialog).getByRole('radio', { name: 'People' }));
+    expect(within(dialog).getByRole('checkbox', { name: /Huda Client/ })).toBeInTheDocument();
+    expect(within(dialog).queryByRole('checkbox', { name: /Sam Shared/ })).toBeNull();
+    expect(within(dialog).queryByRole('radio', { name: /Only people who join from now on/ })).toBeNull();
+    expect(within(dialog).getByRole('button', { name: 'Assign' })).toBeDisabled();
+  });
+
+  it('a grouped row “3 people”: a toggle lists the members, each with Withdraw; the row’s Withdraw withdraws them all', async () => {
+    api.assignments.mockResolvedValue({
+      assignments: [
+        assignmentRow({
+          id: 'b1',
+          batchId: 'batch-1',
+          targetKind: 'PEOPLE',
+          targetId: '',
+          targetLabel: '3 people',
+          people: 3,
+          members: [
+            { assignmentId: 'm1', userId: 'u-omar', name: 'Omar Ahmed' },
+            { assignmentId: 'm2', userId: 'u-sam', name: 'Sam Shared' },
+            { assignmentId: 'm3', userId: 'u-x', name: 'Zed Zee' },
+          ],
+        }),
+      ],
+    });
+    renderManage(<AssignmentsTab />);
+    const list = await screen.findByRole('list', { name: 'Assigned' });
+    const row = within(list).getAllByRole('listitem')[0]!;
+    expect(within(row).getByText('3 people', { selector: 'p' })).toBeInTheDocument();
+    expect(within(row).queryByText('Omar Ahmed')).toBeNull();
+    const toggle = within(row).getByRole('button', { name: /Show people/ });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await userEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(within(row).getByText('Omar Ahmed')).toBeInTheDocument();
+    // One person.
+    await userEvent.click(within(row).getByRole('button', { name: 'Withdraw Sam Shared' }));
+    let confirm = screen.getByRole('alertdialog', { name: 'Withdraw this assignment?' });
+    expect(confirm).toHaveTextContent('Sam Shared');
+    await userEvent.click(within(confirm).getByRole('button', { name: 'Withdraw' }));
+    await waitFor(() => expect(api.withdraw).toHaveBeenCalledWith('m2'));
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+    // All of them.
+    await userEvent.click(within(row).getByRole('button', { name: 'Withdraw all' }));
+    confirm = screen.getByRole('alertdialog', { name: 'Withdraw this assignment?' });
+    expect(confirm).toHaveTextContent('3 people');
+    await userEvent.click(within(confirm).getByRole('button', { name: 'Withdraw' }));
+    await waitFor(() => expect(api.withdrawBatch).toHaveBeenCalledWith('batch-1'));
+  });
 });

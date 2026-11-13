@@ -1,6 +1,6 @@
 import { useId, useMemo, useState } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { REPORT_BY, type ReportBy, type ReportQuery, type ReportRow, type TrainingReport } from '../../../api/training';
+import { REPORT_BY, type ReportBy, type ReportDates, type ReportQuery, type ReportRow, type TrainingReport } from '../../../api/training';
 import { downloadBlob, fileNameOf } from '../../../lib/download';
 import { useMediaQuery } from '../../../lib/useMediaQuery';
 import { useCompanyTimeZone } from '../../../lib/useCompanyTimeZone';
@@ -16,16 +16,19 @@ import { manageKeys, tc, useManageCourses } from './manage-queries';
 
 const BY_LABELS: Record<ReportBy, string> = { course: 'Course', person: 'Person', department: 'Department', role: 'Role', company: 'Company', project: 'Project' };
 const SCOPE_LABELS: Record<TrainingReport['scope'], string> = { ALL: 'All people', COMPANIES: 'Your companies', TEAM: 'Your team' };
+const DATES_LABELS: Record<ReportDates, string> = { got: 'Got the course', finished: 'Finished the course' };
+const DATES_NOTE: Record<ReportDates, string> = { got: 'got the course', finished: 'finished the course' };
 const PHONE_QUERY = '(max-width: 47.9375em)';
 
 /** The report's question as the API takes it (empty filters left out). */
-export function reportQuery(by: ReportBy, courseId: string, from: string, to: string): ReportQuery {
-  return { by, ...(courseId ? { courseId } : {}), ...(from ? { from } : {}), ...(to ? { to } : {}) };
+export function reportQuery(by: ReportBy, courseId: string, from: string, to: string, dates: ReportDates = 'got'): ReportQuery {
+  return { by, ...(courseId ? { courseId } : {}), ...(from ? { from } : {}), ...(to ? { to } : {}), ...(dates !== 'got' ? { dates } : {}) };
 }
 
 const COLUMNS: { key: keyof ReportRow; label: string; show: (r: ReportRow) => string }[] = [
   { key: 'people', label: 'People', show: (r) => r.people.toLocaleString('en-US') },
   { key: 'assigned', label: 'Assigned', show: (r) => r.assigned.toLocaleString('en-US') },
+  { key: 'selfStarted', label: 'Started themselves', show: (r) => r.selfStarted.toLocaleString('en-US') },
   { key: 'started', label: 'Started', show: (r) => r.started.toLocaleString('en-US') },
   { key: 'completed', label: 'Completed', show: (r) => r.completed.toLocaleString('en-US') },
   { key: 'overdue', label: 'Overdue', show: (r) => r.overdue.toLocaleString('en-US') },
@@ -42,16 +45,19 @@ const COLUMNS: { key: keyof ReportRow; label: string; show: (r: ReportRow) => st
 export function ReportsTab({ readOnly = false }: { readOnly?: boolean }) {
   const timeZone = useCompanyTimeZone();
   const phone = useMediaQuery(PHONE_QUERY);
-  const ids = { by: useId(), course: useId(), from: useId(), to: useId(), rows: useId() };
+  const ids = { by: useId(), course: useId(), from: useId(), to: useId(), dates: useId(), rows: useId(), modules: useId(), learners: useId() };
   const [by, setBy] = useState<ReportBy>('course');
   const [courseId, setCourseId] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  const [dates, setDates] = useState<ReportDates>('got');
+  const [allQuizzes, setAllQuizzes] = useState(false);
+  const [downloadingCert, setDownloadingCert] = useState<string | null>(null);
   const [exporting, setExporting] = useState<'xlsx' | 'pdf' | null>(null);
   const [exportProblem, setExportProblem] = useState<string | null>(null);
   const [drill, setDrill] = useState<{ lessonId: string; title: string; courseTitle: string } | null>(null);
   const periodProblem = from && to && from > to ? 'The period ends before it starts.' : null;
-  const query = reportQuery(by, courseId, from, to);
+  const query = reportQuery(by, courseId, from, to, dates);
   const reportQ = useQuery({ queryKey: manageKeys.report(query), queryFn: () => tc().report(query), enabled: !periodProblem, placeholderData: keepPreviousData });
   // Course choices: a manager's course list; a project manager's own report by course (no Training Center calls).
   const managerCourses = useManageCourses({}, !readOnly);
@@ -61,6 +67,22 @@ export function ReportsTab({ readOnly = false }: { readOnly?: boolean }) {
     [readOnly, teamCourses.data, managerCourses.data],
   );
   const r = reportQ.data;
+  // Quizzes nobody has handed in stay hidden until "Show all quizzes".
+  const quizRows = r ? (allQuizzes ? r.quizzes : r.quizzes.filter((z) => z.attempts > 0)) : [];
+  const hiddenQuizzes = r ? r.quizzes.filter((z) => z.attempts === 0).length : 0;
+
+  async function certificatePdf(c: { id: string; code: string }) {
+    setDownloadingCert(c.id);
+    setExportProblem(null);
+    try {
+      const blob = await tc().certificatePdf(c.id);
+      downloadBlob(fileNameOf(blob) ?? `certificate-${c.code}.pdf`, blob);
+    } catch (err) {
+      setExportProblem(`Couldn’t download the certificate. ${problemText(err)}`);
+    } finally {
+      setDownloadingCert(null);
+    }
+  }
 
   async function exportFile(format: 'xlsx' | 'pdf') {
     setExporting(format);
@@ -89,6 +111,11 @@ export function ReportsTab({ readOnly = false }: { readOnly?: boolean }) {
             {courseOptions.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
           </select>
         </FilterField>
+        <FilterField label="Dates by" htmlFor={ids.dates} className="min-w-[11rem] flex-1 sm:max-w-[14rem]">
+          <select id={ids.dates} value={dates} onChange={(e) => setDates(e.target.value as ReportDates)} className={fieldClass(false, 'w-full')}>
+            {(Object.keys(DATES_LABELS) as ReportDates[]).map((d) => <option key={d} value={d}>{DATES_LABELS[d]}</option>)}
+          </select>
+        </FilterField>
         <FilterField label="From" htmlFor={ids.from} className="min-w-[9rem] flex-1 sm:max-w-[11rem]">
           <input id={ids.from} type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} aria-invalid={periodProblem ? true : undefined} className={fieldClass(!!periodProblem, 'w-full')} />
         </FilterField>
@@ -106,7 +133,7 @@ export function ReportsTab({ readOnly = false }: { readOnly?: boolean }) {
           </Button>
         </div>
       </div>
-      <p className="-mt-2 text-xs text-ink-2">The period is the days people got the course; quiz results count the days they were handed in.</p>
+      <p className="-mt-2 text-xs text-ink-2">{`The period is the days people ${DATES_NOTE[dates]}; quiz results count the days they were handed in.`}</p>
       {periodProblem ? <Notice>{periodProblem}</Notice> : null}
       {exportProblem ? <Notice>{exportProblem}</Notice> : null}
 
@@ -122,7 +149,7 @@ export function ReportsTab({ readOnly = false }: { readOnly?: boolean }) {
           </div>
           <div role="group" aria-label="Totals" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <StatTile label="People" value={r.totals.people} hint={`${r.totals.started.toLocaleString('en-US')} started`} />
-            <StatTile label="Completed" value={pct(r.totals.completionRate)} hint={`${r.totals.completed.toLocaleString('en-US')} of ${r.totals.people.toLocaleString('en-US')}`} tone="done" />
+            <StatTile label="Completion" value={pct(r.totals.completionRate)} hint={`${r.totals.completed.toLocaleString('en-US')} of ${count(r.totals.enrolments, 'enrolment')}`} tone="done" />
             <StatTile label="Overdue" value={r.totals.overdue} tone="overdue" />
             <StatTile label="Certificates expiring" value={r.expiring.length} hint="In the next 30 days" tone="soon" />
           </div>
@@ -168,6 +195,73 @@ export function ReportsTab({ readOnly = false }: { readOnly?: boolean }) {
             )}
           </SectionCard>
 
+          {r.modules ? (
+            <SectionCard id={ids.modules} title="By module">
+              {r.modules.length === 0 ? (
+                <p className="text-sm text-ink-2">This course has no modules yet.</p>
+              ) : (
+                <div className="-mx-1 overflow-x-auto px-1">
+                  <table aria-labelledby={ids.modules} className="w-full min-w-[28rem] text-sm">
+                    <thead>
+                      <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-ink-2">
+                        <th scope="col" className="py-2 pe-3 font-semibold">Module</th>
+                        {['People', 'Done', 'In progress', 'Not started'].map((h) => <th key={h} scope="col" className="px-2 py-2 text-right font-semibold">{h}</th>)}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {r.modules.map((m) => (
+                        <tr key={m.moduleId} className="border-b border-line last:border-0">
+                          <th scope="row" dir="auto" className="py-2 pe-3 text-left font-medium text-ink [overflow-wrap:anywhere]">{m.title}</th>
+                          {[m.people, m.done, m.inProgress, m.notStarted].map((n, i) => <td key={i} className="px-2 py-2 text-right tabular-nums text-ink">{n.toLocaleString('en-US')}</td>)}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </SectionCard>
+          ) : null}
+          {r.learners ? (
+            <SectionCard id={ids.learners} title="By person">
+              {r.learners.length === 0 ? (
+                <p className="text-sm text-ink-2">Nobody has this course in this period.</p>
+              ) : (
+                <div className="-mx-1 overflow-x-auto px-1">
+                  <table aria-labelledby={ids.learners} className="w-full min-w-[30rem] text-sm">
+                    <thead>
+                      <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-ink-2">
+                        <th scope="col" className="py-2 pe-3 font-semibold">Person</th>
+                        <th scope="col" className="px-2 py-2 text-right font-semibold">Modules done</th>
+                        <th scope="col" className="px-2 py-2 text-left font-semibold">Last activity</th>
+                        <th scope="col" className="px-2 py-2 text-left font-semibold">Certificate</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {r.learners.map((l) => (
+                        <tr key={l.userId} className="border-b border-line last:border-0">
+                          <th scope="row" dir="auto" className="py-2 pe-3 text-left font-medium text-ink [overflow-wrap:anywhere]">{l.name}</th>
+                          <td className="px-2 py-2 text-right tabular-nums text-ink">{`${l.modulesDone.toLocaleString('en-US')} of ${l.modulesRequired.toLocaleString('en-US')}`}</td>
+                          <td className="px-2 py-2 text-ink">{l.lastActivityAt ? instantWords(l.lastActivityAt, timeZone) : '—'}</td>
+                          <td className="px-2 py-2">
+                            {!l.certificate ? (
+                              <span className="text-ink-2">—</span>
+                            ) : readOnly ? (
+                              <span className="font-mono text-xs text-ink">{l.certificate.code}</span>
+                            ) : (
+                              <Button variant="ghost" size="sm" aria-label={`Certificate ${l.certificate.code} (PDF)`} loading={downloadingCert === l.certificate.id} onClick={() => void certificatePdf(l.certificate!)} className="font-mono text-xs [@media(pointer:coarse)]:!min-h-11">
+                                {l.certificate.code}
+                              </Button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </SectionCard>
+          ) : null}
+
           <div className="grid min-w-0 gap-4 lg:grid-cols-2">
             <SectionCard id="tc-rep-overdue" title="Overdue">
               {r.overdue.length === 0 ? (
@@ -208,25 +302,65 @@ export function ReportsTab({ readOnly = false }: { readOnly?: boolean }) {
           </div>
 
           <SectionCard id="tc-rep-quizzes" title="Quiz results">
-            {/* 12 Nov: a quiz nobody has handed in yet has nothing to say: left out. */}
-            {r.quizzes.every((z) => !z.attempts) ? (
+            {quizRows.length === 0 ? (
               <p className="text-sm text-ink-2">No quiz was handed in.</p>
-            ) : (
-              <ul className="divide-y divide-line">
-                {r.quizzes.filter((z) => z.attempts > 0).map((z) => (
-                  <li key={z.lessonId} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 py-2">
-                    <div className="min-w-0 flex-1">
-                      <span dir="auto" className="font-medium text-ink">{z.title}</span>
-                      <p dir="auto" className="text-sm text-ink-2 [overflow-wrap:anywhere]">{z.courseTitle}</p>
-                      <p className="text-xs text-ink-2">{`${count(z.attempts, 'attempt')} · ${pct(z.passRate)} passed · average ${pct(z.averageScore)}`}</p>
-                    </div>
-                    <Button variant="secondary" size="sm" aria-label={`Questions in “${z.title}”`} onClick={() => setDrill({ lessonId: z.lessonId, title: z.title, courseTitle: z.courseTitle })} className="[@media(pointer:coarse)]:!min-h-11">
-                      Questions
-                    </Button>
+            ) : phone ? (
+              <ul aria-labelledby="tc-rep-quizzes" className="flex flex-col gap-2">
+                {quizRows.map((z) => (
+                  <li key={z.lessonId} className="rounded-xl border border-line p-3">
+                    <p dir="auto" className="font-semibold text-ink [overflow-wrap:anywhere]">{z.title}</p>
+                    <p dir="auto" className="text-sm text-ink-2 [overflow-wrap:anywhere]">{z.moduleTitle ? `${z.courseTitle} · ${z.moduleTitle}` : z.courseTitle}</p>
+                    <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-sm">
+                      {[['Attempts', z.attempts.toLocaleString('en-US')], ['People', z.people.toLocaleString('en-US')], ['Pass rate', pct(z.passRate)], ['Average', pct(z.averageScore)], ['Questions', z.questions.toLocaleString('en-US')]].map(([k, v]) => (
+                        <div key={k} className="flex min-w-0 justify-between gap-2">
+                          <dt className="text-ink-2">{k}</dt>
+                          <dd className="font-medium text-ink">{v}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                    {z.attempts > 0 ? (
+                      <Button variant="secondary" size="sm" aria-label={`Questions in “${z.title}”`} onClick={() => setDrill({ lessonId: z.lessonId, title: z.title, courseTitle: z.courseTitle })} className="mt-2 !min-h-11">
+                        Questions
+                      </Button>
+                    ) : null}
                   </li>
                 ))}
               </ul>
+            ) : (
+              <div className="-mx-1 overflow-x-auto px-1">
+                <table aria-labelledby="tc-rep-quizzes" className="w-full min-w-[40rem] text-sm">
+                  <thead>
+                    <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-ink-2">
+                      <th scope="col" className="py-2 pe-3 font-semibold">Quiz</th>
+                      <th scope="col" className="px-2 py-2 font-semibold">Course / module</th>
+                      {['Attempts', 'People', 'Pass rate', 'Average', 'Questions'].map((h) => <th key={h} scope="col" className="px-2 py-2 text-right font-semibold">{h}</th>)}
+                      <th scope="col" className="px-2 py-2 text-right font-semibold"><span className="sr-only">Details</span></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {quizRows.map((z) => (
+                      <tr key={z.lessonId} className="border-b border-line last:border-0">
+                        <th scope="row" dir="auto" className="py-2 pe-3 text-left font-medium text-ink [overflow-wrap:anywhere]">{z.title}</th>
+                        <td dir="auto" className="px-2 py-2 text-ink-2 [overflow-wrap:anywhere]">{z.moduleTitle ? `${z.courseTitle} · ${z.moduleTitle}` : z.courseTitle}</td>
+                        {[z.attempts.toLocaleString('en-US'), z.people.toLocaleString('en-US'), pct(z.passRate), pct(z.averageScore), z.questions.toLocaleString('en-US')].map((v, i) => <td key={i} className="px-2 py-2 text-right tabular-nums text-ink">{v}</td>)}
+                        <td className="px-2 py-1 text-right">
+                          {z.attempts > 0 ? (
+                            <Button variant="secondary" size="sm" aria-label={`Questions in “${z.title}”`} onClick={() => setDrill({ lessonId: z.lessonId, title: z.title, courseTitle: z.courseTitle })} className="[@media(pointer:coarse)]:!min-h-11">
+                              Questions
+                            </Button>
+                          ) : null}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
+            {hiddenQuizzes > 0 || allQuizzes ? (
+              <Button variant="ghost" size="sm" aria-pressed={allQuizzes} onClick={() => setAllQuizzes((v) => !v)} className="mt-2 [@media(pointer:coarse)]:!min-h-11">
+                {allQuizzes ? 'Hide quizzes nobody has taken' : 'Show all quizzes'}
+              </Button>
+            ) : null}
           </SectionCard>
         </>
       )}

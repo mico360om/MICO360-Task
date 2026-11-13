@@ -7,9 +7,12 @@ import { stayOnEnter } from '../../../lib/enter-key';
 import { ChoiceGroup, FormRow, ManageDialog } from './ManageDialog';
 import { Notice, count, problemText, todayKey } from './manage-ui';
 import { MANAGE_KEY, REPORTS_KEY, tc, useManageCourses, useManageOptions } from './manage-queries';
-import { CourseChecklist, TargetPicker } from './targets';
+import { CourseChecklist, TargetPicker, type PeopleAudience } from './targets';
 
 type DueMode = 'none' | 'day' | 'days';
+
+/** The Assign window's choices: several people first, then one person, group, department, company or project. */
+const ASSIGN_KINDS = ['PEOPLE', ...TARGET_KINDS] as const;
 
 /** The due fields as the API takes them (none, a fixed day, or N days after each person gets it). */
 export function dueOf(mode: DueMode, day: string, days: string): { dueDay: string | null; dueDays: number | null } {
@@ -35,7 +38,7 @@ export function dueProblem(mode: DueMode, day: string, days: string): string | n
 }
 
 /** "New staff only" is for a group, a department or a company (owner answer 2: an onboarding rule underneath). */
-export const newStaffKind = (kind: TargetKind): boolean => (RULE_TARGET_KINDS as readonly string[]).includes(kind);
+export const newStaffKind = (kind: TargetKind | 'PEOPLE'): boolean => (RULE_TARGET_KINDS as readonly string[]).includes(kind);
 
 /**
  * "Assign a course": one or more published courses, who it is for (a person, a group, a department, a company
@@ -50,7 +53,8 @@ export function AssignDialog({ onClose, onAssigned, initialCourseIds = [] }: { o
   const coursesQ = useManageCourses({ status: 'PUBLISHED' });
   const optionsQ = useManageOptions();
   const [courseIds, setCourseIds] = useState<string[]>(initialCourseIds);
-  const [targetKind, setTargetKind] = useState<TargetKind>('GROUP');
+  const [targetKind, setTargetKind] = useState<TargetKind | 'PEOPLE'>('PEOPLE');
+  const [userIds, setUserIds] = useState<string[]>([]);
   const [targetId, setTargetId] = useState('');
   const [mandatory, setMandatory] = useState(true);
   const [dueMode, setDueMode] = useState<DueMode>('none');
@@ -65,8 +69,17 @@ export function AssignDialog({ onClose, onAssigned, initialCourseIds = [] }: { o
   const dueChoice: DueMode = newStaff && dueMode === 'day' ? 'none' : dueMode;
   const due = dueOf(dueChoice, dueDay, dueDays);
   const problem = dueProblem(dueChoice, dueDay, dueDays);
-  const input: AssignmentInput = { courseIds, targetKind, targetId, mandatory, ...due, ...(newStaff ? { newStaffOnly: true } : {}) };
-  const ready = courseIds.length > 0 && !!targetId && !problem;
+  // Several people: clients for a Clients course, staff for the others (both when the courses are mixed).
+  const audiences = new Set((coursesQ.data?.courses ?? []).filter((c) => courseIds.includes(c.id)).map((c) => c.audience));
+  const audience: PeopleAudience = audiences.size === 1 ? (audiences.has('CLIENTS') ? 'CLIENTS' : 'STAFF') : 'ALL';
+  // People who no longer fit the chosen courses' audience drop out of the list they were ticked from.
+  const offeredIds = new Set((optionsQ.data?.people ?? []).filter((p) => (audience === 'ALL' ? true : audience === 'CLIENTS' ? p.client : !p.client)).map((p) => p.id));
+  const people = optionsQ.data ? userIds.filter((id) => offeredIds.has(id)) : userIds;
+  const input: AssignmentInput =
+    targetKind === 'PEOPLE'
+      ? { courseIds, targetKind, userIds: people, mandatory, ...due }
+      : { courseIds, targetKind, targetId, mandatory, ...due, ...(newStaff ? { newStaffOnly: true } : {}) };
+  const ready = courseIds.length > 0 && (targetKind === 'PEOPLE' ? people.length > 0 && people.length <= LIMITS.peoplePerAssignment : !!targetId) && !problem;
   const key = JSON.stringify(input);
   const settledKey = useDebouncedValue(key, 300);
   const previewQ = useQuery({
@@ -107,7 +120,7 @@ export function AssignDialog({ onClose, onAssigned, initialCourseIds = [] }: { o
       />
       {optionsQ.isError ? <Notice>{`Couldn’t load who you can assign to. ${problemText(optionsQ.error)}`}</Notice> : null}
       <TargetPicker
-        kinds={TARGET_KINDS}
+        kinds={ASSIGN_KINDS}
         kind={targetKind}
         onKind={(k) => {
           setTargetKind(k);
@@ -116,6 +129,9 @@ export function AssignDialog({ onClose, onAssigned, initialCourseIds = [] }: { o
         }}
         targetId={targetId}
         onTarget={setTargetId}
+        userIds={people}
+        onUserIds={setUserIds}
+        audience={audience}
         options={optionsQ.data}
         name="assign-target"
       />
@@ -170,7 +186,7 @@ export function AssignDialog({ onClose, onAssigned, initialCourseIds = [] }: { o
           </FormRow>
         ) : null}
       </div>
-      <PreviewBox ready={ready} loading={ready && (settledKey !== key || previewQ.isFetching)} error={previewQ.isError ? problemText(previewQ.error) : null} preview={preview} group={targetKind !== 'USER'} newStaff={newStaff} />
+      <PreviewBox ready={ready} loading={ready && (settledKey !== key || previewQ.isFetching)} error={previewQ.isError ? problemText(previewQ.error) : null} preview={preview} group={targetKind !== 'USER' && targetKind !== 'PEOPLE'} newStaff={newStaff} />
     </ManageDialog>
   );
 }

@@ -33,13 +33,14 @@ describe('Training Center → Reports', () => {
     expect(await within(region).findByText('All people')).toBeInTheDocument();
     const totals = within(region).getByRole('group', { name: 'Totals' });
     expect(within(totals).getByText('People').closest('.card')).toHaveTextContent('10');
-    expect(within(totals).getByText('Completed').closest('.card')).toHaveTextContent('40%');
+    expect(within(totals).getByText('Completion').closest('.card')).toHaveTextContent('40%');
+    expect(within(totals).getByText('Completion').closest('.card')).toHaveTextContent('4 of 10 enrolments');
     expect(within(totals).getByText('Overdue').closest('.card')).toHaveTextContent('1');
     expect(within(totals).getByText('Certificates expiring').closest('.card')).toHaveTextContent('1');
 
     const table = within(region).getByRole('table', { name: 'By course' });
-    expect(within(table).getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Course', 'People', 'Assigned', 'Started', 'Completed', 'Overdue', 'Completion rate', 'Average score']);
-    expect(within(table).getAllByRole('row')[1]).toHaveTextContent(/Tasks basics.*10.*8.*6.*4.*1.*40%.*82%/);
+    expect(within(table).getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Course', 'People', 'Assigned', 'Started themselves', 'Started', 'Completed', 'Overdue', 'Completion rate', 'Average score']);
+    expect(within(table).getAllByRole('row')[1]).toHaveTextContent(/Tasks basics.*10.*8.*2.*6.*4.*1.*40%.*82%/);
 
     const overdue = within(region).getByRole('region', { name: 'Overdue' });
     const sam = within(overdue).getByText('Sam Shared').closest('li')!;
@@ -51,22 +52,78 @@ describe('Training Center → Reports', () => {
     expect(within(expiring).getByText('Sam Shared').closest('li')).toHaveTextContent(/Tasks basics.*Expires 30 Nov/);
 
     const quizzes = within(region).getByRole('region', { name: 'Quiz results' });
-    expect(within(quizzes).getByText('Check yourself').closest('li')).toHaveTextContent(/9 attempts · 78% passed · average 81%/);
+    const qt = within(quizzes).getByRole('table', { name: 'Quiz results' });
+    expect(within(qt).getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Quiz', 'Course / module', 'Attempts', 'People', 'Pass rate', 'Average', 'Questions', 'Details']);
+    expect(within(qt).getByText('Check yourself').closest('tr')).toHaveTextContent(/Tasks basics.*9.*9.*78%.*81%.*4/);
   });
 
-  it('a quiz nobody has handed in yet is left out (12 Nov); with none handed in at all, it says so', async () => {
-    const fresh = { lessonId: 'l-new', courseTitle: 'Tasks basics', title: 'New quiz', attempts: 0, passRate: null, averageScore: null, people: 0, moduleTitle: null, questions: 3 };
+  it('quizzes nobody has handed in are hidden behind “Show all quizzes”; with none handed in, it says so', async () => {
+    const fresh = { lessonId: 'l-new', courseTitle: 'Tasks basics', title: 'New quiz', attempts: 0, passRate: null, averageScore: null, people: 0, moduleTitle: 'Tasks', questions: 3 };
     api.report.mockResolvedValue(report({ quizzes: [fresh, report().quizzes[0]!] }));
     const view = renderManage(<ReportsTab />);
     let quizzes = await screen.findByRole('region', { name: 'Quiz results' });
     expect(within(quizzes).queryByText('New quiz')).toBeNull();
     expect(within(quizzes).getByText('Check yourself')).toBeInTheDocument();
+    await userEvent.click(within(quizzes).getByRole('button', { name: 'Show all quizzes' }));
+    const row = within(quizzes).getByText('New quiz').closest('tr')!;
+    expect(row).toHaveTextContent('Tasks basics · Tasks');
+    expect(row).toHaveTextContent(/0.*0.*—.*—.*3/);
+    await userEvent.click(within(quizzes).getByRole('button', { name: 'Hide quizzes nobody has taken' }));
+    expect(within(quizzes).queryByText('New quiz')).toBeNull();
     view.unmount();
     api.report.mockResolvedValue(report({ quizzes: [fresh] }));
     renderManage(<ReportsTab />);
     quizzes = await screen.findByRole('region', { name: 'Quiz results' });
     expect(within(quizzes).queryByText('New quiz')).toBeNull();
     expect(within(quizzes).getByText('No quiz was handed in.')).toBeInTheDocument();
+    expect(within(quizzes).getByRole('button', { name: 'Show all quizzes' })).toBeInTheDocument();
+  });
+
+  it('“Dates by”: Got the course (default) or Finished the course, sent to the server and shown in the note', async () => {
+    renderManage(<ReportsTab />);
+    await screen.findByRole('table', { name: 'By course' });
+    const dates = screen.getByRole('combobox', { name: 'Dates by' });
+    expect(within(dates).getAllByRole('option').map((o) => o.textContent)).toEqual(['Got the course', 'Finished the course']);
+    expect(screen.getByText(/days people got the course/)).toBeInTheDocument();
+    await userEvent.selectOptions(dates, 'finished');
+    await waitFor(() => expect(api.report).toHaveBeenLastCalledWith({ by: 'course', dates: 'finished' }));
+    expect(screen.getByText(/days people finished the course/)).toBeInTheDocument();
+    api.reportFile.mockResolvedValue(new File(['x'], 'r.xlsx'));
+    await userEvent.click(screen.getByRole('button', { name: 'Excel' }));
+    await waitFor(() => expect(api.reportFile).toHaveBeenLastCalledWith({ by: 'course', dates: 'finished' }, 'xlsx'));
+  });
+
+  it('a course with modules: “By module” and “By person” tables; the certificate code downloads its PDF', async () => {
+    api.certificatePdf.mockResolvedValue(new File(['%PDF'], 'cert.pdf'));
+    api.report.mockResolvedValue(
+      report({
+        modules: [
+          { moduleId: 'm1', title: 'Getting started', people: 5, done: 3, inProgress: 1, notStarted: 1 },
+          { moduleId: 'm2', title: 'Tasks', people: 5, done: 2, inProgress: 2, notStarted: 1 },
+        ],
+        learners: [
+          { userId: 'u-sam', name: 'Sam Shared', modulesDone: 2, modulesRequired: 8, lastActivityAt: '2026-11-10T08:00:00.000Z', certificate: null },
+          { userId: 'u-omar', name: 'Omar Ahmed', modulesDone: 8, modulesRequired: 8, lastActivityAt: null, certificate: { id: 'cert9', code: 'TC-AAAA-BBBB-CCCC' } },
+        ],
+      }),
+    );
+    renderManage(<ReportsTab />);
+    const byModule = await screen.findByRole('table', { name: 'By module' });
+    expect(within(byModule).getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Module', 'People', 'Done', 'In progress', 'Not started']);
+    expect(within(byModule).getByText('Getting started').closest('tr')).toHaveTextContent(/5.*3.*1.*1/);
+    const byPerson = screen.getByRole('table', { name: 'By person' });
+    expect(within(byPerson).getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Person', 'Modules done', 'Last activity', 'Certificate']);
+    expect(within(byPerson).getByText('Sam Shared').closest('tr')).toHaveTextContent(/2 of 8/);
+    await userEvent.click(within(byPerson).getByRole('button', { name: 'Certificate TC-AAAA-BBBB-CCCC (PDF)' }));
+    await waitFor(() => expect(api.certificatePdf).toHaveBeenCalledWith('cert9'));
+    await waitFor(() => expect(downloads.calls).toEqual(['cert.pdf']));
+  });
+
+  it('with no modules in the report, there are no module tables', async () => {
+    renderManage(<ReportsTab />);
+    await screen.findByRole('table', { name: 'By course' });
+    expect(screen.queryByRole('table', { name: 'By module' })).toBeNull();
+    expect(screen.queryByRole('table', { name: 'By person' })).toBeNull();
   });
 
   it('group by, course and period are sent to the server', async () => {
@@ -124,6 +181,7 @@ describe('Training Center → Reports', () => {
     expect(screen.queryByRole('table')).toBeNull();
     const card = within(list).getByRole('listitem');
     expect(within(card).getByText('Tasks basics')).toBeInTheDocument();
+    expect(within(card).getByText('Started themselves').nextElementSibling).toHaveTextContent('2');
     expect(within(card).getByText('Completion rate').nextElementSibling).toHaveTextContent('40%');
   });
 

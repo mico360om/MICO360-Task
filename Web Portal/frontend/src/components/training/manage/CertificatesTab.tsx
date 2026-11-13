@@ -75,6 +75,7 @@ export function CertificatesTab() {
                 <p dir="auto" className="mt-0.5 text-sm text-ink [overflow-wrap:anywhere]">{c.courseTitle}</p>
                 <p className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-ink-2">
                   <span className="font-mono">{c.code}</span>
+                  <span>{`Completed ${instantWords(c.completedAt, timeZone)}`}</span>
                   <span>{`Issued ${instantWords(c.issuedAt, timeZone)}`}</span>
                   <span>{c.expiresAt ? `Expires ${instantWords(c.expiresAt, timeZone)}` : 'Never expires'}</span>
                 </p>

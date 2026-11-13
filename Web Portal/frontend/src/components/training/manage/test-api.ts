@@ -128,6 +128,7 @@ export const OPTIONS: TargetOptions = {
   people: [
     { id: 'u-sam', name: 'Sam Shared', email: 'sam@x.co', client: false },
     { id: 'u-huda', name: 'Huda Client', email: 'huda@client.co', client: true },
+    { id: 'u-omar', name: 'Omar Ahmed', email: 'omar@x.co', client: false },
   ],
   departments: [{ id: 'd-ops', name: 'Operations' }],
   companies: [
@@ -300,6 +301,7 @@ export function fakeTrainingApi(): FakeTrainingApi {
     previewAssignment: vi.fn(async () => ({ reach: 0, already: 0, skipped: [] })),
     assign: vi.fn(async () => ({ assignments: [] })),
     withdraw: vi.fn(async () => undefined),
+    withdrawBatch: vi.fn(async () => undefined),
     rules: vi.fn(async () => ({ rules: [] })),
     createRule: vi.fn(async () => ruleRow({ id: 'r-new', name: 'New rule' })),
     updateRule: vi.fn(async () => ruleRow({ id: 'r1', name: 'Rule' })),

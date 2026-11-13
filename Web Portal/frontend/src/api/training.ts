@@ -766,8 +766,10 @@ export interface QuizInput {
 
 export interface AssignmentInput {
   courseIds: string[];
-  targetKind: TargetKind;
-  targetId: string;
+  /** PEOPLE: several ticked people (userIds, no targetId). */
+  targetKind: TargetKind | 'PEOPLE';
+  targetId?: string;
+  userIds?: string[];
   mandatory: boolean;
   dueDay?: string | null;
   dueDays?: number | null;
@@ -796,6 +798,8 @@ export interface ReportQuery {
   courseId?: string;
   from?: string;
   to?: string;
+  /** Dates by: the day people got the course (default) or the day they finished it. */
+  dates?: ReportDates;
 }
 
 export interface ManageCertificateRow extends CertificateRef {
@@ -890,6 +894,7 @@ export function trainingApi(client: ApiClient) {
       data(client.post<{ data: { reach: number; already: number; skipped: { name: string; reason: string }[] } }>('/training/manage/assignments/preview', input)),
     assign: (input: AssignmentInput) => data(client.post<{ data: { assignments: AssignmentRow[] } }>('/training/manage/assignments', input)),
     withdraw: (id: string) => client.del(`/training/manage/assignments/${enc(id)}`),
+    withdrawBatch: (batchId: string) => client.del(`/training/manage/assignment-batches/${enc(batchId)}`),
     rules: () => data(client.get<{ data: { rules: RuleRow[] } }>('/training/manage/rules')),
     createRule: (input: RuleInput) => data(client.post<{ data: RuleRow }>('/training/manage/rules', input)),
     updateRule: (id: string, patch: Partial<RuleInput>) => data(client.patch<{ data: RuleRow }>(`/training/manage/rules/${enc(id)}`, patch)),
@@ -901,10 +906,10 @@ export function trainingApi(client: ApiClient) {
     certificates: (f: { courseId?: string; q?: string } = {}) =>
       data(client.get<{ data: { certificates: ManageCertificateRow[] } }>(`/training/manage/certificates${qs({ courseId: f.courseId, q: f.q })}`)),
     revoke: (id: string, reason: string) => data(client.post<{ data: CertificateRef }>(`/training/manage/certificates/${enc(id)}/revoke`, { reason })),
-    report: (q: ReportQuery) => data(client.get<{ data: TrainingReport }>(`/training/reports${qs({ by: q.by, courseId: q.courseId, from: q.from, to: q.to })}`)),
+    report: (q: ReportQuery) => data(client.get<{ data: TrainingReport }>(`/training/reports${qs({ by: q.by, courseId: q.courseId, from: q.from, to: q.to, dates: q.dates })}`)),
     quizReport: (lessonId: string) => data(client.get<{ data: QuizReport }>(`/training/reports/quiz/${enc(lessonId)}`)),
     reportFile: (q: ReportQuery, format: 'xlsx' | 'pdf') =>
-      client.getBlob(`/training/reports/export.${format}${qs({ by: q.by, courseId: q.courseId, from: q.from, to: q.to })}`),
+      client.getBlob(`/training/reports/export.${format}${qs({ by: q.by, courseId: q.courseId, from: q.from, to: q.to, dates: q.dates })}`),
     settings: () => data(client.get<{ data: TrainingSettings }>('/training/settings')),
     saveSettings: (s: { tourOff: string[] }) => data(client.put<{ data: TrainingSettings }>('/training/settings', s)),
   };
