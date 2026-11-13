@@ -60,6 +60,18 @@ export function Composer({ conversationId, placeholder, people, replyTo, onCance
     box.style.height = `${Math.min(box.scrollHeight, MAX_HEIGHT_PX)}px`;
   }, [draft]);
 
+  // An emoji just put in: the cursor goes after it in the same update (not a frame later, when a
+  // selection made meanwhile would be undone); focus is back in the box before the picker closes.
+  const caretAt = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    const at = caretAt.current;
+    if (at === null) return;
+    caretAt.current = null;
+    const box = boxRef.current;
+    box?.focus();
+    box?.setSelectionRange(at, at);
+  }, [draft]);
+
   // Answering someone: the cursor goes to the box.
   useEffect(() => {
     if (replyTo) boxRef.current?.focus();
@@ -97,11 +109,8 @@ export function Composer({ conversationId, placeholder, people, replyTo, onCance
     const start = box?.selectionStart ?? draft.length;
     const end = box?.selectionEnd ?? draft.length;
     const next = draft.slice(0, start) + emoji + draft.slice(end);
+    caretAt.current = start + emoji.length;
     setDraft(next);
-    requestAnimationFrame(() => {
-      box?.focus();
-      box?.setSelectionRange(start + emoji.length, start + emoji.length);
-    });
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
