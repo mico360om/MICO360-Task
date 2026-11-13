@@ -211,6 +211,23 @@ describe('#4 a renewal that comes back after the session changed', () => {
     expect(REFRESH_TIMEOUT_MS).toBeLessThanOrEqual(30_000);
   });
 
+  it('batch 1’s gap: a logout landing just after the renewal’s last server check — the 200 reply’s access token (good for 15 min) is never kept or used', async () => {
+    const reply = deferred<Response>();
+    const calls = stubFetch(reply.promise, (url, init) => (header(init, 'Authorization') === 'Bearer atA' ? json({ error: { code: 'UNAUTHORIZED' } }, 401) : json({ data: [] })));
+    const p = apiClient.get('/tasks').catch((e: unknown) => e);
+    await vi.waitFor(() => expect(calls.some((c) => c.url.endsWith('/auth/refresh'))).toBe(true));
+    useAuthStore.getState().logout('user'); // reaches the server after its last check: the renewal still answers 200
+    reply.resolve(json({ data: { user: A, accessToken: 'atA-late', refreshToken: 'rtA-late' } }));
+    expect(await p).toBeInstanceOf(ApiError);
+    await apiClient.get('/config').catch(() => undefined); // a later request on this signed-out page
+    expect(calls.filter((c) => c.auth === 'Bearer atA-late')).toEqual([]);
+    const everything = [...Object.values({ ...localStorage }), ...Object.values({ ...sessionStorage })].join('\n');
+    expect(everything).not.toContain('atA-late');
+    expect(everything).not.toContain('rtA-late');
+    expect(useAuthStore.getState()).toMatchObject({ accessToken: null, refreshToken: null, isAuthenticated: false });
+    expect(revoked(calls)).toContain('rtA-late');
+  });
+
   it('a request whose renewal came back "changed" is not sent again and logs nobody out', async () => {
     const reply = deferred<Response>();
     const calls = stubFetch(reply.promise, (url, init) => (header(init, 'Authorization') === 'Bearer atA' ? json({ error: { code: 'UNAUTHORIZED' } }, 401) : json({ data: [] })));
