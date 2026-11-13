@@ -27,7 +27,8 @@ import { ONE_COURSE_KEY } from './training-types';
  *                untouched, published short course's lessons (same ids), pictures, progress, attempts and questions
  *                move in, the content is written over them (applyStarterLessons, once, with the whole course), and
  *                the short course is archived; an edited one stays (C1: its module gets the built-in lessons); a
- *                removed one (deleted, archived, unpublished) gives a module switched off (C2). Pictures the moved
+ *                removed one (deleted, archived, unpublished) gives a module switched off (C2) — all of them removed: the
+ *                course is made as a draft (final review, 1.23.32: no module on, nothing to learn). Pictures the moved
  *                lessons don't bring are copied in before the transaction (removed again if it fails); one the assets
  *                can't supply keeps the moved copy. Progress rows move by id (never an UPDATE that scans the table).
  *   people       one enrolment on the course per person who had one on a short course (or progress on a moved
@@ -41,7 +42,8 @@ import { ONE_COURSE_KEY } from './training-types';
  *                certificate is switched on (C3) and its finished clients get theirs. Anyone who couldn't be finished
  *                keeps the phase open: the next start runs it again.
  *   done         one bell-only line per enrolled staff member, written straight into notifications (never through
- *                the notification service, which may also push and email), once.
+ *                the notification service, which may also push and email), once — none for a course made as a draft
+ *                (nobody could open it).
  *
  * Writes a learner's request can race (enrolments, module records, progress) are single statements (updateMany /
  * createMany skipping duplicates), never update()/upsert(); no isolation level is ever set.
@@ -297,6 +299,10 @@ export function createOneCourseConversion(d: OneCourseDeps): { run(): Promise<{ 
 
   /** Inside the content transaction: the course, its modules, the moved short courses, the content over them, the record. */
   async function writeContent(tx: Prisma.TransactionClient, content: StarterCourse, plan: readonly ShortCourse[], pictures: { reuse: Map<string, string>; copied: CopiedPicture[] }, at: Date) {
+    const shortOf = new Map(plan.map((s) => [s.module, s]));
+    // Final review (1.23.32): every short course was removed before the change (C2), so no module would be on — the
+    // course is made as a draft, not an empty published course; an administrator can switch modules on and publish.
+    const noneOn = (content.modules ?? []).length > 0 && (content.modules ?? []).every((m) => shortOf.get(m.key)?.kind === 'removed');
     const courseId = (
       await tx.trainingCourse.create({
         data: {
@@ -306,7 +312,7 @@ export function createOneCourseConversion(d: OneCourseDeps): { run(): Promise<{ 
           audience: content.audience,
           ...(content.roleKeys && content.roleKeys.length ? { roleKeys: [...content.roleKeys] } : {}),
           difficulty: content.difficulty,
-          status: 'PUBLISHED',
+          status: noneOn ? 'DRAFT' : 'PUBLISHED',
           completionRule: content.completionRule,
           inOrder: false,
           certificateOn: content.certificateOn,
@@ -315,7 +321,7 @@ export function createOneCourseConversion(d: OneCourseDeps): { run(): Promise<{ 
           starterKey: content.key,
           position: content.position ?? 0,
           createdById: null,
-          publishedAt: at,
+          publishedAt: noneOn ? null : at,
           updatedAt: at,
         },
         select: { id: true },
@@ -324,7 +330,6 @@ export function createOneCourseConversion(d: OneCourseDeps): { run(): Promise<{ 
 
     // The modules first, each switched on or off by what happened to its short course (applyStarterLessons never
     // changes that, nor where a module came from).
-    const shortOf = new Map(plan.map((s) => [s.module, s]));
     const moduleIds = new Map<string, string>();
     for (const [i, m] of (content.modules ?? []).entries()) {
       const s = shortOf.get(m.key);
@@ -743,9 +748,10 @@ export function createOneCourseConversion(d: OneCourseDeps): { run(): Promise<{ 
   async function convertNotices(course: CourseRow): Promise<number | null> {
     const enrolled = (await prisma.trainingEnrolment.findMany({ where: { courseId: course.id, withdrawnAt: null }, select: { userId: true }, orderBy: { userId: 'asc' } })).map((e) => e.userId);
     const people = await ctx.people(enrolled);
+    // A course made as a draft (every short course removed): no line points at a course nobody can open.
     const staff = enrolled.filter((id) => {
       const p = people.get(id);
-      return !!p && p.active && !p.client;
+      return course.status === 'PUBLISHED' && !!p && p.active && !p.client;
     });
     const title = `Your training is now one course: ${course.title}`.slice(0, 191);
     return withSentinelLock(prisma, LOCK, async (tx) => {

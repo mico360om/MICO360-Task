@@ -792,6 +792,35 @@ describe('one-course conversion: a removed short course (C2)', () => {
     ]);
     expect(c.lessons.map((l) => l.title)).toEqual(['Video: A', 'A guide', 'A new guide', 'Quiz: A', 'Video: B', 'B guide', 'Video: C', 'C guide']);
   });
+
+  it('every short course removed before the change: the course is made as a draft (no module on), nobody is told of it; switched on and published, it is taken as usual (final review 7)', async () => {
+    clockAt = NOW;
+    const w = await buildWorld({ a: 'archived', b: 'archived', c: 'missing' });
+    // Someone finished Tasks before it was archived: their enrolment comes over (the module stays recorded done).
+    await finished(w, 'emp', 'a', T('2026-09-15T08:00:00.000Z'));
+    await conversion(w).run();
+    const c = await combined(w);
+    expect(c).toMatchObject({ status: 'DRAFT', publishedAt: null, version: 1 });
+    expect(c.modules.map((m) => [m.starterKey, m.enabled, m.offReason])).toEqual([
+      ['module:a', false, 'REMOVED'],
+      ['module:b', false, 'REMOVED'],
+      ['module:c', false, 'REMOVED'],
+    ]);
+    expect((await record(w))!.phase).toBe('done');
+    expect(await prisma.trainingEnrolment.count({ where: { courseId: c.id, userId: w.people.emp } })).toBe(1);
+    // No bell line points at a course nobody can open.
+    expect(await prisma.notification.count({ where: { userId: { in: Object.values(w.people) }, entityId: c.id } })).toBe(0);
+    expect(mine(w)).toEqual([]);
+    // Not offered to learners while a draft.
+    const learner = createTrainingLearner(ctx, sync, { oneCourseKey: w.keys.record });
+    expect((await learner.catalogue(w.people.emp2, 'staff', {})).courses.map((x) => x.id)).not.toContain(c.id);
+    // An administrator switches Tasks on and publishes: the earlier completion counts.
+    const ma = c.modules.find((m) => m.starterKey === 'module:a')!;
+    await prisma.trainingModule.update({ where: { id: ma.id }, data: { enabled: true, offReason: null } });
+    await prisma.trainingCourse.update({ where: { id: c.id }, data: { status: 'PUBLISHED', publishedAt: NOW } });
+    const d = await learner.course(w.people.emp, 'staff', c.id);
+    expect(d.modules.map((m) => [m.id, m.status])).toEqual([[ma.id, 'DONE']]);
+  });
 });
 
 // ── A half-way failure finishes on the next start, the same as one clean run ──
