@@ -101,6 +101,8 @@ export interface TaskRecord {
 }
 
 export interface CreateTaskData {
+  /** Review fix #19/N12: an id chosen beforehand by the server (absent: the database makes one). */
+  id?: string;
   key: string;
   title: string;
   description?: string | null;

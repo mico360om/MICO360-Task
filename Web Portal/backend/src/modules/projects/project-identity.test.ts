@@ -155,6 +155,18 @@ describe('Project image upload', () => {
     expect((await send(id, Buffer.from('plain text'), 'image/png')).statusCode).toBe(400);
     expect(saved).toBe(0);
   });
+
+  it('review fix #23: a picture the project can’t be saved with is not left on disk (the old one stays)', async () => {
+    const projects = repo();
+    let failUpdate = false;
+    const failing: ProjectRepository = { ...projects, async update(id, patch) { if (failUpdate) throw new Error('db down'); return projects.update(id, patch); } };
+    app = await buildApp({ authService, tokenService, projectService: createProjectService({ projects: failing }), chatAttachmentStorage: storage as never });
+    const id = await project();
+    expect((await send(id, pngHeader(512, 512), 'image/png')).statusCode).toBe(200);
+    failUpdate = true;
+    expect((await send(id, pngHeader(512, 512), 'image/png')).statusCode).toBe(500);
+    expect(removed).toEqual(['img-2.png']);
+  });
 });
 
 // The web app draws these icons; the server only accepts their names. Fails when the lists drift.

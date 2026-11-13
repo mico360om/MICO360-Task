@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { createMessageService, parseMentions, type MessageService } from './message-service';
+import { createMessageService, directKeyOf, parseMentions, type MessageService } from './message-service';
 import type {
   Conversation,
   Participant,
@@ -726,4 +726,184 @@ describe('direct chats need a shared company (companies)', () => {
     expect((await svc.listConversations('u1'))[0]!.readOnly).toBeNull();
     expect((await svc.listMessages(dm.id, 'u1')).authors).toEqual([]);
   });
+});
+
+describe('review batch 4b: chat data consistency', () => {
+  const file = (storageKey: string, fileName = 'plan.pdf') => ({ fileName, mimeType: 'application/pdf', sizeBytes: 10, storageKey });
+  const uniqueClash = () => Object.assign(new Error('Unique constraint failed'), { code: 'P2002' });
+
+  it('#17: a pair’s conversation is found by its key; a second start that loses the race gets the first one', async () => {
+    const made: string[] = [];
+    let inFlight: Promise<void> | null = null;
+    const keyed = new Map<string, Conversation>();
+    const conversations: ConversationRepository = {
+      ...deps.conversations,
+      async findDirectByKey(key) { return keyed.get(key) ?? null; },
+      async createDirectPair(key, a, b) {
+        // The other start is still writing: this one waits for it, then clashes on the key (as the database does).
+        if (inFlight) { await inFlight; throw uniqueClash(); }
+        let done!: () => void;
+        inFlight = new Promise((r) => { done = r; });
+        const c = await deps.conversations.createDirect();
+        await deps.participants.add(c.id, a);
+        await deps.participants.add(c.id, b);
+        keyed.set(key, c);
+        made.push(c.id);
+        done();
+        return c;
+      },
+    };
+    const s = createMessageService({ ...deps, conversations });
+    const [x, y] = await Promise.all([s.getOrCreateDirectConversation('u1', 'u2'), s.getOrCreateDirectConversation('u2', 'u1')]);
+    expect(made).toHaveLength(1);
+    expect(x.id).toBe(y.id);
+    expect(directKeyOf('u2', 'u1')).toBe(directKeyOf('u1', 'u2'));
+    expect(directKeyOf('u1', 'u2')).toBe('u1:u2');
+  });
+
+  it('#17: a conversation from before pair keys is still found, and takes its pair’s key', async () => {
+    const old = await deps.conversations.createDirect();
+    await deps.participants.add(old.id, 'u1');
+    await deps.participants.add(old.id, 'u3');
+    const stamped: [string, string][] = [];
+    const s = createMessageService({
+      ...deps,
+      conversations: {
+        ...deps.conversations,
+        findDirectByKey: async () => null,
+        createDirectPair: async () => {
+          throw new Error('must not make a new one');
+        },
+        stampDirectKey: async (id, key) => (stamped.push([id, key]), true),
+      },
+    });
+    expect((await s.getOrCreateDirectConversation('u3', 'u1')).id).toBe(old.id);
+    expect(stamped).toEqual([[old.id, 'u1:u3']]);
+  });
+
+  it('N10: opening a new project chat that someone else made at the same moment gets theirs, not an error', async () => {
+    let theirs: Conversation | null = null;
+    const s = createMessageService({
+      ...deps,
+      conversations: {
+        ...deps.conversations,
+        async findProjectConversation(projectId) { return theirs && theirs.projectId === projectId ? theirs : null; },
+        async createProject(projectId) {
+          theirs = await deps.conversations.createProject(projectId); // the other person's, saved first
+          throw uniqueClash();
+        },
+      },
+    });
+    const c = await s.getOrCreateProjectConversation('p1', 'u2');
+    expect(c.id).toBe(theirs!.id);
+    expect(await deps.participants.find(c.id, 'u2')).not.toBeNull();
+  });
+
+  it('#18: with a store that saves both together, a failed file leaves no message, and the retry saves both', async () => {
+    let fail = true;
+    const s = createMessageService({
+      ...deps,
+      messages: {
+        ...deps.messages,
+        async createWithAttachment(conversationId, userId, body, extra, meta) {
+          if (fail) throw new Error('the file row could not be saved');
+          const message = await deps.messages.create(conversationId, userId, body, extra);
+          return { message, attachment: await deps.attachments.create(message.id, meta) };
+        },
+      },
+    });
+    const dm = await s.getOrCreateDirectConversation('u1', 'u2');
+    await expect(s.postMessage(dm.id, 'u1', { body: '', attachment: file('a.pdf'), clientId: 'f-1' })).rejects.toThrow(/could not be saved/);
+    expect((await s.listMessages(dm.id, 'u1')).messages).toHaveLength(0);
+    fail = false;
+    const ok = await s.postMessage(dm.id, 'u1', { body: '', attachment: file('a.pdf'), clientId: 'f-1' });
+    expect(ok.created).toBe(true);
+    expect(ok.message.attachments.map((a) => a.storageKey)).toEqual(['a.pdf']);
+  });
+
+  it('#18 (review M2): a retry carrying a file never adds it to an earlier message of that client id — it gets that message back as it is', async () => {
+    const dm = await svc.getOrCreateDirectConversation('u1', 'u2');
+    const old = await deps.messages.create(dm.id, 'u1', 'an old text message', { clientId: 'f-2' });
+    const retry = await svc.postMessage(dm.id, 'u1', { body: '', attachment: file('b.pdf'), clientId: 'f-2' });
+    expect(retry.created).toBe(false);
+    expect(retry.message.id).toBe(old.id);
+    expect(retry.message.attachments).toEqual([]);
+    expect(await deps.attachments.listByMessages([old.id])).toEqual([]);
+  });
+
+  it('review I1: once the message and its file are saved, a failing read after it never fails the send', async () => {
+    let saved = false;
+    const s = createMessageService({
+      ...deps,
+      logger: { error: vi.fn() },
+      messages: {
+        ...deps.messages,
+        async createWithAttachment(conversationId, userId, body, extra, meta) {
+          const message = await deps.messages.create(conversationId, userId, body, extra);
+          const attachment = await deps.attachments.create(message.id, meta);
+          saved = true;
+          return { message, attachment };
+        },
+      },
+      participants: { ...deps.participants, async listByConversation(id) { if (saved) throw new Error('db blip'); return deps.participants.listByConversation(id); } },
+      reactions: { ...deps.reactions, async listByMessages(ids) { if (saved) throw new Error('db blip'); return deps.reactions.listByMessages(ids); } },
+    });
+    const dm = await s.getOrCreateDirectConversation('u1', 'u2');
+    const q = await s.postMessage(dm.id, 'u2', { body: 'which plan?' });
+    const sent = await s.postMessage(dm.id, 'u1', { body: 'this one', attachment: file('kept.pdf'), replyToId: q.message.id, clientId: 'i1' });
+    expect(sent.created).toBe(true);
+    expect(sent.message.attachments.map((a) => [a.storageKey, a.url])).toEqual([['kept.pdf', '/uploads/kept.pdf']]);
+    expect(sent.message.replyTo).toMatchObject({ id: q.message.id, body: 'which plan?', deleted: false });
+    expect(await s.fileInUse('kept.pdf')).toBe(false); // the in-memory store can't tell: false (the database one can)
+  });
+
+  it('N6: a chat file’s name is kept clean: no hidden or right-to-left characters, at most 180 characters, never empty', async () => {
+    const dm = await svc.getOrCreateDirectConversation('u1', 'u2');
+    const long = `${'Quarterly report for Contoso '.repeat(10)}.pdf`;
+    const a = await svc.postMessage(dm.id, 'u1', { body: '', attachment: file('l.pdf', long) });
+    const b = await svc.postMessage(dm.id, 'u1', { body: '', attachment: file('r.pdf', 'invoice\u202Efdp.exe\u0007') });
+    const c = await svc.postMessage(dm.id, 'u1', { body: '', attachment: file('e.pdf', '\u200B\u202E') });
+    const nameA = a.message.attachments[0]!.fileName;
+    expect([...nameA].length).toBeLessThanOrEqual(180);
+    expect(nameA.endsWith('.pdf')).toBe(true);
+    expect(b.message.attachments[0]!.fileName).toBe('invoicefdp.exe');
+    expect(c.message.attachments[0]!.fileName).toBe('file.pdf');
+  });
+
+  it('#20: the cursor with a message id reaches the messages of that same moment', async () => {
+    const dm = await svc.getOrCreateDirectConversation('u1', 'u2');
+    const lists: unknown[] = [];
+    const s = createMessageService({ ...deps, messages: { ...deps.messages, async list(cid, o) { lists.push(o); return deps.messages.list(cid, o); } } });
+    const at = new Date('2026-11-01T10:00:00.000Z');
+    await s.listMessages(dm.id, 'u1', { before: at, beforeId: 'm9', limit: 5 });
+    await s.listMessages(dm.id, 'u1', { before: at, limit: 5 });
+    await s.listMessages(dm.id, 'u1', { beforeId: 'm9', limit: 5 }); // an id alone is no cursor
+    expect(lists).toEqual([{ before: at, beforeId: 'm9', limit: 5 }, { before: at, limit: 5 }, { before: undefined, limit: 5 }]);
+  });
+
+  it('#23: deleting a message drops its file rows first, then the files; a file the disk won’t delete is tried again, then logged', async () => {
+    const order: string[] = [];
+    const warn = vi.fn();
+    const s = createMessageService({
+      ...deps,
+      logger: { error: vi.fn(), warn },
+      attachments: { ...deps.attachments, async deleteByMessage(id) { order.push('rows'); return deps.attachments.deleteByMessage(id); } },
+      messages: { ...deps.messages, async softDelete(id) { order.push('message'); return deps.messages.softDelete(id); } },
+      storage: {
+        async save() { return { storageKey: 'x', url: '/uploads/x', sizeBytes: 0 }; },
+        async remove(key: string) {
+          order.push(`file ${key}`);
+          throw new Error('EBUSY');
+        },
+      },
+    });
+    const c = await s.getOrCreateProjectConversation('p1', 'u1');
+    const m = await s.sendMessage(c.id, 'u1', 'spec', file('stuck.pdf'));
+    const deleted = await s.deleteMessage(m.id, 'u1', false);
+    expect(deleted.deletedAt).toBeTruthy();
+    expect(order).toEqual(['message', 'rows', 'file stuck.pdf', 'file stuck.pdf', 'file stuck.pdf']);
+    expect(await deps.attachments.listByMessages([m.id])).toHaveLength(0);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]![1]).toMatchObject({ storageKey: 'stuck.pdf' });
+  }, 15_000);
 });

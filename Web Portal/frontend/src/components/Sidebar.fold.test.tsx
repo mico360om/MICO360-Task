@@ -112,8 +112,8 @@ describe('folded: every item still reachable', () => {
     await user.click(group);
     const menu = screen.getByRole('menu', { name: 'Admin' });
     const items = within(menu).getAllByRole('menuitem');
-    // tgc: 1.24 — Guest contacts joins the Admin items, right after Companies.
-    expect(items.map((i) => i.textContent)).toEqual(['User Management', 'Clients', 'Companies', 'Guest contacts', 'AI Management', 'System Settings', 'Error Log', 'Audit Logs']);
+    // Owner, 13 Nov: Third Party (Clients, Guest contacts) opens its own list; Companies, Error Log and Audit Logs moved.
+    expect(items.map((i) => i.textContent)).toEqual(['User Management', 'Third Party', 'AI Management', 'System Settings']);
     expect(group).toHaveAttribute('aria-expanded', 'true');
     expect(document.activeElement).toBe(items[0]);
     await user.keyboard('{ArrowDown}');
@@ -133,20 +133,20 @@ describe('folded: every item still reachable', () => {
     within(nav()).getByRole('button', { name: 'Admin' }).focus();
     await user.keyboard('{Enter}');
     const menu = screen.getByRole('menu', { name: 'Admin' });
-    await user.click(within(menu).getByRole('menuitem', { name: 'Clients' }));
-    expect(screen.getByTestId('where')).toHaveTextContent('/admin/clients');
+    await user.click(within(menu).getByRole('menuitem', { name: 'AI Management' }));
+    expect(screen.getByTestId('where')).toHaveTextContent('/admin/ai');
     expect(screen.queryByRole('menu', { name: 'Admin' })).toBeNull();
   });
 
   it('hover opens it too, and the group says when the page you are on is inside it', () => {
     screenIs('desktop');
     act(() => useAppearanceStore.getState().set({ sidebarCollapsed: true }));
-    renderMenu('/admin/audit');
+    renderMenu('/admin/settings');
     const group = within(nav()).getByRole('button', { name: 'Admin' });
     expect(group.getAttribute('data-current')).toBe('true');
     fireEvent.pointerEnter(group);
     expect(screen.getByRole('menu', { name: 'Admin' })).toBeInTheDocument();
-    expect(within(screen.getByRole('menu', { name: 'Admin' })).getByRole('menuitem', { name: 'Audit Logs' })).toHaveAttribute('aria-current', 'page');
+    expect(within(screen.getByRole('menu', { name: 'Admin' })).getByRole('menuitem', { name: 'System Settings' })).toHaveAttribute('aria-current', 'page');
   });
 });
 

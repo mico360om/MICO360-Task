@@ -1444,6 +1444,9 @@ model Conversation {
   kind         ConversationKind
   projectId    String? // set for PROJECT channels; null for DIRECT
   createdAt    DateTime                  @default(now())
+  /// Review fix #17 (batch 4b): a DIRECT conversation's pair of people, "<smaller id>:<larger id>" — one
+  /// conversation per pair. Null for channels, and for a pair's extra conversations made before it existed.
+  directKey    String?                   @unique @db.VarChar(191)
   participants ConversationParticipant[]
   messages     ChatMessage[]
 

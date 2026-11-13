@@ -255,6 +255,7 @@ export function fakeTrainingApi(): FakeTrainingApi {
     addLesson: vi.fn(async () => lesson({ id: 'l-new', kind: 'GUIDE', title: 'New' })),
     updateLesson: vi.fn(async () => lesson({ id: 'l1', kind: 'GUIDE', title: 'Lesson' })),
     deleteLesson: vi.fn(async () => undefined),
+    lessonDeleteImpact: vi.fn(async () => ({ finishing: 0, certificate: false, published: false })),
     reorderLessons: vi.fn(async () => course),
     saveSteps: vi.fn(async () => lesson({ id: 'l1', kind: 'GUIDE', title: 'Lesson' })),
     saveQuiz: vi.fn(async () => lesson({ id: 'l1', kind: 'QUIZ', title: 'Quiz' })),

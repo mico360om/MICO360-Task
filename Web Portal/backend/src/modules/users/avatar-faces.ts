@@ -5,6 +5,7 @@ import type { FastifyInstance } from 'fastify';
 import type { PrismaClient } from '@prisma/client';
 import { faceUrlOf, originalUrlOfFace } from '../../lib/avatar-face';
 import { uploadResponseHeaders } from '../../lib/upload-safety';
+import { removeStoredFile } from '../../lib/stored-files';
 
 /**
  * Avatar thumbnails (11 Nov): the website's faces load a small copy of each photo (lib/avatar-face.ts)
@@ -36,6 +37,8 @@ export interface AvatarFaces {
   prepare(url: string, content: Buffer): Promise<void>;
   /** A face file by its name: on disk (made now if need be), the photo itself when no copy can be made, or not found. */
   find(fileName: string): Promise<FaceAnswer>;
+  /** Review fix #24: a replaced or removed photo's face copy is deleted (tried again, then logged; never thrown). */
+  discard(url: string): Promise<void>;
 }
 
 /** Photos whose copy failed, remembered (up to this many) until the server restarts. */
@@ -128,6 +131,16 @@ export function createAvatarFaces(deps: AvatarFacesDeps): AvatarFaces {
       const job = make(fileName, original, path).finally(() => making.delete(fileName));
       making.set(fileName, job);
       return job;
+    },
+
+    async discard(url) {
+      const face = faceUrlOf(url);
+      if (!face) return;
+      const fileName = face.slice('/uploads/faces/'.length);
+      // A copy being made right now is waited for, so it can't land after the delete.
+      await making.get(fileName)?.catch(() => null);
+      failed.delete(fileName);
+      await removeStoredFile({ remove: (name) => rm(join(folder, name), { force: true }) }, fileName, { logger: { warn }, what: 'a replaced profile photo’s face copy' });
     },
   };
 }

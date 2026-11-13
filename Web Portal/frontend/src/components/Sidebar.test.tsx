@@ -53,27 +53,28 @@ describe('Sidebar', () => {
     expect(screen.getByRole('link', { name: /user management/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /ai management/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /system settings/i })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /audit logs/i })).toBeInTheDocument();
+    // Owner, 13 Nov: Audit Logs is in the account menu now (ProfileMenu.moves.test).
+    expect(screen.queryByRole('link', { name: /audit logs/i })).toBeNull();
     expect(screen.getByRole('link', { name: /reports/i })).toBeInTheDocument();
   });
 });
 
 describe('Sidebar: the Admin menu', () => {
   const adminLabels = () => {
-    const names = screen.getAllByRole('link').map((l) => l.textContent);
-    return names.slice(names.indexOf('User Management'), names.indexOf('Audit Logs') + 1);
+    const names = Array.from(document.querySelectorAll('nav a, nav button')).map((l) => l.textContent?.trim());
+    return names.slice(names.indexOf('User Management'), names.indexOf('System Settings') + 1);
   };
 
-  it('has Clients and Companies after User Management, with links to their pages', () => {
-    renderSidebar(true);
-    // tgc: 1.24 — the admins' Guest contacts page sits right after Companies.
-    expect(adminLabels()).toEqual(['User Management', 'Clients', 'Companies', 'Guest contacts', 'AI Management', 'System Settings', 'Error Log', 'Audit Logs']);
+  it('owner, 13 Nov: User Management, Third Party (Clients, Guest contacts), AI Management, System Settings', () => {
+    renderSidebar(true, '/admin/clients');
+    expect(adminLabels()).toEqual(['User Management', 'Third Party', 'Clients', 'Guest contacts', 'AI Management', 'System Settings']);
     expect(screen.getByRole('link', { name: 'Clients' })).toHaveAttribute('href', '/admin/clients');
-    expect(screen.getByRole('link', { name: 'Companies' })).toHaveAttribute('href', '/admin/companies');
+    // Companies is inside System Settings now (SystemSettingsPage.test).
+    expect(screen.queryByRole('link', { name: 'Companies' })).toBeNull();
   });
 
-  it('has Guest contacts (1.24) after Companies, linking to its page', () => {
-    renderSidebar(true);
+  it('has Guest contacts under Third Party, linking to its page', () => {
+    renderSidebar(true, '/admin/guests');
     expect(screen.getByRole('link', { name: 'Guest contacts' })).toHaveAttribute('href', '/admin/guests');
   });
 
@@ -122,8 +123,8 @@ describe('Sidebar on a short screen', () => {
       if (this.getAttribute('aria-current') === 'page') return rect(620, 656);
       return rect(0, 0);
     };
-    renderSidebar(true, '/admin/audit');
-    const list = screen.getByRole('link', { name: /audit logs/i }).closest('.overflow-y-auto')!;
+    renderSidebar(true, '/admin/settings');
+    const list = screen.getByRole('link', { name: /system settings/i }).closest('.overflow-y-auto')!;
     expect(list.scrollTop).toBeGreaterThanOrEqual(156); // 656 - 500: the link's bottom edge reaches the list's
   });
 

@@ -23,6 +23,8 @@ interface NavItem {
   leadsOnly?: boolean;
   /** Training Center: the first-time tour points at it (`data-tour`). */
   tour?: string;
+  /** Owner, 13 Nov: a sub-menu (Third Party): an item that opens to show these links (it has no page of its own). */
+  children?: NavItem[];
 }
 
 // Compact 24x24 stroke icons (no external dependency). Every item has its own: on the tablet rail
@@ -203,14 +205,6 @@ const TRAINING_ICON = (
 );
 
 // Grouped so the rail reads as a few short sections rather than one long list.
-/** Recycle Bin: a bin — kept out of `I`, the icon set the Android app copies (its menu has no such page). */
-const RECYCLE_BIN_ICON = (
-  <>
-    <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M6 6v14a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6" />
-    <path d="M10 11v6M14 11v6" />
-  </>
-);
-
 const WORKSPACE: NavItem[] = [
   { label: 'Dashboard', to: '/dashboard', icon: I.dashboard },
   { label: 'My Tasks', to: '/my-tasks', icon: I.tasks, tour: 'my-tasks' },
@@ -227,8 +221,7 @@ const WORKSPACE: NavItem[] = [
   { label: 'Learning Hub', to: '/training', icon: TRAINING_ICON, tour: 'training' },
   { label: 'Management', to: '/management', icon: I.management, leadsOnly: true },
   { label: 'Reports', to: '/reports', icon: I.reports, adminOnly: true },
-  // Recycle Bin: admins and anyone who runs a project (the Management page's people).
-  { label: 'Recycle Bin', to: '/recycle-bin', icon: RECYCLE_BIN_ICON, leadsOnly: true },
+  // Owner, 13 Nov: the Recycle Bin moved to the account menu (ProfileMenu), with the same people.
 ];
 const COMMUNICATION: NavItem[] = [
   { label: 'Chat', to: '/chat', icon: I.chat },
@@ -236,17 +229,6 @@ const COMMUNICATION: NavItem[] = [
   { label: 'Notifications', to: '/notifications', icon: I.notifications },
   { label: 'Activity', to: '/activity', icon: I.activity },
 ];
-/**
- * 1.22.4: a warning triangle — the Error log, a website-only admin page. Kept out of `I`, the icon set
- * the Android app copies (its menu has no such page).
- */
-const ERROR_LOG_ICON = (
-  <>
-    <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
-    <path d="M12 9v4M12 17h.01" />
-  </>
-);
-
 /**
  * 1.24: an address card with a person on it — Guest contacts, each company's list of people outside it
  * named on tasks. Kept out of `I`, the icon set the Android app copies (its menu has no such page).
@@ -259,16 +241,82 @@ const GUEST_CONTACTS_ICON = (
   </>
 );
 
+/**
+ * Owner, 13 Nov: Third Party — the people outside the company (Clients, Guest contacts): a person with an
+ * arrow leading out. Kept out of `I`, the icon set the Android app copies (its menu has no such page).
+ */
+const THIRD_PARTY_ICON = (
+  <>
+    <circle cx="9" cy="8" r="3.2" />
+    <path d="M3 20a6 6 0 0 1 12 0" />
+    <path d="M15.5 4.5H20V9M20 4.5l-5 5" />
+  </>
+);
+
+/**
+ * Owner, 13 Nov: the Admin group. Companies is inside System Settings now; Error Log and Audit Logs are in the
+ * account menu (ProfileMenu), with the same people (the Admin group's rules, Manager View included); Clients
+ * and Guest contacts are together under Third Party. Their routes and page titles are unchanged.
+ */
 const ADMIN: NavItem[] = [
   { label: 'User Management', to: '/admin/users', icon: I.users },
-  { label: 'Clients', to: '/admin/clients', icon: I.clients },
-  { label: 'Companies', to: '/admin/companies', icon: I.companies },
-  { label: 'Guest contacts', to: '/admin/guests', icon: GUEST_CONTACTS_ICON },
+  {
+    label: 'Third Party',
+    to: '/admin/third-party',
+    icon: THIRD_PARTY_ICON,
+    children: [
+      { label: 'Clients', to: '/admin/clients', icon: I.clients },
+      { label: 'Guest contacts', to: '/admin/guests', icon: GUEST_CONTACTS_ICON },
+    ],
+  },
   { label: 'AI Management', to: '/admin/ai', icon: I.aiManagement },
   { label: 'System Settings', to: '/admin/settings', icon: I.sliders },
-  { label: 'Error Log', to: '/admin/error-log', icon: ERROR_LOG_ICON },
-  { label: 'Audit Logs', to: '/admin/audit', icon: I.audit },
 ];
+
+/** Recycle Bin: a bin — kept out of `I`, the icon set the Android app copies (its menu has no such page). */
+const RECYCLE_BIN_ICON = (
+  <>
+    <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M6 6v14a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6" />
+    <path d="M10 11v6M14 11v6" />
+  </>
+);
+/**
+ * 1.22.4: a warning triangle — the Error log, a website-only admin page. Kept out of `I`, the icon set
+ * the Android app copies (its menu has no such page).
+ */
+const ERROR_LOG_ICON = (
+  <>
+    <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
+    <path d="M12 9v4M12 17h.01" />
+  </>
+);
+
+/**
+ * Owner, 13 Nov: pages that left the left menu, with their names and addresses unchanged — the Recycle Bin, Error
+ * Log and Audit Logs are in the account menu (ProfileMenu draws them from here: the Recycle Bin for the people who
+ * run a project and administrators, the other two with the Admin group's rules); Companies is inside System Settings.
+ * The Android app's menu still lists Companies and Audit Logs; its drift test holds them to these rows.
+ */
+export const ACCOUNT_MENU_PAGES = {
+  recycleBin: { label: 'Recycle Bin', to: '/recycle-bin', icon: RECYCLE_BIN_ICON, leadsOnly: true },
+  errorLog: { label: 'Error Log', to: '/admin/error-log', icon: ERROR_LOG_ICON, adminOnly: true },
+  auditLogs: { label: 'Audit Logs', to: '/admin/audit', icon: I.audit, adminOnly: true },
+} satisfies Record<string, NavItem>;
+export const COMPANIES_PAGE: NavItem = { label: 'Companies', to: '/admin/companies', icon: I.companies };
+
+/** Is the page you are on this link's (or inside it)? */
+const isHere = (pathname: string, to: string) => pathname === to || pathname.startsWith(`${to}/`);
+
+/** A chevron: down beside a sub-menu that opens below, right beside one that opens to the side. */
+const CHEVRON_DOWN = <path d="M6 9l6 6 6-6" />;
+const CHEVRON_RIGHT = <path d="M9 6l6 6-6 6" />;
+function SmallChevron({ children, className = '' }: { children: ReactNode; className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={`shrink-0 ${className}`}>
+      {children}
+    </svg>
+  );
+}
 
 export interface SidebarProps {
   isAdmin: boolean;
@@ -363,7 +411,11 @@ interface FlyoutItem {
   /** Marked as the page you are on (a saved search; plain links say it themselves). */
   current?: boolean;
   icon: ReactNode;
+  /** Owner, 13 Nov: a sub-menu (Third Party) — its links open in a small list beside this one. */
+  children?: FlyoutItem[];
 }
+
+const itemHere = (pathname: string, i: FlyoutItem): boolean => Boolean(i.current) || isHere(pathname, i.to) || (i.children ?? []).some((c) => itemHere(pathname, c));
 
 /**
  * 1.23.8 A group on the rail (the menu folded, or a tablet): one icon that opens a small list beside it — by hover,
@@ -371,19 +423,33 @@ interface FlyoutItem {
  * Nov: the Admin items; the pinned searches, which share one icon). The arrow keys move through it, Home and End
  * go to its ends, Escape (or Tab, or a click elsewhere) closes it and gives focus back to the icon; choosing an
  * item goes there and closes it. Drawn in <body> (the rail's list scrolls and would cut it off).
+ *
+ * Owner, 13 Nov: an item with links of its own (Third Party) opens a second small list beside the first — by
+ * hover, a click, Enter, Space or the Right arrow; the Left arrow or Escape closes it and gives focus back to its
+ * item (a second Escape closes the whole list); a click elsewhere closes both.
  */
 function FlyoutGroup({ label, icon, items, onNavigate }: { label: string; icon: ReactNode; items: FlyoutItem[]; onNavigate?: () => void }) {
   const { pathname } = useLocation();
   const [open, setOpen] = useState(false);
   const [place, setPlace] = useState<{ top: number; left: number } | null>(null);
+  /** The item whose own list is open beside the list, and where. */
+  const [sub, setSub] = useState<{ key: string; top: number; left: number } | null>(null);
   const button = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
+  const subMenu = useRef<HTMLDivElement>(null);
   const focusFirst = useRef(false);
+  const focusSubFirst = useRef(false);
+  const subRef = useRef(sub);
+  subRef.current = sub;
   /** Opened by the pointer resting on the icon (a click then keeps it open and moves into it). */
   const byHover = useRef(false);
   const leave = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Review: the pointer crossing another item on its way to the inner list closes it only after a moment. */
+  const subLeave = useRef<ReturnType<typeof setTimeout> | null>(null);
   const id = useId();
-  const current = items.some((i) => i.current || pathname === i.to || pathname.startsWith(`${i.to}/`));
+  const subId = useId();
+  const current = items.some((i) => itemHere(pathname, i));
+  const inside = (node: Node | null) => !!node && (!!menu.current?.contains(node) || !!subMenu.current?.contains(node));
 
   /** Beside the icon, inside the window. */
   const measure = () => {
@@ -406,13 +472,51 @@ function FlyoutGroup({ label, icon, items, onNavigate }: { label: string; icon: 
   };
   const hide = (refocus: boolean) => {
     setOpen(false);
+    setSub(null);
     if (refocus) button.current?.focus();
   };
-  // Hover: closes a moment after the pointer leaves both the icon and the list (time to cross the gap).
+  const parentItem = (key: string) => menu.current?.querySelector<HTMLElement>(`[data-submenu="${CSS.escape(key)}"]`) ?? null;
+  /** Open an item's own list beside it (and move into it from the keyboard or a click). */
+  /** Beside the list, level with its item, inside the window. */
+  const subPlace = (key: string) => {
+    const r = parentItem(key)?.getBoundingClientRect();
+    const m = menu.current?.getBoundingClientRect();
+    const count = items.find((i) => i.key === key)?.children?.length ?? 1;
+    const top = Math.max(8, Math.min((r?.top ?? 0) - 4, window.innerHeight - (16 + count * 40) - 8));
+    return { key, top, left: (m?.right ?? r?.right ?? 0) + 4 };
+  };
+  const placeSub = (key: string) => {
+    if (subRef.current?.key === key) setSub(subPlace(key));
+  };
+  const showSub = (key: string, withFocus: boolean) => {
+    if (leave.current) clearTimeout(leave.current);
+    if (subLeave.current) clearTimeout(subLeave.current);
+    if (subRef.current?.key === key) {
+      if (withFocus) subMenu.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+      return;
+    }
+    focusSubFirst.current = withFocus;
+    setSub(subPlace(key));
+  };
+  const hideSub = (refocus: boolean) => {
+    const key = subRef.current?.key;
+    if (subLeave.current) clearTimeout(subLeave.current);
+    setSub(null);
+    if (refocus && key) parentItem(key)?.focus();
+  };
+  /** Close the inner list — focus inside it goes back to its item, never to the page. */
+  const closeSub = () => hideSub(!!subMenu.current?.contains(document.activeElement));
+  /** The pointer on another item of the list: the inner list closes after a moment (time to reach it diagonally). */
+  const leaveSubSoon = () => {
+    if (!subRef.current) return;
+    if (subLeave.current) clearTimeout(subLeave.current);
+    subLeave.current = setTimeout(closeSub, 250);
+  };
+  // Hover: closes a moment after the pointer leaves the icon and both lists (time to cross the gap).
   const pointerLeft = () => {
     if (leave.current) clearTimeout(leave.current);
     leave.current = setTimeout(() => {
-      if (!menu.current?.contains(document.activeElement)) setOpen(false);
+      if (!inside(document.activeElement)) hide(false);
     }, 180);
   };
 
@@ -421,21 +525,33 @@ function FlyoutGroup({ label, icon, items, onNavigate }: { label: string; icon: 
     if (focusFirst.current) menu.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
     const onDown = (e: MouseEvent | TouchEvent) => {
       const t = e.target as Node;
-      if (!menu.current?.contains(t) && !button.current?.contains(t)) setOpen(false);
+      if (!inside(t) && !button.current?.contains(t)) hide(false);
     };
     // The menu (or the page) scrolled: the list follows its icon, and goes once the icon is out of sight.
     const onScroll = (e: Event) => {
-      if (e.target instanceof Node && menu.current?.contains(e.target)) return;
+      if (e.target instanceof Node && inside(e.target)) return;
       const r = button.current?.getBoundingClientRect();
-      if (!r || r.bottom < 0 || r.top > window.innerHeight || r.width === 0) setOpen(false);
-      else measure();
+      if (!r || r.bottom < 0 || r.top > window.innerHeight || r.width === 0) {
+        closeSub();
+        setOpen(false);
+        return;
+      }
+      measure();
+      // The inner list follows its item (a scroll elsewhere on the page never closes it under the keyboard).
+      const open = subRef.current;
+      if (open) requestAnimationFrame(() => placeSub(open.key));
     };
-    // Escape closes it wherever the focus is (a list opened by hover has none of it).
+    // Escape closes the inner list first (back on its item), then the list — wherever the focus is (a list
+    // opened by hover has none of it).
     const onEscape = (e: globalThis.KeyboardEvent) => {
       if (e.key !== 'Escape') return;
-      const inside = !!menu.current?.contains(document.activeElement);
-      setOpen(false);
-      if (inside) button.current?.focus();
+      if (subRef.current) {
+        hideSub(!!subMenu.current?.contains(document.activeElement));
+        return;
+      }
+      const within = inside(document.activeElement);
+      hide(false);
+      if (within) button.current?.focus();
     };
     document.addEventListener('mousedown', onDown);
     document.addEventListener('touchstart', onDown, { passive: true });
@@ -450,29 +566,81 @@ function FlyoutGroup({ label, icon, items, onNavigate }: { label: string; icon: 
       window.removeEventListener('resize', onScroll);
     };
   }, [open]);
+  useEffect(() => {
+    if (!sub || !focusSubFirst.current) return;
+    // Once, as it opens (moving it beside its item again later never takes the focus back to its first link).
+    focusSubFirst.current = false;
+    subMenu.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+  }, [sub]);
   useEffect(() => () => {
     if (leave.current) clearTimeout(leave.current);
+    if (subLeave.current) clearTimeout(subLeave.current);
   }, []);
 
-  const onMenuKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
-    const all = Array.from(menu.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []);
+  /** The arrow keys, Home and End move through a list's items. */
+  const move = (list: HTMLElement | null, key: string) => {
+    const all = Array.from(list?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []);
     const at = all.indexOf(document.activeElement as HTMLElement);
+    if (key === 'ArrowDown') all[(at + 1) % all.length]?.focus();
+    else if (key === 'ArrowUp') all[(at - 1 + all.length) % all.length]?.focus();
+    else if (key === 'Home') all[0]?.focus();
+    else if (key === 'End') all[all.length - 1]?.focus();
+  };
+  const onMenuKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'Escape') {
       e.preventDefault();
       e.stopPropagation();
-      hide(true);
-    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      // The inner list first (one opened by hover while focus is on its item), then the list.
+      if (subRef.current) hideSub(false);
+      else hide(true);
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Home' || e.key === 'End') {
       e.preventDefault();
-      all[e.key === 'ArrowDown' ? (at + 1) % all.length : (at - 1 + all.length) % all.length]?.focus();
-    } else if (e.key === 'Home' || e.key === 'End') {
-      e.preventDefault();
-      all[e.key === 'Home' ? 0 : all.length - 1]?.focus();
+      hideSub(false);
+      move(menu.current, e.key);
     } else if (e.key === 'Tab') {
       // Back on the icon first (the list is at the end of the page): Tab then moves on from there.
       button.current?.focus();
-      setOpen(false);
+      hide(false);
     }
   };
+  const onSubKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Escape' || e.key === 'ArrowLeft') {
+      e.preventDefault();
+      e.stopPropagation();
+      hideSub(true);
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Home' || e.key === 'End') {
+      e.preventDefault();
+      move(subMenu.current, e.key);
+    } else if (e.key === 'Tab') {
+      button.current?.focus();
+      hide(false);
+    }
+  };
+
+  const look = (on: boolean) =>
+    `flex w-full items-center gap-2.5 px-3 py-2 text-start text-sm outline-none transition-colors [@media(pointer:coarse)]:min-h-11 ${on ? 'bg-brand/10 font-semibold text-brand' : 'text-ink hover:bg-ground focus-visible:bg-ground'}`;
+  const pick = () => {
+    hide(false);
+    onNavigate?.();
+  };
+  const inner = (item: FlyoutItem) => (
+    <>
+      <NavIcon>{item.icon}</NavIcon>
+      <span dir="auto" className="min-w-0 truncate">{item.label}</span>
+    </>
+  );
+  /** A link in a list: a saved search says itself whether it is the one shown; a page link lets NavLink mark it. */
+  const linkOf = (item: FlyoutItem, onEnter?: () => void) =>
+    item.current !== undefined ? (
+      <Link key={item.key} to={item.to} role="menuitem" aria-label={item.name} aria-current={item.current ? 'page' : undefined} onClick={pick} onPointerEnter={onEnter} className={look(item.current)}>
+        {inner(item)}
+      </Link>
+    ) : (
+      <NavLink key={item.key} to={item.to} role="menuitem" aria-label={item.name} onClick={pick} onPointerEnter={onEnter} className={({ isActive }) => look(isActive)}>
+        {inner(item)}
+      </NavLink>
+    );
+  const openSubItem = sub ? items.find((i) => i.key === sub.key) : undefined;
 
   return (
     <>
@@ -504,46 +672,74 @@ function FlyoutGroup({ label, icon, items, onNavigate }: { label: string; icon: 
       </button>
       {open && place
         ? createPortal(
-            <div
-              ref={menu}
-              id={id}
-              role="menu"
-              aria-label={label}
-              onKeyDown={onMenuKey}
-              onPointerEnter={() => leave.current && clearTimeout(leave.current)}
-              onPointerLeave={pointerLeft}
-              style={{ top: place.top, left: place.left }}
-              className="fixed z-[60] w-60 max-w-[calc(100vw-5rem)] overflow-hidden rounded-xl border border-line bg-surface py-1 shadow-lift animate-scale-in"
-            >
-              <p aria-hidden="true" className="px-3 pb-1 pt-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink-3">
-                {label}
-              </p>
-              {items.map((item) => {
-                const look = (on: boolean) =>
-                  `flex items-center gap-2.5 px-3 py-2 text-sm outline-none transition-colors [@media(pointer:coarse)]:min-h-11 ${on ? 'bg-brand/10 font-semibold text-brand' : 'text-ink hover:bg-ground focus-visible:bg-ground'}`;
-                const pick = () => {
-                  setOpen(false);
-                  onNavigate?.();
-                };
-                const inner = (
-                  <>
-                    <NavIcon>{item.icon}</NavIcon>
-                    <span dir="auto" className="min-w-0 truncate">{item.label}</span>
-                  </>
-                );
-                // A saved search says itself whether it is the one shown (the Search page's address has a query
-                // NavLink can't see); a page link lets NavLink mark it.
-                return item.current !== undefined ? (
-                  <Link key={item.key} to={item.to} role="menuitem" aria-label={item.name} aria-current={item.current ? 'page' : undefined} onClick={pick} className={look(item.current)}>
-                    {inner}
-                  </Link>
-                ) : (
-                  <NavLink key={item.key} to={item.to} role="menuitem" aria-label={item.name} onClick={pick} className={({ isActive }) => look(isActive)}>
-                    {inner}
-                  </NavLink>
-                );
-              })}
-            </div>,
+            <>
+              <div
+                ref={menu}
+                id={id}
+                role="menu"
+                aria-label={label}
+                // The inner list is drawn beside this one (in <body>): owned by it for screen readers.
+                aria-owns={sub ? subId : undefined}
+                onKeyDown={onMenuKey}
+                onPointerEnter={() => leave.current && clearTimeout(leave.current)}
+                onPointerLeave={pointerLeft}
+                style={{ top: place.top, left: place.left }}
+                className="fixed z-[60] w-60 max-w-[calc(100vw-5rem)] overflow-hidden rounded-xl border border-line bg-surface py-1 shadow-lift animate-scale-in"
+              >
+                <p aria-hidden="true" className="px-3 pb-1 pt-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink-3">
+                  {label}
+                </p>
+                {items.map((item) =>
+                  item.children?.length ? (
+                    <button
+                      key={item.key}
+                      type="button"
+                      role="menuitem"
+                      aria-haspopup="menu"
+                      aria-expanded={sub?.key === item.key}
+                      aria-controls={sub?.key === item.key ? subId : undefined}
+                      data-submenu={item.key}
+                      data-current={itemHere(pathname, item) ? 'true' : undefined}
+                      onClick={() => showSub(item.key, true)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'ArrowRight' || e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          showSub(item.key, true);
+                        }
+                      }}
+                      onPointerEnter={(e) => {
+                        if (e.pointerType !== 'touch') showSub(item.key, false);
+                      }}
+                      className={look(itemHere(pathname, item))}
+                    >
+                      {inner(item)}
+                      <SmallChevron className="ms-auto">{CHEVRON_RIGHT}</SmallChevron>
+                    </button>
+                  ) : (
+                    linkOf(item, leaveSubSoon)
+                  ),
+                )}
+              </div>
+              {sub && openSubItem ? (
+                <div
+                  ref={subMenu}
+                  id={subId}
+                  role="menu"
+                  aria-label={openSubItem.label}
+                  onKeyDown={onSubKey}
+                  onPointerEnter={() => {
+                    if (leave.current) clearTimeout(leave.current);
+                    if (subLeave.current) clearTimeout(subLeave.current);
+                  }}
+                  onPointerLeave={pointerLeft}
+                  style={{ top: sub.top, left: sub.left }}
+                  className="fixed z-[61] w-56 max-w-[calc(100vw-5rem)] overflow-hidden rounded-xl border border-line bg-surface py-1 shadow-lift animate-scale-in"
+                >
+                  {(openSubItem.children ?? []).map((child) => linkOf(child))}
+                </div>
+              ) : null}
+            </>,
             document.body,
           )
         : null}
@@ -567,6 +763,50 @@ function TrainingBadge({ count, active }: { count: number; active: boolean }) {
   );
 }
 
+/** A menu item as the rail's fly-out list draws it (a sub-menu's links with it). */
+const flyoutOf = (i: NavItem): FlyoutItem => ({ key: i.to, to: i.to, label: i.label, icon: i.icon, ...(i.children ? { children: i.children.map(flyoutOf) } : {}) });
+
+/**
+ * Owner, 13 Nov: a sub-menu in the open menu (Third Party): a button that opens and closes its links below it,
+ * indented (aria-expanded, a chevron). Open while you are on one of its pages, that link marked as the page.
+ */
+function NavSubGroup({ item, rail, onNavigate }: { item: NavItem; rail: boolean; onNavigate?: () => void }) {
+  const { pathname } = useLocation();
+  const here = (item.children ?? []).some((c) => isHere(pathname, c.to));
+  const [open, setOpen] = useState(here);
+  useEffect(() => {
+    if (here) setOpen(true);
+  }, [here]);
+  const id = useId();
+  return (
+    <div data-subgroup={item.label}>
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={open ? id : undefined}
+        onClick={() => setOpen((o) => !o)}
+        data-rail-label={item.label}
+        className={`${linkClass(rail)({ isActive: false })} w-full`}
+      >
+        <NavIcon>{item.icon}</NavIcon>
+        <span className={`${labelClass(rail)} min-w-0 flex-1 text-start`}>{item.label}</span>
+        <SmallChevron className={`transition-transform duration-150 ${open ? 'rotate-180' : ''} ${rail ? 'rail:hidden' : ''}`}>{CHEVRON_DOWN}</SmallChevron>
+      </button>
+      {/* Drawn only while open: a closed sub-menu's links are not on the page (nor in a list of its links). */}
+      {open ? (
+        <div id={id} className="ms-5 mt-0.5 flex flex-col gap-0.5 border-s border-line ps-2">
+          {(item.children ?? []).map((c) => (
+            <NavLink key={c.to} to={c.to} className={linkClass(rail)} onClick={onNavigate} data-rail-label={c.label}>
+              <NavIcon>{c.icon}</NavIcon>
+              <span className={labelClass(rail)}>{c.label}</span>
+            </NavLink>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function NavGroup({ label, items, onNavigate, chatUnread = 0, trainingOverdue = 0, rail, first = false, flyout }: { label: string; items: NavItem[]; onNavigate?: () => void; chatUnread?: number; trainingOverdue?: number; rail: boolean; first?: boolean; /** 1.23.8: on the rail, one icon with a fly-out list (the Admin group). */ flyout?: ReactNode }) {
   const onRail = useOnRail();
   if (rail && flyout && onRail) {
@@ -574,7 +814,7 @@ function NavGroup({ label, items, onNavigate, chatUnread = 0, trainingOverdue = 
       <>
         <div data-rail-divider aria-hidden="true" className="mx-1.5 my-2 hidden border-t border-line rail:block" />
         <SectionLabel rail={rail}>{label}</SectionLabel>
-        <FlyoutGroup label={label} icon={flyout} items={items.map((i) => ({ key: i.to, to: i.to, label: i.label, icon: i.icon }))} onNavigate={onNavigate} />
+        <FlyoutGroup label={label} icon={flyout} items={items.map(flyoutOf)} onNavigate={onNavigate} />
       </>
     );
   }
@@ -617,6 +857,8 @@ function NavGroup({ label, items, onNavigate, chatUnread = 0, trainingOverdue = 
                 </>
               )}
             </NavLink>
+          ) : item.children?.length ? (
+            <NavSubGroup key={item.to} item={item} rail={rail} onNavigate={onNavigate} />
           ) : (
             <NavLink key={item.to} to={item.to} className={linkClass(rail)} onClick={onNavigate} data-rail-label={item.label} data-tour={item.tour}>
               <NavIcon>{item.icon}</NavIcon>

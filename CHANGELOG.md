@@ -18,6 +18,22 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - Files on tasks and in chats open only for people who can still see that task or chat; copied links stop working after about a day.
 - Old profile photos stop opening once replaced.
 
+## [1.23.28] - 2026-11-13
+
+### Improvements
+- The Recycle Bin, Error Log and Audit Logs are now in the account menu under your name; Companies is inside System Settings; Clients and Guest contacts are together under a new Third Party item in the left menu.
+- Oman's holiday list now includes Accession Day (11 January).
+- Deleting the quiz of a published certificate course now shows how many people would be finished and certified, and asks first.
+
+### Bug fixes
+- Two people starting a chat with each other at the same moment get one conversation.
+- A chat message with a file is saved together with its file, or not at all.
+- Turning a meeting note into a task can no longer get stuck.
+- Chat history no longer skips a message sent at the same moment as another.
+- Removed or replaced files and profile pictures are deleted from storage.
+- Opening a new project chat at the same time as someone else works for both of you.
+- A duplicated meeting belongs to the person who made the copy.
+
 ## [1.23.27] - 2026-11-13
 
 ### Improvements

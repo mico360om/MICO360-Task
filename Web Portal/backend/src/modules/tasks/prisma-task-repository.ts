@@ -287,6 +287,7 @@ export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository
         const write = (db: Pick<PrismaClient, 'task'>) => db.task.create({
           include: withColumn,
           data: {
+            ...(data.id ? { id: data.id } : {}),
             key: data.key,
             title: data.title,
             projectId: data.projectId,

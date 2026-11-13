@@ -4,7 +4,7 @@ import { createMessageService } from './message-service';
 import { createTokenService } from '../auth/token-service';
 import { createAuthService } from '../auth/auth-service';
 import type {
-  Conversation, Participant, Message, Reaction,
+  Conversation, Participant, Message, Reaction, MessageAttachmentRecord, ChatAttachmentRepository,
   ConversationRepository, ParticipantRepository, MessageRepository, ReactionRepository, ChatMemberLookup,
 } from './chat-repository';
 
@@ -413,5 +413,123 @@ describe('Chat routes — every author has a name, read-only direct chats (compa
     const send = await a.inject({ method: 'POST', url: `/api/v1/conversations/${old.id}/messages`, headers: await auth('u1'), payload: { body: 'hi' } });
     expect(send.statusCode).toBe(403);
     expect(send.json().error.code).toBe('DM_READ_ONLY');
+  });
+});
+
+describe('Chat routes — review batch 4b', () => {
+  /** The route-test repositories with a file store too (the in-memory one keeps rows). */
+  async function appWithFiles(opts: { failAfterSave?: boolean; failSave?: boolean } = {}) {
+    const repos = makeRepos();
+    const rows: MessageAttachmentRecord[] = [];
+    let n = 0;
+    let saved = false;
+    const attachments: ChatAttachmentRepository = {
+      async create(messageId, meta) { const r = { id: `att${n++}`, messageId, ...meta, createdAt: new Date() }; rows.push(r); return r; },
+      async listByMessages(ids) { if (opts.failAfterSave && saved) throw new Error('db blip after the save'); return rows.filter((r) => ids.includes(r.messageId)); },
+      async deleteByMessage(messageId) { for (let i = rows.length - 1; i >= 0; i--) if (rows[i]!.messageId === messageId) rows.splice(i, 1); },
+      async storageKeyInUse(key) { return rows.some((r) => r.storageKey === key); },
+    };
+    // As the database store: the message and its file in one go (or neither).
+    const messages: MessageRepository = {
+      ...repos.messages,
+      async createWithAttachment(conversationId, userId, body, extra, file) {
+        if (opts.failSave) throw new Error('the save failed');
+        const message = await repos.messages.create(conversationId, userId, body, extra);
+        const attachment = await attachments.create(message.id, file);
+        saved = true;
+        return { message, attachment };
+      },
+    };
+    const participants: ParticipantRepository = opts.failAfterSave
+      ? { ...repos.participants, async listByConversation(id) { if (saved) { saved = saved && true; throw new Error('db blip after the save'); } return repos.participants.listByConversation(id); } }
+      : repos.participants;
+    const chatService = createMessageService({ ...repos, messages, participants, attachments });
+    const disk = fakeStorage();
+    const authService = createAuthService({
+      users: { async findByIdentifier() { return null; }, async findById() { return null; }, async applyFailedAttempt() {}, async resetFailedAttempts() {} },
+      maxAttempts: 5,
+    });
+    const built = await buildApp({
+      authService, tokenService, chatService, chatAttachmentStorage: disk,
+      onTaskEvent: (projectId, event, payload) => { projectEvents.push({ projectId, event, payload }); },
+      onChatUserEvent: (userId, event, payload) => { userEvents.push({ userId, event, payload }); },
+    });
+    return { app: built, repos, rows, disk };
+  }
+  function upload(name: string, clientId?: string) {
+    const boundary = '----mico360b4b';
+    const payload = Buffer.concat([
+      Buffer.from(clientId ? `--${boundary}\r\nContent-Disposition: form-data; name="clientId"\r\n\r\n${clientId}\r\n` : ''),
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="`),
+      Buffer.from(name, 'utf8'),
+      Buffer.from(`"\r\nContent-Type: text/plain\r\n\r\nhello\r\n--${boundary}--\r\n`),
+    ]);
+    return { payload, headers: { 'content-type': `multipart/form-data; boundary=${boundary}` } };
+  }
+
+  it('N6: a file with a long, odd name is kept with a clean one (no hidden or right-to-left characters, at most 180)', async () => {
+    const { app: a, disk } = await appWithFiles();
+    const headers = await auth('u1');
+    const convId = (await a.inject({ method: 'GET', url: '/api/v1/projects/p1/chat', headers })).json().data.conversation.id;
+    const odd = `Site visit \u202Etxt.exe notes for Fabrikam ${'x'.repeat(220)}.txt`;
+    const mp = upload(odd);
+    const res = await a.inject({ method: 'POST', url: `/api/v1/conversations/${convId}/attachments`, headers: { ...headers, ...mp.headers }, payload: mp.payload });
+    expect(res.statusCode).toBe(201);
+    const name: string = res.json().data.attachments[0].fileName;
+    const hiddenOrTurning = (c: number) => c < 0x20 || (c >= 0x200b && c <= 0x200f) || (c >= 0x202a && c <= 0x202e) || (c >= 0x2066 && c <= 0x2069);
+    expect([...name].filter((ch) => hiddenOrTurning(ch.codePointAt(0)!))).toEqual([]);
+    expect([...name].length).toBeLessThanOrEqual(180);
+    expect(name.startsWith('Site visit txt.exe notes for Fabrikam')).toBe(true);
+    expect(name.endsWith('.txt')).toBe(true);
+    expect(disk.saved).toHaveLength(1);
+  });
+
+  it('#18: a retry with the client id of a message that has no file stores nothing and adds nothing to it (review M2: no back-dating)', async () => {
+    const { app: a, repos, rows, disk } = await appWithFiles();
+    const headers = await auth('u1');
+    const convId = (await a.inject({ method: 'POST', url: '/api/v1/conversations/direct', headers, payload: { userId: 'u2' } })).json().data.id;
+    const old = await repos.messages.create(convId, 'u1', 'an old text message', { clientId: 'up-old' });
+    const mp = upload('plan.txt', 'up-old');
+    const res = await a.inject({ method: 'POST', url: `/api/v1/conversations/${convId}/attachments`, headers: { ...headers, ...mp.headers }, payload: mp.payload });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.id).toBe(old.id);
+    expect(res.json().data.attachments).toEqual([]);
+    expect(rows).toHaveLength(0);
+    expect(disk.saved).toHaveLength(0);
+  });
+
+  it('review I1: once the message and its file are saved, a failure in what follows never deletes the file', async () => {
+    const { app: a, repos, rows, disk } = await appWithFiles({ failAfterSave: true });
+    const headers = await auth('u1');
+    const convId = (await a.inject({ method: 'POST', url: '/api/v1/conversations/direct', headers, payload: { userId: 'u2' } })).json().data.id;
+    const mp = upload('plan.txt', 'up-i1');
+    const res = await a.inject({ method: 'POST', url: `/api/v1/conversations/${convId}/attachments`, headers: { ...headers, ...mp.headers }, payload: mp.payload });
+    expect(rows).toHaveLength(1);
+    expect(disk.saved).toHaveLength(1);
+    expect(disk.removed).toEqual([]);
+    expect(res.statusCode).toBe(201);
+    expect(res.json().data.attachments.map((x: { storageKey: string }) => x.storageKey)).toEqual([disk.saved[0]]);
+    void repos;
+  });
+
+  it('review I1: when the save itself fails, the stored file is removed only if no record keeps it', async () => {
+    const { app: a, rows, disk } = await appWithFiles({ failSave: true });
+    const headers = await auth('u1');
+    const convId = (await a.inject({ method: 'POST', url: '/api/v1/conversations/direct', headers, payload: { userId: 'u2' } })).json().data.id;
+    const mp = upload('plan.txt', 'up-i1b');
+    const res = await a.inject({ method: 'POST', url: `/api/v1/conversations/${convId}/attachments`, headers: { ...headers, ...mp.headers }, payload: mp.payload });
+    expect(res.statusCode).toBe(500);
+    expect(rows).toHaveLength(0);
+    expect(disk.removed).toEqual(disk.saved);
+  });
+
+  it('#20: history takes the new cursor (before + beforeId) and still the old one (before only); an id alone is refused', async () => {
+    const headers = await auth('u1');
+    const convId = (await app.inject({ method: 'GET', url: '/api/v1/projects/p1/chat', headers })).json().data.conversation.id;
+    const at = encodeURIComponent(new Date(Date.now() + 60_000).toISOString());
+    expect((await app.inject({ method: 'GET', url: `/api/v1/conversations/${convId}/messages?before=${at}&beforeId=msg42&limit=10`, headers })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'GET', url: `/api/v1/conversations/${convId}/messages?before=${at}`, headers })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'GET', url: `/api/v1/conversations/${convId}/messages?beforeId=msg42`, headers })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'GET', url: `/api/v1/conversations/${convId}/messages?before=${at}&beforeId=${'x'.repeat(65)}`, headers })).statusCode).toBe(400);
   });
 });

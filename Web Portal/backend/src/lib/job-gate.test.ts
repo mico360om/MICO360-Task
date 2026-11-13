@@ -223,3 +223,55 @@ describe('job gate: a job never runs twice at once in one process (#34)', () => 
     await gate.stop();
   });
 });
+
+// Batch 4b (review of 4a, M6): a run that never finishes keeps its job from starting again in this process — so
+// such a run is reported (a warning line, once per run) when it has gone on far longer than its interval. It is
+// never stopped: a slow run may be doing real work.
+describe('job gate: a run going on far longer than its interval is reported, never stopped', () => {
+  it('warns once — naming the job and how long it has run — when a run passes 3× its interval (at least 5 minutes)', async () => {
+    vi.useFakeTimers();
+    const warned: { message: string; meta?: Record<string, unknown> }[] = [];
+    const gate = createJobGate({ probe: async () => {}, warn: (message, meta) => warned.push({ message, meta }) });
+    let finish!: () => void;
+    const started = vi.fn();
+    // A plain named function, as the server's jobs are (`const runDailyTaskEmails = () => …`).
+    const runDailyTaskEmails = () => {
+      started();
+      return new Promise<void>((r) => (finish = r));
+    };
+    gate.every(60_000, runDailyTaskEmails);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(started).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(4 * 60_000); // 4 minutes: under the 5-minute floor
+    expect(warned).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(2 * 60_000); // 6 minutes
+    expect(warned).toHaveLength(1);
+    expect(warned[0]!.message).toMatch(/still running/i);
+    expect(warned[0]!.meta).toMatchObject({ job: 'runDailyTaskEmails', everyMs: 60_000 });
+    expect(Number(warned[0]!.meta!.runningForMs)).toBeGreaterThanOrEqual(5 * 60_000);
+    await vi.advanceTimersByTimeAsync(30 * 60_000);
+    expect(warned).toHaveLength(1); // once per run
+    expect(started).toHaveBeenCalledTimes(1); // never a second run beside it, never stopped
+    finish();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(started).toHaveBeenCalledTimes(2);
+    await gate.stop();
+  });
+
+  it('a long job (6 hours) is warned about only past 3× its own interval; a normal run never', async () => {
+    vi.useFakeTimers();
+    const warned: string[] = [];
+    const gate = createJobGate({ probe: async () => {}, warn: (m) => warned.push(m) });
+    const quick = vi.fn(async () => {});
+    gate.every(60_000, quick, { name: 'quick' });
+    let finish!: () => void;
+    const slow = vi.fn(() => new Promise<void>((r) => (finish = r)));
+    gate.every(6 * 60 * 60_000, slow, { name: 'training-starter' });
+    await vi.advanceTimersByTimeAsync(17 * 60 * 60_000);
+    expect(warned).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(2 * 60 * 60_000);
+    expect(warned).toHaveLength(1);
+    finish();
+    await gate.stop();
+  });
+});

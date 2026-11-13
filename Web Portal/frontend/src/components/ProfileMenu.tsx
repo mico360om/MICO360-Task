@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { personInitials } from '../lib/initials';
 import { ownName, useOwnUserRefresh } from '../lib/own-user';
@@ -7,11 +7,33 @@ import { useAuthStore } from '../stores/auth-store';
 import { useSignOut } from '../lib/useSignOut';
 import { SignOutWarning } from './SignOutWarning';
 import { ShortcutHint, useShortcutSettings } from './shortcuts/ShortcutProvider';
-import { MANAGER_VIEW_WORDS, useManagerView, useSetManagerView } from '../lib/manager-view';
+import { MANAGER_VIEW_WORDS, useEffectiveAdmin, useManagerView, useSetManagerView } from '../lib/manager-view';
+import { ACCOUNT_MENU_PAGES } from './Sidebar';
 import { useTourStore } from './training/tour-store';
 
-/** Header account button + dropdown menu: identity, profile, settings, the tour of the site and log out. */
-export function ProfileMenu() {
+/** The account menu's small icons (16 px, the menu's own stroke). */
+function MenuIcon({ children }: { children: ReactNode }) {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {children}
+    </svg>
+  );
+}
+
+export interface ProfileMenuProps {
+  /**
+   * Runs a project (or is an administrator): the Recycle Bin is theirs (the app shell's useManagementLink, the
+   * Management page's people). Default: an administrator.
+   */
+  canLead?: boolean;
+}
+
+/**
+ * Header account button + dropdown menu: identity, profile, settings, the tour of the site and log out. Owner, 13 Nov: also the
+ * Recycle Bin (administrators and the people who run a project, as its menu link was) and the Error Log and
+ * Audit Logs (the Admin group's people: administrators, while Manager View is off) — moved from the left menu.
+ */
+export function ProfileMenu({ canLead }: ProfileMenuProps = {}) {
   const { user, isAdmin } = useAuthStore();
   const [open, setOpen] = useState(false);
   const { openHelp } = useShortcutSettings();
@@ -28,6 +50,9 @@ export function ProfileMenu() {
   const managerView = useManagerView();
   const setManagerView = useSetManagerView();
   const [switchFailed, setSwitchFailed] = useState(false);
+  // The pages that left the left menu (owner, 13 Nov), for the same people as before.
+  const adminPages = useEffectiveAdmin();
+  const bin = admin || canLead === true;
 
   useEffect(() => {
     if (!open) cancel();
@@ -102,6 +127,18 @@ export function ProfileMenu() {
               </svg>
               Settings
             </Link>
+            {bin || adminPages ? (
+              <>
+                <div role="separator" className="my-1 border-t border-line" />
+                {[...(bin ? [ACCOUNT_MENU_PAGES.recycleBin] : []), ...(adminPages ? [ACCOUNT_MENU_PAGES.errorLog, ACCOUNT_MENU_PAGES.auditLogs] : [])].map((page) => (
+                  <Link key={page.to} to={page.to} role="menuitem" onClick={() => setOpen(false)} className={itemClass}>
+                    <MenuIcon>{page.icon}</MenuIcon>
+                    {page.label}
+                  </Link>
+                ))}
+                <div role="separator" className="my-1 border-t border-line" />
+              </>
+            ) : null}
             <button
               type="button"
               role="menuitem"

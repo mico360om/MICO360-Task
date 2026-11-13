@@ -286,6 +286,24 @@ describe('Meeting routes — who may change a meeting (SEC-06)', () => {
     expect((await app.inject({ method: 'POST', url: `/api/v1/meetings/${id}/cancel`, headers: await as('u1') })).json().data.canEdit).toBe(true);
   });
 
+  it('N4 (owner, 13 Nov): a duplicated meeting belongs to the person who made the copy — the original organizer has no organizer rights over it', async () => {
+    const app = await makeTeamApp();
+    const id = await projectMeeting(app); // organized by u1 in p1; u2 is a member, pm manages p1
+    const copy = await app.inject({ method: 'POST', url: `/api/v1/meetings/${id}/duplicate`, headers: await as('u2') });
+    expect(copy.statusCode).toBe(201);
+    const copyId = copy.json().data.id as string;
+    expect(copy.json().data).toMatchObject({ title: 'Copy of Planning', status: 'DRAFT', organizerId: 'u2', createdById: 'u2', canEdit: true });
+    // Invitations from it go out in u2's name; u1 (the original's organizer) only sees it as a project member.
+    const asOriginalOrganizer = await app.inject({ method: 'GET', url: `/api/v1/meetings/${copyId}`, headers: await as('u1') });
+    expect(asOriginalOrganizer.json().data).toMatchObject({ organizerId: 'u2', canEdit: false });
+    expect((await app.inject({ method: 'PUT', url: `/api/v1/meetings/${copyId}`, headers: await as('u1'), payload: { title: 'Taken back' } })).statusCode).toBe(403);
+    expect((await app.inject({ method: 'POST', url: `/api/v1/meetings/${copyId}/invites`, headers: await as('u1') })).statusCode).toBe(403);
+    expect((await app.inject({ method: 'PUT', url: `/api/v1/meetings/${copyId}`, headers: await as('u2'), payload: { title: 'My planning' } })).statusCode).toBe(200);
+    // The project's manager keeps their usual rights; the original meeting is unchanged.
+    expect((await app.inject({ method: 'GET', url: `/api/v1/meetings/${copyId}`, headers: await as('pm') })).json().data.canEdit).toBe(true);
+    expect((await app.inject({ method: 'GET', url: `/api/v1/meetings/${id}`, headers: await as('u1') })).json().data).toMatchObject({ title: 'Planning', organizerId: 'u1', canEdit: true });
+  });
+
   it('flags canEdit per meeting in the list', async () => {
     const app = await makeTeamApp();
     await projectMeeting(app);

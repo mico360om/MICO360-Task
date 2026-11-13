@@ -7,6 +7,7 @@ import type { DataExporter } from './data-export';
 import { zonedDayKey } from '../../lib/due-date';
 import type { AttachmentStorage } from '../tasks/attachment-repository';
 import { storeImageUpload } from '../../lib/image-upload';
+import { removeStoredFile, storedKeyOf } from '../../lib/stored-files';
 import { HttpError, ValidationError } from '../../lib/http-errors';
 import { CLIENT_ROLE, isClientRoles } from '../clients/client-kind';
 import { idString } from '../tasks/validation';
@@ -134,8 +135,11 @@ export interface UserRouteDeps {
   /** File storage for profile images; when absent, the avatar upload endpoint is disabled. */
   storage?: AttachmentStorage;
   avatarMaxBytes?: number;
-  /** Avatar thumbnails: an uploaded photo's face copy is written beside it (never fails the upload). */
-  avatarFaces?: { prepare(url: string, content: Buffer): Promise<void> };
+  /**
+   * Avatar thumbnails: an uploaded photo's face copy is written beside it (never fails the upload); `discard`
+   * (review fix #24) deletes the face copy of a photo that was replaced or removed.
+   */
+  avatarFaces?: { prepare(url: string, content: Buffer): Promise<void>; discard?(url: string): Promise<void> };
   /** "Download my data"; when absent, GET /users/me/export isn't offered. */
   exportData?: DataExporter;
   /** 1.23.29 private file links: the export's task files are signed for the person (working about a day). */
@@ -229,12 +233,29 @@ export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDe
     return { data: { id: u.id, email: u.email, username: u.username, firstName: u.firstName, lastName: u.lastName, roles: u.roles, avatarUrl: u.avatarUrl } };
   });
 
+  /**
+   * Review fixes #23/#24: a photo nobody uses any more — replaced, removed, or never saved to the account — and
+   * its face copy are deleted from storage. Best effort: tried again, then logged; never fails the request.
+   */
+  async function dropPhoto(req: FastifyRequest, url: string | null | undefined, what: string): Promise<void> {
+    const key = storedKeyOf(url);
+    if (!key || !url) return;
+    const logger = { warn: (message: string, context?: Record<string, unknown>) => req.log.warn(context ?? {}, message) };
+    try {
+      if (deps.storage) await removeStoredFile(deps.storage, key, { logger, what });
+      await deps.avatarFaces?.discard?.(url);
+    } catch (err) {
+      logger.warn('A profile photo’s face copy could not be deleted; it is still on disk', { url, err });
+    }
+  }
+
   // Upload / remove the signed-in user's profile image (any authenticated user, self only).
   app.post('/users/me/avatar', { preHandler: guard.authenticate }, async (req) => {
     if (!deps.storage) throw new ValidationError('Uploads are not enabled.');
     const file = await req.file();
     if (!file) throw new ValidationError('No file uploaded.');
     const content = await file.toBuffer();
+    const before = (await userService.getUser(req.user!.id)).avatarUrl;
     const { url } = await storeImageUpload(
       deps.storage,
       { filename: file.filename, mimeType: file.mimetype, content },
@@ -242,13 +263,23 @@ export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDe
     );
     // The faces' small copy, from the same bytes (an older photo gets one when first asked for).
     await deps.avatarFaces?.prepare(url, content);
-    const user = await userService.setAvatar(req.user!.id, url);
+    let user;
+    try {
+      user = await userService.setAvatar(req.user!.id, url);
+    } catch (err) {
+      await dropPhoto(req, url, 'a profile photo that could not be saved to the account');
+      throw err;
+    }
+    // #24: the photo it replaces is no longer used anywhere (avatar addresses are never copied elsewhere).
+    if (before && before !== user.avatarUrl) await dropPhoto(req, before, 'a replaced profile photo');
     await logAudit(req, 'user.avatar.set', user.id);
     return { data: user };
   });
 
   app.delete('/users/me/avatar', { preHandler: guard.authenticate }, async (req) => {
+    const before = (await userService.getUser(req.user!.id)).avatarUrl;
     const user = await userService.setAvatar(req.user!.id, null);
+    if (before && before !== user.avatarUrl) await dropPhoto(req, before, 'a removed profile photo');
     await logAudit(req, 'user.avatar.clear', user.id);
     return { data: user };
   });

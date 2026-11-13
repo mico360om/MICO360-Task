@@ -11,6 +11,7 @@ import type { AttachmentStorage } from '../tasks/attachment-repository';
 import type { ActivityService } from '../activity/activity-service';
 import type { OnProjectAudienceChanged, ProjectCompanies } from '../companies/project-companies';
 import { storeImageUpload } from '../../lib/image-upload';
+import { removeStoredFile } from '../../lib/stored-files';
 import { ForbiddenError, ValidationError } from '../../lib/http-errors';
 import { computeProjectProgress, type ProgressTask } from './project-progress';
 import { buildProjectOverview, type ProjectOverviewSource } from './project-overview';
@@ -274,6 +275,11 @@ export async function registerProjectRoutes(app: FastifyInstance, deps: ProjectR
     return { data: await withCanManage(user, project) };
   });
 
+  /** Review fix #23: a picture nobody uses is deleted — tried again, then logged; never failing the request. */
+  const dropPicture = async (req: FastifyRequest, key: string, what: string) => {
+    if (deps.storage) await removeStoredFile(deps.storage, key, { logger: { warn: (m, c) => req.log.warn(c ?? {}, m) }, what });
+  };
+
   // Upload / remove a project image (whoever may change the project, as for its other details).
   app.post('/projects/:id/image', { preHandler: guard.authenticate }, async (req) => {
     if (!deps.storage) throw new ValidationError('Uploads are not enabled.');
@@ -282,15 +288,22 @@ export async function registerProjectRoutes(app: FastifyInstance, deps: ProjectR
     const file = await req.file();
     if (!file) throw new ValidationError('No file uploaded.');
     const content = await file.toBuffer();
-    const { url } = await storeImageUpload(
+    const { url, storageKey } = await storeImageUpload(
       deps.storage,
       { filename: file.filename, mimeType: file.mimetype, content },
       { ...PROJECT_IMAGE_RULES, maxBytes: Math.min(PROJECT_IMAGE_RULES.maxBytes, deps.imageMaxBytes ?? PROJECT_IMAGE_RULES.maxBytes) },
     );
-    const updated = await projectService.updateProject(id, { imageUrl: url });
+    let updated;
+    try {
+      updated = await projectService.updateProject(id, { imageUrl: url });
+    } catch (err) {
+      // Review fix #23: the project couldn't be saved with it — the new file isn't left on disk.
+      await dropPicture(req, storageKey, 'a project picture that could not be saved');
+      throw err;
+    }
     // The picture it replaces is no longer used anywhere.
     const old = storedKey(before.imageUrl);
-    if (old) await deps.storage.remove(old).catch(() => {});
+    if (old) await dropPicture(req, old, 'a replaced project picture');
     await logAudit(req, 'project.image.set', id);
     return { data: await withCanManage(viewer(req), updated) };
   });
@@ -300,7 +313,7 @@ export async function registerProjectRoutes(app: FastifyInstance, deps: ProjectR
     const before = await projectToChange(req, id);
     const updated = await projectService.updateProject(id, { imageUrl: null });
     const old = storedKey(before.imageUrl);
-    if (old && deps.storage) await deps.storage.remove(old).catch(() => {});
+    if (old) await dropPicture(req, old, 'a removed project picture');
     await logAudit(req, 'project.image.clear', id);
     return { data: await withCanManage(viewer(req), updated) };
   });
