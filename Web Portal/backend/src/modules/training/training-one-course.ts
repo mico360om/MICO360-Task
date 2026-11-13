@@ -13,6 +13,7 @@ import { retakeActive } from './training-state';
 import { createTrainingSync, type TrainingSync } from './training-sync';
 import { assigneeDueDay, reaches, type AssignmentFacts } from './training-targets';
 import { applyStarterLessons, normalizeStarterCourse, pictureMimeOf, readStarterAsset, starterAssetsDir, STARTER_REVISION_KEY, untouchedStarter } from './training-starter';
+import { ONE_COURSE_KEY } from './training-types';
 
 /**
  * Learning Hub as one course (1.23.31): the one-time conversion of a site that has the built-in short courses of
@@ -46,7 +47,6 @@ import { applyStarterLessons, normalizeStarterCourse, pictureMimeOf, readStarter
  * createMany skipping duplicates), never update()/upsert(); no isolation level is ever set.
  */
 
-export const ONE_COURSE_KEY = 'training.oneCourse';
 const LOCK = 'training-one-course';
 /** The content transaction writes the whole course: more time than the sentinel lock's default. */
 const CONTENT_TIMEOUT_MS = 120_000;

@@ -27,6 +27,7 @@ import {
   GROUP_LABELS,
   LESSON_KINDS,
   LIMITS,
+  ONE_COURSE_KEY,
   QUESTION_KINDS,
   ROLE_KEYS,
   RULE_TARGET_KINDS,
@@ -297,9 +298,6 @@ function chunks<T>(list: readonly T[], size = 300): T[][] {
   for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size));
   return out;
 }
-
-/** The one-course conversion's record (training-one-course's ONE_COURSE_KEY): its edited short courses get Manage's notice. */
-const ONE_COURSE_KEY = 'training.oneCourse';
 
 /** `oneCourseKey`: the conversion record's settings key (tests use their own). */
 export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync, o: { oneCourseKey?: string } = {}) {

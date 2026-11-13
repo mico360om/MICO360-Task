@@ -17,6 +17,7 @@ import {
   DIFFICULTIES,
   FEEDBACK_KINDS,
   LIMITS,
+  ONE_COURSE_KEY,
   TRAINING_MODULES,
   type AttemptPaper,
   type AttemptResult,
@@ -136,7 +137,6 @@ function lessonModuleId(s: PairState, lessonId: string): string | null {
 }
 
 const MOVED_WORDS = 'This course is now part of MICO360 Tasks User Training.';
-const ONE_COURSE_KEY = 'training.oneCourse';
 
 // ── Pure helpers ──────────────────────────────────────────────────────────────────────────────────
 

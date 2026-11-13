@@ -1,5 +1,8 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { assigneeDueOf, mergedDue, mergedRuleCourses } from './training-one-course';
+import * as types from './training-types';
 
 // The one-course conversion's date rules (D2 and the lane ruling), pure.
 describe('mergedDue (D2: one assignment per target)', () => {
@@ -43,5 +46,16 @@ describe('mergedRuleCourses (a rule naming short courses names the one course)',
   });
   it('null when the rule names none of them', () => {
     expect(mergedRuleCourses(['x', 'y'], new Set(['a']), 'one')).toBeNull();
+  });
+});
+
+describe('the conversion record’s settings key', () => {
+  it('is written out once (training-types ONE_COURSE_KEY) and imported everywhere else', () => {
+    expect(types.ONE_COURSE_KEY).toBe('training.oneCourse');
+    // A string literal (comments name it in backticks).
+    const spelled = readdirSync(__dirname)
+      .filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'))
+      .filter((f) => /['"]training\.oneCourse['"]/.test(readFileSync(join(__dirname, f), 'utf8')));
+    expect(spelled).toEqual(['training-types.ts']);
   });
 });

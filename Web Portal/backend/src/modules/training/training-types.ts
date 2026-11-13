@@ -4,6 +4,12 @@
  * compares the constant lists). Rulings: .superpowers/train/progress.md.
  */
 
+/**
+ * The one-course conversion's record in system settings (training-one-course.ts writes it; the learner and Manage read
+ * it). Server-only, so it sits above the part the website copies.
+ */
+export const ONE_COURSE_KEY = 'training.oneCourse';
+
 export const TRAINING_MODULES = [
   'tasks',
   'board',
