@@ -30,7 +30,8 @@ export function UpdateToast({ watcher = pageUpdateWatcher(), reload = reloadPage
   const [laterFor, setLaterFor] = useState<string | null>(null);
   if (!newer || idOf(newer) === laterFor) return null;
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-[55] flex justify-center px-3">
+    // Under open dialogs (z-50): a form being filled in covers it, so Refresh is never tapped mid-form.
+    <div className="pointer-events-none fixed inset-x-0 bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-[45] flex justify-center px-3">
       <div
         role="status"
         aria-live="polite"

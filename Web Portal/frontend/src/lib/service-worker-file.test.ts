@@ -14,7 +14,7 @@ interface FakeRequest {
   mode: string;
 }
 
-function worker(opts: { kill?: boolean; net?: Net } = {}) {
+function worker(opts: { kill?: boolean; net?: Net; putFails?: boolean } = {}) {
   let net: Net = opts.net ?? (() => new Response('nothing', { status: 404 }));
   const fetched: string[] = [];
   const stores = new Map<string, Map<string, Response>>();
@@ -27,7 +27,10 @@ function worker(opts: { kill?: boolean; net?: Net } = {}) {
     const m = stores.get(name)!;
     return {
       match: async (k: string | FakeRequest) => m.get(keyOf(k))?.clone(),
-      put: async (k: string | FakeRequest, res: Response) => void m.set(keyOf(k), res),
+      put: async (k: string | FakeRequest, res: Response) => {
+        if (opts.putFails) throw new DOMException('quota', 'QuotaExceededError');
+        m.set(keyOf(k), res);
+      },
       keys: async () => [...m.keys()].map((url) => ({ url: `${ORIGIN}${url}` })),
       delete: async (k: string | FakeRequest) => m.delete(keyOf(k)),
     };
@@ -236,6 +239,70 @@ describe('the service worker (public/sw.js)', () => {
     expect(await (await w.request('/offline.html', { mode: 'navigate' }))!.text()).toContain('offline');
     w.setNet(offline);
     expect(await (await w.request('/inspections/i1', { mode: 'navigate' }))!.text()).toContain('app');
+  });
+
+  // Review (13 Nov): a new worker installing while a page of the older build is open (the browser's own
+  // update check) must not swap the last good page for the new build's: the open page's code is what was
+  // kept, and an inspection reloaded offline must find it. The next real page load updates it.
+  it('installing again keeps the last good page there is (its files still fetched); the first install keeps one', async () => {
+    const w = worker({ net: (url) => (url.endsWith('/') ? html('<title>new</title><script type="module" src="/assets/index-new.js"></script>') : js()) });
+    w.stores.set('mico360-shell-v2', new Map([['/__mico360-shell__', html('<title>old</title>')]]));
+    await w.lifecycle('install');
+    expect(await w.stores.get('mico360-shell-v2')!.get('/__mico360-shell__')!.clone().text()).toContain('old');
+    expect([...w.stores.get('mico360-assets-v2')!.keys()]).toContain('/assets/index-new.js');
+    // A last good page kept by the older worker (v1) counts too (activate carries it over).
+    const older = worker({ net: (url) => (url.endsWith('/') ? html('<title>new</title>') : js()) });
+    older.stores.set('mico360-shell-v1', new Map([['/__mico360-shell__', html('<title>old</title>')]]));
+    await older.lifecycle('install');
+    expect(older.stores.get('mico360-shell-v2')!.has('/__mico360-shell__')).toBe(false);
+  });
+
+  // Review (13 Nov): the cache rename (v1 → v2) must not lose what the older worker kept — the last good
+  // page and the app's files (a page loaded just before the new worker took over put its code in v1).
+  it('on activate carries the last good page and the kept /assets/ from its older caches, then removes them', async () => {
+    const w = worker();
+    w.stores.set('mico360-shell-v1', new Map([['/__mico360-shell__', html('<title>old</title>')]]));
+    w.stores.set('mico360-assets-v1', new Map([['/assets/InspectionPage-n.js', js('n')], ['/assets/index-n.js', js('i')]]));
+    w.stores.set('mico360-shell-v2', new Map([['/offline.html', html('<title>offline</title>')]]));
+    w.stores.set('mico360-assets-v2', new Map([['/assets/index-n.js', js('i2')]]));
+    await w.lifecycle('activate');
+    expect([...w.stores.keys()].sort()).toEqual(['mico360-assets-v2', 'mico360-shell-v2']);
+    expect(await w.stores.get('mico360-shell-v2')!.get('/__mico360-shell__')!.clone().text()).toContain('old');
+    expect([...w.stores.get('mico360-assets-v2')!.keys()].sort()).toEqual(['/assets/InspectionPage-n.js', '/assets/index-n.js']);
+    // What the new caches already hold wins.
+    expect(await w.stores.get('mico360-assets-v2')!.get('/assets/index-n.js')!.clone().text()).toBe('i2');
+    const kept = worker();
+    kept.stores.set('mico360-shell-v1', new Map([['/__mico360-shell__', html('<title>old</title>')]]));
+    kept.stores.set('mico360-shell-v2', new Map([['/__mico360-shell__', html('<title>current</title>')]]));
+    await kept.lifecycle('activate');
+    expect(await kept.stores.get('mico360-shell-v2')!.get('/__mico360-shell__')!.clone().text()).toContain('current');
+  });
+
+  it('a kept file the cache refuses to store (full) is still answered from the network', async () => {
+    const w = worker({ net: () => js('fresh'), putFails: true });
+    expect(await (await w.request('/manifest.webmanifest'))!.text()).toBe('fresh');
+  });
+
+  // Review (13 Nov): the last good page is kept without the address it came from (a password-reset link's
+  // token in /reset?token=… must not stay in the cache's records).
+  it('keeps the last good page without the address it was loaded from', async () => {
+    const w = worker({
+      net: (url) => {
+        // A browser's answer knows its address, and so does its copy.
+        const withUrl = (r: Response): Response => {
+          const clone = r.clone.bind(r);
+          Object.defineProperty(r, 'url', { value: url });
+          Object.defineProperty(r, 'clone', { value: () => withUrl(clone()) });
+          return r;
+        };
+        return withUrl(html('<title>app</title>'));
+      },
+    });
+    const page = await w.request('/reset?token=secret-token', { mode: 'navigate' });
+    expect(await page!.text()).toContain('app');
+    const kept = w.stores.get('mico360-shell-v2')!.get('/__mico360-shell__')!;
+    expect(kept.url).not.toContain('secret-token');
+    expect(kept.headers.get('content-type')).toMatch(/text\/html/);
   });
 
   it('the never list is unchanged by v2 (the API, client pages, uploads, downloads, realtime, email pictures)', () => {

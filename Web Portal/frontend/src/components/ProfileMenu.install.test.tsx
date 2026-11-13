@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { AddToHomeScreenGuide } from './install/AddToHomeScreenGuide';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ProfileMenu } from './ProfileMenu';
@@ -10,7 +11,7 @@ import { resetInstallAppForTests, startInstallApp, type InstallWorld } from '../
 // can be installed here.
 const me = { id: 'u1', email: 'aisha@x.co', username: 'aisha', roles: ['EMPLOYEE'], firstName: 'Aisha', lastName: 'Khan', avatarUrl: null };
 
-function device(over: Partial<InstallWorld> = {}) {
+function device(over: Partial<InstallWorld> = {}, browserOffers = true) {
   const listeners: Record<string, ((e: unknown) => void)[]> = {};
   const prompt = vi.fn(async () => undefined);
   startInstallApp({
@@ -22,7 +23,7 @@ function device(over: Partial<InstallWorld> = {}) {
     now: () => Date.UTC(2026, 10, 13),
     ...over,
   });
-  (listeners.beforeinstallprompt ?? []).forEach((fn) => fn({ preventDefault: () => {}, prompt, userChoice: Promise.resolve({ outcome: 'accepted' }) }));
+  if (browserOffers) (listeners.beforeinstallprompt ?? []).forEach((fn) => fn({ preventDefault: () => {}, prompt, userChoice: Promise.resolve({ outcome: 'accepted' }) }));
   return { prompt };
 }
 
@@ -61,6 +62,19 @@ describe('the account menu’s Install App', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: 'Install App' }));
     expect(prompt).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  // Review (13 Nov): the guide opened from the menu outlives it; closing it puts the keyboard back on the
+  // account button (the menu item it came from is gone).
+  it('iPhone: the guide opened from the menu closes back to the account button', async () => {
+    device({ navigator: { userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1', platform: 'iPhone', maxTouchPoints: 5 } }, false);
+    show();
+    render(<AddToHomeScreenGuide />);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Install App' }));
+    expect(screen.queryByRole('menu')).toBeNull();
+    const guide = await screen.findByRole('dialog', { name: 'Add MICO360 Tasks to your Home Screen' });
+    fireEvent.click(within(guide).getByRole('button', { name: 'Done' }));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Account menu' })));
   });
 
   it('not there when the site runs installed', () => {

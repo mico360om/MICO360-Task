@@ -70,13 +70,11 @@ describe('noticing a newer version before anything fails', () => {
     let tick: () => void = () => {};
     const assigned: string[] = [];
     const store = new Map<string, string>();
-    const checkWorker = vi.fn();
     const w = createUpdateWatcher({
       running: RUNNING,
       deployed: over.deployed ?? (async () => NEWER),
       onFocus: (cb) => ((focus = cb), () => {}),
       onVisible: (cb) => ((visible = cb), () => {}),
-      checkWorker,
       every: (ms, cb) => {
         expect(ms).toBe(10 * 60_000);
         tick = cb;
@@ -88,21 +86,19 @@ describe('noticing a newer version before anything fails', () => {
       memory: new Set(),
     });
     w.start();
-    return { w, focus: () => focus(), visible: () => visible(), tick: () => tick(), assigned, checkWorker };
+    return { w, focus: () => focus(), visible: () => visible(), tick: () => tick(), assigned };
   }
 
   // PWA (13 Nov): an installed app has no reload button and is mostly brought back, not focused: coming
-  // back to it checks too, and every check also asks the browser for a new service worker (sw.js).
-  it('coming back to the app checks too, and each check asks for a new service worker', async () => {
+  // back to it checks too. (The service worker itself is checked by the browser at page loads only.)
+  it('coming back to the app checks too', async () => {
     let deployed = RUNNING;
-    const { w, visible, checkWorker } = watcher({ deployed: async () => deployed });
+    const { w, visible } = watcher({ deployed: async () => deployed });
     await new Promise((r) => setTimeout(r, 0));
     expect(w.stale).toBe(false);
     deployed = NEWER;
     visible();
     await vi.waitFor(() => expect(w.stale).toBe(true));
-    // The check at the start, and this one.
-    expect(checkWorker).toHaveBeenCalledTimes(2);
   });
 
   it('tells whoever listens (the update notice) once per newer version', async () => {
@@ -134,9 +130,8 @@ describe('noticing a newer version before anything fails', () => {
   // As the footer's banner did before it: a page opened from an older copy (the browser's cache, the
   // worker's last good page) says so at once, without waiting for focus or the interval.
   it('looks once when it starts', async () => {
-    const { w, checkWorker } = watcher();
+    const { w } = watcher();
     await vi.waitFor(() => expect(w.stale).toBe(true));
-    expect(checkWorker).toHaveBeenCalledTimes(1);
   });
 
   it('a check that fails (no signal) changes nothing and asks again next time', async () => {

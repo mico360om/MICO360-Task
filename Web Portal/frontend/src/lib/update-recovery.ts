@@ -15,9 +15,8 @@ import { isStaleBundle, RUNNING_BUILD, type WebBuild } from './release';
  *  - avoid: check build-info.json on window focus and every 10 minutes; once a newer build is found, the
  *    next move to another page is a full page load there instead of a client-side one — never while
  *    someone is typing.
- *  - say (installable website, 13 Nov 2026): coming back to the page checks too, each check also asks the
- *    browser for a new service worker, and the update notice (components/UpdateToast) is told once per
- *    newer build: "A new version of MICO360 Tasks is ready" — Refresh or Later. An installed app has no
+ *  - say (installable website, 13 Nov 2026): a check at the start and when the page is shown again too,
+ *    and the update notice (components/UpdateToast) is told once per newer build: "A new version of MICO360 Tasks is ready" — Refresh or Later. An installed app has no
  *    reload button: this is how people there update.
  */
 
@@ -151,8 +150,6 @@ export interface WatchWorld {
   onFocus: (cb: () => void) => () => void;
   /** The page shown again (an installed app brought back, a phone tab reopened). */
   onVisible?: (cb: () => void) => () => void;
-  /** Ask the browser to look for a new service worker (sw.js) now. */
-  checkWorker?: () => void;
   every: (ms: number, cb: () => void) => () => void;
   /** Is someone typing (a text field or editor has focus)? */
   typing: () => boolean;
@@ -168,11 +165,8 @@ export function createUpdateWatcher(w: WatchWorld) {
   let stops: (() => void)[] = [];
   const listeners = new Set<() => void>();
   async function check(): Promise<void> {
-    try {
-      w.checkWorker?.();
-    } catch {
-      // The worker's own check is a bonus; build-info.json decides.
-    }
+    // build-info.json only: the service worker (sw.js) is still checked by the browser at page loads, as
+    // since 1.17 — never mid-session, so a page's last good copy is never swapped under it (review, 13 Nov).
     const deployed = await w.deployed().catch(() => null);
     if (deployed && isStaleBundle(w.running, deployed) && (!newer || idOf(newer) !== idOf(deployed))) {
       newer = deployed;
@@ -263,12 +257,6 @@ export function startUpdateWatcher(): void {
       };
       document.addEventListener('visibilitychange', onChange);
       return () => document.removeEventListener('visibilitychange', onChange);
-    },
-    checkWorker: () => {
-      void navigator.serviceWorker
-        ?.getRegistration?.()
-        .then((reg) => reg?.update())
-        .catch(() => undefined);
     },
     typing: () => someoneTyping(),
     assign: (url) => {

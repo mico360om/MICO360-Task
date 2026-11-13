@@ -12,7 +12,10 @@ export function InstallAppMenuItem({ className, onDone }: { className: string; o
     <button
       type="button"
       role="menuitem"
-      onClick={() => {
+      onClick={(e) => {
+        // The keyboard goes back to the account button: the iPhone/iPad guide outlives this menu, and closes
+        // back to whatever had focus when it opened.
+        e.currentTarget.closest('[role="menu"]')?.parentElement?.querySelector<HTMLElement>('[aria-haspopup="menu"]')?.focus();
         // The browser's install window must open within the click: install() asks for it at once.
         void install();
         onDone();

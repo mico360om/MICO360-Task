@@ -82,17 +82,57 @@ async function cacheAssets(urls) {
   await trimAssets();
 }
 
-/** The page as it is now, and the files it loads first (so a first visit can already load again offline). */
+/**
+ * The page kept as the last good page, without the address it came from (a password-reset link's token
+ * in /reset?token=… is never kept with it).
+ */
+async function pageCopy(res) {
+  return new Response(await res.clone().arrayBuffer(), { status: res.status, statusText: res.statusText, headers: res.headers });
+}
+
+/**
+ * The page as it is now, and the files it loads first (so a first visit can already load again offline).
+ * A last good page kept already stays: a worker installing while a page of the older build is open must
+ * not swap it for the new build's (the open page's code is what was kept); the next page load updates it.
+ */
 async function cacheShell() {
   try {
     const res = await fetch('/', { cache: 'no-store', credentials: 'same-origin' });
     if (!res.ok) return;
     const html = await res.clone().text();
-    await (await caches.open(SHELL_CACHE)).put(SHELL_KEY, res);
+    if (!(await caches.match(SHELL_KEY))) await (await caches.open(SHELL_CACHE)).put(SHELL_KEY, await pageCopy(res));
     await cacheAssets(assetsIn(html));
   } catch {
     /* no signal while installing: kept on the next page load */
   }
+}
+
+/**
+ * Before an older version's caches go (v1 → v2): its last good page and its app files come along, so
+ * the rename loses nothing a page opened before it needs offline. What the current caches hold wins.
+ */
+async function carryOver(name) {
+  let carried = 0;
+  try {
+    const assets = name.startsWith(`${PREFIX}assets-`);
+    if (!assets && !name.startsWith(`${PREFIX}shell-`)) return 0;
+    const old = await caches.open(name);
+    let target = null;
+    for (const request of await old.keys()) {
+      const path = new URL(request.url, self.location.origin).pathname;
+      if (assets ? !isAsset(path) : path !== SHELL_KEY) continue;
+      target ??= await caches.open(assets ? ASSET_CACHE : SHELL_CACHE);
+      if (await target.match(path)) continue;
+      const res = await old.match(request);
+      if (res) {
+        await target.put(path, res);
+        if (assets) carried += 1;
+      }
+    }
+  } catch {
+    /* an older cache that can't be read is simply removed */
+  }
+  return carried;
 }
 
 /** The offline page, the manifest and the icons, fetched fresh; one that can't be fetched now is skipped. */
@@ -118,7 +158,7 @@ async function pageLoad(request) {
     const res = await fetch(request);
     const type = res.headers.get('content-type') || '';
     if (res.ok && type.includes('text/html')) {
-      await (await caches.open(SHELL_CACHE)).put(SHELL_KEY, res.clone());
+      await (await caches.open(SHELL_CACHE)).put(SHELL_KEY, await pageCopy(res));
       return res;
     }
     // The server answered, but not with the app (a proxy's 502 page while it restarts): the last good
@@ -143,7 +183,13 @@ async function keptFile(request) {
   const path = new URL(request.url).pathname;
   try {
     const res = await fetch(request);
-    if (res.ok) await (await caches.open(SHELL_CACHE)).put(path, res.clone());
+    if (res.ok) {
+      try {
+        await (await caches.open(SHELL_CACHE)).put(path, res.clone());
+      } catch {
+        /* the cache is full or refuses it: the network's answer all the same */
+      }
+    }
     return res;
   } catch (err) {
     const kept = await (await caches.open(SHELL_CACHE)).match(path);
@@ -199,7 +245,13 @@ self.addEventListener('activate', (event) => {
         return;
       }
       const keep = new Set([SHELL_CACHE, ASSET_CACHE]);
-      for (const name of await caches.keys()) if (name.startsWith(PREFIX) && !keep.has(name)) await caches.delete(name);
+      let carried = 0;
+      for (const name of await caches.keys()) {
+        if (!name.startsWith(PREFIX) || keep.has(name)) continue;
+        carried += await carryOver(name);
+        await caches.delete(name);
+      }
+      if (carried) await trimAssets();
       await self.clients.claim();
     })(),
   );

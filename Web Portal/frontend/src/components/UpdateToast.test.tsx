@@ -62,6 +62,17 @@ describe('the update notice (installable website)', () => {
     expect(screen.getByText(/a new version of mico360 tasks is ready/i)).toBeInTheDocument();
   });
 
+  // Review (13 Nov): an open dialog (a form being filled in) covers the notice, so Refresh can't be tapped
+  // by mistake mid-form: under dialogs (z-50), above the page and its menus (z-40).
+  it('sits under open dialogs', async () => {
+    const w = watcher(() => NEWER);
+    const { container } = render(<UpdateToast watcher={w} reload={vi.fn()} />);
+    await act(() => w.check());
+    const layer = container.firstElementChild as HTMLElement;
+    expect(layer.className).toContain('z-[45]');
+    expect(layer.className).not.toMatch(/\bz-(50|\[5\d\]|\[6\d\])/);
+  });
+
   it('without a watcher (tests, a page that has none) it renders nothing', () => {
     const { container } = render(<UpdateToast watcher={null} reload={vi.fn()} />);
     expect(container).toBeEmptyDOMElement();

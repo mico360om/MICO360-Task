@@ -4,12 +4,12 @@ import { useLocation } from 'react-router-dom';
 /**
  * The web app manifest (public/manifest.webmanifest) makes the site installable. It is linked from staff
  * pages only (owner, 13 Nov — P2): a client's pages — the shared client page, its privacy notice and the
- * Client portal — never offer to install. index.html is the same file for every page, so the page links
- * it itself, and unlinks it on a client's page.
+ * Client portal — never offer to install, nor the public certificate check (/verify) outsiders open.
+ * index.html is the same file for every page, so the page links it itself, and unlinks it elsewhere.
  */
 export const MANIFEST_HREF = '/manifest.webmanifest';
 
-const CLIENT_PAGES = [/^\/client(\/|$)/, /^\/privacy\/client\/?$/, /^\/portal(\/|$)/];
+const CLIENT_PAGES = [/^\/client(\/|$)/, /^\/privacy\/client\/?$/, /^\/portal(\/|$)/, /^\/verify(\/|$)/];
 
 export function offersInstall(pathname: string): boolean {
   return !CLIENT_PAGES.some((re) => re.test(pathname));

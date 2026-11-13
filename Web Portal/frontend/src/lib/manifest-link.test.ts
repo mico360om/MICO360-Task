@@ -16,12 +16,14 @@ describe('the manifest is linked from staff pages only (owner P2: no install off
   });
 
   it('a client’s pages never do: the shared client page, its privacy notice and the Client portal', () => {
-    for (const path of ['/client', '/client/abc123', '/privacy/client', '/privacy/client/', '/portal', '/portal/projects/p1']) {
+    // …and the public certificate check (review, 13 Nov: outsiders and clients open it).
+    for (const path of ['/client', '/client/abc123', '/privacy/client', '/privacy/client/', '/portal', '/portal/projects/p1', '/verify', '/verify/ABC-123']) {
       expect(offersInstall(path), path).toBe(false);
     }
     // Only those: a staff page whose name starts the same is still a staff page.
     expect(offersInstall('/clients')).toBe(true);
     expect(offersInstall('/portals')).toBe(true);
+    expect(offersInstall('/verifying')).toBe(true);
   });
 
   it('adds one manifest link and the installed-app tags, once, on a staff page', () => {

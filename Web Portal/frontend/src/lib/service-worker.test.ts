@@ -83,3 +83,15 @@ describe('setting up the service worker', () => {
     expect(await setUpServiceWorker(w.env)).toBe('failed');
   });
 });
+
+// Review (13 Nov): nothing asks the browser for a new service worker mid-session (reg.update()): a worker
+// installing under an open page must not happen outside the browser's own checks at page loads.
+describe('the service worker is only updated at page loads', () => {
+  it('no update() call in the page’s code', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { resolve } = await import('node:path');
+    for (const f of ['update-recovery.ts', 'service-worker.ts']) {
+      expect(readFileSync(resolve(__dirname, f), 'utf8'), f).not.toMatch(/\.update\(\)/);
+    }
+  });
+});
