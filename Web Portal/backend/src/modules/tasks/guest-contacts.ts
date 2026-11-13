@@ -112,7 +112,7 @@ export function isSameGuest(a: GuestLike, b: GuestLike): boolean {
 
 /**
  * The New guest form's check against the company's list: `same` are the same person by the rule above
- * ("Ahmed Al Harthy (OXY) is already on the list — use him?"); `similar` share only the name.
+ * ("Ahmed Al Harthy (Acme) is already on the list — use him?"); `similar` share only the name.
  */
 export function guestMatches<T extends GuestLike>(draft: GuestLike, list: T[]): { same: T[]; similar: T[] } {
   const name = guestTextKey(draft.name);
@@ -131,17 +131,17 @@ export function guestFullness(g: GuestLike): number {
   return [g.company, g.designation, g.email, g.phone].filter((v) => typeof v === 'string' && v.trim() !== '').length;
 }
 
-/** "Ahmed Al Harthy (OXY)", or just the name when there is no company. */
+/** "Ahmed Al Harthy (Acme)", or just the name when there is no company. */
 export function guestLabel(g: { name: string; company?: string | null }): string {
   return g.company ? `${g.name} (${g.company})` : g.name;
 }
 
-/** "Ahmed Al Harthy · OXY · Site engineer": the name, company and designation that are given. */
+/** "Ahmed Al Harthy · Acme · Site engineer": the name, company and designation that are given. */
 export function guestLine(g: GuestLike): string {
   return [g.name, g.company, g.designation].filter((v): v is string => Boolean(v)).join(' · ');
 }
 
-/** The card line: "Guest: Ahmed (OXY)", "Guest: Ahmed (OXY) and 2 more"; null when there are none. */
+/** The card line: "Guest: Ahmed (Acme)", "Guest: Ahmed (Acme) and 2 more"; null when there are none. */
 export function guestsCardLine(guests: { name: string; company?: string | null }[] | null | undefined): string | null {
   const first = guests?.[0];
   if (!first) return null;
@@ -149,7 +149,7 @@ export function guestsCardLine(guests: { name: string; company?: string | null }
   return `Guest: ${guestLabel(first)}${more}`;
 }
 
-/** "with guest Ahmed (OXY)", "with guests Ahmed (OXY) and Sara" — the daily email's words; '' for none. */
+/** "with guest Ahmed (Acme)", "with guests Ahmed (Acme) and Sara" — the daily email's words; '' for none. */
 export function withGuestsText(guests: { name: string; company?: string | null }[] | null | undefined): string {
   const labels = (guests ?? []).map(guestLabel);
   if (labels.length === 0) return '';

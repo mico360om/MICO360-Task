@@ -126,12 +126,12 @@ describe('People: clients (1.23)', () => {
       const u = String(url);
       if (u.endsWith('/me/companies')) return json({ data: { companies: [], primaryCompanyId: null, allArchived: false, siteCompanyCount: 1 } });
       if (u.includes('/meetings/invite-candidates?projectId=p1')) {
-        return json({ data: [{ id: 'cl2', firstName: 'Noor', lastName: 'Said', username: 'noor', avatarUrl: null, client: true, organisation: 'OXY' }, { id: 'u1', firstName: 'Aisha', lastName: 'Khan', username: 'aisha', avatarUrl: null }] });
+        return json({ data: [{ id: 'cl2', firstName: 'Noor', lastName: 'Said', username: 'noor', avatarUrl: null, client: true, organisation: 'Acme' }, { id: 'u1', firstName: 'Aisha', lastName: 'Khan', username: 'aisha', avatarUrl: null }] });
       }
       return json({ data: [] });
     }));
     renderWith([], { projectId: 'p1' });
     await userEvent.click(screen.getByRole('button', { name: 'Team member to add' }));
-    await waitFor(() => expect(within(screen.getByRole('listbox')).getAllByRole('option').map((o) => o.textContent)).toEqual([expect.stringContaining('Aisha Khan'), expect.stringMatching(/Noor Said.*Client · OXY/)]));
+    await waitFor(() => expect(within(screen.getByRole('listbox')).getAllByRole('option').map((o) => o.textContent)).toEqual([expect.stringContaining('Aisha Khan'), expect.stringMatching(/Noor Said.*Client · Acme/)]));
   });
 });

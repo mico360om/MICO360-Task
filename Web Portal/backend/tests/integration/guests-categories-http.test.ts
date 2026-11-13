@@ -57,12 +57,12 @@ const columnOf = async (projectId: string) => (await prisma.kanbanColumn.findFir
 
 describe('guests through the routes', () => {
   it('a member adds a guest to the project’s company list; the same person again is offered back', async () => {
-    const made = await api.post(world.as.ana, `/projects/${world.projects.PA}/guests`, { name: 'Ahmed Al Harthy', company: 'OXY', email: 'ahmed@oxy.com' });
+    const made = await api.post(world.as.ana, `/projects/${world.projects.PA}/guests`, { name: 'Ahmed Al Harthy', company: 'Acme', email: 'ahmed@acme.com' });
     expect(made.statusCode).toBe(201);
-    const again = await api.post(world.as.ana, `/projects/${world.projects.PAB}/guests`, { name: 'ahmed al harthy', company: 'oxy' });
+    const again = await api.post(world.as.ana, `/projects/${world.projects.PAB}/guests`, { name: 'ahmed al harthy', company: 'acme' });
     expect(again.statusCode).toBe(409);
     expect((again.json() as { error: { code: string } }).error.code).toBe('GUEST_DUPLICATE');
-    const check = json<{ same: unknown[] }>(await api.post(world.as.cat, `/projects/${world.projects.PA}/guests/check`, { name: 'Ahmed Al Harthy', email: 'AHMED@oxy.com' }));
+    const check = json<{ same: unknown[] }>(await api.post(world.as.cat, `/projects/${world.projects.PA}/guests/check`, { name: 'Ahmed Al Harthy', email: 'AHMED@acme.com' }));
     expect(check.same).toHaveLength(1);
   });
 
@@ -86,7 +86,7 @@ describe('guests through the routes', () => {
     expect(one.taskGuests[0]).toMatchObject({ guestId: ahmed!.id, note: 'Signs off' });
     // The list filter by guest and by guest company.
     expect(((await api.get(world.as.ana, `/tasks?projectId=${world.projects.PA}&guestId=${ahmed!.id}`)) as { id: string }[]).map((t) => t.id)).toEqual([id]);
-    expect(((await api.get(world.as.ana, `/tasks?projectId=${world.projects.PA}&guestCompany=oxy`)) as { id: string }[]).map((t) => t.id)).toEqual([id]);
+    expect(((await api.get(world.as.ana, `/tasks?projectId=${world.projects.PA}&guestCompany=acme`)) as { id: string }[]).map((t) => t.id)).toEqual([id]);
     // Taking its only team member off is refused while it has the guest.
     const off = await del(world.as.ana, `/tasks/${id}/assignees/${world.people.ana}`);
     expect(off.statusCode).toBe(400);
@@ -123,7 +123,7 @@ describe('guests through the routes', () => {
   });
 
   it('never makes a sign-in: a guest’s email can’t sign in or be found as a user', async () => {
-    expect(await prisma.user.count({ where: { email: 'ahmed@oxy.com' } })).toBe(0);
+    expect(await prisma.user.count({ where: { email: 'ahmed@acme.com' } })).toBe(0);
   });
 });
 

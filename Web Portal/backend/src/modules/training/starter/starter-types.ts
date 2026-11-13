@@ -4,8 +4,8 @@ import type { Audience, CompletionRule, Difficulty, QuestionKind, RoleKey, Train
  * Starter content (owner answer 3): one English course per main module, loaded once by the server
  * (training-starter.ts) and marked with its `key` (training_courses.starterKey) so administrators can tell
  * it apart and edit or unpublish it. Pictures and downloads are files in `backend/assets/training/starter/`
- * (WebP screenshots taken from the real website; the owner's two Canva PDFs), copied into the private
- * training folder when loaded.
+ * (WebP screenshots taken from the real website), copied into the private training folder when loaded.
+ * A course can also list downloads (`resources`); none does since 1.23.25.
  */
 export interface StarterStep {
   title: string;

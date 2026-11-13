@@ -1,7 +1,7 @@
 /**
  * 1.23 Meeting series ("named series" in the code — the word "series" alone means a repeat family
  * here: recurrenceParentId, meeting-series.ts). A named series groups related meetings — made one
- * by one, repeating, or both — under a name ("Monthly OXY review"). It belongs to a project, or (for
+ * by one, repeating, or both — under a name ("Monthly site review"). It belongs to a project, or (for
  * meetings without a project) to a company, and only that project's (company's) meetings are in it.
  * A meeting is in at most one series; each repeat family is always in one.
  *

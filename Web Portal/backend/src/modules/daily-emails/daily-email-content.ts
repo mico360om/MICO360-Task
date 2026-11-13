@@ -82,7 +82,7 @@ export interface DailyTask {
   assignees?: string[];
   /** Its categories (chips: the name, with the category's colour as a dot). */
   categories?: Array<{ name: string; color?: string | null }>;
-  /** Its guests — name and company only (a guest's email or phone is never in an email): "Guest: Ahmed (OXY)". */
+  /** Its guests — name and company only (a guest's email or phone is never in an email): "Guest: Ahmed (Acme)". */
   guests?: Array<{ name: string; company: string | null }>;
 }
 

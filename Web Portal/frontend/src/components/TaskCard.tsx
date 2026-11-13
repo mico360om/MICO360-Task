@@ -54,7 +54,7 @@ export interface TaskCardTask {
   project?: { name: string; code: string; color?: string | null; icon?: string | null; imageUrl?: string | null };
   /** Its external contacts in short — the guests line's words when an older server sends no `guests`; null or absent for none. */
   external?: ExternalContactSummary | null;
-  /** 1.24: its guests ("Guest: Ahmed (OXY) and 2 more"), in order. */
+  /** 1.24: its guests ("Guest: Ahmed (Acme) and 2 more"), in order. */
   guests?: { id: string; name: string; company?: string | null }[] | null;
   /** 1.24: its categories, in its project's order (Compact 1, Comfortable 2, Detailed all + "+N"). */
   categories?: CategoryChipData[] | null;

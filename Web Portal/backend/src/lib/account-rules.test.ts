@@ -3,8 +3,8 @@ import { accountProblems, emailKey, emailProblem, organisationProblem, phoneProb
 
 describe('Account detail rules (server and website alike)', () => {
   it('emails compare trimmed and case-insensitive', () => {
-    expect(sameEmail(' Ahmed@OXY.com ', 'ahmed@oxy.com')).toBe(true);
-    expect(sameEmail('ahmed@oxy.com', 'ahmed@oxy.co')).toBe(false);
+    expect(sameEmail(' Ahmed@Acme.com ', 'ahmed@acme.com')).toBe(true);
+    expect(sameEmail('ahmed@acme.com', 'ahmed@acme.co')).toBe(false);
     expect(emailKey('  A@B.C ')).toBe('a@b.c');
   });
 
@@ -30,7 +30,7 @@ describe('Account detail rules (server and website alike)', () => {
   it('organisation: required for a client, never for staff', () => {
     expect(organisationProblem('', true)).toBe(PROBLEM_WORDS.organisation);
     expect(organisationProblem('  ', true)).toBe(PROBLEM_WORDS.organisation);
-    expect(organisationProblem('OXY', true)).toBeNull();
+    expect(organisationProblem('Acme', true)).toBeNull();
     expect(organisationProblem('', false)).toBeNull();
     expect(organisationProblem('x'.repeat(161), false)).toBe(PROBLEM_WORDS.tooLong(160));
   });

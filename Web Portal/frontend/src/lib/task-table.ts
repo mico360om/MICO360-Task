@@ -70,7 +70,7 @@ export function taskSortValue(t: ApiTask, column: string, ctx: TaskTableContext)
       return ctx.statusOf(t).rank;
     case 'progress':
       return t.progress ?? 0;
-    // 1.24: by the first guest ("Ahmed (OXY)"; an older server: its first contact) and the first category.
+    // 1.24: by the first guest ("Ahmed (Acme)"; an older server: its first contact) and the first category.
     case 'guests':
       return firstGuestLabel(t);
     case 'categories':
@@ -80,7 +80,7 @@ export function taskSortValue(t: ApiTask, column: string, ctx: TaskTableContext)
   }
 }
 
-/** A task's first guest as the Guests column sorts it ("Ahmed (OXY)"); an older server's first contact; '' for none. */
+/** A task's first guest as the Guests column sorts it ("Ahmed (Acme)"); an older server's first contact; '' for none. */
 export function firstGuestLabel(t: Pick<ApiTask, 'guests' | 'externalSummary'>): string {
   const g = t.guests?.[0];
   if (g) return guestLabel(g);

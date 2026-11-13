@@ -35,7 +35,7 @@ export const pickedGuest = (g: { id: string; name: string; company?: string | nu
   phone: g.phone ?? null,
 });
 
-/** "Ahmed Al Harthy · OXY": the name and company as a chip shows them. */
+/** "Ahmed Al Harthy · Acme": the name and company as a chip shows them. */
 export const guestChipText = (g: { name: string; company?: string | null }) => (g.company ? `${g.name} · ${g.company}` : g.name);
 
 /** The small "Guest" mark beside a guest's name. */

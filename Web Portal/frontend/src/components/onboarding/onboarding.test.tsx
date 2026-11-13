@@ -138,13 +138,13 @@ describe('Duplicate warnings while typing', () => {
   }
 
   it('asks once the typing pauses, and says who has the email, the username and the same name at the organisation', async () => {
-    const ahmed = { id: 'c1', name: 'Ahmed Al Harthy', username: 'ahmed', kind: 'client', organisation: 'OXY', status: 'ACTIVE' };
+    const ahmed = { id: 'c1', name: 'Ahmed Al Harthy', username: 'ahmed', kind: 'client', organisation: 'Acme', status: 'ACTIVE' };
     answers['/users/identity-check'] = () => json({ data: { email: ahmed, username: ahmed, sameName: [{ ...ahmed, id: 'c2', name: 'Saif Al Said' }] } });
-    wrap(<Probe email="ahmed@oxy.com" username="ahmed" firstName="Saif" lastName="Al Said" organisation="OXY" client />);
+    wrap(<Probe email="ahmed@acme.com" username="ahmed" firstName="Saif" lastName="Al Said" organisation="Acme" client />);
     expect(await screen.findByText((_, el) => el?.tagName === 'P' && el.textContent === 'This email is already used by Ahmed Al Harthy (client) — Open account')).toBeInTheDocument();
     expect(screen.getByText((_, el) => el?.tagName === 'P' && el.textContent === 'Username taken by Ahmed Al Harthy (client) — Open account')).toBeInTheDocument();
-    expect(screen.getByText((_, el) => el?.tagName === 'P' && (el.textContent ?? '').startsWith('A client named Saif Al Said at OXY already exists.'))).toBeInTheDocument();
-    expect(calls.find((c) => c.url.endsWith('/users/identity-check'))!.body).toEqual({ email: 'ahmed@oxy.com', username: 'ahmed', firstName: 'Saif', lastName: 'Al Said', client: true, organisation: 'OXY' });
+    expect(screen.getByText((_, el) => el?.tagName === 'P' && (el.textContent ?? '').startsWith('A client named Saif Al Said at Acme already exists.'))).toBeInTheDocument();
+    expect(calls.find((c) => c.url.endsWith('/users/identity-check'))!.body).toEqual({ email: 'ahmed@acme.com', username: 'ahmed', firstName: 'Saif', lastName: 'Al Said', client: true, organisation: 'Acme' });
   });
 
   it('a value that isn’t well-formed yet is not asked about', async () => {

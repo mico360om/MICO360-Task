@@ -1,7 +1,7 @@
 /**
  * The task history's lines for guests and categories (1.24), on top of the shared timeline
  * (activity-feed.ts, which the Android app shares and words guest rows as external contacts):
- * "assigned guest Ahmed (OXY)", "removed guest Sara", "added category Electrical", "removed category
+ * "assigned guest Ahmed (Acme)", "removed guest Sara", "added category Electrical", "removed category
  * HSE", "added Omar Ahmed as the person responsible for the guests". A run by one person close together
  * reads as one line; any other line in between ends the run, as in the shared timeline. Shared
  * byte-for-byte by the website and the server (its task PDF, daily email and MICO AI read the history).

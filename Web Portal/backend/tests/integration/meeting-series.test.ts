@@ -40,7 +40,7 @@ beforeAll(async () => {
   await item('m1-done', M.m1, w.people.ana, 'COMPLETED');
   await item('m2-bob', M.m2, w.people.bob);
   await item('m3-own', M.m3, w.people.ana);
-  const made = await h.post(w.as.ana, '/meeting-series', { name: 'Monthly OXY review', meetingId: M.m1 });
+  const made = await h.post(w.as.ana, '/meeting-series', { name: 'Monthly site review', meetingId: M.m1 });
   expect(made.status, made.body).toBe(201);
   seriesId = made.data.id;
   expect((await h.post(w.as.ana, `/meeting-series/${seriesId}/meetings`, { meetingIds: [M.m2, M.m3] })).status).toBe(204);
@@ -62,7 +62,7 @@ describe('Meeting series and who sees what (integration)', () => {
     for (const who of [w.as.ana, w.as.cat, w.as.admin]) {
       const ctx = await h.get(who, `/meetings/${M.m3}/series`);
       expect(ctx.status).toBe(200);
-      expect(ctx.data).toMatchObject({ series: { id: seriesId, name: 'Monthly OXY review' }, position: 3, total: 3, previous: { id: M.m2 }, next: null });
+      expect(ctx.data).toMatchObject({ series: { id: seriesId, name: 'Monthly site review' }, position: 3, total: 3, previous: { id: M.m2 }, next: null });
       expect(ids(ctx.data.meetings)).toEqual([M.m1, M.m2, M.m3]);
       expect(sorted(ids(ctx.data.openFromEarlier))).toEqual(sorted([ITEMS['m1-ana']!, ITEMS['m1-bob']!, ITEMS['m2-bob']!]));
     }
@@ -92,7 +92,7 @@ describe('Meeting series and who sees what (integration)', () => {
       expect((await h.get(who, `/meetings/${M.m1}/series`)).status).toBe(404);
       const page = await h.get(who, `/meeting-series/${seriesId}`);
       expect(page.status).toBe(404);
-      expect(page.body).not.toContain('Monthly OXY review');
+      expect(page.body).not.toContain('Monthly site review');
     }
   });
 
@@ -109,7 +109,7 @@ describe('Meeting series and who sees what (integration)', () => {
   it('the meetings list names the series on each card', async () => {
     const list = await h.get(w.as.ana, `/meetings?projectId=${w.projects.PA}`);
     const mine = (list.data as Array<{ id: string; seriesName: string | null }>).filter((m) => Object.values(M).includes(m.id));
-    expect(mine.every((m) => m.seriesName === 'Monthly OXY review')).toBe(true);
+    expect(mine.every((m) => m.seriesName === 'Monthly site review')).toBe(true);
   });
 
   it('the minutes PDF names the series and lists the open items from earlier meetings — bob’s own copy only his', async () => {
@@ -119,7 +119,7 @@ describe('Meeting series and who sees what (integration)', () => {
     };
     const team = await pdf(w.as.ana);
     expect(team.status).toBe(200);
-    expect(team.text).toContain('Monthly OXY review');
+    expect(team.text).toContain('Monthly site review');
     expect(team.text).toContain('Open from earlier meetings');
     expect(team.text).toContain('ZZITEM m1-ana');
     expect(team.text).toContain('ZZITEM m2-bob');
@@ -137,7 +137,7 @@ describe('Meeting series and who sees what (integration)', () => {
   it('"New meeting in this series" pre-fills from the latest meeting with the people the picker offers', async () => {
     const pre = await h.get(w.as.ana, `/meeting-series/${seriesId}/prefill`);
     expect(pre.status).toBe(200);
-    expect(pre.data).toMatchObject({ title: 'Monthly OXY review', projectId: w.projects.PA, location: 'Site office', durationMinutes: 60 });
+    expect(pre.data).toMatchObject({ title: 'Monthly site review', projectId: w.projects.PA, location: 'Site office', durationMinutes: 60 });
     // bob (Beta) isn't someone ana may invite to an Alpha project's meeting: left out.
     expect(pre.data.people.map((p: { id?: string }) => p.id)).not.toContain(w.people.bob);
     const joined = await h.post(w.as.ana, '/meetings', { title: 'ZZSER fourth meeting', startAt: day(27), projectId: w.projects.PA, seriesId });

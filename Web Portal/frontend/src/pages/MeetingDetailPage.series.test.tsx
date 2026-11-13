@@ -23,7 +23,7 @@ const meeting = (over: Record<string, unknown> = {}) => ({
   seriesId: 's1', ...over,
 });
 const series = (over: Record<string, unknown> = {}) => ({
-  series: { id: 's1', name: 'Monthly OXY review', projectId: 'p1', companyId: null, auto: false },
+  series: { id: 's1', name: 'Monthly site review', projectId: 'p1', companyId: null, auto: false },
   meetings: [
     { id: 'm1', title: 'Monthly 1', status: 'COMPLETED', startAt: at(9, 1), endAt: null, timeZone: null, minutesFinal: true, repeats: false },
     { id: 'm2', title: 'Monthly 2', status: 'COMPLETED', startAt: at(10, 6), endAt: null, timeZone: null, minutesFinal: false, repeats: false },
@@ -94,9 +94,9 @@ describe('a meeting in a series', () => {
   it('says its series, where it sits, and links to the previous and next meetings', async () => {
     renderPage();
     const nav = await screen.findByRole('navigation', { name: 'Meeting series' });
-    expect(nav).toHaveTextContent('Series: Monthly OXY review');
+    expect(nav).toHaveTextContent('Series: Monthly site review');
     expect(nav).toHaveTextContent('3 of 4');
-    expect(within(nav).getByRole('link', { name: 'Monthly OXY review' })).toHaveAttribute('href', '/meetings/series/s1');
+    expect(within(nav).getByRole('link', { name: 'Monthly site review' })).toHaveAttribute('href', '/meetings/series/s1');
     expect(within(nav).getByRole('link', { name: /^previous \(6 oct\): monthly 2/i })).toHaveAttribute('href', '/meetings/m2');
     expect(within(nav).getByRole('link', { name: /^next \(1 dec\): monthly 4/i })).toHaveAttribute('href', '/meetings/m4');
   });
@@ -105,7 +105,7 @@ describe('a meeting in a series', () => {
     seriesData = series({ meetings: [series().meetings[2]], position: null, total: 1, previous: null, next: null, openFromEarlier: [], canRemove: false });
     renderPage();
     const nav = await screen.findByRole('navigation', { name: 'Meeting series' });
-    expect(nav).toHaveTextContent('Series: Monthly OXY review');
+    expect(nav).toHaveTextContent('Series: Monthly site review');
     expect(nav).not.toHaveTextContent(/of|Previous|Next/);
   });
 
@@ -138,7 +138,7 @@ describe('a meeting in a series', () => {
     await userEvent.click(await screen.findByRole('button', { name: /more meeting actions/i }));
     await userEvent.click(screen.getByRole('menuitem', { name: 'Remove from series…' }));
     const ask = await screen.findByRole('alertdialog', { name: 'Remove from the series?' });
-    expect(ask).toHaveTextContent('This meeting leaves “Monthly OXY review”');
+    expect(ask).toHaveTextContent('This meeting leaves “Monthly site review”');
     await userEvent.click(within(ask).getByRole('button', { name: 'Remove from series' }));
     await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url.endsWith('/meeting-series/s1/meetings/m3'))).toBe(true));
     expect(await screen.findByText('Removed from the series.')).toBeInTheDocument();
@@ -157,10 +157,10 @@ describe('a meeting in no series', () => {
     expect(within(dialog).getByRole('radio', { name: 'New series…' })).toBeChecked();
     expect(within(dialog).getByLabelText(/series name/i)).toHaveValue('Monthly 3');
     await userEvent.clear(within(dialog).getByLabelText(/series name/i));
-    await userEvent.type(within(dialog).getByLabelText(/series name/i), 'Monthly OXY review');
+    await userEvent.type(within(dialog).getByLabelText(/series name/i), 'Monthly site review');
     await userEvent.click(within(dialog).getByRole('button', { name: 'Add to series' }));
-    await waitFor(() => expect(calls.find((c) => c.method === 'POST' && c.url.endsWith('/meeting-series'))?.body).toEqual({ name: 'Monthly OXY review', meetingId: 'm3', wholeFamily: false }));
-    expect(await screen.findByText('Added to the series “Monthly OXY review”.')).toBeInTheDocument();
+    await waitFor(() => expect(calls.find((c) => c.method === 'POST' && c.url.endsWith('/meeting-series'))?.body).toEqual({ name: 'Monthly site review', meetingId: 'm3', wholeFamily: false }));
+    expect(await screen.findByText('Added to the series “Monthly site review”.')).toBeInTheDocument();
     expect(screen.queryByRole('navigation', { name: 'Meeting series' })).not.toBeInTheDocument();
   });
 

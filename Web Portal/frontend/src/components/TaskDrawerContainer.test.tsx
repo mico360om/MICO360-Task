@@ -1065,9 +1065,9 @@ describe('TaskDrawerContainer — a task in the Recycle Bin', () => {
 
   // tgc: 1.24 — a deleted task's guests show under "Guests" (no "External contacts" any more), its categories as chips.
   it('1.24: shows its guests and its categories', async () => {
-    openDeleted(() => json({ data: { ...detail, contacts: [{ name: 'Ahmed Al Harthy', company: 'OXY' }, { name: 'Sara', company: null }], categories: [{ id: 'k1', name: 'Electrical', color: 'blue', retired: false }, { id: 'k2', name: 'Old works', color: 'grey', retired: true }] } }));
+    openDeleted(() => json({ data: { ...detail, contacts: [{ name: 'Ahmed Al Harthy', company: 'Acme' }, { name: 'Sara', company: null }], categories: [{ id: 'k1', name: 'Electrical', color: 'blue', retired: false }, { id: 'k2', name: 'Old works', color: 'grey', retired: true }] } }));
     await screen.findByText(/In the Recycle Bin — deleted by Ali Hassan/);
-    expect(screen.getByRole('region', { name: 'Guests' })).toHaveTextContent('Ahmed Al Harthy (OXY), Sara');
+    expect(screen.getByRole('region', { name: 'Guests' })).toHaveTextContent('Ahmed Al Harthy (Acme), Sara');
     expect(screen.queryByRole('region', { name: 'External contacts' })).toBeNull();
     const cats = screen.getByRole('region', { name: 'Categories' });
     expect(within(cats).getByRole('img', { name: 'Category: Electrical' })).toBeInTheDocument();
@@ -1079,11 +1079,11 @@ describe('TaskDrawerContainer — a task in the Recycle Bin', () => {
     const history = [
       { id: 'h3', taskId: 'tx', projectId: 'p1', userId: 'u2', action: 'DELETED', meta: {}, createdAt: '2026-11-03T09:00:00.000Z', actor: { id: 'u2', name: 'Ali Hassan' } },
       { id: 'h2', taskId: 'tx', projectId: 'p1', userId: 'u2', action: 'CATEGORY_ADDED', meta: { name: 'Electrical' }, createdAt: '2026-11-02T08:00:00.000Z', actor: { id: 'u2', name: 'Ali Hassan' } },
-      { id: 'h1', taskId: 'tx', projectId: 'p1', userId: 'u2', action: 'EXTERNAL_CONTACT_ADDED', meta: { name: 'Ahmed Al Harthy', company: 'OXY' }, createdAt: '2026-11-01T06:00:00.000Z', actor: { id: 'u2', name: 'Ali Hassan' } },
+      { id: 'h1', taskId: 'tx', projectId: 'p1', userId: 'u2', action: 'EXTERNAL_CONTACT_ADDED', meta: { name: 'Ahmed Al Harthy', company: 'Acme' }, createdAt: '2026-11-01T06:00:00.000Z', actor: { id: 'u2', name: 'Ali Hassan' } },
     ];
     openDeleted(() => json({ data: { ...detail, history } }));
     await screen.findByText(/In the Recycle Bin — deleted by Ali Hassan/);
-    expect(screen.getByText(/assigned guest Ahmed Al Harthy \(OXY\)/)).toBeInTheDocument();
+    expect(screen.getByText(/assigned guest Ahmed Al Harthy \(Acme\)/)).toBeInTheDocument();
     expect(screen.getByText(/added category Electrical/)).toBeInTheDocument();
     expect(screen.queryByText(/external contact/)).toBeNull();
   });

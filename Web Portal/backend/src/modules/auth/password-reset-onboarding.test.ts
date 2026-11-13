@@ -99,7 +99,7 @@ beforeEach(() => {
   mailOn = true;
   seq = 0;
   people = new Map([
-    ['cli', { id: 'cli', email: 'saif@oxy.com', status: 'ACTIVE', activated: false }],
+    ['cli', { id: 'cli', email: 'saif@acme.com', status: 'ACTIVE', activated: false }],
     ['emp', { id: 'emp', email: 'emp@x.co', status: 'ACTIVE', activated: true }],
     ['off', { id: 'off', email: 'off@x.co', status: 'INACTIVE', activated: true }],
     ['sus', { id: 'sus', email: 'sus@x.co', status: 'SUSPENDED', activated: true }],

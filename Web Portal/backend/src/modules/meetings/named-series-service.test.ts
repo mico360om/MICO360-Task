@@ -83,9 +83,9 @@ describe('what a person sees of a series on a meeting', () => {
     const a = await t.meeting('Monthly 1', 3);
     const b = await t.meeting('Monthly 2', 10);
     const c = await t.meeting('Monthly 3', 17);
-    await t.series('Monthly OXY review', [c.id, a.id, b.id]);
+    await t.series('Monthly site review', [c.id, a.id, b.id]);
     const ctx = (await t.service.context(t.as('ana'), b.id))!;
-    expect(ctx.series.name).toBe('Monthly OXY review');
+    expect(ctx.series.name).toBe('Monthly site review');
     expect(ctx.meetings.map((m) => m.id)).toEqual([a.id, b.id, c.id]);
     expect(ctx.meetings.find((m) => m.current)?.id).toBe(b.id);
     expect(ctx).toMatchObject({ position: 2, total: 3, previous: { id: a.id }, next: { id: c.id } });
@@ -234,8 +234,8 @@ describe('making a series and adding meetings', () => {
   it('the organizer makes a series from their meeting ("New series…")', async () => {
     const t = setup();
     const a = await t.meeting('Monthly 1', 3, { organizerId: 'ana' });
-    const s = await t.service.create(t.as('ana'), { name: '  Monthly OXY review ', meetingId: a.id });
-    expect(s).toMatchObject({ name: 'Monthly OXY review', projectId: 'p1', companyId: null, auto: false, createdById: 'ana' });
+    const s = await t.service.create(t.as('ana'), { name: '  Monthly site review ', meetingId: a.id });
+    expect(s).toMatchObject({ name: 'Monthly site review', projectId: 'p1', companyId: null, auto: false, createdById: 'ana' });
     expect(await seriesIdOf(t, a.id)).toBe(s.id);
     expect(t.changed.flat()).toContain(a.id);
   });
@@ -455,12 +455,12 @@ describe('New meeting in this series', () => {
     const b = await t.meeting('Monthly 2', 10, { location: 'Room 2', onlineLink: 'https://meet.example.com/abc', people: ['ana', 'cara'] });
     await t.attendees.add({ meetingId: b.id, externalName: 'Guest', externalEmail: 'guest@client.test' });
     await t.meeting('Monthly 3 (cancelled)', 17, { status: 'CANCELLED' });
-    const s = await t.series('Monthly OXY review', [a.id, b.id]);
+    const s = await t.series('Monthly site review', [a.id, b.id]);
     t.agenda.push({ meetingId: b.id, title: 'Progress', ownerId: 'ana', expectedMinutes: 15, position: 0 });
     t.agenda.push({ meetingId: b.id, title: 'Safety', ownerId: 'cara', expectedMinutes: null, position: 1 });
     const pre = await t.service.prefill(t.as('ben'), s.id);
     expect(pre).toMatchObject({
-      seriesId: s.id, seriesName: 'Monthly OXY review', title: 'Monthly OXY review', projectId: 'p1', companyId: null,
+      seriesId: s.id, seriesName: 'Monthly site review', title: 'Monthly site review', projectId: 'p1', companyId: null,
       location: 'Room 2', onlineLink: 'https://meet.example.com/abc', durationMinutes: 60,
     });
     // cara isn't someone the picker offers for p1: left out, and her agenda item has no lead.
@@ -471,7 +471,7 @@ describe('New meeting in this series', () => {
   it('1.23 integration: from a meeting whose link Teams made — no link copied, the Teams tick instead', async () => {
     const t = setup();
     const a = await t.meeting('Monthly 1', 3, { onlineLink: 'https://teams.microsoft.com/l/meetup-join/x', onlineMeetingProvider: 'TEAMS' });
-    const s = await t.series('Monthly OXY review', [a.id]);
+    const s = await t.series('Monthly site review', [a.id]);
     const pre = await t.service.prefill(t.as('ben'), s.id);
     expect(pre.onlineLink).toBeNull();
     expect(pre.teamsLink).toBe(true);

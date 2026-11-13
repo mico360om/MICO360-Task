@@ -31,7 +31,7 @@ function Neighbour({ which, to, timeZone, now }: { which: 'previous' | 'next'; t
 }
 
 /**
- * Under the meeting's title: "Series: Monthly OXY review · 3 of 5 · ‹ Previous (3 Nov) · Next (3 Dec) ›"
+ * Under the meeting's title: "Series: Monthly site review · 3 of 5 · ‹ Previous (3 Nov) · Next (3 Dec) ›"
  * — counted over the meetings this person may open; with only this one, just the series' name.
  */
 export function SeriesLine({ context, timeZone, now = new Date() }: { context: MeetingSeriesContext; timeZone: string; now?: Date }) {

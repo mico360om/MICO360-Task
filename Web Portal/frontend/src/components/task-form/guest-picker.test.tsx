@@ -14,7 +14,7 @@ function json(body: unknown, status = 200): Response {
 const guest = (id: string, name: string, company: string | null, extra: Record<string, unknown> = {}) => ({
   id, companyId: 'co1', name, company, designation: null, email: null, phone: null, notes: null, retiredAt: null, mergedIntoId: null, createdById: 'u1', createdAt: '', updatedAt: '', ...extra,
 });
-const AHMED = guest('g1', 'Ahmed Al Harthy', 'OXY', { email: 'ahmed@oxy.com', phone: '+968 9912 3456' });
+const AHMED = guest('g1', 'Ahmed Al Harthy', 'Acme', { email: 'ahmed@acme.com', phone: '+968 9912 3456' });
 const SARA = guest('g2', 'Sara Nasser', 'PDO');
 
 type Call = { url: string; method: string; body: Record<string, unknown> | null };
@@ -83,14 +83,14 @@ describe('GuestPicker', () => {
     render(<GuestPicker projectId="p1" exclude={['g2']} onPick={onPick} />);
     const box = screen.getByRole('combobox', { name: GUEST_WORDS.search });
     await userEvent.click(box);
-    expect(await screen.findByRole('option', { name: /^Ahmed Al Harthy \(OXY\)/ })).toBeInTheDocument();
+    expect(await screen.findByRole('option', { name: /^Ahmed Al Harthy \(Acme\)/ })).toBeInTheDocument();
     expect(screen.queryByRole('option', { name: /Sara Nasser/ })).toBeNull();
-    await userEvent.type(box, 'oxy');
-    await waitFor(() => expect(calls.some((c) => c.url.endsWith('/projects/p1/guests?q=oxy'))).toBe(true));
+    await userEvent.type(box, 'acme');
+    await waitFor(() => expect(calls.some((c) => c.url.endsWith('/projects/p1/guests?q=acme'))).toBe(true));
     // Its email and phone help tell people apart.
-    expect(await screen.findByRole('option', { name: /ahmed@oxy\.com/ })).toBeInTheDocument();
+    expect(await screen.findByRole('option', { name: /ahmed@acme\.com/ })).toBeInTheDocument();
     await userEvent.click(screen.getByRole('option', { name: /^Ahmed Al Harthy/ }));
-    expect(onPick).toHaveBeenCalledWith(expect.objectContaining({ id: 'g1', name: 'Ahmed Al Harthy', company: 'OXY' }));
+    expect(onPick).toHaveBeenCalledWith(expect.objectContaining({ id: 'g1', name: 'Ahmed Al Harthy', company: 'Acme' }));
   });
 
   it('says when nobody on the list matches', async () => {
@@ -149,10 +149,10 @@ describe('NewGuestForm', () => {
     checkReply = (body) => (String(body.name).toLowerCase().startsWith('ahmed') ? { same: [AHMED], similar: [] } : { same: [], similar: [] });
     const { form, onDone } = renderForm();
     await userEvent.type(within(form).getByRole('textbox', { name: /^Name/ }), 'Ahmed Al Harthy');
-    await userEvent.type(within(form).getByRole('textbox', { name: 'Company' }), 'oxy');
-    expect(await within(form).findByText(GUEST_WORDS.useExisting('Ahmed Al Harthy (OXY)'))).toBeInTheDocument();
+    await userEvent.type(within(form).getByRole('textbox', { name: 'Company' }), 'acme');
+    expect(await within(form).findByText(GUEST_WORDS.useExisting('Ahmed Al Harthy (Acme)'))).toBeInTheDocument();
     const check = calls.filter((c) => c.url.endsWith('/projects/p1/guests/check')).at(-1)!;
-    expect(check.body).toMatchObject({ name: 'Ahmed Al Harthy', company: 'oxy' });
+    expect(check.body).toMatchObject({ name: 'Ahmed Al Harthy', company: 'acme' });
     await userEvent.click(within(form).getByRole('button', { name: GUEST_WORDS.useThem }));
     expect(onDone).toHaveBeenCalledWith(expect.objectContaining({ id: 'g1' }));
     expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/projects/p1/guests'))).toBe(false);
@@ -161,13 +161,13 @@ describe('NewGuestForm', () => {
   it('“No, add a new guest” adds them anyway (confirmNew)', async () => {
     checkReply = () => ({ same: [AHMED], similar: [] });
     const { form, onDone } = renderForm({ initialName: 'Ahmed Al Harthy' });
-    await userEvent.type(within(form).getByRole('textbox', { name: 'Company' }), 'OXY');
+    await userEvent.type(within(form).getByRole('textbox', { name: 'Company' }), 'Acme');
     await userEvent.click(await within(form).findByRole('button', { name: GUEST_WORDS.addAnyway }));
-    expect(within(form).queryByText(GUEST_WORDS.useExisting('Ahmed Al Harthy (OXY)'))).toBeNull();
+    expect(within(form).queryByText(GUEST_WORDS.useExisting('Ahmed Al Harthy (Acme)'))).toBeNull();
     await userEvent.click(within(form).getByRole('button', { name: 'Add guest' }));
     await waitFor(() => expect(onDone).toHaveBeenCalled());
     const create = calls.find((c) => c.method === 'POST' && c.url.endsWith('/projects/p1/guests'))!;
-    expect(create.body).toMatchObject({ name: 'Ahmed Al Harthy', company: 'OXY', confirmNew: true });
+    expect(create.body).toMatchObject({ name: 'Ahmed Al Harthy', company: 'Acme', confirmNew: true });
   });
 
   it('guests with the same name but other details are listed softly, each can be used', async () => {
@@ -184,14 +184,14 @@ describe('NewGuestForm', () => {
     createReply = (body) => {
       if (!body.confirmNew) {
         refused = true;
-        return json({ error: { code: 'GUEST_DUPLICATE', message: GUEST_WORDS.useExisting('Ahmed Al Harthy (OXY)'), details: { matches: [AHMED] } } }, 409);
+        return json({ error: { code: 'GUEST_DUPLICATE', message: GUEST_WORDS.useExisting('Ahmed Al Harthy (Acme)'), details: { matches: [AHMED] } } }, 409);
       }
-      return json({ data: guest('g10', 'Ahmed Al Harthy', 'OXY') }, 201);
+      return json({ data: guest('g10', 'Ahmed Al Harthy', 'Acme') }, 201);
     };
     const { form, onDone } = renderForm({ initialName: 'Ahmed Al Harthy' });
-    await userEvent.type(within(form).getByRole('textbox', { name: 'Company' }), 'OXY{Enter}');
+    await userEvent.type(within(form).getByRole('textbox', { name: 'Company' }), 'Acme{Enter}');
     await waitFor(() => expect(refused).toBe(true));
-    expect(await within(form).findByText(GUEST_WORDS.useExisting('Ahmed Al Harthy (OXY)'))).toBeInTheDocument();
+    expect(await within(form).findByText(GUEST_WORDS.useExisting('Ahmed Al Harthy (Acme)'))).toBeInTheDocument();
     expect(onDone).not.toHaveBeenCalled();
     await userEvent.click(within(form).getByRole('button', { name: GUEST_WORDS.addAnyway }));
     await userEvent.click(within(form).getByRole('button', { name: 'Add guest' }));
@@ -218,7 +218,7 @@ describe('NewGuestForm', () => {
   it('marks itself unsaved once something is typed (the task panel asks before stepping away)', async () => {
     const { form } = renderForm();
     expect(form).not.toHaveAttribute('data-unsaved');
-    await userEvent.type(within(form).getByRole('textbox', { name: 'Company' }), 'OXY');
+    await userEvent.type(within(form).getByRole('textbox', { name: 'Company' }), 'Acme');
     expect(form).toHaveAttribute('data-unsaved', 'true');
   });
 });

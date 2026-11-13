@@ -23,7 +23,7 @@ const NOOR = {
   id: 'cl2',
   name: 'Noor Al Said',
   organisation: null,
-  email: 'noor@oxy.test',
+  email: 'noor@acme.test',
   status: 'ACTIVE',
   role: 'CUSTOM',
   access: ['Custom', 'View meetings & minutes', 'Receive notifications'],

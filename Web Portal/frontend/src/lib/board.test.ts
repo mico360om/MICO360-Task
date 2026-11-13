@@ -257,24 +257,24 @@ describe('targetColumnFor (where a card dropped on a status lands in its own pro
 // for an older server's rows) and their categories; the board's "External company" filter became the
 // Guest, Guest company and Category filters (lib/guest-category-filter).
 describe('guests and categories on the board', () => {
-  const oxy = { count: 2, name: 'Ahmed Al Said', company: 'OXY', names: ['Ahmed Al Said', 'Sara Nasser'], companies: ['OXY', 'PDO'] };
-  const guests = [{ id: 'g1', name: 'Ahmed Al Said', company: 'OXY' }, { id: 'g2', name: 'Sara Nasser', company: 'PDO' }];
+  const acme = { count: 2, name: 'Ahmed Al Said', company: 'Acme', names: ['Ahmed Al Said', 'Sara Nasser'], companies: ['Acme', 'PDO'] };
+  const guests = [{ id: 'g1', name: 'Ahmed Al Said', company: 'Acme' }, { id: 'g2', name: 'Sara Nasser', company: 'PDO' }];
   const categories = [{ id: 'k1', name: 'Electrical', color: 'teal', retired: false }];
-  const withContacts = [{ ...tasks[0]!, externalSummary: oxy, guests, categories }, { ...tasks[1]!, externalSummary: null, guests: [], categories: [] }];
+  const withContacts = [{ ...tasks[0]!, externalSummary: acme, guests, categories }, { ...tasks[1]!, externalSummary: null, guests: [], categories: [] }];
   const projects = [{ id: 'p1', code: 'MICO', name: 'MICO360', status: 'ACTIVE', color: null }] as unknown as ApiProject[];
 
   it('every card carries its guests, categories and contacts in short, on a project’s board and on All projects', () => {
     const board = composeBoard(columns, withContacts);
-    expect(board[0]!.tasks[0]!).toMatchObject({ external: oxy, guests, categories });
+    expect(board[0]!.tasks[0]!).toMatchObject({ external: acme, guests, categories });
     expect(board[1]!.tasks[0]!).toMatchObject({ external: null, guests: [], categories: [] });
     const all = composeAllProjectsBoard(withContacts, projects);
-    expect(all.flatMap((c) => c.tasks).find((t) => t.key === 'MICO-1')!).toMatchObject({ external: oxy, guests, categories });
+    expect(all.flatMap((c) => c.tasks).find((t) => t.key === 'MICO-1')!).toMatchObject({ external: acme, guests, categories });
   });
 
   it('the cards as rows for the filters’ choices (with their project’s name), and only the cards that pass', () => {
     const board = composeBoard(columns, withContacts);
     expect(boardFilterRows(board)).toEqual([
-      { guests, categories, externalSummary: oxy },
+      { guests, categories, externalSummary: acme },
       { guests: [], categories: [], externalSummary: null },
     ]);
     const all = composeAllProjectsBoard(withContacts, projects);

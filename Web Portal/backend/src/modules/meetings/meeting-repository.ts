@@ -52,7 +52,7 @@ export interface MeetingRecord {
   /** Set only on records read with their deleted series meetings (series bookkeeping). */
   deletedAt?: Date | null;
   /**
-   * 1.23: the named series it is in ("Monthly OXY review", named-series.ts), or null — not its repeat
+   * 1.23: the named series it is in ("Monthly site review", named-series.ts), or null — not its repeat
    * family (that is recurrenceParentId / the `series` the routes add).
    */
   seriesId?: string | null;

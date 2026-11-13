@@ -27,7 +27,7 @@ let hash: string;
 function person(id: string, o: Partial<Person> = {}): Person {
   const p: Person = {
     id,
-    email: `${id}@oxy.com`,
+    email: `${id}@acme.com`,
     username: id,
     passwordHash: hash,
     status: 'ACTIVE',
@@ -143,9 +143,9 @@ describe('POST /auth/login with an unconfirmed email address', () => {
     const body = res.json().data;
     expect(body.accessToken).toBeUndefined();
     expect(body.refreshToken).toBeUndefined();
-    expect(body.challenge).toMatchObject({ kind: 'VERIFY_EMAIL', sentTo: 'a•••@oxy.com', codeSent: true });
+    expect(body.challenge).toMatchObject({ kind: 'VERIFY_EMAIL', sentTo: 'a•••@acme.com', codeSent: true });
     expect(typeof body.challenge.token).toBe('string');
-    expect(mails).toEqual([{ to: 'ann@oxy.com', code: expect.stringMatching(/^\d{6}$/) }]);
+    expect(mails).toEqual([{ to: 'ann@acme.com', code: expect.stringMatching(/^\d{6}$/) }]);
     expect(signIns).toEqual([]);
   });
 
@@ -217,12 +217,12 @@ describe('POST /auth/challenge/verify and /auth/challenge/resend', () => {
     const res = await post(app, '/auth/challenge/verify', { challenge: token, code: lastCode() });
     expect(res.statusCode).toBe(200);
     const body = res.json().data;
-    expect(body.user).toEqual({ id: 'ann', email: 'ann@oxy.com', username: 'ann', roles: ['EMPLOYEE'], avatarUrl: null });
+    expect(body.user).toEqual({ id: 'ann', email: 'ann@acme.com', username: 'ann', roles: ['EMPLOYEE'], avatarUrl: null });
     expect(typeof body.accessToken).toBe('string');
     expect(typeof body.refreshToken).toBe('string');
     expect(people.get('ann')!.emailVerifiedAt).toBeInstanceOf(Date);
     expect(signIns).toEqual(['ann']);
-    expect(audit).toEqual([expect.objectContaining({ action: 'user.email.verified', entityId: 'ann', userId: 'ann', newValue: { how: 'code', email: 'ann@oxy.com' } })]);
+    expect(audit).toEqual([expect.objectContaining({ action: 'user.email.verified', entityId: 'ann', userId: 'ann', newValue: { how: 'code', email: 'ann@acme.com' } })]);
     // The next sign-in needs no code.
     const again = await post(app, '/auth/login', { identifier: 'ann', password: 'CorrectHorse1' });
     expect(again.statusCode).toBe(200);

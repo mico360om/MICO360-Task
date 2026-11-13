@@ -38,8 +38,8 @@ const f = (name: string, extra: Partial<ExternalContactFields> = {}): ExternalCo
 describe('external contacts on the phone: the rows of a form', () => {
   it('starts each contact blank, and turns the task’s contacts into rows with their ids', () => {
     expect(emptyContact()).toEqual({ name: '', company: null, designation: null, email: null, phone: null, remarks: null });
-    const rows = contactRowsOf([{ id: 'x1', taskId: 't', position: 0, ...f('Ahmed', { company: 'OXY' }) }]);
-    expect(rows).toEqual([{ key: 'x1', id: 'x1', fields: f('Ahmed', { company: 'OXY' }) }]);
+    const rows = contactRowsOf([{ id: 'x1', taskId: 't', position: 0, ...f('Ahmed', { company: 'Acme' }) }]);
+    expect(rows).toEqual([{ key: 'x1', id: 'x1', fields: f('Ahmed', { company: 'Acme' }) }]);
     const fresh = newContactRow(f('Sara'));
     expect(fresh.id).toBeUndefined();
     expect(fresh.key).not.toBe(newContactRow(f('Sara')).key);
@@ -49,12 +49,12 @@ describe('external contacts on the phone: the rows of a form', () => {
   });
 
   it('fills the editor’s six boxes from a contact (nothing given is an empty box)', () => {
-    expect(draftOf(f('Ahmed', { company: 'OXY', remarks: 'Site lead' }))).toEqual({ name: 'Ahmed', company: 'OXY', designation: '', email: '', phone: '', remarks: 'Site lead' });
+    expect(draftOf(f('Ahmed', { company: 'Acme', remarks: 'Site lead' }))).toEqual({ name: 'Ahmed', company: 'Acme', designation: '', email: '', phone: '', remarks: 'Site lead' });
     expect(draftOf(null)).toEqual({ name: '', company: '', designation: '', email: '', phone: '', remarks: '' });
   });
 
   it('sends a new task’s contacts as their six fields, in order', () => {
-    expect(contactInputs([newContactRow(f('Ahmed', { company: 'OXY' })), newContactRow(f('Sara'))])).toEqual([f('Ahmed', { company: 'OXY' }), f('Sara')]);
+    expect(contactInputs([newContactRow(f('Ahmed', { company: 'Acme' })), newContactRow(f('Sara'))])).toEqual([f('Ahmed', { company: 'Acme' }), f('Sara')]);
   });
 
   it('knows when the rows differ from what is saved', () => {
@@ -68,12 +68,12 @@ describe('external contacts on the phone: the rows of a form', () => {
 
 describe('external contacts on the phone: saving an edit', () => {
   const saved: SavedContact[] = [
-    { id: 'x1', fields: f('Ahmed', { company: 'OXY' }) },
+    { id: 'x1', fields: f('Ahmed', { company: 'Acme' }) },
     { id: 'x2', fields: f('Sara') },
     { id: 'x3', fields: f('Salim') },
   ];
   const rows = () => [
-    { key: 'x1', id: 'x1', fields: f('Ahmed Al Said', { company: 'OXY' }) },
+    { key: 'x1', id: 'x1', fields: f('Ahmed Al Said', { company: 'Acme' }) },
     { key: 'x3', id: 'x3', fields: f('Salim') },
     { key: 'n1', addKey: 'add-n1', fields: f('Aisha', { company: 'PDO' }) },
   ];
@@ -81,7 +81,7 @@ describe('external contacts on the phone: saving an edit', () => {
   it('plans only what changed: removals first, then changes (only the fields that changed), then additions (each with its own key)', () => {
     expect(planContactChanges(saved, rows())).toEqual({
       remove: ['x2'],
-      update: [{ id: 'x1', fields: f('Ahmed Al Said', { company: 'OXY' }), patch: { name: 'Ahmed Al Said' } }],
+      update: [{ id: 'x1', fields: f('Ahmed Al Said', { company: 'Acme' }), patch: { name: 'Ahmed Al Said' } }],
       add: [{ key: 'n1', addKey: 'add-n1', fields: f('Aisha', { company: 'PDO' }) }],
     });
     expect(planContactChanges(saved, saved.map((s) => ({ key: s.id, id: s.id, fields: s.fields })))).toEqual({ remove: [], update: [], add: [] });
@@ -106,7 +106,7 @@ describe('external contacts on the phone: saving an edit', () => {
     // A change sends only the fields that changed: someone else's change to another field stays.
     expect(calls).toEqual(['remove x2', 'update x1 {"name":"Ahmed Al Said"}', 'add Aisha add-n1']);
     expect(out.problem).toBe('A task can have at most 20 external contacts.');
-    expect(out.saved).toEqual([{ id: 'x1', fields: f('Ahmed Al Said', { company: 'OXY' }) }, { id: 'x3', fields: f('Salim') }]);
+    expect(out.saved).toEqual([{ id: 'x1', fields: f('Ahmed Al Said', { company: 'Acme' }) }, { id: 'x3', fields: f('Salim') }]);
     // What is left to send: the addition only.
     expect(planContactChanges(out.saved, out.rows)).toEqual({ remove: [], update: [], add: [{ key: 'n1', addKey: 'add-n1', fields: f('Aisha', { company: 'PDO' }) }] });
 
@@ -142,10 +142,10 @@ describe('external contacts on the phone: what goes wrong, in words', () => {
   });
 
   it('names each button and link after the contact for TalkBack', () => {
-    const c = f('Ahmed Al Said', { email: 'ahmed@oxy.com', phone: '+968 9912 3456' });
+    const c = f('Ahmed Al Said', { email: 'ahmed@acme.com', phone: '+968 9912 3456' });
     expect(editContactLabel(c)).toBe('Edit Ahmed Al Said');
     expect(removeContactLabel(c)).toBe('Remove Ahmed Al Said');
-    expect(emailLabel(c)).toBe('Email Ahmed Al Said at ahmed@oxy.com');
+    expect(emailLabel(c)).toBe('Email Ahmed Al Said at ahmed@acme.com');
     expect(callLabel(c)).toBe('Call Ahmed Al Said on +968 9912 3456');
   });
 });
@@ -162,26 +162,26 @@ describe('external contacts on the phone: where they show and what they refresh'
 
   it('the company filter: its button says what is chosen, and offers Any company then each company', () => {
     expect(companyFilterLabel('')).toBe('External company: Any company');
-    expect(companyFilterLabel('OXY')).toBe('External company: OXY');
-    expect(companyChoices(['OXY', 'PDO'])).toEqual([{ value: '', label: 'Any company' }, { value: 'OXY', label: 'OXY' }, { value: 'PDO', label: 'PDO' }]);
+    expect(companyFilterLabel('Acme')).toBe('External company: Acme');
+    expect(companyChoices(['Acme', 'PDO'])).toEqual([{ value: '', label: 'Any company' }, { value: 'Acme', label: 'Acme' }, { value: 'PDO', label: 'PDO' }]);
   });
 
   it('filters a list by an external company (case and spaces aside); no company keeps them all', () => {
     const tasks = [
-      { id: 'a', externalSummary: summarizeExternalContacts([{ name: 'Ahmed', company: 'OXY Oman' }]) },
+      { id: 'a', externalSummary: summarizeExternalContacts([{ name: 'Ahmed', company: 'Acme Oman' }]) },
       { id: 'b', externalSummary: null },
       { id: 'c' },
     ];
-    expect(filterByExternalCompany(tasks, 'oxy  oman').map((t) => t.id)).toEqual(['a']);
+    expect(filterByExternalCompany(tasks, 'acme  oman').map((t) => t.id)).toEqual(['a']);
     expect(filterByExternalCompany(tasks, '').map((t) => t.id)).toEqual(['a', 'b', 'c']);
   });
 });
 
 describe('external contacts on the phone: review fixes', () => {
   it('a change sends only the fields that differ from what was loaded; a cleared field is sent as nothing', () => {
-    const before = f('Ahmed', { company: 'OXY', phone: '+968 1' });
-    expect(contactPatch(before, f('Ahmed', { company: 'OXY', phone: '+968 1' }))).toEqual({});
-    expect(contactPatch(before, f('Ahmed Al Said', { company: 'OXY', phone: null, remarks: 'Site lead' }))).toEqual({ name: 'Ahmed Al Said', phone: null, remarks: 'Site lead' });
+    const before = f('Ahmed', { company: 'Acme', phone: '+968 1' });
+    expect(contactPatch(before, f('Ahmed', { company: 'Acme', phone: '+968 1' }))).toEqual({});
+    expect(contactPatch(before, f('Ahmed Al Said', { company: 'Acme', phone: null, remarks: 'Site lead' }))).toEqual({ name: 'Ahmed Al Said', phone: null, remarks: 'Site lead' });
   });
 
   it('a contact someone else removed is gone (a 404), nothing else is', () => {

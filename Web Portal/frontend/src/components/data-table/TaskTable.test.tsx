@@ -384,7 +384,7 @@ describe('TaskTable — 1.24 Guests and Categories columns', () => {
   const CIVIL = { id: 'k3', name: 'Civil', color: 'gold', retired: true };
   const ROWS = [
     task({ id: 'a', key: 'MICO-1', title: 'Wiring', guests: [{ id: 'g1', name: 'Sara Nasser', company: 'PDO' }, { id: 'g2', name: 'Ahmed', company: null }], categories: [HSE, ELEC, CIVIL] }),
-    task({ id: 'b', key: 'MICO-2', title: 'Survey', guests: [{ id: 'g3', name: 'Ahmed Al Said', company: 'OXY' }], categories: [ELEC] }),
+    task({ id: 'b', key: 'MICO-2', title: 'Survey', guests: [{ id: 'g3', name: 'Ahmed Al Said', company: 'Acme' }], categories: [ELEC] }),
     task({ id: 'c', key: 'MICO-3', title: 'Internal', guests: [], categories: [] }),
     // An older server's row: its contacts in short.
     task({ id: 'd', key: 'MICO-4', title: 'Old', externalSummary: { count: 1, name: 'Salim', company: 'Petrogas', names: ['Salim'], companies: ['Petrogas'] } }),

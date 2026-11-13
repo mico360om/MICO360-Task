@@ -53,7 +53,7 @@ export function Avatar({ name, size = 'md', src, dense = false, decorative = fal
     );
   }
 
-  // Letters only: "Mohammed (OXY)" is "MO", not "M(".
+  // Letters only: "Mohammed (Acme)" is "MA", not "M(".
   const initials = personInitials(name);
 
   return (

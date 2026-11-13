@@ -46,7 +46,7 @@ export function ActivityTimeline({
   restorable?: ReadonlySet<string>;
   onRestore?: (batchId: string) => Promise<void> | void;
 }) {
-  // 1.24: the shared timeline plus the guest ("assigned guest Ahmed (OXY)") and category lines.
+  // 1.24: the shared timeline plus the guest ("assigned guest Ahmed (Acme)") and category lines.
   const items = useMemo(() => buildTaskTimeline(activity), [activity]);
   const [shown, setShown] = useState(FIRST);
   const [restoring, setRestoring] = useState<string | null>(null);

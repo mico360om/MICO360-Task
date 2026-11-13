@@ -116,7 +116,7 @@ export const BoardCard = React.memo(function BoardCard({
         </View>
       ) : null}
 
-      {/* The people outside the company responsible for it: "External: Ahmed Al Said (OXY) and 2 more". */}
+      {/* The people outside the company responsible for it: "External: Ahmed Al Said (Acme) and 2 more". */}
       {view.externalText ? (
         <Text style={s.external} numberOfLines={capLines(1)} importantForAccessibility="no">
           {view.externalText}

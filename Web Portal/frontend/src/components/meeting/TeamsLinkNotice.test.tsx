@@ -17,7 +17,7 @@ let available: boolean;
 let reply: Record<string, unknown>;
 
 const meeting: Meeting = {
-  id: 'm1', title: 'OXY review', description: null, category: null, status: 'SCHEDULED', projectId: null, organizerId: 'u1',
+  id: 'm1', title: 'Site review', description: null, category: null, status: 'SCHEDULED', projectId: null, organizerId: 'u1',
   location: null, onlineLink: null, onlineMeetingProvider: 'TEAMS', teamsLinkPending: true, startAt: '2026-12-01T06:00:00.000Z', endAt: '2026-12-01T07:00:00.000Z',
   timeZone: 'Asia/Muscat', recurrenceRule: null, recurrenceParentId: null, templateId: null, transcript: null, invitesSentAt: null, reminderSentAt: null,
   createdById: 'u1', createdAt: '', updatedAt: '', canEdit: true,

@@ -21,7 +21,7 @@ describe('the task timeline (activity, read-only), worded as on the web', () => 
     expect(buildTimeline([e('a1', 'UPDATED', 'A', 1, { changes: [{ field: 'milestone', from: true, to: false }] })])[0].text).toBe('cleared its milestone');
     expect(buildTimeline([e('a1', 'ASSIGNED', 'Sara Ahmed', 1, { assignee: 'Omar Ahmed', via: 'mico-ai' })])[0].text).toBe('assigned Omar Ahmed via MICO AI');
     expect(buildTimeline([e('a1', 'UPDATED', 'A', 1, { changes: [{ field: 'clientVisible', from: false, to: true }] })])[0].text).toBe('made this visible to the client');
-    expect(buildTimeline([e('a1', 'EXTERNAL_CONTACT_ADDED', 'A', 1, { name: 'Ahmed Al Said', company: 'OXY' })])[0]).toMatchObject({ kind: 'external', text: 'added an external contact: Ahmed Al Said (OXY)' });
+    expect(buildTimeline([e('a1', 'EXTERNAL_CONTACT_ADDED', 'A', 1, { name: 'Ahmed Al Said', company: 'Acme' })])[0]).toMatchObject({ kind: 'external', text: 'added an external contact: Ahmed Al Said (Acme)' });
     expect(buildTimeline([e('a1', 'PROJECT_COMPANIES_CHANGED', 'A', 1, { added: ['Beta Co'], removed: ['Gamma Co'], main: 'Alpha Co' })])[0].text)
       .toBe('changed this project’s companies — added Beta Co; removed Gamma Co; main company now Alpha Co');
   });
@@ -88,9 +88,9 @@ describe.skipIf(!web)('activity: src/activity-feed.js matches the web app (lib/a
     ['UPDATED', { changes: [{ field: 'inspectionForm', from: 'f2', to: null }] }], ['UPDATED', { changes: [{ field: 'inspectionPlace', from: null, to: 'Rig 3' }] }],
     ['UPDATED', { changes: [{ field: 'inspectionPlace', from: 'Rig 3', to: 'الحفار ٤' }] }], ['UPDATED', { changes: [{ field: 'inspectionPlace', from: 'Rig 3', to: null }] }],
     // External contacts: added, changed and removed (named with their company), and older rows without names.
-    ['EXTERNAL_CONTACT_ADDED', { name: 'Ahmed Al Said', company: 'OXY' }], ['EXTERNAL_CONTACT_ADDED', { name: 'سالم الهنائي', company: null }], ['EXTERNAL_CONTACT_ADDED'],
-    ['EXTERNAL_CONTACT_CHANGED', { name: 'Ahmed Al Said', company: 'OXY' }], ['EXTERNAL_CONTACT_CHANGED', { name: 'Sara Nasser', company: 'PDO' }],
-    ['EXTERNAL_CONTACT_REMOVED', { name: 'Ahmed Al Said', company: 'OXY' }], ['EXTERNAL_CONTACT_REMOVED', { name: 'Salim' }],
+    ['EXTERNAL_CONTACT_ADDED', { name: 'Ahmed Al Said', company: 'Acme' }], ['EXTERNAL_CONTACT_ADDED', { name: 'سالم الهنائي', company: null }], ['EXTERNAL_CONTACT_ADDED'],
+    ['EXTERNAL_CONTACT_CHANGED', { name: 'Ahmed Al Said', company: 'Acme' }], ['EXTERNAL_CONTACT_CHANGED', { name: 'Sara Nasser', company: 'PDO' }],
+    ['EXTERNAL_CONTACT_REMOVED', { name: 'Ahmed Al Said', company: 'Acme' }], ['EXTERNAL_CONTACT_REMOVED', { name: 'Salim' }],
     // A project's companies changed (its history): added, removed, its main company; parts with nothing left out.
     ['PROJECT_COMPANIES_CHANGED', { added: ['Beta Co'], removed: ['Gamma Co'], main: 'Alpha Co' }], ['PROJECT_COMPANIES_CHANGED', { added: ['B', 'C', 'D'], removed: [], main: null }],
     ['PROJECT_COMPANIES_CHANGED', { added: [], removed: ['شركة'], main: null }], ['PROJECT_COMPANIES_CHANGED', { added: 'not a list', main: '' }], ['PROJECT_COMPANIES_CHANGED'],

@@ -238,7 +238,7 @@ describe('Client accounts', () => {
     const accounts = createClientAccounts({ prisma, userService });
     const at = new Date();
     const made = await accounts.create(
-      { firstName: 'Saif', lastName: 'Said', username: 'ipw-saif', email: `saif${DOMAIN}`, organisation: 'OXY', password: 'Temp-Pass-11', temporary: { at, setById: admin.id, expiresAt: new Date(at.getTime() + DAY) } },
+      { firstName: 'Saif', lastName: 'Said', username: 'ipw-saif', email: `saif${DOMAIN}`, organisation: 'Acme', password: 'Temp-Pass-11', temporary: { at, setById: admin.id, expiresAt: new Date(at.getTime() + DAY) } },
       { id: admin.id },
     );
     expect(made).toMatchObject({ mustChangePassword: true, temporaryPasswordSetBy: { id: admin.id }, onboarding: 'ACTIVE' });

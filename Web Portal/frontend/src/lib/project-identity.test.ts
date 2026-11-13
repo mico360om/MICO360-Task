@@ -36,7 +36,7 @@ describe('initials and colours', () => {
     expect(projectInitials('')).toBe('?');
   });
   it('uses letters only: no bracket, dash or number in the tile', () => {
-    expect(projectInitials('(OXY) Pipeline Survey')).toBe('OP');
+    expect(projectInitials('(Acme) Pipeline Survey')).toBe('AP');
     expect(projectInitials('Rig - Phase 2')).toBe('RP');
     expect(projectInitials('2026 Audit')).toBe('AU');
     // A name without a letter keeps its digits; nothing usable at all is "?".

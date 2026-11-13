@@ -194,7 +194,7 @@ describe('Settings → Microsoft Teams (staff routes)', () => {
 
 describe('Make Teams link (a meeting waiting for its link)', () => {
   async function meeting(over: Record<string, unknown> = {}) {
-    return meetings.create({ title: 'OXY review', organizerId: 'org', createdById: 'org', status: 'SCHEDULED', startAt: new Date(Date.now() + 86_400_000), endAt: new Date(Date.now() + 90_000_000), ...over });
+    return meetings.create({ title: 'Site review', organizerId: 'org', createdById: 'org', status: 'SCHEDULED', startAt: new Date(Date.now() + 86_400_000), endAt: new Date(Date.now() + 90_000_000), ...over });
   }
 
   it('the organizer makes it; the answer carries the link state', async () => {
