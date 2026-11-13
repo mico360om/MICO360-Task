@@ -782,3 +782,44 @@ describe('lessons in a module that’s switched off are nobody’s lessons (clea
     await data(call('amy', 'DELETE', `/training/manage/lessons/${hidden.id}`), 204);
   });
 });
+
+describe('removing a module whose chosen module goes meanwhile (cleanup batch)', () => {
+  it('409 MODULE_GONE, and its lessons stay where they were', async () => {
+    let c = await newCourse('Gone meanwhile');
+    const l1 = await guideLesson(c.id, 'One');
+    const l2 = await guideLesson(c.id, 'Two');
+    c = await addModule(c.id, { title: 'Leaving' });
+    c = await addModule(c.id, { title: 'Chosen' });
+    const leaving = moduleNamed(c, 'Leaving').id;
+    const chosen = moduleNamed(c, 'Chosen').id;
+    await moveLesson(l1.id, leaving);
+    await moveLesson(l2.id, leaving);
+    // Another manager removes the chosen module just after this request checked it (before its lock).
+    let checked = false;
+    const racing = new Proxy(prisma, {
+      get: (target, key) => {
+        if (key !== 'trainingModule') return Reflect.get(target, key);
+        return new Proxy(target.trainingModule, {
+          get: (models, name) =>
+            name === 'findFirst'
+              ? async (args: Parameters<typeof target.trainingModule.findFirst>[0]) => {
+                  const found = await target.trainingModule.findFirst(args);
+                  if (!checked && found?.id === chosen) {
+                    checked = true;
+                    await target.trainingModule.deleteMany({ where: { id: chosen } });
+                  }
+                  return found;
+                }
+              : Reflect.get(models, name),
+        });
+      },
+    });
+    const racer = createTrainingManage({ ...ctx, prisma: racing }, sync, { oneCourseKey: RECORD_KEY });
+    const err = await racer.removeModule(w.people.amy, leaving, { moveTo: chosen }).catch((e: unknown) => e);
+    expect(checked).toBe(true);
+    expect(err).toBeInstanceOf(HttpError);
+    expect(err).toMatchObject({ status: 409, code: 'MODULE_GONE', message: 'The module you chose was removed meanwhile. Choose another.' });
+    expect(await prisma.trainingModule.count({ where: { id: leaving } })).toBe(1);
+    expect((await prisma.trainingLesson.findMany({ where: { id: { in: [l1.id, l2.id] } }, select: { moduleId: true } })).map((l) => l.moduleId)).toEqual([leaving, leaving]);
+  });
+});

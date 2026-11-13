@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
-import { ValidationError } from '../../lib/http-errors';
+import { HttpError, ValidationError } from '../../lib/http-errors';
 import { withRowLock } from '../../lib/sentinel-lock';
 import { idOf, managerOf, notFound, type TrainingContext } from './training-context';
 import { readSetting, stringList, type PersonRecord } from './prisma-training-store';
@@ -249,6 +249,10 @@ export function createModuleOps(ctx: TrainingContext, d: ModuleOpsDeps) {
       (tx) => tx.$queryRaw`SELECT id FROM training_modules WHERE id = ${m.id} FOR UPDATE`,
       async (tx, locked) => {
         if ((locked as unknown[]).length === 0) return null;
+        // The module chosen for its lessons, checked again behind the lock (locked too: removed meanwhile, nothing moves).
+        if (moveTo !== null && (await tx.$queryRaw<{ id: string }[]>`SELECT id FROM training_modules WHERE id = ${moveTo} AND courseId = ${m.courseId} FOR UPDATE`).length === 0) {
+          throw new HttpError('The module you chose was removed meanwhile. Choose another.', 'MODULE_GONE', 409);
+        }
         const lessons = await tx.trainingLesson.findMany({ where: { moduleId: m.id }, select: { id: true, updatedAt: true }, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }] });
         const last = await tx.trainingLesson.findFirst({ where: { courseId: m.courseId }, orderBy: [{ position: 'desc' }], select: { position: true } });
         let position = (last?.position ?? -1) + 1;
