@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useInfiniteQuery, useQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
-import { chatApi, type ApiChatAttachment, type ApiMessage, type ConversationPrefs, type ConversationSummary, type MessageAuthor, type ReadOnlyNote } from '../api/chat';
+import { chatApi, olderPageCursor, type ApiChatAttachment, type ApiMessage, type ConversationPrefs, type ConversationSummary, type MessageAuthor, type MessagesCursor, type ReadOnlyNote } from '../api/chat';
 import { CHAT_INBOX_KEY, chatInboxQuery, refreshInboxSoon } from '../lib/chat-inbox-query';
 import { withConversationRead } from '../lib/chat-badge';
 import { projectsApi } from '../api/projects';
@@ -215,8 +215,9 @@ export function ChatPage({ startDirectWith, openConversationId, onOpened }: Chat
       noteAuthors(page.authors);
       return page.messages;
     },
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (lastPage: ApiMessage[]) => (Array.isArray(lastPage) && lastPage.length >= CHAT_PAGE_SIZE ? lastPage[0]?.createdAt : undefined),
+    initialPageParam: undefined as MessagesCursor | undefined,
+    // Review fix #20: the oldest loaded message's time and id, so one sent in that same millisecond isn't skipped.
+    getNextPageParam: (lastPage: ApiMessage[]) => olderPageCursor(lastPage, CHAT_PAGE_SIZE),
     enabled: !!active,
   });
 

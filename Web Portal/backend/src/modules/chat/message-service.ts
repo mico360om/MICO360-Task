@@ -16,12 +16,22 @@ import type {
   ChatPerson,
 } from './chat-repository';
 import type { AttachmentStorage } from '../tasks/attachment-repository';
+import { safeUploadName } from '../../lib/upload-safety';
+import { removeStoredFile } from '../../lib/stored-files';
 
 const ATTACHMENT_URL_PREFIX = '/uploads';
 type AttachmentView = MessageAttachmentRecord & { url: string };
 
 /** Longest message body (after trimming) — the same limit applies to attachment captions. */
 export const MAX_MESSAGE_LENGTH = 4000;
+
+/**
+ * Review fix #17: a pair of people's key — "<smaller id>:<larger id>", the ids compared byte by byte (as the
+ * backfill migration compares them), so whichever of the two starts the chat names the same conversation.
+ */
+export function directKeyOf(userA: string, userB: string): string {
+  return Buffer.compare(Buffer.from(userA, 'utf8'), Buffer.from(userB, 'utf8')) <= 0 ? `${userA}:${userB}` : `${userB}:${userA}`;
+}
 
 /**
  * Extract @mention candidates from a message body (for mention notifications). Usernames are
@@ -137,8 +147,8 @@ export interface MessageServiceDeps {
   onDirectMessage?: (e: DirectMessageEvent) => void | Promise<void>;
   /** Fired when someone reads a conversation (used to clear the notifications about it). */
   onRead?: (e: { conversationId: string; userId: string }) => void | Promise<void>;
-  /** Where failed (best-effort) notification hooks are reported. */
-  logger?: Pick<Logger, 'error'>;
+  /** Where failed (best-effort) notification hooks, and files that couldn't be deleted, are reported. */
+  logger?: Pick<Logger, 'error'> & Partial<Pick<Logger, 'warn'>>;
 }
 
 const DEFAULT_LIMIT = 50;
@@ -249,11 +259,21 @@ export function createMessageService(deps: MessageServiceDeps) {
     if (!(await members.canAccessProject(projectId, userId))) {
       throw new ForbiddenError('You do not have access to this project’s chat.');
     }
-    const existing = await conversations.findProjectConversation(projectId);
-    const conv = existing ?? (await conversations.createProject(projectId));
+    const conv = (await conversations.findProjectConversation(projectId)) ?? (await createChannel(projectId));
     // Lazily record a participant row so read-state (lastReadAt) has somewhere to live.
     await participants.add(conv.id, userId);
     return conv;
+  }
+
+  /** N10: two people opening a new project's chat at once — whoever made it second gets the first one's. */
+  async function createChannel(projectId: string): Promise<Conversation> {
+    try {
+      return await conversations.createProject(projectId);
+    } catch (err) {
+      const made = isUniqueViolation(err) ? await conversations.findProjectConversation(projectId) : null;
+      if (made) return made;
+      throw err;
+    }
   }
 
   /**
@@ -262,10 +282,22 @@ export function createMessageService(deps: MessageServiceDeps) {
    */
   async function getOrCreateDirectConversation(userId: string, otherUserId: string): Promise<Conversation & { readOnly: ReadOnlyNote }> {
     if (userId === otherUserId) throw new ValidationError('You cannot start a conversation with yourself.');
-    const existing = await conversations.findDirectConversation(userId, otherUserId);
+    const key = directKeyOf(userId, otherUserId);
+    const existing = await findDirect(key, userId, otherUserId);
     if (existing) return { ...existing, readOnly: await readOnlyOf(existing, userId) };
     if (!(await members.isActiveUser(otherUserId))) throw new NotFoundError('User not found.');
     if (members.colleagues && !(await members.colleagues(userId, otherUserId))) throw new HttpError(COMPANY_WORDS.notColleague, 'NOT_A_COLLEAGUE', 403);
+    if (conversations.createDirectPair) {
+      // Review fix #17: the conversation and both people in one write, under the pair's unique key — the other
+      // person (or a second click) starting it at the same moment gets this very conversation.
+      try {
+        return { ...(await conversations.createDirectPair(key, userId, otherUserId)), readOnly: null };
+      } catch (err) {
+        const made = isUniqueViolation(err) ? await findDirect(key, userId, otherUserId) : null;
+        if (made) return { ...made, readOnly: await readOnlyOf(made, userId) };
+        throw err;
+      }
+    }
     const conv = await conversations.createDirect();
     await participants.add(conv.id, userId);
     await participants.add(conv.id, otherUserId);
@@ -273,19 +305,46 @@ export function createMessageService(deps: MessageServiceDeps) {
   }
 
   /**
+   * The pair's conversation: the one with their key; else one made before keys that the backfill left without
+   * one (the oldest they are both in), which takes the key now when no other conversation holds it.
+   */
+  async function findDirect(key: string, userId: string, otherUserId: string): Promise<Conversation | null> {
+    const keyed = conversations.findDirectByKey ? await conversations.findDirectByKey(key) : null;
+    if (keyed) return keyed;
+    const older = await conversations.findDirectConversation(userId, otherUserId);
+    if (older && conversations.stampDirectKey) await conversations.stampDirectKey(older.id, key);
+    return older;
+  }
+
+  /**
    * Post a message. A retry that carries the same `clientId` as an earlier send gets that message
    * back (`created: false`) instead of a duplicate — also when two retries race each other.
    */
-  async function postMessage(conversationId: string, userId: string, input: PostMessageInput): Promise<{ message: MessageView; created: boolean }> {
+  async function postMessage(
+    conversationId: string,
+    userId: string,
+    input: PostMessageInput,
+  ): Promise<{ message: MessageView; created: boolean; completed?: boolean }> {
     const conv = await load(conversationId);
     await assertAccess(conv, userId);
     const clientId = input.clientId?.trim() || null;
+    // N6: a file's name as kept and shown — no hidden or right-to-left characters, it fits its column, never empty.
+    const attachment = input.attachment ? { ...input.attachment, fileName: safeUploadName(input.attachment.fileName, input.attachment.mimeType) } : undefined;
     const already = async () => (clientId && messages.findByClientId ? messages.findByClientId(conversationId, userId, clientId) : null);
     const earlier = await already();
-    if (earlier) return { message: (await viewOf([earlier]))[0]!, created: false };
+    if (earlier) {
+      // Review fix #18: a retry of a send whose message was saved without its file (before the two were saved
+      // together) brings the file now (`completed`); any other retry gets the first message back.
+      if (attachment && deps.attachments && !earlier.deletedAt && (await deps.attachments.listByMessages([earlier.id])).length === 0) {
+        await assertCanWrite(conv, userId);
+        await deps.attachments.create(earlier.id, attachment);
+        return { message: (await viewOf([earlier]))[0]!, created: false, completed: true };
+      }
+      return { message: (await viewOf([earlier]))[0]!, created: false };
+    }
     await assertCanWrite(conv, userId);
     // A caption may be empty when a file is attached; a plain message may not.
-    const text = cleanBody(input.body, !!input.attachment);
+    const text = cleanBody(input.body, !!attachment);
     let replyToId: string | null = null;
     if (input.replyToId) {
       const parent = await messages.findById(input.replyToId);
@@ -294,13 +353,18 @@ export function createMessageService(deps: MessageServiceDeps) {
     }
     let message: Message;
     try {
-      message = await messages.create(conversationId, userId, text, { replyToId, clientId });
+      if (attachment && deps.attachments && messages.createWithAttachment) {
+        // Review fix #18: the message and its file together, or neither.
+        message = (await messages.createWithAttachment(conversationId, userId, text, { replyToId, clientId }, attachment)).message;
+      } else {
+        message = await messages.create(conversationId, userId, text, { replyToId, clientId });
+        if (attachment && deps.attachments) await deps.attachments.create(message.id, attachment);
+      }
     } catch (err) {
       const raced = isUniqueViolation(err) ? await already() : null;
       if (raced) return { message: (await viewOf([raced]))[0]!, created: false };
       throw err;
     }
-    if (input.attachment && deps.attachments) await deps.attachments.create(message.id, input.attachment);
 
     const usernames = parseMentions(text);
     if (usernames.length > 0) {
@@ -317,11 +381,17 @@ export function createMessageService(deps: MessageServiceDeps) {
     return { message: (await viewOf([message]))[0]!, created: true };
   }
 
-  /** The message this sender already posted with this client id (a retry), or null. */
-  async function findSent(conversationId: string, userId: string, clientId: string): Promise<MessageView | null> {
+  /**
+   * The message this sender already posted with this client id (a retry), or null. `upload`: a file's retry —
+   * also null while that message still lacks its file (#18: one saved before messages and files were saved
+   * together), so the retry stores the file and postMessage completes the message with it.
+   */
+  async function findSent(conversationId: string, userId: string, clientId: string, opts?: { upload?: boolean }): Promise<MessageView | null> {
     await assertAccess(await load(conversationId), userId);
     const m = messages.findByClientId ? await messages.findByClientId(conversationId, userId, clientId) : null;
-    return m ? (await viewOf([m]))[0]! : null;
+    if (!m) return null;
+    const view = (await viewOf([m]))[0]!;
+    return opts?.upload && deps.attachments && !m.deletedAt && view.attachments.length === 0 ? null : view;
   }
 
   async function sendMessage(conversationId: string, userId: string, body: string, attachment?: StoredFileMeta): Promise<Message> {
@@ -379,10 +449,19 @@ export function createMessageService(deps: MessageServiceDeps) {
     });
   }
 
-  async function listMessages(conversationId: string, userId: string, opts?: { before?: Date; limit?: number }): Promise<MessagesPage> {
+  /**
+   * A page of history. `before` alone (the old cursor, still sent by the Android app and the extension): the
+   * messages strictly older than that moment, as before. With `beforeId` too (review fix #20): older than that
+   * message, by time then id — a message of the same millisecond is never skipped.
+   */
+  async function listMessages(conversationId: string, userId: string, opts?: { before?: Date; beforeId?: string; limit?: number }): Promise<MessagesPage> {
     const conv = await load(conversationId);
     await assertAccess(conv, userId);
-    const page = await messages.list(conversationId, { before: opts?.before, limit: opts?.limit ?? DEFAULT_LIMIT });
+    const page = await messages.list(conversationId, {
+      before: opts?.before,
+      ...(opts?.before && opts.beforeId ? { beforeId: opts.beforeId } : {}),
+      limit: opts?.limit ?? DEFAULT_LIMIT,
+    });
     const ordered = [...page].reverse(); // repo returns newest-first; display oldest-first
     const view = await viewOf(ordered);
     return { messages: view, authors: await authorsOf(view) };
@@ -410,14 +489,21 @@ export function createMessageService(deps: MessageServiceDeps) {
     const { message: m, conv } = await messageConversation(messageId);
     if (m.userId !== userId && !canModerate) throw new ForbiddenError('You can only delete your own message.');
     if (!canModerate) await assertAccess(conv, userId);
-    // Purge attachment files + rows so a deleted message leaves nothing downloadable on the server.
-    if (deps.attachments) {
-      const atts = await deps.attachments.listByMessages([messageId]);
-      if (deps.storage) for (const a of atts) await deps.storage.remove(a.storageKey).catch(() => {});
+    // Purge attachment files + rows so a deleted message leaves nothing downloadable on the server. Review fix
+    // #23: the message is emptied and its files' rows go first, then the files themselves — nothing ever points
+    // at a missing file, and a file the disk won't delete is tried again, then logged (never quietly left).
+    const atts = deps.attachments ? await deps.attachments.listByMessages([messageId]) : [];
+    const deleted = await messages.softDelete(messageId);
+    if (deps.attachments && atts.length > 0) {
       await deps.attachments.deleteByMessage(messageId);
+      const storage = deps.storage;
+      if (storage) for (const a of atts) await removeStoredFile(storage, a.storageKey, { logger: fileLog, what: 'a deleted chat message’s file' });
     }
-    return redact(await messages.softDelete(messageId));
+    return redact(deleted);
   }
+
+  /** Where a file that couldn't be deleted is reported. */
+  const fileLog = { warn: (message: string, context?: Record<string, unknown>) => (deps.logger?.warn ?? deps.logger?.error ?? console.warn)(message, context) };
 
   async function addReaction(messageId: string, userId: string, emoji: string): Promise<{ conversationId: string }> {
     const { message, conv } = await messageConversation(messageId);

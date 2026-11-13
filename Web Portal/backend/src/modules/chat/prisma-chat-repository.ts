@@ -1,4 +1,5 @@
 import type { PrismaClient } from '@prisma/client';
+import { isRetryableTxError } from '../../lib/sentinel-lock';
 import type {
   Conversation,
   ConversationRepository,
@@ -16,6 +17,23 @@ type ConvRow = { id: string; kind: string; projectId: string | null; createdAt: 
 const BATCH = 500;
 const batches = <T,>(list: readonly T[]): T[][] => Array.from({ length: Math.ceil(list.length / BATCH) }, (_, i) => list.slice(i * BATCH, (i + 1) * BATCH));
 const toConv = (c: ConvRow): Conversation => ({ id: c.id, kind: c.kind as Conversation['kind'], projectId: c.projectId, createdAt: c.createdAt });
+const isUniqueViolation = (err: unknown) => (err as { code?: string })?.code === 'P2002';
+const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/**
+ * A deadlock or MariaDB's snapshot refusal (1020) between two writes at the same moment: the write simply runs
+ * again (a few times). `unique`: also after a unique clash (an upsert that lost the race to insert now updates).
+ */
+async function retried<T>(work: () => Promise<T>, opts: { attempts?: number; unique?: boolean } = {}): Promise<T> {
+  const attempts = opts.attempts ?? 4;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await work();
+    } catch (err) {
+      if (attempt >= attempts || !(isRetryableTxError(err) || (opts.unique && isUniqueViolation(err)))) throw err;
+      await pause(20 * attempt + Math.floor(Math.random() * 20));
+    }
+  }
+}
 
 export function createPrismaConversationRepository(prisma: PrismaClient): ConversationRepository {
   return {
@@ -28,13 +46,32 @@ export function createPrismaConversationRepository(prisma: PrismaClient): Conver
       return c ? toConv(c) : null;
     },
     async findDirectConversation(a, b) {
+      // Conversations from before pair keys (#17): the oldest, so the same one comes back every time.
       const c = await prisma.conversation.findFirst({
         where: {
           kind: 'DIRECT',
           AND: [{ participants: { some: { userId: a } } }, { participants: { some: { userId: b } } }],
         },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       });
       return c ? toConv(c) : null;
+    },
+    async findDirectByKey(key) {
+      const c = await prisma.conversation.findUnique({ where: { directKey: key } });
+      return c && c.kind === 'DIRECT' ? toConv(c) : null;
+    },
+    async createDirectPair(key, a, b) {
+      // One write: the conversation and both people land together, or nothing does (a nested create).
+      return toConv(await prisma.conversation.create({ data: { kind: 'DIRECT', directKey: key, participants: { create: [{ userId: a }, { userId: b }] } } }));
+    },
+    async stampDirectKey(id, key) {
+      try {
+        const { count } = await prisma.conversation.updateMany({ where: { id, kind: 'DIRECT', directKey: null }, data: { directKey: key } });
+        return count === 1;
+      } catch (err) {
+        if (isUniqueViolation(err)) return false; // another conversation of the pair holds it
+        throw err;
+      }
     },
     async createProject(projectId) {
       return toConv(await prisma.conversation.create({ data: { kind: 'PROJECT', projectId } }));
@@ -57,11 +94,12 @@ export function createPrismaConversationRepository(prisma: PrismaClient): Conver
 export function createPrismaParticipantRepository(prisma: PrismaClient): ParticipantRepository {
   return {
     async add(conversationId, userId) {
-      return prisma.conversationParticipant.upsert({
-        where: { conversationId_userId: { conversationId, userId } },
-        create: { conversationId, userId },
-        update: {},
-      });
+      // N10: an upsert on MySQL reads, then writes — the same person opening the chat twice at once could clash
+      // (a unique error, or MariaDB's 1020). One INSERT IGNORE can't: the row is there afterwards either way.
+      await prisma.conversationParticipant.createMany({ data: [{ conversationId, userId }], skipDuplicates: true });
+      const row = await prisma.conversationParticipant.findUnique({ where: { conversationId_userId: { conversationId, userId } } });
+      if (!row) throw new Error('The conversation’s participant could not be recorded.');
+      return row;
     },
     async remove(conversationId, userId) {
       await prisma.conversationParticipant.deleteMany({ where: { conversationId, userId } });
@@ -85,11 +123,16 @@ export function createPrismaParticipantRepository(prisma: PrismaClient): Partici
       return rows.map((r) => r.conversationId);
     },
     async setLastRead(conversationId, userId, at) {
-      await prisma.conversationParticipant.upsert({
-        where: { conversationId_userId: { conversationId, userId } },
-        create: { conversationId, userId, lastReadAt: at },
-        update: { lastReadAt: at },
-      });
+      // N10: two tabs marking the same chat read at once — the upsert that lost the race runs again (an update).
+      await retried(
+        () =>
+          prisma.conversationParticipant.upsert({
+            where: { conversationId_userId: { conversationId, userId } },
+            create: { conversationId, userId, lastReadAt: at },
+            update: { lastReadAt: at },
+          }),
+        { unique: true },
+      );
     },
     async setPrefs(conversationId, userId, patch) {
       return prisma.conversationParticipant.update({ where: { conversationId_userId: { conversationId, userId } }, data: patch });
@@ -109,6 +152,19 @@ export function createPrismaMessageRepository(prisma: PrismaClient): MessageRepo
     async create(conversationId, userId, body, extra) {
       return prisma.chatMessage.create({ data: { conversationId, userId, body, replyToId: extra?.replyToId ?? null, clientId: extra?.clientId ?? null } });
     },
+    async createWithAttachment(conversationId, userId, body, extra, file) {
+      // Review fix #18: the message and its file's row in one transaction (no isolation statement: the
+      // server's own level). A clientId clash or any failure rolls both back.
+      return retried(() =>
+        prisma.$transaction(async (tx) => {
+          const message = await tx.chatMessage.create({ data: { conversationId, userId, body, replyToId: extra.replyToId ?? null, clientId: extra.clientId ?? null } });
+          const attachment = await tx.chatAttachment.create({
+            data: { messageId: message.id, fileName: file.fileName, mimeType: file.mimeType, sizeBytes: file.sizeBytes, storageKey: file.storageKey },
+          });
+          return { message, attachment };
+        }),
+      );
+    },
     async findByClientId(conversationId, userId, clientId) {
       return prisma.chatMessage.findUnique({ where: { conversationId_userId_clientId: { conversationId, userId, clientId } } });
     },
@@ -125,9 +181,16 @@ export function createPrismaMessageRepository(prisma: PrismaClient): MessageRepo
       return prisma.chatMessage.findUnique({ where: { id } });
     },
     async list(conversationId, opts) {
+      // Review fix #20: by time, then id (the index on conversationId, createdAt ends with the id). The cursor
+      // with an id is that message: older moments, and earlier messages of its own moment — never a skip.
+      const before = opts.before
+        ? opts.beforeId
+          ? { OR: [{ createdAt: { lt: opts.before } }, { createdAt: opts.before, id: { lt: opts.beforeId } }] }
+          : { createdAt: { lt: opts.before } }
+        : {};
       return prisma.chatMessage.findMany({
-        where: { conversationId, ...(opts.before ? { createdAt: { lt: opts.before } } : {}) },
-        orderBy: { createdAt: 'desc' },
+        where: { conversationId, ...before },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         take: opts.limit,
       });
     },
@@ -149,7 +212,8 @@ export function createPrismaMessageRepository(prisma: PrismaClient): MessageRepo
       });
     },
     async latest(conversationId) {
-      return prisma.chatMessage.findFirst({ where: { conversationId }, orderBy: { createdAt: 'desc' } });
+      // Two in the same millisecond: the higher id, as latestMany and the history's order (#20) read it.
+      return prisma.chatMessage.findFirst({ where: { conversationId }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] });
     },
     async latestMany(conversationIds) {
       const out = new Map<string, Awaited<ReturnType<typeof prisma.chatMessage.findFirstOrThrow>>>();
