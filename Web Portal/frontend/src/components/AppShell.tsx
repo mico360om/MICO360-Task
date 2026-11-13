@@ -5,6 +5,8 @@ import { Sidebar, SidebarBody } from './Sidebar';
 import { useManagementLink } from '../lib/useManagementLink';
 import { ChatSoundNotifier } from './ChatSoundNotifier';
 import { MeetingReminderPopup } from './MeetingReminderPopup';
+import { UpdateToast } from './UpdateToast';
+import { AddToHomeScreenGuide } from './install/AddToHomeScreenGuide';
 import { GlobalSearch } from './GlobalSearch';
 import { TaskDrawerContainer } from './TaskDrawerContainer';
 import { useTaskStepper } from '../lib/useTaskStepper';
@@ -216,7 +218,7 @@ export function AppShell() {
               <SyncStatus />
               {/* The header's N is the fallback: a page with its own "New …" takes the key. */}
               <span data-tour="new-task" className="inline-flex">
-                <NewTaskButton size="sm" compact shortcutPriority={0} className="[@media(pointer:coarse)]:!min-h-11 [@media(pointer:coarse)]:!min-w-11" />
+                <NewTaskButton size="sm" compact shortcutPriority={0} openFromAddress className="[@media(pointer:coarse)]:!min-h-11 [@media(pointer:coarse)]:!min-w-11" />
               </span>
               <span className="hidden h-6 w-px bg-line sm:block" aria-hidden="true" />
               <span data-tour="notifications" className="inline-flex">
@@ -268,6 +270,10 @@ export function AppShell() {
       <BinUndoToast />
       {/* Task archive: "RIG-12 archived · Undo" after an archive (the panel has closed). */}
       <ArchiveUndoToast />
+      {/* Installable website (13 Nov): "A new version of MICO360 Tasks is ready" (Refresh / Later), and the
+          iPhone/iPad "Add to Home Screen" guide the Dashboard card and the account menu open. */}
+      <UpdateToast />
+      <AddToHomeScreenGuide />
     </div>
     </CurrentProjectProvider>
     </ShortcutProvider>

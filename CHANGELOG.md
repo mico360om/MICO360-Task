@@ -15,6 +15,9 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 ## [Unreleased]
 
 ### Improvements
+- MICO360 Tasks can be installed as an app on phones, tablets and computers (Install App, or Add to Home Screen on iPhone and iPad).
+- A message tells you when a new version is ready, and a clear page shows when you’re offline.
+- The Android download link is now on the sign-in page and in About.
 - Learning Hub: simpler pages — one 'Up next' course to start, To do and Done lists, slimmer course cards, one Next button in lessons and a shorter quiz.
 - Learning Hub: each course starts with its training video once the link is added, a new 'Getting started' course, and lesson pictures updated to the current version.
 - Learning Hub (admins): fewer tabs, a 'New staff only' choice when assigning a course, and the tour switch moved to System Settings.

@@ -50,9 +50,11 @@ function worker(opts: { kill?: boolean; net?: Net } = {}) {
     clients: { claim: vi.fn(async () => undefined), matchAll: async () => [{ url: `${ORIGIN}/inspections/i1`, navigate: (u: string) => void navigated.push(u) }] },
     registration: { unregister: vi.fn(async () => true) },
   };
-  const fetchFn = async (input: string | FakeRequest) => {
+  const fetchedWith: { path: string; cache?: string }[] = [];
+  const fetchFn = async (input: string | FakeRequest, init?: { cache?: string }) => {
     const url = typeof input === 'string' ? new URL(input, ORIGIN).href : input.url;
     fetched.push(new URL(url).pathname);
+    fetchedWith.push({ path: new URL(url).pathname, cache: init?.cache });
     return net(url);
   };
   const source = opts.kill ? SOURCE.replace('const KILL_SWITCH = false;', 'const KILL_SWITCH = true;') : SOURCE;
@@ -78,22 +80,64 @@ function worker(opts: { kill?: boolean; net?: Net } = {}) {
     listeners.message!({ data, waitUntil: (p: unknown) => void (done = p) });
     await done;
   }
-  return { self, stores, fetched, navigated, lifecycle, request, message, setNet: (n: Net) => void (net = n) };
+  return { self, stores, fetched, fetchedWith, navigated, lifecycle, request, message, setNet: (n: Net) => void (net = n) };
 }
 
 const html = (body = '<script type="module" src="/assets/index-abc.js"></script><link rel="stylesheet" href="/assets/index-abc.css">') =>
   new Response(`<!doctype html><html><head>${body}</head></html>`, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } });
 const js = (text = 'console.log(1)') => new Response(text, { status: 200, headers: { 'content-type': 'text/javascript' } });
 const offline: Net = () => Promise.reject(new TypeError('Failed to fetch'));
+/** What v2 keeps besides the page and its files (the worker's own list). */
+const KEPT_SOURCE = /const KEPT = (\[[^\]]+\]);/.exec(SOURCE)?.[1];
+const KEPT: string[] = KEPT_SOURCE ? (JSON.parse(KEPT_SOURCE.replace(/'/g, '"')) as string[]) : [];
 
 describe('the service worker (public/sw.js)', () => {
   it('on install keeps the page and the files it loads first, and takes over at once', async () => {
     const w = worker({ net: (url) => (url.endsWith('/') ? html() : js()) });
     await w.lifecycle('install');
-    expect(w.fetched).toEqual(['/', '/assets/index-abc.js', '/assets/index-abc.css']);
-    expect([...w.stores.get('mico360-shell-v1')!.keys()]).toEqual(['/__mico360-shell__']);
-    expect([...w.stores.get('mico360-assets-v1')!.keys()]).toEqual(['/assets/index-abc.js', '/assets/index-abc.css']);
+    expect(w.fetched.slice(0, 3)).toEqual(['/', '/assets/index-abc.js', '/assets/index-abc.css']);
+    expect([...w.stores.get('mico360-shell-v2')!.keys()]).toContain('/__mico360-shell__');
+    expect([...w.stores.get('mico360-assets-v2')!.keys()]).toEqual(['/assets/index-abc.js', '/assets/index-abc.css']);
     expect(w.self.skipWaiting).toHaveBeenCalled();
+  });
+
+  // PWA (13 Nov): the cache version is v2, and installing also keeps the offline page, the manifest and
+  // the icons — those only (never an API answer, a file or anything personal).
+  it('v2: on install also keeps the offline page, the manifest and the icons — nothing else', async () => {
+    const w = worker({ net: (url) => (url.endsWith('/') ? html() : js()) });
+    await w.lifecycle('install');
+    expect(KEPT).toEqual(['/offline.html', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon-512.png', '/icons/icon-maskable-512.png', '/apple-touch-icon.png']);
+    expect([...w.stores.get('mico360-shell-v2')!.keys()].sort()).toEqual(['/__mico360-shell__', ...KEPT].sort());
+    expect([...w.stores.keys()].sort()).toEqual(['mico360-assets-v2', 'mico360-shell-v2']);
+    // Fetched fresh, never from the browser's HTTP cache.
+    expect(w.fetchedWith.filter((f) => KEPT.includes(f.path)).every((f) => f.cache === 'no-store')).toBe(true);
+  });
+
+  it('v2: a kept file the server can’t give (404, no signal) is simply not kept; installing still finishes', async () => {
+    const w = worker({ net: (url) => (url.endsWith('/') ? html() : url.endsWith('.png') ? new Response('no', { status: 404 }) : js()) });
+    await w.lifecycle('install');
+    expect([...w.stores.get('mico360-shell-v2')!.keys()].sort()).toEqual(['/__mico360-shell__', '/manifest.webmanifest', '/offline.html']);
+    const off = worker({ net: offline });
+    await off.lifecycle('install');
+    expect(off.self.skipWaiting).toHaveBeenCalled();
+  });
+
+  it('v2: the manifest and icons come from the network when it answers (and are kept up to date), else from the cache', async () => {
+    const w = worker({ net: () => js('icon v1') });
+    await w.lifecycle('install');
+    w.setNet(() => js('icon v2'));
+    expect(await (await w.request('/icons/icon-192.png'))!.text()).toBe('icon v2');
+    w.setNet(offline);
+    expect(await (await w.request('/icons/icon-192.png'))!.text()).toBe('icon v2');
+    expect(await (await w.request('/manifest.webmanifest'))!.text()).toBe('icon v1');
+    // A kept file never kept: offline, it fails as it would without the worker.
+    const empty = worker({ net: offline });
+    await expect(empty.request('/manifest.webmanifest')).rejects.toThrow('Failed to fetch');
+    // A server error is passed on and the kept copy stays.
+    w.setNet(() => new Response('oops', { status: 500 }));
+    expect((await w.request('/manifest.webmanifest'))!.status).toBe(500);
+    w.setNet(offline);
+    expect(await (await w.request('/manifest.webmanifest'))!.text()).toBe('icon v1');
   });
 
   // 1.22 QA: a request sent as a page goes (a notification's Remove still waiting for its Undo, sent
@@ -139,6 +183,22 @@ describe('the service worker (public/sw.js)', () => {
     await expect(w.request('/inspections/i1', { mode: 'navigate' })).rejects.toThrow('Failed to fetch');
   });
 
+  // PWA: a page load that fails with no saved page shows the offline page ("You're offline…"); the last
+  // good page still comes first.
+  it('v2: without signal and no last good page, the offline page; with one, the last good page first', async () => {
+    const w = worker({ net: (url) => (url.endsWith('/offline.html') ? new Response('<title>You’re offline</title>', { status: 200, headers: { 'content-type': 'text/html' } }) : new Response('nothing', { status: 404 })) });
+    await w.lifecycle('install');
+    expect([...w.stores.get('mico360-shell-v2')!.keys()]).not.toContain('/__mico360-shell__');
+    w.setNet(offline);
+    const page = await w.request('/inspections/i1', { mode: 'navigate' });
+    expect(await page!.text()).toContain('You’re offline');
+    // Once a page has loaded, it is what comes back without signal (inspections keep working).
+    w.setNet(() => html('<title>app</title>'));
+    await w.request('/inspections/i1', { mode: 'navigate' });
+    w.setNet(offline);
+    expect(await (await w.request('/projects', { mode: 'navigate' }))!.text()).toContain('app');
+  });
+
   it('the app’s files: from the cache once kept (they never change)', async () => {
     const w = worker({ net: () => js('v1') });
     expect(await (await w.request('/assets/InspectionPage-x1.js'))!.text()).toBe('v1');
@@ -149,7 +209,7 @@ describe('the service worker (public/sw.js)', () => {
 
   it('never keeps the API, the client page, uploads, downloads, realtime or anything else', async () => {
     const w = worker({ net: () => js() });
-    for (const path of ['/api/v1/inspections/i1', '/client/abc', '/uploads/p/rig.png', '/downloads/MICO360-Tasks.apk', '/socket.io/?EIO=4', '/build-info.json', '/sw.js']) {
+    for (const path of ['/api/v1/inspections/i1', '/client/abc', '/uploads/p/rig.png', '/downloads/MICO360-Tasks.apk', '/socket.io/?EIO=4', '/email-assets/logo.png', '/build-info.json', '/sw.js', '/favicon.svg', '/robots.txt', '/icons/other.png']) {
       expect(await w.request(path), path).toBeNull();
     }
     expect(await w.request('/client/abcdef', { mode: 'navigate' })).toBeNull();
@@ -157,31 +217,52 @@ describe('the service worker (public/sw.js)', () => {
     expect(await w.request('/assets/x.js', { origin: 'https://cdn.example' })).toBeNull();
   });
 
-  it('on activate removes older caches of its own (only its own) and takes over open pages', async () => {
+  it('on activate removes older caches of its own (only its own, v1 too) and takes over open pages', async () => {
     const w = worker();
     w.stores.set('mico360-assets-v0', new Map());
+    w.stores.set('mico360-assets-v1', new Map());
     w.stores.set('someone-else', new Map());
     w.stores.set('mico360-shell-v1', new Map());
+    w.stores.set('mico360-shell-v2', new Map());
     await w.lifecycle('activate');
-    expect([...w.stores.keys()].sort()).toEqual(['mico360-shell-v1', 'someone-else']);
+    expect([...w.stores.keys()].sort()).toEqual(['mico360-shell-v2', 'someone-else']);
     expect(w.self.clients.claim).toHaveBeenCalled();
+  });
+
+  it('v2: opening the offline page itself never replaces the last good page', async () => {
+    const w = worker({ net: () => html('<title>app</title>') });
+    await w.request('/inspections/i1', { mode: 'navigate' });
+    w.setNet(() => new Response('<title>You’re offline</title>', { status: 200, headers: { 'content-type': 'text/html' } }));
+    expect(await (await w.request('/offline.html', { mode: 'navigate' }))!.text()).toContain('offline');
+    w.setNet(offline);
+    expect(await (await w.request('/inspections/i1', { mode: 'navigate' }))!.text()).toContain('app');
+  });
+
+  it('the never list is unchanged by v2 (the API, client pages, uploads, downloads, realtime, email pictures)', () => {
+    const never = /const NEVER = \[(.+)\];/.exec(SOURCE)?.[1];
+    expect(never).toBe(String.raw`/^\/api\//, /^\/client(\/|$)/, /^\/uploads\//, /^\/downloads\//, /^\/socket\.io\//, /^\/email-assets\//`);
+    expect(SOURCE).toContain("const VERSION = 'v2';");
   });
 
   it('keeps the files a page loaded before it took over (its own /assets/ only)', async () => {
     const w = worker({ net: () => js() });
     await w.message({ type: 'cache-assets', urls: [`${ORIGIN}/assets/a.js`, '/assets/b.css', 'https://cdn.example/assets/c.js', '/api/v1/me', 'not a url ::'] });
-    expect([...w.stores.get('mico360-assets-v1')!.keys()]).toEqual(['/assets/a.js', '/assets/b.css']);
+    expect([...w.stores.get('mico360-assets-v2')!.keys()]).toEqual(['/assets/a.js', '/assets/b.css']);
   });
 
   it('the kill switch: removes its caches, unregisters, reloads the pages and handles nothing', async () => {
     const w = worker({ kill: true, net: () => html() });
     w.stores.set('mico360-shell-v1', new Map([['/__mico360-shell__', html()]]));
+    w.stores.set('mico360-shell-v2', new Map([['/offline.html', html()], ['/manifest.webmanifest', js()]]));
+    w.stores.set('mico360-assets-v2', new Map([['/assets/a.js', js()]]));
+    w.stores.set('someone-else', new Map());
     await w.lifecycle('install');
     expect(w.fetched).toEqual([]);
     await w.lifecycle('activate');
-    expect([...w.stores.keys()]).toEqual([]);
+    expect([...w.stores.keys()]).toEqual(['someone-else']);
     expect(w.self.registration.unregister).toHaveBeenCalled();
     expect(w.navigated).toEqual([`${ORIGIN}/inspections/i1`]);
-    expect(await w.request('/inspections/i1', { mode: 'navigate' })).toBeNull();
+    for (const path of ['/inspections/i1', '/offline.html']) expect(await w.request(path, { mode: 'navigate' }), path).toBeNull();
+    for (const path of ['/manifest.webmanifest', '/icons/icon-192.png', '/assets/a.js']) expect(await w.request(path), path).toBeNull();
   });
 });

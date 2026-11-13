@@ -66,13 +66,17 @@ describe('after the site’s code fails to load (a deploy replaced it)', () => {
 describe('noticing a newer version before anything fails', () => {
   function watcher(over: { deployed?: () => Promise<typeof NEWER | null>; typing?: boolean } = {}) {
     let focus: () => void = () => {};
+    let visible: () => void = () => {};
     let tick: () => void = () => {};
     const assigned: string[] = [];
     const store = new Map<string, string>();
+    const checkWorker = vi.fn();
     const w = createUpdateWatcher({
       running: RUNNING,
       deployed: over.deployed ?? (async () => NEWER),
       onFocus: (cb) => ((focus = cb), () => {}),
+      onVisible: (cb) => ((visible = cb), () => {}),
+      checkWorker,
       every: (ms, cb) => {
         expect(ms).toBe(10 * 60_000);
         tick = cb;
@@ -84,8 +88,67 @@ describe('noticing a newer version before anything fails', () => {
       memory: new Set(),
     });
     w.start();
-    return { w, focus: () => focus(), tick: () => tick(), assigned };
+    return { w, focus: () => focus(), visible: () => visible(), tick: () => tick(), assigned, checkWorker };
   }
+
+  // PWA (13 Nov): an installed app has no reload button and is mostly brought back, not focused: coming
+  // back to it checks too, and every check also asks the browser for a new service worker (sw.js).
+  it('coming back to the app checks too, and each check asks for a new service worker', async () => {
+    let deployed = RUNNING;
+    const { w, visible, checkWorker } = watcher({ deployed: async () => deployed });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(w.stale).toBe(false);
+    deployed = NEWER;
+    visible();
+    await vi.waitFor(() => expect(w.stale).toBe(true));
+    // The check at the start, and this one.
+    expect(checkWorker).toHaveBeenCalledTimes(2);
+  });
+
+  it('tells whoever listens (the update notice) once per newer version', async () => {
+    let deployed: typeof NEWER = RUNNING;
+    const { w, focus, tick } = watcher({ deployed: async () => deployed });
+    const heard = vi.fn();
+    const stop = w.subscribe(heard);
+    focus();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(heard).not.toHaveBeenCalled();
+    expect(w.newer).toBeNull();
+    deployed = NEWER;
+    tick();
+    await vi.waitFor(() => expect(heard).toHaveBeenCalledTimes(1));
+    expect(w.newer).toEqual(NEWER);
+    focus();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(heard).toHaveBeenCalledTimes(1);
+    // An even newer one: told again.
+    deployed = { version: '1.23.2', builtAt: '2026-11-06T08:00:00.000Z' };
+    await w.check();
+    expect(heard).toHaveBeenCalledTimes(2);
+    stop();
+    deployed = { version: '1.23.3', builtAt: '2026-11-07T08:00:00.000Z' };
+    await w.check();
+    expect(heard).toHaveBeenCalledTimes(2);
+  });
+
+  // As the footer's banner did before it: a page opened from an older copy (the browser's cache, the
+  // worker's last good page) says so at once, without waiting for focus or the interval.
+  it('looks once when it starts', async () => {
+    const { w, checkWorker } = watcher();
+    await vi.waitFor(() => expect(w.stale).toBe(true));
+    expect(checkWorker).toHaveBeenCalledTimes(1);
+  });
+
+  it('a check that fails (no signal) changes nothing and asks again next time', async () => {
+    let fail = true;
+    const { w, focus } = watcher({ deployed: async () => (fail ? Promise.reject(new TypeError('offline')) : NEWER) });
+    focus();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(w.stale).toBe(false);
+    fail = false;
+    focus();
+    await vi.waitFor(() => expect(w.stale).toBe(true));
+  });
 
   it('checks on focus and every 10 minutes; the next move to another page is a full page load there', async () => {
     const { w, focus, assigned } = watcher();

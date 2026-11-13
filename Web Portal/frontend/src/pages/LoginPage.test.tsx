@@ -83,29 +83,37 @@ describe('LoginPage', () => {
     expect(await screen.findByText(/too many attempts\. try again in 2 minutes\./i)).toBeInTheDocument();
   });
 
-  it('links Privacy and Terms to real pages, and iOS is a label rather than a dead link', () => {
+  // Owner, 13 Nov (P1): the website installs as an app (Install App, Add to Home Screen), so the store
+  // badges are gone; the Android APK is a quiet link in the footer row, beside Privacy and Terms.
+  it('links Privacy and Terms to real pages; no store badges (no “Get the mobile app”, no iOS “coming soon”)', () => {
     renderPage();
     expect(screen.getByRole('link', { name: 'Privacy' })).toHaveAttribute('href', '/privacy');
     expect(screen.getByRole('link', { name: 'Terms' })).toHaveAttribute('href', '/terms');
-    expect(screen.queryByRole('link', { name: /ios/i })).not.toBeInTheDocument();
-    expect(screen.getByLabelText(/ios app coming soon/i)).toBeInTheDocument();
+    expect(screen.queryByText(/get the mobile app/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/ios/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/coming soon/i)).not.toBeInTheDocument();
   });
 
-  it('downloads the APK from this site, at its own address, never from a code-hosting page', async () => {
+  it('“Download for Android” in the footer row: the APK from this site, at its own address, never a code-hosting page', async () => {
     hostsApk = true;
     renderPage();
-    await waitFor(() => expect(screen.getByRole('link', { name: /android/i })).toHaveAttribute('href', '/downloads/MICO360-Tasks.apk'));
-    const link = screen.getByRole('link', { name: /android/i });
+    const link = await screen.findByRole('link', { name: 'Download for Android' });
+    expect(link).toHaveAttribute('href', '/downloads/MICO360-Tasks.apk');
     expect(link).toHaveAttribute('download');
     expect(link).not.toHaveAttribute('target');
+    // In the same quiet row as Privacy and Terms.
+    expect(link.parentElement).toBe(screen.getByRole('link', { name: 'Terms' }).parentElement);
     expect(document.body.innerHTML).not.toMatch(/github\.com/);
   });
 
-  it('says the Android app is not available yet when the site has no APK, instead of a link that fails', async () => {
+  it('leaves the Android link out when the site has no APK, instead of a link that fails', async () => {
     hostsApk = false;
     renderPage();
-    await waitFor(() => expect(screen.getByLabelText(/android app not available yet/i)).toBeInTheDocument());
+    await screen.findByRole('link', { name: 'Terms' });
+    await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([, init]) => (init as RequestInit | undefined)?.method === 'HEAD')).toBe(true));
+    await new Promise((r) => setTimeout(r, 0));
     expect(screen.queryByRole('link', { name: /android/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/not available yet/i)).not.toBeInTheDocument();
     expect(document.body.innerHTML).not.toMatch(/github\.com/);
   });
 

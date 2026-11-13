@@ -3,6 +3,7 @@ import { Button } from './ui/Button';
 import { NewTaskModal } from './NewTaskModal';
 import { useShortcut } from './shortcuts/ShortcutProvider';
 import { TOUCH_TALL } from '../lib/touch';
+import { useNewFromAddress } from '../lib/useNewFromAddress';
 
 export interface NewTaskButtonProps {
   onCreated?: () => void;
@@ -12,12 +13,15 @@ export interface NewTaskButtonProps {
   className?: string;
   /** The N shortcut's priority: the header's button passes 0 so a page's own "New …" wins. */
   shortcutPriority?: number;
+  /** The header's button: `?new=task` on arrival opens the form (the installed app's "New task" shortcut). */
+  openFromAddress?: boolean;
 }
 
 /** "New Task" button + the global create dialog. Drop it anywhere (header, page). */
-export function NewTaskButton({ onCreated, size = 'md', compact = false, className = '', shortcutPriority }: NewTaskButtonProps) {
+export function NewTaskButton({ onCreated, size = 'md', compact = false, className = '', shortcutPriority, openFromAddress = false }: NewTaskButtonProps) {
   const [open, setOpen] = useState(false);
   useShortcut('new', () => setOpen(true), { priority: shortcutPriority });
+  useNewFromAddress(() => setOpen(true), 'task', openFromAddress);
   return (
     <>
       {/* 44px tall on a touch screen, wherever it is (a page's header gave it 36px). */}

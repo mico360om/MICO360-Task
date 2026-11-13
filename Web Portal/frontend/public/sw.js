@@ -6,6 +6,10 @@
  *   app); the last good page is kept and used only when the network can't be reached.
  * - The app's files under /assets/ have their content's hash in their names and never change: kept
  *   once fetched, and used from the cache.
+ * - Installable website (v2): the offline page, the manifest and the app icons (KEPT) are kept when it
+ *   installs. A page load with no signal and no last good page shows the offline page; the manifest and
+ *   icons come from the network when it answers, else from what was kept. Nothing personal: never an
+ *   API answer, an uploaded file or a download.
  * - Never cached: the API (/api/), the client page (/client/), uploaded files (/uploads/), the
  *   downloads (/downloads/), realtime (/socket.io/), email pictures, and every other request.
  *
@@ -15,7 +19,7 @@
  */
 const KILL_SWITCH = false;
 /** Changes when the way things are cached changes: older caches are removed when this one starts. */
-const VERSION = 'v1';
+const VERSION = 'v2';
 const PREFIX = 'mico360-';
 const SHELL_CACHE = `${PREFIX}shell-${VERSION}`;
 const ASSET_CACHE = `${PREFIX}assets-${VERSION}`;
@@ -23,6 +27,9 @@ const ASSET_CACHE = `${PREFIX}assets-${VERSION}`;
 const SHELL_KEY = '/__mico360-shell__';
 /** The app's files kept at most (the oldest go first): a few releases' worth. */
 const MAX_ASSETS = 300;
+/** Kept when it installs (v2), besides the page and its files: the offline page, the manifest and the icons. */
+const KEPT = ['/offline.html', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon-512.png', '/icons/icon-maskable-512.png', '/apple-touch-icon.png'];
+const OFFLINE_PAGE = '/offline.html';
 const NEVER = [/^\/api\//, /^\/client(\/|$)/, /^\/uploads\//, /^\/downloads\//, /^\/socket\.io\//, /^\/email-assets\//];
 
 /**
@@ -39,6 +46,7 @@ function networkRoutes() {
 }
 
 const isAsset = (path) => path.startsWith('/assets/');
+const isKept = (path) => KEPT.includes(path);
 
 /** The page's own files (scripts, styles, its icon and fonts under /assets/), read from its HTML. */
 function assetsIn(html) {
@@ -87,6 +95,19 @@ async function cacheShell() {
   }
 }
 
+/** The offline page, the manifest and the icons, fetched fresh; one that can't be fetched now is skipped. */
+async function cacheKept() {
+  const cache = await caches.open(SHELL_CACHE);
+  for (const path of KEPT) {
+    try {
+      const res = await fetch(path, { cache: 'no-store', credentials: 'same-origin' });
+      if (res.ok) await cache.put(path, res);
+    } catch {
+      /* no signal while installing: kept on its next fetch */
+    }
+  }
+}
+
 async function removeEverything() {
   for (const name of await caches.keys()) if (name.startsWith(PREFIX)) await caches.delete(name);
 }
@@ -109,6 +130,23 @@ async function pageLoad(request) {
     return res;
   } catch (err) {
     const kept = await caches.match(SHELL_KEY);
+    if (kept) return kept;
+    // No page was ever kept here: the plain offline page (v2), if it was.
+    const offlinePage = await caches.match(OFFLINE_PAGE);
+    if (offlinePage) return offlinePage;
+    throw err;
+  }
+}
+
+/** The manifest or an icon: the network first (kept up to date); what was kept only without signal. */
+async function keptFile(request) {
+  const path = new URL(request.url).pathname;
+  try {
+    const res = await fetch(request);
+    if (res.ok) await (await caches.open(SHELL_CACHE)).put(path, res.clone());
+    return res;
+  } catch (err) {
+    const kept = await (await caches.open(SHELL_CACHE)).match(path);
     if (kept) return kept;
     throw err;
   }
@@ -142,7 +180,10 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     (async () => {
       await routed;
-      if (!KILL_SWITCH) await cacheShell();
+      if (!KILL_SWITCH) {
+        await cacheShell();
+        await cacheKept();
+      }
       await self.skipWaiting();
     })(),
   );
@@ -177,6 +218,12 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
   if (NEVER.some((re) => re.test(url.pathname))) return;
+  // The offline page, the manifest and the icons — opened as a page too (the offline page is never the
+  // last good page).
+  if (isKept(url.pathname)) {
+    event.respondWith(keptFile(request));
+    return;
+  }
   if (request.mode === 'navigate') {
     event.respondWith(pageLoad(request));
     return;
