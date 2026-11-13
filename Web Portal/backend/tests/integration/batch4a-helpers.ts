@@ -53,7 +53,8 @@ export function batch4aWorld(prisma: PrismaClient, prefix: string) {
   }
 
   async function task(projectId: string, code: string, columnId: string, createdById: string, extra: Record<string, unknown> = {}) {
-    return prisma.task.create({ data: { key: `${code}-${++keyN}`, title: `Pump check ${keyN}`, projectId, columnId, createdById, ...extra } });
+    // Numbers spaced apart: a repeat copy takes the project's highest number plus one in between.
+    return prisma.task.create({ data: { key: `${code}-${++keyN * 100}`, title: `Pump check ${keyN}`, projectId, columnId, createdById, ...extra } });
   }
 
   return { clean, user, project, task };

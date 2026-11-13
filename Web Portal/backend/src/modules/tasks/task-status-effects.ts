@@ -28,6 +28,8 @@ export interface StatusEffectsDeps {
   record: (entry: { taskId: string; projectId: string; userId: string; action: string; meta: Record<string, unknown> }) => Promise<unknown>;
   /** A step that failed after the task changed (logged; the change stands). */
   onError?: (err: unknown, taskId: string) => void;
+  /** Review fix #14: the next copy of a completed repeating task couldn't be made (logged; the hourly sweep makes it). Absent: onError. */
+  onCopyFailed?: (err: unknown, taskId: string) => void;
 }
 
 export interface StatusChangeOptions {
@@ -91,7 +93,12 @@ export function createStatusChangeEffects(deps: StatusEffectsDeps) {
     }
 
     if (task.recurrenceRule && done) {
-      const next = await deps.nextCopy(task);
+      // Review fix #14: best effort — the completion is saved; a copy that fails now is made by the hourly
+      // sweep (recurrence-service repairMissedCopies), so the move answers as saved instead of an error.
+      const next = await deps.nextCopy(task).catch((err: unknown) => {
+        (deps.onCopyFailed ?? deps.onError)?.(err, task.id);
+        return null;
+      });
       // Approval turned off on this waiting task only: the series' next copy still needs it.
       if (next && approval === 'SWITCHED_OFF') await deps.keepApprovalOnCopy?.(next.id);
       if (next) await deps.announceCopy(next.id, task.projectId);

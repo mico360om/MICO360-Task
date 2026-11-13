@@ -1183,6 +1183,8 @@ async function main(): Promise<void> {
     notify: (n) => notificationService.notify(n),
     record: (entry) => activityService.record(entry),
     onError: (err, taskId) => logger.error('action items could not follow their task', { err, taskId }),
+    // Review fix #14: the completion stands; the hourly sweep makes the missing copy.
+    onCopyFailed: (err, taskId) => logger.error('recurring task: next copy failed (the hourly sweep makes it)', { err, taskId }),
   });
   onTaskMoved = (task, prevColumnId, actorId, extra) => statusChanged(task, prevColumnId, actorId, extra ?? {});
 
@@ -2992,6 +2994,9 @@ async function main(): Promise<void> {
   // On-schedule recurring series: each copy is made on its due date, done or not, shown live on open
   // boards and announced to its people. Hourly, so a copy appears soon after local midnight; one
   // instance runs it at a time, and a task never gets two next copies, so re-runs are harmless.
+  // Review fix #14: then an on-completion series whose next copy failed when it was completed (in the last
+  // two weeks; never one with a copy anywhere, nor a rule that ended) gets it, shown on open boards as a
+  // completion's copy is (no notice), and each repair is logged.
   const runRecurrenceSchedule = () =>
     runExclusive(jobLock, 'recurrence-schedule-sweep', SWEEP_LEASE_MS, () => new Date(), async () => {
       for (const made of await recurrenceService.runSchedule()) {
@@ -3001,6 +3006,12 @@ async function main(): Promise<void> {
         for (const userId of await taskRecipientIds(task.id)) {
           await notificationService.notify({ userId, type: 'TASK_ASSIGNED', title: 'A recurring task is ready', body: taskNoticeBody(task), entityType: 'task', entityId: task.id });
         }
+      }
+      for (const { headId, copy } of await recurrenceService.repairMissedCopies()) {
+        logger.job('recurrence-schedule-sweep').info('repeating task: its missing next copy was made', { taskId: headId, copyId: copy.id });
+        await taskSearchIndex.taskChanged(copy.id);
+        const task = await taskService.getTask(copy.id);
+        broadcast(task.projectId, 'task:created', task);
       }
     }).catch(sweepFailed('recurrence-schedule-sweep', 'recurrence schedule sweep'));
   jobs.every(60 * 60 * 1000, runRecurrenceSchedule);

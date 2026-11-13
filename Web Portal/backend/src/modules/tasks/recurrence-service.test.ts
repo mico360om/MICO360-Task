@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createRecurrenceService, type RecurringTask, type RecurrenceTaskPort } from './recurrence-service';
+import { createRecurrenceService, REPAIR_WINDOW_DAYS, type RecurringTask, type RecurrenceTaskPort } from './recurrence-service';
 import type { RecurrenceRule } from './recurrence';
 
 function port(instanceCount = 1, heads: RecurringTask[] = []) {
@@ -261,5 +261,65 @@ describe('RecurrenceService — an occurrence moved on its own keeps the series 
     await make(p, utc('2026-10-12')).runSchedule();
     expect(spawned[0]!.nextDueDate.toISOString()).toBe(midnight('2026-10-12').toISOString());
     expect(spawned[0]!.rule.resumeFrom).toBeUndefined();
+  });
+});
+
+describe('RecurrenceService.repairMissedCopies (review fix #14)', () => {
+  const head = (id: string, rule: RecurrenceRule | null, due = '2025-12-30'): RecurringTask => ({ id, dueDate: midnight(due), recurrenceRule: rule, recurrenceParentId: null });
+
+  it('asks for finished series from the last two weeks and makes each one’s next copy — only while still done', async () => {
+    const { p, spawned } = port();
+    let since: Date | null = null;
+    const opts: unknown[] = [];
+    const repairing: RecurrenceTaskPort = {
+      ...p,
+      async spawnNext(id, next, rule, o) {
+        opts.push(o);
+        return p.spawnNext(id, next, rule);
+      },
+      async listMissedCopies(s) {
+        since = s;
+        return [head('h1', { freq: 'DAILY', interval: 1 })];
+      },
+    };
+    const made = await make(repairing).repairMissedCopies();
+    expect(made).toEqual([{ headId: 'h1', copy: { id: 'new-1', projectId: 'p1' } }]);
+    expect(since!.toISOString()).toBe(new Date(utc('2026-01-01').getTime() - REPAIR_WINDOW_DAYS * 86_400_000).toISOString());
+    expect(REPAIR_WINDOW_DAYS).toBe(14);
+    // The next date that isn't past (today, 1 Jan), as completing it now would make.
+    expect(spawned[0]!.nextDueDate.toISOString()).toBe(midnight('2026-01-01').toISOString());
+    expect(opts).toEqual([{ onlyIfDone: true }]);
+  });
+
+  it('leaves alone: a paused rule, an on-schedule series, an ended one, a full one; one failure doesn’t stop the rest', async () => {
+    const { p, spawned } = port(5);
+    const errors: string[] = [];
+    const repairing: RecurrenceTaskPort = {
+      ...p,
+      async spawnNext(id, next, rule) {
+        if (id === 'boom') throw new Error('down');
+        return p.spawnNext(id, next, rule);
+      },
+      async listMissedCopies() {
+        return [
+          head('paused', { freq: 'DAILY', interval: 1, paused: true }),
+          head('scheduled', { freq: 'DAILY', interval: 1, createNext: 'ON_SCHEDULE' }),
+          head('ended', { freq: 'DAILY', interval: 1, until: '2025-12-31' }),
+          head('full', { freq: 'DAILY', interval: 1, count: 5 }),
+          head('none', null),
+          head('boom', { freq: 'DAILY', interval: 1 }),
+          head('ok', { freq: 'WEEKLY', interval: 1 }),
+        ];
+      },
+    };
+    const svc = createRecurrenceService({ tasks: repairing, now: () => utc('2026-01-01'), timeZone: 'UTC', onError: (_e, id) => void errors.push(id) });
+    expect((await svc.repairMissedCopies()).map((m) => m.headId)).toEqual(['ok']);
+    expect(spawned.map((s) => s.sourceTaskId)).toEqual(['ok']);
+    expect(errors).toEqual(['boom']);
+  });
+
+  it('a port without the repair read makes nothing', async () => {
+    const { p } = port();
+    expect(await make(p).repairMissedCopies()).toEqual([]);
   });
 });
