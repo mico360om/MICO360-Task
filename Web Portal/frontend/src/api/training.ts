@@ -411,6 +411,7 @@ export interface AttemptResult {
   questions: AttemptResultQuestion[];
   courseCompleted: boolean;
   certificateId: string | null;
+  moduleDone: { id: string; title: string } | null;
 }
 
 export interface FeedbackItem {

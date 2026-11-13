@@ -2,15 +2,16 @@ import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { HttpError, ValidationError } from '../../lib/http-errors';
 import { CLIENT_WORDS } from '../clients/client-kind';
-import { canLearn, inScope, isManager } from './training-access';
+import { canLearn, inScope, isManager, moduleShown } from './training-access';
 import { buildCertificatePdf, certificateFileName } from './training-certificate-pdf';
 import { certificateStatus, normaliseCode, verifyLink } from './training-certificates';
 import { COURSE, createTrainingFinish, type CourseRow } from './training-finish';
 import { conflict, courseFacts, idOf, notFound, scopeOf, trainingManagersFor, type TrainingContext } from './training-context';
-import { loadPeople, readSetting, type PersonRecord } from './prisma-training-store';
+import { loadPeople, readSetting, stringList, type PersonRecord } from './prisma-training-store';
+import { OTHER_UNIT, continueTarget } from './training-modules';
 import { cleanAnswers, deadlineOf, drawPaper, GRACE_MS, markPaper, paperForBrowser, resultQuestions, timeIsUp, type Paper, type StoredQuestion } from './training-quiz';
-import { hiddenLesson, loadState, loadStates, pairKey, type PairState } from './training-read';
-import { lessonOutline } from './training-state';
+import { hiddenLesson, loadState, loadStates, pairKey, type PairState, type UnitState } from './training-read';
+import { lessonOutline, type OutlineItem } from './training-state';
 import type { TrainingSync } from './training-sync';
 import {
   DIFFICULTIES,
@@ -33,6 +34,7 @@ import {
   type LessonDone,
   type LessonKind,
   type LessonView,
+  type ModuleOutline,
   type MyCourseState,
   type MyTraining,
   type PortalTraining,
@@ -52,8 +54,79 @@ import { videoInfo } from './training-video';
  * "not found", never revealed). Training managers and administrators may also preview any course in staff
  * mode (drafts included) but take only what they can learn. Quiz answers (what is right, feedback,
  * explanations, the right order) never leave the server before an attempt is handed in.
+ *
+ * 1.23.30 (Learning Hub as one course): a course with modules is shown as the person sees it (training-read
+ * `loadStates`, given the person already loaded): its modules in order with their states and the lesson each goes on
+ * with, Continue at the first unfinished module where they stopped (D4), previous / next over their own lessons. A
+ * lesson of a module hidden from them is "not found" (pictures and documents too); a Training manager or
+ * administrator may read it (preview) but never take it (NOT_FOR_YOU). An old short course merged into the one course
+ * (and a lesson removed as a duplicate) answers 404 COURSE_MOVED with where it lives now (the conversion's record).
  */
 export type LearnerMode = 'staff' | 'client';
+
+/** Where an old course or lesson lives now (the one course and its module; null: the course's page). */
+export interface MovedTo {
+  courseId: string;
+  moduleId: string | null;
+}
+
+/**
+ * The conversion record's (`training.oneCourse`, written at the change) entry for an old short course (`moved`) or a
+ * lesson removed as a duplicate (`removedLessons`); null when it says nothing (or isn't a record).
+ */
+export function movedTarget(record: unknown, kind: 'moved' | 'removedLessons', id: string): MovedTo | null {
+  if (!record || typeof record !== 'object') return null;
+  const map = (record as Record<string, unknown>)[kind];
+  if (!map || typeof map !== 'object' || !Object.prototype.hasOwnProperty.call(map, id)) return null;
+  const to = (map as Record<string, unknown>)[id] as { courseId?: unknown; moduleId?: unknown } | null;
+  if (!to || typeof to !== 'object' || typeof to.courseId !== 'string' || !to.courseId || to.courseId === id) return null;
+  return { courseId: to.courseId, moduleId: typeof to.moduleId === 'string' && to.moduleId ? to.moduleId : null };
+}
+
+/** A course with modules (1.23.30); a plain course has none. */
+const withModules = (s: PairState) => s.modules.length > 0;
+
+/** The person's module holding this lesson ("Other lessons" too); null on a plain course or a lesson not theirs. */
+const unitOf = (s: PairState, lessonId: string): UnitState | null => s.units.find((u) => u.unit.lessonIds.includes(lessonId)) ?? null;
+
+/** The lesson a module goes on with (Continue's rule inside it: the one they stopped on, else the first not done); null when done. */
+const unitNext = (s: PairState, u: UnitState): string | null =>
+  u.status === 'DONE' ? null : (continueTarget([u.unit], [u], s.doneIds, s.enrolment?.lastLessonId ?? null)?.lessonId ?? null);
+
+/**
+ * The lesson Start / Continue opens. A plain course: as before (a review's first changed lesson, else the first not
+ * done, else the first). A course with modules: a review's first changed lesson, else the first unfinished module
+ * where they stopped (D4), else (all done) the first lesson.
+ */
+export function resumeLesson(s: PairState, outline: { items: readonly OutlineItem[]; resumeLessonId: string | null }): string | null {
+  if (!withModules(s)) return outline.resumeLessonId;
+  return outline.items.find((i) => i.review)?.id ?? s.continueAt?.lessonId ?? s.lessons[0]?.id ?? null;
+}
+
+function moduleOutline(s: PairState, u: UnitState): ModuleOutline {
+  return {
+    id: u.unitId,
+    title: u.unit.title,
+    position: u.unit.position,
+    status: u.status,
+    lessonsDone: u.lessonsDone,
+    lessonCount: u.lessonCount,
+    minutes: u.minutes,
+    doneAt: u.doneAt ? u.doneAt.toISOString() : null,
+    newForRole: u.newForRole,
+    nextLessonId: unitNext(s, u),
+    lessonIds: [...u.unit.lessonIds],
+  };
+}
+
+/** The module a lesson is listed under on the course page ("Other lessons" and a plain course: none). */
+function lessonModuleId(s: PairState, lessonId: string): string | null {
+  const u = unitOf(s, lessonId);
+  return u && u.unitId !== OTHER_UNIT ? u.unitId : null;
+}
+
+const MOVED_WORDS = 'This course is now part of MICO360 Tasks User Training.';
+const ONE_COURSE_KEY = 'training.oneCourse';
 
 // ── Pure helpers ──────────────────────────────────────────────────────────────────────────────────
 
@@ -115,9 +188,13 @@ const LAUNCHED_KEY = 'training.launchedAt';
 const TOUR_KEY = 'training.tour';
 const DUMMY_CODE = 'TC-2222-2222-2222';
 
-export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync) {
+/** `oneCourseKey`: the conversion record's settings key (tests use their own). */
+export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync, o: { oneCourseKey?: string } = {}) {
   const { prisma } = ctx;
   const finish = createTrainingFinish(ctx);
+  const oneCourseKey = o.oneCourseKey ?? ONE_COURSE_KEY;
+  /** The person already loaded, for the state reads (a course with modules is read as they see it). */
+  const asked = (p: PersonRecord) => new Map([[p.id, p]]);
 
   // ── Who is asking ──
 
@@ -150,12 +227,29 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync) 
     throw notFound();
   }
 
-  async function courseFor(p: PersonRecord, rawId: unknown, mode: LearnerMode, need: 'read' | 'learn'): Promise<{ course: CourseRow; access: 'learn' | 'preview' }> {
-    const course = await prisma.trainingCourse.findUnique({ where: { id: idOf(rawId) }, select: COURSE });
+  /** `followMoved`: an old short course merged into the one course (archived or gone) answers COURSE_MOVED. */
+  async function courseFor(p: PersonRecord, rawId: unknown, mode: LearnerMode, need: 'read' | 'learn', followMoved = false): Promise<{ course: CourseRow; access: 'learn' | 'preview' }> {
+    const id = idOf(rawId);
+    const course = await prisma.trainingCourse.findUnique({ where: { id }, select: COURSE });
     const a = course ? access(course, p, mode) : null;
+    if (followMoved && (!course || !a || course.status === 'ARCHIVED')) await throwIfMoved(p, mode, 'moved', id);
     if (!course || !a) throw notFound();
     if (need === 'learn') needLearn(course, a);
     return { course, access: a };
+  }
+
+  /**
+   * 1.23.30: an old short course (or one of its lessons removed as a duplicate) the conversion record lists answers
+   * 404 COURSE_MOVED with where it lives now — only a course the person may open (a client is never sent to a staff
+   * course), and its module only when they see it (else the course's page). Nothing listed: returns.
+   */
+  async function throwIfMoved(p: PersonRecord, mode: LearnerMode, kind: 'moved' | 'removedLessons', id: string): Promise<void> {
+    const to = movedTarget(await readSetting<unknown>(prisma, oneCourseKey), kind, id);
+    if (!to) return;
+    const target = await prisma.trainingCourse.findUnique({ where: { id: to.courseId }, select: COURSE });
+    if (!target || !access(target, p, mode)) return;
+    const shown = to.moduleId !== null && (await loadState(ctx, p.id, target.id, p)).units.some((u) => u.unitId === to.moduleId);
+    throw new HttpError(MOVED_WORDS, 'COURSE_MOVED', 404, { courseId: target.id, moduleId: shown ? to.moduleId : null } satisfies MovedTo);
   }
 
   // ── Enrolments ──
@@ -225,6 +319,8 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync) 
   function mineOf(s: PairState, certificate: CertificateRef | null, inOrder: boolean): MyCourseState {
     const e = s.enrolment;
     const outline = lessonOutline({ lessons: s.lessons, inOrder, enrolment: e, done: s.done });
+    const resume = resumeLesson(s, outline);
+    const next = resume ? s.lessons.find((l) => l.id === resume) : undefined;
     return {
       enrolled: !!e && !e.withdrawnAt,
       status: s.state.status,
@@ -234,14 +330,15 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync) 
       dueDay: s.state.dueDay,
       overdue: s.state.overdue,
       lastLessonId: e?.lastLessonId ?? null,
-      nextLessonId: outline.resumeLessonId,
+      nextLessonId: resume,
       startedAt: iso(e?.startedAt),
       completedAt: s.state.status === 'COMPLETED' || s.state.status === 'REVIEW' ? iso(e?.completedAt) : null,
       certificate,
+      // The person's own lessons done in this cycle (a hidden module's never count).
       lessonsDone: s.doneIds.size,
-      modules: null,
-      newForRole: 0,
-      next: null,
+      modules: withModules(s) ? { done: s.units.filter((u) => u.status === 'DONE').length, total: s.units.length } : null,
+      newForRole: s.units.filter((u) => u.newForRole).length,
+      next: next ? { lessonId: next.id, lessonTitle: next.title, moduleTitle: withModules(s) ? (unitOf(s, next.id)?.unit.title ?? null) : null } : null,
     };
   }
 
@@ -249,7 +346,7 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync) 
     const out = new Map<string, CourseCard>();
     if (courses.length === 0) return out;
     const ids = courses.map((c) => c.id);
-    const states = given ?? (await loadStates(ctx, ids.map((courseId) => ({ userId: p.id, courseId }))));
+    const states = given ?? (await loadStates(ctx, ids.map((courseId) => ({ userId: p.id, courseId })), asked(p)));
     const [ratings, certs] = await Promise.all([
       prisma.trainingFeedback.groupBy({ by: ['courseId'], where: { courseId: { in: ids }, kind: 'RATING', rating: { not: null } }, _avg: { rating: true }, _count: { rating: true } }),
       prisma.trainingCertificate.findMany({ where: { userId: p.id, courseId: { in: ids } }, orderBy: [{ issuedAt: 'desc' }, { id: 'desc' }] }),
@@ -287,7 +384,7 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync) 
       select: COURSE,
       orderBy: [{ position: 'asc' }, { title: 'asc' }],
     });
-    const states = await loadStates(ctx, courses.map((c) => ({ userId: p.id, courseId: c.id })));
+    const states = await loadStates(ctx, courses.map((c) => ({ userId: p.id, courseId: c.id })), asked(p));
     const out: { course: CourseRow; state: PairState }[] = [];
     for (const course of courses) {
       const state = states.get(pairKey(p.id, course.id))!;
@@ -330,22 +427,54 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync) 
     };
   }
 
-  async function catalogueOf(p: PersonRecord, mode: LearnerMode, filters: { module?: string; difficulty?: string; q?: string }): Promise<CourseCard[]> {
+  /**
+   * The published courses the person may take, by the filters, with their states. The feature filter (`module`) also
+   * finds a course with modules through a module of that feature the person sees (1.23.30); `moduleOf` names it.
+   */
+  async function catalogueStates(
+    p: PersonRecord,
+    mode: LearnerMode,
+    filters: { module?: string; difficulty?: string; q?: string },
+  ): Promise<{ courses: CourseRow[]; states: Map<string, PairState>; moduleOf: Map<string, string> }> {
     const q = filters.q?.trim();
+    const and: Prisma.TrainingCourseWhereInput[] = [];
+    if (filters.module) {
+      const viaModules = await prisma.trainingModule.findMany({
+        where: { moduleKey: filters.module, enabled: true, course: { status: 'PUBLISHED', audience: AUDIENCE[mode] } },
+        select: { courseId: true },
+      });
+      const ids = [...new Set(viaModules.map((m) => m.courseId))];
+      and.push({ OR: [{ moduleKey: filters.module }, ...(ids.length ? [{ id: { in: ids } }] : [])] });
+    }
+    if (q) and.push({ OR: [{ title: { contains: q } }, { summary: { contains: q } }] });
     const courses = await prisma.trainingCourse.findMany({
       where: {
         status: 'PUBLISHED',
         audience: AUDIENCE[mode],
-        ...(filters.module ? { moduleKey: filters.module } : {}),
         ...(filters.difficulty ? { difficulty: filters.difficulty } : {}),
-        ...(q ? { OR: [{ title: { contains: q } }, { summary: { contains: q } }] } : {}),
+        ...(and.length ? { AND: and } : {}),
       },
       select: COURSE,
       orderBy: [{ position: 'asc' }, { title: 'asc' }, { id: 'asc' }],
     });
-    const mine = courses.filter((c) => learnable(c, p, mode));
-    const cards = await cardsFor(p, mine);
-    return mine.map((c) => cards.get(c.id)!);
+    const takeable = courses.filter((c) => learnable(c, p, mode));
+    const states = await loadStates(ctx, takeable.map((c) => ({ userId: p.id, courseId: c.id })), asked(p));
+    const moduleOf = new Map<string, string>();
+    if (!filters.module) return { courses: takeable, states, moduleOf };
+    const mine = takeable.filter((c) => {
+      const s = states.get(pairKey(p.id, c.id))!;
+      const keyOf = new Map(s.modules.map((m) => [m.id, m.moduleKey]));
+      const unit = s.units.find((u) => keyOf.get(u.unitId) === filters.module);
+      if (unit) moduleOf.set(c.id, unit.unitId);
+      return c.moduleKey === filters.module || !!unit;
+    });
+    return { courses: mine, states, moduleOf };
+  }
+
+  async function catalogueOf(p: PersonRecord, mode: LearnerMode, filters: { module?: string; difficulty?: string; q?: string }): Promise<CourseCard[]> {
+    const { courses, states } = await catalogueStates(p, mode, filters);
+    const cards = await cardsFor(p, courses, states);
+    return courses.map((c) => cards.get(c.id)!);
   }
 
   async function tourOf(p: PersonRecord): Promise<{ show: boolean }> {
@@ -377,7 +506,8 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync) 
   }
 
   async function detailOf(p: PersonRecord, course: CourseRow, a: 'learn' | 'preview', mode: LearnerMode): Promise<CourseDetail> {
-    const state = await loadState(ctx, p.id, course.id);
+    // A manager's preview follows their own view too: their modules, their lessons.
+    const state = await loadState(ctx, p.id, course.id, p);
     const card = (await cardsFor(p, [course], new Map([[pairKey(p.id, course.id), state]]))).get(course.id)!;
     const enrolled = !!state.enrolment && !state.enrolment.withdrawnAt;
     const outline = lessonOutline({ lessons: state.lessons, inOrder: course.inOrder && (a === 'learn' || enrolled), enrolment: state.enrolment, done: state.done });
@@ -398,27 +528,88 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync) 
       inOrder: course.inOrder,
       version: course.version,
       certificateMonths: course.certificateMonths,
-      modules: [],
+      modules: state.units.map((u) => moduleOutline(state, u)),
       lessons: state.lessons.map((l, i) => {
         const o = outline.items[i]!;
-        return { id: l.id, position: l.position, kind: l.kind, title: l.title, minutes: l.minutes, done: o.done, locked: o.locked, review: o.review, moduleId: null };
+        return { id: l.id, position: l.position, kind: l.kind, title: l.title, minutes: l.minutes, done: o.done, locked: o.locked, review: o.review, moduleId: lessonModuleId(state, l.id) };
       }),
       resources: resources.map(fileRef),
       questions: questions.map((f) => ({ id: f.id, question: f.body ?? '', answer: f.status === 'ANSWERED' ? f.answer : null, askedAt: f.createdAt.toISOString(), answeredAt: f.status === 'ANSWERED' ? iso(f.answeredAt) : null, mine: f.userId === p.id })),
       myRating: rating?.rating ?? null,
-      resumeLessonId: outline.resumeLessonId,
+      resumeLessonId: resumeLesson(state, outline),
     };
   }
 
   // ── Lessons ──
 
+  /**
+   * 1.23.30: a lesson of a module hidden from the person (in the course, not among their lessons, and not R2's video
+   * waiting for its link): a Training manager or administrator may read it (preview), never take it; anyone else:
+   * not found. Any other lesson: the course's access.
+   */
+  function lessonAccess(state: PairState, lesson: { id: string; kind: string; videoId: string | null }, a: 'learn' | 'preview', p: PersonRecord, mode: LearnerMode): 'learn' | 'preview' {
+    if (hiddenLesson(lesson) || state.lessons.some((l) => l.id === lesson.id)) return a;
+    if (mode === 'staff' && isManager(p)) return 'preview';
+    throw notFound('Lesson');
+  }
+
+  /** The lesson, its course, what the person may do with it and their state on the course (read as they see it). */
   async function lessonFor(p: PersonRecord, rawId: unknown, mode: LearnerMode, need: 'read' | 'learn') {
-    const lesson = await prisma.trainingLesson.findUnique({ where: { id: idOf(rawId, 'Lesson') } });
-    const course = lesson ? await prisma.trainingCourse.findUnique({ where: { id: lesson.courseId }, select: COURSE }) : null;
-    const a = course ? access(course, p, mode) : null;
-    if (!lesson || !course || !a) throw notFound('Lesson');
+    const id = idOf(rawId, 'Lesson');
+    const lesson = await prisma.trainingLesson.findUnique({ where: { id } });
+    if (!lesson) {
+      // 1.23.30: an old short course's lesson removed as a duplicate opens its module.
+      if (need === 'read') await throwIfMoved(p, mode, 'removedLessons', id);
+      throw notFound('Lesson');
+    }
+    const course = await prisma.trainingCourse.findUnique({ where: { id: lesson.courseId }, select: COURSE });
+    const courseAccess = course ? access(course, p, mode) : null;
+    if (!course || !courseAccess) throw notFound('Lesson');
+    // R2: a video lesson still waiting for its link isn't there for learners.
+    if (need === 'read' && hiddenLesson(lesson)) throw notFound('Lesson');
+    if (need === 'learn') needLearn(course, courseAccess);
+    const state = await loadState(ctx, p.id, course.id, p);
+    const a = lessonAccess(state, lesson, courseAccess, p, mode);
     if (need === 'learn') needLearn(course, a);
-    return { lesson, course, access: a };
+    return { lesson, course, access: a, state };
+  }
+
+  /** The lesson's module as the lesson page names it ("lesson 2 of 5"); null on a plain course. */
+  async function lessonModule(state: PairState, lesson: { id: string; moduleId: string | null }): Promise<LessonView['module']> {
+    if (!withModules(state)) return null;
+    const u = unitOf(state, lesson.id);
+    if (u) return { id: u.unitId, title: u.unit.title, lessonIndex: u.unit.lessonIds.indexOf(lesson.id) + 1, lessonCount: u.unit.lessonIds.length };
+    // A manager's preview of a module hidden from them: that module's lessons people can see.
+    const m = state.modules.find((x) => x.id === lesson.moduleId);
+    if (!m) return null;
+    const ids = (
+      await prisma.trainingLesson.findMany({
+        where: { courseId: state.courseId, moduleId: m.id },
+        select: { id: true, kind: true, videoId: true },
+        orderBy: [{ position: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+      })
+    )
+      .filter((l) => !hiddenLesson(l))
+      .map((l) => l.id);
+    return { id: m.id, title: m.title, lessonIndex: ids.indexOf(lesson.id) + 1, lessonCount: ids.length };
+  }
+
+  /**
+   * 1.23.30: a picture or document only lessons of modules hidden from the person use (a course's downloads and a
+   * lesson with no module never are).
+   */
+  async function onlyInHiddenModules(p: PersonRecord, fileId: string, courseId: string): Promise<boolean> {
+    const users = await prisma.trainingLesson.findMany({ where: { courseId, OR: [{ fileId }, { steps: { some: { imageFileId: fileId } } }] }, select: { moduleId: true } });
+    if (users.length === 0 || users.some((l) => l.moduleId === null)) return false;
+    const modules = await prisma.trainingModule.findMany({
+      where: { courseId, id: { in: [...new Set(users.map((l) => l.moduleId!))] } },
+      select: { id: true, moduleKey: true, roleKeys: true, companyIds: true, enabled: true },
+    });
+    const byId = new Map(modules.map((m) => [m.id, m]));
+    return users.every((l) => {
+      const m = byId.get(l.moduleId!);
+      return !!m && !moduleShown({ moduleKey: m.moduleKey, roleKeys: stringList(m.roleKeys), companyIds: stringList(m.companyIds), enabled: m.enabled }, p);
+    });
   }
 
   /** In order and an earlier lesson isn't done (a manager browsing a course they don't take sees everything). */
@@ -431,15 +622,16 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync) 
 
   /** After a lesson was done: R9 completion (once, even with two clicks), R11 review done, the certificate. */
   async function afterLessonDone(p: PersonRecord, course: CourseRow, lessonId: string): Promise<LessonDone> {
-    const state = await loadState(ctx, p.id, course.id);
-    const { courseCompleted, certificateId } = await finish.settle(p.id, course, state, { person: p, touch: true });
+    const state = await loadState(ctx, p.id, course.id, p);
+    const { courseCompleted, certificateId, moduleDone } = await finish.settle(p.id, course, state, { person: p, touch: true });
     const i = state.lessons.findIndex((l) => l.id === lessonId);
     return {
       courseProgressPct: courseCompleted ? 100 : state.state.progressPct,
       courseCompleted,
       certificateId,
+      // The person's next lesson (a hidden module's are not theirs).
       nextLessonId: i >= 0 ? (state.lessons[i + 1]?.id ?? null) : null,
-      moduleDone: null,
+      moduleDone,
     };
   }
 
@@ -466,10 +658,11 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync) 
     return { id: a.id, lessonId: a.lessonId, courseId: a.courseId, startedAt: a.startedAt.toISOString(), deadlineAt: iso(a.deadlineAt), questions: paperForBrowser(paperOf(a)), answers: savedOf(a) };
   }
 
-  async function resultOf(p: PersonRecord, a: AttemptRow, extra?: { courseCompleted: boolean; certificateId: string | null }): Promise<AttemptResult> {
+  /** `extra`: what the hand-in just finished (the course, its certificate, the module); absent: read back later. */
+  async function resultOf(p: PersonRecord, a: AttemptRow, extra?: Pick<LessonDone, 'courseCompleted' | 'certificateId' | 'moduleDone'>): Promise<AttemptResult> {
     const paper = paperOf(a);
     const answers = savedOf(a);
-    const [quiz, state] = await Promise.all([prisma.trainingQuiz.findUnique({ where: { lessonId: a.lessonId }, select: { maxAttempts: true } }), loadState(ctx, p.id, a.courseId)]);
+    const [quiz, state] = await Promise.all([prisma.trainingQuiz.findUnique({ where: { lessonId: a.lessonId }, select: { maxAttempts: true } }), loadState(ctx, p.id, a.courseId, p)]);
     const used = state.attemptsUsed.get(a.lessonId) ?? 0;
     const max = quiz?.maxAttempts ?? null;
     let certificateId = extra?.certificateId ?? null;
@@ -492,6 +685,7 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync) 
       questions: resultQuestions(paper, answers, { reveal: answersShown }),
       courseCompleted: completed,
       certificateId,
+      moduleDone: extra?.moduleDone ?? null,
     };
   }
 
@@ -507,18 +701,21 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync) 
     if (won.count === 1 && mark.passed) {
       await writeProgress(p.id, a.courseId, a.lessonId, { doneAt: now });
       const course = await prisma.trainingCourse.findUnique({ where: { id: a.courseId }, select: COURSE });
-      if (course) {
-        const done = await afterLessonDone(p, course, a.lessonId);
-        return resultOf(p, saved, { courseCompleted: done.courseCompleted, certificateId: done.certificateId });
-      }
+      if (course) return resultOf(p, saved, await afterLessonDone(p, course, a.lessonId));
     }
     return resultOf(p, saved);
   }
 
-  /** Open attempts whose time is up are handed in with what was saved. */
-  async function handInTimedOut(p: PersonRecord, lessonId?: string): Promise<void> {
+  /** Open attempts whose time is up are handed in with what was saved; how many were. */
+  async function handInTimedOut(p: PersonRecord, lessonId?: string): Promise<number> {
     const open = await prisma.trainingAttempt.findMany({ where: { userId: p.id, submittedAt: null, deadlineAt: { not: null }, ...(lessonId ? { lessonId } : {}) } });
-    for (const a of open) if (timeIsUp(a.deadlineAt, ctx.clock())) await handIn(p, a, savedOf(a));
+    let n = 0;
+    for (const a of open) {
+      if (!timeIsUp(a.deadlineAt, ctx.clock())) continue;
+      await handIn(p, a, savedOf(a));
+      n++;
+    }
+    return n;
   }
 
   async function quizInfo(p: PersonRecord, lessonId: string, state: PairState): Promise<QuizInfo | null> {
@@ -639,43 +836,48 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync) 
       return { courses: await catalogueOf(p, mode, { module: f.module || undefined, difficulty: f.difficulty || undefined, q: f.q }) };
     },
 
-    async learn(userId: string, query: unknown): Promise<{ courseId: string | null; module: TrainingModule; count: number }> {
+    /** Learn this feature: the course for it (1.23.30: a course with a module of it they see counts, `moduleId` names it). */
+    async learn(userId: string, query: unknown): Promise<{ courseId: string | null; moduleId: string | null; module: TrainingModule; count: number }> {
       const p = await who(userId, 'staff');
       const { module } = learnQuery.parse(query ?? {});
-      const courses = await catalogueOf(p, 'staff', { module });
+      const { courses: rows, states, moduleOf } = await catalogueStates(p, 'staff', { module });
+      const cards = await cardsFor(p, rows, states);
+      const courses = rows.map((c) => cards.get(c.id)!);
       const pick = courses.find((c) => c.mine.assigned && c.mine.status !== 'COMPLETED') ?? courses.find((c) => c.mine.status === 'IN_PROGRESS' || c.mine.status === 'REVIEW' || c.mine.status === 'RETAKE') ?? courses[0];
-      return { courseId: pick?.id ?? null, module, count: courses.length };
+      return { courseId: pick?.id ?? null, moduleId: pick ? (moduleOf.get(pick.id) ?? null) : null, module, count: courses.length };
     },
 
     async course(userId: string, mode: LearnerMode, courseId: unknown): Promise<CourseDetail> {
       const p = await who(userId, mode);
-      const { course, access: a } = await courseFor(p, courseId, mode, 'read');
+      const { course, access: a } = await courseFor(p, courseId, mode, 'read', true);
       return detailOf(p, course, a, mode);
     },
 
     async start(userId: string, mode: LearnerMode, courseId: unknown): Promise<CourseDetail> {
       const p = await who(userId, mode);
       const { course } = await courseFor(p, courseId, mode, 'learn');
-      const state = await loadState(ctx, p.id, course.id);
+      const state = await loadState(ctx, p.id, course.id, p);
       await ensureStarted(p.id, course.id, state.state.assigned);
       return detailOf(p, course, 'learn', mode);
     },
 
     async lesson(userId: string, mode: LearnerMode, lessonId: unknown): Promise<LessonView> {
       const p = await who(userId, mode);
-      const { lesson, course, access: a } = await lessonFor(p, lessonId, mode, 'read');
-      // R2: a video lesson still waiting for its link isn't there for learners.
-      if (hiddenLesson(lesson)) throw notFound('Lesson');
-      if (lesson.kind === 'QUIZ' && a === 'learn') await handInTimedOut(p, lesson.id);
-      const state = await loadState(ctx, p.id, course.id);
+      const found = await lessonFor(p, lessonId, mode, 'read');
+      const { lesson, course, access: a } = found;
+      let state = found.state;
+      // A quiz whose time is up is handed in first (and the state read again).
+      if (lesson.kind === 'QUIZ' && a === 'learn' && (await handInTimedOut(p, lesson.id)) > 0) state = await loadState(ctx, p.id, course.id, p);
       assertOpen(state, course, lesson.id, a);
       if (a === 'learn') await ensureStarted(p.id, course.id, state.state.assigned, lesson.id);
-      const [steps, doc, progress, quiz] = await Promise.all([
+      const [steps, doc, progress, quiz, module] = await Promise.all([
         lesson.kind === 'GUIDE' ? prisma.trainingStep.findMany({ where: { lessonId: lesson.id }, orderBy: [{ position: 'asc' }, { id: 'asc' }] }) : Promise.resolve([]),
         lesson.fileId ? prisma.trainingFile.findFirst({ where: { id: lesson.fileId, courseId: course.id } }) : Promise.resolve(null),
         prisma.trainingProgress.findUnique({ where: { userId_lessonId: { userId: p.id, lessonId: lesson.id } } }),
         lesson.kind === 'QUIZ' ? quizInfo(p, lesson.id, state) : Promise.resolve(null),
+        lessonModule(state, lesson),
       ]);
+      // Previous / next walk the person's own lessons in order (a hidden module's are skipped).
       const i = state.lessons.findIndex((l) => l.id === lesson.id);
       return {
         id: lesson.id,
@@ -697,15 +899,14 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync) 
         progress: { done: state.doneIds.has(lesson.id), videoSeconds: progress?.videoSeconds ?? 0, watchedPct: progress?.watchedPct ?? 0, stepIndex: Math.min(progress?.stepIndex ?? 0, Math.max(0, steps.length - 1)) },
         courseProgressPct: state.state.progressPct,
         watchFallbackSeconds: watchFallbackSeconds(lesson.minutes),
-        module: null,
+        module,
       };
     },
 
     async saveProgress(userId: string, mode: LearnerMode, lessonId: unknown, body: unknown): Promise<{ ok: true; progressPct: number }> {
       const p = await who(userId, mode);
       const input = progressBody.parse(body ?? {});
-      const { lesson, course, access: a } = await lessonFor(p, lessonId, mode, 'learn');
-      const state = await loadState(ctx, p.id, course.id);
+      const { lesson, course, access: a, state } = await lessonFor(p, lessonId, mode, 'learn');
       assertOpen(state, course, lesson.id, a);
       if (input.stepIndex !== undefined) {
         const steps = lesson.kind === 'GUIDE' ? await prisma.trainingStep.count({ where: { lessonId: lesson.id } }) : 0;
@@ -718,10 +919,9 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync) 
 
     async complete(userId: string, mode: LearnerMode, lessonId: unknown): Promise<LessonDone> {
       const p = await who(userId, mode);
-      const { lesson, course, access: a } = await lessonFor(p, lessonId, mode, 'learn');
+      const { lesson, course, access: a, state } = await lessonFor(p, lessonId, mode, 'learn');
       if (lesson.kind === 'QUIZ') throw conflict('Pass the quiz to finish this lesson.', 'QUIZ_LESSON');
       if (lesson.kind === 'VIDEO' && !videoInfo(lesson)) throw conflict('This video isn’t linked yet.', 'NO_VIDEO');
-      const state = await loadState(ctx, p.id, course.id);
       assertOpen(state, course, lesson.id, a);
       const now = ctx.clock();
       const last = lesson.kind === 'GUIDE' ? Math.max(0, (await prisma.trainingStep.count({ where: { lessonId: lesson.id } })) - 1) : undefined;
@@ -738,7 +938,7 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync) 
       if (!loaded || loaded.questions.length === 0) throw conflict('This quiz has no questions yet.', 'NO_QUESTIONS');
       return serial(`${p.id}|${lesson.id}`, async () => {
         await handInTimedOut(p, lesson.id);
-        const state = await loadState(ctx, p.id, course.id);
+        const state = await loadState(ctx, p.id, course.id, p);
         assertOpen(state, course, lesson.id, a);
         const open = await prisma.trainingAttempt.findFirst({ where: { userId: p.id, lessonId: lesson.id, submittedAt: null }, orderBy: [{ startedAt: 'asc' }, { id: 'asc' }] });
         if (open) return attemptPaper(open);
@@ -801,6 +1001,8 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync) 
       } else {
         const course = await prisma.trainingCourse.findUnique({ where: { id: f.courseId }, select: COURSE });
         if (!course || !access(course, p, mode)) throw notFound('File');
+        // 1.23.30: a hidden module's pictures and documents aren't theirs (a manager's preview may open them).
+        if (!(mode === 'staff' && isManager(p)) && (await onlyInHiddenModules(p, f.id, course.id))) throw notFound('File');
       }
       let content: Buffer;
       try {
@@ -916,10 +1118,18 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync) 
       // One lookup either way, so a malformed code takes as long as an unknown one.
       const row = await prisma.trainingCertificate.findUnique({
         where: { code: code ?? DUMMY_CODE },
-        select: { code: true, courseTitle: true, learnerName: true, issuedAt: true, expiresAt: true, revokedAt: true },
+        select: { code: true, courseTitle: true, learnerName: true, issuedAt: true, completedAt: true, expiresAt: true, revokedAt: true },
       });
       if (!code || !row || row.code !== code) throw notFound('Certificate');
-      return { courseTitle: row.courseTitle, learnerName: row.learnerName, issuedAt: row.issuedAt.toISOString(), expiresAt: iso(row.expiresAt), status: certificateStatus(row, ctx.clock()), completedAt: row.issuedAt.toISOString() };
+      return {
+        courseTitle: row.courseTitle,
+        learnerName: row.learnerName,
+        issuedAt: row.issuedAt.toISOString(),
+        expiresAt: iso(row.expiresAt),
+        status: certificateStatus(row, ctx.clock()),
+        // The day the course was finished (an older certificate: the day it was issued).
+        completedAt: (row.completedAt ?? row.issuedAt).toISOString(),
+      };
     },
   };
 }

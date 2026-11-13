@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { orderAssigned, progressBody, tourShows, watchFallbackSeconds } from './training-learner';
+import { movedTarget, orderAssigned, progressBody, resumeLesson, tourShows, watchFallbackSeconds } from './training-learner';
+import type { PairState } from './training-read';
 
 const launched = new Date('2026-11-15T00:00:00Z');
 const later = new Date('2026-11-20T00:00:00Z');
@@ -47,5 +48,32 @@ describe('lesson details', () => {
     expect(progressBody.parse({ videoSeconds: 12, videoDuration: 300, watchedPct: 4, stepIndex: 2 })).toEqual({ videoSeconds: 12, videoDuration: 300, watchedPct: 4, stepIndex: 2 });
     expect(progressBody.parse({})).toEqual({});
     for (const bad of [{ videoSeconds: -1 }, { watchedPct: 101 }, { videoSeconds: 1.5 }, { stepIndex: 'x' }, { videoDuration: 0 }, { videoSeconds: 86_401 }]) expect(() => progressBody.parse(bad)).toThrow();
+  });
+});
+
+describe('1.23.30: old links and Continue', () => {
+  it('the conversion record: where an old course or a removed lesson lives now; anything else says nothing', () => {
+    const record = { moved: { old1: { courseId: 'one', moduleId: 'tasks' }, old2: { courseId: 'one', moduleId: null }, bad: { moduleId: 'x' }, self: { courseId: 'self', moduleId: null } }, removedLessons: { l1: { courseId: 'one', moduleId: '' } } };
+    expect(movedTarget(record, 'moved', 'old1')).toEqual({ courseId: 'one', moduleId: 'tasks' });
+    expect(movedTarget(record, 'moved', 'old2')).toEqual({ courseId: 'one', moduleId: null });
+    expect(movedTarget(record, 'removedLessons', 'l1')).toEqual({ courseId: 'one', moduleId: null });
+    expect(movedTarget(record, 'moved', 'l1')).toBeNull();
+    expect(movedTarget(record, 'moved', 'bad')).toBeNull();
+    // A course never points at itself (no redirect loop); inherited names aren't entries.
+    expect(movedTarget(record, 'moved', 'self')).toBeNull();
+    expect(movedTarget(record, 'moved', 'constructor')).toBeNull();
+    expect(movedTarget(record, 'moved', 'toString')).toBeNull();
+    for (const nothing of [null, undefined, 'x', 3, [], { moved: null }, { moved: 'x' }]) expect(movedTarget(nothing, 'moved', 'old1')).toBeNull();
+  });
+
+  it('Continue: a plain course as before; a course with modules: a review first, then where they stopped, then the first lesson', () => {
+    const outline = (items: { id: string; review?: boolean }[], resumeLessonId: string | null) => ({ items: items.map((i) => ({ done: false, locked: false, review: false, ...i })), resumeLessonId });
+    const state = (o: { modules: boolean; continueAt?: { unitId: string; lessonId: string } | null; lessons?: string[] }) =>
+      ({ modules: o.modules ? [{ id: 'm1' }] : [], continueAt: o.continueAt ?? null, lessons: (o.lessons ?? ['a', 'b', 'c']).map((id) => ({ id })) }) as unknown as PairState;
+    expect(resumeLesson(state({ modules: false }), outline([{ id: 'a' }, { id: 'b' }], 'b'))).toBe('b');
+    expect(resumeLesson(state({ modules: true, continueAt: { unitId: 'm1', lessonId: 'c' } }), outline([{ id: 'a' }, { id: 'b' }, { id: 'c' }], 'a'))).toBe('c');
+    expect(resumeLesson(state({ modules: true, continueAt: { unitId: 'm1', lessonId: 'c' } }), outline([{ id: 'a' }, { id: 'b', review: true }, { id: 'c' }], 'b'))).toBe('b');
+    expect(resumeLesson(state({ modules: true, continueAt: null }), outline([{ id: 'a' }, { id: 'b' }, { id: 'c' }], 'a'))).toBe('a');
+    expect(resumeLesson(state({ modules: true, continueAt: null, lessons: [] }), outline([], null))).toBeNull();
   });
 });

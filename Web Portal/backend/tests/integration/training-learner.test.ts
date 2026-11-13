@@ -307,8 +307,8 @@ describe('who sees which course', () => {
   });
 
   it('Learn this feature: the module’s course for them; a module they can’t use: none', async () => {
-    expect(await data(call('ana', 'GET', '/training/learn?module=general'))).toEqual({ courseId: quick.id, module: 'general', count: 1 });
-    expect(await data(call('ana', 'GET', '/training/learn?module=admin'))).toEqual({ courseId: null, module: 'admin', count: 0 });
+    expect(await data(call('ana', 'GET', '/training/learn?module=general'))).toEqual({ courseId: quick.id, moduleId: null, module: 'general', count: 1 });
+    expect(await data(call('ana', 'GET', '/training/learn?module=admin'))).toEqual({ courseId: null, moduleId: null, module: 'admin', count: 0 });
     expect((await call('ana', 'GET', '/training/learn?module=bad')).status).toBe(400);
   });
 });
