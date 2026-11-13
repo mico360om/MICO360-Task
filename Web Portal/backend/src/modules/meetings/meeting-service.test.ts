@@ -75,6 +75,9 @@ describe('MeetingService', () => {
     expect(copy.status).toBe('DRAFT');
     expect(copy.recurrenceRule).toBeNull();
     expect(copy.createdById).toBe('u2');
+    // N4 (owner, 13 Nov): the copy is the duplicator's own meeting; the original keeps its organizer.
+    expect(copy.organizerId).toBe('u2');
+    expect((await svc.getMeeting(src.id)).organizerId).toBe('u1');
   });
 
   it('1.23: a duplicate keeps a hand-pasted link but not a Teams-made one (that one belongs to its meeting)', async () => {

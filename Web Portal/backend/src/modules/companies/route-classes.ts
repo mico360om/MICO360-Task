@@ -597,6 +597,7 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   'POST /training/manage/courses/:id/lessons': 'shared',
   'PATCH /training/manage/lessons/:id': 'shared',
   'DELETE /training/manage/lessons/:id': 'shared',
+  'GET /training/manage/lessons/:id/delete-impact': 'shared',
   'PUT /training/manage/courses/:id/lesson-order': 'shared',
   'PUT /training/manage/lessons/:id/steps': 'shared',
   'PUT /training/manage/lessons/:id/quiz': 'shared',

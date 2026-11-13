@@ -75,6 +75,15 @@ export interface ConversationRepository {
   findDirectConversation(userA: string, userB: string): Promise<Conversation | null>;
   createProject(projectId: string): Promise<Conversation>;
   createDirect(): Promise<Conversation>;
+  /** Review fix #17: the DIRECT conversation that carries this pair key (directKeyOf), or null. */
+  findDirectByKey?(key: string): Promise<Conversation | null>;
+  /**
+   * Review fix #17: a new DIRECT conversation with its pair key and both people in it, in one write.
+   * Rejects with a unique-constraint error when the pair already has its conversation.
+   */
+  createDirectPair?(key: string, userA: string, userB: string): Promise<Conversation>;
+  /** Review fix #17: give a conversation made before pair keys its key — only while it has none and no other holds it. */
+  stampDirectKey?(id: string, key: string): Promise<boolean>;
   listByIds(ids: string[]): Promise<Conversation[]>;
   /** The channels of these projects (those that have been opened at least once). */
   listProjectConversations(projectIds: string[]): Promise<Conversation[]>;
@@ -104,17 +113,33 @@ export interface ParticipantRepository {
 export interface MessageListOptions {
   /** Return messages created strictly before this instant (keyset pagination for older history). */
   before?: Date;
+  /**
+   * Review fix #20: with `before`, the cursor is that message (its time and id): the page also holds the
+   * messages of that same moment that come before it, so a tie on a page boundary is never skipped.
+   */
+  beforeId?: string;
   limit: number;
 }
 
 export interface MessageRepository {
   /** Rejects with a unique-constraint error when the sender already used this clientId here. */
   create(conversationId: string, userId: string, body: string, extra?: { replyToId?: string | null; clientId?: string | null }): Promise<Message>;
+  /**
+   * Review fix #18: a message and its file in one transaction — both are saved, or neither is. Rejects with a
+   * unique-constraint error, saving nothing, when the sender already used this clientId here.
+   */
+  createWithAttachment?(
+    conversationId: string,
+    userId: string,
+    body: string,
+    extra: { replyToId?: string | null; clientId?: string | null },
+    file: StoredFileMeta,
+  ): Promise<{ message: Message; attachment: MessageAttachmentRecord }>;
   findByClientId?(conversationId: string, userId: string, clientId: string): Promise<Message | null>;
   /** Live (not deleted) messages in these conversations whose text contains `q` (any case), newest first. */
   search?(conversationIds: string[], q: string, limit: number): Promise<Message[]>;
   findById(id: string): Promise<Message | null>;
-  /** Newest-first page of a conversation's messages (callers reverse for display). */
+  /** Newest-first page of a conversation's messages, by time then id (callers reverse for display). */
   list(conversationId: string, opts: MessageListOptions): Promise<Message[]>;
   update(id: string, body: string): Promise<Message>;
   /** Tombstone a message: stamp deletedAt and blank its body so the text can't be read back. */
@@ -147,6 +172,8 @@ export interface ChatAttachmentRepository {
   listByMessages(messageIds: string[]): Promise<MessageAttachmentRecord[]>;
   /** Remove all attachment rows for a message (its files are removed via storage separately). */
   deleteByMessage(messageId: string): Promise<void>;
+  /** Review I1: does any file record use this stored file? (Asked before a file is removed after a failed send.) */
+  storageKeyInUse?(storageKey: string): Promise<boolean>;
 }
 
 /** A person as a page of messages names them. */

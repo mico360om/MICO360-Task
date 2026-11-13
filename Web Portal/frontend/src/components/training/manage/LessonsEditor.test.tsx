@@ -93,6 +93,79 @@ describe('Course editor: lessons', () => {
     await waitFor(() => expect(api.deleteLesson).toHaveBeenCalledWith('a'));
   });
 
+  // Owner, 13 Nov (batch 4b): the quiz of a published course that gives a certificate — the server says how many
+  // people deleting it finishes (and certifies), and the administrator is asked first: Delete / Cancel.
+  describe('deleting the quiz of a published certificate course', () => {
+    const certCourse = (...lessons: ManageLesson[]) => manageCourse({ status: 'PUBLISHED', certificateOn: true, lessons: lessons.map((l, i) => ({ ...l, position: i })) });
+    const openCert = async () => {
+      api.manageCourse.mockResolvedValue(certCourse(lesson({ id: 'g', kind: 'GUIDE', title: 'Read' }), lesson({ id: 'q', kind: 'QUIZ', title: 'Check', quiz: quiz() })));
+      renderManage(<CourseEditorPage />, PATH);
+      return screen.findByRole('region', { name: 'Lessons' });
+    };
+
+    it('shows how many people would be finished and certified, then deletes on Delete', async () => {
+      api.lessonDeleteImpact.mockResolvedValue({ finishing: 2, certificate: true, published: true });
+      const lessons = await openCert();
+      await userEvent.click(within(lessons).getByRole('button', { name: 'Delete “Check”' }));
+      const confirm = screen.getByRole('alertdialog', { name: 'Delete the quiz?' });
+      expect(await within(confirm).findByText('2 people will be marked finished and get the certificate.')).toBeInTheDocument();
+      expect(api.lessonDeleteImpact).toHaveBeenCalledWith('q');
+      expect(within(confirm).getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+      await userEvent.click(within(confirm).getByRole('button', { name: 'Delete' }));
+      await waitFor(() => expect(api.deleteLesson).toHaveBeenCalledWith('q'));
+    });
+
+    it('one person reads “1 person”; Cancel deletes nothing', async () => {
+      api.lessonDeleteImpact.mockResolvedValue({ finishing: 1, certificate: true, published: true });
+      const lessons = await openCert();
+      await userEvent.click(within(lessons).getByRole('button', { name: 'Delete “Check”' }));
+      const confirm = screen.getByRole('alertdialog', { name: 'Delete the quiz?' });
+      expect(await within(confirm).findByText('1 person will be marked finished and get the certificate.')).toBeInTheDocument();
+      await userEvent.click(within(confirm).getByRole('button', { name: 'Cancel' }));
+      expect(screen.queryByRole('alertdialog')).toBeNull();
+      expect(api.deleteLesson).not.toHaveBeenCalled();
+    });
+
+    it('Delete waits for the number; no one finishing says so', async () => {
+      let answer!: (v: { finishing: number; certificate: boolean; published: boolean }) => void;
+      api.lessonDeleteImpact.mockReturnValue(new Promise((r) => (answer = r)));
+      const lessons = await openCert();
+      await userEvent.click(within(lessons).getByRole('button', { name: 'Delete “Check”' }));
+      const confirm = screen.getByRole('alertdialog', { name: 'Delete the quiz?' });
+      expect(within(confirm).getByText(/Checking who this would finish/)).toBeInTheDocument();
+      expect(within(confirm).getByRole('button', { name: 'Delete' })).toBeDisabled();
+      answer({ finishing: 0, certificate: true, published: true });
+      expect(await within(confirm).findByText('No one will be marked finished or get the certificate.')).toBeInTheDocument();
+      expect(within(confirm).getByRole('button', { name: 'Delete' })).toBeEnabled();
+    });
+
+    it('when the number can’t be worked out, it says what may happen and still lets the administrator delete', async () => {
+      api.lessonDeleteImpact.mockRejectedValue(new ApiError(500, 'INTERNAL', 'Something went wrong.'));
+      const lessons = await openCert();
+      await userEvent.click(within(lessons).getByRole('button', { name: 'Delete “Check”' }));
+      const confirm = screen.getByRole('alertdialog', { name: 'Delete the quiz?' });
+      expect(await within(confirm).findByText(/Anyone who has done every other lesson will be marked finished and get the certificate/)).toBeInTheDocument();
+      await userEvent.click(within(confirm).getByRole('button', { name: 'Delete' }));
+      await waitFor(() => expect(api.deleteLesson).toHaveBeenCalledWith('q'));
+    });
+
+    it('a quiz of a draft course: the usual question, nothing asked of the server', async () => {
+      api.manageCourse.mockResolvedValue(manageCourse({ status: 'DRAFT', certificateOn: true, lessons: [lesson({ id: 'q', kind: 'QUIZ', title: 'Check', quiz: quiz(), position: 0 })] }));
+      renderManage(<CourseEditorPage />, PATH);
+      const lessons = await screen.findByRole('region', { name: 'Lessons' });
+      await userEvent.click(within(lessons).getByRole('button', { name: 'Delete “Check”' }));
+      expect(screen.getByRole('alertdialog', { name: 'Delete the lesson “Check”?' })).toBeInTheDocument();
+      expect(api.lessonDeleteImpact).not.toHaveBeenCalled();
+    });
+
+    it('a guide lesson of a published certificate course: the usual question too', async () => {
+      const lessons = await openCert();
+      await userEvent.click(within(lessons).getByRole('button', { name: 'Delete “Read”' }));
+      expect(screen.getByRole('alertdialog', { name: 'Delete the lesson “Read”?' })).toBeInTheDocument();
+      expect(api.lessonDeleteImpact).not.toHaveBeenCalled();
+    });
+  });
+
   it('a video lesson: its link is saved (the server’s refusal shown in its words), and the saved video is previewed', async () => {
     const v = lesson({ id: 'v', kind: 'VIDEO', title: 'Watch how' });
     const lessons = await open(v);

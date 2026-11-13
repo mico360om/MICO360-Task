@@ -76,6 +76,11 @@ export interface NewTask {
   needsApproval?: boolean;
   /** Duplicate Task: the task this one is a copy of (task-duplicate.ts). */
   duplicatedFromId?: string | null;
+  /**
+   * Review fix #19/N12 (batch 4b): the new task's id, chosen by the server beforehand (lib/row-id) — a note
+   * made into a task names it in its claim, so a retry finds the task an earlier try saved. Never from a request.
+   */
+  id?: string;
 }
 
 /** What approvals need to know: who may approve a project's tasks, and its board columns. */

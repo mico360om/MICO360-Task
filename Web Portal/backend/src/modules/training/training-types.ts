@@ -539,6 +539,13 @@ export interface ModuleInput {
   enabled?: boolean;
 }
 
+/** Batch 4b: before a lesson is deleted — how many people it would finish now, and whether they get a certificate. */
+export interface LessonDeleteImpact {
+  finishing: number;
+  certificate: boolean;
+  published: boolean;
+}
+
 export interface ManageCourse {
   id: string;
   title: string;

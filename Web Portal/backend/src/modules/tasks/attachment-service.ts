@@ -9,6 +9,7 @@ import type {
   UploadedFile,
 } from './attachment-repository';
 import type { TaskLookup } from './assignee-repository';
+import { removeStoredFile, type RemoveStoredFileOptions } from '../../lib/stored-files';
 
 export interface AttachmentServiceDeps {
   repo: AttachmentRepository;
@@ -23,6 +24,10 @@ export interface AttachmentServiceDeps {
   shrinkImage?: (content: Buffer, mimeType: string) => Promise<Buffer>;
   /** After a change to the words of a task (the task search index re-reads it). */
   onChanged?: (taskId: string) => void | Promise<void>;
+  /** Review fix #23: where a file that couldn't be deleted from storage is reported. */
+  logger?: RemoveStoredFileOptions['logger'];
+  /** The pause before trying a refused file delete again (ms; tests). */
+  fileRetryPauseMs?: number;
 }
 
 export function createAttachmentService({
@@ -34,7 +39,11 @@ export function createAttachmentService({
   maxTotalBytesPerTask,
   shrinkImage,
   onChanged,
+  logger,
+  fileRetryPauseMs,
 }: AttachmentServiceDeps) {
+  const dropFile = (storageKey: string, what: string) =>
+    removeStoredFile(storage, storageKey, { logger, what, ...(fileRetryPauseMs !== undefined ? { pauseMs: fileRetryPauseMs } : {}) });
   async function ensureTask(taskId: string): Promise<void> {
     if (!(await taskLookup.exists(taskId))) throw new NotFoundError('Task not found.');
   }
@@ -83,8 +92,8 @@ export function createAttachmentService({
         ...(opts.fromClient ? { fromClient: true } : {}),
       });
     } catch (err) {
-      // The row couldn't be saved: its bytes don't stay on disk uncounted.
-      await storage.remove(storageKey).catch(() => undefined);
+      // The row couldn't be saved: its bytes don't stay on disk uncounted (tried again, else logged).
+      await dropFile(storageKey, 'a task file whose record could not be saved');
       throw err;
     }
     await onChanged?.(taskId);
@@ -113,8 +122,10 @@ export function createAttachmentService({
     if (rec.uploadedById !== userId && !isAdmin) {
       throw new ForbiddenError('You can only delete your own attachment.');
     }
-    await storage.remove(rec.storageKey);
+    // Review fix #23: the record first, then the file — a record never points at a missing file; a file the
+    // disk won't delete is tried again, then logged (the delete has happened for the person either way).
     await repo.delete(id);
+    await dropFile(rec.storageKey, 'a deleted task file');
     await onChanged?.(rec.taskId);
     return rec;
   }

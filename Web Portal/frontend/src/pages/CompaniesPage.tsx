@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import { apiClient } from '../api/client';
 import { companiesApi, type ApiCompany } from '../api/companies';
 import { CompanyFormDialog, type CompanyTab } from '../components/company/CompanyFormDialog';
@@ -102,7 +103,8 @@ export function CompaniesPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Admin"
+        // Owner, 13 Nov: Companies is inside System Settings (no longer in the left menu): its breadcrumb says so.
+        eyebrow={<Link to="/admin/settings" className="hover:text-ink hover:underline">System Settings</Link>}
         title="Companies"
         learn="admin"
         subtitle="Each company’s name, logo, week and working hours, its people and its projects."

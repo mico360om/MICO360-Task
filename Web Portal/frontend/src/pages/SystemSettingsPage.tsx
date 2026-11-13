@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { Toggle } from '../components/ui/Toggle';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { PageHeader } from '../components/ui/PageHeader';
+import { COMPANIES_PAGE } from '../components/Sidebar';
 import { Button } from '../components/ui/Button';
 import { apiClient } from '../api/client';
 import { systemSettingsApi } from '../api/system-settings';
@@ -148,6 +149,20 @@ export function SystemSettingsPage() {
             </div>
             <Link to="/admin/settings/kpis" className="inline-flex items-center rounded-lg border border-line bg-surface px-4 py-2 text-sm font-semibold text-ink transition-colors hover:bg-ground [@media(pointer:coarse)]:!min-h-11">
               Open KPI targets
+            </Link>
+          </div>
+        </section>
+        {/* Owner, 13 Nov: Companies lives here now (no longer in the left menu); the page and its address are unchanged. */}
+        <section className="card card-pad lg:col-span-2" aria-labelledby="companies-heading">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <h2 id="companies-heading" className="eyebrow mb-1">
+                Companies
+              </h2>
+              <p className="text-sm text-ink-2">Each company’s name, logo, week and working hours, its people and its projects.</p>
+            </div>
+            <Link to={COMPANIES_PAGE.to} className="inline-flex items-center rounded-lg border border-line bg-surface px-4 py-2 text-sm font-semibold text-ink transition-colors hover:bg-ground [@media(pointer:coarse)]:!min-h-11">
+              Open Companies
             </Link>
           </div>
         </section>
