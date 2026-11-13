@@ -171,6 +171,20 @@ describe('Companies admin API', () => {
     expect(audit.records.map((r) => r.action).slice(-3)).toEqual(['company.logo', 'company.logo', 'company.logo.remove']);
   });
 
+  it('review fix #23: a logo the company can’t be saved with is not left on disk', async () => {
+    const realUpdate = mem.repo.update;
+    mem.repo.update = async () => {
+      throw new Error('db down');
+    };
+    try {
+      expect((await as(admin).upload(`/companies/${beta}/logo`, { content: pngHeader(900, 300), type: 'image/png' })).statusCode).toBe(500);
+    } finally {
+      mem.repo.update = realUpdate;
+    }
+    expect(stored).toEqual(['logo-1.png']);
+    expect(removed).toEqual(['logo-1.png']);
+  });
+
   it('every change is in the audit log', async () => {
     await as(admin).put(`/companies/${beta}`, { name: 'Beta LLC' });
     expect(audit.records.at(-1)).toMatchObject({ module: 'companies', action: 'company.update', entityId: beta, userId: 'admin', oldValue: { name: 'Beta Co' }, newValue: { name: 'Beta LLC' } });

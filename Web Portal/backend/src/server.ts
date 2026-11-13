@@ -105,6 +105,7 @@ import { createImageShrinker } from './lib/image-shrink';
 import { createAvatarFaces, prismaIsAvatar, registerAvatarFaceRoute } from './modules/users/avatar-faces';
 import { createPrismaAttachmentRepository } from './modules/tasks/prisma-attachment-repository';
 import { createLocalDiskStorage } from './modules/tasks/local-disk-storage';
+import { removeStoredFile } from './lib/stored-files';
 import { createDependencyService } from './modules/tasks/dependency-service';
 import { createPrismaDependencyRepository } from './modules/tasks/prisma-dependency-repository';
 import { createRecurrenceService } from './modules/tasks/recurrence-service';
@@ -703,6 +704,8 @@ async function main(): Promise<void> {
       void fileTexts.taskFilesAdded(taskId);
       return taskSearchIndex.taskChanged(taskId);
     },
+    // Review fix #23: a file storage won't delete is logged with its key (never quietly left).
+    logger,
   });
 
   const dependencyService = createDependencyService({
@@ -1379,7 +1382,10 @@ async function main(): Promise<void> {
     adminScope: (viewer, pick) => projectAccess.accessibleProjectIds(viewer.id, viewer.roles, pick),
     isArchived: (projectId) => binArchive.isArchived(projectId),
     canViewProject: (viewer, projectId) => projectAccess.canViewProject(viewer.id, viewer.roles, projectId),
-    removeFile: (storageKey) => attachmentStorage.remove(storageKey),
+    // Review fix #23: after its rows are gone, a file is tried again when the disk refuses, then logged.
+    removeFile: async (storageKey) => {
+      await removeStoredFile(attachmentStorage, storageKey, { logger, what: 'an erased task’s file' });
+    },
     audit: (entry) => auditService.record(entry).then(() => undefined),
     record: (entry) => activityService.record(entry).then(() => undefined),
     onRestored: async (restored, actor) => {

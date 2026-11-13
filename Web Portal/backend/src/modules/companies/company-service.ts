@@ -1,5 +1,6 @@
 import { ConflictError, NotFoundError, ValidationError } from '../../lib/http-errors';
 import { sniffMime } from '../../lib/magic-mime';
+import { removeStoredFile } from '../../lib/stored-files';
 import { SETTING_SCHEMAS, type WorkingHours } from '../settings/settings-service';
 import type { AuditService } from '../audit/audit-service';
 import type { AttachmentStorage } from '../tasks/attachment-repository';
@@ -271,11 +272,19 @@ export function createCompanyService(deps: CompanyServiceDeps) {
     const { buffer, mimetype } = file;
     if (!LOGO_TYPES.includes(mimetype) || buffer.length === 0 || buffer.length > LOGO_MAX_BYTES || sniffMime(buffer) !== mimetype) fail(W.logo);
     const content = deps.shrink ? await deps.shrink(buffer, mimetype) : buffer;
-    const saved = await deps.storage.save({ filename: `company-logo-${id}`, mimeType: mimetype, content });
-    const updated = await repo.update(id, { logoUrl: saved.url });
-    // The logo it replaces is no longer used anywhere.
+    const storage = deps.storage;
+    const saved = await storage.save({ filename: `company-logo-${id}`, mimeType: mimetype, content });
+    let updated: CompanyRecord;
+    try {
+      updated = await repo.update(id, { logoUrl: saved.url });
+    } catch (err) {
+      // Review fix #23: the company couldn't be saved with it — the new file isn't left on disk.
+      await removeStoredFile(storage, saved.storageKey, { what: 'a company logo that could not be saved' });
+      throw err;
+    }
+    // The logo it replaces is no longer used anywhere (tried again, then logged — never failing the change).
     const old = storedKey(before.logoUrl);
-    if (old) await deps.storage.remove(old).catch(() => {});
+    if (old) await removeStoredFile(storage, old, { what: 'a replaced company logo' });
     await log(actor, ip, 'company.logo', id, { logoUrl: before.logoUrl }, { logoUrl: updated.logoUrl });
     return one(updated);
   }
@@ -285,7 +294,7 @@ export function createCompanyService(deps: CompanyServiceDeps) {
     if (before.logoUrl === null) return one(before);
     const updated = await repo.update(id, { logoUrl: null });
     const old = storedKey(before.logoUrl);
-    if (old && deps.storage) await deps.storage.remove(old).catch(() => {});
+    if (old && deps.storage) await removeStoredFile(deps.storage, old, { what: 'a removed company logo' });
     await log(actor, ip, 'company.logo.remove', id, { logoUrl: before.logoUrl }, { logoUrl: null });
     return one(updated);
   }
