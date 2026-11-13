@@ -42,6 +42,11 @@
   <FilesMatch "^sw\.js$">
     Header set Cache-Control "no-cache"
   </FilesMatch>
+  # Installable website (13 Nov 2026): the web app manifest and the offline page the service worker
+  # keeps aren't fingerprinted either.
+  <FilesMatch "^(manifest\.webmanifest|offline\.html)$">
+    Header set Cache-Control "no-cache"
+  </FilesMatch>
   # The Android app (downloads/MICO360-Tasks.apk): the sign-in page's "Download for Android" button
   # always uses this one address, and a new build replaces the file in place. Browsers must check
   # for a new file each time, and save it rather than open it.
@@ -59,6 +64,7 @@
 
 <IfModule mod_mime.c>
   AddType application/vnd.android.package-archive .apk
+  AddType application/manifest+json .webmanifest
 </IfModule>
 
 <IfModule mod_deflate.c>

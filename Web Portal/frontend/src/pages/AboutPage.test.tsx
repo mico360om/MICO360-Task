@@ -12,10 +12,13 @@ function json(body: unknown): Response {
 const sections = (over: Record<string, string[]> = {}) => ({ features: [], improvements: [], fixes: [], ...over });
 let admin = false;
 let adminServerVersion = __APP_VERSION__;
+let androidAppUrl: string | null = null;
+let hostsApk = true;
 beforeEach(() => {
   useAuthStore.setState({ user: { id: 'u1', email: 'a@x', username: 'a', roles: admin ? ['ADMIN'] : ['EMPLOYEE'] } as never, accessToken: 'at', refreshToken: 'rt', isAuthenticated: true });
-  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+  vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     const u = String(url);
+    if (init?.method === 'HEAD') return new Response(null, { status: hostsApk ? 200 : 404 });
     if (u.endsWith('/version')) {
       return json({
         data: admin
@@ -36,7 +39,7 @@ beforeEach(() => {
             ],
       });
     }
-    if (u.endsWith('/config')) return json({ data: { timeZone: 'Asia/Muscat', serverTime: new Date().toISOString() } });
+    if (u.endsWith('/config')) return json({ data: { timeZone: 'Asia/Muscat', serverTime: new Date().toISOString(), androidAppUrl } });
     if (u.includes('/build-info.json')) return json({ version: __APP_VERSION__, builtAt: __APP_BUILT_AT__ });
     return json({ data: [] });
   }));
@@ -45,6 +48,40 @@ afterEach(() => {
   vi.restoreAllMocks();
   admin = false;
   adminServerVersion = __APP_VERSION__;
+  androidAppUrl = null;
+  hostsApk = true;
+});
+
+// Owner, 13 Nov (P1): Install App comes first; the Android APK moved here and to the sign-in page's footer.
+describe('About: the Android app', () => {
+  it('“Download for Android”: the APK this site hosts, as a download', async () => {
+    renderPage();
+    const link = await screen.findByRole('link', { name: 'Download for Android' });
+    expect(link).toHaveAttribute('href', '/downloads/MICO360-Tasks.apk');
+    expect(link).toHaveAttribute('download');
+    expect(link).not.toHaveAttribute('target');
+    // Said beside it: the website itself installs as an app.
+    expect(screen.getByText(/install app in your account menu/i)).toBeInTheDocument();
+  });
+
+  it('opens an Android app page the administrator set (a store, say) instead of a file', async () => {
+    androidAppUrl = 'https://play.google.com/store/apps/details?id=com.mico360.tasks';
+    renderPage();
+    const link = await screen.findByRole('link', { name: 'Download for Android' });
+    await vi.waitFor(() => expect(link.getAttribute('href')).toBe(androidAppUrl));
+    expect(link).not.toHaveAttribute('download');
+    expect(link.getAttribute('target')).toBe('_blank');
+    expect(link.getAttribute('rel')).toContain('noopener');
+  });
+
+  it('leaves the link out when the site has no APK (never a link that fails)', async () => {
+    hostsApk = false;
+    renderPage();
+    await screen.findByRole('heading', { name: /version history/i });
+    await vi.waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([, init]) => (init as RequestInit | undefined)?.method === 'HEAD')).toBe(true));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByRole('link', { name: /android/i })).toBeNull();
+  });
 });
 
 function renderPage() {

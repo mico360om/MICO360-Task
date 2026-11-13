@@ -67,3 +67,25 @@ describe.skipIf(!existsSync(resolve(repo, NGINX_SITE)))('deploy configs: the sam
     expect(read(HTACCESS)).toContain('RedirectMatch 404 "\\.map$"');
   });
 });
+
+// Installable website (13 Nov 2026): nginx and Hostinger send the manifest as a manifest and have
+// browsers check it and the offline page for a newer copy each time (neither is fingerprinted), as the
+// backend's own web server does (lib/web-app.ts).
+describe.skipIf(!existsSync(resolve(repo, NGINX_SITE)))('deploy configs: the installable website’s files', () => {
+  it('nginx: the manifest’s type, and no-cache for the manifest and the offline page', () => {
+    const site = read(NGINX_SITE);
+    const manifest = /location = \/manifest\.webmanifest \{([\s\S]*?)\n {4}\}/.exec(site.replace(/\r\n/g, '\n'))?.[1] ?? '';
+    expect(manifest).toContain('types { application/manifest+json webmanifest; }');
+    expect(manifest).toContain('add_header Cache-Control "no-cache" always;');
+    expect(manifest).toContain('include /etc/nginx/snippets/mico360-security-headers.conf;');
+    const offline = /location = \/offline\.html \{([^}]+)\}/.exec(site)?.[1] ?? '';
+    expect(offline).toContain('add_header Cache-Control "no-cache" always;');
+    expect(offline).toContain('include /etc/nginx/snippets/mico360-security-headers.conf;');
+  });
+
+  it('Hostinger (.htaccess): the same', () => {
+    const h = read(HTACCESS);
+    expect(h).toContain('AddType application/manifest+json .webmanifest');
+    expect(h).toMatch(/<FilesMatch "\^\(manifest\\.webmanifest\|offline\\.html\)\$">\s*Header set Cache-Control "no-cache"\s*<\/FilesMatch>/);
+  });
+});

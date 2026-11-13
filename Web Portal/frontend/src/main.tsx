@@ -18,6 +18,7 @@ import { installKeyboardAwareness } from './lib/keyboard-aware';
 import { browserServiceWorkerWorld, setUpServiceWorker } from './lib/service-worker';
 import { installErrorReporting } from './lib/error-reporting';
 import { installPreloadRecovery, startUpdateWatcher } from './lib/update-recovery';
+import { startInstallApp } from './lib/install-app';
 import { apiBaseUrl } from './api/client';
 import './index.css';
 
@@ -28,6 +29,9 @@ installErrorReporting({ baseUrl: apiBaseUrl, getToken: () => useAuthStore.getSta
 // it once; a newer build noticed on focus or every 10 minutes is loaded at the next move to another page).
 installPreloadRecovery();
 startUpdateWatcher();
+// Installable website (13 Nov 2026): listen for the browser's install offer from the start (it can come
+// before the page renders); the Dashboard card and the account menu offer it.
+startInstallApp();
 
 initTheme(); // apply the persisted light/dark/system choice before first paint
 initDensity(); // and the person's rows — compact, comfortable or detailed (their last on this device; the account's follows)

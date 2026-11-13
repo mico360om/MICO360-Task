@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
+import { InstallAppMenuItem } from './install/InstallAppMenuItem';
 import { personInitials } from '../lib/initials';
 import { ownName, useOwnUserRefresh } from '../lib/own-user';
 import { usePersonPhoto } from './ui/Avatar';
@@ -199,6 +200,8 @@ export function ProfileMenu({ canLead }: ProfileMenuProps = {}) {
                 {MANAGER_VIEW_WORDS.failed}
               </p>
             ) : null}
+            {/* Installable website (13 Nov): while the site can be installed here. */}
+            <InstallAppMenuItem className={itemClass} onDone={() => setOpen(false)} />
             <Link to="/about" role="menuitem" onClick={() => setOpen(false)} className={itemClass}>
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 7.5v.01" />

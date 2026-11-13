@@ -18,6 +18,13 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - Files on tasks and in chats open only for people who can still see that task or chat; copied links stop working after about a day.
 - Old profile photos stop opening once replaced.
 
+## [1.23.30] - 2026-11-13
+
+### Improvements
+- MICO360 Tasks can be installed as an app on phones, tablets and computers (Install App, or Add to Home Screen on iPhone and iPad).
+- A message tells you when a new version is ready, and a clear page shows when you’re offline.
+- The Android download link is now on the sign-in page and in About.
+
 ## [1.23.29] - 2026-11-13
 
 ### Bug fixes

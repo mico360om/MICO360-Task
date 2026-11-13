@@ -15,6 +15,9 @@ import { isStaleBundle, RUNNING_BUILD, type WebBuild } from './release';
  *  - avoid: check build-info.json on window focus and every 10 minutes; once a newer build is found, the
  *    next move to another page is a full page load there instead of a client-side one — never while
  *    someone is typing.
+ *  - say (installable website, 13 Nov 2026): a check at the start and when the page is shown again too,
+ *    and the update notice (components/UpdateToast) is told once per newer build: "A new version of MICO360 Tasks is ready" — Refresh or Later. An installed app has no
+ *    reload button: this is how people there update.
  */
 
 /** The build a page reloaded (or loaded afresh) for: never twice for the same one. */
@@ -145,6 +148,8 @@ export interface WatchWorld {
   running: WebBuild;
   deployed: () => Promise<WebBuild | null>;
   onFocus: (cb: () => void) => () => void;
+  /** The page shown again (an installed app brought back, a phone tab reopened). */
+  onVisible?: (cb: () => void) => () => void;
   every: (ms: number, cb: () => void) => () => void;
   /** Is someone typing (a text field or editor has focus)? */
   typing: () => boolean;
@@ -158,14 +163,34 @@ export interface WatchWorld {
 export function createUpdateWatcher(w: WatchWorld) {
   let newer: WebBuild | null = null;
   let stops: (() => void)[] = [];
+  const listeners = new Set<() => void>();
   async function check(): Promise<void> {
+    // build-info.json only: the service worker (sw.js) is still checked by the browser at page loads, as
+    // since 1.17 — never mid-session, so a page's last good copy is never swapped under it (review, 13 Nov).
     const deployed = await w.deployed().catch(() => null);
-    if (deployed && isStaleBundle(w.running, deployed)) newer = deployed;
+    if (deployed && isStaleBundle(w.running, deployed) && (!newer || idOf(newer) !== idOf(deployed))) {
+      newer = deployed;
+      for (const fn of [...listeners]) fn();
+    }
   }
   return {
     check,
     start() {
       stops = [w.onFocus(() => void check()), w.every(CHECK_EVERY_MS, () => void check())];
+      if (w.onVisible) stops.push(w.onVisible(() => void check()));
+      // Once at the start too: a page opened from an older copy says so at once (as the footer did).
+      void check();
+    },
+    /** The newer build found (null while none is known). */
+    get newer(): WebBuild | null {
+      return newer;
+    },
+    /** Told each time a (different) newer build is found. */
+    subscribe(fn: () => void): () => void {
+      listeners.add(fn);
+      return () => {
+        listeners.delete(fn);
+      };
     },
     stop() {
       for (const s of stops) s();
@@ -225,6 +250,13 @@ export function startUpdateWatcher(): void {
     every: (ms, cb) => {
       const t = window.setInterval(cb, ms);
       return () => window.clearInterval(t);
+    },
+    onVisible: (cb) => {
+      const onChange = () => {
+        if (document.visibilityState === 'visible') cb();
+      };
+      document.addEventListener('visibilitychange', onChange);
+      return () => document.removeEventListener('visibilitychange', onChange);
     },
     typing: () => someoneTyping(),
     assign: (url) => {

@@ -9,6 +9,7 @@ import { LoginPage } from './pages/LoginPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { useAuthStore } from './stores/auth-store';
 import { usePageMeta } from './lib/page-meta';
+import { useManifestLink } from './lib/manifest-link';
 import { loadWithRecovery, pageUpdateWatcher } from './lib/update-recovery';
 
 // Eager: the auth flow + the landing dashboard (first paint on a slow device should not wait
@@ -154,6 +155,8 @@ function useFullLoadAfterUpdate() {
 export function App() {
   // Tab title per page, and noindex on everything that isn't a public page.
   usePageMeta();
+  // Installable website (13 Nov): the manifest on staff pages only (never a client's).
+  useManifestLink();
   useFullLoadAfterUpdate();
   return (
     <Suspense fallback={<RouteFallback />}>

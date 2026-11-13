@@ -6,7 +6,12 @@
     <meta name="theme-color" content="#8B1E1E" />
     <meta name="description" content="MICO360 Tasks — modern project & task management for teams." />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="apple-touch-icon" href="/favicon.svg" />
+    <!-- iPhone and iPad: the home-screen icon (a PNG; iOS ignores an SVG), its name and the status bar
+         once added to the home screen. The manifest is linked by the page itself, on staff pages only
+         (src/lib/manifest-link.ts): a client's page never offers to install. -->
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-title" content="MICO360" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <title>MICO360 Tasks</title>
     <style>
       /* Branded first-paint loading screen (replaced when the app mounts). */
