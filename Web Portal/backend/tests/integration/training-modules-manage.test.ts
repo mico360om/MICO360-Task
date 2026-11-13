@@ -354,6 +354,8 @@ describe('a module change on a published course', () => {
     const refused = await call('amy', 'PATCH', `/training/manage/modules/${one}`, { enabled: false });
     expect(refused.status).toBe(409);
     expect(refused.body.error!.code).toBe('WOULD_BREAK_PUBLISHED');
+    // The same words as Publish and a lesson's delete (cleanup batch CB-1).
+    expect(refused.body.error!.details).toEqual({ problems: ['Add a lesson people can see: lessons in a module that’s switched off aren’t shown.'] });
     expect((await call('amy', 'POST', `/training/manage/modules/${one}/remove`, { moveTo: two })).status).toBe(409);
     expect((await call('amy', 'PATCH', `/training/manage/lessons/${g1.id}`, { moduleId: two })).status).toBe(409);
     expect((await getCourse(c.id)).modules.find((m) => m.id === one)!.enabled).toBe(true);

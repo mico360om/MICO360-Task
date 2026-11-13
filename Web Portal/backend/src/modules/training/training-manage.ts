@@ -699,11 +699,15 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync, o
     if (now.size === 0) return;
     const next = new Map([...now, ...(after.enabled ?? new Map<string, boolean>())]);
     if (after.removed) next.delete(after.removed);
-    // Only the lessons people see are asked about (one in a module switched off is asked when it is switched on).
-    const problemsShown = (list: readonly LessonRow[]) => publishProblems(list.map((l) => ({ ...toProblem(l, now), shown: true })));
-    const before = new Set(problemsShown(rows.filter((l) => shownIn(l.moduleId, now))));
+    // Only the lessons people see are asked about (one in a module switched off is asked when it is switched on). With
+    // none shown, every lesson goes in marked hidden, so the words are Publish's ("Add a lesson people can see: …").
+    const problemsShown = (isShown: (l: LessonRow) => boolean) => {
+      const seen = rows.filter(isShown);
+      return publishProblems(seen.length ? seen.map((l) => ({ ...toProblem(l, now), shown: true })) : rows.map((l) => ({ ...toProblem(l, now), shown: false })));
+    };
+    const before = new Set(problemsShown((l) => shownIn(l.moduleId, now)));
     const moduleAfter = (l: LessonRow) => (after.moduleOf?.has(l.id) ? after.moduleOf.get(l.id)! : l.moduleId);
-    const fresh = problemsShown(rows.filter((l) => shownIn(moduleAfter(l), next))).filter((x) => !before.has(x));
+    const fresh = problemsShown((l) => shownIn(moduleAfter(l), next)).filter((x) => !before.has(x));
     if (fresh.length) throw new HttpError(`This course is published, and this change would leave it unfinished: ${fresh[0]} Unpublish it first to rework it.`, 'WOULD_BREAK_PUBLISHED', 409, { problems: fresh });
   }
 

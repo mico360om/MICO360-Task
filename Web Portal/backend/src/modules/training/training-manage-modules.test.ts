@@ -113,18 +113,43 @@ describe('a copy’s title', () => {
   });
 });
 
+/** Each raw statement in a source file ($queryRaw / $executeRaw, typed or not), its `${…}` written as `?`. */
+function rawStatements(source: string): string[] {
+  return [...source.matchAll(/\$(?:queryRaw|executeRaw)(?:<[^`]*?>)?`([^`]*)`/g)].map((m) => m[1]!.replace(/\$\{[^}]*\}/g, '?'));
+}
+
 describe('the live database (MariaDB, statement-based binary log)', () => {
+  it('the scan finds every raw statement, typed or not, and a non-portable one is caught', () => {
+    const fixture = [
+      'await tx.$queryRaw<{ id: string }[]>`SELECT id FROM t WHERE id = ${x} FOR SHARE`;',
+      'await tx.$queryRaw`SELECT id FROM t WHERE id = ${x} FOR UPDATE NOWAIT`;',
+      'await tx.$executeRaw`UPDATE t SET n = 1 WHERE id = ${x}`;',
+    ].join('\n');
+    const found = rawStatements(fixture);
+    expect(found).toEqual(['SELECT id FROM t WHERE id = ? FOR SHARE', 'SELECT id FROM t WHERE id = ? FOR UPDATE NOWAIT', 'UPDATE t SET n = 1 WHERE id = ?']);
+    expect(portabilityProblems(found[0]!)).toEqual(['not portable syntax']);
+    expect(portabilityProblems(found[1]!)).toEqual(['not portable syntax']);
+    expect(portabilityProblems(found[2]!)).toEqual([]);
+  });
+
   it('no isolation level is ever asked for; the raw SQL reads alike on MySQL and MariaDB', () => {
-    let raw = 0;
+    const all: string[] = [];
     for (const file of ['training-manage-modules.ts', 'training-duplicate.ts', 'training-manage.ts']) {
       const source = readFileSync(join(__dirname, file), 'utf8');
       expect(source, file).not.toMatch(/isolationLevel|SET\s+(SESSION\s+)?TRANSACTION/i);
-      for (const m of source.matchAll(/\$queryRaw`([^`]*)`/g)) {
-        raw++;
-        expect(portabilityProblems(m[1]!.replace(/\$\{[^}]*\}/g, '?')), m[1]).toEqual([]);
+      for (const sql of rawStatements(source)) {
+        all.push(sql);
+        expect(portabilityProblems(sql), `${file}: ${sql}`).toEqual([]);
       }
     }
-    expect(raw).toBeGreaterThan(0);
+    // The locks the module and step edits take (cleanup batch CB-1) are among them.
+    expect(all).toEqual(
+      expect.arrayContaining([
+        'SELECT id FROM training_modules WHERE id = ? FOR UPDATE',
+        'SELECT id FROM training_modules WHERE id = ? AND courseId = ? FOR UPDATE',
+        'SELECT id FROM training_lessons WHERE id = ? FOR UPDATE',
+      ]),
+    );
   });
 });
 
