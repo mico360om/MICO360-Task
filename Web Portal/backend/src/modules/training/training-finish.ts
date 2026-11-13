@@ -54,16 +54,19 @@ const doneModuleIds = (state: PairState): string[] => state.units.filter((u) => 
 const finishedAll = (rule: string, state: PairState): boolean => (state.modules.length > 0 ? allUnitsDone(state.units) : isCourseComplete(rule, state.lessons, state.doneIds));
 
 /**
- * Final review (1.23.32): a course with modules where every module the person sees is done, yet they aren't finished
- * (nor reviewing; a retake whose modules are all done again counts) — their own role or company shrank while they were
- * part-way, so what they still had to do is no longer theirs, and nothing they do next would finish them. The readers
- * (the learner's My training, course page and badge; the reminders sweep) `settle` them (once, whoever is first).
- * A withdrawn enrolment is left alone.
+ * Final review (1.23.32): a course with modules where everything left for the person is in modules no longer theirs —
+ * their own role or company shrank while they were part-way, and nothing they do next would finish them:
+ * - not finished (a retake too) with every module they see done;
+ * - reviewing a Major change whose changed lessons they see are all done again (those left are in hidden modules).
+ * The readers (the learner's My training, course page and badge; the reminders sweep) `settle` them (once, whoever is
+ * first: the completion and certificate, or the review done). A withdrawn enrolment is left alone.
  */
 export function finishedUnsettled(state: PairState): boolean {
   const e = state.enrolment;
   const status = state.state.status;
-  return !!e && !e.withdrawnAt && state.modules.length > 0 && status !== 'COMPLETED' && status !== 'REVIEW' && allUnitsDone(state.units);
+  if (!e || e.withdrawnAt || state.modules.length === 0 || status === 'COMPLETED') return false;
+  if (status === 'REVIEW') return reviewPending(state.lessons, e, state.done).length === 0;
+  return allUnitsDone(state.units);
 }
 
 /**

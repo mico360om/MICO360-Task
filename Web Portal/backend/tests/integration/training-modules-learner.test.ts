@@ -13,6 +13,7 @@ import { trainingContext, type TrainingContext } from '../../src/modules/trainin
 import { createTrainingFileStore } from '../../src/modules/training/training-files';
 import { createTrainingSync } from '../../src/modules/training/training-sync';
 import { createTrainingLearner } from '../../src/modules/training/training-learner';
+import { createTrainingManage } from '../../src/modules/training/training-manage';
 import { registerTrainingRoutes } from '../../src/modules/training/training-routes';
 import { registerPortalTrainingRoutes } from '../../src/modules/training/portal-training-routes';
 import type { CourseDetail } from '../../src/modules/training/training-types';
@@ -709,5 +710,51 @@ describe('a learner whose own role or company shrinks while part-way is finished
     await learner.me(wes, 'staff');
     expect((await learner.course(wes, 'staff', main.id)).mine).toMatchObject({ status: 'IN_PROGRESS', modules: { done: 1, total: 2 } });
     expect(await certificatesOf(wes, main.id)).toHaveLength(0);
+  });
+});
+
+describe('a review whose changed lessons are all in modules hidden from the person now (final review 2, REVIEW)', () => {
+  const manage = createTrainingManage(ctx, sync, { oneCourseKey: RECORD_KEY });
+  /** An administrator who finished Getting started and Admin settings, then a Major change to the Admin settings guide. */
+  async function reviewingAdmin(name: string): Promise<{ id: string; c: MadeCourse }> {
+    const c = await makeModuleCourse(`Review ${name}`, [
+      { key: 'gs', title: 'Getting started', moduleKey: 'general' },
+      { key: 'admin', title: 'Admin settings', moduleKey: 'admin' },
+    ]);
+    const id = await newPerson(name);
+    await promote(id);
+    await finishModule(id, c, 'gs');
+    expect(await finishModule(id, c, 'admin')).toMatchObject({ courseCompleted: true });
+    // Published after every lesson was written; then one lesson is edited and published as a Major change.
+    const past = new Date(Date.now() - 10 * 60_000);
+    await prisma.trainingLesson.updateMany({ where: { courseId: c.id }, data: { updatedAt: past } });
+    await prisma.trainingCourse.update({ where: { id: c.id }, data: { publishedAt: new Date(past.getTime() + 1000) } });
+    await manage.updateLesson(w.people.admin, c.m.admin!.guides[0], { title: 'Admin settings guide 1 (new)' });
+    await manage.publish(w.people.admin, c.id, { change: 'MAJOR', reviewDays: 14 });
+    const d = await learner.course(id, 'staff', c.id);
+    expect(d.mine).toMatchObject({ status: 'REVIEW' });
+    expect(d.lessons.filter((l) => l.review).map((l) => l.id)).toEqual([c.m.admin!.guides[0]]);
+    await demote(id);
+    return { id, c };
+  }
+  const enrolmentOf = (userId: string, courseId: string) => prisma.trainingEnrolment.findUniqueOrThrow({ where: { userId_courseId: { userId, courseId } } });
+
+  it('the course page: COMPLETED (review done, the new version), not REVIEW; no new certificate', async () => {
+    const { id, c } = await reviewingAdmin('ren');
+    const d = await learner.course(id, 'staff', c.id);
+    expect(d.mine).toMatchObject({ status: 'COMPLETED', dueDay: null, overdue: false });
+    expect(d.lessons.some((l) => l.review)).toBe(false);
+    const e = await enrolmentOf(id, c.id);
+    expect(e.reviewDoneAt).not.toBeNull();
+    expect(e.completedVersion).toBe(2);
+    expect(await prisma.trainingCertificate.count({ where: { userId: id, courseId: c.id } })).toBe(1);
+  });
+
+  it('My training: in Completed, nothing to review', async () => {
+    const { id, c } = await reviewingAdmin('sol');
+    const me = await learner.me(id, 'staff');
+    expect(me.completed.find((x) => x.id === c.id)!.mine).toMatchObject({ status: 'COMPLETED' });
+    expect(me.counts.review).toBe(0);
+    expect((await enrolmentOf(id, c.id)).reviewDoneAt).not.toBeNull();
   });
 });

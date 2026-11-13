@@ -304,3 +304,46 @@ describe('someone whose own role shrank while part-way (final review 2)', () => 
     expect(await prisma.trainingCertificate.count({ where: { userId: xan!, courseId: c.id } })).toBe(1);
   });
 });
+
+describe('a review whose changed lessons are all in a module hidden from the person now (final review 2, REVIEW)', () => {
+  it('the sweep ends their review (the new version) and sends nothing; someone who still sees the changed lesson is reminded', async () => {
+    clockAt = at(0);
+    const adminRole = (await prisma.role.findUniqueOrThrow({ where: { name: 'ADMIN' } })).id;
+    // A Major change (version 2) to the Reports guide: what publish writes.
+    const c = await prisma.trainingCourse.create({ data: { title: `Review modules ${w.tag}`, moduleKey: 'general', audience: 'STAFF', status: 'PUBLISHED', publishedAt: at(-1), version: 2, certificateOn: true } });
+    courseIds.push(c.id);
+    const lessonOf: Record<string, string> = {};
+    for (const [i, [title, moduleKey]] of ([['Tasks', 'tasks'], ['Reports', 'reports']] as const).entries()) {
+      const m = await prisma.trainingModule.create({ data: { courseId: c.id, position: i, title, moduleKey } });
+      lessonOf[moduleKey] = (await prisma.trainingLesson.create({ data: { courseId: c.id, moduleId: m.id, position: i, kind: 'GUIDE', title: `${title} guide`, changedVersion: moduleKey === 'reports' ? 2 : 1 } })).id;
+    }
+    const [zed, abe] = await Promise.all(
+      ['zed', 'abe'].map(async (name) => {
+        const id = (
+          await prisma.user.create({
+            data: { email: `${name}.${w.tag}@world.test`, username: `${name}_${w.tag}`, passwordHash: 'x', firstName: name, lastName: w.tag, roles: { create: { roleId: adminRole } }, primaryCompanyId: w.companies.A, companies: { create: { companyId: w.companies.A } } },
+          })
+        ).id;
+        extraUsers.push(id);
+        return id;
+      }),
+    );
+    // Both finished version 1 (every module), then the review began yesterday, due today.
+    for (const userId of [zed!, abe!]) {
+      for (const lessonId of Object.values(lessonOf)) await prisma.trainingProgress.create({ data: { userId, courseId: c.id, lessonId, doneAt: at(-10) } });
+      await prisma.trainingEnrolment.create({
+        data: { userId, courseId: c.id, startedAt: at(-11), completedAt: at(-9), completedVersion: 1, progressPct: 100, reviewFrom: at(-1), reviewDueDay: T0, lastActivityAt: at(-9) },
+      });
+    }
+    await prisma.userRole.deleteMany({ where: { userId: zed!, roleId: adminRole } });
+
+    await run();
+    expect(of(c.id).map((n) => [n.userId, n.type])).toEqual([[abe, 'TRAINING_DUE_SOON']]);
+    const e = await prisma.trainingEnrolment.findUniqueOrThrow({ where: { userId_courseId: { userId: zed!, courseId: c.id } } });
+    expect(e.reviewDoneAt).not.toBeNull();
+    expect(e.completedVersion).toBe(2);
+    expect((await prisma.trainingEnrolment.findUniqueOrThrow({ where: { userId_courseId: { userId: abe!, courseId: c.id } } })).reviewDoneAt).toBeNull();
+    await run();
+    expect(of(c.id).filter((n) => n.userId === zed)).toEqual([]);
+  });
+});

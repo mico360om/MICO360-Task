@@ -16,8 +16,9 @@ import type { SyncResult, TrainingSync } from './training-sync';
  *               step is never sent twice (a failed send is not retried). The very first run after the
  *               upgrade records every key and sends nothing (system_settings `training.remindersSince`),
  *               so nobody gets a burst of old reminders.
- *               Final review (1.23.32): someone with every module they see done isn't reminded (nothing is left for
- *               them to do); when their own role or company shrank while part-way, they are finished here first.
+ *               Final review (1.23.32): someone with every module they see done (or every changed lesson of a review
+ *               they see) isn't reminded (nothing is left for them to do); when their own role or company shrank
+ *               while part-way, they are finished (or their review done) here first.
  *   membership  every 15 minutes: the membership-following sync (training-sync.ts).
  */
 
@@ -102,9 +103,9 @@ export function createTrainingSweeps(ctx: TrainingContext, sync: TrainingSync, d
   const finish = createTrainingFinish(ctx);
 
   /**
-   * Final review (1.23.32): every module the person sees is done but they aren't finished — their own role or company
-   * shrank while part-way. They are finished now (the module records, the completion and the certificate, once) when
-   * they may take the course; either way they get no reminder. A failure is warned (the next run tries again).
+   * Final review (1.23.32): all that is left for the person is in modules no longer theirs — their own role or company
+   * shrank while part-way (finishedUnsettled). They are settled now (the completion and the certificate, or the review
+   * done; once) when they may take the course; either way they get no reminder. A failure is warned (the next run tries again).
    */
   async function settleFinished(course: CourseRow, p: PersonRecord, s: PairState): Promise<void> {
     if (!canLearn(courseFacts(course), p)) return;

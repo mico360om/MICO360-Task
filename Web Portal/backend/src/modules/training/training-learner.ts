@@ -65,7 +65,8 @@ import { videoInfo } from './training-video';
  *
  * Final review (1.23.32): answered questions about a lesson of a module hidden from the reader aren't shown to them
  * (their own always are); and someone whose own role or company shrank while part-way, leaving every module they see
- * done, is finished (with the certificate) the next time My training, a course page or the badge reads their state.
+ * done (or every changed lesson of a review they still see), is finished (with the certificate) or has the review done
+ * the next time My training, a course page or the badge reads their state.
  */
 export type LearnerMode = 'staff' | 'client';
 
@@ -313,9 +314,9 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync, 
   }
 
   /**
-   * Final review (1.23.32): the person's courses (with modules) where every module they see is done but they aren't
-   * finished — their own role or company shrank while part-way — are finished now (`settle`: the module records, the
-   * completion and the certificate, once), and those states read again. Only a course they may take; only those pairs,
+   * Final review (1.23.32): the person's courses (with modules) where all that is left for them is in modules no longer
+   * theirs — their own role or company shrank while part-way (finishedUnsettled) — are settled now (`settle`: the module
+   * records, the completion and the certificate, or the review done; once), and those states read again. Only a course they may take; only those pairs,
    * so an ordinary read costs nothing more. A failure is warned and the read goes on (the next one tries again).
    */
   async function settleFinished(p: PersonRecord, mode: LearnerMode, courses: readonly CourseRow[], states: Map<string, PairState>): Promise<Map<string, PairState>> {
