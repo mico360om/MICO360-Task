@@ -6,9 +6,11 @@ import { OVERDUE_CLASS, STATUS_CLASS } from '../../lib/colour-classes';
 import { ApiError } from '../../lib/api-client';
 import { downloadBlob, fileNameOf } from '../../lib/download';
 import { Button, buttonClass } from '../ui/Button';
+import { BOOK_PATHS, ModuleIcon } from './ModuleIcon';
+import { courseIconKey, mainAction, MAIN_ACTION_WORDS } from './dashboard-rules';
 import { coursePath, lessonPath, useLearner } from './learner';
 import { courseChanged } from './training-queries';
-import { ACTION_WORDS, DIFFICULTY_WORDS, cardChip, courseAction, minutesText, newForRoleText, progressWords, type ChipTone } from './training-words';
+import { DIFFICULTY_WORDS, cardChip, courseAction, minutesText, newForRoleText, progressWords, type ChipTone } from './training-words';
 
 /** Pieces the training pages share (staff and the Client portal): the site's cards, chips and 44px touch targets. */
 
@@ -21,13 +23,8 @@ const svg = (children: ReactNode, size = 16) => (
   </svg>
 );
 
-/** An open book: Training's mark (the menu item, Learn this feature). */
-export const BOOK_PATHS = (
-  <>
-    <path d="M2 4.5h6a4 4 0 0 1 4 4V21a3 3 0 0 0-3-3H2z" />
-    <path d="M22 4.5h-6a4 4 0 0 0-4 4V21a3 3 0 0 1 3-3h7z" />
-  </>
-);
+/** An open book: Training's mark (the menu item, Learn this feature); drawn in ModuleIcon.tsx. */
+export { BOOK_PATHS };
 export const BookIcon = ({ size = 16 }: { size?: number }) => svg(BOOK_PATHS, size);
 
 const KIND_PATHS: Record<LessonKind, ReactNode> = {
@@ -145,10 +142,13 @@ export function useCourseGo(c: CourseCard) {
   };
 }
 
-/** R1: a card's own small Start / Continue / Review (a sibling above the card's stretched link, never inside it). */
+/**
+ * R1: a card's own small Start / Continue / Review (a sibling above the card's stretched link, never inside it), in the
+ * dashboard's three words (13 Nov new look: a review of changes and a retake too — their chip says which).
+ */
 function CardAction({ course: c }: { course: CourseCard }) {
   const go = useCourseGo(c);
-  const words = ACTION_WORDS[go.action];
+  const words = MAIN_ACTION_WORDS[mainAction(c.mine)];
   const name = `${words}: ${c.title}`;
   // Nothing to open: no button (the card itself opens the course's page).
   // A finished course (Review) with no lesson pointed at still opens its page.
@@ -189,39 +189,72 @@ export function CourseLength({ course }: { course: Pick<CourseCard, 'minutes' | 
   );
 }
 
+type CardTone = 'brand' | 'overdue' | 'done';
+
+/** The card's band on top: the overdue red when late (its red edge), the Done green once finished, else the brand red. */
+const CARD_BAND: Record<CardTone, string> = { brand: 'bg-brand', overdue: OVERDUE_CLASS.dot, done: STATUS_CLASS.DONE.dot };
+/** The icon's tile: the Done green once finished, else the brand tint (the band and the chip say late). */
+const CARD_ICON: Record<CardTone, string> = { brand: 'bg-brand/10 text-brand', overdue: 'bg-brand/10 text-brand', done: STATUS_CLASS.DONE.chip };
+
 /**
- * One course as a slim card (12 Nov §3: My learning, All courses, the portal): its title (the link that covers the
- * card), a one-line summary, the minutes, Mandatory when it applies, one chip, how far along ("0 of 3 lessons", "4 of
- * 8 modules"; not on a finished card), "New for your role: 2" (D3), and its own small Start / Continue / Review (R1).
- * The action and `extra` (a Done card's certificate) sit in a row ABOVE the title's stretched link, never inside it.
+ * One course as a card (12 Nov §3, 13 Nov new look: My learning's Done list, All courses, the portal): a coloured band
+ * on top (brand red; the overdue red when late; the Done green once finished), the course's icon (the one course: the
+ * brand mark) beside its title (the link that covers the card) and a one-line summary; then, at the foot so a row of
+ * cards lines up, the minutes, Mandatory, one chip, "New for your role: 2", how far along ("1 of 8 modules", "0 of 3
+ * lessons") with a small bar (not on a finished card), and its own Start / Continue / Review (R1). The action and
+ * `extra` (a Done card's certificate) sit in a row ABOVE the title's stretched link, never inside it. The card fills its
+ * grid cell (CourseGrid), so the cards of a row are as tall as each other.
  */
 export function CourseCardView({ course, to, showState = true, extra }: { course: CourseCard; to: string; showState?: boolean; extra?: ReactNode }) {
   const m = course.mine;
   const newForRole = m.newForRole > 0 ? m.newForRole : 0;
+  const open = m.status !== 'COMPLETED';
+  const tone: CardTone = !showState ? 'brand' : open && m.overdue ? 'overdue' : !open && !newForRole ? 'done' : 'brand';
+  const done = m.modules ? m.modules.done : m.lessonsDone;
+  const total = m.modules ? m.modules.total : course.lessonCount;
+  const pct = total > 0 ? Math.round(Math.min(1, Math.max(0, done / total)) * 100) : 0;
   return (
     <article
       data-course-card={course.id}
-      className={`card card-hover relative flex h-full min-w-0 flex-col gap-1.5 p-4 focus-within:ring-2 focus-within:ring-brand/40 ${showState && m.overdue && m.status !== 'COMPLETED' ? `border-s-4 ${OVERDUE_CLASS.edge}` : ''}`}
+      data-tone={tone}
+      className="card card-hover relative flex min-w-0 flex-1 flex-col gap-2 overflow-hidden p-4 pt-5 focus-within:ring-2 focus-within:ring-brand/40"
     >
-      <h3 className="break-words font-display text-base font-bold text-ink">
-        <Link to={to} className="outline-none after:absolute after:inset-0 after:rounded-[inherit] after:content-['']">
-          <bdi>{course.title}</bdi>
-        </Link>
-      </h3>
-      {course.summary ? <p className="line-clamp-1 text-sm text-ink-2">{course.summary}</p> : null}
-      <div className="mt-auto flex flex-wrap items-center gap-x-2 gap-y-1 pt-1">
-        <CourseLength course={course} />
-        {m.mandatory && m.status !== 'COMPLETED' ? <MandatoryChip /> : null}
-        {showState ? <CardChipView mine={m} /> : null}
-        {showState && newForRole ? <NewForRoleChip count={newForRole} /> : null}
-        {showState && (m.status !== 'COMPLETED' || newForRole) ? <span className="text-xs font-semibold text-ink-2">{progressWords(course)}</span> : null}
-      </div>
-      {showState || extra ? (
-        <div className="relative z-10 flex flex-wrap items-center gap-2 pt-1 empty:hidden">
-          {showState ? <CardAction course={course} /> : null}
-          {extra}
+      <span data-card-band aria-hidden="true" className={`absolute inset-x-0 top-0 h-1.5 ${CARD_BAND[tone]}`} />
+      <div className="flex min-w-0 items-start gap-3">
+        <span data-card-icon aria-hidden="true" className={`grid h-10 w-10 flex-none place-items-center rounded-xl ${CARD_ICON[tone]}`}>
+          <ModuleIcon moduleKey={courseIconKey(course)} size={22} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h3 className="break-words font-display text-base font-bold leading-snug text-ink">
+            <Link to={to} className="outline-none after:absolute after:inset-0 after:rounded-[inherit] after:content-['']">
+              <bdi>{course.title}</bdi>
+            </Link>
+          </h3>
+          {course.summary ? <p className="mt-0.5 line-clamp-1 text-sm text-ink-2">{course.summary}</p> : null}
         </div>
-      ) : null}
+      </div>
+      <div data-card-foot className="mt-auto flex flex-col gap-2 pt-1">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 empty:hidden">
+          <CourseLength course={course} />
+          {m.mandatory && open ? <MandatoryChip /> : null}
+          {showState ? <CardChipView mine={m} /> : null}
+          {showState && newForRole ? <NewForRoleChip count={newForRole} /> : null}
+        </div>
+        {showState && (open || newForRole) ? (
+          <div data-card-progress className="flex min-w-0 items-center gap-2">
+            <span className="flex-none text-xs font-semibold text-ink-2">{progressWords(course)}</span>
+            <span data-card-bar aria-hidden="true" className="block h-1.5 min-w-[3rem] flex-1 overflow-hidden rounded-full bg-line">
+              <span className={`block h-full rounded-full ${pct >= 100 ? STATUS_CLASS.DONE.dot : 'bg-brand'}`} style={{ width: `${pct}%` }} />
+            </span>
+          </div>
+        ) : null}
+        {showState || extra ? (
+          <div className="relative z-10 flex flex-wrap items-center gap-2 empty:hidden">
+            {showState ? <CardAction course={course} /> : null}
+            {extra}
+          </div>
+        ) : null}
+      </div>
     </article>
   );
 }

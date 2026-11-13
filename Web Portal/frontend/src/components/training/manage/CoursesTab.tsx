@@ -7,6 +7,8 @@ import { Button } from '../../ui/Button';
 import { EmptyState } from '../../ui/EmptyState';
 import { LoadError } from '../../ui/LoadError';
 import { fieldClass } from '../../ui/Field';
+import { ModuleIcon } from '../ModuleIcon';
+import { courseIconKey } from '../dashboard-rules';
 import { AUDIENCE_LABELS, COURSE_STATUS_LABELS, CourseStatusChip, DIFFICULTY_LABELS, FilterField, Glyph, Notice, count, minutesText } from './manage-ui';
 import { useManageCourses } from './manage-queries';
 import { NewCourseDialog } from './NewCourseDialog';
@@ -75,11 +77,15 @@ export function CoursesTab() {
             {AUDIENCES.map((a) => <option key={a} value={a}>{AUDIENCE_LABELS[a]}</option>)}
           </select>
         </FilterField>
-        <FilterField label="Module" htmlFor={ids.module} className="min-w-[10rem] flex-1">
-          <select id={ids.module} value={moduleKey} onChange={(e) => setModule(e.target.value as TrainingModule | '')} className={fieldClass(false, 'w-full')}>
-            <option value="">All modules</option>
-            {TRAINING_MODULES.map((m) => <option key={m} value={m}>{MODULE_LABELS[m]}</option>)}
-          </select>
+        <FilterField label="Module" htmlFor={ids.module} className="min-w-[12rem] flex-1">
+          {/* The chosen module's icon at the start of the field (13 Nov new look; General is no feature's: the book). */}
+          <div className="relative">
+            {moduleKey ? <ModuleIcon moduleKey={moduleKey === 'general' ? null : moduleKey} size={16} className="pointer-events-none absolute start-3 top-1/2 -translate-y-1/2 text-ink-2" /> : null}
+            <select id={ids.module} value={moduleKey} onChange={(e) => setModule(e.target.value as TrainingModule | '')} className={fieldClass(false, `w-full ${moduleKey ? 'ps-9' : ''}`)}>
+              <option value="">All modules</option>
+              {TRAINING_MODULES.map((m) => <option key={m} value={m}>{MODULE_LABELS[m]}</option>)}
+            </select>
+          </div>
         </FilterField>
         {!(coursesQ.isSuccess && courses.length === 0 && !filtered) ? (
           <Button onClick={() => setCreating(true)} className="!min-h-[44px]">
@@ -131,7 +137,10 @@ export function CoursesTab() {
                     <CourseStatusChip status={c.status} />
                     {c.unpublishedChanges ? <Badge tone="info">Changes not published</Badge> : null}
                   </div>
-                  <p className="mt-0.5 text-xs text-ink-2">{courseFacts(c)}</p>
+                  <p data-course-facts className="mt-0.5 flex items-start gap-1.5 text-xs text-ink-2">
+                    <ModuleIcon moduleKey={courseIconKey(c)} size={14} className="mt-px" />
+                    <span className="min-w-0">{courseFacts(c)}</span>
+                  </p>
                   {c.notice ? <CourseNoticeLine text={c.notice} className="mt-1.5 !py-1.5 !text-xs" /> : null}
                 </div>
                 <p className="flex-none text-sm text-ink-2">{`${c.enrolled.toLocaleString('en-US')} taking it · ${c.completed.toLocaleString('en-US')} finished`}</p>

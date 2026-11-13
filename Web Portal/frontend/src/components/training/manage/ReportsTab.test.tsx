@@ -119,6 +119,28 @@ describe('Training Center → Reports', () => {
     await waitFor(() => expect(downloads.calls).toEqual(['cert.pdf']));
   });
 
+  it('13 Nov new look: each “By module” row has its module’s icon beside the name (Getting started the brand mark; a module of no feature the book)', async () => {
+    api.report.mockResolvedValue(
+      report({
+        modules: [
+          { moduleId: 'm1', title: 'Getting started', people: 5, done: 3, inProgress: 1, notStarted: 1 },
+          { moduleId: 'm2', title: 'Meetings & minutes', people: 5, done: 2, inProgress: 2, notStarted: 1 },
+          { moduleId: 'm3', title: 'Safety at Acme', people: 5, done: 0, inProgress: 0, notStarted: 5 },
+        ],
+        learners: [],
+      }),
+    );
+    renderManage(<ReportsTab />);
+    const byModule = await screen.findByRole('table', { name: 'By module' });
+    const icon = (title: string) => within(byModule).getByRole('rowheader', { name: title }).querySelector('svg[data-module-icon]');
+    expect(icon('Getting started')).toHaveAttribute('data-module-icon', 'general');
+    expect(icon('Meetings & minutes')).toHaveAttribute('data-module-icon', 'meetings');
+    expect(icon('Safety at Acme')).toHaveAttribute('data-module-icon', 'book');
+    expect(icon('Meetings & minutes')).toHaveAttribute('aria-hidden', 'true');
+    // The table as before: the numbers in their columns.
+    expect(within(byModule).getByRole('rowheader', { name: 'Meetings & minutes' }).closest('tr')).toHaveTextContent(/5.*2.*2.*1/);
+  });
+
   it('with no modules in the report, there are no module tables', async () => {
     renderManage(<ReportsTab />);
     await screen.findByRole('table', { name: 'By course' });

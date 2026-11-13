@@ -82,6 +82,105 @@ describe('course cards (R1: a small Start / Continue / Review beside the whole-c
   });
 });
 
+describe('All courses cards (13 Nov new look): a coloured band, the course’s icon, “1 of 8 modules” with a bar, one button', () => {
+  const band = (title: string) => cardOf(title).querySelector('[data-card-band]')!;
+  const icon = (title: string) => cardOf(title).querySelector('[data-card-icon] svg[data-module-icon]')!;
+  const bar = (title: string) => cardOf(title).querySelector<HTMLElement>('[data-card-bar] > span');
+
+  it('the course’s icon beside its title: the one course the brand mark, a feature’s course its menu icon, another General course the book', () => {
+    renderOnSide(
+      <CourseGrid
+        courses={[
+          moduleCard(),
+          card({ id: 'c2', title: 'Meetings & minutes', moduleKey: 'meetings', starter: false }),
+          card({ id: 'c5', title: 'Acme site induction', moduleKey: 'general', starter: false }),
+        ]}
+      />,
+      { api: fakeLearner() },
+    );
+    expect(icon('MICO360 Tasks User Training').getAttribute('data-module-icon')).toBe('general');
+    expect(icon('MICO360 Tasks User Training').querySelector('svg[aria-label="MICO360 Tasks"]')).not.toBeNull();
+    expect(icon('Meetings & minutes').getAttribute('data-module-icon')).toBe('meetings');
+    expect(icon('Acme site induction').getAttribute('data-module-icon')).toBe('book');
+    // Decorative: the title says it.
+    expect(cardOf('Meetings & minutes').querySelector('[data-card-icon]')).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('a coloured band on top: brand red while open, the overdue red when late, the Done green once finished', () => {
+    renderOnSide(
+      <CourseGrid
+        courses={[
+          card({ id: 'c1', title: 'Tasks basics', mine: mine({ overdue: true, dueDay: '2026-11-04' }) }),
+          card({ id: 'c3', title: 'Calendar tips', moduleKey: 'calendar', mine: mine({ dueDay: null }) }),
+          card({ id: 'c4', title: 'Kanban board', moduleKey: 'board', mine: mine({ status: 'COMPLETED', progressPct: 100, dueDay: null, lessonsDone: 4, completedAt: '2026-11-05T08:00:00.000Z' }) }),
+        ]}
+      />,
+      { api: fakeLearner() },
+    );
+    expect(band('Tasks basics')).toHaveAttribute('aria-hidden', 'true');
+    expect(band('Tasks basics').className).toContain('bg-overdue');
+    expect(band('Calendar tips').className).toContain('bg-brand');
+    expect(band('Kanban board').className).toContain('bg-status-done');
+    // The band is the late card's red edge now (no second edge down its side).
+    expect(cardOf('Tasks basics').className).not.toContain('border-s-4');
+  });
+
+  it('how far along: “4 of 8 modules” / “1 of 4 lessons” with a small bar; none on a finished card', () => {
+    renderOnSide(
+      <CourseGrid
+        courses={[
+          moduleCard({ mine: mine({ ...moduleCard().mine, modules: { done: 4, total: 8 } }) }),
+          card({ id: 'c3', title: 'Calendar tips', moduleKey: 'calendar', lessonCount: 4, mine: mine({ dueDay: null, lessonsDone: 1 }) }),
+          card({ id: 'c2', title: 'Meetings & minutes', moduleKey: 'meetings', lessonCount: 3, mine: notStarted }),
+          card({ id: 'c4', title: 'Kanban board', moduleKey: 'board', mine: mine({ status: 'COMPLETED', progressPct: 100, dueDay: null, lessonsDone: 4, completedAt: '2026-11-05T08:00:00.000Z' }) }),
+        ]}
+      />,
+      { api: fakeLearner() },
+    );
+    const one = cardOf('MICO360 Tasks User Training');
+    expect(within(one).getByText('4 of 8 modules')).toBeInTheDocument();
+    expect(bar('MICO360 Tasks User Training')!.style.width).toBe('50%');
+    expect(one.querySelector('[data-card-bar]')).toHaveAttribute('aria-hidden', 'true');
+    expect(within(cardOf('Calendar tips')).getByText('1 of 4 lessons')).toBeInTheDocument();
+    expect(bar('Calendar tips')!.style.width).toBe('25%');
+    expect(within(cardOf('Meetings & minutes')).getByText('0 of 3 lessons')).toBeInTheDocument();
+    expect(bar('Meetings & minutes')!.style.width).toBe('0%');
+    expect(cardOf('Kanban board').querySelector('[data-card-bar]')).toBeNull();
+    expect(within(cardOf('Kanban board')).queryByText(/ of /)).toBeNull();
+  });
+
+  it('one button, in the dashboard’s words: Start, Continue or Review (a review of changes and a retake too)', () => {
+    renderOnSide(
+      <CourseGrid
+        courses={[
+          card({ id: 'c6', title: 'Changed course', mine: mine({ status: 'REVIEW', progressPct: 100, dueDay: '2026-11-20', nextLessonId: 'l3' }) }),
+          card({ id: 'c7', title: 'Yearly refresher', mine: mine({ status: 'RETAKE', progressPct: 0, lessonsDone: 0, nextLessonId: 'l1' }) }),
+          card({ id: 'c8', title: 'Retake under way', mine: mine({ status: 'RETAKE', progressPct: 25, lessonsDone: 1, nextLessonId: 'l2' }) }),
+        ]}
+      />,
+      { api: fakeLearner() },
+    );
+    const actions = (title: string) => within(cardOf(title)).getAllByRole('link').filter((a) => a.getAttribute('aria-label'));
+    expect(actions('Changed course').map((a) => a.textContent)).toEqual(['Review']);
+    expect(within(cardOf('Changed course')).getByRole('link', { name: 'Review: Changed course' })).toHaveAttribute('href', '/training/courses/c6/lessons/l3');
+    // Its one chip is as before (here the review's due day).
+    expect(within(cardOf('Changed course')).getByText('Due 20 Nov')).toBeInTheDocument();
+    expect(actions('Yearly refresher').map((a) => a.textContent)).toEqual(['Start']);
+    expect(actions('Retake under way').map((a) => a.textContent)).toEqual(['Continue']);
+  });
+
+  it('equal heights: each card fills its grid cell, and its button sits at the bottom', () => {
+    renderOnSide(<CourseGrid courses={[card({ id: 'c1', title: 'Tasks basics' }), card({ id: 'c3', title: 'Calendar tips', summary: null })]} />, { api: fakeLearner() });
+    for (const title of ['Tasks basics', 'Calendar tips']) {
+      const article = cardOf(title);
+      expect(article.parentElement!.className).toMatch(/\bflex\b/);
+      expect(article.className).toMatch(/\bflex-1\b/);
+      expect(article.querySelector('[data-card-foot]')!.className).toMatch(/\bmt-auto\b/);
+      expect(within(article.querySelector<HTMLElement>('[data-card-foot]')!).getByRole('link', { name: `Continue: ${title}` })).toBeInTheDocument();
+    }
+  });
+});
+
 describe('My learning: the learning dashboard (13 Nov new look)', () => {
   const NESTED = 'a a, a button, button a, button button';
   const oneCourse = (over = {}) => moduleCard({ mine: mine({ ...moduleCard().mine, assigned: true, dueDay: '2026-12-13', ...over }) });
@@ -151,6 +250,15 @@ describe('My learning: the learning dashboard (13 Nov new look)', () => {
     expect(container.querySelector(NESTED)).toBeNull();
     expect(screen.getByRole('img', { name: '1 of 4 lessons done' })).toHaveTextContent('1 / 4');
     expect(screen.getByText('lessons done')).toBeInTheDocument();
+  });
+
+  it('a plain course’s Up next shows the course’s icon: its feature’s; another General course (an administrator’s own) the book', async () => {
+    const icon = () => screen.getByRole('region', { name: 'Up next' }).querySelector('[data-up-next-icon] svg[data-module-icon]');
+    const a = renderOnSide(<MyLearningSections data={only(card({ moduleKey: 'calendar', starter: false }))} />, { api: fakeLearner() });
+    expect(icon()).toHaveAttribute('data-module-icon', 'calendar');
+    a.unmount();
+    renderOnSide(<MyLearningSections data={only(card({ title: 'Acme site induction', moduleKey: 'general', starter: false }))} />, { api: fakeLearner() });
+    expect(icon()).toHaveAttribute('data-module-icon', 'book');
   });
 
   it('Up next in “Other lessons”: that one unit is the current tile', async () => {

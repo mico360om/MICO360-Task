@@ -1,12 +1,23 @@
 import type { ReactNode } from 'react';
 import { LEARNING_HUB_ICON, NAV_ICONS } from '../Sidebar';
 import { Logo } from '../ui/Logo';
-import { BOOK_PATHS } from './training-ui';
+
+/**
+ * An open book: Training's mark (the menu item, Learn this feature) and a module of no feature. Kept here (training-ui
+ * passes it on) so the course cards there can draw a ModuleIcon without the two files importing each other.
+ */
+export const BOOK_PATHS = (
+  <>
+    <path d="M2 4.5h6a4 4 0 0 1 4 4V21a3 3 0 0 0-3-3H2z" />
+    <path d="M22 4.5h-6a4 4 0 0 0-4 4V21a3 3 0 0 1 3-3h7z" />
+  </>
+);
 
 /**
  * A module's feature as the left menu draws it (13 Nov new look): the menu's own icon object (`NAV_ICONS`, Sidebar's
  * `I`), never a copy. Admin settings is the settings cog, the Client portal the clients icon, the Learning Hub its cap;
- * Getting started (general) is the brand mark; anything else (a module an administrator added, "Other lessons") an
+ * `general` is the brand mark — given only to Getting started and the one course (`moduleKeyOf`, `courseIconKey`: any
+ * other General module or course comes as null); anything else (a module an administrator added, "Other lessons") an
  * open book.
  */
 const BY_KEY: Readonly<Record<string, ReactNode>> = {

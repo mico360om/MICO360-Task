@@ -8,7 +8,7 @@ import { CertificatePanel } from './CertificatePanel';
 import { ModuleIcon } from './ModuleIcon';
 import { LessonTile, ModuleTile } from './ModuleTile';
 import { ProgressRing } from './ProgressRing';
-import { dashboardFocus, lessonsLeft, mainAction, MAIN_ACTION_WORDS, minutesLeftText, moduleKeyOf, upNextModule } from './dashboard-rules';
+import { courseIconKey, dashboardFocus, lessonsLeft, mainAction, MAIN_ACTION_WORDS, minutesLeftText, moduleKeyOf, upNextModule } from './dashboard-rules';
 import { coursePath, lessonPath, useLearner } from './learner';
 import { useCourse } from './training-queries';
 import { AwardIcon, BookIcon, CardChipView, CourseCardView, DownloadIcon, MandatoryChip, NewForRoleChip, TickIcon, TOUCH_MIN, trainingProblem, useCourseGo } from './training-ui';
@@ -23,13 +23,16 @@ import { CERTIFICATE_WORDS, DIFFICULTY_WORDS, LESSON_KIND_WORDS, cardChip, dueTe
 
 const fieldClass = `h-10 w-full rounded-xl border border-line bg-surface px-3 text-sm text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/30 ${TOUCH_MIN}`;
 
-/** A grid of slim course cards (each opening its page; `module` keeps All courses' filter for the way back). */
+/**
+ * A grid of course cards (each opening its page; `module` keeps All courses' filter for the way back). Each cell is a
+ * flex box the card fills, so the cards of a row are as tall as each other and their buttons line up.
+ */
 export function CourseGrid({ courses, module, showState = true, extra, id }: { courses: CourseCard[]; module?: string | null; showState?: boolean; extra?: (c: CourseCard) => ReactNode; id?: string }) {
   const { base } = useLearner();
   return (
     <ul id={id} className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
       {courses.map((c) => (
-        <li key={c.id} className="min-w-0">
+        <li key={c.id} className="flex min-w-0">
           <CourseCardView course={c} to={coursePath(base, c.id, module)} showState={showState} extra={extra?.(c)} />
         </li>
       ))}
@@ -219,7 +222,7 @@ function UpNextCard({ course: c, detail: d, next }: { course: CourseCard; detail
   const id = useId();
   const m = c.mine;
   const moduleTitle = next?.module.title ?? m.next?.moduleTitle ?? null;
-  const iconKey = next ? moduleKeyOf(next.module) : moduleTitle ? moduleKeyOf({ id: '', title: moduleTitle }) : c.moduleKey;
+  const iconKey = next ? moduleKeyOf(next.module) : moduleTitle ? moduleKeyOf({ id: '', title: moduleTitle }) : courseIconKey(c);
   const words = MAIN_ACTION_WORDS[mainAction(m)];
   const open = m.status !== 'COMPLETED';
   const chips = (open && (m.mandatory || !!cardChip(m))) || m.newForRole > 0;

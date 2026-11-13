@@ -1117,6 +1117,47 @@ describe('Learning Hub in the Client portal', () => {
     expect(io).not.toHaveBeenCalled();
   });
 
+  it('/portal/training: the client guide as a learning dashboard — Up next, the ring, its lessons, the certificate card — in the portal’s words, every link inside the portal', async () => {
+    api.training.mockResolvedValue({ ...myTraining({ assigned: [PORTAL_COURSE], inProgress: [], completed: [], certificates: [] }), catalogue: [PORTAL_COURSE], tour: { show: false } });
+    api.trainingCourse.mockResolvedValue(courseDetail({ id: 'pc1', title: 'Client portal basics', moduleKey: 'portal', audience: 'CLIENTS', mine: PORTAL_COURSE.mine }));
+    renderAt('/portal/training');
+    expect(await screen.findByText('Short courses on using the Client portal.')).toBeInTheDocument();
+    expect(screen.queryByText('Your training, one part at a time.')).toBeNull();
+    const upNext = await screen.findByRole('region', { name: 'Up next' });
+    expect(upNext.querySelector('[data-up-next-icon] svg[data-module-icon]')).toHaveAttribute('data-module-icon', 'portal');
+    expect(await within(upNext).findByText(/^Next:/)).toHaveTextContent('Next: Make a task · Step-by-step guide · 8 min');
+    expect(within(upNext).getByRole('link', { name: 'Continue' })).toHaveAttribute('href', '/portal/training/courses/pc1/lessons/l2');
+    expect(within(screen.getByRole('region', { name: 'Your progress' })).getByRole('img', { name: '1 of 4 lessons done' })).toBeInTheDocument();
+    // A plain guide: its lessons are the tiles (only its own; the locked ones aren't links).
+    const lessons = await screen.findByRole('region', { name: 'Your lessons' });
+    expect(within(lessons).getAllByRole('listitem')).toHaveLength(4);
+    expect(within(lessons).getByRole('link', { name: /^Lesson 2: Make a task/ })).toHaveAttribute('href', '/portal/training/courses/pc1/lessons/l2');
+    expect(within(screen.getByRole('region', { name: 'Certificate' })).getByText('Finish 3 more lessons to get it')).toBeInTheDocument();
+    expect(api.trainingCourse).toHaveBeenCalledWith('pc1');
+    // No staff words or links: every link stays in the portal; no Manage, Reports, Browse all courses or Check it online.
+    const main = screen.getByRole('main');
+    for (const a of within(main).getAllByRole('link')) expect(a.getAttribute('href'), a.textContent ?? '').toMatch(/^\/portal(\/|$)/);
+    for (const staffWords of ['Manage', 'Reports', 'Browse all courses', 'Check it online', 'My learning', 'All courses']) expect(within(main).queryByText(staffWords)).toBeNull();
+    expect(calls).toEqual([]);
+  });
+
+  it('/portal/training, the guide finished: “All done, well done”, Certificate ready with View and Download PDF — still no link out of the portal', async () => {
+    const cert = { id: 'cert5', code: 'TC-PORT-AL55-AAAA', courseId: 'pc1', courseTitle: 'Client portal basics', issuedAt: '2026-11-05T08:00:00.000Z', expiresAt: null, status: 'VALID' as const, completedAt: '2026-11-05T08:00:00.000Z', learnerName: 'Huda Client', verifyUrl: 'https://tasks.example.com/verify/TC-PORT-AL55-AAAA' };
+    const done = courseCard({ id: 'pc1', title: 'Client portal basics', moduleKey: 'portal', audience: 'CLIENTS', mine: courseMine({ status: 'COMPLETED', progressPct: 100, lessonsDone: 4, dueDay: null, overdue: false, completedAt: '2026-11-05T08:00:00.000Z', certificate: cert }) });
+    api.training.mockResolvedValue({ ...myTraining({ assigned: [], inProgress: [], completed: [done], certificates: [cert] }), catalogue: [done], tour: { show: false } });
+    api.trainingCourse.mockResolvedValue(courseDetail({ id: 'pc1', title: 'Client portal basics', moduleKey: 'portal', audience: 'CLIENTS', mine: done.mine, lessons: courseDetail().lessons.map((l) => ({ ...l, done: true, locked: false })) }));
+    renderAt('/portal/training');
+    expect(await screen.findByRole('region', { name: 'All done, well done' })).toBeInTheDocument();
+    const certificate = await screen.findByRole('region', { name: 'Certificate' });
+    expect(within(certificate).getByText('Certificate ready')).toBeInTheDocument();
+    expect(within(certificate).getByRole('link', { name: 'View the certificate' })).toHaveAttribute('href', '/portal/training/courses/pc1');
+    expect(within(certificate).getByRole('button', { name: 'Download the certificate (PDF)' })).toBeInTheDocument();
+    const main = screen.getByRole('main');
+    for (const a of within(main).getAllByRole('link')) expect(a.getAttribute('href'), a.textContent ?? '').toMatch(/^\/portal(\/|$)/);
+    expect(within(main).queryByText('Check it online')).toBeNull();
+    expect(calls).toEqual([]);
+  });
+
   it('/portal/training with nothing to do: one line, the courses below (filters only above 3 courses)', async () => {
     const list = [1, 2, 3, 4].map((n) => courseCard({ id: `p${n}`, title: `Portal course ${n}`, moduleKey: 'portal', audience: 'CLIENTS', mine: courseMine({ enrolled: false, assigned: false, mandatory: false, status: 'NOT_STARTED', progressPct: 0, dueDay: null }) }));
     api.training.mockResolvedValue({ ...EMPTY_PORTAL_TRAINING, catalogue: list.slice(0, 3) });

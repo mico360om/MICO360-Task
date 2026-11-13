@@ -93,6 +93,41 @@ describe('Learning Hub → Manage → Courses', () => {
     }
   });
 
+  it('13 Nov new look: each course’s icon beside its facts — the one course the brand mark, a feature’s course its menu icon, another General course the book', async () => {
+    api.courses.mockResolvedValue({
+      courses: [
+        courseRow({ id: 'one', title: 'MICO360 Tasks User Training', moduleKey: 'general', starter: true, moduleCount: 10 }),
+        courseRow({ id: 'c2', title: 'Meeting minutes', moduleKey: 'meetings' }),
+        courseRow({ id: 'acme', title: 'Acme site induction', moduleKey: 'general', starter: false }),
+      ],
+    });
+    renderManage(<CoursesTab />);
+    const list = await screen.findByRole('list', { name: 'Courses' });
+    const icon = (title: string) => within(list).getByRole('link', { name: title }).closest('li')!.querySelector('[data-course-facts] svg[data-module-icon]');
+    expect(icon('MICO360 Tasks User Training')).toHaveAttribute('data-module-icon', 'general');
+    expect(icon('MICO360 Tasks User Training')!.querySelector('svg[aria-label="MICO360 Tasks"]')).not.toBeNull();
+    expect(icon('Meeting minutes')).toHaveAttribute('data-module-icon', 'meetings');
+    expect(icon('Acme site induction')).toHaveAttribute('data-module-icon', 'book');
+    // Decorative: the facts say the module in words; the layout is as before.
+    expect(icon('Meeting minutes')).toHaveAttribute('aria-hidden', 'true');
+    expect(within(list).getByRole('link', { name: 'Meeting minutes' }).closest('li')!.querySelector('[data-course-facts]')).toHaveTextContent(/^Meetings & minutes · Staff/);
+  });
+
+  it('13 Nov new look: the Module filter shows the chosen module’s icon (none for All modules)', async () => {
+    renderManage(<CoursesTab />);
+    await screen.findByRole('list', { name: 'Courses' });
+    const filter = screen.getByRole('combobox', { name: 'Module' });
+    const shown = () => filter.parentElement!.querySelector('svg[data-module-icon]');
+    expect(shown()).toBeNull();
+    await userEvent.selectOptions(filter, 'meetings');
+    expect(shown()).toHaveAttribute('data-module-icon', 'meetings');
+    expect(shown()).toHaveAttribute('aria-hidden', 'true');
+    await userEvent.selectOptions(filter, 'general');
+    expect(shown()).toHaveAttribute('data-module-icon', 'book');
+    await userEvent.selectOptions(filter, '');
+    expect(shown()).toBeNull();
+  });
+
   it('nothing yet: says so and offers New course', async () => {
     api.courses.mockResolvedValue({ courses: [] });
     renderManage(<CoursesTab />);

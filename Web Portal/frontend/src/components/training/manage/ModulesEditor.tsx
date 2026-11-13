@@ -6,6 +6,8 @@ import { ActionMenu } from '../../meeting/ActionMenu';
 import { Button } from '../../ui/Button';
 import { ConfirmDialog } from '../../ui/ConfirmDialog';
 import { fieldClass } from '../../ui/Field';
+import { ModuleIcon } from '../ModuleIcon';
+import { moduleKeyOf } from '../dashboard-rules';
 import { FormRow, ManageDialog } from './ManageDialog';
 import { Glyph, IconButton, Notice, ROLE_LABELS, SectionCard, count, problemText } from './manage-ui';
 import { tc, useCourseCache, useManageOptions } from './manage-queries';
@@ -149,6 +151,8 @@ export function ModulesEditor({ course }: { course: ManageCourse }) {
               return (
                 <li key={m.id} className="flex items-center gap-2 rounded-xl border border-line px-3 py-2">
                   <span className="w-6 flex-none text-sm font-semibold text-ink-2" aria-hidden="true">{`${i + 1}.`}</span>
+                  {/* The module's feature, as the learners see it (13 Nov new look). */}
+                  <ModuleIcon moduleKey={moduleKeyOf(m)} size={18} className={m.enabled ? 'text-ink-2' : 'text-ink-3'} />
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                       <span data-module-title dir="auto" className="min-w-0 text-sm font-semibold text-ink [overflow-wrap:anywhere]">{m.title}</span>

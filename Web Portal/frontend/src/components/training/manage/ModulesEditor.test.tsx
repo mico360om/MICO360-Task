@@ -68,6 +68,21 @@ describe('Course editor: modules', () => {
     expect(within(moduleRow(region, 'Tasks')).queryByText(/^Off/)).toBeNull();
   });
 
+  it('13 Nov new look: each module’s icon beside its name — Getting started the brand mark, a feature its menu icon, an administrator’s own (General) module the book', async () => {
+    const region = await open(withModules({ modules: [...MODULES, manageModule({ id: 'm4', title: 'Safety at Acme', position: 3, moduleKey: 'general' })] }));
+    const icon = (title: string) => moduleRow(region, title).querySelector('svg[data-module-icon]');
+    expect(icon('Getting started')).toHaveAttribute('data-module-icon', 'general');
+    expect(icon('Getting started')!.querySelector('svg[aria-label="MICO360 Tasks"]')).not.toBeNull();
+    expect(icon('Tasks')).toHaveAttribute('data-module-icon', 'tasks');
+    expect(icon('Reports')).toHaveAttribute('data-module-icon', 'reports');
+    expect(icon('Safety at Acme')).toHaveAttribute('data-module-icon', 'book');
+    expect(icon('Tasks')).toHaveAttribute('aria-hidden', 'true');
+    // Beside the name (before it), the row as before.
+    const tasks = moduleRow(region, 'Tasks');
+    expect(icon('Tasks')!.compareDocumentPosition(tasks.querySelector('[data-module-title]')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(tasks).getByText('All staff · 2 lessons')).toBeInTheDocument();
+  });
+
   it('a module switched off by an admin just says Off', async () => {
     const region = await open(withModules({ modules: [manageModule({ id: 'm1', title: 'Chat', enabled: false, visibility: 'Off' })] }));
     const chat = moduleRow(region, 'Chat');

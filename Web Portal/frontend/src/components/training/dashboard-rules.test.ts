@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { adminModuleDetail, card, certificate, detail, mine, moduleCard, moduleDetail, myTraining } from './training-fixtures';
-import { certificateState, certificateWords, dashboardFocus, lessonsLeft, mainAction, MAIN_ACTION_WORDS, minutesLeftText, moduleKeyOf, shortInstantDay, upNextModule } from './dashboard-rules';
+import { certificateState, certificateWords, courseIconKey, dashboardFocus, lessonsLeft, mainAction, MAIN_ACTION_WORDS, minutesLeftText, moduleKeyOf, shortInstantDay, upNextModule } from './dashboard-rules';
 import { learningGroups } from './training-words';
 
 const NOW = new Date('2026-11-13T09:00:00.000Z');
@@ -180,6 +180,27 @@ describe('moduleKeyOf: a module’s feature — the server’s key, else its nam
     expect(moduleKeyOf({ id: 'm', title: '  kanban BOARD ' })).toBe('board');
     expect(moduleKeyOf({ id: 'other', title: 'Other lessons' })).toBeNull();
     expect(moduleKeyOf({ id: 'm', title: 'Safety at Acme' })).toBeNull();
+  });
+});
+
+describe('icons (13 Nov ruling): General is the neutral book — but Getting started and the one course are the brand mark', () => {
+  it('a module that teaches General: the book, unless it is Getting started (any case and spaces)', () => {
+    expect(moduleKeyOf({ id: 'gs', title: 'Getting started', moduleKey: 'general' })).toBe('general');
+    expect(moduleKeyOf({ id: 'gs', title: '  getting  Started ', moduleKey: 'general' })).toBe('general');
+    // An administrator's own module (it takes the course's General by default): the book.
+    expect(moduleKeyOf({ id: 'm', title: 'Safety at Acme', moduleKey: 'general' })).toBeNull();
+    expect(moduleKeyOf({ id: 'm', title: 'Getting started with Acme', moduleKey: 'general' })).toBeNull();
+    // Only a name to go on: "General" is no feature's icon either.
+    expect(moduleKeyOf({ id: 'm', title: 'General', moduleKey: null })).toBeNull();
+    expect(moduleKeyOf({ id: 'm', title: 'General' })).toBeNull();
+  });
+
+  it('a course: the one course (built in, General) the brand mark; any other General course the book; else its feature', () => {
+    expect(courseIconKey(moduleCard())).toBe('general');
+    expect(courseIconKey({ starter: true, moduleKey: 'general' })).toBe('general');
+    expect(courseIconKey({ starter: false, moduleKey: 'general' })).toBeNull();
+    expect(courseIconKey({ starter: true, moduleKey: 'portal' })).toBe('portal');
+    expect(courseIconKey({ starter: false, moduleKey: 'calendar' })).toBe('calendar');
   });
 });
 

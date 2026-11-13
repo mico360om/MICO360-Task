@@ -60,15 +60,27 @@ const KEY_BY_TITLE: ReadonlyMap<string, TrainingModule> = new Map([
   ['getting started', 'general'],
 ]);
 
+const plainTitle = (title: string) => title.trim().replace(/\s+/g, ' ').toLowerCase();
+
 /**
- * A module's feature, for its icon: the server's `moduleKey` (the feature it teaches, whatever it is called). Without
- * one — "Other lessons", or only a name to go on (a list card's "next" module) — the name says it (the starter modules
- * are named after their feature); otherwise none (a neutral book).
+ * A module's feature, for its icon (`ModuleIcon`): the server's `moduleKey` (the feature it teaches, whatever it is
+ * called). Without one — "Other lessons", or only a name to go on (a list card's "next" module) — the name says it (the
+ * starter modules are named after their feature); otherwise none (a neutral book). General is no feature's icon (13 Nov
+ * ruling): a General module is the book (an administrator's own module takes the course's General), except Getting
+ * started, which is the brand mark (`general`).
  */
 export function moduleKeyOf(m: Pick<ModuleOutline, 'id' | 'title'> & { moduleKey?: ModuleOutline['moduleKey'] }): TrainingModule | null {
-  if (m.moduleKey) return m.moduleKey;
-  if (m.id === 'other') return null;
-  return KEY_BY_TITLE.get(m.title.trim().replace(/\s+/g, ' ').toLowerCase()) ?? null;
+  const key = m.moduleKey || (m.id === 'other' ? null : (KEY_BY_TITLE.get(plainTitle(m.title)) ?? null));
+  return key === 'general' && plainTitle(m.title) !== 'getting started' ? null : key;
+}
+
+/**
+ * A course's icon (All courses' cards, Manage's list): the one course — the built-in General course, "MICO360 Tasks
+ * User Training" — the brand mark (`general`); any other General course the book (null); else its feature.
+ */
+export function courseIconKey(c: { starter: boolean; moduleKey: TrainingModule }): TrainingModule | null {
+  if (c.moduleKey !== 'general') return c.moduleKey;
+  return c.starter ? 'general' : null;
 }
 
 /** "16 Nov" this year, "16 Nov 2025" another (an instant, in the device's zone). */

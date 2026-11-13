@@ -48,9 +48,11 @@ const PortalH1 = ({ children }: { children: ReactNode }) => (
 );
 
 /**
- * The portal's Learning Hub (owner answer 1; 12 Nov §8): the same "Up next", To do and Done as staff, then the other
- * courses meant for clients — a course already above is never listed twice; the filters only above 3 courses.
- * "Tour of the site" stays here (the portal has no account menu). Badges only, no emails.
+ * The portal's Learning Hub (owner answer 1; 12 Nov §8; 13 Nov new look): the same learning dashboard as staff — Up
+ * next, the progress ring, the guide's own lessons (or modules) as tiles, the certificate card, other courses — then
+ * Done, then the other courses meant for clients — a course already above is never listed twice; the filters only above
+ * 3 courses. In the portal's own words (its subtitle; no Browse all courses, Manage, Reports or Check it online), every
+ * link inside the portal. "Tour of the site" stays here (the portal has no account menu). Badges only, no emails.
  */
 export function PortalTrainingPage() {
   usePortalPageName(null);

@@ -10,6 +10,8 @@ import { Badge } from '../../ui/Badge';
 import { Button } from '../../ui/Button';
 import { LoadError } from '../../ui/LoadError';
 import { fieldClass } from '../../ui/Field';
+import { ModuleIcon } from '../ModuleIcon';
+import { moduleKeyOf } from '../dashboard-rules';
 import { ManageDialog } from './ManageDialog';
 import { FilterField, Glyph, Notice, SectionCard, count, dayWords, instantWords, pct, problemText } from './manage-ui';
 import { manageKeys, tc, useManageCourses } from './manage-queries';
@@ -211,7 +213,13 @@ export function ReportsTab({ readOnly = false }: { readOnly?: boolean }) {
                     <tbody>
                       {r.modules.map((m) => (
                         <tr key={m.moduleId} className="border-b border-line last:border-0">
-                          <th scope="row" dir="auto" className="py-2 pe-3 text-left font-medium text-ink [overflow-wrap:anywhere]">{m.title}</th>
+                          <th scope="row" dir="auto" className="py-2 pe-3 text-left font-medium text-ink [overflow-wrap:anywhere]">
+                            {/* The module's feature by its name (the report has no key; 13 Nov new look). */}
+                            <span className="inline-flex min-w-0 items-start gap-1.5">
+                              <ModuleIcon moduleKey={moduleKeyOf({ id: m.moduleId, title: m.title })} size={16} className="mt-0.5 text-ink-2" />
+                              <span className="min-w-0">{m.title}</span>
+                            </span>
+                          </th>
                           {[m.people, m.done, m.inProgress, m.notStarted].map((n, i) => <td key={i} className="px-2 py-2 text-right tabular-nums text-ink">{n.toLocaleString('en-US')}</td>)}
                         </tr>
                       ))}
