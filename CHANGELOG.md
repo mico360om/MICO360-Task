@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.23.25] - 2026-11-13
+
 ### Bug fixes
 - Learning Hub: the two old how-to slide PDFs are removed from the Tasks and Meetings courses; new training videos replace them.
 
