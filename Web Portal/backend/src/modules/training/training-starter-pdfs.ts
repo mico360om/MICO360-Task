@@ -14,8 +14,9 @@ import type { TrainingFileStore } from './training-files';
  * updatedById, version, publishedAt — whether a course was edited is read from them later), learners'
  * progress, enrolments and certificates are not touched, and nothing is written to the audit log. Should
  * anything re-stamp a course or lesson while the rows go, its stamps are put back in the same transaction
- * (repeatable read: it only ever sees its own changes). A document lesson an administrator pointed at one
- * of the PDFs keeps everything but that link (and is named in a warning, so an administrator can fix it).
+ * (the server's own level, repeatable read: it only ever sees its own changes; no isolation statement is
+ * sent, which the live statement-based binary log would refuse). A document lesson an administrator pointed
+ * at one of the PDFs keeps everything but that link (and is named in a warning, so an administrator can fix it).
  *
  * Done once: `training.removedStarterPdfs` = { at, removed, leftKeys } is written with the removal. Safe to
  * run again (a site without the PDFs only writes the record). The stored files go first (a stop half-way
@@ -188,7 +189,7 @@ export function createStarterPdfRemoval(deps: StarterPdfRemovalDeps): { run(): P
     let out: { removed: number; lessonsUnlinked: number; restored: number };
     for (let attempt = 1; ; attempt++) {
       try {
-        out = await prisma.$transaction(work, { maxWait: 10_000, timeout: 60_000, isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+        out = await prisma.$transaction(work, { maxWait: 10_000, timeout: 60_000 });
         break;
       } catch (err) {
         if (attempt < 3 && retryable(err)) {
