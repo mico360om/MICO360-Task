@@ -123,16 +123,13 @@ export function createPrismaParticipantRepository(prisma: PrismaClient): Partici
       return rows.map((r) => r.conversationId);
     },
     async setLastRead(conversationId, userId, at) {
-      // N10: two tabs marking the same chat read at once — the upsert that lost the race runs again (an update).
-      await retried(
-        () =>
-          prisma.conversationParticipant.upsert({
-            where: { conversationId_userId: { conversationId, userId } },
-            create: { conversationId, userId, lastReadAt: at },
-            update: { lastReadAt: at },
-          }),
-        { unique: true },
-      );
+      // N10 + MariaDB (snapshot isolation): several tabs marking the same chat read at once. Single statements
+      // only — an upsert reads, then writes, which MariaDB refuses (1020) when another tab wrote between.
+      const where = { conversationId, userId };
+      if ((await prisma.conversationParticipant.updateMany({ where, data: { lastReadAt: at } })).count > 0) return;
+      const made = await prisma.conversationParticipant.createMany({ data: [{ conversationId, userId, lastReadAt: at }], skipDuplicates: true });
+      // Another tab made the row at this very moment: write the marker on it.
+      if (made.count === 0) await prisma.conversationParticipant.updateMany({ where, data: { lastReadAt: at } });
     },
     async setPrefs(conversationId, userId, patch) {
       return prisma.conversationParticipant.update({ where: { conversationId_userId: { conversationId, userId } }, data: patch });

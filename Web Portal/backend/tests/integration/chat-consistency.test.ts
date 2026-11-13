@@ -114,6 +114,28 @@ describe('N10 a project chat opened by two people at once', () => {
   });
 });
 
+describe('the same person reading a chat in several tabs at once (MariaDB 1020)', () => {
+  it('marking it read from 6 tabs at once never fails, and the read marker is kept', async () => {
+    const a = await person('oli');
+    const b = await person('pam');
+    const conv = await service().getOrCreateDirectConversation(a, b);
+    await service().postMessage(conv.id, b, { body: 'Contoso site visit at 9' });
+    for (let i = 0; i < 5; i++) {
+      const results = await Promise.allSettled(Array.from({ length: 6 }, () => service().markRead(conv.id, a)));
+      expect(results.filter((r) => r.status === 'rejected').map((r) => String((r as PromiseRejectedResult).reason).slice(0, 200))).toEqual([]);
+    }
+    const row = await prisma.conversationParticipant.findUnique({ where: { conversationId_userId: { conversationId: conv.id, userId: a } } });
+    expect(row?.lastReadAt).toBeTruthy();
+    // A first read from several tabs of a channel the person has no row in yet.
+    const projectId = `p${tag}read`;
+    projects.push(projectId);
+    const channel = await service().getOrCreateProjectConversation(projectId, b);
+    const firsts = await Promise.allSettled(Array.from({ length: 6 }, () => service().markRead(channel.id, a)));
+    expect(firsts.filter((r) => r.status === 'rejected')).toEqual([]);
+    expect(await prisma.conversationParticipant.count({ where: { conversationId: channel.id, userId: a } })).toBe(1);
+  });
+});
+
 describe('#20 history pages by time and message, so a message in the same millisecond is never skipped', () => {
   async function tiedConversation(total: number, tieAt: (i: number) => number) {
     const a = await person('ida');
