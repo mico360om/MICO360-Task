@@ -273,6 +273,37 @@ const ADMIN: NavItem[] = [
   { label: 'System Settings', to: '/admin/settings', icon: I.sliders },
 ];
 
+/** Recycle Bin: a bin — kept out of `I`, the icon set the Android app copies (its menu has no such page). */
+const RECYCLE_BIN_ICON = (
+  <>
+    <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M6 6v14a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6" />
+    <path d="M10 11v6M14 11v6" />
+  </>
+);
+/**
+ * 1.22.4: a warning triangle — the Error log, a website-only admin page. Kept out of `I`, the icon set
+ * the Android app copies (its menu has no such page).
+ */
+const ERROR_LOG_ICON = (
+  <>
+    <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
+    <path d="M12 9v4M12 17h.01" />
+  </>
+);
+
+/**
+ * Owner, 13 Nov: pages that left the left menu, with their names and addresses unchanged — the Recycle Bin, Error
+ * Log and Audit Logs are in the account menu (ProfileMenu draws them from here: the Recycle Bin for the people who
+ * run a project and administrators, the other two with the Admin group's rules); Companies is inside System Settings.
+ * The Android app's menu still lists Companies and Audit Logs; its drift test holds them to these rows.
+ */
+export const ACCOUNT_MENU_PAGES = {
+  recycleBin: { label: 'Recycle Bin', to: '/recycle-bin', icon: RECYCLE_BIN_ICON, leadsOnly: true },
+  errorLog: { label: 'Error Log', to: '/admin/error-log', icon: ERROR_LOG_ICON, adminOnly: true },
+  auditLogs: { label: 'Audit Logs', to: '/admin/audit', icon: I.audit, adminOnly: true },
+} satisfies Record<string, NavItem>;
+export const COMPANIES_PAGE: NavItem = { label: 'Companies', to: '/admin/companies', icon: I.companies };
+
 /** Is the page you are on this link's (or inside it)? */
 const isHere = (pathname: string, to: string) => pathname === to || pathname.startsWith(`${to}/`);
 

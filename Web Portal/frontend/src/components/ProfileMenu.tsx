@@ -8,6 +8,7 @@ import { useSignOut } from '../lib/useSignOut';
 import { SignOutWarning } from './SignOutWarning';
 import { ShortcutHint, useShortcutSettings } from './shortcuts/ShortcutProvider';
 import { MANAGER_VIEW_WORDS, useEffectiveAdmin, useManagerView, useSetManagerView } from '../lib/manager-view';
+import { ACCOUNT_MENU_PAGES } from './Sidebar';
 
 /** The account menu's small icons (16 px, the menu's own stroke). */
 function MenuIcon({ children }: { children: ReactNode }) {
@@ -128,33 +129,12 @@ export function ProfileMenu({ canLead }: ProfileMenuProps = {}) {
             {bin || adminPages ? (
               <>
                 <div role="separator" className="my-1 border-t border-line" />
-                {bin ? (
-                  <Link to="/recycle-bin" role="menuitem" onClick={() => setOpen(false)} className={itemClass}>
-                    <MenuIcon>
-                      <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M6 6v14a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6" />
-                      <path d="M10 11v6M14 11v6" />
-                    </MenuIcon>
-                    Recycle Bin
+                {[...(bin ? [ACCOUNT_MENU_PAGES.recycleBin] : []), ...(adminPages ? [ACCOUNT_MENU_PAGES.errorLog, ACCOUNT_MENU_PAGES.auditLogs] : [])].map((page) => (
+                  <Link key={page.to} to={page.to} role="menuitem" onClick={() => setOpen(false)} className={itemClass}>
+                    <MenuIcon>{page.icon}</MenuIcon>
+                    {page.label}
                   </Link>
-                ) : null}
-                {adminPages ? (
-                  <>
-                    <Link to="/admin/error-log" role="menuitem" onClick={() => setOpen(false)} className={itemClass}>
-                      <MenuIcon>
-                        <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
-                        <path d="M12 9v4M12 17h.01" />
-                      </MenuIcon>
-                      Error Log
-                    </Link>
-                    <Link to="/admin/audit" role="menuitem" onClick={() => setOpen(false)} className={itemClass}>
-                      <MenuIcon>
-                        <path d="M12 3l7 3v5c0 5-3 8-7 9.5C8 19 5 16 5 11V6z" />
-                        <path d="M9 11.5l2 2 4-4" />
-                      </MenuIcon>
-                      Audit Logs
-                    </Link>
-                  </>
-                ) : null}
+                ))}
                 <div role="separator" className="my-1 border-t border-line" />
               </>
             ) : null}

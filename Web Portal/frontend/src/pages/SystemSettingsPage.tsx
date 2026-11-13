@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { Toggle } from '../components/ui/Toggle';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { PageHeader } from '../components/ui/PageHeader';
+import { COMPANIES_PAGE } from '../components/Sidebar';
 import { Button } from '../components/ui/Button';
 import { apiClient } from '../api/client';
 import { systemSettingsApi } from '../api/system-settings';
@@ -159,7 +160,7 @@ export function SystemSettingsPage() {
               </h2>
               <p className="text-sm text-ink-2">Each company’s name, logo, week and working hours, its people and its projects.</p>
             </div>
-            <Link to="/admin/companies" className="inline-flex items-center rounded-lg border border-line bg-surface px-4 py-2 text-sm font-semibold text-ink transition-colors hover:bg-ground [@media(pointer:coarse)]:!min-h-11">
+            <Link to={COMPANIES_PAGE.to} className="inline-flex items-center rounded-lg border border-line bg-surface px-4 py-2 text-sm font-semibold text-ink transition-colors hover:bg-ground [@media(pointer:coarse)]:!min-h-11">
               Open Companies
             </Link>
           </div>
