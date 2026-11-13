@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.23.29] - 2026-11-13
+
 ### Bug fixes
 - Saving the same thing twice at once (a double click, or two people together) no longer shows an error.
 - On the Calendar, "My tasks" also shows the meetings you're invited to and haven't declined, not only the ones you organise.
