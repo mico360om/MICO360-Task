@@ -4,6 +4,7 @@ import { createTaskSearchIndex } from '../../src/modules/search/task-search-inde
 import { createSearchIndex } from '../../src/modules/search/search-index';
 import { createSearchEngine } from '../../src/modules/search/search-engine';
 import { createSearchScope } from '../../src/modules/search/search-scope';
+import { createTopBarMeetings } from '../../src/modules/search/top-bar-meetings';
 import { createVocabulary } from '../../src/modules/search/search-fuzzy';
 import { createPrismaSearchWords } from '../../src/modules/search/prisma-search-words';
 import { createProjectAccess } from '../../src/modules/projects/project-access';
@@ -127,6 +128,42 @@ describe.skipIf(!ON)('search performance (50,000 items)', () => {
     const at = (p: number) => times[Math.min(times.length - 1, Math.floor(p * times.length))]!;
     console.log(`[search performance] ${ITEMS} items, ${times.length} searches — p50 ${at(0.5).toFixed(0)} ms, p95 ${at(0.95).toFixed(0)} ms, max ${times[times.length - 1]!.toFixed(0)} ms`);
     expect(ITEMS).toBeGreaterThanOrEqual(50_000);
+    expect(at(0.95)).toBeLessThan(300);
+  }, 30 * 60_000);
+
+  // Review #22/#10 (13 Nov 2026): the top bar's meetings now come from the index, beside its other
+  // kinds — the scope read for the request, then both in parallel, as GET /search does. Same budget.
+  it('the top bar (meetings + its other kinds): p95 under 300 ms', async () => {
+    const words = createPrismaSearchWords(prisma);
+    const vocabulary = createVocabulary({ load: words.load });
+    const engine = createSearchEngine({ prisma, timeZone: 'Asia/Muscat', suggest: (w) => vocabulary.suggest(w) });
+    const meetings = createTopBarMeetings({ prisma, engine });
+    const projectRepository = createPrismaProjectRepository(prisma);
+    const projectAccess = createProjectAccess({ projects: projectRepository, managers: createPrismaProjectManagerLookup(prisma), myProjectsOnly: (u) => readMyProjectsOnly(prisma, u) });
+    const authz = createProjectAuthz({ managers: createPrismaProjectManagerLookup(prisma) });
+    const companies = createCompanyAccess(prisma);
+    const scopes = createSearchScope({ prisma, accessibleProjectIds: (u, r, p) => projectAccess.accessibleProjectIds(u, r, p), manageableProjectIds: (u, r, ids) => authz.manageableProjectIds(u, r, ids), myProjectsOnly: (v) => companies.myProjectsOnly(v) });
+    const queries = ['pump', 'valve replacement', 'mud liner', '"fire water"', 'insp', 'hydrocrak', 'مضخة', 'صيانة مضخة', 'compressor nitrogen purge', 'zzzz nothing'];
+    const times: number[] = [];
+    let found = 0;
+    const time = async (viewer: { id: string; roles: string[] }, q: string) => {
+      const t0 = performance.now();
+      const scope = await scopes.forViewer(viewer, null);
+      const [m] = await Promise.all([
+        meetings.search({ q, scope, viewerId: viewer.id }),
+        engine.search({ q, scope, viewerId: viewer.id, kinds: ['note', 'minutes', 'file', 'inspection'], limit: 5, exactOnly: true }),
+      ]);
+      found += m.length;
+      return performance.now() - t0;
+    };
+    for (const q of queries) await time(admin, q); // warm up
+    for (let round = 0; round < 5; round++) {
+      for (const viewer of [admin, member]) for (const q of queries) times.push(await time(viewer, q));
+    }
+    times.sort((a, b) => a - b);
+    const at = (p: number) => times[Math.min(times.length - 1, Math.floor(p * times.length))]!;
+    console.log(`[search performance] top bar, ${times.length} searches — p50 ${at(0.5).toFixed(0)} ms, p95 ${at(0.95).toFixed(0)} ms, max ${times[times.length - 1]!.toFixed(0)} ms`);
+    expect(found).toBeGreaterThan(0);
     expect(at(0.95)).toBeLessThan(300);
   }, 30 * 60_000);
 });

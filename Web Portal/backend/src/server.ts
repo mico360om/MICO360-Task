@@ -226,6 +226,7 @@ import { createPrismaSearchWords } from './modules/search/prisma-search-words';
 import { createFileTextService } from './modules/search/file-text-service';
 import { createSearchScope } from './modules/search/search-scope';
 import { createSearchEngine } from './modules/search/search-engine';
+import { createTopBarMeetings } from './modules/search/top-bar-meetings';
 import { createSemanticSearch } from './modules/search/search-semantic';
 import { createAiSearch } from './modules/search/search-ai';
 import { startSearchSweeps } from './modules/search/search-sweeps';
@@ -828,8 +829,9 @@ async function main(): Promise<void> {
 
   const reportService = createReportService({ data: createPrismaReportDataSource(prisma), timeZone: companyTz, weekStart: () => settingsService.companyWeekStart() });
 
-  // Cache the (broad) search snapshot for a few seconds so bursty, debounced searches don't
-  // reload every meeting/note/task per keystroke — important on low-memory hosts.
+  // Cache the top bar's snapshot (projects and people by name) for a few seconds so bursty, debounced
+  // searches don't reload them per keystroke — important on low-memory hosts. Who may see what is
+  // applied on every search; meetings come from the index (searchEverything.meetings below).
   const searchService = createSearchService({
     data: createCachedSearchDataSource(createPrismaSearchDataSource(prisma), { ttlMs: 15_000 }),
     // Its tasks: the best few of the full task search, per request.
@@ -2415,6 +2417,8 @@ async function main(): Promise<void> {
   const searchEverything = {
     engine: searchEngine,
     scope: searchScope,
+    // Review #22/#10/N3: the top bar's meetings, from the index with the person's access as it is now.
+    meetings: createTopBarMeetings({ prisma, engine: searchEngine }),
     // 1.23.6 the built-in reader: the person's projects and people, today and their company's week.
     reader: createReaderContext({ prisma, timeZone: companyTz, weekStart: (viewer, pick) => companyTime.weekStartOfScope(viewer, pick) }),
     ai: {

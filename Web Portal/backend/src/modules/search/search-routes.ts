@@ -13,6 +13,7 @@ import type { SearchAllInput, SearchAllResult } from './search-engine';
 import type { SearchScopeAll } from './search-scope';
 import type { AiSearchAnswer, AiSearchFilters } from './search-ai';
 import type { SearchViewer } from './task-search-scope';
+import type { SearchMeetingResult, TopBarMeetingSearch } from './top-bar-meetings';
 import { savedSearchBody, type SavedSearches, type SavedSearchView } from './saved-searches';
 import { READER_CHIP_KEYS, readQuery, type ReaderChip, type ReaderChipKey, type ReaderContext, type ReaderFilters } from './search-reader';
 
@@ -24,6 +25,12 @@ export interface SearchEverythingDeps {
     count?(input: SearchAllInput): Promise<{ total: number; capped: boolean }>;
   };
   scope: { forViewer(viewer: SearchViewer, pick: string | null): Promise<SearchScopeAll> };
+  /**
+   * Review #22/#10/N3 (13 Nov 2026): the top bar's meetings (GET /search → meetings) — from the index,
+   * among the meetings this person may open as `scope` reads them on this request (top-bar-meetings.ts).
+   * Absent: the top bar lists no meetings.
+   */
+  meetings?: TopBarMeetingSearch;
   /**
    * 1.23.6 The built-in reader's context for this person: today, the week's first day, and the projects
    * and people they may see (`people`: those they may find, null = everyone). Absent: nothing is read.
@@ -124,10 +131,6 @@ export interface SearchRouteDeps {
   pickOf?: PickOf;
   /** companies: the people this person may find (colleagues; with a pick, that company's); null = everyone (an admin). */
   peopleFor?: (viewer: { id: string; roles: string[] }, pick: string | null) => Promise<ReadonlySet<string> | null>;
-  /** companies: this person's active companies (a meeting they were only invited to shows no notes). */
-  companiesOf?: (userId: string) => Promise<string[]>;
-  /** 1.22: does this administrator list like a team member ("Show my projects only")? Absent: never. */
-  myProjectsOnly?: (viewer: { id: string; roles: string[] }) => Promise<boolean>;
   /** 1.23 Search everything (GET /search/all, the AI panel; GET /search's `more`). */
   everything?: SearchEverythingDeps;
   /**
@@ -161,7 +164,7 @@ export async function registerSearchRoutes(app: FastifyInstance, deps: SearchRou
    * database server) — recorded as a failed request is: its route pattern and the person, never the
    * address (it holds the words). Once per part and request, however many of its passes failed.
    */
-  const partFailed = (req: FastifyRequest, part: 'tasks' | 'more') => {
+  const partFailed = (req: FastifyRequest, part: 'tasks' | 'meetings' | 'more') => {
     let told = false;
     return (err: unknown): void => {
       if (told) return;
@@ -172,28 +175,36 @@ export async function registerSearchRoutes(app: FastifyInstance, deps: SearchRou
   app.get('/search', searchRoute, async (req) => {
     const { q } = querySchema.parse(req.query);
     // Object-level scope: a non-admin only ever finds tasks/projects in projects they belong to —
-    // companies: in the picked company; people they may find; an invitation shows no notes.
+    // companies: in the picked company; people they may find.
     const viewer = { id: req.user!.id, roles: req.user!.roles ?? [], managerView: req.user!.managerView === true };
     const pick = await pickOf(req);
-    const admin = viewer.roles.includes('ADMIN');
-    const [{ projectIds: allowedProjectIds }, people, companyIds, mineOnly] = await Promise.all([
+    const [{ projectIds: allowedProjectIds }, people] = await Promise.all([
       scopes.forViewer(viewer, pick),
       deps.peopleFor ? deps.peopleFor(viewer, pick) : Promise.resolve(null),
-      deps.companiesOf && !admin ? deps.companiesOf(viewer.id) : Promise.resolve(null),
-      // 1.22: with "Show my projects only" an administrator's meetings follow the team rule too.
-      admin && deps.myProjectsOnly ? deps.myProjectsOnly(viewer) : Promise.resolve(false),
     ]);
     const everything = deps.everything;
-    // The search everything scope, worked out once for this request (review M9).
+    // The search everything scope, worked out once for this request (review M9) — read now, never kept:
+    // the meetings and the other kinds below see only what the person may open at this moment.
     let everyScope: Promise<SearchScopeAll> | null = null;
     const scopeOf = () => (everyScope ??= everything!.scope.forViewer(viewer, pick));
+    const words = parseTaskQuery(q).terms.length > 0;
     // 1.23.6: what the reader understood, and how many items that finds ("Tasks · Overdue · MICO · Assigned to me → 7").
     const understood = everything?.reader && everything.engine.count ? understoodRow(everything, viewer, pick, q, scopeOf).catch(() => undefined) : Promise.resolve(undefined);
     // 1.23: the top bar also shows the best few notes, minutes, files and inspections (never holding it up on a failure).
-    const [found, more, row] = await Promise.all([
+    const [found, meetings, more, row] = await Promise.all([
       // 1.23.1: the task search failing leaves the rest (`tasksUnavailable`, recorded once).
-      searchService.search(q, { allowedProjectIds, userId: viewer.id, pick, admin: admin && !mineOnly, people, companyIds }, { onTasksFailed: partFailed(req, 'tasks') }),
-      everything && parseTaskQuery(q).terms.length
+      searchService.search(q, { allowedProjectIds, people }, { onTasksFailed: partFailed(req, 'tasks') }),
+      // Review #22/#10/N3: the meetings this person may open now, from the index, best first (capped).
+      everything?.meetings && words
+        ? scopeOf()
+            .then((scope) => everything.meetings!.search({ q, scope, viewerId: viewer.id }))
+            // Never holding the rest up — recorded, as a failing part is.
+            .catch((err: unknown) => {
+              partFailed(req, 'meetings')(err);
+              return [] as SearchMeetingResult[];
+            })
+        : Promise.resolve([] as SearchMeetingResult[]),
+      everything && words
         ? scopeOf()
             // Whole matches only: no spelling or some-words pass (security review) — they'd be dropped below anyway.
             .then((scope) => everything.engine.search({ q, scope, viewerId: viewer.id, kinds: ['note', 'minutes', 'file', 'inspection'], limit: GLOBAL_MORE_LIMIT, exactOnly: true }))
@@ -209,7 +220,7 @@ export async function registerSearchRoutes(app: FastifyInstance, deps: SearchRou
         : Promise.resolve(null),
       understood,
     ]);
-    return { data: { ...found, ...(more ? { more } : {}), ...(row ? { understood: row } : {}) } };
+    return { data: { ...found, meetings, ...(more ? { more } : {}), ...(row ? { understood: row } : {}) } };
   });
 
   /** The top bar's first row: only when something was read. */

@@ -4,6 +4,11 @@ import { createSearchService } from '../../src/modules/search/search-service';
 import { createPrismaSearchDataSource } from '../../src/modules/search/prisma-search-data-source';
 import { createTaskSearchIndex } from '../../src/modules/search/task-search-index';
 import { createTaskSearchEngine } from '../../src/modules/search/task-search-engine';
+import { createSearchIndex } from '../../src/modules/search/search-index';
+import { createSearchEngine } from '../../src/modules/search/search-engine';
+import { createSearchScope } from '../../src/modules/search/search-scope';
+import { createTopBarMeetings } from '../../src/modules/search/top-bar-meetings';
+import { createCompanyAccess } from '../../src/modules/companies/company-access';
 import { createTaskMoveService } from '../../src/modules/tasks/task-move-service';
 import { createPrismaTaskMoveRepository } from '../../src/modules/tasks/prisma-task-move-repository';
 import { createPrismaMicoAiData } from '../../src/modules/mico-ai/prisma-mico-ai-data';
@@ -105,9 +110,24 @@ beforeAll(async () => {
   const searchIndex = createTaskSearchIndex({ prisma });
   for (const taskId of Object.values(tasks)) await searchIndex.taskChanged(taskId);
   const taskSearch = createTaskSearchEngine({ prisma, index: searchIndex, timeZone: 'Asia/Muscat' });
+  // Review #22/#10: the top bar's meetings come from the index (search everything's engine and scope), as server.ts wires them.
+  for (const id of Object.values(meetings)) await createSearchIndex({ prisma }).meetingChanged(id);
+  const engine = createSearchEngine({ prisma, timeZone: 'Asia/Muscat' });
+  const companyAccess = createCompanyAccess(prisma);
   api = await buildCompanyApp(prisma, (base) => ({
     searchService: createSearchService({ data: createPrismaSearchDataSource(prisma), tasks: taskSearch }),
     taskSearch,
+    searchEverything: {
+      engine,
+      scope: createSearchScope({
+        prisma,
+        accessibleProjectIds: (u, r, pick) => base.projectAccess!.accessibleProjectIds(u, r, pick),
+        manageableProjectIds: (u, r, ids) => base.projectAuthz!.manageableProjectIds(u, r, ids),
+        myProjectsOnly: (viewer) => companyAccess.myProjectsOnly(viewer),
+      }),
+      meetings: createTopBarMeetings({ prisma, engine }),
+      timeZone: 'Asia/Muscat',
+    },
     taskMoveService: createTaskMoveService({
       repo: createPrismaTaskMoveRepository(prisma),
       pickerProjectIds: (actor) => base.projectAccess!.accessibleProjectIds(actor.id, actor.roles ?? [], null),
@@ -145,6 +165,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await api?.close();
+  if (w) await prisma.searchIndex.deleteMany({ where: { meetingId: { in: Object.values(w.meetings) } } });
   await prisma.actionItem.deleteMany({ where: { assigneeId: w.people.admin } });
   await prisma.meetingAttendee.deleteMany({ where: { userId: w.people.admin } });
   await prisma.taskAssignee.deleteMany({ where: { userId: w.people.admin } });

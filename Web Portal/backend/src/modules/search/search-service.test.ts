@@ -53,30 +53,15 @@ describe('searchAll', () => {
     expect(searchAll('report', scoped, { allowedProjectIds: null }).tasks).toHaveLength(2);
   });
 
-  it('companies: people a person may find, a picked company’s meetings, and an invitation without its notes', () => {
-    const withCompanies: SearchData = {
-      ...data,
-      users: [...data.users, { id: 'u2', username: 'bob', firstName: 'Bob', lastName: 'Builder' }],
-      meetings: [
-        { id: 'mA', title: 'Site walk', projectId: 'pA', organizerId: 'u9', attendeeUserIds: ['u1'], content: 'agenda one — secret note', inviteeContent: 'agenda one' },
-        { id: 'mN', title: 'Office party', projectId: null, organizerId: 'u1', attendeeUserIds: [], content: 'cake', companyId: 'B' },
-      ],
-    };
-    const companies = new Map([['pA', ['A']]]);
+  it('companies: only the people a person may find', () => {
+    const withPeople: SearchData = { ...data, users: [...data.users, { id: 'u2', username: 'bob', firstName: 'Bob', lastName: 'Builder' }] };
     // People: only those in the set (colleagues); none = everyone (an admin).
-    expect(searchAll('bob', withCompanies, { people: new Set(['u1']) }).users).toEqual([]);
-    expect(searchAll('bob', withCompanies, { people: null }).users.map((u) => u.id)).toEqual(['u2']);
-    // u1 attends mA but shares no company with its project (A): found by its agenda, never its notes.
-    const asInvitee = { allowedProjectIds: [], userId: 'u1', companyIds: ['B'] };
-    expect(searchAll('secret', withCompanies, asInvitee, companies).meetings).toEqual([]);
-    expect(searchAll('agenda', withCompanies, asInvitee, companies).meetings.map((m) => [m.id, m.snippet])).toEqual([['mA', 'agenda one']]);
-    // The same person in company A sees the whole meeting.
-    expect(searchAll('secret', withCompanies, { ...asInvitee, companyIds: ['A'] }, companies).meetings.map((m) => m.id)).toEqual(['mA']);
-    // With pick B: B's no-project meeting, not the invitation to A's project meeting.
-    expect(searchAll('a', withCompanies, { ...asInvitee, pick: 'B' }, companies).meetings.map((m) => m.id)).toEqual(['mN']);
-    expect(searchAll('cake', withCompanies, { ...asInvitee, pick: 'A' }, companies).meetings).toEqual([]);
-    // An administrator with a pick: every meeting of that company.
-    expect(searchAll('party', withCompanies, { allowedProjectIds: [], userId: 'admin', admin: true, pick: 'B' }, companies).meetings.map((m) => m.id)).toEqual(['mN']);
+    expect(searchAll('bob', withPeople, { people: new Set(['u1']) }).users).toEqual([]);
+    expect(searchAll('bob', withPeople, { people: null }).users.map((u) => u.id)).toEqual(['u2']);
+  });
+
+  it('holds no meetings: the top bar finds them in the index with live access (review #22/#10, top-bar-meetings)', () => {
+    expect(Object.keys(searchAll('mico', data)).sort()).toEqual(['projects', 'tasks', 'users']);
   });
 
   it('returns everything empty for a blank query', () => {
@@ -133,15 +118,14 @@ describe('SearchService', () => {
 describe('SearchService — the task search failing never hides the other results', () => {
   const failing = (err: unknown) => ({ async search(): Promise<never> { throw err; } });
 
-  it('projects, people and meetings still come back, with a flag; the error is handed over once', async () => {
+  it('projects and people still come back, with a flag; the error is handed over once', async () => {
     const boom = new Error('Unknown column');
     const told: unknown[] = [];
-    const svc = createSearchService({ data: { async getSearchData() { return { ...data, meetings: [{ id: 'm1', title: 'MICO weekly', projectId: 'p1', organizerId: 'u1', attendeeUserIds: [], content: '' }] }; } }, tasks: failing(boom) });
+    const svc = createSearchService({ data: { async getSearchData() { return data; } }, tasks: failing(boom) });
     const r = await svc.search('mico', {}, { onTasksFailed: (err) => told.push(err) });
     expect(r.tasks).toEqual([]);
     expect(r.tasksUnavailable).toBe(true);
     expect(r.projects.map((p) => p.code)).toEqual(['MICO']);
-    expect(r.meetings.map((m) => m.id)).toEqual(['m1']);
     expect(told).toEqual([boom]);
   });
 
