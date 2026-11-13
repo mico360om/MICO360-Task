@@ -89,3 +89,47 @@ describe('DependencyService.removeDependency', () => {
     expect((await svc.listDependencies('a')).blockedBy).toEqual([]);
   });
 });
+
+describe('review fix #12 + N12: one link at a time; the loop check sees binned tasks', () => {
+  /** The fake plus a one-at-a-time queue (as the database's hold) and some tasks in the Recycle Bin. */
+  function guarded(binned: string[]) {
+    const base = inMemory(['a', 'b', 'c', 'd']);
+    let queue: Promise<unknown> = Promise.resolve();
+    let held = 0;
+    const repo: DependencyRepository = {
+      ...base.repo,
+      // What a task shows leaves binned blockers out; the loop check follows them.
+      async dependsOn(taskId) {
+        return (await base.repo.dependsOn(taskId)).filter((id) => !binned.includes(id));
+      },
+      dependsOnAny: (taskId) => base.repo.dependsOn(taskId),
+      oneAtATime<T>(work: (r: DependencyRepository) => Promise<T>): Promise<T> {
+        const run = queue.then(async () => {
+          held++;
+          try {
+            return await work(repo);
+          } finally {
+            held--;
+          }
+        });
+        queue = run.catch(() => undefined);
+        return run;
+      },
+    };
+    return { svc: createDependencyService({ repo, taskLookup: base.taskLookup }), held: () => held };
+  }
+
+  it('two opposite links at the same moment: one is made, the other refused as a loop', async () => {
+    const { svc: s } = guarded([]);
+    const r = await Promise.allSettled([s.addDependency('a', 'b'), s.addDependency('b', 'a')]);
+    expect(r.map((x) => (x.status === 'fulfilled' ? 'ok' : (x.reason as ConflictError).code)).sort()).toEqual(['DEPENDENCY_CYCLE', 'ok']);
+  });
+
+  it('a link that would close a loop through a binned task is refused; its list still leaves the binned one out', async () => {
+    const { svc: s } = guarded(['b']);
+    await s.addDependency('a', 'b');
+    await s.addDependency('b', 'c');
+    expect((await s.listDependencies('a')).blockedBy).toEqual([]);
+    await expect(s.addDependency('c', 'a')).rejects.toMatchObject({ code: 'DEPENDENCY_CYCLE' });
+  });
+});
