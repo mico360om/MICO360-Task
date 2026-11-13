@@ -134,6 +134,23 @@ describe('the same person reading a chat in several tabs at once (MariaDB 1020)'
     expect(firsts.filter((r) => r.status === 'rejected')).toEqual([]);
     expect(await prisma.conversationParticipant.count({ where: { conversationId: channel.id, userId: a } })).toBe(1);
   });
+
+  // Batch 4b review (round 3, optional): a slow tab's older marker landing after a newer one never moves it back
+  // (the unread count would show messages already read) — the way "delivered" already only moves forward.
+  it('an older read marker arriving late never moves it back', async () => {
+    const a = await person('qin');
+    const b = await person('ray');
+    const conv = await service().getOrCreateDirectConversation(a, b);
+    const repo = createPrismaParticipantRepository(prisma);
+    const newer = new Date('2026-11-13T10:00:05.000Z');
+    await repo.setLastRead(conv.id, a, newer);
+    await repo.setLastRead(conv.id, a, new Date('2026-11-13T10:00:01.000Z'));
+    const row = await prisma.conversationParticipant.findUnique({ where: { conversationId_userId: { conversationId: conv.id, userId: a } } });
+    expect(row?.lastReadAt?.toISOString()).toBe(newer.toISOString());
+    const later = new Date('2026-11-13T10:00:09.000Z');
+    await repo.setLastRead(conv.id, a, later);
+    expect((await prisma.conversationParticipant.findUnique({ where: { conversationId_userId: { conversationId: conv.id, userId: a } } }))?.lastReadAt?.toISOString()).toBe(later.toISOString());
+  });
 });
 
 describe('#20 history pages by time and message, so a message in the same millisecond is never skipped', () => {

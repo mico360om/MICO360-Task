@@ -125,7 +125,8 @@ export function createPrismaParticipantRepository(prisma: PrismaClient): Partici
     async setLastRead(conversationId, userId, at) {
       // N10 + MariaDB (snapshot isolation): several tabs marking the same chat read at once. Single statements
       // only — an upsert reads, then writes, which MariaDB refuses (1020) when another tab wrote between.
-      const where = { conversationId, userId };
+      // Only ever forward (review round 3): a slow tab's older marker can't move it back, as "delivered" below.
+      const where = { conversationId, userId, OR: [{ lastReadAt: null }, { lastReadAt: { lt: at } }] };
       if ((await prisma.conversationParticipant.updateMany({ where, data: { lastReadAt: at } })).count > 0) return;
       const made = await prisma.conversationParticipant.createMany({ data: [{ conversationId, userId, lastReadAt: at }], skipDuplicates: true });
       // Another tab made the row at this very moment: write the marker on it.

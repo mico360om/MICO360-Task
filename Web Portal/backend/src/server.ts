@@ -1930,13 +1930,9 @@ async function main(): Promise<void> {
 
   const runDigest = () => runExclusive(jobLock, 'daily-digest', SWEEP_LEASE_MS, () => new Date(), runDigestSweep).catch(sweepFailed('daily-digest', 'daily digest sweep'));
   // Escalations are the reminder planner's now (two steps in working days; Notification & Scheduling).
-  jobs.every(
-    60 * 60 * 1000,
-    () => {
-      void runDigest();
-    },
-    { name: 'daily-digest' },
-  );
+  // Batch 4b review (round 3): the gate waits for the run (runDigest never rejects), so its one-at-a-time rule and
+  // the long-run warning apply to the digest too.
+  jobs.every(60 * 60 * 1000, () => runDigest(), { name: 'daily-digest' });
 
   // ── The daily email (1.22: one email, in parts), every morning ──
   // Each person's email goes at their time (06:00 unless they chose another, in their own time zone).

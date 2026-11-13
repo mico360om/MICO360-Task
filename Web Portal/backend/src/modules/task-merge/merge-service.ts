@@ -703,12 +703,18 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
     if (!ids.includes(input.mainTaskId)) throw new ValidationError('The main task must be one of the tasks being merged.');
     let saved: { result: MergeResult; statusChange: StatusChange | null } | null = null;
     await ensureLinksHoldRow();
+    const hashOf = hasher();
+    await warmFileHashes(ids, hashOf);
     for (let attempt = 0; !saved; attempt++) {
       try {
-        saved = await prisma.$transaction((tx) => mergeIn(tx, actor, ids, input), TX);
+        saved = await prisma.$transaction((tx) => mergeIn(tx, actor, ids, input, hashOf), TX);
       } catch (err) {
-        // Batch 4b: waiting behind a link being added can make the database pick this one to start again.
-        if (isRetryableTxError(err) && attempt < KEY_ATTEMPTS - 1) continue;
+        // Batch 4b: waiting behind a link being added can make the database pick this one to start again
+        // (after a short, growing pause, as lib/sentinel-lock does, so the two don't meet again at once).
+        if (isRetryableTxError(err) && attempt < KEY_ATTEMPTS - 1) {
+          await retryPause(attempt);
+          continue;
+        }
         if (!isTaskKeyConflict(err)) throw err;
         if (attempt >= KEY_ATTEMPTS - 1) throw new ConflictError('Another task took that number at the same moment. Please try again.', 'TASK_KEY_CONFLICT');
       }
@@ -739,9 +745,27 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
    */
   const ensureLinksHoldRow = () => prisma.jobLock.createMany({ data: [{ name: DEPENDENCY_LOCK, lockedUntil: new Date(0) }], skipDuplicates: true });
   const holdLinks = (tx: Prisma.TransactionClient) => tx.$queryRaw`SELECT name FROM job_locks WHERE name = ${DEPENDENCY_LOCK} FOR UPDATE`;
+  const retryPause = (attempt: number) => new Promise((r) => setTimeout(r, 25 * (attempt + 1) + Math.floor(Math.random() * 25)));
+
+  /**
+   * Batch 4b review (round 3): files of the same name and size on different tasks are read and compared BEFORE the
+   * transaction — a file's content never changes under its storage key — so the links hold isn't kept while files
+   * are read from disk. The transaction uses these answers and reads only a file that arrived in between.
+   */
+  async function warmFileHashes(ids: string[], hashOf: (storageKey: string) => Promise<string | null>): Promise<void> {
+    if (!deps.readFile) return;
+    try {
+      const files = await prisma.attachment.findMany({ where: { taskId: { in: ids } }, select: { taskId: true, filename: true, sizeBytes: true, storageKey: true } });
+      const tasksOf = new Map<string, Set<string>>();
+      for (const f of files) tasksOf.set(fileKey(f), (tasksOf.get(fileKey(f)) ?? new Set<string>()).add(f.taskId));
+      await Promise.all(files.filter((f) => (tasksOf.get(fileKey(f))?.size ?? 0) > 1).map((f) => hashOf(f.storageKey)));
+    } catch {
+      // The transaction reads what it needs.
+    }
+  }
 
   /** The merge itself, in one transaction: any failure rolls every change back. */
-  async function mergeIn(tx: Prisma.TransactionClient, actor: MergeActor, ids: string[], input: MergeInput): Promise<{ result: MergeResult; statusChange: StatusChange | null }> {
+  async function mergeIn(tx: Prisma.TransactionClient, actor: MergeActor, ids: string[], input: MergeInput, hashOf = hasher()): Promise<{ result: MergeResult; statusChange: StatusChange | null }> {
     await holdLinks(tx);
     // Hold the tasks: nothing else changes them (or adds to them) until the merge is saved. The merge's
     // time is taken once they are held: anything a merged task gets after it came later (adoptLate).
@@ -774,7 +798,7 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
     const people = input.people ?? {};
     const allPeople = unique(rows.assignees.map((a) => a.userId).concat(rows.watchers.map((w) => w.userId)));
     const team = await teamOf(tx, projectId, allPeople);
-    const plan = await planRows(rows, main, others, { projectId, team }, people, hasher());
+    const plan = await planRows(rows, main, others, { projectId, team }, people, hashOf);
     // Everyone assigned who isn't on the team needs an answer; someone from another company can only be left off.
     const unanswered = [...plan.outsiders.entries()].filter(([id]) => !people[id]).map(([id, o]) => ({ id, name: o.name }));
     if (unanswered.length > 0) {
@@ -1423,6 +1447,7 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
         done = await prisma.$transaction((tx) => undoIn(tx, actor, mergeId), TX);
       } catch (err) {
         if (!isRetryableTxError(err) || attempt >= KEY_ATTEMPTS - 1) throw err;
+        await retryPause(attempt);
       }
     }
     const { result, statusChange } = done;

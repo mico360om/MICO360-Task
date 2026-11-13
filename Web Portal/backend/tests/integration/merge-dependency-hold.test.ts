@@ -23,6 +23,7 @@ beforeEach(async () => {
   const projects = (await prisma.project.findMany({ where: { code: { startsWith: 'MDH' } }, select: { id: true } })).map((x) => x.id);
   const tasks = (await prisma.task.findMany({ where: { projectId: { in: projects } }, select: { id: true } })).map((t) => t.id);
   await prisma.taskMerge.deleteMany({ where: { mainTaskId: { in: tasks } } });
+  await prisma.attachment.deleteMany({ where: { taskId: { in: tasks } } });
   await world.clean();
 });
 afterAll(async () => {
@@ -72,5 +73,46 @@ describe('a merge and a new link at the same moment (the task-dependencies hold)
     await prisma.jobLock.deleteMany({ where: { name: DEPENDENCY_LOCK } });
     await merges.merge({ id: owner.id, roles: ['ADMIN'] }, { taskIds: [m.id, b.id], mainTaskId: m.id });
     expect(await prisma.jobLock.count({ where: { name: DEPENDENCY_LOCK } })).toBe(1);
+  });
+
+  // Review round 3 (minor 2): comparing files of the same name and size reads them from disk — done before the merge's
+  // transaction (a file's content never changes under its storage key), so the site-wide links hold is never kept
+  // while files are read; every link being added elsewhere would otherwise wait behind it.
+  it('files of the same name and size are read before the transaction, not while holding the links', async () => {
+    const owner = await world.user(true);
+    const { p, todo } = await world.project(owner.id);
+    const m = await world.task(p.id, p.code, todo.id, owner.id);
+    const b = await world.task(p.id, p.code, todo.id, owner.id);
+    for (const t of [m, b]) await prisma.attachment.create({ data: { taskId: t.id, uploadedById: owner.id, filename: 'report.pdf', mimeType: 'application/pdf', sizeBytes: 15, storageKey: `mdh-${t.id}.pdf`, url: `/uploads/mdh-${t.id}.pdf` } });
+    let inTx = false;
+    const reads: boolean[] = [];
+    const watched = new Proxy(prisma, {
+      get(target, prop) {
+        if (prop === '$transaction') {
+          return async (...args: unknown[]) => {
+            inTx = true;
+            try {
+              return await (target.$transaction as (...a: unknown[]) => Promise<unknown>)(...args);
+            } finally {
+              inTx = false;
+            }
+          };
+        }
+        const v = Reflect.get(target, prop) as unknown;
+        return typeof v === 'function' ? (v as (...a: unknown[]) => unknown).bind(target) : v;
+      },
+    });
+    const reading = createTaskMergeService({
+      prisma: watched,
+      timeZone: 'Asia/Muscat',
+      readFile: async () => {
+        reads.push(inTx);
+        return Buffer.from('the same report');
+      },
+    });
+    const out = await reading.merge({ id: owner.id, roles: ['ADMIN'] }, { taskIds: [m.id, b.id], mainTaskId: m.id });
+    expect(out.mergeId).toBeTruthy();
+    expect(reads.length).toBeGreaterThan(0);
+    expect(reads.every((x) => x === false)).toBe(true);
   });
 });
