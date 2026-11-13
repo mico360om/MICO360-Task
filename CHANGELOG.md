@@ -14,6 +14,9 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### Improvements
+- Example text and sample data no longer use real company names.
+
 ### Security
 - Files on tasks and in chats open only for people who can still see that task or chat; copied links stop working after about a day.
 - Old profile photos stop opening once replaced.

@@ -296,9 +296,9 @@ describe('Project number', () => {
   const admin = async () => ({ authorization: `Bearer ${await token(['ADMIN'])}` });
 
   it('keeps an optional project number next to the code, trimmed', async () => {
-    const res = await app.inject({ method: 'POST', url: '/api/v1/projects', headers: await admin(), payload: { code: 'RIG1', name: 'Rig Inspection Portal', number: '  PDO-2026-014 ' } });
+    const res = await app.inject({ method: 'POST', url: '/api/v1/projects', headers: await admin(), payload: { code: 'RIG1', name: 'Rig Inspection Portal', number: '  NWT-2026-014 ' } });
     expect(res.statusCode).toBe(201);
-    expect(res.json().data.number).toBe('PDO-2026-014');
+    expect(res.json().data.number).toBe('NWT-2026-014');
   });
 
   it('stores no number when none is given or it is left empty', async () => {

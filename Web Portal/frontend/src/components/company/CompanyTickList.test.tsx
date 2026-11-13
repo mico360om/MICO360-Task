@@ -7,10 +7,10 @@ import { CompanyTickList, type TickListCompany } from './CompanyTickList';
 const co = (id: string, name: string, extra: Partial<TickListCompany> = {}): TickListCompany => ({ id, name, code: id.toUpperCase(), logoUrl: null, status: 'ACTIVE', ...extra });
 const SEVEN = [
   co('ps', 'Prolens Projects LLC'),
-  co('ah', 'Al Habsi Engineering & Contracting Services LLC'),
-  co('oo', 'Oman Offshore Inspection and Integrity Management Company'),
-  co('mi', 'Muscat Industrial Maintenance Solutions SAOC'),
-  co('sp', 'Sohar Port Logistics & Marine Works LLC', { code: 'SPLX' }),
+  co('ah', 'Acme Engineering & Contracting Services LLC'),
+  co('oo', 'Fabrikam Offshore Inspection and Integrity Management Company'),
+  co('mi', 'Contoso Industrial Maintenance Solutions SAOC'),
+  co('sp', 'Northwind Port Logistics & Marine Works LLC', { code: 'NPLX' }),
   co('al', 'Alpha Co'),
   co('be', 'Beta Co'),
 ];
@@ -36,20 +36,20 @@ describe('CompanyTickList', () => {
     render(<Many />);
     const list = screen.getByRole('list', { name: 'Companies' });
     expect(list.className).not.toMatch(/grid-cols-2/);
-    const row = screen.getByRole('checkbox', { name: 'Oman Offshore Inspection and Integrity Management Company' }).closest('label')!;
+    const row = screen.getByRole('checkbox', { name: 'Fabrikam Offshore Inspection and Integrity Management Company' }).closest('label')!;
     expect(row.innerHTML).not.toMatch(/\btruncate\b/);
-    expect(row.textContent).toContain('Oman Offshore Inspection and Integrity Management Company');
+    expect(row.textContent).toContain('Fabrikam Offshore Inspection and Integrity Management Company');
   });
 
   it('the ticked ones first (A–Z), then the rest (A–Z)', () => {
     render(<Many initial={['sp', 'be']} />);
     expect(names()).toEqual([
       'Beta Co',
-      'Sohar Port Logistics & Marine Works LLC',
-      'Al Habsi Engineering & Contracting Services LLC',
+      'Northwind Port Logistics & Marine Works LLC',
+      'Acme Engineering & Contracting Services LLC',
       'Alpha Co',
-      'Muscat Industrial Maintenance Solutions SAOC',
-      'Oman Offshore Inspection and Integrity Management Company',
+      'Contoso Industrial Maintenance Solutions SAOC',
+      'Fabrikam Offshore Inspection and Integrity Management Company',
       'Prolens Projects LLC',
     ]);
   });
@@ -68,19 +68,19 @@ describe('CompanyTickList', () => {
     const onChange = vi.fn();
     render(<Many initial={['al']} onChange={onChange} />);
     const search = screen.getByRole('searchbox', { name: 'Search companies' });
-    await userEvent.type(search, 'oman');
-    expect(names()).toEqual(['Oman Offshore Inspection and Integrity Management Company']);
-    await userEvent.click(screen.getByRole('checkbox', { name: 'Oman Offshore Inspection and Integrity Management Company' }));
+    await userEvent.type(search, 'offshore');
+    expect(names()).toEqual(['Fabrikam Offshore Inspection and Integrity Management Company']);
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Fabrikam Offshore Inspection and Integrity Management Company' }));
     expect(onChange).toHaveBeenLastCalledWith(['al', 'oo']);
     await userEvent.clear(search);
-    await userEvent.type(search, 'splx');
-    expect(names()).toEqual(['Sohar Port Logistics & Marine Works LLC']);
+    await userEvent.type(search, 'nplx');
+    expect(names()).toEqual(['Northwind Port Logistics & Marine Works LLC']);
     await userEvent.clear(search);
     await userEvent.type(search, 'zzz');
     expect(screen.getByText('No company matches “zzz”.')).toBeInTheDocument();
     await userEvent.clear(search);
     expect(screen.getByRole('checkbox', { name: 'Alpha Co' })).toBeChecked();
-    expect(screen.getByRole('checkbox', { name: 'Oman Offshore Inspection and Integrity Management Company' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Fabrikam Offshore Inspection and Integrity Management Company' })).toBeChecked();
   });
 
   it('6 or fewer: no search box', () => {

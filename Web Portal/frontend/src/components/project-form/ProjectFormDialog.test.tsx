@@ -10,7 +10,7 @@ import { windowWidth } from '../../test/window-width';
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
 const existing: ApiProject = {
-  id: 'p1', code: 'MICO', name: 'MICO360 Platform', description: 'The platform', clientName: 'Petroleum Development Oman', status: 'ACTIVE', priority: 'HIGH',
+  id: 'p1', code: 'MICO', name: 'MICO360 Platform', description: 'The platform', clientName: 'Northwind Trading', status: 'ACTIVE', priority: 'HIGH',
   color: '#8B1E1E', icon: null, imageUrl: '/uploads/old.webp', ownerId: 'u1', startDate: null, targetDate: null, createdAt: '', updatedAt: '',
 };
 
@@ -99,7 +99,7 @@ describe('New project form', () => {
     await userEvent.click(within(dialog).getByRole('button', { name: /change icon or image/i }));
     await userEvent.click(within(dialog).getByRole('radio', { name: 'Rocket' }));
     await userEvent.click(within(dialog).getByRole('radio', { name: 'Blue' }));
-    await userEvent.type(within(dialog).getByLabelText(/^client/i), 'Petroleum Development Oman');
+    await userEvent.type(within(dialog).getByLabelText(/^client/i), 'Northwind Trading');
     await userEvent.click(within(dialog).getByRole('button', { name: 'Owner' }));
     await userEvent.click(await screen.findByRole('option', { name: /Omar Ahmed/ }));
     expect(within(dialog).getByText(/new tasks .* assigned to the owner/i)).toHaveTextContent(/reassign/i);
@@ -107,7 +107,7 @@ describe('New project form', () => {
     await userEvent.click(within(dialog).getByRole('button', { name: 'Create project' }));
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
     expect(posts(/\/projects$/)[0]!.body).toEqual({
-      code: 'RIP', name: 'Rig Inspection Portal', clientName: 'Petroleum Development Oman', status: 'PLANNING', priority: 'NORMAL', ownerId: 'u2', icon: 'rocket', color: '#1E5A8B',
+      code: 'RIP', name: 'Rig Inspection Portal', clientName: 'Northwind Trading', status: 'PLANNING', priority: 'NORMAL', ownerId: 'u2', icon: 'rocket', color: '#1E5A8B',
     });
     expect(onClose).toHaveBeenCalled();
   });
@@ -268,10 +268,10 @@ describe('Edit project form', () => {
     expect(within(dialog).getByText(/project number/i, { selector: 'label' })).toHaveTextContent(/optional/i);
     expect(number).toHaveAttribute('maxLength', '40');
     await userEvent.type(within(dialog).getByLabelText(/^name/i), 'Rig Inspection Portal');
-    await userEvent.type(number, ' PDO-2026-014 ');
+    await userEvent.type(number, ' NWT-2026-014 ');
     await userEvent.click(within(dialog).getByRole('button', { name: 'Create project' }));
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
-    expect(posts(/\/projects$/)[0]!.body).toMatchObject({ code: 'RIP', name: 'Rig Inspection Portal', number: 'PDO-2026-014' });
+    expect(posts(/\/projects$/)[0]!.body).toMatchObject({ code: 'RIP', name: 'Rig Inspection Portal', number: 'NWT-2026-014' });
   });
 
   it('changes or clears a project’s number', async () => {

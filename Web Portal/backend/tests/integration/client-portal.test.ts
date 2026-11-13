@@ -429,12 +429,12 @@ describe('administrators: client accounts', () => {
       username: `fatma_${w.tag}`,
       email: `fatma.${w.tag}@cw.test`,
       password: 'Password1!',
-      organisation: 'Oman Drilling',
+      organisation: 'Fabrikam',
       phone: '+968 9000 0000',
       projects: [{ projectId: w.projects.P1, modules: { progress: true }, actions: { comment: true, respond: true } }],
     });
     expect(created.status).toBe(201);
-    expect(created.data).toMatchObject({ roles: ['CLIENT'], organisation: 'Oman Drilling', phone: '+968 9000 0000' });
+    expect(created.data).toMatchObject({ roles: ['CLIENT'], organisation: 'Fabrikam', phone: '+968 9000 0000' });
     expect(created.data.projects).toEqual([expect.objectContaining({ projectId: w.projects.P1, role: 'CUSTOM', modules: { progress: true, meetings: false }, actions: { comment: true, signOff: false, respond: false, download: false, upload: false, notify: false } })]);
     const id = created.data.id;
     expect(await prisma.companyMember.count({ where: { userId: id } })).toBe(0);
@@ -447,7 +447,7 @@ describe('administrators: client accounts', () => {
     expect((await a.post(w.as.admin, '/clients', { firstName: 'X', lastName: 'Y', username: `x_${w.tag}`, email: `x.${w.tag}@cw.test`, password: 'Password1!', projects: [{ projectId: w.projects.P1 }] })).status).toBe(400); // no module
     expect((await a.post(w.as.admin, '/clients', { firstName: 'X', lastName: 'Y', username: `x_${w.tag}`, email: `x.${w.tag}@cw.test`, password: 'Password1!', projects: [{ projectId: 'nope', modules: { progress: true } }] })).status).toBe(400);
 
-    const changed = await a.put(w.as.admin, `/clients/${id}`, { organisation: 'ODC', projects: [{ projectId: w.projects.P2, modules: { meetings: true }, actions: { respond: true } }] });
+    const changed = await a.put(w.as.admin, `/clients/${id}`, { organisation: 'FAB', projects: [{ projectId: w.projects.P2, modules: { meetings: true }, actions: { respond: true } }] });
     expect(changed.status).toBe(200);
     expect(changed.data.projects.map((p: { projectId: string }) => p.projectId)).toEqual([w.projects.P2]);
     expect(a.audited.map((e) => e.action)).toEqual(expect.arrayContaining(['client.update', 'client.projects']));

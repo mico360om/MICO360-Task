@@ -56,7 +56,7 @@ describe('CompanyChipsField', () => {
   });
 
   it('a long company name reads in full in the "Add company" menu: it wraps, never cut off (1.22)', async () => {
-    const long: CompanyChoice = { id: 'L', name: 'Oman Offshore Inspection and Integrity Management Company', logoUrl: null };
+    const long: CompanyChoice = { id: 'L', name: 'Fabrikam Offshore Inspection and Integrity Management Company', logoUrl: null };
     render(<Field start={['A']} usable={[alpha, long]} all={[alpha, long]} />);
     await userEvent.click(screen.getByRole('button', { name: 'Add company' }));
     const item = screen.getByRole('menuitem', { name: long.name });

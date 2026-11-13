@@ -30,7 +30,7 @@ const task = (id: string, key: string, title: string, projectId: string, columnI
 });
 const BASE_TASKS = (): T[] => [
   task('t1', 'MICO-1', 'Pump overhaul', 'p1', 'p1-todo', 'TODO', { position: 0, assignees: [{ id: 'u7', name: 'Bilal Khan' }] }),
-  task('t2', 'MICO-2', 'Crane hire', 'p1', 'p1-todo', 'TODO', { position: 1, description: 'Pump spares for the crane.', externalSummary: { count: 1, name: 'Salim', company: 'PDO', names: ['Salim'], companies: ['PDO'] } }),
+  task('t2', 'MICO-2', 'Crane hire', 'p1', 'p1-todo', 'TODO', { position: 1, description: 'Pump spares for the crane.', externalSummary: { count: 1, name: 'Salim', company: 'NWT', names: ['Salim'], companies: ['NWT'] } }),
   task('t3', 'MICO-3', 'Fence repair', 'p1', 'p1-doing', 'IN_PROGRESS', { dueDate: '2026-11-12T00:00:00.000Z' }),
   task('t4', 'MICO-12', 'Check gauges', 'p1', 'p1-doing', 'IN_PROGRESS', { position: 1, tags: [{ id: 'g1', name: 'Safety', color: '#0a0' }] }),
   task('t5', 'MICO-5', 'زيارة الموقع مع أحمد', 'p1', 'p1-doing', 'IN_PROGRESS', { position: 2 }),
@@ -214,7 +214,7 @@ describe('Kanban board: search', () => {
     renderPage();
     await ready();
     await user.click(screen.getByRole('button', { name: 'Filter by guest company' }));
-    await user.click(await screen.findByRole('option', { name: 'PDO' }));
+    await user.click(await screen.findByRole('option', { name: 'NWT' }));
     await waitFor(() => expect(cardKeys()).toEqual(['MICO-2']));
     await user.type(box(), 'pump');
     expect(await within(column('To Do')).findByText('1 of 1')).toBeInTheDocument();

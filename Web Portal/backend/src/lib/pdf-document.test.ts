@@ -327,13 +327,13 @@ describe('PdfDocument — no clipping, no orphans', () => {
   it('never cuts a long name in an identity header: it shrinks, then wraps, and the header grows to hold it', () => {
     const name = 'Rig Inspection Portal maintenance programme for the northern concession, phase two of the 2026 to 2027 works';
     const doc = new PdfDocument();
-    doc.identityHeader({ initials: 'RI', eyebrow: 'Task', title: name, subtitle: 'RIG  ·  Project no. PDO-2026-014' });
+    doc.identityHeader({ initials: 'RI', eyebrow: 'Task', title: name, subtitle: 'RIG  ·  Project no. NWT-2026-014' });
     doc.text('After the header');
     const lines = inspectPdf(doc.build()).lines[0]!;
     expect(lines.map((l) => l.text).join(' ')).toContain(name);
-    expect(lines.map((l) => l.text)).toContain('RIG  ·  Project no. PDO-2026-014');
+    expect(lines.map((l) => l.text)).toContain('RIG  ·  Project no. NWT-2026-014');
     const after = lines.find((l) => l.text === 'After the header')!;
-    const subtitle = lines.find((l) => l.text === 'RIG  ·  Project no. PDO-2026-014')!;
+    const subtitle = lines.find((l) => l.text === 'RIG  ·  Project no. NWT-2026-014')!;
     expect(after.y).toBeGreaterThan(subtitle.y + 12);
   });
 

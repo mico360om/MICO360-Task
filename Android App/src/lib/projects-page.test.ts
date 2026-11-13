@@ -38,8 +38,8 @@ const ids = (list: readonly { id: string }[]) => list.map((p) => p.id);
 const STATES: ProjectListState[] = [
   DEFAULT_LIST_STATE,
   { ...DEFAULT_LIST_STATE, q: 'rig' },
-  { ...DEFAULT_LIST_STATE, q: 'PDO 4471' },
-  { ...DEFAULT_LIST_STATE, q: 'pdo' },
+  { ...DEFAULT_LIST_STATE, q: 'NWT 4471' },
+  { ...DEFAULT_LIST_STATE, q: 'nwt' },
   { ...DEFAULT_LIST_STATE, q: '  ' },
   { ...DEFAULT_LIST_STATE, q: 'zzz' },
   { ...DEFAULT_LIST_STATE, owner: 'u1' },
@@ -107,7 +107,7 @@ it('Review Focus 5: tab counts are the overview list counted; a status change mo
 });
 
 it('the filters leave the tab out, so the counts follow them; All never holds an archived project', () => {
-  expect(ids(filterProjects(LIST, { ...DEFAULT_LIST_STATE, q: 'pdo', status: 'active' }))).toEqual(['p1', 'p6']);
+  expect(ids(filterProjects(LIST, { ...DEFAULT_LIST_STATE, q: 'nwt', status: 'active' }))).toEqual(['p1', 'p6']);
   expect(tabCounts(filterProjects(LIST, { ...DEFAULT_LIST_STATE, owner: 'u1' }))).toEqual({ all: 2, active: 1, planning: 0, 'on-hold': 1, completed: 0, archived: 0 });
   expect(ids(LIST.filter((p) => inTab(p, 'all')))).not.toContain('p6');
 });

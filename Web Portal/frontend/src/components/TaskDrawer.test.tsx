@@ -794,7 +794,7 @@ describe('TaskDrawer — a task the person may not delete', () => {
 // 1.23 Client accounts: what the team sees of the project's clients in a task.
 describe('TaskDrawer — clients (1.23)', () => {
   const now = new Date().toISOString();
-  const clientComment = { id: 'c3', body: 'The gauge photo is missing.', authorName: 'Hamad Al Busaidi', organisation: 'Petroleum Development Oman', fromClient: true, createdAt: now };
+  const clientComment = { id: 'c3', body: 'The gauge photo is missing.', authorName: 'Hamad Al Busaidi', organisation: 'Northwind Trading', fromClient: true, createdAt: now };
   const staffComment = { id: 'c2', body: 'Someone else’s comment', authorName: 'Omar Ahmed', createdAt: now };
 
   it('a client’s comment shows its writer with a Client mark and their organisation; every comment offers Reply (owner, 10 Nov)', () => {
@@ -802,7 +802,7 @@ describe('TaskDrawer — clients (1.23)', () => {
     const item = screen.getByText('The gauge photo is missing.').closest('li')!;
     expect(within(item).getByText('Hamad Al Busaidi')).toBeInTheDocument();
     expect(within(item).getByText('Client')).toBeInTheDocument();
-    expect(within(item).getByText('Petroleum Development Oman')).toBeInTheDocument();
+    expect(within(item).getByText('Northwind Trading')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Reply to Hamad Al Busaidi' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Reply to Omar Ahmed' })).toBeInTheDocument();
     // The tick is only ever in a reply in a client's thread: not in the main comment box.

@@ -15,7 +15,7 @@ function json(body: unknown, status = 200): Response {
 const AHMED = {
   linkId: 'x1', guestId: 'g1', taskId: 't1', name: 'Ahmed Al Harthy', company: 'Acme', designation: 'Site lead', email: 'ahmed@acme.com', phone: '+968 9912 3456', note: null, position: 0, addedById: 'u1', addedAt: '', retired: false,
 };
-const HUDA = { id: 'g5', companyId: 'co1', name: 'Huda Saleh', company: 'Daleel', designation: null, email: null, phone: null, notes: null, retiredAt: null, mergedIntoId: null, createdById: null, createdAt: '', updatedAt: '' };
+const HUDA = { id: 'g5', companyId: 'co1', name: 'Huda Saleh', company: 'Acme', designation: null, email: null, phone: null, notes: null, retiredAt: null, mergedIntoId: null, createdById: null, createdAt: '', updatedAt: '' };
 const CATS = [
   { id: 'k1', projectId: 'p1', name: 'Electrical', color: 'indigo', position: 0, retired: false, retiredAt: null },
   { id: 'k2', projectId: 'p1', name: 'HSE', color: 'teal', position: 1, retired: false, retiredAt: null },

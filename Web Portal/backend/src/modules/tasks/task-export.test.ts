@@ -13,7 +13,7 @@ const task = (over: Partial<TaskExportData> = {}): TaskExportData => ({
   description: 'Gather the figures from finance.\nCompare with last month and flag anything over 10%.',
   projectName: 'MICO360 Platform',
   projectCode: 'MICO',
-  projectNumber: 'PDO-2026-014',
+  projectNumber: 'NWT-2026-014',
   projectColor: '#1E5A8B',
   projectIcon: null,
   status: 'In progress',
@@ -163,7 +163,7 @@ describe('taskPdf: header', () => {
     const pdf = taskPdf(task({ title: 'Monthly sales review' }), ctx);
     const { pages, contents } = inspectPdf(pdf);
     // tpdf: 1.23.11 — who made it and when is the footer's "Printed … by …" (was a "Generated … (zone) by …" line under the title).
-    for (const t of ['MP', 'TASK', 'MICO360 Platform', 'MICO  ·  Project no. PDO-2026-014', 'MICO-42', 'Monthly sales review', 'Printed 1 Oct 2026, 10:00 by Aisha Khan']) {
+    for (const t of ['MP', 'TASK', 'MICO360 Platform', 'MICO  ·  Project no. NWT-2026-014', 'MICO-42', 'Monthly sales review', 'Printed 1 Oct 2026, 10:00 by Aisha Khan']) {
       expect(pages[0], t).toContain(t);
     }
     expect(contents[0]).toMatch(/0\.117\d* 0\.352\d* 0\.545\d* scn/); // the #1E5A8B tile

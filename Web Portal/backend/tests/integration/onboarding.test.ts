@@ -286,7 +286,7 @@ describe('Duplicates on the database: trimmed and case-insensitive', () => {
     expect(found.username).toMatchObject({ id: ahmed.id });
     // The same name at the same organisation (any case) — a gentle warning; another organisation isn't one.
     expect((await checkIdentity(lookup, { firstName: 'ahmed', lastName: 'al harthy', organisation: 'acme', client: true })).sameName.map((m) => m.id)).toEqual([ahmed.id]);
-    expect((await checkIdentity(lookup, { firstName: 'Ahmed', lastName: 'Al Harthy', organisation: 'PDO', client: true })).sameName).toEqual([]);
+    expect((await checkIdentity(lookup, { firstName: 'Ahmed', lastName: 'Al Harthy', organisation: 'NWT', client: true })).sameName).toEqual([]);
     // Editing Ahmed himself: no clash.
     expect((await checkIdentity(lookup, { email: ahmed.email, excludeId: ahmed.id })).email).toBeNull();
     await prisma.user.update({ where: { id: ahmed.id }, data: { deletedAt: new Date() } });

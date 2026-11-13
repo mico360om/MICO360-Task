@@ -12,7 +12,7 @@ const brand = {
   companyAddress: 'MICO360, Muscat, Oman',
   colors: { brand: '#8B1E1E', ink: '#211B1A', muted: '#6C625F', line: '#E6DFDC' },
 };
-const project = { name: 'Rig 3 overhaul', code: 'RIG', number: 'C-77', clientName: 'Oman Drilling Co.', color: '#1E6B8B', icon: null, image: null };
+const project = { name: 'Rig 3 overhaul', code: 'RIG', number: 'C-77', clientName: 'Fabrikam Logistics', color: '#1E6B8B', icon: null, image: null };
 
 let drawn = '';
 beforeAll(async () => {
@@ -52,7 +52,7 @@ describe('the inspection report PDF', () => {
     const pdf = buildInspectionPdf(data());
     expect(pdf.toString('latin1').startsWith('%PDF-1.')).toBe(true);
     const text = textOf(data());
-    for (const s of ['INSPECTION REPORT', 'Rig 3 overhaul', 'RIG', 'Project no. C-77', 'Oman Drilling Co.', 'Rig daily check', '27 Oct 2026', 'Rig 3, north deck']) expect(text).toContain(s);
+    for (const s of ['INSPECTION REPORT', 'Rig 3 overhaul', 'RIG', 'Project no. C-77', 'Fabrikam Logistics', 'Rig daily check', '27 Oct 2026', 'Rig 3, north deck']) expect(text).toContain(s);
   });
 
   it('leaves the place out when there is none', () => {

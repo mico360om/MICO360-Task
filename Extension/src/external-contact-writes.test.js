@@ -55,7 +55,7 @@ describe('external contact changes waiting to sync, shown on the task', () => {
   const item = (kind, payload, id) => ({ id, kind, payload, userId: A, queuedAt: Date.UTC(2026, 9, 31, 6) });
 
   it('an added one shows (waiting to sync), a changed one with its changes, a removed one is gone', () => {
-    const add = item('contact.add', { id: 't1', contact: { ...ahmed, name: 'Sara Nasser', company: 'PDO' } }, 'q1');
+    const add = item('contact.add', { id: 't1', contact: { ...ahmed, name: 'Sara Nasser', company: 'NWT' } }, 'q1');
     const { data, applied } = applyPending('task:t1', task, [add, item('contact.update', { id: 't1', contactId: 'x1', patch: { phone: null } }, 'q2')]);
     expect(applied).toBe(2);
     expect(data.externalContacts.map((c) => [c.id, c.name, c.phone, !!c.pending])).toEqual([

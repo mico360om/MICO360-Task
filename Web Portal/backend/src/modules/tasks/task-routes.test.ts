@@ -464,13 +464,13 @@ describe('Task routes', () => {
     const post = (title: string, externalContacts: { name: string; company?: string }[]) =>
       app.inject({ method: 'POST', url: '/api/v1/tasks', headers, payload: { title, projectId: 'p1', columnId: 'c1', externalContacts } });
     await post('Rig inspection', [{ name: 'Ahmed Al Said', company: 'Acme Oman' }]);
-    await post('Pipeline survey', [{ name: 'Sara Nasser', company: 'PDO' }, { name: 'Ali', company: 'acme  oman' }]);
+    await post('Pipeline survey', [{ name: 'Sara Nasser', company: 'NWT' }, { name: 'Ali', company: 'acme  oman' }]);
     await post('Internal only', []);
     const titles = async (qs: string) => (await app.inject({ method: 'GET', url: `/api/v1/tasks?${qs}`, headers })).json().data.map((t: { title: string }) => t.title);
     expect(await titles('q=ahmed')).toEqual(['Rig inspection']);
-    expect(await titles('q=pdo')).toEqual(['Pipeline survey']);
+    expect(await titles('q=nwt')).toEqual(['Pipeline survey']);
     expect(await titles(`externalCompany=${encodeURIComponent('Acme Oman')}`)).toEqual(['Rig inspection', 'Pipeline survey']);
-    expect(await titles('externalCompany=PDO')).toEqual(['Pipeline survey']);
+    expect(await titles('externalCompany=NWT')).toEqual(['Pipeline survey']);
   });
 
   it('reads overdue=false as false (not as "only overdue")', async () => {

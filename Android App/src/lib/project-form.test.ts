@@ -39,7 +39,7 @@ const project = (patch: Partial<ApiProject> = {}): ApiProject => ({
   name: 'Rig Inspection',
   description: null,
   status: 'ACTIVE',
-  clientName: 'PDO',
+  clientName: 'NWT',
   priority: 'HIGH',
   startDate: null,
   targetDate: null,
@@ -56,7 +56,7 @@ describe('the form’s starting point', () => {
   });
 
   it('is the project as it is for an edit', () => {
-    expect(draftOf(project())).toEqual({ name: 'Rig Inspection', code: 'RIG', number: '', clientName: 'PDO', description: '', status: 'ACTIVE', priority: 'HIGH', ownerId: 'u1', color: '#2E7D53', icon: 'truck', carryForward: true, defaultDueToday: false, newTasksNeedApproval: false, memberIds: [] });
+    expect(draftOf(project())).toEqual({ name: 'Rig Inspection', code: 'RIG', number: '', clientName: 'NWT', description: '', status: 'ACTIVE', priority: 'HIGH', ownerId: 'u1', color: '#2E7D53', icon: 'truck', carryForward: true, defaultDueToday: false, newTasksNeedApproval: false, memberIds: [] });
     expect(draftOf(project({ carryForward: false, defaultDueToday: true, newTasksNeedApproval: true }))).toMatchObject({ carryForward: false, defaultDueToday: true, newTasksNeedApproval: true, memberIds: [] });
   });
 
@@ -109,17 +109,17 @@ describe('before saving', () => {
   });
 
   it('sends a new project’s details, leaving out what is empty', () => {
-    expect(createBody({ ...draftOf(null), name: ' Rig ', code: 'RIG', number: ' ', clientName: ' PDO ', description: '', ownerId: '' })).toEqual({
+    expect(createBody({ ...draftOf(null), name: ' Rig ', code: 'RIG', number: ' ', clientName: ' NWT ', description: '', ownerId: '' })).toEqual({
       code: 'RIG',
       name: 'Rig',
-      clientName: 'PDO',
+      clientName: 'NWT',
       status: 'PLANNING',
       priority: 'NORMAL',
       ownerId: null,
       icon: null,
       color: '#8B1E1E',
     });
-    expect(createBody({ ...draftOf(null), name: 'Rig', code: 'RIG', number: 'PDO-14', description: ' Scope ' })).toMatchObject({ number: 'PDO-14', description: 'Scope' });
+    expect(createBody({ ...draftOf(null), name: 'Rig', code: 'RIG', number: 'NWT-14', description: ' Scope ' })).toMatchObject({ number: 'NWT-14', description: 'Scope' });
   });
 
   it('sends only what changed for an edit (never the code)', () => {
@@ -130,10 +130,10 @@ describe('before saving', () => {
   });
 
   it('offers the clients other projects already have, matching what is typed', () => {
-    const projects = [project({ clientName: 'PDO' }), project({ clientName: ' Petroleum Development Oman ' }), project({ clientName: 'OQ' }), project({ clientName: null }), project({ clientName: 'pdo' })];
-    expect(clientSuggestions(projects, '')).toEqual(['OQ', 'PDO', 'Petroleum Development Oman']);
-    expect(clientSuggestions(projects, 'pe')).toEqual(['Petroleum Development Oman']);
-    expect(clientSuggestions(projects, 'PDO')).toEqual([]);
+    const projects = [project({ clientName: 'NWT' }), project({ clientName: ' Northwind Trading ' }), project({ clientName: 'Acme' }), project({ clientName: null }), project({ clientName: 'nwt' })];
+    expect(clientSuggestions(projects, '')).toEqual(['Acme', 'Northwind Trading', 'NWT']);
+    expect(clientSuggestions(projects, 'no')).toEqual(['Northwind Trading']);
+    expect(clientSuggestions(projects, 'NWT')).toEqual([]);
     expect(clientSuggestions(projects, 'o').length).toBeLessThanOrEqual(6);
   });
 

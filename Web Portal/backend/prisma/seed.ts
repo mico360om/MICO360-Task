@@ -122,7 +122,7 @@ async function main() {
   // Projects
   const projectDefs = [
     { code: 'MICO', name: 'MICO360 Platform', client: 'Internal', status: ProjectStatus.ACTIVE, priority: Priority.HIGH },
-    { code: 'RIG', name: 'Rig Inspection Portal', client: 'Gulf Energy', status: ProjectStatus.ACTIVE, priority: Priority.URGENT },
+    { code: 'RIG', name: 'Rig Inspection Portal', client: 'Northwind Trading', status: ProjectStatus.ACTIVE, priority: Priority.URGENT },
     { code: 'FIN', name: 'Finance Automation', client: 'Internal', status: ProjectStatus.PLANNING, priority: Priority.NORMAL },
     { code: 'SUP', name: 'Support Desk Revamp', client: 'Acme Corp', status: ProjectStatus.ON_HOLD, priority: Priority.LOW },
     { code: 'MOB', name: 'Mobile App (Phase 2)', client: 'Internal', status: ProjectStatus.PLANNING, priority: Priority.HIGH },

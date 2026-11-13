@@ -98,7 +98,7 @@ export function filterProjects(projects: ProjectOverview[], state: ProjectListSt
   return projects.filter((p) => matchesSearch(p, state.q) && (!state.owner || p.ownerId === state.owner) && (!state.mine || p.mine) && (!state.client || sameClient(p.clientName, state.client)));
 }
 
-/** 1.23.6: the same client, whatever its case and spaces ("PDO " is "pdo"). */
+/** 1.23.6: the same client, whatever its case and spaces ("NWT " is "nwt"). */
 export function sameClient(a: string | null | undefined, b: string): boolean {
   const norm = (v: string) => v.replace(/\s+/g, ' ').trim().toLocaleLowerCase('en');
   return !!a && norm(a) === norm(b);

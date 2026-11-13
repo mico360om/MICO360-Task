@@ -299,7 +299,7 @@ describe('buildMinutesPdf: project header and layout', () => {
     const row = Buffer.from([0, ...Array.from({ length: 4 }, () => [30, 90, 139, 200]).flat()]);
     return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IDAT', deflateSync(Buffer.concat([row, row, row, row]))), chunk('IEND', Buffer.alloc(0))]);
   }
-  const project = { name: 'Falcon CRM', code: 'FAL', number: 'PDO-2026-014', clientName: 'Acme Corp', color: '#1E5A8B' };
+  const project = { name: 'Falcon CRM', code: 'FAL', number: 'NWT-2026-014', clientName: 'Acme Corp', color: '#1E5A8B' };
 
   it('puts the project’s picture, name, code and number at the top instead of the MICO360 masthead', () => {
     const pdf = buildMinutesPdf({ ...data, project: { ...project, image: logoPng() } });
@@ -308,7 +308,7 @@ describe('buildMinutesPdf: project header and layout', () => {
     expect(pages[0]).toContain('MINUTES OF MEETING');
     expect(pages[0]).toContain('Falcon CRM');
     // Its code, number and client are among the facts under the title (not repeated in the header).
-    expect(pages[0]).toEqual(expect.arrayContaining(['Code', 'FAL', 'Project no.', 'PDO-2026-014', 'Client', 'Acme Corp']));
+    expect(pages[0]).toEqual(expect.arrayContaining(['Code', 'FAL', 'Project no.', 'NWT-2026-014', 'Client', 'Acme Corp']));
     expect(contents[0]).toMatch(/\/I\d+ Do/); // the picture
     expect(contents[0]).not.toContain('1 1 1 SCN'); // no MICO360 logo mark (its white check)
   });
@@ -419,7 +419,7 @@ describe('buildMinutesPdf: project header and layout', () => {
 
   it('lists the project number among the project details', () => {
     const text = lines({ ...data, project });
-    expect(text).toEqual(expect.arrayContaining(['Project no.', 'PDO-2026-014']));
+    expect(text).toEqual(expect.arrayContaining(['Project no.', 'NWT-2026-014']));
   });
 
   it('puts risks and open issues in a section of their own, before the discussion', () => {
@@ -601,7 +601,7 @@ describe('buildMinutesPdf: the compact layout (1.22.1)', () => {
     });
     const sample: MinutesData = {
       ...data,
-      project: { name: 'Site IT Support', code: 'SITEIT', clientName: 'Gulf Energy Co.', statusLabel: 'Active', ownerName: 'Sam Admin', color: '#1E5A8B' },
+      project: { name: 'Site IT Support', code: 'SITEIT', clientName: 'Northwind Trading', statusLabel: 'Active', ownerName: 'Sam Admin', color: '#1E5A8B' },
       meeting: { ...data.meeting, title: '2nd Client & Contractor Monthly Meeting - 3rd Nov, 2026', statusLabel: 'Draft', organizerName: 'Sam Admin', location: 'Client HQ', onlineLink: TEAMS, startAt: '2026-11-03T10:00:00.000Z', endAt: '2026-11-03T11:00:00.000Z', timeZone: 'Asia/Muscat', description: null },
       attendees: ['Mariam Al Hinai', 'Yusuf Al Rashdi', 'Fahad Al Harthy', 'Abdul Karim Al Lawati', 'Sam Admin', 'Rina Mathew'].map((name, i) => ({
         name, roleLabel: 'Required', responseLabel: i === 5 ? 'No response' : 'Accepted', attendanceLabel: 'Not recorded', external: i < 4, email: null,

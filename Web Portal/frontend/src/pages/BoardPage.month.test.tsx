@@ -90,7 +90,7 @@ beforeEach(() => {
       task('t1', 'MICO-1', { startDate: day('2026-11-05'), dueDate: day('2026-11-20'), externalSummary: ext('Acme') }),
       task('t2', 'MICO-2', { startDate: day('2026-10-01'), dueDate: day('2026-10-30') }),
       task('t3', 'MICO-3', { externalSummary: ext('Acme') }),
-      task('t10', 'MICO-7', { externalSummary: ext('PDO') }),
+      task('t10', 'MICO-7', { externalSummary: ext('NWT') }),
       task('t11', 'OPS-2', { projectId: 'p2', columnId: 'p2-todo' }),
       task('t4', 'MICO-4', { columnId: 'p1-done', columnCategory: 'DONE', completedAt: '2026-11-03T08:00:00.000Z' }),
       task('t7', 'OPS-1', { projectId: 'p2', columnId: 'p2-todo', dueDate: day('2026-11-25') }),

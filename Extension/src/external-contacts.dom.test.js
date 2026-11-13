@@ -132,11 +132,11 @@ describe('external contacts: adding one', () => {
     await settle();
     const form = contacts(root).querySelector('form');
     type(fieldOf(form, 'Name'), '  Sara Nasser ');
-    type(fieldOf(form, 'Company'), 'PDO');
+    type(fieldOf(form, 'Company'), 'NWT');
     type(fieldOf(form, 'Phone'), '+968 2468');
     form.requestSubmit();
     await settle();
-    expect(ctx.write).toHaveBeenCalledWith('contact.add', { id: 't1', contact: { name: 'Sara Nasser', company: 'PDO', designation: null, email: null, phone: '+968 2468', remarks: null } });
+    expect(ctx.write).toHaveBeenCalledWith('contact.add', { id: 't1', contact: { name: 'Sara Nasser', company: 'NWT', designation: null, email: null, phone: '+968 2468', remarks: null } });
     const sec = contacts(root);
     expect(sec.querySelector('form')).toBeNull();
     expect([...sec.querySelectorAll('.td-contact-name')].map((n) => n.textContent)).toEqual(['Ahmed Al Said', 'Sara Nasser']);
@@ -154,7 +154,7 @@ describe('external contacts: adding one', () => {
     await settle();
     const form = contacts(root).querySelector('form');
     type(fieldOf(form, 'Name'), 'Sara');
-    type(fieldOf(form, 'Email'), 'sara@pdo.com');
+    type(fieldOf(form, 'Email'), 'sara@northwind.example');
     form.requestSubmit();
     await settle();
     const again = contacts(root).querySelector('form');
@@ -213,7 +213,7 @@ describe('external contacts: adding one', () => {
 describe('external contacts: suggestions from the project', () => {
   const earlier = [
     { name: 'Ahmed Al Said', company: 'Acme', designation: 'Site lead', email: 'ahmed@acme.com', phone: '+968 9912 3456', remarks: 'Call before 10' },
-    { name: 'Ahmed Hinai', company: 'PDO', designation: null, email: null, phone: null, remarks: null },
+    { name: 'Ahmed Hinai', company: 'NWT', designation: null, email: null, phone: null, remarks: null },
   ];
 
   it('typing a name suggests earlier contacts; picking one (keyboard) copies all six fields', async () => {
@@ -231,7 +231,7 @@ describe('external contacts: suggestions from the project', () => {
     expect(suggest).toHaveBeenCalledWith('p1', 'Ahm');
     const list = form.querySelector('[role="listbox"]');
     expect(list.getAttribute('aria-label')).toBe(W.suggestions);
-    expect([...list.querySelectorAll('[role="option"]')].map((o) => o.textContent)).toEqual(['Ahmed Al Said · Acme · Site lead', 'Ahmed Hinai · PDO']);
+    expect([...list.querySelectorAll('[role="option"]')].map((o) => o.textContent)).toEqual(['Ahmed Al Said · Acme · Site lead', 'Ahmed Hinai · NWT']);
     expect(name.getAttribute('aria-expanded')).toBe('true');
     key(name, 'ArrowDown');
     expect(name.getAttribute('aria-activedescendant')).toBe(list.querySelector('[role="option"]').id);
@@ -268,7 +268,7 @@ describe('external contacts: suggestions from the project', () => {
     option.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
     await settle();
     expect(name.value).toBe('Ahmed Hinai');
-    expect(fieldOf(form, 'Company').value).toBe('PDO');
+    expect(fieldOf(form, 'Company').value).toBe('NWT');
     expect(fieldOf(form, 'Email').value).toBe('');
   });
 

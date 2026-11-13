@@ -478,7 +478,7 @@ describe('Describe it in plain English', () => {
         dueDate: '2026-10-19',
         priority: null,
         recurrence: { freq: 'WEEKLY', interval: 1, weekdays: [1] },
-        project: { id: 'p2', code: 'OPS', number: 'PDO-7', name: 'Ops Board' },
+        project: { id: 'p2', code: 'OPS', number: 'NWT-7', name: 'Ops Board' },
       },
     });
 
@@ -491,7 +491,7 @@ describe('Describe it in plain English', () => {
     const found = await screen.findByRole('group', { name: 'Suggested details' });
     expect(within(found).getByRole('checkbox', { name: 'Description: Include the inspection photos.' })).toBeChecked();
     expect(within(found).getByRole('checkbox', { name: /^Repeat: Repeats every week on Mon$/ })).toBeChecked();
-    expect(within(found).getByRole('checkbox', { name: 'Project: Ops Board · OPS · PDO-7' })).toBeChecked();
+    expect(within(found).getByRole('checkbox', { name: 'Project: Ops Board · OPS · NWT-7' })).toBeChecked();
     expect(found).toHaveTextContent('Replaces MICO360 Platform');
     await userEvent.click(within(found).getByRole('button', { name: 'Use selected details' }));
     expect(screen.getByLabelText(/^description/i)).toHaveValue('Include the inspection photos.');

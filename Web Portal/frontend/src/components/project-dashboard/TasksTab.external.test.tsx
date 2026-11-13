@@ -18,9 +18,9 @@ const groups = [
     name: 'To Do',
     color: '#3A6EA5',
     tasks: [
-      task('1', 'Rig inspection', { guests: [{ id: 'g1', name: 'Ahmed Al Said', company: 'Acme' }, { id: 'g2', name: 'Sara Nasser', company: 'PDO' }], categories: [ELEC, HSE] }),
+      task('1', 'Rig inspection', { guests: [{ id: 'g1', name: 'Ahmed Al Said', company: 'Acme' }, { id: 'g2', name: 'Sara Nasser', company: 'NWT' }], categories: [ELEC, HSE] }),
       task('2', 'Internal only', { guests: [], categories: [HSE] }),
-      task('3', 'Old row', { externalSummary: { count: 1, name: 'Salim', company: 'Petrogas', names: ['Salim'], companies: ['Petrogas'] } }),
+      task('3', 'Old row', { externalSummary: { count: 1, name: 'Salim', company: 'Contoso', names: ['Salim'], companies: ['Contoso'] } }),
     ],
   },
 ];
@@ -30,7 +30,7 @@ describe('project Tasks tab: guests and categories', () => {
   it('each row says who outside the company is named on it (an older server’s row from its contacts in short)', () => {
     renderTab();
     expect(screen.getByText('Guest: Ahmed Al Said (Acme) and 1 more')).toBeInTheDocument();
-    expect(screen.getByText('Guest: Salim (Petrogas)')).toBeInTheDocument();
+    expect(screen.getByText('Guest: Salim (Contoso)')).toBeInTheDocument();
     expect(screen.queryByText(/^External:/)).toBeNull();
   });
 
@@ -40,7 +40,7 @@ describe('project Tasks tab: guests and categories', () => {
     expect(screen.getByText('Rig inspection')).toBeInTheDocument();
     expect(screen.queryByText('Internal only')).toBeNull();
     await userEvent.clear(screen.getByPlaceholderText('Find a task…'));
-    await userEvent.type(screen.getByPlaceholderText('Find a task…'), 'petrogas');
+    await userEvent.type(screen.getByPlaceholderText('Find a task…'), 'contoso');
     expect(screen.getByText('Old row')).toBeInTheDocument();
     expect(screen.queryByText('Rig inspection')).toBeNull();
   });
@@ -59,14 +59,14 @@ describe('project Tasks tab: guests and categories', () => {
     expect(screen.getByText('Rig inspection')).toBeInTheDocument();
     expect(screen.getByText('Internal only')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Filter by guest' }));
-    await userEvent.click(await screen.findByRole('option', { name: 'Sara Nasser (PDO)' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Sara Nasser (NWT)' }));
     await waitFor(() => expect(screen.queryByText('Internal only')).toBeNull());
     expect(screen.getByText('Rig inspection')).toBeInTheDocument();
     // Clear brings every task back.
     await userEvent.click(screen.getByRole('button', { name: 'Clear' }));
     await waitFor(() => expect(screen.getByText('Old row')).toBeInTheDocument());
     await userEvent.click(screen.getByRole('button', { name: 'Filter by guest company' }));
-    await userEvent.click(await screen.findByRole('option', { name: 'Petrogas' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Contoso' }));
     await waitFor(() => expect(screen.queryByText('Rig inspection')).toBeNull());
     expect(screen.getByText('Old row')).toBeInTheDocument();
   });

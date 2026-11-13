@@ -42,9 +42,9 @@ function project(id: string, name: string, extra: Partial<Omit<ProjectOverview, 
 // Today is Friday 23 October 2026 in Muscat.
 const LIST: ProjectOverview[] = [
   project('p4', 'Mobile App (Phase 2)', { code: 'MOB', status: 'PLANNING', ownerId: 'u4', owner: HASSAN, team: [HASSAN, ME], mine: true, targetDate: '2026-12-02T00:00:00.000Z', stats: { total: 6, open: 6, nextDue: '2026-10-30' } }),
-  project('p1', 'Rig Inspection Portal', { code: 'RIG', number: 'C-2041', clientName: 'Gulf Energy', ownerId: 'u1', owner: SARA, team: [SARA, OMAR], targetDate: '2026-11-30T00:00:00.000Z', stats: { total: 40, done: 25, open: 15, overdue: 4, nextDue: '2026-10-26' } }),
+  project('p1', 'Rig Inspection Portal', { code: 'RIG', number: 'C-2041', clientName: 'Northwind Trading', ownerId: 'u1', owner: SARA, team: [SARA, OMAR], targetDate: '2026-11-30T00:00:00.000Z', stats: { total: 40, done: 25, open: 15, overdue: 4, nextDue: '2026-10-26' } }),
   project('p6', 'Website Refresh', { code: 'WEB', status: 'COMPLETED', ownerId: 'u2', owner: OMAR, mine: true, stats: { total: 3, done: 3 } }),
-  project('p3', 'Falcon CRM', { code: 'FCRM', number: '2026-014', clientName: 'Falcon Trading', status: 'ON_HOLD', ownerId: 'u2', owner: OMAR, targetDate: '2026-10-20T00:00:00.000Z', stats: { total: 20, done: 17, open: 3, nextDue: '2026-10-29' } }),
+  project('p3', 'Falcon CRM', { code: 'FCRM', number: '2026-014', clientName: 'Globex', status: 'ON_HOLD', ownerId: 'u2', owner: OMAR, targetDate: '2026-10-20T00:00:00.000Z', stats: { total: 20, done: 17, open: 3, nextDue: '2026-10-29' } }),
   project('p2', 'MICO360 Services', { code: 'MSSP', clientName: 'Internal', ownerId: 'u9', owner: ME, mine: true, stats: { total: 15, done: 3, open: 12, overdue: 2 } }),
   project('p5', 'Old Portal', { code: 'OLD', status: 'ARCHIVED', ownerId: 'u1', owner: SARA, stats: { total: 9, done: 9 } }),
 ];
@@ -240,10 +240,10 @@ describe('ProjectsPage', () => {
     renderPage();
     await loaded();
     const box = screen.getByRole('searchbox', { name: 'Search projects' });
-    await userEvent.type(box, 'GULF portal');
+    await userEvent.type(box, 'NORTHWIND portal');
     expect(cardNames()).toEqual(['Rig Inspection Portal']);
     expect(countLine()).toHaveTextContent('1 project · most overdue first');
-    await waitFor(() => expect(where()).toBe('/projects?q=GULF+portal'));
+    await waitFor(() => expect(where()).toBe('/projects?q=NORTHWIND+portal'));
     await userEvent.clear(box);
     await userEvent.type(box, '2026-014');
     expect(cardNames()).toEqual(['Falcon CRM']);
@@ -254,10 +254,10 @@ describe('ProjectsPage', () => {
     await loaded();
     const user = userEvent.setup({ delay: null });
     const box = screen.getByRole('searchbox', { name: 'Search projects' });
-    await user.type(box, 'gulf portal');
-    expect(box).toHaveValue('gulf portal');
+    await user.type(box, 'northwind portal');
+    expect(box).toHaveValue('northwind portal');
     expect(cardNames()).toEqual(['Rig Inspection Portal']);
-    await waitFor(() => expect(where()).toBe('/projects?q=gulf+portal'));
+    await waitFor(() => expect(where()).toBe('/projects?q=northwind+portal'));
   });
 
   it('follows Back: the previous tab and search come back from the address', async () => {

@@ -7,7 +7,7 @@ const invite = (over: Partial<Parameters<typeof clientInvitationEmail>[0]> = {})
     clientName: 'Fatma Al Harthy',
     sharedByName: 'Omar Ahmed',
     projectName: 'Rig 7 Inspection',
-    projectDetails: ['RIG', 'Oman Drilling Co.'],
+    projectDetails: ['RIG', 'Fabrikam Logistics'],
     projectImageUrl: 'https://task.mico360.test/uploads/p/rig.png',
     projectColor: '#1E6B8B',
     link: LINK,
@@ -34,7 +34,7 @@ describe('the client invitation email', () => {
   it('shows the project picture and its details', () => {
     const e = invite();
     expect(e.html).toContain('https://task.mico360.test/uploads/p/rig.png');
-    expect(e.html).toContain('Oman Drilling Co.');
+    expect(e.html).toContain('Fabrikam Logistics');
   });
 
   it('explains the emailed code: the link alone (a forwarded email) opens nothing', () => {

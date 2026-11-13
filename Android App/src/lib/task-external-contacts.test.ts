@@ -75,14 +75,14 @@ describe('external contacts on the phone: saving an edit', () => {
   const rows = () => [
     { key: 'x1', id: 'x1', fields: f('Ahmed Al Said', { company: 'Acme' }) },
     { key: 'x3', id: 'x3', fields: f('Salim') },
-    { key: 'n1', addKey: 'add-n1', fields: f('Aisha', { company: 'PDO' }) },
+    { key: 'n1', addKey: 'add-n1', fields: f('Aisha', { company: 'NWT' }) },
   ];
 
   it('plans only what changed: removals first, then changes (only the fields that changed), then additions (each with its own key)', () => {
     expect(planContactChanges(saved, rows())).toEqual({
       remove: ['x2'],
       update: [{ id: 'x1', fields: f('Ahmed Al Said', { company: 'Acme' }), patch: { name: 'Ahmed Al Said' } }],
-      add: [{ key: 'n1', addKey: 'add-n1', fields: f('Aisha', { company: 'PDO' }) }],
+      add: [{ key: 'n1', addKey: 'add-n1', fields: f('Aisha', { company: 'NWT' }) }],
     });
     expect(planContactChanges(saved, saved.map((s) => ({ key: s.id, id: s.id, fields: s.fields })))).toEqual({ remove: [], update: [], add: [] });
   });
@@ -108,7 +108,7 @@ describe('external contacts on the phone: saving an edit', () => {
     expect(out.problem).toBe('A task can have at most 20 external contacts.');
     expect(out.saved).toEqual([{ id: 'x1', fields: f('Ahmed Al Said', { company: 'Acme' }) }, { id: 'x3', fields: f('Salim') }]);
     // What is left to send: the addition only.
-    expect(planContactChanges(out.saved, out.rows)).toEqual({ remove: [], update: [], add: [{ key: 'n1', addKey: 'add-n1', fields: f('Aisha', { company: 'PDO' }) }] });
+    expect(planContactChanges(out.saved, out.rows)).toEqual({ remove: [], update: [], add: [{ key: 'n1', addKey: 'add-n1', fields: f('Aisha', { company: 'NWT' }) }] });
 
     // The retry of the addition goes under the same key (an answer lost the first time never makes two).
     calls.length = 0;
@@ -163,7 +163,7 @@ describe('external contacts on the phone: where they show and what they refresh'
   it('the company filter: its button says what is chosen, and offers Any company then each company', () => {
     expect(companyFilterLabel('')).toBe('External company: Any company');
     expect(companyFilterLabel('Acme')).toBe('External company: Acme');
-    expect(companyChoices(['Acme', 'PDO'])).toEqual([{ value: '', label: 'Any company' }, { value: 'Acme', label: 'Acme' }, { value: 'PDO', label: 'PDO' }]);
+    expect(companyChoices(['Acme', 'NWT'])).toEqual([{ value: '', label: 'Any company' }, { value: 'Acme', label: 'Acme' }, { value: 'NWT', label: 'NWT' }]);
   });
 
   it('filters a list by an external company (case and spaces aside); no company keeps them all', () => {

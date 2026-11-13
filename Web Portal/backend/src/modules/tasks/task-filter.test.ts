@@ -147,7 +147,7 @@ describe('filterAndSortTasks', () => {
 
 describe('1.24 guests and categories in the list filters', () => {
   const ahmed = { id: 'g1', name: 'Ahmed', company: 'Acme' };
-  const sara = { id: 'g2', name: 'Sara', company: 'PDO' };
+  const sara = { id: 'g2', name: 'Sara', company: 'NWT' };
   const tasks = [
     task({ id: 'a', guests: [ahmed], categories: [{ id: 'c1', name: 'Civil', color: 'teal', retired: false }] }),
     task({ id: 'b', guests: [sara], categories: [{ id: 'c2', name: 'Electrical', color: 'gold', retired: false }] }),

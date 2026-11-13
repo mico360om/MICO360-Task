@@ -25,8 +25,8 @@ const guest = (id: string, name: string, company: string | null, extra: Record<s
   id, companyId: 'co1', name, company, designation: null, email: null, phone: null, notes: null, retiredAt: null, mergedIntoId: null, createdById: 'u1', createdAt: '', updatedAt: '', ...extra,
 });
 const AHMED = guest('g1', 'Ahmed Al Harthy', 'Acme', { email: 'ahmed@acme.com' });
-const SARA = guest('g2', 'Sara Nasser', 'PDO');
-const LISTS: Record<string, ReturnType<typeof guest>[]> = { p1: [AHMED, SARA], p3: [AHMED, SARA], p2: [guest('g7', 'Sara Nasser', 'PDO', { companyId: 'co2' })] };
+const SARA = guest('g2', 'Sara Nasser', 'NWT');
+const LISTS: Record<string, ReturnType<typeof guest>[]> = { p1: [AHMED, SARA], p3: [AHMED, SARA], p2: [guest('g7', 'Sara Nasser', 'NWT', { companyId: 'co2' })] };
 const taskGuest = (g: ReturnType<typeof guest>, linkId: string) => ({
   linkId, guestId: g.id, taskId: 't1', name: g.name, company: g.company, designation: g.designation, email: g.email, phone: g.phone, note: null, position: 0, addedById: 'u1', addedAt: '', retired: false,
 });

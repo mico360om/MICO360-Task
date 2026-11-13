@@ -39,9 +39,9 @@ const guest = (over: Partial<ApiAdminGuest> & Pick<ApiAdminGuest, 'id' | 'name'>
 
 const ahmed = guest({ id: 'g1', name: 'Ahmed Al Harthy', company: 'Acme', designation: 'Site engineer', email: 'ahmed@acme.com', phone: '+968 9123 4567', notes: 'Prefers WhatsApp', taskCount: 3 });
 const ahmed2 = guest({ id: 'g2', name: 'Ahmed Alharthy', company: 'Acme', phone: '91234567', taskCount: 2 });
-const sara = guest({ id: 'g3', name: 'Sara Ali', company: 'PDO', taskCount: 0 });
-const omar = guest({ id: 'g4', name: 'Omar Said', company: 'Shell', companyId: 'c2', companyName: 'Beta Co', taskCount: 1 });
-const retired = guest({ id: 'g5', name: 'Laila Old', company: 'BP', retiredAt: '2026-10-20T06:00:00.000Z', taskCount: 4 });
+const sara = guest({ id: 'g3', name: 'Sara Ali', company: 'NWT', taskCount: 0 });
+const omar = guest({ id: 'g4', name: 'Omar Said', company: 'Fabrikam', companyId: 'c2', companyName: 'Beta Co', taskCount: 1 });
+const retired = guest({ id: 'g5', name: 'Laila Old', company: 'Globex', retiredAt: '2026-10-20T06:00:00.000Z', taskCount: 4 });
 
 interface Sent {
   method: string;
@@ -162,8 +162,8 @@ describe('GuestContactsPage', () => {
     expect(await rows()).toEqual([
       ['Ahmed Al Harthy', 'Acme', 'Site engineer', 'ahmed@acme.com', '+968 9123 4567', 'Prolens Projects LLC', 'On 3 tasks'],
       ['Ahmed Alharthy', 'Acme', '—', '—', '91234567', 'Prolens Projects LLC', 'On 2 tasks'],
-      ['Omar Said', 'Shell', '—', '—', '—', 'Beta Co', 'On 1 task'],
-      ['Sara Ali', 'PDO', '—', '—', '—', 'Prolens Projects LLC', 'Not on any task'],
+      ['Omar Said', 'Fabrikam', '—', '—', '—', 'Beta Co', 'On 1 task'],
+      ['Sara Ali', 'NWT', '—', '—', '—', 'Prolens Projects LLC', 'Not on any task'],
     ]);
     // Asked for the active ones, of every company.
     expect(requests('GET', /^\/guests/)[0]!.path).toBe('/guests?status=active');
@@ -261,7 +261,7 @@ describe('GuestContactsPage', () => {
     refuse = (r) => (r.method === 'PUT' ? json({ error: { code: 'VALIDATION', message: 'Notes can have at most 2000 characters.' } }, 400) : null);
     renderPage();
     await rows();
-    await userEvent.click(within(row('Sara Ali')).getByRole('button', { name: 'Edit Sara Ali (PDO)' }));
+    await userEvent.click(within(row('Sara Ali')).getByRole('button', { name: 'Edit Sara Ali (NWT)' }));
     const dialog = screen.getByRole('dialog', { name: 'Edit guest' });
     await userEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
     expect(await within(dialog).findByRole('alert')).toHaveTextContent('Notes can have at most 2000 characters.');
@@ -271,16 +271,16 @@ describe('GuestContactsPage', () => {
   it('Retire hides a guest from picking (kept on their tasks); Use again brings them back', async () => {
     renderPage();
     await rows();
-    await userEvent.click(within(row('Sara Ali')).getByRole('button', { name: 'Retire Sara Ali (PDO)' }));
+    await userEvent.click(within(row('Sara Ali')).getByRole('button', { name: 'Retire Sara Ali (NWT)' }));
     await waitFor(() => expect(requests('POST', '/guests/g3/retire')).toHaveLength(1));
-    expect(await screen.findByRole('status')).toHaveTextContent('Sara Ali (PDO) retired: hidden from picking, kept on their tasks.');
+    expect(await screen.findByRole('status')).toHaveTextContent('Sara Ali (NWT) retired: hidden from picking, kept on their tasks.');
     await waitFor(async () => expect(await names()).not.toContain('Sara Ali'));
 
     await userEvent.click(within(screen.getByRole('group', { name: 'Status' })).getByRole('button', { name: 'Retired' }));
     await waitFor(async () => expect(await names()).toEqual(['Laila Old Retired', 'Sara Ali Retired']));
-    await userEvent.click(within(row('Laila Old')).getByRole('button', { name: 'Use Laila Old (BP) again' }));
+    await userEvent.click(within(row('Laila Old')).getByRole('button', { name: 'Use Laila Old (Globex) again' }));
     await waitFor(() => expect(requests('POST', '/guests/g5/unretire')).toHaveLength(1));
-    expect(await screen.findByRole('status')).toHaveTextContent('Laila Old (BP) can be picked again.');
+    expect(await screen.findByRole('status')).toHaveTextContent('Laila Old (Globex) can be picked again.');
     await waitFor(async () => expect(await names()).toEqual(['Sara Ali Retired']));
   });
 
@@ -294,15 +294,15 @@ describe('GuestContactsPage', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(GUEST_WORDS.inUse);
     expect(screen.queryByRole('alertdialog')).toBeNull();
 
-    const free = within(row('Sara Ali')).getByRole('button', { name: 'Remove Sara Ali (PDO)' });
+    const free = within(row('Sara Ali')).getByRole('button', { name: 'Remove Sara Ali (NWT)' });
     expect(free).not.toHaveAttribute('aria-disabled');
     await userEvent.click(free);
-    const ask = screen.getByRole('alertdialog', { name: 'Remove Sara Ali (PDO)?' });
+    const ask = screen.getByRole('alertdialog', { name: 'Remove Sara Ali (NWT)?' });
     expect(requests('DELETE', /^\/guests\//)).toHaveLength(0);
     await userEvent.click(within(ask).getByRole('button', { name: 'Remove guest' }));
     await waitFor(() => expect(requests('DELETE', '/guests/g3')).toHaveLength(1));
     await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
-    expect(screen.getByRole('status')).toHaveTextContent('Sara Ali (PDO) removed from the list.');
+    expect(screen.getByRole('status')).toHaveTextContent('Sara Ali (NWT) removed from the list.');
     await waitFor(async () => expect(await names()).not.toContain('Sara Ali'));
   });
 
@@ -310,7 +310,7 @@ describe('GuestContactsPage', () => {
     refuse = (r) => (r.method === 'DELETE' ? json({ error: { code: 'GUEST_IN_USE', message: GUEST_WORDS.inUse } }, 409) : null);
     renderPage();
     await rows();
-    await userEvent.click(within(row('Sara Ali')).getByRole('button', { name: 'Remove Sara Ali (PDO)' }));
+    await userEvent.click(within(row('Sara Ali')).getByRole('button', { name: 'Remove Sara Ali (NWT)' }));
     await userEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Remove guest' }));
     expect(await within(screen.getByRole('alertdialog')).findByText(GUEST_WORDS.inUse)).toBeInTheDocument();
   });
@@ -349,7 +349,7 @@ describe('GuestContactsPage', () => {
     renderPage();
     await rows();
     await userEvent.click(screen.getByRole('checkbox', { name: 'Select Ahmed Al Harthy (Acme)' }));
-    await userEvent.click(screen.getByRole('checkbox', { name: 'Select Omar Said (Shell)' }));
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Select Omar Said (Fabrikam)' }));
     expect(screen.getByText('Only guests on the same company’s list can be merged. Tick guests of one company.')).toBeInTheDocument();
     const merge = screen.getByRole('button', { name: /^Merge/ });
     expect(merge).toHaveAttribute('aria-disabled', 'true');

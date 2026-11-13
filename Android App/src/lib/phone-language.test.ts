@@ -88,7 +88,7 @@ describe('a phone in Turkish', () => {
     expect(shownGroups([{ id: 'c1', name: 'To do', color: null, category: 'TODO', tasks: [task()] }], 'all', 'site', '2026-10-30', TZ)[0]?.tasks).toHaveLength(1);
 
     const { clientSuggestions } = await import('./project-form');
-    expect(clientSuggestions([{ clientName: 'ICI Oman' }], 'ici')).toEqual(['ICI Oman']);
+    expect(clientSuggestions([{ clientName: 'Globex Oman' }], 'glo')).toEqual(['Globex Oman']);
 
     const { filterPeople } = await import('./workload');
     expect(filterPeople([{ id: 'u1', name: 'IBRAHIM Said' }] as never, 'ibrahim')).toHaveLength(1);
@@ -131,7 +131,7 @@ describe('a phone in Turkish', () => {
     expect(groupMeetings(meetings as never, { timeZone: TZ, now: NOW }, 'title')[0]!.items.map((m) => m.title)).toEqual(['Çağrı visit', 'Cyrus visit']);
 
     const { clientSuggestions } = await import('./project-form');
-    expect(clientSuggestions([{ clientName: 'Cyrus Oil' }, { clientName: 'Çağrı Oil' }], '')).toEqual(['Çağrı Oil', 'Cyrus Oil']);
+    expect(clientSuggestions([{ clientName: 'Contoso Oil' }, { clientName: 'Çağrı Oil' }], '')).toEqual(['Çağrı Oil', 'Contoso Oil']);
 
     const { workload, projectDeadlines } = await import('./project-dashboard');
     const people = [task({ id: 'a', assignees: [{ id: 'u2', name: 'Cyrus Khan' }] as never }), task({ id: 'b', assignees: [{ id: 'u3', name: 'Çağrı Demir' }] as never })];

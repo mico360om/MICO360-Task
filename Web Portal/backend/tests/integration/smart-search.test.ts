@@ -65,7 +65,7 @@ beforeAll(async () => {
   made.itemA = (await prisma.checklistItem.create({ data: { taskId: tasks.TA1, listId: made.list, text: 'ZZITEM Label circuits', assigneeId: people.ana, dueDate: utc(shiftDayKey(today, -2)) } })).id;
   made.itemB = (await prisma.checklistItem.create({ data: { taskId: tasks.TB1, text: 'ZZITEM beta valves', assigneeId: people.ben, dueDate: utc(shiftDayKey(today, -2)) } })).id;
   // External contacts on TA1 (PA) and TB1 (PB).
-  made.contactA = (await prisma.taskExternalContact.create({ data: { taskId: tasks.TA1, name: 'ZZCONTACT Khalid', company: 'Larsen & Toubro' } })).id;
+  made.contactA = (await prisma.taskExternalContact.create({ data: { taskId: tasks.TA1, name: 'ZZCONTACT Khalid', company: 'Globex Engineering' } })).id;
   made.contactB = (await prisma.taskExternalContact.create({ data: { taskId: tasks.TB1, name: 'ZZCONTACT Hidden', company: 'Secret Co' } })).id;
   // A client portal account.
   const clientRole = (await prisma.role.upsert({ where: { name: 'CLIENT' }, update: {}, create: { name: 'CLIENT' } })).id;

@@ -82,7 +82,7 @@ export function ClientPreviewDialog({ spec, onClose }: ClientPreviewDialogProps)
   );
 }
 
-/** Whose portal this is: "Huda Client · Gulf Builders", their email, or a client not saved yet. */
+/** Whose portal this is: "Huda Client · Fabrikam Logistics", their email, or a client not saved yet. */
 function whoWords(spec: ClientPreviewSpec): string {
   const name = [spec.firstName, spec.lastName].map((s) => s?.trim()).filter(Boolean).join(' ');
   const words = [name || spec.email?.trim(), spec.organisation?.trim()].filter(Boolean).join(' · ');

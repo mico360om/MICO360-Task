@@ -136,7 +136,7 @@ function fullTask(p: SamplePictures): TaskExportData {
       'If the test fails, raise a follow-up task for the valve crew and hold the walk-down.',
     projectName: 'Rig 3 Overhaul',
     projectCode: 'RIG',
-    projectNumber: 'PDO-2026-014',
+    projectNumber: 'NWT-2026-014',
     projectColor: '#1E5A8B',
     projectIcon: null,
     projectImage: p.project,
@@ -160,8 +160,8 @@ function fullTask(p: SamplePictures): TaskExportData {
     isMilestone: true,
     meeting: { id: 'm1', title: 'Weekly progress review', startAt: at('2026-11-01T06:00:00Z') },
     externalContacts: [
-      { name: 'Ahmed Al Said', company: 'Oman Drilling Co.', designation: 'Company man', email: 'ahmed.alsaid@odc.example', phone: '+968 9912 3456', remarks: 'Call before 10 am; on site Sunday to Wednesday.' },
-      { name: 'سالم الهنائي', company: 'PDO', designation: 'Inspector', email: null, phone: '+968 9234 5678', remarks: null },
+      { name: 'Ahmed Al Said', company: 'Fabrikam Logistics', designation: 'Company man', email: 'ahmed.alsaid@fabrikam.example', phone: '+968 9912 3456', remarks: 'Call before 10 am; on site Sunday to Wednesday.' },
+      { name: 'سالم الهنائي', company: 'NWT', designation: 'Inspector', email: null, phone: '+968 9234 5678', remarks: null },
     ],
     checklist: [
       { text: 'Isolate the manifold and fit blinds', done: true, list: 'Preparation', listId: 'l1', depth: 0, leaf: true },
@@ -281,11 +281,11 @@ function minutesData(p: SamplePictures): MinutesData {
     project: {
       name: 'Rig 3 Overhaul',
       code: 'RIG',
-      number: 'PDO-2026-014',
+      number: 'NWT-2026-014',
       color: '#1E5A8B',
       image: p.project,
       icon: null,
-      clientName: 'Oman Drilling Co.',
+      clientName: 'Fabrikam Logistics',
       statusLabel: 'Active',
       ownerName: 'Khurram Mumtaz',
       startDate: '2026-09-01T00:00:00Z',
@@ -307,7 +307,7 @@ function minutesData(p: SamplePictures): MinutesData {
       { name: 'Bilal Ahmed', roleLabel: 'Required', responseLabel: 'Accepted', attendanceLabel: 'Present', external: false, email: null },
       { name: 'Sara Al-Hinai', roleLabel: 'Required', responseLabel: 'Maybe', attendanceLabel: 'Late', external: false, email: null },
       { name: 'Omar Ahmed', roleLabel: 'Optional', responseLabel: 'Declined', attendanceLabel: 'Absent', external: false, email: null },
-      { name: 'Ahmed Al Said', roleLabel: 'Optional', responseLabel: 'Accepted', attendanceLabel: 'Present', external: true, email: 'ahmed.alsaid@odc.example' },
+      { name: 'Ahmed Al Said', roleLabel: 'Optional', responseLabel: 'Accepted', attendanceLabel: 'Present', external: true, email: 'ahmed.alsaid@fabrikam.example' },
     ],
     agenda: [
       { title: 'Progress since last week', presenterName: 'Bilal Ahmed', expectedMinutes: 15, completed: true },
@@ -373,7 +373,7 @@ function inspectionData(p: SamplePictures): InspectionReportData {
   const signature = p.signature ? `data:image/png;base64,${p.signature.toString('base64')}` : null;
   return {
     brand: BRAND,
-    project: { name: 'Rig 3 Overhaul', code: 'RIG', number: 'PDO-2026-014', clientName: 'Oman Drilling Co.', color: '#1E5A8B', icon: null, image: p.project },
+    project: { name: 'Rig 3 Overhaul', code: 'RIG', number: 'NWT-2026-014', clientName: 'Fabrikam Logistics', color: '#1E5A8B', icon: null, image: p.project },
     report: {
       id: 'insp-1',
       title: 'Rig daily safety check',
@@ -545,7 +545,7 @@ export function samplePdfs(p: SamplePictures): Record<SampleName, () => Buffer> 
       buildClientTaskListPdf({
         brand: BRAND,
         logo: p.logo,
-        project: { name: 'Rig 3 Overhaul', code: 'RIG', number: 'PDO-2026-014', clientName: 'Oman Drilling Co.', color: '#1E5A8B', icon: null, image: p.project },
+        project: { name: 'Rig 3 Overhaul', code: 'RIG', number: 'NWT-2026-014', clientName: 'Fabrikam Logistics', color: '#1E5A8B', icon: null, image: p.project },
         percentDone: 41,
         ...clientTasks(),
         timeZone: TZ,

@@ -52,10 +52,10 @@ describe('New meeting: People', () => {
     await userEvent.type(screen.getByLabelText('Guest email'), 'sami.k@contractor.om');
     await userEvent.click(screen.getByRole('button', { name: 'Add guest' }));
     await userEvent.type(screen.getByLabelText('Guest name (optional)'), 'Huda Al Harthy');
-    await userEvent.type(screen.getByLabelText('Guest email'), 'huda@pdo.co.om{Enter}');
+    await userEvent.type(screen.getByLabelText('Guest email'), 'huda@northwind.example{Enter}');
     expect(latest).toEqual([
       { kind: 'guest', email: 'sami.k@contractor.om', name: 'sami.k' },
-      { kind: 'guest', email: 'huda@pdo.co.om', name: 'Huda Al Harthy' },
+      { kind: 'guest', email: 'huda@northwind.example', name: 'Huda Al Harthy' },
     ]);
     expect(screen.getByLabelText('Guest email')).toHaveValue('');
   });

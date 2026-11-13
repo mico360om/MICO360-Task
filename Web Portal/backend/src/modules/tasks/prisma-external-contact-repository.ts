@@ -104,7 +104,7 @@ export function createPrismaExternalContactRepository(prisma: PrismaClient): Ext
       if (!p) return [];
       // 1.24: the suggestions are the project's company guest list (active guests; another company's person on
       // a shared project, only the guests on its tasks), by the start of a word of the name or company (a word
-      // can start after a space, a hyphen or a bracket: "Al-Hassan", "Oman (PDO)").
+      // can start after a space, a hyphen or a bracket: "Al-Hassan", "Oman (NWT)").
       const companyId = await companyOfProject(prisma, projectId);
       const only = (await seesWholeList(prisma, viewer, companyId)) ? null : [...(await guestIdsOnProject(prisma, projectId))];
       const rows = await prisma.guestContact.findMany({

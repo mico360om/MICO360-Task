@@ -63,7 +63,7 @@ async function makeFixture(opts: { codeLimit?: number; verifyLimit?: number; pdf
   const broadcasts: Fixture['broadcasts'] = [];
   const pending: Promise<void>[] = [];
   const source = createMemoryClientViewSource();
-  source.addProject('p1', { name: 'Rig 7 Inspection', code: 'RIG', number: null, clientName: 'Oman Drilling Co.', status: 'ACTIVE', color: '#1E6B8B', icon: null, imageUrl: null, startDate: null, targetDate: null });
+  source.addProject('p1', { name: 'Rig 7 Inspection', code: 'RIG', number: null, clientName: 'Fabrikam Logistics', status: 'ACTIVE', color: '#1E6B8B', icon: null, imageUrl: null, startDate: null, targetDate: null });
   source.addProject('p2', { name: 'Other Confidential Project', code: 'OCP', number: null, clientName: null, status: 'ACTIVE', color: '#000000', icon: null, imageUrl: null, startDate: null, targetDate: null });
   source.addTask('p1', { key: 'RIG-1', title: 'Marked milestone', isMilestone: true, clientVisible: true, columnCategory: 'IN_PROGRESS', completedAt: null, dueDate: null });
   source.addTask('p1', { key: 'RIG-2', title: 'Unmarked internal step', isMilestone: false, clientVisible: false, columnCategory: 'TODO', completedAt: null, dueDate: null });

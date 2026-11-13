@@ -3,10 +3,10 @@ import { fileDoc, inspectionDoc, meetingDoc, minutesDoc, noteDoc, projectDoc, vo
 
 describe('search documents (normalised as text-normalize folds a query)', () => {
   it('a project: code, number and name are its head; description its lead; client and notes after', () => {
-    const d = projectDoc({ code: 'RIG', number: 'C-2026/14', name: 'Rig Overhaul', description: 'Shut-down of Rig 3', clientName: 'PDO', notes: 'Crane booked' });
+    const d = projectDoc({ code: 'RIG', number: 'C-2026/14', name: 'Rig Overhaul', description: 'Shut-down of Rig 3', clientName: 'NWT', notes: 'Crane booked' });
     expect(d.head).toBe('\nrig\nc-2026/14\nrig overhaul');
     expect(d.lead).toBe('shut-down of rig 3');
-    expect(d.doc.split('\n')).toEqual(['', 'rig', 'c-2026/14', 'rig overhaul', 'shut-down of rig 3', 'pdo', 'crane booked']);
+    expect(d.doc.split('\n')).toEqual(['', 'rig', 'c-2026/14', 'rig overhaul', 'shut-down of rig 3', 'nwt', 'crane booked']);
   });
 
   it('a meeting: its invitee text (title, description, agenda, place, people) and its full text (+ decisions, action items)', () => {

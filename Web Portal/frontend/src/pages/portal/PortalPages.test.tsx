@@ -135,7 +135,7 @@ describe('Client portal: the shell and home', () => {
     expect(within(second).queryByText(/% done/)).toBeNull();
     // Who is signed in, and their two buttons; none of the staff app.
     expect(screen.getAllByText('Huda Client').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Gulf Builders').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Fabrikam Logistics').length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: 'Change password' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
     expect(screen.queryByRole('navigation', { name: /main/i })).toBeNull();

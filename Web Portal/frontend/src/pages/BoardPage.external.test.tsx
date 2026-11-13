@@ -26,8 +26,8 @@ beforeEach(() => {
   clearQueue(localStorageQueueStore);
   localStorage.clear();
   tasks = [
-    task('t1', 'MICO-1', 'Rig inspection', [{ id: 'g1', name: 'Ahmed Al Said', company: 'Acme' }, { id: 'g2', name: 'Sara Nasser', company: 'PDO' }]),
-    task('t2', 'MICO-2', 'Pipeline survey', [{ id: 'g3', name: 'Salim', company: 'PDO' }]),
+    task('t1', 'MICO-1', 'Rig inspection', [{ id: 'g1', name: 'Ahmed Al Said', company: 'Acme' }, { id: 'g2', name: 'Sara Nasser', company: 'NWT' }]),
+    task('t2', 'MICO-2', 'Pipeline survey', [{ id: 'g3', name: 'Salim', company: 'NWT' }]),
     task('t3', 'MICO-3', 'Internal only', []),
   ];
   useAuthStore.getState().setSession({ user: { id: 'u1', email: 'a@b.c', username: 'ada', roles: ['ADMIN'] }, accessToken: 'at', refreshToken: 'rt' });
@@ -64,7 +64,7 @@ describe('BoardPage: guests', () => {
   it('each card says who outside the company is named on it', async () => {
     renderPage();
     expect(await screen.findByText('Guest: Ahmed Al Said (Acme) and 1 more')).toBeInTheDocument();
-    expect(screen.getByText('Guest: Salim (PDO)')).toBeInTheDocument();
+    expect(screen.getByText('Guest: Salim (NWT)')).toBeInTheDocument();
     expect(screen.queryByText(/^External:/)).toBeNull();
   });
 
@@ -89,7 +89,7 @@ describe('BoardPage: guests', () => {
     renderPage();
     await screen.findByText('Rig inspection');
     await userEvent.click(screen.getByRole('button', { name: 'Filter by guest' }));
-    await userEvent.click(await screen.findByRole('option', { name: 'Salim (PDO)' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Salim (NWT)' }));
     await waitFor(() => expect(screen.queryByText('Rig inspection')).toBeNull());
     expect(screen.getByText('Pipeline survey')).toBeInTheDocument();
     // With the company too: nothing is left, and the board says so.

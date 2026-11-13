@@ -634,7 +634,7 @@ describe('TaskDrawerContainer — Previous / Next (1.22)', () => {
 describe('TaskDrawerContainer — clients (1.23)', () => {
   const clientRow = {
     id: 'c5', taskId: 't1', userId: 'client-1', body: 'Is the valve fitted?', parentId: null, createdAt: new Date().toISOString(), editedAt: null,
-    fromClient: true, clientVisible: false, clientAuthor: { name: 'Hamad Al Busaidi', organisation: 'Petroleum Development Oman' },
+    fromClient: true, clientVisible: false, clientAuthor: { name: 'Hamad Al Busaidi', organisation: 'Northwind Trading' },
   };
   const replyRow = { id: 'c6', taskId: 't1', userId: 'u1', body: 'Yes, this morning.', parentId: 'c5', createdAt: new Date().toISOString(), editedAt: null, fromClient: false, clientVisible: true };
   let posted: { url: string; method: string; body: unknown }[];
@@ -673,7 +673,7 @@ describe('TaskDrawerContainer — clients (1.23)', () => {
     const item = (await screen.findByText('Is the valve fitted?')).closest('li')!;
     expect(within(item).getByText('Hamad Al Busaidi')).toBeInTheDocument();
     expect(within(item).getByText('Client')).toBeInTheDocument();
-    expect(within(item).getByText('Petroleum Development Oman')).toBeInTheDocument();
+    expect(within(item).getByText('Northwind Trading')).toBeInTheDocument();
     // The team's reply sits under it, marked as one the client sees.
     const reply = within(screen.getByRole('list', { name: 'Replies to Hamad Al Busaidi' })).getByText('Yes, this morning.').closest('li')!;
     expect(within(reply).getByText('Visible to client')).toBeInTheDocument();

@@ -191,7 +191,7 @@ describe('Meeting form — companies', () => {
 
 // 1.23 Client accounts: a project meeting may invite the project's clients (those with its Meetings module).
 describe('Meeting form — clients (1.23)', () => {
-  const hamad = { id: 'cl1', firstName: 'Hamad', lastName: 'Al Busaidi', username: 'hamad', avatarUrl: null, client: true, organisation: 'PDO' };
+  const hamad = { id: 'cl1', firstName: 'Hamad', lastName: 'Al Busaidi', username: 'hamad', avatarUrl: null, client: true, organisation: 'NWT' };
   const amyOption = { id: 'amy', firstName: 'Amy', lastName: 'Alphaonly', username: 'amy', avatarUrl: null };
 
   it('one company: a project meeting offers the directory and the project’s clients, marked Client with their organisation', async () => {
@@ -201,7 +201,7 @@ describe('Meeting form — clients (1.23)', () => {
     await waitFor(() => expect(asks('/meetings/invite-candidates').at(-1)).toBe('/meetings/invite-candidates?projectId=pab'));
     await userEvent.click(screen.getByRole('button', { name: 'Add a team member' }));
     const options = () => within(screen.getByRole('listbox')).getAllByRole('option').map((o) => o.textContent);
-    await waitFor(() => expect(options()).toContainEqual(expect.stringMatching(/Hamad Al Busaidi.*Client · PDO/)));
+    await waitFor(() => expect(options()).toContainEqual(expect.stringMatching(/Hamad Al Busaidi.*Client · NWT/)));
     // The directory's people as before, each once.
     expect(options().filter((t) => t?.includes('Amy Alphaonly'))).toHaveLength(1);
     expect(options()).toContainEqual(expect.stringContaining('Bob Betaonly'));
@@ -222,7 +222,7 @@ describe('Meeting form — clients (1.23)', () => {
     await waitFor(() =>
       expect(within(screen.getByRole('listbox')).getAllByRole('option').map((o) => o.textContent)).toEqual([
         expect.stringMatching(/Amy Alphaonly.*@amy/),
-        expect.stringMatching(/Hamad Al Busaidi.*Client · PDO/),
+        expect.stringMatching(/Hamad Al Busaidi.*Client · NWT/),
       ]),
     );
   });

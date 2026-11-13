@@ -100,8 +100,8 @@ describe('“Every task needs a category” never locks a project out', () => {
 describe('the old way in writes true history', () => {
   it('adding a guest the task has already, or a change the re-link undid, writes no line', async () => {
     const contacts = createExternalContactService({ repo: createPrismaExternalContactRepository(prisma), taskLookup: createPrismaTaskLookup(prisma) });
-    const first = await contacts.add(world.tasks.TA2, { name: 'Hist Hana', company: 'PDO', phone: '24000000' }, world.people.cat);
-    const again = await contacts.add(world.tasks.TA2, { name: 'Hist Hana', company: 'PDO' }, world.people.cat);
+    const first = await contacts.add(world.tasks.TA2, { name: 'Hist Hana', company: 'NWT', phone: '24000000' }, world.people.cat);
+    const again = await contacts.add(world.tasks.TA2, { name: 'Hist Hana', company: 'NWT' }, world.people.cat);
     expect(again).toMatchObject({ id: first.id, alreadyOnTask: true });
     // Clearing the phone re-links to the same guest (name + company): nothing changed on the task.
     expect((await contacts.update(first.id, { phone: null }, world.people.cat)).changed).toBe(false);
