@@ -33,6 +33,7 @@ import {
   type FeedbackItem,
   type FileKind,
   type FileRef,
+  type LessonDeleteImpact,
   type LessonStep,
   type ManageCourse,
   type ManageCourseRow,
@@ -714,7 +715,7 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
    * Batch 4b (owner, 13 Nov): before a lesson is deleted, how many people the deletion would finish (and certify,
    * when the course gives a certificate) — worked out from everyone's progress now; nothing is changed.
    */
-  async function lessonDeleteImpact(actorId: string, lessonId: unknown): Promise<{ finishing: number; certificate: boolean; published: boolean }> {
+  async function lessonDeleteImpact(actorId: string, lessonId: unknown): Promise<LessonDeleteImpact> {
     await managerOf(ctx, actorId);
     const l = await lessonRow(lessonId);
     const c = await prisma.trainingCourse.findUnique({ where: { id: l.courseId }, select: { status: true, certificateOn: true } });
