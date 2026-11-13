@@ -147,7 +147,9 @@ describe('POST /tasks/:id/assignees/swap', () => {
     const res = await app.inject({ method: 'POST', url: '/api/v1/tasks/t1/assignees/swap', headers, payload: { from: 'u1', to: 'u2' } });
     expect(res.statusCode).toBe(200);
     expect(res.json().data.map((u: { id: string }) => u.id)).toEqual(['u2']);
-    expect(events.map((e) => e.event)).toEqual(['task:assignees']);
+    // N12: the swap moves the task's version on, so open views also get the task (as for any edit).
+    expect(events.map((e) => e.event)).toEqual(['task:assignees', 'task:updated']);
+    expect(events[1]).toMatchObject({ projectId: 'p1', payload: { projectId: 'p1' } });
   });
 
   it('says plainly when the person is no longer on the task (409)', async () => {

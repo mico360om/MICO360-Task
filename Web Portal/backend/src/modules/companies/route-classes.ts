@@ -153,6 +153,8 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   'GET /projects/:id/progress': 'object',
   'GET /projects/:id/columns': 'object',
   'POST /projects/:id/columns': 'object',
+  // Review fix #26: a project's whole column order in one step.
+  'PUT /projects/:id/columns/order': 'object',
   'POST /projects/:id/members': 'object',
   'PATCH /projects/:id/members/:userId': 'object',
   'DELETE /projects/:id/members/:userId': 'object',

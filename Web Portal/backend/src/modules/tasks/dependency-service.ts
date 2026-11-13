@@ -19,8 +19,12 @@ export function createDependencyService({ repo, taskLookup }: DependencyServiceD
     if (!(await taskLookup.exists(id))) throw new NotFoundError('Task not found.');
   }
 
-  /** Can we reach `target` by following dependsOn edges out of `start`? */
-  async function reaches(start: string, target: string): Promise<boolean> {
+  /**
+   * Can we reach `target` by following dependsOn edges out of `start`? N12: through tasks in the Recycle
+   * Bin too — restoring one brings its links back, so a loop through it would appear then.
+   */
+  async function reaches(links: DependencyRepository, start: string, target: string): Promise<boolean> {
+    const next = (id: string) => (links.dependsOnAny ? links.dependsOnAny(id) : links.dependsOn(id));
     const seen = new Set<string>();
     const stack = [start];
     while (stack.length) {
@@ -28,7 +32,7 @@ export function createDependencyService({ repo, taskLookup }: DependencyServiceD
       if (node === target) return true;
       if (seen.has(node)) continue;
       seen.add(node);
-      stack.push(...(await repo.dependsOn(node)));
+      stack.push(...(await next(node)));
     }
     return false;
   }
@@ -37,14 +41,19 @@ export function createDependencyService({ repo, taskLookup }: DependencyServiceD
     if (taskId === dependsOnTaskId) throw new ValidationError('A task cannot depend on itself.');
     await ensureTask(taskId);
     await ensureTask(dependsOnTaskId);
-    if (await repo.exists(taskId, dependsOnTaskId)) {
-      throw new ConflictError('That dependency already exists.', 'DEPENDENCY_EXISTS');
-    }
-    // Adding taskId -> dependsOnTaskId is a cycle iff dependsOnTaskId already reaches taskId.
-    if (await reaches(dependsOnTaskId, taskId)) {
-      throw new ConflictError('That dependency would create a circular chain.', 'DEPENDENCY_CYCLE');
-    }
-    return repo.add(taskId, dependsOnTaskId);
+    // Review fix #12: the check and the insert as one step, one link at a time across the site — two
+    // links made at the same moment can't close a loop together (cross-project links are allowed).
+    const oneAtATime = repo.oneAtATime ? <T,>(work: (r: DependencyRepository) => Promise<T>) => repo.oneAtATime!(work) : <T,>(work: (r: DependencyRepository) => Promise<T>) => work(repo);
+    return oneAtATime(async (links) => {
+      if (await links.exists(taskId, dependsOnTaskId)) {
+        throw new ConflictError('That dependency already exists.', 'DEPENDENCY_EXISTS');
+      }
+      // Adding taskId -> dependsOnTaskId is a cycle iff dependsOnTaskId already reaches taskId.
+      if (await reaches(links, dependsOnTaskId, taskId)) {
+        throw new ConflictError('That dependency would create a circular chain.', 'DEPENDENCY_CYCLE');
+      }
+      return links.add(taskId, dependsOnTaskId);
+    });
   }
 
   async function removeDependency(taskId: string, dependsOnTaskId: string): Promise<void> {

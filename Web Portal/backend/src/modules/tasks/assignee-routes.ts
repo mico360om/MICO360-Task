@@ -15,6 +15,8 @@ export interface AssigneeRouteDeps {
   projectIdOfTask?: (taskId: string) => Promise<string | null>;
   /** Object-level guard: only users who can view the task may read or change its assignees. */
   canViewTask?: (userId: string, roles: string[], taskId: string) => Promise<boolean>;
+  /** N12: the task as an edit answers it (the Workload swap moves its version on: open views learn the new one). */
+  taskOf?: (taskId: string) => Promise<{ projectId: string }>;
 }
 
 export async function registerAssigneeRoutes(app: FastifyInstance, deps: AssigneeRouteDeps): Promise<void> {
@@ -51,6 +53,11 @@ export async function registerAssigneeRoutes(app: FastifyInstance, deps: Assigne
     const { from, to, expectedVersion } = swapSchema.parse(req.body);
     const assignees = await assigneeService.swapAssignee(id, from, to, req.user!.id, { expectedVersion });
     await announce(id, assignees);
+    // N12: the swap moved the task's version on — as for any task edit, open boards and task screens get the task.
+    if (deps.broadcast && deps.taskOf) {
+      const task = await deps.taskOf(id).catch(() => null);
+      if (task) deps.broadcast(task.projectId, 'task:updated', task);
+    }
     return { data: assignees };
   });
 

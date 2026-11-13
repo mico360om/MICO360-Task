@@ -1,6 +1,21 @@
 import type { PrismaClient, KanbanColumn } from '@prisma/client';
 import { ConflictError } from '../../lib/http-errors';
-import type { ColumnRepository } from './column-repository';
+import { withRowLock } from '../../lib/sentinel-lock';
+import type { ColumnCategory, ColumnRepository } from './column-repository';
+
+/**
+ * Review fix #13: the hold a status change takes on its column — the transaction's first statement, so
+ * what it then counts is read after anyone who held it first has finished (lib/sentinel-lock).
+ */
+export const LOCK_COLUMN_SQL = 'SELECT id, category FROM kanban_columns WHERE id = ? FOR UPDATE';
+/** Review fix #26: a whole reorder holds the project's row first, then reads its columns with their own holds. */
+export const LOCK_PROJECT_SQL = 'SELECT id FROM projects WHERE id = ? FOR UPDATE';
+export const LOCK_PROJECT_COLUMNS_SQL = 'SELECT id, position FROM kanban_columns WHERE projectId = ? FOR UPDATE';
+
+export interface PrismaColumnRepositoryOptions {
+  /** Tests only: runs after the columns are parked and before their final positions (to stop a reorder part-way). */
+  beforeFinalPositions?: () => Promise<void>;
+}
 
 function toRecord(c: KanbanColumn) {
   return { id: c.id, projectId: c.projectId, name: c.name, category: c.category, position: c.position, color: c.color, enabled: c.enabled };
@@ -14,7 +29,7 @@ export function countWaitingTasksIn(prisma: PrismaClient, columnId: string): Pro
   return prisma.task.count({ where: { columnId, deletedAt: null, approvalRequestedAt: { not: null } } });
 }
 
-export function createPrismaColumnRepository(prisma: PrismaClient): ColumnRepository {
+export function createPrismaColumnRepository(prisma: PrismaClient, opts: PrismaColumnRepositoryOptions = {}): ColumnRepository {
   return {
     async listForProject(projectId) {
       const cs = await prisma.kanbanColumn.findMany({ where: { projectId }, orderBy: { position: 'asc' } });
@@ -35,6 +50,45 @@ export function createPrismaColumnRepository(prisma: PrismaClient): ColumnReposi
     },
     async update(id, patch) {
       return toRecord(await prisma.kanbanColumn.update({ where: { id }, data: patch }));
+    },
+    async changeStatus(id, patch, check) {
+      return withRowLock(
+        prisma,
+        (tx) => tx.$queryRawUnsafe<Array<{ id: string; category: ColumnCategory }>>(LOCK_COLUMN_SQL, id),
+        async (tx, [column]) => {
+          if (column) {
+            // Every task that is in the column or comes back into it: on the board, archived, in the
+            // Recycle Bin. A merged task's record never comes back on its own and nobody can move it.
+            const [live, archived, binned, waiting] = await Promise.all([
+              tx.task.count({ where: { columnId: id, deletedAt: null, archivedAt: null } }),
+              tx.task.count({ where: { columnId: id, deletedAt: null, archivedAt: { not: null } } }),
+              tx.task.count({ where: { columnId: id, deletedAt: { not: null }, mergedIntoId: null } }),
+              tx.task.count({ where: { columnId: id, deletedAt: null, approvalRequestedAt: { not: null } } }),
+            ]);
+            check({ category: column.category, live, archived, binned, waiting });
+          }
+          // A column that isn't there answers as before (the update's own "not found").
+          return toRecord(await tx.kanbanColumn.update({ where: { id }, data: patch }));
+        },
+      );
+    },
+    async reorder(projectId, orderedIds) {
+      return withRowLock(
+        prisma,
+        (tx) => tx.$queryRawUnsafe<Array<{ id: string }>>(LOCK_PROJECT_SQL, projectId),
+        async (tx) => {
+          const held = await tx.$queryRawUnsafe<Array<{ id: string; position: number }>>(LOCK_PROJECT_COLUMNS_SQL, projectId);
+          const ids = new Set(held.map((c) => c.id));
+          if (held.length !== orderedIds.length || orderedIds.some((id) => !ids.has(id))) return null;
+          // Two steps inside the one transaction: park every column below any position in use (the
+          // (projectId, position) index allows no direct swap), then give each its place.
+          const low = Math.min(0, ...held.map((c) => Number(c.position))) - 1;
+          for (const [i, id] of orderedIds.entries()) await tx.kanbanColumn.update({ where: { id }, data: { position: low - i } });
+          await opts.beforeFinalPositions?.();
+          for (const [i, id] of orderedIds.entries()) await tx.kanbanColumn.update({ where: { id }, data: { position: i } });
+          return (await tx.kanbanColumn.findMany({ where: { projectId }, orderBy: { position: 'asc' } })).map(toRecord);
+        },
+      );
     },
     async countLiveTasks(id) {
       // Task archive: an archived task never keeps a column from going (it is parked, as binned ones are).

@@ -2,7 +2,7 @@ import { runExclusive, type JobLockStore } from '../../lib/job-lock';
 
 /** The quick heal (tasks with no entry, or edited since they were read) runs this often… */
 export const RECENT_HEAL_EVERY_MS = 60 * 1000;
-/** …under a lease shorter than that (a lease is never handed back early: a longer one skips runs). */
+/** …under a lease shorter than that (N7: a run hands its lease back as it ends; the lease bounds a dead instance's hold). */
 export const RECENT_HEAL_LEASE_MS = 50 * 1000;
 /** The full heal (every task whose words changed any other way) runs this often, one instance at a time. */
 export const FULL_HEAL_EVERY_MS = 6 * 60 * 60 * 1000;

@@ -5,7 +5,8 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { BoardPage } from './BoardPage';
 import { useAuthStore } from '../stores/auth-store';
-import { clearQueue, localStorageQueueStore } from '../lib/offline-queue';
+import { clearQueue, getQueue, localStorageQueueStore } from '../lib/offline-queue';
+import { enqueueOffline } from '../lib/offline-replay';
 import { userStorageKey } from '../lib/user-storage';
 import type { KanbanColumnData } from '../components/KanbanColumn';
 import type { ApiTask } from '../api/tasks';
@@ -73,6 +74,8 @@ type Call = { url: string; method: string; body?: Record<string, unknown> };
 let calls: Call[] = [];
 /** Moves never answer (the board shows its own optimistic move). */
 let hangMoves = false;
+/** Review fix #16 (I1): a move that waits until the test lets it answer. */
+let holdMove: Promise<void> | null = null;
 const ext = (company: string) => ({ count: 1, name: `Someone at ${company}`, company, names: [`Someone at ${company}`], companies: [company] });
 
 beforeEach(() => {
@@ -81,6 +84,7 @@ beforeEach(() => {
   calls = [];
   created = {};
   hangMoves = false;
+  holdMove = null;
   MONTHS = {
     '2026-11': [
       task('t1', 'MICO-1', { startDate: day('2026-11-05'), dueDate: day('2026-11-20'), externalSummary: ext('Acme') }),
@@ -114,6 +118,7 @@ beforeEach(() => {
       if (u.endsWith('/config')) return json({ data: { timeZone: 'Asia/Muscat', productName: 'x', companyName: 'y', serverTime: new Date().toISOString() } });
       if (method === 'PATCH' && u.includes('/move')) {
         if (hangMoves) return new Promise<Response>(() => {});
+        if (holdMove) await holdMove;
         const id = /\/tasks\/([^/]+)\/move/.exec(u)![1]!;
         const columnId = String(JSON.parse(String(init!.body)).columnId);
         const category = COLUMNS(columnId.split('-')[0]!).find((c) => c.id === columnId)!.category;
@@ -247,6 +252,33 @@ describe('Kanban Board: the month’s cards', () => {
     await userEvent.click(chip);
     expect(chip).toHaveAttribute('aria-pressed', 'true');
     expect(card('MICO-3')!.textContent).toContain('No date');
+  });
+
+  it('review fix #16: a move saved online drops an older offline move of the same task still waiting', async () => {
+    enqueueOffline('task.move', { id: 't1', toColumnId: 'p1-todo' });
+    enqueueOffline('task.move', { id: 't2', toColumnId: 'p1-todo' });
+    vi.setSystemTime(new Date('2026-11-07T08:00:02.000Z')); // the online move is sent after they were queued
+    renderPage('/board?project=p1&month=2026-11');
+    await waitFor(() => expect(card('MICO-1')).toBeTruthy());
+    await userEvent.click(within(card('MICO-1')!).getByRole('button', { name: 'Move MICO-1 to In Progress' }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'PATCH' && c.url.endsWith('/tasks/t1/move'))).toBe(true));
+    await waitFor(() => expect(getQueue(localStorageQueueStore).map((m) => (m.payload as { id: string }).id)).toEqual(['t2']));
+  });
+
+  it('review fix #16: a move queued while the online move was still on its way is the newer one — it stays queued', async () => {
+    let answer!: () => void;
+    holdMove = new Promise<void>((r) => (answer = r));
+    renderPage('/board?project=p1&month=2026-11');
+    await waitFor(() => expect(card('MICO-1')).toBeTruthy());
+    await userEvent.click(within(card('MICO-1')!).getByRole('button', { name: 'Move MICO-1 to In Progress' }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'PATCH' && c.url.endsWith('/tasks/t1/move'))).toBe(true));
+    // Meanwhile a later move of the same task failed for want of a network and was queued.
+    vi.setSystemTime(new Date('2026-11-07T08:00:02.000Z'));
+    enqueueOffline('task.move', { id: 't1', toColumnId: 'p1-done' });
+    answer();
+    await waitFor(() => expect(screen.getByRole('region', { name: 'In Progress' })).toBeInTheDocument());
+    await new Promise((r) => setTimeout(r, 50));
+    expect(getQueue(localStorageQueueStore).map((m) => (m.payload as { toColumnId: string }).toColumnId)).toEqual(['p1-done']);
   });
 
   it('dragging changes the status in its own column move — never its dates', async () => {

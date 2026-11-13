@@ -8,6 +8,7 @@ import {
   removeOwnerItems,
   removeOrphans,
   retryItem,
+  dropQueuedMoves,
   MAX_ATTEMPTS,
   type QueueStore,
   type QueuedMutation,
@@ -142,5 +143,113 @@ describe('offline-queue', () => {
     enqueue(s, { kind: 'x', payload: null });
     clearQueue(s);
     expect(queueSize(s)).toBe(0);
+  });
+});
+
+// Review fix #16 (13 Nov 2026): the user moved a task to A, then to B, while offline; A's replay failed
+// once (a 503), B applied, and A applied on the next flush — the task ended in A, undoing their last
+// move. A newer move of the same task now supersedes an older one, waiting or failed.
+describe('offline-queue: the latest move of a task wins (review fix #16)', () => {
+  /** The server: one task's column, and a move to `failOnce` that fails once with a 503. */
+  function server(failOnce: string | null) {
+    const state = { column: 'TODO', sent: [] as string[] };
+    let fail = failOnce;
+    const perform = async (m: QueuedMutation) => {
+      const p = m.payload as { id: string; toColumnId: string };
+      state.sent.push(p.toColumnId);
+      if (p.toColumnId === fail) {
+        fail = null;
+        throw Object.assign(new Error('Request failed (503)'), { status: 503 });
+      }
+      state.column = p.toColumnId;
+    };
+    return { state, perform };
+  }
+
+  it('the repro: moved to A, then B, while offline; A fails once — the task ends in B, and A is never sent after B', async () => {
+    const s = memStore();
+    const srv = server('A');
+    enqueue(s, { kind: 'task.move', payload: { id: 'T', toColumnId: 'A' }, ownerId: 'u1' });
+    enqueue(s, { kind: 'task.move', payload: { id: 'T', toColumnId: 'B' }, ownerId: 'u1' });
+    await flushQueue(s, srv.perform, { ownerId: 'u1' });
+    await flushQueue(s, srv.perform, { ownerId: 'u1' });
+    expect(srv.state.column).toBe('B');
+    // The newer move took the older one's place in the queue: A is never sent at all.
+    expect(srv.state.sent).toEqual(['B']);
+    expect(s.read()).toEqual([]);
+  });
+
+  it('a newer move replaces the older one while waiting (its place in line is the newer one’s)', () => {
+    const s = memStore();
+    enqueue(s, { kind: 'task.move', payload: { id: 'T', toColumnId: 'A' }, ownerId: 'u1' });
+    enqueue(s, { kind: 'task.create', payload: { title: 'New' }, ownerId: 'u1' });
+    enqueue(s, { kind: 'task.move', payload: { id: 'T', toColumnId: 'B' }, ownerId: 'u1' });
+    expect(s.read().map((m) => (m.kind === 'task.move' ? `move ${(m.payload as { toColumnId: string }).toColumnId}` : m.kind))).toEqual(['task.create', 'move B']);
+  });
+
+  it('…and an older move that failed for good is dropped too, so “Retry” can never put the task back', () => {
+    const s = memStore();
+    const a = enqueue(s, { kind: 'task.move', payload: { id: 'T', toColumnId: 'A' }, ownerId: 'u1' });
+    s.write(s.read().map((m) => (m.id === a.id ? { ...m, failedAt: Date.now(), lastError: 'Rejected (500)', attempts: 5 } : m)));
+    enqueue(s, { kind: 'task.move', payload: { id: 'T', toColumnId: 'B' }, ownerId: 'u1' });
+    expect(failedItems(s, 'u1')).toEqual([]);
+    expect(queueSize(s, 'u1')).toBe(1);
+  });
+
+  it('only the same task and the same person: other tasks’ moves, other people’s, and new tasks are kept', () => {
+    const s = memStore();
+    enqueue(s, { kind: 'task.move', payload: { id: 'T', toColumnId: 'A' }, ownerId: 'u1' });
+    enqueue(s, { kind: 'task.move', payload: { id: 'U', toColumnId: 'A' }, ownerId: 'u1' });
+    enqueue(s, { kind: 'task.move', payload: { id: 'T', toColumnId: 'A' }, ownerId: 'u2' });
+    enqueue(s, { kind: 'task.create', payload: { title: 'x' }, ownerId: 'u1' });
+    enqueue(s, { kind: 'task.move', payload: { id: 'T', toColumnId: 'B' }, ownerId: 'u1' });
+    expect(s.read().map((m) => `${m.ownerId}:${m.kind}:${(m.payload as { id?: string; toColumnId?: string }).id ?? ''}${(m.payload as { toColumnId?: string }).toColumnId ?? ''}`)).toEqual([
+      'u1:task.move:UA',
+      'u2:task.move:TA',
+      'u1:task.create:',
+      'u1:task.move:TB',
+    ]);
+  });
+
+  it('a queue an older build left with two moves of one task: the older is dropped at replay, never sent', async () => {
+    const s = memStore();
+    const srv = server(null);
+    const older = { id: 'o1', kind: 'task.move', payload: { id: 'T', toColumnId: 'A' }, queuedAt: 1, ownerId: 'u1', idempotencyKey: 'k1', attempts: 2 } as QueuedMutation;
+    const newer = { id: 'o2', kind: 'task.move', payload: { id: 'T', toColumnId: 'B' }, queuedAt: 2, ownerId: 'u1', idempotencyKey: 'k2', attempts: 0 } as QueuedMutation;
+    s.write([older, newer]);
+    const r = await flushQueue(s, srv.perform, { ownerId: 'u1' });
+    expect(srv.state.sent).toEqual(['B']);
+    expect(srv.state.column).toBe('B');
+    expect(r).toEqual({ synced: 1, failed: 0, remaining: 0 });
+  });
+
+  it('a move made online since (no internet, then back) drops the queued older one', () => {
+    const s = memStore();
+    enqueue(s, { kind: 'task.move', payload: { id: 'T', toColumnId: 'A' }, ownerId: 'u1' });
+    enqueue(s, { kind: 'task.move', payload: { id: 'U', toColumnId: 'A' }, ownerId: 'u1' });
+    dropQueuedMoves(s, 'u1', 'T');
+    expect(s.read().map((m) => (m.payload as { id: string }).id)).toEqual(['U']);
+  });
+
+  it('…but only moves queued before that online move started: one queued while it was on its way is the newer, and kept', () => {
+    const s = memStore();
+    const older = enqueue(s, { kind: 'task.move', payload: { id: 'T', toColumnId: 'A' }, ownerId: 'u1' });
+    s.write(s.read().map((m) => (m.id === older.id ? { ...m, queuedAt: 1000 } : m)));
+    const startedAt = 2000; // the online move to B was sent then…
+    const newer = enqueue(s, { kind: 'task.move', payload: { id: 'U', toColumnId: 'C' }, ownerId: 'u1' });
+    const later = enqueue(s, { kind: 'task.move', payload: { id: 'T', toColumnId: 'C' }, ownerId: 'u1' }); // …and this queued after (a network error)
+    s.write(s.read().map((m) => (m.id === later.id ? { ...m, queuedAt: 3000 } : m.id === newer.id ? { ...m, queuedAt: 2500 } : m)));
+    dropQueuedMoves(s, 'u1', 'T', startedAt);
+    expect(s.read().map((m) => `${(m.payload as { id: string }).id}${(m.payload as { toColumnId: string }).toColumnId}`)).toEqual(['UC', 'TC']);
+  });
+
+  it('single-person offline use is unchanged: one move of each task replays in order', async () => {
+    const s = memStore();
+    const sent: string[] = [];
+    enqueue(s, { kind: 'task.create', payload: { title: 'A' }, ownerId: 'u1' });
+    enqueue(s, { kind: 'task.move', payload: { id: 'T', toColumnId: 'B' }, ownerId: 'u1' });
+    enqueue(s, { kind: 'task.move', payload: { id: 'U', toColumnId: 'C' }, ownerId: 'u1' });
+    await flushQueue(s, async (m) => void sent.push(m.kind === 'task.move' ? (m.payload as { id: string }).id : 'create'), { ownerId: 'u1' });
+    expect(sent).toEqual(['create', 'T', 'U']);
   });
 });

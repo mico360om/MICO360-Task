@@ -1185,6 +1185,8 @@ async function main(): Promise<void> {
     notify: (n) => notificationService.notify(n),
     record: (entry) => activityService.record(entry),
     onError: (err, taskId) => logger.error('action items could not follow their task', { err, taskId }),
+    // Review fix #14: the completion stands; the hourly sweep makes the missing copy.
+    onCopyFailed: (err, taskId) => logger.error('recurring task: next copy failed (the hourly sweep makes it)', { err, taskId }),
   });
   onTaskMoved = (task, prevColumnId, actorId, extra) => statusChanged(task, prevColumnId, actorId, extra ?? {});
 
@@ -1250,6 +1252,9 @@ async function main(): Promise<void> {
   // 1.23.1 (lib/job-gate): every job asks the database through this lock — it starts once the database
   // first answered, tries a blip once more, and starts nothing while the server stops (a deploy restart).
   const jobLock = jobs.lock(createPrismaJobLockStore(prisma));
+  // N7 + #34 (13 Nov 2026): a run hands its lease back as it ends, even when it throws (only while it still
+  // holds it), so each job runs as often as its timer says; the lease is the most a dead instance holds it.
+  // A tick that comes while the job's last run is still going is skipped (lib/job-gate).
   const SWEEP_LEASE_MS = 10 * 60 * 1000;
   // 1.22.4: a sweep that fails says so (some were dropped without a word), in the Error log too.
   const sweepFailed = (job: string, what: string) => (err: unknown) => {
@@ -1952,9 +1957,9 @@ async function main(): Promise<void> {
       release: (ids) => notificationHolds.release(ids),
     },
   });
-  // Job leases are held for their whole length (never released), so this one is under a minute or
-  // the sweep would only run every 10 minutes. Overlapping runs are harmless: each email is claimed
-  // once (a unique row) and each retry is retaken by one run only.
+  // N7: a run hands its lease back as it ends (lib/job-lock); the lease, under a minute, is the most a dead
+  // instance holds the sweep. Overlapping runs are harmless: each email is claimed once (a unique row) and
+  // each retry is retaken by one run only.
   const DAILY_EMAIL_LEASE_MS = 55 * 1000;
   const runDailyEmails = () =>
     runExclusive(jobLock, 'daily-task-emails', DAILY_EMAIL_LEASE_MS, () => new Date(), async () => {
@@ -2993,6 +2998,9 @@ async function main(): Promise<void> {
   // On-schedule recurring series: each copy is made on its due date, done or not, shown live on open
   // boards and announced to its people. Hourly, so a copy appears soon after local midnight; one
   // instance runs it at a time, and a task never gets two next copies, so re-runs are harmless.
+  // Review fix #14: then an on-completion series whose next copy failed when it was completed (in the last
+  // two weeks; never one with a copy anywhere, nor a rule that ended) gets it, shown on open boards as a
+  // completion's copy is (no notice), and each repair is logged.
   const runRecurrenceSchedule = () =>
     runExclusive(jobLock, 'recurrence-schedule-sweep', SWEEP_LEASE_MS, () => new Date(), async () => {
       for (const made of await recurrenceService.runSchedule()) {
@@ -3001,6 +3009,17 @@ async function main(): Promise<void> {
         broadcast(task.projectId, 'task:created', task);
         for (const userId of await taskRecipientIds(task.id)) {
           await notificationService.notify({ userId, type: 'TASK_ASSIGNED', title: 'A recurring task is ready', body: taskNoticeBody(task), entityType: 'task', entityId: task.id });
+        }
+      }
+      for (const { headId, copy } of await recurrenceService.repairMissedCopies()) {
+        logger.job('recurrence-schedule-sweep').info('repeating task: its missing next copy was made', { taskId: headId, copyId: copy.id });
+        // Showing it is best effort: the copy is made; one that can't be shown doesn't stop the others.
+        try {
+          await taskSearchIndex.taskChanged(copy.id);
+          const task = await taskService.getTask(copy.id);
+          broadcast(task.projectId, 'task:created', task);
+        } catch (err) {
+          logger.job('recurrence-schedule-sweep').error('repeating task: a repaired copy could not be shown on open boards', { err, copyId: copy.id });
         }
       }
     }).catch(sweepFailed('recurrence-schedule-sweep', 'recurrence schedule sweep'));

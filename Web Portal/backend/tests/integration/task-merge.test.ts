@@ -684,6 +684,20 @@ describe('Merging tasks — review round (integration)', () => {
     expect((await prisma.task.findUniqueOrThrow({ where: { id: other.id } })).recurrenceRule).toBeNull();
   });
 
+  it('review batch 4a: the main task’s series went on with a next copy whose rule reads differently (its anchor day pinned): Undo still doesn’t start a second series', async () => {
+    const monthly = { freq: 'MONTHLY' as const, interval: 1 };
+    const main = await newTask('Pump check');
+    const other = await newTask('Monthly check', { recurrenceRule: monthly });
+    const r = await merges.merge(manager, { taskIds: [main.id, other.id], mainTaskId: main.id, choices: { repeat: other.id } });
+    // Its next copy (made by completing it, or by the hourly repair) carries the rule with its anchor day.
+    await prisma.task.update({ where: { id: main.id }, data: { recurrenceRule: Prisma.DbNull } });
+    await prisma.task.create({ data: { key: 'MGRIG-91', title: 'Pump check', projectId: rig.id, columnId: rig.todo, createdById: manager.id, recurrenceParentId: main.id, recurrenceSourceId: main.id, recurrenceRule: { ...monthly, anchorDay: 5 } } });
+    const ask = await merges.undoPreview(manager, r.mergeId);
+    expect(ask.deletedSince).toContain(`${other.key} doesn’t repeat any more: its repeat went on with ${main.key}’s series.`);
+    await merges.undo(manager, r.mergeId);
+    expect((await prisma.task.findUniqueOrThrow({ where: { id: other.id } })).recurrenceRule).toBeNull();
+  });
+
   it('approvals: a waiting main task keeps waiting when the merge moves it; "doesn’t need approval" for a waiting task completes it', async () => {
     const review = await prisma.kanbanColumn.create({ data: { projectId: ops.id, name: 'Review', category: 'REVIEW', position: 3 } });
     const rigReview = await prisma.kanbanColumn.create({ data: { projectId: rig.id, name: 'Check', category: 'REVIEW', position: 3 } });

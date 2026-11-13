@@ -7,6 +7,9 @@ import type { TaskMergeService } from '../task-merge/merge-service';
 import { priorityProbe } from '../dashboard/prisma-priority-sources';
 import { healthProbe } from '../project-health/prisma-health-source';
 import { kpiProbe } from '../kpis/prisma-kpi-source';
+import { LOCK_COLUMN_SQL, LOCK_PROJECT_COLUMNS_SQL, LOCK_PROJECT_SQL } from '../projects/prisma-column-repository';
+import { LOCK_TASK_VERSION_SQL } from '../tasks/prisma-assignee-repository';
+import { lockSourceSql } from '../tasks/prisma-recurrence-port';
 
 /** An id no row has: every probe below looks only there (nothing found, nothing written). */
 export const NOWHERE = '~database-check~';
@@ -125,6 +128,23 @@ export function databaseProbes({
   // Project KPIs and User KPIs: tasks with their history, the weighted done count, comments, action items, Blocked moves, snapshots and targets.
   probes.push({ name: 'the KPIs', run: () => kpiProbe(prisma, NOWHERE) });
   if (checklists) probes.push({ name: 'checklists (holding a task while it changes)', run: () => checklists.selfCheck(NOWHERE) });
+  // Review batch 4a: the holds the board and task changes take first (SELECT … FOR UPDATE, no isolation
+  // statement) — a column's status change, a whole column order, the Workload swap, a new task link (its
+  // job_locks row) and a repeat copy's source — and the hand-back of a job's lease.
+  probes.push({
+    name: 'board and task holds (column status and order, Workload swap, task links, repeat copies, job leases)',
+    run: async () => {
+      await prisma.$transaction(async (tx) => {
+        await tx.$queryRawUnsafe(LOCK_COLUMN_SQL, NOWHERE);
+        await tx.$queryRawUnsafe(LOCK_PROJECT_SQL, NOWHERE);
+        await tx.$queryRawUnsafe(LOCK_PROJECT_COLUMNS_SQL, NOWHERE);
+        await tx.$queryRawUnsafe(LOCK_TASK_VERSION_SQL, NOWHERE);
+        await tx.$queryRaw(lockSourceSql(NOWHERE));
+        await tx.$queryRaw`SELECT name FROM job_locks WHERE name = ${NOWHERE} FOR UPDATE`;
+      });
+      await prisma.jobLock.updateMany({ where: { name: NOWHERE, holder: NOWHERE, lockedUntil: { gt: new Date() } }, data: { lockedUntil: new Date() } });
+    },
+  });
   // Onboarding: the sign-in codes' table and the new account columns (no raw SQL: Prisma's own, checked
   // here so a missed migration shows at start-up, not at someone's sign-in).
   probes.push({
