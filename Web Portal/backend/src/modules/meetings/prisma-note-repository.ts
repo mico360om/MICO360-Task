@@ -80,13 +80,19 @@ export function createPrismaNoteRepository(prisma: PrismaClient): NoteRepository
       return toRecord(await prisma.meetingNote.update({ where: { id }, data: { deletedAt: null } }));
     },
 
-    async claimTask(id, marker) {
-      const { count } = await prisma.meetingNote.updateMany({ where: { id, taskId: null, deletedAt: null }, data: { taskId: marker } });
+    async claimTask(id, marker, replacing) {
+      // One conditional write: a free note, or (#19) exactly the timed-out claim being taken over.
+      const { count } = await prisma.meetingNote.updateMany({ where: { id, taskId: replacing ?? null, deletedAt: null }, data: { taskId: marker } });
       return count === 1;
     },
 
     async releaseTaskClaim(id, marker) {
       await prisma.meetingNote.updateMany({ where: { id, taskId: marker }, data: { taskId: null } });
+    },
+
+    async linkClaimedTask(id, marker, taskId, actionItemId) {
+      const { count } = await prisma.meetingNote.updateMany({ where: { id, taskId: marker }, data: { taskId, ...(actionItemId ? { actionItemId } : {}) } });
+      return count === 1;
     },
   };
 }

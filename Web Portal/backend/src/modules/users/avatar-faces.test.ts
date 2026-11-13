@@ -181,3 +181,16 @@ describe('GET /uploads/faces/:file', () => {
     expect([photo.statusCode, photo.body]).toEqual([200, 'original']);
   });
 });
+
+describe('review fix #24: a replaced or removed photo’s face copy is deleted', () => {
+  it('discard deletes the face file; nothing else in the folder; an address that isn’t ours is ignored', async () => {
+    const { faces } = make();
+    await faces.prepare(`/uploads/${KEY}`, Buffer.from('uploaded'));
+    writeFileSync(join(dir, 'faces', 'other.png.webp'), 'someone else');
+    await faces.discard(`/uploads/${KEY}`);
+    expect(existsSync(join(dir, 'faces', FACE))).toBe(false);
+    expect(readdirSync(join(dir, 'faces'))).toEqual(['other.png.webp']);
+    await expect(faces.discard('https://example.com/a.png')).resolves.toBeUndefined();
+    await expect(faces.discard(`/uploads/${KEY}`)).resolves.toBeUndefined(); // already gone: fine
+  });
+});

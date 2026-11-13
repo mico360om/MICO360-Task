@@ -59,8 +59,14 @@ export interface NoteRepository {
   /**
    * Atomically set `taskId` to a claim marker only if the note has no task yet. False when another
    * request already converted (or is converting) the note — the guard against duplicate tasks.
+   * `replacing` (review fix #19): take over that exact old claim instead (one that timed out).
    */
-  claimTask(id: string, marker: string): Promise<boolean>;
+  claimTask(id: string, marker: string, replacing?: string | null): Promise<boolean>;
   /** Undo a claim that never became a task (only while the marker is still in place). */
   releaseTaskClaim(id: string, marker: string): Promise<void>;
+  /**
+   * Review fix #19: point the note at its task (and action item) only while this claim is still in place —
+   * false when it isn't (another try linked it, or took the claim over). Absent: a plain update.
+   */
+  linkClaimedTask?(id: string, marker: string, taskId: string, actionItemId?: string): Promise<boolean>;
 }

@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
-import { LESSON_KINDS, LIMITS, type LessonInput, type LessonKind, type ManageCourse, type ManageLesson } from '../../../api/training';
+import { LESSON_KINDS, LIMITS, type LessonDeleteImpact, type LessonInput, type LessonKind, type ManageCourse, type ManageLesson } from '../../../api/training';
 import { RichTextEditor } from '../../rich-text/RichTextEditor';
 import { Button } from '../../ui/Button';
 import { ConfirmDialog } from '../../ui/ConfirmDialog';
@@ -160,7 +160,9 @@ export function LessonsEditor({ course }: { course: ManageCourse }) {
           }}
         />
       ) : null}
-      {deleting ? (
+      {deleting && asksWhoFinishes(course, deleting) ? (
+        <QuizDeleteDialog lesson={deleting} busy={deleteBusy} error={deleteProblem} onConfirm={() => void remove(deleting)} onClose={() => setDeleting(null)} />
+      ) : deleting ? (
         <ConfirmDialog
           title={`Delete the lesson “${deleting.title}”?`}
           confirmLabel="Delete lesson"
@@ -179,6 +181,44 @@ export function LessonsEditor({ course }: { course: ManageCourse }) {
     if (el) buttons.current.set(key, el);
     else buttons.current.delete(key);
   }
+}
+
+/** Owner, 13 Nov (batch 4b): the quiz of a published course that gives a certificate. */
+const asksWhoFinishes = (course: ManageCourse, l: ManageLesson) => l.kind === 'QUIZ' && course.status === 'PUBLISHED' && course.certificateOn;
+
+/**
+ * Deleting that quiz finishes everyone who has done every other lesson, with the certificate: the server works
+ * out how many from everyone's progress now, and the administrator is asked first (Delete / Cancel). Delete
+ * waits for the number; if it can't be worked out, the dialog says what may happen and still allows Delete.
+ */
+function QuizDeleteDialog({ lesson, busy, error, onConfirm, onClose }: { lesson: ManageLesson; busy: boolean; error: string | null; onConfirm: () => void; onClose: () => void }) {
+  const [impact, setImpact] = useState<LessonDeleteImpact | 'unknown' | null>(null);
+  useEffect(() => {
+    let live = true;
+    tc()
+      .lessonDeleteImpact(lesson.id)
+      .then(
+        (r) => live && setImpact(r),
+        () => live && setImpact('unknown'),
+      );
+    return () => {
+      live = false;
+    };
+  }, [lesson.id]);
+  let line: string;
+  if (impact === null) line = 'Checking who this would finish…';
+  else if (impact === 'unknown') line = 'Anyone who has done every other lesson will be marked finished and get the certificate.';
+  else if (impact.finishing === 0) line = impact.certificate ? 'No one will be marked finished or get the certificate.' : 'No one will be marked finished.';
+  else {
+    const who = impact.finishing === 1 ? '1 person' : `${impact.finishing.toLocaleString('en-GB')} people`;
+    line = impact.certificate ? `${who} will be marked finished and get the certificate.` : `${who} will be marked finished.`;
+  }
+  return (
+    <ConfirmDialog title="Delete the quiz?" confirmLabel="Delete" keepLabel="Cancel" busy={busy} error={error} confirmDisabled={impact === null} onConfirm={onConfirm} onClose={onClose}>
+      <p aria-live="polite" className="font-semibold text-ink">{line}</p>
+      <p className="mt-1">{`“${lesson.title}” and learners’ answers to it go with it. This can’t be undone.`}</p>
+    </ConfirmDialog>
+  );
 }
 
 /** "Add lesson": its kind, title and minutes. */

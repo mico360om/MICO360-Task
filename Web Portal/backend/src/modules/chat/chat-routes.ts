@@ -1,4 +1,5 @@
-import { fileContentMismatchMessage, fileTooLargeMessage, fileTypeNotAllowedMessage } from '../../lib/upload-safety';
+import { fileContentMismatchMessage, fileTooLargeMessage, fileTypeNotAllowedMessage, safeUploadName } from '../../lib/upload-safety';
+import { removeStoredFile } from '../../lib/stored-files';
 import { z } from 'zod';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { MAX_MESSAGE_LENGTH, type MessageService } from './message-service';
@@ -21,14 +22,19 @@ const editSchema = z.object({ body: z.string().min(1).max(MAX_MESSAGE_LENGTH) })
 const directSchema = z.object({ userId: z.string().min(1) });
 const reactionSchema = z.object({ emoji: z.string().min(1).max(32) });
 // Paging: an unparseable cursor or limit is a 400, not a 500.
-const historyQuery = z.object({
-  before: z
-    .string()
-    .refine((v) => !Number.isNaN(Date.parse(v)), { message: 'before must be an ISO date-time.' })
-    .transform((v) => new Date(v))
-    .optional(),
-  limit: z.coerce.number().int().min(1).max(100).optional(),
-});
+// Review fix #20: `before` + `beforeId` (the oldest message held: its time and id) pages without skipping a
+// message of the same millisecond; `before` alone (the Android app's and the extension's cursor) works as before.
+const historyQuery = z
+  .object({
+    before: z
+      .string()
+      .refine((v) => !Number.isNaN(Date.parse(v)), { message: 'before must be an ISO date-time.' })
+      .transform((v) => new Date(v))
+      .optional(),
+    beforeId: z.string().regex(/^[\w-]{1,64}$/, { message: 'beforeId must be a message id.' }).optional(),
+    limit: z.coerce.number().int().min(1).max(100).optional(),
+  })
+  .refine((q) => !q.beforeId || q.before, { message: 'beforeId goes with before.', path: ['beforeId'] });
 
 export interface ChatRouteDeps {
   messageService: MessageService;
@@ -64,9 +70,17 @@ export async function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDe
     return (await deps.accessibleProjectIds(req.user!.id, roles, pick)) ?? null;
   }
 
-  /** Deliver a chat event to a project channel's room, or to each participant of a DM. */
+  /**
+   * Deliver a chat event to a project channel's room, or to each participant of a DM. Live updates are best
+   * effort (review I1): what was saved is answered as saved; open screens catch up on their next read.
+   */
   async function announce(conversationId: string, event: string, payload: unknown): Promise<void> {
-    const t = await chat.conversationTargets(conversationId);
+    let t: Awaited<ReturnType<MessageService['conversationTargets']>>;
+    try {
+      t = await chat.conversationTargets(conversationId);
+    } catch {
+      return;
+    }
     if (t.kind === 'PROJECT' && t.projectId) {
       deps.broadcastToProject?.(t.projectId, event, payload);
     } else if (t.kind === 'DIRECT') {
@@ -95,11 +109,11 @@ export async function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDe
     return reply.status(201).send({ data: conversation });
   });
 
-  // Paginated message history (newest loaded, older via ?before=<ISO>).
+  // Paginated message history (newest loaded, older via ?before=<ISO>&beforeId=<id of the oldest held>).
   app.get('/conversations/:id/messages', { preHandler: guard.authenticate }, async (req) => {
     const { id } = req.params as { id: string };
-    const { before, limit } = historyQuery.parse(req.query);
-    const { messages, authors } = await chat.listMessages(id, req.user!.id, { before, limit });
+    const { before, beforeId, limit } = historyQuery.parse(req.query);
+    const { messages, authors } = await chat.listMessages(id, req.user!.id, { before, beforeId, limit });
     // companies: `authors` names everyone on the page, also people the reader doesn't otherwise know.
     return { data: messages, authors };
   });
@@ -188,23 +202,29 @@ export async function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDe
     if (caption.trim().length > MAX_MESSAGE_LENGTH) throw new ValidationError(`A caption can be at most ${MAX_MESSAGE_LENGTH} characters.`);
     // Pictures are stored smaller (only once every check above has passed).
     const kept = deps.shrinkImage ? await deps.shrinkImage(content, file.mimetype) : content;
-    const stored = await storage.save({ filename: file.filename, mimeType: file.mimetype, content: kept });
+    // N6: the name as kept and shown (no hidden or right-to-left characters, fits its column, never empty).
+    const fileName = safeUploadName(file.filename, file.mimetype);
+    const stored = await storage.save({ filename: fileName, mimeType: file.mimetype, content: kept });
+    // A file this request stored but no message keeps: removed (tried again, else logged — never left quietly).
+    const dropStored = () => removeStoredFile(storage, stored.storageKey, { logger: { warn: (m, c) => req.log.warn(c ?? {}, m) }, what: 'an unused chat upload' });
     let result;
     try {
       result = await chat.postMessage(id, req.user!.id, {
         body: caption,
         replyToId,
         clientId,
-        attachment: { fileName: file.filename, mimeType: file.mimetype, sizeBytes: stored.sizeBytes, storageKey: stored.storageKey },
+        attachment: { fileName, mimeType: file.mimetype, sizeBytes: stored.sizeBytes, storageKey: stored.storageKey },
       });
     } catch (err) {
-      // No message, no file: don't leave an orphan upload behind.
-      await storage.remove(stored.storageKey).catch(() => {});
+      // No message, no file (#18: the two are saved together): don't leave an orphan upload behind — unless a
+      // saved record uses it (review I1: on any doubt, the file is kept).
+      const kept = await chat.fileInUse(stored.storageKey).catch(() => true);
+      if (!kept) await dropStored();
       throw err;
     }
     if (!result.created) {
-      // Two copies of the same upload raced: keep the first, drop this file.
-      await storage.remove(stored.storageKey).catch(() => {});
+      // Two copies of the same upload raced: keep the first, drop this file (never one the kept message uses).
+      if (!result.message.attachments.some((a) => a.storageKey === stored.storageKey)) await dropStored();
       return reply.status(200).send({ data: result.message });
     }
     await announce(id, 'chat:message', { conversationId: id, message: result.message });

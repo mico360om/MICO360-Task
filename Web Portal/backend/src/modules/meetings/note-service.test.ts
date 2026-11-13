@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createNoteService } from './note-service';
+import { createNoteService, parseTaskClaim } from './note-service';
 import type { NoteRepository, NoteRecord, CreateNoteData, UpdateNoteData } from './note-repository';
 
 function inMemory(): NoteRepository {
@@ -116,8 +116,26 @@ describe('NoteService', () => {
     const n = await svc.addNote('m1', 'u1', { body: 'Follow up' });
     const claim = await svc.claimForTask('m1', n.id);
     await expect(svc.claimForTask('m1', n.id)).rejects.toMatchObject({ status: 409 });
-    await svc.releaseTaskClaim(n.id, claim);
-    await expect(svc.claimForTask('m1', n.id)).resolves.toMatch(/^pending:/);
+    await svc.releaseTaskClaim(n.id, claim.marker);
+    await expect(svc.claimForTask('m1', n.id)).resolves.toMatchObject({ marker: expect.stringMatching(/^pending:\d+:c[0-9a-z]{24}$/), made: false });
+  });
+
+  it('review fix #19: a claim names the id its task gets; it is never shown as the note’s task', async () => {
+    const svc = createNoteService({ notes: inMemory(), now: () => new Date('2026-11-13T09:00:00.000Z') });
+    const n = await svc.addNote('m1', 'u1', { body: 'Follow up' });
+    const claim = await svc.claimForTask('m1', n.id);
+    expect(claim.marker).toBe(`pending:${Date.parse('2026-11-13T09:00:00.000Z')}:${claim.taskId}`);
+    expect(parseTaskClaim(claim.marker)).toEqual({ at: Date.parse('2026-11-13T09:00:00.000Z'), taskId: claim.taskId });
+    expect(parseTaskClaim('pending:3f1c2a9e-0000-4000-8000-000000000000')).toEqual({ at: null, taskId: null });
+    expect((await svc.getNote('m1', n.id)).taskId).toBeNull();
+    expect((await svc.listNotes('m1'))[0]!.taskId).toBeNull();
+    expect((await svc.updateNote('m1', n.id, { highlighted: true })).taskId).toBeNull();
+    // Its task saved by that try (then the link failed): the next try gets the same claim back, `made`.
+    const again = await svc.claimForTask('m1', n.id, { taskExists: async (id) => id === claim.taskId });
+    expect(again).toEqual({ ...claim, made: true });
+    const linked = await svc.linkTask('m1', n.id, claim.taskId, undefined, claim.marker);
+    expect(linked.taskId).toBe(claim.taskId);
+    await expect(svc.claimForTask('m1', n.id)).rejects.toMatchObject({ code: 'NOTE_HAS_TASK' });
   });
 
   it('rejects editing/removing a note from another meeting', async () => {

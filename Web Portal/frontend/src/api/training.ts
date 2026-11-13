@@ -470,6 +470,13 @@ export interface ManageLesson {
   changedVersion: number;
 }
 
+/** Batch 4b: before a lesson is deleted — how many people it would finish now, and whether they get a certificate. */
+export interface LessonDeleteImpact {
+  finishing: number;
+  certificate: boolean;
+  published: boolean;
+}
+
 export interface ManageCourse {
   id: string;
   title: string;
@@ -731,6 +738,8 @@ export function trainingApi(client: ApiClient) {
       data(client.post<{ data: ManageLesson }>(`/training/manage/courses/${enc(courseId)}/lessons`, input)),
     updateLesson: (id: string, patch: Partial<LessonInput>) => data(client.patch<{ data: ManageLesson }>(`/training/manage/lessons/${enc(id)}`, patch)),
     deleteLesson: (id: string) => client.del(`/training/manage/lessons/${enc(id)}`),
+    /** Batch 4b: how many people deleting this lesson would finish (and certify) now; nothing is changed. */
+    lessonDeleteImpact: (id: string) => data(client.get<{ data: LessonDeleteImpact }>(`/training/manage/lessons/${enc(id)}/delete-impact`)),
     reorderLessons: (courseId: string, lessonIds: string[]) =>
       data(client.put<{ data: ManageCourse }>(`/training/manage/courses/${enc(courseId)}/lesson-order`, { lessonIds })),
     saveSteps: (lessonId: string, steps: StepInput[]) => data(client.put<{ data: ManageLesson }>(`/training/manage/lessons/${enc(lessonId)}/steps`, { steps })),

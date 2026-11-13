@@ -265,6 +265,8 @@ describe('ChatPage', () => {
     await waitFor(() => expect(screen.getByText('the very first message')).toBeInTheDocument());
     const olderReq = requests.find((r) => r.url.includes('before='));
     expect(decodeURIComponent(olderReq!.url)).toContain(`before=${newestPage[0]!.createdAt}`);
+    // Review fix #20: with the oldest loaded message's id, so a message of that same moment is never skipped.
+    expect(new URL(olderReq!.url, 'http://x').searchParams.get('beforeId')).toBe(newestPage[0]!.id);
     // A short page means we reached the start: no more "load older".
     await waitFor(() => expect(screen.queryByRole('button', { name: /load older messages/i })).not.toBeInTheDocument());
   });

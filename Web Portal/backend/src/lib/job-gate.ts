@@ -25,8 +25,11 @@ export interface JobGate {
   lock(store: JobLockStore): JobLockStore;
   /** A job's database work: after `ready`, followed until stop() waits for it, a blip tried once more. */
   attempt<T>(work: () => Promise<T>): Promise<T>;
-  /** Run `run` once the database is ready (or `firstAfterMs` after that), then every `everyMs`, until stop(). */
-  every(everyMs: number, run: () => unknown, opts?: { firstAfterMs?: number }): void;
+  /**
+   * Run `run` once the database is ready (or `firstAfterMs` after that), then every `everyMs`, until stop().
+   * `name`: the job's name in a warning about a run going on far too long (default: the function's own name).
+   */
+  every(everyMs: number, run: () => unknown, opts?: { firstAfterMs?: number; name?: string }): void;
   /** Start nothing more, stop the timers, and wait (at most `graceMs`) for the work running. */
   stop(graceMs?: number): Promise<void>;
 }
@@ -46,6 +49,13 @@ export interface JobGateOptions {
 export const JOB_RETRY_DELAY_MS = 5000;
 const PROBE_EVERY_MS = 5000;
 const STOP_GRACE_MS = 10_000;
+/**
+ * Batch 4b (review of 4a, M6): a run still going this many intervals after it started — and at least
+ * LONG_RUN_MIN_MS — is reported once (a warning line). It is never stopped: a slow run may be doing real work,
+ * and its job simply skips its turns until it ends (#34).
+ */
+export const LONG_RUN_INTERVALS = 3;
+export const LONG_RUN_MIN_MS = 5 * 60_000;
 
 const realSleep = (ms: number) =>
   new Promise<void>((resolve) => {
@@ -131,13 +141,35 @@ export function createJobGate(opts: JobGateOptions): JobGate {
       };
     },
     attempt,
-    every(everyMs, run, { firstAfterMs = 0 } = {}) {
+    every(everyMs, run, { firstAfterMs = 0, name } = {}) {
       // Review #34: one run of a job at a time in this process — a tick that comes while the last run is
       // still going is skipped (a lease that ran out no longer lets a second run start here).
       let busy = false;
+      let startedAt = 0;
+      let warnedRun = false;
+      const tooLong = Math.max(LONG_RUN_INTERVALS * everyMs, LONG_RUN_MIN_MS);
       const go = () => {
-        if (stopping || busy) return;
+        if (stopping) return;
+        if (busy) {
+          // Batch 4b (M6): the run this tick skips has gone on far too long — said once, the run left alone.
+          const runningForMs = Date.now() - startedAt;
+          if (!warnedRun && runningForMs >= tooLong) {
+            warnedRun = true;
+            try {
+              opts.warn?.('a background job is still running long after its next turn was due (left running; its turns are skipped until it ends)', {
+                job: name || run.name || 'a background job',
+                everyMs,
+                runningForMs,
+              });
+            } catch {
+              // A warning line can never stop a job.
+            }
+          }
+          return;
+        }
         busy = true;
+        startedAt = Date.now();
+        warnedRun = false;
         try {
           void Promise.resolve(run())
             .catch(() => {})

@@ -16,7 +16,7 @@ export interface TaskActor {
 }
 
 /** The New task form's fields, as POST /tasks reads them (task-routes' createSchema, parsed). */
-export type NewTaskBody = Omit<NewTask, 'createdById' | 'tagNames' | 'assigneeIds' | 'externalContacts' | 'guestLinks' | 'categoryIds' | 'boardDate' | 'recurrenceParentId' | 'meetingId' | 'duplicatedFromId'> & {
+export type NewTaskBody = Omit<NewTask, 'createdById' | 'tagNames' | 'assigneeIds' | 'externalContacts' | 'guestLinks' | 'categoryIds' | 'boardDate' | 'recurrenceParentId' | 'meetingId' | 'duplicatedFromId' | 'id'> & {
   /** Tag names (find-or-create). */
   tags?: string[];
   /** Present (even `[]`) means exactly these; absent defaults to the project owner. */

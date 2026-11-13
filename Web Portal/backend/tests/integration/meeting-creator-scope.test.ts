@@ -70,16 +70,17 @@ describe('a meeting’s creator sees it wherever they may open it (#21)', () => 
     expect((await scope.forViewer({ id: people.creator, roles: ['EMPLOYEE'] })).meetings.full).toContain(id);
   });
 
-  it('a meeting copied with Duplicate shows in the list of whoever copied it (organizer unchanged: N4)', async () => {
+  it('a meeting copied with Duplicate is the copier’s own: theirs to organize and in their list; not the original organizer’s (N4, owner 13 Nov)', async () => {
     const src = await meeting('Supplier sync', people.org, people.org, [people.attendee]);
     const service = createMeetingService({ meetings: repo, access } as never);
     const copy = await service.duplicateMeeting(src, people.attendee);
     made.push(copy.id);
-    expect(copy.organizerId).toBe(people.org);
+    expect(copy.organizerId).toBe(people.attendee);
     expect(copy.createdById).toBe(people.attendee);
     expect(await access.viewOf(people.attendee, [], copy.id)).toBe('full');
     expect(await listed(people.attendee)).toContain(copy.id);
-    expect(await listed(people.org)).toContain(copy.id);
+    expect(await access.viewOf(people.org, [], copy.id)).toBeNull();
+    expect(await listed(people.org)).not.toContain(copy.id);
   });
 
   it('lists agree with meeting-access.ts for every person (organizer, creator, attendee, outsider, archived company)', async () => {

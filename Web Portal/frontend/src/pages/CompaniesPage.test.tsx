@@ -44,11 +44,11 @@ afterEach(() => {
 });
 
 describe('CompaniesPage', () => {
-  it('is the Admin page "Companies", with "New company"', async () => {
+  it('is "System Settings / Companies" (owner, 13 Nov: inside System Settings), with "New company"', async () => {
     companyServer({ companies: [alphaApi, betaApi] });
     renderPage();
     expect(screen.getByRole('heading', { level: 1, name: 'Companies' })).toBeInTheDocument();
-    expect(screen.getByText('Admin')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'System Settings' })).toHaveAttribute('href', '/admin/settings');
     expect(screen.getByRole('button', { name: /New company/ })).toBeInTheDocument();
   });
 

@@ -224,7 +224,7 @@ export function AppShell() {
               <span data-tour="notifications" className="inline-flex">
                 <NotificationsBell />
               </span>
-              <ProfileMenu />
+              <ProfileMenu canLead={canLead} />
             </div>
           </div>
         </header>

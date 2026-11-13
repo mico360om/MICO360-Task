@@ -101,6 +101,18 @@ export interface MessagesPage {
   authors: MessageAuthor[];
 }
 
+/** Where an older page starts: just before this message (its time and id — review fix #20). */
+export interface MessagesCursor {
+  before: string;
+  beforeId?: string;
+}
+
+/** The cursor of the page older than this one (oldest message first), or undefined when it wasn't full (the start). */
+export function olderPageCursor(page: ApiMessage[], pageSize: number): MessagesCursor | undefined {
+  const oldest = Array.isArray(page) && page.length >= pageSize ? page[0] : undefined;
+  return oldest ? { before: oldest.createdAt, beforeId: oldest.id } : undefined;
+}
+
 export function chatApi(client: ApiClient) {
   return {
     /** The signed-in user's inbox (project channels they've opened + DMs), with unread counts. */
@@ -115,12 +127,15 @@ export function chatApi(client: ApiClient) {
     startDirect: (userId: string) =>
       client.post<{ data: ApiConversation & { readOnly?: ReadOnlyNote | null } }>('/conversations/direct', { userId }).then((r) => r.data),
     /**
-     * One page of history, oldest-first. Without `before` it's the newest page; pass the oldest
-     * loaded message's `createdAt` as `before` to load the page just older than it.
+     * One page of history, oldest-first. Without `before` it's the newest page; pass the oldest loaded
+     * message (its `createdAt` and `id`, review fix #20) to load the page just older than it — a message
+     * sent in the same millisecond is never skipped. A bare time (the old cursor) still works.
      */
-    messages: (conversationId: string, before?: string, limit?: number): Promise<MessagesPage> => {
+    messages: (conversationId: string, before?: string | MessagesCursor, limit?: number): Promise<MessagesPage> => {
       const qs = new URLSearchParams();
-      if (before) qs.set('before', before);
+      const cursor = typeof before === 'string' ? { before } : before;
+      if (cursor?.before) qs.set('before', cursor.before);
+      if (cursor?.before && cursor.beforeId) qs.set('beforeId', cursor.beforeId);
       if (limit) qs.set('limit', String(limit));
       const s = qs.toString();
       // companies: `authors` sits beside `data` (they name people the directory may not have).

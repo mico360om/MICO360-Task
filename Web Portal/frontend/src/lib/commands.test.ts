@@ -144,3 +144,10 @@ describe('matchNavCommands', () => {
     expect(NAV_COMMANDS.some((c) => c.admin)).toBe(true);
   });
 });
+
+describe('owner, 13 Nov: the palette after the menu moves', () => {
+  it('still opens Companies and Audit Logs (unchanged entries); it stays the extension’s copy (no new pages)', () => {
+    expect(matchNavCommands('companies', true).map((c) => c.to)).toContain('/admin/companies');
+    expect(matchNavCommands('audit', true).map((c) => c.to)).toContain('/admin/audit');
+  });
+});
