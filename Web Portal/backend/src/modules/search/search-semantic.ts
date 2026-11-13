@@ -82,9 +82,10 @@ export function createSemanticSearch({ prisma, ai, logger, now = () => new Date(
       try {
         const { model: used, vectors } = await ai.embed(chunk.map((c) => c.text), { background: true });
         const at = now();
-        await prisma.$executeRaw`INSERT INTO search_embeddings (kind, recordId, model, dims, vector, textHash, embeddedAt) VALUES ${Prisma.join(
+        // `vector` quoted: a keyword in MariaDB 11.7 and later (the live server; unquoted it was error 1064).
+        await prisma.$executeRaw`INSERT INTO search_embeddings (kind, recordId, model, dims, \`vector\`, textHash, embeddedAt) VALUES ${Prisma.join(
           chunk.map((c, k) => Prisma.sql`(${c.kind}, ${c.id}, ${used}, ${vectors[k]!.length}, ${toVector(vectors[k]!)}, ${hash(c.text)}, ${at})`),
-        )} ON DUPLICATE KEY UPDATE model = VALUES(model), dims = VALUES(dims), vector = VALUES(vector), textHash = VALUES(textHash), embeddedAt = VALUES(embeddedAt)`;
+        )} ON DUPLICATE KEY UPDATE model = VALUES(model), dims = VALUES(dims), \`vector\` = VALUES(\`vector\`), textHash = VALUES(textHash), embeddedAt = VALUES(embeddedAt)`;
         done += chunk.length;
         pauseLogged = false;
       } catch (err) {
@@ -118,7 +119,7 @@ export function createSemanticSearch({ prisma, ai, logger, now = () => new Date(
     const PAGE = 2000;
     for (let offset = 0; offset < MAX_COMPARED; offset += PAGE) {
       if (opts.signal?.aborted) break;
-      const rows = await prisma.$queryRaw<{ kind: string; id: string; vector: Buffer }[]>`SELECT kind, recordId AS id, vector FROM search_embeddings WHERE model = ${model.id} AND dims = ${q.length}
+      const rows = await prisma.$queryRaw<{ kind: string; id: string; vector: Buffer }[]>`SELECT kind, recordId AS id, \`vector\` FROM search_embeddings WHERE model = ${model.id} AND dims = ${q.length}
         ORDER BY embeddedAt DESC, recordId LIMIT ${PAGE} OFFSET ${offset}`;
       for (const r of rows) {
         const score = cosine(q, fromVector(r.vector));

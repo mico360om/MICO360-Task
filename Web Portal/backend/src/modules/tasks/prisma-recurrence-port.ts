@@ -89,8 +89,9 @@ export function createPrismaRecurrencePort(prisma: PrismaClient, opts: PrismaRec
             // no copy, nor does a source whose repeat (or form) changed meanwhile. The locks make it
             // right whichever commits first — a form delete waits for this, or this sees it — and are
             // taken in the delete's order (the form, then the task), so the two can't deadlock.
+            // 1.23.27: LOCK IN SHARE MODE, not FOR SHARE — MariaDB (the live server) refuses FOR SHARE (1064).
             if (source.inspectionFormId) {
-              const [form] = await tx.$queryRaw<Array<{ deletedAt: Date | null }>>`SELECT deletedAt FROM inspection_forms WHERE id = ${source.inspectionFormId} FOR SHARE`;
+              const [form] = await tx.$queryRaw<Array<{ deletedAt: Date | null }>>`SELECT deletedAt FROM inspection_forms WHERE id = ${source.inspectionFormId} LOCK IN SHARE MODE`;
               if (!form || form.deletedAt) return null;
             }
             const [locked] = await tx.$queryRaw<Array<{ hasRule: number | bigint; formId: string | null; stillDone: number | bigint; version: number | bigint }>>(lockSourceSql(sourceTaskId));

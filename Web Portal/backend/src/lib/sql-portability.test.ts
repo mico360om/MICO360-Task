@@ -33,6 +33,20 @@ describe('portabilityProblems: what MariaDB (the live server) reads otherwise or
     expect(portabilityProblems('UPDATE t JOIN u ON u.id = t.u SET t.a = 1 ORDER BY t.id LIMIT 1')).toEqual(['multi-table update/delete with ORDER BY/LIMIT']);
   });
 
+  // 1.23.27 — found by the first run of the DB suite on MariaDB 11.8.9 (configured like live).
+  it('finds FOR SHARE (MariaDB: LOCK IN SHARE MODE) and a bare `vector`, a keyword in MariaDB 11.7 and later', () => {
+    expect(portabilityProblems('SELECT deletedAt FROM inspection_forms WHERE id = ? FOR SHARE')).toEqual(['not portable syntax']);
+    expect(portabilityProblems('INSERT INTO search_embeddings (kind, recordId, vector) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE vector = VALUES(vector)')).toEqual(['bare keyword as a name: vector']);
+    expect(portabilityProblems('SELECT kind, recordId AS id, vector FROM search_embeddings WHERE model = ?')).toEqual(['bare keyword as a name: vector']);
+    expect(portabilityProblems('SELECT 1 FROM search_embeddings WHERE vector IS NULL')).toEqual(['bare keyword as a name: vector']);
+  });
+
+  it('leaves the portable forms alone: LOCK IN SHARE MODE, `vector` quoted or after a table name, the word inside a string', () => {
+    expect(portabilityProblems('SELECT deletedAt FROM inspection_forms WHERE id = ? LOCK IN SHARE MODE')).toEqual([]);
+    expect(portabilityProblems('INSERT INTO search_embeddings (kind, `vector`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `vector` = VALUES(`vector`)')).toEqual([]);
+    expect(portabilityProblems("SELECT e.vector, e.vectorDims FROM search_embeddings e WHERE e.model = 'vector'")).toEqual([]);
+  });
+
   it('leaves ordinary statements alone', () => {
     expect(portabilityProblems('SELECT t.id FROM tasks t JOIN kanban_columns c ON c.id = t.columnId WHERE t.projectId IN (?,?) ORDER BY t.dueDate IS NULL, t.dueDate ASC, t.`key` ASC LIMIT ?')).toEqual([]);
     expect(portabilityProblems('SELECT a.id FROM action_items a WHERE a.status IN (SELECT 1 FROM x WHERE y = ?) LIMIT 3')).toEqual([]);

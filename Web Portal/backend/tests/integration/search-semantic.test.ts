@@ -4,6 +4,7 @@ import { createTaskSearchIndex } from '../../src/modules/search/task-search-inde
 import { createSemanticSearch } from '../../src/modules/search/search-semantic';
 import { EmbeddingModelChangedError } from '../../src/modules/ai/ai-embeddings';
 import { ProviderRefusedError } from '../../src/modules/ai/ai-completion';
+import { portabilityProblems } from '../../src/lib/sql-portability';
 
 // Requires a running MySQL (TEST_DATABASE_URL) with migrations applied.
 // 1.23 meaning search: vectors made by a sweep (only with an embedding model), nearest items for a
@@ -124,5 +125,31 @@ describe('meaning search (database)', () => {
     refuse = null;
     expect(await paused.embedPending(5)).toBeGreaterThan(0); // the episode is over
     await prisma.searchEmbedding.deleteMany({ where: { model: `emb2-${tag}` } });
+  });
+});
+
+// 1.23.27 — the DB suite's first run on MariaDB 11.8.9 (the live server): VECTOR is a keyword there (11.7+), so the
+// sweep's bare `vector` column was error 1064 and no item ever got a vector.
+describe('the meaning-search SQL is portable to MariaDB', () => {
+  it('every statement the sweep, the clean-up and a question send holds nothing MariaDB refuses', async () => {
+    const sent: string[] = [];
+    const client = new PrismaClient({ datasources: { db: { url: process.env.TEST_DATABASE_URL } }, log: [{ emit: 'event', level: 'query' }] });
+    client.$on('query', (e) => void sent.push(e.query));
+    const m = `emb3-${tag}`;
+    try {
+      const own = createSemanticSearch({ prisma: client, ai: { embeddingModel: async () => ({ id: m, modelKey: 'stand-in' }), embed: async (texts: string[]) => ({ model: m, vectors: texts.map(vector) }) } });
+      // This file's tasks still in the index (an earlier test removes one).
+      const mine = (await prisma.taskSearchIndex.findMany({ where: { taskId: { in: Object.values(t) } }, select: { taskId: true } })).length;
+      expect(mine).toBeGreaterThan(0);
+      for (let i = 0; i < 20 && (await prisma.searchEmbedding.count({ where: { model: m, recordId: { in: Object.values(t) } } })) < mine; i++) await own.embedPending(500);
+      expect(await prisma.searchEmbedding.count({ where: { model: m, recordId: { in: Object.values(t) } } })).toBe(mine);
+      await own.nearest('my pump makes noise', { limit: 3 });
+      await own.prune();
+    } finally {
+      await prisma.searchEmbedding.deleteMany({ where: { model: m } });
+      await client.$disconnect();
+    }
+    expect(sent.some((q) => /INSERT INTO search_embeddings/.test(q))).toBe(true);
+    expect(sent.flatMap((q) => portabilityProblems(q).map((p) => `${p} — ${q.slice(0, 120)}`))).toEqual([]);
   });
 });
