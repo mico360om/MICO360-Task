@@ -126,6 +126,28 @@ describe('Course editor: details', () => {
   });
 });
 
+describe('Course editor: a starter course and the words (12 Nov)', () => {
+  it('no STARTER badge: a quiet “Comes with MICO360” inside the details only; people “taking it”', async () => {
+    api.manageCourse.mockResolvedValue(manageCourse({ starter: true, status: 'PUBLISHED', publishedAt: '2026-11-01T08:00:00.000Z', enrolled: 12, completed: 5 }));
+    open();
+    const publish = await screen.findByRole('region', { name: 'Publish' });
+    expect(screen.queryByText(/^Starter$/i)).toBeNull();
+    expect(within(publish).getByText('12 taking it · 5 finished')).toBeInTheDocument();
+    expect(within(publish).queryByText(/enrolled/)).toBeNull();
+    const details = screen.getByRole('region', { name: 'Details' });
+    expect(within(details).getByText('Comes with MICO360')).toBeInTheDocument();
+    expect(within(details).getByRole('group', { name: 'Finished when' })).toBeInTheDocument();
+    expect(within(details).queryByText('Completed when')).toBeNull();
+  });
+
+  it('a course someone made doesn’t say it comes with MICO360', async () => {
+    api.manageCourse.mockResolvedValue(manageCourse({ starter: false }));
+    open();
+    const details = await screen.findByRole('region', { name: 'Details' });
+    expect(within(details).queryByText('Comes with MICO360')).toBeNull();
+  });
+});
+
 describe('Course editor: publish', () => {
   it('what stops it being published is listed and Publish is unavailable', async () => {
     api.manageCourse.mockResolvedValue(manageCourse({ publishProblems: ['Lesson “Watch”: add the YouTube or Vimeo link.', 'Lesson “Check”: add at least one question.'] }));
@@ -150,7 +172,7 @@ describe('Course editor: publish', () => {
     expect(await within(panel).findByText(/Published\. People can now find it/)).toBeInTheDocument();
   });
 
-  it('published before, with changes: Minor fix (completions and certificates stay)', async () => {
+  it('published before, with changes: Small fix — people keep their progress (completions and certificates stay)', async () => {
     api.manageCourse.mockResolvedValue(manageCourse({ status: 'PUBLISHED', publishedAt: '2026-11-01T08:00:00.000Z', unpublishedChanges: true, version: 2, completed: 6 }));
     api.publish.mockResolvedValue(manageCourse({ status: 'PUBLISHED', version: 3 }));
     open();
@@ -159,20 +181,21 @@ describe('Course editor: publish', () => {
     await userEvent.click(within(panel).getByRole('button', { name: 'Publish changes' }));
     const dialog = screen.getByRole('dialog', { name: 'What kind of change is this?' });
     expect(dialog).toHaveTextContent('version 3');
-    expect(within(dialog).getByRole('radio', { name: /Minor fix/ })).toBeChecked();
-    expect(within(dialog).getByRole('radio', { name: /Minor fix/ })).toHaveAccessibleName(/completions and certificates stay/);
+    expect(within(dialog).getByRole('radio', { name: /^Small fix — people keep their progress/ })).toBeChecked();
+    expect(within(dialog).getByRole('radio', { name: /^Small fix/ })).toHaveAccessibleName(/completions and certificates stay/);
+    expect(within(dialog).queryByText(/Minor fix|Major change/)).toBeNull();
     await userEvent.click(within(dialog).getByRole('button', { name: 'Publish' }));
     await waitFor(() => expect(api.publish).toHaveBeenCalledWith('c1', { change: 'MINOR' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 
-  it('Major change: completed people review the changed lessons within N days (14 by default)', async () => {
+  it('Big change — people take it again: completed people review the changed lessons within N days (14 by default)', async () => {
     api.manageCourse.mockResolvedValue(manageCourse({ status: 'PUBLISHED', publishedAt: '2026-11-01T08:00:00.000Z', unpublishedChanges: true }));
     open();
     const panel = await screen.findByRole('region', { name: 'Publish' });
     await userEvent.click(within(panel).getByRole('button', { name: 'Publish changes' }));
     const dialog = screen.getByRole('dialog', { name: 'What kind of change is this?' });
-    await userEvent.click(within(dialog).getByRole('radio', { name: /Major change/ }));
+    await userEvent.click(within(dialog).getByRole('radio', { name: /^Big change — people take it again/ }));
     const days = within(dialog).getByRole('spinbutton', { name: 'Review within (days)' });
     expect(days).toHaveValue(14);
     await userEvent.clear(days);

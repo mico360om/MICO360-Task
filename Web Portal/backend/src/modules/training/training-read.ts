@@ -30,6 +30,12 @@ export interface PairState {
 
 export const pairKey = (userId: string, courseId: string) => `${userId}|${courseId}`;
 
+/**
+ * R2 (12 Nov): a video lesson without its link is hidden from learners — left out here, the one place every
+ * learner read goes through, so the lesson list, status, %, next lesson, minutes, counts and reports agree.
+ */
+export const hiddenLesson = (l: { kind: string; videoId: string | null }): boolean => l.kind === 'VIDEO' && !l.videoId;
+
 /** Lists split for `IN (…)` queries. */
 function chunks<T>(list: readonly T[], size = 300): T[][] {
   const out: T[][] = [];
@@ -51,7 +57,9 @@ export async function loadStates(ctx: TrainingContext, pairs: readonly { userId:
   const courseIds = [...new Set(pairs.map((p) => p.courseId))];
   const wanted = new Set(pairs.map((p) => pairKey(p.userId, p.courseId)));
   // I3: every row read once (people in pieces), then indexed by its person × course.
-  const lessons = await prisma.trainingLesson.findMany({ where: { courseId: { in: courseIds } }, select: { id: true, courseId: true, kind: true, changedVersion: true, position: true, title: true, minutes: true }, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }] });
+  const lessons = (
+    await prisma.trainingLesson.findMany({ where: { courseId: { in: courseIds } }, select: { id: true, courseId: true, kind: true, changedVersion: true, position: true, title: true, minutes: true, videoId: true }, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }] })
+  ).filter((l) => !hiddenLesson(l));
   const enrolmentOf = new Map<string, TrainingEnrolment>();
   const doneOf = new Map<string, Map<string, Date>>();
   const assigneesOf = new Map<string, { mandatory: boolean; dueDay: string | null; withdrawnAt: Date | null }[]>();

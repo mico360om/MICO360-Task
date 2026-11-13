@@ -6,11 +6,55 @@ import { useAuthStore } from '../stores/auth-store';
 import { createInspectionOutbox, localDraftStorage, type DraftView, type FlushState, type InspectionOutbox } from './inspection-outbox';
 
 /**
- * The app's one inspection outbox (see inspection-outbox), and the hooks the pages use. Waiting
+ * One outbox per person who signed in on this browser, over the one store of records (as the app's
+ * inspection-outboxes.ts): a person's answers, follow-up requests and signed finishes are sent only
+ * with that person's session (`apiClient.forUser`, batch 2 review #7) — while someone else is signed
+ * in they are never sent (SessionChangedError: a 401, "signed out" to the outbox), and they go when
+ * the same person signs in again. Each method names its person, so `inspectionOutbox` below hands it
+ * to theirs; the shared outbox code (inspection-outbox.ts, copied by the app) is unchanged.
+ */
+const outboxes = new Map<string, InspectionOutbox>();
+const outboxListeners = new Set<() => void>();
+const tellListeners = () => {
+  for (const l of [...outboxListeners]) l();
+};
+function outboxFor(ownerId: string): InspectionOutbox {
+  let o = outboxes.get(ownerId);
+  if (!o) {
+    o = createInspectionOutbox({ storage: localDraftStorage, api: inspectionsApi(apiClient.forUser(ownerId)) });
+    o.subscribe(tellListeners);
+    outboxes.set(ownerId, o);
+  }
+  return o;
+}
+
+/**
+ * The app's inspection outbox (see inspection-outbox), and the hooks the pages use. Waiting
  * changes are sent a moment after they are made, when the browser comes back online, when the tab
  * is shown again, every 20 seconds while something waits, and after signing in again.
  */
-export const inspectionOutbox: InspectionOutbox = createInspectionOutbox({ storage: localDraftStorage, api: inspectionsApi(apiClient) });
+export const inspectionOutbox: InspectionOutbox = {
+  subscribe(listener) {
+    outboxListeners.add(listener);
+    return () => void outboxListeners.delete(listener);
+  },
+  changedElsewhere: tellListeners,
+  draft: (ownerId, inspectionId) => outboxFor(ownerId).draft(ownerId, inspectionId),
+  view: (ownerId, inspectionId) => outboxFor(ownerId).view(ownerId, inspectionId),
+  remember: (ownerId, detail) => outboxFor(ownerId).remember(ownerId, detail),
+  saveAnswer: (ownerId, inspectionId, value) => outboxFor(ownerId).saveAnswer(ownerId, inspectionId, value),
+  queueFinish: (ownerId, inspectionId, signatures) => outboxFor(ownerId).queueFinish(ownerId, inspectionId, signatures),
+  cancelFinish: (ownerId, inspectionId) => outboxFor(ownerId).cancelFinish(ownerId, inspectionId),
+  queueFollowUps: (ownerId, inspectionId, itemIds, assigneeId, detail) => outboxFor(ownerId).queueFollowUps(ownerId, inspectionId, itemIds, assigneeId, detail),
+  clearProblem: (ownerId, inspectionId) => outboxFor(ownerId).clearProblem(ownerId, inspectionId),
+  forgetUnsaved: (ownerId) => outboxFor(ownerId).forgetUnsaved(ownerId),
+  discard: (ownerId, inspectionId) => outboxFor(ownerId).discard(ownerId, inspectionId),
+  ackFinished: (ownerId, inspectionId) => outboxFor(ownerId).ackFinished(ownerId, inspectionId),
+  ackFollowUpReport: (ownerId, inspectionId) => outboxFor(ownerId).ackFollowUpReport(ownerId, inspectionId),
+  flush: (ownerId, inspectionId, opts) => outboxFor(ownerId).flush(ownerId, inspectionId, opts),
+  waiting: (ownerId) => outboxFor(ownerId).waiting(ownerId),
+  flushAll: (ownerId, opts) => outboxFor(ownerId).flushAll(ownerId, opts),
+};
 
 // Another tab changed a record: tell this tab's pages.
 if (typeof window !== 'undefined') {

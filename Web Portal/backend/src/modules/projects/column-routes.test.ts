@@ -17,6 +17,12 @@ function inMemory(): ColumnRepository {
       return c;
     },
     async update(id, patch) { const c = rows.find((r) => r.id === id)!; Object.assign(c, patch); return c; },
+    async changeStatus(id, patch, check) {
+      const c = rows.find((r) => r.id === id)!;
+      check({ category: c.category, live: c.name === 'Full' ? 2 : 0, archived: 0, binned: 0, waiting: 0 });
+      Object.assign(c, patch);
+      return c;
+    },
     async remove(id) {
       const i = rows.findIndex((r) => r.id === id);
       if (i < 0) return null;
@@ -99,5 +105,35 @@ describe('Column routes', () => {
     const res = await app.inject({ method: 'DELETE', url: '/api/v1/columns/busy', headers: { authorization: `Bearer ${await token(['ADMIN'])}` } });
     expect(res.statusCode).toBe(409);
     expect(res.json().error.code).toBe('COLUMN_NOT_EMPTY');
+  });
+
+  it('review fix #13: a status change into Done on a column holding tasks answers 409 with plain words', async () => {
+    const admin = { authorization: `Bearer ${await token(['ADMIN'])}` };
+    const id = (await app.inject({ method: 'POST', url: '/api/v1/projects/p1/columns', headers: admin, payload: { name: 'Full' } })).json().data.id;
+    const res = await app.inject({ method: 'PUT', url: `/api/v1/columns/${id}`, headers: admin, payload: { category: 'DONE' } });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error).toMatchObject({ code: 'COLUMN_HAS_TASKS', message: 'Move the tasks out of this column first, then change its status.' });
+    expect(events.filter((e) => e.event === 'column:changed').map((e) => (e.payload as { action: string }).action)).toEqual(['created']);
+  });
+
+  it('review fix #26: PUT /projects/:id/columns/order saves the whole order in one request (admins and whoever runs the project)', async () => {
+    const admin = { authorization: `Bearer ${await token(['ADMIN'])}` };
+    const a = (await app.inject({ method: 'POST', url: '/api/v1/projects/p1/columns', headers: admin, payload: { name: 'A' } })).json().data.id;
+    const b = (await app.inject({ method: 'POST', url: '/api/v1/projects/p1/columns', headers: admin, payload: { name: 'B' } })).json().data.id;
+    const res = await app.inject({ method: 'PUT', url: '/api/v1/projects/p1/columns/order', headers: admin, payload: { columnIds: [b, a] } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.map((c: { name: string; position: number }) => `${c.name}@${c.position}`)).toEqual(['B@0', 'A@1']);
+    const last = events.filter((e) => e.event === 'column:changed').at(-1)!;
+    expect(last.projectId).toBe('p1');
+    expect((last.payload as { action: string }).action).toBe('reordered');
+    // A list that isn't the project's columns (one added or removed meanwhile): a plain 409.
+    const stale = await app.inject({ method: 'PUT', url: '/api/v1/projects/p1/columns/order', headers: admin, payload: { columnIds: [a] } });
+    expect(stale.statusCode).toBe(409);
+    expect(stale.json().error.code).toBe('COLUMNS_CHANGED');
+    expect((await app.inject({ method: 'PUT', url: '/api/v1/projects/p1/columns/order', headers: admin, payload: { columnIds: [] } })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'PUT', url: '/api/v1/projects/p1/columns/order', headers: admin, payload: { columnIds: [a, a] } })).statusCode).toBe(409);
+    const employee = { authorization: `Bearer ${await token(['EMPLOYEE'])}` };
+    expect((await app.inject({ method: 'PUT', url: '/api/v1/projects/p1/columns/order', headers: employee, payload: { columnIds: [a, b] } })).statusCode).toBe(403);
+    expect((await app.inject({ method: 'PUT', url: '/api/v1/projects/p1/columns/order', payload: { columnIds: [a, b] } })).statusCode).toBe(401);
   });
 });

@@ -9,11 +9,20 @@ export interface RecurringTask {
   startDate?: Date | null;
   recurrenceRule: RecurrenceRule | null;
   recurrenceParentId: string | null;
+  /** #14 repair: its version when the sweep read it (a change since, e.g. Pause, and no copy is made this time). */
+  version?: number;
 }
 
 export interface SpawnedTask {
   id: string;
   projectId?: string;
+}
+
+export interface SpawnOptions {
+  /** #14 repair: make it only if the source is still done (and not in the Recycle Bin) when it is held. */
+  onlyIfDone?: boolean;
+  /** #14 repair: …and only if its version is still this one (nobody changed it, or its repeat, since it was read). */
+  version?: number;
 }
 
 export interface RecurrenceTaskPort {
@@ -22,11 +31,31 @@ export interface RecurrenceTaskPort {
    * rule with its anchor day pinned); returns the new task id and project. Each task gets at most
    * one next copy: null when `sourceTaskId` already has one (a repeat or concurrent call).
    */
-  spawnNext(sourceTaskId: string, nextDueDate: Date, rule: RecurrenceRule): Promise<SpawnedTask | null>;
+  spawnNext(sourceTaskId: string, nextDueDate: Date, rule: RecurrenceRule, opts?: SpawnOptions): Promise<SpawnedTask | null>;
+  /**
+   * Review fix #14: on-completion series whose next copy was never made — finished tasks (in a Done
+   * column, completed at `since` or later) of live projects that still carry their rule and have no copy
+   * at all: none in the Recycle Bin, archived, merged or moved to another project. Absent: no repairs.
+   */
+  listMissedCopies?(since: Date): Promise<RecurringTask[]>;
   /** How many tasks already exist in the series identified by `parentId`. */
   countInstances(parentId: string): Promise<number>;
   /** The live tasks that carry a recurrence rule — the newest copy of each series. */
   listSeriesHeads(): Promise<RecurringTask[]>;
+}
+
+/**
+ * Review fix #14 (ruling): how far back the hourly sweep looks for a finished task whose next copy was
+ * never made. Two weeks: a failure is repaired within the hour, and a series broken longer ago (or long
+ * forgotten) is never brought back on its own.
+ */
+export const REPAIR_WINDOW_DAYS = 14;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+export interface RepairedCopy {
+  /** The finished task whose next copy was missing. */
+  headId: string;
+  copy: SpawnedTask;
 }
 
 export interface RecurrenceServiceDeps {
@@ -70,14 +99,14 @@ export function createRecurrenceService({ tasks, now = () => new Date(), timeZon
   }
 
   /** Make the copy that follows `task`: the next date that isn't already past. */
-  async function spawnFollowing(task: RecurringTask, raw: RecurrenceRule): Promise<SpawnedTask | null> {
+  async function spawnFollowing(task: RecurringTask, raw: RecurrenceRule, opts?: SpawnOptions): Promise<SpawnedTask | null> {
     const today = todayKey();
     const base = baseOf(task, raw, dayStart(today))!;
     const rule = withAnchorDay(raw, base);
     const next = nextDueDate(base, rule, today);
     if (!next) return null; // the series has ended (until)
     if (await seriesFull(task, rule)) return null;
-    return tasks.spawnNext(task.id, next, forNextCopy(rule));
+    return opts ? tasks.spawnNext(task.id, next, forNextCopy(rule), opts) : tasks.spawnNext(task.id, next, forNextCopy(rule));
   }
 
   /**
@@ -126,7 +155,32 @@ export function createRecurrenceService({ tasks, now = () => new Date(), timeZon
     return made;
   }
 
-  return { onTaskCompleted, onTaskSkipped, runSchedule };
+  /**
+   * Review fix #14: an on-completion series whose next copy failed at completion (the move was saved, the
+   * copy wasn't — a retry changes nothing, the column being the same) gets it here, as completing it would
+   * have made it: the next date that isn't past. Strictly: only finished in the last REPAIR_WINDOW_DAYS,
+   * only with no copy anywhere (the port; and the database's unique source guard), only while the rule
+   * still runs (not paused, not past its end date or count), and only if the task is still done when held.
+   */
+  async function repairMissedCopies(): Promise<RepairedCopy[]> {
+    if (!tasks.listMissedCopies) return [];
+    const made: RepairedCopy[] = [];
+    for (const head of await tasks.listMissedCopies(new Date(now().getTime() - REPAIR_WINDOW_DAYS * DAY_MS))) {
+      const raw = activeRule(head);
+      // Switched off, or an on-schedule series (the schedule makes its copies): nothing to repair.
+      if (!raw || raw.createNext === 'ON_SCHEDULE') continue;
+      try {
+        const copy = await spawnFollowing(head, raw, { onlyIfDone: true, ...(head.version !== undefined ? { version: head.version } : {}) });
+        if (copy) made.push({ headId: head.id, copy });
+      } catch (err) {
+        // One broken series must not stop the others; the next sweep tries it again.
+        onError?.(err, head.id);
+      }
+    }
+    return made;
+  }
+
+  return { onTaskCompleted, onTaskSkipped, runSchedule, repairMissedCopies };
 }
 
 export type RecurrenceService = ReturnType<typeof createRecurrenceService>;

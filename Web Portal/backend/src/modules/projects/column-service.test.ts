@@ -5,6 +5,8 @@ import { ConflictError } from '../../lib/http-errors';
 
 /** Live task counts per column id, so tests can fill a column. */
 const liveTasks = new Map<string, number>();
+/** Review fix #13: what else a column holds (archived, in the Recycle Bin, waiting), per column id. */
+const otherTasks = new Map<string, { archived?: number; binned?: number; waiting?: number }>();
 
 function inMemory(): ColumnRepository {
   const rows: ColumnRecord[] = [];
@@ -34,6 +36,13 @@ function inMemory(): ColumnRepository {
       Object.assign(c, patch);
       return c;
     },
+    async changeStatus(id, patch, check) {
+      const c = rows.find((r) => r.id === id)!;
+      const o = otherTasks.get(id) ?? {};
+      check({ category: c.category, live: liveTasks.get(id) ?? 0, archived: o.archived ?? 0, binned: o.binned ?? 0, waiting: o.waiting ?? 0 });
+      Object.assign(c, patch);
+      return c;
+    },
     async remove(id) {
       const i = rows.findIndex((r) => r.id === id);
       if (i < 0) return null;
@@ -46,6 +55,7 @@ function inMemory(): ColumnRepository {
 let svc: ReturnType<typeof createColumnService>;
 beforeEach(() => {
   liveTasks.clear();
+  otherTasks.clear();
   svc = createColumnService({ columns: inMemory() });
 });
 
@@ -114,5 +124,41 @@ describe('ColumnService', () => {
     expect((await guarded.updateColumn(c.id, { name: 'Checked' })).name).toBe('Checked');
     waiting.set(c.id, 0);
     expect((await guarded.updateColumn(c.id, { category: 'DONE' })).category).toBe('DONE');
+  });
+
+  it('review fix #13: refuses (409) a change into or out of Done while the column holds tasks — on the board, archived or in the Recycle Bin', async () => {
+    const todo = await svc.addColumn('p1', { name: 'To do' });
+    const done = await svc.addColumn('p1', { name: 'Done', category: 'DONE' });
+    liveTasks.set(todo.id, 1);
+    await expect(svc.updateColumn(todo.id, { category: 'DONE' })).rejects.toMatchObject({ status: 409, code: 'COLUMN_HAS_TASKS', message: 'Move the tasks out of this column first, then change its status.' });
+    liveTasks.set(done.id, 3);
+    await expect(svc.updateColumn(done.id, { category: 'IN_PROGRESS' })).rejects.toMatchObject({ code: 'COLUMN_HAS_TASKS' });
+    liveTasks.clear();
+    otherTasks.set(todo.id, { archived: 2, binned: 1 });
+    await expect(svc.updateColumn(todo.id, { category: 'DONE' })).rejects.toMatchObject({
+      message: 'Move the tasks out of this column first, then change its status. That includes 2 archived tasks and 1 task in the Recycle Bin.',
+    });
+    const rows = await svc.listColumns('p1');
+    expect(rows.map((c) => c.category)).toEqual(['TODO', 'DONE']);
+  });
+
+  it('review fix #13: other changes keep working — between open kinds with tasks, into or out of Done when empty, name and visibility of a full column', async () => {
+    const todo = await svc.addColumn('p1', { name: 'To do' });
+    const done = await svc.addColumn('p1', { name: 'Done', category: 'DONE' });
+    liveTasks.set(todo.id, 4);
+    liveTasks.set(done.id, 4);
+    expect((await svc.updateColumn(todo.id, { category: 'BLOCKED' })).category).toBe('BLOCKED');
+    expect((await svc.updateColumn(done.id, { name: 'Finished', enabled: false })).name).toBe('Finished');
+    expect((await svc.updateColumn(done.id, { category: 'DONE' })).category).toBe('DONE');
+    liveTasks.clear();
+    expect((await svc.updateColumn(todo.id, { category: 'DONE' })).category).toBe('DONE');
+    expect((await svc.updateColumn(done.id, { category: 'TODO' })).category).toBe('TODO');
+  });
+
+  it('review fix #13: tasks waiting for approval keep their own refusal (TASKS_WAITING) through the same step', async () => {
+    const review = await svc.addColumn('p1', { name: 'Review', category: 'REVIEW' });
+    otherTasks.set(review.id, { waiting: 1 });
+    liveTasks.set(review.id, 1);
+    await expect(svc.updateColumn(review.id, { category: 'DONE' })).rejects.toMatchObject({ code: 'TASKS_WAITING' });
   });
 });

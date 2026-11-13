@@ -2,20 +2,22 @@ import { describe, expect, it } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 import { extname, join, resolve } from 'node:path';
 import sharp from 'sharp';
-import { STARTER_COURSES } from './starter-courses';
+import { LEGACY_STARTER_KEYS, RETIRED_VIDEO_COURSES, STARTER_COURSES, STARTER_REVISION } from './starter-courses';
 import type { StarterCourse, StarterQuestion, StarterStep } from './starter-types';
 import { normalizeStarterCourse, pictureMimeOf } from '../training-starter';
 import { checkTrainingUpload } from '../training-files';
 import { LIMITS, MODULE_LABELS } from '../training-types';
 
 /**
- * The shipped starter content (R17): the list of courses never changes by accident, every picture and
- * download is there (and nothing else is), quizzes are answerable, and nothing would be cut on loading.
+ * The shipped starter content (R17; simplified 12 Nov, §7 and R4/R9): the list of courses never changes by accident,
+ * each course opens with its video lesson (waiting for its link), every picture and download is there (and nothing
+ * else is), quizzes are answerable and short, and nothing would be cut on loading.
  */
 
 const ASSETS = resolve(__dirname, '../../../../assets/training/starter');
 
 const KEYS = [
+  'starter:getting-started',
   'starter:tasks',
   'starter:board',
   'starter:meetings',
@@ -26,10 +28,9 @@ const KEYS = [
   'starter:mico-ai',
   'starter:admin',
   'starter:portal',
-  'starter:video-tasks',
-  'starter:video-meetings',
-  'starter:video-minutes',
 ];
+const MODULE_OF: Record<string, string> = { 'starter:getting-started': 'general' };
+const words = (html: string) => html.replace(/<[^>]+>/g, ' ').trim().split(/\s+/).filter(Boolean).length;
 
 const byKey = (key: string): StarterCourse => {
   const c = STARTER_COURSES.find((x) => x.key === key);
@@ -49,21 +50,32 @@ const richTexts = (c: StarterCourse): { where: string; html: string }[] => [
 ];
 
 describe('starter courses: the list', () => {
-  it('has the 13 starter courses, with stable unique keys, in this order', () => {
+  it('has the 11 starter courses (Getting started first), with stable unique keys, in this order', () => {
     expect(STARTER_COURSES.map((c) => c.key)).toEqual(KEYS);
     expect(new Set(STARTER_COURSES.map((c) => c.key)).size).toBe(KEYS.length);
+    expect(byKey('starter:getting-started').position).toBe(-1);
   });
 
-  it('publishes the 10 module courses and keeps the 3 video courses as drafts', () => {
-    const published = STARTER_COURSES.filter((c) => c.status === 'PUBLISHED').map((c) => c.key);
-    const drafts = STARTER_COURSES.filter((c) => c.status === 'DRAFT').map((c) => c.key);
-    expect(published).toEqual(KEYS.slice(0, 10));
-    expect(drafts).toEqual(['starter:video-tasks', 'starter:video-meetings', 'starter:video-minutes']);
+  it('the revision is raised and the 1.23.24 keys are known (the live site’s starter courses: R1)', () => {
+    expect(STARTER_REVISION).toBeGreaterThanOrEqual(2);
+    expect(LEGACY_STARTER_KEYS).toHaveLength(13);
+    for (const k of KEYS.filter((x) => x !== 'starter:getting-started')) expect(LEGACY_STARTER_KEYS).toContain(k);
+    // R4: the three draft video courses go into their module courses; Meetings gets one video.
+    expect(RETIRED_VIDEO_COURSES).toEqual([
+      { key: 'starter:video-tasks', into: 'starter:tasks' },
+      { key: 'starter:video-meetings', into: 'starter:meetings' },
+      { key: 'starter:video-minutes', into: 'starter:meetings' },
+    ]);
+    for (const r of RETIRED_VIDEO_COURSES) expect(KEYS).not.toContain(r.key);
   });
 
-  it('matches each module course to its module; beginner level, all lessons to finish, certificates off', () => {
+  it('every starter course is published (the videos are lessons inside them)', () => {
+    expect(STARTER_COURSES.every((c) => c.status === 'PUBLISHED')).toBe(true);
+  });
+
+  it('matches each course to its module; beginner level, all lessons to finish, certificates off', () => {
     for (const c of STARTER_COURSES) {
-      expect(c.key.startsWith('starter:video-') ? ['tasks', 'meetings'] : [c.key.slice('starter:'.length)]).toContain(c.moduleKey);
+      expect(c.moduleKey).toBe(MODULE_OF[c.key] ?? c.key.slice('starter:'.length));
       expect(MODULE_LABELS[c.moduleKey]).toBeTruthy();
       expect(c.difficulty).toBe('BEGINNER');
       expect(c.completionRule).toBe('ALL_LESSONS');
@@ -72,7 +84,7 @@ describe('starter courses: the list', () => {
     }
   });
 
-  it('the Client portal course is for clients only; every other course is for staff', () => {
+  it('the Client portal course is for clients only; every other course (Getting started too) is for staff', () => {
     expect(byKey('starter:portal').audience).toBe('CLIENTS');
     expect(byKey('starter:portal').moduleKey).toBe('portal');
     for (const c of STARTER_COURSES.filter((x) => x.key !== 'starter:portal')) expect(c.audience).toBe('STAFF');
@@ -84,40 +96,84 @@ describe('starter courses: the list', () => {
     for (const c of STARTER_COURSES.filter((x) => !['starter:reports', 'starter:admin'].includes(x.key))) expect(c.roleKeys ?? []).toEqual([]);
   });
 
-  it('module courses: 1–2 guides of 4–6 steps (most with a picture), then one quiz; realistic minutes', () => {
-    for (const c of STARTER_COURSES.filter((x) => x.status === 'PUBLISHED')) {
+  it('every course: its video first (no link yet, no words around it), 1–2 guides of 4–7 steps (most with a picture), then one quiz', () => {
+    for (const c of STARTER_COURSES) {
       const kinds = c.lessons.map((l) => l.kind);
+      expect(kinds[0], c.key).toBe('VIDEO');
+      expect(kinds.filter((k) => k === 'VIDEO'), c.key).toHaveLength(1);
+      const v = c.lessons[0]!;
+      if (v.kind === 'VIDEO') {
+        expect(v.videoUrl).toBeNull();
+        // §7: the admin sentence is gone (and nothing else is said around the video).
+        expect(v.body ?? '', c.key).toBe('');
+        expect(v.title, c.key).toMatch(/^Video: /);
+      }
       expect(kinds[kinds.length - 1], c.key).toBe('QUIZ');
       const guides = c.lessons.filter((l) => l.kind === 'GUIDE');
       expect(guides.length, c.key).toBeGreaterThanOrEqual(1);
       expect(guides.length, c.key).toBeLessThanOrEqual(2);
-      expect(kinds.length, c.key).toBe(guides.length + 1);
+      expect(kinds.length, c.key).toBe(guides.length + 2);
       for (const g of guides) {
         if (g.kind !== 'GUIDE') continue;
         expect(g.steps.length, `${c.key} ${g.title}`).toBeGreaterThanOrEqual(4);
-        expect(g.steps.length, `${c.key} ${g.title}`).toBeLessThanOrEqual(6);
+        expect(g.steps.length, `${c.key} ${g.title}`).toBeLessThanOrEqual(7);
         expect(g.minutes, `${c.key} ${g.title}`).toBeGreaterThanOrEqual(3);
         expect(g.minutes, `${c.key} ${g.title}`).toBeLessThanOrEqual(8);
       }
-      const quiz = c.lessons[c.lessons.length - 1]!;
-      expect(quiz.minutes).toBe(3);
       // At least a picture in each guide, and pictures in about half of the steps of a course or more.
       for (const g of guides) if (g.kind === 'GUIDE') expect(g.steps.some((s) => s.image), `${c.key} ${g.title}`).toBe(true);
       expect(pictures(c).length * 2, c.key).toBeGreaterThanOrEqual(steps(c).length - 2);
     }
   });
 
-  it('video courses: one video lesson waiting for its link, with an introduction saying who adds it', () => {
-    for (const key of ['starter:video-tasks', 'starter:video-meetings', 'starter:video-minutes']) {
-      const c = byKey(key);
-      expect(c.lessons).toHaveLength(1);
-      const l = c.lessons[0]!;
-      expect(l.kind).toBe('VIDEO');
-      if (l.kind !== 'VIDEO') continue;
-      expect(l.videoUrl).toBeNull();
-      expect(l.body).toMatch(/administrator adds the video link/);
-      expect(c.summary.length).toBeGreaterThan(20);
-    }
+  it('the 11 videos the owner approved: one per course, Meetings start to finish the long one', () => {
+    const videos = STARTER_COURSES.map((c) => c.lessons[0]!);
+    expect(videos.map((v) => v.title)).toEqual([
+      'Video: Getting started',
+      'Video: Tasks',
+      'Video: Kanban board',
+      'Video: Meetings start to finish',
+      'Video: Calendar',
+      'Video: Projects',
+      'Video: Reports and KPIs',
+      'Video: Chat',
+      'Video: MICO AI',
+      'Video: Admin setup',
+      'Video: Client portal',
+    ]);
+    expect(byKey('starter:meetings').lessons[0]!.minutes).toBe(12);
+  });
+
+  it('§7 text fixes: no step longer than 50 words, and the client course has no sign-in lesson', () => {
+    for (const c of STARTER_COURSES) for (const s of steps(c)) expect(words(s.body) + words(s.title), `${c.key}: ${s.title}`).toBeLessThanOrEqual(56);
+    const portal = byKey('starter:portal');
+    expect(portal.lessons.map((l) => l.title)).toEqual(['Video: Client portal', 'Your project, tasks and minutes', 'Quiz: Client portal']);
+    expect(JSON.stringify(portal)).not.toMatch(/temporary password|6-digit code|Set my password/);
+    const merged = portal.lessons[1]!;
+    expect(merged.was).toEqual(['Tasks, sign-off and minutes']);
+  });
+
+  it('Getting started covers sign in, the Dashboard, the menu, search, notifications, settings and the Learning Hub', () => {
+    const g = byKey('starter:getting-started');
+    expect(steps(g).map((s) => s.title)).toEqual(['Sign in', 'Your Dashboard', 'The side menu', 'Search', 'Notifications', 'Your settings', 'The Learning Hub']);
+    expect(g.moduleKey).toBe('general');
+    expect(g.roleKeys ?? []).toEqual([]);
+  });
+
+  it('Meetings says what 1.23.24 does (company time, Drafts, Create task from note, Save draft, the Sent log, Follow up)', () => {
+    const text = JSON.stringify(byKey('starter:meetings'));
+    for (const said of ['company time', 'Drafts', 'Create task from note', 'Save draft', 'Mark as final', '<strong>Sent</strong>', 'From meeting', 'completed by itself', 'Send to … people'])
+      expect(text, said).toContain(said);
+    // Not in 1.23.24: files on a meeting, a time-zone picker, a bell for invitations, answering through the calendar file.
+    expect(text).not.toMatch(/attach a file|time-zone picker|invited you in the bell/i);
+  });
+
+  it('Calendar, Chat and MICO AI say what 1.23.24 shows (checked against the retaken pictures)', () => {
+    const calendar = JSON.stringify(byKey('starter:calendar'));
+    for (const said of ['<strong>Day</strong>', '<strong>+ Task</strong>', 'Change dates']) expect(calendar, said).toContain(said);
+    expect(calendar).not.toMatch(/Add a task on this day|Change date(?!s)/);
+    expect(JSON.stringify(byKey('starter:chat'))).not.toMatch(/reaction, reply and more buttons/);
+    expect(JSON.stringify(byKey('starter:mico-ai'))).not.toMatch(/How can I help, Omar/);
   });
 
   it('no starter course carries a download (1.23.25: the old how-to slide PDFs are gone; training videos replace them)', () => {
@@ -128,20 +184,20 @@ describe('starter courses: the list', () => {
 describe('starter courses: quizzes', () => {
   const quizzes = STARTER_COURSES.flatMap((c) => c.lessons.flatMap((l) => (l.kind === 'QUIZ' ? [{ key: c.key, quiz: l.quiz }] : [])));
 
-  it('every module course has one quiz of 4–5 questions: pass mark 70, unlimited tries, shuffled, no time limit, no draw', () => {
-    expect(quizzes).toHaveLength(10);
+  it('every course has one quiz (Getting started 3 questions, the others 4–5): pass mark 70, unlimited tries, shuffled, no time limit, no draw, no intro', () => {
+    expect(quizzes).toHaveLength(11);
     for (const { key, quiz } of quizzes) {
-      expect(quiz.questions.length, key).toBeGreaterThanOrEqual(4);
-      expect(quiz.questions.length, key).toBeLessThanOrEqual(5);
+      expect(quiz.questions.length, key).toBeGreaterThanOrEqual(key === 'starter:getting-started' ? 3 : 4);
+      expect(quiz.questions.length, key).toBeLessThanOrEqual(key === 'starter:getting-started' ? 3 : 5);
       expect(quiz).toMatchObject({ passMark: 70, maxAttempts: null, shuffle: true, timeLimitMinutes: null, drawCount: null });
     }
+    // R9: the quiz's own first line says the count and the pass mark: the lesson has no introduction.
+    for (const c of STARTER_COURSES) for (const l of c.lessons.filter((x) => x.kind === 'QUIZ')) expect(l.body ?? '', c.key).toBe('');
   });
 
-  it('mixes the question kinds: each quiz has a single, a true/false and an order question; most have a multiple', () => {
-    for (const { key, quiz } of quizzes) {
-      const kinds = new Set(quiz.questions.map((q) => q.kind));
-      for (const k of ['SINGLE', 'TRUE_FALSE', 'ORDER'] as const) expect(kinds.has(k), `${key} ${k}`).toBe(true);
-    }
+  it('mostly single choice: put-in-order kept in two quizzes only (Meetings and Admin settings); each quiz has a single choice', () => {
+    for (const { key, quiz } of quizzes) expect(quiz.questions.some((q) => q.kind === 'SINGLE'), key).toBe(true);
+    expect(quizzes.filter((q) => q.quiz.questions.some((x) => x.kind === 'ORDER')).map((q) => q.key)).toEqual(['starter:meetings', 'starter:admin']);
     expect(quizzes.filter((q) => q.quiz.questions.some((x) => x.kind === 'MULTIPLE')).length).toBeGreaterThanOrEqual(8);
   });
 
@@ -272,5 +328,4 @@ describe('starter courses: files', () => {
     }
     expect(total).toBeLessThanOrEqual(3 * 1024 * 1024);
   });
-
 });

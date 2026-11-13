@@ -7,7 +7,7 @@ import { Button } from '../../ui/Button';
 import { EmptyState } from '../../ui/EmptyState';
 import { LoadError } from '../../ui/LoadError';
 import { fieldClass } from '../../ui/Field';
-import { AUDIENCE_LABELS, COURSE_STATUS_LABELS, CourseStatusChip, DIFFICULTY_LABELS, FilterField, Glyph, StarterChip, count, minutesText } from './manage-ui';
+import { AUDIENCE_LABELS, COURSE_STATUS_LABELS, CourseStatusChip, DIFFICULTY_LABELS, FilterField, Glyph, count, minutesText } from './manage-ui';
 import { useManageCourses } from './manage-queries';
 import { NewCourseDialog } from './NewCourseDialog';
 
@@ -78,12 +78,11 @@ export function CoursesTab() {
                     {c.title}
                   </Link>
                   <CourseStatusChip status={c.status} />
-                  {c.starter ? <StarterChip /> : null}
                   {c.unpublishedChanges ? <Badge tone="info">Changes not published</Badge> : null}
                 </div>
                 <p className="mt-0.5 text-xs text-ink-2">{courseFacts(c)}</p>
               </div>
-              <p className="flex-none text-sm text-ink-2">{`${c.enrolled.toLocaleString('en-US')} enrolled · ${c.completed.toLocaleString('en-US')} completed`}</p>
+              <p className="flex-none text-sm text-ink-2">{`${c.enrolled.toLocaleString('en-US')} taking it · ${c.completed.toLocaleString('en-US')} finished`}</p>
             </li>
           ))}
         </ul>

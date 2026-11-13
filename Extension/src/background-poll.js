@@ -43,10 +43,22 @@ async function reportDeliveries(authedFetch, userId) {
   }
 }
 
+/** Batch 2: is `userId` still the person signed in on this device (the session kept in `local`)? */
+async function stillSignedIn(local, userId) {
+  try {
+    const o = (await local.get('sessionUserId')) || {};
+    return !!userId && o.sessionUserId === userId;
+  } catch {
+    return false;
+  }
+}
+
 /**
- * One poll. `authedFetch(path, init)` is the signed-in person's fetch; `notifications` is
- * chrome.notifications. Resolves `{ count }`, or null when the server couldn't be read (the badge
- * and the baseline stay as they were).
+ * One poll. `authedFetch(path, init)` is the signed-in person's fetch (the worker binds it to `userId`);
+ * `notifications` is chrome.notifications. Resolves `{ count }`, or null when the server couldn't be
+ * read (the badge and the baseline stay as they were). Batch 2: when the session changed while the poll
+ * waited (signed out, someone else signed in), nothing of it is shown or kept — the badge, an alert and
+ * the baseline (`lastUnreadUser`) are only ever the person's the poll was for.
  */
 export async function pollNotifications({ authedFetch, local, session, notifications, setBadge, userId }) {
   let count;
@@ -57,9 +69,9 @@ export async function pollNotifications({ authedFetch, local, session, notificat
   } catch {
     return null;
   }
-  setBadge(count);
   const stored = await local.get(['lastUnread', 'lastUnreadUser']);
   const baseline = unreadBaseline(stored, userId);
+  let alert = null;
   if (shouldNotify(baseline, count)) {
     const settings = await readAlertSettings(local);
     if (settings.on) {
@@ -71,16 +83,24 @@ export async function pollNotifications({ authedFetch, local, session, notificat
           newest = null;
         }
       }
-      const content = alertContent({ fresh: count - baseline, newest, details: settings.details });
-      try {
-        await session.set({ [ALERT_TARGET_KEY]: newest ? { id: newest.id, entityType: newest.entityType ?? null, entityId: newest.entityId ?? null, userId } : null });
-      } catch { /* the click then opens Notifications */ }
-      try {
-        notifications?.create(NOTIFICATION_ID, { type: 'basic', iconUrl: 'icons/icon128.png', ...content });
-      } catch { /* no desktop notifications here */ }
+      alert = { newest, content: alertContent({ fresh: count - baseline, newest, details: settings.details }) };
     }
   }
+  // Batch 2: everything read so far is this person's — shown and kept only while they are still the
+  // one signed in (the requests above may have waited while someone else signed in).
+  if (!(await stillSignedIn(local, userId))) return null;
+  setBadge(count);
+  if (alert) {
+    const { newest, content } = alert;
+    try {
+      await session.set({ [ALERT_TARGET_KEY]: newest ? { id: newest.id, entityType: newest.entityType ?? null, entityId: newest.entityId ?? null, userId } : null });
+    } catch { /* the click then opens Notifications */ }
+    try {
+      notifications?.create(NOTIFICATION_ID, { type: 'basic', iconUrl: 'icons/icon128.png', ...content });
+    } catch { /* no desktop notifications here */ }
+  }
   // The count first: a worker stopped while reporting must not alert about the same ones again.
+  if (!(await stillSignedIn(local, userId))) return null;
   await local.set({ lastUnread: count, lastUnreadUser: userId });
   // Every poll, as the web reports every message: a second message in a conversation, or one in a
   // muted conversation, makes no new notification, but its sender should still see "Delivered".

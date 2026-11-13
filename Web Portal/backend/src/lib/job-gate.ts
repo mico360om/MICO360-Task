@@ -121,21 +121,32 @@ export function createJobGate(opts: JobGateOptions): JobGate {
     lock(store) {
       return {
         // runExclusive asks through `attempt` (after `ready`, a blip tried once more): only the stop is checked here.
-        async tryAcquire(name, leaseMs, now) {
+        async tryAcquire(name, leaseMs, now, holder) {
           if (stopping) return false;
-          return store.tryAcquire(name, leaseMs, now);
+          return store.tryAcquire(name, leaseMs, now, holder);
         },
+        // N7: a run's lease is handed back as it ends — even while the server stops (the next server can start it).
+        ...(store.release ? { release: (name: string, holder: string, now: Date) => store.release!(name, holder, now) } : {}),
         attempt,
       };
     },
     attempt,
     every(everyMs, run, { firstAfterMs = 0 } = {}) {
+      // Review #34: one run of a job at a time in this process — a tick that comes while the last run is
+      // still going is skipped (a lease that ran out no longer lets a second run start here).
+      let busy = false;
       const go = () => {
-        if (stopping) return;
+        if (stopping || busy) return;
+        busy = true;
         try {
-          void Promise.resolve(run()).catch(() => {});
+          void Promise.resolve(run())
+            .catch(() => {})
+            .finally(() => {
+              busy = false;
+            });
         } catch {
           // A job's own failure is its to report.
+          busy = false;
         }
       };
       void ready.then(async () => {

@@ -1615,6 +1615,10 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
     const change = (m.changes as unknown as Record<string, FieldChange>).recurrenceRule;
     const mainKeepsIt = JSON.stringify(current.recurrenceRule ?? null) === rule && !(change && undoValue(change, current.recurrenceRule).restore);
     if (mainKeepsIt) return false;
+    // Review batch 4a: the main task made its next copy since the merge (completed, or the hourly repair of a
+    // missed copy) — its series went on with the rule, whatever the copy's rule now reads like (an anchor day
+    // pinned, a moved day dropped). Giving the rule back would start a second series.
+    if ((await db.task.count({ where: { recurrenceSourceId: main.id, createdAt: { gte: m.mergedAt } } })) > 0) return false;
     const seriesId = main.recurrenceParentId ?? main.id;
     const carriers = await db.task.findMany({
       where: { deletedAt: null, id: { not: main.id }, OR: [{ id: seriesId }, { recurrenceParentId: seriesId }], recurrenceRule: { not: Prisma.DbNull } },

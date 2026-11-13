@@ -26,12 +26,39 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - Removed or replaced files and profile pictures are deleted from storage.
 - Opening a new project chat at the same time as someone else works for both of you.
 - A duplicated meeting belongs to the person who made the copy.
+
+## [1.23.27] - 2026-11-13
+
+### Improvements
+- Learning Hub: simpler pages — one 'Up next' course to start, To do and Done lists, slimmer course cards, one Next button in lessons and a shorter quiz.
+- Learning Hub: each course starts with its training video once the link is added, a new 'Getting started' course, and lesson pictures updated to the current version.
+- Learning Hub (admins): fewer tabs, a 'New staff only' choice when assigning a course, and the tour switch moved to System Settings.
+
+### Security
+- Logging out can no longer be undone by a sign-in renewal that was still on its way.
+- A request started by one person is never re-sent as another person who signs in on the same browser.
+- Changes waiting offline are only sent for the person who made them.
+- The Chrome extension's saved pages belong to the person who opened them.
+
+### Bug fixes
+- Unsent chat drafts and waiting messages are removed when you log out, and are never shown to the next person on the same browser.
 - Meetings you created stay in your Meetings list and in search after you hand them to another organizer.
 - Top-bar search finds your newest meetings however many meetings there are, and stops showing a meeting as soon as you are taken off it.
 - The chat conversation list loads faster when you have many conversations.
 - Meeting page: the Series panel shows earlier meetings' titles in full, wrapping by word, instead of one letter per line.
 - Pages you open from a link start at the top: My Action Items no longer opens with its title hidden under the top bar.
 - MICO AI answers and their tables show the names of tasks, projects, meetings and people instead of internal codes.
+- A column's status can't be changed to or from Done while it still holds tasks, so finished dates stay right.
+- A repeating task that missed making its next copy gets it within the hour.
+- Changes made offline are sent in the right order, so a task ends where you last moved it.
+- Two people linking tasks at the same moment can no longer make a loop of dependencies.
+- Reordering board columns is saved all at once.
+- Background jobs run as often as intended.
+- Swapping a task's assignee in Workload no longer overwrites someone else's newer change.
+- Repeating inspection checks now get their next copy on the live site's database, which refused the step that makes it.
+- Search by meaning (AI search) can now prepare its index on the live site's database.
+- Clicking a Learning Hub lesson's button twice quickly no longer shows an error.
+- The Error log no longer loses a report when the same error happens many times at once.
 
 ## [1.23.26] - 2026-11-13
 

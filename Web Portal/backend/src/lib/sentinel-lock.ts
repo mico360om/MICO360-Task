@@ -38,17 +38,28 @@ export async function withSentinelLock<T>(
   prisma: PrismaClient,
   name: string,
   work: (tx: Prisma.TransactionClient) => Promise<T>,
-  { attempts = 4, pauseMs = 25 }: SentinelLockOptions = {},
+  opts: SentinelLockOptions = {},
 ): Promise<T> {
   // The row exists before anyone locks it: locking a missing row would take a gap lock, and two
   // first-ever callers would then deadlock on their inserts. INSERT IGNORE: a no-op once it's there.
   await prisma.jobLock.createMany({ data: [{ name, lockedUntil: new Date(0) }], skipDuplicates: true });
+  return withRowLock(prisma, (tx) => tx.$queryRaw`SELECT name FROM job_locks WHERE name = ${name} FOR UPDATE`, (tx) => work(tx), opts);
+}
+
+/**
+ * Review batch 4a (13 Nov 2026) — the same rule for any row that already exists (a board column, a
+ * project): `lock` is the transaction's FIRST statement (a `SELECT … FOR UPDATE` of that one row), then
+ * `work` runs with what it read. Tried again, whole, on a deadlock, P2034 or MariaDB's error 1020.
+ */
+export async function withRowLock<L, T>(
+  prisma: PrismaClient,
+  lock: (tx: Prisma.TransactionClient) => Promise<L>,
+  work: (tx: Prisma.TransactionClient, locked: L) => Promise<T>,
+  { attempts = 4, pauseMs = 25 }: SentinelLockOptions = {},
+): Promise<T> {
   for (let attempt = 1; ; attempt++) {
     try {
-      return await prisma.$transaction(async (tx) => {
-        await tx.$queryRaw`SELECT name FROM job_locks WHERE name = ${name} FOR UPDATE`;
-        return work(tx);
-      }, TX);
+      return await prisma.$transaction(async (tx) => work(tx, await lock(tx)), TX);
     } catch (err) {
       if (attempt >= attempts || !isRetryableTxError(err)) throw err;
       if (pauseMs > 0) await pause(pauseMs * attempt + Math.floor(Math.random() * pauseMs));

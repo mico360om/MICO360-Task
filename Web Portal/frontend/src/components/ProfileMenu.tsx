@@ -9,6 +9,7 @@ import { SignOutWarning } from './SignOutWarning';
 import { ShortcutHint, useShortcutSettings } from './shortcuts/ShortcutProvider';
 import { MANAGER_VIEW_WORDS, useEffectiveAdmin, useManagerView, useSetManagerView } from '../lib/manager-view';
 import { ACCOUNT_MENU_PAGES } from './Sidebar';
+import { useTourStore } from './training/tour-store';
 
 /** The account menu's small icons (16 px, the menu's own stroke). */
 function MenuIcon({ children }: { children: ReactNode }) {
@@ -28,7 +29,7 @@ export interface ProfileMenuProps {
 }
 
 /**
- * Header account button + dropdown menu: identity, profile, settings and log out. Owner, 13 Nov: also the
+ * Header account button + dropdown menu: identity, profile, settings, the tour of the site and log out. Owner, 13 Nov: also the
  * Recycle Bin (administrators and the people who run a project, as its menu link was) and the Error Log and
  * Audit Logs (the Admin group's people: administrators, while Manager View is off) — moved from the left menu.
  */
@@ -152,6 +153,21 @@ export function ProfileMenu({ canLead }: ProfileMenuProps = {}) {
               </svg>
               Keyboard shortcuts
               <ShortcutHint action="help" className="ms-auto" />
+            </button>
+            {/* 12 Nov (Learning Hub): the first-time tour again, from any page (was "Take the tour" on My learning). */}
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                useTourStore.getState().start();
+              }}
+              className={`${itemClass} w-full`}
+            >
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="9" /><path d="m15.5 8.5-2 5-5 2 2-5z" />
+              </svg>
+              Tour of the site
             </button>
             {managerView.available ? (
               <button

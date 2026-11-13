@@ -1,7 +1,7 @@
 import { apiClient } from '../api/client';
 import { tasksApi, type NewTaskInput } from '../api/tasks';
 import { useAuthStore } from '../stores/auth-store';
-import { ApiError } from './api-client';
+import { ApiError, SessionChangedError } from './api-client';
 import {
   enqueue,
   failedItems,
@@ -13,6 +13,7 @@ import {
   retryItem,
   type FlushResult,
   type QueuedMutation,
+  dropQueuedMoves,
 } from './offline-queue';
 import { showTaskNotice, taskSavedNotice } from './task-notice';
 
@@ -28,6 +29,8 @@ const pause = (message: string) => Object.assign(new Error(message), { pause: tr
  */
 function classify(e: unknown): Error {
   if (e && typeof e === 'object' && ((e as { permanent?: boolean }).permanent || (e as { pause?: boolean }).pause)) return e as Error;
+  // Batch 2 (review #7): someone else is signed in now — the change waits for the person who made it.
+  if (e instanceof SessionChangedError) return pause('Signed in as someone else');
   if (!(e instanceof ApiError)) return pause('Offline');
   if (e.status === 401) return pause('Signed out');
   if (e.status === 429) return pause('Rate limited');
@@ -39,18 +42,25 @@ function classify(e: unknown): Error {
 /** 1.22.3: the tasks made offline that this flush saved, for the "Task MICO-143 saved" notice. */
 let savedThisFlush: Array<{ id: string; key: string }> = [];
 
-/** Replay one queued task mutation through the API. */
+/**
+ * Replay one queued task mutation through the API — only as the person who made it (batch 2, review #7):
+ * the client bound to its owner checks, right as each request goes (nothing awaited in between), that the
+ * session held — and the token sent — is theirs; otherwise nothing is sent and the flush pauses.
+ */
 async function replayMutation(m: QueuedMutation): Promise<void> {
   try {
+    // A change with no owner is never sent (flushes only ever take the signed-in person's own).
+    if (!m.ownerId) throw pause('No owner');
+    const api = tasksApi(apiClient.forUser(m.ownerId));
     if (m.kind === 'task.create') {
-      const task = await tasksApi(apiClient).create(m.payload as NewTaskInput, { idempotencyKey: m.idempotencyKey });
+      const task = await api.create(m.payload as NewTaskInput, { idempotencyKey: m.idempotencyKey });
       if (task?.id && task.key) savedThisFlush.push({ id: task.id, key: task.key });
       return;
     }
     if (m.kind === 'task.move') {
       // A move is idempotent by nature (PATCH to a target column); the API takes no expectedVersion for it.
       const p = m.payload as { id: string; toColumnId: string };
-      await tasksApi(apiClient).move(p.id, p.toColumnId);
+      await api.move(p.id, p.toColumnId);
       return;
     }
     throw fail(`Unknown change type ${m.kind}`);
@@ -170,4 +180,16 @@ export function describeChange(m: QueuedMutation): string {
   if (m.kind === 'task.create') return `New task “${p.title ?? 'Untitled'}”`;
   if (m.kind === 'task.move') return 'Task moved to another column';
   return m.kind;
+}
+
+/**
+ * Review fix #16: a move of this task, sent online at `sentAt`, was just saved — the signed-in person's moves
+ * of it queued before then are dropped, so a stale one can't replay later and put the task back (one queued
+ * while it was on its way is newer, and stays).
+ * 1.23.27 integration (with batch 2): `ownerId` is the person who made that move — taken when it was sent — so
+ * only their own queue is touched even if someone else signed in on this tab while it was on its way.
+ * Left out: the person signed in now.
+ */
+export function forgetQueuedMoves(taskId: string, sentAt: number, ownerId: string | null = currentUserId()): void {
+  if (ownerId) dropQueuedMoves(localStorageQueueStore, ownerId, taskId, sentAt);
 }

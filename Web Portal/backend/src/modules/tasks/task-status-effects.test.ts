@@ -65,6 +65,16 @@ describe('What a status change does', () => {
     expect(w.deps.record).toHaveBeenCalledWith({ taskId: 't1', projectId: 'ops', userId: 'aisha', action: 'COMPLETED', meta: { from: 'Doing', to: 'Finished' } });
   });
 
+  it('review fix #14: a next copy that fails is reported, and the rest of the completion goes on (the hourly sweep makes the copy)', async () => {
+    const failed = vi.fn();
+    const w = world({ nextCopy: vi.fn(async () => Promise.reject(new Error('pool timeout'))), onCopyFailed: failed });
+    await expect(w.statusChanged(task({ recurrenceRule: { freq: 'WEEKLY', interval: 1 } }), 'doing', 'aisha')).resolves.toBeUndefined();
+    expect(failed).toHaveBeenCalledWith(expect.objectContaining({ message: 'pool timeout' }), 't1');
+    expect(w.deps.announceCopy).not.toHaveBeenCalled();
+    expect(w.deps.followActionItems).toHaveBeenCalledWith('t1', true);
+    expect(w.deps.notify).toHaveBeenCalledWith(expect.objectContaining({ title: 'Task moved to Finished' }));
+  });
+
   it('re-opening, and a plain move between open columns', async () => {
     const w = world();
     await w.statusChanged(task({ columnId: 'todo', completedAt: null }), 'done', 'aisha');

@@ -914,6 +914,42 @@ describe('ChatPage sending reliably', () => {
     expect(screen.queryByText('only in the DM')).not.toBeInTheDocument();
   });
 
+  it('batch 2: a message still waiting its turn is never sent as someone else who signs in on this browser', async () => {
+    // As App's ChatRoute: another person's session starts a fresh chat page.
+    function Keyed() {
+      const id = useAuthStore((s) => s.user?.id);
+      return <ChatPage key={id} />;
+    }
+    const base = globalThis.fetch as unknown as (url: string, init?: RequestInit) => Promise<Response>;
+    const sentWith: { body: string; auth: string | null }[] = [];
+    let release!: () => void;
+    const held = new Promise<void>((r) => { release = r; });
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (/\/conversations\/c1\/messages$/.test(String(url)) && init?.method === 'POST') {
+        const b = JSON.parse(String(init.body)) as { body: string };
+        sentWith.push({ body: b.body, auth: (init.headers as Record<string, string>)['Authorization'] ?? null });
+        if (b.body === 'first') await held; // the first is still on its way…
+      }
+      return base(url, init);
+    }));
+    renderWithQuery(<Keyed />);
+    await userEvent.click(await screen.findByText('Mobile App'));
+    await screen.findByText('hello channel');
+    await userEvent.type(screen.getByLabelText('Message'), 'first{Enter}');
+    await waitFor(() => expect(sentWith.map((s) => s.body)).toEqual(['first']));
+    await userEvent.type(screen.getByLabelText('Message'), 'second{Enter}'); // …so this one waits behind it
+    // Another person's session is taken over on this browser (signed in in another tab).
+    act(() => {
+      useAuthStore.setState({ user: { id: 'other', email: 'o@x', username: 'other', roles: ['EMPLOYEE'] }, accessToken: 'atOther', refreshToken: 'rtOther', isAuthenticated: true });
+    });
+    release();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(sentWith.filter((s) => s.auth === 'Bearer atOther')).toEqual([]);
+    expect(sentWith.map((s) => s.body)).toEqual(['first']);
+    // It stays kept for its person.
+    expect(Object.entries({ ...localStorage }).some(([k, v]) => k.startsWith('mico360.chat.outbox.me.') && v.includes('second'))).toBe(true);
+  });
+
   it('keeps a separate unsent draft for each conversation', async () => {
     inbox = [dmSummary()];
     await openMobileChannel();

@@ -158,3 +158,68 @@ describe('job gate: stopping (a deploy restart) — before the database client d
     expect(run).not.toHaveBeenCalled();
   });
 });
+
+// Review #34 (13 Nov 2026): with a lease that has run out, one process started the same job again while
+// its last run was still going (3 at once in the repro). A timer tick now waits its turn: while the
+// job's previous run is going, the tick is skipped.
+describe('job gate: a job never runs twice at once in one process (#34)', () => {
+  it('a run longer than its interval (and its lease) skips the ticks that come meanwhile', async () => {
+    const gate = createJobGate({ probe: async () => 1 });
+    const lock = gate.lock({
+      // A lease that has always run out (as for a run longer than it): only this process can stop a second run.
+      async tryAcquire() { return true; },
+    });
+    let running = 0;
+    let most = 0;
+    let runs = 0;
+    gate.every(60, () =>
+      runExclusive(lock, 'daily-task-emails', 55, () => new Date(), async () => {
+        runs++;
+        running++;
+        most = Math.max(most, running);
+        await new Promise((r) => setTimeout(r, 150));
+        running--;
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 400));
+    await gate.stop(1000);
+    expect(most).toBe(1);
+    expect(runs).toBeGreaterThanOrEqual(2);
+  });
+
+  it('a run shorter than its interval runs at every tick, as before', async () => {
+    vi.useFakeTimers();
+    const gate = createJobGate({ probe: async () => {} });
+    const run = vi.fn(async () => {});
+    gate.every(60_000, run);
+    await vi.advanceTimersByTimeAsync(10);
+    await vi.advanceTimersByTimeAsync(3 * 60_000);
+    expect(run).toHaveBeenCalledTimes(4);
+    await gate.stop();
+  });
+
+  it('a run that failed lets the next tick run', async () => {
+    vi.useFakeTimers();
+    const gate = createJobGate({ probe: async () => {} });
+    const run = vi.fn(async () => {
+      throw new Error('failed');
+    });
+    gate.every(60_000, run);
+    await vi.advanceTimersByTimeAsync(10);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(run).toHaveBeenCalledTimes(2);
+    await gate.stop();
+  });
+
+  it('the gated lock passes the holder through and hands the lease back through the store', async () => {
+    const gate = createJobGate({ probe: async () => {} });
+    const calls: string[] = [];
+    const lock = gate.lock({
+      async tryAcquire(name, _lease, _now, holder) { calls.push(`take ${name} ${holder ? 'with holder' : 'no holder'}`); return true; },
+      async release(name, holder) { calls.push(`give back ${name} ${holder ? 'with holder' : 'no holder'}`); },
+    });
+    await runExclusive(lock, 'meeting-completion-sweep', 600_000, () => new Date(), async () => void calls.push('work'));
+    expect(calls).toEqual(['take meeting-completion-sweep with holder', 'work', 'give back meeting-completion-sweep with holder']);
+    await gate.stop();
+  });
+});

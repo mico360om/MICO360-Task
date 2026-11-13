@@ -10,7 +10,7 @@ import { useCompanyTimeZone } from '../../../lib/useCompanyTimeZone';
 import { FilterField, Notice, SectionCard, Stars, count, instantWords, problemText } from './manage-ui';
 import { MANAGE_KEY, manageKeys, tc } from './manage-queries';
 
-const KIND_LABELS: Record<FeedbackKind, string> = { QUESTION: 'Questions', OUTDATED: 'Outdated reports', RATING: 'Ratings' };
+const KIND_LABELS: Record<FeedbackKind, string> = { QUESTION: 'Questions', OUTDATED: 'Problems', RATING: 'Ratings' };
 const STATUS_LABELS: Record<FeedbackStatus, string> = { OPEN: 'Open', ANSWERED: 'Answered', FIXED: 'Fixed' };
 const STATUS_TONE: Record<FeedbackStatus, BadgeTone> = { OPEN: 'info', ANSWERED: 'success', FIXED: 'success' };
 
@@ -39,7 +39,7 @@ export function ratingsByCourse(items: readonly FeedbackItem[]): CourseRatings[]
 }
 
 /**
- * Feedback: learners' questions (answered here — the asker is told), "outdated" reports on lessons (marked
+ * Feedback: learners' questions (answered here — the asker is told), problems reported on lessons (“Report a problem”; marked
  * fixed) and ratings (stars and comments, averaged per course). A Training manager sees her companies' people.
  */
 export function FeedbackTab() {
@@ -84,7 +84,7 @@ export function FeedbackTab() {
       ) : listQ.isLoading ? (
         <div className="skeleton h-48 rounded-2xl" role="status" aria-label="Loading feedback" />
       ) : items.length === 0 ? (
-        <EmptyState title="No feedback here" description="Questions, “outdated” reports and ratings from learners show here." />
+        <EmptyState title="No feedback here" description="Questions, reported problems and ratings from learners show here." />
       ) : (
         <>
           {shows('QUESTION') ? (
@@ -104,7 +104,7 @@ export function FeedbackTab() {
             </SectionCard>
           ) : null}
           {shows('OUTDATED') ? (
-            <SectionCard id="tc-fb-outdated" title="Outdated reports" description="Lessons learners say no longer match the site. Fix the lesson, then mark the report fixed.">
+            <SectionCard id="tc-fb-outdated" title="Problems reported" description="Lessons learners say have a problem, such as no longer matching the site. Fix the lesson, then mark it fixed.">
               {outdated.length === 0 ? (
                 <p className="text-sm text-ink-2">No reports.</p>
               ) : (

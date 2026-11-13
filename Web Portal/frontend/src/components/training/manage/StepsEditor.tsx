@@ -22,21 +22,26 @@ const stepsOf = (l: ManageLesson): StepDraft[] =>
 
 const comparable = (steps: StepDraft[]) => JSON.stringify(steps.map(({ key: _key, ...rest }) => rest));
 
-/** Why the steps can't be saved yet (a picture needs its words for people who can't see it), or null. */
-export function stepsProblem(steps: readonly StepDraft[]): string | null {
-  if (steps.length > LIMITS.stepsPerLesson) return `A guide has at most ${LIMITS.stepsPerLesson} steps.`;
+/** Why the steps can't be saved yet (a picture needs its words for people who can't see it), and which step; or null. */
+export function stepsProblemAt(steps: readonly StepDraft[]): { message: string; index: number | null } | null {
+  if (steps.length > LIMITS.stepsPerLesson) return { message: `A guide has at most ${LIMITS.stepsPerLesson} steps.`, index: null };
   for (const [i, s] of steps.entries()) {
-    if (s.imageFileId && !s.imageAlt.trim()) return `Step ${i + 1}: describe its picture for people who can’t see it.`;
-    if (s.imageAlt.length > LIMITS.imageAlt) return `Step ${i + 1}: keep the picture’s description to ${LIMITS.imageAlt} characters.`;
-    if (s.title.length > LIMITS.stepTitle) return `Step ${i + 1}: keep the title to ${LIMITS.stepTitle} characters.`;
-    if (!s.title.trim() && !s.body.trim() && !s.imageFileId) return `Step ${i + 1} is empty: give it a title, words or a picture, or remove it.`;
+    const at = (message: string) => ({ message, index: i });
+    if (s.imageFileId && !s.imageAlt.trim()) return at(`Step ${i + 1}: describe its picture for people who can’t see it.`);
+    if (s.imageAlt.length > LIMITS.imageAlt) return at(`Step ${i + 1}: keep the picture’s description to ${LIMITS.imageAlt} characters.`);
+    if (s.title.length > LIMITS.stepTitle) return at(`Step ${i + 1}: keep the title to ${LIMITS.stepTitle} characters.`);
+    if (!s.title.trim() && !s.body.trim() && !s.imageFileId) return at(`Step ${i + 1} is empty: give it a title, words or a picture, or remove it.`);
   }
   return null;
 }
 
+/** Why the steps can't be saved yet, or null. */
+export const stepsProblem = (steps: readonly StepDraft[]): string | null => stepsProblemAt(steps)?.message ?? null;
+
 /**
  * A step-by-step guide's steps: each a title, formatted words and a picture (with its description); move them up
- * or down, remove them, add more. "Save steps" saves the whole list at once.
+ * or down, remove them, add more. One step is open at a time (12 Nov), the others folded to their titles; a new
+ * step opens, and so does a step Save finds a problem in. "Save steps" saves the whole list at once.
  */
 export function StepsEditor({ lesson, courseId }: { lesson: ManageLesson; courseId: string }) {
   const cache = useCourseCache(courseId);
@@ -45,6 +50,7 @@ export function StepsEditor({ lesson, courseId }: { lesson: ManageLesson; course
   const [problem, setProblem] = useState<string | null>(null);
   const [ok, setOk] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [openKey, setOpenKey] = useState<string | null>(() => saved[0]?.key ?? null);
   const focusKey = useRef<string | null>(null);
   const moveButtons = useRef(new Map<string, HTMLButtonElement>());
   const dirty = comparable(steps) !== comparable(saved);
@@ -74,8 +80,11 @@ export function StepsEditor({ lesson, courseId }: { lesson: ManageLesson; course
   };
 
   async function save() {
-    const why = stepsProblem(steps);
-    if (why) return setProblem(why);
+    const why = stepsProblemAt(steps);
+    if (why) {
+      if (why.index !== null) setOpenKey(steps[why.index]!.key);
+      return setProblem(why.message);
+    }
     setBusy(true);
     setProblem(null);
     const input: StepInput[] = steps.map((s) => ({ title: s.title.trim() || null, body: s.body || null, imageFileId: s.imageFileId, imageAlt: s.imageFileId ? s.imageAlt.trim() : null }));
@@ -105,6 +114,8 @@ export function StepsEditor({ lesson, courseId }: { lesson: ManageLesson; course
             step={s}
             index={i}
             last={i === steps.length - 1}
+            open={openKey === s.key}
+            onOpen={() => setOpenKey(openKey === s.key ? null : s.key)}
             courseId={courseId}
             onChange={(p) => change(s.key, p)}
             onMove={(by) => move(i, by)}
@@ -129,7 +140,9 @@ export function StepsEditor({ lesson, courseId }: { lesson: ManageLesson; course
           size="sm"
           disabled={steps.length >= LIMITS.stepsPerLesson}
           onClick={() => {
-            setSteps((list) => [...list, { key: draftKey(), title: '', body: '', imageFileId: null, imageAlt: '' }]);
+            const fresh = { key: draftKey(), title: '', body: '', imageFileId: null, imageAlt: '' };
+            setSteps((list) => [...list, fresh]);
+            setOpenKey(fresh.key);
             setOk(false);
           }}
           className="[@media(pointer:coarse)]:!min-h-11"
@@ -143,8 +156,30 @@ export function StepsEditor({ lesson, courseId }: { lesson: ManageLesson; course
   );
 }
 
-function StepRow({ step, index, last, courseId, onChange, onMove, onRemove, moveRef }: { step: StepDraft; index: number; last: boolean; courseId: string; onChange: (p: Partial<StepDraft>) => void; onMove: (by: -1 | 1) => void; onRemove: () => void; moveRef: (dir: 'up' | 'down', el: HTMLButtonElement | null) => void }) {
-  const ids = { title: useId(), alt: useId(), altHint: useId() };
+function StepRow({
+  step,
+  index,
+  last,
+  open,
+  onOpen,
+  courseId,
+  onChange,
+  onMove,
+  onRemove,
+  moveRef,
+}: {
+  step: StepDraft;
+  index: number;
+  last: boolean;
+  open: boolean;
+  onOpen: () => void;
+  courseId: string;
+  onChange: (p: Partial<StepDraft>) => void;
+  onMove: (by: -1 | 1) => void;
+  onRemove: () => void;
+  moveRef: (dir: 'up' | 'down', el: HTMLButtonElement | null) => void;
+}) {
+  const ids = { title: useId(), alt: useId(), altHint: useId(), body: useId() };
   const up = useUpload();
   const n = index + 1;
   async function pick(file: File) {
@@ -156,54 +191,73 @@ function StepRow({ step, index, last, courseId, onChange, onMove, onRemove, move
       <fieldset className="flex min-w-0 flex-col gap-3">
         <legend className="sr-only">{`Step ${n}`}</legend>
         <div className="flex items-center gap-2">
-          <span aria-hidden="true" className="flex-1 text-sm font-bold text-ink">{`Step ${n}`}</span>
+          <button
+            type="button"
+            aria-expanded={open}
+            aria-controls={ids.body}
+            aria-label={`Step ${n}: ${step.title.trim() || 'no title yet'}`}
+            onClick={onOpen}
+            className="flex min-w-0 flex-1 items-center gap-2 rounded-lg text-start text-sm hover:text-brand [@media(pointer:coarse)]:!min-h-11"
+          >
+            <span aria-hidden="true" className={`inline-block flex-none transition-transform ${open ? 'rotate-90' : 'rtl:-scale-x-100'}`}>›</span>
+            <span className="flex-none font-bold text-ink">{`Step ${n}`}</span>
+            {!open && step.title.trim() ? (
+              <span dir="auto" className="min-w-0 truncate text-ink-2">
+                {step.title}
+              </span>
+            ) : null}
+          </button>
           <IconButton label={`Move step ${n} up`} disabled={index === 0} onClick={() => onMove(-1)} buttonRef={(el) => moveRef('up', el)}>{Glyph.up}</IconButton>
           <IconButton label={`Move step ${n} down`} disabled={last} onClick={() => onMove(1)} buttonRef={(el) => moveRef('down', el)}>{Glyph.down}</IconButton>
           <IconButton label={`Remove step ${n}`} tone="danger" onClick={onRemove}>{Glyph.trash}</IconButton>
         </div>
-        <div className="flex flex-col gap-1.5">
-          <label htmlFor={ids.title} className="text-sm font-semibold text-ink">{`Step ${n} title`}</label>
-          <input id={ids.title} value={step.title} onChange={(e) => onChange({ title: e.target.value })} onKeyDown={stayOnEnter} maxLength={LIMITS.stepTitle} dir="auto" className={fieldClass(false, 'w-full')} />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <span className="text-sm font-semibold text-ink">{`Step ${n} words`}</span>
-          <RichTextEditor value={step.body} onChange={(html) => onChange({ body: html })} ariaLabel={`Step ${n} words`} placeholder="What to do, and what happens" />
-        </div>
-        <div className="flex flex-col gap-2">
-          <span className="text-sm font-semibold text-ink">
-            Picture<span className="font-normal text-ink-2"> (optional)</span>
-          </span>
-          {step.imageFileId ? (
-            <>
-              <TrainingPicture fileId={step.imageFileId} alt={step.imageAlt || `Step ${n}`} className="max-h-56 w-auto max-w-full" />
-              <div className="flex flex-col gap-1.5">
-                <label htmlFor={ids.alt} className="text-sm font-semibold text-ink">{`Step ${n} picture description`}</label>
-                <input
-                  id={ids.alt}
-                  value={step.imageAlt}
-                  onChange={(e) => onChange({ imageAlt: e.target.value })}
-                  onKeyDown={stayOnEnter}
-                  maxLength={LIMITS.imageAlt}
-                  dir="auto"
-                  aria-required="true"
-                  aria-describedby={ids.altHint}
-                  className={fieldClass(!step.imageAlt.trim(), 'w-full')}
-                />
-                <p id={ids.altHint} className="text-xs text-ink-2">Needed: what the picture shows, for people who can’t see it.</p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <FilePickButton label="Replace picture" accept={PICTURE_TYPES} disabled={up.busy} onPick={(f) => void pick(f)} />
-                <Button type="button" variant="ghost" size="sm" onClick={() => onChange({ imageFileId: null, imageAlt: '' })} className="[@media(pointer:coarse)]:!min-h-11">Remove picture</Button>
-              </div>
-            </>
-          ) : (
-            <div>
-              <FilePickButton label={`Add a picture to step ${n}`} accept={PICTURE_TYPES} disabled={up.busy} onPick={(f) => void pick(f)} />
+        {open ? (
+          <div id={ids.body} className="flex flex-col gap-3">
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor={ids.title} className="text-sm font-semibold text-ink">{`Step ${n} title`}</label>
+              <input id={ids.title} value={step.title} onChange={(e) => onChange({ title: e.target.value })} onKeyDown={stayOnEnter} maxLength={LIMITS.stepTitle} dir="auto" className={fieldClass(false, 'w-full')} />
             </div>
-          )}
-          <UploadProgress progress={up.progress} />
-          {up.problem ? <p role="alert" className="text-xs font-medium text-danger">{up.problem}</p> : null}
-        </div>
+            <div className="flex flex-col gap-1.5">
+              <span className="text-sm font-semibold text-ink">{`Step ${n} words`}</span>
+              <RichTextEditor value={step.body} onChange={(html) => onChange({ body: html })} ariaLabel={`Step ${n} words`} placeholder="What to do, and what happens" />
+            </div>
+            <div className="flex flex-col gap-2">
+              <span className="text-sm font-semibold text-ink">
+                Picture<span className="font-normal text-ink-2"> (optional)</span>
+              </span>
+              {step.imageFileId ? (
+                <>
+                  <TrainingPicture fileId={step.imageFileId} alt={step.imageAlt || `Step ${n}`} className="max-h-56 w-auto max-w-full" />
+                  <div className="flex flex-col gap-1.5">
+                    <label htmlFor={ids.alt} className="text-sm font-semibold text-ink">{`Step ${n} picture description`}</label>
+                    <input
+                      id={ids.alt}
+                      value={step.imageAlt}
+                      onChange={(e) => onChange({ imageAlt: e.target.value })}
+                      onKeyDown={stayOnEnter}
+                      maxLength={LIMITS.imageAlt}
+                      dir="auto"
+                      aria-required="true"
+                      aria-describedby={ids.altHint}
+                      className={fieldClass(!step.imageAlt.trim(), 'w-full')}
+                    />
+                    <p id={ids.altHint} className="text-xs text-ink-2">Needed: what the picture shows, for people who can’t see it.</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <FilePickButton label="Replace picture" accept={PICTURE_TYPES} disabled={up.busy} onPick={(f) => void pick(f)} />
+                    <Button type="button" variant="ghost" size="sm" onClick={() => onChange({ imageFileId: null, imageAlt: '' })} className="[@media(pointer:coarse)]:!min-h-11">Remove picture</Button>
+                  </div>
+                </>
+              ) : (
+                <div>
+                  <FilePickButton label={`Add a picture to step ${n}`} accept={PICTURE_TYPES} disabled={up.busy} onPick={(f) => void pick(f)} />
+                </div>
+              )}
+              <UploadProgress progress={up.progress} />
+              {up.problem ? <p role="alert" className="text-xs font-medium text-danger">{up.problem}</p> : null}
+            </div>
+          </div>
+        ) : null}
       </fieldset>
     </li>
   );

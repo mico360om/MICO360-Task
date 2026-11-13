@@ -22,6 +22,7 @@ import { createProjectAuthz } from '../../src/modules/projects/project-authz';
 import { createColumnService } from '../../src/modules/projects/column-service';
 import { createPrismaColumnRepository } from '../../src/modules/projects/prisma-column-repository';
 import { runBackfill } from './company-helpers';
+import { portabilityProblems } from '../../src/lib/sql-portability';
 
 // Scheduled inspections on MySQL (TEST_DATABASE_URL, migrations applied). Only this file's project
 // (code SCHED), its forms and its people (*@sched.mico360.test) are made and removed.
@@ -106,6 +107,24 @@ describe('repeat copies of a scheduled check (MySQL)', () => {
     expect(copy.assignees.map((a) => a.userId)).toEqual([mateId]);
     // The missed check stays open (nothing is auto-closed).
     expect((await prisma.task.findUniqueOrThrow({ where: { id: source.id } })).completedAt).toBeNull();
+  });
+
+  // 1.23.27 — the DB suite's first run on MariaDB 11.8.9 (the live server): the copy's form check said FOR SHARE,
+  // which MariaDB refuses (1064), so a repeating check never got its next copy there.
+  it('every statement making a copy is portable to MariaDB (no FOR SHARE)', async () => {
+    const sent: string[] = [];
+    const client = new PrismaClient({ datasources: { db: { url: process.env.TEST_DATABASE_URL } }, log: [{ emit: 'event', level: 'query' }] });
+    client.$on('query', (e) => void sent.push(e.query));
+    try {
+      const form = await newForm();
+      const source = await scheduledCheck(form.id, '2026-09-30');
+      const copy = await createPrismaRecurrencePort(client, { timeZone: TZ, now: () => NOW }).spawnNext(source.id, new Date('2026-10-01T00:00:00.000Z'), DAILY);
+      expect(copy).not.toBeNull();
+    } finally {
+      await client.$disconnect();
+    }
+    expect(sent.some((q) => /inspection_forms/.test(q))).toBe(true);
+    expect(sent.flatMap((q) => portabilityProblems(q).map((p) => `${p} — ${q.slice(0, 120)}`))).toEqual([]);
   });
 
   it('a copy made when one is completed keeps them too', async () => {

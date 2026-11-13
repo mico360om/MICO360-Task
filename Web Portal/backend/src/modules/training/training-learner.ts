@@ -4,12 +4,13 @@ import { HttpError, ValidationError } from '../../lib/http-errors';
 import { CLIENT_WORDS } from '../clients/client-kind';
 import { canLearn, inScope, isManager } from './training-access';
 import { buildCertificatePdf, certificateFileName } from './training-certificate-pdf';
-import { addMonths, certificateStatus, newCertificateCode, normaliseCode, verifyLink } from './training-certificates';
+import { certificateStatus, normaliseCode, verifyLink } from './training-certificates';
+import { COURSE, createTrainingFinish, type CourseRow } from './training-finish';
 import { conflict, courseFacts, idOf, notFound, scopeOf, trainingManagersFor, type TrainingContext } from './training-context';
 import { loadPeople, readSetting, type PersonRecord } from './prisma-training-store';
 import { cleanAnswers, deadlineOf, drawPaper, GRACE_MS, markPaper, paperForBrowser, resultQuestions, timeIsUp, type Paper, type StoredQuestion } from './training-quiz';
-import { loadState, loadStates, pairKey, type PairState } from './training-read';
-import { isCourseComplete, lessonOutline, retakeActive, reviewPending } from './training-state';
+import { hiddenLesson, loadState, loadStates, pairKey, type PairState } from './training-read';
+import { lessonOutline } from './training-state';
 import type { TrainingSync } from './training-sync';
 import {
   DIFFICULTIES,
@@ -103,28 +104,6 @@ const learnQuery = z.object({ module: z.enum(TRAINING_MODULES) });
 
 // ── The service ───────────────────────────────────────────────────────────────────────────────────
 
-const COURSE = {
-  id: true,
-  title: true,
-  summary: true,
-  moduleKey: true,
-  audience: true,
-  roleKeys: true,
-  difficulty: true,
-  status: true,
-  completionRule: true,
-  inOrder: true,
-  certificateOn: true,
-  certificateMonths: true,
-  issuerUserId: true,
-  issuerTitle: true,
-  signatureFileId: true,
-  companyIds: true,
-  version: true,
-  starterKey: true,
-  position: true,
-} as const satisfies Prisma.TrainingCourseSelect;
-type CourseRow = Prisma.TrainingCourseGetPayload<{ select: typeof COURSE }>;
 type AttemptRow = Prisma.TrainingAttemptGetPayload<object>;
 type FileRow = { id: string; name: string; mimeType: string; sizeBytes: number; kind: string };
 
@@ -138,6 +117,7 @@ const DUMMY_CODE = 'TC-2222-2222-2222';
 
 export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync) {
   const { prisma } = ctx;
+  const finish = createTrainingFinish(ctx);
 
   // ── Who is asking ──
 
@@ -195,7 +175,10 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync) 
         if (!e) return;
       }
     }
-    await prisma.trainingEnrolment.update({
+    // 1.23.27: one UPDATE statement (updateMany), not update() — Prisma's update() reads the row first in its own
+    // transaction, and MariaDB (the live server, innodb_snapshot_isolation ON) then refuses the write when a second
+    // click's request changed it in between (error 1020: a 500 for the double click).
+    await prisma.trainingEnrolment.updateMany({
       where: { id: e.id },
       data: {
         startedAt: e.startedAt ?? now,
@@ -208,12 +191,16 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync) 
 
   /** A lesson's progress row, written once even when two requests arrive together. */
   async function writeProgress(userId: string, courseId: string, lessonId: string, data: { doneAt?: Date; stepIndex?: number; videoSeconds?: number; videoDuration?: number; watchedPct?: number }): Promise<void> {
-    const where = { userId_lessonId: { userId, lessonId } };
+    // 1.23.27: single UPDATE statements (updateMany), then a create when there is no row — not upsert()/update(),
+    // which read the row first in their own transaction: MariaDB (the live server, innodb_snapshot_isolation ON)
+    // then refused the write when a second click's request changed the row in between (error 1020: a 500).
+    const where = { userId, lessonId };
+    if ((await prisma.trainingProgress.updateMany({ where, data })).count > 0) return;
     try {
-      await prisma.trainingProgress.upsert({ where, create: { userId, courseId, lessonId, ...data }, update: data });
+      await prisma.trainingProgress.create({ data: { userId, courseId, lessonId, ...data } });
     } catch (err) {
       if (!isUnique(err)) throw err;
-      await prisma.trainingProgress.update({ where, data });
+      await prisma.trainingProgress.updateMany({ where, data });
     }
   }
 
@@ -224,8 +211,9 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync) 
     return rows.map((c) => ({ id: c.id, code: c.code, courseId: c.courseId, courseTitle: c.courseTitle, issuedAt: c.issuedAt.toISOString(), expiresAt: iso(c.expiresAt), status: certificateStatus(c, now) }));
   }
 
-  function mineOf(s: PairState, certificate: CertificateRef | null): MyCourseState {
+  function mineOf(s: PairState, certificate: CertificateRef | null, inOrder: boolean): MyCourseState {
     const e = s.enrolment;
+    const outline = lessonOutline({ lessons: s.lessons, inOrder, enrolment: e, done: s.done });
     return {
       enrolled: !!e && !e.withdrawnAt,
       status: s.state.status,
@@ -235,6 +223,7 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync) 
       dueDay: s.state.dueDay,
       overdue: s.state.overdue,
       lastLessonId: e?.lastLessonId ?? null,
+      nextLessonId: outline.resumeLessonId,
       startedAt: iso(e?.startedAt),
       completedAt: s.state.status === 'COMPLETED' || s.state.status === 'REVIEW' ? iso(e?.completedAt) : null,
       certificate,
@@ -268,7 +257,7 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync) 
         certificateOn: c.certificateOn,
         starter: c.starterKey !== null,
         rating: { average: rating?._avg.rating != null ? Math.round(rating._avg.rating * 10) / 10 : null, count: rating?._count.rating ?? 0 },
-        mine: mineOf(s, certificate),
+        mine: mineOf(s, certificate, c.inOrder),
       });
     }
     return out;
@@ -424,69 +413,10 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync) 
     if (outline.items.find((i) => i.id === lessonId)?.locked) throw conflict('Finish the lessons before this one first.', 'LESSON_LOCKED');
   }
 
-  // ── Certificates ──
-
-  async function issueCertificate(p: PersonRecord, course: CourseRow, state: PairState): Promise<string> {
-    const now = ctx.clock();
-    const companyId = (ctx.companyOfPerson ? await ctx.companyOfPerson(p.id).catch(() => null) : null) ?? p.primaryCompanyId ?? p.companyIds[0] ?? null;
-    const issuer = course.issuerUserId ? await prisma.user.findUnique({ where: { id: course.issuerUserId }, select: { firstName: true, lastName: true, username: true } }) : null;
-    // M10: an expired certificate stays EXPIRED (never revoked); only one still valid is replaced (rare: no retake then).
-    await prisma.trainingCertificate.updateMany({
-      where: { userId: p.id, courseId: course.id, revokedAt: null, OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
-      data: { revokedAt: now, revokedReason: 'Replaced by a new certificate' },
-    });
-    const hasQuiz = state.lessons.some((l) => l.kind === 'QUIZ');
-    for (let i = 0; ; i++) {
-      try {
-        const c = await prisma.trainingCertificate.create({
-          data: {
-            code: newCertificateCode(),
-            userId: p.id,
-            courseId: course.id,
-            learnerName: p.name.slice(0, 200),
-            courseTitle: course.title.slice(0, 160),
-            companyId,
-            scorePct: hasQuiz ? state.bestScore : null,
-            issuerName: issuer ? (`${issuer.firstName} ${issuer.lastName}`.trim() || issuer.username).slice(0, 200) : null,
-            issuerTitle: course.issuerTitle,
-            signatureFileId: course.signatureFileId,
-            issuedAt: now,
-            expiresAt: course.certificateMonths ? addMonths(now, course.certificateMonths) : null,
-          },
-          select: { id: true },
-        });
-        return c.id;
-      } catch (err) {
-        if (!isUnique(err) || i >= 4) throw err;
-      }
-    }
-  }
-
   /** After a lesson was done: R9 completion (once, even with two clicks), R11 review done, the certificate. */
   async function afterLessonDone(p: PersonRecord, course: CourseRow, lessonId: string): Promise<LessonDone> {
     const state = await loadState(ctx, p.id, course.id);
-    const e = state.enrolment;
-    const now = ctx.clock();
-    let courseCompleted = state.state.status === 'COMPLETED';
-    let certificateId: string | null = null;
-    if (e) {
-      if (state.state.status !== 'COMPLETED' && state.state.status !== 'REVIEW' && isCourseComplete(course.completionRule, state.lessons, state.doneIds)) {
-        const where = retakeActive(e) ? { id: e.id, completedAt: { lt: e.retakeFrom! } } : { id: e.id, completedAt: null };
-        const won = await prisma.trainingEnrolment.updateMany({
-          where,
-          data: { completedAt: now, completedVersion: course.version, progressPct: 100, reviewFrom: null, reviewDueDay: null, reviewDoneAt: null, lastActivityAt: now },
-        });
-        if (won.count === 1) {
-          courseCompleted = true;
-          if (course.certificateOn) certificateId = await issueCertificate(p, course, state);
-        }
-      } else if (state.state.status === 'REVIEW' && reviewPending(state.lessons, e, state.done).length === 0) {
-        await prisma.trainingEnrolment.updateMany({ where: { id: e.id, reviewDoneAt: null }, data: { reviewDoneAt: now, completedVersion: course.version, lastActivityAt: now } });
-        courseCompleted = true;
-      } else if (state.state.status !== 'COMPLETED' && state.state.status !== 'REVIEW') {
-        await prisma.trainingEnrolment.update({ where: { id: e.id }, data: { progressPct: state.state.progressPct, lastActivityAt: now } });
-      }
-    }
+    const { courseCompleted, certificateId } = await finish.settle(p.id, course, state, { person: p, touch: true });
     const i = state.lessons.findIndex((l) => l.id === lessonId);
     return {
       courseProgressPct: courseCompleted ? 100 : state.state.progressPct,
@@ -635,6 +565,15 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync) 
     }
   }
 
+  /** 12 Nov: a project runner's team (the projects they run) has someone with an assigned course. */
+  async function teamHasCourses(p: PersonRecord): Promise<boolean> {
+    if (p.runProjectIds.length === 0) return false;
+    const projects = await prisma.project.findMany({ where: { id: { in: [...p.runProjectIds] } }, select: { ownerId: true, managerId: true, members: { select: { userId: true } } } });
+    const team = [...new Set(projects.flatMap((x) => [x.ownerId, x.managerId, ...x.members.map((m) => m.userId)]).filter((id): id is string => !!id))];
+    if (team.length === 0) return false;
+    return (await prisma.trainingAssignee.count({ where: { userId: { in: team }, withdrawnAt: null } })) > 0;
+  }
+
   // ── The methods ──
 
   return {
@@ -645,7 +584,7 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync) 
         learner: true,
         manager: isManager(p),
         admin: p.admin,
-        teamReports: !p.admin && !p.trainingManager && p.runsProject,
+        teamReports: !p.admin && !p.trainingManager && p.runsProject && (await teamHasCourses(p)),
         overdue: list.filter((x) => x.state.state.overdue).length,
         assigned: list.filter((x) => x.state.state.assigned && x.state.state.status !== 'COMPLETED').length,
         tour: await tourOf(p),
@@ -708,6 +647,8 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync) 
     async lesson(userId: string, mode: LearnerMode, lessonId: unknown): Promise<LessonView> {
       const p = await who(userId, mode);
       const { lesson, course, access: a } = await lessonFor(p, lessonId, mode, 'read');
+      // R2: a video lesson still waiting for its link isn't there for learners.
+      if (hiddenLesson(lesson)) throw notFound('Lesson');
       if (lesson.kind === 'QUIZ' && a === 'learn') await handInTimedOut(p, lesson.id);
       const state = await loadState(ctx, p.id, course.id);
       assertOpen(state, course, lesson.id, a);
@@ -735,7 +676,8 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync) 
         steps: steps.map((s) => ({ id: s.id, position: s.position, title: s.title, body: s.body, image: s.imageFileId ? { fileId: s.imageFileId, alt: s.imageAlt } : null })),
         document: doc ? fileRef(doc) : null,
         quiz,
-        progress: { done: state.doneIds.has(lesson.id), videoSeconds: progress?.videoSeconds ?? 0, watchedPct: progress?.watchedPct ?? 0, stepIndex: progress?.stepIndex ?? 0 },
+        // R3: a guide that has fewer steps now opens on its last one, never past it.
+        progress: { done: state.doneIds.has(lesson.id), videoSeconds: progress?.videoSeconds ?? 0, watchedPct: progress?.watchedPct ?? 0, stepIndex: Math.min(progress?.stepIndex ?? 0, Math.max(0, steps.length - 1)) },
         courseProgressPct: state.state.progressPct,
         watchFallbackSeconds: watchFallbackSeconds(lesson.minutes),
       };
@@ -922,7 +864,7 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync) 
       } else {
         if (kind === 'QUESTION' && !text) throw new ValidationError('Write your question.', { field: 'body' });
         row = await prisma.trainingFeedback.create({ data: { courseId: course.id, lessonId: lesson?.id ?? null, userId: p.id, kind, body: text, status: 'OPEN' } });
-        const about = kind === 'QUESTION' ? `Question about ${course.title}` : `Lesson reported outdated: ${course.title}`;
+        const about = kind === 'QUESTION' ? `Question about ${course.title}` : `Problem reported: ${course.title}`;
         const said = (text ?? lesson?.title ?? '').slice(0, 140);
         await tellManagers(p, { title: about, body: said || course.title, feedbackId: row.id });
       }

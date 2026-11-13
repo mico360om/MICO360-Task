@@ -10,7 +10,8 @@
  *   (chrome.storage.session).
  * Settings (apiBase, appBase, theme) and the company time zone are not user data and are kept.
  */
-import { createTokenStore, requestHeaders, timeoutSignal } from './auth.js';
+import { createTokenStore, requestHeaders, timeoutSignal, REFRESH_LOCK } from './auth.js';
+import { withLock } from './locks.js';
 import { checkBaseUrl, sameOrigin } from './config.js';
 import { decodeJwtSub } from './jwt.js';
 import { assignOwnerlessItems } from './queue.js';
@@ -77,12 +78,16 @@ async function revoke({ refreshToken, apiBase }, fetchImpl) {
  * Explicit sign-out (XP-01): revoke the session server-side (POST /auth/logout to the server that
  * issued it — never to a newly configured one), then wipe tokens, the offline queue, every cached
  * response and the unread/sync markers so the next person on this device starts clean.
+ * Batch 2 (review #4): under the renewal lock every context shares, so a renewal on its way finishes
+ * first — the session revoked is the one the server holds now, and nothing renewed lands after the wipe.
  */
-export async function signOut({ local, session, fetchImpl = (...a) => fetch(...a), notifications }) {
+export async function signOut({ local, session, fetchImpl = (...a) => fetch(...a), notifications, locks }) {
   clearDesktopAlert(notifications);
-  const t = await createTokenStore({ local, session }).get();
-  await revoke(t, fetchImpl);
-  await clearUserData({ local, session, notifications });
+  await withLock(REFRESH_LOCK, async () => {
+    const t = await createTokenStore({ local, session }).get();
+    await revoke(t, fetchImpl);
+    await clearUserData({ local, session, notifications });
+  }, { locks });
 }
 
 /**
@@ -93,19 +98,23 @@ export async function signOut({ local, session, fetchImpl = (...a) => fetch(...a
  * The profile in the reply (`user`: email, username, roles) is kept with the session, so the app
  * knows who is signed in even when it starts offline (M12).
  */
-export async function startSession({ local, session }, { accessToken, refreshToken, userId, apiBase, user }) {
+export async function startSession({ local, session, locks }, { accessToken, refreshToken, userId, apiBase, user }) {
   const uid = userId || decodeJwtSub(accessToken);
   if (!accessToken || !refreshToken || !uid || !apiBase) throw new Error('Incomplete sign-in response.');
-  const { cacheOwner } = (await local.get('cacheOwner')) || {};
-  if (cacheOwner !== uid) {
-    await clearCache(local);
-    await local.remove(PERSON_LOCAL_KEYS);
-    await removePersonSession(session);
-  }
-  await local.remove(['lastUnread', 'lastUnreadUser', 'lastSync']);
-  await local.set({ cacheOwner: uid });
-  await createTokenStore({ local, session }).save({ accessToken, refreshToken, userId: uid, apiBase, user });
-  return { userId: uid };
+  // Batch 2 (review #4): under the renewal lock, so a renewal of the person before can't land on top.
+  const run = await withLock(REFRESH_LOCK, async () => {
+    const { cacheOwner } = (await local.get('cacheOwner')) || {};
+    if (cacheOwner !== uid) {
+      await clearCache(local);
+      await local.remove(PERSON_LOCAL_KEYS);
+      await removePersonSession(session);
+    }
+    await local.remove(['lastUnread', 'lastUnreadUser', 'lastSync']);
+    await local.set({ cacheOwner: uid });
+    await createTokenStore({ local, session }).save({ accessToken, refreshToken, userId: uid, apiBase, user });
+    return { userId: uid };
+  }, { locks });
+  return run.value;
 }
 
 /**

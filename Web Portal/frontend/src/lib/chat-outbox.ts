@@ -95,6 +95,44 @@ export function loadOutbox(userId: string): StoredMessage[] {
   }
 }
 
+/**
+ * How many messages wait in this person's outbox (for the sign-out warning: an explicit log out throws
+ * them away). Read only — nothing is moved over.
+ */
+export function outboxSize(userId: string | null | undefined): number {
+  if (!userId) return 0;
+  try {
+    const ids = new Set<string>();
+    for (const p of legacyList(userId)) ids.add(p.clientId);
+    for (let i = 0; i < localStorage.length; i++) {
+      const clientId = outboxClientId(userId, localStorage.key(i));
+      if (clientId && readEntry(parse(localStorage.getItem(entryKey(userId, clientId))))) ids.add(clientId);
+    }
+    return ids.size;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Batch 2 (review N5): an explicit log out removes the person's waiting messages — the same rule as their
+ * task changes made offline — so nothing of theirs stays behind on a shared browser. (A session that only
+ * ended keeps them: only they can send them, when they sign in again.)
+ */
+export function removeOutbox(userId: string): void {
+  try {
+    const doomed: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && outboxClientId(userId, key)) doomed.push(key);
+    }
+    for (const key of doomed) localStorage.removeItem(key);
+    localStorage.removeItem(legacyKey(userId));
+  } catch {
+    /* storage unavailable: nothing was kept */
+  }
+}
+
 /** Keep (or update) one text message, written by this tab. False when it can't be kept: it has files, or storage refused. */
 export function keepInOutbox(userId: string, p: PendingMessage, owner?: string): boolean {
   if (p.files.length > 0) return false;

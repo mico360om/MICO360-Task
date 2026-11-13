@@ -1,6 +1,11 @@
 import type { PrismaClient } from '@prisma/client';
 import type { AssigneeRepository, TaskLookup } from './assignee-repository';
 import { sharesProjectCompanyWhere } from '../companies/company-access';
+import { ConflictError, NotFoundError } from '../../lib/http-errors';
+import { withRowLock } from '../../lib/sentinel-lock';
+
+/** N12: the Workload swap holds the task's row first (its version), as the other task edits' single statement does. */
+export const LOCK_TASK_VERSION_SQL = 'SELECT version FROM tasks WHERE id = ? AND deletedAt IS NULL FOR UPDATE';
 
 type Db = Pick<PrismaClient, 'project' | 'user'>;
 
@@ -55,11 +60,24 @@ export function createPrismaAssigneeRepository(prisma: PrismaClient): AssigneeRe
     async eligibleUserIds(projectId, userIds) {
       return userIds.length ? projectAudienceIds(prisma, projectId, userIds) : [];
     },
-    async swap(taskId, fromId, toId) {
-      await prisma.$transaction([
-        prisma.taskAssignee.upsert({ where: { taskId_userId: { taskId, userId: toId } }, update: {}, create: { taskId, userId: toId } }),
-        prisma.taskAssignee.deleteMany({ where: { taskId, userId: fromId } }),
-      ]);
+    async swap(taskId, fromId, toId, opts = {}) {
+      await withRowLock(
+        prisma,
+        (tx) => tx.$queryRawUnsafe<Array<{ version: number | bigint }>>(LOCK_TASK_VERSION_SQL, taskId),
+        async (tx, [task]) => {
+          if (!task) throw new NotFoundError('Task not found.');
+          if (opts.expectedVersion !== undefined && Number(task.version) !== opts.expectedVersion) {
+            throw new ConflictError('This task was changed by someone else. Reload and try again.', 'VERSION_CONFLICT');
+          }
+          if (!(await tx.taskAssignee.findUnique({ where: { taskId_userId: { taskId, userId: fromId } }, select: { userId: true } }))) {
+            throw new ConflictError('That person is no longer on this task.', 'ASSIGNEE_GONE');
+          }
+          // Like every task edit: the version moves on, so an edit made from the one read before is refused.
+          await tx.task.update({ where: { id: taskId }, data: { version: { increment: 1 } }, select: { id: true } });
+          await tx.taskAssignee.upsert({ where: { taskId_userId: { taskId, userId: toId } }, update: {}, create: { taskId, userId: toId } });
+          await tx.taskAssignee.deleteMany({ where: { taskId, userId: fromId } });
+        },
+      );
     },
     async projectIdOfTask(taskId) {
       const t = await prisma.task.findFirst({ where: { id: taskId, deletedAt: null, project: { is: { deletedAt: null } } }, select: { projectId: true } });

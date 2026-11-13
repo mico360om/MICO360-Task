@@ -1,13 +1,15 @@
-import { useEffect, useRef, useState, type RefObject } from 'react';
+import { useEffect, useId, useRef, useState, type RefObject } from 'react';
+import { Link } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import type { AttemptPaper, AttemptResult, AttemptResultQuestion, LessonDone, LessonView, PaperQuestion } from '../../api/training';
 import { ApiError } from '../../lib/api-client';
-import { Button } from '../ui/Button';
+import { Button, buttonClass } from '../ui/Button';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
-import { useLearner } from './learner';
+import { CourseFinished } from './CourseFinished';
+import { coursePath, lessonPath, useLearner } from './learner';
 import { sideKeys } from './training-queries';
 import { TOUCH_MIN, TickIcon, trainingProblem } from './training-ui';
-import { attemptsLeftText, clockLeft, minutesText, questionsText } from './training-words';
+import { clockLeft, quizStartLine } from './training-words';
 
 /** How soon after a change the answers are saved (and again every few seconds while some are unsaved). */
 export const ANSWERS_SAVE_MS = 1_500;
@@ -25,11 +27,15 @@ export function startingAnswers(paper: AttemptPaper): Answers {
 
 export const unansweredOf = (paper: AttemptPaper, answers: Answers) => paper.questions.filter((q) => q.kind !== 'ORDER' && !(answers[q.id]?.length ?? 0));
 
+/** "2 tries left", "no tries left", "try as often as you like". */
+const triesText = (left: number | null) => (left === null ? 'try as often as you like' : left === 0 ? 'no tries left' : `${left} ${left === 1 ? 'try' : 'tries'} left`);
+
 /**
- * A quiz lesson (owner answer 5): the intro (pass mark, attempts, time limit, questions), then the attempt — one
- * question at a time or all on one page, answers saved as they are given, a countdown when there is a time limit
- * (handed in by itself at 0) — then the result: the score, passed or not, and every question with the right
- * answers, the feedback on each answer and the explanation; "Try again" while attempts are left.
+ * A quiz lesson (owner answer 5; 12 Nov §5): one line ("5 questions · pass with 70% · try as often as you like") and
+ * Start quiz; then one question a page with Back / Next, Hand in on the last one or once all are answered, a
+ * countdown when there is a time limit (handed in by itself at 0); then the result — passed: the score, "Course
+ * completed" with the certificate when this finished the course, Next, and the answers behind "See your answers";
+ * not passed: the score, which questions were wrong (never the right answers before passing: review M9) and Try again.
  */
 export function QuizLesson({ lesson, onDone }: { lesson: LessonView; onDone: (done: LessonDone) => void }) {
   const side = useLearner();
@@ -37,10 +43,21 @@ export function QuizLesson({ lesson, onDone }: { lesson: LessonView; onDone: (do
   const quiz = lesson.quiz;
   const [paper, setPaper] = useState<AttemptPaper | null>(null);
   const [result, setResult] = useState<AttemptResult | null>(null);
+  const [fresh, setFresh] = useState(false);
+  // Finished before this visit (read once: the lesson is read again at 100% right after the course is finished here).
+  const [finishedBefore] = useState(() => lesson.courseProgressPct >= 100);
   const [busy, setBusy] = useState<'start' | 'last' | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   if (!quiz) return <p className="card card-pad text-sm text-ink-2">This quiz isn’t ready yet.</p>;
+
+  // The one way on after passing: the next lesson; My learning once the course is finished; else the course.
+  const next = (finished: boolean) =>
+    lesson.nextLessonId
+      ? { label: 'Next lesson', to: lessonPath(side.base, lesson.courseId, lesson.nextLessonId) }
+      : finished
+        ? { label: 'Next', to: side.base }
+        : { label: 'Back to the course', to: coursePath(side.base, lesson.courseId) };
 
   const start = async () => {
     setBusy('start');
@@ -61,6 +78,7 @@ export function QuizLesson({ lesson, onDone }: { lesson: LessonView; onDone: (do
     setBusy('last');
     setError(null);
     try {
+      setFresh(false);
       setResult(await side.api.result(quiz.lastAttemptId));
     } catch (err) {
       setError(trainingProblem(err, 'Couldn’t load your last result.'));
@@ -71,8 +89,9 @@ export function QuizLesson({ lesson, onDone }: { lesson: LessonView; onDone: (do
 
   const handedIn = (r: AttemptResult) => {
     setPaper(null);
+    setFresh(true);
     setResult(r);
-    // The lesson's attempts and best score change: read it again for the intro.
+    // The lesson's attempts and best score change: read it again for the start.
     void qc.invalidateQueries({ queryKey: sideKeys.lesson(side, lesson.id), exact: true });
     // Passed: the lesson is done (the course may be finished, a certificate ready).
     if (r.passed) onDone({ courseProgressPct: lesson.courseProgressPct, courseCompleted: r.courseCompleted, certificateId: r.certificateId, nextLessonId: lesson.nextLessonId });
@@ -80,46 +99,68 @@ export function QuizLesson({ lesson, onDone }: { lesson: LessonView; onDone: (do
 
   if (paper) return <QuizPaper paper={paper} onResult={handedIn} />;
   if (result) {
-    const again = result.attemptsLeft === null || result.attemptsLeft > 0;
-    return <QuizResultView result={result} canTryAgain={again} busy={busy === 'start'} error={error} onTryAgain={() => void start()} />;
+    const again = !result.passed && (result.attemptsLeft === null || result.attemptsLeft > 0);
+    // Course completed is said when this hand-in finished it (not when an old result is read again).
+    const finished = fresh && result.passed && result.courseCompleted && !finishedBefore;
+    return (
+      <QuizResultView
+        result={result}
+        courseTitle={lesson.courseTitle}
+        finished={finished}
+        openAnswers={!fresh}
+        next={result.passed ? next(result.courseCompleted) : null}
+        canTryAgain={again}
+        busy={busy === 'start'}
+        error={error}
+        onTryAgain={() => void start()}
+      />
+    );
   }
 
   const passed = quiz.best?.passed === true;
+  const line = quizStartLine(quiz);
   return (
-    <section aria-labelledby="quiz-intro" className="card card-pad flex flex-col gap-4">
-      <h2 id="quiz-intro" className="font-display text-lg font-bold text-ink">
-        {passed ? 'You passed this quiz' : 'Before you start'}
-      </h2>
-      <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
-        <Fact label="Pass mark" value={`${quiz.passMark}%`} />
-        <Fact label="Questions" value={questionsText(quiz.questionCount)} />
-        <Fact label="Time limit" value={quiz.timeLimitMinutes ? minutesText(quiz.timeLimitMinutes) : 'None'} />
-        <Fact label="Attempts" value={quiz.maxAttempts === null ? `${quiz.attemptsUsed} used · unlimited` : `${quiz.attemptsUsed} of ${quiz.maxAttempts} used`} />
-      </dl>
-      {quiz.best ? (
-        <p className="text-sm text-ink">
-          Your best score: <span className="font-semibold">{quiz.best.scorePct}%</span> — {quiz.best.passed ? 'passed' : 'not passed yet'}.
+    <section aria-label="Quiz" className="card card-pad flex flex-col gap-3">
+      {passed ? (
+        <p className="inline-flex items-center gap-2 font-semibold text-success">
+          <TickIcon />
+          {`You passed with ${quiz.best!.scorePct}%.`}
         </p>
-      ) : null}
-      {quiz.timeLimitMinutes ? <p className="text-sm text-ink-2">The clock starts when you start. When the time is up, your answers are handed in by themselves.</p> : null}
-      {!quiz.canStart && quiz.reason ? <p className="text-sm text-ink-2">{quiz.reason}</p> : null}
+      ) : (
+        <>
+          <p className="text-sm text-ink">{line}</p>
+          {quiz.best ? <p className="text-sm text-ink-2">{`Your best so far: ${quiz.best.scorePct}%.`}</p> : null}
+          {quiz.timeLimitMinutes ? <p className="text-xs text-ink-2">The clock starts when you start. When the time is up, your answers are handed in by themselves.</p> : null}
+          {!quiz.canStart && quiz.reason ? <p className="text-sm text-ink-2">{quiz.reason}</p> : null}
+        </>
+      )}
       <div className="flex flex-wrap gap-2">
-        {quiz.openAttemptId ? (
+        {passed ? (
+          <>
+            {quiz.lastAttemptId ? (
+              <Button variant="secondary" className={TOUCH_MIN} loading={busy === 'last'} onClick={() => void showLast()}>
+                See your answers
+              </Button>
+            ) : null}
+            <Link to={next(lesson.courseProgressPct >= 100).to} className={buttonClass('primary', 'md', TOUCH_MIN)}>
+              {next(lesson.courseProgressPct >= 100).label}
+            </Link>
+          </>
+        ) : quiz.openAttemptId ? (
           <Button className={TOUCH_MIN} loading={busy === 'start'} onClick={() => void start()}>
             Resume quiz
           </Button>
         ) : quiz.canStart ? (
-          <Button className={TOUCH_MIN} variant={passed ? 'secondary' : 'primary'} loading={busy === 'start'} onClick={() => void start()}>
+          <Button className={TOUCH_MIN} loading={busy === 'start'} onClick={() => void start()}>
             {quiz.attemptsUsed > 0 ? 'Try again' : 'Start quiz'}
           </Button>
         ) : null}
-        {quiz.lastAttemptId ? (
-          <Button variant="secondary" className={TOUCH_MIN} loading={busy === 'last'} onClick={() => void showLast()}>
+        {!passed && quiz.lastAttemptId ? (
+          <Button variant="ghost" className={TOUCH_MIN} loading={busy === 'last'} onClick={() => void showLast()}>
             See your last result
           </Button>
         ) : null}
       </div>
-      <p className="text-xs text-ink-2">{attemptsLeftText(quiz.maxAttempts, quiz.attemptsUsed)}</p>
       {error ? (
         <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
           {error}
@@ -129,19 +170,11 @@ export function QuizLesson({ lesson, onDone }: { lesson: LessonView; onDone: (do
   );
 }
 
-const Fact = ({ label, value }: { label: string; value: string }) => (
-  <div className="rounded-lg bg-ground px-3 py-2">
-    <dt className="text-xs text-ink-2">{label}</dt>
-    <dd className="font-semibold text-ink">{value}</dd>
-  </div>
-);
-
 /** The attempt: questions, answers saved as they go, the countdown, Hand in. */
 function QuizPaper({ paper, onResult }: { paper: AttemptPaper; onResult: (r: AttemptResult) => void }) {
   const { api } = useLearner();
   const [answers, setAnswers] = useState<Answers>(() => startingAnswers(paper));
   const [at, setAt] = useState(0);
-  const [all, setAll] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -248,7 +281,8 @@ function QuizPaper({ paper, onResult }: { paper: AttemptPaper; onResult: (r: Att
     moved.current = true;
     setAt(Math.min(Math.max(0, i), questions.length - 1));
   };
-  const shown = all ? questions.map((q, i) => ({ q, i })) : questions[at] ? [{ q: questions[at]!, i: at }] : [];
+  const shown = questions[at] ? [{ q: questions[at]!, i: at }] : [];
+  const last = at === questions.length - 1;
 
   return (
     <section aria-label="Quiz" className="flex flex-col gap-4">
@@ -261,11 +295,11 @@ function QuizPaper({ paper, onResult }: { paper: AttemptPaper; onResult: (r: Att
                 <li key={q.id}>
                   <button
                     type="button"
-                    onClick={() => (all ? document.getElementById(`question-${q.id}`)?.scrollIntoView({ block: 'start' }) : goTo(i))}
+                    onClick={() => goTo(i)}
                     aria-label={`Question ${i + 1}, ${done ? 'answered' : 'not answered'}`}
-                    aria-current={!all && i === at ? 'step' : undefined}
-                    className={`grid h-8 w-8 place-items-center rounded-full text-xs font-semibold transition-colors [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11 ${
-                      !all && i === at ? 'bg-brand text-white' : done ? 'bg-brand/15 text-brand' : 'border border-line bg-surface text-ink-2 hover:bg-ground'
+                    aria-current={i === at ? 'step' : undefined}
+                    className={`grid h-7 w-7 place-items-center rounded-full text-xs font-semibold transition-colors [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11 ${
+                      i === at ? 'bg-brand text-white' : done ? 'bg-brand/15 text-brand' : 'border border-line bg-surface text-ink-2 hover:bg-ground'
                     }`}
                   >
                     {i + 1}
@@ -285,9 +319,6 @@ function QuizPaper({ paper, onResult }: { paper: AttemptPaper; onResult: (r: Att
               {clockLeft(left)}
             </span>
           ) : null}
-          <Button variant="ghost" size="sm" className={TOUCH_MIN} onClick={() => setAll((v) => !v)}>
-            {all ? 'One question at a time' : 'All questions on one page'}
-          </Button>
         </div>
       </div>
       <p className="sr-only" role="status" aria-live="assertive">
@@ -302,28 +333,30 @@ function QuizPaper({ paper, onResult }: { paper: AttemptPaper; onResult: (r: Att
           total={questions.length}
           value={answers[q.id] ?? []}
           onChange={(v) => change(q.id, v)}
-          headingRef={!all && i === at ? heading : undefined}
+          headingRef={i === at ? heading : undefined}
         />
       ))}
 
       <div className="flex flex-wrap items-center justify-between gap-2">
-        {all ? (
-          <span />
+        {at > 0 ? (
+          <Button variant="secondary" className={TOUCH_MIN} onClick={() => goTo(at - 1)}>
+            Back
+          </Button>
         ) : (
-          <div className="flex gap-2">
-            <Button variant="secondary" className={TOUCH_MIN} disabled={at === 0} onClick={() => goTo(at - 1)}>
-              Previous question
-            </Button>
-            {at < questions.length - 1 ? (
-              <Button variant="secondary" className={TOUCH_MIN} onClick={() => goTo(at + 1)}>
-                Next question
-              </Button>
-            ) : null}
-          </div>
+          <span />
         )}
-        <Button className={TOUCH_MIN} loading={busy} onClick={() => (unanswered.length ? setConfirming(true) : void handIn())}>
-          Hand in
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          {!last ? (
+            <Button variant={unanswered.length ? 'primary' : 'secondary'} className={TOUCH_MIN} onClick={() => goTo(at + 1)}>
+              Next
+            </Button>
+          ) : null}
+          {last || unanswered.length === 0 ? (
+            <Button className={TOUCH_MIN} loading={busy} onClick={() => (unanswered.length ? setConfirming(true) : void handIn())}>
+              Hand in
+            </Button>
+          ) : null}
+        </div>
       </div>
       {error ? (
         <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
@@ -478,51 +511,105 @@ function OrderAnswer({ q, value, onChange }: { q: PaperQuestion; value: string[]
 }
 
 /**
- * The result: score, passed or not, and each question right or wrong with the chosen answers' feedback. Which answers
- * are right, the other answers' feedback and the explanation only once the server shows them (review M9: passed, or
- * no attempts left) — before that a plain line says when.
+ * The result (12 Nov §5). Passed: the score, "Course completed" with the certificate (when this finished the course),
+ * the one Next, and the answers folded behind "See your answers". Not passed: the score, the questions that were wrong
+ * (the right answers only once the server shows them: passed, or no tries left — review M9) and Try again.
  */
-function QuizResultView({ result, canTryAgain, busy, error, onTryAgain }: { result: AttemptResult; canTryAgain: boolean; busy: boolean; error: string | null; onTryAgain: () => void }) {
+function QuizResultView({
+  result,
+  courseTitle,
+  finished,
+  openAnswers,
+  next,
+  canTryAgain,
+  busy,
+  error,
+  onTryAgain,
+}: {
+  result: AttemptResult;
+  courseTitle: string;
+  finished: boolean;
+  openAnswers: boolean;
+  next: { label: string; to: string } | null;
+  canTryAgain: boolean;
+  busy: boolean;
+  error: string | null;
+  onTryAgain: () => void;
+}) {
   const heading = useRef<HTMLHeadingElement>(null);
+  const [showAnswers, setShowAnswers] = useState(openAnswers);
+  const answersId = useId();
   useEffect(() => {
     heading.current?.focus();
   }, []);
   const right = result.questions.filter((q) => q.right).length;
+  const wrong = result.questions.filter((q) => !q.right);
+  const canSee = result.passed || result.answersShown;
   return (
     <section aria-labelledby="quiz-result" className="flex flex-col gap-4">
-      <div className={`card card-pad flex flex-wrap items-center justify-between gap-4 border-s-4 ${result.passed ? 'border-success' : 'border-danger'}`}>
-        <div>
-          <h2 id="quiz-result" ref={heading} tabIndex={-1} className="font-display text-xl font-bold text-ink outline-none">
-            {result.passed ? 'You passed' : 'Not passed this time'} — {result.scorePct}%
-          </h2>
-          <p className="mt-1 text-sm text-ink-2">
-            {right} of {result.questions.length} right · pass mark {result.passMark}% · {result.attemptsLeft === null ? 'unlimited attempts' : result.attemptsLeft === 1 ? '1 attempt left' : `${result.attemptsLeft} attempts left`}
-          </p>
-          {result.timedOut ? <p className="mt-1 text-sm text-warning">Time ran out — your saved answers were handed in.</p> : null}
-          {result.answersShown ? null : (
-            <p className="mt-1 text-sm text-ink-2">
-              {result.attemptsLeft === null ? 'The right answers are shown once you pass.' : 'The right answers are shown once you pass or have no attempts left.'}
-            </p>
-          )}
-        </div>
+      <div className={`card card-pad flex flex-col gap-2 border-s-4 ${result.passed ? 'border-success' : 'border-danger'}`}>
+        <h2 id="quiz-result" ref={heading} tabIndex={-1} className="font-display text-xl font-bold text-ink outline-none">
+          {result.passed ? 'You passed' : 'Not passed this time'} — {result.scorePct}%
+        </h2>
+        <p className="text-sm text-ink-2">{`${right} of ${result.questions.length} right · pass mark ${result.passMark}%${result.passed ? '' : ` · ${triesText(result.attemptsLeft)}`}`}</p>
+        {result.timedOut ? <p className="text-sm text-warning">Time ran out — your saved answers were handed in.</p> : null}
+        {!result.passed && wrong.length ? (
+          <div>
+            <p className="text-sm font-semibold text-ink">Wrong:</p>
+            <ul aria-label="Wrong answers" className="mt-1 list-disc space-y-0.5 ps-5 text-sm text-ink">
+              {wrong.map((q) => (
+                <li key={q.id} className="whitespace-pre-line break-words">
+                  {q.prompt}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
         {canTryAgain ? (
-          <Button variant={result.passed ? 'secondary' : 'primary'} className={TOUCH_MIN} loading={busy} onClick={onTryAgain}>
-            Try again
-          </Button>
+          <div>
+            <Button className={TOUCH_MIN} loading={busy} onClick={onTryAgain}>
+              Try again
+            </Button>
+          </div>
         ) : null}
       </div>
+      {finished ? <CourseFinished title={courseTitle} certificateId={result.certificateId} focus={false} /> : null}
+      {next ? (
+        <div>
+          <Link to={next.to} className={buttonClass('primary', 'lg', '!min-h-[44px]')}>
+            {next.label}
+          </Link>
+        </div>
+      ) : null}
       {error ? (
         <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
           {error}
         </p>
       ) : null}
-      <ol className="flex flex-col gap-3">
-        {result.questions.map((q, i) => (
-          <li key={q.id}>
-            <ResultQuestion q={q} index={i} shown={result.answersShown} />
-          </li>
-        ))}
-      </ol>
+      {canSee ? (
+        <div className="flex flex-col gap-3">
+          {openAnswers ? null : (
+            <button
+              type="button"
+              aria-expanded={showAnswers}
+              aria-controls={showAnswers ? answersId : undefined}
+              onClick={() => setShowAnswers((v) => !v)}
+              className={`self-start text-sm font-semibold text-brand underline-offset-2 hover:underline ${TOUCH_MIN}`}
+            >
+              See your answers
+            </button>
+          )}
+          {showAnswers ? (
+            <ol id={answersId} className="flex flex-col gap-3">
+              {result.questions.map((q, i) => (
+                <li key={q.id}>
+                  <ResultQuestion q={q} index={i} shown={result.answersShown} />
+                </li>
+              ))}
+            </ol>
+          ) : null}
+        </div>
+      ) : null}
     </section>
   );
 }

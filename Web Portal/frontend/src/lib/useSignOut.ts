@@ -2,17 +2,18 @@ import { useState } from 'react';
 import { useAuthStore } from '../stores/auth-store';
 import { failedChanges, pendingCount } from './offline-replay';
 import { inspectionOutbox } from './inspection-sync';
+import { outboxSize } from './chat-outbox';
 
 /**
  * Changes saved on this device that haven't reached the server: task changes made offline (waiting or
- * failed) and inspection answers, signatures and follow-up requests. Signing out on purpose throws
+ * failed), inspection answers, signatures and follow-up requests, and (batch 2) chat messages waiting to be sent. Signing out on purpose throws
  * them away (nothing of a person's may stay behind on a shared device), so every sign-out asks first.
  */
 export function unsentChangeCount(userId: string | null | undefined): number {
   const inspections = userId
     ? inspectionOutbox.waiting(userId).reduce((n, w) => n + w.pending.answers + w.pending.followUps + (w.pending.finish ? 1 : 0), 0)
     : 0;
-  return pendingCount() + failedChanges().length + inspections;
+  return pendingCount() + failedChanges().length + inspections + outboxSize(userId);
 }
 
 /**

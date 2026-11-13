@@ -12,8 +12,9 @@
 // freshly rotated token instead of spending the old one a second time.
 
 import { withLock } from './locks.js';
-import { AuthUnavailableError } from './errors.js';
+import { AuthUnavailableError, SessionChangedError } from './errors.js';
 import { sameOrigin } from './config.js';
+import { decodeJwtSub } from './jwt.js';
 
 /** Requests abort after this long so the app never hangs on a slow/unreachable backend. */
 export const REQUEST_TIMEOUT_MS = 6000;
@@ -148,6 +149,7 @@ function unauthorizedResponse() {
  */
 export function createAuth({ local, session, apiBase, fetchImpl = (...a) => fetch(...a), onExpired, locks } = {}) {
   const tokens = createTokenStore({ local, session });
+  /** The renewal on its way in this context, and whose it is ({ promise, owner }). */
   let inflight = null;
 
   function expired() {
@@ -160,10 +162,31 @@ export function createAuth({ local, session, apiBase, fetchImpl = (...a) => fetc
 
   /** Tokens are only ever sent to the server that issued them (EXT-04). */
   const boundHere = (t) => !!t.refreshToken && !!t.apiBase && sameOrigin(t.apiBase, apiBase);
+  /** Is the session held now (`now`) still `t`: the same person, refresh token and server? */
+  const sameSession = (now, t) => now.userId === t.userId && now.refreshToken === t.refreshToken && !!now.apiBase && sameOrigin(now.apiBase, t.apiBase);
 
-  async function refreshUnderLock(failedToken) {
+  /**
+   * Batch 2 (review #4): end a refresh token nobody on this device will hold — a renewal that came back
+   * after the session changed — at the server that issued it. Best effort, never awaited by the caller.
+   */
+  async function revokeUnheld(refreshToken, base) {
+    try {
+      const init = { method: 'POST', body: JSON.stringify({ refreshToken }), signal: timeoutSignal() };
+      await fetchImpl(`${base}/auth/logout`, { ...init, headers: requestHeaders(init) });
+    } catch {
+      /* offline: the server ends it on its own in time */
+    }
+  }
+
+  /**
+   * One renewal, under the lock shared by every context. `expectedUser` (batch 2, review #5): whose
+   * request it is — when someone else's session, or none, is held, nothing is renewed for them
+   * (`changed: true`: the request isn't sent again, and nobody is signed out).
+   */
+  async function refreshUnderLock(failedToken, expectedUser) {
     const run = await withLock(REFRESH_LOCK, async () => {
       const t = await tokens.get();
+      if (expectedUser && t.userId !== expectedUser) return { token: null, expired: false, changed: true };
       if (!boundHere(t)) return { token: null, expired: true };
       // Another tab / the service worker already renewed while we waited: use its token.
       if (t.accessToken && t.accessToken !== failedToken) return { token: t.accessToken, expired: false };
@@ -183,6 +206,9 @@ export function createAuth({ local, session, apiBase, fetchImpl = (...a) => fetc
       // unless our server says the account was turned off (ACCOUNT_INACTIVE), as on Android. It has
       // spent the refresh token by then, and sending it again would look like a stolen token.
       if (res.status === 400 || res.status === 401 || (res.status === 403 && (await errorCode(res)) === 'ACCOUNT_INACTIVE')) {
+        // Only the session that was refused is cleared: one started meanwhile (by a context that doesn't
+        // take this lock) stays, and isn't told it ended.
+        if (!sameSession(await tokens.get(), t)) return { token: null, expired: false, changed: true };
         await tokens.clear(); // the server said no: this session is over
         return { token: null, expired: true };
       }
@@ -196,32 +222,67 @@ export function createAuth({ local, session, apiBase, fetchImpl = (...a) => fetc
       // A 200 that isn't a real session for this person (a portal page, a token or the user missing)
       // is no verdict either, and must never replace the session we have.
       if (!isSession(data) || data.user.id !== t.userId) return { token: null, expired: false };
+      // Batch 2 (review #4): read again now the answer is in. Signed out, signed in as someone else, or
+      // another server picked meanwhile (by a context that doesn't take this lock): that wins — the late
+      // renewal is never stored (it would sign the person back in) and is ended at its server.
+      const now = await tokens.get();
+      if (!sameSession(now, t)) {
+        // Never the pair held now (a renewal retried within 2 minutes gets the very same pair back, and a
+        // logout ends a token's whole rotation family): that would end the session it was meant to keep.
+        if (now.refreshToken !== data.refreshToken) void revokeUnheld(data.refreshToken, t.apiBase);
+        const samePerson = now.userId === t.userId && !!now.apiBase && sameOrigin(now.apiBase, t.apiBase) && !!now.accessToken;
+        return samePerson ? { token: now.accessToken, expired: false } : { token: null, expired: false, changed: true };
+      }
       await tokens.saveRotated(data);
       return { token: data.accessToken, expired: false };
     }, { locks });
     return run.value;
   }
 
-  /** One renewal at a time: concurrent callers in this context share the same promise. */
-  function refresh(failedToken = null) {
+  /**
+   * One renewal at a time: concurrent callers in this context share the same promise — the callers of one
+   * person only (`expectedUser`, batch 2): one for someone else still on its way is waited for first.
+   */
+  async function refresh(failedToken = null, expectedUser = null) {
+    while (inflight && inflight.owner !== expectedUser) await inflight.promise.catch(() => undefined);
     if (!inflight) {
-      inflight = refreshUnderLock(failedToken).finally(() => {
-        inflight = null;
+      const promise = refreshUnderLock(failedToken, expectedUser).finally(() => {
+        if (inflight && inflight.promise === promise) inflight = null;
       });
+      inflight = { promise, owner: expectedUser };
     }
-    return inflight;
+    return inflight.promise;
   }
 
-  async function authedFetch(path, opts = {}) {
+  /**
+   * An API call with the session, renewed once on a 401. Batch 2 (reviews #5, #7): the person it goes as
+   * is taken before its first send, and it is only ever sent again as them — a renewal that finds someone
+   * else's session, or a renewed token issued to someone else, leaves the first 401 standing and signs
+   * nobody out. `asUser` binds it to one person (a replayed change, the background poll): while someone
+   * else, or nobody, is signed in it is never sent at all (SessionChangedError, a pause).
+   */
+  async function authedFetch(path, opts = {}, { asUser } = {}) {
     const t = await tokens.get();
+    if (asUser && t.userId !== asUser) throw new SessionChangedError();
     if (!boundHere(t)) {
       expired();
       return unauthorizedResponse();
     }
+    const sentAs = t.userId;
+    /** A token that is someone else's (its `sub`, when it can be read) is never sent for this request. */
+    const theirs = (tok) => {
+      const sub = decodeJwtSub(tok);
+      return sub === null || !sentAs || sub === sentAs;
+    };
+    const changedHands = () => {
+      if (asUser) throw new SessionChangedError();
+      return unauthorizedResponse();
+    };
     let token = t.accessToken;
     if (!token) {
       // e.g. after a browser restart wiped chrome.storage.session.
-      const r = await refresh(null);
+      const r = await refresh(null, sentAs);
+      if (r.changed) return changedHands();
       if (r.expired) {
         expired();
         return unauthorizedResponse();
@@ -229,15 +290,19 @@ export function createAuth({ local, session, apiBase, fetchImpl = (...a) => fetc
       if (!r.token) throw new AuthUnavailableError();
       token = r.token;
     }
+    // The access token and the person are kept apart (session and local storage): read mid-switch they can disagree.
+    if (!theirs(token)) return changedHands();
     const send = (tok) => fetchImpl(`${apiBase}${path}`, { signal: timeoutSignal(), ...opts, headers: requestHeaders(opts, tok) });
     const res = await send(token);
     if (res.status !== 401) return res;
-    const r = await refresh(token);
+    const r = await refresh(token, sentAs);
+    if (r.changed) return res; // someone else's session now: the 401 stands, nobody is signed out
     if (r.expired) {
       expired();
       return res;
     }
     if (!r.token) throw new AuthUnavailableError();
+    if (!theirs(r.token)) return res;
     return send(r.token);
   }
 

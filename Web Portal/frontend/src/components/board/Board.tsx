@@ -11,7 +11,8 @@ import { todayKey as companyTodayKey } from '../../lib/due-date';
 import { useCompanyTimeZone } from '../../lib/company-clock';
 import { useOpenTask } from '../../lib/useOpenTask';
 import { ApiError } from '../../lib/api-client';
-import { enqueueOffline } from '../../lib/offline-replay';
+import { enqueueOffline, forgetQueuedMoves } from '../../lib/offline-replay';
+import { useAuthStore } from '../../stores/auth-store';
 import { invalidateTaskQueries } from '../../lib/task-cache';
 import { approvalNotice } from '../../lib/approvals';
 import { ALL_PROJECTS, BOARD_FIT_QUERY, boardFilterRows, boardProjects, composeAllProjectsBoard, composeBoard, filterBoard, fullColumnIndex, markNeedsCategory, moveTaskInBoard, reorderColumnInBoard, statusOfBoardColumn, targetColumnFor } from '../../lib/board';
@@ -211,22 +212,15 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
     const idx = cols.findIndex((c) => c.id === id);
     const j = dir === 'up' ? idx - 1 : idx + 1;
     if (idx < 0 || j < 0 || j >= cols.length) return;
-    const a = cols[idx]!;
-    const b = cols[j]!;
-    // Swap through a guaranteed-unique temp position (the [projectId,position] unique index forbids a direct swap).
-    await columnsApi(apiClient).update(a.id, { position: -1 - a.position });
-    await columnsApi(apiClient).update(b.id, { position: a.position });
-    await columnsApi(apiClient).update(a.id, { position: b.position });
+    const ids = cols.map((c) => c.id);
+    [ids[idx], ids[j]] = [ids[j]!, ids[idx]!];
+    await reorderColumnsTo(ids);
   }
-  /** Persist a full drag-reorder. Two phases (park at unique negatives, then final indices) so the
-      [projectId, position] unique index never collides mid-update. */
+  /** Review fix #26: save a new column order (an arrow or a drag) in one request — the server applies it all
+      at once, so an interrupted save never leaves the board half-reordered. */
   async function reorderColumnsTo(orderedIds: string[]) {
-    for (let i = 0; i < orderedIds.length; i++) {
-      await columnsApi(apiClient).update(orderedIds[i]!, { position: -1000 - i });
-    }
-    for (let i = 0; i < orderedIds.length; i++) {
-      await columnsApi(apiClient).update(orderedIds[i]!, { position: i });
-    }
+    if (!projectId) return;
+    await columnsApi(apiClient).reorder(projectId, orderedIds);
   }
 
   const boardQ = useQuery({
@@ -249,12 +243,6 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
       if (orderedIds.length > 1 && moved.columnId === toColumnId) await tasksApi(apiClient).reorder(toColumnId, orderedIds);
       return moved;
     },
-    // A task that needs approval, finished by someone who can't approve, waits (it snaps back to where it waits).
-    onSuccess: (moved, vars) => {
-      const waits = approvalNotice(vars.toColumnId, moved);
-      if (waits) setNotice(waits);
-      tellWhere(moved, (word) => `Moved — it’s in ${word} now.`);
-    },
     // Optimistically move the card so it lands instantly (at the drop position) instead of snapping
     // back to its origin column until the refetch returns; roll back and surface an error if it fails.
     onMutate: async ({ taskKey, toColumnId, toIndex }) => {
@@ -273,7 +261,17 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
         );
         qc.setQueryData<BoardData>(key, { ...prev, columns: moveTaskInBoard(prev.columns, taskKey, toColumnId, toIndex), ...(tasks ? { tasks } : {}) });
       }
-      return { prev, key };
+      // 1.23.27: who made the move, so only their queue is touched when it is saved (batch 2's rule).
+      return { prev, key, sentAt: Date.now(), ownerId: useAuthStore.getState().user?.id ?? null };
+    },
+    // A task that needs approval, finished by someone who can't approve, waits (it snaps back to where it waits).
+    // (After onMutate: the context's type comes from it.)
+    onSuccess: (moved, vars, ctx) => {
+      // Review fix #16: an older offline move of it can't replay over this one (a later one queued meanwhile stays).
+      forgetQueuedMoves(vars.id, ctx?.sentAt ?? 0, ctx?.ownerId ?? null);
+      const waits = approvalNotice(vars.toColumnId, moved);
+      if (waits) setNotice(waits);
+      tellWhere(moved, (word) => `Moved — it’s in ${word} now.`);
     },
     onError: (e, vars, ctx) => {
       if (e instanceof ApiError) {
@@ -325,11 +323,6 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
   // A card dropped on a status moves into its own project's first column of that kind.
   const statusMoveMut = useMutation({
     mutationFn: ({ id, toColumnId }: { id: string; toColumnId: string; taskKey: string; status: TaskCategory }) => tasksApi(apiClient).move(id, toColumnId),
-    onSuccess: (moved, vars) => {
-      const waits = approvalNotice(vars.toColumnId, moved);
-      if (waits) setNotice(waits);
-      tellWhere(moved, (word) => `Moved — it’s in ${word} now.`);
-    },
     onMutate: async ({ taskKey, toColumnId, status }) => {
       setMoveError(false);
       const key = allKey;
@@ -341,7 +334,13 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
           prev.map((t) => (t.key === taskKey ? { ...t, columnId: toColumnId, columnCategory: status, completedAt: status === 'DONE' ? t.completedAt ?? new Date().toISOString() : null } : t)),
         );
       }
-      return { prev, key };
+      return { prev, key, sentAt: Date.now(), ownerId: useAuthStore.getState().user?.id ?? null };
+    },
+    onSuccess: (moved, vars, ctx) => {
+      forgetQueuedMoves(vars.id, ctx?.sentAt ?? 0, ctx?.ownerId ?? null); // review fix #16 (only the mover's queue)
+      const waits = approvalNotice(vars.toColumnId, moved);
+      if (waits) setNotice(waits);
+      tellWhere(moved, (word) => `Moved — it’s in ${word} now.`);
     },
     onError: (e, vars, ctx) => {
       if (e instanceof ApiError) {

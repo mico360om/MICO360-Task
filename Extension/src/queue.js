@@ -480,23 +480,28 @@ function alreadyGone(kind, status, code) {
  * `onTask(task)` also receives so the offline copy of the task can be kept up to date.
  */
 export function makePerformMutation(doFetch, { onTask } = {}) {
-  return async (item) => {
-    if (!mutationRequest(item)) throw replayError(`unknown mutation: ${item.kind}`, { outcome: 'fail' });
-    const prep = await requestToSend(item, doFetch);
-    if (prep.unreadable) throw replayError('The server’s reply could not be read.', { outcome: 'pause' });
-    const res = prep.res || (await doFetch(prep.req.path, prep.req.init));
-    if (!res.ok) {
-      const { code, message } = await errorInfo(res);
-      if (item.kind === 'task.update' && isVersionConflict({ status: res.status, code })) return settleConflict(item, doFetch, onTask, code);
-      if (alreadyGone(item.kind, res.status, code)) return undefined;
-      throw replayError(message || `${item.kind} failed (${res.status})`, { status: res.status, code, outcome: outcomeForStatus(res.status, code) });
-    }
-    const reply = await readReply(res);
-    // Something other than the server answered: like being offline, try again on the next sync.
-    if (!reply.ok) throw replayError('The server’s reply could not be read.', { outcome: 'pause' });
-    if (VERSIONED_KINDS.has(item.kind) && reply.data && reply.data.id) await keep(onTask, reply.data);
-    return reply.data;
-  };
+  // Batch 2 (review #7): every request of a change goes only as the person who made it: the caller's fetch
+  // is told whose it is ({ asUser }) and refuses, a pause, while someone else (or nobody) is signed in.
+  return async (item) => performAs(item, item && item.userId ? (path, init) => doFetch(path, init, { asUser: item.userId }) : doFetch, onTask);
+}
+
+/** Replay one item with `doFetch` (bound to its person when it has one; see makePerformMutation). */
+async function performAs(item, doFetch, onTask) {
+  if (!mutationRequest(item)) throw replayError(`unknown mutation: ${item.kind}`, { outcome: 'fail' });
+  const prep = await requestToSend(item, doFetch);
+  if (prep.unreadable) throw replayError('The server’s reply could not be read.', { outcome: 'pause' });
+  const res = prep.res || (await doFetch(prep.req.path, prep.req.init));
+  if (!res.ok) {
+    const { code, message } = await errorInfo(res);
+    if (item.kind === 'task.update' && isVersionConflict({ status: res.status, code })) return settleConflict(item, doFetch, onTask, code);
+    if (alreadyGone(item.kind, res.status, code)) return undefined;
+    throw replayError(message || `${item.kind} failed (${res.status})`, { status: res.status, code, outcome: outcomeForStatus(res.status, code) });
+  }
+  const reply = await readReply(res);
+  // Something other than the server answered: like being offline, try again on the next sync.
+  if (!reply.ok) throw replayError('The server’s reply could not be read.', { outcome: 'pause' });
+  if (VERSIONED_KINDS.has(item.kind) && reply.data && reply.data.id) await keep(onTask, reply.data);
+  return reply.data;
 }
 
 function errorText(e) {

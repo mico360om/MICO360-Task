@@ -180,6 +180,8 @@ export interface MyCourseState {
   dueDay: string | null;
   overdue: boolean;
   lastLessonId: string | null;
+  /** The lesson Start / Continue opens: the first one to do (to review), else the first; null: no lessons. */
+  nextLessonId: string | null;
   startedAt: string | null;
   completedAt: string | null;
   certificate: CertificateRef | null;
@@ -642,6 +644,8 @@ export interface AssignmentInput {
   mandatory: boolean;
   dueDay?: string | null;
   dueDays?: number | null;
+  /** A group, department or company: only people who join from now on (an onboarding rule underneath). */
+  newStaffOnly?: boolean;
 }
 
 export interface RuleInput {

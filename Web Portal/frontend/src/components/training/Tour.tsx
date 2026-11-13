@@ -29,13 +29,13 @@ export const STAFF_TOUR: TourStep[] = [
   { anchor: 'new-task', title: 'New task', body: 'Add a task from any page. It starts in the project you are looking at.' },
   { anchor: 'board', title: 'Kanban board', body: 'A project’s tasks as cards in columns — move them along as the work moves on.' },
   { anchor: 'notifications', title: 'Notifications', body: 'Mentions, tasks given to you, reminders and answers arrive here.' },
-  { anchor: 'training', title: 'Learning Hub', body: 'Short courses on each part of the site, your progress and your certificates. Take this tour again from there any time.' },
+  { anchor: 'training', title: 'Learning Hub', body: 'A short course for each part of the site — Up next shows the one to do first. See this tour again from Tour of the site in the account menu.' },
 ];
 
 export const CLIENT_TOUR: TourStep[] = [
   { anchor: 'portal-projects', title: 'Your projects', body: 'The projects the team shares with you. Open one to follow its progress, tasks and meetings.' },
   { anchor: 'portal-notifications', title: 'Notifications', body: 'Replies to your comments, documents, minutes and meeting invitations from the project team.' },
-  { anchor: 'portal-training', title: 'Learning Hub', body: 'Short courses on using the portal. Take this tour again from there any time.' },
+  { anchor: 'portal-training', title: 'Learning Hub', body: 'Short courses on using the portal. See this tour again from Tour of the site there.' },
 ];
 
 const PANEL_W = 320;
@@ -169,7 +169,7 @@ export function TourDialog({ steps, onFinish }: { steps: TourStep[]; onFinish: (
 
 const staffApi = trainingApi(apiClient);
 
-/** The staff app's tour: by itself once when the server says so (a new account), and whenever "Take the tour" is pressed. */
+/** The staff app's tour: by itself once when the server says so (a new account), and whenever "Tour of the site" is chosen. */
 export function StaffTour() {
   const access = useTrainingAccess();
   const qc = useQueryClient();

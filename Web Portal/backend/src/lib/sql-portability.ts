@@ -35,7 +35,11 @@ export function portabilityProblems(sql: string): string[] {
   // LIMIT inside IN (…): MariaDB refuses it ("doesn't yet support 'LIMIT & IN/ALL/ANY/SOME subquery'").
   if (/\bIN\s*\(\s*SELECT\b[^()]*(?:\([^()]*\)[^()]*)*\bLIMIT\b/i.test(s)) found.push('LIMIT in IN (…)');
   // Syntax and functions one of the two lacks or reads differently.
-  if (/\bRETURNING\b|->>|\bJSON_[A-Z_]+\s*\(|\bOVER\s*\(|^\s*WITH\b|SKIP\s+LOCKED|\bNOWAIT\b/i.test(s)) found.push('not portable syntax');
+  // 1.23.27: FOR SHARE is MySQL 8's alone (MariaDB: error 1064; LOCK IN SHARE MODE reads alike on both).
+  if (/\bRETURNING\b|->>|\bJSON_[A-Z_]+\s*\(|\bOVER\s*\(|^\s*WITH\b|SKIP\s+LOCKED|\bNOWAIT\b|\bFOR\s+SHARE\b/i.test(s)) found.push('not portable syntax');
+  // 1.23.27: VECTOR is a keyword from MariaDB 11.7 (its vector type): a bare `vector` column is error 1064
+  // there — quote it (`vector`) or name it after its table (e.vector). Strings are left out of the look.
+  if (/(?<![`.\w])vector(?![`\w])/i.test(s.replace(/'(?:[^'\\]|\\.|'')*'/g, "''"))) found.push('bare keyword as a name: vector');
   // No isolation statement: READ COMMITTED writes fail on a statement-based binary log (error 1665).
   if (/\bSET\s+(?:SESSION\s+|GLOBAL\s+)?TRANSACTION\b/i.test(s)) found.push('isolation statement');
   // A multi-table UPDATE or DELETE can't sort or stop early.

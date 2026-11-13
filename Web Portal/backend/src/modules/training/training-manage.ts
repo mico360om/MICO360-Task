@@ -7,6 +7,7 @@ import { inScope } from './training-access';
 import { certificateStatus } from './training-certificates';
 import { conflict, courseFacts, forbidden, idOf, managerOf, notFound, scopeOf, type TrainingContext } from './training-context';
 import { checkTrainingUpload, type TrainingUpload } from './training-files';
+import { createTrainingFinish } from './training-finish';
 import { readSetting, stringList, writeSetting, type PersonRecord } from './prisma-training-store';
 import { reaches, targetMatches, type AssignmentFacts } from './training-targets';
 import type { TrainingSync } from './training-sync';
@@ -130,6 +131,8 @@ export const assignmentInputSchema = z
     targetId: id,
     mandatory: z.boolean(),
     ...dueFields,
+    /** 12 Nov (owner answer 2): only people who join from now on — an onboarding rule underneath. */
+    newStaffOnly: z.boolean().optional(),
   })
   .refine((a) => !(a.dueDay && a.dueDays), { message: 'Choose either a due day or a number of days, not both.', path: ['dueDays'] });
 export type AssignmentInputParsed = z.infer<typeof assignmentInputSchema>;
@@ -228,10 +231,11 @@ export interface ProblemLesson {
 /** Why Publish is refused today (empty: ready). */
 export function publishProblems(lessons: readonly ProblemLesson[]): string[] {
   if (lessons.length === 0) return ['Add at least one lesson.'];
+  // R2: a video lesson without its link is simply hidden until the link is pasted; a course needs one lesson people see.
+  if (lessons.every((l) => l.kind === 'VIDEO' && !l.videoId)) return ['Add a lesson people can see: a video lesson shows only once it has its link.'];
   const out: string[] = [];
   for (const l of lessons) {
     const at = `Lesson “${l.title}”`;
-    if (l.kind === 'VIDEO' && !l.videoId) out.push(`${at}: add the YouTube or Vimeo link.`);
     if (l.kind === 'DOCUMENT' && !l.fileId) out.push(`${at}: upload its document.`);
     if (l.kind === 'GUIDE' && l.stepCount === 0) out.push(`${at}: add at least one step.`);
     if (l.kind !== 'QUIZ') continue;
@@ -275,6 +279,19 @@ function chunks<T>(list: readonly T[], size = 300): T[][] {
 
 export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
   const { prisma } = ctx;
+  const finish = createTrainingFinish(ctx);
+
+  /** R3: after lessons went from under people (a link cleared, a lesson removed), finish anyone now done. */
+  async function recheck(courseId: string): Promise<void> {
+    try {
+      await finish.recheck([courseId]);
+    } catch (err) {
+      ctx.logger?.warn('training: finishing could not be checked again', { courseId, err: String((err as Error)?.message ?? err) });
+    }
+  }
+
+  /** R3: a guide's saved step is never past its last step. */
+  const clampSteps = (lessonId: string, count: number) => prisma.trainingProgress.updateMany({ where: { lessonId, stepIndex: { gt: Math.max(0, count - 1) } }, data: { stepIndex: Math.max(0, count - 1) } });
 
   async function audit(actor: PersonRecord, meta: Meta, action: string, entityId: string | null, values: { oldValue?: unknown; newValue?: unknown } = {}): Promise<void> {
     if (!ctx.audit) return;
@@ -555,6 +572,7 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
     if (!c.publishedAt) {
       await prisma.trainingCourse.update({ where: { id: c.id }, data: { status: 'PUBLISHED', publishedAt: now, updatedAt: now, updatedById: actor.id } });
       await audit(actor, meta, 'training.course.publish', c.id, { newValue: { version: c.version } });
+      await recheck(c.id);
       return manageCourse(c.id);
     }
     if (!input.change) throw new HttpError('Say whether this is a minor fix or a major change.', 'CHANGE_KIND_NEEDED', 400);
@@ -575,6 +593,8 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
       });
     });
     await audit(actor, meta, 'training.course.publish', c.id, { newValue: { version, change: input.change, changedLessons: changed.length } });
+    // R3 / review I1: lessons removed while it was unpublished finish anyone who has done every lesson left.
+    await recheck(c.id);
     return manageCourse(c.id);
   }
 
@@ -669,8 +689,14 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
           : { ...x, ...('videoId' in data ? { videoId: (data.videoId as string | null) ?? null } : {}), ...('fileId' in data ? { fileId: (data.fileId as string | null) ?? null } : {}) },
       ),
     );
-    await prisma.trainingLesson.update({ where: { id: l.id }, data: { ...data, updatedAt: ctx.clock() } });
+    // R1/R2: pasting, changing or clearing a video's link isn't an edit to publish — the lesson shows (or hides) at
+    // once, the course never reads "Changes not published", and later starter updates still reach it.
+    const VIDEO_FIELDS = new Set(['videoProvider', 'videoId', 'videoHash', 'videoUrl']);
+    const current = l as unknown as Record<string, unknown>;
+    const contentChanged = Object.entries(data).some(([k, v]) => !VIDEO_FIELDS.has(k) && (current[k] ?? null) !== (v ?? null));
+    await prisma.trainingLesson.update({ where: { id: l.id }, data: { ...data, updatedAt: contentChanged ? ctx.clock() : l.updatedAt } });
     await audit(actor, meta, 'training.lesson.update', l.id, { newValue: { ...input, body: input.body === undefined ? undefined : '(changed)' } });
+    if (l.kind === 'VIDEO' && l.videoId && 'videoId' in data && !data.videoId) await recheck(l.courseId);
     return manageLesson(l.id);
   }
 
@@ -681,6 +707,7 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
     await prisma.trainingLesson.delete({ where: { id: l.id } });
     await touchCourse(l.courseId, actor);
     await audit(actor, meta, 'training.lesson.delete', l.id, { oldValue: { courseId: l.courseId, title: l.title } });
+    await recheck(l.courseId);
   }
 
   async function reorderLessons(actorId: string, courseId: unknown, body: unknown, meta?: Meta): Promise<ManageCourse> {
@@ -719,7 +746,7 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
       imageAlt: s.imageFileId ? s.imageAlt?.trim() || null : null,
     }));
     await assertStillPublishable(l.courseId, (lessons, all) => lessons.map((x, i) => (all[i]!.id === l.id ? { ...x, stepCount: rows.length } : x)));
-    await prisma.$transaction([prisma.trainingStep.deleteMany({ where: { lessonId: l.id } }), prisma.trainingStep.createMany({ data: rows }), touchLesson(l.id)]);
+    await prisma.$transaction([prisma.trainingStep.deleteMany({ where: { lessonId: l.id } }), prisma.trainingStep.createMany({ data: rows }), touchLesson(l.id), clampSteps(l.id, rows.length)]);
     await audit(actor, meta, 'training.lesson.steps', l.id, { newValue: { steps: rows.length } });
     return manageLesson(l.id);
   }
@@ -935,12 +962,21 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
     frozen: false,
   });
 
+  /** "New staff only" is for a group, a department or a company, due a number of days after joining (or never). */
+  function checkNewStaff(input: { targetKind: string; dueDay?: string | null }): void {
+    if (!(RULE_TARGET_KINDS as readonly string[]).includes(input.targetKind)) throw new ValidationError('“New staff only” is for a group, a department or a company.', { field: 'targetKind' });
+    if (input.dueDay) throw new ValidationError('New staff get it when they join: give a number of days after that, not a day.', { field: 'dueDay' });
+  }
+
   async function previewAssignment(actorId: string, body: unknown): Promise<{ reach: number; already: number; skipped: { name: string; reason: string }[] }> {
     const actor = await managerOf(ctx, actorId);
     const input = assignmentInputSchema.parse(body ?? {});
+    if (input.newStaffOnly) checkNewStaff(input);
     const courses = await publishedCourses(input.courseIds);
     await checkTarget(actor, input.targetKind, input.targetId);
     checkDue(input);
+    // Nobody there today gets it: only people who join from now on.
+    if (input.newStaffOnly) return { reach: 0, already: 0, skipped: [] };
     const people = [...(await ctx.people()).values()];
     const enrolments = await prisma.trainingEnrolment.findMany({ where: { courseId: { in: courses.map((c) => c.id) }, withdrawnAt: null }, select: { userId: true, courseId: true } });
     const has = new Set(enrolments.map((e) => `${e.userId}|${e.courseId}`));
@@ -1078,9 +1114,17 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
   async function assign(actorId: string, body: unknown, meta?: Meta): Promise<{ assignments: AssignmentRow[] }> {
     const actor = await managerOf(ctx, actorId);
     const input = assignmentInputSchema.parse(body ?? {});
+    if (input.newStaffOnly) checkNewStaff(input);
     const courses = await publishedCourses(input.courseIds);
-    await checkTarget(actor, input.targetKind, input.targetId);
+    const label = await checkTarget(actor, input.targetKind, input.targetId);
     checkDue(input);
+    if (input.newStaffOnly) {
+      // Owner answer 2: the onboarding rule behind "New staff only" (listed in Assigned; switched off, never deleted there).
+      const name = [...`New staff: ${label}`].slice(0, LIMITS.ruleName).join('');
+      const { rule, assignmentIds } = await makeRule(actor, { name, targetKind: input.targetKind, targetId: input.targetId, mandatory: input.mandatory, dueDays: input.dueDays ?? null, active: true }, courses);
+      await audit(actor, meta, 'training.assignment.new-staff', rule.id, { newValue: { courseIds: courses.map((c) => c.id), targetKind: input.targetKind, targetId: input.targetId } });
+      return { assignments: await assignmentRows(actor, await prisma.trainingAssignment.findMany({ where: { id: { in: assignmentIds } }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] })) };
+    }
     const scope = scopeOf(actor);
     const now = ctx.clock();
     const created = [];
@@ -1122,7 +1166,7 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
     if (!mayChange(actor, a.scopeCompanyIds)) throw forbidden('Only an administrator (or a Training manager of the same companies) can withdraw this assignment.');
     if (a.ruleId) {
       const rule = await prisma.trainingRule.findUnique({ where: { id: a.ruleId }, select: { name: true } });
-      if (rule) throw conflict(`This assignment comes from the onboarding rule “${rule.name}”. Change the rule instead.`, 'RULE_ASSIGNMENT');
+      if (rule) throw conflict('This is a “New staff only” assignment: switch it off instead. Nobody loses what they have.', 'RULE_ASSIGNMENT');
     }
     const withdrawn = await sync.withdrawAssignments([a.id], actor.id);
     await audit(actor, meta, 'training.assignment.withdraw', a.id, { oldValue: { courseId: a.courseId, targetKind: a.targetKind, targetId: a.targetId }, newValue: { enrolmentsWithdrawn: withdrawn } });
@@ -1195,6 +1239,17 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
     const input = ruleInputSchema.parse(body ?? {});
     const courses = await publishedCourses(input.courseIds);
     await checkTarget(actor, input.targetKind, input.targetId);
+    const { rule } = await makeRule(actor, input, courses);
+    await audit(actor, meta, 'training.rule.create', rule.id, { newValue: input });
+    return (await ruleRows(actor, [rule]))[0]!;
+  }
+
+  /** A rule and its assignments (one per course), synced. Checks are the caller's. */
+  async function makeRule(
+    actor: PersonRecord,
+    input: { name: string; targetKind: string; targetId: string; mandatory: boolean; dueDays?: number | null; active?: boolean },
+    courses: readonly { id: string }[],
+  ) {
     const scope = scopeOf(actor);
     const rule = await prisma.trainingRule.create({
       data: {
@@ -1213,8 +1268,7 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync) {
     const ids: string[] = [];
     for (const c of courses) ids.push((await prisma.trainingAssignment.create({ data: ruleAssignment(rule, c.id) })).id);
     await sync.assignments(ids);
-    await audit(actor, meta, 'training.rule.create', rule.id, { newValue: input });
-    return (await ruleRows(actor, [rule]))[0]!;
+    return { rule, assignmentIds: ids };
   }
 
   async function updateRule(actorId: string, ruleId: unknown, body: unknown, meta?: Meta): Promise<RuleRow> {

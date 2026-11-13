@@ -29,7 +29,7 @@ beforeEach(() => {
 });
 
 describe('Training Center → Feedback', () => {
-  it('questions (open ones can be answered, answered ones show the answer), outdated reports and ratings', async () => {
+  it('questions (open ones can be answered, answered ones show the answer), problems reported and ratings', async () => {
     renderManage(<FeedbackTab />);
     const questions = await screen.findByRole('region', { name: 'Questions' });
     const open = within(questions).getByText('How do I move a task to another project?').closest('li')!;
@@ -40,7 +40,10 @@ describe('Training Center → Feedback', () => {
     expect(within(answered).getByText('Answered')).toBeInTheDocument();
     expect(within(answered).queryByRole('textbox')).toBeNull();
 
-    const outdated = screen.getByRole('region', { name: 'Outdated reports' });
+    // 12 Nov: “Report a problem” (was “Report outdated”): the words follow.
+    expect(screen.queryByText(/Outdated/)).toBeNull();
+    expect(screen.getByRole('option', { name: 'Problems' })).toBeInTheDocument();
+    const outdated = screen.getByRole('region', { name: 'Problems reported' });
     const o1 = within(outdated).getByText('The button moved to the top bar.').closest('li')!;
     expect(within(o1).getByText(/Lesson: Make a task/)).toBeInTheDocument();
     expect(within(o1).getByRole('button', { name: 'Mark fixed' })).toBeInTheDocument();
@@ -83,7 +86,7 @@ describe('Training Center → Feedback', () => {
 
   it('Mark fixed', async () => {
     renderManage(<FeedbackTab />);
-    const outdated = await screen.findByRole('region', { name: 'Outdated reports' });
+    const outdated = await screen.findByRole('region', { name: 'Problems reported' });
     await userEvent.click(within(outdated).getByRole('button', { name: 'Mark fixed' }));
     await waitFor(() => expect(api.markFixed).toHaveBeenCalledWith('o1'));
   });

@@ -100,7 +100,9 @@ describe('publish problems', () => {
 
   it('says what is missing, lesson by lesson', () => {
     expect(publishProblems([])).toEqual(['Add at least one lesson.']);
-    expect(publishProblems([guide({ title: 'Watch', kind: 'VIDEO', stepCount: 0 })])).toEqual(['Lesson “Watch”: add the YouTube or Vimeo link.']);
+    // R2 (12 Nov): a video without its link is hidden until it has one; it only matters when nothing else is there.
+    expect(publishProblems([guide({ title: 'Watch', kind: 'VIDEO', stepCount: 0 })])).toEqual(['Add a lesson people can see: a video lesson shows only once it has its link.']);
+    expect(publishProblems([guide({ title: 'Watch', kind: 'VIDEO', stepCount: 0 }), guide({})])).toEqual([]);
     expect(publishProblems([guide({ title: 'Read', kind: 'DOCUMENT', stepCount: 0 })])).toEqual(['Lesson “Read”: upload its document.']);
     expect(publishProblems([guide({ stepCount: 0 })])).toEqual(['Lesson “Guide”: add at least one step.']);
     expect(publishProblems([quiz([])])).toEqual(['Lesson “Check”: add at least one question.']);

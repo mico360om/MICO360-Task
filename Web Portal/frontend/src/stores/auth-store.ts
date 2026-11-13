@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { clearUserStorage } from '../lib/user-storage';
 import { localStorageQueueStore, removeOwnerItems } from '../lib/offline-queue';
 import { localDraftStorage, removeOwnerRecords } from '../lib/inspection-outbox';
+import { removeOutbox } from '../lib/chat-outbox';
 
 export interface AuthUser {
   id: string;
@@ -222,6 +223,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       removeOwnerItems(localStorageQueueStore, user.id);
       // Their inspections kept on this device (copies, and anything waiting: the menu asked first).
       removeOwnerRecords(localDraftStorage, user.id);
+      // Their chat messages still waiting to be sent (batch 2, N5 — the menu asked first, as for the above).
+      removeOutbox(user.id);
     }
     if (reason !== 'remote' && isAuthenticated) broadcast({ type: 'logout', userId: user?.id ?? null });
     set({ user: null, accessToken: null, refreshToken: null, isAuthenticated: false, endedBy: isAuthenticated ? reason : get().endedBy });
