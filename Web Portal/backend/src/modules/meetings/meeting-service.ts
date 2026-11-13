@@ -107,7 +107,11 @@ export function createMeetingService({ meetings, onChanged, access, defaultTimeZ
     return withZone(updated);
   }
 
-  /** Duplicate a meeting's core details into a fresh DRAFT (attendees/agenda copied by the caller). */
+  /**
+   * Duplicate a meeting's core details into a fresh DRAFT (attendees/agenda copied by the caller). N4 (owner,
+   * 13 Nov): the copy is the duplicator's own — its organizer and creator — so its invitations go out in their
+   * name and the original's organizer has no organizer rights over it; the original is unchanged.
+   */
   async function duplicateMeeting(id: string, actorId: string): Promise<MeetingRecord> {
     const src = await load(id);
     const copy = await meetings.create({
@@ -117,7 +121,7 @@ export function createMeetingService({ meetings, onChanged, access, defaultTimeZ
       status: 'DRAFT',
       projectId: src.projectId,
       companyId: src.companyId ?? null,
-      organizerId: src.organizerId,
+      organizerId: actorId,
       location: src.location,
       // 1.23: a Teams-made link belongs to its own meeting — the copy can make its own.
       onlineLink: src.onlineMeetingProvider === 'TEAMS' ? null : src.onlineLink,
