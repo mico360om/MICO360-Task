@@ -253,7 +253,8 @@ fdHtml.append('file', new Blob(['<html><script>alert(1)</script></html>'], { typ
 const html = await admin.upload(`/tasks/${taskId}/attachments`, fdHtml);
 const htmlServed = html.b?.data?.url ? await fetch(`${ORIGIN}${html.b.data.url}`) : null;
 ck('a disguised .html upload is stored safely and served sandboxed',
-  html.s === 201 && /\.txt$/.test(html.b.data.url) && htmlServed?.headers.get('content-disposition') === 'attachment' && /sandbox/.test(htmlServed?.headers.get('content-security-policy') ?? ''),
+  // 1.23.29: a task file's url is its stored name with the signed link (?u&e&s) after it.
+  html.s === 201 && /\.txt$/.test(String(html.b.data.url).split('?')[0]) && htmlServed?.headers.get('content-disposition') === 'attachment' && /sandbox/.test(htmlServed?.headers.get('content-security-policy') ?? ''),
   `${html.s} ${html.b?.data?.url}`);
 
 // ------------------------------------------------------------------ reports
