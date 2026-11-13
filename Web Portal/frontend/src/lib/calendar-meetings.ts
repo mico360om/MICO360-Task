@@ -21,13 +21,26 @@ export interface CalMeeting {
   location: string | null;
   recurring: boolean;
   cancelled: boolean;
+  /** 1.23.29: I'm on its people and haven't declined (my own row and answer, as the list says them). */
+  invited: boolean;
+}
+
+/** A meeting from the list, with my own row and answer (the meetings list says them; older servers leave them out). */
+export type ListedMeeting = Meeting & { myAttendeeId?: string | null; myResponse?: string | null };
+
+/**
+ * 1.23.29 — invited and not declined: the meeting reminders' rule (server meeting-reminders `reminderRecipients`:
+ * the organiser, then each person on the meeting whose answer isn't DECLINED).
+ */
+export function invitedNotDeclined(m: Pick<ListedMeeting, 'myAttendeeId' | 'myResponse'>): boolean {
+  return !!m.myAttendeeId && m.myResponse !== 'DECLINED';
 }
 
 function clock(iso: string, timeZone: string): string {
   return new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone }).format(new Date(iso));
 }
 
-export function meetingItems(meetings: Meeting[], timeZone: string): CalMeeting[] {
+export function meetingItems(meetings: ListedMeeting[], timeZone: string): CalMeeting[] {
   return [...meetings]
     .sort((a, b) => Date.parse(a.startAt) - Date.parse(b.startAt))
     .map((m) => ({
@@ -43,6 +56,7 @@ export function meetingItems(meetings: Meeting[], timeZone: string): CalMeeting[
       location: m.location,
       recurring: !!seriesIdOf(m),
       cancelled: m.status === 'CANCELLED',
+      invited: invitedNotDeclined(m),
     }));
 }
 
@@ -52,7 +66,8 @@ export function filterCalendarMeetings(items: CalMeeting[], f: CalendarFilters, 
   const q = f.q.trim().toLocaleLowerCase('en');
   return items.filter((m) => {
     if (f.projectId && m.projectId !== f.projectId) return false;
-    if (f.mine && m.organizerId !== ctx.myId) return false;
+    // "My tasks": meetings I organise, or am invited to and haven't declined (1.23.29).
+    if (f.mine && m.organizerId !== ctx.myId && !m.invited) return false;
     if (!f.showCompleted && m.status === 'COMPLETED') return false;
     if (q && !m.title.toLocaleLowerCase('en').includes(q)) return false;
     return true;

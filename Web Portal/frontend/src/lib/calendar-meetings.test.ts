@@ -51,6 +51,26 @@ describe('meetings on the calendar', () => {
     expect(ids({ assigneeId: 'u2' })).toEqual([]);
   });
 
+  // 1.23.29 — "My tasks" keeps the meetings I organise AND the ones I'm invited to and haven't declined (the
+  // meeting reminders' rule: the organiser, then each invitee who didn't decline). The list says my own row
+  // and answer (myAttendeeId, myResponse).
+  it('“My tasks”: meetings I organise, or am invited to and haven’t declined', () => {
+    const items = meetingItems([
+      meeting({ id: 'organised' }),
+      { ...meeting({ id: 'invited', organizerId: 'u2' }), myAttendeeId: 'a1', myResponse: 'PENDING' },
+      { ...meeting({ id: 'going', organizerId: 'u2' }), myAttendeeId: 'a2', myResponse: 'ACCEPTED' },
+      { ...meeting({ id: 'maybe', organizerId: 'u2' }), myAttendeeId: 'a3', myResponse: 'TENTATIVE' },
+      { ...meeting({ id: 'declined', organizerId: 'u2' }), myAttendeeId: 'a4', myResponse: 'DECLINED' },
+      { ...meeting({ id: 'not-mine', organizerId: 'u2' }), myAttendeeId: null, myResponse: null },
+      meeting({ id: 'older-server', organizerId: 'u2' }), // no myAttendeeId at all
+    ], TZ);
+    const mine = filterCalendarMeetings(items, { ...DEFAULT_FILTERS, mine: true }, { myId: 'u1' }).map((i) => i.id);
+    expect(mine).toEqual(['organised', 'invited', 'going', 'maybe']);
+    // Organising and having declined my own row: still mine (I run it).
+    const own = meetingItems([{ ...meeting({ id: 'own' }), myAttendeeId: 'a5', myResponse: 'DECLINED' }], TZ);
+    expect(filterCalendarMeetings(own, { ...DEFAULT_FILTERS, mine: true }, { myId: 'u1' }).map((i) => i.id)).toEqual(['own']);
+  });
+
   it('groups by day and asks the server for the whole visible range', () => {
     const byDay = groupMeetingsByDay(meetingItems([meeting({ id: 'a' }), meeting({ id: 'b', startAt: '2026-10-20T04:00:00.000Z' })], TZ));
     expect(byDay.get('2026-10-20')!.map((i) => i.id)).toEqual(['b', 'a']);
