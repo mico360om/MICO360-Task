@@ -119,6 +119,16 @@ function moduleOutline(s: PairState, u: UnitState): ModuleOutline {
   };
 }
 
+/**
+ * A module of the course the person isn't shown (off, or not their feature, group or company): none of its lessons
+ * are theirs, whatever their kind. A lesson with no module, or whose module is gone, is one of "Other lessons".
+ */
+function moduleHiddenFrom(s: PairState, moduleId: string | null, p: PersonRecord): boolean {
+  if (!moduleId) return false;
+  const m = s.modules.find((x) => x.id === moduleId);
+  return !!m && !moduleShown(m, p);
+}
+
 /** The module a lesson is listed under on the course page ("Other lessons" and a plain course: none). */
 function lessonModuleId(s: PairState, lessonId: string): string | null {
   const u = unitOf(s, lessonId);
@@ -329,7 +339,8 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync, 
       mandatory: s.state.mandatory,
       dueDay: s.state.dueDay,
       overdue: s.state.overdue,
-      lastLessonId: e?.lastLessonId ?? null,
+      // Only one of their lessons (a role that shrank, or the conversion, can leave a hidden module's there).
+      lastLessonId: e?.lastLessonId && s.lessons.some((l) => l.id === e.lastLessonId) ? e.lastLessonId : null,
       nextLessonId: resume,
       startedAt: iso(e?.startedAt),
       completedAt: s.state.status === 'COMPLETED' || s.state.status === 'REVIEW' ? iso(e?.completedAt) : null,
@@ -543,12 +554,13 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync, 
   // ── Lessons ──
 
   /**
-   * 1.23.30: a lesson of a module hidden from the person (in the course, not among their lessons, and not R2's video
-   * waiting for its link): a Training manager or administrator may read it (preview), never take it; anyone else:
-   * not found. Any other lesson: the course's access.
+   * 1.23.30: a lesson of a module hidden from the person — whatever its kind (a video waiting for its link too) — or
+   * otherwise not among their lessons (R2's unlinked video aside, which keeps its own rule): a Training manager or
+   * administrator may read it (preview), never take it; anyone else: not found. Any other lesson: the course's access.
    */
-  function lessonAccess(state: PairState, lesson: { id: string; kind: string; videoId: string | null }, a: 'learn' | 'preview', p: PersonRecord, mode: LearnerMode): 'learn' | 'preview' {
-    if (hiddenLesson(lesson) || state.lessons.some((l) => l.id === lesson.id)) return a;
+  function lessonAccess(state: PairState, lesson: { id: string; kind: string; videoId: string | null; moduleId: string | null }, a: 'learn' | 'preview', p: PersonRecord, mode: LearnerMode): 'learn' | 'preview' {
+    const theirs = state.lessons.some((l) => l.id === lesson.id);
+    if (!moduleHiddenFrom(state, lesson.moduleId, p) && (theirs || hiddenLesson(lesson))) return a;
     if (mode === 'staff' && isManager(p)) return 'preview';
     throw notFound('Lesson');
   }
@@ -1069,8 +1081,12 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync, 
       const { course } = await courseFor(p, courseId, mode, 'learn');
       let lesson: { id: string; title: string } | null = null;
       if (input.lessonId) {
-        lesson = await prisma.trainingLesson.findFirst({ where: { id: idOf(input.lessonId, 'Lesson'), courseId: course.id }, select: { id: true, title: true } });
-        if (!lesson) throw notFound('Lesson');
+        const found = await prisma.trainingLesson.findFirst({ where: { id: idOf(input.lessonId, 'Lesson'), courseId: course.id }, select: { id: true, title: true } });
+        if (!found) throw notFound('Lesson');
+        // 1.23.30: only about one of their lessons (a hidden module's isn't, nor a video waiting for its link); a
+        // Training manager or administrator previewing may report any.
+        if (!(mode === 'staff' && isManager(p)) && !(await loadState(ctx, p.id, course.id, p)).lessons.some((l) => l.id === found.id)) throw notFound('Lesson');
+        lesson = found;
       }
       const text = input.body?.trim() || null;
       const kind = input.kind as FeedbackKind;

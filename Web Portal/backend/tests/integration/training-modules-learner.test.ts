@@ -76,6 +76,8 @@ interface MadeModule {
   guides: string[];
   quiz: string | null;
   picture: string | null;
+  /** A video lesson still waiting for its link (R2). */
+  video: string | null;
 }
 interface MadeCourse {
   id: string;
@@ -113,7 +115,7 @@ async function makeModuleCourse(title: string, mods: ModSpec[], o: Record<string
   const made: MadeCourse = { id: course.id, m: {}, loose: [], right: new Map() };
   for (const [i, spec] of mods.entries()) {
     const mod = await prisma.trainingModule.create({ data: { courseId: course.id, position: i + 1, title: spec.title, moduleKey: spec.moduleKey } });
-    const mm: MadeModule = { id: mod.id, title: spec.title, lessons: [], guides: [], quiz: null, picture: null };
+    const mm: MadeModule = { id: mod.id, title: spec.title, lessons: [], guides: [], quiz: null, picture: null, video: null };
     for (const [n, raw] of (spec.lessons ?? ['GUIDE', 'QUIZ']).entries()) {
       const ls = typeof raw === 'string' ? { kind: raw } : raw;
       const l = await lessonOf(course.id, mod.id, `${spec.title} ${ls.kind.toLowerCase()} ${n + 1}`, ls, made);
@@ -121,6 +123,7 @@ async function makeModuleCourse(title: string, mods: ModSpec[], o: Record<string
       if (ls.kind === 'GUIDE') mm.guides.push(l.id);
       if (ls.kind === 'QUIZ') mm.quiz = l.id;
       mm.picture ??= l.picture;
+      if (ls.kind === 'VIDEO') mm.video = l.id;
     }
     made.m[spec.key] = mm;
   }
@@ -168,7 +171,7 @@ async function failure(p: Promise<unknown>): Promise<{ status?: number; code?: s
 const FOUR: ModSpec[] = [
   { key: 'gs', title: 'Getting started', moduleKey: 'general' },
   { key: 'tasks', title: 'Tasks', moduleKey: 'tasks', lessons: ['GUIDE', { kind: 'GUIDE', steps: 2 }, 'QUIZ'] },
-  { key: 'reports', title: 'Reports', moduleKey: 'reports', lessons: [{ kind: 'GUIDE', picture: true }, 'QUIZ'] },
+  { key: 'reports', title: 'Reports', moduleKey: 'reports', lessons: [{ kind: 'GUIDE', picture: true }, 'QUIZ', 'VIDEO'] },
   { key: 'admin', title: 'Admin settings', moduleKey: 'admin' },
 ];
 
@@ -222,6 +225,7 @@ afterAll(async () => {
   const where = { OR: [{ courseId: { in: courseIds } }, { userId: { in: users } }] };
   await prisma.systemSetting.deleteMany({ where: { key: RECORD_KEY } });
   await prisma.trainingModuleDone.deleteMany({ where });
+  await prisma.trainingFeedback.deleteMany({ where });
   await prisma.trainingAttempt.deleteMany({ where });
   await prisma.trainingProgress.deleteMany({ where });
   await prisma.trainingAssignee.deleteMany({ where });
@@ -393,6 +397,57 @@ describe('a module hidden from the person', () => {
     // An administrator sees Reports: an ordinary lesson.
     expect((await learner.lesson(w.people.admin, 'staff', reports.guides[0]!)).module).toMatchObject({ id: reports.id });
     expect((await learner.file(w.people.admin, 'staff', reports.picture!)).mimeType).toBe('image/png');
+  });
+});
+
+describe('a module hidden from the person: every way in (fix round 1)', () => {
+  it('an unlinked video in a hidden module is refused on every learn call (learner 404, manager NOT_FOR_YOU)', async () => {
+    const reports = main.m.reports!;
+    const max = await newPerson('max');
+    for (const call of [() => learner.saveProgress(max, 'staff', reports.video!, { videoSeconds: 5 }), () => learner.complete(max, 'staff', reports.video!)]) {
+      expect(await failure(call())).toMatchObject({ status: 404, code: 'NOT_FOUND', message: 'Lesson not found.' });
+    }
+    const amy = w.people.amy;
+    for (const call of [() => learner.saveProgress(amy, 'staff', reports.video!, { videoSeconds: 5 }), () => learner.complete(amy, 'staff', reports.video!)]) {
+      expect(await failure(call())).toMatchObject({ status: 409, code: 'NOT_FOR_YOU' });
+    }
+    expect(await prisma.trainingProgress.count({ where: { lessonId: reports.video! } })).toBe(0);
+    expect(await prisma.trainingEnrolment.count({ where: { courseId: main.id, lastLessonId: reports.video! } })).toBe(0);
+    // Reading it stays "not found" for everyone (R2); where the module is theirs, R2 is unchanged.
+    expect(await failure(learner.lesson(amy, 'staff', reports.video!))).toMatchObject({ status: 404 });
+    expect(await failure(learner.complete(w.people.admin, 'staff', reports.video!))).toMatchObject({ status: 409, code: 'NO_VIDEO' });
+  });
+
+  it('feedback about a hidden module’s lesson is refused (a Training manager may still send it)', async () => {
+    const reports = main.m.reports!;
+    const ned = await newPerson('ned');
+    for (const body of [
+      { kind: 'QUESTION', body: 'How do I filter?', lessonId: reports.guides[0] },
+      { kind: 'OUTDATED', body: 'The button moved.', lessonId: reports.guides[0] },
+      { kind: 'RATING', rating: 4, lessonId: reports.guides[0] },
+      { kind: 'OUTDATED', body: 'No link yet.', lessonId: reports.video },
+    ]) {
+      expect(await failure(learner.feedback(ned, 'staff', main.id, body))).toMatchObject({ status: 404, message: 'Lesson not found.' });
+    }
+    expect(await prisma.trainingFeedback.count({ where: { userId: ned } })).toBe(0);
+    // Their own lesson is fine.
+    expect(await learner.feedback(ned, 'staff', main.id, { kind: 'QUESTION', body: 'Where is it?', lessonId: main.m.gs!.guides[0] })).toMatchObject({ lessonId: main.m.gs!.guides[0], lessonTitle: 'Getting started guide 1' });
+    // A Training manager previewing the module may report it.
+    expect(await learner.feedback(w.people.amy, 'staff', main.id, { kind: 'OUTDATED', body: 'Check this.', lessonId: reports.guides[0] })).toMatchObject({ lessonId: reports.guides[0], lessonTitle: 'Reports guide 1' });
+  });
+
+  it('after a role shrinks, the card never names a lesson of a module they no longer see', async () => {
+    const ola = await newPerson('ola');
+    const adminRole = await prisma.role.findUniqueOrThrow({ where: { name: 'ADMIN' } });
+    await prisma.userRole.create({ data: { userId: ola, roleId: adminRole.id } });
+    await learner.lesson(ola, 'staff', main.m.reports!.guides[0]!);
+    expect((await learner.course(ola, 'staff', main.id)).mine.lastLessonId).toBe(main.m.reports!.guides[0]);
+    await prisma.userRole.deleteMany({ where: { userId: ola, roleId: adminRole.id } });
+    const d = await learner.course(ola, 'staff', main.id);
+    expect(d.mine.lastLessonId).toBeNull();
+    expect(d.resumeLessonId).toBe(main.m.gs!.lessons[0]);
+    const card = (await learner.me(ola, 'staff')).inProgress.find((c) => c.id === main.id)!;
+    expect(card.mine.lastLessonId).toBeNull();
   });
 });
 
