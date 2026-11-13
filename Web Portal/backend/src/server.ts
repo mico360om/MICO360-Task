@@ -2927,14 +2927,15 @@ async function main(): Promise<void> {
   mkdirSync(uploadsRoot, { recursive: true });
   // Avatar thumbnails: /uploads/faces/<photo key>.webp, made on first request for a photo from before.
   await registerAvatarFaceRoute(app, avatarFaces);
+  const fileAccess = createFileAccess({
+    store: createPrismaFileRowsStore(prisma),
+    canViewTask: (userId, roles, taskId) => projectAccess.canViewTask(userId, roles, taskId),
+    canSeeConversation: (conversationId, userId) => chatService.canUserAccessConversation(conversationId, userId),
+  });
   await registerUploads(app, {
     root: uploadsRoot,
     links: fileLinks,
-    access: createFileAccess({
-      store: createPrismaFileRowsStore(prisma),
-      canViewTask: (userId, roles, taskId) => projectAccess.canViewTask(userId, roles, taskId),
-      canSeeConversation: (conversationId, userId) => chatService.canUserAccessConversation(conversationId, userId),
-    }),
+    access: fileAccess,
     // The guard's own account read and 10-second cache (a session ended here is forgotten at once).
     accountState: (userId, o) => authGuard.accountState(userId, o),
     appUrl: env.APP_URL,
@@ -2994,6 +2995,7 @@ async function main(): Promise<void> {
   // its chat channel (SEC-07).
   onSessionsRevoked = (userId) => realtime.disconnectUser(userId);
   onMemberRemoved = async (projectId, userId) => {
+    fileAccess.forget(userId); // 1.23.29: their links to the project's files stop at once
     dashboardPriorities.changedFor(userId); // 1.23.4: nothing of the project stays on their priorities
     projectHealth?.changed(projectId); // 1.23.5: its managers and workload may have changed
     realtime.leaveProject(userId, projectId);
@@ -3007,6 +3009,9 @@ async function main(): Promise<void> {
   const refreshCompanyAccess = (userIds: string[], projectIds: string[] = []): void => {
     dashboardPriorities.changed(); // 1.23.4: whose projects these are changed — priorities are read again
     projectHealth?.changed(); // 1.23.5: an archived company archives its projects
+    // 1.23.29: who may open which files is asked again at once (not within 10 seconds).
+    if (projectIds.length) fileAccess.forget();
+    else for (const userId of userIds) fileAccess.forget(userId);
     if (userIds.length) void realtime.refreshAccess(userIds).catch((err) => logger.error('realtime: refreshing company access failed', { err, userIds }));
     for (const projectId of projectIds) void realtime.refreshProjectAudience(projectId).catch((err) => logger.error('realtime: refreshing a project’s audience failed', { err, projectId }));
   };

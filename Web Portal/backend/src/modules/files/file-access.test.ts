@@ -144,6 +144,18 @@ describe('who may open a protected file now', () => {
     expect(await access.mayOpen(amal, taskFile)).toBe(false);
   });
 
+  it('a removal from a project takes effect at once when the server says so (forget the person; or everyone)', async () => {
+    expect(await access.mayOpen(amal, taskFile)).toBe(true);
+    expect(await access.mayOpen(basim, taskFile)).toBe(true);
+    canViewTask.get('t1')!.delete('amal');
+    canViewTask.get('t1')!.delete('basim');
+    access.forget('amal');
+    expect(await access.mayOpen(amal, taskFile)).toBe(false);
+    expect(await access.mayOpen(basim, taskFile)).toBe(true); // still remembered
+    access.forget();
+    expect(await access.mayOpen(basim, taskFile)).toBe(false);
+  });
+
   it('a page of pictures from one task costs one check', async () => {
     for (let i = 0; i < 50; i++) await access.mayOpen(amal, taskFile);
     expect(viewChecks).toBe(1);

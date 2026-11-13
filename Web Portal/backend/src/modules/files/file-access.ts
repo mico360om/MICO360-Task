@@ -64,6 +64,11 @@ function ttlCache<V>(ttlMs: number, max: number, now: () => number) {
       value.catch(() => entries.delete(key));
       return value;
     },
+    /** Forget the entries whose key starts with this (all of them without one). */
+    forget(prefix?: string): void {
+      if (prefix === undefined) entries.clear();
+      else for (const key of [...entries.keys()]) if (key.startsWith(prefix)) entries.delete(key);
+    },
   };
 }
 
@@ -97,7 +102,15 @@ export function createFileAccess(deps: FileAccessDeps) {
     return false;
   }
 
-  return { classify, mayOpen };
+  /**
+   * Forget what was remembered about a person (removed from a project: their links stop at once rather
+   * than within 10 seconds), or about everyone (a project's companies changed).
+   */
+  function forget(userId?: string): void {
+    decisions.forget(userId === undefined ? undefined : `${userId}|`);
+  }
+
+  return { classify, mayOpen, forget };
 }
 
 export type FileAccess = ReturnType<typeof createFileAccess>;
