@@ -185,8 +185,8 @@ export function ChatSidebar(p: ChatSidebarProps) {
           type="button"
           onClick={p.onToggleDm}
           aria-expanded={p.dmOpen}
-          aria-label="New direct message"
-          title="New direct message"
+          aria-label="New message"
+          title="New message"
           className={`${iconButton} ${p.dmOpen ? 'bg-brand/10 text-brand' : 'text-ink-2 hover:bg-ground hover:text-ink'}`}
         >
           {p.dmOpen ? <CloseIcon size={18} /> : <PlusIcon size={18} />}
@@ -194,7 +194,8 @@ export function ChatSidebar(p: ChatSidebarProps) {
       </div>
       {p.dmOpen ? (
         <div className="flex-none px-3 pb-2">
-          <SearchableSelect ariaLabel="Start a direct message" value="" placeholder="Message a teammate…" options={p.dmOptions} onChange={(v) => v && p.onStartDm(v)} />
+          {/* 1.23.29: the action is "New message" (the "+" above, the empty page's button); this is just its people picker. */}
+          <SearchableSelect ariaLabel="Search people" value="" placeholder="Search people…" options={p.dmOptions} onChange={(v) => v && p.onStartDm(v)} />
         </div>
       ) : null}
       <div className="flex-none px-3 pb-2">

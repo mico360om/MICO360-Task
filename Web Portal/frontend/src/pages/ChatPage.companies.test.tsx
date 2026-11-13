@@ -137,8 +137,8 @@ describe('Chat — companies', () => {
       { id: 'cy', username: 'cy', firstName: 'Cy', lastName: 'Old' },
     ];
     renderChat();
-    await userEvent.click(await screen.findByRole('button', { name: 'New direct message' }));
-    await userEvent.click(screen.getByRole('button', { name: 'Start a direct message' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'New message', expanded: false }));
+    await userEvent.click(screen.getByRole('button', { name: 'Search people' }));
     const list = await screen.findByRole('listbox');
     expect(within(list).getAllByRole('option').map((o) => o.textContent)).toEqual([expect.stringContaining('Amy Alphaonly'), expect.stringContaining('Cy Old')]);
   });
