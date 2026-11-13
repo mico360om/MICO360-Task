@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.23.27] - 2026-11-13
+
 ### Improvements
 - Learning Hub: simpler pages — one 'Up next' course to start, To do and Done lists, slimmer course cards, one Next button in lessons and a shorter quiz.
 - Learning Hub: each course starts with its training video once the link is added, a new 'Getting started' course, and lesson pictures updated to the current version.
