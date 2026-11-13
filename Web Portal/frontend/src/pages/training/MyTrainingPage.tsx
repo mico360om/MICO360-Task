@@ -113,6 +113,7 @@ function CataloguePanel() {
         />
       ) : (
         <>
+          <h2 className="sr-only">Courses</h2>
           <p className="text-sm text-ink-2" role="status">
             {q.data.courses.length} {q.data.courses.length === 1 ? 'course' : 'courses'}
           </p>

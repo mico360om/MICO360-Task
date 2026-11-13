@@ -164,6 +164,14 @@ describe('All courses (was Catalogue)', () => {
     expect(within(second).queryByText('Mandatory')).toBeNull();
   });
 
+  it('an h2 "Courses" (screen readers only) sits between the page h1 and the card h3s', async () => {
+    renderAt('/training?tab=catalogue');
+    await screen.findByText('2 courses');
+    const h2 = screen.getByRole('heading', { level: 2, name: 'Courses' });
+    expect(h2).toHaveClass('sr-only');
+    expect(screen.getByText('2 courses').tagName).toBe('P');
+  });
+
   it('8 courses or fewer: no Module filter; Difficulty only when the courses differ; search asks the server', async () => {
     renderAt('/training?tab=catalogue');
     await screen.findByText('2 courses');
