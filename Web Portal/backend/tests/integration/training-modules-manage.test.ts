@@ -741,3 +741,44 @@ describe('saving a guide’s steps (cleanup batch)', () => {
     expect((await call('amy', 'PUT', '/training/manage/lessons/nope/steps', { steps: [] })).status).toBe(404);
   });
 });
+
+describe('lessons in a module that’s switched off are nobody’s lessons (cleanup batch)', () => {
+  it('a draft whose lessons all sit in switched-off modules can’t be published (Manage says why)', async () => {
+    let c = await newCourse('All off');
+    const g = await guideLesson(c.id, 'Hidden');
+    c = await addModule(c.id, { title: 'Off', enabled: false });
+    await moveLesson(g.id, moduleNamed(c, 'Off').id);
+    const why = 'Add a lesson people can see: lessons in a module that’s switched off aren’t shown.';
+    expect((await getCourse(c.id)).publishProblems).toEqual([why]);
+    const refused = await call('amy', 'POST', `/training/manage/courses/${c.id}/publish`, {});
+    expect(refused.status).toBe(409);
+    expect(refused.body.error).toMatchObject({ code: 'PUBLISH_PROBLEMS', details: { problems: [why] } });
+    expect((await getCourse(c.id)).status).toBe('DRAFT');
+    // A lesson outside it (in no module) is enough.
+    await guideLesson(c.id, 'Shown');
+    expect((await data<ManageCourse>(call('amy', 'POST', `/training/manage/courses/${c.id}/publish`, {}))).status).toBe('PUBLISHED');
+  });
+
+  it('the last lesson outside switched-off modules of a published course can’t be deleted (or its video link cleared)', async () => {
+    let c = await newCourse('Last shown');
+    const shown = await guideLesson(c.id, 'Shown');
+    const video = await addLesson(c.id, { kind: 'VIDEO', title: 'Watch', videoUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' });
+    const hidden = await guideLesson(c.id, 'Hidden');
+    c = await addModule(c.id, { title: 'On' });
+    c = await addModule(c.id, { title: 'Off' });
+    await moveLesson(shown.id, moduleNamed(c, 'On').id);
+    await moveLesson(hidden.id, moduleNamed(c, 'Off').id);
+    await data(call('amy', 'POST', `/training/manage/courses/${c.id}/publish`, {}));
+    c = await data<ManageCourse>(call('amy', 'PATCH', `/training/manage/modules/${moduleNamed(c, 'Off').id}`, { enabled: false }));
+    // Two lessons people see: one may go.
+    await data(call('amy', 'DELETE', `/training/manage/lessons/${shown.id}`), 204);
+    // The video is the last: deleting it, or clearing its link, would leave nothing anyone sees.
+    const refused = await call('amy', 'DELETE', `/training/manage/lessons/${video.id}`);
+    expect(refused.status).toBe(409);
+    expect(refused.body.error!.code).toBe('WOULD_BREAK_PUBLISHED');
+    expect((await call('amy', 'PATCH', `/training/manage/lessons/${video.id}`, { videoUrl: null })).status).toBe(409);
+    expect((await getCourse(c.id)).lessons.map((l) => l.title).sort()).toEqual(['Hidden', 'Watch']);
+    // The lesson in the switched-off module isn't the last one people see: it can go.
+    await data(call('amy', 'DELETE', `/training/manage/lessons/${hidden.id}`), 204);
+  });
+});

@@ -249,13 +249,18 @@ export interface ProblemLesson {
   fileId: string | null;
   stepCount: number;
   quiz: { passMark: number; drawCount: number | null; questions: { kind: string; prompt: string; options: { correct: boolean }[] }[] } | null;
+  /** False: in a module that's switched off (nobody sees it). Not given: shown. */
+  shown?: boolean;
 }
 
 /** Why Publish is refused today (empty: ready). */
 export function publishProblems(lessons: readonly ProblemLesson[]): string[] {
   if (lessons.length === 0) return ['Add at least one lesson.'];
+  // A lesson in a module that's switched off is nobody's lesson (it still has to be finished: it may be switched on).
+  const seen = lessons.filter((l) => l.shown !== false);
+  if (seen.length === 0) return ['Add a lesson people can see: lessons in a module that’s switched off aren’t shown.'];
   // R2: a video lesson without its link is simply hidden until the link is pasted; a course needs one lesson people see.
-  if (lessons.every((l) => l.kind === 'VIDEO' && !l.videoId)) return ['Add a lesson people can see: a video lesson shows only once it has its link.'];
+  if (seen.every((l) => l.kind === 'VIDEO' && !l.videoId)) return ['Add a lesson people can see: a video lesson shows only once it has its link.'];
   const out: string[] = [];
   for (const l of lessons) {
     const at = `Lesson “${l.title}”`;
@@ -400,17 +405,12 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync, o
     return prisma.trainingLesson.findMany({ where: { courseId }, include: LESSON_INCLUDE, orderBy: [{ position: 'asc' }, { id: 'asc' }] });
   }
 
-  const problemsOf = (lessons: readonly LessonRow[]) =>
-    publishProblems(
-      lessons.map((l) => ({
-        title: l.title,
-        kind: l.kind,
-        videoId: l.videoId,
-        fileId: l.fileId,
-        stepCount: l.steps.length,
-        quiz: l.quiz ? { passMark: l.quiz.passMark, drawCount: l.quiz.drawCount, questions: l.quiz.questions.map((q) => ({ kind: q.kind, prompt: q.prompt, options: q.options.map((o) => ({ correct: o.correct })) })) } : null,
-      })),
-    );
+  /** The course's modules, switched on or off. */
+  async function moduleSwitches(courseId: string): Promise<Map<string, boolean>> {
+    return new Map((await prisma.trainingModule.findMany({ where: { courseId }, select: { id: true, enabled: true } })).map((m) => [m.id, m.enabled]));
+  }
+
+  const problemsOf = (lessons: readonly LessonRow[], switches: ReadonlyMap<string, boolean>) => publishProblems(lessons.map((l) => toProblem(l, switches)));
 
   const changedSincePublish = (c: { status: string; publishedAt: Date | null; updatedAt: Date }, lessonTimes: readonly Date[]) =>
     c.status === 'PUBLISHED' && !!c.publishedAt && (c.updatedAt.getTime() > c.publishedAt.getTime() || lessonTimes.some((t) => t.getTime() > c.publishedAt!.getTime()));
@@ -456,7 +456,7 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync, o
       modules: courseModules,
       notice: courseNotice(c, notMerged),
       resources: files.filter((f) => f.courseId === c.id && f.kind === 'RESOURCE').map(fileRef),
-      publishProblems: problemsOf(lessons),
+      publishProblems: problemsOf(lessons, new Map(courseModules.map((m) => [m.id, m.enabled]))),
       enrolled,
       completed,
     };
@@ -617,7 +617,7 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync, o
     const c = await courseRow(courseId);
     const input = publishSchema.parse(body ?? {});
     const lessons = await lessonsOf(c.id);
-    const problems = problemsOf(lessons);
+    const problems = problemsOf(lessons, await moduleSwitches(c.id));
     if (problems.length) throw new HttpError(`This course can’t be published yet: ${problems[0]}`, 'PUBLISH_PROBLEMS', 409, { problems });
     const now = ctx.clock();
     if (!c.publishedAt) {
@@ -659,7 +659,11 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync, o
 
   // ── Lessons, steps, quizzes ─────────────────────────────────────────────────────────────────────
 
-  const toProblem = (l: LessonRow): ProblemLesson => ({
+  /** A lesson with no module (or a module that is gone) shows under "Other lessons"; in a module, while it is on. */
+  const shownIn = (moduleId: string | null, switches: ReadonlyMap<string, boolean>) => moduleId === null || !switches.has(moduleId) || switches.get(moduleId) === true;
+
+  const toProblem = (l: LessonRow, switches: ReadonlyMap<string, boolean>): ProblemLesson => ({
+    shown: shownIn(l.moduleId, switches),
     title: l.title,
     kind: l.kind,
     videoId: l.videoId,
@@ -676,8 +680,8 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync, o
   async function assertStillPublishable(courseId: string, change: (lessons: ProblemLesson[], rows: LessonRow[]) => ProblemLesson[]): Promise<void> {
     const course = await prisma.trainingCourse.findUnique({ where: { id: courseId }, select: { status: true } });
     if (course?.status !== 'PUBLISHED') return;
-    const rows = await lessonsOf(courseId);
-    const now = rows.map(toProblem);
+    const [rows, switches] = await Promise.all([lessonsOf(courseId), moduleSwitches(courseId)]);
+    const now = rows.map((l) => toProblem(l, switches));
     const before = new Set(publishProblems(now));
     const fresh = publishProblems(change(now, rows)).filter((x) => !before.has(x));
     if (fresh.length) throw new HttpError(`This course is published, and this change would leave it unfinished: ${fresh[0]} Unpublish it first to rework it.`, 'WOULD_BREAK_PUBLISHED', 409, { problems: fresh });
@@ -691,16 +695,15 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync, o
   async function assertShownPublishable(courseId: string, after: ModuleAfter): Promise<void> {
     const course = await prisma.trainingCourse.findUnique({ where: { id: courseId }, select: { status: true } });
     if (course?.status !== 'PUBLISHED') return;
-    const [rows, mods] = await Promise.all([lessonsOf(courseId), prisma.trainingModule.findMany({ where: { courseId }, select: { id: true, enabled: true } })]);
-    if (mods.length === 0) return;
-    const now = new Map(mods.map((m) => [m.id, m.enabled]));
+    const [rows, now] = await Promise.all([lessonsOf(courseId), moduleSwitches(courseId)]);
+    if (now.size === 0) return;
     const next = new Map([...now, ...(after.enabled ?? new Map<string, boolean>())]);
     if (after.removed) next.delete(after.removed);
-    // A lesson with no module (or a module that is gone) shows under "Other lessons".
-    const shown = (moduleId: string | null, on: ReadonlyMap<string, boolean>) => moduleId === null || !on.has(moduleId) || on.get(moduleId) === true;
-    const before = new Set(publishProblems(rows.filter((l) => shown(l.moduleId, now)).map(toProblem)));
+    // Only the lessons people see are asked about (one in a module switched off is asked when it is switched on).
+    const problemsShown = (list: readonly LessonRow[]) => publishProblems(list.map((l) => ({ ...toProblem(l, now), shown: true })));
+    const before = new Set(problemsShown(rows.filter((l) => shownIn(l.moduleId, now))));
     const moduleAfter = (l: LessonRow) => (after.moduleOf?.has(l.id) ? after.moduleOf.get(l.id)! : l.moduleId);
-    const fresh = publishProblems(rows.filter((l) => shown(moduleAfter(l), next)).map(toProblem)).filter((x) => !before.has(x));
+    const fresh = problemsShown(rows.filter((l) => shownIn(moduleAfter(l), next))).filter((x) => !before.has(x));
     if (fresh.length) throw new HttpError(`This course is published, and this change would leave it unfinished: ${fresh[0]} Unpublish it first to rework it.`, 'WOULD_BREAK_PUBLISHED', 409, { problems: fresh });
   }
 

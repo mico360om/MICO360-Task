@@ -108,6 +108,14 @@ describe('publish problems', () => {
     expect(publishProblems([quiz([])])).toEqual(['Lesson “Check”: add at least one question.']);
   });
 
+  it('lessons in a module that’s switched off aren’t lessons people can see (cleanup batch); they still need finishing', () => {
+    const off = 'Add a lesson people can see: lessons in a module that’s switched off aren’t shown.';
+    expect(publishProblems([guide({ shown: false }), guide({ title: 'Other', shown: false })])).toEqual([off]);
+    expect(publishProblems([guide({ shown: false }), guide({ title: 'Watch', kind: 'VIDEO', stepCount: 0 })])).toEqual(['Add a lesson people can see: a video lesson shows only once it has its link.']);
+    expect(publishProblems([guide({ shown: false }), guide({ title: 'Shown' })])).toEqual([]);
+    expect(publishProblems([guide({ shown: false, stepCount: 0 }), guide({ title: 'Shown' })])).toEqual(['Lesson “Guide”: add at least one step.']);
+  });
+
   it('answers that don’t fit the question’s kind; a draw bigger than the bank', () => {
     const problems = publishProblems([
       quiz(
