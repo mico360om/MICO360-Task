@@ -245,7 +245,8 @@ export function createTrainingFinish(ctx: TrainingContext) {
    * The conversion (1.23.30): a person whose modules are all done is finished on `completedAt` (the day of their
    * last module), quietly — no notice — with the certificate when the course gives one. Nothing happens when they
    * are already finished (or reviewing), still have something to do, or are retaking and `completedAt` is before
-   * the retake began (1.23.31).
+   * the retake began (1.23.31). The completion and its certificate are written together (one transaction, the
+   * enrolment row locked first), so a stop between them can't leave someone finished without one.
    */
   async function completeAt(userId: string, course: CourseRow, state: PairState, completedAt: Date, person: PersonRecord): Promise<{ completed: boolean; certificateId: string | null }> {
     const e = state.enrolment;
@@ -256,12 +257,19 @@ export function createTrainingFinish(ctx: TrainingContext) {
     if (retakeActive(e) && completedAt.getTime() < e.retakeFrom!.getTime()) return nothing;
     await recordModules(userId, course.id, state);
     const where = retakeActive(e) ? { id: e.id, completedAt: { lt: e.retakeFrom! } } : { id: e.id, completedAt: null };
-    const won = await prisma.trainingEnrolment.updateMany({
-      where,
-      data: { completedAt, completedVersion: course.version, progressPct: 100, reviewFrom: null, reviewDueDay: null, reviewDoneAt: null },
-    });
-    if (won.count !== 1) return nothing;
-    return { completed: true, certificateId: course.certificateOn ? await issueCertificate(person, course, state, { completedAt }) : null };
+    const facts = course.certificateOn ? await certificateFacts(person, course) : null;
+    return withRowLock(
+      prisma,
+      (tx) => tx.$queryRaw`SELECT id FROM training_enrolments WHERE id = ${e.id} FOR UPDATE`,
+      async (tx) => {
+        const won = await tx.trainingEnrolment.updateMany({
+          where,
+          data: { completedAt, completedVersion: course.version, progressPct: 100, reviewFrom: null, reviewDueDay: null, reviewDoneAt: null },
+        });
+        if (won.count !== 1) return nothing;
+        return { completed: true, certificateId: facts ? await writeCertificate(tx, person, course, state, facts, { completedAt }) : null };
+      },
+    );
   }
 
   /**

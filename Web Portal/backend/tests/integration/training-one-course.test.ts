@@ -943,6 +943,129 @@ describe('one-course conversion: a half-way failure', () => {
     expect(new Set(certs.map((x2) => `${x2.userId}|${x2.courseId}`)).size).toBe(certs.length);
     expect(notices).toEqual([]);
   });
+
+  it('a stop during the assignments, then one during the finish (someone finished, their certificate not yet written): the next start ends where one clean run does', async () => {
+    clockAt = NOW;
+    const twin = await buildWorld();
+    await history(twin);
+    const w = await buildWorld();
+    await history(w);
+    await conversion(twin).run();
+    notices.length = 0;
+    // 1. The assignments are merged, then it stops before their people's enrolments are settled.
+    let settles = 0;
+    const stopsSettling = {
+      ...sync,
+      settleEnrolments: async () => {
+        settles++;
+        throw new Error('stopped while settling enrolments');
+      },
+    };
+    await expect(conversion(w, { sync: stopsSettling }).run()).rejects.toThrow(/settling/);
+    expect(settles).toBe(1);
+    expect((await record(w))!.phase).toBe('people');
+    const c = await combined(w);
+    expect(await prisma.trainingAssignment.count({ where: { courseId: c.id, withdrawnAt: null } })).toBeGreaterThan(0);
+    // 2. The finish writes emp finished, then stops before the certificate — as a crash between the two would (nothing
+    // more is written in that run: no certificate can be).
+    const stopsBeforeCertificate: typeof finish = {
+      ...finish,
+      completeAt: async (_userId, course, state, completedAt) => {
+        await prisma.trainingEnrolment.updateMany({ where: { id: state.enrolment!.id, completedAt: null }, data: { completedAt, completedVersion: course.version, progressPct: 100 } });
+        throw new Error('stopped before the certificate');
+      },
+      issueCertificate: async () => {
+        throw new Error('stopped before the certificate');
+      },
+    };
+    await expect(conversion(w, { finish: stopsBeforeCertificate }).run()).rejects.toThrow(/finish/);
+    // The finish is not counted as done: the next start does it again.
+    expect((await record(w))!.phase).toBe('assignments');
+    const emp = { userId_courseId: { userId: w.people.emp, courseId: c.id } };
+    expect((await prisma.trainingEnrolment.findUniqueOrThrow({ where: emp })).completedAt).toEqual(T('2026-10-05T08:00:00.000Z'));
+    expect(await prisma.trainingCertificate.count({ where: { userId: w.people.emp, courseId: c.id } })).toBe(0);
+    // 3. A clean start: the certificate is written, dated the completion, and everything is as one clean run left it.
+    await conversion(w).run();
+    const cert = await prisma.trainingCertificate.findFirstOrThrow({ where: { userId: w.people.emp, courseId: c.id } });
+    expect(cert).toMatchObject({ completedAt: T('2026-10-05T08:00:00.000Z'), revokedAt: null });
+    expect(stringList(cert.moduleIds).sort()).toEqual([await moduleId(w, 'module:a'), await moduleId(w, 'module:b')].sort());
+    expect(await named(w)).toEqual(await named(twin));
+    expect(notices).toEqual([]);
+  });
+});
+
+// ── Learners elsewhere and the pictures ──
+
+describe('one-course conversion: what it never holds up or loses', () => {
+  it('while the content is written, a progress save on another course goes through at once (no whole-table lock)', async () => {
+    clockAt = NOW;
+    const w = await buildWorld();
+    await finished(w, 'emp', 'a', T('2026-10-01T08:00:00.000Z'));
+    // emp2 part-way through the Tasks guide (its saved step is checked against the new guide's length).
+    await enrol(w, 'emp2', 'a', { lastLessonId: lessonOf(w, 'a', 'A guide') });
+    await prisma.trainingProgress.create({ data: { userId: w.people.emp2, courseId: shortId(w, 'a'), lessonId: lessonOf(w, 'a', 'A guide'), stepIndex: 2 } });
+    // Someone else's place in the administrator's own course.
+    const safety = (await prisma.trainingLesson.findFirstOrThrow({ where: { courseId: w.extra } })).id;
+    const elsewhere = (await prisma.trainingProgress.create({ data: { userId: w.people.wd, courseId: w.extra, lessonId: safety, stepIndex: 0 } })).id;
+    // A second connection that waits at most 2 s for a row lock.
+    const other = new PrismaClient({ datasources: { db: { url: `${url}${url.includes('?') ? '&' : '?'}connection_limit=1` } } });
+    let waited = -1;
+    try {
+      await other.$executeRawUnsafe('SET SESSION innodb_lock_wait_timeout = 2');
+      await conversion(w, {
+        inContent: async () => {
+          const t0 = Date.now();
+          await other.trainingProgress.updateMany({ where: { id: elsewhere }, data: { stepIndex: 1 } });
+          waited = Date.now() - t0;
+        },
+      }).run();
+    } finally {
+      await other.$disconnect();
+    }
+    expect(waited).toBeGreaterThanOrEqual(0);
+    expect(waited).toBeLessThan(1500);
+    expect((await prisma.trainingProgress.findUniqueOrThrow({ where: { id: elsewhere } })).stepIndex).toBe(1);
+    // The moved progress and the step check still happened.
+    const c = await combined(w);
+    expect(await prisma.trainingProgress.count({ where: { courseId: shortId(w, 'a') } })).toBe(0);
+    expect(await prisma.trainingProgress.findFirstOrThrow({ where: { userId: w.people.emp2, lessonId: lessonOf(w, 'a', 'A guide') } })).toMatchObject({ courseId: c.id, stepIndex: 2 });
+  });
+
+  it('a starter picture missing from the assets keeps the moved copy (never removed, the step keeps its picture); with no assets at all every moved picture is kept', async () => {
+    clockAt = NOW;
+    const partial = mkdtempSync(join(tmpdir(), 'one-course-partial-'));
+    writeFileSync(join(partial, 'pic-b.webp'), webp(2));
+    writeFileSync(join(partial, 'pic-new.webp'), webp(4));
+    try {
+      const w = await buildWorld();
+      const picA = await prisma.trainingFile.findFirstOrThrow({ where: { courseId: shortId(w, 'a'), name: 'pic-a.webp' } });
+      const picB = await prisma.trainingFile.findFirstOrThrow({ where: { courseId: shortId(w, 'b'), name: 'pic-b.webp' } });
+      logs.length = 0;
+      await conversion(w, { assetsDir: partial }).run();
+      const c = await combined(w);
+      const stepPicture = (title: string) => c.lessons.find((l) => l.title === title)!.steps[0]!.imageFileId;
+      expect(stepPicture('A guide')).toBe(picA.id);
+      expect(await prisma.trainingFile.findUniqueOrThrow({ where: { id: picA.id } })).toMatchObject({ courseId: c.id, storageKey: picA.storageKey });
+      expect((await files.read(picA.storageKey)).equals(webp(1))).toBe(true);
+      expect(stepPicture('B guide')).toBe(picB.id);
+      expect(stepPicture('A new guide')).not.toBeNull();
+      expect(logs.some((l) => l.level === 'warn' && /pic-a\.webp/.test(l.msg))).toBe(true);
+
+      const w2 = await buildWorld();
+      const picA2 = await prisma.trainingFile.findFirstOrThrow({ where: { courseId: shortId(w2, 'a'), name: 'pic-a.webp' } });
+      const picB2 = await prisma.trainingFile.findFirstOrThrow({ where: { courseId: shortId(w2, 'b'), name: 'pic-b.webp' } });
+      await conversion(w2, { assetsDir: null }).run();
+      const c2 = await combined(w2);
+      const stepPicture2 = (title: string) => c2.lessons.find((l) => l.title === title)!.steps[0]!.imageFileId;
+      expect(stepPicture2('A guide')).toBe(picA2.id);
+      expect(stepPicture2('B guide')).toBe(picB2.id);
+      // A picture only the new content has can't come from anywhere: that step is text-only (warned).
+      expect(stepPicture2('A new guide')).toBeNull();
+      expect(await prisma.trainingFile.count({ where: { id: { in: [picA2.id, picB2.id] }, courseId: c2.id } })).toBe(2);
+    } finally {
+      rmSync(partial, { recursive: true, force: true });
+    }
+  });
 });
 
 // ── Through the starter (the server's path: the update to revision 3 runs the conversion first) ──

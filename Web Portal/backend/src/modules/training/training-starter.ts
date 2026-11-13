@@ -278,6 +278,8 @@ export async function applyStarterLessons(
   }
 
   const taken = new Set<string>();
+  /** R3: guides kept (their rows) → their last step: saved places past it are brought back once every lesson is written. */
+  const lastStep = new Map<string, number>();
   for (const [i, l] of course.lessons.entries()) {
     const row = rows.find((r) => !taken.has(r.id) && sameLesson(r, l));
     const fields = { position: i, title: l.title, minutes: l.minutes, body: l.body ? l.body : null, moduleId: l.module ? (moduleIds.get(l.module) ?? null) : null };
@@ -298,9 +300,8 @@ export async function applyStarterLessons(
           return { lessonId, position: j, title: st.title || null, body: st.body || null, imageFileId, imageAlt: imageFileId ? (st.alt ?? null) : null };
         }),
       });
-      // R3: a saved place never past the guide's last step.
-      const last = Math.max(0, l.steps.length - 1);
-      if (row) await tx.trainingProgress.updateMany({ where: { lessonId, stepIndex: { gt: last } }, data: { stepIndex: last } });
+      // R3: a saved place never past the guide's last step (below).
+      if (row) lastStep.set(lessonId, Math.max(0, l.steps.length - 1));
     } else if (l.kind === 'QUIZ') {
       const settings = { passMark: l.quiz.passMark, maxAttempts: l.quiz.maxAttempts, shuffle: l.quiz.shuffle, timeLimitMinutes: l.quiz.timeLimitMinutes, drawCount: l.quiz.drawCount };
       const quiz = await tx.trainingQuiz.upsert({ where: { lessonId }, create: { lessonId, ...settings }, update: settings });
@@ -326,6 +327,23 @@ export async function applyStarterLessons(
         if (oldOptions.size) await tx.trainingOption.deleteMany({ where: { id: { in: [...oldOptions.keys()] } } });
       }
       if (free.size) await tx.trainingQuestion.deleteMany({ where: { id: { in: [...free.keys()] } } });
+    }
+  }
+
+  // R3: saved places past a kept guide's last step. Progress has no index that starts with the lesson, so an UPDATE by
+  // lesson would scan and lock every row (every learner's save waits; MariaDB refuses it with 1020): the rows are read
+  // without a lock, once, and brought back by id.
+  if (lastStep.size) {
+    const past = (await tx.trainingProgress.findMany({ where: { lessonId: { in: [...lastStep.keys()] }, stepIndex: { gt: 0 } }, select: { id: true, lessonId: true, stepIndex: true } })).filter(
+      (x) => x.stepIndex > lastStep.get(x.lessonId)!,
+    );
+    const byLast = new Map<number, string[]>();
+    for (const x of past) {
+      const last = lastStep.get(x.lessonId)!;
+      byLast.set(last, [...(byLast.get(last) ?? []), x.id]);
+    }
+    for (const [last, ids] of byLast) {
+      for (let i = 0; i < ids.length; i += 300) await tx.trainingProgress.updateMany({ where: { id: { in: ids.slice(i, i + 300) }, stepIndex: { gt: last } }, data: { stepIndex: last } });
     }
   }
 

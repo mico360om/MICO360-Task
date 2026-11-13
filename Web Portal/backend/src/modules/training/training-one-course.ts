@@ -27,7 +27,8 @@ import { applyStarterLessons, normalizeStarterCourse, pictureMimeOf, readStarter
  *                move in, the content is written over them (applyStarterLessons, once, with the whole course), and
  *                the short course is archived; an edited one stays (C1: its module gets the built-in lessons); a
  *                removed one (deleted, archived, unpublished) gives a module switched off (C2). Pictures the moved
- *                lessons don't bring are copied in before the transaction (removed again if it fails).
+ *                lessons don't bring are copied in before the transaction (removed again if it fails); one the assets
+ *                can't supply keeps the moved copy. Progress rows move by id (never an UPDATE that scans the table).
  *   people       one enrolment on the course per person who had one on a short course (or progress on a moved
  *                lesson); each short course finished (before the change) is its module done (CONVERTED); the merged
  *                courses' enrolments are hidden (rows kept).
@@ -35,7 +36,9 @@ import { applyStarterLessons, normalizeStarterCourse, pictureMimeOf, readStarter
  *                (and anyone else it reaches today) written straight away, so the sync sends no notice; the old ones
  *                withdrawn in the same transaction; rules name the course.
  *   finish       anyone with every module they see done is finished on the day of their last one, quietly, with the
- *                certificate; the client guide's certificate is switched on (C3) and its finished clients get theirs.
+ *                certificate (written together); anyone finished without their certificate gets it; the client guide's
+ *                certificate is switched on (C3) and its finished clients get theirs. Anyone who couldn't be finished
+ *                keeps the phase open: the next start runs it again.
  *   done         one bell-only line per enrolled staff member, written straight into notifications (never through
  *                the notification service, which may also push and email), once.
  *
@@ -95,6 +98,8 @@ export interface OneCourseDeps {
   loadedKeys?: () => Promise<readonly string[]>;
   /** Tests: stop (throw) after this phase. */
   failAfter?: OneCoursePhase;
+  /** Tests: runs inside the content transaction once its writes are done (what other connections can do meanwhile). */
+  inContent?: () => Promise<void>;
 }
 
 // ── The date rules (pure) ─────────────────────────────────────────────────────────────────────────
@@ -263,7 +268,13 @@ export function createOneCourseConversion(d: OneCourseDeps): { run(): Promise<{ 
     const copied: CopiedPicture[] = [];
     for (const image of wanted) {
       const a = await readStarterAsset(assetsDir, content.key, image, pictureMimeOf(image), 'IMAGE', image, warn);
-      if (!a) continue; // warned: the step is text-only
+      if (!a) {
+        // Can't be read here (no assets folder, or the file is missing; warned): the moved course's own copy stays and
+        // the step keeps it. Only a picture no moved course has is left out (that step is text-only).
+        const own = candidates.find((x) => x.name === image);
+        if (own) reuse.set(image, own.id);
+        continue;
+      }
       let kept: string | null = null;
       for (const f of candidates.filter((x) => x.name === a.name && x.sizeBytes === a.content.length)) {
         if (await sameBytes(f.storageKey, a.content)) {
@@ -344,7 +355,20 @@ export function createOneCourseConversion(d: OneCourseDeps): { run(): Promise<{ 
       const moduleId = moduleIds.get(s.module) ?? null;
       for (const l of await tx.trainingLesson.findMany({ where: { courseId: shortId }, select: { id: true } })) originOf.set(l.id, moduleId);
       await tx.trainingLesson.updateMany({ where: { courseId: shortId }, data: { courseId, moduleId, updatedAt: at } });
-      await tx.trainingProgress.updateMany({ where: { courseId: shortId }, data: { courseId } });
+      // Progress has no index that starts with the course: an UPDATE by course would scan and lock every row of every
+      // course (each learner's save would wait, and MariaDB would refuse it with 1020). Its people are found through
+      // their enrolments and attempts, their rows read by (person, course) without a lock, then moved by id.
+      const learners = [
+        ...new Set([
+          ...(await tx.trainingEnrolment.findMany({ where: { courseId: shortId }, select: { userId: true } })).map((e) => e.userId),
+          ...(await tx.trainingAttempt.findMany({ where: { courseId: shortId }, select: { userId: true } })).map((a) => a.userId),
+        ]),
+      ];
+      for (const part of chunks(learners)) {
+        const ids = (await tx.trainingProgress.findMany({ where: { userId: { in: part }, courseId: shortId }, select: { id: true } })).map((x) => x.id);
+        for (const some of chunks(ids)) await tx.trainingProgress.updateMany({ where: { id: { in: some } }, data: { courseId } });
+      }
+      // (Attempts are indexed by course: this touches their rows only.)
       await tx.trainingAttempt.updateMany({ where: { courseId: shortId }, data: { courseId } });
       await tx.trainingFile.updateMany({ where: { courseId: shortId }, data: { courseId } });
       // Questions and "outdated" reports are about lessons (now here); ratings stay with the course they rated.
@@ -372,7 +396,11 @@ export function createOneCourseConversion(d: OneCourseDeps): { run(): Promise<{ 
       ...(await tx.trainingStep.findMany({ where: { lesson: { courseId }, imageFileId: { not: null } }, select: { imageFileId: true } })).map((x) => x.imageFileId!),
       ...(await tx.trainingLesson.findMany({ where: { courseId, fileId: { not: null } }, select: { fileId: true } })).map((x) => x.fileId!),
     ]);
-    const stale = (await tx.trainingFile.findMany({ where: { courseId, starter: true }, select: { id: true, storageKey: true } })).filter((f) => !used.has(f.id));
+    const named = new Set(content.lessons.flatMap((l) => (l.kind === 'GUIDE' ? l.steps.flatMap((st) => (st.image ? [st.image] : [])) : [])));
+    const starterFiles = await tx.trainingFile.findMany({ where: { courseId, starter: true }, select: { id: true, name: true, storageKey: true } });
+    const namesInUse = new Set(starterFiles.filter((f) => used.has(f.id)).map((f) => f.name));
+    // A picture the content still names is never removed unless another copy of it is the one in use.
+    const stale = starterFiles.filter((f) => !used.has(f.id) && !(named.has(f.name) && !namesInUse.has(f.name)));
     if (stale.length) await tx.trainingFile.deleteMany({ where: { id: { in: stale.map((f) => f.id) } } });
 
     // Published with nothing changed since (Manage's "Changes not published", the next built-in update).
@@ -388,6 +416,7 @@ export function createOneCourseConversion(d: OneCourseDeps): { run(): Promise<{ 
       noticesAt: null,
     };
     await writeRecord(record, tx);
+    if (d.inContent) await d.inContent();
     return { record, stale: stale.map((f) => f.storageKey) };
   }
 
@@ -468,9 +497,11 @@ export function createOneCourseConversion(d: OneCourseDeps): { run(): Promise<{ 
     const moduleOf = new Map((await prisma.trainingModule.findMany({ where: { courseId, fromCourseId: { not: null } }, select: { id: true, fromCourseId: true } })).map((m) => [m.fromCourseId!, m.id]));
     const lessonIds = new Set((await prisma.trainingLesson.findMany({ where: { courseId }, select: { id: true } })).map((l) => l.id));
     // A learner's write that reached a merged course while its lessons were moving (that very moment) follows them.
+    // (Progress: read without a lock, moved by id — see the content phase; attempts are indexed by course.)
     if (merged.size && lessonIds.size) {
       const where = { courseId: { in: [...merged] }, lessonId: { in: [...lessonIds] } };
-      await prisma.trainingProgress.updateMany({ where, data: { courseId } });
+      const stray = (await prisma.trainingProgress.findMany({ where, select: { id: true } })).map((x) => x.id);
+      for (const part of chunks(stray)) await prisma.trainingProgress.updateMany({ where: { id: { in: part }, courseId: { in: [...merged] } }, data: { courseId } });
       await prisma.trainingAttempt.updateMany({ where, data: { courseId } });
     }
 
@@ -613,9 +644,10 @@ export function createOneCourseConversion(d: OneCourseDeps): { run(): Promise<{ 
 
   // ── Phase 4: finish ──
 
-  async function convertFinish(r: OneCourseRecord, course: CourseRow): Promise<{ finished: number; clientCertificates: number }> {
+  async function convertFinish(r: OneCourseRecord, course: CourseRow): Promise<{ finished: number; certificatesAdded: number; clientCertificates: number }> {
     const at = new Date(r.at);
     let finished = 0;
+    let failed = 0;
     const ids = (await prisma.trainingEnrolment.findMany({ where: { courseId: course.id }, select: { userId: true }, orderBy: { userId: 'asc' } })).map((e) => e.userId);
     for (const part of chunks(ids, 200)) {
       const people = await ctx.people(part);
@@ -636,44 +668,66 @@ export function createOneCourseConversion(d: OneCourseDeps): { run(): Promise<{ 
             await finish.settle(userId, course, s, { person: p });
           }
         } catch (err) {
-          warn('Learning Hub: finishing could not be checked for one person at the change; they finish as they learn.', { userId, err: String((err as Error)?.message ?? err) });
+          failed++;
+          warn('Learning Hub: finishing could not be checked for one person at the change; it is tried again at the next start.', { userId, err: String((err as Error)?.message ?? err) });
         }
       }
     }
-    return { finished, clientCertificates: await clientGuide() };
+    // Anyone finished on the course without their certificate (a stop between the two before they were written
+    // together) gets it, dated their completion; then the client guide's (C3).
+    const staff = await missingCertificates(course, (p) => !p.client);
+    const clients = await clientGuide();
+    failed += staff.failed + clients.failed;
+    // Not done until everyone is: the phase is safe to run again, and the next start does.
+    if (failed > 0) throw new Error(`Learning Hub: ${failed} ${failed === 1 ? 'person' : 'people'} could not be finished at the change; the finish is tried again at the next start.`);
+    return { finished, certificatesAdded: staff.issued, clientCertificates: clients.issued };
   }
 
-  /** C3: the untouched client guide gives its certificate (switched on without counting as an edit); clients who finished it get theirs. */
-  async function clientGuide(): Promise<number> {
-    const portal = await prisma.trainingCourse.findUnique({ where: { starterKey: portalKey }, select: { id: true, certificateOn: true, updatedAt: true, updatedById: true, version: true, status: true, publishedAt: true, lessons: { select: { updatedAt: true } } } });
-    if (!portal || !untouchedStarter(portal, portal.lessons)) return 0;
-    if (!portal.certificateOn) await prisma.trainingCourse.updateMany({ where: { id: portal.id, certificateOn: false }, data: { certificateOn: true, updatedAt: portal.updatedAt } });
-    const row = await prisma.trainingCourse.findUniqueOrThrow({ where: { id: portal.id }, select: COURSE });
-    const done = (await prisma.trainingEnrolment.findMany({ where: { courseId: portal.id, completedAt: { not: null } }, orderBy: { userId: 'asc' } })).filter((e) => !retakeActive(e));
+  /**
+   * Certificates owed on a course that gives one: each finished enrolment (not retaking) of someone `mayHave` accepts
+   * with no certificate at all for it gets one dated its completion — once, even with a second server at the same
+   * step (their enrolment locked first, "none yet" read again behind it). A revoked one counts as one (never re-issued).
+   */
+  async function missingCertificates(course: CourseRow, mayHave: (p: PersonRecord) => boolean): Promise<{ issued: number; failed: number }> {
     let issued = 0;
+    let failed = 0;
+    if (!course.certificateOn) return { issued, failed };
+    const done = (await prisma.trainingEnrolment.findMany({ where: { courseId: course.id, completedAt: { not: null } }, orderBy: { userId: 'asc' } })).filter((e) => !retakeActive(e));
     for (const part of chunks(done, 200)) {
-      const have = new Set((await prisma.trainingCertificate.findMany({ where: { courseId: portal.id, userId: { in: part.map((e) => e.userId) } }, select: { userId: true } })).map((c) => c.userId));
+      const have = new Set((await prisma.trainingCertificate.findMany({ where: { courseId: course.id, userId: { in: part.map((e) => e.userId) } }, select: { userId: true } })).map((c) => c.userId));
       const need = part.filter((e) => !have.has(e.userId));
       if (need.length === 0) continue;
       const people = await ctx.people(need.map((e) => e.userId));
-      const states = await loadStates(ctx, need.map((e) => ({ userId: e.userId, courseId: portal.id })), people);
+      const states = await loadStates(ctx, need.map((e) => ({ userId: e.userId, courseId: course.id })), people);
       for (const e of need) {
         const p = people.get(e.userId);
-        if (!p?.client) continue;
-        // Once, even with a second server at the same step: their enrolment locked first, "none yet" read again behind it.
-        const made = await withRowLock(
-          prisma,
-          (tx) => tx.$queryRaw`SELECT id FROM training_enrolments WHERE id = ${e.id} FOR UPDATE`,
-          async (tx) => {
-            if ((await tx.trainingCertificate.count({ where: { courseId: portal.id, userId: e.userId } })) > 0) return false;
-            await finish.issueCertificate(p, row, states.get(pairKey(e.userId, portal.id))!, { completedAt: e.completedAt! }, tx);
-            return true;
-          },
-        );
-        if (made) issued++;
+        if (!p || !mayHave(p)) continue;
+        try {
+          const made = await withRowLock(
+            prisma,
+            (tx) => tx.$queryRaw`SELECT id FROM training_enrolments WHERE id = ${e.id} FOR UPDATE`,
+            async (tx) => {
+              if ((await tx.trainingCertificate.count({ where: { courseId: course.id, userId: e.userId } })) > 0) return false;
+              await finish.issueCertificate(p, course, states.get(pairKey(e.userId, course.id))!, { completedAt: e.completedAt! }, tx);
+              return true;
+            },
+          );
+          if (made) issued++;
+        } catch (err) {
+          failed++;
+          warn('Learning Hub: a certificate could not be written at the change; it is tried again at the next start.', { userId: e.userId, courseId: course.id, err: String((err as Error)?.message ?? err) });
+        }
       }
     }
-    return issued;
+    return { issued, failed };
+  }
+
+  /** C3: the untouched client guide gives its certificate (switched on without counting as an edit); clients who finished it get theirs. */
+  async function clientGuide(): Promise<{ issued: number; failed: number }> {
+    const portal = await prisma.trainingCourse.findUnique({ where: { starterKey: portalKey }, select: { id: true, certificateOn: true, updatedAt: true, updatedById: true, version: true, status: true, publishedAt: true, lessons: { select: { updatedAt: true } } } });
+    if (!portal || !untouchedStarter(portal, portal.lessons)) return { issued: 0, failed: 0 };
+    if (!portal.certificateOn) await prisma.trainingCourse.updateMany({ where: { id: portal.id, certificateOn: false }, data: { certificateOn: true, updatedAt: portal.updatedAt } });
+    return missingCertificates(await prisma.trainingCourse.findUniqueOrThrow({ where: { id: portal.id }, select: COURSE }), (p) => p.client);
   }
 
   // ── Phase 5: the bell line, once ──
