@@ -14,6 +14,16 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### Improvements
+- The built-in courses are now one course, MICO360 Tasks User Training, with modules for each part of the site; you see only the modules for your role.
+- Progress is shown per module, Continue picks up where you stopped, and finished training is kept.
+- Finishing the course issues a certificate with a QR code to check it.
+- Learning Hub: every course card has its own Start, Continue or Review button, and the whole card still opens the course.
+- Learning Hub reports: each person is counted once, a new "Started themselves" column, and "Dates by" chooses between when people got the course and when they finished it.
+- Learning Hub (admins): Duplicate makes a draft copy of a course with its lessons, quiz and pictures.
+- Learning Hub (admins): assign a course to several people at once, shown as one entry you can withdraw whole or per person.
+- Learning Hub (admins): any course can have modules — add, rename, reorder or remove them, move lessons between them, and choose who sees each one.
+
 ## [1.23.28] - 2026-11-13
 
 ### Improvements
