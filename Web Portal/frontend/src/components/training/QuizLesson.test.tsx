@@ -96,6 +96,14 @@ describe('a quiz lesson (12 Nov §5)', () => {
     const heading = await screen.findByRole('heading', { level: 2, name: 'Not passed this time — 50%' });
     expect(heading).toHaveFocus();
     expect(screen.getByText('1 of 2 right · pass mark 75% · 2 tries left')).toBeInTheDocument();
+    // 13 Nov new look: a small ring with the score, the pass mark as a notch on it.
+    const ring = screen.getByRole('img', { name: 'Score 50%, pass mark 75%' });
+    expect(ring).toHaveTextContent('50%');
+    expect(ring.querySelector('[data-ring-arc]')!.getAttribute('class')).toContain('stroke-danger');
+    expect(ring.querySelector('[data-ring-mark]')).not.toBeNull();
+    // Not passed: no way on yet (the bar holds only the lesson before).
+    const bar = within(document.querySelector<HTMLElement>('[data-lesson-footer]')!);
+    expect(bar.getAllByRole('link').map((l) => l.textContent)).toEqual(['Previous lesson']);
     const wrong = screen.getByRole('list', { name: 'Wrong answers' });
     expect(within(wrong).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['Put the steps in order.']);
     expect(screen.queryByText('Right answer')).toBeNull();
@@ -119,6 +127,7 @@ describe('a quiz lesson (12 Nov §5)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Hand in' }));
     const score = await screen.findByRole('heading', { level: 2, name: 'You passed — 100%' });
     expect(onDone).toHaveBeenCalledWith(expect.objectContaining({ courseCompleted: true, certificateId: 'cert1' }));
+    expect(screen.getByRole('img', { name: 'Score 100%, pass mark 75%' }).querySelector('[data-ring-arc]')!.getAttribute('class')).toContain('stroke-success');
     const done = screen.getByRole('heading', { name: 'Course completed' });
     expect(score.compareDocumentPosition(done) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     await userEvent.click(screen.getByRole('button', { name: 'Download certificate (PDF)' }));
@@ -128,7 +137,8 @@ describe('a quiz lesson (12 Nov §5)', () => {
     expect(screen.queryByRole('article', { name: 'Where is New task?' })).toBeNull();
     await userEvent.click(screen.getByRole('button', { name: 'See your answers' }));
     expect(within(screen.getByRole('article', { name: 'Where is New task?' })).getByText('Right answer')).toBeInTheDocument();
-    // Next: the course is finished → My learning (where Up next is).
+    // Next: the course is finished → My learning (where Up next is), at the end of the footer bar.
+    expect(within(document.querySelector<HTMLElement>('[data-lesson-footer]')!).getByRole('link', { name: 'Next' })).toBeInTheDocument();
     await userEvent.click(screen.getByRole('link', { name: 'Next' }));
     expect(screen.getByTestId('where')).toHaveTextContent(/^\/training$/);
   });

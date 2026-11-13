@@ -6,6 +6,8 @@ import { ApiError } from '../../lib/api-client';
 import { Button, buttonClass } from '../ui/Button';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { CourseFinished } from './CourseFinished';
+import { FooterBar, LessonFooter } from './LessonFooter';
+import { ProgressRing } from './ProgressRing';
 import { coursePath, lessonPath, useLearner } from './learner';
 import { sideKeys } from './training-queries';
 import { TOUCH_MIN, TickIcon, trainingProblem } from './training-ui';
@@ -36,6 +38,8 @@ const triesText = (left: number | null) => (left === null ? 'try as often as you
  * countdown when there is a time limit (handed in by itself at 0); then the result — passed: the score, "Course
  * completed" with the certificate when this finished the course, Next, and the answers behind "See your answers";
  * not passed: the score, which questions were wrong (never the right answers before passing: review M9) and Try again.
+ * 13 Nov new look: the result shows a small ring with the score and the pass mark; the lesson's footer bar holds
+ * "Previous lesson" and, once passed, the one Next (the questions' own Back / Next / Hand in use the same bar).
  */
 export function QuizLesson({ lesson, onDone }: { lesson: LessonView; onDone: (done: LessonDone) => void }) {
   const side = useLearner();
@@ -104,6 +108,7 @@ export function QuizLesson({ lesson, onDone }: { lesson: LessonView; onDone: (do
     const finished = fresh && result.passed && result.courseCompleted && !finishedBefore;
     return (
       <QuizResultView
+        lesson={lesson}
         result={result}
         courseTitle={lesson.courseTitle}
         finished={finished}
@@ -119,54 +124,62 @@ export function QuizLesson({ lesson, onDone }: { lesson: LessonView; onDone: (do
 
   const passed = quiz.best?.passed === true;
   const line = quizStartLine(quiz);
+  const onward = next(lesson.courseProgressPct >= 100);
   return (
-    <section aria-label="Quiz" className="card card-pad flex flex-col gap-3">
-      {passed ? (
-        <p className="inline-flex items-center gap-2 font-semibold text-success">
-          <TickIcon />
-          {`You passed with ${quiz.best!.scorePct}%.`}
-        </p>
-      ) : (
-        <>
-          <p className="text-sm text-ink">{line}</p>
-          {quiz.best ? <p className="text-sm text-ink-2">{`Your best so far: ${quiz.best.scorePct}%.`}</p> : null}
-          {quiz.timeLimitMinutes ? <p className="text-xs text-ink-2">The clock starts when you start. When the time is up, your answers are handed in by themselves.</p> : null}
-          {!quiz.canStart && quiz.reason ? <p className="text-sm text-ink-2">{quiz.reason}</p> : null}
-        </>
-      )}
-      <div className="flex flex-wrap gap-2">
+    <div className="flex flex-col gap-4">
+      <section aria-label="Quiz" className="card card-pad flex flex-col gap-3">
         {passed ? (
+          <p className="inline-flex items-center gap-2 font-semibold text-success">
+            <TickIcon />
+            {`You passed with ${quiz.best!.scorePct}%.`}
+          </p>
+        ) : (
           <>
-            {quiz.lastAttemptId ? (
+            <p className="text-sm text-ink">{line}</p>
+            {quiz.best ? <p className="text-sm text-ink-2">{`Your best so far: ${quiz.best.scorePct}%.`}</p> : null}
+            {quiz.timeLimitMinutes ? <p className="text-xs text-ink-2">The clock starts when you start. When the time is up, your answers are handed in by themselves.</p> : null}
+            {!quiz.canStart && quiz.reason ? <p className="text-sm text-ink-2">{quiz.reason}</p> : null}
+          </>
+        )}
+        <div className="flex flex-wrap gap-2 empty:hidden">
+          {passed ? (
+            quiz.lastAttemptId ? (
               <Button variant="secondary" className={TOUCH_MIN} loading={busy === 'last'} onClick={() => void showLast()}>
                 See your answers
               </Button>
-            ) : null}
-            <Link to={next(lesson.courseProgressPct >= 100).to} className={buttonClass('primary', 'md', TOUCH_MIN)}>
-              {next(lesson.courseProgressPct >= 100).label}
+            ) : null
+          ) : quiz.openAttemptId ? (
+            <Button className={TOUCH_MIN} loading={busy === 'start'} onClick={() => void start()}>
+              Resume quiz
+            </Button>
+          ) : quiz.canStart ? (
+            <Button className={TOUCH_MIN} loading={busy === 'start'} onClick={() => void start()}>
+              {quiz.attemptsUsed > 0 ? 'Try again' : 'Start quiz'}
+            </Button>
+          ) : null}
+          {!passed && quiz.lastAttemptId ? (
+            <Button variant="ghost" className={TOUCH_MIN} loading={busy === 'last'} onClick={() => void showLast()}>
+              See your last result
+            </Button>
+          ) : null}
+        </div>
+        {error ? (
+          <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
+            {error}
+          </p>
+        ) : null}
+      </section>
+      <LessonFooter
+        lesson={lesson}
+        next={
+          passed ? (
+            <Link to={onward.to} className={buttonClass('primary', 'md', TOUCH_MIN)}>
+              {onward.label}
             </Link>
-          </>
-        ) : quiz.openAttemptId ? (
-          <Button className={TOUCH_MIN} loading={busy === 'start'} onClick={() => void start()}>
-            Resume quiz
-          </Button>
-        ) : quiz.canStart ? (
-          <Button className={TOUCH_MIN} loading={busy === 'start'} onClick={() => void start()}>
-            {quiz.attemptsUsed > 0 ? 'Try again' : 'Start quiz'}
-          </Button>
-        ) : null}
-        {!passed && quiz.lastAttemptId ? (
-          <Button variant="ghost" className={TOUCH_MIN} loading={busy === 'last'} onClick={() => void showLast()}>
-            See your last result
-          </Button>
-        ) : null}
-      </div>
-      {error ? (
-        <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
-          {error}
-        </p>
-      ) : null}
-    </section>
+          ) : null
+        }
+      />
+    </div>
   );
 }
 
@@ -337,27 +350,29 @@ function QuizPaper({ paper, onResult }: { paper: AttemptPaper; onResult: (r: Att
         />
       ))}
 
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        {at > 0 ? (
-          <Button variant="secondary" className={TOUCH_MIN} onClick={() => goTo(at - 1)}>
-            Back
-          </Button>
-        ) : (
-          <span />
-        )}
-        <div className="flex flex-wrap gap-2">
-          {!last ? (
-            <Button variant={unanswered.length ? 'primary' : 'secondary'} className={TOUCH_MIN} onClick={() => goTo(at + 1)}>
-              Next
+      <FooterBar
+        start={
+          at > 0 ? (
+            <Button variant="secondary" className={TOUCH_MIN} onClick={() => goTo(at - 1)}>
+              Back
             </Button>
-          ) : null}
-          {last || unanswered.length === 0 ? (
-            <Button className={TOUCH_MIN} loading={busy} onClick={() => (unanswered.length ? setConfirming(true) : void handIn())}>
-              Hand in
-            </Button>
-          ) : null}
-        </div>
-      </div>
+          ) : null
+        }
+        end={
+          <>
+            {!last ? (
+              <Button variant={unanswered.length ? 'primary' : 'secondary'} className={TOUCH_MIN} onClick={() => goTo(at + 1)}>
+                Next
+              </Button>
+            ) : null}
+            {last || unanswered.length === 0 ? (
+              <Button className={TOUCH_MIN} loading={busy} onClick={() => (unanswered.length ? setConfirming(true) : void handIn())}>
+                Hand in
+              </Button>
+            ) : null}
+          </>
+        }
+      />
       {error ? (
         <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
           {error}
@@ -513,9 +528,11 @@ function OrderAnswer({ q, value, onChange }: { q: PaperQuestion; value: string[]
 /**
  * The result (12 Nov §5). Passed: the score, "Course completed" with the certificate (when this finished the course),
  * the one Next, and the answers folded behind "See your answers". Not passed: the score, the questions that were wrong
- * (the right answers only once the server shows them: passed, or no tries left — review M9) and Try again.
+ * (the right answers only once the server shows them: passed, or no tries left — review M9) and Try again. The score
+ * is also a small ring with the pass mark on it (13 Nov new look); the Next sits in the lesson's footer bar.
  */
 function QuizResultView({
+  lesson,
   result,
   courseTitle,
   finished,
@@ -526,6 +543,7 @@ function QuizResultView({
   error,
   onTryAgain,
 }: {
+  lesson: Pick<LessonView, 'courseId' | 'prevLessonId'>;
   result: AttemptResult;
   courseTitle: string;
   finished: boolean;
@@ -548,10 +566,15 @@ function QuizResultView({
   return (
     <section aria-labelledby="quiz-result" className="flex flex-col gap-4">
       <div className={`card card-pad flex flex-col gap-2 border-s-4 ${result.passed ? 'border-success' : 'border-danger'}`}>
-        <h2 id="quiz-result" ref={heading} tabIndex={-1} className="font-display text-xl font-bold text-ink outline-none">
-          {result.passed ? 'You passed' : 'Not passed this time'} — {result.scorePct}%
-        </h2>
-        <p className="text-sm text-ink-2">{`${right} of ${result.questions.length} right · pass mark ${result.passMark}%${result.passed ? '' : ` · ${triesText(result.attemptsLeft)}`}`}</p>
+        <div className="flex items-center gap-4">
+          <ProgressRing done={result.scorePct} total={100} size={64} text={`${result.scorePct}%`} tone={result.passed ? 'success' : 'danger'} mark={result.passMark / 100} label={`Score ${result.scorePct}%, pass mark ${result.passMark}%`} />
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
+            <h2 id="quiz-result" ref={heading} tabIndex={-1} className="font-display text-xl font-bold text-ink outline-none">
+              {result.passed ? 'You passed' : 'Not passed this time'} — {result.scorePct}%
+            </h2>
+            <p className="text-sm text-ink-2">{`${right} of ${result.questions.length} right · pass mark ${result.passMark}%${result.passed ? '' : ` · ${triesText(result.attemptsLeft)}`}`}</p>
+          </div>
+        </div>
         {result.timedOut ? <p className="text-sm text-warning">Time ran out — your saved answers were handed in.</p> : null}
         {!result.passed && wrong.length ? (
           <div>
@@ -574,13 +597,16 @@ function QuizResultView({
         ) : null}
       </div>
       {finished ? <CourseFinished title={courseTitle} certificateId={result.certificateId} focus={false} /> : null}
-      {next ? (
-        <div>
-          <Link to={next.to} className={buttonClass('primary', 'lg', '!min-h-[44px]')}>
-            {next.label}
-          </Link>
-        </div>
-      ) : null}
+      <LessonFooter
+        lesson={lesson}
+        next={
+          next ? (
+            <Link to={next.to} className={buttonClass('primary', 'md', TOUCH_MIN)}>
+              {next.label}
+            </Link>
+          ) : null
+        }
+      />
       {error ? (
         <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
           {error}

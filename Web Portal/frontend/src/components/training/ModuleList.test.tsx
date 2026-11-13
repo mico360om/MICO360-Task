@@ -60,6 +60,35 @@ describe('the course’s modules', () => {
     }
   });
 
+  it('13 Nov new look: each row has its feature’s icon — from the module’s own key, whatever its name; “Other lessons” the book', () => {
+    const c = moduleDetail();
+    list({
+      ...c,
+      // A module renamed by an administrator keeps its feature's icon.
+      modules: [...c.modules.map((m) => (m.id === 'tk' ? { ...m, title: 'Task basics' } : m)), { id: 'other', title: 'Other lessons', moduleKey: null, position: 3, status: 'NOT_STARTED' as const, lessonsDone: 0, lessonCount: 1, minutes: 4, doneAt: null, newForRole: false, nextLessonId: 'x1', lessonIds: ['x1'] }],
+    });
+    const icon = (title: string) => row(title).querySelector('[data-module-icon]')?.getAttribute('data-module-icon');
+    expect(icon('Getting started')).toBe('general');
+    expect(icon('Task basics')).toBe('tasks');
+    expect(icon('Kanban board')).toBe('board');
+    expect(icon('Other lessons')).toBe('book');
+    // Decorative: the row is still named by its words.
+    expect(row('Task basics').querySelector('[data-module-icon]')).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('the module Continue opens is marked “Up next” (the brand colour); none once everything is done', () => {
+    const one = list();
+    expect(row('Tasks')).toHaveTextContent('Up next');
+    expect(row('Tasks').closest('li')).toHaveAttribute('data-current', 'true');
+    expect(row('Getting started')).not.toHaveTextContent('Up next');
+    expect(row('Kanban board')).not.toHaveTextContent('Up next');
+    expect(screen.getAllByText('Up next')).toHaveLength(1);
+    one.unmount();
+    const c = moduleDetail();
+    list({ ...c, mine: { ...c.mine, status: 'COMPLETED', modules: { done: 3, total: 3 } }, modules: c.modules.map((m) => ({ ...m, status: 'DONE' as const, lessonsDone: m.lessonCount, doneAt: '2026-11-10T08:00:00.000Z', nextLessonId: null })) });
+    expect(screen.queryByText('Up next')).toBeNull();
+  });
+
   it('in the Client portal: the portal’s addresses', async () => {
     list(moduleDetail(), 'gs', true);
     expect(within(screen.getByRole('region', { name: 'Modules' })).getAllByRole('link')[0]).toHaveAttribute('href', '/portal/training/courses/u1/lessons/g1');

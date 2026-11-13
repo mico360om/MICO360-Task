@@ -33,7 +33,7 @@ beforeEach(() => {
 });
 
 describe('the lesson player (12 Nov §4)', () => {
-  it('a guide: the breadcrumbs and one progress sign, “Step 1 of 3” with a thin bar — no “Lesson n of N”, no course bar, no Previous / Next row', async () => {
+  it('a guide: the breadcrumbs and one progress sign, “Step 1 of 3” with a thin bar — no “Lesson n of N”, no course bar; one footer bar (Previous lesson, one Next)', async () => {
     player(fakeLearner({ lesson: vi.fn(async () => lesson({ steps: STEPS })) }));
     expect(await screen.findByRole('heading', { level: 1, name: 'Make a task' })).toBeInTheDocument();
     const crumbs = within(screen.getByRole('navigation', { name: 'Breadcrumb' }));
@@ -44,9 +44,14 @@ describe('the lesson player (12 Nov §4)', () => {
     expect(screen.getByRole('progressbar', { name: 'Step 1 of 3' })).toBeInTheDocument();
     expect(screen.queryByText(/Lesson \d of \d/)).toBeNull();
     expect(screen.queryByRole('progressbar', { name: /Course progress/ })).toBeNull();
-    expect(screen.queryByRole('link', { name: 'Previous lesson' })).toBeNull();
     expect(screen.queryByRole('navigation', { name: 'Steps' })).toBeNull();
     expect(screen.getAllByRole('button', { name: /^(Next|Next step|Next lesson|Finish course)$/ })).toHaveLength(1);
+    // 13 Nov new look: Previous and Next in one footer bar (on the first step, the lesson before).
+    const bar = within(document.querySelector<HTMLElement>('[data-lesson-footer]')!);
+    expect(bar.getByRole('link', { name: 'Previous lesson' })).toHaveAttribute('href', '/training/courses/c1/lessons/l1');
+    expect(bar.getByRole('button', { name: 'Next' })).toBeInTheDocument();
+    // A plain course's lesson has no module line.
+    expect(document.querySelector('[data-lesson-place]')).toBeNull();
   });
 
   it('a video lesson: “Lesson 2 of 4” and one Next lesson', async () => {
@@ -150,7 +155,13 @@ describe('a lesson of the one course with modules (1.23.30)', () => {
     // The way back opens the course at this module.
     expect(crumbs.getByRole('link', { name: 'MICO360 Tasks User Training' })).toHaveAttribute('href', '/training/courses/u1?moduleId=tk');
     expect(crumbs.getByText('Tasks').closest('[aria-current="page"]')).not.toBeNull();
-    expect(await screen.findByText(/^Lesson 2 of 3 in/)).toHaveTextContent('Lesson 2 of 3 in Tasks');
+    // 13 Nov new look: one header line — the module (its number among the person's), the lesson in it, a thin bar of
+    // the module's progress, and All modules (the course at this module).
+    await waitFor(() => expect(document.querySelector('[data-lesson-place]')).toHaveTextContent('Module 2 · Tasks — Lesson 2 of 3'));
+    expect(screen.getByRole('progressbar', { name: 'Tasks: 1 of 3 lessons done' })).toHaveAttribute('aria-valuenow', '33');
+    expect(screen.getByRole('link', { name: 'All modules' })).toHaveAttribute('href', '/training/courses/u1?moduleId=tk');
+    expect(document.querySelector('[data-lesson-place] [data-module-icon="tasks"]')).not.toBeNull();
+    expect(screen.queryByText(/^Lesson 2 of 3 in/)).toBeNull();
     // The guide keeps its one step sign.
     expect(screen.getByText('Step 1 of 3')).toBeInTheDocument();
   });
@@ -163,7 +174,7 @@ describe('a lesson of the one course with modules (1.23.30)', () => {
       }),
       'k1',
     );
-    expect(await screen.findByText(/^Lesson 1 of 2 in/)).toHaveTextContent('Lesson 1 of 2 in Kanban board');
+    await waitFor(() => expect(document.querySelector('[data-lesson-place]')).toHaveTextContent('Module 3 · Kanban board — Lesson 1 of 2'));
     expect(screen.queryByText(/^Lesson \d of 7$/)).toBeNull();
     expect(screen.getByRole('link', { name: 'Next lesson' })).toHaveAttribute('href', '/training/courses/u1/lessons/k2');
   });
@@ -194,7 +205,7 @@ describe('a lesson of the one course with modules (1.23.30)', () => {
       return result({ lessonId: 't3', courseId: 'u1', scorePct: 100, passed: true, answersShown: true, courseCompleted: false, certificateId: null, questions: [result().questions[0]!] });
     });
     modulePlayer(api, 't3');
-    expect(await screen.findByText(/^Lesson 3 of 3 in/)).toHaveTextContent('Lesson 3 of 3 in Tasks');
+    await waitFor(() => expect(document.querySelector('[data-lesson-place]')).toHaveTextContent('Module 2 · Tasks — Lesson 3 of 3'));
     expect(screen.queryByText(/^Module done/)).toBeNull();
     await userEvent.click(await screen.findByRole('button', { name: 'Start quiz' }));
     await userEvent.click(await screen.findByRole('radio', { name: 'Top bar' }));
@@ -304,5 +315,63 @@ describe('a document lesson', () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+});
+
+describe('the lesson’s new look (13 Nov): one footer bar on every kind of lesson', () => {
+  const bar = () => within(document.querySelector<HTMLElement>('[data-lesson-footer]')!);
+  const YT = { provider: 'YOUTUBE' as const, videoId: 'v1', embedUrl: 'https://www.youtube-nocookie.com/embed/v1', watchUrl: 'https://www.youtube.com/watch?v=v1' };
+  const QUIZ = { passMark: 70, maxAttempts: null, attemptsUsed: 0, timeLimitMinutes: null, questionCount: 1, best: null, openAttemptId: null, lastAttemptId: null, canStart: true, reason: null };
+
+  it('a guide: Back (its step before) once past the first step, the lesson’s Next on the last', async () => {
+    player(fakeLearner({ lesson: vi.fn(async () => lesson({ steps: STEPS, progress: { done: false, videoSeconds: 0, watchedPct: 0, stepIndex: 2 } })) }));
+    await screen.findByText('Step 3 of 3');
+    expect(bar().getByRole('button', { name: 'Back' })).toBeInTheDocument();
+    expect(bar().queryByRole('link', { name: 'Previous lesson' })).toBeNull();
+    expect(bar().getByRole('button', { name: 'Next lesson' })).toBeInTheDocument();
+    expect(document.querySelectorAll('[data-lesson-footer]')).toHaveLength(1);
+  });
+
+  it('a video: Previous lesson and Next lesson in the bar (and nothing else leads on)', async () => {
+    player(fakeLearner({ lesson: vi.fn(async () => lesson({ kind: 'VIDEO', video: YT })) }));
+    await screen.findByText('Lesson 2 of 4');
+    expect(bar().getByRole('link', { name: 'Previous lesson' })).toHaveAttribute('href', '/training/courses/c1/lessons/l1');
+    expect(bar().getByRole('link', { name: 'Next lesson' })).toHaveAttribute('href', '/training/courses/c1/lessons/l3');
+    expect(screen.getAllByRole('link', { name: 'Next lesson' })).toHaveLength(1);
+    expect(document.querySelectorAll('[data-lesson-footer]')).toHaveLength(1);
+  });
+
+  it('a video with nothing after it: Back to the course in the bar', async () => {
+    player(fakeLearner({ lesson: vi.fn(async () => lesson({ kind: 'VIDEO', video: YT, nextLessonId: null })) }));
+    await screen.findByText('Lesson 2 of 4');
+    expect(bar().getByRole('link', { name: 'Back to the course' })).toHaveAttribute('href', '/training/courses/c1');
+  });
+
+  it('a document: Previous lesson, “Read” and the one Next in the bar; Download stays with the document', async () => {
+    const PDF = { id: 'd1', name: 'Tasks guide.pdf', mimeType: 'application/pdf', sizeBytes: 3_600_000, kind: 'DOCUMENT' as const };
+    player(fakeLearner({ lesson: vi.fn(async () => lesson({ kind: 'DOCUMENT', document: PDF, progress: { done: true, videoSeconds: 0, watchedPct: 0, stepIndex: 0 } })) }));
+    await screen.findByTitle('Tasks guide.pdf');
+    expect(bar().getByRole('link', { name: 'Previous lesson' })).toBeInTheDocument();
+    expect(bar().getByText('Read')).toBeInTheDocument();
+    expect(bar().getByRole('button', { name: 'Next lesson' })).toBeInTheDocument();
+    expect(bar().queryByRole('button', { name: 'Download' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Download' })).toBeInTheDocument();
+  });
+
+  it('a quiz: Previous lesson in the bar; the Next only once passed', async () => {
+    const one = player(fakeLearner({ lesson: vi.fn(async () => lesson({ kind: 'QUIZ', quiz: QUIZ })) }));
+    await screen.findByRole('button', { name: 'Start quiz' });
+    expect(bar().getByRole('link', { name: 'Previous lesson' })).toBeInTheDocument();
+    expect(bar().queryByRole('link', { name: /Next/ })).toBeNull();
+    one.unmount();
+    player(fakeLearner({ lesson: vi.fn(async () => lesson({ kind: 'QUIZ', quiz: { ...QUIZ, attemptsUsed: 1, best: { scorePct: 100, passed: true }, lastAttemptId: 'a0' } })) }));
+    await screen.findByText('You passed with 100%.');
+    expect(bar().getByRole('link', { name: 'Next lesson' })).toHaveAttribute('href', '/training/courses/c1/lessons/l3');
+  });
+
+  it('the first lesson of the course: no Previous lesson', async () => {
+    player(fakeLearner({ lesson: vi.fn(async () => lesson({ kind: 'VIDEO', video: YT, prevLessonId: null })) }));
+    await screen.findByText('Lesson 2 of 4');
+    expect(bar().queryByRole('link', { name: 'Previous lesson' })).toBeNull();
   });
 });

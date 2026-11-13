@@ -2,6 +2,8 @@ import { useEffect, useId, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { CourseDetail, LessonOutline, ModuleOutline, ModuleStatus } from '../../api/training';
 import { STATUS_CLASS } from '../../lib/colour-classes';
+import { ModuleIcon } from './ModuleIcon';
+import { moduleKeyOf, upNextModule } from './dashboard-rules';
 import { lessonPath, useLearner } from './learner';
 import { LessonKindIcon, LockIcon, NewForRoleChip, TickIcon } from './training-ui';
 import { LESSON_KIND_WORDS, minutesText, moduleStatusWords } from './training-words';
@@ -61,11 +63,17 @@ const STATUS_TONE: Record<ModuleStatus, string> = {
   NOT_STARTED: 'text-ink-2',
 };
 
+/** A module's icon tile: the Done green once done, the brand colour for the one Continue opens, else neutral. */
+const iconTone = (m: ModuleOutline, current: boolean) => (m.status === 'DONE' ? STATUS_CLASS.DONE.chip : current ? 'bg-brand/10 text-brand' : 'bg-ground text-ink-2');
+
 /**
  * The course's modules (1.23.30 §3.3), in order — only those the person sees: each with its state in words ("Not
  * started", "In progress · 2 of 5 lessons", "Done · 3 Nov 2026"), its minutes and "New for your role" (D3). A module
  * opens to list its lessons with ticks (any visible module may be opened: D4). `openId` (the address's `?moduleId=`,
  * an old short course's link or Learn this feature) opens that module and brings it into view.
+ *
+ * 13 Nov new look: each row has its feature's icon (the module's own key; "Other lessons" a book), and the module
+ * Continue opens says "Up next" in the brand colour (none once everything is done).
  */
 export function ModuleList({ course: c, openId }: { course: CourseDetail; openId: string | null }) {
   const id = useId();
@@ -73,6 +81,7 @@ export function ModuleList({ course: c, openId }: { course: CourseDetail; openId
   const [toggled, setToggled] = useState<Record<string, boolean>>({});
   const byId = new Map(c.lessons.map((l) => [l.id, l]));
   const isOpen = (m: ModuleOutline) => toggled[m.id] ?? m.id === openId;
+  const currentId = upNextModule(c)?.module.id ?? null;
 
   useEffect(() => {
     if (openId) document.getElementById(`module-${openId}`)?.scrollIntoView?.({ block: 'start' });
@@ -88,18 +97,22 @@ export function ModuleList({ course: c, openId }: { course: CourseDetail; openId
           const open = isOpen(m);
           const panel = `${id}-${m.id}`;
           const lessons = m.lessonIds.map((lid) => byId.get(lid)).filter((l): l is LessonOutline => !!l);
+          const current = m.id === currentId;
           return (
-            <li key={m.id} id={`module-${m.id}`} data-module={m.id} className="scroll-mt-20">
+            <li key={m.id} id={`module-${m.id}`} data-module={m.id} data-current={current ? 'true' : undefined} className="scroll-mt-20">
               <h3>
                 <button
                   type="button"
                   aria-expanded={open}
                   aria-controls={open ? panel : undefined}
                   onClick={() => setToggled((t) => ({ ...t, [m.id]: !open }))}
-                  className="-mx-2 flex min-h-11 w-[calc(100%+1rem)] items-start gap-2.5 rounded-lg px-2 py-2.5 text-start outline-none transition-colors hover:bg-ground focus-visible:ring-2 focus-visible:ring-brand/40"
+                  className="-mx-2 flex min-h-11 w-[calc(100%+1rem)] items-center gap-2.5 rounded-lg px-2 py-2.5 text-start outline-none transition-colors hover:bg-ground focus-visible:ring-2 focus-visible:ring-brand/40"
                 >
-                  <span aria-hidden="true" className={`mt-0.5 grid h-6 w-6 flex-none place-items-center rounded-full text-xs font-semibold ${m.status === 'DONE' ? 'bg-success-soft text-success' : 'bg-ground text-ink-2'}`}>
+                  <span aria-hidden="true" className={`grid h-6 w-6 flex-none place-items-center rounded-full text-xs font-semibold ${m.status === 'DONE' ? 'bg-success-soft text-success' : 'bg-ground text-ink-2'}`}>
                     {m.status === 'DONE' ? <TickIcon size={13} /> : i + 1}
+                  </span>
+                  <span aria-hidden="true" className={`grid h-9 w-9 flex-none place-items-center rounded-xl ${iconTone(m, current)}`}>
+                    <ModuleIcon moduleKey={moduleKeyOf(m)} size={18} />
                   </span>
                   <span className="min-w-0 flex-1">
                     <span data-module-title className="block break-words text-sm font-semibold text-ink">
@@ -109,9 +122,10 @@ export function ModuleList({ course: c, openId }: { course: CourseDetail; openId
                       <span className={STATUS_TONE[m.status]}>{moduleStatusWords(m)}</span>
                       {minutesText(m.minutes) ? <span>· {minutesText(m.minutes)}</span> : null}
                       {m.newForRole ? <NewForRoleChip /> : null}
+                      {current ? <span className="font-semibold text-brand">Up next</span> : null}
                     </span>
                   </span>
-                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={`mt-1 flex-none text-ink-2 transition-transform motion-reduce:transition-none ${open ? 'rotate-180' : ''}`}>
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={`flex-none text-ink-2 transition-transform motion-reduce:transition-none ${open ? 'rotate-180' : ''}`}>
                     <path d="m6 9 6 6 6-6" />
                   </svg>
                 </button>

@@ -5,6 +5,7 @@ import { RichNoteView } from '../rich-text/RichNoteView';
 import { Button } from '../ui/Button';
 import { ModalPortal } from '../ui/ModalPortal';
 import { dialogLayer, dialogPanel } from '../ui/dialog-size';
+import { LessonFooter } from './LessonFooter';
 import { useLearner } from './learner';
 import { TOUCH_MIN, TickIcon, trainingProblem, useBlobUrl } from './training-ui';
 
@@ -18,7 +19,8 @@ export interface LessonNext {
 /**
  * A step-by-step guide (12 Nov §4): one step at a time — "Step 2 of 6" and a thin bar, its picture (tap or click to
  * enlarge) and words, Back and one Next. On the last step the Next is the lesson's own ("Next lesson" or "Finish
- * course"): it finishes the guide and goes on. The place is saved as you go and resumed next time.
+ * course"): it finishes the guide and goes on. The place is saved as you go and resumed next time. Back and Next sit
+ * in the lesson's footer bar (13 Nov new look); on the first step its start is the lesson before ("Previous lesson").
  */
 export function GuideLesson({ lesson, onDone, next }: { lesson: LessonView; onDone: (done: LessonDone) => void; next: LessonNext }) {
   const { api } = useLearner();
@@ -70,12 +72,20 @@ export function GuideLesson({ lesson, onDone, next }: { lesson: LessonView; onDo
     </Button>
   );
 
+  const problem = error ? (
+    <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
+      {error}
+    </p>
+  ) : null;
+
   if (steps.length === 0) {
     return (
-      <div className="card card-pad flex flex-col items-start gap-3">
-        <p className="text-sm text-ink-2">This guide has no steps yet.</p>
-        {finishButton}
-        {error ? <p role="alert" className="text-sm text-danger">{error}</p> : null}
+      <div className="flex flex-col gap-4">
+        <div className="card card-pad">
+          <p className="text-sm text-ink-2">This guide has no steps yet.</p>
+        </div>
+        <LessonFooter lesson={lesson} next={finishButton} />
+        {problem}
       </div>
     );
   }
@@ -84,48 +94,49 @@ export function GuideLesson({ lesson, onDone, next }: { lesson: LessonView; onDo
   const pct = Math.round(((index + 1) / steps.length) * 100);
   const where = `Step ${index + 1} of ${steps.length}`;
   return (
-    <section aria-labelledby={`step-${step.id}`} className="card card-pad flex min-w-0 flex-col gap-4">
-      <div className="flex flex-col gap-1.5">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-xs font-semibold uppercase tracking-wide text-ink-3">{where}</p>
-          {done ? (
-            <span className="inline-flex items-center gap-1 text-xs font-semibold text-success">
-              <TickIcon size={13} />
-              Done
-            </span>
-          ) : null}
+    <div className="flex min-w-0 flex-col gap-4">
+      <section aria-labelledby={`step-${step.id}`} className="card card-pad flex min-w-0 flex-col gap-4">
+        <div className="flex flex-col gap-1.5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-ink-3">{where}</p>
+            {done ? (
+              <span className="inline-flex items-center gap-1 text-xs font-semibold text-success">
+                <TickIcon size={13} />
+                Done
+              </span>
+            ) : null}
+          </div>
+          <div role="progressbar" aria-label={where} aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} className="h-1 overflow-hidden rounded-full bg-ground">
+            <div className="h-full rounded-full bg-brand transition-[width] motion-reduce:transition-none" style={{ width: `${pct}%` }} />
+          </div>
+          <h2 id={`step-${step.id}`} ref={heading} tabIndex={-1} className="mt-1 font-display text-lg font-bold text-ink outline-none">
+            {step.title || `Step ${index + 1}`}
+          </h2>
         </div>
-        <div role="progressbar" aria-label={where} aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} className="h-1 overflow-hidden rounded-full bg-ground">
-          <div className="h-full rounded-full bg-brand transition-[width] motion-reduce:transition-none" style={{ width: `${pct}%` }} />
-        </div>
-        <h2 id={`step-${step.id}`} ref={heading} tabIndex={-1} className="mt-1 font-display text-lg font-bold text-ink outline-none">
-          {step.title || `Step ${index + 1}`}
-        </h2>
-      </div>
-      {step.image ? <StepPicture step={step} /> : null}
-      {step.body ? <RichNoteView html={step.body} className="text-sm text-ink" /> : null}
-      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line pt-4">
-        {index > 0 ? (
-          <Button variant="secondary" className={TOUCH_MIN} onClick={() => go(index - 1)}>
-            Back
-          </Button>
-        ) : (
-          <span />
-        )}
-        {index < last ? (
-          <Button className={TOUCH_MIN} onClick={() => go(index + 1)}>
-            Next
-          </Button>
-        ) : (
-          finishButton
-        )}
-      </div>
-      {error ? (
-        <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
-          {error}
-        </p>
-      ) : null}
-    </section>
+        {step.image ? <StepPicture step={step} /> : null}
+        {step.body ? <RichNoteView html={step.body} className="text-sm text-ink" /> : null}
+      </section>
+      <LessonFooter
+        lesson={lesson}
+        back={
+          index > 0 ? (
+            <Button variant="secondary" className={TOUCH_MIN} onClick={() => go(index - 1)}>
+              Back
+            </Button>
+          ) : undefined
+        }
+        next={
+          index < last ? (
+            <Button className={TOUCH_MIN} onClick={() => go(index + 1)}>
+              Next
+            </Button>
+          ) : (
+            finishButton
+          )
+        }
+      />
+      {problem}
+    </div>
   );
 }
 

@@ -4,15 +4,18 @@ import { Breadcrumbs } from '../ui/Breadcrumbs';
 import { useQueryClient } from '@tanstack/react-query';
 import { LIMITS, MODULE_LABELS, TRAINING_MODULES, type CourseDetail, type TrainingModule } from '../../api/training';
 import { ApiError } from '../../lib/api-client';
-import { OVERDUE_CLASS } from '../../lib/colour-classes';
+import { OVERDUE_CLASS, STATUS_CLASS } from '../../lib/colour-classes';
+import { useMediaQuery } from '../../lib/useMediaQuery';
 import { Button } from '../ui/Button';
-import { ProgressBar } from '../portal/portal-ui';
+import { CertificatePanel } from './CertificatePanel';
 import { CertificateView } from './CertificateView';
 import { LessonRow, ModuleList } from './ModuleList';
+import { ProgressRing } from './ProgressRing';
+import { certificateState, certificateWords, lessonsLeft, mainAction, MAIN_ACTION_WORDS, minutesLeftText } from './dashboard-rules';
 import { coursePath, lessonPath, useLearner } from './learner';
 import { courseChanged, useCourse } from './training-queries';
 import { AwardIcon, CourseLength, DownloadIcon, MandatoryChip, TOUCH_MIN, TickIcon, courseMoved, saveTrainingFile, sizeText, trainingProblem } from './training-ui';
-import { ACTION_WORDS, courseAction, instantDay, lessonsText, modulesText, progressWords, shortDay } from './training-words';
+import { courseAction, instantDay, lessonsText, modulesText, shortDay } from './training-words';
 
 const isModule = (v: string | null): v is TrainingModule => !!v && (TRAINING_MODULES as readonly string[]).includes(v);
 
@@ -23,6 +26,11 @@ const isModule = (v: string | null): v is TrainingModule => !!v && (TRAINING_MOD
  * and questions behind "Ask a question". Breadcrumbs "Learning Hub › the course"; `?module=` (All courses filtered
  * to a module, or Learn this feature) adds that module's courses; `?moduleId=` opens one of the course's modules.
  * An old short course's link (COURSE_MOVED) is replaced by the one course at its module.
+ *
+ * 13 Nov new look: from 1024 px two columns — the course (its certificate once earned, what it is, the modules with
+ * their icons, downloads, rating) and beside it a sticky panel: the progress ring, Due, the one Start / Continue /
+ * Review, the certificate card and Questions. On a phone one column: a compact progress row and the button above the
+ * list, the certificate card after it, Questions last (the page reads and tabs in the order it shows).
  */
 export function CourseView({ courseId, renderHeader }: { courseId: string; renderHeader: (title: string) => ReactNode }) {
   const side = useLearner();
@@ -89,10 +97,14 @@ export function CourseView({ courseId, renderHeader }: { courseId: string; rende
   );
 }
 
+/** From 1024 px (Tailwind's lg) the page has two columns. */
+const WIDE = '(min-width: 64em)';
+
 function CourseBody({ course: c, openModule }: { course: CourseDetail; openModule: string | null }) {
   const side = useLearner();
   const qc = useQueryClient();
   const navigate = useNavigate();
+  const wide = useMediaQuery(WIDE);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const m = c.mine;
@@ -102,8 +114,6 @@ function CourseBody({ course: c, openModule }: { course: CourseDetail; openModul
   const firstId = c.lessons[0]?.id ?? null;
   const target = action === 'review' ? firstId : (c.resumeLessonId ?? firstId);
   const finished = m.status === 'COMPLETED' || m.status === 'REVIEW';
-  // Before starting: no status chip and no 0% bar (12 Nov §4); finished with new modules to do: how far along.
-  const started = action !== 'start' && (!finished || (withModules && m.newForRole > 0));
   const modules = m.modules ?? { done: c.modules.filter((u) => u.status === 'DONE').length, total: c.modules.length };
 
   const go = async () => {
@@ -125,80 +135,128 @@ function CourseBody({ course: c, openModule }: { course: CourseDetail; openModul
     }
   };
 
-  return (
-    <div className="flex w-full max-w-3xl flex-col gap-4">
-      {m.certificate ? <CertificateView certificate={m.certificate} /> : null}
+  const panel = (
+    <ProgressPanel
+      course={c}
+      modules={withModules ? modules : null}
+      wide={wide}
+      button={
+        target ? (
+          <Button size="lg" className="!min-h-[44px] w-full sm:w-auto lg:w-full" variant={action === 'review' ? 'secondary' : 'primary'} loading={busy} onClick={() => void go()}>
+            {MAIN_ACTION_WORDS[mainAction(m)]}
+          </Button>
+        ) : (
+          <p className="text-sm text-ink-2">This course has no lessons yet.</p>
+        )
+      }
+      error={error}
+    />
+  );
+  // The certificate card says what is left to earn it; once there is a certificate, the certificate itself (at the
+  // top) says it all — never two certificates on one page.
+  const certificateCard = m.certificate ? null : <CertificatePanel course={c} />;
 
-      <section aria-label="About this course" className="card card-pad flex flex-col gap-3">
-        {c.summary ? <p className="whitespace-pre-line break-words text-sm text-ink">{c.summary}</p> : null}
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-          <CourseLength course={c} />
-          <span className="text-xs text-ink-2">· {withModules ? modulesText(modules.total) : lessonsText(c.lessons.length)}</span>
-          {m.mandatory && !finished ? <MandatoryChip /> : null}
-          {c.certificateOn && !m.certificate ? (
-            <span className="inline-flex items-center gap-1 text-xs text-ink-2">
-              <AwardIcon size={14} />
-              Certificate when you finish
-            </span>
+  return (
+    <div data-course-layout className="flex w-full flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,2fr)_minmax(16rem,1fr)] lg:items-start lg:gap-5">
+      <div data-course-main className="flex min-w-0 flex-col gap-4">
+        {m.certificate ? <CertificateView certificate={m.certificate} /> : null}
+
+        <section aria-label="About this course" className="card card-pad flex flex-col gap-3">
+          {c.summary ? <p className="whitespace-pre-line break-words text-sm text-ink">{c.summary}</p> : null}
+          <div data-course-facts className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <CourseLength course={c} />
+            <span className="text-xs text-ink-2">· {withModules ? modulesText(modules.total) : lessonsText(c.lessons.length)}</span>
+            {m.mandatory && !finished ? <MandatoryChip /> : null}
+            {c.certificateOn && !m.certificate ? (
+              <span className="inline-flex items-center gap-1 text-xs text-ink-2">
+                <AwardIcon size={14} />
+                Certificate when you finish
+              </span>
+            ) : null}
+          </div>
+          {c.completionRule === 'QUIZZES' ? <p className="text-xs text-ink-2">Pass the quizzes to finish this course.</p> : null}
+          {c.inOrder ? <p className="text-xs text-ink-2">Take the lessons in order: each opens when the one before it is done.</p> : null}
+        </section>
+
+        {wide ? null : panel}
+
+        {withModules ? (
+          <ModuleList course={c} openId={openModule} />
+        ) : (
+          <section aria-labelledby="course-lessons" className="card card-pad">
+            <h2 id="course-lessons" className="mb-2 font-display text-base font-bold text-ink">
+              Lessons
+            </h2>
+            <ol className="flex flex-col divide-y divide-line">
+              {c.lessons.map((l, i) => (
+                <LessonRow key={l.id} courseId={c.id} lesson={l} number={i + 1} />
+              ))}
+            </ol>
+            {c.lessons.length === 0 ? <p className="text-sm text-ink-2">No lessons yet.</p> : null}
+          </section>
+        )}
+
+        {wide ? null : certificateCard}
+        {c.resources.length ? <Downloads course={c} /> : null}
+        {finished ? <RateCourse course={c} /> : null}
+      </div>
+
+      {/* Sticky beside the course (the staff shell's main clips sideways, which stops it sticking there; the portal's
+          doesn't). Questions stay in this column on a phone too, so a question being written never moves. */}
+      <div data-course-side className={`flex min-w-0 flex-col gap-4 lg:sticky ${side.portal ? 'lg:top-4' : 'lg:top-[4.5rem]'}`}>
+        {wide ? panel : null}
+        {wide ? certificateCard : null}
+        <Questions course={c} />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * How far along, with the one main button (13 Nov new look): the ring ("1 / 3", "modules done"; a plain course in
+ * lessons), about how long is left, the due day (overdue in red) or the day it was finished, what a review or a retake
+ * means, and Start / Continue / Review. Beside the course from 1024 px (the ring above its words); on a phone a compact
+ * row — the ring on the start side of its words — with the button under them.
+ */
+function ProgressPanel({ course: c, modules, wide, button, error }: { course: CourseDetail; modules: { done: number; total: number } | null; wide: boolean; button: ReactNode; error: string | null }) {
+  const id = useId();
+  const m = c.mine;
+  const finished = m.status === 'COMPLETED' || m.status === 'REVIEW';
+  const done = modules ? modules.done : m.lessonsDone;
+  const total = modules ? modules.total : c.lessonCount;
+  const label = `${done} of ${modules ? modulesText(total) : lessonsText(total)} done`;
+  const under = `${modules ? (total === 1 ? 'module' : 'modules') : total === 1 ? 'lesson' : 'lessons'} done`;
+  const left = m.status === 'COMPLETED' && m.newForRole === 0 ? null : minutesLeftText(lessonsLeft(c));
+  const cert = certificateState(c);
+  return (
+    <section aria-labelledby={id} data-course-panel className="card card-pad flex flex-col gap-3 lg:text-center">
+      <h2 id={id} className="sr-only">
+        Your progress
+      </h2>
+      <div className="flex items-center gap-4 lg:flex-col">
+        <ProgressRing done={done} total={total} label={label} size={wide ? 96 : 64} />
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <p className="font-semibold text-ink">{under}</p>
+          {left ? <p className="text-sm text-ink-2">{left}</p> : null}
+          {m.dueDay && !finished ? <p className={`text-sm font-semibold ${m.overdue ? OVERDUE_CLASS.text : 'text-ink-2'}`}>{m.overdue ? `Overdue · was due ${shortDay(m.dueDay)}` : `Due ${shortDay(m.dueDay)}`}</p> : null}
+          {m.status === 'COMPLETED' && m.completedAt ? (
+            <p className={`inline-flex items-center gap-1.5 text-sm font-semibold lg:justify-center ${STATUS_CLASS.DONE.text}`}>
+              <TickIcon size={14} />
+              Done · {instantDay(m.completedAt)}
+            </p>
           ) : null}
         </div>
-        {m.dueDay && !finished ? (
-          <p className={`text-sm font-semibold ${m.overdue ? OVERDUE_CLASS.text : 'text-ink-2'}`}>{m.overdue ? `Overdue · was due ${shortDay(m.dueDay)}` : `Due ${shortDay(m.dueDay)}`}</p>
-        ) : null}
-        {m.status === 'COMPLETED' && m.completedAt ? (
-          <p className="inline-flex items-center gap-1.5 text-sm font-semibold text-success">
-            <TickIcon size={14} />
-            Done · {instantDay(m.completedAt)}
-          </p>
-        ) : null}
-        {started ? (
-          <div className="flex items-center gap-2">
-            <div className="min-w-0 flex-1">
-              <ProgressBar percent={m.progressPct} label={`Your progress: ${m.progressPct}%`} />
-            </div>
-            <span className="flex-none text-sm font-semibold text-ink">{withModules ? progressWords({ lessonCount: c.lessonCount, mine: { lessonsDone: m.lessonsDone, modules } }) : `${m.progressPct}% done`}</span>
-          </div>
-        ) : null}
-        {m.status === 'REVIEW' ? <p className="text-sm text-ink-2">Some lessons changed since you finished. Review the ones marked “Review” — your certificate stays valid meanwhile.</p> : null}
-        {m.status === 'RETAKE' ? <p className="text-sm text-ink-2">Your certificate has expired. Take the course again to get a new one.</p> : null}
-        {c.completionRule === 'QUIZZES' ? <p className="text-xs text-ink-2">Pass the quizzes to finish this course.</p> : null}
-        {c.inOrder ? <p className="text-xs text-ink-2">Take the lessons in order: each opens when the one before it is done.</p> : null}
-        <div>
-          {target ? (
-            <Button size="lg" className="!min-h-[44px] w-full sm:w-auto" variant={action === 'review' ? 'secondary' : 'primary'} loading={busy} onClick={() => void go()}>
-              {ACTION_WORDS[action]}
-            </Button>
-          ) : (
-            <p className="text-sm text-ink-2">This course has no lessons yet.</p>
-          )}
-        </div>
-        {error ? (
-          <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
-            {error}
-          </p>
-        ) : null}
-      </section>
-
-      {withModules ? (
-        <ModuleList course={c} openId={openModule} />
-      ) : (
-        <section aria-labelledby="course-lessons" className="card card-pad">
-          <h2 id="course-lessons" className="mb-2 font-display text-base font-bold text-ink">
-            Lessons
-          </h2>
-          <ol className="flex flex-col divide-y divide-line">
-            {c.lessons.map((l, i) => (
-              <LessonRow key={l.id} courseId={c.id} lesson={l} number={i + 1} />
-            ))}
-          </ol>
-          {c.lessons.length === 0 ? <p className="text-sm text-ink-2">No lessons yet.</p> : null}
-        </section>
-      )}
-
-      {c.resources.length ? <Downloads course={c} /> : null}
-      {finished ? <RateCourse course={c} /> : null}
-      <Questions course={c} />
-    </div>
+      </div>
+      {cert.kind === 'updated' && m.certificate ? <p className="text-sm font-semibold text-ink">{certificateWords(cert)}</p> : null}
+      {m.status === 'REVIEW' ? <p className="text-sm text-ink-2">Some lessons changed since you finished. Review the ones marked “Review” — your certificate stays valid meanwhile.</p> : null}
+      {m.status === 'RETAKE' ? <p className="text-sm text-ink-2">Your certificate has expired. Take the course again to get a new one.</p> : null}
+      <div>{button}</div>
+      {error ? (
+        <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
+          {error}
+        </p>
+      ) : null}
+    </section>
   );
 }
 

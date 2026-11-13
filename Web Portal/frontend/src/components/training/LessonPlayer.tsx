@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import type { LessonDone, LessonView } from '../../api/training';
 import { useDialog } from '../../hooks/useDialog';
 import { ApiError } from '../../lib/api-client';
+import { STATUS_CLASS } from '../../lib/colour-classes';
 import { RichNoteView } from '../rich-text/RichNoteView';
 import { Button, buttonClass } from '../ui/Button';
 import { Breadcrumbs } from '../ui/Breadcrumbs';
@@ -12,12 +13,15 @@ import { dialogLayer, dialogPanel } from '../ui/dialog-size';
 import { CourseFinished } from './CourseFinished';
 import { DocumentLesson } from './DocumentLesson';
 import { GuideLesson, type LessonNext } from './GuideLesson';
+import { LessonFooter } from './LessonFooter';
+import { ModuleIcon } from './ModuleIcon';
 import { QuizLesson } from './QuizLesson';
 import { VideoLesson } from './VideoLesson';
+import { moduleKeyOf } from './dashboard-rules';
 import { coursePath, lessonPath, useLearner } from './learner';
 import { courseChanged, useCourse, useLessonView } from './training-queries';
 import { LessonKindIcon, TOUCH_MIN, TickIcon, courseMoved, trainingProblem } from './training-ui';
-import { LESSON_KIND_WORDS, minutesText } from './training-words';
+import { LESSON_KIND_WORDS, lessonsText, minutesText } from './training-words';
 import { LIMITS } from '../../api/training';
 
 /**
@@ -27,9 +31,13 @@ import { LIMITS } from '../../api/training';
  * when a lesson is done: on the next lesson's page ("“…” done."), or "Course completed" when the course is finished.
  *
  * A lesson of a module (1.23.30): breadcrumbs "Learning Hub › the course › the module" (the title is the heading),
- * "Lesson 2 of 5 in Tasks", and "Module done: Tasks" (one note) when this visit finished its module — on the next
- * lesson's page, or here (a quiz, a video). Next is the server's next lesson (hidden modules skipped). Old links: a
- * lesson opened under another course's address is moved to its own; a removed one (COURSE_MOVED) to its module.
+ * and "Module done: Tasks" (one note) when this visit finished its module — on the next lesson's page, or here (a quiz,
+ * a video). Next is the server's next lesson (hidden modules skipped). Old links: a lesson opened under another
+ * course's address is moved to its own; a removed one (COURSE_MOVED) to its module.
+ *
+ * 13 Nov new look: a module's lesson has one header line — "Module 2 · Tasks — Lesson 2 of 3" (the module's place among
+ * the person's own), a thin bar of the module's progress and "All modules" (the course at this module); every kind of
+ * lesson ends with the same footer bar ("Previous lesson" … the one way on).
  */
 export function LessonPlayer({ courseId, lessonId, renderTitle }: { courseId: string; lessonId: string; renderTitle: (title: string) => ReactNode }) {
   const side = useLearner();
@@ -105,15 +113,21 @@ export function LessonPlayer({ courseId, lessonId, renderTitle }: { courseId: st
   const wasFinished = course.data?.mine.status === 'COMPLETED' || course.data?.mine.status === 'REVIEW';
   const othersDone = outline.length > 0 && outline.every((l) => l.id === lesson.id || l.done);
   const courseDone = finishedHere && lesson.kind !== 'QUIZ';
-  // Where the lesson sits in its module ("Lesson 2 of 5 in Tasks"), from the course's outline of the person's lessons.
-  const inModule = lessonModule && moduleOutline ? { title: lessonModule.title, at: moduleOutline.lessonIds.indexOf(lesson.id), total: moduleOutline.lessonIds.length } : null;
+  // Where the lesson sits in its module ("Module 2 · Tasks — Lesson 2 of 3"), from the course's outline of the person's
+  // own modules and lessons (a module hidden from them never counts).
+  const inModule =
+    lessonModule && moduleOutline && moduleOutline.lessonIds.includes(lesson.id)
+      ? {
+          title: lessonModule.title,
+          number: (course.data?.modules.findIndex((u) => u.id === moduleOutline.id) ?? -1) + 1,
+          at: moduleOutline.lessonIds.indexOf(lesson.id),
+          total: moduleOutline.lessonIds.length,
+          done: moduleOutline.lessonsDone,
+        }
+      : null;
+  // A plain course's lesson: "Lesson 2 of 4" (a guide says only its steps).
   const place =
-    inModule && inModule.at >= 0 ? (
-      <span className="font-semibold text-ink">
-        {`Lesson ${inModule.at + 1} of ${inModule.total} in `}
-        <bdi>{inModule.title}</bdi>
-      </span>
-    ) : !lessonModule && at >= 0 ? (
+    !lessonModule && at >= 0 ? (
       <span className="font-semibold text-ink">
         Lesson {at + 1} of {total}
       </span>
@@ -163,7 +177,7 @@ export function LessonPlayer({ courseId, lessonId, renderTitle }: { courseId: st
           }
         />
         {renderTitle(lesson.title)}
-        {lesson.kind === 'GUIDE' && inModule && place ? <p className="text-sm">{place}</p> : null}
+        {inModule && moduleOutline && lessonModule ? <ModuleLine module={inModule} moduleKey={moduleKeyOf(moduleOutline)} to={coursePath(side.base, courseId, null, lessonModule.id)} /> : null}
         {lesson.kind !== 'GUIDE' ? (
           <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-ink-2">
             {place}
@@ -217,17 +231,20 @@ export function LessonPlayer({ courseId, lessonId, renderTitle }: { courseId: st
       <LessonBody key={lesson.id} lesson={lesson} onDone={finished} next={next} />
 
       {lesson.kind === 'VIDEO' && !courseDone ? (
-        <div>
-          {nextId ? (
-            <Link to={lessonPath(side.base, courseId, nextId)} state={lesson.progress.done || done ? { lessonDone: lesson.title } : undefined} className={buttonClass(lesson.progress.done || done ? 'primary' : 'secondary', 'md', TOUCH_MIN)}>
-              Next lesson
-            </Link>
-          ) : (
-            <Link to={courseTo} className={buttonClass('secondary', 'md', TOUCH_MIN)}>
-              Back to the course
-            </Link>
-          )}
-        </div>
+        <LessonFooter
+          lesson={lesson}
+          next={
+            nextId ? (
+              <Link to={lessonPath(side.base, courseId, nextId)} state={lesson.progress.done || done ? { lessonDone: lesson.title } : undefined} className={buttonClass(lesson.progress.done || done ? 'primary' : 'secondary', 'md', TOUCH_MIN)}>
+                Next lesson
+              </Link>
+            ) : (
+              <Link to={courseTo} className={buttonClass('secondary', 'md', TOUCH_MIN)}>
+                Back to the course
+              </Link>
+            )
+          }
+        />
       ) : null}
 
       <div className="border-t border-line pt-3">
@@ -236,6 +253,36 @@ export function LessonPlayer({ courseId, lessonId, renderTitle }: { courseId: st
         </button>
       </div>
       {reporting ? <ReportProblemDialog lesson={lesson} onClose={() => setReporting(false)} /> : null}
+    </div>
+  );
+}
+
+/**
+ * A module's lesson's one header line (13 Nov new look): the module's icon, "Module 2 · Tasks — Lesson 2 of 3", "All
+ * modules" (back to the course, this module open) and under it a thin bar of how much of the module is done.
+ */
+function ModuleLine({ module: m, moduleKey, to }: { module: { title: string; number: number; at: number; total: number; done: number }; moduleKey: string | null; to: string }) {
+  const pct = m.total > 0 ? Math.min(100, Math.round((m.done / m.total) * 100)) : 0;
+  return (
+    <div data-lesson-header className="flex flex-col gap-1.5">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+        <p data-lesson-place className="flex min-w-0 items-center gap-2 text-sm font-semibold text-ink">
+          <span aria-hidden="true" className="grid h-6 w-6 flex-none place-items-center rounded-md bg-brand/10 text-brand">
+            <ModuleIcon moduleKey={moduleKey} size={14} />
+          </span>
+          <span className="min-w-0 break-words">
+            {m.number > 0 ? `Module ${m.number} · ` : null}
+            <bdi>{m.title}</bdi>
+            {` — Lesson ${m.at + 1} of ${m.total}`}
+          </span>
+        </p>
+        <Link to={to} className={`inline-flex items-center rounded text-sm font-semibold text-brand underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-brand/40 ${TOUCH_MIN}`}>
+          All modules
+        </Link>
+      </div>
+      <div role="progressbar" aria-label={`${m.title}: ${m.done} of ${lessonsText(m.total)} done`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} className="h-1 overflow-hidden rounded-full bg-line">
+        <div className={`h-full rounded-full transition-[width] motion-reduce:transition-none ${pct >= 100 ? STATUS_CLASS.DONE.dot : 'bg-brand'}`} style={{ width: `${pct}%` }} />
+      </div>
     </div>
   );
 }

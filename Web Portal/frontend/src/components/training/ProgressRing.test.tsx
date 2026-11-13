@@ -50,6 +50,23 @@ describe('ProgressRing', () => {
     expect(screen.getByRole('img')).toHaveTextContent('0 / 0');
   });
 
+  it('a quiz score (13 Nov): its own words in the middle, the pass mark as a notch, the result’s colour', () => {
+    const { rerender } = render(<ProgressRing done={50} total={100} text="50%" mark={0.75} tone="danger" size={64} label="Score 50%, pass mark 75%" />);
+    const ring = screen.getByRole('img', { name: 'Score 50%, pass mark 75%' });
+    expect(ring).toHaveTextContent('50%');
+    expect(ring).not.toHaveTextContent('/');
+    expect(drawn(ring)).toBeCloseTo(length(ring) / 2, 3);
+    expect(ring.querySelector('[data-ring-arc]')!.getAttribute('class')).toContain('stroke-danger');
+    // The notch sits three quarters of the way round (the drawing starts at the top, clockwise).
+    const notch = ring.querySelector('[data-ring-mark]')!;
+    expect(notch).not.toBeNull();
+    expect(Number(notch.getAttribute('x1'))).toBeCloseTo(32, 0);
+    expect(Number(notch.getAttribute('y1'))).toBeLessThan(32);
+    rerender(<ProgressRing done={80} total={100} text="80%" tone="success" label="Score 80%" />);
+    expect(screen.getByRole('img').querySelector('[data-ring-arc]')!.getAttribute('class')).toContain('stroke-success');
+    expect(screen.getByRole('img').querySelector('[data-ring-mark]')).toBeNull();
+  });
+
   it('its size', () => {
     render(<ProgressRing done={1} total={2} size={64} label="1 of 2" />);
     const svg = screen.getByRole('img').querySelector('svg')!;

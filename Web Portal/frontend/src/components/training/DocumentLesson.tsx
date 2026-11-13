@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import type { LessonDone, LessonView } from '../../api/training';
+import { STATUS_CLASS } from '../../lib/colour-classes';
 import { downloadBlob, fileNameOf } from '../../lib/download';
 import { useMediaQuery } from '../../lib/useMediaQuery';
 import { Button } from '../ui/Button';
 import type { LessonNext } from './GuideLesson';
+import { LessonFooter } from './LessonFooter';
 import { useLearner } from './learner';
 import { DownloadIcon, TOUCH_MIN, TickIcon, sizeText, trainingProblem, useBlobUrl } from './training-ui';
 
@@ -13,7 +15,8 @@ export const PHONE_QUERY = '(pointer: coarse), (max-width: 47.99em)';
 /**
  * A document lesson: a PDF shown in the page on a desktop; on a phone "Open full screen" and "Download" instead
  * (a small frame is no way to read it there). Other files are a download. The lesson's one Next ("Next lesson",
- * "Finish course") marks it read and goes on (12 Nov §4).
+ * "Finish course") marks it read and goes on (12 Nov §4); it sits in the lesson's footer bar with "Previous lesson"
+ * and "Read" (13 Nov new look). Open full screen and Download stay with the document.
  */
 export function DocumentLesson({ lesson, onDone, next }: { lesson: LessonView; onDone: (done: LessonDone) => void; next: LessonNext }) {
   const { api } = useLearner();
@@ -27,8 +30,11 @@ export function DocumentLesson({ lesson, onDone, next }: { lesson: LessonView; o
 
   if (!doc) {
     return (
-      <div className="card card-pad">
-        <p className="text-sm text-ink-2">This lesson’s document isn’t attached yet.</p>
+      <div className="flex flex-col gap-3">
+        <div className="card card-pad">
+          <p className="text-sm text-ink-2">This lesson’s document isn’t attached yet.</p>
+        </div>
+        <LessonFooter lesson={lesson} />
       </div>
     );
   }
@@ -103,30 +109,33 @@ export function DocumentLesson({ lesson, onDone, next }: { lesson: LessonView; o
           <p className="mt-1 text-sm text-ink-2">{pdf ? 'Open it full screen to read it, or download it.' : 'Download it and open it on your device.'}</p>
         </div>
       )}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap gap-2">
-          {pdf && phone ? (
-            <Button variant="secondary" className={TOUCH_MIN} loading={busy === 'open'} onClick={() => void openFull()}>
-              Open full screen
-            </Button>
-          ) : null}
-          <Button variant="secondary" className={TOUCH_MIN} loading={busy === 'download'} onClick={() => void download()}>
-            <DownloadIcon />
-            Download
+      <div className="flex flex-wrap gap-2">
+        {pdf && phone ? (
+          <Button variant="secondary" className={TOUCH_MIN} loading={busy === 'open'} onClick={() => void openFull()}>
+            Open full screen
           </Button>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {done ? (
-            <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-success">
+        ) : null}
+        <Button variant="secondary" className={TOUCH_MIN} loading={busy === 'download'} onClick={() => void download()}>
+          <DownloadIcon />
+          Download
+        </Button>
+      </div>
+      <LessonFooter
+        lesson={lesson}
+        status={
+          done ? (
+            <span className={`inline-flex items-center gap-1.5 text-sm font-semibold ${STATUS_CLASS.DONE.text}`}>
               <TickIcon />
               Read
             </span>
-          ) : null}
+          ) : null
+        }
+        next={
           <Button className={TOUCH_MIN} loading={busy === 'done'} onClick={() => void finish()}>
             {next.label}
           </Button>
-        </div>
-      </div>
+        }
+      />
       {error ? (
         <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
           {error}
