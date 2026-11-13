@@ -191,3 +191,46 @@ describe('the phone and tablet ☰ menu', () => {
     for (const gone of MOVED) expect(within(nav()).queryByRole('link', { name: gone })).toBeNull();
   });
 });
+
+describe('review minors: the rail’s Third Party list and keyboard focus', () => {
+  beforeEach(() => act(() => useAppearanceStore.getState().set({ sidebarCollapsed: true })));
+
+  it('Escape with focus on Third Party (its list opened by hover) closes only that list first', async () => {
+    screenIs('desktop');
+    renderMenu();
+    const user = userEvent.setup();
+    await user.click(within(nav()).getByRole('button', { name: 'Admin' }));
+    const third = within(screen.getByRole('menu', { name: 'Admin' })).getByRole('menuitem', { name: 'Third Party' });
+    third.focus();
+    fireEvent.pointerEnter(third);
+    expect(screen.getByRole('menu', { name: 'Third Party' })).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('menu', { name: 'Third Party' })).toBeNull();
+    expect(screen.getByRole('menu', { name: 'Admin' })).toBeInTheDocument();
+    expect(document.activeElement).toBe(third);
+  });
+
+  it('the pointer passing over another item never drops keyboard focus inside Third Party’s list', async () => {
+    screenIs('desktop');
+    renderMenu();
+    const user = userEvent.setup();
+    await user.click(within(nav()).getByRole('button', { name: 'Admin' }));
+    const admin = screen.getByRole('menu', { name: 'Admin' });
+    await user.click(within(admin).getByRole('menuitem', { name: 'Third Party' }));
+    const clients = within(screen.getByRole('menu', { name: 'Third Party' })).getByRole('menuitem', { name: 'Clients' });
+    expect(document.activeElement).toBe(clients);
+    fireEvent.pointerEnter(within(admin).getByRole('menuitem', { name: 'AI Management' }));
+    // Either the list stays (focus inside it) or focus goes back to Third Party — never to the page.
+    expect(document.activeElement === clients || document.activeElement === within(admin).getByRole('menuitem', { name: 'Third Party' })).toBe(true);
+  });
+
+  it('the Admin list owns Third Party’s list for screen readers', async () => {
+    screenIs('desktop');
+    renderMenu();
+    const user = userEvent.setup();
+    await user.click(within(nav()).getByRole('button', { name: 'Admin' }));
+    await user.click(within(screen.getByRole('menu', { name: 'Admin' })).getByRole('menuitem', { name: 'Third Party' }));
+    const sub = screen.getByRole('menu', { name: 'Third Party' });
+    expect(screen.getByRole('menu', { name: 'Admin' }).getAttribute('aria-owns')).toBe(sub.id);
+  });
+});

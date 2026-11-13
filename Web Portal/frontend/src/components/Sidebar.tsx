@@ -413,6 +413,8 @@ function FlyoutGroup({ label, icon, items, onNavigate }: { label: string; icon: 
   /** Opened by the pointer resting on the icon (a click then keeps it open and moves into it). */
   const byHover = useRef(false);
   const leave = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Review: the pointer crossing another item on its way to the inner list closes it only after a moment. */
+  const subLeave = useRef<ReturnType<typeof setTimeout> | null>(null);
   const id = useId();
   const subId = useId();
   const current = items.some((i) => itemHere(pathname, i));
@@ -446,6 +448,7 @@ function FlyoutGroup({ label, icon, items, onNavigate }: { label: string; icon: 
   /** Open an item's own list beside it (and move into it from the keyboard or a click). */
   const showSub = (key: string, withFocus: boolean) => {
     if (leave.current) clearTimeout(leave.current);
+    if (subLeave.current) clearTimeout(subLeave.current);
     focusSubFirst.current = withFocus;
     if (subRef.current?.key === key) {
       if (withFocus) subMenu.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
@@ -459,8 +462,17 @@ function FlyoutGroup({ label, icon, items, onNavigate }: { label: string; icon: 
   };
   const hideSub = (refocus: boolean) => {
     const key = subRef.current?.key;
+    if (subLeave.current) clearTimeout(subLeave.current);
     setSub(null);
     if (refocus && key) parentItem(key)?.focus();
+  };
+  /** Close the inner list — focus inside it goes back to its item, never to the page. */
+  const closeSub = () => hideSub(!!subMenu.current?.contains(document.activeElement));
+  /** The pointer on another item of the list: the inner list closes after a moment (time to reach it diagonally). */
+  const leaveSubSoon = () => {
+    if (!subRef.current) return;
+    if (subLeave.current) clearTimeout(subLeave.current);
+    subLeave.current = setTimeout(closeSub, 250);
   };
   // Hover: closes a moment after the pointer leaves the icon and both lists (time to cross the gap).
   const pointerLeft = () => {
@@ -481,7 +493,7 @@ function FlyoutGroup({ label, icon, items, onNavigate }: { label: string; icon: 
     const onScroll = (e: Event) => {
       if (e.target instanceof Node && inside(e.target)) return;
       const r = button.current?.getBoundingClientRect();
-      setSub(null);
+      closeSub();
       if (!r || r.bottom < 0 || r.top > window.innerHeight || r.width === 0) setOpen(false);
       else measure();
     };
@@ -515,6 +527,7 @@ function FlyoutGroup({ label, icon, items, onNavigate }: { label: string; icon: 
   }, [sub]);
   useEffect(() => () => {
     if (leave.current) clearTimeout(leave.current);
+    if (subLeave.current) clearTimeout(subLeave.current);
   }, []);
 
   /** The arrow keys, Home and End move through a list's items. */
@@ -530,10 +543,12 @@ function FlyoutGroup({ label, icon, items, onNavigate }: { label: string; icon: 
     if (e.key === 'Escape') {
       e.preventDefault();
       e.stopPropagation();
-      hide(true);
+      // The inner list first (one opened by hover while focus is on its item), then the list.
+      if (subRef.current) hideSub(false);
+      else hide(true);
     } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Home' || e.key === 'End') {
       e.preventDefault();
-      setSub(null);
+      hideSub(false);
       move(menu.current, e.key);
     } else if (e.key === 'Tab') {
       // Back on the icon first (the list is at the end of the page): Tab then moves on from there.
@@ -616,6 +631,8 @@ function FlyoutGroup({ label, icon, items, onNavigate }: { label: string; icon: 
                 id={id}
                 role="menu"
                 aria-label={label}
+                // The inner list is drawn beside this one (in <body>): owned by it for screen readers.
+                aria-owns={sub ? subId : undefined}
                 onKeyDown={onMenuKey}
                 onPointerEnter={() => leave.current && clearTimeout(leave.current)}
                 onPointerLeave={pointerLeft}
@@ -653,7 +670,7 @@ function FlyoutGroup({ label, icon, items, onNavigate }: { label: string; icon: 
                       <SmallChevron className="ms-auto">{CHEVRON_RIGHT}</SmallChevron>
                     </button>
                   ) : (
-                    linkOf(item, () => setSub(null))
+                    linkOf(item, leaveSubSoon)
                   ),
                 )}
               </div>
@@ -664,7 +681,10 @@ function FlyoutGroup({ label, icon, items, onNavigate }: { label: string; icon: 
                   role="menu"
                   aria-label={openSubItem.label}
                   onKeyDown={onSubKey}
-                  onPointerEnter={() => leave.current && clearTimeout(leave.current)}
+                  onPointerEnter={() => {
+                    if (leave.current) clearTimeout(leave.current);
+                    if (subLeave.current) clearTimeout(subLeave.current);
+                  }}
                   onPointerLeave={pointerLeft}
                   style={{ top: sub.top, left: sub.left }}
                   className="fixed z-[61] w-56 max-w-[calc(100vw-5rem)] overflow-hidden rounded-xl border border-line bg-surface py-1 shadow-lift animate-scale-in"

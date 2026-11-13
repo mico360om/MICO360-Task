@@ -93,6 +93,13 @@ const TYPE_LABELS: Record<string, string> = {
 export function createNoteTaskService(deps: NoteTaskDeps): NoteTaskService {
   const { noteService, meetingService, taskService, columnService } = deps;
 
+  /** The action item an earlier try of this conversion made for this task (an action note), if it can be told. */
+  async function madeItemOf(meetingId: string, noteId: string, noteType: string, taskId: string): Promise<ActionItemRecord | undefined> {
+    if (noteType !== 'ACTION' || !deps.actionItems?.listByMeeting) return undefined;
+    const listed = await deps.actionItems.listByMeeting(meetingId).catch(() => null);
+    return listed?.find((a) => a.sourceNoteId === noteId && a.taskId === taskId);
+  }
+
   /** The task with this id, or null when there is none (any other failure is thrown). */
   async function findTask(id: string): Promise<TaskRecord | null> {
     if (!taskService.getTask) return null;
@@ -144,6 +151,7 @@ export function createNoteTaskService(deps: NoteTaskDeps): NoteTaskService {
 
       // Review fix #19: the claim names the id the task gets. An interrupted earlier try whose task was saved
       // comes back `made`: that task is linked — nothing new is made.
+      const madeItem = (taskId: string) => madeItemOf(meetingId, note.id, note.type, taskId);
       const claim = await noteService.claimForTask(meetingId, noteId, taskService.getTask ? { taskExists: async (id) => (await findTask(id)) !== null } : undefined);
       let task: TaskRecord;
       if (claim.made) {
@@ -152,7 +160,7 @@ export function createNoteTaskService(deps: NoteTaskDeps): NoteTaskService {
         // Review M3: an earlier try may have put it in a project this person may not use. The note still points
         // at its task (as it would have), but they are told only that the note has one — never shown it.
         if (opts?.canUseProject && earlier.projectId !== projectId && !(await opts.canUseProject(earlier.projectId))) {
-          await noteService.linkTask(meetingId, noteId, earlier.id, undefined, claim.marker);
+          await noteService.linkTask(meetingId, noteId, earlier.id, (await madeItem(earlier.id))?.id, claim.marker);
           throw new ConflictError('A task has already been created from this note.', 'NOTE_HAS_TASK');
         }
         task = earlier;
@@ -191,8 +199,7 @@ export function createNoteTaskService(deps: NoteTaskDeps): NoteTaskService {
       let actionItem: ActionItemRecord | undefined;
       let actionItemError: string | undefined;
       if (note.type === 'ACTION' && deps.actionItems && claim.made) {
-        const listed = deps.actionItems.listByMeeting ? await deps.actionItems.listByMeeting(meetingId).catch(() => null) : null;
-        actionItem = listed?.find((a) => a.sourceNoteId === note.id && a.taskId === task.id);
+        actionItem = await madeItem(task.id);
         // Review M4: the interrupted try made none (or it can't be told): said, never guessed at with a second one.
         if (!actionItem) actionItemError = 'The task was created, but it couldn’t be added to the action items.';
       } else if (note.type === 'ACTION' && deps.actionItems) {

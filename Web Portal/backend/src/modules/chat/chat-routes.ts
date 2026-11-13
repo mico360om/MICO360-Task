@@ -223,8 +223,8 @@ export async function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDe
       throw err;
     }
     if (!result.created) {
-      // Two copies of the same upload raced: keep the first, drop this file.
-      await dropStored();
+      // Two copies of the same upload raced: keep the first, drop this file (never one the kept message uses).
+      if (!result.message.attachments.some((a) => a.storageKey === stored.storageKey)) await dropStored();
       return reply.status(200).send({ data: result.message });
     }
     await announce(id, 'chat:message', { conversationId: id, message: result.message });

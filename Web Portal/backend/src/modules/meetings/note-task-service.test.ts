@@ -301,11 +301,13 @@ describe('review fix #19 / N12: an interrupted conversion is finished, never rep
     f.noteService.linkTask.mockRejectedValueOnce(new Error("Can't reach database server"));
     await expect(r.svc.createTaskFromNote('m1', 'n1', 'u1', { projectId: 'p-secret' })).rejects.toThrow(/reach database/);
     const assignUsers = vi.fn();
-    const other = createNoteTaskService({ ...f, taskService: { ...f.taskService, getTask: async (id: string) => r.tasks.get(id) as never }, assignees: { assignUsers } } as never);
+    const other = createNoteTaskService({ ...f, taskService: { ...f.taskService, getTask: async (id: string) => r.tasks.get(id) as never }, assignees: { assignUsers }, actionItems: { addItem: r.addItem, listByMeeting: async () => r.items as never } } as never);
     const canUseProject = vi.fn(async (projectId: string) => projectId !== 'p-secret');
     await expect(other.createTaskFromNote('m1', 'n1', 'u2', { projectId: 'p-mine', assigneeId: 'u2' }, { canUseProject })).rejects.toMatchObject({ code: 'NOTE_HAS_TASK', status: 409 });
     expect(canUseProject).toHaveBeenCalledWith('p-secret');
     expect(f.note.taskId).toBe('fixed'); // the note points at its task all the same
+    // Review follow-up: and at the action item that try made (an action note).
+    expect(f.noteService.linkTask).toHaveBeenLastCalledWith('m1', 'n1', 'fixed', 'ai1', 'pending:1:fixed');
     expect(assignUsers).not.toHaveBeenCalled();
     expect(f.taskService.createTask).toHaveBeenCalledTimes(1);
   });
