@@ -192,6 +192,8 @@ export interface DuplicateLinks {
 export interface TaskRouteDeps {
   taskService: TaskService;
   guard: AuthGuard;
+  /** Review fix #15: a step after a new task was saved that failed (logged; the task is answered 201). */
+  onCreateStepFailed?: (err: unknown, what: string, taskId: string) => void;
   broadcast?: (projectId: string, event: string, payload: unknown) => void;
   /**
    * Optional per-project authorization for task deletion (admin or project manager) — who may delete
@@ -253,7 +255,7 @@ export interface TaskRouteDeps {
 const TASK_DELETED = { error: { code: 'TASK_DELETED', message: 'This task was deleted.' } };
 
 /** POST /tasks' pipeline from the routes' deps (server.ts gives Duplicate the same one: task-duplicate.ts). */
-export function newTaskPipeline(deps: Pick<TaskRouteDeps, 'taskService' | 'accessibleProjectIds' | 'assigneeService' | 'projectOwnerOf' | 'broadcast' | 'guestService' | 'categoryService'>): NewTaskPipeline {
+export function newTaskPipeline(deps: Pick<TaskRouteDeps, 'taskService' | 'accessibleProjectIds' | 'assigneeService' | 'projectOwnerOf' | 'broadcast' | 'guestService' | 'categoryService' | 'onCreateStepFailed'>): NewTaskPipeline {
   return {
     taskService: deps.taskService,
     scopeOf: async (actor) => (deps.accessibleProjectIds ? deps.accessibleProjectIds(actor.id, actor.roles) : null),
@@ -263,6 +265,8 @@ export function newTaskPipeline(deps: Pick<TaskRouteDeps, 'taskService' | 'acces
     // 1.24: a new task's guests and categories (POST /tasks and Duplicate alike).
     guestService: deps.guestService,
     categoryService: deps.categoryService,
+    // Review fix #15: a step after the save that failed is logged; the new task is answered all the same.
+    onError: deps.onCreateStepFailed,
   };
 }
 

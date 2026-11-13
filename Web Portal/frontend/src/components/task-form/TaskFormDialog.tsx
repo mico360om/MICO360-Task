@@ -250,6 +250,17 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
   // Set when the task was created but a file couldn't be attached: "Done" then closes.
   const [created, setCreated] = useState<ApiTask | null>(null);
   const busy = useRef(false);
+  // Review fixes #25 and N8: one Idempotency-Key for the form's life (New task or Duplicate), kept across
+  // retries — a retry after a lost reply or a server error gets the task already made (the server answers
+  // it again), never a second one, even when the draft was changed in between. A new key only after a
+  // definite refusal (a 4xx other than "still in progress"): nothing was made, and the server would
+  // otherwise answer the corrected try with that refusal again. As ScheduleDialog does.
+  const requestKey = useRef<string | null>(null);
+  const keyForTry = () => (requestKey.current ??= newIdempotencyKey());
+  const afterTry = (err: unknown) => {
+    const refused = err instanceof ApiError && err.status >= 400 && err.status < 500 && !(err.status === 409 && err.code === 'IDEMPOTENCY_IN_PROGRESS');
+    if (err === null || refused) requestKey.current = null;
+  };
   const version = useRef(task?.version);
   const titleRef = useRef<HTMLInputElement>(null);
   const untilRef = useRef<HTMLDivElement>(null);
@@ -660,10 +671,11 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
       ...(sentBoard ? { boardDate: sentBoard } : {}),
       ...(draft.formId ? { inspectionFormId: draft.formId, inspectionPlace: draft.place.trim() || null } : {}),
     };
-    // One key per attempt: the offline queue reuses it, so a create that did reach the server is never duplicated.
-    const idempotencyKey = newIdempotencyKey();
+    // The form's key (above); the offline queue reuses it, so a create that did reach the server is never duplicated.
+    const idempotencyKey = keyForTry();
     try {
       const created = await tasksApi(apiClient).create(input, { idempotencyKey });
+      afterTry(null);
       if (!fixedProjectId) {
         try { localStorage.setItem(LAST_PROJECT, draft.projectId); } catch { /* storage unavailable */ }
       }
@@ -684,6 +696,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
       }
       finish(created);
     } catch (err) {
+      afterTry(err);
       // Files can't wait offline with the task: say so rather than save it without them.
       if (!(err instanceof ApiError) && files.length) {
         setBanner('You’re offline, and files can’t be attached offline. Try again when you’re connected, or remove the files to save the task now.');
@@ -733,7 +746,8 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
       copyFiles: originalFiles.length > 0 && copyFiles,
     };
     try {
-      const made = await tasksApi(apiClient).duplicate(duplicateOfId!, input, { idempotencyKey: newIdempotencyKey() });
+      const made = await tasksApi(apiClient).duplicate(duplicateOfId!, input, { idempotencyKey: keyForTry() });
+      afterTry(null);
       copiedFiles.current = made.files;
       void invalidateTaskQueries(qc);
       if (files.length) {
@@ -752,6 +766,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
       }
       finish(made.task);
     } catch (err) {
+      afterTry(err);
       if (!(err instanceof ApiError)) {
         setBanner('You’re offline. Duplicating a task needs the connection — its files are copied on the server. Try again when you’re connected.');
         return;

@@ -8,6 +8,8 @@ export interface MemoryRefreshRow {
   revokedAt: Date | null;
   successorEnc?: string | null;
   purpose?: 'biometric' | null;
+  /** Its session was ended by Log out (endSession). */
+  signedOut?: boolean;
 }
 
 /** In-memory refresh-token store with the same rotation semantics as the Prisma one (tests / dev). */
@@ -36,11 +38,29 @@ export function createMemoryRefreshTokenStore(): RefreshTokenStore & { rows: Mem
         r.revokedAt = now;
         return { status: 'rotated', userId: r.userId, familyId: r.familyId };
       }
+      if (r.signedOut) return { status: 'reused', userId: r.userId, familyId: r.familyId, revokedAt: r.revokedAt, successorEnc: null, signedOut: true };
       return { status: 'reused', userId: r.userId, familyId: r.familyId, revokedAt: r.revokedAt, successorEnc: r.successorEnc ?? null };
     },
     async setSuccessor(hash, successorEnc) {
       const r = rows.find((x) => x.hash === hash);
-      if (r) r.successorEnc = successorEnc;
+      if (r && !r.signedOut) r.successorEnc = successorEnc;
+    },
+    async endSession(hash, at) {
+      const r = rows.find((x) => x.hash === hash);
+      if (!r) return;
+      if (r.purpose === 'biometric') {
+        if (r.revokedAt === null) r.revokedAt = at;
+        return;
+      }
+      const session = r.familyId ? rows.filter((x) => x.familyId === r.familyId && x.purpose !== 'biometric') : [r];
+      for (const x of session) {
+        if (x.revokedAt === null) x.revokedAt = at;
+        x.signedOut = true;
+        x.successorEnc = null;
+      }
+    },
+    async signedOut(hash) {
+      return rows.find((x) => x.hash === hash)?.signedOut === true;
     },
     async revokeFamily(familyId) {
       for (const r of rows) if (r.familyId === familyId && r.revokedAt === null) r.revokedAt = new Date();

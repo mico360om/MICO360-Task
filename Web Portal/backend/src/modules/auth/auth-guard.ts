@@ -73,6 +73,40 @@ export function createAuthGuard(tokenService: TokenService, opts: AuthGuardOptio
     return state;
   }
 
+  /** The account state a token's version and person are checked against (cached; re-read for a newer token). */
+  async function currentState(userId: string, ver: number): Promise<UserState | null> {
+    let state = await lookup(userId, false);
+    // Versions only grow, so a token NEWER than the cached state means the cache is stale (e.g. a
+    // fresh session right after a password change) — re-read before deciding.
+    if (state && ver > state.tokenVersion) state = await lookup(userId, true);
+    return state && state.active && state.tokenVersion === ver ? state : null;
+  }
+
+  /** The access token's claims, or null (no bearer token, a bad signature, expired, not an access token). */
+  function accessClaims(req: FastifyRequest) {
+    const header = req.headers.authorization;
+    if (!header || !header.startsWith('Bearer ')) return null;
+    try {
+      const claims = tokenService.verifyAccess(header.slice('Bearer '.length).trim());
+      return claims.sub && claims.type === 'access' ? claims : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Review fix #3 (13 Nov 2026): is the request's session still current — a valid access token whose
+   * account is active and whose token version is the account's — by the same check and the same cache
+   * as `authenticate`, without the route's own rules. The repeated-request hook asks it before it answers
+   * from its store. Without live account state: a valid access token.
+   */
+  async function sessionCurrent(req: FastifyRequest): Promise<boolean> {
+    const claims = accessClaims(req);
+    if (!claims) return false;
+    if (!userState) return true;
+    return (await currentState(claims.sub!, typeof claims.ver === 'number' ? claims.ver : 0)) !== null;
+  }
+
   async function authenticate(req: FastifyRequest, _reply: FastifyReply): Promise<void> {
     const header = req.headers.authorization;
     if (!header || !header.startsWith('Bearer ')) throw new UnauthorizedError();
@@ -93,12 +127,8 @@ export function createAuthGuard(tokenService: TokenService, opts: AuthGuardOptio
       return;
     }
 
-    const ver = typeof claims.ver === 'number' ? claims.ver : 0;
-    let state = await lookup(claims.sub, false);
-    // Versions only grow, so a token NEWER than the cached state means the cache is stale (e.g. a
-    // fresh session right after a password change) — re-read before deciding.
-    if (state && ver > state.tokenVersion) state = await lookup(claims.sub, true);
-    if (!state || !state.active || state.tokenVersion !== ver) {
+    const state = await currentState(claims.sub, typeof claims.ver === 'number' ? claims.ver : 0);
+    if (!state) {
       throw new UnauthorizedError('Your session has ended. Please sign in again.');
     }
     const managerView = inManagerView({ roles: state.roles, managerView: state.managerView });
@@ -125,7 +155,7 @@ export function createAuthGuard(tokenService: TokenService, opts: AuthGuardOptio
     cache.delete(userId);
   }
 
-  return { authenticate, requireRoles, forgetUser };
+  return { authenticate, requireRoles, forgetUser, sessionCurrent };
 }
 
 export type AuthGuard = ReturnType<typeof createAuthGuard>;

@@ -344,3 +344,83 @@ describe('TokenService — fingerprint sign-in keys', () => {
     expect((claims.exp ?? 0) - (claims.iat ?? 0)).toBeGreaterThanOrEqual(365 * 24 * 3600);
   });
 });
+
+// Review fixes #4 (server part) and N2 (13 Nov 2026): Log out ends the whole session — the token it is
+// given and every token rotated from the same sign-in, even when a renewal raced it — and a stale copy
+// presented afterwards is a plain refusal, not "stolen": the person's fingerprint keys stay.
+describe('TokenService — log out ends the whole session', () => {
+  it('a logout with a token that a renewal already rotated still ends the renewed token', async () => {
+    const { svc, refresh } = makeReplaying();
+    const t0 = (await svc.issueTokens({ id: 'u1', roles: [] })).refreshToken;
+    const t1 = ((await refresh(t0)) as { next: string }).next; // the renewal won the race…
+    await svc.endSession(t0); // …and the page logged out with the token it still had
+    expect(await svc.refreshTokenValid(t1)).toBe(false);
+    expect((await svc.rotateRefreshToken(t1)).ok).toBe(false);
+  });
+
+  it('a logout that lands between a renewal’s spend and its new token: the renewal is refused and its new token ended', async () => {
+    const { svc } = makeReplaying();
+    const t0 = (await svc.issueTokens({ id: 'u1', roles: [] })).refreshToken;
+    const spent = await svc.rotateRefreshToken(t0);
+    expect(spent.ok).toBe(true);
+    await svc.endSession(t0);
+    const t1 = (await svc.issueTokens({ id: 'u1', roles: [] }, { familyId: spent.ok ? spent.familyId : undefined })).refreshToken;
+    expect(await svc.completeRotation(t0, t1)).toBe(false);
+    expect(await svc.refreshTokenValid(t1)).toBe(false);
+  });
+
+  it('a renewal with no logout completes as before (the lost-reply retry still works)', async () => {
+    const { svc, advance } = makeReplaying();
+    const t0 = (await svc.issueTokens({ id: 'u1', roles: [] })).refreshToken;
+    const spent = await svc.rotateRefreshToken(t0);
+    const t1 = (await svc.issueTokens({ id: 'u1', roles: [] }, { familyId: spent.ok ? spent.familyId : undefined })).refreshToken;
+    expect(await svc.completeRotation(t0, t1)).toBe(true);
+    advance(30_000);
+    expect(await svc.rotateRefreshToken(t0)).toEqual({ ok: true, userId: 'u1', familyId: expect.any(String), replay: { refreshToken: t1 } });
+  });
+
+  it('a stale renewal arriving long after the logout is a plain refusal: the fingerprint keys and other sign-ins stay', async () => {
+    const { svc, refresh, advance } = makeReplaying();
+    const t0 = (await svc.issueTokens({ id: 'u1', roles: [] })).refreshToken;
+    const { key } = await svc.issueBiometricKey({ id: 'u1', roles: [] });
+    const phone = (await svc.issueTokens({ id: 'u1', roles: [] })).refreshToken; // another device
+    const t1 = ((await refresh(t0)) as { next: string }).next;
+    await svc.endSession(t1);
+    advance(60_000); // past the 10-second grace: before, this was treated as theft
+    expect(await svc.rotateRefreshToken(t0)).toEqual({ ok: false, reason: 'signed-out' });
+    expect(await svc.rotateRefreshToken(t1)).toEqual({ ok: false, reason: 'signed-out' });
+    expect(await svc.verifyBiometricKey(key)).toEqual({ userId: 'u1' });
+    expect(await svc.refreshTokenValid(phone)).toBe(true);
+  });
+
+  it('a normal logout never touches fingerprint keys; logging out with a key itself ends only that key (as before)', async () => {
+    const { svc } = makeRotating();
+    const session = (await svc.issueTokens({ id: 'u1', roles: [] })).refreshToken;
+    const one = await svc.issueBiometricKey({ id: 'u1', roles: [] });
+    const two = await svc.issueBiometricKey({ id: 'u1', roles: [] });
+    await svc.endSession(session);
+    expect(await svc.verifyBiometricKey(one.key)).toEqual({ userId: 'u1' });
+    await svc.endSession(one.key);
+    expect(await svc.verifyBiometricKey(one.key)).toBeNull();
+    expect(await svc.verifyBiometricKey(two.key)).toEqual({ userId: 'u1' });
+  });
+
+  it('a stolen token reused with NO logout is still theft: the family and the fingerprint keys end', async () => {
+    const { svc, refresh, advance } = makeReplaying();
+    const t0 = (await svc.issueTokens({ id: 'u1', roles: [] })).refreshToken;
+    const { key } = await svc.issueBiometricKey({ id: 'u1', roles: [] });
+    const t1 = ((await refresh(t0)) as { next: string }).next;
+    advance(3 * 60_000);
+    expect(await svc.rotateRefreshToken(t0)).toEqual({ ok: false, reason: 'reused' });
+    expect(await svc.refreshTokenValid(t1)).toBe(false);
+    expect(await svc.verifyBiometricKey(key)).toBeNull();
+  });
+
+  it('junk, an unknown token or a store without sessions: a logout is quiet and harmless', async () => {
+    const { svc } = makeService();
+    const t = (await svc.issueTokens({ id: 'u1', roles: [] })).refreshToken;
+    await expect(svc.endSession('junk')).resolves.toBeUndefined();
+    await svc.endSession(t); // the legacy store: the token alone
+    expect(await svc.refreshTokenValid(t)).toBe(false);
+  });
+});

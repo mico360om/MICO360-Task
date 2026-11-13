@@ -15,7 +15,7 @@ import { registerRequestTiming } from './lib/request-timing';
 import { registerEmailWebhookRoutes } from './modules/email/email-webhook-routes';
 import type { EmailWebhookService } from './modules/email/email-webhook-service';
 import { registerAuthRoutes, type AuthRouteDeps } from './modules/auth/auth-routes';
-import { createAuthGuard, type UserStateLookup } from './modules/auth/auth-guard';
+import { createAuthGuard, type AuthGuard, type UserStateLookup } from './modules/auth/auth-guard';
 import type { ManagerViewLookup } from './modules/auth/manager-view';
 import { registerManagerViewRoutes, type ManagerViewStore } from './modules/users/manager-view-routes';
 import { registerProjectRoutes } from './modules/projects/project-routes';
@@ -208,6 +208,12 @@ export interface AppDeps extends AuthRouteDeps {
   managerViewStore?: ManagerViewStore;
   /** Manager View's project-settings rule: does this person run the project (absent: refused, fails closed). */
   managerViewLookup?: ManagerViewLookup;
+  /**
+   * Review fix N1 (13 Nov 2026): the sign-in check the server shares with the code that ends sessions
+   * (it forgets an account's cached state when its access is revoked or changed, so a revoked token is
+   * refused at once). Absent: one is made here from `userState` and `managerViewLookup`.
+   */
+  authGuard?: AuthGuard;
   projectService?: ProjectService;
   /** The Projects page's figures in grouped queries (GET /projects/overview). */
   projectOverview?: ProjectOverviewSource;
@@ -563,7 +569,22 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     },
     allowList: (req) => isRateLimitExempt(req.url),
   });
-  if (deps.idempotencyStore) registerIdempotency(app, { store: deps.idempotencyStore, userIdOf });
+  // One guard for every route, so its short account-state cache is shared (with the server's session
+  // ending too, when it passes its own: review fix N1). Made before the repeated-request hook, which asks it.
+  const guard = deps.authGuard ?? createAuthGuard(deps.tokenService, { userState: deps.userState, ...(deps.managerViewLookup ? { managerView: deps.managerViewLookup } : {}) });
+  if (deps.idempotencyStore) {
+    registerIdempotency(app, {
+      store: deps.idempotencyStore,
+      userIdOf,
+      // Review fix #3: a stored answer only for a session that is still current (the guard's own check).
+      sessionCurrent: (req) => guard.sessionCurrent(req),
+      // Review fix #27: a store write that failed after the work was done is logged; the answer still goes.
+      onError: (err, what) => {
+        if (deps.logger) deps.logger.error(`repeated requests: ${what} failed`, { err });
+        else console.error(`repeated requests: ${what} failed`, err);
+      },
+    });
+  }
 
   // Uploaded files (avatars, task/chat attachments, project images) and brand assets
   // are public and embedded cross-origin — by the SPA on a different origin/port and by
@@ -664,8 +685,6 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   }));
   // Process metrics for monitoring (T19.3). Admin-only: pid, Node version and memory are
   // internal details that anonymous callers shouldn't see (uptime checks use /health).
-  // One guard for every route, so its short account-state cache is shared.
-  const guard = createAuthGuard(deps.tokenService, { userState: deps.userState, ...(deps.managerViewLookup ? { managerView: deps.managerViewLookup } : {}) });
   app.get('/api/v1/metrics', { preHandler: guard.requireRoles('ADMIN') }, async () => {
     const mem = process.memoryUsage();
     return {
@@ -885,6 +904,11 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           // 1.24: a new task's guests and categories are checked by their own rules.
           guestService: deps.guestService,
           categoryService: deps.categoryService,
+          // Review fix #15: a step after a new task was saved that failed is logged (the task stands).
+          onCreateStepFailed: (err, what, taskId) => {
+            if (deps.logger) deps.logger.error(`new task: ${what} failed`, { err, taskId });
+            else console.error(`new task ${taskId}: ${what} failed`, err);
+          },
         });
       }
       if (deps.taskService && deps.approvalSource) {

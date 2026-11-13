@@ -44,6 +44,8 @@ export interface NewTaskPipeline {
   guestService?: GuestService;
   /** 1.24: a new task's categories (the project's rule). */
   categoryService?: CategoryService;
+  /** Review fix #15: a step after the task was saved that failed (logged; the task is returned all the same). */
+  onError?: (err: unknown, what: string, taskId: string) => void;
 }
 
 /** A new task as POST /tasks answers it: its tags and assignees (in full) when it was given some. */
@@ -95,18 +97,35 @@ export async function createNewTask(p: NewTaskPipeline, actor: TaskActor, body: 
     ...(categories.length ? { categoryIds: categories } : {}),
     ...(extra.duplicatedFromId ? { duplicatedFromId: extra.duplicatedFromId } : {}),
   });
+  // Review fix #15: the task is saved — the notices, the read-backs and the live update after it are best
+  // effort (logged), so a saved task always answers 201 and a retry with the same key never duplicates it.
+  // A read-back that fails leaves `assignees` out of the answer, as for a task made without any.
+  const taskId = created.id;
+  const step = async <T,>(what: string, run: () => Promise<T>): Promise<T | undefined> => {
+    try {
+      return await run();
+    } catch (err) {
+      if (p.onError) p.onError(err, what, taskId);
+      else console.error(`new task ${taskId}: ${what} failed`, err);
+      return undefined;
+    }
+  };
   let appliedAssignees;
   if (p.assigneeService && assignees.length > 0) {
-    await p.assigneeService.notifyAssigned(created.id, assignees, actor.id);
-    appliedAssignees = await p.assigneeService.listAssignees(created.id);
+    const people = p.assigneeService;
+    await step('telling the assignees', () => people.notifyAssigned(taskId, assignees, actor.id));
+    appliedAssignees = await step('reading its assignees back', () => people.listAssignees(taskId));
   } else if (externalContacts.length > 0 && p.guestService) {
     // The old way in (the app, the extension) with contacts and nobody assigned: the person responsible.
-    if (await p.guestService.ensureResponsible(created.id, actor.id)) {
-      created = await p.taskService.getTask(created.id);
-      if (p.assigneeService) appliedAssignees = await p.assigneeService.listAssignees(created.id);
+    const guests = p.guestService;
+    if (await step('naming the person responsible', () => guests.ensureResponsible(taskId, actor.id))) {
+      created = (await step('reading the task back', () => p.taskService.getTask(taskId))) ?? created;
+      const people = p.assigneeService;
+      if (people) appliedAssignees = await step('reading its assignees back', () => people.listAssignees(taskId));
     }
   }
-  p.broadcast?.(created.projectId, 'task:created', created);
+  const made = created;
+  await step('telling open boards', async () => p.broadcast?.(made.projectId, 'task:created', made));
   return {
     ...created,
     ...(tagNames.length > 0 ? { tags: created.tags ?? [] } : {}),
