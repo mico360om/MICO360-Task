@@ -1,24 +1,28 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createNoteTaskService } from './note-task-service';
+import { NotFoundError } from '../../lib/http-errors';
 
 // Minimal fakes for the collaborating services the note→task flow composes.
 function fakes(meeting: { id: string; title: string; projectId: string | null }) {
   const note = { id: 'n1', meetingId: meeting.id, body: 'Draft the Q4 OKRs and circulate them widely', type: 'ACTION', taskId: null as string | null };
+  let claims = 0;
   const noteService = {
     getNote: vi.fn(async (mid: string, nid: string) => {
       if (mid !== meeting.id || nid !== note.id) throw new Error('not found');
-      return { ...note } as never;
+      // As the note service: a claim is never shown as the note's task.
+      return { ...note, taskId: note.taskId?.startsWith('pending:') ? null : note.taskId } as never;
     }),
     // Mirrors the repository's conditional update: only a note without a task can be claimed.
-    claimForTask: vi.fn(async () => {
+    claimForTask: vi.fn(async (_mid: string, _nid: string, _opts?: { taskExists?: (id: string) => Promise<boolean> }) => {
       if (note.taskId) throw Object.assign(new Error('A task has already been created from this note.'), { status: 409 });
-      note.taskId = 'pending:x';
-      return 'pending:x';
+      claims += 1;
+      note.taskId = `pending:1:claimed${claims}`;
+      return { marker: note.taskId, taskId: `claimed${claims}`, made: false };
     }),
     releaseTaskClaim: vi.fn(async (_nid: string, claim: string) => {
       if (note.taskId === claim) note.taskId = null;
     }),
-    linkTask: vi.fn(async (_mid: string, nid: string, taskId: string) => {
+    linkTask: vi.fn(async (_mid: string, nid: string, taskId: string, _actionItemId?: string, _claim?: string) => {
       note.taskId = taskId;
       return { ...note } as never;
     }),
@@ -64,7 +68,9 @@ describe('createTaskFromNote', () => {
     expect((task as { title: string }).title).toMatch(/Draft the Q4 OKRs/);
     // note now points at the task
     expect(note.taskId).toBe((task as { id: string }).id);
-    expect(f.noteService.linkTask).toHaveBeenCalledWith('m1', 'n1', (task as { id: string }).id);
+    expect(f.noteService.linkTask).toHaveBeenCalledWith('m1', 'n1', (task as { id: string }).id, undefined, 'pending:1:claimed1');
+    // The task gets the id its claim named (review fix #19: a retry can find it).
+    expect((task as { id: string }).id).toBe('claimed1');
   });
 
   it('records the meeting on the task, so the task links back to it', async () => {
@@ -140,7 +146,7 @@ describe('createTaskFromNote', () => {
     await expect(svc.createTaskFromNote('m1', 'n1', 'u1', {})).rejects.toThrow('db down');
     expect(f.note.taskId).toBeNull();
     const { note } = await svc.createTaskFromNote('m1', 'n1', 'u1', {});
-    expect((note as { taskId: string }).taskId).toMatch(/^t/);
+    expect((note as { taskId: string }).taskId).toBe('claimed2');
   });
 
   it('keeps the task linked when assignment fails, reporting the assignment error', async () => {
@@ -169,7 +175,7 @@ describe('createTaskFromNote', () => {
       const due = (addItem.mock.calls[0]![2] as { dueDate: Date }).dueDate;
       expect(due.toISOString()).toBe('2026-11-01T00:00:00.000Z');
       // The note points at both, so neither can be created twice.
-      expect(f.noteService.linkTask).toHaveBeenCalledWith('m1', 'n1', taskId, 'ai1');
+      expect(f.noteService.linkTask).toHaveBeenCalledWith('m1', 'n1', taskId, 'ai1', 'pending:1:claimed1');
       expect(res.actionItem).toMatchObject({ id: 'ai1', taskId });
     });
 
@@ -226,5 +232,75 @@ describe('createTaskFromNote', () => {
       expect(f.note.taskId).toBe((res.task as { id: string }).id);
       expect(res.actionItemError).toMatch(/action item/i);
     });
+  });
+});
+
+describe('review fix #19 / N12: an interrupted conversion is finished, never repeated', () => {
+  function resumable(f: ReturnType<typeof fakes>) {
+    const tasks = new Map<string, Record<string, unknown>>();
+    f.taskService.createTask.mockImplementation(async (input: Record<string, unknown>) => {
+      const t = { key: 'MICO-9', ...input };
+      tasks.set(input.id as string, t);
+      return t as never;
+    });
+    const getTask = vi.fn(async (id: string) => {
+      const t = tasks.get(id);
+      if (!t) throw new NotFoundError('Task not found.');
+      return t as never;
+    });
+    // As the real note service: a claim whose task exists comes back `made`.
+    f.noteService.claimForTask.mockImplementation(async (_m: string, _n: string, opts?: { taskExists?: (id: string) => Promise<boolean> }) => {
+      const claimed = f.note.taskId?.startsWith('pending:') ? f.note.taskId.split(':')[2]! : null;
+      if (claimed && opts?.taskExists && (await opts.taskExists(claimed))) return { marker: f.note.taskId!, taskId: claimed, made: true } as never;
+      if (f.note.taskId) throw Object.assign(new Error('A task has already been created from this note.'), { status: 409 });
+      f.note.taskId = 'pending:1:fixed';
+      return { marker: 'pending:1:fixed', taskId: 'fixed', made: false } as never;
+    });
+    const items: Record<string, unknown>[] = [];
+    const addItem = vi.fn(async (_m: string | null, _by: string, input: Record<string, unknown>) => {
+      const item = { id: `ai${items.length + 1}`, ...input };
+      items.push(item);
+      return item as never;
+    });
+    const listByMeeting = vi.fn(async () => items as never);
+    return { tasks, items, addItem, svc: createNoteTaskService({ ...f, taskService: { ...f.taskService, getTask }, actionItems: { addItem, listByMeeting } } as never) };
+  }
+
+  it('the link failed after the task and its action item were saved: the retry links that task and that item', async () => {
+    const f = fakes({ id: 'm1', title: 'Q4 Planning', projectId: 'p1' });
+    const r = resumable(f);
+    f.noteService.linkTask.mockRejectedValueOnce(new Error("Can't reach database server"));
+    await expect(r.svc.createTaskFromNote('m1', 'n1', 'u1', {})).rejects.toThrow(/reach database/);
+    const res = await r.svc.createTaskFromNote('m1', 'n1', 'u1', {});
+    expect(f.taskService.createTask).toHaveBeenCalledTimes(1);
+    expect(r.addItem).toHaveBeenCalledTimes(1);
+    expect((res.task as { id: string }).id).toBe('fixed');
+    expect(res.actionItem).toMatchObject({ id: 'ai1', taskId: 'fixed' });
+    expect(f.noteService.linkTask).toHaveBeenLastCalledWith('m1', 'n1', 'fixed', 'ai1', 'pending:1:fixed');
+    expect(f.note.taskId).toBe('fixed');
+  });
+
+  it('N12: the task was saved but its create failed after: that task is used — one task, linked', async () => {
+    const f = fakes({ id: 'm1', title: 'Q4 Planning', projectId: 'p1' });
+    const r = resumable(f);
+    const saveThenFail = f.taskService.createTask.getMockImplementation()!;
+    f.taskService.createTask.mockImplementationOnce(async (input: Record<string, unknown>) => {
+      await saveThenFail(input);
+      throw new Error('a step after saving failed');
+    });
+    const res = await r.svc.createTaskFromNote('m1', 'n1', 'u1', {});
+    expect(r.tasks.size).toBe(1);
+    expect((res.task as { id: string }).id).toBe('fixed');
+    expect(f.note.taskId).toBe('fixed');
+    expect(f.noteService.releaseTaskClaim).not.toHaveBeenCalled();
+  });
+
+  it('a create that failed with nothing saved gives the claim back (the note can be tried again)', async () => {
+    const f = fakes({ id: 'm1', title: 'Q4 Planning', projectId: 'p1' });
+    const r = resumable(f);
+    f.taskService.createTask.mockRejectedValueOnce(new Error('db down'));
+    await expect(r.svc.createTaskFromNote('m1', 'n1', 'u1', {})).rejects.toThrow('db down');
+    expect(f.noteService.releaseTaskClaim).toHaveBeenCalledWith('n1', 'pending:1:fixed');
+    expect(f.note.taskId).toBeNull();
   });
 });

@@ -1,13 +1,43 @@
-import { randomUUID } from 'node:crypto';
 import { ConflictError, NotFoundError, ValidationError } from '../../lib/http-errors';
 import { isRichEmpty, parseRichHtml, renderRichHtml } from '../../lib/rich-text';
+import { newRowId } from '../../lib/row-id';
 import type { NoteRepository, NoteRecord, MeetingNoteType, NoteBodyFormat } from './note-repository';
 import type { CanEditMeeting } from './meeting-access';
 
 const TYPES: MeetingNoteType[] = ['DISCUSSION', 'DECISION', 'ACTION', 'ISSUE', 'QUESTION', 'INFORMATION'];
 
-/** Prefix of the temporary `taskId` a note carries while it is being converted into a task. */
+/**
+ * Prefix of the temporary `taskId` a note carries while it is being converted into a task. Review fix #19
+ * (batch 4b): the claim is "pending:<ms since 1970>:<the id its task gets>" — so a retry finds the task an
+ * earlier try saved (and links it instead of making another), and a claim whose task was never made times
+ * out. A claim is never shown as the note's task (see `outward`). Claims from before ("pending:<uuid>")
+ * have neither: their requests ended with the restart that brought this version, so they are timed out.
+ */
 export const TASK_CLAIM_PREFIX = 'pending:';
+/** Review fix #19: a claim whose task was never made can be taken over after this long (as a repeat-request key's lease). */
+export const TASK_CLAIM_TIMEOUT_MS = 10 * 60 * 1000;
+
+/** A note reserved for conversion: its marker, the id its task gets, and whether that task already exists. */
+export interface TaskClaim {
+  marker: string;
+  taskId: string;
+  /** An earlier try already saved this task (then failed before linking it): link it, make nothing new. */
+  made: boolean;
+}
+
+/** Is this `taskId` value a claim (a conversion under way or interrupted), not a task? */
+export function isTaskClaim(taskId: string | null | undefined): boolean {
+  return typeof taskId === 'string' && taskId.startsWith(TASK_CLAIM_PREFIX);
+}
+
+/** When a claim was made (null: unknown — an old one) and the id it gives its task (null: an old one). */
+export function parseTaskClaim(marker: string): { at: number | null; taskId: string | null } {
+  const m = /^pending:(\d{1,15}):([\w-]{1,64})$/.exec(marker);
+  return m ? { at: Number(m[1]), taskId: m[2]! } : { at: null, taskId: null };
+}
+
+/** A note as it goes out: a claim is not a task, so it is never shown as a task link. */
+const outward = (rec: NoteRecord): NoteRecord => (isTaskClaim(rec.taskId) ? { ...rec, taskId: null } : rec);
 
 export interface AddNoteInput {
   body: string;
@@ -33,6 +63,8 @@ export interface NoteServiceDeps {
   onChanged?: (meetingId: string) => void;
   /** Meeting editors (organizer / creator / project manager / admin) moderate notes. Open when not wired. */
   canEditMeeting?: CanEditMeeting;
+  /** The clock (tests). */
+  now?: () => Date;
 }
 
 export interface NoteService {
@@ -48,13 +80,20 @@ export interface NoteService {
   getDeletedNote(meetingId: string, noteId: string): Promise<NoteRecord>;
   /** Undo a delete. */
   restoreNote(meetingId: string, noteId: string): Promise<NoteRecord>;
-  /** Reserve a note for conversion into a task; 409 when it already has (or is getting) one. */
-  claimForTask(meetingId: string, noteId: string): Promise<string>;
-  /** Give back a claim whose task was never created. */
+  /**
+   * Reserve a note for conversion into a task; 409 when it already has one, or one is being made right now.
+   * Review fix #19: an interrupted conversion's claim comes back as `made` when its task exists (`taskExists`),
+   * and is taken over once it is older than TASK_CLAIM_TIMEOUT_MS when its task was never made.
+   */
+  claimForTask(meetingId: string, noteId: string, opts?: { taskExists?: (taskId: string) => Promise<boolean> }): Promise<TaskClaim>;
+  /** Give back a claim (its marker) whose task was never created. */
   releaseTaskClaim(noteId: string, claim: string): Promise<void>;
-  /** Record that a note was promoted to a board Task (Phase 4). */
-  /** Point the note at the task made from it (and at the action item tracking it, when there is one). */
-  linkTask(meetingId: string, noteId: string, taskId: string, actionItemId?: string): Promise<NoteRecord>;
+  /**
+   * Point the note at the task made from it (and at the action item tracking it, when there is one). With the
+   * claim's marker, only while that claim is in place (another try of the same conversion having linked the
+   * same task is fine; a different task is a 409).
+   */
+  linkTask(meetingId: string, noteId: string, taskId: string, actionItemId?: string, claim?: string): Promise<NoteRecord>;
 }
 
 /** The most a note may hold (the column keeps 64 KB; formatting takes some of it). */
@@ -85,6 +124,7 @@ const trim = (v: string | null | undefined): string | null => {
 
 export function createNoteService(deps: NoteServiceDeps): NoteService {
   const { notes } = deps;
+  const now = deps.now ?? (() => new Date());
 
   async function requireInMeeting(meetingId: string, noteId: string): Promise<NoteRecord> {
     const rec = await notes.findById(noteId);
@@ -96,11 +136,11 @@ export function createNoteService(deps: NoteServiceDeps): NoteService {
     canEditMeeting: (userId, roles, meetingId) => (deps.canEditMeeting ? deps.canEditMeeting(userId, roles, meetingId) : Promise.resolve(true)),
 
     async listNotes(meetingId) {
-      return notes.listByMeeting(meetingId);
+      return (await notes.listByMeeting(meetingId)).map(outward);
     },
 
     async getNote(meetingId, noteId) {
-      return requireInMeeting(meetingId, noteId);
+      return outward(await requireInMeeting(meetingId, noteId));
     },
 
     async addNote(meetingId, authorId, input) {
@@ -118,7 +158,7 @@ export function createNoteService(deps: NoteServiceDeps): NoteService {
         highlighted: input.highlighted ?? false,
       });
       deps.onChanged?.(meetingId);
-      return rec;
+      return outward(rec);
     },
 
     async updateNote(meetingId, noteId, patch, editorId) {
@@ -146,7 +186,7 @@ export function createNoteService(deps: NoteServiceDeps): NoteService {
         ...(contentChanged ? { editedAt: new Date(), ...(editorId ? { editedById: editorId } : {}) } : {}),
       });
       deps.onChanged?.(meetingId);
-      return rec;
+      return outward(rec);
     },
 
     async removeNote(meetingId, noteId) {
@@ -158,7 +198,7 @@ export function createNoteService(deps: NoteServiceDeps): NoteService {
     async getDeletedNote(meetingId, noteId) {
       const rec = await notes.findDeleted(noteId);
       if (!rec || rec.meetingId !== meetingId) throw new NotFoundError('Note not found.');
-      return rec;
+      return outward(rec);
     },
 
     async restoreNote(meetingId, noteId) {
@@ -166,27 +206,56 @@ export function createNoteService(deps: NoteServiceDeps): NoteService {
       if (!rec || rec.meetingId !== meetingId) throw new NotFoundError('Note not found.');
       const restored = await notes.restore(noteId);
       deps.onChanged?.(meetingId);
-      return restored;
+      return outward(restored);
     },
 
-    async claimForTask(meetingId, noteId) {
+    async claimForTask(meetingId, noteId, opts) {
       const rec = await requireInMeeting(meetingId, noteId);
-      const claim = `${TASK_CLAIM_PREFIX}${randomUUID()}`;
-      if (rec.taskId || !(await notes.claimTask(noteId, claim))) {
-        throw new ConflictError('A task has already been created from this note.', 'NOTE_HAS_TASK');
+      const hasTask = () => new ConflictError('A task has already been created from this note.', 'NOTE_HAS_TASK');
+      if (rec.taskId && !isTaskClaim(rec.taskId)) throw hasTask();
+      const fresh = (): TaskClaim => {
+        const taskId = newRowId();
+        return { marker: `${TASK_CLAIM_PREFIX}${now().getTime()}:${taskId}`, taskId, made: false };
+      };
+      if (!rec.taskId) {
+        const claim = fresh();
+        if (await notes.claimTask(noteId, claim.marker)) return claim;
+        throw hasTask(); // claimed (or converted) at this very moment by another request
       }
-      return claim;
+      // Review fix #19: an earlier conversion's claim. Its task saved (the link failed after): link that one.
+      const old = rec.taskId;
+      const { at, taskId } = parseTaskClaim(old);
+      if (taskId && opts?.taskExists && (await opts.taskExists(taskId))) return { marker: old, taskId, made: true };
+      // Its task not made yet: still under way — unless it has timed out (an old-style claim always has).
+      if (at !== null && now().getTime() - at < TASK_CLAIM_TIMEOUT_MS) {
+        throw new ConflictError('A task is being created from this note right now. Try again in a moment.', 'NOTE_HAS_TASK');
+      }
+      const claim = fresh();
+      if (await notes.claimTask(noteId, claim.marker, old)) return claim;
+      throw hasTask();
     },
 
     async releaseTaskClaim(noteId, claim) {
       await notes.releaseTaskClaim(noteId, claim);
     },
 
-    async linkTask(meetingId, noteId, taskId, actionItemId) {
+    async linkTask(meetingId, noteId, taskId, actionItemId, claim) {
       await requireInMeeting(meetingId, noteId);
-      const rec = await notes.update(noteId, { taskId, ...(actionItemId ? { actionItemId } : {}) });
+      let rec: NoteRecord;
+      if (claim && notes.linkClaimedTask) {
+        // Review fix #19: only while this conversion's claim is in place.
+        if (!(await notes.linkClaimedTask(noteId, claim, taskId, actionItemId))) {
+          const current = await requireInMeeting(meetingId, noteId);
+          // Another try of this same conversion linked it already: done. Anything else: not this task's note.
+          if (current.taskId !== taskId) throw new ConflictError('A task has already been created from this note.', 'NOTE_HAS_TASK');
+          if (actionItemId && !current.actionItemId) await notes.update(noteId, { actionItemId });
+        }
+        rec = await requireInMeeting(meetingId, noteId);
+      } else {
+        rec = await notes.update(noteId, { taskId, ...(actionItemId ? { actionItemId } : {}) });
+      }
       deps.onChanged?.(meetingId);
-      return rec;
+      return outward(rec);
     },
   };
 }
