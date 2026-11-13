@@ -14,7 +14,17 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### Improvements
+- Oman's holiday list now includes Accession Day (11 January).
+
 ### Bug fixes
+- Two people starting a chat with each other at the same moment get one conversation.
+- A chat message with a file is saved together with its file, or not at all.
+- Turning a meeting note into a task can no longer get stuck.
+- Chat history no longer skips a message sent at the same moment as another.
+- Removed or replaced files and profile pictures are deleted from storage.
+- Opening a new project chat at the same time as someone else works for both of you.
+- A duplicated meeting belongs to the person who made the copy.
 - Meetings you created stay in your Meetings list and in search after you hand them to another organizer.
 - Top-bar search finds your newest meetings however many meetings there are, and stops showing a meeting as soon as you are taken off it.
 - The chat conversation list loads faster when you have many conversations.
