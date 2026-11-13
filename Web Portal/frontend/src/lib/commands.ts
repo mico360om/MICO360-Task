@@ -26,6 +26,8 @@ export const NAV_COMMANDS: NavCommand[] = [
   { id: 'notifications', label: 'Notifications', to: '/notifications', keywords: ['alerts', 'bell'] },
   { id: 'management', label: 'Management', to: '/management', keywords: ['health', 'red amber green', 'leadership', 'overview', 'inspections', 'overloaded'], leads: true },
   { id: 'reports', label: 'Reports', to: '/reports', keywords: ['analytics', 'stats', 'charts', 'trends'], admin: true },
+  // Owner, 13 Nov: the Recycle Bin left the left menu (it is in the account menu): reachable from here too, for the same people.
+  { id: 'recycle-bin', label: 'Recycle Bin', to: '/recycle-bin', keywords: ['bin', 'trash', 'deleted tasks', 'restore', 'undelete'], leads: true },
   { id: 'settings', label: 'Settings', to: '/settings', keywords: ['preferences'] },
   { id: 'profile', label: 'Profile', to: '/profile', keywords: ['account', 'me'] },
   { id: 'about', label: 'About and version history', to: '/about', keywords: ['version', 'release', 'changelog', 'what’s new', 'whats new', 'updates'] },
@@ -35,6 +37,8 @@ export const NAV_COMMANDS: NavCommand[] = [
   { id: 'admin-settings', label: 'System Settings', to: '/admin/settings', keywords: ['system', 'admin', 'config'], admin: true },
   { id: 'admin-notifications', label: 'Notification & Scheduling', to: '/admin/settings/notifications', keywords: ['reminders', 'holidays', 'working days', 'working hours', 'quiet hours', 'escalation', 'schedule', 'admin'], admin: true },
   { id: 'admin-audit', label: 'Audit Logs', to: '/admin/audit', keywords: ['audit', 'logs', 'admin'], admin: true },
+  // Owner, 13 Nov: the Error Log (now in the account menu) here too.
+  { id: 'admin-error-log', label: 'Error Log', to: '/admin/error-log', keywords: ['errors', 'problems', 'admin'], admin: true },
 ];
 
 /**

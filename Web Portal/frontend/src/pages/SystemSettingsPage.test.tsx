@@ -187,3 +187,11 @@ describe('SystemSettingsPage — error log (1.22.4)', () => {
     expect(displayableSettings([{ key: 'errorLog.collectBrowserErrors', value: false }]).rows).toEqual([{ key: 'errorLog.collectBrowserErrors', label: 'Collect browser errors', value: 'Off' }]);
   });
 });
+
+describe('SystemSettingsPage — Companies (owner, 13 Nov: moved here from the left menu)', () => {
+  it('has a Companies card, beside the other settings pages, opening the Companies page', async () => {
+    renderPage();
+    expect(await screen.findByRole('heading', { name: 'Companies' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open Companies' })).toHaveAttribute('href', '/admin/companies');
+  });
+});

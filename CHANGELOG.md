@@ -15,6 +15,7 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 ## [Unreleased]
 
 ### Improvements
+- The Recycle Bin, Error Log and Audit Logs are now in the account menu under your name; Companies is inside System Settings; Clients and Guest contacts are together under a new Third Party item in the left menu.
 - Oman's holiday list now includes Accession Day (11 January).
 
 ### Bug fixes

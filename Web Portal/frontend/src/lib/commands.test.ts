@@ -144,3 +144,14 @@ describe('matchNavCommands', () => {
     expect(NAV_COMMANDS.some((c) => c.admin)).toBe(true);
   });
 });
+
+describe('owner, 13 Nov: pages that left the left menu stay reachable from the palette', () => {
+  it('the Recycle Bin for administrators and the people who run a project; the Error Log for administrators', () => {
+    expect(matchNavCommands('recycle bin', false, true).map((c) => c.to)).toContain('/recycle-bin');
+    expect(matchNavCommands('recycle bin', true).map((c) => c.to)).toContain('/recycle-bin');
+    expect(matchNavCommands('recycle bin', false, false).map((c) => c.to)).not.toContain('/recycle-bin');
+    expect(matchNavCommands('error log', true).map((c) => c.to)).toContain('/admin/error-log');
+    expect(matchNavCommands('error log', false, true).map((c) => c.to)).not.toContain('/admin/error-log');
+    expect(matchNavCommands('companies', true).map((c) => c.to)).toContain('/admin/companies');
+  });
+});

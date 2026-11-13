@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { personInitials } from '../lib/initials';
 import { ownName, useOwnUserRefresh } from '../lib/own-user';
@@ -7,10 +7,31 @@ import { useAuthStore } from '../stores/auth-store';
 import { useSignOut } from '../lib/useSignOut';
 import { SignOutWarning } from './SignOutWarning';
 import { ShortcutHint, useShortcutSettings } from './shortcuts/ShortcutProvider';
-import { MANAGER_VIEW_WORDS, useManagerView, useSetManagerView } from '../lib/manager-view';
+import { MANAGER_VIEW_WORDS, useEffectiveAdmin, useManagerView, useSetManagerView } from '../lib/manager-view';
 
-/** Header account button + dropdown menu: identity, profile, settings and log out. */
-export function ProfileMenu() {
+/** The account menu's small icons (16 px, the menu's own stroke). */
+function MenuIcon({ children }: { children: ReactNode }) {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {children}
+    </svg>
+  );
+}
+
+export interface ProfileMenuProps {
+  /**
+   * Runs a project (or is an administrator): the Recycle Bin is theirs (the app shell's useManagementLink, the
+   * Management page's people). Default: an administrator.
+   */
+  canLead?: boolean;
+}
+
+/**
+ * Header account button + dropdown menu: identity, profile, settings and log out. Owner, 13 Nov: also the
+ * Recycle Bin (administrators and the people who run a project, as its menu link was) and the Error Log and
+ * Audit Logs (the Admin group's people: administrators, while Manager View is off) — moved from the left menu.
+ */
+export function ProfileMenu({ canLead }: ProfileMenuProps = {}) {
   const { user, isAdmin } = useAuthStore();
   const [open, setOpen] = useState(false);
   const { openHelp } = useShortcutSettings();
@@ -27,6 +48,9 @@ export function ProfileMenu() {
   const managerView = useManagerView();
   const setManagerView = useSetManagerView();
   const [switchFailed, setSwitchFailed] = useState(false);
+  // The pages that left the left menu (owner, 13 Nov), for the same people as before.
+  const adminPages = useEffectiveAdmin();
+  const bin = admin || canLead === true;
 
   useEffect(() => {
     if (!open) cancel();
@@ -101,6 +125,39 @@ export function ProfileMenu() {
               </svg>
               Settings
             </Link>
+            {bin || adminPages ? (
+              <>
+                <div role="separator" className="my-1 border-t border-line" />
+                {bin ? (
+                  <Link to="/recycle-bin" role="menuitem" onClick={() => setOpen(false)} className={itemClass}>
+                    <MenuIcon>
+                      <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M6 6v14a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6" />
+                      <path d="M10 11v6M14 11v6" />
+                    </MenuIcon>
+                    Recycle Bin
+                  </Link>
+                ) : null}
+                {adminPages ? (
+                  <>
+                    <Link to="/admin/error-log" role="menuitem" onClick={() => setOpen(false)} className={itemClass}>
+                      <MenuIcon>
+                        <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
+                        <path d="M12 9v4M12 17h.01" />
+                      </MenuIcon>
+                      Error Log
+                    </Link>
+                    <Link to="/admin/audit" role="menuitem" onClick={() => setOpen(false)} className={itemClass}>
+                      <MenuIcon>
+                        <path d="M12 3l7 3v5c0 5-3 8-7 9.5C8 19 5 16 5 11V6z" />
+                        <path d="M9 11.5l2 2 4-4" />
+                      </MenuIcon>
+                      Audit Logs
+                    </Link>
+                  </>
+                ) : null}
+                <div role="separator" className="my-1 border-t border-line" />
+              </>
+            ) : null}
             <button
               type="button"
               role="menuitem"

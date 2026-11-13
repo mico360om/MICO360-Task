@@ -150,6 +150,20 @@ export function SystemSettingsPage() {
             </Link>
           </div>
         </section>
+        {/* Owner, 13 Nov: Companies lives here now (no longer in the left menu); the page and its address are unchanged. */}
+        <section className="card card-pad lg:col-span-2" aria-labelledby="companies-heading">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <h2 id="companies-heading" className="eyebrow mb-1">
+                Companies
+              </h2>
+              <p className="text-sm text-ink-2">Each company’s name, logo, week and working hours, its people and its projects.</p>
+            </div>
+            <Link to="/admin/companies" className="inline-flex items-center rounded-lg border border-line bg-surface px-4 py-2 text-sm font-semibold text-ink transition-colors hover:bg-ground [@media(pointer:coarse)]:!min-h-11">
+              Open Companies
+            </Link>
+          </div>
+        </section>
 
         {/* Carry-forward */}
         <section className="card card-pad">
