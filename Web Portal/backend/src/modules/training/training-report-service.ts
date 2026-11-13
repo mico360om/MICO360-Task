@@ -4,7 +4,7 @@ import { zonedStartOfDay } from '../../lib/due-date';
 import { formatDay } from '../../lib/export-format';
 import { daysBetween, shiftDay } from '../../lib/working-days';
 import { XLSX_CONTENT_TYPE } from '../../lib/xlsx-writer';
-import { courseVisible, inScope, isManager, moduleShown, reportScope } from './training-access';
+import { courseVisible, inScope, isManager, moduleShown, reportScope, type LearnerFacts } from './training-access';
 import { courseFacts, type TrainingContext } from './training-context';
 import { stringList, type PersonRecord } from './prisma-training-store';
 import { loadStates } from './training-read';
@@ -90,6 +90,11 @@ export function foldGroups(scope: ReportScope, viewer: PersonRecord, p: Pick<Per
 /** M7: quiz figures only for courses the reader manages (Training managers, administrators) or may see. */
 export function quizCourseVisible(viewer: PersonRecord, course: { audience: string; moduleKey: string; roleKeys: unknown; companyIds: unknown; status: string }): boolean {
   return isManager(viewer) || courseVisible(courseFacts(course), viewer);
+}
+
+/** A module as the reader sees it: managers every module; anyone else only the modules shown to them (on, and theirs). */
+export function moduleSeenBy(viewer: LearnerFacts, m: { moduleKey: string; roleKeys: unknown; companyIds: unknown; enabled: boolean }): boolean {
+  return isManager(viewer) || moduleShown({ moduleKey: m.moduleKey, roleKeys: stringList(m.roleKeys), companyIds: stringList(m.companyIds), enabled: m.enabled }, viewer);
 }
 
 /** The lines a file says its filters with. */
@@ -233,11 +238,10 @@ export function createTrainingReports(ctx: TrainingContext) {
       else attemptsOf.set(a.lessonId, [a]);
     }
     // A reader who isn't a manager never sees a module (or its quiz) that isn't shown to them; managers see all.
-    const manager = isManager(viewer);
     const quizModules = new Map<string, { title: string; shown: boolean }>();
     if (quizLessons.some((l) => l.moduleId)) {
       for (const m of await prisma.trainingModule.findMany({ where: { courseId: { in: quizCourseIds } }, select: { id: true, title: true, moduleKey: true, roleKeys: true, companyIds: true, enabled: true } })) {
-        quizModules.set(m.id, { title: m.title, shown: manager || moduleShown({ moduleKey: m.moduleKey, roleKeys: stringList(m.roleKeys), companyIds: stringList(m.companyIds), enabled: m.enabled }, viewer) });
+        quizModules.set(m.id, { title: m.title, shown: moduleSeenBy(viewer, m) });
       }
     }
     const quizzes = quizLessons
@@ -272,7 +276,7 @@ export function createTrainingReports(ctx: TrainingContext) {
     if (courseModules.length === 0) return { modules: null, learners: null };
     const all = [...states.values()].filter((s) => s.courseId === courseId);
     // Managers see every module; anyone else only the modules shown to them.
-    const listed = isManager(viewer) ? courseModules : courseModules.filter((m) => moduleShown({ moduleKey: m.moduleKey, roleKeys: stringList(m.roleKeys), companyIds: stringList(m.companyIds), enabled: m.enabled }, viewer));
+    const listed = courseModules.filter((m) => moduleSeenBy(viewer, m));
     const modules: ModuleReportRow[] = listed.map((m) => {
       const mine = all.map((s) => s.units.find((u) => u.unit.id === m.id)).filter((u): u is NonNullable<typeof u> => !!u);
       const done = mine.filter((u) => u.status === 'DONE').length;
@@ -311,11 +315,17 @@ export function createTrainingReports(ctx: TrainingContext) {
         id: true,
         kind: true,
         title: true,
+        moduleId: true,
         course: { select: { title: true, audience: true, moduleKey: true, roleKeys: true, companyIds: true, status: true } },
         quiz: { select: { questions: { select: { id: true, kind: true, prompt: true, explanation: true, position: true, options: { select: { id: true, text: true, correct: true, feedback: true, position: true } } } } } },
       },
     });
     if (!lesson || lesson.kind !== 'QUIZ' || !lesson.quiz || !quizCourseVisible(viewer, lesson.course)) throw new NotFoundError('Quiz not found.');
+    // Like the list: a quiz in a module the reader doesn't see (not theirs, or switched off) isn't there for them.
+    if (lesson.moduleId) {
+      const m = await prisma.trainingModule.findUnique({ where: { id: lesson.moduleId }, select: { moduleKey: true, roleKeys: true, companyIds: true, enabled: true } });
+      if (m && !moduleSeenBy(viewer, m)) throw new NotFoundError('Quiz not found.');
+    }
     const people = await scopedPeople(viewer, scope);
     const attempts = (
       await prisma.trainingAttempt.findMany({ where: { lessonId: lesson.id, submittedAt: { not: null } }, select: { userId: true, scorePct: true, passed: true, paper: true, answers: true } })

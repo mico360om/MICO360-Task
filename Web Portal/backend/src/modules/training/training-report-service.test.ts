@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { foldGroups, OTHER, parseReportQuery, personInReportScope, quizCourseVisible, reportFilterLines } from './training-report-service';
+import { foldGroups, moduleSeenBy, OTHER, parseReportQuery, personInReportScope, quizCourseVisible, reportFilterLines } from './training-report-service';
 import type { PersonRecord } from './prisma-training-store';
 
 const P = (id: string, o: Partial<PersonRecord> = {}): PersonRecord => ({
@@ -110,5 +110,21 @@ describe('M7 whose quizzes a reader sees', () => {
     expect(quizCourseVisible(P('run', { runsProject: true }), course)).toBe(false);
     expect(quizCourseVisible(P('run', { runsProject: true }), { ...course, moduleKey: 'tasks' })).toBe(true);
     expect(quizCourseVisible(P('run', { runsProject: true }), { ...course, moduleKey: 'portal', audience: 'CLIENTS' })).toBe(false);
+  });
+});
+
+describe('a module as a report reader sees it (cleanup batch)', () => {
+  const mod = (o: Partial<{ moduleKey: string; roleKeys: unknown; companyIds: unknown; enabled: boolean }> = {}) => ({ moduleKey: 'tasks', roleKeys: null, companyIds: null, enabled: true, ...o });
+  it('managers see every module; anyone else the modules shown to them (on, their feature, group and company)', () => {
+    const runner = P('pm', { runsProject: true });
+    expect(moduleSeenBy(runner, mod())).toBe(true);
+    expect(moduleSeenBy(runner, mod({ enabled: false }))).toBe(false);
+    expect(moduleSeenBy(runner, mod({ moduleKey: 'admin' }))).toBe(false);
+    expect(moduleSeenBy(runner, mod({ roleKeys: ['admins'] }))).toBe(false);
+    expect(moduleSeenBy(runner, mod({ companyIds: ['B'] }))).toBe(false);
+    expect(moduleSeenBy(runner, mod({ companyIds: ['A'], roleKeys: ['project-runners'] }))).toBe(true);
+    for (const manager of [P('tm', { trainingManager: true }), P('ad', { admin: true })]) {
+      expect(moduleSeenBy(manager, mod({ enabled: false, moduleKey: 'admin', companyIds: ['B'] })), manager.id).toBe(true);
+    }
   });
 });

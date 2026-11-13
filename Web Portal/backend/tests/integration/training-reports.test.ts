@@ -383,6 +383,7 @@ describe('one course with modules: by module and by person', () => {
   let m1 = '';
   let quizNone = '';
   let quizAdmin = '';
+  let mTasks = '';
 
   beforeAll(async () => {
     const P = w.people;
@@ -401,6 +402,7 @@ describe('one course with modules: by module and by person', () => {
       mods[s.key] = { id: mod.id, guides: [g1.id, g2.id] };
     }
     m1 = mods.start!.id;
+    mTasks = mods.tasks!.id;
     // A quiz nobody has tried, in the "Tasks" module.
     quizNone = (await prisma.trainingLesson.create({ data: { courseId: cm, moduleId: mods.tasks!.id, kind: 'QUIZ', title: 'Tasks check', position: 15 } })).id;
     const qz = await prisma.trainingQuiz.create({ data: { lessonId: quizNone, passMark: 70 } });
@@ -481,6 +483,26 @@ describe('one course with modules: by module and by person', () => {
       expect(r.modules!.map((m) => m.title), who).toEqual(['Getting started', 'Tasks', 'Reports', 'Admin settings']);
       expect(r.quizzes.filter((q) => [quizNone, quizAdmin].includes(q.lessonId)).map((q) => q.moduleTitle).sort(), who).toEqual(['Admin settings', 'Tasks']);
     }
+  });
+
+  it('one quiz’s report: “Quiz not found.” for a reader who isn’t a manager when its module isn’t shown to them or is off (cleanup batch)', async () => {
+    const quiz = (id: string) => `/training/reports/quiz/${id}`;
+    // Ben runs a project (TEAM scope): the administrators' module isn't his.
+    const hidden = await get('ben', quiz(quizAdmin));
+    expect(hidden.statusCode).toBe(404);
+    expect((hidden.json() as { error: { message: string } }).error.message).toBe('Quiz not found.');
+    expect((await data<QuizReport>('ben', quiz(quizNone))).title).toBe('Tasks check');
+    for (const who of ['admin', 'amy'] as const) expect((await data<QuizReport>(who, quiz(quizAdmin))).title, who).toBe('Admin check');
+    // The Tasks module switched off: hidden from Ben too; managers still see it.
+    await prisma.trainingModule.updateMany({ where: { id: mTasks }, data: { enabled: false } });
+    try {
+      expect((await get('ben', quiz(quizNone))).statusCode).toBe(404);
+      expect((await data<QuizReport>('amy', quiz(quizNone))).title).toBe('Tasks check');
+    } finally {
+      await prisma.trainingModule.updateMany({ where: { id: mTasks }, data: { enabled: true } });
+    }
+    // A quiz in no module (the plain course) is as before.
+    expect((await data<QuizReport>('ben', quiz(quizLesson))).attempts).toBe(1);
   });
 
   it('the files carry By module and By person', async () => {
