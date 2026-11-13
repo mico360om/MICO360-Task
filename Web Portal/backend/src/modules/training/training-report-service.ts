@@ -11,7 +11,7 @@ import { loadStates } from './training-read';
 import { aggregateReport, quizQuestionStats, type ReportEnrolment, type ReportPerson } from './training-reports';
 import type { Paper, StoredQuestion } from './training-quiz';
 import { buildTrainingReportPdf, buildTrainingReportXlsx, trainingReportFileName } from './training-export';
-import { REPORT_BY, type QuestionKind, type QuizReport, type ReportBy, type TrainingReport } from './training-types';
+import { REPORT_BY, REPORT_DATES, type QuestionKind, type QuizReport, type ModuleLearnerRow, type ModuleReportRow, type ReportBy, type ReportDates, type TrainingReport } from './training-types';
 
 /**
  * The Training Center's Reports (owner request; ruling R5), server-enforced: administrators see everyone
@@ -24,6 +24,8 @@ export type ReportScope = 'ALL' | 'COMPANIES' | 'TEAM';
 
 export interface ReportQuery {
   by: ReportBy;
+  /** Which date the period is about: when they got the course, or when they finished it. */
+  dates: ReportDates;
   courseId?: string;
   from?: string;
   to?: string;
@@ -42,6 +44,7 @@ const day = z
   .refine(realDay, 'That day doesn’t exist.');
 const querySchema = z.object({
   by: z.preprocess(blank, z.enum(REPORT_BY).optional()),
+  dates: z.preprocess(blank, z.enum(REPORT_DATES).optional()),
   courseId: z.preprocess(blank, z.string().regex(ID, 'Course not found.').optional()),
   from: z.preprocess(blank, day.optional()),
   to: z.preprocess(blank, day.optional()),
@@ -54,7 +57,7 @@ export function parseReportQuery(raw: unknown): ReportQuery {
     if (q.to < q.from) throw new ValidationError('The period’s first day must be before its last day.', { field: 'from' });
     if (daysBetween(q.from, q.to) > 366) throw new ValidationError('Choose a period of a year or less.', { field: 'to' });
   }
-  return { by: q.by ?? 'course', ...(q.courseId ? { courseId: q.courseId } : {}), ...(q.from ? { from: q.from } : {}), ...(q.to ? { to: q.to } : {}) };
+  return { by: q.by ?? 'course', dates: q.dates ?? 'got', ...(q.courseId ? { courseId: q.courseId } : {}), ...(q.from ? { from: q.from } : {}), ...(q.to ? { to: q.to } : {}) };
 }
 
 /** R5: is this person's training inside the viewer's report scope? */
@@ -93,9 +96,10 @@ export function quizCourseVisible(viewer: PersonRecord, course: { audience: stri
 export function reportFilterLines(q: ReportQuery, courseTitle: string | null): string[] {
   const out: string[] = [];
   if (courseTitle) out.push(`Course: ${courseTitle}`);
-  if (q.from && q.to) out.push(`Got it from ${formatDay(q.from)} to ${formatDay(q.to)}`);
-  else if (q.from) out.push(`Got it from ${formatDay(q.from)}`);
-  else if (q.to) out.push(`Got it until ${formatDay(q.to)}`);
+  if (q.from && q.to) out.push(`From ${formatDay(q.from)} to ${formatDay(q.to)}`);
+  else if (q.from) out.push(`From ${formatDay(q.from)}`);
+  else if (q.to) out.push(`Until ${formatDay(q.to)}`);
+  if (q.dates === 'finished') out.push('Only people who finished the course');
   return out;
 }
 
@@ -149,20 +153,26 @@ export function createTrainingReports(ctx: TrainingContext) {
     const courseTitle = new Map(courses.map((c) => [c.id, c.title]));
     const span = period(q);
     // I3: everyone (administrators) in one read; a scope's people in pieces.
-    const enrolmentWhere = { withdrawnAt: null, courseId: { in: courseIds }, ...(span.gte || span.lt ? { createdAt: span } : {}) };
+    // "Dates by": when they got the course (the enrolment's day), or when they finished it (only finished ones).
+    const dateWhere = q.dates === 'finished' ? { completedAt: { not: null, ...span } } : span.gte || span.lt ? { createdAt: span } : {};
+    const enrolmentWhere = { withdrawnAt: null, courseId: { in: courseIds }, ...dateWhere };
     const select = { userId: true, courseId: true } as const;
     const enrolments = !courseIds.length
       ? []
       : scope === 'ALL'
         ? (await prisma.trainingEnrolment.findMany({ where: enrolmentWhere, select })).filter((e) => people.has(e.userId))
         : (await Promise.all(chunks([...people.keys()]).map((part) => prisma.trainingEnrolment.findMany({ where: { ...enrolmentWhere, userId: { in: part } }, select })))).flat();
-    const states = await loadStates(ctx, enrolments.map((e) => ({ userId: e.userId, courseId: e.courseId })));
+    const states = await loadStates(
+      ctx,
+      enrolments.map((e) => ({ userId: e.userId, courseId: e.courseId })),
+      people,
+    );
     const rows: ReportEnrolment[] = [];
     const today = ctx.today();
     const overdue: TrainingReport['overdue'] = [];
     for (const s of states.values()) {
       const p = people.get(s.userId)!;
-      rows.push({ userId: s.userId, courseId: s.courseId, status: s.state.status, assigned: s.state.assigned, started: !!s.enrolment?.startedAt || s.doneIds.size > 0, overdue: s.state.overdue, bestScore: s.bestScore });
+      rows.push({ userId: s.userId, courseId: s.courseId, status: s.state.status, assigned: s.state.assigned, started: !!s.enrolment?.startedAt || s.doneIds.size > 0, selfStarted: !!s.enrolment?.selfStarted, overdue: s.state.overdue, bestScore: s.bestScore });
       if (s.state.overdue && s.state.dueDay) {
         overdue.push({ userId: s.userId, name: p.name, courseId: s.courseId, courseTitle: courseTitle.get(s.courseId) ?? 'Course', dueDay: s.state.dueDay, daysLate: Math.max(0, daysBetween(s.state.dueDay, today)), mandatory: s.state.mandatory, client: p.client });
       }
@@ -206,7 +216,7 @@ export function createTrainingReports(ctx: TrainingContext) {
     // M7: quizzes only of the courses the reader manages or may see.
     const quizCourseIds = courses.filter((c) => quizCourseVisible(viewer, c)).map((c) => c.id);
     const quizLessons = quizCourseIds.length
-      ? await prisma.trainingLesson.findMany({ where: { courseId: { in: quizCourseIds }, kind: 'QUIZ' }, select: { id: true, courseId: true, title: true, position: true }, orderBy: [{ position: 'asc' }, { id: 'asc' }] })
+      ? await prisma.trainingLesson.findMany({ where: { courseId: { in: quizCourseIds }, kind: 'QUIZ' }, select: { id: true, courseId: true, title: true, position: true, moduleId: true, quiz: { select: { _count: { select: { questions: true } } } } }, orderBy: [{ position: 'asc' }, { id: 'asc' }] })
       : [];
     const attempts = quizLessons.length
       ? (
@@ -222,6 +232,9 @@ export function createTrainingReports(ctx: TrainingContext) {
       if (list) list.push(a);
       else attemptsOf.set(a.lessonId, [a]);
     }
+    const quizModules = quizLessons.some((l) => l.moduleId)
+      ? new Map((await prisma.trainingModule.findMany({ where: { courseId: { in: quizCourseIds } }, select: { id: true, title: true } })).map((m) => [m.id, m.title]))
+      : new Map<string, string>();
     const quizzes = quizLessons
       .map((l) => {
         const mine = attemptsOf.get(l.id) ?? [];
@@ -233,13 +246,52 @@ export function createTrainingReports(ctx: TrainingContext) {
           passRate: pct(mine.filter((a) => a.passed).length, mine.length),
           averageScore: average(mine.map((a) => a.scorePct ?? 0)),
           people: new Set(mine.map((a) => a.userId)).size,
-          moduleTitle: null,
-          questions: 0,
+          moduleTitle: l.moduleId ? (quizModules.get(l.moduleId) ?? null) : null,
+          questions: l.quiz?._count.questions ?? 0,
         };
       })
-      .sort((a, b) => a.courseTitle.localeCompare(b.courseTitle));
+      .sort((a, b) => a.courseTitle.localeCompare(b.courseTitle, 'en'));
 
-    return { scope, by: q.by, dates: 'got', totals, rows: grouped, overdue: overdue.slice(0, 500), expiring: expiring.slice(0, 500), quizzes, modules: null, learners: null };
+    const { modules, learners } = q.courseId ? await byModuleAndPerson(q.courseId, states, people) : { modules: null, learners: null };
+    return { scope, by: q.by, dates: q.dates, totals, rows: grouped, overdue: overdue.slice(0, 500), expiring: expiring.slice(0, 500), quizzes, modules, learners };
+  }
+
+  /**
+   * One course with modules: per module the people who can see it (what `loadStates` made of `moduleShown`, so a
+   * hidden or switched-off module never counts for anyone) by done / in progress / not started, and per person
+   * how many of theirs they have done, when they last learned and their newest valid certificate.
+   */
+  async function byModuleAndPerson(courseId: string, states: Awaited<ReturnType<typeof loadStates>>, people: ReadonlyMap<string, PersonRecord>): Promise<Pick<TrainingReport, 'modules' | 'learners'>> {
+    const courseModules = await prisma.trainingModule.findMany({ where: { courseId }, select: { id: true, title: true }, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }] });
+    if (courseModules.length === 0) return { modules: null, learners: null };
+    const all = [...states.values()].filter((s) => s.courseId === courseId);
+    const modules: ModuleReportRow[] = courseModules.map((m) => {
+      const mine = all.map((s) => s.units.find((u) => u.unit.id === m.id)).filter((u): u is NonNullable<typeof u> => !!u);
+      const done = mine.filter((u) => u.status === 'DONE').length;
+      const inProgress = mine.filter((u) => u.status === 'IN_PROGRESS').length;
+      return { moduleId: m.id, title: m.title, people: mine.length, done, inProgress, notStarted: mine.length - done - inProgress };
+    });
+    const now = ctx.clock();
+    const newest = new Map<string, { id: string; code: string }>();
+    for (const part of chunks(all.map((s) => s.userId))) {
+      const certs = await prisma.trainingCertificate.findMany({
+        where: { courseId, userId: { in: part }, revokedAt: null, OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
+        select: { id: true, code: true, userId: true },
+        orderBy: [{ issuedAt: 'desc' }, { id: 'desc' }],
+      });
+      for (const c of certs) if (!newest.has(c.userId)) newest.set(c.userId, { id: c.id, code: c.code });
+    }
+    const learners: ModuleLearnerRow[] = all
+      .map((s) => ({
+        userId: s.userId,
+        name: people.get(s.userId)?.name ?? 'Someone',
+        modulesDone: s.units.filter((u) => u.status === 'DONE').length,
+        modulesRequired: s.units.length,
+        lastActivityAt: s.enrolment?.lastActivityAt ? s.enrolment.lastActivityAt.toISOString() : null,
+        certificate: newest.get(s.userId) ?? null,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'en') || a.userId.localeCompare(b.userId));
+    return { modules, learners };
   }
 
   async function quizReport(viewerId: string, lessonIdRaw: unknown): Promise<QuizReport> {

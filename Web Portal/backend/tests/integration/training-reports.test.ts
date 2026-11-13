@@ -235,7 +235,7 @@ describe('who may see training reports (R5)', () => {
     const r = await data<TrainingReport>('amy', '/training/reports?by=person');
     expect(r.scope).toBe('COMPANIES');
     expect(keys(r.rows)).toEqual(sorted([w.people.ana, w.people.amy, w.people.cat, clientId]));
-    expect(rowOf(r.rows, w.people.ana)).toMatchObject({ people: 2, completed: 1, overdue: 1 });
+    expect(rowOf(r.rows, w.people.ana)).toMatchObject({ people: 1, enrolments: 2, completed: 1, overdue: 1 });
   });
 
   it('whoever runs a project sees its team (themselves too), read-only, never a client or someone off the team', async () => {
@@ -248,18 +248,18 @@ describe('who may see training reports (R5)', () => {
 describe('rows by course, person, department, role, company and project', () => {
   it('department, role, company and project groups', async () => {
     const dept = await data<TrainingReport>('admin', '/training/reports?by=department');
-    expect(rowOf(dept.rows, deptId)).toMatchObject({ label: `Field ${w.tag}`, people: 2 });
+    expect(rowOf(dept.rows, deptId)).toMatchObject({ label: `Field ${w.tag}`, people: 1, enrolments: 2 });
     const role = await data<TrainingReport>('admin', '/training/reports?by=role');
     expect(rowOf(role.rows, 'clients')).toMatchObject({ label: 'Clients', people: 1 });
-    expect(rowOf(role.rows, 'employees')).toMatchObject({ label: 'Employees', people: 7 });
+    expect(rowOf(role.rows, 'employees')).toMatchObject({ label: 'Employees', people: 6, enrolments: 7 });
     expect(rowOf(role.rows, 'admins')).toBeUndefined();
     const company = await data<TrainingReport>('amy', '/training/reports?by=company');
-    expect(rowOf(company.rows, w.companies.A)).toMatchObject({ label: `Alpha ${w.tag}`, people: 5 });
+    expect(rowOf(company.rows, w.companies.A)).toMatchObject({ label: `Alpha ${w.tag}`, people: 4, enrolments: 5 });
     // M6: Beta isn't hers — Cat (in both) counts under “Other”, never named.
     expect(rowOf(company.rows, w.companies.B)).toBeUndefined();
     expect(rowOf(company.rows, 'other')).toMatchObject({ label: 'Other', people: 1 });
     const project = await data<TrainingReport>('admin', '/training/reports?by=project');
-    expect(rowOf(project.rows, w.projects.PA)).toMatchObject({ people: 3 });
+    expect(rowOf(project.rows, w.projects.PA)).toMatchObject({ people: 2, enrolments: 3 });
     expect(rowOf(project.rows, w.projects.PB)).toMatchObject({ people: 2 });
     expect(rowOf(project.rows, w.projects.PC)).toBeUndefined(); // an archived company's project
   });
@@ -330,5 +330,143 @@ describe('the files', () => {
     expect(p.headers['content-type']).toBe('application/pdf');
     expect(String(p.headers['content-disposition'])).toContain(`Learning Hub report by person ${today}.pdf`);
     expect(p.rawPayload.subarray(0, 5).toString()).toBe('%PDF-');
+  });
+});
+
+describe('people once, Started themselves and Dates by', () => {
+  it('people are distinct persons, enrolments the rows, the rate is of enrolments, Started themselves counts those not assigned', async () => {
+    const r = await data<TrainingReport>('admin', '/training/reports?by=course');
+    expect(r.totals.enrolments).toBeGreaterThanOrEqual(r.totals.people);
+    const people = await data<TrainingReport>('admin', '/training/reports?by=person');
+    expect(rowOf(people.rows, w.people.ana)).toMatchObject({ people: 1, enrolments: 2, completed: 1, completionRate: 50 });
+    expect(rowOf(r.rows, C.c2)).toMatchObject({ people: 3, enrolments: 3, selfStarted: 1 });
+    expect(rowOf(r.rows, C.c3)).toMatchObject({ people: 1, enrolments: 1, selfStarted: 1 });
+    expect(rowOf(r.rows, C.c1)).toMatchObject({ people: 4, enrolments: 4, selfStarted: 0, completionRate: 75 });
+  });
+
+  it('a person given the training now is not "started themselves", even if they began it that way', async () => {
+    await assign(w.people.amy, C.c2, false, shiftDayKey(today, 30));
+    try {
+      const r = await data<TrainingReport>('admin', '/training/reports?by=course');
+      expect(rowOf(r.rows, C.c2)).toMatchObject({ assigned: 3, selfStarted: 0 });
+    } finally {
+      await prisma.trainingAssignee.deleteMany({ where: { courseId: C.c2, userId: w.people.amy } });
+      await prisma.trainingAssignment.deleteMany({ where: { courseId: C.c2, targetId: w.people.amy } });
+    }
+  });
+
+  it('Dates by finished: only finished enrolments, by the day they finished; the answer says which basis', async () => {
+    const got = await data<TrainingReport>('admin', `/training/reports?by=person&courseId=${C.c1}`);
+    expect(got.dates).toBe('got');
+    expect(keys(got.rows)).toEqual(sorted([w.people.ana, w.people.cat, w.people.ben, w.people.gus]));
+    const done = await data<TrainingReport>('admin', `/training/reports?by=person&courseId=${C.c1}&dates=finished`);
+    expect(done.dates).toBe('finished');
+    expect(keys(done.rows)).toEqual(sorted([w.people.ana, w.people.ben, w.people.gus]));
+    const span = await data<TrainingReport>('admin', `/training/reports?by=person&courseId=${C.c1}&dates=finished&from=${shiftDayKey(today, -1)}&to=${today}`);
+    expect(keys(span.rows)).toEqual(sorted([w.people.ana, w.people.ben, w.people.gus]));
+    const later = await data<TrainingReport>('admin', `/training/reports?by=person&courseId=${C.c1}&dates=finished&from=${shiftDayKey(today, 1)}`);
+    expect(later.rows).toEqual([]);
+    // "Got it" for a period still goes by the day they got it: Bob's c2 enrolment is 40 days old.
+    const old = await data<TrainingReport>('admin', `/training/reports?by=person&courseId=${C.c2}&from=${shiftDayKey(today, -45)}&to=${shiftDayKey(today, -35)}`);
+    expect(keys(old.rows)).toEqual([w.people.bob]);
+    expect((await get('admin', '/training/reports?dates=yesterday')).statusCode).toBe(400);
+  });
+
+  it('the files answer for either basis', async () => {
+    expect((await get('admin', '/training/reports/export.xlsx?by=course&dates=finished')).statusCode).toBe(200);
+    expect((await get('admin', '/training/reports/export.pdf?by=course')).statusCode).toBe(200);
+  });
+});
+
+describe('one course with modules: by module and by person', () => {
+  let cm = '';
+  let m1 = '';
+  let quizNone = '';
+
+  beforeAll(async () => {
+    const P = w.people;
+    cm = (await prisma.trainingCourse.create({ data: { title: `One course ${w.tag}`, moduleKey: 'general', audience: 'STAFF', status: 'PUBLISHED', publishedAt: new Date(Date.now() - 60 * DAY), certificateOn: true } })).id;
+    const specs = [
+      { key: 'start', title: 'Getting started', moduleKey: 'tasks' },
+      { key: 'tasks', title: 'Tasks', moduleKey: 'tasks' },
+      { key: 'reports', title: 'Reports', moduleKey: 'reports' },
+      { key: 'admin', title: 'Admin settings', moduleKey: 'admin' },
+    ];
+    const mods: Record<string, { id: string; guides: string[] }> = {};
+    for (const [i, s] of specs.entries()) {
+      const mod = await prisma.trainingModule.create({ data: { courseId: cm, position: i + 1, title: s.title, moduleKey: s.moduleKey } });
+      const g1 = await prisma.trainingLesson.create({ data: { courseId: cm, moduleId: mod.id, kind: 'GUIDE', title: `${s.title} guide 1`, position: i * 10 } });
+      const g2 = await prisma.trainingLesson.create({ data: { courseId: cm, moduleId: mod.id, kind: 'GUIDE', title: `${s.title} guide 2`, position: i * 10 + 1 } });
+      mods[s.key] = { id: mod.id, guides: [g1.id, g2.id] };
+    }
+    m1 = mods.start!.id;
+    // A quiz nobody has tried, in the "Tasks" module.
+    quizNone = (await prisma.trainingLesson.create({ data: { courseId: cm, moduleId: mods.tasks!.id, kind: 'QUIZ', title: 'Tasks check', position: 15 } })).id;
+    const qz = await prisma.trainingQuiz.create({ data: { lessonId: quizNone, passMark: 70 } });
+    for (const n of [0, 1, 2]) await prisma.trainingQuestion.create({ data: { quizId: qz.id, kind: 'SINGLE', prompt: `Q${n}`, position: n, options: { create: [{ text: 'A', correct: true, position: 0 }, { text: 'B', position: 1 }] } } });
+
+    await enrol(P.ana, cm, { started: true });
+    await enrol(P.admin, cm, { started: true });
+    // Ana: "Getting started" done (recorded), "Tasks" begun (a guide done). The administrator: "Reports" done.
+    await prisma.trainingModuleDone.create({ data: { userId: P.ana, courseId: cm, moduleId: mods.start!.id, doneAt: new Date() } });
+    await prisma.trainingProgress.create({ data: { userId: P.ana, courseId: cm, lessonId: mods.tasks!.guides[0]!, doneAt: new Date() } });
+    await prisma.trainingModuleDone.create({ data: { userId: P.admin, courseId: cm, moduleId: mods.reports!.id, doneAt: new Date() } });
+    const cert = (userId: string, code: string, o: { revoked?: boolean; expired?: boolean; at: number }) =>
+      prisma.trainingCertificate.create({
+        data: { code, userId, courseId: cm, learnerName: 'Someone', courseTitle: 'MICO360 Tasks User Training', issuedAt: new Date(Date.now() - o.at * DAY), expiresAt: o.expired ? new Date(Date.now() - DAY) : null, revokedAt: o.revoked ? new Date() : null },
+      });
+    await cert(P.admin, `MT-OLD${w.tag}`.slice(0, 24), { at: 5 });
+    await cert(P.admin, `MT-REV${w.tag}`.slice(0, 24), { at: 1, revoked: true });
+    await cert(P.admin, `MT-EXP${w.tag}`.slice(0, 24), { at: 2, expired: true });
+  });
+
+  afterAll(async () => {
+    await prisma.trainingCertificate.deleteMany({ where: { courseId: cm } });
+    await prisma.trainingModuleDone.deleteMany({ where: { courseId: cm } });
+    await prisma.trainingProgress.deleteMany({ where: { courseId: cm } });
+    await prisma.trainingEnrolment.deleteMany({ where: { courseId: cm } });
+    await prisma.trainingCourse.deleteMany({ where: { id: cm } });
+  });
+
+  it('modules count only the people who can see them; learners show modules done of needed', async () => {
+    const r = await data<TrainingReport>('admin', `/training/reports?by=person&courseId=${cm}`);
+    expect(r.modules).toEqual([
+      { moduleId: m1, title: 'Getting started', people: 2, done: 1, inProgress: 0, notStarted: 1 },
+      expect.objectContaining({ title: 'Tasks', people: 2, done: 0, inProgress: 1, notStarted: 1 }),
+      expect.objectContaining({ title: 'Reports', people: 1, done: 1, inProgress: 0, notStarted: 0 }),
+      expect.objectContaining({ title: 'Admin settings', people: 1, done: 0, inProgress: 0, notStarted: 1 }),
+    ]);
+    const by = new Map(r.learners!.map((l) => [l.userId, l]));
+    expect(by.get(w.people.ana)).toMatchObject({ name: `Ana Alpha ${w.tag}`, modulesDone: 1, modulesRequired: 2, certificate: null });
+    expect(by.get(w.people.admin)).toMatchObject({ modulesDone: 1, modulesRequired: 4 });
+    // The newest valid certificate: not the revoked one, not the expired one.
+    expect(by.get(w.people.admin)!.certificate!.code).toBe(`MT-OLD${w.tag}`.slice(0, 24));
+    const names = r.learners!.map((l) => l.name);
+    expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b, 'en')));
+  });
+
+  it('other reports have no module views', async () => {
+    expect((await data<TrainingReport>('admin', '/training/reports?by=course')).modules).toBeNull();
+    const plain = await data<TrainingReport>('admin', `/training/reports?by=person&courseId=${C.c1}`);
+    expect(plain.modules).toBeNull();
+    expect(plain.learners).toBeNull();
+  });
+
+  it('a manager sees only the people in scope in the module views', async () => {
+    const r = await data<TrainingReport>('amy', `/training/reports?by=person&courseId=${cm}`);
+    expect(r.learners!.map((l) => l.userId)).toEqual([w.people.ana]);
+    expect(r.modules!.find((m) => m.title === 'Getting started')).toMatchObject({ people: 1, done: 1 });
+  });
+
+  it('quizzes with nobody trying them are listed, with their module, people and question count', async () => {
+    const r = await data<TrainingReport>('admin', `/training/reports?courseId=${cm}`);
+    expect(r.quizzes.find((q) => q.lessonId === quizNone)).toMatchObject({ title: 'Tasks check', moduleTitle: 'Tasks', attempts: 0, people: 0, passRate: null, averageScore: null, questions: 3 });
+    const old = (await data<TrainingReport>('admin', '/training/reports')).quizzes.find((q) => q.lessonId === quizLesson);
+    expect(old).toMatchObject({ moduleTitle: null, questions: 2, people: 2 });
+  });
+
+  it('the files carry By module and By person', async () => {
+    expect((await get('admin', `/training/reports/export.xlsx?by=person&courseId=${cm}&dates=finished`)).statusCode).toBe(200);
+    expect((await get('admin', `/training/reports/export.pdf?by=person&courseId=${cm}`)).statusCode).toBe(200);
   });
 });

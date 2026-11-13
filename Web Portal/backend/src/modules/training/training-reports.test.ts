@@ -13,6 +13,7 @@ const E = (userId: string, courseId: string, o: Partial<ReportEnrolment> = {}): 
   status: 'IN_PROGRESS',
   assigned: true,
   started: true,
+  selfStarted: false,
   overdue: false,
   bestScore: null,
   ...o,
@@ -33,41 +34,51 @@ const enrolments = [
   E('ana', 'c1', { status: 'COMPLETED', bestScore: 80 }),
   E('ana', 'c2', { overdue: true }),
   E('ben', 'c1', { status: 'REVIEW', bestScore: 100 }),
-  E('cli', 'c1', { status: 'NOT_STARTED', started: false, assigned: false }),
+  E('cli', 'c1', { status: 'NOT_STARTED', started: false, assigned: false, selfStarted: true }),
 ];
 
 describe('report rows', () => {
   it('by course: people, assigned, started, completed (a review still counts), overdue, rates', () => {
     const r = aggregateReport('course', enrolments, people, labels);
-    expect(r.rows).toMatchObject([
-      { key: 'c2', label: 'Meetings', people: 1, assigned: 1, started: 1, completed: 0, overdue: 1, completionRate: 0, averageScore: null },
-      { key: 'c1', label: 'Tasks basics', people: 3, assigned: 2, started: 2, completed: 2, overdue: 0, completionRate: 67, averageScore: 90 },
+    expect(r.rows).toEqual([
+      { key: 'c2', label: 'Meetings', people: 1, enrolments: 1, selfStarted: 0, assigned: 1, started: 1, completed: 0, overdue: 1, completionRate: 0, averageScore: null },
+      { key: 'c1', label: 'Tasks basics', people: 3, enrolments: 3, selfStarted: 1, assigned: 2, started: 2, completed: 2, overdue: 0, completionRate: 67, averageScore: 90 },
     ]);
-    expect(r.totals).toMatchObject({ key: 'all', label: 'All', people: 4, assigned: 3, started: 3, completed: 2, overdue: 1, completionRate: 50, averageScore: 90 });
+    expect(r.totals).toEqual({ key: 'all', label: 'All', people: 3, enrolments: 4, selfStarted: 1, assigned: 3, started: 3, completed: 2, overdue: 1, completionRate: 50, averageScore: 90 });
   });
 
-  it('by person, department, role, company (a person in two companies counts in both) and project', () => {
-    expect(aggregateReport('person', enrolments, people, labels).rows.map((r) => [r.label, r.people])).toEqual([
-      ['Ana', 2],
-      ['Ben', 1],
-      ['Cli', 1],
+  it('people are counted once however many enrolments; the rate is of enrolments', () => {
+    const r = aggregateReport('course', [E('ana', 'c1', { status: 'COMPLETED' }), E('ana', 'c2'), E('ben', 'c1')], people, labels);
+    expect(r.totals).toMatchObject({ people: 2, enrolments: 3, completed: 1, completionRate: 33 });
+  });
+
+  it('started themselves: only when not assigned now', () => {
+    const r = aggregateReport('course', [E('ana', 'c1', { selfStarted: true, assigned: true }), E('ben', 'c1', { selfStarted: true, assigned: false }), E('cli', 'c1', { selfStarted: false, assigned: false })], people, labels);
+    expect(r.totals.selfStarted).toBe(1);
+  });
+
+  it('by person, department, role, company (a person in two companies counts in both) and project: people once', () => {
+    expect(aggregateReport('person', enrolments, people, labels).rows.map((r) => [r.label, r.people, r.enrolments])).toEqual([
+      ['Ana', 1, 2],
+      ['Ben', 1, 1],
+      ['Cli', 1, 1],
     ]);
     expect(aggregateReport('department', enrolments, people, labels).rows.map((r) => [r.label, r.people])).toEqual([
       ['No department', 2],
-      ['Sales', 2],
+      ['Sales', 1],
     ]);
     expect(aggregateReport('role', enrolments, people, labels).rows.map((r) => [r.label, r.people])).toEqual([
       ['Administrators', 1],
       ['Clients', 1],
-      ['Employees', 2],
+      ['Employees', 1],
     ]);
     expect(aggregateReport('company', enrolments, people, labels).rows.map((r) => [r.label, r.people])).toEqual([
-      ['Alpha', 4],
+      ['Alpha', 3],
       ['Beta', 1],
     ]);
     expect(aggregateReport('project', enrolments, people, labels).rows.map((r) => [r.label, r.people])).toEqual([
       ['No project', 2],
-      ['Project One', 2],
+      ['Project One', 1],
     ]);
   });
 

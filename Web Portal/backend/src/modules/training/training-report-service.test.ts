@@ -24,11 +24,17 @@ const P = (id: string, o: Partial<PersonRecord> = {}): PersonRecord => ({
 
 describe('the report’s query', () => {
   it('by course when not said; a course, a period', () => {
-    expect(parseReportQuery({})).toEqual({ by: 'course' });
-    expect(parseReportQuery({ by: 'person', courseId: 'c1', from: '2026-10-01', to: '2026-10-31' })).toEqual({ by: 'person', courseId: 'c1', from: '2026-10-01', to: '2026-10-31' });
+    expect(parseReportQuery({})).toEqual({ by: 'course', dates: 'got' });
+    expect(parseReportQuery({ by: 'person', courseId: 'c1', from: '2026-10-01', to: '2026-10-31' })).toEqual({ by: 'person', dates: 'got', courseId: 'c1', from: '2026-10-01', to: '2026-10-31' });
     // Empty values (a cleared filter) mean none.
-    expect(parseReportQuery({ by: '', courseId: '', from: '', to: '' })).toEqual({ by: 'course' });
-    expect(parseReportQuery({ from: '2026-10-01' })).toEqual({ by: 'course', from: '2026-10-01' });
+    expect(parseReportQuery({ by: '', courseId: '', from: '', to: '', dates: '' })).toEqual({ by: 'course', dates: 'got' });
+    expect(parseReportQuery({ from: '2026-10-01' })).toEqual({ by: 'course', dates: 'got', from: '2026-10-01' });
+  });
+
+  it('dates by: got the course (default) or finished it', () => {
+    expect(parseReportQuery({ dates: 'finished' })).toEqual({ by: 'course', dates: 'finished' });
+    expect(parseReportQuery({ dates: 'got' })).toEqual({ by: 'course', dates: 'got' });
+    expect(() => parseReportQuery({ dates: 'yesterday' })).toThrow();
   });
 
   it('refuses a bad grouping, a bad day, a period back to front or longer than a year', () => {
@@ -66,10 +72,13 @@ describe('R5 whose training a report covers', () => {
 
 describe('the file’s filter lines', () => {
   it('the course and the period in words', () => {
-    expect(reportFilterLines({ by: 'course' }, null)).toEqual([]);
-    expect(reportFilterLines({ by: 'course', from: '2026-10-01', to: '2026-10-31' }, 'Tasks basics')).toEqual(['Course: Tasks basics', 'Got it from 1 Oct 2026 to 31 Oct 2026']);
-    expect(reportFilterLines({ by: 'course', from: '2026-10-01' }, null)).toEqual(['Got it from 1 Oct 2026']);
-    expect(reportFilterLines({ by: 'course', to: '2026-10-31' }, null)).toEqual(['Got it until 31 Oct 2026']);
+    expect(reportFilterLines({ by: 'course', dates: 'got' }, null)).toEqual([]);
+    expect(reportFilterLines({ by: 'course', dates: 'got', from: '2026-10-01', to: '2026-10-31' }, 'Tasks basics')).toEqual(['Course: Tasks basics', 'From 1 Oct 2026 to 31 Oct 2026']);
+    expect(reportFilterLines({ by: 'course', dates: 'got', from: '2026-10-01' }, null)).toEqual(['From 1 Oct 2026']);
+    expect(reportFilterLines({ by: 'course', dates: 'got', to: '2026-10-31' }, null)).toEqual(['Until 31 Oct 2026']);
+  });
+  it('finished: the file says only finished training is counted', () => {
+    expect(reportFilterLines({ by: 'course', dates: 'finished', from: '2026-10-01' }, null)).toEqual(['From 1 Oct 2026', 'Only people who finished the course']);
   });
 });
 

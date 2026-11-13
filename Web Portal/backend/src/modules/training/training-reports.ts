@@ -13,6 +13,8 @@ export interface ReportEnrolment {
   status: EnrolmentStatus;
   assigned: boolean;
   started: boolean;
+  /** The person started it themselves (not given to them); counted only while no assignment is live. */
+  selfStarted: boolean;
   overdue: boolean;
   /** The average of their best score on each quiz of the course they tried; null: none tried. */
   bestScore: number | null;
@@ -66,7 +68,7 @@ function rowOf(key: string, label: string, list: readonly ReportEnrolment[]): Re
   return {
     key,
     label,
-    people: list.length,
+    people: new Set(list.map((e) => e.userId)).size,
     assigned: list.filter((e) => e.assigned).length,
     started: list.filter((e) => e.started || e.status !== 'NOT_STARTED').length,
     completed,
@@ -74,7 +76,7 @@ function rowOf(key: string, label: string, list: readonly ReportEnrolment[]): Re
     completionRate: list.length ? Math.round((completed / list.length) * 100) : null,
     averageScore: scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : null,
     enrolments: list.length,
-    selfStarted: list.filter((e) => e.started && !e.assigned).length,
+    selfStarted: list.filter((e) => e.selfStarted && !e.assigned).length,
   };
 }
 

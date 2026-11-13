@@ -25,7 +25,7 @@ const report: TrainingReport = {
   modules: null,
   learners: null,
   by: 'course',
-  totals: row('total', 'All courses', { people: 7, completed: 3, completionRate: 43, averageScore: 80 }),
+  totals: row('total', 'All courses', { people: 7, enrolments: 7, completed: 3, completionRate: 43, averageScore: 80 }),
   rows: [row('c1', 'Tasks basics'), row('c2', 'Meetings & minutes', { completionRate: null, averageScore: null, people: 0, assigned: 0, started: 0, completed: 0, overdue: 0 })],
   overdue: [{ userId: 'u1', name: 'Ana Alpha', courseId: 'c1', courseTitle: 'Tasks basics', dueDay: '2026-11-04', daysLate: 5, mandatory: true, client: false }],
   expiring: [{ certificateId: 'x1', userId: 'u2', name: 'Ben Beta', courseId: 'c1', courseTitle: 'Tasks basics', expiresAt: '2026-11-30T08:00:00.000Z' }],
@@ -71,7 +71,7 @@ describe('training report as a PDF (the PDF standard)', () => {
       'Completion rate',
       '43%',
       'Tasks basics',
-      'Meetings & minutes',
+      'Meetings',
       'Overdue training',
       'Ana Alpha',
       '4 Nov 2026',
@@ -95,6 +95,44 @@ describe('training report as a PDF (the PDF standard)', () => {
     expect(text).toContain('No training is overdue.');
     expect(text).toContain('No certificates expire soon.');
     expect(text).toContain('No quiz attempts yet.');
+  });
+});
+
+const withModules: TrainingReport = {
+  ...report,
+  dates: 'finished',
+  modules: [
+    { moduleId: 'm1', title: 'Getting started', people: 4, done: 2, inProgress: 1, notStarted: 1 },
+    { moduleId: 'm2', title: 'Admin settings', people: 1, done: 0, inProgress: 0, notStarted: 1 },
+  ],
+  learners: [
+    { userId: 'u1', name: 'Ana Alpha', modulesDone: 2, modulesRequired: 2, lastActivityAt: '2026-11-10T08:00:00.000Z', certificate: { id: 'x', code: 'MT-ABCD-1234' } },
+    { userId: 'u3', name: 'Cora Gamma', modulesDone: 0, modulesRequired: 4, lastActivityAt: null, certificate: null },
+  ],
+};
+
+const pdfText = (r: TrainingReport) => inspectPdf(buildTrainingReportPdf(r, meta)).pages.map((p) => p.join(String.fromCharCode(10))).join(String.fromCharCode(10));
+
+describe('Dates by, Started themselves and the module views', () => {
+  it('Excel: the basis in every sheet header, a Started themselves column, By module and By person sheets', () => {
+    const x = inspectXlsx(buildTrainingReportXlsx({ ...withModules, totals: { ...withModules.totals, selfStarted: 2 } }, meta));
+    expect(x.sheets).toEqual(['Summary', 'Overdue', 'Certificates expiring', 'Quizzes', 'By module', 'By person']);
+    const [summary, , , quizzes, byModule, byPerson] = x.text.map((t) => t.join(' | '));
+    expect(summary).toContain('Dates by: Finished the course');
+    expect(summary).toContain('Started themselves');
+    expect(quizzes).toContain('Questions');
+    expect(quizzes).toContain('People');
+    for (const w of ['Getting started', 'Admin settings', 'In progress', 'Not started']) expect(byModule).toContain(w);
+    for (const w of ['Ana Alpha', 'Cora Gamma', 'MT-ABCD-1234', 'Modules done', 'Modules needed']) expect(byPerson).toContain(w);
+    expect(inspectXlsx(buildTrainingReportXlsx(report, meta)).text[0]!.join(' | ')).toContain('Dates by: Got the course');
+  });
+
+  it('PDF: the basis line, Started themselves, By module and By person', () => {
+    const text = pdfText(withModules);
+    for (const w of ['Dates by: Finished the course', 'themselves', 'By module', 'Getting started', 'By person', 'Cora Gamma', 'MT-ABCD-1234', '0 of 4']) expect(text).toContain(w);
+    const plain = pdfText(report);
+    expect(plain).toContain('Dates by: Got the course');
+    expect(plain).not.toContain('By module');
   });
 });
 
