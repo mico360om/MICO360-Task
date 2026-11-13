@@ -3009,9 +3009,14 @@ async function main(): Promise<void> {
       }
       for (const { headId, copy } of await recurrenceService.repairMissedCopies()) {
         logger.job('recurrence-schedule-sweep').info('repeating task: its missing next copy was made', { taskId: headId, copyId: copy.id });
-        await taskSearchIndex.taskChanged(copy.id);
-        const task = await taskService.getTask(copy.id);
-        broadcast(task.projectId, 'task:created', task);
+        // Showing it is best effort: the copy is made; one that can't be shown doesn't stop the others.
+        try {
+          await taskSearchIndex.taskChanged(copy.id);
+          const task = await taskService.getTask(copy.id);
+          broadcast(task.projectId, 'task:created', task);
+        } catch (err) {
+          logger.job('recurrence-schedule-sweep').error('repeating task: a repaired copy could not be shown on open boards', { err, copyId: copy.id });
+        }
       }
     }).catch(sweepFailed('recurrence-schedule-sweep', 'recurrence schedule sweep'));
   jobs.every(60 * 60 * 1000, runRecurrenceSchedule);

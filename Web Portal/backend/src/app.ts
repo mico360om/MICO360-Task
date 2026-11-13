@@ -968,6 +968,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
             ? async (taskId) => (await deps.taskService!.getTask(taskId)).projectId
             : undefined,
           canViewTask,
+          taskOf: deps.taskService ? (taskId) => deps.taskService!.getTask(taskId) : undefined,
         });
       }
       if (deps.watcherService) {

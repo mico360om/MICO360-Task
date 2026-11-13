@@ -2,7 +2,7 @@ import { copyRowsForRepeat } from './checklist-service';
 import type { ItemRow, ListRow } from './checklist-tree';
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { NotFoundError } from '../../lib/http-errors';
-import type { RecurrenceTaskPort } from './recurrence-service';
+import type { RecurrenceTaskPort, RecurringTask } from './recurrence-service';
 import type { RecurrenceRule } from './recurrence';
 import { boardDateFromKey, boardDateKey } from './board-date';
 import { defaultCompanyTimeZone } from './task-status';
@@ -17,7 +17,7 @@ const KEY_ATTEMPTS = 5;
  * (#14 repair) still done and not in the Recycle Bin. The start-up database check sends the same text.
  */
 export const lockSourceSql = (taskId: string): Prisma.Sql =>
-  Prisma.sql`SELECT (recurrenceRule IS NOT NULL) AS hasRule, inspectionFormId AS formId, (completedAt IS NOT NULL AND deletedAt IS NULL) AS stillDone FROM tasks WHERE id = ${taskId} FOR UPDATE`;
+  Prisma.sql`SELECT (recurrenceRule IS NOT NULL) AS hasRule, inspectionFormId AS formId, (completedAt IS NOT NULL AND deletedAt IS NULL) AS stillDone, version FROM tasks WHERE id = ${taskId} FOR UPDATE`;
 
 export interface PrismaRecurrencePortOptions {
   /** Company time zone — the new occurrence lands on today's board in this zone. */
@@ -25,6 +25,8 @@ export interface PrismaRecurrencePortOptions {
   now?: () => Date;
   /** Tests only: runs after the source is read and before its copy is made (to reproduce a race). */
   beforeCopy?: (sourceTaskId: string) => Promise<void>;
+  /** #14 repair: finished tasks read per page (default 500; tests use a small one). */
+  repairPageSize?: number;
 }
 
 /**
@@ -91,10 +93,12 @@ export function createPrismaRecurrencePort(prisma: PrismaClient, opts: PrismaRec
               const [form] = await tx.$queryRaw<Array<{ deletedAt: Date | null }>>`SELECT deletedAt FROM inspection_forms WHERE id = ${source.inspectionFormId} FOR SHARE`;
               if (!form || form.deletedAt) return null;
             }
-            const [locked] = await tx.$queryRaw<Array<{ hasRule: number | bigint; formId: string | null; stillDone: number | bigint }>>(lockSourceSql(sourceTaskId));
+            const [locked] = await tx.$queryRaw<Array<{ hasRule: number | bigint; formId: string | null; stillDone: number | bigint; version: number | bigint }>>(lockSourceSql(sourceTaskId));
             if (!locked || !Number(locked.hasRule) || (locked.formId ?? null) !== (source.inspectionFormId ?? null)) return null;
             // #14 repair: a task reopened (or binned) since the sweep read it makes no copy.
             if (spawnOpts.onlyIfDone && !Number(locked.stillDone)) return null;
+            // …nor one changed since (its repeat paused, ended or edited): the next sweep reads it again.
+            if (spawnOpts.version !== undefined && Number(locked.version) !== spawnOpts.version) return null;
             // The project's next number, read afresh on each try (a create that beat this one is
             // counted then): the highest used — old keys of tasks moved away too — plus one.
             const key = await firstFreeKey(tx, source.project.code, (await highestKeyNumber(tx, source.projectId)) + 1);
@@ -195,28 +199,39 @@ export function createPrismaRecurrencePort(prisma: PrismaClient, opts: PrismaRec
     },
 
     async listMissedCopies(since) {
-      const heads = await prisma.task.findMany({
-        where: {
-          deletedAt: null,
-          // Finished: in a Done column, with its completion date in the window (archived ones too: tidied away).
-          completedAt: { gte: since },
-          column: { is: { category: 'DONE' } },
-          NOT: [{ recurrenceRule: { equals: Prisma.DbNull } }],
-          // As the schedule sweep: an archived or completed project makes no more copies.
-          project: { is: liveProjectWhere({ deletedAt: null, status: { not: 'COMPLETED' } }) },
-          OR: [{ inspectionFormId: null }, { inspectionForm: { is: { deletedAt: null } } }],
-        },
-        select: { id: true, dueDate: true, startDate: true, recurrenceRule: true, recurrenceParentId: true },
-        orderBy: { completedAt: 'asc' },
-        take: 500,
-      });
-      if (!heads.length) return [];
-      // A copy anywhere (in the Recycle Bin, archived, merged, moved to another project) counts: a copy
-      // someone deleted on purpose is never made again (and the unique source guard refuses one anyway).
-      const copied = new Set(
-        (await prisma.task.findMany({ where: { recurrenceSourceId: { in: heads.map((h) => h.id) } }, select: { recurrenceSourceId: true } })).map((c) => c.recurrenceSourceId),
-      );
-      return heads.filter((h) => !copied.has(h.id)).map((r) => ({ ...r, recurrenceRule: r.recurrenceRule as unknown as RecurrenceRule | null }));
+      const page = Math.max(1, opts.repairPageSize ?? 500);
+      const where: Prisma.TaskWhereInput = {
+        deletedAt: null,
+        // Finished: in a Done column, with its completion date in the window (archived ones too: tidied away).
+        completedAt: { gte: since },
+        column: { is: { category: 'DONE' } },
+        NOT: [{ recurrenceRule: { equals: Prisma.DbNull } }],
+        // As the schedule sweep: an archived or completed project makes no more copies.
+        project: { is: liveProjectWhere({ deletedAt: null, status: { not: 'COMPLETED' } }) },
+        OR: [{ inspectionFormId: null }, { inspectionForm: { is: { deletedAt: null } } }],
+      };
+      const found: RecurringTask[] = [];
+      // Every one, page by page (oldest completion first): finished on-schedule or ended series, which keep
+      // their rule, can't crowd out one to repair.
+      for (let cursor: string | undefined; ; ) {
+        const heads = await prisma.task.findMany({
+          where,
+          select: { id: true, dueDate: true, startDate: true, recurrenceRule: true, recurrenceParentId: true, version: true },
+          orderBy: [{ completedAt: 'asc' }, { id: 'asc' }],
+          take: page,
+          ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        });
+        if (!heads.length) break;
+        // A copy anywhere (in the Recycle Bin, archived, merged, moved to another project) counts: a copy
+        // someone deleted on purpose is never made again (and the unique source guard refuses one anyway).
+        const copied = new Set(
+          (await prisma.task.findMany({ where: { recurrenceSourceId: { in: heads.map((h) => h.id) } }, select: { recurrenceSourceId: true } })).map((c) => c.recurrenceSourceId),
+        );
+        for (const h of heads) if (!copied.has(h.id)) found.push({ ...h, recurrenceRule: h.recurrenceRule as unknown as RecurrenceRule | null });
+        if (heads.length < page) break;
+        cursor = heads[heads.length - 1]!.id;
+      }
+      return found;
     },
 
     async countInstances(parentId) {

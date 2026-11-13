@@ -231,6 +231,18 @@ describe('offline-queue: the latest move of a task wins (review fix #16)', () =>
     expect(s.read().map((m) => (m.payload as { id: string }).id)).toEqual(['U']);
   });
 
+  it('…but only moves queued before that online move started: one queued while it was on its way is the newer, and kept', () => {
+    const s = memStore();
+    const older = enqueue(s, { kind: 'task.move', payload: { id: 'T', toColumnId: 'A' }, ownerId: 'u1' });
+    s.write(s.read().map((m) => (m.id === older.id ? { ...m, queuedAt: 1000 } : m)));
+    const startedAt = 2000; // the online move to B was sent then…
+    const newer = enqueue(s, { kind: 'task.move', payload: { id: 'U', toColumnId: 'C' }, ownerId: 'u1' });
+    const later = enqueue(s, { kind: 'task.move', payload: { id: 'T', toColumnId: 'C' }, ownerId: 'u1' }); // …and this queued after (a network error)
+    s.write(s.read().map((m) => (m.id === later.id ? { ...m, queuedAt: 3000 } : m.id === newer.id ? { ...m, queuedAt: 2500 } : m)));
+    dropQueuedMoves(s, 'u1', 'T', startedAt);
+    expect(s.read().map((m) => `${(m.payload as { id: string }).id}${(m.payload as { toColumnId: string }).toColumnId}`)).toEqual(['UC', 'TC']);
+  });
+
   it('single-person offline use is unchanged: one move of each task replays in order', async () => {
     const s = memStore();
     const sent: string[] = [];

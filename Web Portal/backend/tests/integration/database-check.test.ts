@@ -181,7 +181,7 @@ describe('board and task holds, as the start-up check sends them', () => {
       const probe = databaseProbes({ prisma: client, taskSearch, timeZone: 'Asia/Muscat' }).find((p) => p.name.startsWith('board and task holds'));
       expect(probe).toBeDefined();
       await probe!.run();
-      for (const hold of [/FROM kanban_columns WHERE id = \? FOR UPDATE/, /FROM projects WHERE id = \? FOR UPDATE/, /FROM kanban_columns WHERE projectId = \? FOR UPDATE/, /SELECT version FROM tasks WHERE id = \? AND deletedAt IS NULL FOR UPDATE/, /AS stillDone FROM tasks WHERE id = \? FOR UPDATE/, /FROM job_locks WHERE name = \? FOR UPDATE/]) {
+      for (const hold of [/FROM kanban_columns WHERE id = \? FOR UPDATE/, /FROM projects WHERE id = \? FOR UPDATE/, /FROM kanban_columns WHERE projectId = \? FOR UPDATE/, /SELECT version FROM tasks WHERE id = \? AND deletedAt IS NULL FOR UPDATE/, /AS stillDone, version FROM tasks WHERE id = \? FOR UPDATE/, /FROM job_locks WHERE name = \? FOR UPDATE/]) {
         expect(sent.some((q) => hold.test(q)), String(hold)).toBe(true);
       }
       const problems = sent.flatMap((sql) => portabilityProblems(sql).map((p) => `${p}: ${sql}`));

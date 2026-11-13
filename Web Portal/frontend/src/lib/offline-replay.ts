@@ -174,10 +174,11 @@ export function describeChange(m: QueuedMutation): string {
 }
 
 /**
- * Review fix #16: a move of this task was just saved online — the signed-in person's queued older moves of
- * it are dropped, so a stale one can't replay later and put the task back.
+ * Review fix #16: a move of this task, sent online at `sentAt`, was just saved — the signed-in person's moves
+ * of it queued before then are dropped, so a stale one can't replay later and put the task back (one queued
+ * while it was on its way is newer, and stays).
  */
-export function forgetQueuedMoves(taskId: string): void {
+export function forgetQueuedMoves(taskId: string, sentAt: number): void {
   const ownerId = currentUserId();
-  if (ownerId) dropQueuedMoves(localStorageQueueStore, ownerId, taskId);
+  if (ownerId) dropQueuedMoves(localStorageQueueStore, ownerId, taskId, sentAt);
 }

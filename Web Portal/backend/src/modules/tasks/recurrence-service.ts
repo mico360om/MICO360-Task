@@ -9,6 +9,8 @@ export interface RecurringTask {
   startDate?: Date | null;
   recurrenceRule: RecurrenceRule | null;
   recurrenceParentId: string | null;
+  /** #14 repair: its version when the sweep read it (a change since, e.g. Pause, and no copy is made this time). */
+  version?: number;
 }
 
 export interface SpawnedTask {
@@ -19,6 +21,8 @@ export interface SpawnedTask {
 export interface SpawnOptions {
   /** #14 repair: make it only if the source is still done (and not in the Recycle Bin) when it is held. */
   onlyIfDone?: boolean;
+  /** #14 repair: …and only if its version is still this one (nobody changed it, or its repeat, since it was read). */
+  version?: number;
 }
 
 export interface RecurrenceTaskPort {
@@ -166,7 +170,7 @@ export function createRecurrenceService({ tasks, now = () => new Date(), timeZon
       // Switched off, or an on-schedule series (the schedule makes its copies): nothing to repair.
       if (!raw || raw.createNext === 'ON_SCHEDULE') continue;
       try {
-        const copy = await spawnFollowing(head, raw, { onlyIfDone: true });
+        const copy = await spawnFollowing(head, raw, { onlyIfDone: true, ...(head.version !== undefined ? { version: head.version } : {}) });
         if (copy) made.push({ headId: head.id, copy });
       } catch (err) {
         // One broken series must not stop the others; the next sweep tries it again.

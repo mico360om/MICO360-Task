@@ -169,6 +169,28 @@ describe('the hourly sweep repairs a missed next copy (review fix #14)', () => {
     expect(await copiesOf(head.id)).toBe(0);
   });
 
+  it('review: an edit to the series between the sweep’s reading and its copy (paused here) makes no copy — the next sweep reads it again', async () => {
+    const b = await setup();
+    const head = await brokenHead(b);
+    const racing = createPrismaRecurrencePort(prisma, {
+      timeZone: TZ,
+      beforeCopy: async (id) => {
+        await prisma.task.update({ where: { id }, data: { recurrenceRule: { ...daily, paused: true } as unknown as Prisma.InputJsonValue, version: { increment: 1 } } });
+      },
+    });
+    expect(await createRecurrenceService({ tasks: racing, timeZone: TZ }).repairMissedCopies()).toEqual([]);
+    expect(await copiesOf(head.id)).toBe(0);
+    expect((await prisma.task.findUniqueOrThrow({ where: { id: head.id } })).recurrenceRule).toMatchObject({ paused: true });
+  });
+
+  it('review: every candidate is read, page by page — finished on-schedule or ended series can’t crowd out one to repair', async () => {
+    const b = await setup();
+    for (let i = 0; i < 5; i++) await brokenHead(b, { daysAgo: 10, rule: { ...daily, createNext: 'ON_SCHEDULE' } });
+    const broken = await brokenHead(b, { daysAgo: 2 });
+    const paged = createRecurrenceService({ tasks: createPrismaRecurrencePort(prisma, { timeZone: TZ, repairPageSize: 2 }), timeZone: TZ });
+    expect((await paged.repairMissedCopies()).map((m) => m.headId)).toEqual([broken.id]);
+  });
+
   it('the sweep and a completion at the same moment: one copy', async () => {
     const b = await setup();
     for (let i = 0; i < 8; i++) {

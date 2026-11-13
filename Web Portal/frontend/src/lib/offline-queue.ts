@@ -102,10 +102,13 @@ export function enqueue(
   return item;
 }
 
-/** Review fix #16: a move of the task was saved online — the person's queued older moves of it are dropped. */
-export function dropQueuedMoves(store: QueueStore, ownerId: string, taskId: string): void {
+/**
+ * Review fix #16: a move of the task was saved online — the person's queued older moves of it are dropped:
+ * those queued before `before` (when that move was sent). One queued while it was on its way is newer: kept.
+ */
+export function dropQueuedMoves(store: QueueStore, ownerId: string, taskId: string, before = Number.POSITIVE_INFINITY): void {
   const q = store.read();
-  const kept = q.filter((m) => !isMoveOf(m, ownerId, taskId));
+  const kept = q.filter((m) => !(isMoveOf(m, ownerId, taskId) && m.queuedAt < before));
   if (kept.length !== q.length) store.write(kept);
 }
 

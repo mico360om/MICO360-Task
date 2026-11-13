@@ -242,13 +242,6 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
       if (orderedIds.length > 1 && moved.columnId === toColumnId) await tasksApi(apiClient).reorder(toColumnId, orderedIds);
       return moved;
     },
-    // A task that needs approval, finished by someone who can't approve, waits (it snaps back to where it waits).
-    onSuccess: (moved, vars) => {
-      forgetQueuedMoves(vars.id); // review fix #16: an older offline move of it can't replay over this one
-      const waits = approvalNotice(vars.toColumnId, moved);
-      if (waits) setNotice(waits);
-      tellWhere(moved, (word) => `Moved — it’s in ${word} now.`);
-    },
     // Optimistically move the card so it lands instantly (at the drop position) instead of snapping
     // back to its origin column until the refetch returns; roll back and surface an error if it fails.
     onMutate: async ({ taskKey, toColumnId, toIndex }) => {
@@ -267,7 +260,16 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
         );
         qc.setQueryData<BoardData>(key, { ...prev, columns: moveTaskInBoard(prev.columns, taskKey, toColumnId, toIndex), ...(tasks ? { tasks } : {}) });
       }
-      return { prev, key };
+      return { prev, key, sentAt: Date.now() };
+    },
+    // A task that needs approval, finished by someone who can't approve, waits (it snaps back to where it waits).
+    // (After onMutate: the context's type comes from it.)
+    onSuccess: (moved, vars, ctx) => {
+      // Review fix #16: an older offline move of it can't replay over this one (a later one queued meanwhile stays).
+      forgetQueuedMoves(vars.id, ctx?.sentAt ?? 0);
+      const waits = approvalNotice(vars.toColumnId, moved);
+      if (waits) setNotice(waits);
+      tellWhere(moved, (word) => `Moved — it’s in ${word} now.`);
     },
     onError: (e, vars, ctx) => {
       if (e instanceof ApiError) {
@@ -319,12 +321,6 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
   // A card dropped on a status moves into its own project's first column of that kind.
   const statusMoveMut = useMutation({
     mutationFn: ({ id, toColumnId }: { id: string; toColumnId: string; taskKey: string; status: TaskCategory }) => tasksApi(apiClient).move(id, toColumnId),
-    onSuccess: (moved, vars) => {
-      forgetQueuedMoves(vars.id); // review fix #16
-      const waits = approvalNotice(vars.toColumnId, moved);
-      if (waits) setNotice(waits);
-      tellWhere(moved, (word) => `Moved — it’s in ${word} now.`);
-    },
     onMutate: async ({ taskKey, toColumnId, status }) => {
       setMoveError(false);
       const key = allKey;
@@ -336,7 +332,13 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
           prev.map((t) => (t.key === taskKey ? { ...t, columnId: toColumnId, columnCategory: status, completedAt: status === 'DONE' ? t.completedAt ?? new Date().toISOString() : null } : t)),
         );
       }
-      return { prev, key };
+      return { prev, key, sentAt: Date.now() };
+    },
+    onSuccess: (moved, vars, ctx) => {
+      forgetQueuedMoves(vars.id, ctx?.sentAt ?? 0); // review fix #16
+      const waits = approvalNotice(vars.toColumnId, moved);
+      if (waits) setNotice(waits);
+      tellWhere(moved, (word) => `Moved — it’s in ${word} now.`);
     },
     onError: (e, vars, ctx) => {
       if (e instanceof ApiError) {
