@@ -9,7 +9,7 @@ import { healthProbe } from '../project-health/prisma-health-source';
 import { kpiProbe } from '../kpis/prisma-kpi-source';
 import { LOCK_COLUMN_SQL, LOCK_PROJECT_COLUMNS_SQL, LOCK_PROJECT_SQL } from '../projects/prisma-column-repository';
 import { LOCK_TASK_VERSION_SQL } from '../tasks/prisma-assignee-repository';
-import { LOCK_SOURCE_SQL } from '../tasks/prisma-recurrence-port';
+import { lockSourceSql } from '../tasks/prisma-recurrence-port';
 
 /** An id no row has: every probe below looks only there (nothing found, nothing written). */
 export const NOWHERE = '~database-check~';
@@ -139,7 +139,7 @@ export function databaseProbes({
         await tx.$queryRawUnsafe(LOCK_PROJECT_SQL, NOWHERE);
         await tx.$queryRawUnsafe(LOCK_PROJECT_COLUMNS_SQL, NOWHERE);
         await tx.$queryRawUnsafe(LOCK_TASK_VERSION_SQL, NOWHERE);
-        await tx.$queryRawUnsafe(LOCK_SOURCE_SQL, NOWHERE);
+        await tx.$queryRaw(lockSourceSql(NOWHERE));
         await tx.$queryRaw`SELECT name FROM job_locks WHERE name = ${NOWHERE} FOR UPDATE`;
       });
       await prisma.jobLock.updateMany({ where: { name: NOWHERE, holder: NOWHERE, lockedUntil: { gt: new Date() } }, data: { lockedUntil: new Date() } });

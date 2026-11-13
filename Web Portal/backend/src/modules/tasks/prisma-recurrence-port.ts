@@ -16,8 +16,8 @@ const KEY_ATTEMPTS = 5;
  * The series' source, read again under a hold before its copy is made: still repeating, the same form, and
  * (#14 repair) still done and not in the Recycle Bin. The start-up database check sends the same text.
  */
-export const LOCK_SOURCE_SQL =
-  'SELECT (recurrenceRule IS NOT NULL) AS hasRule, inspectionFormId AS formId, (completedAt IS NOT NULL AND deletedAt IS NULL) AS stillDone FROM tasks WHERE id = ? FOR UPDATE';
+export const lockSourceSql = (taskId: string): Prisma.Sql =>
+  Prisma.sql`SELECT (recurrenceRule IS NOT NULL) AS hasRule, inspectionFormId AS formId, (completedAt IS NOT NULL AND deletedAt IS NULL) AS stillDone FROM tasks WHERE id = ${taskId} FOR UPDATE`;
 
 export interface PrismaRecurrencePortOptions {
   /** Company time zone — the new occurrence lands on today's board in this zone. */
@@ -91,7 +91,7 @@ export function createPrismaRecurrencePort(prisma: PrismaClient, opts: PrismaRec
               const [form] = await tx.$queryRaw<Array<{ deletedAt: Date | null }>>`SELECT deletedAt FROM inspection_forms WHERE id = ${source.inspectionFormId} FOR SHARE`;
               if (!form || form.deletedAt) return null;
             }
-            const [locked] = await tx.$queryRawUnsafe<Array<{ hasRule: number | bigint; formId: string | null; stillDone: number | bigint }>>(LOCK_SOURCE_SQL, sourceTaskId);
+            const [locked] = await tx.$queryRaw<Array<{ hasRule: number | bigint; formId: string | null; stillDone: number | bigint }>>(lockSourceSql(sourceTaskId));
             if (!locked || !Number(locked.hasRule) || (locked.formId ?? null) !== (source.inspectionFormId ?? null)) return null;
             // #14 repair: a task reopened (or binned) since the sweep read it makes no copy.
             if (spawnOpts.onlyIfDone && !Number(locked.stillDone)) return null;
