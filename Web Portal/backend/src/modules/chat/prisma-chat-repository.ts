@@ -1,5 +1,6 @@
 import type { PrismaClient } from '@prisma/client';
 import { isRetryableTxError } from '../../lib/sentinel-lock';
+import { withoutSaveRetry } from '../../lib/save-retry';
 import type {
   Conversation,
   ConversationRepository,
@@ -27,7 +28,8 @@ async function retried<T>(work: () => Promise<T>, opts: { attempts?: number; uni
   const attempts = opts.attempts ?? 4;
   for (let attempt = 1; ; attempt++) {
     try {
-      return await work();
+      // 1.23.29: its tries are its own: the server's retry layer stays out (lib/save-retry; never 4 × 3).
+      return await withoutSaveRetry(work);
     } catch (err) {
       if (attempt >= attempts || !(isRetryableTxError(err) || (opts.unique && isUniqueViolation(err)))) throw err;
       await pause(20 * attempt + Math.floor(Math.random() * 20));

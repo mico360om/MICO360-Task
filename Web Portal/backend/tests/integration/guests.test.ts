@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { createGuestService } from '../../src/modules/guests/guest-service';
+import { withSaveRetries } from '../../src/lib/save-retry';
 import { runGuestConversion, alsoRecorded } from '../../src/modules/guests/guest-conversion';
 import { createPrismaExternalContactRepository } from '../../src/modules/tasks/prisma-external-contact-repository';
 import { createExternalContactService } from '../../src/modules/tasks/external-contact-service';
@@ -299,5 +300,60 @@ describe('today’s external contacts become guests', () => {
       { name: 'A', company: ' acme', designation: null, email: 'b@x.co', phone: '1', task: { key: 'R-1' } },
       { name: 'A', company: null, designation: 'Lead', email: 'B@x.co', phone: null, task: { key: 'R-2' } },
     ] as never)).toBe('Also recorded: email b@x.co (R-1); phone 1 (R-1); designation Lead (R-2)');
+  });
+});
+
+// 1.23.29 — the server's client tries a transaction again WHOLE after a save conflict (lib/save-retry). Here the
+// first try of every transaction runs all its work and is then refused as MariaDB refuses it (error 1020): the
+// database rolls that try back, and anything the work changed OUTSIDE the database would be counted twice.
+describe('a transaction tried again after a save conflict (1.23.29)', () => {
+  const refused = () =>
+    Object.assign(new Error('Error occurred during query execution:\nConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(Server(MysqlError { code: 1020, message: "Record has changed since last read in table \'guest_contacts\'; try restarting transaction", state: "HY000" })), transient: false })'), {
+      name: 'PrismaClientUnknownRequestError',
+    });
+  let flaky: PrismaClient;
+  let tries = 0;
+  beforeAll(() => {
+    flaky = new PrismaClient({ datasources: { db: { url: process.env.TEST_DATABASE_URL } } });
+    const own = flaky.$transaction.bind(flaky) as (fn: (tx: unknown) => Promise<unknown>, opts?: unknown) => Promise<unknown>;
+    (flaky as unknown as { $transaction: unknown }).$transaction = (fn: (tx: unknown) => Promise<unknown>, opts?: unknown) =>
+      own(async (tx) => {
+        const out = await fn(tx);
+        if (++tries % 2 === 1) throw refused(); // every first try: all its work done, then refused (rolled back)
+        return out;
+      }, opts);
+    withSaveRetries(flaky);
+  });
+  afterAll(async () => {
+    await flaky.$disconnect();
+  });
+
+  it('merging guests: one history line per task and each note joined once', async () => {
+    const service = createGuestService({ prisma: flaky, recordActivity: async (e) => void lines.push(e) });
+    const t1 = await task(p1, todo, { assignees: [other] });
+    const t2 = await task(p1, todo, { assignees: [other] });
+    const keep = await guests.createForProject(p1, { name: 'Ahmed Al Harthy', company: 'Acme' }, owner);
+    const dup = await guests.createForProject(p1, { name: 'Ahmed AlHarthy', company: 'Globex' }, owner);
+    await prisma.guestContact.update({ where: { id: keep.id }, data: { notes: 'Kept note' } });
+    await prisma.guestContact.update({ where: { id: dup.id }, data: { notes: 'Duplicate note' } });
+    await guests.addToTask(t1, dup.id, null, owner);
+    await guests.addToTask(t2, dup.id, null, owner);
+    tries = 0;
+    const r = await service.merge(keep.id, [dup.id], owner);
+    expect(tries).toBe(2); // the merge really ran twice
+    expect(r.tasks).toBe(2);
+    expect(r.guest.notes).toBe('Kept note\nDuplicate note');
+    expect(lines.filter((l) => l.action === 'EXTERNAL_CONTACT_CHANGED').map((l) => l.taskId).sort()).toEqual([t1, t2].sort());
+  });
+
+  it('today’s contacts becoming guests: each row and new guest counted once', async () => {
+    const t1 = await task(p1, todo, { assignees: [owner] });
+    await legacyRow(t1, { name: 'Ahmed Al Harthy', company: 'Acme' });
+    await legacyRow(t1, { name: 'Sara', company: 'Acme' }, 1);
+    tries = 0;
+    const r = await runGuestConversion(flaky, (taskId, actorId, opts) => guests.ensureResponsible(taskId, actorId, opts));
+    expect(tries).toBe(4); // two people: each one's transaction ran twice
+    expect(r).toMatchObject({ rows: 2, guestsMade: 2 });
+    expect(await prisma.guestContact.count({ where: { companyId: COMPANIES[0] } })).toBe(2);
   });
 });

@@ -18,6 +18,15 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - Files on tasks and in chats open only for people who can still see that task or chat; copied links stop working after about a day.
 - Old profile photos stop opening once replaced.
 
+## [1.23.29] - 2026-11-13
+
+### Bug fixes
+- Saving the same thing twice at once (a double click, or two people together) no longer shows an error.
+- On the Calendar, "My tasks" also shows the meetings you're invited to and haven't declined, not only the ones you organise.
+- On a project's page, the Overdue number is red and the Completed number green again.
+- Starting a chat with one person is called "New message" everywhere in Chat.
+- An empty Agenda on the Calendar now says "Nothing planned in these days." and offers New task, instead of asking you to click a day.
+
 ## [1.23.28] - 2026-11-13
 
 ### Improvements

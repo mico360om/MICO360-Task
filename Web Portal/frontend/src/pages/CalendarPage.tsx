@@ -6,7 +6,7 @@ import { calendarApi, DEFAULT_CALENDAR_PREFS, type CalBlock, type CalReminder, t
 import { meetingsApi } from '../api/meetings';
 import { schedulingApi } from '../api/scheduling';
 import { columnsApi } from '../api/columns';
-import { filterCalendarMeetings, groupMeetingsByDay, meetingItems, meetingRange, type CalMeeting } from '../lib/calendar-meetings';
+import { filterCalendarMeetings, groupMeetingsByDay, invitedMeetingIds, meetingItems, meetingRange, type CalMeeting } from '../lib/calendar-meetings';
 import { checklistByDay as checklistItemsByDay } from '../lib/calendar-checklist';
 import { projectsApi } from '../api/projects';
 import { useProjectsWithAll } from '../lib/useProjectsWith';
@@ -32,6 +32,8 @@ import { useCurrentProject } from '../components/CurrentProject';
 import { useShortcut } from '../components/shortcuts/ShortcutProvider';
 import { CalendarFilterBar, CalendarToolbar, ShowMenu } from '../components/calendar/CalendarToolbar';
 import { LegendButton, dayLabel, fullDayLabel, useMediaQuery } from '../components/calendar/calendar-ui';
+import { Button } from '../components/ui/Button';
+import { TOUCH_TALL } from '../lib/touch';
 import { calendarOrder } from '../lib/calendar-order';
 import { AgendaView, MobileMonth, WeekView, type ViewProps } from '../components/calendar/views';
 import { MonthGrid } from '../components/calendar/MonthGrid';
@@ -224,7 +226,11 @@ export function CalendarPage() {
   }, [shown]);
   const rawMeetings = useMemo(() => (Array.isArray(meetingsQ.data) ? (meetingsQ.data as PanelMeeting[]) : []), [meetingsQ.data]);
   const meetingById = useMemo(() => new Map(rawMeetings.map((m) => [m.id, m])), [rawMeetings]);
-  const shownMeetings = useMemo(() => (show.meetings ? filterCalendarMeetings(meetingItems(rawMeetings, timeZone), filters, { myId }) : []), [rawMeetings, timeZone, filters, myId, show.meetings]);
+  // 1.23.29: "My tasks" keeps the meetings I'm invited to and haven't declined too (invitedMeetingIds).
+  const shownMeetings = useMemo(
+    () => (show.meetings ? filterCalendarMeetings(meetingItems(rawMeetings, timeZone), filters, { myId, invitedIds: invitedMeetingIds(rawMeetings) }) : []),
+    [rawMeetings, timeZone, filters, myId, show.meetings],
+  );
   const meetingsByDay = useMemo(() => groupMeetingsByDay(shownMeetings), [shownMeetings]);
   const meetingEnd = useCallback((id: string) => meetingById.get(id)?.endAt ?? null, [meetingById]);
   const checklistByDay = useMemo(
@@ -650,10 +656,18 @@ export function CalendarPage() {
       Clear filters
     </button>
   );
+  // 1.23.29: the Agenda's own empty page — its days can't be clicked, so its words say so plainly and it
+  // offers New task (the toolbar's "+ Task" is hidden on phones). Month, Week and Day keep their bar below.
   const nothing = (
     <div className="rounded-xl border border-dashed border-line bg-surface px-6 py-10 text-center">
-      <p className="font-semibold text-ink">{nothingText}</p>
-      {filtered ? <div className="mt-3">{clearButton}</div> : canCreate ? <p className="mt-1 text-sm text-ink-2">Click a day to add a task on it.</p> : null}
+      <p className="font-semibold text-ink">{filtered ? nothingText : 'Nothing planned in these days.'}</p>
+      {filtered ? (
+        <div className="mt-3">{clearButton}</div>
+      ) : canCreate ? (
+        <div className="mt-3">
+          <Button onClick={() => setCreateOn(split ? selected : cursor)} className={TOUCH_TALL}>New task</Button>
+        </div>
+      ) : null}
     </div>
   );
   const nothingBar = (
