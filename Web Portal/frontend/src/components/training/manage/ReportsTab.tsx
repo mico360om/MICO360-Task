@@ -1,4 +1,4 @@
-import { useId, useMemo, useState } from 'react';
+import { useId, useMemo, useState, type ReactNode } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { REPORT_BY, type ReportBy, type ReportDates, type ReportQuery, type ReportRow, type TrainingReport } from '../../../api/training';
 import { downloadBlob, fileNameOf } from '../../../lib/download';
@@ -44,6 +44,15 @@ const COLUMNS: { key: keyof ReportRow; label: string; show: (r: ReportRow) => st
  * days people got the course); Excel and PDF. Administrators see everyone, Training managers their companies,
  * a project manager their team (`readOnly`: no Training Center calls).
  */
+/** A table wider than the screen scrolls sideways: the region is focusable (keyboard users can scroll it). Its name differs from its section's (two regions of one name fail the unique-landmark rule). */
+function ScrollRegion({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div role="region" tabIndex={0} aria-label={label} className="-mx-1 overflow-x-auto rounded-md px-1 outline-none focus-visible:ring-2 focus-visible:ring-brand/40">
+      {children}
+    </div>
+  );
+}
+
 export function ReportsTab({ readOnly = false }: { readOnly?: boolean }) {
   const timeZone = useCompanyTimeZone();
   const phone = useMediaQuery(PHONE_QUERY);
@@ -176,7 +185,7 @@ export function ReportsTab({ readOnly = false }: { readOnly?: boolean }) {
                 ))}
               </ul>
             ) : (
-              <div className="-mx-1 overflow-x-auto px-1">
+              <ScrollRegion label={`By ${BY_LABELS[r.by].toLowerCase()} table`}>
                 <table aria-labelledby={ids.rows} className="w-full min-w-[40rem] text-sm">
                   <thead>
                     <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-ink-2">
@@ -193,7 +202,7 @@ export function ReportsTab({ readOnly = false }: { readOnly?: boolean }) {
                     ))}
                   </tbody>
                 </table>
-              </div>
+              </ScrollRegion>
             )}
           </SectionCard>
 
@@ -202,7 +211,7 @@ export function ReportsTab({ readOnly = false }: { readOnly?: boolean }) {
               {r.modules.length === 0 ? (
                 <p className="text-sm text-ink-2">This course has no modules yet.</p>
               ) : (
-                <div className="-mx-1 overflow-x-auto px-1">
+                <ScrollRegion label="By module table">
                   <table aria-labelledby={ids.modules} className="w-full min-w-[28rem] text-sm">
                     <thead>
                       <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-ink-2">
@@ -225,7 +234,7 @@ export function ReportsTab({ readOnly = false }: { readOnly?: boolean }) {
                       ))}
                     </tbody>
                   </table>
-                </div>
+                </ScrollRegion>
               )}
             </SectionCard>
           ) : null}
@@ -234,7 +243,7 @@ export function ReportsTab({ readOnly = false }: { readOnly?: boolean }) {
               {r.learners.length === 0 ? (
                 <p className="text-sm text-ink-2">Nobody has this course in this period.</p>
               ) : (
-                <div className="-mx-1 overflow-x-auto px-1">
+                <ScrollRegion label="By person table">
                   <table aria-labelledby={ids.learners} className="w-full min-w-[30rem] text-sm">
                     <thead>
                       <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-ink-2">
@@ -265,7 +274,7 @@ export function ReportsTab({ readOnly = false }: { readOnly?: boolean }) {
                       ))}
                     </tbody>
                   </table>
-                </div>
+                </ScrollRegion>
               )}
             </SectionCard>
           ) : null}
@@ -335,7 +344,7 @@ export function ReportsTab({ readOnly = false }: { readOnly?: boolean }) {
                 ))}
               </ul>
             ) : (
-              <div className="-mx-1 overflow-x-auto px-1">
+              <ScrollRegion label="Quiz results table">
                 <table aria-labelledby="tc-rep-quizzes" className="w-full min-w-[40rem] text-sm">
                   <thead>
                     <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-ink-2">
@@ -362,7 +371,7 @@ export function ReportsTab({ readOnly = false }: { readOnly?: boolean }) {
                     ))}
                   </tbody>
                 </table>
-              </div>
+              </ScrollRegion>
             )}
             {hiddenQuizzes > 0 || allQuizzes ? (
               <Button variant="ghost" size="sm" aria-pressed={allQuizzes} onClick={() => setAllQuizzes((v) => !v)} className="mt-2 [@media(pointer:coarse)]:!min-h-11">

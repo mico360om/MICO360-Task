@@ -141,6 +141,23 @@ describe('Training Center → Reports', () => {
     expect(within(byModule).getByRole('rowheader', { name: 'Meetings & minutes' }).closest('tr')).toHaveTextContent(/5.*2.*2.*1/);
   });
 
+  it('each wide table sits in a focusable, uniquely named scroll region (keyboard scrolling)', async () => {
+    api.report.mockResolvedValue(
+      report({
+        modules: [{ moduleId: 'm1', title: 'Tasks', people: 5, done: 2, inProgress: 2, notStarted: 1 }],
+        learners: [{ userId: 'u-sam', name: 'Sam Shared', modulesDone: 2, modulesRequired: 8, lastActivityAt: null, certificate: null }],
+      }),
+    );
+    renderManage(<ReportsTab />);
+    await screen.findByRole('table', { name: 'By module' });
+    for (const name of ['By module table', 'By person table', 'Quiz results table']) {
+      const region = screen.getByRole('region', { name });
+      expect(region).toHaveAttribute('tabindex', '0');
+      expect(region.className).toContain('focus-visible:ring-2');
+      expect(region.querySelector('table')).not.toBeNull();
+    }
+  });
+
   it('with no modules in the report, there are no module tables', async () => {
     renderManage(<ReportsTab />);
     await screen.findByRole('table', { name: 'By course' });
