@@ -9,7 +9,9 @@ import { LIMITS, type ManageCourse } from './training-types';
  * guide steps, quizzes (questions and answers), video links, documents, step pictures and downloads. Every stored
  * file is copied under a new key (the copy can be edited or deleted without touching the original's files). Nothing
  * of people is copied: no progress, enrolments, assignments, certificates or feedback. A copy is never built-in (no
- * starter key on the course or its modules), so built-in updates never reach it. Audited `training.course.duplicate`.
+ * starter key on the course or its modules), so built-in updates never reach it; it keeps the course's place in the
+ * list, and a module switched off because its old course was removed stays off without that reason (the copy's own
+ * module was never removed). Audited `training.course.duplicate`.
  * The database rows are written in one transaction; if it fails, the files copied for it are removed again.
  */
 
@@ -103,6 +105,7 @@ export function createTrainingDuplicate(ctx: TrainingContext, d: DuplicateDeps) 
               // A signature picture belongs to its issuer (no course): the copy uses the same one.
               signatureFileId: c.signatureFileId,
               companyIds: jsonList(c.companyIds),
+              position: c.position,
               createdById: actor.id,
               updatedById: actor.id,
               createdAt: now,
@@ -113,7 +116,7 @@ export function createTrainingDuplicate(ctx: TrainingContext, d: DuplicateDeps) 
           const moduleOf = new Map<string, string>();
           for (const m of c.modules) {
             const made = await tx.trainingModule.create({
-              data: { courseId: course.id, position: m.position, title: m.title, moduleKey: m.moduleKey, roleKeys: jsonList(m.roleKeys), companyIds: jsonList(m.companyIds), enabled: m.enabled, offReason: m.offReason },
+              data: { courseId: course.id, position: m.position, title: m.title, moduleKey: m.moduleKey, roleKeys: jsonList(m.roleKeys), companyIds: jsonList(m.companyIds), enabled: m.enabled, offReason: m.offReason === 'REMOVED' ? null : m.offReason },
               select: { id: true },
             });
             moduleOf.set(m.id, made.id);

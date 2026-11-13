@@ -545,6 +545,18 @@ describe('Duplicate (R3)', () => {
     for (const k of saved) expect(existsSync(join(filesDir, k))).toBe(false);
     expect(await prisma.trainingCourse.count({ where: { title: { startsWith: 'Copy of' }, AND: [{ title: { contains: w.tag } }] } })).toBe(titles);
   });
+
+  it('the copy keeps the course’s place in the list; a module off because its old course was removed stays off, without that reason (cleanup batch)', async () => {
+    await prisma.trainingCourse.update({ where: { id: original.id }, data: { position: 7 } });
+    const prove = moduleNamed(original, 'Prove it');
+    await prisma.trainingModule.update({ where: { id: prove.id }, data: { enabled: false, offReason: 'REMOVED' } });
+    expect(moduleNamed(await getCourse(original.id), 'Prove it')).toMatchObject({ offReason: 'REMOVED', visibility: 'Off — the old course was removed' });
+    const copy = await data<ManageCourse>(call('amy', 'POST', `/training/manage/courses/${original.id}/duplicate`), 201);
+    expect((await prisma.trainingCourse.findUniqueOrThrow({ where: { id: copy.id } })).position).toBe(7);
+    expect(moduleNamed(copy, 'Prove it')).toMatchObject({ enabled: false, offReason: null, visibility: 'Off' });
+    expect(moduleNamed(copy, 'Learn')).toMatchObject({ enabled: true, offReason: null });
+    expect((await prisma.trainingModule.findUniqueOrThrow({ where: { id: prove.id } })).offReason).toBe('REMOVED');
+  });
 });
 
 describe('the Manage list', () => {
