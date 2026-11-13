@@ -15,7 +15,7 @@ import { createAuthGuard } from '../../src/modules/auth/auth-guard';
 import { trainingContext, type TrainingContext } from '../../src/modules/training/training-context';
 import { createTrainingFileStore, type TrainingFileStore } from '../../src/modules/training/training-files';
 import { createTrainingSync } from '../../src/modules/training/training-sync';
-import { createTrainingManage } from '../../src/modules/training/training-manage';
+import { clampSavedSteps, createTrainingManage } from '../../src/modules/training/training-manage';
 import { createModuleOps } from '../../src/modules/training/training-manage-modules';
 import { registerTrainingManageRoutes } from '../../src/modules/training/training-manage-routes';
 import { untouchedStarter } from '../../src/modules/training/training-starter';
@@ -695,5 +695,49 @@ describe('module edits at the same moment (cleanup batch)', () => {
     expect(out.id).toBe(c.id);
     expect(seen).toEqual(['training.module.create', 'recheck', 'course']);
     expect(await prisma.trainingModule.count({ where: { courseId: c.id, title: 'Still here' } })).toBe(1);
+  });
+});
+
+describe('saving a guide’s steps (cleanup batch)', () => {
+  it('saved places past the new last step come back to it, and a progress save on another course is never held up meanwhile', async () => {
+    const c = await newCourse('Steps clamp');
+    const g = await guideLesson(c.id, 'Long', [{ title: '1' }, { title: '2' }, { title: '3' }, { title: '4' }]);
+    const other = await newCourse('Steps elsewhere');
+    const og = await guideLesson(other.id, 'Elsewhere');
+    await prisma.trainingProgress.createMany({
+      data: [
+        { userId: w.people.ana, courseId: c.id, lessonId: g.id, stepIndex: 3 },
+        { userId: w.people.ben, courseId: c.id, lessonId: g.id, stepIndex: 1 },
+        { userId: w.people.cat, courseId: c.id, lessonId: g.id, stepIndex: 0 },
+      ],
+    });
+    const elsewhere = (await prisma.trainingProgress.create({ data: { userId: w.people.ana, courseId: other.id, lessonId: og.id, stepIndex: 0 } })).id;
+    const places = async () =>
+      Object.fromEntries((await prisma.trainingProgress.findMany({ where: { lessonId: g.id }, select: { userId: true, stepIndex: true } })).map((p) => [p.userId, p.stepIndex]));
+
+    // Through the editor: two steps left, so the last is step index 1.
+    const saved = await data<ManageLesson>(call('amy', 'PUT', `/training/manage/lessons/${g.id}/steps`, { steps: [{ title: '1' }, { title: '2' }] }));
+    expect(saved.steps).toHaveLength(2);
+    expect(await places()).toEqual({ [w.people.ana]: 1, [w.people.ben]: 1, [w.people.cat]: 0 });
+
+    // While the clamp's transaction is open, a second connection (waiting at most 2 s for a row lock) saves elsewhere.
+    const second = new PrismaClient({ datasources: { db: { url: `${url}${url.includes('?') ? '&' : '?'}connection_limit=1` } } });
+    let waited = -1;
+    try {
+      await second.$executeRawUnsafe('SET SESSION innodb_lock_wait_timeout = 2');
+      await prisma.$transaction(async (tx) => {
+        await clampSavedSteps(tx, g.id, 1);
+        const t0 = Date.now();
+        await second.trainingProgress.updateMany({ where: { id: elsewhere }, data: { stepIndex: 1 } });
+        waited = Date.now() - t0;
+      });
+    } finally {
+      await second.$disconnect();
+    }
+    expect(waited).toBeGreaterThanOrEqual(0);
+    expect(waited).toBeLessThan(1500);
+    expect((await prisma.trainingProgress.findUniqueOrThrow({ where: { id: elsewhere } })).stepIndex).toBe(1);
+    expect(await places()).toEqual({ [w.people.ana]: 0, [w.people.ben]: 0, [w.people.cat]: 0 });
+    expect((await call('amy', 'PUT', '/training/manage/lessons/nope/steps', { steps: [] })).status).toBe(404);
   });
 });

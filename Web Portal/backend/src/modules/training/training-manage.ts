@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { HttpError, ValidationError } from '../../lib/http-errors';
 import { newRowId } from '../../lib/row-id';
+import { withRowLock } from '../../lib/sentinel-lock';
 import { sanitizeRichHtml, isRichEmpty, parseRichHtml } from '../../lib/rich-text';
 import { LIVE_PROJECT_WHERE } from '../companies/company-access';
 import { inScope } from './training-access';
@@ -299,6 +300,18 @@ function chunks<T>(list: readonly T[], size = 300): T[][] {
   return out;
 }
 
+/**
+ * R3: a guide's saved step is never past its last step (`count` steps now), in the caller's transaction. Progress has
+ * no index that starts with the lesson, so an UPDATE by lesson would scan and lock every row (every learner's save
+ * waits): the places past it are read without a lock and brought back by id, `stepIndex > last` checked again
+ * (as applyStarterLessons does).
+ */
+export async function clampSavedSteps(tx: Prisma.TransactionClient, lessonId: string, count: number): Promise<void> {
+  const last = Math.max(0, count - 1);
+  const past = (await tx.trainingProgress.findMany({ where: { lessonId, stepIndex: { gt: last } }, select: { id: true } })).map((p) => p.id);
+  for (const part of chunks(past)) await tx.trainingProgress.updateMany({ where: { id: { in: part }, stepIndex: { gt: last } }, data: { stepIndex: last } });
+}
+
 /** `oneCourseKey`: the conversion record's settings key (tests use their own). */
 export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync, o: { oneCourseKey?: string } = {}) {
   const { prisma } = ctx;
@@ -313,9 +326,6 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync, o
       ctx.logger?.warn('training: finishing could not be checked again', { courseId, err: String((err as Error)?.message ?? err) });
     }
   }
-
-  /** R3: a guide's saved step is never past its last step. */
-  const clampSteps = (lessonId: string, count: number) => prisma.trainingProgress.updateMany({ where: { lessonId, stepIndex: { gt: Math.max(0, count - 1) } }, data: { stepIndex: Math.max(0, count - 1) } });
 
   async function audit(actor: PersonRecord, meta: Meta, action: string, entityId: string | null, values: { oldValue?: unknown; newValue?: unknown } = {}): Promise<void> {
     if (!ctx.audit) return;
@@ -345,7 +355,7 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync, o
    * update(), which reads first): a double click, or two managers saving at once, never meet MariaDB's error 1020.
    */
   const touchCourse = (courseId: string, actor: PersonRecord) => prisma.trainingCourse.updateMany({ where: { id: courseId }, data: { updatedById: actor.id, updatedAt: ctx.clock() } });
-  const touchLesson = (lessonId: string) => prisma.trainingLesson.updateMany({ where: { id: lessonId }, data: { updatedAt: ctx.clock() } });
+  const touchLesson = (lessonId: string, db: Prisma.TransactionClient = prisma) => db.trainingLesson.updateMany({ where: { id: lessonId }, data: { updatedAt: ctx.clock() } });
   /** 1.23.31 (D6): modules in any course, and Duplicate (R3). */
   const modules = createModuleOps(ctx, { manageCourse, touchCourse, audit, recheck, assertShownPublishable });
   const copies = createTrainingDuplicate(ctx, { manageCourse, audit });
@@ -830,7 +840,20 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync, o
       imageAlt: s.imageFileId ? s.imageAlt?.trim() || null : null,
     }));
     await assertStillPublishable(l.courseId, (lessons, all) => lessons.map((x, i) => (all[i]!.id === l.id ? { ...x, stepCount: rows.length } : x)));
-    await prisma.$transaction([prisma.trainingStep.deleteMany({ where: { lessonId: l.id } }), prisma.trainingStep.createMany({ data: rows }), touchLesson(l.id), clampSteps(l.id, rows.length)]);
+    // The lesson row locked first (two saves of the same guide at once write one after the other).
+    const saved = await withRowLock(
+      prisma,
+      (tx) => tx.$queryRaw<{ id: string }[]>`SELECT id FROM training_lessons WHERE id = ${l.id} FOR UPDATE`,
+      async (tx, locked) => {
+        if (locked.length === 0) return false;
+        await tx.trainingStep.deleteMany({ where: { lessonId: l.id } });
+        await tx.trainingStep.createMany({ data: rows });
+        await touchLesson(l.id, tx);
+        await clampSavedSteps(tx, l.id, rows.length);
+        return true;
+      },
+    );
+    if (!saved) throw notFound('Lesson');
     await audit(actor, meta, 'training.lesson.steps', l.id, { newValue: { steps: rows.length } });
     return manageLesson(l.id);
   }

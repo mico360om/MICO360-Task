@@ -116,7 +116,7 @@ describe('a copy’s title', () => {
 describe('the live database (MariaDB, statement-based binary log)', () => {
   it('no isolation level is ever asked for; the raw SQL reads alike on MySQL and MariaDB', () => {
     let raw = 0;
-    for (const file of ['training-manage-modules.ts', 'training-duplicate.ts']) {
+    for (const file of ['training-manage-modules.ts', 'training-duplicate.ts', 'training-manage.ts']) {
       const source = readFileSync(join(__dirname, file), 'utf8');
       expect(source, file).not.toMatch(/isolationLevel|SET\s+(SESSION\s+)?TRANSACTION/i);
       for (const m of source.matchAll(/\$queryRaw`([^`]*)`/g)) {
