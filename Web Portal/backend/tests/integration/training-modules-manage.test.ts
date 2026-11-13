@@ -328,6 +328,47 @@ describe('a module change on a published course', () => {
     expect(after.unpublishedChanges).toBe(true);
   });
 
+  it('switching a module on or off is a site setting, not an edit: a built-in course stays untouched (still audited); anything else sent with it is an edit (final review 6)', async () => {
+    const sc = await prisma.trainingCourse.create({ data: { title: `Built-in switch ${w.tag}`, moduleKey: 'general', audience: 'STAFF', status: 'PUBLISHED', starterKey: `starter:test-switch-${w.tag}`, publishedAt: new Date() } });
+    courseIds.push(sc.id);
+    const on = await prisma.trainingModule.create({ data: { courseId: sc.id, position: 0, title: 'Tasks', moduleKey: 'tasks', starterKey: 'module:tasks' } });
+    // Off because its old short course was removed before the change (C2): an administrator may switch it on.
+    const off = await prisma.trainingModule.create({ data: { courseId: sc.id, position: 1, title: 'Chat', moduleKey: 'chat', starterKey: 'module:chat', enabled: false, offReason: 'REMOVED' } });
+    for (const [i, m] of [on, off].entries()) await prisma.trainingLesson.create({ data: { courseId: sc.id, moduleId: m.id, position: i, kind: 'GUIDE', title: `Read ${m.title}`, steps: { create: [{ position: 0, title: 'One', body: '<p>One</p>' }] } } });
+    const at = new Date();
+    await prisma.trainingCourse.update({ where: { id: sc.id }, data: { publishedAt: at, updatedAt: at } });
+    const stamp = () => prisma.trainingCourse.findUniqueOrThrow({ where: { id: sc.id }, select: { updatedAt: true, updatedById: true } });
+    const read = async () => {
+      const row = await prisma.trainingCourse.findUniqueOrThrow({ where: { id: sc.id }, include: { lessons: { select: { updatedAt: true } } } });
+      return untouchedStarter(row, row.lessons);
+    };
+    expect(await read()).toBe(true);
+    const before = await stamp();
+    const switched = (enabled: boolean, extra: Record<string, unknown> = {}) => data<ManageCourse>(call('amy', 'PATCH', `/training/manage/modules/${off.id}`, { enabled, ...extra }));
+
+    let after = await switched(true);
+    expect(after.modules.find((m) => m.id === off.id)).toMatchObject({ enabled: true, offReason: null });
+    expect(after.unpublishedChanges).toBe(false);
+    expect(await read()).toBe(true);
+    expect(await stamp()).toEqual(before);
+    expect(audits).toContainEqual(expect.objectContaining({ action: 'training.module.update', entityId: off.id, newValue: { enabled: true } }));
+    after = await switched(false);
+    expect(after.modules.find((m) => m.id === off.id)).toMatchObject({ enabled: false });
+    expect(after.unpublishedChanges).toBe(false);
+    expect(await stamp()).toEqual(before);
+    // The same title sent along changes nothing else: still only a switch.
+    after = await switched(true, { title: 'Chat' });
+    expect(after.unpublishedChanges).toBe(false);
+    expect(await read()).toBe(true);
+
+    // Renaming it (with or without a switch) edits the course: no more built-in updates, "Changes not published".
+    after = await switched(false, { title: 'Chat (ours)' });
+    expect(after.modules.find((m) => m.id === off.id)).toMatchObject({ title: 'Chat (ours)', enabled: false });
+    expect(after.unpublishedChanges).toBe(true);
+    expect(await read()).toBe(false);
+    expect((await stamp()).updatedById).toBe(w.people.amy);
+  });
+
   it('switching a module off finishes a person who had done every other module, with the certificate; the last one on can’t be switched off', async () => {
     let c = await newCourse('Finish by modules', { certificateOn: true });
     const g1 = await guideLesson(c.id, 'Learn one');

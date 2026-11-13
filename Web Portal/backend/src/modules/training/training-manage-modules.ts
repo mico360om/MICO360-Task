@@ -15,7 +15,8 @@ import { LIMITS, ROLE_KEYS, TRAINING_MODULES, type ManageCourse, type ManageModu
  * - Removing a module never deletes a lesson: its lessons move to the module chosen (or to none), after that
  *   module's own. People's records of the removed module stay in training_module_done (no module reads them).
  * - Every change edits the course (`touchCourse`: a built-in course then gets no more built-in updates, and a
- *   published one reads "Changes not published"), is audited, may not leave a published course with nothing
+ *   published one reads "Changes not published") — except a module only switched on or off, a site setting (controller
+ *   ruling, final review 1.23.32) — is audited, may not leave a published course with nothing
  *   finished to learn (M8, `assertShownPublishable`), and finishing is checked again (switching a module off or
  *   limiting it can leave people with everything done: R3 `recheck`).
  * - For a course for clients a module's feature and staff groups are kept but don't apply (only its companies do).
@@ -84,6 +85,13 @@ export function courseNotice(c: { id: string; status: string }, notMerged: Reado
 /** A new module teaches the course's feature; in a course for clients (whose feature is the Client portal) General. */
 export function defaultModuleKey(c: { audience: string; moduleKey: string }): string {
   return c.audience === 'CLIENTS' || c.moduleKey === 'portal' ? 'general' : c.moduleKey;
+}
+
+/** The same ids, whatever their order or repeats. */
+export function sameSet(a: readonly string[], b: readonly string[]): boolean {
+  const x = new Set(a);
+  const y = new Set(b);
+  return x.size === y.size && [...x].every((v) => y.has(v));
 }
 
 /** `sent` lists every id of `known` exactly once (and nothing else). */
@@ -174,10 +182,12 @@ export function createModuleOps(ctx: TrainingContext, d: ModuleOpsDeps) {
   /**
    * Every module change ends the same way: the course edited, audited, finishing checked again, the editor's course.
    * The change is saved by then: a mark that can't be written (warned) never skips the audit or the check.
+   * `edit: false` — a module only switched on or off (final review, 1.23.32): a site setting, not an edit, so the course
+   * isn't marked as changed (a built-in course keeps its built-in updates, no "Changes not published").
    */
-  async function done(actor: PersonRecord, meta: Meta, courseId: string, action: string, entityId: string, values: { oldValue?: unknown; newValue?: unknown }): Promise<ManageCourse> {
+  async function done(actor: PersonRecord, meta: Meta, courseId: string, action: string, entityId: string, values: { oldValue?: unknown; newValue?: unknown }, o: { edit?: boolean } = {}): Promise<ManageCourse> {
     try {
-      await d.touchCourse(courseId, actor);
+      if (o.edit !== false) await d.touchCourse(courseId, actor);
     } catch (err) {
       ctx.logger?.warn('training: a course could not be marked as changed after a module change', { courseId, action, err: String((err as Error)?.message ?? err) });
     }
@@ -227,10 +237,26 @@ export function createModuleOps(ctx: TrainingContext, d: ModuleOpsDeps) {
     if ('enabled' in data) await d.assertShownPublishable(c.id, { enabled: new Map([[m.id, input.enabled!]]) });
     // One statement (two managers saving the same module at once never hit MariaDB's error 1020).
     await prisma.trainingModule.updateMany({ where: { id: m.id }, data });
-    return done(actor, meta, c.id, 'training.module.update', m.id, {
-      oldValue: { title: m.title, moduleKey: m.moduleKey, roleKeys: stringList(m.roleKeys), companyIds: stringList(m.companyIds), enabled: m.enabled, offReason: m.offReason },
-      newValue: input,
-    });
+    // Controller ruling (final review, 1.23.32): switched on or off and nothing else changed — a site setting, not an
+    // edit (still audited, finishing still checked again). A new title, feature, groups or companies edit the course (D6).
+    const edited =
+      (input.title !== undefined && input.title !== m.title) ||
+      (input.moduleKey !== undefined && input.moduleKey !== m.moduleKey) ||
+      (input.roleKeys !== undefined && !sameSet(input.roleKeys, stringList(m.roleKeys))) ||
+      (input.companyIds !== undefined && !sameSet(input.companyIds, stringList(m.companyIds)));
+    const switchOnly = 'enabled' in data && !edited;
+    return done(
+      actor,
+      meta,
+      c.id,
+      'training.module.update',
+      m.id,
+      {
+        oldValue: { title: m.title, moduleKey: m.moduleKey, roleKeys: stringList(m.roleKeys), companyIds: stringList(m.companyIds), enabled: m.enabled, offReason: m.offReason },
+        newValue: input,
+      },
+      { edit: !switchOnly },
+    );
   }
 
   async function removeModule(actorId: string, moduleId: unknown, body: unknown, meta?: Meta): Promise<ManageCourse> {

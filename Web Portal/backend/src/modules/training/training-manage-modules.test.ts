@@ -12,6 +12,7 @@ import {
   moduleVisibility,
   notMergedOf,
   removeModuleSchema,
+  sameSet,
 } from './training-manage-modules';
 import { copyTitle } from './training-duplicate';
 import { stateWithout } from './training-finish';
@@ -98,6 +99,13 @@ describe('module input', () => {
     expect(everyIdOnce(['a', 'b'], ['a', 'a'])).toBe(false);
     expect(everyIdOnce(['a', 'b'], ['a', 'b', 'x'])).toBe(false);
     expect(everyIdOnce(['a', 'b'], ['a', 'x'])).toBe(false);
+  });
+  it('the same ids, whatever their order or repeats (a switch sent with unchanged groups is still only a switch)', () => {
+    expect(sameSet(['a', 'b'], ['b', 'a'])).toBe(true);
+    expect(sameSet(['a', 'a', 'b'], ['b', 'a'])).toBe(true);
+    expect(sameSet([], [])).toBe(true);
+    expect(sameSet(['a'], ['a', 'b'])).toBe(false);
+    expect(sameSet(['a', 'c'], ['a', 'b'])).toBe(false);
   });
 });
 
