@@ -307,7 +307,7 @@ describe('a learner’s journey', () => {
     const res = await api.app.inject({ method: 'GET', url: `/api/v1/training/verify/${certCode.toLowerCase()}` });
     expect(res.statusCode).toBe(200);
     const v = (res.json() as { data: VerifyResult }).data;
-    expect(Object.keys(v).sort()).toEqual(['courseTitle', 'expiresAt', 'issuedAt', 'learnerName', 'status']);
+    expect(Object.keys(v).sort()).toEqual(['completedAt', 'courseTitle', 'expiresAt', 'issuedAt', 'learnerName', 'status']);
     expect(v).toMatchObject({ courseTitle: 'Tasks basics E2E', learnerName: expect.stringContaining('Ana'), status: 'VALID' });
   });
 });

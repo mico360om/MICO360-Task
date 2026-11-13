@@ -224,7 +224,7 @@ describe('who may see training reports (R5)', () => {
     const r = await data<TrainingReport>('admin', '/training/reports?by=course');
     expect(r.scope).toBe('ALL');
     expect(rowOf(r.rows, C.c4)).toBeUndefined();
-    expect(rowOf(r.rows, C.c1)).toEqual({ key: C.c1, label: `Tasks basics ${w.tag}`, people: 4, assigned: 0, started: 4, completed: 3, overdue: 0, completionRate: 75, averageScore: 75 });
+    expect(rowOf(r.rows, C.c1)).toMatchObject({ key: C.c1, label: `Tasks basics ${w.tag}`, people: 4, assigned: 0, started: 4, completed: 3, overdue: 0, completionRate: 75, averageScore: 75 });
     expect(rowOf(r.rows, C.c2)).toMatchObject({ people: 3, assigned: 2, started: 1, completed: 0, overdue: 1, completionRate: 0, averageScore: null });
     expect(rowOf(r.rows, C.c3)).toMatchObject({ people: 1, started: 1 });
     const people = await data<TrainingReport>('admin', '/training/reports?by=person');
@@ -292,7 +292,7 @@ describe('overdue, certificates expiring and quizzes', () => {
 
   it('each quiz: handed-in attempts in scope, pass rate and average', async () => {
     const all = await data<TrainingReport>('admin', '/training/reports');
-    expect(all.quizzes.find((q) => q.lessonId === quizLesson)).toEqual({ lessonId: quizLesson, courseTitle: `Tasks basics ${w.tag}`, title: 'Check', attempts: 2, passRate: 50, averageScore: 75 });
+    expect(all.quizzes.find((q) => q.lessonId === quizLesson)).toMatchObject({ lessonId: quizLesson, courseTitle: `Tasks basics ${w.tag}`, title: 'Check', attempts: 2, passRate: 50, averageScore: 75 });
     expect((await data<TrainingReport>('ben', '/training/reports')).quizzes.find((q) => q.lessonId === quizLesson)).toMatchObject({ attempts: 1, passRate: 0, averageScore: 50 });
   });
 

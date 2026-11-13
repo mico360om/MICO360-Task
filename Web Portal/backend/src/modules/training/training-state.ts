@@ -1,3 +1,4 @@
+import type { UnitProgress } from './training-modules';
 import type { CompletionRule, EnrolmentStatus, LessonKind } from './training-types';
 
 /**
@@ -110,6 +111,8 @@ export interface CourseStateInput {
   today: string;
   /** R10: a mandatory retake's due day (the expiry day); null otherwise. */
   retakeDueDay: string | null;
+  /** 1.23.30: a course with modules — the person's modules (units) and how far they are in each; absent: a plain course. */
+  units?: readonly Pick<UnitProgress, 'status'>[];
 }
 
 export interface CourseState extends Terms {
@@ -121,7 +124,15 @@ export interface CourseState extends Terms {
 export function courseState(i: CourseStateInput): CourseState {
   const e = i.enrolment;
   const doneIds = doneInCycle(i.lessons, i.done, e);
-  const pct = i.lessons.length ? Math.floor((doneIds.size / i.lessons.length) * 100) : 0;
+  // 1.23.30: a course with modules counts the person's modules done (a recorded module stays done).
+  const unitsDone = i.units ? i.units.filter((u) => u.status === 'DONE').length : 0;
+  const pct = i.units
+    ? i.units.length
+      ? Math.floor((unitsDone / i.units.length) * 100)
+      : 0
+    : i.lessons.length
+      ? Math.floor((doneIds.size / i.lessons.length) * 100)
+      : 0;
   let status: EnrolmentStatus;
   let dueDay: string | null;
   let progressPct = pct;
@@ -139,7 +150,7 @@ export function courseState(i: CourseStateInput): CourseState {
       dueDay = null;
     }
   } else {
-    status = e?.startedAt || doneIds.size > 0 ? 'IN_PROGRESS' : 'NOT_STARTED';
+    status = e?.startedAt || doneIds.size > 0 || unitsDone > 0 ? 'IN_PROGRESS' : 'NOT_STARTED';
     dueDay = i.terms.dueDay;
   }
   const overdue = status !== 'COMPLETED' && !!dueDay && dueDay < i.today;

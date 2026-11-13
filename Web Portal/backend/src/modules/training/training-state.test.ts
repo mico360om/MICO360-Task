@@ -112,6 +112,20 @@ describe('the person’s state on a course', () => {
   it('a withdrawn enrolment keeps its progress (it is only hidden from My training)', () => {
     expect(courseState({ enrolment: enr({ startedAt: t('2026-11-01'), withdrawnAt: t('2026-11-02') }), lessons, done: done({ a: '2026-11-02' }), terms: none, today, retakeDueDay: null }).status).toBe('IN_PROGRESS');
   });
+
+  it('1.23.30: a course with modules counts the person’s modules done', () => {
+    const u = (...s: ('NOT_STARTED' | 'IN_PROGRESS' | 'DONE')[]) => s.map((status) => ({ status }));
+    const base = { lessons, terms: none, today, retakeDueDay: null };
+    // 2 of 3 lessons done but only one of two modules: 50 %.
+    expect(courseState({ ...base, enrolment: enr(), done: done({ a: '2026-11-02', b: '2026-11-02' }), units: u('DONE', 'IN_PROGRESS') })).toMatchObject({ status: 'IN_PROGRESS', progressPct: 50 });
+    expect(courseState({ ...base, enrolment: enr(), done: new Map(), units: u('NOT_STARTED', 'NOT_STARTED', 'NOT_STARTED') })).toMatchObject({ status: 'NOT_STARTED', progressPct: 0 });
+    // A recorded module counts (no lesson done in this cycle): in progress.
+    expect(courseState({ ...base, enrolment: enr(), done: new Map(), units: u('DONE', 'NOT_STARTED', 'NOT_STARTED') })).toMatchObject({ status: 'IN_PROGRESS', progressPct: 33 });
+    // No module the person can see: nothing to count.
+    expect(courseState({ ...base, enrolment: enr(), done: new Map(), units: [] }).progressPct).toBe(0);
+    // Finished stays finished at 100 % when a module appears later (D3).
+    expect(courseState({ ...base, enrolment: enr({ startedAt: t('2026-11-01'), completedAt: t('2026-11-03') }), done: new Map(), units: u('DONE', 'NOT_STARTED') })).toMatchObject({ status: 'COMPLETED', progressPct: 100 });
+  });
 });
 
 describe('the lesson list', () => {

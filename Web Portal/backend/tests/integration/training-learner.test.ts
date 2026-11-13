@@ -372,7 +372,7 @@ describe('progress, order and completion (a course in order, with a certificate)
     expect((await call('ana', 'PUT', `/training/lessons/${g!.id}/progress`, { stepIndex: 5 })).status).toBe(400);
     expect((await call('ana', 'PUT', `/training/lessons/${g!.id}/progress`, { watchedPct: 140 })).status).toBe(400);
     const done = await data<LessonDone>(call('ana', 'POST', `/training/lessons/${g!.id}/complete`));
-    expect(done).toEqual({ courseProgressPct: 33, courseCompleted: false, certificateId: null, nextLessonId: v!.id });
+    expect(done).toEqual({ courseProgressPct: 33, courseCompleted: false, certificateId: null, nextLessonId: v!.id, moduleDone: null });
     const video = await data<LessonView>(call('ana', 'GET', `/training/lessons/${v!.id}`));
     expect(video.video).toEqual({ provider: 'YOUTUBE', videoId: 'dQw4w9WgXcQ', embedUrl: 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ', watchUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' });
     expect(video.watchFallbackSeconds).toBe(120);
@@ -463,7 +463,7 @@ describe('certificates', () => {
     const res = await call(null, 'GET', `/training/verify/${anaCert.code.toLowerCase()}`);
     expect(res.status).toBe(200);
     const v = res.body.data as Record<string, unknown>;
-    expect(Object.keys(v).sort()).toEqual(['courseTitle', 'expiresAt', 'issuedAt', 'learnerName', 'status']);
+    expect(Object.keys(v).sort()).toEqual(['completedAt', 'courseTitle', 'expiresAt', 'issuedAt', 'learnerName', 'status']);
     expect(v).toMatchObject({ courseTitle: `Staff basics ${w.tag}`, learnerName: `Ana Alpha ${w.tag}`, status: 'VALID' });
     expect((await raw(null, 'GET', `/training/verify/${anaCert.code}`)).headers['cache-control']).toBe('no-store');
     expect((await call(null, 'GET', '/training/verify/TC-2345-6789-ABCD')).status).toBe(404);
