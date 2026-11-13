@@ -14,8 +14,8 @@ export interface SearchMeetingResult {
 
 /** At most this many meetings are returned (the website, the app and the extension show six). */
 export const TOP_BAR_MEETING_LIMIT = 10;
-/** Meetings and notes read from the index for them: one meeting may be found by several of its notes. */
-const READ = 2 * TOP_BAR_MEETING_LIMIT;
+/** Notes read from the index for them: one meeting may be found by several of its notes. */
+const NOTES_READ = 2 * TOP_BAR_MEETING_LIMIT;
 /** How much of a meeting a title-only result shows. */
 const PREVIEW_CHARS = 140;
 /** Agenda items read for that preview. */
@@ -42,10 +42,14 @@ export interface TopBarMeetingSearch {
  */
 export function createTopBarMeetings({ prisma, engine }: TopBarMeetingsDeps): TopBarMeetingSearch {
   async function search({ q, scope, viewerId }: { q: string; scope: SearchScopeAll; viewerId: string }): Promise<SearchMeetingResult[]> {
-    // Whole matches only (no spelling or some-words pass), as the top bar's other kinds.
-    const { hits } = await engine.search({ q, scope, viewerId, kinds: ['meeting', 'note'], limit: READ, exactOnly: true });
+    // Whole matches only (no spelling or some-words pass), as the top bar's other kinds. The meetings
+    // found themselves first, then those found by a note: one meeting's many notes never crowd the rest out.
+    const [meetings, notes] = await Promise.all([
+      engine.search({ q, scope, viewerId, kinds: ['meeting'], limit: TOP_BAR_MEETING_LIMIT, exactOnly: true }),
+      engine.search({ q, scope, viewerId, kinds: ['note'], limit: NOTES_READ, exactOnly: true }),
+    ]);
     const found = new Map<string, { snippet: string; title: string }>();
-    for (const hit of hits) {
+    for (const hit of [...meetings.hits, ...notes.hits]) {
       if (hit.match || hit.target.type !== 'meeting' || found.has(hit.target.meetingId)) continue;
       // A note found stands for its meeting (its title is the meeting's): where it matched is the snippet.
       found.set(hit.target.meetingId, { title: hit.title, snippet: hit.matches[0]?.snippet ?? '' });

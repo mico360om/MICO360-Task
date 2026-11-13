@@ -27,7 +27,7 @@ function capturing() {
   return { errors, logger };
 }
 
-async function makeApp({ tasksFail = false, moreFails = false, allTasksFail = false } = {}) {
+async function makeApp({ tasksFail = false, moreFails = false, allTasksFail = false, meetingsFail = false, scopeFails = false } = {}) {
   const authService = createAuthService({
     users: { async findByIdentifier() { return null; }, async findById() { return null; }, async applyFailedAttempt() {}, async resetFailedAttempts() {} },
     maxAttempts: 5,
@@ -40,7 +40,7 @@ async function makeApp({ tasksFail = false, moreFails = false, allTasksFail = fa
     tokenService,
     logger,
     searchService: createSearchService({
-      data: { async getSearchData() { return { tasks: [], projects: [{ id: 'p1', code: 'MICO', name: 'Pump repair yard' }], users: [], meetings: [] }; } },
+      data: { async getSearchData() { return { tasks: [], projects: [{ id: 'p1', code: 'MICO', name: 'Pump repair yard' }], users: [] }; } },
       tasks: {
         async search() {
           if (tasksFail) throw taskError;
@@ -60,7 +60,19 @@ async function makeApp({ tasksFail = false, moreFails = false, allTasksFail = fa
           return { hits: [hit('note', 'n1')], next: null, corrected: [], ...(allTasksFail ? { tasksUnavailable: true as const } : {}), ...(input.withCounts ? { counts: { task: 0, project: 0, meeting: 0, note: 1, minutes: 0, file: 0, inspection: 0, checklist: 0, contact: 0 }, total: 1, totalCapped: false } : {}) };
         },
       },
-      scope: { async forViewer() { return scope; } },
+      scope: {
+        async forViewer() {
+          if (scopeFails) throw new Error('scope down');
+          return scope;
+        },
+      },
+      // Review #22: the top bar's meetings (from the index).
+      meetings: {
+        async search() {
+          if (meetingsFail) throw new Error('meetings down');
+          return [{ id: 'm1', title: 'Pump repair review', projectId: null, snippet: 'pump' }];
+        },
+      },
       timeZone: 'Asia/Muscat',
     },
   });
@@ -100,6 +112,37 @@ describe('GET /search — the top bar when the task search fails', () => {
     expect(res.json().data.more).toEqual([]);
     expect(errors).toHaveLength(1);
     expect(errors[0]!.ctx).toMatchObject({ route: '/api/v1/search' });
+  });
+});
+
+describe('GET /search — the top bar when its meetings (review #22) or the scope fail', () => {
+  const asAdmin = async (app: Awaited<ReturnType<typeof makeApp>>['app']) =>
+    app.inject({ method: 'GET', url: '/api/v1/search?q=pump', headers: { authorization: `Bearer ${await tokenFor('u1', ['ADMIN'])}` } });
+
+  it('the meetings come back with the rest', async () => {
+    const { app, errors } = await makeApp();
+    expect((await asAdmin(app)).json().data.meetings).toEqual([{ id: 'm1', title: 'Pump repair review', projectId: null, snippet: 'pump' }]);
+    expect(errors).toHaveLength(0);
+  });
+
+  it('the meetings part failing still shows the rest — no meetings, recorded once', async () => {
+    const { app, errors } = await makeApp({ meetingsFail: true });
+    const res = await asAdmin(app);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.meetings).toEqual([]);
+    expect(res.json().data.tasks).toHaveLength(1);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]!.ctx).toMatchObject({ part: 'meetings' });
+  });
+
+  it('the scope failing (both the meetings and the other kinds need it) is recorded once', async () => {
+    const { app, errors } = await makeApp({ scopeFails: true });
+    const res = await asAdmin(app);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.meetings).toEqual([]);
+    expect(res.json().data.more).toEqual([]);
+    expect(res.json().data.projects).toHaveLength(1);
+    expect(errors).toHaveLength(1);
   });
 });
 

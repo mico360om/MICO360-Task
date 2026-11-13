@@ -546,6 +546,19 @@ describe('MICO AI answers name things, never their codes', () => {
     expect(out.options).toEqual(['RIG-14', 'RIG-9']);
   });
 
+  it('a ref to something not in the data keeps a readable name it holds; a name is never changed again (review minors)', async () => {
+    const meetings: Omit<ToolResult, 'id'> = {
+      tool: 'list_meetings',
+      args: {},
+      title: 'Meetings this week',
+      columns: [{ key: 'title', label: 'Meeting' }],
+      rows: [{ ref: { type: 'meeting', id: 'm1', label: 'Phase r2 review', url: '/meetings/m1' }, values: { title: 'Phase r2 review' } }],
+      total: 1,
+    };
+    const made = deps([{ action: 'tool', name: 'search_tasks', args: {} }, { action: 'tool', name: 'list_meetings', args: {} }, answer({ text: 'See meeting:m1 (r2); task:MICO-142 is with person:Ali, not project:cmwe1x69q0001xyz.' })], { search_tasks: () => overdue, list_meetings: () => meetings });
+    expect((await runTurn(made.d, input('Which meetings?'))).text).toBe('See Phase r2 review (“Meetings this week”); MICO-142 is with Ali, not a project.');
+  });
+
   it('ordinary words that look like codes are left alone', async () => {
     const { d } = withDraft([{ action: 'tool', name: 'search_tasks', args: {} }, answer({ text: 'Pump R1 and room r12b need a check: task list later.' })]);
     expect((await runTurn(d, input('Anything else?'))).text).toBe('Pump R1 and room r12b need a check: task list later.');

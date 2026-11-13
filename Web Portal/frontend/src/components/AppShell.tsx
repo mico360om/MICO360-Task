@@ -85,7 +85,8 @@ export function AppShell() {
   // A link to another page opens it at its top (sb3 4b): the window kept the last page's scroll, so a
   // short page (My Action Items) opened with its title under the sticky top bar. Not for a place on a
   // page (#…: the page scrolls there itself), a change within the page (filters), or Back and Forward.
-  // Before the page's own effects run, and at once (the site scrolls smoothly otherwise).
+  // At once (the site scrolls smoothly otherwise), before the page's own effects — but after its layout
+  // effects: a page that scrolls the window when it opens must do so in an effect, not a layout effect.
   const navigationType = useNavigationType();
   useLayoutEffect(() => {
     if (navigationType === 'POP' || location.hash) return;

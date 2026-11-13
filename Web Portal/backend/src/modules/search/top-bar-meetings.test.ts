@@ -27,7 +27,13 @@ type Row = { id: string; projectId: string | null; description: string | null; a
 function make(hits: SearchHit[], rows: Row[]) {
   const asked: SearchAllInput[] = [];
   const read: string[][] = [];
-  const engine = { async search(input: SearchAllInput): Promise<SearchAllResult> { asked.push(input); return { hits, next: null, corrected: [] }; } };
+  // Each read gets the hits of the kinds it asks for, at most its limit (as the engine does).
+  const engine = {
+    async search(input: SearchAllInput): Promise<SearchAllResult> {
+      asked.push(input);
+      return { hits: hits.filter((h) => !input.kinds || input.kinds.includes(h.kind)).slice(0, input.limit), next: null, corrected: [] };
+    },
+  };
   const prisma = {
     meeting: {
       async findMany(args: { where: { id: { in: string[] } } }) {
@@ -41,21 +47,32 @@ function make(hits: SearchHit[], rows: Row[]) {
 const row = (id: string, extra: Partial<Row> = {}): Row => ({ id, projectId: null, description: null, agendaItems: [], ...extra });
 
 describe('the top bar’s meetings (createTopBarMeetings)', () => {
-  it('asks the index for meetings and notes holding every word, in the person’s scope for this request', async () => {
+  it('asks the index for meetings, and for notes, holding every word, in the person’s scope for this request', async () => {
     const t = make([], []);
     expect(await t.search.search({ q: 'pump valve', scope, viewerId: 'u1' })).toEqual([]);
-    expect(t.asked).toEqual([{ q: 'pump valve', scope, viewerId: 'u1', kinds: ['meeting', 'note'], limit: 2 * TOP_BAR_MEETING_LIMIT, exactOnly: true }]);
+    expect(t.asked).toEqual([
+      { q: 'pump valve', scope, viewerId: 'u1', kinds: ['meeting'], limit: TOP_BAR_MEETING_LIMIT, exactOnly: true },
+      { q: 'pump valve', scope, viewerId: 'u1', kinds: ['note'], limit: 2 * TOP_BAR_MEETING_LIMIT, exactOnly: true },
+    ]);
     expect(t.read).toEqual([]); // nothing found: nothing more is read
   });
 
-  it('a note found stands for its meeting, once, in the engine’s order; its project as the meeting has it', async () => {
+  it('many notes of one meeting never crowd out the meetings found themselves (review minor 1)', async () => {
+    const notes = Array.from({ length: 25 }, (_, i) => hit('note', `n${i}`, 'busy', 'Weekly coordination', `valve note ${i}`));
+    const meetings = Array.from({ length: 5 }, (_, i) => hit('meeting', `m${i}`, `m${i}`, `Older meeting ${i}`, 'Agenda item: valve'));
+    const t = make([...notes, ...meetings], [row('busy'), ...meetings.map((m) => row(m.id))]);
+    const found = await t.search.search({ q: 'valve', scope, viewerId: 'u1' });
+    expect(found.map((m) => m.id)).toEqual(['m0', 'm1', 'm2', 'm3', 'm4', 'busy']);
+  });
+
+  it('a note found stands for its meeting, once, after the meetings found themselves; its project as the meeting has it', async () => {
     const t = make(
       [hit('note', 'n1', 'm2', 'Budget review', '…supplier penalty of 40k…'), hit('meeting', 'm1', 'm1', 'Pump overhaul', 'Agenda: penalty clause'), hit('note', 'n2', 'm2', 'Budget review', 'second penalty note')],
       [row('m1', { projectId: 'p1' }), row('m2')],
     );
     expect(await t.search.search({ q: 'penalty', scope, viewerId: 'u1' })).toEqual([
-      { id: 'm2', title: 'Budget review', projectId: null, snippet: '…supplier penalty of 40k…' },
       { id: 'm1', title: 'Pump overhaul', projectId: 'p1', snippet: 'Agenda: penalty clause' },
+      { id: 'm2', title: 'Budget review', projectId: null, snippet: '…supplier penalty of 40k…' },
     ]);
   });
 
@@ -75,8 +92,9 @@ describe('the top bar’s meetings (createTopBarMeetings)', () => {
       [hit('meeting', 'close', 'close', 'Close', 'x', { match: 'close' }), hit('meeting', 'gone', 'gone', 'Gone', 'x'), { ...hit('meeting', 'f1', 'f1', 'File'), kind: 'file', target: { type: 'file', taskId: 't', fileId: 'f1' } }, ...many],
       [...many.map((h) => row(h.id))],
     );
-    const found = await t.search.search({ q: 'here', scope, viewerId: 'u1' });
-    expect(found.map((m) => m.id)).toEqual(['m0', 'm1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7', 'm8', 'm9']);
+    expect((await t.search.search({ q: 'here', scope, viewerId: 'u1' })).map((m) => m.id)).toEqual(['m0', 'm1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7']);
     expect(t.read).toHaveLength(1); // one read for every candidate
+    const full = make([...many, ...many.map((h) => hit('note', `n-${h.id}`, `x${h.id}`, 'Other', 'here'))], [...many.map((h) => row(h.id)), ...many.map((h) => row(`x${h.id}`))]);
+    expect(await full.search.search({ q: 'here', scope, viewerId: 'u1' })).toHaveLength(TOP_BAR_MEETING_LIMIT);
   });
 });

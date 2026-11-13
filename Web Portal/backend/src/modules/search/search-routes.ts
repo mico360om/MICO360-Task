@@ -188,6 +188,16 @@ export async function registerSearchRoutes(app: FastifyInstance, deps: SearchRou
     let everyScope: Promise<SearchScopeAll> | null = null;
     const scopeOf = () => (everyScope ??= everything!.scope.forViewer(viewer, pick));
     const words = parseTaskQuery(q).terms.length > 0;
+    // One failure is recorded once, even when two parts share it (the scope, if it fails).
+    const recorded = new Set<unknown>();
+    const failedOnce = (part: 'meetings' | 'more') => {
+      const tell = partFailed(req, part);
+      return (err: unknown) => {
+        if (recorded.has(err)) return;
+        recorded.add(err);
+        tell(err);
+      };
+    };
     // 1.23.6: what the reader understood, and how many items that finds ("Tasks · Overdue · MICO · Assigned to me → 7").
     const understood = everything?.reader && everything.engine.count ? understoodRow(everything, viewer, pick, q, scopeOf).catch(() => undefined) : Promise.resolve(undefined);
     // 1.23: the top bar also shows the best few notes, minutes, files and inspections (never holding it up on a failure).
@@ -200,7 +210,7 @@ export async function registerSearchRoutes(app: FastifyInstance, deps: SearchRou
             .then((scope) => everything.meetings!.search({ q, scope, viewerId: viewer.id }))
             // Never holding the rest up — recorded, as a failing part is.
             .catch((err: unknown) => {
-              partFailed(req, 'meetings')(err);
+              failedOnce('meetings')(err);
               return [] as SearchMeetingResult[];
             })
         : Promise.resolve([] as SearchMeetingResult[]),
@@ -213,7 +223,7 @@ export async function registerSearchRoutes(app: FastifyInstance, deps: SearchRou
               (r) => r.hits.filter((h) => !h.match),
               // 1.23.1: still never holding the rest up — but recorded, not dropped without a word.
               (err: unknown) => {
-                partFailed(req, 'more')(err);
+                failedOnce('more')(err);
                 return [] as SearchHit[];
               },
             )

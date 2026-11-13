@@ -474,8 +474,10 @@ interface Names {
   refs: Map<string, SourceRef>;
   results: Map<string, string>;
 }
-const REF_WORD = /\b(task|project|meeting|chat|person):([A-Za-z0-9_-]+)/g;
-const RESULT_WORD = /(?<![\w-])(r\d{1,4})(?![\w-])/g;
+/** A ref ("project:cmwe1x69…") or a result id ("r1"), in one pass: a name put in is never read again. */
+const CODE_WORD = /\b(task|project|meeting|chat|person):([A-Za-z0-9_-]+)|(?<![\w-])(r\d{1,4})(?![\w-])/g;
+/** An id nobody can read (a database id): lower-case letters and digits, both, ten or more. */
+const OPAQUE_ID = /^(?=.*\d)(?=.*[a-z])[a-z0-9]{10,}$/;
 const SOMETHING: Record<SourceType, string> = { task: 'a task', project: 'a project', meeting: 'a meeting', chat: 'a chat message', person: 'a person' };
 function namesOf(results: readonly Pick<StoredResult, 'id' | 'title' | 'rows' | 'detailRefs'>[]): Names {
   const refs = new Map<string, SourceRef>();
@@ -485,14 +487,17 @@ function namesOf(results: readonly Pick<StoredResult, 'id' | 'title' | 'rows' | 
   }
   return { refs, results: new Map(results.map((r) => [r.id, r.title])) };
 }
-/** These words with each ref as its record's name (a task's key…) and each result id as its title, in quotes. */
+/**
+ * These words with each ref as its record's name (a task's key…) and each result id as its title, in
+ * quotes. A ref to nothing in the data keeps what it says when that is readable ("task:MICO-142" →
+ * "MICO-142", "person:Ali" → "Ali"), else says what it is ("a project").
+ */
 export function withNames(words: string, names: Names): string {
-  return words
-    .replace(REF_WORD, (_, type: SourceType, id: string) => names.refs.get(`${type}:${id}`)?.label || SOMETHING[type])
-    .replace(RESULT_WORD, (whole: string, id: string) => {
-      const title = names.results.get(id);
-      return title ? `“${title}”` : whole;
-    });
+  return words.replace(CODE_WORD, (whole: string, type: SourceType | undefined, id: string | undefined, result: string | undefined) => {
+    if (type && id) return names.refs.get(`${type}:${id}`)?.label || (OPAQUE_ID.test(id) ? SOMETHING[type] : id);
+    const title = result ? names.results.get(result) : undefined;
+    return title ? `“${title}”` : whole;
+  });
 }
 
 // ── The answer, grounded ───────────────────────────────────────────────────────
@@ -582,6 +587,8 @@ export async function runTurn(deps: LoopDeps, input: TurnInput): Promise<Assista
     let shown: string | null = null;
     let withheld = false;
     const backed = nudged || results.some((r) => !r.error) || input.earlier.length > 0;
+    // The names the words as they stream may need (the data stays the same during one reply).
+    const draftNames = namesOf([...input.earlier, ...results]);
     const live = deps.onDraft
       ? (text: string) => {
           if (withheld) return;
@@ -593,7 +600,7 @@ export async function runTurn(deps: LoopDeps, input: TurnInput): Promise<Assista
             return;
           }
           shown = words;
-          deps.onDraft!(withNames(words, namesOf([...input.earlier, ...results])));
+          deps.onDraft!(withNames(words, draftNames));
         }
       : undefined;
     const raw = await deps.complete({ system, prompt: turnPrompt(input, results, note, finalOnly), json: true, schema: MICO_AI_ACTION_SCHEMA, maxTokens: REPLY_TOKENS, signal: input.signal, onText: live });
