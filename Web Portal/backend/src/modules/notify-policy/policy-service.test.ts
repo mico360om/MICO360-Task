@@ -21,6 +21,11 @@ describe('setting a company up', () => {
     expect(hs.every((h) => h.day.startsWith('2026') || h.day.startsWith('2027'))).toBe(true);
     expect(hs.find((h) => h.name === 'National Day')).toMatchObject({ source: 'STARTER', expected: false });
     expect(hs.find((h) => h.name === 'Eid al-Adha')).toMatchObject({ expected: true });
+    // Owner, 13 Nov: Accession Day (11 January), a fixed date, each year.
+    expect(hs.filter((h) => h.name === 'Accession Day').map((h) => [h.day, h.source, h.expected])).toEqual([
+      ['2026-01-11', 'STARTER', false],
+      ['2027-01-11', 'STARTER', false],
+    ]);
     const ss = await service.schedules('c1');
     expect(ss.map((s) => [s.name, s.builtIn, s.isDefault])).toEqual([
       ['Standard', 'STANDARD', true],

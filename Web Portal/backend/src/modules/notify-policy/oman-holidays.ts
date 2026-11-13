@@ -3,7 +3,8 @@
  * edits", this year and next). The Islamic holidays follow the moon, so their dates here are the
  * expected ones (Umm al-Qura estimates) and are marked `expected`: the panel shows "Confirm" and a
  * banner as each comes near, and admins move them to the announced day. Admins can change or remove
- * any of them and add their own days off. Later releases add the following years.
+ * any of them and add their own days off. Later releases add the following years. Accession Day (11 January,
+ * owner 13 Nov 2026) is a fixed date like National Day; sites set up before it get it once (accession-day.ts).
  */
 export interface StarterHoliday {
   day: string;
@@ -14,6 +15,7 @@ export interface StarterHoliday {
 
 export const OMAN_STARTER_HOLIDAYS: readonly StarterHoliday[] = [
   // 2026
+  { day: '2026-01-11', name: 'Accession Day', expected: false },
   { day: '2026-01-16', name: "Isra'a and Mi'raj", expected: true },
   { day: '2026-03-19', name: 'Eid al-Fitr', expected: true },
   { day: '2026-03-20', name: 'Eid al-Fitr', expected: true },
@@ -29,6 +31,7 @@ export const OMAN_STARTER_HOLIDAYS: readonly StarterHoliday[] = [
   { day: '2026-11-21', name: 'National Day', expected: false },
   // 2027
   { day: '2027-01-05', name: "Isra'a and Mi'raj", expected: true },
+  { day: '2027-01-11', name: 'Accession Day', expected: false },
   { day: '2027-03-08', name: 'Eid al-Fitr', expected: true },
   { day: '2027-03-09', name: 'Eid al-Fitr', expected: true },
   { day: '2027-03-10', name: 'Eid al-Fitr', expected: true },

@@ -106,6 +106,7 @@ import { createAvatarFaces, prismaIsAvatar, registerAvatarFaceRoute } from './mo
 import { createPrismaAttachmentRepository } from './modules/tasks/prisma-attachment-repository';
 import { createLocalDiskStorage } from './modules/tasks/local-disk-storage';
 import { removeStoredFile } from './lib/stored-files';
+import { createAccessionDayStep } from './modules/notify-policy/accession-day';
 import { createDependencyService } from './modules/tasks/dependency-service';
 import { createPrismaDependencyRepository } from './modules/tasks/prisma-dependency-repository';
 import { createRecurrenceService } from './modules/tasks/recurrence-service';
@@ -1550,6 +1551,15 @@ async function main(): Promise<void> {
   // Every company set up once (starter holidays this year and next, Standard + Critical schedules).
   jobs.every(6 * 60 * 60 * 1000, () =>
     runExclusive(jobLock, 'notification-setup', SWEEP_LEASE_MS, () => new Date(), () => notifyPolicy.ensureAll()).catch(sweepFailed('notification-setup', 'notification set-up')),
+  );
+  // Owner, 13 Nov: Accession Day (11 January) joins Oman's holidays — added once to companies set up before
+  // (never twice, never where the year has its own 11 January day off, never back after an admin deleted it).
+  const accessionDay = createAccessionDayStep({ prisma, timeZone: companyTz, logger: logger.job('notification-setup'), onAdded: () => notifyPolicy.clearCache() });
+  jobs.every(
+    6 * 60 * 60 * 1000,
+    () =>
+      runExclusive(jobLock, 'holidays-accession-day', SWEEP_LEASE_MS, () => new Date(), async () => { await accessionDay.run(); }).catch(sweepFailed('holidays-accession-day', 'adding Accession Day to the holidays')),
+    { firstAfterMs: 25 * 1000 },
   );
   // The Management page (and its weekly summary) runs on the scope's week and working days: the picked
   // company's, else the reader's primary company's (Ruling 15).
