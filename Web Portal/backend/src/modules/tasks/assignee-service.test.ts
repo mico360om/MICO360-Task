@@ -123,8 +123,8 @@ describe('AssigneeService — swapping one person for another (the Workload page
       ...mem.repo,
       async projectIdOfTask() { return 'p1'; },
       async eligibleUserIds(_p: string, userIds: string[]) { return userIds.filter((id) => id !== 'u3'); },
-      async swap(taskId: string, fromId: string, toId: string) {
-        writes.push(`swap ${fromId}->${toId}`);
+      async swap(taskId: string, fromId: string, toId: string, opts?: { expectedVersion?: number }) {
+        writes.push(`swap ${fromId}->${toId}${opts?.expectedVersion !== undefined ? ` @${opts.expectedVersion}` : ''}`);
         await mem.repo.add(taskId, toId);
         await mem.repo.remove(taskId, fromId);
       },
@@ -144,7 +144,8 @@ describe('AssigneeService — swapping one person for another (the Workload page
     await mem.repo.add('t1', 'u1');
     const list = await svc.swapAssignee('t1', 'u1', 'u2', 'u9', { expectedVersion: 3 });
     expect(list.map((u) => u.id)).toEqual(['u2']);
-    expect(writes).toEqual(['swap u1->u2']);
+    // N12: the write is told the version too (it checks it again and moves it on, in one step).
+    expect(writes).toEqual(['swap u1->u2 @3']);
     expect(assigned).toEqual([['u2']]);
     expect(unassigned).toEqual(['u1']);
   });

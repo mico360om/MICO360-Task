@@ -79,7 +79,8 @@ export function createAssigneeService({ repo, taskLookup, onAssigned, onUnassign
     const alreadyOn = current.some((u) => u.id === toId);
     const projectId = repo.projectIdOfTask ? await repo.projectIdOfTask(taskId) : null;
     if (projectId) await assertAssignable(projectId, [toId]);
-    if (repo.swap) await repo.swap(taskId, fromId, toId);
+    // N12: the write itself checks the version again and moves it on (two changes at once: one is saved).
+    if (repo.swap) await repo.swap(taskId, fromId, toId, { expectedVersion: opts.expectedVersion });
     else {
       await repo.add(taskId, toId);
       await repo.remove(taskId, fromId);

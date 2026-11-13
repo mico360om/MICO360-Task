@@ -17,8 +17,12 @@ export interface AssigneeRepository {
   eligibleUserIds?(projectId: string, userIds: string[]): Promise<string[]>;
   /** The project of a live task (used to check assignees against it). */
   projectIdOfTask?(taskId: string): Promise<string | null>;
-  /** Takes one person off a task and puts another on, in one write. */
-  swap?(taskId: string, fromId: string, toId: string): Promise<void>;
+  /**
+   * Takes one person off a task and puts another on, in one write. N12: in one step with the task's
+   * version — refused (VERSION_CONFLICT) when `expectedVersion` is given and no longer current, or
+   * (ASSIGNEE_GONE) when `fromId` is no longer on it — and the version moves on, as for any task edit.
+   */
+  swap?(taskId: string, fromId: string, toId: string, opts?: { expectedVersion?: number }): Promise<void>;
 }
 
 export interface TaskLookup {
