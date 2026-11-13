@@ -10,6 +10,7 @@ import {
   type CellValue,
   type ResultColumn,
   type SourceRef,
+  type SourceType,
   type StoredResult,
   type ToolResult,
 } from './mico-ai-types';
@@ -205,6 +206,7 @@ export function systemPrompt(tools: ToolInfo[], ctx: LoopDeps['context'], maxSte
     '- When a result says only the first rows of a longer list are kept, say so (“the first 200 of 250”) and never count past them.',
     '- "sources": the "ref" of each record your answer uses, exactly as the results give it.',
     '- "followUps": up to 3 short questions the user might ask next.',
+    '- In "text", table titles, "followUps" and questions: names only (a task’s key, a project’s or meeting’s name, a person’s name) — never write a ref (task:…, project:…) or a result id (r1) there; those are for "sources" and "fromResult".',
     '',
     `Tools (one per reply, at most ${maxSteps} for a question). Dates are YYYY-MM-DD.`,
     ...tools.map((t) => `- ${t.name}: ${t.purpose} Args: ${t.args}`),
@@ -463,9 +465,40 @@ const NOTE_MALFORMED_PROPOSE = 'Your last reply was not valid JSON in the requir
 const NOTE_UNGROUNDED =
   'Your answer has figures, but no tool has given you any data yet. Run a tool to get the data first, or say clearly that it isn’t available. Never estimate.';
 
+// ── Names, never codes (sb3 4c) ─────────────────────────────────────────────
+/**
+ * What the model may have written in words people read: a record's ref ("project:cmwe1x69…") and a
+ * result's id ("r1") — it sees both in the data. The refs of the data it was given, and its results' titles.
+ */
+interface Names {
+  refs: Map<string, SourceRef>;
+  results: Map<string, string>;
+}
+const REF_WORD = /\b(task|project|meeting|chat|person):([A-Za-z0-9_-]+)/g;
+const RESULT_WORD = /(?<![\w-])(r\d{1,4})(?![\w-])/g;
+const SOMETHING: Record<SourceType, string> = { task: 'a task', project: 'a project', meeting: 'a meeting', chat: 'a chat message', person: 'a person' };
+function namesOf(results: readonly Pick<StoredResult, 'id' | 'title' | 'rows' | 'detailRefs'>[]): Names {
+  const refs = new Map<string, SourceRef>();
+  for (const r of results) {
+    for (const row of r.rows) if (row.ref) refs.set(refKey(row.ref), row.ref);
+    for (const ref of r.detailRefs ?? []) refs.set(refKey(ref), ref);
+  }
+  return { refs, results: new Map(results.map((r) => [r.id, r.title])) };
+}
+/** These words with each ref as its record's name (a task's key…) and each result id as its title, in quotes. */
+export function withNames(words: string, names: Names): string {
+  return words
+    .replace(REF_WORD, (_, type: SourceType, id: string) => names.refs.get(`${type}:${id}`)?.label || SOMETHING[type])
+    .replace(RESULT_WORD, (whole: string, id: string) => {
+      const title = names.results.get(id);
+      return title ? `“${title}”` : whole;
+    });
+}
+
 // ── The answer, grounded ───────────────────────────────────────────────────────
 function buildAnswer(action: Extract<Action, { action: 'answer' }>, pool: StoredResult[], allRefs: Map<string, SourceRef>): AssistantContent {
   const byId = new Map(pool.map((r) => [r.id, r]));
+  const names = namesOf(pool);
   const tables: AnswerTable[] = [];
   for (const t of action.tables) {
     if (tables.length >= MAX_TABLES) break;
@@ -479,8 +512,11 @@ function buildAnswer(action: Extract<Action, { action: 'answer' }>, pool: Stored
       rows = r.rows.filter((row) => row.ref && want.has(refKey(row.ref)));
       if (rows.length === 0) continue;
     }
+    // A caption that is only a code (the result's id, a ref) is the result's own title.
+    const caption = t.title?.trim() ?? '';
+    const bare = !caption || /^(r\d{1,4}|(task|project|meeting|chat|person):[A-Za-z0-9_-]+)$/.test(caption);
     tables.push({
-      title: t.title?.trim().slice(0, 120) || r.title,
+      title: bare ? r.title : withNames(caption, names).slice(0, 120),
       fromResult: r.id,
       columns,
       rows: rows.map((row) => ({ ref: row.ref, cells: columns.map((c): CellValue => row.values[c.key] ?? null) })),
@@ -501,11 +537,11 @@ function buildAnswer(action: Extract<Action, { action: 'answer' }>, pool: Stored
   }
   return {
     kind: 'answer',
-    text: action.text,
+    text: withNames(action.text, names),
     unavailable: action.unavailable,
     tables,
     sources: [...sources.values()],
-    followUps: action.followUps,
+    followUps: action.followUps.map((f) => withNames(f, names)),
     options: [],
     results: [],
   };
@@ -557,7 +593,7 @@ export async function runTurn(deps: LoopDeps, input: TurnInput): Promise<Assista
             return;
           }
           shown = words;
-          deps.onDraft!(words);
+          deps.onDraft!(withNames(words, namesOf([...input.earlier, ...results])));
         }
       : undefined;
     const raw = await deps.complete({ system, prompt: turnPrompt(input, results, note, finalOnly), json: true, schema: MICO_AI_ACTION_SCHEMA, maxTokens: REPLY_TOKENS, signal: input.signal, onText: live });
@@ -583,7 +619,8 @@ export async function runTurn(deps: LoopDeps, input: TurnInput): Promise<Assista
     }
 
     if (action.action === 'clarify') {
-      return { kind: 'clarify', text: action.question, unavailable: false, tables: [], sources: [], followUps: [], options: action.options, results: results.map(stored) };
+      const names = namesOf([...input.earlier, ...results]);
+      return { kind: 'clarify', text: withNames(action.question, names), unavailable: false, tables: [], sources: [], followUps: [], options: action.options.map((o) => withNames(o, names)), results: results.map(stored) };
     }
 
     if (action.action === 'propose') {

@@ -484,3 +484,76 @@ describe('MICO AI tool loop: proposing changes (they happen only once the person
     expect(model.prompts[1]!.prompt).toMatch(/not valid JSON in the required format/i);
   });
 });
+
+// sb3 4c (seen while filming the training videos): answers showed internal codes — a project as
+// "project:cmwe1x69…", a table captioned "r1". The model sees each row's ref and each result's id in
+// the data; what it writes for people to read names them instead (no real AI: a stubbed reply).
+describe('MICO AI answers name things, never their codes', () => {
+  const projects: Omit<ToolResult, 'id'> = {
+    tool: 'list_projects',
+    args: {},
+    title: 'Your projects',
+    columns: [{ key: 'name', label: 'Project' }],
+    rows: [{ ref: { type: 'project', id: 'cmwe1x69q0001abc', label: 'Rig Inspection Portal', url: '/projects/cmwe1x69q0001abc' }, values: { name: 'Rig Inspection Portal' } }],
+    total: 1,
+  };
+  const withDraft = (replies: unknown[]) => {
+    const made = deps(replies, { search_tasks: () => overdue, list_projects: () => projects });
+    const drafts: Array<string | null> = [];
+    const complete = made.d.complete;
+    made.d.complete = async (req) => {
+      const raw = await complete(req);
+      req.onText?.(raw); // the words as they stream in
+      return raw;
+    };
+    made.d.onDraft = (t) => drafts.push(t);
+    return { ...made, drafts };
+  };
+
+  it('refs and result ids become names: the text, table captions, follow-ups and the words as they stream', async () => {
+    const { d, drafts } = withDraft([
+      { action: 'tool', name: 'search_tasks', args: {} },
+      { action: 'tool', name: 'list_projects', args: {} },
+      answer({
+        text: 'In project:cmwe1x69q0001abc, **task:t14** and task:t9 are overdue (see r1).',
+        tables: [
+          { title: 'r1', fromResult: 'r1' },
+          { title: 'project:cmwe1x69q0001abc', fromResult: 'r2' },
+          { title: 'Overdue in project:cmwe1x69q0001abc', fromResult: 'r1', rows: ['task:t14'] },
+        ],
+        followUps: ['Who owns task:t14?', 'Show r2 again'],
+        sources: ['task:t14'],
+      }),
+    ]);
+    const out = await runTurn(d, input('What is overdue?'));
+    expect(out.text).toBe('In Rig Inspection Portal, **RIG-14** and RIG-9 are overdue (see “Overdue tasks in Rig Inspection Portal”).');
+    expect(out.tables.map((t) => t.title)).toEqual(['Overdue tasks in Rig Inspection Portal', 'Your projects', 'Overdue in Rig Inspection Portal']);
+    expect(out.followUps).toEqual(['Who owns RIG-14?', 'Show “Your projects” again']);
+    // The links still use the ids: sources and each row's ref are untouched.
+    expect(out.sources.map((s) => s.id)).toEqual(['t14']);
+    expect(out.tables[0]!.rows[0]!.ref?.id).toBe('t14');
+    const shown = drafts.filter((t): t is string => !!t);
+    expect(shown.length).toBeGreaterThan(0);
+    expect(shown.join(' ')).not.toMatch(/project:|task:|\br1\b/);
+  });
+
+  it('a ref to something not in the data is never shown as a code; a clarifying question names things too', async () => {
+    const { d } = withDraft([{ action: 'tool', name: 'search_tasks', args: {} }, answer({ text: 'Nothing in project:zz9nothere00 or meeting:zz8nothere00 for task:t9.' })]);
+    expect((await runTurn(d, input('And there?'))).text).toBe('Nothing in a project or a meeting for RIG-9.');
+    const asked = withDraft([{ action: 'tool', name: 'search_tasks', args: {} }, { action: 'clarify', question: 'Do you mean task:t14 or task:t9?', options: ['task:t14', 'task:t9'] }]);
+    const out = await runTurn(asked.d, input('Open the late one'));
+    expect(out.text).toBe('Do you mean RIG-14 or RIG-9?');
+    expect(out.options).toEqual(['RIG-14', 'RIG-9']);
+  });
+
+  it('ordinary words that look like codes are left alone', async () => {
+    const { d } = withDraft([{ action: 'tool', name: 'search_tasks', args: {} }, answer({ text: 'Pump R1 and room r12b need a check: task list later.' })]);
+    expect((await runTurn(d, input('Anything else?'))).text).toBe('Pump R1 and room r12b need a check: task list later.');
+  });
+
+  it('the instructions ask for names, never refs or result ids, in what people read', async () => {
+    const { d, model } = deps([answer({ text: 'None.' })]);
+    await runTurn(d, input('Hi'));
+    expect(model.prompts[0]!.system).toMatch(/never write a ref .*or a result id/i);
+  });
+});
