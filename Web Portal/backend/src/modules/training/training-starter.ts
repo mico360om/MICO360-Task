@@ -557,7 +557,9 @@ export function createTrainingStarter(deps: TrainingStarterDeps): { run(): Promi
    * One untouched course brought to the new content (R1, R5), in one transaction: its modules and lessons through
    * applyStarterLessons (lessons keep their ids, and so everyone's progress; a video lesson keeps its link). Pictures
    * the same as before stay; new ones are copied in first, and starter pictures no step uses any more are removed
-   * after. Every row is stamped as published with nothing changed since.
+   * after. A picture the assets can't supply keeps the course's own copy with that name (as the one-course conversion
+   * does): a picture the content still names is never removed unless another copy with that name is the one in use.
+   * Every row is stamped as published with nothing changed since.
    */
   async function bringUpToDate(courseId: string, course: StarterCourse, position: number): Promise<void> {
     const saved: string[] = [];
@@ -569,9 +571,22 @@ export function createTrainingStarter(deps: TrainingStarterDeps): { run(): Promi
       const want: { name: string; kind: 'IMAGE' | 'RESOURCE'; mimeType: string | null; shown: string }[] = [];
       for (const l of course.lessons) if (l.kind === 'GUIDE') for (const st of l.steps) if (st.image && !want.some((w) => w.name === st.image)) want.push({ name: st.image, kind: 'IMAGE', mimeType: pictureMimeOf(st.image), shown: st.image });
       for (const r of course.resources ?? []) want.push({ name: r.file, kind: 'RESOURCE', mimeType: r.mimeType, shown: r.name });
+      let stepPictures: Set<string> | null = null;
       for (const w of want) {
         const a = await asset(course.key, w.name, w.mimeType, w.kind, w.shown);
-        if (!a) continue;
+        if (!a) {
+          // Can't be read here (no assets folder, or the file is missing; warned): the course's own copy with that name
+          // stays and its steps keep it (the one a step shows, else the first). Only a picture it never had is left out.
+          if (w.kind === 'IMAGE') {
+            const copies = existing.filter((x) => x.kind === 'IMAGE' && x.name === w.shown);
+            if (copies.length && !stepPictures) {
+              stepPictures = new Set((await prisma.trainingStep.findMany({ where: { lesson: { courseId }, imageFileId: { not: null } }, select: { imageFileId: true } })).map((x) => x.imageFileId!));
+            }
+            const own = copies.find((x) => stepPictures!.has(x.id)) ?? copies[0];
+            if (own) keepIds.set(w.name, own.id);
+          }
+          continue;
+        }
         let kept: string | null = null;
         for (const f of existing.filter((x) => x.kind === w.kind && x.name === a.name && x.sizeBytes === a.content.length)) {
           if (await sameBytes(f.storageKey, a.content)) {
@@ -606,7 +621,13 @@ export function createTrainingStarter(deps: TrainingStarterDeps): { run(): Promi
             ...(await tx.trainingLesson.findMany({ where: { courseId, fileId: { not: null } }, select: { fileId: true } })).map((x) => x.fileId!),
           ]);
           const resources = new Set((course.resources ?? []).map((r) => fileIds.get(r.file)).filter((x): x is string => !!x));
-          const stale = (await tx.trainingFile.findMany({ where: { courseId, starter: true }, select: { id: true, kind: true, storageKey: true } })).filter((f) => !used.has(f.id) && !(f.kind === 'RESOURCE' && resources.has(f.id)));
+          const courseFiles = await tx.trainingFile.findMany({ where: { courseId }, select: { id: true, kind: true, name: true, starter: true, storageKey: true } });
+          // A picture the content still names stays unless another copy with that name is the one in use.
+          const named = new Set(want.filter((w) => w.kind === 'IMAGE').map((w) => w.shown));
+          const namedInUse = new Set(courseFiles.filter((f) => f.kind === 'IMAGE' && used.has(f.id)).map((f) => f.name));
+          const stale = courseFiles.filter(
+            (f) => f.starter && !used.has(f.id) && !(f.kind === 'RESOURCE' && resources.has(f.id)) && !(f.kind === 'IMAGE' && named.has(f.name) && !namedInUse.has(f.name)),
+          );
           if (stale.length) await tx.trainingFile.deleteMany({ where: { id: { in: stale.map((f) => f.id) } } });
 
           await tx.trainingCourse.update({

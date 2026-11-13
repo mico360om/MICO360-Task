@@ -582,6 +582,61 @@ describe('Starter update to a new revision (R1, R4, R3)', () => {
     expect(((await prisma.systemSetting.findUniqueOrThrow({ where: { key: STARTER_REVISION_KEY } })).value as { revision: number }).revision).toBe(2);
   });
 
+  it('a starter picture missing from the assets keeps the course’s own copy: the step keeps it and it is never removed (cleanup batch)', async () => {
+    const before = await liveSite();
+    const oldFile = await prisma.trainingFile.findFirstOrThrow({ where: { courseId: before.mod.id, kind: 'IMAGE', name: 'pic-a.webp' } });
+    // Revision 2 still shows pic-a.webp on guide A's first step, but this server's assets don't have it.
+    const partial = mkdtempSync(join(tmpdir(), 'starter-partial-'));
+    writeFileSync(join(partial, 'tasks-guide.pdf'), PDF);
+    writeFileSync(join(partial, 'pic-a2.webp'), WEBP2);
+    try {
+      const rev = rev2();
+      const m = rev.find((c) => c.key === U.mod)!;
+      m.lessons[1] = guide('Guide A', [{ title: 'One again', image: 'pic-a.webp' }, { title: 'Two again' }], ['Old guide A']);
+      const log = logger();
+      const out = await createTrainingStarter({ prisma, files: createTrainingFileStore(privateDir), courses: rev, assetsDir: partial, logger: log, revision: 2, legacyKeys: rev1().map((c) => c.key), retired, recheck: (ids) => finish.recheck(ids) }).run();
+      expect(out.updated).toBe(2);
+      expect(log.warnings.some((x) => /pic-a\.webp is missing/.test(x.msg))).toBe(true);
+      const mod = (await courseOf(U.mod))!;
+      expect(mod.title).toBe('Mod basics (new)');
+      expect(mod.lessons[1]!.steps.map((st) => [st.title, st.imageFileId])).toEqual([
+        ['One again', oldFile.id],
+        ['Two again', null],
+      ]);
+      expect(await prisma.trainingFile.findUniqueOrThrow({ where: { id: oldFile.id } })).toMatchObject({ courseId: mod.id, storageKey: oldFile.storageKey, starter: true });
+      expect(readFileSync(join(privateDir, oldFile.storageKey)).equals(WEBP)).toBe(true);
+      // The fresh course's picture (in the assets) is copied as usual.
+      const fresh = (await courseOf(U.fresh))!;
+      expect(fresh.lessons[1]!.steps[0]!.imageFileId).not.toBeNull();
+    } finally {
+      rmSync(partial, { recursive: true, force: true });
+    }
+  });
+
+  it('a retaken picture under the same name: the new copy is the one in use, so the old copy goes (cleanup batch)', async () => {
+    const before = await liveSite();
+    const oldFile = await prisma.trainingFile.findFirstOrThrow({ where: { courseId: before.mod.id, kind: 'IMAGE', name: 'pic-a.webp' } });
+    const retaken = mkdtempSync(join(tmpdir(), 'starter-retaken-'));
+    writeFileSync(join(retaken, 'tasks-guide.pdf'), PDF);
+    writeFileSync(join(retaken, 'pic-a.webp'), WEBP2);
+    writeFileSync(join(retaken, 'pic-a2.webp'), WEBP2);
+    try {
+      const rev = rev2();
+      const m = rev.find((c) => c.key === U.mod)!;
+      m.lessons[1] = guide('Guide A', [{ title: 'One again', image: 'pic-a.webp' }, { title: 'Two again' }], ['Old guide A']);
+      await createTrainingStarter({ prisma, files: createTrainingFileStore(privateDir), courses: rev, assetsDir: retaken, logger: logger(), revision: 2, legacyKeys: rev1().map((c) => c.key), retired, recheck: (ids) => finish.recheck(ids) }).run();
+      const mod = (await courseOf(U.mod))!;
+      const pics = await prisma.trainingFile.findMany({ where: { courseId: mod.id, kind: 'IMAGE' } });
+      expect(pics.map((f) => f.name)).toEqual(['pic-a.webp']);
+      expect(pics[0]!.id).not.toBe(oldFile.id);
+      expect(mod.lessons[1]!.steps[0]!.imageFileId).toBe(pics[0]!.id);
+      expect(readFileSync(join(privateDir, pics[0]!.storageKey)).equals(WEBP2)).toBe(true);
+      expect(existsSync(join(privateDir, oldFile.storageKey))).toBe(false);
+    } finally {
+      rmSync(retaken, { recursive: true, force: true });
+    }
+  });
+
   it('a new site: the first load is the newest revision (nothing to update afterwards)', async () => {
     const out = await upgrader(rev2(), 2).run();
     expect(out).toEqual({ loaded: 4, skipped: 0, already: false });
