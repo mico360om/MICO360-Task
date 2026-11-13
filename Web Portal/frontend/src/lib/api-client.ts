@@ -24,13 +24,18 @@ export class ApiError extends Error {
  */
 export type RefreshOutcome = 'refreshed' | 'invalid' | 'transient' | 'changed';
 
+/** SessionChangedError's code (the app's is the same). */
+export const SESSION_CHANGED_CODE = 'SESSION_CHANGED';
+
 /**
  * Batch 2: a request made for one person (forUser — a replayed offline change) while someone else's
- * session, or none, is held. It is never sent; the caller keeps it for its person.
+ * session, or none, is held. It is never sent; the caller keeps it for its person. As the app's
+ * sessionChangedError(): a 401 (code SESSION_CHANGED), so whatever reads a 401 as "signed out — keep
+ * it and wait" (the inspection outbox, the offline queue) does so for it too.
  */
-export class SessionChangedError extends Error {
-  constructor(message = 'Signed in as someone else: this change waits for the person who made it.') {
-    super(message);
+export class SessionChangedError extends ApiError {
+  constructor(message = 'You’re signed in as someone else now, so this wasn’t sent.') {
+    super(401, SESSION_CHANGED_CODE, message);
     this.name = 'SessionChangedError';
   }
 }

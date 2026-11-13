@@ -25,6 +25,14 @@ describe('tokenSubject', () => {
   });
 });
 
+describe('SessionChangedError', () => {
+  it('is a 401 (SESSION_CHANGED), as the app’s: whatever reads a 401 as "signed out, keep it" does so for it', () => {
+    const e = new SessionChangedError();
+    expect(e).toBeInstanceOf(ApiError);
+    expect(e).toMatchObject({ status: 401, code: 'SESSION_CHANGED', name: 'SessionChangedError' });
+  });
+});
+
 describe('a request bound to a person (forUser)', () => {
   it('a 401 that stands because someone else signed in meanwhile rejects as SessionChangedError (a pause, not a failure)', async () => {
     let holder: string | null = 'A';
