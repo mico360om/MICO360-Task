@@ -142,14 +142,36 @@ describe('the same person reading a chat in several tabs at once (MariaDB 1020)'
     const b = await person('ray');
     const conv = await service().getOrCreateDirectConversation(a, b);
     const repo = createPrismaParticipantRepository(prisma);
-    const newer = new Date('2026-11-13T10:00:05.000Z');
+    const t0 = Date.now() - 60_000;
+    const newer = new Date(t0 + 5_000);
     await repo.setLastRead(conv.id, a, newer);
-    await repo.setLastRead(conv.id, a, new Date('2026-11-13T10:00:01.000Z'));
+    await repo.setLastRead(conv.id, a, new Date(t0 + 1_000));
     const row = await prisma.conversationParticipant.findUnique({ where: { conversationId_userId: { conversationId: conv.id, userId: a } } });
     expect(row?.lastReadAt?.toISOString()).toBe(newer.toISOString());
-    const later = new Date('2026-11-13T10:00:09.000Z');
+    const later = new Date(t0 + 9_000);
     await repo.setLastRead(conv.id, a, later);
     expect((await prisma.conversationParticipant.findUnique({ where: { conversationId_userId: { conversationId: conv.id, userId: a } } }))?.lastReadAt?.toISOString()).toBe(later.toISOString());
+  });
+
+  // Battery (13 Nov): a marker in the future — a server clock that ran ahead, or a local-time NOW() written into a
+  // UTC column — would otherwise hold every new message as read until that time comes. The next read corrects it.
+  it('a read marker in the future is corrected by the next read (forward-only never freezes the unread count)', async () => {
+    const a = await person('sol');
+    const b = await person('tia');
+    const conv = await service().getOrCreateDirectConversation(a, b);
+    const repo = createPrismaParticipantRepository(prisma);
+    await repo.setLastRead(conv.id, a, new Date());
+    await prisma.conversationParticipant.updateMany({ where: { conversationId: conv.id, userId: a }, data: { lastReadAt: new Date(Date.now() + 4 * 3_600_000) } });
+    await service().postMessage(conv.id, b, { body: 'Fabrikam delivery at noon' });
+    const now = new Date();
+    await repo.setLastRead(conv.id, a, now);
+    const row = await prisma.conversationParticipant.findUnique({ where: { conversationId_userId: { conversationId: conv.id, userId: a } } });
+    expect(row?.lastReadAt?.toISOString()).toBe(now.toISOString());
+    // …and a newer message after it counts as unread again.
+    await new Promise((r) => setTimeout(r, 5));
+    await service().postMessage(conv.id, b, { body: 'Northwind crane booked' });
+    const mine = (await service().listConversations(a)).find((s) => s.conversation.id === conv.id);
+    expect(mine?.unread).toBe(1);
   });
 });
 
