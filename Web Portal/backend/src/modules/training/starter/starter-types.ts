@@ -25,12 +25,17 @@ export interface StarterQuestion {
   options: { text: string; correct: boolean; feedback?: string }[];
 }
 
+/**
+ * `was`: the lesson's titles in earlier starter revisions. A starter update (training-starter.ts, R1) finds an
+ * untouched course's lessons by kind and title (or one of these), so people's progress on them is kept.
+ */
 export type StarterLesson =
-  | { kind: 'GUIDE'; title: string; minutes: number; body?: string; steps: StarterStep[] }
-  | { kind: 'VIDEO'; title: string; minutes: number; body?: string; /** Waiting for the owner's YouTube/Vimeo link. */ videoUrl: null }
+  | { kind: 'GUIDE'; title: string; was?: string[]; minutes: number; body?: string; steps: StarterStep[] }
+  | { kind: 'VIDEO'; title: string; was?: string[]; minutes: number; body?: string; /** Hidden from learners until an administrator pastes the YouTube/Vimeo link (R2). */ videoUrl: null }
   | {
       kind: 'QUIZ';
       title: string;
+      was?: string[];
       minutes: number;
       body?: string;
       quiz: { passMark: number; maxAttempts: number | null; shuffle: boolean; timeLimitMinutes: number | null; drawCount: number | null; questions: StarterQuestion[] };
@@ -53,8 +58,10 @@ export interface StarterCourse {
   audience: Audience;
   roleKeys?: RoleKey[];
   difficulty: Difficulty;
-  /** The 10 module courses are PUBLISHED; the 3 video courses are DRAFT until the owner adds the links. */
+  /** Every starter course is PUBLISHED (12 Nov: videos are lessons inside them, hidden until linked). */
   status: 'PUBLISHED' | 'DRAFT';
+  /** Its place in All courses (default: its place in the list); Getting started comes first. */
+  position?: number;
   completionRule: CompletionRule;
   certificateOn: boolean;
   certificateMonths: number | null;

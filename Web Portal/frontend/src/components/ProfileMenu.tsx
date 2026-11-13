@@ -8,8 +8,9 @@ import { useSignOut } from '../lib/useSignOut';
 import { SignOutWarning } from './SignOutWarning';
 import { ShortcutHint, useShortcutSettings } from './shortcuts/ShortcutProvider';
 import { MANAGER_VIEW_WORDS, useManagerView, useSetManagerView } from '../lib/manager-view';
+import { useTourStore } from './training/tour-store';
 
-/** Header account button + dropdown menu: identity, profile, settings and log out. */
+/** Header account button + dropdown menu: identity, profile, settings, the tour of the site and log out. */
 export function ProfileMenu() {
   const { user, isAdmin } = useAuthStore();
   const [open, setOpen] = useState(false);
@@ -115,6 +116,21 @@ export function ProfileMenu() {
               </svg>
               Keyboard shortcuts
               <ShortcutHint action="help" className="ms-auto" />
+            </button>
+            {/* 12 Nov (Learning Hub): the first-time tour again, from any page (was "Take the tour" on My learning). */}
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                useTourStore.getState().start();
+              }}
+              className={`${itemClass} w-full`}
+            >
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="9" /><path d="m15.5 8.5-2 5-5 2 2-5z" />
+              </svg>
+              Tour of the site
             </button>
             {managerView.available ? (
               <button

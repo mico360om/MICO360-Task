@@ -1098,19 +1098,36 @@ describe('Learning Hub in the Client portal', () => {
     expect(calls).toEqual([]);
   });
 
-  it('/portal/training: their training (overdue in red), certificates and the courses for clients — all through the portal’s API', async () => {
-    api.training.mockResolvedValue({ ...myTraining({ assigned: [PORTAL_COURSE], inProgress: [], completed: [] }), catalogue: [PORTAL_COURSE], tour: { show: false } });
+  it('/portal/training: Up next (overdue in red), older certificates, and more courses — a course never listed twice; all through the portal’s API', async () => {
+    const other = courseCard({ id: 'pc2', title: 'Sign-off basics', moduleKey: 'portal', audience: 'CLIENTS', mine: courseMine({ enrolled: false, assigned: false, mandatory: false, status: 'NOT_STARTED', progressPct: 0, dueDay: null }) });
+    api.training.mockResolvedValue({ ...myTraining({ assigned: [PORTAL_COURSE], inProgress: [], completed: [] }), catalogue: [PORTAL_COURSE, other], tour: { show: false } });
     renderAt('/portal/training');
     expect(await screen.findByRole('heading', { level: 1, name: 'Learning Hub' })).toBeInTheDocument();
-    const assigned = (await screen.findByRole('heading', { name: /Assigned to you/ })).closest('section')!;
-    const cardLink = within(assigned).getByRole('link', { name: /Client portal basics/ });
-    expect(cardLink).toHaveAttribute('href', '/portal/training/courses/pc1');
-    expect(within(cardLink).getByText('Overdue')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: /Certificates/ })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: /Courses \(1\)/ })).toBeInTheDocument();
+    const upNext = await screen.findByRole('region', { name: 'Up next' });
+    expect(within(upNext).getByRole('link', { name: 'Client portal basics' })).toHaveAttribute('href', '/portal/training/courses/pc1');
+    expect(within(upNext).getByText('Overdue · was due 4 Nov')).toBeInTheDocument();
+    // Listed once: not again under the courses below.
+    expect(screen.getAllByRole('link', { name: 'Client portal basics' })).toHaveLength(1);
+    const more = screen.getByRole('region', { name: /^More courses/ });
+    expect(within(more).getByRole('link', { name: 'Sign-off basics' })).toHaveAttribute('href', '/portal/training/courses/pc2');
+    expect(screen.getByRole('button', { name: 'Older certificates' })).toBeInTheDocument();
+    expect(screen.queryByText(/catalogue/i)).toBeNull();
     expect(screen.getByRole('link', { name: 'Learning Hub' })).toHaveAttribute('aria-current', 'page');
     expect(calls).toEqual([]);
     expect(io).not.toHaveBeenCalled();
+  });
+
+  it('/portal/training with nothing to do: one line, the courses below (filters only above 3 courses)', async () => {
+    const list = [1, 2, 3, 4].map((n) => courseCard({ id: `p${n}`, title: `Portal course ${n}`, moduleKey: 'portal', audience: 'CLIENTS', mine: courseMine({ enrolled: false, assigned: false, mandatory: false, status: 'NOT_STARTED', progressPct: 0, dueDay: null }) }));
+    api.training.mockResolvedValue({ ...EMPTY_PORTAL_TRAINING, catalogue: list.slice(0, 3) });
+    const a = renderAt('/portal/training');
+    expect(await screen.findByText('Nothing to do right now')).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: /^Courses \(3\)/ })).toBeInTheDocument();
+    expect(screen.queryByRole('searchbox', { name: 'Search courses' })).toBeNull();
+    a.unmount();
+    api.training.mockResolvedValue({ ...EMPTY_PORTAL_TRAINING, catalogue: list });
+    renderAt('/portal/training');
+    expect(await screen.findByRole('searchbox', { name: 'Search courses' })).toBeInTheDocument();
   });
 
   it('a course and its lesson: the staff pages’ parts, through the portal’s API', async () => {
@@ -1121,12 +1138,14 @@ describe('Learning Hub in the Client portal', () => {
     renderAt('/portal/training/courses/pc1');
     expect(await screen.findByRole('heading', { level: 1, name: 'Client portal basics' })).toBeInTheDocument();
     expect(within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByRole('link', { name: 'Learning Hub' })).toHaveAttribute('href', '/portal/training');
-    await userEvent.click(screen.getByRole('button', { name: 'Start course' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Start' }));
     await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('/portal/training/courses/pc1/lessons/l2'));
     expect(api.trainingStart).toHaveBeenCalledWith('pc1');
     expect(await screen.findByRole('heading', { level: 1, name: 'Make a task' })).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Done' }));
+    // One step: its one Next finishes the lesson and opens the next one.
+    await userEvent.click(screen.getByRole('button', { name: 'Next lesson' }));
     await waitFor(() => expect(api.trainingComplete).toHaveBeenCalledWith('l2'));
+    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('/portal/training/courses/pc1/lessons/l3'));
     expect(calls).toEqual([]);
   });
 
@@ -1144,9 +1163,9 @@ describe('Learning Hub in the Client portal', () => {
     expect(calls).toEqual([]);
   });
 
-  it('Take the tour again from the Learning Hub', async () => {
+  it('Tour of the site again from the Learning Hub (the portal has no account menu)', async () => {
     renderAt('/portal/training');
-    await userEvent.click(await screen.findByRole('button', { name: 'Take the tour' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Tour of the site' }));
     expect(await screen.findByRole('dialog', { name: 'Your projects' })).toBeInTheDocument();
   });
 
@@ -1154,7 +1173,7 @@ describe('Learning Hub in the Client portal', () => {
     const other = otherApi();
     renderPreview('/portal/training', other);
     expect(await screen.findByText('Preview — the client’s courses aren’t shown here.')).toBeInTheDocument();
-    off(screen.getByRole('button', { name: 'Take the tour' }));
+    off(screen.getByRole('button', { name: 'Tour of the site' }));
     expect(other.training).toHaveBeenCalled();
     for (const w of WRITES) expect(other[w], w).not.toHaveBeenCalled();
     for (const fn of Object.values(api)) expect(fn).not.toHaveBeenCalled();

@@ -1,10 +1,9 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { MODULE_LABELS, type CourseCard, type Difficulty, type FileRef, type LessonKind, type MyCourseState } from '../../api/training';
-import { DUE_SOON_CLASS, OVERDUE_CLASS, STATUS_CLASS } from '../../lib/colour-classes';
+import type { CourseCard, FileRef, LessonKind, MyCourseState } from '../../api/training';
+import { OVERDUE_CLASS, STATUS_CLASS } from '../../lib/colour-classes';
 import { downloadBlob, fileNameOf } from '../../lib/download';
-import { ProgressBar } from '../portal/portal-ui';
-import { DIFFICULTY_WORDS, STATUS_WORDS, dueText, lessonsText, minutesText, ratingText } from './training-words';
+import { DIFFICULTY_WORDS, cardChip, minutesText, type ChipTone } from './training-words';
 
 /** Pieces the training pages share (staff and the Client portal): the site's cards, chips and 44px touch targets. */
 
@@ -86,126 +85,62 @@ export const AwardIcon = ({ size = 16 }: { size?: number }) =>
 
 const pill = 'inline-flex flex-none items-center gap-1 rounded-md px-2 py-0.5 text-xs font-semibold';
 
-const DIFFICULTY_TONE: Record<Difficulty, string> = {
-  BEGINNER: 'bg-success-soft text-success',
-  INTERMEDIATE: 'bg-info-soft text-info',
-  ADVANCED: 'bg-brand/10 text-brand',
-};
-
-export const DifficultyChip = ({ difficulty }: { difficulty: Difficulty }) => <span className={`${pill} ${DIFFICULTY_TONE[difficulty]}`}>{DIFFICULTY_WORDS[difficulty]}</span>;
-
-/** Loaded with the site (an administrator can edit or unpublish it). */
-export const StarterBadge = () => <span className={`${pill} border border-line bg-ground text-ink-2`}>Starter</span>;
-
-export const OverdueChip = () => <span className={`${pill} ${OVERDUE_CLASS.chip}`}>Overdue</span>;
-
 export const MandatoryChip = () => <span className={`${pill} bg-warning-soft text-warning`}>Mandatory</span>;
 
-/** A course's state in the one colour scheme: started blue, done green, a review like a task in review, a retake due amber. */
-const STATUS_TONE: Record<MyCourseState['status'], string> = {
-  NOT_STARTED: 'bg-ground text-ink-2',
-  IN_PROGRESS: STATUS_CLASS.IN_PROGRESS.chip,
-  COMPLETED: STATUS_CLASS.DONE.chip,
-  REVIEW: STATUS_CLASS.REVIEW.chip,
-  RETAKE: DUE_SOON_CLASS.chip,
+const CHIP_TONE: Record<ChipTone, string> = {
+  overdue: OVERDUE_CLASS.chip,
+  due: 'bg-info-soft text-info',
+  progress: STATUS_CLASS.IN_PROGRESS.chip,
+  done: STATUS_CLASS.DONE.chip,
 };
 
-/** Where the person is on a course, in words (and colour). */
-export function StatusChip({ status }: { status: MyCourseState['status'] }) {
-  return <span className={`${pill} ${STATUS_TONE[status]}`}>{STATUS_WORDS[status]}</span>;
+/** A course's one chip (12 Nov §3): "Overdue · was due 9 Nov", "Due 17 Nov", "33% done", "Done"… or nothing. */
+export function CardChipView({ mine }: { mine: Pick<MyCourseState, 'status' | 'overdue' | 'dueDay' | 'progressPct'> }) {
+  const c = cardChip(mine);
+  return c ? <span className={`${pill} ${CHIP_TONE[c.tone]}`}>{c.text}</span> : null;
 }
 
-/** The average rating as five stars (read only), with the words beside them. */
-export function RatingLine({ rating }: { rating: { average: number | null; count: number } }) {
-  const filled = rating.average === null ? 0 : Math.round(rating.average);
-  return (
-    <span className="inline-flex items-center gap-1.5 text-xs text-ink-2">
-      {rating.count ? (
-        <span aria-hidden="true" className="inline-flex text-warning">
-          {[1, 2, 3, 4, 5].map((n) => (
-            <svg key={n} viewBox="0 0 24 24" width="13" height="13" fill={n <= filled ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round">
-              <path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3 6.4 20.2l1.1-6.2L3 9.6l6.2-.9z" />
-            </svg>
-          ))}
-        </span>
-      ) : null}
-      <span>
-        {rating.count ? <span className="sr-only">Rated </span> : null}
-        {ratingText(rating)}
-      </span>
-    </span>
-  );
-}
-
-/** A course's length and size: "25 min · 4 lessons". */
-export function CourseFacts({ course }: { course: Pick<CourseCard, 'minutes' | 'lessonCount'> }) {
+/** "8 min", and the difficulty only when it isn't Beginner (12 Nov §1). */
+export function CourseLength({ course }: { course: Pick<CourseCard, 'minutes' | 'difficulty'> }) {
   const time = minutesText(course.minutes);
   return (
-    <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-ink-2">
+    <>
       {time ? (
-        <span className="inline-flex items-center gap-1">
+        <span className="inline-flex items-center gap-1 text-xs text-ink-2">
           <ClockIcon />
           {time}
         </span>
       ) : null}
-      {time ? <span aria-hidden="true">·</span> : null}
-      <span>{lessonsText(course.lessonCount)}</span>
-    </span>
+      {course.difficulty !== 'BEGINNER' ? <span className="text-xs text-ink-2">{DIFFICULTY_WORDS[course.difficulty]}</span> : null}
+    </>
   );
 }
 
 /**
- * One course as a card (My training, the catalogue): its module, title, summary, length, difficulty, rating,
- * and where the person is on it (due day, red Overdue, progress).
+ * One course as a slim card (12 Nov §3: My learning, All courses): its title (the link), a one-line summary, the
+ * minutes, Mandatory when it applies and one chip. `extra`: a control of its own below (a Done card's certificate) —
+ * the title's link covers the card, the extra sits above it.
  */
-export function CourseCardView({ course, to, showState = true }: { course: CourseCard; to: string; showState?: boolean }) {
+export function CourseCardView({ course, to, showState = true, extra }: { course: CourseCard; to: string; showState?: boolean; extra?: ReactNode }) {
   const m = course.mine;
-  const due = dueText(m);
-  const started = m.status === 'IN_PROGRESS' || m.status === 'REVIEW' || m.status === 'RETAKE';
   return (
-    <Link
-      to={to}
+    <article
       data-course-card={course.id}
-      className={`card card-hover card-pad flex h-full min-w-0 flex-col gap-3 outline-none focus-visible:ring-2 focus-visible:ring-brand/40 ${m.overdue ? `border-s-4 ${OVERDUE_CLASS.edge}` : ''}`}
+      className={`card card-hover relative flex h-full min-w-0 flex-col gap-1.5 p-4 focus-within:ring-2 focus-within:ring-brand/40 ${showState && m.overdue && m.status !== 'COMPLETED' ? `border-s-4 ${OVERDUE_CLASS.edge}` : ''}`}
     >
-      <div className="flex min-w-0 flex-wrap items-center gap-2">
-        <span className="min-w-0 truncate text-[11px] font-semibold uppercase tracking-wide text-ink-3">{MODULE_LABELS[course.moduleKey]}</span>
-        {course.starter ? <StarterBadge /> : null}
-        {m.mandatory ? <MandatoryChip /> : null}
+      <h3 className="break-words font-display text-base font-bold text-ink">
+        <Link to={to} className="outline-none after:absolute after:inset-0 after:rounded-[inherit] after:content-['']">
+          {course.title}
+        </Link>
+      </h3>
+      {course.summary ? <p className="line-clamp-1 text-sm text-ink-2">{course.summary}</p> : null}
+      <div className="mt-auto flex flex-wrap items-center gap-x-2 gap-y-1 pt-1">
+        <CourseLength course={course} />
+        {m.mandatory && m.status !== 'COMPLETED' ? <MandatoryChip /> : null}
+        {showState ? <CardChipView mine={m} /> : null}
       </div>
-      <div className="min-w-0">
-        <h3 className="break-words font-display text-base font-bold text-ink">{course.title}</h3>
-        {course.summary ? <p className="mt-1 line-clamp-2 text-sm text-ink-2">{course.summary}</p> : null}
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <CourseFacts course={course} />
-        <DifficultyChip difficulty={course.difficulty} />
-        {course.certificateOn ? (
-          <span className="inline-flex items-center gap-1 text-xs text-ink-2">
-            <AwardIcon size={14} />
-            Certificate
-          </span>
-        ) : null}
-      </div>
-      <RatingLine rating={course.rating} />
-      {showState && (m.enrolled || m.assigned) ? (
-        <div className="mt-auto flex flex-col gap-2 border-t border-line pt-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <StatusChip status={m.status} />
-            {m.overdue ? <OverdueChip /> : null}
-            {due && m.status !== 'COMPLETED' ? <span className={`text-xs font-semibold ${m.overdue ? OVERDUE_CLASS.text : 'text-ink-2'}`}>{due}</span> : null}
-          </div>
-          {started ? (
-            <div className="flex items-center gap-2">
-              <div className="min-w-0 flex-1">
-                <ProgressBar percent={m.progressPct} label={`${course.title}: ${m.progressPct}% done`} />
-              </div>
-              <span className="flex-none text-xs font-semibold text-ink">{m.progressPct}%</span>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-    </Link>
+      {extra ? <div className="relative z-10 pt-1">{extra}</div> : null}
+    </article>
   );
 }
 

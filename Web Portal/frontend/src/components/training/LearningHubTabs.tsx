@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useTrainingAccess } from './training-queries';
 
 /**
- * The Learning Hub's tabs (owner, 11 Nov night: one page look): My learning and Catalogue for everyone; Manage (the
+ * The Learning Hub's tabs (owner, 11 Nov night: one page look): My learning and All courses for everyone; Manage (the
  * courses, assignments, onboarding rules, feedback, certificates and settings) for administrators and Training managers;
  * Reports for them and for people who run a project (their team's). Real links (each tab has its own address), the open
  * one marked; arrow keys, Home and End move along them. On a phone the row scrolls inside itself, never the page.
@@ -17,7 +17,7 @@ interface HubLink {
 }
 
 const MINE: HubLink = { key: 'mine', label: 'My learning', to: '/training' };
-const CATALOGUE: HubLink = { key: 'catalogue', label: 'Catalogue', to: '/training?tab=catalogue' };
+const CATALOGUE: HubLink = { key: 'catalogue', label: 'All courses', to: '/training?tab=catalogue' };
 const MANAGE: HubLink = { key: 'manage', label: 'Manage', to: '/training/manage' };
 const REPORTS: HubLink = { key: 'reports', label: 'Reports', to: '/training/manage?tab=reports' };
 

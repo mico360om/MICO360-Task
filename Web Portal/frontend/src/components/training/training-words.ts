@@ -1,4 +1,4 @@
-import type { CertificateStatus, Difficulty, EnrolmentStatus, LessonKind, MyCourseState } from '../../api/training';
+import type { CertificateRef, CertificateStatus, CourseCard, Difficulty, EnrolmentStatus, LessonKind, MyCourseState, MyTraining } from '../../api/training';
 import { dayText, instantDayText } from '../../lib/day-words';
 
 /** Training's words, in one place (pure, tested). Dates the site's way: "14 Nov", "14 Nov 2027" (another year). */
@@ -60,13 +60,71 @@ export function courseAction(mine: Pick<MyCourseState, 'enrolled' | 'status' | '
   return 'resume';
 }
 
+/** 12 Nov: one Start / Continue / Review button. */
 export const ACTION_WORDS: Record<CourseAction, string> = {
-  start: 'Start course',
-  resume: 'Resume',
-  review: 'Review course',
+  start: 'Start',
+  resume: 'Continue',
+  review: 'Review',
   changes: 'Review the changes',
   retake: 'Retake course',
 };
+
+export type ChipTone = 'overdue' | 'due' | 'progress' | 'done';
+
+/**
+ * A course card's one chip (12 Nov §3): "Overdue · was due 9 Nov", "Done", "Due 17 Nov", "Review the changes",
+ * "Retake due" or "33% done"; none before it is started (and nothing is due).
+ */
+export function cardChip(m: Pick<MyCourseState, 'status' | 'overdue' | 'dueDay' | 'progressPct'>, now: Date = new Date()): { text: string; tone: ChipTone } | null {
+  if (m.status !== 'COMPLETED' && m.overdue && m.dueDay) return { text: `Overdue · was due ${shortDay(m.dueDay, now)}`, tone: 'overdue' };
+  if (m.status === 'COMPLETED') return { text: 'Done', tone: 'done' };
+  if (m.dueDay) return { text: `Due ${shortDay(m.dueDay, now)}`, tone: 'due' };
+  if (m.status === 'REVIEW') return { text: 'Review the changes', tone: 'due' };
+  if (m.status === 'RETAKE') return { text: 'Retake due', tone: 'due' };
+  if (m.status === 'IN_PROGRESS') return { text: `${m.progressPct}% done`, tone: 'progress' };
+  return null;
+}
+
+/** How urgent a course is (12 Nov §2): overdue, then the nearest due day, then started, then not started. */
+function urgency(c: CourseCard): number {
+  const m = c.mine;
+  if (m.overdue) return 0;
+  if (m.dueDay) return 1;
+  if (m.status !== 'NOT_STARTED') return 2;
+  return 3;
+}
+
+export function byUrgency(a: CourseCard, b: CourseCard): number {
+  return (
+    urgency(a) - urgency(b) ||
+    (a.mine.dueDay ?? '9999-99-99').localeCompare(b.mine.dueDay ?? '9999-99-99', 'en') ||
+    Number(b.mine.mandatory) - Number(a.mine.mandatory) ||
+    a.title.localeCompare(b.title, 'en')
+  );
+}
+
+/**
+ * My learning (12 Nov §2, R6, R9): "Up next" — the most urgent course; "To do" — the rest, in the same order (a
+ * review or retake too); "Done"; and the certificates no Done card carries ("Older certificates"). Each course once.
+ */
+export function learningGroups(d: Pick<MyTraining, 'assigned' | 'inProgress' | 'completed' | 'certificates'>): { upNext: CourseCard | null; todo: CourseCard[]; done: CourseCard[]; olderCertificates: CertificateRef[] } {
+  const seen = new Set<string>();
+  const open = [...d.assigned, ...d.inProgress].filter((c) => c.mine.status !== 'COMPLETED' && !seen.has(c.id) && (seen.add(c.id), true)).sort(byUrgency);
+  const done = d.completed.filter((c) => !seen.has(c.id) && (seen.add(c.id), true));
+  const onCards = new Set(done.map((c) => (c.mine.certificate && c.mine.certificate.status !== 'REVOKED' ? c.mine.certificate.id : null)).filter((id): id is string => !!id));
+  return { upNext: open[0] ?? null, todo: open.slice(1), done, olderCertificates: d.certificates.filter((c) => !onCards.has(c.id)) };
+}
+
+/** The quiz's one line (12 Nov §5): "5 questions · pass with 70% · try as often as you like". */
+export function quizStartLine(q: { questionCount: number; passMark: number; maxAttempts: number | null; attemptsUsed: number; timeLimitMinutes: number | null }): string {
+  const left = q.maxAttempts === null ? null : Math.max(0, q.maxAttempts - q.attemptsUsed);
+  return [
+    questionsText(q.questionCount),
+    `pass with ${q.passMark}%`,
+    left === null ? 'try as often as you like' : `${left} ${left === 1 ? 'try' : 'tries'} left`,
+    ...(q.timeLimitMinutes ? [`${minutesText(q.timeLimitMinutes)} to answer`] : []),
+  ].join(' · ');
+}
 
 /** "2:05" for a countdown (minutes:seconds; hours when needed: "1:02:05"). */
 export function clockLeft(ms: number): string {

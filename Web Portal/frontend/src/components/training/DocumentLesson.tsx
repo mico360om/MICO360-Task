@@ -3,6 +3,7 @@ import type { LessonDone, LessonView } from '../../api/training';
 import { downloadBlob, fileNameOf } from '../../lib/download';
 import { useMediaQuery } from '../../lib/useMediaQuery';
 import { Button } from '../ui/Button';
+import type { LessonNext } from './GuideLesson';
 import { useLearner } from './learner';
 import { DownloadIcon, TOUCH_MIN, TickIcon, sizeText, trainingProblem, useBlobUrl } from './training-ui';
 
@@ -11,9 +12,10 @@ export const PHONE_QUERY = '(pointer: coarse), (max-width: 47.99em)';
 
 /**
  * A document lesson: a PDF shown in the page on a desktop; on a phone "Open full screen" and "Download" instead
- * (a small frame is no way to read it there). Other files are a download. "Done" when they have read it.
+ * (a small frame is no way to read it there). Other files are a download. The lesson's one Next ("Next lesson",
+ * "Finish course") marks it read and goes on (12 Nov §4).
  */
-export function DocumentLesson({ lesson, onDone }: { lesson: LessonView; onDone: (done: LessonDone) => void }) {
+export function DocumentLesson({ lesson, onDone, next }: { lesson: LessonView; onDone: (done: LessonDone) => void; next: LessonNext }) {
   const { api } = useLearner();
   const doc = lesson.document;
   const phone = useMediaQuery(PHONE_QUERY);
@@ -64,12 +66,17 @@ export function DocumentLesson({ lesson, onDone }: { lesson: LessonView; onDone:
   };
 
   const finish = async () => {
+    if (done) {
+      next.go(null);
+      return;
+    }
     setBusy('done');
     setError(null);
     try {
       const out = await api.complete(lesson.id);
       setDone(true);
       onDone(out);
+      next.go(out);
     } catch (err) {
       setError(trainingProblem(err, 'Couldn’t finish this lesson.'));
     } finally {
@@ -108,16 +115,17 @@ export function DocumentLesson({ lesson, onDone }: { lesson: LessonView; onDone:
             Download
           </Button>
         </div>
-        {done ? (
-          <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-success">
-            <TickIcon />
-            Read
-          </span>
-        ) : (
+        <div className="flex flex-wrap items-center gap-2">
+          {done ? (
+            <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-success">
+              <TickIcon />
+              Read
+            </span>
+          ) : null}
           <Button className={TOUCH_MIN} loading={busy === 'done'} onClick={() => void finish()}>
-            Done
+            {next.label}
           </Button>
-        )}
+        </div>
       </div>
       {error ? (
         <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">

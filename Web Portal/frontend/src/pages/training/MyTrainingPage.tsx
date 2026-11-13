@@ -1,16 +1,14 @@
 import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { TRAINING_MODULES, type CatalogueFilters, type Difficulty, type TrainingModule } from '../../api/training';
-import { Button } from '../../components/ui/Button';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { LoadError } from '../../components/ui/LoadError';
 import { PageHeader } from '../../components/ui/PageHeader';
-import { CatalogueFilterBar, CourseGrid, MyTrainingSections } from '../../components/training/TrainingLists';
-import { useTourStore } from '../../components/training/tour-store';
+import { CatalogueFilterBar, CourseGrid, MyLearningSections } from '../../components/training/TrainingLists';
 import { useCatalogue, useMyTraining } from '../../components/training/training-queries';
 import { LearningHubTabs } from '../../components/training/LearningHubTabs';
 import { usePageName } from '../../lib/page-meta';
-import { BookIcon, TOUCH_MIN } from '../../components/training/training-ui';
+import { BookIcon } from '../../components/training/training-ui';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 
 /** Staff see courses for every module but the Client portal's (those are for clients). */
@@ -18,32 +16,24 @@ const STAFF_MODULES = TRAINING_MODULES.filter((m) => m !== 'portal');
 const isModule = (v: string | null): v is TrainingModule => !!v && (TRAINING_MODULES as readonly string[]).includes(v);
 const isDifficulty = (v: string | null): v is Difficulty => v === 'BEGINNER' || v === 'INTERMEDIATE' || v === 'ADVANCED';
 
+/** All courses shows its Module filter above this many courses (12 Nov §3). */
+const MODULE_FILTER_ABOVE = 8;
+
 /**
- * The Learning Hub (Workspace; the owner's name for the Training Center, 11 Nov): "My learning" — what is assigned
- * (mandatory first, due days, red Overdue), in progress, completed and the certificates — and the "Catalogue" of
- * courses for the parts of the site the person can use. Administrators and Training managers also have Manage and
- * Reports; people who run a project, Reports (LearningHubTabs).
+ * The Learning Hub (12 Nov, simple and to the point): "My learning" — one "Up next" course to start, then To do and
+ * Done — and "All courses" for the parts of the site the person can use. Administrators and Training managers also
+ * have Manage and Reports; people who run a project with assigned team courses, Reports (LearningHubTabs). The tour
+ * is "Tour of the site" in the account menu.
  */
 export function MyTrainingPage() {
   const [params] = useSearchParams();
   const navigate = useNavigate();
   const tab: 'mine' | 'catalogue' = params.get('tab') === 'catalogue' ? 'catalogue' : 'mine';
-  const startTour = useTourStore((s) => s.start);
-  usePageName(tab === 'catalogue' ? 'Catalogue' : 'My learning');
+  usePageName(tab === 'catalogue' ? 'All courses' : 'My learning');
 
   return (
     <div>
-      <PageHeader
-        eyebrow="Workspace"
-        title="Learning Hub"
-        subtitle="Short courses on the parts of the site you use — at your own pace."
-        learn="training"
-        actions={
-          <Button variant="secondary" size="sm" className={TOUCH_MIN} onClick={startTour}>
-            Take the tour
-          </Button>
-        }
-      />
+      <PageHeader eyebrow="Workspace" title="Learning Hub" subtitle="Short courses on the parts of the site you use." learn="training" />
       <LearningHubTabs current={tab} />
       <div className="mt-4">{tab === 'mine' ? <MinePanel onCatalogue={() => navigate('/training?tab=catalogue')} /> : <CataloguePanel />}</div>
     </div>
@@ -55,15 +45,18 @@ function MinePanel({ onCatalogue }: { onCatalogue: () => void }) {
   if (q.isPending) {
     return (
       <p role="status" className="py-12 text-center text-sm text-ink-2">
-        <span className="animate-pulse motion-reduce:animate-none">Loading your training…</span>
+        <span className="animate-pulse motion-reduce:animate-none">Loading your courses…</span>
       </p>
     );
   }
-  if (q.isError) return <LoadError what="your training" onRetry={() => void q.refetch()} />;
-  return <MyTrainingSections data={q.data} onCatalogue={onCatalogue} />;
+  if (q.isError) return <LoadError what="your courses" onRetry={() => void q.refetch()} />;
+  return <MyLearningSections data={q.data} onBrowse={onCatalogue} />;
 }
 
-/** The catalogue: filters in the address (a Learn link or a back link opens it filtered), the server filters. */
+/**
+ * All courses: filters in the address (a Learn link or a back link opens it filtered: R7), the server filters. The
+ * Module filter shows above 8 courses and Difficulty when the courses differ (read from the whole list).
+ */
 function CataloguePanel() {
   const [params, setParams] = useSearchParams();
   const fromAddress = (): Required<CatalogueFilters> => ({
@@ -76,6 +69,10 @@ function CataloguePanel() {
   // The search is asked for once typing pauses.
   const search = useDebouncedValue(typed.trim(), 300);
   const q = useCatalogue({ module: filters.module, difficulty: filters.difficulty, q: search });
+  const all = useCatalogue({ module: '', difficulty: '', q: '' });
+  const everything = all.data?.courses ?? [];
+  const showModule = everything.length > MODULE_FILTER_ABOVE;
+  const showDifficulty = new Set(everything.map((c) => c.difficulty)).size > 1;
 
   const change = (v: Required<CatalogueFilters>) => {
     setTyped(v.q);
@@ -99,7 +96,7 @@ function CataloguePanel() {
 
   return (
     <div className="flex flex-col gap-4">
-      <CatalogueFilterBar value={filters} onChange={change} modules={STAFF_MODULES} />
+      <CatalogueFilterBar value={filters} onChange={change} modules={STAFF_MODULES} showModule={showModule} showDifficulty={showDifficulty} />
       {q.isPending ? (
         <p role="status" className="py-12 text-center text-sm text-ink-2">
           <span className="animate-pulse motion-reduce:animate-none">Loading the courses…</span>

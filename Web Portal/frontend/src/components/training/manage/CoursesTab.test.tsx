@@ -25,16 +25,16 @@ beforeEach(() => {
   api.courses.mockResolvedValue({ courses: ROWS });
 });
 
-describe('Training Center → Courses', () => {
-  it('lists every course with its status, Starter badge, size, people and unpublished changes; each opens the editor', async () => {
+describe('Learning Hub → Manage → Courses', () => {
+  it('lists every course with its status, size, people taking it and unpublished changes (no Starter badge); each opens the editor', async () => {
     renderManage(<CoursesTab />);
     const list = await screen.findByRole('list', { name: 'Courses' });
     const tasks = within(list).getByRole('link', { name: 'Tasks basics' }).closest('li')!;
     expect(within(list).getByRole('link', { name: 'Tasks basics' })).toHaveAttribute('href', '/training/manage/courses/c1');
     expect(within(tasks).getByText('Published')).toBeInTheDocument();
-    expect(within(tasks).getByText('Starter')).toBeInTheDocument();
+    expect(within(tasks).queryByText('Starter')).toBeNull();
     expect(within(tasks).getByText(/Tasks · Staff · Beginner · 3 lessons · 25 min/)).toBeInTheDocument();
-    expect(within(tasks).getByText('10 enrolled · 4 completed')).toBeInTheDocument();
+    expect(within(tasks).getByText('10 taking it · 4 finished')).toBeInTheDocument();
     const minutes = within(list).getByRole('link', { name: 'Meeting minutes' }).closest('li')!;
     expect(within(minutes).getByText('Draft')).toBeInTheDocument();
     expect(within(minutes).queryByText('Starter')).toBeNull();

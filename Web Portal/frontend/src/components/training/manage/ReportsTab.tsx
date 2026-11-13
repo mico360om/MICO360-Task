@@ -208,16 +208,17 @@ export function ReportsTab({ readOnly = false }: { readOnly?: boolean }) {
           </div>
 
           <SectionCard id="tc-rep-quizzes" title="Quiz results">
-            {r.quizzes.length === 0 ? (
+            {/* 12 Nov: a quiz nobody has handed in yet has nothing to say: left out. */}
+            {r.quizzes.every((z) => !z.attempts) ? (
               <p className="text-sm text-ink-2">No quiz was handed in.</p>
             ) : (
               <ul className="divide-y divide-line">
-                {r.quizzes.map((z) => (
+                {r.quizzes.filter((z) => z.attempts > 0).map((z) => (
                   <li key={z.lessonId} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 py-2">
                     <div className="min-w-0 flex-1">
                       <span dir="auto" className="font-medium text-ink">{z.title}</span>
                       <p dir="auto" className="text-sm text-ink-2 [overflow-wrap:anywhere]">{z.courseTitle}</p>
-                      <p className="text-xs text-ink-2">{z.attempts ? `${count(z.attempts, 'attempt')} · ${pct(z.passRate)} passed · average ${pct(z.averageScore)}` : 'No attempts yet'}</p>
+                      <p className="text-xs text-ink-2">{`${count(z.attempts, 'attempt')} · ${pct(z.passRate)} passed · average ${pct(z.averageScore)}`}</p>
                     </div>
                     <Button variant="secondary" size="sm" aria-label={`Questions in “${z.title}”`} onClick={() => setDrill({ lessonId: z.lessonId, title: z.title, courseTitle: z.courseTitle })} className="[@media(pointer:coarse)]:!min-h-11">
                       Questions

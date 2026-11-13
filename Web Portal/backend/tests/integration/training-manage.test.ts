@@ -246,13 +246,13 @@ describe('authoring a course (a Training manager)', () => {
     expect((await call('amy', 'PUT', `/training/manage/lessons/${guide.id}/quiz`, input)).status).toBe(400);
   });
 
-  it('publish problems first, then publish (version 1)', async () => {
+  it('publish (version 1): a video waiting for its link doesn’t stop it, and pasting the link later needs no publish (R2)', async () => {
     const empty = await data<ManageLesson>(call('amy', 'POST', `/training/manage/courses/${course.id}/lessons`, { kind: 'VIDEO', title: 'Coming soon' }), 201);
-    const refused = await call('amy', 'POST', `/training/manage/courses/${course.id}/publish`, {});
-    expect(refused.status).toBe(409);
-    expect(refused.body.error).toMatchObject({ code: 'PUBLISH_PROBLEMS', details: { problems: ['Lesson “Coming soon”: add the YouTube or Vimeo link.'] } });
-    await data(call('amy', 'PATCH', `/training/manage/lessons/${empty.id}`, { videoUrl: 'https://vimeo.com/76979871/8272103f6e' }));
+    expect((await data<ManageCourse>(call('amy', 'GET', `/training/manage/courses/${course.id}`))).publishProblems).toEqual([]);
     course = await data<ManageCourse>(call('amy', 'POST', `/training/manage/courses/${course.id}/publish`, {}));
+    expect(course).toMatchObject({ status: 'PUBLISHED', version: 1, publishProblems: [], unpublishedChanges: false });
+    await data(call('amy', 'PATCH', `/training/manage/lessons/${empty.id}`, { videoUrl: 'https://vimeo.com/76979871/8272103f6e' }));
+    course = await data<ManageCourse>(call('amy', 'GET', `/training/manage/courses/${course.id}`));
     expect(course).toMatchObject({ status: 'PUBLISHED', version: 1, publishProblems: [], unpublishedChanges: false });
     expect(course.lessons.map((l) => l.kind)).toEqual(['GUIDE', 'VIDEO', 'QUIZ', 'VIDEO']);
     expect(course.lessons[3]!.video!.embedUrl).toBe('https://player.vimeo.com/video/76979871?h=8272103f6e');

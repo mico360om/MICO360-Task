@@ -39,28 +39,40 @@ describe('Learning Hub → Manage and Reports: who sees what', () => {
     renderManage(<TrainingCenterPage />);
     expect(await screen.findByRole('heading', { level: 1, name: 'Learning Hub' })).toBeInTheDocument();
     await screen.findByRole('tablist', { name: 'Manage' });
-    await waitFor(() => expect(within(hub()).getAllByRole('link').map((l) => l.textContent)).toEqual(['My learning', 'Catalogue', 'Manage', 'Reports']));
+    await waitFor(() => expect(within(hub()).getAllByRole('link').map((l) => l.textContent)).toEqual(['My learning', 'All courses', 'Manage', 'Reports']));
     expect(hubCurrent()).toBe('Manage');
-    expect(tabNames()).toEqual(['Courses', 'Assignments', 'Onboarding rules', 'Feedback', 'Certificates']);
+    // 12 Nov: four sections (onboarding rules fold into Assign; the tour switch is in System Settings).
+    expect(tabNames()).toEqual(['Courses', 'Assigned', 'Certificates', 'Feedback']);
     expect(screen.getByRole('tab', { name: 'Courses' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('tabpanel', { name: 'Courses' })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /Training Center/ })).toBeNull();
   });
 
-  it('an administrator also gets Settings', async () => {
+  it('an administrator gets the same four sections (no Settings tab: the tour switch is in System Settings)', async () => {
     signedIn(['ADMIN']);
     api.access.mockResolvedValue(access({ manager: true, admin: true }));
     renderManage(<TrainingCenterPage />);
     await screen.findByRole('tablist', { name: 'Manage' });
-    expect(tabNames()).toEqual(['Courses', 'Assignments', 'Onboarding rules', 'Feedback', 'Certificates', 'Settings']);
+    expect(tabNames()).toEqual(['Courses', 'Assigned', 'Certificates', 'Feedback']);
+    expect(api.settings).not.toHaveBeenCalled();
   });
 
-  it('Manager View (Release B): an administrator keeps Manage — training is work — but not its Settings (a setting the server refuses then)', async () => {
+  it('Manager View (Release B): an administrator keeps Manage — training is work', async () => {
     signedIn(['ADMIN'], true);
     api.access.mockResolvedValue(access({ manager: true, admin: true }));
     renderManage(<TrainingCenterPage />);
     await screen.findByRole('tablist', { name: 'Manage' });
-    expect(tabNames()).toEqual(['Courses', 'Assignments', 'Onboarding rules', 'Feedback', 'Certificates']);
+    expect(tabNames()).toEqual(['Courses', 'Assigned', 'Certificates', 'Feedback']);
+  });
+
+  it('earlier addresses still open the right section: ?tab=rules and ?tab=assignments open Assigned', async () => {
+    api.access.mockResolvedValue(access({ manager: true, admin: true }));
+    for (const path of ['/training/manage?tab=rules', '/training/manage?tab=assignments']) {
+      const view = renderManage(<TrainingCenterPage />, { path });
+      expect(await screen.findByRole('tab', { name: 'Assigned' })).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByRole('tabpanel', { name: 'Assigned' })).toBeInTheDocument();
+      view.unmount();
+    }
   });
 
   it('the open section is in the address (?tab=), and an unknown or forbidden one opens Courses', async () => {
@@ -83,12 +95,12 @@ describe('Learning Hub → Manage and Reports: who sees what', () => {
     expect(screen.getByRole('tab', { name: 'Courses' })).toHaveAttribute('tabindex', '-1');
     certificates.focus();
     await userEvent.keyboard('{ArrowRight}');
-    expect(screen.getByRole('tab', { name: 'Settings' })).toHaveFocus();
-    expect(screen.getByRole('tab', { name: 'Settings' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Feedback' })).toHaveFocus();
+    expect(screen.getByRole('tab', { name: 'Feedback' })).toHaveAttribute('aria-selected', 'true');
     await userEvent.keyboard('{ArrowRight}');
     expect(screen.getByRole('tab', { name: 'Courses' })).toHaveFocus();
     await userEvent.keyboard('{End}');
-    expect(screen.getByRole('tab', { name: 'Settings' })).toHaveFocus();
+    expect(screen.getByRole('tab', { name: 'Feedback' })).toHaveFocus();
     await userEvent.keyboard('{Home}');
     expect(screen.getByRole('tab', { name: 'Courses' })).toHaveFocus();
   });
@@ -107,7 +119,7 @@ describe('Learning Hub → Manage and Reports: who sees what', () => {
     renderManage(<TrainingCenterPage />, { path: '/training/manage?tab=courses' });
     expect(await screen.findByRole('heading', { level: 1, name: 'Learning Hub' })).toBeInTheDocument();
     expect(await screen.findByText('Your team')).toBeInTheDocument();
-    await waitFor(() => expect(within(hub()).getAllByRole('link').map((l) => l.textContent)).toEqual(['My learning', 'Catalogue', 'Reports']));
+    await waitFor(() => expect(within(hub()).getAllByRole('link').map((l) => l.textContent)).toEqual(['My learning', 'All courses', 'Reports']));
     expect(hubCurrent()).toBe('Reports');
     expect(screen.queryByRole('tablist')).toBeNull();
     expect(screen.queryByRole('button', { name: 'New course' })).toBeNull();

@@ -198,7 +198,8 @@ describe('who may use what (the real guard and route tables)', () => {
   it('access: managers, administrators and project managers (team reports) are told apart', async () => {
     expect(await api.get(w.as.ana, '/training/access')).toMatchObject({ learner: true, manager: false, admin: false, teamReports: false });
     expect(await api.get(w.as.amy, '/training/access')).toMatchObject({ manager: true, admin: false });
-    expect(await api.get(w.as.ben, '/training/access')).toMatchObject({ manager: false, teamReports: true });
+    // 12 Nov: Ben runs a project, but nothing is assigned to his team yet: no Reports tab.
+    expect(await api.get(w.as.ben, '/training/access')).toMatchObject({ manager: false, teamReports: false });
     expect(await api.get(w.as.admin, '/training/access')).toMatchObject({ manager: true, admin: true });
   });
 });

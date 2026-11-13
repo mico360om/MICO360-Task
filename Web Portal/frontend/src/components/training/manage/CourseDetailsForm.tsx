@@ -132,6 +132,8 @@ export function CourseDetailsForm({ course, options }: { course: ManageCourse; o
   return (
     <SectionCard id="tc-ed-details" title="Details">
       <form onSubmit={(e) => void save(e)} noValidate className="flex flex-col gap-4">
+        {/* 12 Nov: a quiet note instead of a STARTER badge (nothing a learner sees). */}
+        {course.starter ? <p className="-mt-1 text-xs text-ink-2">Comes with MICO360</p> : null}
         {problem ? <Notice>{problem}</Notice> : null}
         {saved ? <Notice tone="ok">Details saved.</Notice> : null}
         <FormRow label="Title" htmlFor={ids.title}>
@@ -177,7 +179,7 @@ export function CourseDetailsForm({ course, options }: { course: ManageCourse; o
           </fieldset>
         ) : null}
         <ChoiceGroup<CompletionRule>
-          legend="Completed when"
+          legend="Finished when"
           name={`${course.id}-completion`}
           value={draft.completionRule}
           onChange={(r) => set({ completionRule: r })}
