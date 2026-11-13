@@ -10,11 +10,11 @@ import { AwardIcon, DownloadIcon, TOUCH_MIN, trainingProblem } from './training-
 /**
  * The certificate card (13 Nov new look: My learning's side, the course page's panel). Before finishing: "Finish 7 more
  * modules to get it" over a faint certificate outline. Finished: "Certificate ready", its code, View (the course page,
- * where the certificate is shown — or the page's own `onView`) and Download PDF. Modules new for the person's role:
+ * where the certificate is shown) and Download PDF. Modules new for the person's role:
  * "Finish the new modules for an updated certificate" (the current one still there). Nothing for a course without a
  * certificate. No "Check it online" here: the certificate itself has it (staff only).
  */
-export function CertificatePanel({ course, onView }: { course: CourseDetail; onView?: () => void }) {
+export function CertificatePanel({ course }: { course: CourseDetail }) {
   const side = useLearner();
   const id = useId();
   const [busy, setBusy] = useState(false);
@@ -62,16 +62,10 @@ export function CertificatePanel({ course, onView }: { course: CourseDetail; onV
                 Code <span className="break-all font-mono font-semibold text-ink">{cert.code}</span>
               </p>
               <div className="flex flex-wrap items-center gap-2">
-                {onView ? (
-                  <button type="button" onClick={onView} aria-label="View the certificate" className={buttonClass('secondary', 'sm', small)}>
-                    View
-                  </button>
-                ) : (
-                  <Link to={coursePath(side.base, course.id)} aria-label="View the certificate" className={buttonClass('secondary', 'sm', small)}>
-                    View
-                  </Link>
-                )}
-                <button type="button" onClick={() => void download()} disabled={busy} aria-label="Download the certificate (PDF)" className={buttonClass('secondary', 'sm', `${small} gap-1.5`)}>
+                <Link to={coursePath(side.base, course.id)} aria-label="View the certificate" className={buttonClass('secondary', 'sm', small)}>
+                  View
+                </Link>
+                <button type="button" onClick={() => void download()} disabled={busy} aria-label="Download PDF of the certificate" className={buttonClass('secondary', 'sm', `${small} gap-1.5`)}>
                   <DownloadIcon />
                   Download PDF
                 </button>

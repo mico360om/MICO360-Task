@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ACTION_WORDS, attemptsLeftText, cardChip, clockLeft, courseAction, dueText, learningGroups, lessonsText, minutesText, moduleStatusWords, modulesText, newForRoleText, progressWords, quizStartLine, ratingText, shortDay } from './training-words';
+import { attemptsLeftText, cardChip, clockLeft, courseAction, dueText, learningGroups, lessonsText, minutesText, moduleStatusWords, modulesText, newForRoleText, progressWords, quizStartLine, ratingText, shortDay } from './training-words';
 import { card, mine, moduleCard, moduleDetail } from './training-fixtures';
 
 describe('training words', () => {
@@ -60,10 +60,6 @@ describe('training words', () => {
     expect(attemptsLeftText(null, 4)).toBe('Unlimited attempts');
     expect(attemptsLeftText(3, 2)).toBe('1 attempt left');
     expect(attemptsLeftText(3, 3)).toBe('No attempts left');
-  });
-
-  it('one Start / Continue / Review button (12 Nov)', () => {
-    expect([ACTION_WORDS.start, ACTION_WORDS.resume, ACTION_WORDS.review]).toEqual(['Start', 'Continue', 'Review']);
   });
 
   it('a card’s one chip: overdue, done, due, the review or retake; none otherwise (how far along is said in lessons beside it)', () => {

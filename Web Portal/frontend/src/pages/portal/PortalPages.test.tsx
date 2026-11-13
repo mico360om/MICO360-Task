@@ -1151,7 +1151,7 @@ describe('Learning Hub in the Client portal', () => {
     const certificate = await screen.findByRole('region', { name: 'Certificate' });
     expect(within(certificate).getByText('Certificate ready')).toBeInTheDocument();
     expect(within(certificate).getByRole('link', { name: 'View the certificate' })).toHaveAttribute('href', '/portal/training/courses/pc1');
-    expect(within(certificate).getByRole('button', { name: 'Download the certificate (PDF)' })).toBeInTheDocument();
+    expect(within(certificate).getByRole('button', { name: 'Download PDF of the certificate' })).toBeInTheDocument();
     const main = screen.getByRole('main');
     for (const a of within(main).getAllByRole('link')) expect(a.getAttribute('href'), a.textContent ?? '').toMatch(/^\/portal(\/|$)/);
     expect(within(main).queryByText('Check it online')).toBeNull();

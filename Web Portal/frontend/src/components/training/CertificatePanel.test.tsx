@@ -31,24 +31,17 @@ describe('CertificatePanel', () => {
     expect(within(panel).getByText('Certificate ready')).toBeInTheDocument();
     expect(within(panel).getByText('TC-UT7A-UT7B-UT7C')).toBeInTheDocument();
     expect(within(panel).getByRole('link', { name: 'View the certificate' })).toHaveAttribute('href', '/training/courses/u1');
-    await userEvent.click(within(panel).getByRole('button', { name: 'Download the certificate (PDF)' }));
+    await userEvent.click(within(panel).getByRole('button', { name: 'Download PDF of the certificate' }));
     await waitFor(() => expect(click).toHaveBeenCalled());
     expect(api.certificatePdf).toHaveBeenCalledWith('cert7');
     // No “Check it online” here (the certificate page has it; the portal never does).
     expect(within(panel).queryByRole('link', { name: /online/i })).toBeNull();
   });
 
-  it('View calls the page’s own handler when it gives one (a button, not a link)', async () => {
-    const onView = vi.fn();
-    renderOnSide(<CertificatePanel course={moduleDetail({ mine: finished() })} onView={onView} />, { api: fakeLearner() });
-    await userEvent.click(screen.getByRole('button', { name: 'View the certificate' }));
-    expect(onView).toHaveBeenCalledTimes(1);
-  });
-
   it('a download that fails says so', async () => {
     const api = fakeLearner({ certificatePdf: vi.fn(async () => Promise.reject(new Error('offline'))) });
     renderOnSide(<CertificatePanel course={moduleDetail({ mine: finished() })} />, { api });
-    await userEvent.click(screen.getByRole('button', { name: 'Download the certificate (PDF)' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Download PDF of the certificate' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Couldn’t download the certificate.');
   });
 
@@ -57,7 +50,7 @@ describe('CertificatePanel', () => {
     const panel = screen.getByRole('region', { name: 'Certificate' });
     expect(within(panel).getByText('Finish the new modules for an updated certificate')).toBeInTheDocument();
     expect(within(panel).queryByText('Certificate ready')).toBeNull();
-    expect(within(panel).getByRole('button', { name: 'Download the certificate (PDF)' })).toBeInTheDocument();
+    expect(within(panel).getByRole('button', { name: 'Download PDF of the certificate' })).toBeInTheDocument();
   });
 
   it('a plain course: lessons left', () => {

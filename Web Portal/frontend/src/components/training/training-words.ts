@@ -86,15 +86,6 @@ export function courseAction(mine: Pick<MyCourseState, 'enrolled' | 'status' | '
   return 'resume';
 }
 
-/** 12 Nov: one Start / Continue / Review button. */
-export const ACTION_WORDS: Record<CourseAction, string> = {
-  start: 'Start',
-  resume: 'Continue',
-  review: 'Review',
-  changes: 'Review the changes',
-  retake: 'Retake course',
-};
-
 export type ChipTone = 'overdue' | 'due' | 'done';
 
 /**
