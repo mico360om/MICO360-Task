@@ -45,16 +45,52 @@ describe('Learning Hub → Manage → Courses', () => {
     expect(within(portal).getByText(/Client portal · Clients/)).toBeInTheDocument();
   });
 
-  it('filters by status and module on the server, and searches as you type', async () => {
+  it('filters by status, audience and module on the server, and searches as you type', async () => {
     renderManage(<CoursesTab />);
     await screen.findByRole('list', { name: 'Courses' });
-    expect(api.courses).toHaveBeenLastCalledWith({ status: '', module: '', q: '' });
+    expect(api.courses).toHaveBeenLastCalledWith({ status: '', module: '', q: '', audience: '' });
     await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Status' }), 'DRAFT');
-    await waitFor(() => expect(api.courses).toHaveBeenLastCalledWith({ status: 'DRAFT', module: '', q: '' }));
+    await waitFor(() => expect(api.courses).toHaveBeenLastCalledWith({ status: 'DRAFT', module: '', q: '', audience: '' }));
     await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Module' }), 'meetings');
-    await waitFor(() => expect(api.courses).toHaveBeenLastCalledWith({ status: 'DRAFT', module: 'meetings', q: '' }));
+    await waitFor(() => expect(api.courses).toHaveBeenLastCalledWith({ status: 'DRAFT', module: 'meetings', q: '', audience: '' }));
     await userEvent.type(screen.getByRole('searchbox', { name: 'Search courses' }), 'minutes');
-    await waitFor(() => expect(api.courses).toHaveBeenLastCalledWith({ status: 'DRAFT', module: 'meetings', q: 'minutes' }));
+    await waitFor(() => expect(api.courses).toHaveBeenLastCalledWith({ status: 'DRAFT', module: 'meetings', q: 'minutes', audience: '' }));
+  });
+
+  it('the Audience filter: All, Staff or Clients (sent to the server)', async () => {
+    renderManage(<CoursesTab />);
+    await screen.findByRole('list', { name: 'Courses' });
+    const audience = screen.getByRole('combobox', { name: 'Audience' });
+    expect(within(audience).getAllByRole('option').map((o) => o.textContent)).toEqual(['All', 'Staff', 'Clients']);
+    await userEvent.selectOptions(audience, 'CLIENTS');
+    await waitFor(() => expect(api.courses).toHaveBeenLastCalledWith({ status: '', module: '', q: '', audience: 'CLIENTS' }));
+    await userEvent.selectOptions(audience, 'STAFF');
+    await waitFor(() => expect(api.courses).toHaveBeenLastCalledWith({ status: '', module: '', q: '', audience: 'STAFF' }));
+    api.courses.mockResolvedValue({ courses: [] });
+    await userEvent.selectOptions(audience, 'CLIENTS');
+    expect(await screen.findByText('No courses match')).toBeInTheDocument();
+  });
+
+  it('the facts say who a course is limited to and how many modules it has; a notice is shown on its row', async () => {
+    const notice = 'This built-in course was edited, so it wasn’t merged. Its assignments moved to MICO360 Tasks User Training. Archive it when you’re ready.';
+    api.courses.mockResolvedValue({
+      courses: [
+        courseRow({ id: 'one', title: 'MICO360 Tasks User Training', moduleKey: 'general', starter: true, moduleCount: 10, lessonCount: 42, minutes: 180 }),
+        courseRow({ id: 'rep', title: 'Reports for admins', moduleKey: 'reports', limitedTo: 'Admins only', lessonCount: 1, minutes: 10 }),
+        courseRow({ id: 'edited', title: 'Kanban board basics', moduleKey: 'board', starter: true, notice }),
+      ],
+    });
+    renderManage(<CoursesTab />);
+    const list = await screen.findByRole('list', { name: 'Courses' });
+    const row = (title: string) => within(list).getByRole('link', { name: title }).closest('li')!;
+    expect(within(row('MICO360 Tasks User Training')).getByText('General · Staff · Beginner · 10 modules · 42 lessons · 3 h')).toBeInTheDocument();
+    expect(within(row('Reports for admins')).getByText('Reports · Staff · Admins only · Beginner · 1 lesson · 10 min')).toBeInTheDocument();
+    expect(within(row('Kanban board basics')).getByText(notice)).toBeInTheDocument();
+    expect(within(row('Reports for admins')).queryByText(/wasn’t merged/)).toBeNull();
+    // Every row has its ⋯ menu.
+    for (const title of ['MICO360 Tasks User Training', 'Reports for admins', 'Kanban board basics']) {
+      expect(within(row(title)).getByRole('button', { name: `More for ${title}` })).toHaveAttribute('aria-haspopup', 'menu');
+    }
   });
 
   it('nothing yet: says so and offers New course', async () => {

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import CourseEditorDefault, { CourseEditorPage } from './CourseEditorPage';
-import { fakeTrainingApi, lesson, manageCourse, type FakeTrainingApi } from '../../components/training/manage/test-api';
+import { fakeTrainingApi, lesson, manageCourse, manageModule, type FakeTrainingApi } from '../../components/training/manage/test-api';
 import { renderManage } from '../../components/training/manage/test-render';
 import { ApiError } from '../../lib/api-client';
 
@@ -35,9 +35,37 @@ describe('Course editor: the page', () => {
     expect(crumbs.getByRole('link', { name: 'Manage' })).toHaveAttribute('href', '/training/manage');
     expect(screen.getByRole('link', { name: 'Preview as learner' })).toHaveAttribute('href', '/training/courses/c1');
     expect(screen.getByText('Tasks · Staff · Beginner · 1 lesson · 7 min')).toBeInTheDocument();
-    for (const name of ['Publish', 'Details', 'Lessons', 'Downloads']) expect(screen.getByRole('region', { name })).toBeInTheDocument();
+    for (const name of ['Publish', 'Details', 'Modules', 'Lessons', 'Downloads']) expect(screen.getByRole('region', { name })).toBeInTheDocument();
     // Only a published course can be assigned.
     expect(screen.queryByRole('link', { name: 'Assign this course' })).toBeNull();
+  });
+
+  it('the facts count the modules; the Modules section comes before the Lessons', async () => {
+    api.manageCourse.mockResolvedValue(
+      manageCourse({
+        modules: [manageModule({ id: 'm1', title: 'Getting started' }), manageModule({ id: 'm2', title: 'Tasks', position: 1 })],
+        lessons: [lesson({ id: 'l1', kind: 'GUIDE', title: 'Make a task', minutes: 7, moduleId: 'm2' })],
+      }),
+    );
+    open();
+    expect(await screen.findByText('Tasks · Staff · Beginner · 2 modules · 1 lesson · 7 min')).toBeInTheDocument();
+    const modules = screen.getByRole('region', { name: 'Modules' });
+    const lessons = screen.getByRole('region', { name: 'Lessons' });
+    expect(modules.compareDocumentPosition(lessons) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('a course’s notice (a built-in course that was edited) is shown at the top', async () => {
+    const notice = 'This built-in course was edited, so it wasn’t merged. Its assignments moved to MICO360 Tasks User Training. Archive it when you’re ready.';
+    api.manageCourse.mockResolvedValue(manageCourse({ starter: true, status: 'PUBLISHED', publishedAt: '2026-11-01T08:00:00.000Z', notice }));
+    open();
+    expect(await screen.findByText(notice)).toBeInTheDocument();
+  });
+
+  it('no notice, no notice line', async () => {
+    api.manageCourse.mockResolvedValue(manageCourse());
+    open();
+    await screen.findByRole('heading', { level: 1, name: 'Tasks basics' });
+    expect(screen.queryByText(/wasn’t merged/)).toBeNull();
   });
 
   it('a published course links to Assign with the course chosen', async () => {
@@ -202,6 +230,24 @@ describe('Course editor: publish', () => {
     await userEvent.type(days, '10');
     await userEvent.click(within(dialog).getByRole('button', { name: 'Publish' }));
     await waitFor(() => expect(api.publish).toHaveBeenCalledWith('c1', { change: 'MAJOR', reviewDays: 10 }));
+  });
+
+  it('?publish=1 (the Manage menu’s Publish changes) opens the publish window at once, and leaves the address', async () => {
+    api.manageCourse.mockResolvedValue(manageCourse({ status: 'PUBLISHED', publishedAt: '2026-11-01T08:00:00.000Z', unpublishedChanges: true, version: 2 }));
+    const { where } = renderManage(<CourseEditorPage />, { path: '/training/manage/courses/c1?publish=1', route: PATH.route });
+    const dialog = await screen.findByRole('dialog', { name: 'What kind of change is this?' });
+    expect(dialog).toHaveTextContent('version 3');
+    await waitFor(() => expect(where.path).toBe('/training/manage/courses/c1'));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Publish' }));
+    await waitFor(() => expect(api.publish).toHaveBeenCalledWith('c1', { change: 'MINOR' }));
+  });
+
+  it('?publish=1 on a course that can’t be published yet: no window, the reasons are in the Publish panel', async () => {
+    api.manageCourse.mockResolvedValue(manageCourse({ status: 'ARCHIVED', publishedAt: '2026-11-01T08:00:00.000Z', publishProblems: ['Lesson “Check”: add at least one question.'] }));
+    renderManage(<CourseEditorPage />, { path: '/training/manage/courses/c1?publish=1', route: PATH.route });
+    const panel = await screen.findByRole('region', { name: 'Publish' });
+    expect(within(panel).getByText('Lesson “Check”: add at least one question.')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
   it('when the server needs the kind of change (CHANGE_KIND_NEEDED), it is asked', async () => {

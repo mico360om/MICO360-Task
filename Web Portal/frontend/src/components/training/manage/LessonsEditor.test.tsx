@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { CourseEditorPage } from '../../../pages/training/CourseEditorPage';
-import { fakeTrainingApi, fileRef, lesson, manageCourse, quiz, type FakeTrainingApi } from './test-api';
+import { fakeTrainingApi, fileRef, lesson, manageCourse, manageModule, quiz, type FakeTrainingApi } from './test-api';
 import { renderManage } from './test-render';
 import { ApiError } from '../../../lib/api-client';
 import type { ManageLesson } from '../../../api/training';
@@ -128,6 +128,82 @@ describe('Course editor: lessons', () => {
     await userEvent.type(minutes, '12');
     await userEvent.click(within(panel).getByRole('button', { name: 'Save lesson' }));
     await waitFor(() => expect(api.updateLesson).toHaveBeenCalledWith('g', { minutes: 12 }));
+  });
+});
+
+describe('Course editor: lessons in modules', () => {
+  const MODULES = [
+    manageModule({ id: 'm1', title: 'Getting started', position: 0 }),
+    manageModule({ id: 'm2', title: 'Tasks', position: 1, moduleKey: 'tasks' }),
+    manageModule({ id: 'm3', title: 'Reports', position: 2, moduleKey: 'reports', enabled: false }),
+  ];
+  const LESSONS = [
+    lesson({ id: 'a', kind: 'GUIDE', title: 'Sign in', position: 0, moduleId: 'm1' }),
+    lesson({ id: 'b', kind: 'GUIDE', title: 'Make a task', position: 1, moduleId: 'm2' }),
+    lesson({ id: 'c', kind: 'QUIZ', title: 'Tasks quiz', position: 2, moduleId: 'm2' }),
+    lesson({ id: 'd', kind: 'DOCUMENT', title: 'Handbook', position: 3, moduleId: null }),
+    // Out of place by position: it is shown (and numbered) with its module.
+    lesson({ id: 'e', kind: 'GUIDE', title: 'Your profile', position: 4, moduleId: 'm1' }),
+  ];
+  const course = (lessons = LESSONS) => manageCourse({ modules: MODULES, lessons });
+  const openModules = async () => {
+    api.manageCourse.mockResolvedValue(course());
+    renderManage(<CourseEditorPage />, PATH);
+    return screen.findByRole('region', { name: 'Lessons' });
+  };
+  const titles = (list: HTMLElement) => within(list).getAllByRole('listitem').map((li) => within(li).getAllByRole('button')[0]!.textContent);
+
+  it('groups the lessons under their modules, in the modules’ order, then the lessons with no module', async () => {
+    const lessons = await openModules();
+    expect(within(lessons).getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual(['Getting started', 'Tasks', 'Reports', 'No module']);
+    expect(titles(within(lessons).getByRole('list', { name: 'Lessons in “Getting started”' }))).toEqual(['Sign in', 'Your profile']);
+    expect(titles(within(lessons).getByRole('list', { name: 'Lessons in “Tasks”' }))).toEqual(['Make a task', 'Tasks quiz']);
+    expect(within(lessons).queryByRole('list', { name: 'Lessons in “Reports”' })).toBeNull();
+    expect(within(lessons).getByText('No lessons in this module yet.')).toBeInTheDocument();
+    expect(titles(within(lessons).getByRole('list', { name: 'Lessons with no module' }))).toEqual(['Handbook']);
+  });
+
+  it('each lesson has a Module choice: every module, then No module', async () => {
+    const lessons = await openModules();
+    const select = within(lessons).getByRole('combobox', { name: 'Module for “Make a task”' });
+    expect(select).toHaveValue('m2');
+    expect(within(select).getAllByRole('option').map((o) => o.textContent)).toEqual(['Getting started', 'Tasks', 'Reports (off)', 'No module']);
+    expect(within(lessons).getByRole('combobox', { name: 'Module for “Handbook”' })).toHaveValue('');
+  });
+
+  it('choosing another module moves the lesson there (it goes last in it); No module takes it out', async () => {
+    const lessons = await openModules();
+    const moved = { ...LESSONS[1]!, moduleId: 'm1', position: 5 };
+    api.updateLesson.mockResolvedValueOnce(moved);
+    api.manageCourse.mockResolvedValue(course([LESSONS[0]!, LESSONS[2]!, LESSONS[3]!, LESSONS[4]!, moved]));
+    await userEvent.selectOptions(within(lessons).getByRole('combobox', { name: 'Module for “Make a task”' }), 'm1');
+    await waitFor(() => expect(api.updateLesson).toHaveBeenCalledWith('b', { moduleId: 'm1' }));
+    await waitFor(() => expect(titles(within(lessons).getByRole('list', { name: 'Lessons in “Getting started”' }))).toEqual(['Sign in', 'Your profile', 'Make a task']));
+    // The choice keeps the focus in its new place.
+    await waitFor(() => expect(within(lessons).getByRole('combobox', { name: 'Module for “Make a task”' })).toHaveFocus());
+    api.updateLesson.mockResolvedValueOnce({ ...LESSONS[0]!, moduleId: null });
+    await userEvent.selectOptions(within(lessons).getByRole('combobox', { name: 'Module for “Sign in”' }), '');
+    await waitFor(() => expect(api.updateLesson).toHaveBeenLastCalledWith('a', { moduleId: null }));
+  });
+
+  it('a refused move is shown in the server’s words', async () => {
+    const lessons = await openModules();
+    api.updateLesson.mockRejectedValueOnce(new ApiError(400, 'VALIDATION', 'That module isn’t in this course.'));
+    await userEvent.selectOptions(within(lessons).getByRole('combobox', { name: 'Module for “Handbook”' }), 'm2');
+    expect(await within(lessons).findByText('Couldn’t move the lesson. That module isn’t in this course.')).toBeInTheDocument();
+  });
+
+  it('Move up / down works within the module and sends the whole order, module by module', async () => {
+    api.reorderLessons.mockResolvedValue(course());
+    const lessons = await openModules();
+    const tasks = within(lessons).getByRole('list', { name: 'Lessons in “Tasks”' });
+    expect(within(tasks).getByRole('button', { name: 'Move “Make a task” up' })).toBeDisabled();
+    expect(within(tasks).getByRole('button', { name: 'Move “Tasks quiz” down' })).toBeDisabled();
+    expect(within(lessons).getByRole('button', { name: 'Move “Your profile” down' })).toBeDisabled();
+    await userEvent.click(within(lessons).getByRole('button', { name: 'Move “Your profile” up' }));
+    await waitFor(() => expect(api.reorderLessons).toHaveBeenCalledWith('c1', ['e', 'a', 'b', 'c', 'd']));
+    await userEvent.click(within(tasks).getByRole('button', { name: 'Move “Tasks quiz” up' }));
+    await waitFor(() => expect(api.reorderLessons).toHaveBeenLastCalledWith('c1', ['a', 'e', 'c', 'b', 'd']));
   });
 });
 

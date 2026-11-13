@@ -7,6 +7,7 @@ import type {
   ManageCourse,
   ManageCourseRow,
   ManageLesson,
+  ManageModule,
   ManageQuiz,
   QuizReport,
   ReportRow,
@@ -72,6 +73,18 @@ export const lesson = (over: Partial<ManageLesson> & Pick<ManageLesson, 'id' | '
   quiz: over.kind === 'QUIZ' ? quiz() : null,
   changedVersion: 1,
   moduleId: null,
+  ...over,
+});
+
+export const manageModule = (over: Partial<ManageModule> & Pick<ManageModule, 'id' | 'title'>): ManageModule => ({
+  position: 0,
+  moduleKey: 'general',
+  roleKeys: [],
+  companyIds: [],
+  enabled: true,
+  offReason: null,
+  starter: false,
+  visibility: 'All staff',
   ...over,
 });
 
@@ -272,6 +285,11 @@ export function fakeTrainingApi(): FakeTrainingApi {
     updateLesson: vi.fn(async () => lesson({ id: 'l1', kind: 'GUIDE', title: 'Lesson' })),
     deleteLesson: vi.fn(async () => undefined),
     reorderLessons: vi.fn(async () => course),
+    addModule: vi.fn(async () => course),
+    updateModule: vi.fn(async () => course),
+    removeModule: vi.fn(async () => course),
+    reorderModules: vi.fn(async () => course),
+    duplicateCourse: vi.fn(async () => manageCourse({ id: 'c-copy', title: `Copy of ${course.title}` })),
     saveSteps: vi.fn(async () => lesson({ id: 'l1', kind: 'GUIDE', title: 'Lesson' })),
     saveQuiz: vi.fn(async () => lesson({ id: 'l1', kind: 'QUIZ', title: 'Quiz' })),
     uploadFile: vi.fn(async () => fileRef({ id: 'f-new', name: 'file.pdf' })),

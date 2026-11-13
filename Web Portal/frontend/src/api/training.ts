@@ -731,6 +731,17 @@ export interface LessonInput {
   fileId?: string | null;
 }
 
+/** PATCH /training/manage/lessons/:id: the lesson's fields, and the module it belongs to (null: no module; it goes last in its new module). */
+export type LessonPatch = Partial<LessonInput> & { moduleId?: string | null };
+
+/** The Courses list's filters (applied on the server). */
+export interface ManageCourseFilters {
+  status?: CourseStatus | '';
+  module?: TrainingModule | '';
+  q?: string;
+  audience?: Audience | '';
+}
+
 export interface StepInput {
   title?: string | null;
   body?: string | null;
@@ -832,8 +843,8 @@ export function trainingApi(client: ApiClient) {
     verify: (code: string) => data(client.get<{ data: VerifyResult }>(`/training/verify/${enc(code)}`)),
 
     // ── Training Center ──
-    courses: (f: { status?: CourseStatus | ''; module?: TrainingModule | ''; q?: string } = {}) =>
-      data(client.get<{ data: { courses: ManageCourseRow[] } }>(`/training/manage/courses${qs({ status: f.status, module: f.module, q: f.q })}`)),
+    courses: (f: ManageCourseFilters = {}) =>
+      data(client.get<{ data: { courses: ManageCourseRow[] } }>(`/training/manage/courses${qs({ status: f.status, module: f.module, q: f.q, audience: f.audience })}`)),
     createCourse: (input: CourseInput) => data(client.post<{ data: ManageCourse }>('/training/manage/courses', input)),
     manageCourse: (id: string) => data(client.get<{ data: ManageCourse }>(`/training/manage/courses/${enc(id)}`)),
     updateCourse: (id: string, patch: Partial<CourseInput>) => data(client.patch<{ data: ManageCourse }>(`/training/manage/courses/${enc(id)}`, patch)),
@@ -842,9 +853,19 @@ export function trainingApi(client: ApiClient) {
       data(client.post<{ data: ManageCourse }>(`/training/manage/courses/${enc(id)}/publish`, change ?? {})),
     unpublish: (id: string) => data(client.post<{ data: ManageCourse }>(`/training/manage/courses/${enc(id)}/unpublish`)),
     archive: (id: string) => data(client.post<{ data: ManageCourse }>(`/training/manage/courses/${enc(id)}/archive`)),
+    /** A draft "Copy of …" with its modules, lessons, quiz and pictures (no progress, assignments, certificates or feedback). */
+    duplicateCourse: (id: string) => data(client.post<{ data: ManageCourse }>(`/training/manage/courses/${enc(id)}/duplicate`)),
+    addModule: (courseId: string, input: ModuleInput) =>
+      data(client.post<{ data: ManageCourse }>(`/training/manage/courses/${enc(courseId)}/modules`, input)),
+    updateModule: (id: string, patch: Partial<ModuleInput>) => data(client.patch<{ data: ManageCourse }>(`/training/manage/modules/${enc(id)}`, patch)),
+    /** Its lessons move to `moveTo` (a module of the same course) or to no module; lessons are never deleted. */
+    removeModule: (id: string, moveTo: string | null) =>
+      data(client.post<{ data: ManageCourse }>(`/training/manage/modules/${enc(id)}/remove`, { moveTo })),
+    reorderModules: (courseId: string, moduleIds: string[]) =>
+      data(client.put<{ data: ManageCourse }>(`/training/manage/courses/${enc(courseId)}/module-order`, { moduleIds })),
     addLesson: (courseId: string, input: LessonInput) =>
       data(client.post<{ data: ManageLesson }>(`/training/manage/courses/${enc(courseId)}/lessons`, input)),
-    updateLesson: (id: string, patch: Partial<LessonInput>) => data(client.patch<{ data: ManageLesson }>(`/training/manage/lessons/${enc(id)}`, patch)),
+    updateLesson: (id: string, patch: LessonPatch) => data(client.patch<{ data: ManageLesson }>(`/training/manage/lessons/${enc(id)}`, patch)),
     deleteLesson: (id: string) => client.del(`/training/manage/lessons/${enc(id)}`),
     reorderLessons: (courseId: string, lessonIds: string[]) =>
       data(client.put<{ data: ManageCourse }>(`/training/manage/courses/${enc(courseId)}/lesson-order`, { lessonIds })),

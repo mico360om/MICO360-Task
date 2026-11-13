@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../../../api/client';
-import { trainingApi, type ManageCourse, type ManageLesson, type CertificateStatus, type CourseStatus, type FeedbackKind, type FeedbackStatus, type ReportQuery, type TrainingModule } from '../../../api/training';
+import { trainingApi, type ManageCourse, type ManageCourseFilters, type ManageLesson, type CertificateStatus, type FeedbackKind, type FeedbackStatus, type ReportQuery } from '../../../api/training';
 
 /** The Training Center's calls (one place, so a test can stand in for the server). */
 export const tc = () => trainingApi(apiClient);
@@ -13,7 +13,7 @@ export const MANAGE_KEY = ['training', 'manage'] as const;
 export const REPORTS_KEY = ['training', 'reports'] as const;
 
 export const manageKeys = {
-  courses: (f: { status?: CourseStatus | ''; module?: TrainingModule | ''; q?: string } = {}) => [...MANAGE_KEY, 'courses', f] as const,
+  courses: (f: ManageCourseFilters = {}) => [...MANAGE_KEY, 'courses', f] as const,
   course: (id: string) => [...MANAGE_KEY, 'course', id] as const,
   options: [...MANAGE_KEY, 'options'] as const,
   assignments: (courseId: string) => [...MANAGE_KEY, 'assignments', courseId] as const,
@@ -34,8 +34,8 @@ export function useManageOptions(enabled = true) {
   return useQuery({ queryKey: manageKeys.options, queryFn: () => tc().options(), staleTime: 60_000, enabled });
 }
 
-/** Every course, newest change first (a manager's list; filters are applied on the server). */
-export function useManageCourses(f: { status?: CourseStatus | ''; module?: TrainingModule | ''; q?: string } = {}, enabled = true) {
+/** Every course, newest change first (a manager's list; filters — status, module, audience, search — are applied on the server). */
+export function useManageCourses(f: ManageCourseFilters = {}, enabled = true) {
   return useQuery({ queryKey: manageKeys.courses(f), queryFn: () => tc().courses(f), enabled });
 }
 

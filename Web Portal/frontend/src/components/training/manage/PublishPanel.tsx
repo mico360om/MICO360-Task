@@ -11,7 +11,29 @@ import { ChoiceGroup, FormRow, ManageDialog } from './ManageDialog';
 import { CourseStatusChip, Notice, SectionCard, errorCode, problemText } from './manage-ui';
 import { MANAGE_KEY, tc, useCourseCache } from './manage-queries';
 
-type Ask = 'unpublish' | 'archive' | 'delete';
+export type CourseAsk = 'unpublish' | 'archive' | 'delete';
+
+/** The question before Unpublish, Archive or Delete (here and in the Manage list's ⋯ menu: the same words). */
+export const ASK_WORDS: Readonly<Record<CourseAsk, { title: (courseTitle: string) => string; confirm: string; tone: 'danger' | 'primary'; body: string }>> = {
+  unpublish: {
+    title: (t) => `Unpublish “${t}”?`,
+    confirm: 'Unpublish',
+    tone: 'primary',
+    body: 'It becomes a draft: learners can’t open it until you publish it again. Completions and certificates stay.',
+  },
+  archive: {
+    title: (t) => `Archive “${t}”?`,
+    confirm: 'Archive',
+    tone: 'primary',
+    body: 'It leaves All courses and can’t be assigned. Completions and certificates stay. Publish it again to bring it back.',
+  },
+  delete: {
+    title: (t) => `Delete “${t}”?`,
+    confirm: 'Delete course',
+    tone: 'danger',
+    body: 'The draft, its lessons and its files are deleted. This can’t be undone.',
+  },
+};
 
 /** What Publish says for the course's state (null: nothing to publish). */
 function publishLabel(c: ManageCourse): string | null {
@@ -24,21 +46,22 @@ function publishLabel(c: ManageCourse): string | null {
  * Publish, and the course's state: what stops it being published (a video lesson without its link…), Publish —
  * for a course published before, the author says whether it is a small fix (people keep their progress: completions
  * and certificates stay) or a big change (people who finished it review the changed lessons within N days) — Unpublish, Archive, and
- * Delete for a draft never published.
+ * Delete for a draft never published. `startPublishing` (the editor opened from the Manage list's "Publish changes" /
+ * "Publish again"): the "What kind of change is this?" window opens at once when the course can be published.
  */
-export function PublishPanel({ course }: { course: ManageCourse }) {
+export function PublishPanel({ course, startPublishing = false }: { course: ManageCourse; startPublishing?: boolean }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const cache = useCourseCache(course.id);
   const problemsId = useId();
-  const [asking, setAsking] = useState<Ask | null>(null);
-  const [choosing, setChoosing] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [problem, setProblem] = useState<string | null>(null);
-  const [done, setDone] = useState<string | null>(null);
   const label = publishLabel(course);
   const refused = course.publishProblems.length > 0;
   const neverPublished = !course.publishedAt;
+  const [asking, setAsking] = useState<CourseAsk | null>(null);
+  const [choosing, setChoosing] = useState(() => startPublishing && !!label && !refused && !neverPublished);
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
 
   async function publish(change?: { change: 'MINOR' | 'MAJOR'; reviewDays?: number }) {
     setBusy(true);
@@ -57,7 +80,7 @@ export function PublishPanel({ course }: { course: ManageCourse }) {
     }
   }
 
-  async function act(what: Ask) {
+  async function act(what: CourseAsk) {
     setBusy(true);
     setProblem(null);
     setDone(null);
@@ -126,18 +149,14 @@ export function PublishPanel({ course }: { course: ManageCourse }) {
       {choosing ? <ChangeKindDialog course={course} busy={busy} problem={problem} onPublish={(c) => void publish(c)} onClose={() => setChoosing(false)} /> : null}
       {asking ? (
         <ConfirmDialog
-          title={asking === 'delete' ? `Delete “${course.title}”?` : asking === 'archive' ? `Archive “${course.title}”?` : `Unpublish “${course.title}”?`}
-          confirmLabel={asking === 'delete' ? 'Delete course' : asking === 'archive' ? 'Archive' : 'Unpublish'}
-          tone={asking === 'delete' ? 'danger' : 'primary'}
+          title={ASK_WORDS[asking].title(course.title)}
+          confirmLabel={ASK_WORDS[asking].confirm}
+          tone={ASK_WORDS[asking].tone}
           busy={busy}
           onConfirm={() => void act(asking)}
           onClose={() => setAsking(null)}
         >
-          {asking === 'delete'
-            ? 'The draft, its lessons and its files are deleted. This can’t be undone.'
-            : asking === 'archive'
-              ? 'It leaves All courses and can’t be assigned. Completions and certificates stay. Publish it again to bring it back.'
-              : 'It becomes a draft: learners can’t open it until you publish it again. Completions and certificates stay.'}
+          {ASK_WORDS[asking].body}
         </ConfirmDialog>
       ) : null}
     </SectionCard>
