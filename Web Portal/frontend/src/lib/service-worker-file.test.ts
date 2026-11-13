@@ -14,7 +14,7 @@ interface FakeRequest {
   mode: string;
 }
 
-function worker(opts: { kill?: boolean; net?: Net; putFails?: boolean } = {}) {
+function worker(opts: { kill?: boolean; net?: Net; putFails?: boolean | ((path: string) => boolean) } = {}) {
   let net: Net = opts.net ?? (() => new Response('nothing', { status: 404 }));
   const fetched: string[] = [];
   const stores = new Map<string, Map<string, Response>>();
@@ -28,7 +28,10 @@ function worker(opts: { kill?: boolean; net?: Net; putFails?: boolean } = {}) {
     return {
       match: async (k: string | FakeRequest) => m.get(keyOf(k))?.clone(),
       put: async (k: string | FakeRequest, res: Response) => {
-        if (opts.putFails) throw new DOMException('quota', 'QuotaExceededError');
+        const failing = typeof opts.putFails === 'function' ? opts.putFails(keyOf(k)) : opts.putFails;
+        if (failing) throw new DOMException('quota', 'QuotaExceededError');
+        // As the Cache API: putting a key again replaces it at the newest end.
+        m.delete(keyOf(k));
         m.set(keyOf(k), res);
       },
       keys: async () => [...m.keys()].map((url) => ({ url: `${ORIGIN}${url}` })),
@@ -74,18 +77,30 @@ function worker(opts: { kill?: boolean; net?: Net; putFails?: boolean } = {}) {
     listeners[type]!({ waitUntil: (p: unknown) => void (done = p), ...extra });
     await done;
   }
-  /** A request through the worker: its answer, or null when the worker leaves it to the network. */
-  async function request(path: string, init: { method?: string; mode?: string; origin?: string } = {}): Promise<Response | null> {
+  /** What fetch events still have in progress (copies being kept), as their waitUntil promises. */
+  const extended: Promise<unknown>[] = [];
+  /**
+   * A request through the worker: its answer, or null when the worker leaves it to the network. By default
+   * it also waits for what the event keeps doing after answering (keeping a copy).
+   */
+  async function request(path: string, init: { method?: string; mode?: string; origin?: string; settle?: boolean } = {}): Promise<Response | null> {
     let answer: Promise<Response> | null = null;
-    listeners.fetch!({ request: { url: `${init.origin ?? ORIGIN}${path}`, method: init.method ?? 'GET', mode: init.mode ?? 'cors' }, respondWith: (p: Promise<Response>) => void (answer = p) });
-    return answer ? await answer : null;
+    listeners.fetch!({
+      request: { url: `${init.origin ?? ORIGIN}${path}`, method: init.method ?? 'GET', mode: init.mode ?? 'cors' },
+      respondWith: (p: Promise<Response>) => void (answer = p),
+      waitUntil: (p: Promise<unknown>) => void extended.push(p),
+    });
+    if (!answer) return null;
+    const res = await answer;
+    if (init.settle !== false) await Promise.all(extended.splice(0));
+    return res;
   }
   async function message(data: unknown) {
     let done: unknown;
     listeners.message!({ data, waitUntil: (p: unknown) => void (done = p) });
     await done;
   }
-  return { self, stores, fetched, fetchedWith, navigated, lifecycle, request, message, setNet: (n: Net) => void (net = n) };
+  return { self, stores, fetched, fetchedWith, navigated, lifecycle, request, message, extended, setNet: (n: Net) => void (net = n) };
 }
 
 const html = (body = '<script type="module" src="/assets/index-abc.js"></script><link rel="stylesheet" href="/assets/index-abc.css">') =>
@@ -305,6 +320,50 @@ describe('the service worker (public/sw.js)', () => {
     expect(await (await w.request('/manifest.webmanifest'))!.text()).toBe('fresh');
   });
 
+  // Second review (13 Nov): a full phone (the cache refuses to write) must still get the network's answer
+  // for a page and an app file — not the stale last good page, not a failure.
+  it('a page or an app file the cache refuses to keep (full) is still answered from the network', async () => {
+    const w = worker({ net: () => html('<title>fresh</title>'), putFails: true });
+    expect(await (await w.request('/projects', { mode: 'navigate' }))!.text()).toContain('fresh');
+    w.setNet(() => js('fresh js'));
+    expect(await (await w.request('/assets/x-1.js'))!.text()).toBe('fresh js');
+  });
+
+  // Second review (13 Nov, from 1.17): the oldest-first trim deleted the files that never change name (the
+  // vendor chunks, the fonts) — fetched first, so "oldest" for good — while the current last good page still
+  // loads them: an offline reload was blank. What the last good page loads is never trimmed.
+  it('never trims what the current last good page loads', async () => {
+    const w = worker({ net: () => js() });
+    const shell = html('<script type="module" src="/assets/index-cur.js"></script><link rel="modulepreload" href="/assets/vendor-react-stable.js"><link rel="stylesheet" href="/assets/index-cur.css">');
+    const assets = new Map<string, Response>([['/assets/vendor-react-stable.js', js('vendor')], ['/assets/index-cur.js', js('index')], ['/assets/index-cur.css', js('css')]]);
+    for (let i = 0; i < 297; i++) assets.set(`/assets/lazy-${String(i).padStart(3, '0')}.js`, js());
+    w.stores.set('mico360-shell-v2', new Map([['/__mico360-shell__', shell]]));
+    w.stores.set('mico360-assets-v2', assets);
+    await w.request('/assets/another-new.js');
+    const kept = [...w.stores.get('mico360-assets-v2')!.keys()];
+    expect(kept).toHaveLength(300);
+    for (const p of ['/assets/vendor-react-stable.js', '/assets/index-cur.js', '/assets/index-cur.css', '/assets/another-new.js']) expect(kept, p).toContain(p);
+    expect(kept).not.toContain('/assets/lazy-000.js');
+  });
+
+  // Second review (13 Nov): carrying over must never lose the current build's files, even if a write fails,
+  // and the v1 last good page comes over without its address.
+  it('carry-over: the current build’s files survive a failed write; the old last good page loses its address', async () => {
+    const w = worker({ putFails: (p) => p === '/assets/old-1.js' });
+    const oldShell = html('<title>old</title>');
+    Object.defineProperty(oldShell, 'url', { value: `${ORIGIN}/reset?token=secret-token` });
+    w.stores.set('mico360-shell-v1', new Map([['/__mico360-shell__', oldShell]]));
+    w.stores.set('mico360-assets-v1', new Map([['/assets/old-0.js', js()], ['/assets/old-1.js', js()], ['/assets/old-2.js', js()]]));
+    w.stores.set('mico360-assets-v2', new Map([['/assets/index-new.js', js('new')]]));
+    await w.lifecycle('activate');
+    const kept = [...w.stores.get('mico360-assets-v2')!.keys()];
+    expect(kept).toContain('/assets/index-new.js');
+    expect(kept[kept.length - 1]).toBe('/assets/index-new.js');
+    const shell = w.stores.get('mico360-shell-v2')!.get('/__mico360-shell__')!;
+    expect(await shell.clone().text()).toContain('old');
+    expect(shell.url).not.toContain('secret-token');
+  });
+
   // Review (13 Nov): the last good page is kept without the address it came from (a password-reset link's
   // token in /reset?token=… must not stay in the cache's records).
   it('keeps the last good page without the address it was loaded from', async () => {
@@ -351,13 +410,40 @@ describe('the service worker (public/sw.js)', () => {
       expect(await (await offlinePage)!.text()).toContain('offline');
     });
 
-    it('an app file the server never answers: fails after 60 s, as a dropped connection would', async () => {
+    it('an app file the server never answers: fails after 120 s, as a dropped connection would', async () => {
       vi.useFakeTimers();
       const w = worker({ net: never });
       const file = w.request('/assets/never-1.js');
-      const failed = expect(file).rejects.toThrow();
+      let settled = false;
+      const failed = expect(file.finally(() => (settled = true))).rejects.toThrow();
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(settled).toBe(false);
       await vi.advanceTimersByTimeAsync(60_000);
       await failed;
+    });
+
+    // Second review (13 Nov): the limits covered the headers only — a body that stalls half-way (a phone's
+    // link dying in a big file) still held the event while the copy was written. The page gets the answer
+    // at once; keeping the copy is background work that gives up after 30 s.
+    it('answers as soon as the headers arrive; keeping the copy can’t hold the event past 30 s', async () => {
+      vi.useFakeTimers();
+      const stalled = () =>
+        new Response(new ReadableStream({ start: (c) => c.enqueue(new TextEncoder().encode('console.log(1)')) }), { status: 200, headers: { 'content-type': 'text/javascript' } });
+      const w = worker({ net: stalled });
+      const res = await w.request('/assets/big-1.js', { settle: false });
+      expect(res!.status).toBe(200);
+      expect(w.extended).toHaveLength(1);
+      let done = false;
+      void Promise.all(w.extended).then(() => (done = true));
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(done).toBe(true);
+      const page = worker({ net: () => new Response(new ReadableStream({ start: (c) => c.enqueue(new TextEncoder().encode('<html>')) }), { status: 200, headers: { 'content-type': 'text/html' } }) });
+      const pageRes = await page.request('/projects', { mode: 'navigate', settle: false });
+      expect(pageRes!.status).toBe(200);
+      let pageDone = false;
+      void Promise.all(page.extended).then(() => (pageDone = true));
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(pageDone).toBe(true);
     });
 
     it('the manifest or an icon the server never answers: the kept copy after 30 s', async () => {

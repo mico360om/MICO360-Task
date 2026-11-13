@@ -53,7 +53,7 @@ function networkRoutes() {
  * would, and the worker's own background work (keeping files) simply stops waiting.
  */
 const PAGE_WAIT_MS = 30_000;
-const FILE_WAIT_MS = 60_000;
+const FILE_WAIT_MS = 120_000;
 const BACKGROUND_MS = 30_000;
 
 /** The promise, or a "no answer" failure after ms. */
@@ -78,10 +78,29 @@ function assetsIn(html) {
   return [...out];
 }
 
+/**
+ * The oldest go first — never what the current last good page loads: the files that keep their name
+ * across releases (the vendor chunks, the fonts) were fetched first and stay "oldest" for good, and
+ * trimming them left an offline reload blank (second review, 13 Nov).
+ */
 async function trimAssets() {
   const cache = await caches.open(ASSET_CACHE);
   const keys = await cache.keys();
-  for (let i = 0; i < keys.length - MAX_ASSETS; i++) await cache.delete(keys[i]);
+  let extra = keys.length - MAX_ASSETS;
+  if (extra <= 0) return;
+  const shell = await caches.match(SHELL_KEY);
+  const needed = new Set(shell ? assetsIn(await shell.text()) : []);
+  for (const request of keys) {
+    if (extra <= 0) break;
+    if (needed.has(new URL(request.url, self.location.origin).pathname)) continue;
+    await cache.delete(request);
+    extra -= 1;
+  }
+}
+
+/** Keeping a copy of an answer, after the answer: background work that may fail or give up, never the answer. */
+function keepCopy(event, work) {
+  event.waitUntil(settleWithin(Promise.resolve().then(work), BACKGROUND_MS));
 }
 
 async function cacheAssets(urls) {
@@ -145,7 +164,8 @@ async function carryOver(name) {
       const kept = await old.match(SHELL_KEY);
       if (!kept) return;
       const target = await caches.open(SHELL_CACHE);
-      if (!(await target.match(SHELL_KEY))) await target.put(SHELL_KEY, kept);
+      // Without the address it came from (as every last good page is kept now).
+      if (!(await target.match(SHELL_KEY))) await target.put(SHELL_KEY, await pageCopy(kept));
       return;
     }
     if (!name.startsWith(`${PREFIX}assets-`)) return;
@@ -162,12 +182,15 @@ async function carryOver(name) {
     const candidates = oldFiles.filter((request) => !have.has(pathOf(request)));
     const take = candidates.slice(Math.max(0, candidates.length - Math.max(0, MAX_ASSETS - current.length)));
     if (!take.length) return;
-    for (const [path] of current) await target.delete(path);
-    for (const request of take) {
-      const res = await old.match(request);
-      if (res) await target.put(pathOf(request), res);
+    try {
+      for (const request of take) {
+        const res = await old.match(request);
+        if (res) await target.put(pathOf(request), res);
+      }
+    } finally {
+      // Put again, the current build's files go to the newest end (a put replaces): whatever happened above.
+      for (const [path, res] of current) await target.put(path, res).catch(() => undefined);
     }
-    for (const [path, res] of current) await target.put(path, res);
   } catch {
     /* an older cache that can't be read is simply removed */
   }
@@ -191,12 +214,13 @@ async function removeEverything() {
 }
 
 /** A page load: the network first; the last good page only when the network can't be reached. */
-async function pageLoad(request) {
+async function pageLoad(request, event) {
   try {
     const res = await within(fetch(request), PAGE_WAIT_MS);
     const type = res.headers.get('content-type') || '';
     if (res.ok && type.includes('text/html')) {
-      await (await caches.open(SHELL_CACHE)).put(SHELL_KEY, await pageCopy(res));
+      const copy = res.clone();
+      keepCopy(event, async () => (await caches.open(SHELL_CACHE)).put(SHELL_KEY, await pageCopy(copy)));
       return res;
     }
     // The server answered, but not with the app (a proxy's 502 page while it restarts): the last good
@@ -217,16 +241,13 @@ async function pageLoad(request) {
 }
 
 /** The manifest or an icon: the network first (kept up to date); what was kept only without signal. */
-async function keptFile(request) {
+async function keptFile(request, event) {
   const path = new URL(request.url).pathname;
   try {
     const res = await within(fetch(request), PAGE_WAIT_MS);
     if (res.ok) {
-      try {
-        await (await caches.open(SHELL_CACHE)).put(path, res.clone());
-      } catch {
-        /* the cache is full or refuses it: the network's answer all the same */
-      }
+      const copy = res.clone();
+      keepCopy(event, async () => (await caches.open(SHELL_CACHE)).put(path, copy));
     }
     return res;
   } catch (err) {
@@ -237,15 +258,18 @@ async function keptFile(request) {
 }
 
 /** One of the app's files: from the cache when it's there (it never changes), else fetched and kept. */
-async function appFile(request) {
+async function appFile(request, event) {
   const path = new URL(request.url).pathname;
   const cache = await caches.open(ASSET_CACHE);
   const kept = await cache.match(path);
   if (kept) return kept;
   const res = await within(fetch(request), FILE_WAIT_MS);
   if (res.ok) {
-    await cache.put(path, res.clone());
-    await trimAssets();
+    const copy = res.clone();
+    keepCopy(event, async () => {
+      await cache.put(path, copy);
+      await trimAssets();
+    });
   }
   return res;
 }
@@ -314,13 +338,13 @@ self.addEventListener('fetch', (event) => {
   // The offline page, the manifest and the icons — opened as a page too (the offline page is never the
   // last good page).
   if (isKept(url.pathname)) {
-    event.respondWith(keptFile(request));
+    event.respondWith(keptFile(request, event));
     return;
   }
   if (request.mode === 'navigate') {
-    event.respondWith(pageLoad(request));
+    event.respondWith(pageLoad(request, event));
     return;
   }
-  if (isAsset(url.pathname)) event.respondWith(appFile(request));
+  if (isAsset(url.pathname)) event.respondWith(appFile(request, event));
   // Anything else goes to the network as if there were no worker.
 });
