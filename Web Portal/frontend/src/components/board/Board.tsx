@@ -211,22 +211,15 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
     const idx = cols.findIndex((c) => c.id === id);
     const j = dir === 'up' ? idx - 1 : idx + 1;
     if (idx < 0 || j < 0 || j >= cols.length) return;
-    const a = cols[idx]!;
-    const b = cols[j]!;
-    // Swap through a guaranteed-unique temp position (the [projectId,position] unique index forbids a direct swap).
-    await columnsApi(apiClient).update(a.id, { position: -1 - a.position });
-    await columnsApi(apiClient).update(b.id, { position: a.position });
-    await columnsApi(apiClient).update(a.id, { position: b.position });
+    const ids = cols.map((c) => c.id);
+    [ids[idx], ids[j]] = [ids[j]!, ids[idx]!];
+    await reorderColumnsTo(ids);
   }
-  /** Persist a full drag-reorder. Two phases (park at unique negatives, then final indices) so the
-      [projectId, position] unique index never collides mid-update. */
+  /** Review fix #26: save a new column order (an arrow or a drag) in one request — the server applies it all
+      at once, so an interrupted save never leaves the board half-reordered. */
   async function reorderColumnsTo(orderedIds: string[]) {
-    for (let i = 0; i < orderedIds.length; i++) {
-      await columnsApi(apiClient).update(orderedIds[i]!, { position: -1000 - i });
-    }
-    for (let i = 0; i < orderedIds.length; i++) {
-      await columnsApi(apiClient).update(orderedIds[i]!, { position: i });
-    }
+    if (!projectId) return;
+    await columnsApi(apiClient).reorder(projectId, orderedIds);
   }
 
   const boardQ = useQuery({

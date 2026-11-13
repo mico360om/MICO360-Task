@@ -78,6 +78,7 @@ export type ArchiveTarget =
 export const ARCHIVE_REFUSED: Readonly<Record<string, ArchiveTarget>> = {
   // The board: its columns and the order of its cards.
   'POST /projects/:id/columns': 'project',
+  'PUT /projects/:id/columns/order': 'project',
   'PUT /columns/:columnId': 'column',
   'PUT /columns/:columnId/tasks/reorder': 'column',
   // New tasks, task edits, moves and status changes.

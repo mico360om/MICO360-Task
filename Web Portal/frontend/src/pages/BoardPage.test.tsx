@@ -31,11 +31,14 @@ type Call = { url: string; method: string; body?: Record<string, unknown>; heade
 let calls: Call[] = [];
 let failCreate: 'network' | null = null;
 let failColumnDelete = false;
+/** Review fix #13: the server refuses a status change of a column holding tasks. */
+let failColumnCategory = false;
 
 beforeEach(() => {
   calls = [];
   failCreate = null;
   failColumnDelete = false;
+  failColumnCategory = false;
   clearQueue(localStorageQueueStore);
   localStorage.clear();
   useAuthStore.getState().setSession({ user: { id: 'u1', email: 'a@b.c', username: 'ada', roles: ['ADMIN'] }, accessToken: 'at', refreshToken: 'rt' });
@@ -46,6 +49,10 @@ beforeEach(() => {
       const method = init?.method ?? 'GET';
       calls.push({ url: u, method, body: init?.body ? JSON.parse(String(init.body)) : undefined, headers: (init?.headers ?? {}) as Record<string, string> });
       if (u.endsWith('/config')) return json({ data: { timeZone: 'Asia/Muscat', productName: 'x', companyName: 'y', serverTime: new Date().toISOString() } });
+      if (method === 'PUT' && u.includes('/columns/') && failColumnCategory) {
+        return json({ error: { code: 'COLUMN_HAS_TASKS', message: 'Move the tasks out of this column first, then change its status.' } }, 409);
+      }
+      if (method === 'PUT' && u.endsWith('/columns/order')) return json({ data: [] });
       if (method === 'DELETE' && u.includes('/columns/')) {
         return failColumnDelete ? json({ error: { code: 'CONFLICT', message: 'Move this column’s tasks first.' } }, 409) : new Response(null, { status: 204 });
       }
@@ -397,6 +404,29 @@ describe('BoardPage', () => {
     await userEvent.click(await screen.findByRole('button', { name: /delete to do/i }));
     await userEvent.click(await screen.findByRole('button', { name: /^delete$/i }));
     expect(await screen.findByText('Move this column’s tasks first.')).toBeInTheDocument();
+  });
+
+  it('review fix #13: a column holding tasks can’t change to Done — the server’s words are shown and the status goes back', async () => {
+    failColumnCategory = true;
+    renderPage();
+    await screen.findByText('Prepare report');
+    await userEvent.click(screen.getByRole('button', { name: /manage columns/i }));
+    const status = await screen.findByRole('combobox', { name: 'Status of To Do' });
+    await userEvent.selectOptions(status, 'DONE');
+    expect(await screen.findByText('Move the tasks out of this column first, then change its status.')).toBeInTheDocument();
+    expect(calls.some((c) => c.method === 'PUT' && c.url.endsWith('/columns/c-p1') && c.body?.category === 'DONE')).toBe(true);
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Status of To Do' })).toHaveValue('TODO'));
+  });
+
+  it('review fix #26: moving a column with its arrows saves the whole new order in one request', async () => {
+    renderPage();
+    await screen.findByText('Prepare report');
+    await userEvent.click(screen.getByRole('button', { name: /manage columns/i }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Move To Do down' }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT' && c.url.endsWith('/projects/p1/columns/order'))).toBe(true));
+    const writes = calls.filter((c) => c.method === 'PUT' && c.url.includes('/columns'));
+    expect(writes).toHaveLength(1);
+    expect(writes[0]!.body).toEqual({ columnIds: ['c-p1-ip', 'c-p1'] });
   });
 
   it('leaves the board of a project the user was just removed from (project:removed)', async () => {

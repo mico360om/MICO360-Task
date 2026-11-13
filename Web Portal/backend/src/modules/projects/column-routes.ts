@@ -19,6 +19,9 @@ const updateSchema = z.object({
   position: z.number().int().min(-1_000_000).max(1_000_000).optional(),
 });
 
+// Review fix #26: every column of the project, in its new order (each once).
+const orderSchema = z.object({ columnIds: z.array(z.string().trim().min(1).max(191)).min(1).max(200) });
+
 export interface ColumnRouteDeps {
   columnService: ColumnService;
   authz: ProjectAuthz;
@@ -49,6 +52,17 @@ export async function registerColumnRoutes(app: FastifyInstance, deps: ColumnRou
     const column = await columnService.addColumn(id, body);
     announce(id, 'created', { column });
     return reply.status(201).send({ data: column });
+  });
+
+  // Review fix #26: the whole order in one transaction (the website's arrows and drag). The single-column
+  // PUT below stays for the Android app and older pages. The same permission as moving a column.
+  app.put('/projects/:id/columns/order', { preHandler: guard.authenticate }, async (req) => {
+    const { id } = req.params as { id: string };
+    if (!(await authz.canManageProject(req.user!.id, req.user!.roles ?? [], id))) throw new ForbiddenError();
+    const { columnIds } = orderSchema.parse(req.body);
+    const columns = await columnService.reorderColumns(id, columnIds);
+    announce(id, 'reordered', { columns });
+    return { data: columns };
   });
 
   app.put('/columns/:columnId', { preHandler: guard.authenticate }, async (req) => {

@@ -27,5 +27,8 @@ export function columnsApi(client: ApiClient) {
     update: (columnId: string, patch: ColumnPatch) =>
       client.put<{ data: ApiColumn }>(`/columns/${columnId}`, patch).then((r) => r.data),
     remove: (columnId: string) => client.del<void>(`/columns/${columnId}`),
+    /** Review fix #26: every column of the project in its new order, saved in one step (positions 0…n-1). */
+    reorder: (projectId: string, columnIds: string[]) =>
+      client.put<{ data: ApiColumn[] }>(`/projects/${projectId}/columns/order`, { columnIds }).then((r) => r.data),
   };
 }
