@@ -1,4 +1,5 @@
 import type { Prisma, PrismaClient } from '@prisma/client';
+import { saveConflict, withoutSaveRetry } from './save-retry';
 
 /**
  * Review fix #8 (13 Nov 2026) — one at a time across the whole site: a transaction that first locks a
@@ -21,13 +22,16 @@ export interface SentinelLockOptions {
 
 const TX = { maxWait: 15_000, timeout: 30_000 } as const;
 
-/** A write conflict, a deadlock or MariaDB's snapshot-isolation refusal: the transaction can simply run again. */
+/**
+ * A write conflict, a deadlock or MariaDB's snapshot-isolation refusal: the transaction can simply run again.
+ * 1.23.29: first the shapes Prisma really gives (lib/save-retry, the server's retry layer); then, for an error
+ * with no code of its own, the words. A known error with a code is what its code says.
+ */
 export function isRetryableTxError(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false;
-  const e = err as { code?: unknown; meta?: { code?: unknown } | null; message?: unknown };
-  if (e.code === 'P2034') return true;
-  const dbCode = e.meta && typeof e.meta === 'object' ? String(e.meta.code ?? '') : '';
-  if (dbCode === '1020' || dbCode === '1213') return true;
+  if (saveConflict(err)) return true;
+  const e = err as { code?: unknown; message?: unknown };
+  if (e.code !== undefined) return false;
   const text = typeof e.message === 'string' ? e.message.slice(0, 2000) : '';
   return /Record has changed since last read|\b1020\b|Deadlock found|\b1213\b|write conflict or a deadlock/i.test(text);
 }
@@ -59,7 +63,8 @@ export async function withRowLock<L, T>(
 ): Promise<T> {
   for (let attempt = 1; ; attempt++) {
     try {
-      return await prisma.$transaction(async (tx) => work(tx, await lock(tx)), TX);
+      // 1.23.29: these tries are its own — the server's retry layer stays out of them (never 4 × 3).
+      return await withoutSaveRetry(() => prisma.$transaction(async (tx) => work(tx, await lock(tx)), TX));
     } catch (err) {
       if (attempt >= attempts || !isRetryableTxError(err)) throw err;
       if (pauseMs > 0) await pause(pauseMs * attempt + Math.floor(Math.random() * pauseMs));

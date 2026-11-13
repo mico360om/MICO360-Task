@@ -5,6 +5,7 @@ import { managedVisibleWhere } from '../projects/project-managers';
 import { firstFreeKey, highestKeyNumber, isTaskKeyConflict } from '../tasks/prisma-task-repository';
 import { DEPENDENCY_LOCK } from '../tasks/prisma-dependency-repository';
 import { isRetryableTxError } from '../../lib/sentinel-lock';
+import { withoutSaveRetry } from '../../lib/save-retry';
 import { matchingColumn } from '../tasks/task-move';
 import { boardDateFromKey, boardDateKey } from '../tasks/board-date';
 import { defaultCompanyTimeZone } from '../tasks/task-status';
@@ -707,7 +708,8 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
     await warmFileHashes(ids, hashOf);
     for (let attempt = 0; !saved; attempt++) {
       try {
-        saved = await prisma.$transaction((tx) => mergeIn(tx, actor, ids, input, hashOf), TX);
+        // 1.23.29: its tries are its own: the server's retry layer stays out (lib/save-retry; never 5 × 3).
+        saved = await withoutSaveRetry(() => prisma.$transaction((tx) => mergeIn(tx, actor, ids, input, hashOf), TX));
       } catch (err) {
         // Batch 4b: waiting behind a link being added can make the database pick this one to start again
         // (after a short, growing pause, as lib/sentinel-lock does, so the two don't meet again at once).
@@ -1444,7 +1446,7 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
     let done: { result: UndoResult; statusChange: StatusChange | null } | null = null;
     for (let attempt = 0; !done; attempt++) {
       try {
-        done = await prisma.$transaction((tx) => undoIn(tx, actor, mergeId), TX);
+        done = await withoutSaveRetry(() => prisma.$transaction((tx) => undoIn(tx, actor, mergeId), TX)); // its own tries (1.23.29)
       } catch (err) {
         if (!isRetryableTxError(err) || attempt >= KEY_ATTEMPTS - 1) throw err;
         await retryPause(attempt);

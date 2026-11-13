@@ -48,7 +48,7 @@ import { ProjectInspectionsTab } from '../components/inspections/ProjectInspecti
 import { ProjectKpisTab } from '../components/kpis/ProjectKpisTab';
 import { TOUCH_SQUARE, TOUCH_TALL } from '../lib/touch';
 import { isProjectArchived, projectReadOnly } from '../lib/project-archive';
-import { statusColour } from '../lib/colour-classes';
+import { OVERDUE_CLASS, STATUS_CLASS, statusColour } from '../lib/colour-classes';
 import { archivedTasksKey } from '../lib/task-archive';
 import { isTaskDone } from '../lib/due-display';
 import { ArchiveIcon } from '../components/task-archive/ArchivedBadge';
@@ -629,13 +629,16 @@ function ProjectPageSkeleton() {
   );
 }
 
-const TILE_TONE: Record<string, string> = {
+// 1.23.29: the numbers in the site's colour scheme (lib/colour-classes) — Completed in the Done green, Overdue in
+// the overdue red, as everywhere else. Typed by its own keys: a tone it doesn't know is a type error (the tiles
+// asked for "done" and "overdue" before, which weren't here, and showed no colour).
+const TILE_TONE = {
   default: 'text-ink',
-  success: 'text-success',
+  done: STATUS_CLASS.DONE.text,
   info: 'text-info',
-  danger: 'text-danger',
+  overdue: OVERDUE_CLASS.text,
   brand: 'text-brand',
-};
+} as const;
 function StatTile({ label, value, tone = 'default', hint, className = '' }: { label: string; value: string | number; tone?: keyof typeof TILE_TONE; hint?: string; className?: string }) {
   return (
     // A tile; on a phone, a cell of the strip (no card of its own, the number over its label).

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { isRetryableTxError, withSentinelLock } from './sentinel-lock';
+import { withSaveRetries } from './save-retry';
 
 /** A Prisma client fake: records the statements, runs the transaction body with a tx that can be made to fail. */
 function fakePrisma(failTimes: number, error: unknown) {
@@ -82,5 +83,24 @@ describe('withSentinelLock (review fix #8)', () => {
     expect(isRetryableTxError({ code: 'LAST_ADMIN', status: 409 })).toBe(false);
     expect(isRetryableTxError(new Error('Something else'))).toBe(false);
     expect(isRetryableTxError(null)).toBe(false);
+  });
+
+  // 1.23.29 — it starts from lib/save-retry's shape check (the server's retry layer uses the same one).
+  it('isRetryableTxError: the shapes Prisma really gives (lib/save-retry); a known error is what its code says, whatever its words', () => {
+    const unknown1020 = Object.assign(new Error('ConnectorError { kind: QueryError(Server(MysqlError { code: 1020, message: "x", state: "HY000" })) }'), { name: 'PrismaClientUnknownRequestError' });
+    expect(isRetryableTxError(unknown1020)).toBe(true);
+    expect(isRetryableTxError({ code: 'P2010', meta: { code: '1020' } })).toBe(true);
+    // A not-found whose code frame quotes a comment about 1020 is still a not-found.
+    expect(isRetryableTxError(Object.assign(new Error('// error 1020: Record has changed since last read'), { code: 'P2025' }))).toBe(false);
+    expect(isRetryableTxError({ code: 'P2010', meta: { code: '1062' }, message: 'Deadlock found' })).toBe(false);
+  });
+
+  it('with the server’s save retry layer on the client, its own tries stay its own (4, never 4 × 3)', async () => {
+    const changed = Object.assign(new Error('Raw query failed. Code: `1020`.'), { code: 'P2010', meta: { code: '1020' } });
+    const { prisma } = fakePrisma(100, changed);
+    const own = prisma.$transaction;
+    withSaveRetries(Object.assign(prisma, { $use: vi.fn() }), { pause: async () => {} });
+    await expect(withSentinelLock(prisma as never, 'admin-guard', async () => 1, { pauseMs: 0 })).rejects.toBe(changed);
+    expect(own).toHaveBeenCalledTimes(4);
   });
 });
