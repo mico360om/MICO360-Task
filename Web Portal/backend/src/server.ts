@@ -1556,6 +1556,7 @@ async function main(): Promise<void> {
   // Every company set up once (starter holidays this year and next, Standard + Critical schedules).
   jobs.every(6 * 60 * 60 * 1000, () =>
     runExclusive(jobLock, 'notification-setup', SWEEP_LEASE_MS, () => new Date(), () => notifyPolicy.ensureAll()).catch(sweepFailed('notification-setup', 'notification set-up')),
+    { name: 'notification-setup' },
   );
   // Owner, 13 Nov: Accession Day (11 January) joins Oman's holidays — added once to companies set up before
   // (never twice, never where the year has its own 11 January day off, never back after an admin deleted it).
@@ -1564,7 +1565,7 @@ async function main(): Promise<void> {
     6 * 60 * 60 * 1000,
     () =>
       runExclusive(jobLock, 'holidays-accession-day', SWEEP_LEASE_MS, () => new Date(), async () => { await accessionDay.run(); }).catch(sweepFailed('holidays-accession-day', 'adding Accession Day to the holidays')),
-    { firstAfterMs: 25 * 1000 },
+    { firstAfterMs: 25 * 1000, name: 'holidays-accession-day' },
   );
   // The Management page (and its weekly summary) runs on the scope's week and working days: the picked
   // company's, else the reader's primary company's (Ruling 15).
@@ -1929,9 +1930,13 @@ async function main(): Promise<void> {
 
   const runDigest = () => runExclusive(jobLock, 'daily-digest', SWEEP_LEASE_MS, () => new Date(), runDigestSweep).catch(sweepFailed('daily-digest', 'daily digest sweep'));
   // Escalations are the reminder planner's now (two steps in working days; Notification & Scheduling).
-  jobs.every(60 * 60 * 1000, () => {
-    void runDigest();
-  });
+  jobs.every(
+    60 * 60 * 1000,
+    () => {
+      void runDigest();
+    },
+    { name: 'daily-digest' },
+  );
 
   // ── The daily email (1.22: one email, in parts), every morning ──
   // Each person's email goes at their time (06:00 unless they chose another, in their own time zone).
@@ -2231,7 +2236,7 @@ async function main(): Promise<void> {
   revokeSessions = revokeAllSessions;
   // Invitations past their 7 days: ended and audited once each, every hour.
   const invitationSweep = createInvitationSweep({ store: createPrismaExpiredInvitationStore(prisma), audit: auditService });
-  jobs.every(60 * 60 * 1000, () => invitationSweep.run().catch(sweepFailed('invitation-expiry', 'invitation expiry sweep')));
+  jobs.every(60 * 60 * 1000, () => invitationSweep.run().catch(sweepFailed('invitation-expiry', 'invitation expiry sweep')), { name: 'invitation-expiry' });
 
   const passwordResetService = createPasswordResetService({
     store: createPrismaPasswordResetStore(prisma),
