@@ -28,6 +28,10 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - Opening a new project chat at the same time as someone else works for both of you.
 - A duplicated meeting belongs to the person who made the copy.
 - Saving the same thing twice at once (a double click, or two people together) no longer shows an error.
+- On the Calendar, "My tasks" also shows the meetings you're invited to and haven't declined, not only the ones you organise.
+- On a project's page, the Overdue number is red and the Completed number green again.
+- Starting a chat with one person is called "New message" everywhere in Chat.
+- An empty Agenda on the Calendar now says "Nothing planned in these days." and offers New task, instead of asking you to click a day.
 
 ## [1.23.27] - 2026-11-13
 
