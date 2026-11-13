@@ -107,32 +107,47 @@ async function cacheShell() {
   }
 }
 
+const pathOf = (request) => new URL(request.url, self.location.origin).pathname;
+
 /**
  * Before an older version's caches go (v1 → v2): its last good page and its app files come along, so
  * the rename loses nothing a page opened before it needs offline. What the current caches hold wins.
+ * Only the app files that fit come along (the newest first), and they go in before the current build's
+ * own: the oldest are what a later trim removes first, never the files of the build running now.
  */
 async function carryOver(name) {
-  let carried = 0;
   try {
-    const assets = name.startsWith(`${PREFIX}assets-`);
-    if (!assets && !name.startsWith(`${PREFIX}shell-`)) return 0;
-    const old = await caches.open(name);
-    let target = null;
-    for (const request of await old.keys()) {
-      const path = new URL(request.url, self.location.origin).pathname;
-      if (assets ? !isAsset(path) : path !== SHELL_KEY) continue;
-      target ??= await caches.open(assets ? ASSET_CACHE : SHELL_CACHE);
-      if (await target.match(path)) continue;
-      const res = await old.match(request);
-      if (res) {
-        await target.put(path, res);
-        if (assets) carried += 1;
-      }
+    if (name.startsWith(`${PREFIX}shell-`)) {
+      const old = await caches.open(name);
+      const kept = await old.match(SHELL_KEY);
+      if (!kept) return;
+      const target = await caches.open(SHELL_CACHE);
+      if (!(await target.match(SHELL_KEY))) await target.put(SHELL_KEY, kept);
+      return;
     }
+    if (!name.startsWith(`${PREFIX}assets-`)) return;
+    const old = await caches.open(name);
+    const oldFiles = (await old.keys()).filter((request) => isAsset(pathOf(request)));
+    if (!oldFiles.length) return;
+    const target = await caches.open(ASSET_CACHE);
+    const current = [];
+    for (const request of await target.keys()) {
+      const res = await target.match(request);
+      if (res) current.push([pathOf(request), res]);
+    }
+    const have = new Set(current.map(([path]) => path));
+    const candidates = oldFiles.filter((request) => !have.has(pathOf(request)));
+    const take = candidates.slice(Math.max(0, candidates.length - Math.max(0, MAX_ASSETS - current.length)));
+    if (!take.length) return;
+    for (const [path] of current) await target.delete(path);
+    for (const request of take) {
+      const res = await old.match(request);
+      if (res) await target.put(pathOf(request), res);
+    }
+    for (const [path, res] of current) await target.put(path, res);
   } catch {
     /* an older cache that can't be read is simply removed */
   }
-  return carried;
 }
 
 /** The offline page, the manifest and the icons, fetched fresh; one that can't be fetched now is skipped. */
@@ -245,13 +260,11 @@ self.addEventListener('activate', (event) => {
         return;
       }
       const keep = new Set([SHELL_CACHE, ASSET_CACHE]);
-      let carried = 0;
       for (const name of await caches.keys()) {
         if (!name.startsWith(PREFIX) || keep.has(name)) continue;
-        carried += await carryOver(name);
+        await carryOver(name);
         await caches.delete(name);
       }
-      if (carried) await trimAssets();
       await self.clients.claim();
     })(),
   );

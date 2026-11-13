@@ -278,6 +278,26 @@ describe('the service worker (public/sw.js)', () => {
     expect(await kept.stores.get('mico360-shell-v2')!.get('/__mico360-shell__')!.clone().text()).toContain('current');
   });
 
+  // Self-review (13 Nov): a phone that used the app for months has a full v1 cache (300 files). Carrying it
+  // all over and then trimming oldest-first would drop the new build's own files: only what fits comes
+  // along, the newest first, and the current build's files stay.
+  it('carries over only what fits (the newest), never pushing out the current build’s files', async () => {
+    const w = worker();
+    const old = new Map<string, Response>();
+    for (let i = 0; i < 300; i++) old.set(`/assets/old-${String(i).padStart(3, '0')}.js`, js(`o${i}`));
+    w.stores.set('mico360-assets-v1', old);
+    w.stores.set('mico360-assets-v2', new Map([['/assets/index-new.js', js('new')], ['/assets/vendor-new.js', js('vendor')]]));
+    await w.lifecycle('activate');
+    const kept = [...w.stores.get('mico360-assets-v2')!.keys()];
+    expect(kept).toHaveLength(300);
+    expect(kept).toContain('/assets/index-new.js');
+    expect(kept).toContain('/assets/vendor-new.js');
+    // The newest of the old ones came along; the two oldest didn't.
+    expect(kept).toContain('/assets/old-299.js');
+    expect(kept).not.toContain('/assets/old-000.js');
+    expect(kept).not.toContain('/assets/old-001.js');
+  });
+
   it('a kept file the cache refuses to store (full) is still answered from the network', async () => {
     const w = worker({ net: () => js('fresh'), putFails: true });
     expect(await (await w.request('/manifest.webmanifest'))!.text()).toBe('fresh');
