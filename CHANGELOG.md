@@ -24,6 +24,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - A request started by one person is never re-sent as another person who signs in on the same browser.
 - Changes waiting offline are only sent for the person who made them.
 - The Chrome extension's saved pages belong to the person who opened them.
+- Files on tasks and in chats open only for people who can still see that task or chat; copied links stop working after about a day.
+- Old profile photos stop opening once replaced.
 
 ### Bug fixes
 - Unsent chat drafts and waiting messages are removed when you log out, and are never shown to the next person on the same browser.
