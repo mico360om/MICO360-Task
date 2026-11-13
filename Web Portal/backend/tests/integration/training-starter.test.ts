@@ -4,7 +4,8 @@ import { randomBytes } from 'node:crypto';
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createTrainingStarter, LAUNCHED_KEY, STARTER_LOADED_KEY, STARTER_REVISION_KEY } from '../../src/modules/training/training-starter';
+import { applyStarterLessons, createTrainingStarter, LAUNCHED_KEY, STARTER_LOADED_KEY, STARTER_REVISION_KEY, starterAssetsDir, type TrainingStarterDeps } from '../../src/modules/training/training-starter';
+import { STARTER_COURSES, USER_TRAINING_KEY } from '../../src/modules/training/starter/starter-courses';
 import { trainingContext } from '../../src/modules/training/training-context';
 import { createTrainingFinish } from '../../src/modules/training/training-finish';
 import { createTrainingFileStore } from '../../src/modules/training/training-files';
@@ -586,5 +587,290 @@ describe('Starter update to a new revision (R1, R4, R3)', () => {
     expect(out).toEqual({ loaded: 4, skipped: 0, already: false });
     expect(((await prisma.systemSetting.findUniqueOrThrow({ where: { key: STARTER_REVISION_KEY } })).value as { revision: number }).revision).toBe(2);
     expect((await upgrader(rev2(), 2).run()).updated).toBeUndefined();
+  });
+});
+
+// ── 1.23.30 (revision 3): built-in modules, and the one-course conversion's place in the update ─────────────
+
+describe('Built-in modules (1.23.30, revision 3)', () => {
+  const K = { course: `starter:test-${tag}-modules`, combined: `starter:test-${tag}-combined`, short: `starter:test-${tag}-short`, client: `starter:test-${tag}-client`, shipped: `starter:test-${tag}-shipped`, shippedClient: `starter:test-${tag}-shipped-client` };
+  const allKeys = Object.values(K);
+  const g = (title: string, stepTitles: string[], module?: string, image?: string): StarterLesson => ({
+    kind: 'GUIDE',
+    title,
+    minutes: 3,
+    ...(module ? { module } : {}),
+    steps: stepTitles.map((t, i) => ({ title: t, body: `<p>${t}.</p>`, ...(i === 0 && image ? { image, alt: `A picture for ${t}` } : {}) })),
+  });
+  const v = (title: string, module?: string): StarterLesson => ({ kind: 'VIDEO', title, minutes: 2, videoUrl: null, ...(module ? { module } : {}) });
+  const qz = (title: string, prompts: string[], module?: string): StarterLesson => ({
+    kind: 'QUIZ',
+    title,
+    minutes: 2,
+    ...(module ? { module } : {}),
+    quiz: { passMark: 70, maxAttempts: null, shuffle: true, timeLimitMinutes: null, drawCount: null, questions: prompts.map((p) => ({ kind: 'SINGLE', prompt: p, explanation: 'So.', options: [{ text: 'Yes', correct: true }, { text: 'No', correct: false, feedback: 'No.' }] })) },
+  });
+  const course = (key: string, lessons: StarterLesson[], o: Partial<StarterCourse> = {}): StarterCourse => ({
+    key,
+    title: 'Training',
+    summary: 'All of it.',
+    moduleKey: 'general',
+    audience: 'STAFF',
+    difficulty: 'BEGINNER',
+    status: 'PUBLISHED',
+    completionRule: 'ALL_LESSONS',
+    certificateOn: true,
+    certificateMonths: null,
+    lessons,
+    ...o,
+  });
+  /** Version A: two modules (the second for administrators), five lessons. */
+  const vA = (key = K.course): StarterCourse =>
+    course(key, [v('Video: One', 'module:one'), g('Guide X', ['X1', 'X2'], 'module:one', 'pic-a.webp'), qz('Quiz: One', ['Q1?', 'Q2?'], 'module:one'), v('Video: Two', 'module:two'), g('Guide Y', ['Y1'], 'module:two')], {
+      modules: [
+        { key: 'module:one', title: 'One', moduleKey: 'general', from: K.short },
+        { key: 'module:two', title: 'Two', moduleKey: 'reports', roleKeys: ['admins'], from: `${K.short}-two` },
+      ],
+    });
+  /** Version B: a new module first, then Two, then One (renamed); Guide X moved into Two; Quiz: One keeps Q1, Q2 swapped for Q3. */
+  const vB = (key = K.course): StarterCourse =>
+    course(key, [v('Video: Three', 'module:three'), g('Guide Z', ['Z1'], 'module:three'), v('Video: Two', 'module:two'), g('Guide Y', ['Y1'], 'module:two'), g('Guide X', ['X1'], 'module:two', 'pic-a.webp'), v('Video: One', 'module:one'), qz('Quiz: One', ['Q1?', 'Q3?'], 'module:one')], {
+      modules: [
+        { key: 'module:three', title: 'Three', moduleKey: 'chat', from: `${K.short}-three` },
+        { key: 'module:two', title: 'Two', moduleKey: 'reports', roleKeys: ['admins'], from: `${K.short}-two` },
+        { key: 'module:one', title: 'One again', moduleKey: 'general', from: K.short },
+      ],
+    });
+  /** As 1.23.27 had them: a short course (no modules) the combined course replaces, and the client guide. */
+  const shortCourse = () => course(K.short, [v('Video: One'), g('Guide X', ['X1', 'X2'], undefined, 'pic-a.webp'), qz('Quiz: One', ['Q1?', 'Q2?']), g('Old guide', ['O1'])], { certificateOn: false });
+  const client = (certificateOn: boolean) => course(K.client, [v('Video: Client'), g('Client guide', ['C1'])], { audience: 'CLIENTS', moduleKey: 'portal', certificateOn });
+  const rev3 = () => [vA(K.combined), client(true)];
+
+  const site = (courses: StarterCourse[], o: Partial<TrainingStarterDeps> = {}, log = logger()) =>
+    createTrainingStarter({ prisma, files: createTrainingFileStore(privateDir), courses, assetsDir: assets, logger: log, userTrainingKey: K.combined, ...o });
+  const full = (key: string) =>
+    prisma.trainingCourse.findUniqueOrThrow({
+      where: { starterKey: key },
+      include: {
+        modules: { orderBy: { position: 'asc' } },
+        lessons: { orderBy: { position: 'asc' }, include: { steps: { orderBy: { position: 'asc' } }, quiz: { include: { questions: { orderBy: { position: 'asc' } } } } } },
+      },
+    });
+  const noted = async () => (await prisma.systemSetting.findUnique({ where: { key: STARTER_REVISION_KEY } }))?.value as { revision: number; keys: string[] } | undefined;
+  /** 1.23.27's site: the short course and the client guide loaded, revision 2 noted. */
+  const olderSite = () => site([shortCourse(), client(false)], { revision: 2 }).run();
+
+  async function cleanUp() {
+    const ids = (await prisma.trainingCourse.findMany({ where: { starterKey: { in: allKeys } }, select: { id: true } })).map((c) => c.id);
+    await prisma.trainingFile.deleteMany({ where: { courseId: { in: ids } } });
+    await prisma.trainingCourse.deleteMany({ where: { id: { in: ids } } });
+  }
+  beforeEach(cleanUp);
+  afterAll(cleanUp);
+
+  it('a fresh load makes the modules (from the content, in order, switched on) and puts each lesson in its module', async () => {
+    expect(await site([vA()], { revision: 3 }).run()).toEqual({ loaded: 1, skipped: 0, already: false });
+    const c = await full(K.course);
+    expect(c.modules.map((m) => [m.position, m.starterKey, m.title, m.moduleKey, m.roleKeys, m.companyIds, m.enabled, m.offReason, m.fromCourseId])).toEqual([
+      [0, 'module:one', 'One', 'general', null, null, true, null, null],
+      [1, 'module:two', 'Two', 'reports', ['admins'], null, true, null, null],
+    ]);
+    const [one, two] = c.modules;
+    expect(c.lessons.map((l) => [l.title, l.moduleId])).toEqual([
+      ['Video: One', one!.id],
+      ['Guide X', one!.id],
+      ['Quiz: One', one!.id],
+      ['Video: Two', two!.id],
+      ['Guide Y', two!.id],
+    ]);
+    // Published with nothing changed since: the modules carry the publish moment too.
+    for (const m of c.modules) expect(m.updatedAt.getTime()).toBeLessThanOrEqual(c.publishedAt!.getTime());
+    for (const l of c.lessons) expect(l.updatedAt.getTime()).toBeLessThanOrEqual(c.publishedAt!.getTime());
+    expect(c.lessons[1]!.steps[0]!.imageFileId).not.toBeNull();
+    expect(c.lessons[2]!.quiz!.questions.map((q) => q.prompt)).toEqual(['Q1?', 'Q2?']);
+    expect((await noted())?.revision).toBe(3);
+  });
+
+  it('an untouched course with modules is brought up to date: lesson ids kept, a lesson moved to its new module, modules matched by key (on/off left alone)', async () => {
+    await site([vA()], { revision: 3 }).run();
+    const before = await full(K.course);
+    const [one, two] = before.modules;
+    // The site switched module One off (as the conversion does for a removed short course): not an edit of the course.
+    await prisma.trainingModule.update({ where: { id: one!.id }, data: { enabled: false, offReason: 'REMOVED', updatedAt: one!.updatedAt } });
+    const id = (title: string) => before.lessons.find((l) => l.title === title)!.id;
+    const q1 = before.lessons.find((l) => l.title === 'Quiz: One')!.quiz!.questions[0]!;
+
+    const out = await site([vB()], { revision: 4 }).run();
+    expect(out.updated).toBe(1);
+    const c = await full(K.course);
+    expect(c.modules.map((m) => [m.position, m.starterKey, m.title, m.moduleKey, m.roleKeys, m.enabled, m.offReason])).toEqual([
+      [0, 'module:three', 'Three', 'chat', null, true, null],
+      [1, 'module:two', 'Two', 'reports', ['admins'], true, null],
+      [2, 'module:one', 'One again', 'general', null, false, 'REMOVED'],
+    ]);
+    const [three, two2, one2] = c.modules;
+    expect(two2!.id).toBe(two!.id);
+    expect(one2!.id).toBe(one!.id);
+    expect(c.lessons.map((l) => [l.position, l.title, l.moduleId])).toEqual([
+      [0, 'Video: Three', three!.id],
+      [1, 'Guide Z', three!.id],
+      [2, 'Video: Two', two!.id],
+      [3, 'Guide Y', two!.id],
+      [4, 'Guide X', two!.id],
+      [5, 'Video: One', one!.id],
+      [6, 'Quiz: One', one!.id],
+    ]);
+    for (const t of ['Video: One', 'Guide X', 'Quiz: One', 'Video: Two', 'Guide Y']) expect(c.lessons.find((l) => l.title === t)!.id, t).toBe(id(t));
+    const quiz = c.lessons.find((l) => l.title === 'Quiz: One')!.quiz!;
+    expect(quiz.questions.map((q) => q.prompt)).toEqual(['Q1?', 'Q3?']);
+    expect(quiz.questions[0]!.id).toBe(q1.id);
+    // Still the untouched built-in course: the next revision reaches it too.
+    expect(c).toMatchObject({ version: 1, updatedById: null, status: 'PUBLISHED' });
+    for (const m of c.modules) expect(m.updatedAt.getTime()).toBeLessThanOrEqual(c.publishedAt!.getTime());
+    for (const l of c.lessons) expect(l.updatedAt.getTime()).toBeLessThanOrEqual(c.publishedAt!.getTime());
+  });
+
+  it('a course whose module an administrator edited is not updated (a module edit is an edit of the course)', async () => {
+    await site([vA()], { revision: 3 }).run();
+    const before = await full(K.course);
+    await prisma.trainingModule.update({ where: { id: before.modules[1]!.id }, data: { title: 'Mine' } });
+    await prisma.trainingCourse.update({ where: { id: before.id }, data: { updatedById: `admin-${tag}`, version: 2 } });
+    const out = await site([vB()], { revision: 4 }).run();
+    expect(out.updated).toBeUndefined();
+    const c = await full(K.course);
+    expect(c.modules.map((m) => [m.starterKey, m.title])).toEqual([
+      ['module:one', 'One'],
+      ['module:two', 'Mine'],
+    ]);
+    expect(c.lessons.map((l) => [l.id, l.moduleId])).toEqual(before.lessons.map((l) => [l.id, l.moduleId]));
+  });
+
+  it('applyStarterLessons works on the rows it is given only: lessons moved in from another course keep their ids and get their module', async () => {
+    await site([shortCourse()], { revision: 2 }).run();
+    const short = await full(K.short);
+    const at = new Date(Math.floor(Date.now() / 1000) * 1000);
+    const target = await prisma.trainingCourse.create({ data: { title: 'Training', moduleKey: 'general', audience: 'STAFF', status: 'PUBLISHED', starterKey: K.combined, version: 1, publishedAt: at }, select: { id: true } });
+    // A lesson already in the target course that the caller does not pass: never matched, never removed.
+    const other = await prisma.trainingLesson.create({ data: { courseId: target.id, kind: 'GUIDE', title: 'Guide Y', position: 9 } });
+    // The caller moves the short course's lessons first (as the conversion does), then writes the content over them.
+    await prisma.trainingLesson.updateMany({ where: { courseId: short.id }, data: { courseId: target.id } });
+    const rows = await prisma.trainingLesson.findMany({ where: { id: { in: short.lessons.map((l) => l.id) } }, include: { quiz: { include: { questions: { include: { options: true } } } } }, orderBy: [{ position: 'asc' }, { id: 'asc' }] });
+    const out = await prisma.$transaction((tx) => applyStarterLessons(tx, target.id, vA(K.combined), rows, new Map(), at));
+    const oldGuide = short.lessons.find((l) => l.title === 'Old guide')!;
+    expect(out.removedLessonIds).toEqual([oldGuide.id]);
+
+    const c = await full(K.combined);
+    const [one, two] = c.modules;
+    expect(c.modules.map((m) => m.starterKey)).toEqual(['module:one', 'module:two']);
+    const byTitle = (t: string) => c.lessons.filter((l) => l.title === t);
+    for (const t of ['Video: One', 'Guide X', 'Quiz: One']) {
+      expect(byTitle(t).map((l) => [l.id, l.moduleId]), t).toEqual([[short.lessons.find((l) => l.title === t)!.id, one!.id]]);
+    }
+    expect(byTitle('Video: Two').map((l) => l.moduleId)).toEqual([two!.id]);
+    // The lesson not passed in stays as it was; the content's Guide Y is made beside it.
+    const ys = byTitle('Guide Y');
+    expect(ys.map((l) => l.id)).toContain(other.id);
+    expect(ys.find((l) => l.id === other.id)).toMatchObject({ moduleId: null, position: 9 });
+    expect(ys.find((l) => l.id !== other.id)).toMatchObject({ moduleId: two!.id, position: 4 });
+    expect(await prisma.trainingLesson.count({ where: { id: oldGuide.id } })).toBe(0);
+    // The guide's steps are the content's; a picture missing from the map leaves the step text-only.
+    expect(byTitle('Guide X')[0]!.steps.map((s) => [s.title, s.imageFileId])).toEqual([
+      ['X1', null],
+      ['X2', null],
+    ]);
+  });
+
+  it('an older site without the conversion: the combined course is not loaded beside its short courses (warned), the client guide gets its certificate, the revision waits', async () => {
+    await olderSite();
+    const log = logger();
+    await site(rev3(), { revision: 3 }, log).run();
+    expect(await prisma.trainingCourse.count({ where: { starterKey: K.combined } })).toBe(0);
+    expect(log.warnings.some((w) => /conversion/.test(w.msg))).toBe(true);
+    expect((await full(K.client)).certificateOn).toBe(true);
+    expect((await full(K.short)).lessons.map((l) => l.title)).toEqual(['Video: One', 'Guide X', 'Quiz: One', 'Old guide']);
+    // Still owed: the next start (with the conversion) does it.
+    expect((await noted())?.revision).toBe(2);
+    let called = 0;
+    await site(rev3(), { revision: 3, convert: async () => (called++, { courseId: 'made' }) }).run();
+    expect(called).toBe(1);
+    expect((await noted())?.revision).toBe(3);
+  });
+
+  it('with the conversion: called once, first; the loop leaves the combined course to it; revision 3 noted with the new key; never again', async () => {
+    await olderSite();
+    const seen: boolean[] = [];
+    const convert = async () => {
+      // Called before the update loop: the client guide is not brought up to date yet.
+      seen.push((await full(K.client)).certificateOn);
+      return { courseId: 'made-by-the-conversion' };
+    };
+    const out = await site(rev3(), { revision: 3, convert }).run();
+    expect(seen).toEqual([false]);
+    expect(out.updated).toBeGreaterThanOrEqual(1);
+    // This stand-in made nothing, and the loop loaded nothing fresh in its place.
+    expect(await prisma.trainingCourse.count({ where: { starterKey: K.combined } })).toBe(0);
+    expect((await full(K.client)).certificateOn).toBe(true);
+    const n = (await noted())!;
+    expect(n.revision).toBe(3);
+    expect(n.keys).toEqual(expect.arrayContaining([K.short, K.client, K.combined]));
+    await site(rev3(), { revision: 3, convert }).run();
+    expect(seen).toHaveLength(1);
+  });
+
+  it('a conversion that fails is warned about, the revision is not noted, and it is tried again at the next start', async () => {
+    await olderSite();
+    const log = logger();
+    await site(rev3(), { revision: 3, convert: async () => Promise.reject(new Error('half way')) }, log).run();
+    expect(log.warnings.some((w) => /conversion/.test(w.msg) && /half way/.test(String(w.meta?.err)))).toBe(true);
+    expect(await prisma.trainingCourse.count({ where: { starterKey: K.combined } })).toBe(0);
+    expect((await noted())?.revision).toBe(2);
+    let called = 0;
+    await site(rev3(), { revision: 3, convert: async () => (called++, { courseId: 'made' }) }).run();
+    expect(called).toBe(1);
+    expect((await noted())?.revision).toBe(3);
+  });
+
+  it('nothing to convert (the conversion answers null): the combined course is loaded fresh, with its modules', async () => {
+    await site([client(false)], { revision: 2 }).run();
+    await site(rev3(), { revision: 3, convert: async () => null }).run();
+    const c = await full(K.combined);
+    expect(c.modules.map((m) => m.starterKey)).toEqual(['module:one', 'module:two']);
+    expect(c.lessons).toHaveLength(5);
+    expect((await noted())?.revision).toBe(3);
+  });
+
+  it('the shipped revision-3 content loads on a fresh site: the one staff course with its ten modules (every lesson in one, every picture there) and the client guide with its certificate', async () => {
+    // The real words and pictures, under this test's own keys (and short-course keys nobody has).
+    const shipped = STARTER_COURSES.map((c) => ({
+      ...c,
+      key: c.key === USER_TRAINING_KEY ? K.shipped : K.shippedClient,
+      ...(c.modules ? { modules: c.modules.map((m) => ({ ...m, from: `${m.from}-${tag}` })) } : {}),
+    }));
+    const log = logger();
+    const out = await site(shipped, { revision: 3, userTrainingKey: K.shipped, assetsDir: starterAssetsDir() }, log).run();
+    expect(log.warnings).toEqual([]);
+    expect(out).toEqual({ loaded: 2, skipped: 0, already: false });
+    const c = await full(K.shipped);
+    const content = STARTER_COURSES[0]!;
+    expect(c).toMatchObject({ title: 'MICO360 Tasks User Training', status: 'PUBLISHED', audience: 'STAFF', certificateOn: true, certificateMonths: null, position: -1, version: 1 });
+    expect(c.modules.map((m) => [m.starterKey, m.title, m.moduleKey, m.roleKeys, m.enabled])).toEqual(content.modules!.map((m) => [m.key, m.title, m.moduleKey, m.roleKeys ?? null, true]));
+    expect(c.lessons.map((l) => l.title)).toEqual(content.lessons.map((l) => l.title));
+    const keyOf = new Map(c.modules.map((m) => [m.id, m.starterKey]));
+    expect(c.lessons.map((l) => keyOf.get(l.moduleId ?? ''))).toEqual(content.lessons.map((l) => l.module));
+    // Every picture copied in: each step that has one in the content points at its file.
+    const pictured = content.lessons.flatMap((l) => (l.kind === 'GUIDE' ? l.steps.map((st) => !!st.image) : []));
+    expect(c.lessons.flatMap((l) => l.steps.map((st) => st.imageFileId !== null))).toEqual(pictured);
+    expect(await prisma.trainingFile.count({ where: { courseId: c.id, kind: 'IMAGE' } })).toBe(new Set(content.lessons.flatMap((l) => (l.kind === 'GUIDE' ? l.steps.flatMap((st) => (st.image ? [st.image] : [])) : []))).size);
+    expect((await full(K.shippedClient)).certificateOn).toBe(true);
+    expect((await noted())?.revision).toBe(3);
+  });
+
+  it('the loaded flag missing (an earlier load failed): the combined course is still never loaded beside the short courses it replaces', async () => {
+    await olderSite();
+    await prisma.systemSetting.delete({ where: { key: STARTER_LOADED_KEY } });
+    await site(rev3(), { revision: 3 }).run();
+    expect(await prisma.trainingCourse.count({ where: { starterKey: K.combined } })).toBe(0);
+    expect(await prisma.systemSetting.count({ where: { key: STARTER_LOADED_KEY } })).toBe(1);
+    expect((await noted())?.revision).toBe(2);
   });
 });

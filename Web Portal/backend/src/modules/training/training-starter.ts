@@ -3,8 +3,8 @@ import { readFile } from 'node:fs/promises';
 import { basename, extname, join, resolve } from 'node:path';
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { isRichEmpty, parseRichHtml, sanitizeRichHtml } from '../../lib/rich-text';
-import { LEGACY_STARTER_KEYS, RETIRED_VIDEO_COURSES, STARTER_COURSES, STARTER_REVISION } from './starter/starter-courses';
-import type { StarterCourse, StarterLesson, StarterQuestion, StarterStep } from './starter/starter-types';
+import { LEGACY_STARTER_KEYS, RETIRED_VIDEO_COURSES, STARTER_COURSES, STARTER_REVISION, USER_TRAINING_KEY } from './starter/starter-courses';
+import type { StarterCourse, StarterLesson, StarterModule, StarterQuestion, StarterStep } from './starter/starter-types';
 import { checkTrainingUpload, type TrainingFileStore } from './training-files';
 import { LIMITS } from './training-types';
 
@@ -25,11 +25,18 @@ import { LIMITS } from './training-types';
  * removed, and everything is stamped as published with no change since. Edited courses are left alone; a deleted
  * one never comes back; a new starter course is loaded. `training.starterRevision` notes the revision and every
  * key loaded so far. Afterwards anyone who has now done every lesson left is finished (R3).
+ *
+ * 1.23.30 (revision 3): a course can have modules (training_modules, found again by their starterKey); loading and
+ * updating write them with the lessons (applyStarterLessons, which the one-course conversion uses too). The eleven
+ * short courses become one course, "MICO360 Tasks User Training": a site that loaded them gets it from the
+ * conversion (`convert`, run first in the update, once), never loaded fresh beside them.
  */
 
 export const STARTER_LOADED_KEY = 'training.starterLoadedAt';
 export const LAUNCHED_KEY = 'training.launchedAt';
 export const STARTER_REVISION_KEY = 'training.starterRevision';
+/** The revision that brought the one course (1.23.30): a site on an earlier one is converted (`convert`) first. */
+export const ONE_COURSE_REVISION = 3;
 
 /** assets/training/starter next to the server (its working folder) or the source / compiled file; null: none. */
 export function starterAssetsDir(): string | null {
@@ -108,10 +115,14 @@ export function normalizeStarterCourse(course: StarterCourse, warn: Warn): Start
       }),
     };
   };
+  const modules = course.modules ? few(course.modules, LIMITS.modulesPerCourse, 'modules').map((m, i): StarterModule => ({ ...m, title: cut(m.title, LIMITS.moduleTitle, `module ${i + 1} title`) })) : undefined;
+  const moduleKeys = new Set((modules ?? []).map((m) => m.key));
   const lesson = (l: StarterLesson, i: number): StarterLesson => {
     const where = `lesson ${i + 1}`;
+    if (l.module !== undefined && !moduleKeys.has(l.module)) warn(`${at(where)} names ${l.module}, a module the course doesn't have; it is in no module.`);
     const common = {
       ...(l.was ? { was: [...l.was] } : {}),
+      ...(l.module !== undefined && moduleKeys.has(l.module) ? { module: l.module } : {}),
       title: cut(l.title, LIMITS.lessonTitle, `${where} title`),
       minutes: range(l.minutes, 1, LIMITS.minutesMax, `${where} minutes`),
       ...(l.body !== undefined ? { body: rich(l.body, LIMITS.lessonBody, `${where} introduction`) } : {}),
@@ -141,6 +152,7 @@ export function normalizeStarterCourse(course: StarterCourse, warn: Warn): Start
     summary: cut(course.summary, LIMITS.courseSummary, 'summary'),
     certificateMonths: course.certificateMonths === null ? null : range(course.certificateMonths, 1, LIMITS.certificateMonthsMax, 'certificate months'),
     ...(course.resources ? { resources: course.resources.map((r) => ({ ...r, name: cut(r.name, LIMITS.fileName, `download ${r.file} name`) })) } : {}),
+    ...(modules ? { modules } : {}),
     lessons: few(course.lessons, LIMITS.lessonsPerCourse, 'lessons').map(lesson),
   };
 }
@@ -160,6 +172,15 @@ export interface TrainingStarterDeps {
   retired?: readonly { key: string; into: string }[];
   /** R3: finish anyone who has now done every lesson of these courses (training-finish.ts). */
   recheck?: (courseIds: string[]) => Promise<unknown>;
+  /** The combined course's starter key (USER_TRAINING_KEY; tests use their own). */
+  userTrainingKey?: string;
+  /**
+   * 1.23.30: the one-course conversion (training-one-course.ts), run first in an update from a revision before
+   * ONE_COURSE_REVISION: it builds the combined course from the short courses' own lessons and answers its id
+   * (null: nothing to convert, so the combined course is loaded fresh). A throw is a failure: warned, the revision
+   * not noted, tried again at the next start.
+   */
+  convert?: () => Promise<{ courseId: string } | null>;
 }
 
 /** What a run did: `updated` (starter courses brought to the new revision) only when there were some. */
@@ -180,6 +201,114 @@ export function untouchedStarter(c: { updatedById: string | null; version: numbe
 /** A lesson of the new content matching a lesson row: the same kind and its title (now or before). */
 export function sameLesson(row: { kind: string; title: string }, l: Pick<StarterLesson, 'kind' | 'title' | 'was'>): boolean {
   return row.kind === l.kind && (row.title === l.title || (l.was ?? []).includes(row.title));
+}
+
+/** A lesson row with its quiz, questions and options: what applyStarterLessons matches the content against. */
+export type LessonRowWithQuiz = Prisma.TrainingLessonGetPayload<{ include: { quiz: { include: { questions: { include: { options: true } } } } } }>;
+const WITH_QUIZ = { quiz: { include: { questions: { include: { options: true } } } } } as const;
+
+/**
+ * Writes a course's lessons (and its modules) to match `course`, in the caller's transaction: used to load a starter
+ * course, to bring an untouched one up to date (R1, R5) and by the one-course conversion (1.23.30).
+ * - Modules are found by their starter key (made when missing); their title, feature, groups and place come from the
+ *   content. Whether a module is switched on (and why not) is the site's own and never changed here. A built-in
+ *   module the content no longer has is removed once no lesson is left in it.
+ * - Lessons are matched among `rows` only (the caller's: the course's own, or lessons it has just moved in from other
+ *   courses) by kind and title (now or before): a match keeps its id, so everyone's progress stays. Each lesson goes
+ *   into its module. A guide's steps and a quiz's questions are rewritten (a question, or an option, that stays keeps
+ *   its id: attempts keep their own copy, R3); a saved place is never past a guide's last step (R3).
+ * - Rows the content no longer has are removed (their progress rows stay, ignored: R10), except a video lesson with a
+ *   pasted link (review M3), kept at the end. Every row written carries `at` (published with nothing changed since).
+ * `fileIds`: picture file name to its training_files row (a picture not there leaves its step text-only).
+ */
+export async function applyStarterLessons(
+  tx: Prisma.TransactionClient,
+  courseId: string,
+  course: StarterCourse,
+  rows: readonly LessonRowWithQuiz[],
+  fileIds: ReadonlyMap<string, string>,
+  at: Date,
+): Promise<{ removedLessonIds: string[] }> {
+  const existingModules = await tx.trainingModule.findMany({ where: { courseId }, select: { id: true, starterKey: true } });
+  const moduleIds = new Map<string, string>();
+  for (const [i, m] of (course.modules ?? []).entries()) {
+    const words = { position: i, title: m.title, moduleKey: m.moduleKey, roleKeys: m.roleKeys && m.roleKeys.length ? [...m.roleKeys] : Prisma.DbNull, updatedAt: at };
+    const row = existingModules.find((x) => x.starterKey === m.key);
+    const id = row
+      ? (await tx.trainingModule.update({ where: { id: row.id }, data: words, select: { id: true } })).id
+      : (await tx.trainingModule.create({ data: { courseId, starterKey: m.key, ...words }, select: { id: true } })).id;
+    moduleIds.set(m.key, id);
+  }
+
+  const taken = new Set<string>();
+  for (const [i, l] of course.lessons.entries()) {
+    const row = rows.find((r) => !taken.has(r.id) && sameLesson(r, l));
+    const fields = { position: i, title: l.title, minutes: l.minutes, body: l.body ? l.body : null, moduleId: l.module ? (moduleIds.get(l.module) ?? null) : null };
+    let lessonId: string;
+    if (row) {
+      taken.add(row.id);
+      lessonId = row.id;
+      // A video lesson keeps its link (pasted by an administrator; never part of the starter content).
+      await tx.trainingLesson.update({ where: { id: row.id }, data: { ...fields, updatedAt: at } });
+    } else {
+      lessonId = (await tx.trainingLesson.create({ data: { courseId, kind: l.kind, changedVersion: 1, ...fields, updatedAt: at }, select: { id: true } })).id;
+    }
+    if (l.kind === 'GUIDE') {
+      if (row) await tx.trainingStep.deleteMany({ where: { lessonId } });
+      await tx.trainingStep.createMany({
+        data: l.steps.map((st, j) => {
+          const imageFileId = st.image ? (fileIds.get(st.image) ?? null) : null;
+          return { lessonId, position: j, title: st.title || null, body: st.body || null, imageFileId, imageAlt: imageFileId ? (st.alt ?? null) : null };
+        }),
+      });
+      // R3: a saved place never past the guide's last step.
+      const last = Math.max(0, l.steps.length - 1);
+      if (row) await tx.trainingProgress.updateMany({ where: { lessonId, stepIndex: { gt: last } }, data: { stepIndex: last } });
+    } else if (l.kind === 'QUIZ') {
+      const settings = { passMark: l.quiz.passMark, maxAttempts: l.quiz.maxAttempts, shuffle: l.quiz.shuffle, timeLimitMinutes: l.quiz.timeLimitMinutes, drawCount: l.quiz.drawCount };
+      const quiz = await tx.trainingQuiz.upsert({ where: { lessonId }, create: { lessonId, ...settings }, update: settings });
+      // Attempts keep their own copy of the questions (R3): rewriting them never changes a mark.
+      const free = new Map((row?.quiz?.questions ?? []).map((q) => [q.id, q]));
+      for (const [j, q] of l.quiz.questions.entries()) {
+        const match = [...free.values()].find((e) => e.kind === q.kind && e.prompt === q.prompt);
+        if (!match) {
+          const qid = (await tx.trainingQuestion.create({ data: { quizId: quiz.id, position: j, kind: q.kind, prompt: q.prompt, explanation: q.explanation ?? null }, select: { id: true } })).id;
+          await tx.trainingOption.createMany({ data: q.options.map((o, k) => ({ questionId: qid, position: k, text: o.text, correct: o.correct, feedback: o.feedback ?? null })) });
+          continue;
+        }
+        free.delete(match.id);
+        await tx.trainingQuestion.update({ where: { id: match.id }, data: { position: j, explanation: q.explanation ?? null } });
+        const oldOptions = new Map(match.options.map((o) => [o.id, o]));
+        for (const [k, o] of q.options.entries()) {
+          const om = [...oldOptions.values()].find((e) => e.text === o.text);
+          if (om) {
+            oldOptions.delete(om.id);
+            await tx.trainingOption.update({ where: { id: om.id }, data: { position: k, correct: o.correct, feedback: o.feedback ?? null } });
+          } else await tx.trainingOption.create({ data: { questionId: match.id, position: k, text: o.text, correct: o.correct, feedback: o.feedback ?? null } });
+        }
+        if (oldOptions.size) await tx.trainingOption.deleteMany({ where: { id: { in: [...oldOptions.keys()] } } });
+      }
+      if (free.size) await tx.trainingQuestion.deleteMany({ where: { id: { in: [...free.keys()] } } });
+    }
+  }
+
+  // Lessons the new content no longer has (their progress rows stay and are ignored: R10). Review M3: a video lesson
+  // with a pasted link is never removed (a later revision that forgot its title keeps it, at the end, in its module).
+  const left = rows.filter((r) => !taken.has(r.id));
+  const gone = left.filter((r) => !(r.kind === 'VIDEO' && r.videoId)).map((r) => r.id);
+  if (gone.length) await tx.trainingLesson.deleteMany({ where: { id: { in: gone } } });
+  for (const [k, r] of left.filter((x) => x.kind === 'VIDEO' && x.videoId).entries()) {
+    await tx.trainingLesson.update({ where: { id: r.id }, data: { position: course.lessons.length + k, updatedAt: at } });
+  }
+
+  // Built-in modules the content no longer has, once nothing is left in them (a module people made is never touched).
+  const dropped = existingModules.filter((m) => m.starterKey !== null && !moduleIds.has(m.starterKey)).map((m) => m.id);
+  if (dropped.length) {
+    const used = new Set((await tx.trainingLesson.findMany({ where: { moduleId: { in: dropped } }, select: { moduleId: true } })).map((l) => l.moduleId));
+    const empty = dropped.filter((id) => !used.has(id));
+    if (empty.length) await tx.trainingModule.deleteMany({ where: { id: { in: empty } } });
+  }
+  return { removedLessonIds: gone };
 }
 
 /** A file copied into the private folder for one course, ready for its training_files row. */
@@ -207,6 +336,7 @@ export function createTrainingStarter(deps: TrainingStarterDeps): { run(): Promi
   const revision = deps.revision ?? STARTER_REVISION;
   const legacyKeys = deps.legacyKeys ?? LEGACY_STARTER_KEYS;
   const retired = deps.retired ?? RETIRED_VIDEO_COURSES;
+  const userTrainingKey = deps.userTrainingKey ?? USER_TRAINING_KEY;
   const positionOf = (c: StarterCourse, i: number) => c.position ?? i;
   const assetsDir = deps.assetsDir === undefined ? starterAssetsDir() : deps.assetsDir;
   const warn = (message: string, meta?: Record<string, unknown>) => deps.logger?.warn(message, meta);
@@ -291,56 +421,12 @@ export function createTrainingStarter(deps: TrainingStarterDeps): { run(): Promi
       fileIds.set(image, row.id);
     }
     for (const f of copied.resources) await tx.trainingFile.create({ data: { courseId: c.id, ...f, position: filePosition++, starter: true } });
-
-    for (const [i, l] of course.lessons.entries()) {
-      const common = { courseId: c.id, position: i, kind: l.kind, title: l.title, minutes: l.minutes, body: l.body ? l.body : null, changedVersion: 1 };
-      if (l.kind === 'GUIDE') {
-        await tx.trainingLesson.create({
-          data: {
-            ...common,
-            steps: {
-              create: l.steps.map((s, j) => {
-                const imageFileId = s.image ? (fileIds.get(s.image) ?? null) : null;
-                return { position: j, title: s.title || null, body: s.body || null, imageFileId, imageAlt: imageFileId ? (s.alt ?? null) : null };
-              }),
-            },
-          },
-        });
-      } else if (l.kind === 'QUIZ') {
-        await tx.trainingLesson.create({
-          data: {
-            ...common,
-            quiz: {
-              create: {
-                passMark: l.quiz.passMark,
-                maxAttempts: l.quiz.maxAttempts,
-                shuffle: l.quiz.shuffle,
-                timeLimitMinutes: l.quiz.timeLimitMinutes,
-                drawCount: l.quiz.drawCount,
-                questions: {
-                  create: l.quiz.questions.map((q, j) => ({
-                    position: j,
-                    kind: q.kind,
-                    prompt: q.prompt,
-                    explanation: q.explanation ?? null,
-                    options: { create: q.options.map((o, k) => ({ position: k, text: o.text, correct: o.correct, feedback: o.feedback ?? null })) },
-                  })),
-                },
-              },
-            },
-          },
-        });
-      } else {
-        // A video waits for the owner's YouTube / Vimeo link: hidden from learners until it has one (R2).
-        await tx.trainingLesson.create({ data: common });
-      }
-    }
+    // Its modules and lessons (a video waits for the owner's YouTube / Vimeo link: hidden from learners until it has one, R2).
+    await applyStarterLessons(tx, c.id, course, [], fileIds, at);
     // A published course reads as published with nothing changed since: its rows carry the publish moment
-    // (the Learning Hub's "Changes not published" compares updatedAt with publishedAt).
-    if (course.status === 'PUBLISHED') {
-      await tx.trainingLesson.updateMany({ where: { courseId: c.id }, data: { updatedAt: at } });
-      await tx.trainingCourse.update({ where: { id: c.id }, data: { updatedAt: at } });
-    }
+    // (the Learning Hub's "Changes not published" compares updatedAt with publishedAt; the lessons and modules were
+    // written with it).
+    if (course.status === 'PUBLISHED') await tx.trainingCourse.update({ where: { id: c.id }, data: { updatedAt: at } });
   }
 
   /** One course: 'loaded', 'skipped' (already there) or 'failed' (warned; tried again at the next start). */
@@ -374,6 +460,13 @@ export function createTrainingStarter(deps: TrainingStarterDeps): { run(): Promi
     }
   }
 
+  /** A course whose modules replace short courses this site has loaded (the one-course conversion builds it). */
+  async function replacesLoaded(course: StarterCourse): Promise<boolean> {
+    const from = [...new Set((course.modules ?? []).map((m) => m.from))];
+    if (from.length === 0 || (await prisma.trainingCourse.count({ where: { starterKey: course.key } })) > 0) return false;
+    return (await prisma.trainingCourse.count({ where: { starterKey: { in: from } } })) > 0;
+  }
+
   async function load(): Promise<{ loaded: number; skipped: number; already: boolean }> {
     await markOnce(LAUNCHED_KEY);
     if ((await prisma.systemSetting.count({ where: { key: STARTER_LOADED_KEY } })) > 0) return { loaded: 0, skipped: 0, already: true };
@@ -381,6 +474,13 @@ export function createTrainingStarter(deps: TrainingStarterDeps): { run(): Promi
     let skipped = 0;
     let failed = 0;
     for (const [i, course] of courses.entries()) {
+      // 1.23.30: a course made of modules that replace short courses this site has is the conversion's to build (in
+      // update(), from their lessons): never loaded fresh beside them.
+      if (await replacesLoaded(course)) {
+        skipped++;
+        warn('Training starter: the built-in short courses are on this site; the combined course waits for the conversion.', { course: course.key });
+        continue;
+      }
       const out = await loadOne(course, positionOf(course, i));
       if (out === 'loaded') loaded++;
       else {
@@ -422,11 +522,10 @@ export function createTrainingStarter(deps: TrainingStarterDeps): { run(): Promi
   };
 
   /**
-   * One untouched course brought to the new content (R1, R5), in one transaction: lessons matched by kind and title
-   * keep their ids (and so everyone's progress); a guide's steps and a quiz's questions are rewritten (a question
-   * that stays keeps its id); new lessons are added, old ones removed (their progress rows stay, ignored: R10);
-   * a video lesson keeps its link. Pictures the same as before stay; new ones are copied in first, and starter
-   * pictures no step uses any more are removed after. Every row is stamped as published with nothing changed since.
+   * One untouched course brought to the new content (R1, R5), in one transaction: its modules and lessons through
+   * applyStarterLessons (lessons keep their ids, and so everyone's progress; a video lesson keeps its link). Pictures
+   * the same as before stay; new ones are copied in first, and starter pictures no step uses any more are removed
+   * after. Every row is stamped as published with nothing changed since.
    */
   async function bringUpToDate(courseId: string, course: StarterCourse, position: number): Promise<void> {
     const saved: string[] = [];
@@ -466,63 +565,8 @@ export function createTrainingStarter(deps: TrainingStarterDeps): { run(): Promi
           let filePosition = ((await tx.trainingFile.findFirst({ where: { courseId }, orderBy: [{ position: 'desc' }], select: { position: true } }))?.position ?? -1) + 1;
           for (const f of toCreate) fileIds.set(f.name, (await tx.trainingFile.create({ data: { courseId, ...f.file, position: filePosition++, starter: true }, select: { id: true } })).id);
 
-          const rows = await tx.trainingLesson.findMany({ where: { courseId }, include: { quiz: { include: { questions: { include: { options: true } } } } }, orderBy: [{ position: 'asc' }, { id: 'asc' }] });
-          const taken = new Set<string>();
-          for (const [i, l] of course.lessons.entries()) {
-            const row = rows.find((r) => !taken.has(r.id) && sameLesson(r, l));
-            const fields = { position: i, title: l.title, minutes: l.minutes, body: l.body ? l.body : null };
-            let lessonId: string;
-            if (row) {
-              taken.add(row.id);
-              lessonId = row.id;
-              // A video lesson keeps its link (pasted by an administrator; never part of the starter content).
-              await tx.trainingLesson.update({ where: { id: row.id }, data: { ...fields, updatedAt: at } });
-            } else {
-              lessonId = (await tx.trainingLesson.create({ data: { courseId, kind: l.kind, changedVersion: 1, ...fields, updatedAt: at }, select: { id: true } })).id;
-            }
-            if (l.kind === 'GUIDE') {
-              await tx.trainingStep.deleteMany({ where: { lessonId } });
-              await tx.trainingStep.createMany({
-                data: l.steps.map((st, j) => {
-                  const imageFileId = st.image ? (fileIds.get(st.image) ?? null) : null;
-                  return { lessonId, position: j, title: st.title || null, body: st.body || null, imageFileId, imageAlt: imageFileId ? (st.alt ?? null) : null };
-                }),
-              });
-              // R3: a saved place never past the guide's last step.
-              const last = Math.max(0, l.steps.length - 1);
-              await tx.trainingProgress.updateMany({ where: { lessonId, stepIndex: { gt: last } }, data: { stepIndex: last } });
-            } else if (l.kind === 'QUIZ') {
-              const settings = { passMark: l.quiz.passMark, maxAttempts: l.quiz.maxAttempts, shuffle: l.quiz.shuffle, timeLimitMinutes: l.quiz.timeLimitMinutes, drawCount: l.quiz.drawCount };
-              const quiz = await tx.trainingQuiz.upsert({ where: { lessonId }, create: { lessonId, ...settings }, update: settings });
-              // Attempts keep their own copy of the questions (R3): rewriting them never changes a mark.
-              const free = new Map((row?.quiz?.questions ?? []).map((q) => [q.id, q]));
-              for (const [j, q] of l.quiz.questions.entries()) {
-                const match = [...free.values()].find((e) => e.kind === q.kind && e.prompt === q.prompt);
-                if (match) free.delete(match.id);
-                const qid = match
-                  ? (await tx.trainingQuestion.update({ where: { id: match.id }, data: { position: j, explanation: q.explanation ?? null } })).id
-                  : (await tx.trainingQuestion.create({ data: { quizId: quiz.id, position: j, kind: q.kind, prompt: q.prompt, explanation: q.explanation ?? null } })).id;
-                const oldOptions = new Map((match?.options ?? []).map((o) => [o.id, o]));
-                for (const [k, o] of q.options.entries()) {
-                  const om = [...oldOptions.values()].find((e) => e.text === o.text);
-                  if (om) {
-                    oldOptions.delete(om.id);
-                    await tx.trainingOption.update({ where: { id: om.id }, data: { position: k, correct: o.correct, feedback: o.feedback ?? null } });
-                  } else await tx.trainingOption.create({ data: { questionId: qid, position: k, text: o.text, correct: o.correct, feedback: o.feedback ?? null } });
-                }
-                if (oldOptions.size) await tx.trainingOption.deleteMany({ where: { id: { in: [...oldOptions.keys()] } } });
-              }
-              if (free.size) await tx.trainingQuestion.deleteMany({ where: { id: { in: [...free.keys()] } } });
-            }
-          }
-          // Lessons the new content no longer has (their progress rows stay and are ignored: R10). Review M3: a video
-          // lesson with a pasted link is never removed (a later revision that forgot its title keeps it, at the end).
-          const left = rows.filter((r) => !taken.has(r.id));
-          const gone = left.filter((r) => !(r.kind === 'VIDEO' && r.videoId)).map((r) => r.id);
-          if (gone.length) await tx.trainingLesson.deleteMany({ where: { id: { in: gone } } });
-          for (const [k, r] of left.filter((x) => x.kind === 'VIDEO' && x.videoId).entries()) {
-            await tx.trainingLesson.update({ where: { id: r.id }, data: { position: course.lessons.length + k, updatedAt: at } });
-          }
+          const rows = await tx.trainingLesson.findMany({ where: { courseId }, include: WITH_QUIZ, orderBy: [{ position: 'asc' }, { id: 'asc' }] });
+          await applyStarterLessons(tx, courseId, course, rows, fileIds, at);
 
           // Starter files nothing uses any more (an administrator's own uploads are never touched).
           const used = new Set([
@@ -603,7 +647,30 @@ export function createTrainingStarter(deps: TrainingStarterDeps): { run(): Promi
     let failed = 0;
     /** Starter key → course id, for the courses now on the new content (updated or new). */
     const current = new Map<string, string>();
+    // 1.23.30: from a revision before the one course, the short courses become it through the conversion, first. The
+    // loop below never loads the combined course fresh beside them: it is left to the conversion (done, failed, or
+    // not there: then it is owed, the revision is not noted and the next start tries again). The conversion finishes
+    // people itself, quietly, so its course is not rechecked here.
+    let leaveCombined = false;
+    if (prev.revision < ONE_COURSE_REVISION && courses.some((c) => c.key === userTrainingKey)) {
+      leaveCombined = true;
+      if (!deps.convert) {
+        failed++;
+        warn('Training starter: the one-course conversion is not available; the short courses stay and the combined course is not loaded beside them.', { course: userTrainingKey });
+      } else {
+        try {
+          const made = await deps.convert();
+          if (made) updated++;
+          // Nothing to convert (no short course was ever loaded here): the combined course is loaded like any new one.
+          else leaveCombined = false;
+        } catch (err) {
+          failed++;
+          warn('Training starter: the one-course conversion could not finish; it is tried again at the next start.', { course: userTrainingKey, err: (err as Error)?.message ?? String(err) });
+        }
+      }
+    }
     for (const [i, raw] of courses.entries()) {
+      if (leaveCombined && raw.key === userTrainingKey) continue;
       const course = normalizeStarterCourse(raw, (w) => warn(`Training starter: ${w}`, { course: raw.key }));
       const row = await prisma.trainingCourse.findUnique({ where: { starterKey: course.key }, include: { lessons: { select: { updatedAt: true } } } });
       if (!row) {

@@ -176,4 +176,29 @@ describe('normalizeStarterCourse: the database never cuts anything silently', ()
     expect(g.steps.length).toBe(LIMITS.stepsPerLesson);
     expect(warnings.some((w) => /lessons/.test(w))).toBe(true);
   });
+
+  it('1.23.30 modules: kept with each lesson’s module; a long module title is cut; a lesson naming no module of the course has none (warned)', () => {
+    const warnings: string[] = [];
+    const c = normalizeStarterCourse(
+      base({
+        modules: [
+          { key: 'module:a', title: 'A', moduleKey: 'tasks', from: 'starter:a' },
+          { key: 'module:b', title: 'B'.repeat(LIMITS.moduleTitle + 5), moduleKey: 'reports', roleKeys: ['admins'], from: 'starter:b' },
+        ],
+        lessons: [
+          { kind: 'VIDEO', title: 'Video: A', minutes: 2, videoUrl: null, module: 'module:a' },
+          { kind: 'GUIDE', title: 'Guide B', minutes: 3, module: 'module:b', steps: [{ title: 'One', body: '<p>One.</p>' }] },
+          { kind: 'GUIDE', title: 'Lost', minutes: 3, module: 'module:nowhere', steps: [{ title: 'One', body: '<p>One.</p>' }] },
+        ],
+      }),
+      (w) => warnings.push(w),
+    );
+    expect(c.modules?.map((m) => [m.key, [...m.title].length, m.moduleKey, m.roleKeys ?? [], m.from])).toEqual([
+      ['module:a', 1, 'tasks', [], 'starter:a'],
+      ['module:b', LIMITS.moduleTitle, 'reports', ['admins'], 'starter:b'],
+    ]);
+    expect(c.lessons.map((l) => l.module)).toEqual(['module:a', 'module:b', undefined]);
+    expect(warnings.some((w) => /module 2 title/.test(w))).toBe(true);
+    expect(warnings.some((w) => /lesson 3.*module:nowhere/.test(w))).toBe(true);
+  });
 });
