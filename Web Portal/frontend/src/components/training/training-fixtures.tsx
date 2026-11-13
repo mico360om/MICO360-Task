@@ -3,7 +3,7 @@ import { vi } from 'vitest';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render } from '@testing-library/react';
-import type { AttemptPaper, AttemptResult, CourseCard, CourseDetail, LessonView, MyCourseState, MyTraining } from '../../api/training';
+import type { AttemptPaper, AttemptResult, CertificateRef, CourseCard, CourseDetail, LessonView, MyCourseState, MyTraining } from '../../api/training';
 import { LearnerProvider, type LearnerApi, type LearnerSide } from './learner';
 
 /** Test data for the training pages (staff and portal), in the server's shapes. */
@@ -64,6 +64,62 @@ export const detail = (over: Partial<CourseDetail> = {}): CourseDetail => ({
   ],
   myRating: null,
   resumeLessonId: 'l2',
+  ...over,
+});
+
+/**
+ * The one course with modules (1.23.30), as an employee sees it: Getting started done on 3 Nov, Tasks half-way (1 of 3,
+ * stopped at "Work on a task"), Kanban board not started; Reports and Admin settings aren't theirs, so they aren't here.
+ */
+export const moduleCard = (over: Partial<CourseCard> = {}): CourseCard =>
+  card({
+    id: 'u1',
+    title: 'MICO360 Tasks User Training',
+    summary: 'Everything you need to work in MICO360 Tasks.',
+    moduleKey: 'general',
+    minutes: 90,
+    lessonCount: 7,
+    mine: mine({ dueDay: null, mandatory: false, progressPct: 33, lastLessonId: 't2', nextLessonId: 't2', lessonsDone: 3, modules: { done: 1, total: 3 }, next: { lessonId: 't2', lessonTitle: 'Work on a task', moduleTitle: 'Tasks' } }),
+    ...over,
+  });
+
+export const moduleDetail = (over: Partial<CourseDetail> = {}): CourseDetail => ({
+  ...detail(),
+  ...moduleCard(),
+  inOrder: false,
+  certificateMonths: null,
+  lessons: [
+    { id: 'g1', position: 0, kind: 'GUIDE', title: 'Find your way around', minutes: 5, done: true, locked: false, review: false, moduleId: 'gs' },
+    { id: 'g2', position: 1, kind: 'QUIZ', title: 'Getting started quiz', minutes: 5, done: true, locked: false, review: false, moduleId: 'gs' },
+    { id: 't1', position: 2, kind: 'GUIDE', title: 'Make a task', minutes: 8, done: true, locked: false, review: false, moduleId: 'tk' },
+    { id: 't2', position: 3, kind: 'GUIDE', title: 'Work on a task', minutes: 8, done: false, locked: false, review: false, moduleId: 'tk' },
+    { id: 't3', position: 4, kind: 'QUIZ', title: 'Tasks quiz', minutes: 5, done: false, locked: false, review: false, moduleId: 'tk' },
+    { id: 'k1', position: 5, kind: 'VIDEO', title: 'Video: the Kanban board', minutes: 3, done: false, locked: false, review: false, moduleId: 'kb' },
+    { id: 'k2', position: 6, kind: 'QUIZ', title: 'Kanban board quiz', minutes: 5, done: false, locked: false, review: false, moduleId: 'kb' },
+  ],
+  modules: [
+    { id: 'gs', title: 'Getting started', position: 0, status: 'DONE', lessonsDone: 2, lessonCount: 2, minutes: 10, doneAt: '2026-11-03T08:00:00.000Z', newForRole: false, nextLessonId: null, lessonIds: ['g1', 'g2'] },
+    { id: 'tk', title: 'Tasks', position: 1, status: 'IN_PROGRESS', lessonsDone: 1, lessonCount: 3, minutes: 21, doneAt: null, newForRole: false, nextLessonId: 't2', lessonIds: ['t1', 't2', 't3'] },
+    { id: 'kb', title: 'Kanban board', position: 2, status: 'NOT_STARTED', lessonsDone: 0, lessonCount: 2, minutes: 8, doneAt: null, newForRole: false, nextLessonId: 'k1', lessonIds: ['k1', 'k2'] },
+  ],
+  resources: [],
+  questions: [],
+  resumeLessonId: 't2',
+  ...over,
+});
+
+/** A certificate of the one course (completed on 3 Nov, issued on 5 Nov at the change). */
+export const certificate = (over: Partial<CertificateRef> = {}): CertificateRef => ({
+  id: 'cert7',
+  code: 'TC-UT7A-UT7B-UT7C',
+  courseId: 'u1',
+  courseTitle: 'MICO360 Tasks User Training',
+  issuedAt: '2026-11-05T08:00:00.000Z',
+  expiresAt: null,
+  status: 'VALID',
+  completedAt: '2026-11-03T08:00:00.000Z',
+  learnerName: 'Mariam Al Balushi',
+  verifyUrl: 'https://tasks.example.com/verify/TC-UT7A-UT7B-UT7C',
   ...over,
 });
 
@@ -181,7 +237,7 @@ export function fakeLearner(over: Partial<LearnerApi> = {}): { [K in keyof Learn
     start: vi.fn(async () => detail({ mine: mine({ enrolled: true }) })),
     lesson: vi.fn(async () => lesson()),
     saveProgress: vi.fn(async () => ({ ok: true as const, progressPct: 40 })),
-    complete: vi.fn(async () => ({ courseProgressPct: 50, courseCompleted: false, certificateId: null, nextLessonId: 'l3' })),
+    complete: vi.fn(async () => ({ courseProgressPct: 50, courseCompleted: false, certificateId: null, nextLessonId: 'l3', moduleDone: null })),
     startAttempt: vi.fn(async () => paper()),
     saveAnswers: vi.fn(async () => ({ savedAt: '2026-11-11T08:01:00.000Z' })),
     submit: vi.fn(async () => result()),

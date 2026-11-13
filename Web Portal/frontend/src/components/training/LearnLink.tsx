@@ -4,10 +4,13 @@ import { coursePath } from './learner';
 import { useLearn } from './training-queries';
 import { BookIcon } from './training-ui';
 
-/** Where Learn this feature goes: the one course for the module, else the catalogue filtered to it. */
-export function learnTarget(base: string, module: TrainingModule, found: { courseId: string | null; count: number }): string | null {
+/**
+ * Where Learn this feature goes: the one course for the module (opened at the feature's module when the course has
+ * modules, 1.23.30), else the catalogue filtered to it.
+ */
+export function learnTarget(base: string, module: TrainingModule, found: { courseId: string | null; moduleId?: string | null; count: number }): string | null {
   if (!found.count || found.count < 1) return null;
-  if (found.count === 1 && found.courseId) return coursePath(base, found.courseId, module);
+  if (found.count === 1 && found.courseId) return coursePath(base, found.courseId, module, found.moduleId);
   return `${base}?tab=catalogue&module=${encodeURIComponent(module)}`;
 }
 

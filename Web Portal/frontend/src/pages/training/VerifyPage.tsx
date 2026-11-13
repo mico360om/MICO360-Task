@@ -23,8 +23,9 @@ const TONE: Record<CertificateStatus, string> = {
 };
 
 /**
- * Check a certificate (public: anyone with its code — the PDF's link opens /verify/<code>). Outside the site's
- * sign-in and shell: only the course, the name, the dates and Valid / Expired / Revoked are shown (design call 5).
+ * Check a certificate (public: anyone with its code — the PDF's link and its QR code open /verify/<code>). Outside
+ * the site's sign-in and shell: only the course, the name, the dates (the day the course was finished first, 1.23.30)
+ * and Valid / Expired / Revoked are shown (design call 5).
  */
 export function VerifyPage() {
   const { code: raw = '' } = useParams();
@@ -110,6 +111,8 @@ export function VerifyPage() {
                   <dd className="break-words font-semibold text-ink">{q.data.courseTitle}</dd>
                   <dt className="text-ink-2">Name</dt>
                   <dd className="break-words font-semibold text-ink">{q.data.learnerName}</dd>
+                  <dt className="text-ink-2">Completed</dt>
+                  <dd className="text-ink">{instantDay(q.data.completedAt || q.data.issuedAt)}</dd>
                   <dt className="text-ink-2">Issued</dt>
                   <dd className="text-ink">{instantDay(q.data.issuedAt)}</dd>
                   <dt className="text-ink-2">Expires</dt>

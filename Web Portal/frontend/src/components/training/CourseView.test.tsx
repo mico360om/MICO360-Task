@@ -3,7 +3,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ApiError } from '../../lib/api-client';
 import { CourseView } from './CourseView';
-import { detail, fakeLearner, mine, renderOnSide } from './training-fixtures';
+import { certificate, detail, fakeLearner, mine, moduleDetail, renderOnSide } from './training-fixtures';
 
 const page = (api: ReturnType<typeof fakeLearner>, path = '/training/courses/c1', portal = false) =>
   renderOnSide(<CourseView courseId="c1" renderHeader={(t) => <h1>{t}</h1>} />, { api, path, route: portal ? '/portal/training/courses/:id' : '/training/courses/:id', portal });
@@ -156,10 +156,95 @@ describe('a course’s page', () => {
     expect(await screen.findByText('This course isn’t available to you.')).toBeInTheDocument();
   });
 
+  it('the certificate is the certificate view: the learner, the day finished and a QR code (staff and the portal)', async () => {
+    const cert = certificate({ courseId: 'c1', courseTitle: 'Tasks basics' });
+    const done = () => detail({ mine: mine({ status: 'COMPLETED', progressPct: 100, completedAt: '2026-11-03T08:00:00.000Z', certificate: cert }) });
+    const one = page(fakeLearner({ course: vi.fn(async () => done()) }));
+    const box = (await screen.findByRole('heading', { name: 'Certificate' })).closest('section')!;
+    expect(within(box).getByText('Mariam Al Balushi')).toBeInTheDocument();
+    expect(within(box).getByText('Completed 3 Nov 2026')).toBeInTheDocument();
+    expect(within(box).getByRole('img', { name: /QR code/ })).toBeInTheDocument();
+    one.unmount();
+    page(fakeLearner({ course: vi.fn(async () => done()) }), '/portal/training/courses/c1', true);
+    expect(await screen.findByRole('img', { name: /QR code/ })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Check it online' })).toBeNull();
+  });
+
+  it('an old short course’s link: the one course opens at its module (the old address replaced)', async () => {
+    const api = fakeLearner({ course: vi.fn(async () => Promise.reject(new ApiError(404, 'COURSE_MOVED', 'This course is now part of MICO360 Tasks User Training.', { courseId: 'u1', moduleId: 'tk' }))) });
+    page(api, '/training/courses/c1?module=tasks');
+    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('/training/courses/u1?moduleId=tk'));
+    expect(screen.queryByText('This course isn’t available to you.')).toBeNull();
+  });
+
+  it('an old link whose module is gone: the one course’s page', async () => {
+    page(fakeLearner({ course: vi.fn(async () => Promise.reject(new ApiError(404, 'COURSE_MOVED', 'Moved.', { courseId: 'u1', moduleId: null }))) }));
+    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent(/^\/training\/courses\/u1$/));
+  });
+
   it('in the Client portal: the same page through the portal’s side (its own addresses)', async () => {
     const api = fakeLearner();
     page(api, '/portal/training/courses/c1', true);
     expect(await within(await screen.findByRole('navigation', { name: 'Breadcrumb' })).findByRole('link', { name: 'Learning Hub' })).toHaveAttribute('href', '/portal/training');
     expect(await screen.findByRole('link', { name: /Welcome/ })).toHaveAttribute('href', '/portal/training/courses/c1/lessons/l1');
+  });
+});
+
+describe('the one course with modules (1.23.30)', () => {
+  const modulePage = (api: ReturnType<typeof fakeLearner>, path = '/training/courses/u1') =>
+    renderOnSide(<CourseView courseId="u1" renderHeader={(t) => <h1>{t}</h1>} />, { api, path, route: '/training/courses/:id' });
+
+  it('how far along in modules, one Continue that opens where they stopped, and the modules in place of the lesson list', async () => {
+    const api = fakeLearner({ course: vi.fn(async () => moduleDetail()) });
+    modulePage(api);
+    expect(await screen.findByRole('heading', { level: 1, name: 'MICO360 Tasks User Training' })).toBeInTheDocument();
+    expect(screen.getByText('1 of 3 modules')).toBeInTheDocument();
+    expect(screen.getByText('· 3 modules')).toBeInTheDocument();
+    expect(screen.queryByText('· 7 lessons')).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Lessons' })).toBeNull();
+    const modules = screen.getByRole('region', { name: 'Modules' });
+    expect(within(modules).getByRole('button', { name: /^Getting started/ })).toHaveTextContent('Done · 3 Nov 2026');
+    expect(within(modules).getByRole('button', { name: /^Tasks/ })).toHaveTextContent('In progress · 1 of 3 lessons');
+    expect(within(modules).getByRole('button', { name: /^Kanban board/ })).toHaveTextContent('Not started');
+    expect(screen.getAllByRole('button').filter((b) => /^(Start|Continue|Review)$/.test(b.textContent ?? ''))).toHaveLength(1);
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    expect(screen.getByTestId('where')).toHaveTextContent('/training/courses/u1/lessons/t2');
+  });
+
+  it('?moduleId= opens that module (and the page doesn’t jump back to the top)', async () => {
+    const top = vi.fn();
+    const into = vi.fn();
+    const before = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = into;
+    Object.defineProperty(document, 'scrollingElement', { configurable: true, get: () => ({ scrollTo: top }) });
+    try {
+      modulePage(fakeLearner({ course: vi.fn(async () => moduleDetail()) }), '/training/courses/u1?moduleId=kb');
+      const kb = await screen.findByRole('button', { name: /^Kanban board/ });
+      expect(kb).toHaveAttribute('aria-expanded', 'true');
+      expect(within(document.getElementById(kb.getAttribute('aria-controls')!)!).getByRole('link', { name: /Video: the Kanban board/ })).toHaveAttribute('href', '/training/courses/u1/lessons/k1');
+      expect(into).toHaveBeenCalled();
+      expect(top).not.toHaveBeenCalled();
+    } finally {
+      Element.prototype.scrollIntoView = before;
+      delete (document as { scrollingElement?: unknown }).scrollingElement;
+    }
+  });
+
+  it('finished, then new modules for a grown role: still Done, the new module marked, and Continue opens it', async () => {
+    const c = moduleDetail();
+    const api = fakeLearner({
+      course: vi.fn(async () =>
+        moduleDetail({
+          mine: mine({ ...c.mine, status: 'COMPLETED', progressPct: 100, completedAt: '2026-11-05T08:00:00.000Z', newForRole: 1, modules: { done: 2, total: 3 } }),
+          modules: c.modules.map((m) => (m.id === 'tk' ? { ...m, status: 'DONE' as const, lessonsDone: 3, doneAt: '2026-11-05T08:00:00.000Z', nextLessonId: null } : m.id === 'kb' ? { ...m, newForRole: true } : m)),
+          resumeLessonId: 'k1',
+        }),
+      ),
+    });
+    modulePage(api);
+    expect(await screen.findByText('Done · 5 Nov 2026', { selector: 'p' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Kanban board/ })).toHaveTextContent('New for your role');
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    expect(screen.getByTestId('where')).toHaveTextContent('/training/courses/u1/lessons/k1');
   });
 });

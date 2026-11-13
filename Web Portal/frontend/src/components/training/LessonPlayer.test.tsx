@@ -3,7 +3,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ApiError } from '../../lib/api-client';
 import { LessonPlayer } from './LessonPlayer';
-import { detail, fakeLearner, lesson, paper, renderOnSide, result } from './training-fixtures';
+import { detail, fakeLearner, lesson, moduleDetail, paper, renderOnSide, result } from './training-fixtures';
 import { windowWidth } from '../../test/window-width';
 
 const STEPS = [
@@ -133,6 +133,97 @@ describe('the lesson player (12 Nov §4)', () => {
   it('arriving from the lesson before: one note that it is done', async () => {
     player(fakeLearner({ lesson: vi.fn(async () => lesson({ steps: STEPS })) }), 'l2', { lessonDone: 'Welcome' });
     expect(await screen.findByText('“Welcome” done.')).toBeInTheDocument();
+  });
+});
+
+describe('a lesson of the one course with modules (1.23.30)', () => {
+  const inTasks = (over: Parameters<typeof lesson>[0] = {}) =>
+    lesson({ id: 't2', courseId: 'u1', courseTitle: 'MICO360 Tasks User Training', title: 'Work on a task', position: 3, lessonCount: 7, prevLessonId: 't1', nextLessonId: 't3', steps: STEPS, module: { id: 'tk', title: 'Tasks', lessonIndex: 1, lessonCount: 3 }, ...over });
+  const modulePlayer = (api: ReturnType<typeof fakeLearner>, lessonId = 't2', state?: unknown, courseId = 'u1') =>
+    renderOnSide(<LessonPlayer courseId={courseId} lessonId={lessonId} renderTitle={(t) => <h1>{t}</h1>} />, { api, path: `/training/courses/${courseId}/lessons/${lessonId}`, route: '/training/courses/:courseId/lessons/:lessonId', state });
+
+  it('breadcrumbs Learning Hub › the course › the module, and “Lesson 2 of 3 in Tasks”', async () => {
+    modulePlayer(fakeLearner({ course: vi.fn(async () => moduleDetail()), lesson: vi.fn(async () => inTasks()) }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Work on a task' })).toBeInTheDocument();
+    const crumbs = within(screen.getByRole('navigation', { name: 'Breadcrumb' }));
+    expect(crumbs.getByRole('link', { name: 'Learning Hub' })).toHaveAttribute('href', '/training');
+    // The way back opens the course at this module.
+    expect(crumbs.getByRole('link', { name: 'MICO360 Tasks User Training' })).toHaveAttribute('href', '/training/courses/u1?moduleId=tk');
+    expect(crumbs.getByText('Tasks').closest('[aria-current="page"]')).not.toBeNull();
+    expect(await screen.findByText(/^Lesson 2 of 3 in/)).toHaveTextContent('Lesson 2 of 3 in Tasks');
+    // The guide keeps its one step sign.
+    expect(screen.getByText('Step 1 of 3')).toBeInTheDocument();
+  });
+
+  it('a video of a module: “Lesson 1 of 2 in Kanban board”; Next lesson is the server’s next lesson', async () => {
+    modulePlayer(
+      fakeLearner({
+        course: vi.fn(async () => moduleDetail()),
+        lesson: vi.fn(async () => inTasks({ id: 'k1', kind: 'VIDEO', title: 'Video: the Kanban board', steps: [], nextLessonId: 'k2', module: { id: 'kb', title: 'Kanban board', lessonIndex: 0, lessonCount: 2 }, video: { provider: 'YOUTUBE', videoId: 'v1', embedUrl: 'https://www.youtube-nocookie.com/embed/v1', watchUrl: 'https://www.youtube.com/watch?v=v1' } })),
+      }),
+      'k1',
+    );
+    expect(await screen.findByText(/^Lesson 1 of 2 in/)).toHaveTextContent('Lesson 1 of 2 in Kanban board');
+    expect(screen.queryByText(/^Lesson \d of 7$/)).toBeNull();
+    expect(screen.getByRole('link', { name: 'Next lesson' })).toHaveAttribute('href', '/training/courses/u1/lessons/k2');
+  });
+
+  it('finishing a module’s last lesson: the next lesson’s page says “Module done: Tasks” (one note)', async () => {
+    const api = fakeLearner({ course: vi.fn(async () => moduleDetail()), lesson: vi.fn(async () => inTasks({ steps: [STEPS[2]!] })) });
+    api.complete.mockResolvedValue({ courseProgressPct: 66, courseCompleted: false, certificateId: null, nextLessonId: 't3', moduleDone: { id: 'tk', title: 'Tasks' } });
+    const view = modulePlayer(api);
+    await userEvent.click(await screen.findByRole('button', { name: 'Next lesson' }));
+    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('/training/courses/u1/lessons/t3'));
+    view.unmount();
+    modulePlayer(fakeLearner({ course: vi.fn(async () => moduleDetail()), lesson: vi.fn(async () => inTasks({ id: 'k1', title: 'Video: the Kanban board', module: { id: 'kb', title: 'Kanban board', lessonIndex: 0, lessonCount: 2 } })) }), 'k1', { lessonDone: 'Work on a task', moduleDone: 'Tasks' });
+    expect(await screen.findByText(/^Module done:/)).toHaveTextContent('Module done: Tasks');
+    expect(screen.queryByText('“Work on a task” done.')).toBeNull();
+  });
+
+  it('passing the quiz that finishes a module says “Module done” on its page', async () => {
+    let passed = false;
+    const quizInfo = { passMark: 70, maxAttempts: null, attemptsUsed: 0, timeLimitMinutes: null, questionCount: 1, best: null, openAttemptId: null, lastAttemptId: null, canStart: true, reason: null };
+    const c = moduleDetail();
+    const api = fakeLearner({
+      course: vi.fn(async () => (passed ? { ...c, modules: c.modules.map((m) => (m.id === 'tk' ? { ...m, status: 'DONE' as const, lessonsDone: 3, doneAt: '2026-11-13T08:00:00.000Z' } : m)) } : c)),
+      lesson: vi.fn(async () => inTasks({ id: 't3', kind: 'QUIZ', title: 'Tasks quiz', steps: [], nextLessonId: 'k1', quiz: quizInfo, module: { id: 'tk', title: 'Tasks', lessonIndex: 2, lessonCount: 3 } })),
+      startAttempt: vi.fn(async () => paper({ lessonId: 't3', courseId: 'u1', questions: [paper().questions[0]!] })),
+    });
+    api.submit.mockImplementation(async () => {
+      passed = true;
+      return result({ lessonId: 't3', courseId: 'u1', scorePct: 100, passed: true, answersShown: true, courseCompleted: false, certificateId: null, questions: [result().questions[0]!] });
+    });
+    modulePlayer(api, 't3');
+    expect(await screen.findByText(/^Lesson 3 of 3 in/)).toHaveTextContent('Lesson 3 of 3 in Tasks');
+    expect(screen.queryByText(/^Module done/)).toBeNull();
+    await userEvent.click(await screen.findByRole('button', { name: 'Start quiz' }));
+    await userEvent.click(await screen.findByRole('radio', { name: 'Top bar' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Hand in' }));
+    expect(await screen.findByText(/^Module done:/)).toHaveTextContent('Module done: Tasks');
+    expect(screen.getAllByText(/^Module done/)).toHaveLength(1);
+  });
+
+  it('a module that was already done says nothing when one of its lessons is taken again', async () => {
+    const c = moduleDetail();
+    const api = fakeLearner({ course: vi.fn(async () => c), lesson: vi.fn(async () => inTasks({ id: 'g1', title: 'Find your way around', steps: [STEPS[2]!], nextLessonId: 'g2', module: { id: 'gs', title: 'Getting started', lessonIndex: 0, lessonCount: 2 }, progress: { done: true, videoSeconds: 0, watchedPct: 0, stepIndex: 0 } })) });
+    api.complete.mockResolvedValue({ courseProgressPct: 33, courseCompleted: false, certificateId: null, nextLessonId: 'g2', moduleDone: null });
+    modulePlayer(api, 'g1');
+    await userEvent.click(await screen.findByRole('button', { name: 'Next lesson' }));
+    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('/training/courses/u1/lessons/g2'));
+    expect(screen.queryByText(/^Module done/)).toBeNull();
+  });
+
+  it('an old link (a lesson under its old short course): the lesson’s own course address replaces it', async () => {
+    const api = fakeLearner({ course: vi.fn(async () => Promise.reject(new ApiError(404, 'COURSE_MOVED', 'Moved.', { courseId: 'u1', moduleId: 'tk' }))), lesson: vi.fn(async () => inTasks()) });
+    modulePlayer(api, 't2', undefined, 'c1');
+    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('/training/courses/u1/lessons/t2'));
+  });
+
+  it('an old link to a lesson that was removed as a duplicate: the one course at its module', async () => {
+    const api = fakeLearner({ lesson: vi.fn(async () => Promise.reject(new ApiError(404, 'COURSE_MOVED', 'Moved.', { courseId: 'u1', moduleId: 'tk' }))) });
+    modulePlayer(api, 'gone1', undefined, 'c1');
+    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('/training/courses/u1?moduleId=tk'));
+    expect(screen.queryByText('This course isn’t available to you.')).toBeNull();
   });
 });
 

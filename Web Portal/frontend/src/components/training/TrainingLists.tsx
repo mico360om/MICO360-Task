@@ -1,14 +1,12 @@
 import { useId, useState, type ReactNode } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { useQueryClient } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import { DIFFICULTIES, MODULE_LABELS, type CatalogueFilters, type CertificateRef, type CourseCard, type Difficulty, type MyTraining, type TrainingModule } from '../../api/training';
 import { downloadBlob, fileNameOf } from '../../lib/download';
 import { Button, buttonClass } from '../ui/Button';
 import { ProgressBar } from '../portal/portal-ui';
-import { coursePath, lessonPath, useLearner } from './learner';
-import { courseChanged } from './training-queries';
-import { AwardIcon, BookIcon, CardChipView, CourseCardView, CourseLength, DownloadIcon, MandatoryChip, TOUCH_MIN, trainingProblem } from './training-ui';
-import { ACTION_WORDS, CERTIFICATE_WORDS, DIFFICULTY_WORDS, courseAction, instantDay, learningGroups } from './training-words';
+import { coursePath, useLearner } from './learner';
+import { AwardIcon, BookIcon, CardChipView, CourseCardView, CourseLength, DownloadIcon, MandatoryChip, TOUCH_MIN, trainingProblem, useCourseGo } from './training-ui';
+import { ACTION_WORDS, CERTIFICATE_WORDS, DIFFICULTY_WORDS, instantDay, learningGroups, progressWords } from './training-words';
 
 /**
  * My learning's pieces and All courses' cards and filters, shared by the staff page and the Client portal's Learning
@@ -19,10 +17,10 @@ import { ACTION_WORDS, CERTIFICATE_WORDS, DIFFICULTY_WORDS, courseAction, instan
 const fieldClass = `h-10 w-full rounded-xl border border-line bg-surface px-3 text-sm text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/30 ${TOUCH_MIN}`;
 
 /** A grid of slim course cards (each opening its page; `module` keeps All courses' filter for the way back). */
-export function CourseGrid({ courses, module, showState = true, extra }: { courses: CourseCard[]; module?: string | null; showState?: boolean; extra?: (c: CourseCard) => ReactNode }) {
+export function CourseGrid({ courses, module, showState = true, extra, id }: { courses: CourseCard[]; module?: string | null; showState?: boolean; extra?: (c: CourseCard) => ReactNode; id?: string }) {
   const { base } = useLearner();
   return (
-    <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+    <ul id={id} className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
       {courses.map((c) => (
         <li key={c.id} className="min-w-0">
           <CourseCardView course={c} to={coursePath(base, c.id, module)} showState={showState} extra={extra?.(c)} />
@@ -64,14 +62,19 @@ function useCertificateDownload() {
   return { busy, error, download };
 }
 
+/** The Done list shows this many cards, then "Show all N" (ruling: folds above 6). */
+const DONE_FOLD = 6;
+
 /**
  * My learning: "Up next" (the most urgent course, with Start / Continue), "To do" and "Done" (a Done card carries its
- * certificate), and "Older certificates" only when some certificate has no Done card (R6). Nothing to do: one line
- * and `onBrowse` ("Browse all courses").
+ * certificate; more than 6 fold behind "Show all N"), and "Older certificates" only when some certificate has no Done
+ * card (R6). Nothing to do: one line and `onBrowse` ("Browse all courses").
  */
 export function MyLearningSections({ data, onBrowse }: { data: Pick<MyTraining, 'assigned' | 'inProgress' | 'completed' | 'certificates'>; onBrowse?: () => void }) {
   const g = learningGroups(data);
   const cert = useCertificateDownload();
+  const [allDone, setAllDone] = useState(false);
+  const doneId = useId();
   const certificateButton = (c: CourseCard) =>
     c.mine.certificate && c.mine.certificate.status !== 'REVOKED' ? (
       <button
@@ -111,7 +114,18 @@ export function MyLearningSections({ data, onBrowse }: { data: Pick<MyTraining, 
       ) : null}
       {g.done.length ? (
         <Group title="Done" count={g.done.length}>
-          <CourseGrid courses={g.done} extra={certificateButton} />
+          <CourseGrid id={doneId} courses={allDone ? g.done : g.done.slice(0, DONE_FOLD)} extra={certificateButton} />
+          {g.done.length > DONE_FOLD ? (
+            <button
+              type="button"
+              aria-expanded={allDone}
+              aria-controls={doneId}
+              onClick={() => setAllDone((v) => !v)}
+              className={`self-start text-sm font-semibold text-brand underline-offset-2 hover:underline ${TOUCH_MIN}`}
+            >
+              {allDone ? 'Show fewer' : `Show all ${g.done.length}`}
+            </button>
+          ) : null}
         </Group>
       ) : null}
       {cert.error ? (
@@ -124,31 +138,16 @@ export function MyLearningSections({ data, onBrowse }: { data: Pick<MyTraining, 
   );
 }
 
-/** The one course to do next: its title, due day or how far along, and a big Start / Continue. */
+/**
+ * The one course to do next: its title, due day or how far along (the one course: "4 of 8 modules"), the lesson it
+ * goes on with ("Next: Tasks · Work on a task"), and a big Start / Continue.
+ */
 function UpNextCard({ course: c }: { course: CourseCard }) {
   const side = useLearner();
-  const qc = useQueryClient();
-  const navigate = useNavigate();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const go = useCourseGo(c);
   const id = useId();
   const m = c.mine;
-  const action = courseAction(m);
   const started = m.status === 'IN_PROGRESS' || m.status === 'REVIEW' || m.status === 'RETAKE';
-  const to = m.nextLessonId ? lessonPath(side.base, c.id, m.nextLessonId) : coursePath(side.base, c.id);
-  const start = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      const d = await side.api.start(c.id);
-      courseChanged(qc, side, c.id, d);
-      const first = d.resumeLessonId ?? d.lessons[0]?.id ?? null;
-      navigate(first ? lessonPath(side.base, c.id, first) : coursePath(side.base, c.id));
-    } catch (err) {
-      setError(trainingProblem(err, 'Couldn’t start the course.'));
-      setBusy(false);
-    }
-  };
   // Started without a due day: the bar says how far along; anything else (overdue, due, review, retake): its chip.
   const chip = m.overdue || m.dueDay || m.status === 'REVIEW' || m.status === 'RETAKE';
   return (
@@ -159,7 +158,7 @@ function UpNextCard({ course: c }: { course: CourseCard }) {
       <div className="min-w-0">
         <h3 className="break-words font-display text-xl font-bold text-ink">
           <Link to={coursePath(side.base, c.id)} className="rounded outline-none hover:underline focus-visible:ring-2 focus-visible:ring-brand/40 [@media(pointer:coarse)]:inline-flex [@media(pointer:coarse)]:!min-h-11 [@media(pointer:coarse)]:items-center">
-            {c.title}
+            <bdi>{c.title}</bdi>
           </Link>
         </h3>
         {c.summary ? <p className="mt-1 text-sm text-ink-2">{c.summary}</p> : null}
@@ -174,23 +173,36 @@ function UpNextCard({ course: c }: { course: CourseCard }) {
           <div className="min-w-0 flex-1">
             <ProgressBar percent={m.progressPct} label={`${c.title}: ${m.progressPct}% done`} />
           </div>
-          <span className="flex-none text-sm font-semibold text-ink">{`${m.progressPct}% done`}</span>
+          <span className="flex-none text-sm font-semibold text-ink">{m.modules ? progressWords(c) : `${m.progressPct}% done`}</span>
         </div>
       ) : null}
+      {m.next ? (
+        <p className="break-words text-sm text-ink-2">
+          {m.next.moduleTitle ? (
+            <>
+              Next: <bdi className="font-semibold text-ink">{m.next.moduleTitle}</bdi> · <bdi>{m.next.lessonTitle}</bdi>
+            </>
+          ) : (
+            <>
+              Next: <bdi className="font-semibold text-ink">{m.next.lessonTitle}</bdi>
+            </>
+          )}
+        </p>
+      ) : null}
       <div>
-        {m.enrolled ? (
-          <Link to={to} className={buttonClass('primary', 'lg', '!min-h-[44px] w-full justify-center sm:w-auto')}>
-            {ACTION_WORDS[action]}
-          </Link>
-        ) : (
-          <Button size="lg" className="!min-h-[44px] w-full sm:w-auto" loading={busy} onClick={() => void start()}>
+        {go.needsStart ? (
+          <Button size="lg" className="!min-h-[44px] w-full sm:w-auto" loading={go.busy} onClick={() => void go.start()}>
             {ACTION_WORDS.start}
           </Button>
+        ) : (
+          <Link to={go.to} className={buttonClass('primary', 'lg', '!min-h-[44px] w-full justify-center sm:w-auto')}>
+            {ACTION_WORDS[go.action]}
+          </Link>
         )}
       </div>
-      {error ? (
+      {go.error ? (
         <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
-          {error}
+          {go.error}
         </p>
       ) : null}
     </section>

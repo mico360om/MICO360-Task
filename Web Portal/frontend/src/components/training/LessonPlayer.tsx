@@ -16,7 +16,7 @@ import { QuizLesson } from './QuizLesson';
 import { VideoLesson } from './VideoLesson';
 import { coursePath, lessonPath, useLearner } from './learner';
 import { courseChanged, useCourse, useLessonView } from './training-queries';
-import { LessonKindIcon, TOUCH_MIN, TickIcon, trainingProblem } from './training-ui';
+import { LessonKindIcon, TOUCH_MIN, TickIcon, courseMoved, trainingProblem } from './training-ui';
 import { LESSON_KIND_WORDS, minutesText } from './training-words';
 import { LIMITS } from '../../api/training';
 
@@ -25,6 +25,11 @@ import { LIMITS } from '../../api/training';
  * a document or a quiz) with ONE way on — "Next lesson", or "Finish course" on the lesson that finishes it, or "Back
  * to the course" — and a small "Report a problem". A guide says "Step 2 of 6"; the others "Lesson 2 of 4". One note
  * when a lesson is done: on the next lesson's page ("“…” done."), or "Course completed" when the course is finished.
+ *
+ * A lesson of a module (1.23.30): breadcrumbs "Learning Hub › the course › the module" (the title is the heading),
+ * "Lesson 2 of 5 in Tasks", and "Module done: Tasks" (one note) when this visit finished its module — on the next
+ * lesson's page, or here (a quiz, a video). Next is the server's next lesson (hidden modules skipped). Old links: a
+ * lesson opened under another course's address is moved to its own; a removed one (COURSE_MOVED) to its module.
  */
 export function LessonPlayer({ courseId, lessonId, renderTitle }: { courseId: string; lessonId: string; renderTitle: (title: string) => ReactNode }) {
   const side = useLearner();
@@ -37,8 +42,12 @@ export function LessonPlayer({ courseId, lessonId, renderTitle }: { courseId: st
   // Review I2: finished here, on this visit (latched: the course read again afterwards says COMPLETED).
   const [finishedHere, setFinishedHere] = useState(false);
   const [reporting, setReporting] = useState(false);
+  // Whether the lesson's module was already done when this lesson was first seen (so finishing it here can say so).
+  const [moduleAtStart, setModuleAtStart] = useState<{ lessonId: string; done: boolean } | null>(null);
   const courseTo = coursePath(side.base, courseId);
-  const arrived = (location.state as { lessonDone?: unknown } | null)?.lessonDone;
+  const arrivedState = location.state as { lessonDone?: unknown; moduleDone?: unknown } | null;
+  const arrived = arrivedState?.lessonDone;
+  const arrivedModule = typeof arrivedState?.moduleDone === 'string' && arrivedState.moduleDone ? arrivedState.moduleDone : null;
 
   // Another lesson: start afresh, at the top of the page.
   useEffect(() => {
@@ -47,7 +56,21 @@ export function LessonPlayer({ courseId, lessonId, renderTitle }: { courseId: st
     document.scrollingElement?.scrollTo?.(0, 0);
   }, [lessonId]);
 
-  if (q.isPending) {
+  // Old links: the lesson under another course's address goes to its own; a lesson that moved away (removed as a
+  // duplicate) to the one course at its module. The address is replaced (Back doesn't return to the old one).
+  const elsewhere = q.data && q.data.id === lessonId && q.data.courseId !== courseId ? lessonPath(side.base, q.data.courseId, q.data.id) : null;
+  const moved = courseMoved(q.error);
+  const redirect = elsewhere ?? (moved ? coursePath(side.base, moved.courseId, null, moved.moduleId) : null);
+  useEffect(() => {
+    if (redirect) navigate(redirect, { replace: true });
+    // The address decides; navigate is stable for the page.
+  }, [redirect]);
+
+  const lessonModule = q.data?.module ?? null;
+  const moduleOutline = lessonModule ? course.data?.modules.find((u) => u.id === lessonModule.id) : undefined;
+  if (moduleOutline && q.data && moduleAtStart?.lessonId !== q.data.id) setModuleAtStart({ lessonId: q.data.id, done: moduleOutline.status === 'DONE' });
+
+  if (q.isPending || redirect) {
     return (
       <p role="status" className="py-12 text-center text-sm text-ink-2">
         <span className="animate-pulse motion-reduce:animate-none">Loading the lesson…</span>
@@ -82,6 +105,25 @@ export function LessonPlayer({ courseId, lessonId, renderTitle }: { courseId: st
   const wasFinished = course.data?.mine.status === 'COMPLETED' || course.data?.mine.status === 'REVIEW';
   const othersDone = outline.length > 0 && outline.every((l) => l.id === lesson.id || l.done);
   const courseDone = finishedHere && lesson.kind !== 'QUIZ';
+  // Where the lesson sits in its module ("Lesson 2 of 5 in Tasks"), from the course's outline of the person's lessons.
+  const inModule = lessonModule && moduleOutline ? { title: lessonModule.title, at: moduleOutline.lessonIds.indexOf(lesson.id), total: moduleOutline.lessonIds.length } : null;
+  const place =
+    inModule && inModule.at >= 0 ? (
+      <span className="font-semibold text-ink">
+        {`Lesson ${inModule.at + 1} of ${inModule.total} in `}
+        <bdi>{inModule.title}</bdi>
+      </span>
+    ) : !lessonModule && at >= 0 ? (
+      <span className="font-semibold text-ink">
+        Lesson {at + 1} of {total}
+      </span>
+    ) : null;
+  // This visit finished the lesson's module: the server says so (a guide, a document, a video), or the course read
+  // again shows the module done that wasn't when the lesson opened (a quiz: its result doesn't say). The course
+  // finished instead: "Course completed" says it all.
+  const moduleFinished = done?.courseCompleted
+    ? null
+    : (done?.moduleDone?.title ?? (done && moduleAtStart?.lessonId === lesson.id && !moduleAtStart.done && moduleOutline?.status === 'DONE' ? moduleOutline.title : null));
 
   const finished = (d: LessonDone) => {
     setDone(d);
@@ -95,7 +137,8 @@ export function LessonPlayer({ courseId, lessonId, renderTitle }: { courseId: st
     label: nextId ? 'Next lesson' : othersDone && !wasFinished ? 'Finish course' : 'Back to the course',
     go: (d) => {
       if ((d?.courseCompleted && !wasFinished) || finishedHere) return;
-      if (nextId) navigate(lessonPath(side.base, courseId, nextId), { state: { lessonDone: lesson.title } });
+      const moduleDone = d?.moduleDone?.title;
+      if (nextId) navigate(lessonPath(side.base, courseId, nextId), { state: moduleDone ? { lessonDone: lesson.title, moduleDone } : { lessonDone: lesson.title } });
       else navigate(courseTo);
     },
   };
@@ -104,20 +147,26 @@ export function LessonPlayer({ courseId, lessonId, renderTitle }: { courseId: st
     <div className="flex w-full max-w-3xl flex-col gap-4">
       <div className="flex flex-col gap-2">
         <Breadcrumbs
-          items={[
-            { label: 'Learning Hub', to: side.base },
-            { label: <bdi>{lesson.courseTitle}</bdi>, to: courseTo },
-            { label: <bdi>{lesson.title}</bdi> },
-          ]}
+          items={
+            lessonModule
+              ? [
+                  { label: 'Learning Hub', to: side.base },
+                  // Back to the course with this lesson's module open.
+                  { label: <bdi>{lesson.courseTitle}</bdi>, to: coursePath(side.base, courseId, null, lessonModule.id) },
+                  { label: <bdi>{lessonModule.title}</bdi> },
+                ]
+              : [
+                  { label: 'Learning Hub', to: side.base },
+                  { label: <bdi>{lesson.courseTitle}</bdi>, to: courseTo },
+                  { label: <bdi>{lesson.title}</bdi> },
+                ]
+          }
         />
         {renderTitle(lesson.title)}
+        {lesson.kind === 'GUIDE' && inModule && place ? <p className="text-sm">{place}</p> : null}
         {lesson.kind !== 'GUIDE' ? (
           <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-ink-2">
-            {at >= 0 ? (
-              <span className="font-semibold text-ink">
-                Lesson {at + 1} of {total}
-              </span>
-            ) : null}
+            {place}
             <span className="inline-flex items-center gap-1">
               <LessonKindIcon kind={lesson.kind} size={14} />
               {LESSON_KIND_WORDS[lesson.kind]}
@@ -133,7 +182,15 @@ export function LessonPlayer({ courseId, lessonId, renderTitle }: { courseId: st
         ) : null}
       </div>
 
-      {typeof arrived === 'string' && arrived && !done ? (
+      {moduleFinished || (arrivedModule && !done) ? (
+        <p role="status" className="inline-flex items-center gap-2 self-start rounded-lg bg-success-soft px-3 py-1.5 text-sm font-semibold text-success">
+          <TickIcon size={14} />
+          <span>
+            {'Module done: '}
+            <bdi>{moduleFinished ?? arrivedModule}</bdi>
+          </span>
+        </p>
+      ) : typeof arrived === 'string' && arrived && !done ? (
         <p role="status" className="inline-flex items-center gap-2 self-start rounded-lg bg-success-soft px-3 py-1.5 text-sm font-semibold text-success">
           <TickIcon size={14} />
           {`“${arrived}” done.`}

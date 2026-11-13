@@ -811,7 +811,7 @@ export function trainingApi(client: ApiClient) {
     catalogue: (f: CatalogueFilters = {}) =>
       data(client.get<{ data: { courses: CourseCard[] } }>(`/training/catalogue${qs({ module: f.module, difficulty: f.difficulty, q: f.q })}`)),
     learn: (module: TrainingModule) =>
-      data(client.get<{ data: { courseId: string | null; module: TrainingModule; count: number } }>(`/training/learn${qs({ module })}`)),
+      data(client.get<{ data: { courseId: string | null; moduleId: string | null; module: TrainingModule; count: number } }>(`/training/learn${qs({ module })}`)),
     course: (id: string) => data(client.get<{ data: CourseDetail }>(`/training/courses/${enc(id)}`)),
     start: (id: string) => data(client.post<{ data: CourseDetail }>(`/training/courses/${enc(id)}/start`)),
     lesson: (id: string) => data(client.get<{ data: LessonView }>(`/training/lessons/${enc(id)}`)),

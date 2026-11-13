@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { ACTION_WORDS, attemptsLeftText, cardChip, clockLeft, courseAction, dueText, learningGroups, lessonsText, minutesText, quizStartLine, ratingText, shortDay } from './training-words';
-import { card, mine } from './training-fixtures';
+import { ACTION_WORDS, attemptsLeftText, cardChip, clockLeft, courseAction, dueText, learningGroups, lessonsText, minutesText, moduleStatusWords, modulesText, newForRoleText, progressWords, quizStartLine, ratingText, shortDay } from './training-words';
+import { card, mine, moduleCard, moduleDetail } from './training-fixtures';
 
 describe('training words', () => {
   it('minutes: "5 min", "1 h", "1 h 25 min"; nothing for none', () => {
@@ -33,6 +33,24 @@ describe('training words', () => {
     expect(courseAction({ enrolled: true, status: 'COMPLETED', progressPct: 100 })).toBe('review');
     expect(courseAction({ enrolled: true, status: 'REVIEW', progressPct: 80 })).toBe('changes');
     expect(courseAction({ enrolled: true, status: 'RETAKE', progressPct: 0 })).toBe('retake');
+    // D3: finished, then modules new for a grown role: Continue (to them), the course stays Completed.
+    expect(courseAction({ enrolled: true, status: 'COMPLETED', progressPct: 100, newForRole: 2 })).toBe('resume');
+    expect(courseAction({ enrolled: true, status: 'COMPLETED', progressPct: 100, newForRole: 0 })).toBe('review');
+  });
+
+  it('how far along, in lessons or (the one course) modules; a module’s state', () => {
+    expect(progressWords(card({ lessonCount: 3, mine: mine({ lessonsDone: 0 }) }))).toBe('0 of 3 lessons');
+    expect(progressWords(card({ lessonCount: 1, mine: mine({ lessonsDone: 1 }) }))).toBe('1 of 1 lesson');
+    expect(progressWords(moduleCard({ mine: mine({ modules: { done: 4, total: 8 } }) }))).toBe('4 of 8 modules');
+    expect(progressWords(moduleCard({ mine: mine({ modules: { done: 0, total: 1 } }) }))).toBe('0 of 1 module');
+    expect(modulesText(1)).toBe('1 module');
+    expect(modulesText(8)).toBe('8 modules');
+    expect(newForRoleText(2)).toBe('New for your role: 2');
+    const [gs, tk, kb] = moduleDetail().modules;
+    expect(moduleStatusWords(gs!)).toBe('Done · 3 Nov 2026');
+    expect(moduleStatusWords({ ...gs!, doneAt: null })).toBe('Done');
+    expect(moduleStatusWords(tk!)).toBe('In progress · 1 of 3 lessons');
+    expect(moduleStatusWords(kb!)).toBe('Not started');
   });
 
   it('a countdown and attempts', () => {
@@ -48,12 +66,12 @@ describe('training words', () => {
     expect([ACTION_WORDS.start, ACTION_WORDS.resume, ACTION_WORDS.review]).toEqual(['Start', 'Continue', 'Review']);
   });
 
-  it('a card’s one chip: overdue, done, due, the review or retake, else how far along; none before starting', () => {
+  it('a card’s one chip: overdue, done, due, the review or retake; none otherwise (how far along is said in lessons beside it)', () => {
     const now = new Date(2026, 10, 12);
     expect(cardChip(mine({ overdue: true, dueDay: '2026-11-09', status: 'IN_PROGRESS' }), now)).toEqual({ text: 'Overdue · was due 9 Nov', tone: 'overdue' });
     expect(cardChip(mine({ status: 'COMPLETED', progressPct: 100, dueDay: null }), now)).toEqual({ text: 'Done', tone: 'done' });
     expect(cardChip(mine({ dueDay: '2026-11-17', status: 'NOT_STARTED', progressPct: 0 }), now)).toEqual({ text: 'Due 17 Nov', tone: 'due' });
-    expect(cardChip(mine({ dueDay: null, status: 'IN_PROGRESS', progressPct: 33 }), now)).toEqual({ text: '33% done', tone: 'progress' });
+    expect(cardChip(mine({ dueDay: null, status: 'IN_PROGRESS', progressPct: 33 }), now)).toBeNull();
     expect(cardChip(mine({ dueDay: null, status: 'REVIEW', progressPct: 100 }), now)).toEqual({ text: 'Review the changes', tone: 'due' });
     expect(cardChip(mine({ dueDay: null, status: 'RETAKE', progressPct: 0 }), now)).toEqual({ text: 'Retake due', tone: 'due' });
     expect(cardChip(mine({ dueDay: null, status: 'NOT_STARTED', progressPct: 0, enrolled: false, assigned: false }), now)).toBeNull();

@@ -69,8 +69,13 @@ export function usePortalSide(api: PortalApi): LearnerSide {
 
 export const useLearner = (): LearnerSide => useContext(LearnerContext);
 
-/** A course's page and a lesson's, on this side. */
-export const coursePath = (base: string, courseId: string, module?: string | null) =>
-  `${base}/courses/${encodeURIComponent(courseId)}${module ? `?module=${encodeURIComponent(module)}` : ''}`;
+/**
+ * A course's page and a lesson's, on this side. `module`: the feature the person came from (All courses filtered to
+ * it, Learn this feature: the breadcrumbs' way back); `moduleId`: the course's module to open (1.23.30).
+ */
+export const coursePath = (base: string, courseId: string, module?: string | null, moduleId?: string | null) => {
+  const query = [module ? `module=${encodeURIComponent(module)}` : '', moduleId ? `moduleId=${encodeURIComponent(moduleId)}` : ''].filter(Boolean).join('&');
+  return `${base}/courses/${encodeURIComponent(courseId)}${query ? `?${query}` : ''}`;
+};
 export const lessonPath = (base: string, courseId: string, lessonId: string) =>
   `${base}/courses/${encodeURIComponent(courseId)}/lessons/${encodeURIComponent(lessonId)}`;

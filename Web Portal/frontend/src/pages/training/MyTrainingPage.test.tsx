@@ -63,7 +63,11 @@ describe('My learning (12 Nov: Up next, To do, Done)', () => {
     const todo = screen.getByRole('region', { name: /^To do/ });
     expect(within(todo).getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual(['Meetings & minutes', 'Calendar tips']);
     expect(within(todo).getByText('Due 20 Nov')).toBeInTheDocument();
-    expect(within(todo).getByText('60% done')).toBeInTheDocument();
+    // How far along, in lessons (R review: not a percentage on the cards); each card's own Start / Continue.
+    expect(within(within(todo).getByRole('link', { name: 'Calendar tips' }).closest('article')!).getByText('1 of 4 lessons')).toBeInTheDocument();
+    expect(within(todo).queryByText('60% done')).toBeNull();
+    expect(within(todo).getByRole('link', { name: 'Start: Meetings & minutes' })).toHaveAttribute('href', '/training/courses/c2/lessons/l2');
+    expect(within(todo).getByRole('link', { name: 'Continue: Calendar tips' })).toHaveAttribute('href', '/training/courses/c3/lessons/l2');
     // Done: its certificate on the card.
     const done = screen.getByRole('region', { name: /^Done/ });
     expect(within(done).getByRole('heading', { name: 'Kanban board' })).toBeInTheDocument();

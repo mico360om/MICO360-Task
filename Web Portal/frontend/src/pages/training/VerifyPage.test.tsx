@@ -28,7 +28,7 @@ function renderAt(path: string) {
 }
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
-const FACTS = { courseTitle: 'Tasks basics', learnerName: 'Mariam Al Balushi', issuedAt: '2026-11-05T08:00:00.000Z', expiresAt: '2027-11-05T08:00:00.000Z' };
+const FACTS = { courseTitle: 'Tasks basics', learnerName: 'Mariam Al Balushi', issuedAt: '2026-11-05T08:00:00.000Z', expiresAt: '2027-11-05T08:00:00.000Z', completedAt: '2026-11-03T08:00:00.000Z' };
 
 beforeEach(() => {
   useAuthStore.getState().logout('remote');
@@ -54,6 +54,9 @@ describe('Check a certificate (/verify, public)', () => {
     expect(screen.getByText('Tasks basics')).toBeInTheDocument();
     expect(screen.getByText('5 Nov 2026')).toBeInTheDocument();
     expect(screen.getByText('5 Nov 2027')).toBeInTheDocument();
+    // The day the course was finished (the certificate's date line), first.
+    expect(screen.getByText('Completed').nextElementSibling).toHaveTextContent('3 Nov 2026');
+    expect(screen.getByText('Completed').compareDocumentPosition(screen.getByText('Issued')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(document.querySelector('[data-verify-status="VALID"]')).toHaveTextContent('Valid');
     expect(screen.getByTestId('where')).toHaveTextContent('/verify/TC-ABCD-EFGH-JKLM');
     expect(screen.queryByRole('navigation', { name: 'Main' })).toBeNull();

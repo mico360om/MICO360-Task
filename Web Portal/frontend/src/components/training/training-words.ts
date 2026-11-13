@@ -1,4 +1,4 @@
-import type { CertificateRef, CertificateStatus, CourseCard, Difficulty, EnrolmentStatus, LessonKind, MyCourseState, MyTraining } from '../../api/training';
+import type { CertificateRef, CertificateStatus, CourseCard, Difficulty, EnrolmentStatus, LessonKind, ModuleOutline, MyCourseState, MyTraining } from '../../api/training';
 import { dayText, instantDayText } from '../../lib/day-words';
 
 /** Training's words, in one place (pure, tested). Dates the site's way: "14 Nov", "14 Nov 2027" (another year). */
@@ -30,6 +30,29 @@ export function minutesText(minutes: number): string {
 /** "1 lesson", "6 lessons". */
 export const lessonsText = (n: number) => `${n} ${n === 1 ? 'lesson' : 'lessons'}`;
 
+/** "1 module", "8 modules". */
+export const modulesText = (n: number) => `${n} ${n === 1 ? 'module' : 'modules'}`;
+
+/**
+ * How far along (1.23.30 review: in lessons, not a percentage): "0 of 3 lessons"; the one course with modules:
+ * "4 of 8 modules" (only the modules the person sees).
+ */
+export function progressWords(c: Pick<CourseCard, 'lessonCount'> & { mine: Pick<MyCourseState, 'lessonsDone' | 'modules'> }): string {
+  const m = c.mine.modules;
+  if (m) return `${m.done} of ${modulesText(m.total)}`;
+  return `${c.mine.lessonsDone} of ${lessonsText(c.lessonCount)}`;
+}
+
+/** D3: "New for your role: 2" (modules added for a grown role after the course was finished). */
+export const newForRoleText = (n: number) => `New for your role: ${n}`;
+
+/** A module's state for the person: "Not started", "In progress · 2 of 5 lessons", "Done · 3 Nov 2026". */
+export function moduleStatusWords(m: Pick<ModuleOutline, 'status' | 'lessonsDone' | 'lessonCount' | 'doneAt'>): string {
+  if (m.status === 'DONE') return m.doneAt ? `Done · ${instantDayText(m.doneAt)}` : 'Done';
+  if (m.status === 'IN_PROGRESS') return `In progress · ${m.lessonsDone} of ${lessonsText(m.lessonCount)}`;
+  return 'Not started';
+}
+
 /** A day ('YYYY-MM-DD') without the year when it is this year's: "14 Nov"; "14 Nov 2027". */
 export function shortDay(key: string, now: Date = new Date()): string {
   return dayText(key, { year: key.slice(0, 4) !== String(now.getFullYear()) });
@@ -51,11 +74,14 @@ export function ratingText(rating: { average: number | null; count: number }): s
 
 export type CourseAction = 'start' | 'resume' | 'review' | 'changes' | 'retake';
 
-/** What the course page's main button does, by where the person is. */
-export function courseAction(mine: Pick<MyCourseState, 'enrolled' | 'status' | 'progressPct'>): CourseAction {
+/**
+ * What the course page's (and a card's) main button does, by where the person is. D3: a finished course with modules
+ * new for the person's grown role stays Completed, and its button is Continue (to the first of them).
+ */
+export function courseAction(mine: Pick<MyCourseState, 'enrolled' | 'status' | 'progressPct'> & Partial<Pick<MyCourseState, 'newForRole'>>): CourseAction {
   if (mine.status === 'RETAKE') return 'retake';
   if (mine.status === 'REVIEW') return 'changes';
-  if (mine.status === 'COMPLETED') return 'review';
+  if (mine.status === 'COMPLETED') return (mine.newForRole ?? 0) > 0 ? 'resume' : 'review';
   if (!mine.enrolled || (mine.status === 'NOT_STARTED' && mine.progressPct === 0)) return 'start';
   return 'resume';
 }
@@ -69,19 +95,18 @@ export const ACTION_WORDS: Record<CourseAction, string> = {
   retake: 'Retake course',
 };
 
-export type ChipTone = 'overdue' | 'due' | 'progress' | 'done';
+export type ChipTone = 'overdue' | 'due' | 'done';
 
 /**
- * A course card's one chip (12 Nov §3): "Overdue · was due 9 Nov", "Done", "Due 17 Nov", "Review the changes",
- * "Retake due" or "33% done"; none before it is started (and nothing is due).
+ * A course card's one chip (12 Nov §3): "Overdue · was due 9 Nov", "Done", "Due 17 Nov", "Review the changes" or
+ * "Retake due"; none otherwise — how far along is said in lessons beside it (progressWords, 1.23.30 review).
  */
-export function cardChip(m: Pick<MyCourseState, 'status' | 'overdue' | 'dueDay' | 'progressPct'>, now: Date = new Date()): { text: string; tone: ChipTone } | null {
+export function cardChip(m: Pick<MyCourseState, 'status' | 'overdue' | 'dueDay'>, now: Date = new Date()): { text: string; tone: ChipTone } | null {
   if (m.status !== 'COMPLETED' && m.overdue && m.dueDay) return { text: `Overdue · was due ${shortDay(m.dueDay, now)}`, tone: 'overdue' };
   if (m.status === 'COMPLETED') return { text: 'Done', tone: 'done' };
   if (m.dueDay) return { text: `Due ${shortDay(m.dueDay, now)}`, tone: 'due' };
   if (m.status === 'REVIEW') return { text: 'Review the changes', tone: 'due' };
   if (m.status === 'RETAKE') return { text: 'Retake due', tone: 'due' };
-  if (m.status === 'IN_PROGRESS') return { text: `${m.progressPct}% done`, tone: 'progress' };
   return null;
 }
 

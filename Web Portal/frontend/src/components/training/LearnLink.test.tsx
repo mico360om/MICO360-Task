@@ -36,6 +36,12 @@ describe('Learn this feature', () => {
     expect(link).toHaveTextContent('Learn this feature');
   });
 
+  it('the one course with modules: its page opened at the feature’s module', async () => {
+    staff.learn.mockResolvedValue({ courseId: 'u1', moduleId: 'tk', module: 'tasks', count: 1 });
+    renderHeader(<PageHeader eyebrow="Workspace" title="My Tasks" learn="tasks" />);
+    expect(await screen.findByRole('link', { name: 'Learn this feature' })).toHaveAttribute('href', '/training/courses/u1?module=tasks&moduleId=tk');
+  });
+
   it('several: the catalogue filtered to the module', async () => {
     staff.learn.mockResolvedValue({ courseId: 'c1', module: 'meetings', count: 3 });
     renderHeader(<PageTitle eyebrow="Workspace" title="Meetings" learn="meetings" />);
@@ -82,5 +88,7 @@ describe('Learn this feature', () => {
     expect(learnTarget('/training', 'chat', { courseId: 'c9', count: 1 })).toBe('/training/courses/c9?module=chat');
     expect(learnTarget('/training', 'chat', { courseId: 'c9', count: 2 })).toBe('/training?tab=catalogue&module=chat');
     expect(learnTarget('/training', 'chat', { courseId: null, count: 0 })).toBeNull();
+    expect(learnTarget('/training', 'chat', { courseId: 'u1', moduleId: 'ch', count: 1 })).toBe('/training/courses/u1?module=chat&moduleId=ch');
+    expect(learnTarget('/training', 'chat', { courseId: 'u1', moduleId: null, count: 1 })).toBe('/training/courses/u1?module=chat');
   });
 });

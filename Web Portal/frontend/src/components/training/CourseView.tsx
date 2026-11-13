@@ -1,34 +1,46 @@
 import { useEffect, useId, useState, type ReactNode } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Breadcrumbs } from '../ui/Breadcrumbs';
 import { useQueryClient } from '@tanstack/react-query';
-import { LIMITS, MODULE_LABELS, TRAINING_MODULES, type CertificateRef, type CourseDetail, type TrainingModule } from '../../api/training';
+import { LIMITS, MODULE_LABELS, TRAINING_MODULES, type CourseDetail, type TrainingModule } from '../../api/training';
 import { ApiError } from '../../lib/api-client';
-import { downloadBlob, fileNameOf } from '../../lib/download';
-import { OVERDUE_CLASS, STATUS_CLASS } from '../../lib/colour-classes';
+import { OVERDUE_CLASS } from '../../lib/colour-classes';
 import { Button } from '../ui/Button';
 import { ProgressBar } from '../portal/portal-ui';
-import { lessonPath, useLearner } from './learner';
+import { CertificateView } from './CertificateView';
+import { LessonRow, ModuleList } from './ModuleList';
+import { coursePath, lessonPath, useLearner } from './learner';
 import { courseChanged, useCourse } from './training-queries';
-import { AwardIcon, CourseLength, DownloadIcon, LessonKindIcon, LockIcon, MandatoryChip, TOUCH_MIN, TickIcon, saveTrainingFile, sizeText, trainingProblem } from './training-ui';
-import { ACTION_WORDS, CERTIFICATE_WORDS, LESSON_KIND_WORDS, courseAction, instantDay, lessonsText, minutesText, shortDay } from './training-words';
+import { AwardIcon, CourseLength, DownloadIcon, MandatoryChip, TOUCH_MIN, TickIcon, courseMoved, saveTrainingFile, sizeText, trainingProblem } from './training-ui';
+import { ACTION_WORDS, courseAction, instantDay, lessonsText, modulesText, progressWords, shortDay } from './training-words';
 
 const isModule = (v: string | null): v is TrainingModule => !!v && (TRAINING_MODULES as readonly string[]).includes(v);
 
 /**
  * A course's page (staff and the Client portal; 12 Nov §4): the certificate right under the title once earned, what
- * the course is, one Start / Continue / Review button, how far along (only once started), the lessons with ticks,
- * downloads, "Rate this course" once finished, and questions behind "Ask a question". Breadcrumbs "Learning Hub › the
- * course"; `?module=` (All courses filtered to a module, or Learn this feature) adds that module's courses.
+ * the course is, one Start / Continue / Review button, how far along (only once started), the lessons with ticks —
+ * or, for the one course with modules (1.23.30), its modules in order — downloads, "Rate this course" once finished,
+ * and questions behind "Ask a question". Breadcrumbs "Learning Hub › the course"; `?module=` (All courses filtered
+ * to a module, or Learn this feature) adds that module's courses; `?moduleId=` opens one of the course's modules.
+ * An old short course's link (COURSE_MOVED) is replaced by the one course at its module.
  */
 export function CourseView({ courseId, renderHeader }: { courseId: string; renderHeader: (title: string) => ReactNode }) {
   const side = useLearner();
+  const navigate = useNavigate();
   const q = useCourse(courseId);
   const [params] = useSearchParams();
-  // A course opened from a card far down a list starts at the top of its page.
+  const openModule = params.get('moduleId');
+  // A course opened from a card far down a list starts at the top of its page (a module it opens is brought into
+  // view instead).
   useEffect(() => {
-    document.scrollingElement?.scrollTo?.(0, 0);
+    if (!openModule) document.scrollingElement?.scrollTo?.(0, 0);
+    // Once per course: the module named later (a Learn link) scrolls itself.
   }, [courseId]);
+  const moved = courseMoved(q.error);
+  useEffect(() => {
+    if (moved) navigate(coursePath(side.base, moved.courseId, null, moved.moduleId), { replace: true });
+    // The answer decides; navigate and the side are stable for the page.
+  }, [moved?.courseId, moved?.moduleId]);
   const module = params.get('module');
   const crumbs = (title: ReactNode) => (
     <Breadcrumbs
@@ -41,7 +53,7 @@ export function CourseView({ courseId, renderHeader }: { courseId: string; rende
   );
   const backLink = crumbs(q.data ? <bdi>{q.data.title}</bdi> : '…');
 
-  if (q.isPending) {
+  if (q.isPending || moved) {
     return (
       <div className="flex flex-col gap-3">
         {backLink}
@@ -72,24 +84,27 @@ export function CourseView({ courseId, renderHeader }: { courseId: string; rende
     <div className="flex flex-col gap-4">
       {backLink}
       {renderHeader(q.data.title)}
-      <CourseBody course={q.data} />
+      <CourseBody course={q.data} openModule={openModule} />
     </div>
   );
 }
 
-function CourseBody({ course: c }: { course: CourseDetail }) {
+function CourseBody({ course: c, openModule }: { course: CourseDetail; openModule: string | null }) {
   const side = useLearner();
   const qc = useQueryClient();
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const m = c.mine;
+  const withModules = c.modules.length > 0;
+  // D3: finished, with modules new for a grown role: Continue (to the first of them, where Continue goes).
   const action = courseAction(m);
   const firstId = c.lessons[0]?.id ?? null;
   const target = action === 'review' ? firstId : (c.resumeLessonId ?? firstId);
   const finished = m.status === 'COMPLETED' || m.status === 'REVIEW';
-  // Before starting: no status chip and no 0% bar (12 Nov §4).
-  const started = action !== 'start' && !finished;
+  // Before starting: no status chip and no 0% bar (12 Nov §4); finished with new modules to do: how far along.
+  const started = action !== 'start' && (!finished || (withModules && m.newForRole > 0));
+  const modules = m.modules ?? { done: c.modules.filter((u) => u.status === 'DONE').length, total: c.modules.length };
 
   const go = async () => {
     if (!target) return;
@@ -112,13 +127,13 @@ function CourseBody({ course: c }: { course: CourseDetail }) {
 
   return (
     <div className="flex w-full max-w-3xl flex-col gap-4">
-      {m.certificate ? <CertificateCard certificate={m.certificate} /> : null}
+      {m.certificate ? <CertificateView certificate={m.certificate} /> : null}
 
       <section aria-label="About this course" className="card card-pad flex flex-col gap-3">
         {c.summary ? <p className="whitespace-pre-line break-words text-sm text-ink">{c.summary}</p> : null}
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <CourseLength course={c} />
-          <span className="text-xs text-ink-2">· {lessonsText(c.lessons.length)}</span>
+          <span className="text-xs text-ink-2">· {withModules ? modulesText(modules.total) : lessonsText(c.lessons.length)}</span>
           {m.mandatory && !finished ? <MandatoryChip /> : null}
           {c.certificateOn && !m.certificate ? (
             <span className="inline-flex items-center gap-1 text-xs text-ink-2">
@@ -141,7 +156,7 @@ function CourseBody({ course: c }: { course: CourseDetail }) {
             <div className="min-w-0 flex-1">
               <ProgressBar percent={m.progressPct} label={`Your progress: ${m.progressPct}%`} />
             </div>
-            <span className="flex-none text-sm font-semibold text-ink">{`${m.progressPct}% done`}</span>
+            <span className="flex-none text-sm font-semibold text-ink">{withModules ? progressWords({ lessonCount: c.lessonCount, mine: { lessonsDone: m.lessonsDone, modules } }) : `${m.progressPct}% done`}</span>
           </div>
         ) : null}
         {m.status === 'REVIEW' ? <p className="text-sm text-ink-2">Some lessons changed since you finished. Review the ones marked “Review” — your certificate stays valid meanwhile.</p> : null}
@@ -164,111 +179,26 @@ function CourseBody({ course: c }: { course: CourseDetail }) {
         ) : null}
       </section>
 
-      <section aria-labelledby="course-lessons" className="card card-pad">
-        <h2 id="course-lessons" className="mb-2 font-display text-base font-bold text-ink">
-          Lessons
-        </h2>
-        <ol className="flex flex-col divide-y divide-line">
-          {c.lessons.map((l, i) => {
-            const inner = (
-              <>
-                <span className={`mt-0.5 grid h-6 w-6 flex-none place-items-center rounded-full text-xs font-semibold ${l.done ? 'bg-success-soft text-success' : 'bg-ground text-ink-2'}`}>
-                  {l.done ? <TickIcon size={13} /> : i + 1}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className={`block break-words text-sm font-semibold ${l.locked ? 'text-ink-2' : 'text-ink'}`}>{l.title}</span>
-                  <span className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs text-ink-2">
-                    <LessonKindIcon kind={l.kind} size={13} />
-                    <span>{LESSON_KIND_WORDS[l.kind]}</span>
-                    {minutesText(l.minutes) ? <span>· {minutesText(l.minutes)}</span> : null}
-                  </span>
-                </span>
-                <span className="flex flex-none flex-wrap items-center justify-end gap-1.5">
-                  {l.review ? <span className="rounded-md bg-warning-soft px-1.5 py-0.5 text-[11px] font-semibold text-warning">Review</span> : null}
-                  {l.done ? <span className={`rounded-md px-1.5 py-0.5 text-[11px] font-semibold ${STATUS_CLASS.DONE.chip}`}>Done</span> : null}
-                  {l.locked ? (
-                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-ink-2">
-                      <LockIcon size={13} />
-                      Locked
-                    </span>
-                  ) : null}
-                </span>
-              </>
-            );
-            return (
-              <li key={l.id}>
-                {l.locked ? (
-                  <div className="flex items-start gap-2.5 py-2.5" title="Finish the lessons before it first">
-                    {inner}
-                    <span className="sr-only">Finish the lessons before it first.</span>
-                  </div>
-                ) : (
-                  <Link to={lessonPath(side.base, c.id, l.id)} className="-mx-2 flex min-h-11 items-start gap-2.5 rounded-lg px-2 py-2.5 outline-none transition-colors hover:bg-ground focus-visible:ring-2 focus-visible:ring-brand/40">
-                    {inner}
-                  </Link>
-                )}
-              </li>
-            );
-          })}
-        </ol>
-        {c.lessons.length === 0 ? <p className="text-sm text-ink-2">No lessons yet.</p> : null}
-      </section>
+      {withModules ? (
+        <ModuleList course={c} openId={openModule} />
+      ) : (
+        <section aria-labelledby="course-lessons" className="card card-pad">
+          <h2 id="course-lessons" className="mb-2 font-display text-base font-bold text-ink">
+            Lessons
+          </h2>
+          <ol className="flex flex-col divide-y divide-line">
+            {c.lessons.map((l, i) => (
+              <LessonRow key={l.id} courseId={c.id} lesson={l} number={i + 1} />
+            ))}
+          </ol>
+          {c.lessons.length === 0 ? <p className="text-sm text-ink-2">No lessons yet.</p> : null}
+        </section>
+      )}
 
       {c.resources.length ? <Downloads course={c} /> : null}
       {finished ? <RateCourse course={c} /> : null}
       <Questions course={c} />
     </div>
-  );
-}
-
-/** The certificate: its code, valid / expired / revoked, its dates, the PDF and the public check. */
-function CertificateCard({ certificate: cert }: { certificate: CertificateRef }) {
-  const side = useLearner();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const tone = cert.status === 'VALID' ? 'bg-success-soft text-success' : cert.status === 'EXPIRED' ? 'bg-warning-soft text-warning' : 'bg-danger-soft text-danger';
-  const download = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      const blob = await side.api.certificatePdf(cert.id);
-      downloadBlob(fileNameOf(blob) ?? `certificate-${cert.code}.pdf`, blob);
-    } catch (err) {
-      setError(trainingProblem(err, 'Couldn’t download the certificate.'));
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <section aria-labelledby="course-certificate" className="card card-pad flex flex-col gap-3">
-      <div className="flex items-center justify-between gap-2">
-        <h2 id="course-certificate" className="inline-flex items-center gap-2 font-display text-base font-bold text-ink">
-          <AwardIcon />
-          Certificate
-        </h2>
-        <span className={`rounded-md px-2 py-0.5 text-xs font-semibold ${tone}`}>{CERTIFICATE_WORDS[cert.status]}</span>
-      </div>
-      <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm">
-        <dt className="text-ink-2">Code</dt>
-        <dd className="break-all font-mono font-semibold text-ink">{cert.code}</dd>
-        <dt className="text-ink-2">Issued</dt>
-        <dd className="text-ink">{instantDay(cert.issuedAt)}</dd>
-        <dt className="text-ink-2">Expires</dt>
-        <dd className="text-ink">{cert.expiresAt ? instantDay(cert.expiresAt) : 'Never'}</dd>
-      </dl>
-      <Button variant="secondary" className={TOUCH_MIN} loading={busy} onClick={() => void download()}>
-        <DownloadIcon />
-        Download certificate (PDF)
-      </Button>
-      <Link to={`/verify/${encodeURIComponent(cert.code)}`} className={`text-sm font-semibold text-brand underline-offset-2 hover:underline ${TOUCH_MIN} inline-flex items-center`}>
-        Check it online
-      </Link>
-      {error ? (
-        <p role="alert" className="text-sm text-danger">
-          {error}
-        </p>
-      ) : null}
-    </section>
   );
 }
 
