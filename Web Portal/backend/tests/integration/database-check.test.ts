@@ -168,3 +168,26 @@ describe('the Management page’s SQL, as the start-up check sends it', () => {
     }
   });
 });
+
+// Review batch 4a: the new holds (board columns, the Workload swap, task links, repeat copies) as the
+// start-up check sends them — every statement portable to MariaDB, none an isolation statement.
+describe('board and task holds, as the start-up check sends them', () => {
+  it('the probe runs, sends each hold, and every statement is portable', async () => {
+    const sent: string[] = [];
+    const client = new PrismaClient({ datasources: { db: { url } }, log: [{ emit: 'event', level: 'query' }] });
+    client.$on('query', (e) => void sent.push(e.query));
+    try {
+      const { taskSearch } = engines(client);
+      const probe = databaseProbes({ prisma: client, taskSearch, timeZone: 'Asia/Muscat' }).find((p) => p.name.startsWith('board and task holds'));
+      expect(probe).toBeDefined();
+      await probe!.run();
+      for (const hold of [/FROM kanban_columns WHERE id = \? FOR UPDATE/, /FROM projects WHERE id = \? FOR UPDATE/, /FROM kanban_columns WHERE projectId = \? FOR UPDATE/, /SELECT version FROM tasks WHERE id = \? AND deletedAt IS NULL FOR UPDATE/, /AS stillDone FROM tasks WHERE id = \? FOR UPDATE/, /FROM job_locks WHERE name = \? FOR UPDATE/]) {
+        expect(sent.some((q) => hold.test(q)), String(hold)).toBe(true);
+      }
+      const problems = sent.flatMap((sql) => portabilityProblems(sql).map((p) => `${p}: ${sql}`));
+      expect(problems).toEqual([]);
+    } finally {
+      await client.$disconnect();
+    }
+  });
+});
