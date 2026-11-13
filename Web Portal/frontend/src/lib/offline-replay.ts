@@ -13,6 +13,7 @@ import {
   retryItem,
   type FlushResult,
   type QueuedMutation,
+  dropQueuedMoves,
 } from './offline-queue';
 import { showTaskNotice, taskSavedNotice } from './task-notice';
 
@@ -170,4 +171,13 @@ export function describeChange(m: QueuedMutation): string {
   if (m.kind === 'task.create') return `New task “${p.title ?? 'Untitled'}”`;
   if (m.kind === 'task.move') return 'Task moved to another column';
   return m.kind;
+}
+
+/**
+ * Review fix #16: a move of this task was just saved online — the signed-in person's queued older moves of
+ * it are dropped, so a stale one can't replay later and put the task back.
+ */
+export function forgetQueuedMoves(taskId: string): void {
+  const ownerId = currentUserId();
+  if (ownerId) dropQueuedMoves(localStorageQueueStore, ownerId, taskId);
 }

@@ -5,7 +5,8 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { BoardPage } from './BoardPage';
 import { useAuthStore } from '../stores/auth-store';
-import { clearQueue, localStorageQueueStore } from '../lib/offline-queue';
+import { clearQueue, getQueue, localStorageQueueStore } from '../lib/offline-queue';
+import { enqueueOffline } from '../lib/offline-replay';
 import { userStorageKey } from '../lib/user-storage';
 import type { KanbanColumnData } from '../components/KanbanColumn';
 import type { ApiTask } from '../api/tasks';
@@ -247,6 +248,16 @@ describe('Kanban Board: the month’s cards', () => {
     await userEvent.click(chip);
     expect(chip).toHaveAttribute('aria-pressed', 'true');
     expect(card('MICO-3')!.textContent).toContain('No date');
+  });
+
+  it('review fix #16: a move saved online drops an older offline move of the same task still waiting', async () => {
+    enqueueOffline('task.move', { id: 't1', toColumnId: 'p1-todo' });
+    enqueueOffline('task.move', { id: 't2', toColumnId: 'p1-todo' });
+    renderPage('/board?project=p1&month=2026-11');
+    await waitFor(() => expect(card('MICO-1')).toBeTruthy());
+    await userEvent.click(within(card('MICO-1')!).getByRole('button', { name: 'Move MICO-1 to In Progress' }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'PATCH' && c.url.endsWith('/tasks/t1/move'))).toBe(true));
+    await waitFor(() => expect(getQueue(localStorageQueueStore).map((m) => (m.payload as { id: string }).id)).toEqual(['t2']));
   });
 
   it('dragging changes the status in its own column move — never its dates', async () => {

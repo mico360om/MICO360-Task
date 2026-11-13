@@ -71,6 +71,16 @@ export function newIdempotencyKey(): string {
   return randomId();
 }
 
+/** Review fix #16: the task a queued move is for (null: not a move). */
+function movedTaskOf(m: QueuedMutation): string | null {
+  if (m.kind !== 'task.move') return null;
+  const id = (m.payload as { id?: unknown } | null)?.id;
+  return typeof id === 'string' && id ? id : null;
+}
+
+/** Review fix #16: is `m` a move of `taskId` queued by `ownerId`? */
+const isMoveOf = (m: QueuedMutation, ownerId: string | null | undefined, taskId: string) => movedTaskOf(m) === taskId && (m.ownerId ?? null) === (ownerId ?? null);
+
 export function enqueue(
   store: QueueStore,
   mutation: { kind: string; payload: unknown; ownerId?: string | null; idempotencyKey?: string },
@@ -84,8 +94,19 @@ export function enqueue(
     idempotencyKey: mutation.idempotencyKey ?? newIdempotencyKey(),
     attempts: 0,
   };
-  store.write([...store.read(), item]);
+  // Review fix #16: a newer move of a task supersedes the person's older one — waiting or failed — so an
+  // older move can never replay after it (and undo it), nor come back through "Retry".
+  const task = movedTaskOf(item);
+  const before = store.read();
+  store.write([...(task ? before.filter((m) => !isMoveOf(m, item.ownerId, task)) : before), item]);
   return item;
+}
+
+/** Review fix #16: a move of the task was saved online — the person's queued older moves of it are dropped. */
+export function dropQueuedMoves(store: QueueStore, ownerId: string, taskId: string): void {
+  const q = store.read();
+  const kept = q.filter((m) => !isMoveOf(m, ownerId, taskId));
+  if (kept.length !== q.length) store.write(kept);
 }
 
 const belongsTo = (m: QueuedMutation, ownerId: string | null | undefined) => ownerId === undefined || m.ownerId === ownerId;
@@ -167,8 +188,16 @@ export async function flushQueue(
   let failed = 0;
   for (const item of snapshot) {
     // Skip anything discarded, synced (by another flusher) or failed since the snapshot.
-    const current = store.read().find((m) => m.id === item.id);
+    const queue = store.read();
+    const at = queue.findIndex((m) => m.id === item.id);
+    const current = queue[at];
     if (!current || current.failedAt) continue;
+    // Review fix #16: a later move of the same task (a queue an older build left) supersedes this one: never sent.
+    const task = movedTaskOf(current);
+    if (task && queue.slice(at + 1).some((m) => !m.failedAt && isMoveOf(m, current.ownerId, task))) {
+      removeItem(store, current.id);
+      continue;
+    }
     try {
       await perform(current);
       removeItem(store, current.id);

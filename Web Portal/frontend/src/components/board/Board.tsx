@@ -11,7 +11,7 @@ import { todayKey as companyTodayKey } from '../../lib/due-date';
 import { useCompanyTimeZone } from '../../lib/company-clock';
 import { useOpenTask } from '../../lib/useOpenTask';
 import { ApiError } from '../../lib/api-client';
-import { enqueueOffline } from '../../lib/offline-replay';
+import { enqueueOffline, forgetQueuedMoves } from '../../lib/offline-replay';
 import { invalidateTaskQueries } from '../../lib/task-cache';
 import { approvalNotice } from '../../lib/approvals';
 import { ALL_PROJECTS, BOARD_FIT_QUERY, boardFilterRows, boardProjects, composeAllProjectsBoard, composeBoard, filterBoard, fullColumnIndex, markNeedsCategory, moveTaskInBoard, reorderColumnInBoard, statusOfBoardColumn, targetColumnFor } from '../../lib/board';
@@ -244,6 +244,7 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
     },
     // A task that needs approval, finished by someone who can't approve, waits (it snaps back to where it waits).
     onSuccess: (moved, vars) => {
+      forgetQueuedMoves(vars.id); // review fix #16: an older offline move of it can't replay over this one
       const waits = approvalNotice(vars.toColumnId, moved);
       if (waits) setNotice(waits);
       tellWhere(moved, (word) => `Moved — it’s in ${word} now.`);
@@ -319,6 +320,7 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
   const statusMoveMut = useMutation({
     mutationFn: ({ id, toColumnId }: { id: string; toColumnId: string; taskKey: string; status: TaskCategory }) => tasksApi(apiClient).move(id, toColumnId),
     onSuccess: (moved, vars) => {
+      forgetQueuedMoves(vars.id); // review fix #16
       const waits = approvalNotice(vars.toColumnId, moved);
       if (waits) setNotice(waits);
       tellWhere(moved, (word) => `Moved — it’s in ${word} now.`);
