@@ -105,17 +105,17 @@ describe('the open tab is always in view', () => {
   });
   afterEach(() => {
     vi.restoreAllMocks();
+    VIEW.left = 0;
+    VIEW.right = 300;
     delete (HTMLElement.prototype as { scrollLeft?: number }).scrollLeft;
   });
 
-  const FOUR = ['mine', 'catalogue', 'manage', 'reports'] as const;
   async function open(current: HubTab, dir?: 'rtl') {
     staff.access.mockResolvedValue({ ...ACCESS, manager: true });
     renderTabs(current, dir);
     await waitFor(() => expect(names()).toHaveLength(4));
   }
   const left = (k: string) => within(bar()).getByRole('link', { name: k }).getBoundingClientRect().left;
-  void FOUR;
 
   it('the first tab open: the row sits at its start edge', async () => {
     natural = { mine: [0, 100], catalogue: [100, 200], manage: [200, 300], reports: [300, 400] };
@@ -148,14 +148,28 @@ describe('the open tab is always in view', () => {
     expect(bar().scrollLeft).toBe(0);
   });
 
-  it('starts from the start edge even when the row was scrolled before', async () => {
-    natural = { mine: [0, 100], catalogue: [100, 200], manage: [200, 300], reports: [300, 400] };
+  it('a mounted, scrolled row goes back to its start edge when the open tab changes (then moves minimally)', async () => {
+    natural = { mine: [0, 110], catalogue: [110, 220], manage: [220, 330], reports: [330, 440] };
     staff.access.mockResolvedValue({ ...ACCESS, manager: true });
-    const { rerender } = renderTabs('catalogue');
-    bar().scrollLeft = 80;
-    rerender(<div />);
-    await open('catalogue');
-    expect(bar().scrollLeft).toBe(0);
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const tree = (current: HubTab) => (
+      <QueryClientProvider client={qc}>
+        <MemoryRouter>
+          <LearningHubTabs current={current} />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    const { rerender } = render(tree('mine'));
+    await waitFor(() => expect(names()).toHaveLength(4));
+    const nav = bar();
+    expect(nav.scrollLeft).toBe(0);
+    nav.scrollLeft = 80; // the browser (or a focus move) left it scrolled
+    rerender(tree('catalogue')); // same mounted strip; the open tab (110..220) fits once reset
+    expect(bar()).toBe(nav);
+    expect(nav.scrollLeft).toBe(0);
+    nav.scrollLeft = 80;
+    rerender(tree('reports')); // reset, then exactly the overflow (440 - 300)
+    expect(nav.scrollLeft).toBe(140);
   });
 
   it('right to left: the mirrored minimal move (the tab off the left edge)', async () => {
