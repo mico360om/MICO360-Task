@@ -281,6 +281,30 @@ describe('Kanban Board: the month’s cards', () => {
     expect(getQueue(localStorageQueueStore).map((m) => (m.payload as { toColumnId: string }).toColumnId)).toEqual(['p1-done']);
   });
 
+  it('1.23.27 integration: the person changes while a move is on its way — the mover’s own older queued move is dropped, never the next person’s', async () => {
+    const bob = { user: { id: 'u2', email: 'b@b.c', username: 'bob', roles: ['ADMIN'] }, accessToken: 'at2', refreshToken: 'rt2' };
+    const ada = { user: { id: 'u1', email: 'a@b.c', username: 'ada', roles: ['ADMIN'] }, accessToken: 'at', refreshToken: 'rt' };
+    // Bob queued a move of MICO-1 on this browser earlier; his session ran out (no sign-out: his queue is kept).
+    useAuthStore.getState().setSession(bob);
+    enqueueOffline('task.move', { id: 't1', toColumnId: 'p1-done' });
+    useAuthStore.getState().logout('expired');
+    // Ada queued an older move of it too, then moves it online.
+    useAuthStore.getState().setSession(ada);
+    enqueueOffline('task.move', { id: 't1', toColumnId: 'p1-todo' });
+    vi.setSystemTime(new Date('2026-11-07T08:00:02.000Z'));
+    let answer!: () => void;
+    holdMove = new Promise<void>((r) => (answer = r));
+    renderPage('/board?project=p1&month=2026-11');
+    await waitFor(() => expect(card('MICO-1')).toBeTruthy());
+    await userEvent.click(within(card('MICO-1')!).getByRole('button', { name: 'Move MICO-1 to In Progress' }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'PATCH' && c.url.endsWith('/tasks/t1/move'))).toBe(true));
+    // While Ada's move is on its way her session ends and Bob signs in on this tab; then her move is saved.
+    useAuthStore.getState().logout('expired');
+    useAuthStore.getState().setSession(bob);
+    answer();
+    await waitFor(() => expect(getQueue(localStorageQueueStore).map((m) => m.ownerId)).toEqual(['u2']));
+  });
+
   it('dragging changes the status in its own column move — never its dates', async () => {
     renderPage('/board?project=p1&month=2026-11');
     await waitFor(() => expect(card('MICO-1')).toBeTruthy());

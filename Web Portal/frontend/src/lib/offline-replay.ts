@@ -186,8 +186,10 @@ export function describeChange(m: QueuedMutation): string {
  * Review fix #16: a move of this task, sent online at `sentAt`, was just saved — the signed-in person's moves
  * of it queued before then are dropped, so a stale one can't replay later and put the task back (one queued
  * while it was on its way is newer, and stays).
+ * 1.23.27 integration (with batch 2): `ownerId` is the person who made that move — taken when it was sent — so
+ * only their own queue is touched even if someone else signed in on this tab while it was on its way.
+ * Left out: the person signed in now.
  */
-export function forgetQueuedMoves(taskId: string, sentAt: number): void {
-  const ownerId = currentUserId();
+export function forgetQueuedMoves(taskId: string, sentAt: number, ownerId: string | null = currentUserId()): void {
   if (ownerId) dropQueuedMoves(localStorageQueueStore, ownerId, taskId, sentAt);
 }

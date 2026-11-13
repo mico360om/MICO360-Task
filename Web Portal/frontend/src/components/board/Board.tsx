@@ -12,6 +12,7 @@ import { useCompanyTimeZone } from '../../lib/company-clock';
 import { useOpenTask } from '../../lib/useOpenTask';
 import { ApiError } from '../../lib/api-client';
 import { enqueueOffline, forgetQueuedMoves } from '../../lib/offline-replay';
+import { useAuthStore } from '../../stores/auth-store';
 import { invalidateTaskQueries } from '../../lib/task-cache';
 import { approvalNotice } from '../../lib/approvals';
 import { ALL_PROJECTS, BOARD_FIT_QUERY, boardFilterRows, boardProjects, composeAllProjectsBoard, composeBoard, filterBoard, fullColumnIndex, markNeedsCategory, moveTaskInBoard, reorderColumnInBoard, statusOfBoardColumn, targetColumnFor } from '../../lib/board';
@@ -260,13 +261,14 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
         );
         qc.setQueryData<BoardData>(key, { ...prev, columns: moveTaskInBoard(prev.columns, taskKey, toColumnId, toIndex), ...(tasks ? { tasks } : {}) });
       }
-      return { prev, key, sentAt: Date.now() };
+      // 1.23.27: who made the move, so only their queue is touched when it is saved (batch 2's rule).
+      return { prev, key, sentAt: Date.now(), ownerId: useAuthStore.getState().user?.id ?? null };
     },
     // A task that needs approval, finished by someone who can't approve, waits (it snaps back to where it waits).
     // (After onMutate: the context's type comes from it.)
     onSuccess: (moved, vars, ctx) => {
       // Review fix #16: an older offline move of it can't replay over this one (a later one queued meanwhile stays).
-      forgetQueuedMoves(vars.id, ctx?.sentAt ?? 0);
+      forgetQueuedMoves(vars.id, ctx?.sentAt ?? 0, ctx?.ownerId ?? null);
       const waits = approvalNotice(vars.toColumnId, moved);
       if (waits) setNotice(waits);
       tellWhere(moved, (word) => `Moved — it’s in ${word} now.`);
@@ -332,10 +334,10 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
           prev.map((t) => (t.key === taskKey ? { ...t, columnId: toColumnId, columnCategory: status, completedAt: status === 'DONE' ? t.completedAt ?? new Date().toISOString() : null } : t)),
         );
       }
-      return { prev, key, sentAt: Date.now() };
+      return { prev, key, sentAt: Date.now(), ownerId: useAuthStore.getState().user?.id ?? null };
     },
     onSuccess: (moved, vars, ctx) => {
-      forgetQueuedMoves(vars.id, ctx?.sentAt ?? 0); // review fix #16
+      forgetQueuedMoves(vars.id, ctx?.sentAt ?? 0, ctx?.ownerId ?? null); // review fix #16 (only the mover's queue)
       const waits = approvalNotice(vars.toColumnId, moved);
       if (waits) setNotice(waits);
       tellWhere(moved, (word) => `Moved — it’s in ${word} now.`);
