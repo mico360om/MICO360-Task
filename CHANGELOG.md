@@ -14,6 +14,15 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### Bug fixes
+- A column's status can't be changed to or from Done while it still holds tasks, so finished dates stay right.
+- A repeating task that missed making its next copy gets it within the hour.
+- Changes made offline are sent in the right order, so a task ends where you last moved it.
+- Two people linking tasks at the same moment can no longer make a loop of dependencies.
+- Reordering board columns is saved all at once.
+- Background jobs run as often as intended.
+- Swapping a task's assignee in Workload no longer overwrites someone else's newer change.
+
 ## [1.23.26] - 2026-11-13
 
 ### Security
