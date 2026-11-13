@@ -60,8 +60,10 @@ describe('database check on a database the migrations built', () => {
     expect(r.problems).toEqual([]);
     expect(recorded).toEqual([]);
     expect(r.ok).toBe(true);
-    expect(r.server?.product).toBe('MySQL');
-    expect(r.summary).toMatch(/^Database check: OK \(MySQL \d+\.\d+\.\d+\)$/);
+    // 1.23.27: the suite runs on MySQL 8 and on MariaDB 11.8 (the live server) alike.
+    expect(['MySQL', 'MariaDB']).toContain(r.server?.product);
+    // A server not in strict mode (as live) adds its note: "… · not in strict mode: text that’s too long is cut short …".
+    expect(r.summary).toMatch(/^Database check: OK \((MySQL|MariaDB) \d+\.\d+\.\d+\)( · not in strict mode: .+)?$/);
     expect(r.server?.sqlMode).toBeTypeOf('string');
     expect([0, 1, 2]).toContain(r.server?.lowerCaseTableNames);
   });
@@ -71,7 +73,7 @@ describe('database check on a database the migrations built', () => {
     const expected = [...expectedSchema(), { table: 'task_search_index', columns: ['taskId', 'nosuchcolumn'] }];
     const r = await createDatabaseCheck({ ...prismaDatabaseReads(prisma), expected, probes: [], record: (p) => void recorded.push(p.text) }).run();
     expect(r.problems.map((p) => p.text)).toEqual(['Column task_search_index.nosuchcolumn is missing']);
-    expect(recorded[0]).toMatch(/^Database check: Column task_search_index\.nosuchcolumn is missing — MySQL /);
+    expect(recorded[0]).toMatch(/^Database check: Column task_search_index\.nosuchcolumn is missing — (MySQL|MariaDB) /);
   });
 });
 
