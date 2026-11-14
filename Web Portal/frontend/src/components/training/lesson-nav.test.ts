@@ -63,13 +63,22 @@ describe('the lesson’s outline beside it (1.23.36: “In this module”)', () 
 describe('the Next button’s words (1.23.36)', () => {
   const c = moduleDetail();
   it('mid-module: “Next: <the next lesson>”', () => {
-    expect(nextWay({ course: c, lessonId: 't2', nextLessonId: 't3', doneAfter: false, finishesCourse: false })).toEqual({ kind: 'lesson', label: 'Next: Tasks quiz', lessonId: 't3' });
-    expect(nextWay({ course: c, lessonId: 't2', nextLessonId: 't3', doneAfter: true, finishesCourse: false })).toEqual({ kind: 'lesson', label: 'Next: Tasks quiz', lessonId: 't3' });
+    expect(nextWay({ course: c, lessonId: 't2', nextLessonId: 't3', doneAfter: false, finishesCourse: false })).toMatchObject({ kind: 'lesson', label: 'Next: Tasks quiz', lessonId: 't3' });
+    expect(nextWay({ course: c, lessonId: 't2', nextLessonId: 't3', doneAfter: true, finishesCourse: false })).toMatchObject({ kind: 'lesson', label: 'Next: Tasks quiz', lessonId: 't3' });
   });
 
   it('the last lesson of a module, once done: “Next module: <name>” (before: the next lesson’s title)', () => {
-    expect(nextWay({ course: c, lessonId: 't3', nextLessonId: 'k1', doneAfter: true, finishesCourse: false })).toEqual({ kind: 'module', label: 'Next module: Kanban board', lessonId: 'k1' });
-    expect(nextWay({ course: c, lessonId: 't3', nextLessonId: 'k1', doneAfter: false, finishesCourse: false })).toEqual({ kind: 'lesson', label: 'Next: Video: the Kanban board', lessonId: 'k1' });
+    expect(nextWay({ course: c, lessonId: 't3', nextLessonId: 'k1', doneAfter: true, finishesCourse: false })).toMatchObject({ kind: 'module', label: 'Next module: Kanban board', lessonId: 'k1' });
+    expect(nextWay({ course: c, lessonId: 't3', nextLessonId: 'k1', doneAfter: false, finishesCourse: false })).toMatchObject({ kind: 'lesson', label: 'Next: Video: the Kanban board', lessonId: 'k1' });
+  });
+
+  it('review 2: the lesson whose button finishes the course says “Finish course” even with lessons after it (done already)', () => {
+    expect(nextWay({ course: c, lessonId: 't2', nextLessonId: 't3', doneAfter: true, finishesCourse: true })).toEqual({ kind: 'finish', label: 'Finish course' });
+  });
+
+  it('the words name the lesson or module apart (its title isolated for right-to-left text)', () => {
+    expect(nextWay({ course: c, lessonId: 't2', nextLessonId: 't3', doneAfter: false, finishesCourse: false })).toMatchObject({ prefix: 'Next: ', title: 'Tasks quiz' });
+    expect(nextWay({ course: c, lessonId: 't3', nextLessonId: 'k1', doneAfter: true, finishesCourse: false })).toMatchObject({ prefix: 'Next module: ', title: 'Kanban board' });
   });
 
   it('the course’s last lesson: “Back to the course”; the lesson that finishes it: “Finish course”', () => {
@@ -78,11 +87,11 @@ describe('the Next button’s words (1.23.36)', () => {
   });
 
   it('a course without modules: always the next lesson’s title', () => {
-    expect(nextWay({ course: detail(), lessonId: 'l2', nextLessonId: 'l3', doneAfter: true, finishesCourse: false })).toEqual({ kind: 'lesson', label: 'Next: The cheat sheet', lessonId: 'l3' });
+    expect(nextWay({ course: detail(), lessonId: 'l2', nextLessonId: 'l3', doneAfter: true, finishesCourse: false })).toMatchObject({ kind: 'lesson', label: 'Next: The cheat sheet', lessonId: 'l3' });
   });
 
   it('before the course has loaded (or a next lesson it doesn’t list): plain “Next lesson”', () => {
-    expect(nextWay({ course: undefined, lessonId: 'l2', nextLessonId: 'l3', doneAfter: false, finishesCourse: false })).toEqual({ kind: 'lesson', label: 'Next lesson', lessonId: 'l3' });
-    expect(nextWay({ course: c, lessonId: 't2', nextLessonId: 'zz', doneAfter: false, finishesCourse: false })).toEqual({ kind: 'lesson', label: 'Next lesson', lessonId: 'zz' });
+    expect(nextWay({ course: undefined, lessonId: 'l2', nextLessonId: 'l3', doneAfter: false, finishesCourse: false })).toMatchObject({ kind: 'lesson', label: 'Next lesson', lessonId: 'l3' });
+    expect(nextWay({ course: c, lessonId: 't2', nextLessonId: 'zz', doneAfter: false, finishesCourse: false })).toMatchObject({ kind: 'lesson', label: 'Next lesson', lessonId: 'zz' });
   });
 });

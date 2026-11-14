@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useId, type ReactNode, type RefObject } from 'react';
+import { createContext, useContext, useEffect, useId, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { useDialog } from '../../hooks/useDialog';
@@ -24,6 +24,9 @@ export const WIDE_LESSON_QUERY = '(min-width: 64em)';
 /** The lesson's one way on, as the panel and the bar show it (LessonPlayer decides it). */
 export interface LessonWay {
   label: string;
+  /** The label in two parts — "Next: " and the lesson's title — so the title is shown in its own <bdi>. */
+  prefix?: string;
+  title?: string;
   /** Pressing it finishes the lesson first (a guide's last step, a document), then goes on. */
   finishes: boolean;
   /** The main look once the lesson is done (or the button finishes it); a plain way on while it isn't. */
@@ -35,7 +38,31 @@ export interface LessonWay {
   busy: boolean;
   /** Not offered: a plain way on to a lesson an in-order course keeps locked, or the course was just finished here. */
   hidden: boolean;
+  /** Pressing it failed (said beside it). */
+  error: string | null;
 }
+
+/** The button's words: the title in its own <bdi> (a right-to-left title keeps "Next:" in its place). */
+const WayLabel = ({ way }: { way: LessonWay }) => (
+  <span className="min-w-0 break-words">
+    {way.prefix && way.title ? (
+      <>
+        {way.prefix}
+        <bdi>{way.title}</bdi>
+      </>
+    ) : (
+      way.label
+    )}
+  </span>
+);
+
+/** A failure of the main button, right beside it. */
+export const WayError = ({ way, className = '' }: { way: LessonWay; className?: string }) =>
+  way.error ? (
+    <p role="alert" className={`rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger ${className}`}>
+      {way.error}
+    </p>
+  ) : null;
 
 /** The main button: a button when it finishes the lesson, else a link (it can be opened in a new tab). */
 export function WayButton({ way, className = '' }: { way: LessonWay; className?: string }) {
@@ -44,12 +71,12 @@ export function WayButton({ way, className = '' }: { way: LessonWay; className?:
   if (way.finishes)
     return (
       <Button data-look={look} variant={look} className={`${TOUCH_MIN} ${className}`} loading={way.busy} onClick={way.run}>
-        <span className="min-w-0 break-words">{way.label}</span>
+        <WayLabel way={way} />
       </Button>
     );
   return (
     <Link to={way.to} state={way.state} data-look={look} className={buttonClass(look, 'md', `${TOUCH_MIN} ${className}`)}>
-      <span className="min-w-0 break-words">{way.label}</span>
+      <WayLabel way={way} />
     </Link>
   );
 }
@@ -145,20 +172,59 @@ export function OutlineList({ outline, courseId, onPick }: { outline: LessonOutl
 
 const linkClass = `inline-flex items-center justify-center rounded text-sm font-semibold text-brand underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-brand/40 ${TOUCH_MIN}`;
 
-/** "In this module" beside the lesson (1024 px and wider): stays in view while the lesson scrolls. */
-export function OutlinePanel({ outline, courseId, allTo, allLabel, way }: { outline: LessonOutlineModel; courseId: string; allTo: string; allLabel: string; way: LessonWay | null }) {
+/**
+ * "In this module" beside the lesson (1024 px and wider): stays in view while the lesson scrolls. Without the course's
+ * outline (still loading, or it couldn't be read — `problem`), the way on is still there ("Where next"), with the
+ * reason and Try again (review 1).
+ */
+export function OutlinePanel({
+  outline,
+  courseId,
+  allTo,
+  allLabel,
+  way,
+  problem,
+}: {
+  outline: LessonOutlineModel | null;
+  courseId: string;
+  allTo: string;
+  allLabel: string;
+  way: LessonWay;
+  problem?: { text: string; retry: () => void } | null;
+}) {
   const side = useLearner();
   const id = useId();
   // Below the staff site's 56 px top bar (the portal's header scrolls away).
   const stick = side.portal ? 'lg:top-4 lg:max-h-[calc(100dvh-2rem)]' : 'lg:top-[4.5rem] lg:max-h-[calc(100dvh-5.5rem)]';
+  const foot = (
+    <>
+      {!way.hidden ? <WayButton way={way} className="w-full" /> : null}
+      <WayError way={way} />
+      <Link to={allTo} className={`${linkClass} self-center`}>
+        {allLabel}
+      </Link>
+    </>
+  );
+  if (!outline) {
+    return (
+      <aside aria-label="Where next" data-lesson-panel className={`card flex min-w-0 flex-col gap-3 p-4 lg:sticky lg:overflow-y-auto ${stick}`}>
+        {problem ? (
+          <div className="flex flex-col items-start gap-2">
+            <p className="text-sm text-ink-2">{problem.text}</p>
+            <Button variant="secondary" size="sm" className={TOUCH_MIN} onClick={problem.retry}>
+              Try again
+            </Button>
+          </div>
+        ) : null}
+        {foot}
+      </aside>
+    );
+  }
   return (
     <nav aria-label={outlineHeading(outline)} data-lesson-panel className={`card flex min-w-0 flex-col gap-3 p-4 lg:sticky lg:overflow-y-auto ${stick}`}>
       <OutlineHead outline={outline} headingId={id} />
       <OutlineList outline={outline} courseId={courseId} />
-      {way && !way.hidden ? <WayButton way={way} className="w-full" /> : null}
-      <Link to={allTo} className={`${linkClass} self-center`}>
-        {allLabel}
-      </Link>
+      {foot}
     </nav>
   );
 }
@@ -170,10 +236,9 @@ const ListIcon = () => (
 );
 
 /** Under 1024 px: "Lessons in this module · 2 of 3", which opens the list as a sheet. */
-export function OutlineSheetButton({ outline, open, onOpen, buttonRef }: { outline: LessonOutlineModel; open: boolean; onOpen: () => void; buttonRef: RefObject<HTMLButtonElement> }) {
+export function OutlineSheetButton({ outline, open, onOpen }: { outline: LessonOutlineModel; open: boolean; onOpen: () => void }) {
   return (
     <button
-      ref={buttonRef}
       type="button"
       aria-haspopup="dialog"
       aria-expanded={open}
@@ -201,7 +266,7 @@ export function OutlineSheet({ outline, courseId, allTo, allLabel, onClose }: { 
           ref={ref}
           role="dialog"
           aria-modal="true"
-          aria-labelledby={id}
+          aria-label={`${outlineHeading(outline)}: ${outline.title}`}
           data-lesson-sheet
           className="card relative flex max-h-[min(85dvh,calc(var(--visible-height)-1rem))] w-full animate-scale-in flex-col gap-3 overflow-y-auto rounded-b-none p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:max-w-md sm:rounded-b-2xl"
         >
@@ -226,7 +291,7 @@ export function OutlineSheet({ outline, courseId, allTo, allLabel, onClose }: { 
 /**
  * Under 1024 px the bar at the bottom of the window (it stays in view while the lesson scrolls): Back (the lesson
  * before) and the main button. A guide's steps and a quiz's questions put their own Back / Next in it instead
- * (LessonBarPortal), so a phone never shows two sets.
+ * (LessonControls), so a phone never shows two sets.
  */
 interface BarSlot {
   wide: boolean;
@@ -235,11 +300,6 @@ interface BarSlot {
 }
 const LessonBarContext = createContext<BarSlot | null>(null);
 export const LessonBarProvider = LessonBarContext.Provider;
-
-/** Is the lesson laid out in two columns (its own controls stay inline)? true without a lesson page around it. */
-export function useWideLesson(): boolean {
-  return useContext(LessonBarContext)?.wide ?? true;
-}
 
 /** A lesson's own controls: in the bar under 1024 px (taking the bar's place), inline otherwise. */
 export function LessonControls({ children, inline }: { children: ReactNode; inline: (c: ReactNode) => ReactNode }) {
@@ -274,12 +334,13 @@ export function BackToLesson({ courseId, lessonId, title }: { courseId: string; 
 }
 
 /** The bar itself; `slotRef` receives a lesson's own controls (then `children`, the default Back / Next, step aside). */
-export function LessonBar({ slotRef, claimed, children }: { slotRef: (el: HTMLElement | null) => void; claimed: boolean; children: ReactNode }) {
+export function LessonBar({ slotRef, claimed, error, children }: { slotRef: (el: HTMLElement | null) => void; claimed: boolean; error?: ReactNode; children: ReactNode }) {
   return (
     <div data-lesson-bar className="sticky bottom-0 z-20 -mx-1 px-1 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2">
       <div className="flex min-h-[3.75rem] flex-wrap items-center justify-between gap-2 rounded-2xl border border-line bg-surface/95 px-2.5 py-2 shadow-lift backdrop-blur">
         <div ref={slotRef} className="contents" />
         {claimed ? null : children}
+        {error ? <div className="basis-full">{error}</div> : null}
       </div>
     </div>
   );

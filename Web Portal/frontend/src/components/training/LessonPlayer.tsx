@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useMemo, useState, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import type { LessonDone, LessonView } from '../../api/training';
@@ -14,7 +14,7 @@ import { dialogLayer, dialogPanel } from '../ui/dialog-size';
 import { CourseFinished } from './CourseFinished';
 import { DocumentLesson } from './DocumentLesson';
 import { GuideLesson } from './GuideLesson';
-import { BackToLesson, LessonBar, LessonBarProvider, OutlinePanel, OutlineSheet, OutlineSheetButton, WIDE_LESSON_QUERY, WayButton, type LessonWay } from './LessonNav';
+import { BackToLesson, LessonBar, LessonBarProvider, OutlinePanel, OutlineSheet, OutlineSheetButton, WIDE_LESSON_QUERY, WayButton, WayError, type LessonWay } from './LessonNav';
 import { QuizLesson } from './QuizLesson';
 import { VideoLesson } from './VideoLesson';
 import { coursePath, lessonPath, useLearner } from './learner';
@@ -64,7 +64,6 @@ export function LessonPlayer({ courseId, lessonId, renderTitle }: { courseId: st
   const [finishedHere, setFinishedHere] = useState(false);
   const [reporting, setReporting] = useState(false);
   const [sheet, setSheet] = useState(false);
-  const sheetButton = useRef<HTMLButtonElement>(null);
   const [note, setNote] = useState<ArrivalNote>(() => arrivalNote(location.state));
   // A guide on its last step (its main button then finishes it).
   const [guideEnd, setGuideEnd] = useState(false);
@@ -181,6 +180,8 @@ export function LessonPlayer({ courseId, lessonId, renderTitle }: { courseId: st
   };
   const way: LessonWay = {
     label: nw.label,
+    prefix: 'prefix' in nw ? nw.prefix : undefined,
+    title: 'title' in nw ? nw.title : undefined,
     finishes,
     primary,
     to: target ? lessonPath(side.base, courseId, target) : courseTo,
@@ -188,13 +189,16 @@ export function LessonPlayer({ courseId, lessonId, renderTitle }: { courseId: st
     run: () => void runWay(),
     busy,
     hidden: finishedHere || (!primary && nextLocked),
+    error: wayError,
   };
 
   const prevTitle = all.find((l) => l.id === lesson.prevLessonId)?.title ?? null;
   const back = <BackToLesson courseId={courseId} lessonId={lesson.prevLessonId} title={prevTitle} />;
-  const allTo = outline?.moduleId ? coursePath(side.base, courseId, null, outline.moduleId) : courseTo;
-  const allLabel = outline?.scope === 'module' ? 'All modules' : 'Course page';
-  const showBar = !wide && (claims > 0 || !!lesson.prevLessonId || !way.hidden);
+  // The course at this lesson's module (the outline's, else the lesson's own while the course is away).
+  const moduleId = outline ? outline.moduleId : (lessonModule?.id ?? null);
+  const allTo = moduleId ? coursePath(side.base, courseId, null, moduleId) : courseTo;
+  const allLabel = moduleId ? 'All modules' : 'Course page';
+  const showBar = !wide && (claims > 0 || !!lesson.prevLessonId || !way.hidden || !!wayError);
 
   const body = (
     <div className="flex min-w-0 flex-col gap-4">
@@ -217,7 +221,7 @@ export function LessonPlayer({ courseId, lessonId, renderTitle }: { courseId: st
         />
         {renderTitle(lesson.title)}
         <LessonLine lesson={lesson} outline={outline} done={isDone} />
-        {!wide && outline ? <OutlineSheetButton outline={outline} open={sheet} onOpen={() => setSheet(true)} buttonRef={sheetButton} /> : null}
+        {!wide && outline ? <OutlineSheetButton outline={outline} open={sheet} onOpen={() => setSheet(true)} /> : null}
       </div>
 
       {moduleFinished || (note?.moduleDone && !done) ? (
@@ -254,12 +258,6 @@ export function LessonPlayer({ courseId, lessonId, renderTitle }: { courseId: st
 
       <LessonBody key={lesson.id} lesson={lesson} done={isDone} way={way} back={back} covers={outline ? quizCovers(outline) : []} onDone={finished} onGuideStep={setGuideEnd} onActivity={clearNote} />
 
-      {wayError ? (
-        <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
-          {wayError}
-        </p>
-      ) : null}
-
       <div className="border-t border-line pt-3">
         <button type="button" onClick={() => setReporting(true)} className={`text-sm text-ink-2 underline-offset-2 hover:text-ink hover:underline ${TOUCH_MIN}`}>
           Report a problem
@@ -267,7 +265,7 @@ export function LessonPlayer({ courseId, lessonId, renderTitle }: { courseId: st
       </div>
 
       {showBar ? (
-        <LessonBar slotRef={setSlot} claimed={claims > 0}>
+        <LessonBar slotRef={setSlot} claimed={claims > 0} error={<WayError way={way} />}>
           {back}
           <WayButton way={way} className="ms-auto min-w-0 max-w-full flex-1 sm:flex-none" />
         </LessonBar>
@@ -282,17 +280,26 @@ export function LessonPlayer({ courseId, lessonId, renderTitle }: { courseId: st
         className={`grid w-full min-w-0 gap-6 ${wide ? (side.portal ? 'grid-cols-[minmax(0,1fr)_17.5rem]' : 'grid-cols-[minmax(0,55rem)_17.5rem] xl:grid-cols-[minmax(0,55rem)_18.75rem]') : 'grid-cols-1'}`}
       >
         <div className="min-w-0 self-start">{body}</div>
-        {wide ? <div className="min-w-0">{outline ? <OutlinePanel outline={outline} courseId={courseId} allTo={allTo} allLabel={allLabel} way={way} /> : null}</div> : null}
+        {wide ? (
+          <div className="min-w-0">
+            <OutlinePanel
+              outline={outline}
+              courseId={courseId}
+              allTo={allTo}
+              allLabel={allLabel}
+              way={way}
+              problem={course.isError ? { text: 'Couldn’t load this course’s lessons.', retry: () => void course.refetch() } : null}
+            />
+          </div>
+        ) : null}
       </div>
-      {sheet && outline ? (
+      {sheet && outline && !wide ? (
         <OutlineSheet
           outline={outline}
           courseId={courseId}
           allTo={allTo}
           allLabel={allLabel}
-          onClose={() => {
-            setSheet(false);
-          }}
+          onClose={() => setSheet(false)}
         />
       ) : null}
       {reporting ? <ReportProblemDialog lesson={lesson} onClose={() => setReporting(false)} /> : null}
@@ -303,28 +310,20 @@ export function LessonPlayer({ courseId, lessonId, renderTitle }: { courseId: st
 /**
  * The header's one line (1.23.36): the kind as an icon (its name for screen readers), "Module 2 · Tasks — Lesson 2 of
  * 3" (a course without modules: "Lesson 2 of 4"), the minutes and, once done, "Done"; under it ONE thin bar of the
- * module's (or course's) lessons done, named for screen readers ("Tasks: 1 of 3 lessons done").
+ * module's (or course's) lessons done, named for screen readers ("Tasks: 1 of 3 lessons done"). The place and the bar
+ * come with the course's outline (nothing guessed before it arrives).
  */
 function LessonLine({ lesson, outline, done }: { lesson: LessonView; outline: LessonOutlineModel | null; done: boolean }) {
   const minutes = minutesText(lesson.minutes);
   const pct = outline && outline.total > 0 ? Math.min(100, Math.round((outline.done / outline.total) * 100)) : 0;
-  const place = outline ? (
-    outline.scope === 'module' ? (
-      <>
-        {`Module ${outline.number} · `}
-        <bdi>{outline.title}</bdi>
-        {` — Lesson ${outline.at + 1} of ${outline.total}`}
-      </>
-    ) : (
-      `Lesson ${outline.at + 1} of ${outline.total}`
-    )
-  ) : lesson.module ? (
+  const place = !outline ? null : outline.scope === 'module' ? (
     <>
-      <bdi>{lesson.module.title}</bdi>
-      {` — Lesson ${lesson.module.lessonIndex + 1} of ${lesson.module.lessonCount}`}
+      {`Module ${outline.number} · `}
+      <bdi>{outline.title}</bdi>
+      {` — Lesson ${outline.at + 1} of ${outline.total}`}
     </>
   ) : (
-    `Lesson ${lesson.position + 1} of ${lesson.lessonCount}`
+    `Lesson ${outline.at + 1} of ${outline.total}`
   );
   return (
     <div data-lesson-header className="flex flex-col gap-1.5">
@@ -333,10 +332,12 @@ function LessonLine({ lesson, outline, done }: { lesson: LessonView; outline: Le
           <LessonKindIcon kind={lesson.kind} size={15} />
           <span className="sr-only">{`${LESSON_KIND_WORDS[lesson.kind]}:`}</span>
         </span>
-        <span data-lesson-place className="min-w-0 break-words font-semibold text-ink">
-          {place}
-        </span>
-        {minutes ? <span aria-hidden="true">·</span> : null}
+        {place ? (
+          <span data-lesson-place className="min-w-0 break-words font-semibold text-ink">
+            {place}
+          </span>
+        ) : null}
+        {minutes && place ? <span aria-hidden="true">·</span> : null}
         {minutes ? <span>{minutes}</span> : null}
         {done ? (
           <span className="inline-flex items-center gap-1 font-semibold text-success">

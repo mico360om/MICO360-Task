@@ -136,15 +136,19 @@ export function learningGroups(d: Pick<MyTraining, 'assigned' | 'inProgress' | '
   return { upNext: open[0] ?? offered, todo: open.slice(1), done, olderCertificates: d.certificates.filter((c) => !onCards.has(c.id)) };
 }
 
-/** The quiz's one line (12 Nov §5): "5 questions · pass with 70% · try as often as you like". */
-export function quizStartLine(q: { questionCount: number; passMark: number; maxAttempts: number | null; attemptsUsed: number; timeLimitMinutes: number | null }): string {
+/**
+ * A quiz's start page (1.23.36): what to expect, one fact each — "4 questions", "Pass mark 70%", "Try as often as you
+ * like" (or "2 tries left"), and "About 3 min" (or, with a time limit, "10 min to answer").
+ */
+export function quizFacts(q: { questionCount: number; passMark: number; maxAttempts: number | null; attemptsUsed: number; timeLimitMinutes: number | null }, minutes: number): string[] {
   const left = q.maxAttempts === null ? null : Math.max(0, q.maxAttempts - q.attemptsUsed);
+  const tries = left === null ? 'Try as often as you like' : left === 0 ? 'No tries left' : `${left} ${left === 1 ? 'try' : 'tries'} left`;
   return [
     questionsText(q.questionCount),
-    `pass with ${q.passMark}%`,
-    left === null ? 'try as often as you like' : `${left} ${left === 1 ? 'try' : 'tries'} left`,
-    ...(q.timeLimitMinutes ? [`${minutesText(q.timeLimitMinutes)} to answer`] : []),
-  ].join(' · ');
+    `Pass mark ${q.passMark}%`,
+    tries,
+    ...(q.timeLimitMinutes ? [`${minutesText(q.timeLimitMinutes)} to answer`] : minutesText(minutes) ? [`About ${minutesText(minutes)}`] : []),
+  ];
 }
 
 /** "2:05" for a countdown (minutes:seconds; hours when needed: "1:02:05"). */

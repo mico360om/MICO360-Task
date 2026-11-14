@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { attemptsLeftText, cardChip, clockLeft, courseAction, dueText, learningGroups, lessonsText, minutesText, moduleStatusWords, modulesText, newForRoleText, progressWords, quizStartLine, ratingText, shortDay } from './training-words';
+import { attemptsLeftText, cardChip, clockLeft, courseAction, dueText, learningGroups, lessonsText, minutesText, moduleStatusWords, modulesText, newForRoleText, progressWords, quizFacts, ratingText, shortDay } from './training-words';
 import { card, mine, moduleCard, moduleDetail } from './training-fixtures';
 
 describe('training words', () => {
@@ -124,9 +124,10 @@ describe('training words', () => {
     expect(learningGroups(none).upNext).toBeNull();
   });
 
-  it('the quiz’s one line: how many questions, the pass mark, tries and any time limit', () => {
-    expect(quizStartLine({ questionCount: 5, passMark: 70, maxAttempts: null, attemptsUsed: 0, timeLimitMinutes: null })).toBe('5 questions · pass with 70% · try as often as you like');
-    expect(quizStartLine({ questionCount: 3, passMark: 70, maxAttempts: null, attemptsUsed: 2, timeLimitMinutes: null })).toBe('3 questions · pass with 70% · try as often as you like');
-    expect(quizStartLine({ questionCount: 1, passMark: 100, maxAttempts: 3, attemptsUsed: 2, timeLimitMinutes: 10 })).toBe('1 question · pass with 100% · 1 try left · 10 min to answer');
+  it('the quiz’s start page facts (1.23.36): questions, the pass mark, tries, and the minutes or the time limit', () => {
+    expect(quizFacts({ questionCount: 5, passMark: 70, maxAttempts: null, attemptsUsed: 0, timeLimitMinutes: null }, 3)).toEqual(['5 questions', 'Pass mark 70%', 'Try as often as you like', 'About 3 min']);
+    expect(quizFacts({ questionCount: 3, passMark: 70, maxAttempts: null, attemptsUsed: 2, timeLimitMinutes: null }, 0)).toEqual(['3 questions', 'Pass mark 70%', 'Try as often as you like']);
+    expect(quizFacts({ questionCount: 1, passMark: 100, maxAttempts: 3, attemptsUsed: 2, timeLimitMinutes: 10 }, 5)).toEqual(['1 question', 'Pass mark 100%', '1 try left', '10 min to answer']);
+    expect(quizFacts({ questionCount: 4, passMark: 75, maxAttempts: 3, attemptsUsed: 3, timeLimitMinutes: null }, 8)).toEqual(['4 questions', 'Pass mark 75%', 'No tries left', 'About 8 min']);
   });
 });

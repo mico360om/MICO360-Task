@@ -77,26 +77,29 @@ export function quizCovers(o: Pick<LessonOutlineModel, 'items' | 'at'>): string[
   return o.items.slice(0, Math.max(0, o.at)).filter((l) => l.kind !== 'QUIZ').map((l) => l.title);
 }
 
+/** `label` is the whole text; `prefix` + `title` the same in two parts (the title shown in its own <bdi>). */
 export type NextWay =
-  | { kind: 'lesson'; label: string; lessonId: string }
-  | { kind: 'module'; label: string; lessonId: string }
+  | { kind: 'lesson'; label: string; lessonId: string; prefix?: string; title?: string }
+  | { kind: 'module'; label: string; lessonId: string; prefix: string; title: string }
   | { kind: 'finish'; label: 'Finish course' }
   | { kind: 'course'; label: 'Back to the course' };
 
 /**
  * The lesson's one way on, in words that say where it goes: "Next: <the next lesson>"; on a module's last lesson,
- * once done (or done by the button itself), "Next module: <name>"; after the course's last lesson "Back to the course",
- * or "Finish course" on the lesson whose button finishes it. Next is the server's next lesson (hidden modules skipped).
+ * once done (or done by the button itself), "Next module: <name>"; after the course's last lesson "Back to the course";
+ * "Finish course" on the lesson whose button finishes the course (review 2: even with lessons after it). Next is the server's next lesson (hidden modules skipped).
  */
 export function nextWay(a: { course: CourseDetail | undefined; lessonId: string; nextLessonId: string | null; doneAfter: boolean; finishesCourse: boolean }): NextWay {
-  if (!a.nextLessonId) return a.finishesCourse ? { kind: 'finish', label: 'Finish course' } : { kind: 'course', label: 'Back to the course' };
+  // The button that finishes the course says so, even when lessons come after it (taken earlier, out of order).
+  if (a.finishesCourse) return { kind: 'finish', label: 'Finish course' };
+  if (!a.nextLessonId) return { kind: 'course', label: 'Back to the course' };
   const lessonId = a.nextLessonId;
   const next = a.course?.lessons.find((l) => l.id === lessonId);
   if (!a.course || !next) return { kind: 'lesson', label: 'Next lesson', lessonId };
   if (a.course.modules.length && a.doneAfter) {
     const mine = a.course.modules.find((m) => m.lessonIds.includes(a.lessonId));
     const theirs = a.course.modules.find((m) => m.lessonIds.includes(lessonId));
-    if (theirs && mine && theirs.id !== mine.id) return { kind: 'module', label: `Next module: ${theirs.title}`, lessonId };
+    if (theirs && mine && theirs.id !== mine.id) return { kind: 'module', label: `Next module: ${theirs.title}`, lessonId, prefix: 'Next module: ', title: theirs.title };
   }
-  return { kind: 'lesson', label: `Next: ${next.title}`, lessonId };
+  return { kind: 'lesson', label: `Next: ${next.title}`, lessonId, prefix: 'Next: ', title: next.title };
 }

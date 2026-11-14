@@ -11,7 +11,7 @@ import { ProgressRing } from './ProgressRing';
 import { useLearner } from './learner';
 import { sideKeys } from './training-queries';
 import { ClockIcon, TOUCH_MIN, TickIcon, trainingProblem } from './training-ui';
-import { clockLeft, minutesText, questionsText } from './training-words';
+import { clockLeft, quizFacts } from './training-words';
 
 /** How soon after a change the answers are saved (and again every few seconds while some are unsaved). */
 export const ANSWERS_SAVE_MS = 1_500;
@@ -31,19 +31,6 @@ export const unansweredOf = (paper: AttemptPaper, answers: Answers) => paper.que
 
 /** "2 tries left", "no tries left", "try as often as you like". */
 const triesText = (left: number | null) => (left === null ? 'try as often as you like' : left === 0 ? 'no tries left' : `${left} ${left === 1 ? 'try' : 'tries'} left`);
-
-const capital = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
-
-/** A quiz's start page facts (1.23.36): "4 questions", "Pass mark 70%", "Try as often as you like", "About 3 min". */
-export function quizFacts(q: { questionCount: number; passMark: number; maxAttempts: number | null; attemptsUsed: number; timeLimitMinutes: number | null }, minutes: number): string[] {
-  const left = q.maxAttempts === null ? null : Math.max(0, q.maxAttempts - q.attemptsUsed);
-  return [
-    questionsText(q.questionCount),
-    `Pass mark ${q.passMark}%`,
-    capital(triesText(left)),
-    ...(q.timeLimitMinutes ? [`${minutesText(q.timeLimitMinutes)} to answer`] : minutesText(minutes) ? [`About ${minutesText(minutes)}`] : []),
-  ];
-}
 
 /**
  * A quiz lesson (owner answer 5; 12 Nov §5; 1.23.36 look). The start page says what to expect — the questions, the
@@ -141,8 +128,8 @@ export function QuizLesson({ lesson, onDone, covers = [], onActivity }: { lesson
       ) : (
         <>
           <ul aria-label="About this quiz" className="flex flex-wrap gap-2">
-            {quizFacts(quiz, lesson.minutes).map((f) => (
-              <li key={f} className="inline-flex items-center gap-1.5 rounded-lg bg-ground px-2.5 py-1.5 text-sm font-semibold text-ink">
+            {quizFacts(quiz, lesson.minutes).map((f, i) => (
+              <li key={i} className="inline-flex items-center gap-1.5 rounded-lg bg-ground px-2.5 py-1.5 text-sm font-semibold text-ink">
                 {f}
               </li>
             ))}
@@ -151,8 +138,8 @@ export function QuizLesson({ lesson, onDone, covers = [], onActivity }: { lesson
             <div>
               <p className="text-sm font-semibold text-ink">This quiz covers:</p>
               <ul aria-label="This quiz covers" className="mt-1 list-disc space-y-0.5 ps-5 text-sm text-ink-2">
-                {covers.map((t) => (
-                  <li key={t} className="break-words">
+                {covers.map((t, i) => (
+                  <li key={i} className="break-words">
                     <bdi>{t}</bdi>
                   </li>
                 ))}
