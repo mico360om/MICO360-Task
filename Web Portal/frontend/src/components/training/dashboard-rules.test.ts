@@ -9,6 +9,8 @@ describe('mainAction: one main button (Start / Continue / Review)', () => {
   it('Start when nothing is done (not started, or not theirs yet)', () => {
     expect(mainAction(mine({ enrolled: false, status: 'NOT_STARTED', progressPct: 0, lessonsDone: 0 }))).toBe('start');
     expect(mainAction(mine({ enrolled: true, status: 'NOT_STARTED', progressPct: 0, lessonsDone: 0 }))).toBe('start');
+    // 1.23.34 (review): not theirs any more (an assignment withdrawn part-way) but lessons done: Continue (Start's call reopens it).
+    expect(mainAction(mine({ enrolled: false, status: 'IN_PROGRESS', progressPct: 0, lessonsDone: 1, modules: { done: 0, total: 8 } }))).toBe('continue');
   });
 
   it('Continue when part done — even with no module done yet (a lesson done, 0%)', () => {

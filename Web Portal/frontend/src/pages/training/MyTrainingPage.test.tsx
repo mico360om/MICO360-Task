@@ -151,6 +151,19 @@ describe('My learning (12 Nov: Up next, To do, Done)', () => {
     expect(screen.getByTestId('where')).toHaveTextContent('/training/courses/u1/lessons/g1');
   });
 
+  it('1.23.34 offered again after an assignment was withdrawn part-way: Continue (it starts the course again first, then opens where they stopped)', async () => {
+    const part = mine({ enrolled: false, assigned: false, mandatory: false, status: 'IN_PROGRESS', progressPct: 33, dueDay: null, lessonsDone: 3, nextLessonId: 't2', modules: { done: 1, total: 3 }, next: { lessonId: 't2', lessonTitle: 'Work on a task', moduleTitle: 'Tasks' } });
+    staff.me.mockResolvedValue(myTraining({ assigned: [], inProgress: [], completed: [], certificates: [], suggested: moduleCard({ mine: part }) }));
+    staff.course.mockResolvedValue(moduleDetail({ mine: part }));
+    staff.start.mockResolvedValue(moduleDetail({ mine: { ...part, enrolled: true }, resumeLessonId: 't2' }));
+    renderAt();
+    const upNext = await screen.findByRole('region', { name: 'Up next' });
+    expect(within(upNext).queryByRole('button', { name: 'Start' })).toBeNull();
+    await userEvent.click(within(upNext).getByRole('button', { name: 'Continue' }));
+    await waitFor(() => expect(staff.start).toHaveBeenCalledWith('u1'));
+    expect(screen.getByTestId('where')).toHaveTextContent('/training/courses/u1/lessons/t2');
+  });
+
   it('1.23.34 an assigned course stays Up next; the offered course is not added beside it', async () => {
     staff.me.mockResolvedValue(myTraining({ inProgress: [], completed: [], certificates: [], suggested: moduleCard({ mine: mine({ enrolled: false, assigned: false, mandatory: false, status: 'NOT_STARTED', progressPct: 0, dueDay: null, lessonsDone: 0, modules: { done: 0, total: 3 } }) }) }));
     renderAt();

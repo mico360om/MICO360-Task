@@ -192,6 +192,8 @@ describe('My training offers the built-in course (GET /training/me → suggested
     expect(d.suggested?.mine.nextLessonId).toBe(builtIn.m.gs!.guides[0]);
     // Nothing was written for them by looking.
     expect(await prisma.trainingEnrolment.count({ where: { userId: nia } })).toBe(0);
+    expect(await prisma.trainingModuleDone.count({ where: { userId: nia } })).toBe(0);
+    expect(await prisma.trainingCertificate.count({ where: { userId: nia } })).toBe(0);
     // The Learning Hub badge is unchanged (nothing assigned, nothing overdue).
     expect(await learner.access(nia)).toMatchObject({ assigned: 0, overdue: 0 });
   });
@@ -248,11 +250,14 @@ describe('My training offers the built-in course (GET /training/me → suggested
 
   it('archived, unpublished (draft) or deleted: nothing offered', async () => {
     const dee = await newPerson('dee');
-    for (const status of ['ARCHIVED', 'DRAFT']) {
-      await prisma.trainingCourse.update({ where: { id: builtIn.id }, data: { status } });
-      expect((await me(dee)).suggested, status).toBeNull();
+    try {
+      for (const status of ['ARCHIVED', 'DRAFT']) {
+        await prisma.trainingCourse.update({ where: { id: builtIn.id }, data: { status } });
+        expect((await me(dee)).suggested, status).toBeNull();
+      }
+    } finally {
+      await prisma.trainingCourse.update({ where: { id: builtIn.id }, data: { status: 'PUBLISHED' } });
     }
-    await prisma.trainingCourse.update({ where: { id: builtIn.id }, data: { status: 'PUBLISHED' } });
     expect((await me(dee)).suggested?.id).toBe(builtIn.id);
     // Deleted: no course with the key (here: the key taken off) — nothing offered, and never a course by its title.
     await prisma.trainingCourse.update({ where: { id: builtIn.id }, data: { starterKey: null } });
@@ -272,6 +277,18 @@ describe('My training offers the built-in course (GET /training/me → suggested
       await prisma.trainingCourse.update({ where: { id: builtIn.id }, data: { companyIds: [] } as never });
     }
     expect((await me(out)).suggested?.id).toBe(builtIn.id);
+  });
+
+  it('every module hidden from the person (here: each limited to another company): nothing offered', async () => {
+    const hal = await newPerson('hal');
+    const ids = Object.values(builtIn.m).map((m) => m.id);
+    await prisma.trainingModule.updateMany({ where: { id: { in: ids } }, data: { companyIds: [w.companies.B] } as never });
+    try {
+      expect((await me(hal)).suggested).toBeNull();
+    } finally {
+      await prisma.trainingModule.updateMany({ where: { id: { in: ids } }, data: { companyIds: [] } as never });
+    }
+    expect((await me(hal)).suggested?.id).toBe(builtIn.id);
   });
 
   it('an assignment withdrawn part-way: offered again as optional, with their progress (Start makes it theirs, started themselves)', async () => {

@@ -464,15 +464,18 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync, 
 
   /**
    * 1.23.34: the built-in course of this side (found by its starter key, never by its title) as an optional Up next
-   * (offersBuiltIn), read as the person sees it; null when not offered. Reading it writes nothing.
+   * (offersBuiltIn), read as the person sees it (`loadState`: only reads — nothing is settled or written for an
+   * offered course); null when not offered. A course on their lists, unpublished or not theirs isn't read further.
    */
   async function suggestedOf(p: PersonRecord, mode: LearnerMode, listed: ReadonlySet<string>): Promise<CourseCard | null> {
     const course = await prisma.trainingCourse.findUnique({ where: { starterKey: builtInKey[mode] }, select: COURSE });
-    if (!course || listed.has(course.id) || course.status !== 'PUBLISHED' || !learnable(course, p, mode)) return null;
-    const state = await stateOf(p, course, mode);
+    if (!course || listed.has(course.id)) return null;
+    const published = course.status === 'PUBLISHED';
+    const theirs = learnable(course, p, mode);
+    if (!published || !theirs) return null;
+    const state = await loadState(ctx, p.id, course.id, p);
     const e = state.enrolment;
-    const offered = offersBuiltIn({ published: true, learnable: true, listed: !!e && !e.withdrawnAt, assigned: state.state.assigned, lessonCount: state.lessons.length, status: state.state.status });
-    if (!offered) return null;
+    if (!offersBuiltIn({ published, learnable: theirs, listed: !!e && !e.withdrawnAt, assigned: state.state.assigned, lessonCount: state.lessons.length, status: state.state.status })) return null;
     return (await cardsFor(p, [course], new Map([[pairKey(p.id, course.id), state]]))).get(course.id) ?? null;
   }
 
