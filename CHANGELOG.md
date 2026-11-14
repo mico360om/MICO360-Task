@@ -25,6 +25,9 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - Learning Hub (admins): assign a course to several people at once, shown as one entry you can withdraw whole or per person.
 - Learning Hub (admins): any course can have modules — add, rename, reorder or remove them, move lessons between them, and choose who sees each one.
 
+### Bug fixes
+- In a project's Categories, long category names show on one or two lines instead of one letter per line.
+
 ## [1.23.31] - 2026-11-14
 
 ### Improvements
