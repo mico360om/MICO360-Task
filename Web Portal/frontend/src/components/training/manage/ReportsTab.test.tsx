@@ -54,6 +54,11 @@ describe('Training Center → Reports', () => {
       const header = within(await screen.findByRole('table', { name: table })).getByRole('columnheader', { name: column });
       expect(header.className, `${table} → ${column}`).toContain('min-w-[10rem]');
     }
+    // A table wider than its region scrolls inside it: the region is positioned, so a hidden (sr-only, absolutely
+    // placed) header such as Quiz results' "Details" stays inside it instead of widening the whole page.
+    for (const region of ['By course table', 'By module table', 'By person table', 'Quiz results table']) {
+      expect(screen.getByRole('region', { name: region }).className, region).toMatch(/(^|\s)relative(\s|$)/);
+    }
   });
 
   it('totals, the rows by course, overdue people, certificates expiring and quiz results — for everyone (administrator)', async () => {

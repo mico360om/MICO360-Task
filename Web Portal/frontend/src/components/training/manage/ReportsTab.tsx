@@ -47,10 +47,11 @@ const COLUMNS: { key: keyof ReportRow; label: string; show: (r: ReportRow) => st
  * days people got the course); Excel and PDF. Administrators see everyone, Training managers their companies,
  * a project manager their team (`readOnly`: no Training Center calls).
  */
-/** A table wider than the screen scrolls sideways: the region is focusable (keyboard users can scroll it). Its name differs from its section's (two regions of one name fail the unique-landmark rule). */
+/** A table wider than the screen scrolls sideways: the region is focusable (keyboard users can scroll it). Its name differs from its section's (two regions of one name fail the unique-landmark rule).
+ * `relative`: a hidden, absolutely placed header (sr-only, such as Quiz results' "Details") is clipped by the region too — without it, it widened the page. */
 function ScrollRegion({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div role="region" tabIndex={0} aria-label={label} className="-mx-1 overflow-x-auto rounded-md px-1 outline-none focus-visible:ring-2 focus-visible:ring-brand/40">
+    <div role="region" tabIndex={0} aria-label={label} className="relative -mx-1 overflow-x-auto rounded-md px-1 outline-none focus-visible:ring-2 focus-visible:ring-brand/40">
       {children}
     </div>
   );
