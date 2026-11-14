@@ -136,6 +136,21 @@ describe('Dates by, Started themselves and the module views', () => {
   });
 });
 
+// 1.23.33: the Quizzes part counts the day each quiz was handed in, whatever "Dates by" says (the page says so too).
+describe('the Quizzes part states its own date basis', () => {
+  it('Excel: the Quizzes sheet says quizzes count by the day they were handed in, not the Dates by basis', () => {
+    for (const r of [report, { ...withModules }]) {
+      const quizzes = inspectXlsx(buildTrainingReportXlsx(r, meta)).text[3]!.join(' | ');
+      expect(quizzes).toContain('Quiz results: by the day they were handed in');
+      expect(quizzes).not.toContain('Dates by:');
+    }
+  });
+
+  it('PDF: a line under Quizzes says the same', () => {
+    expect(pdfText(withModules)).toContain('Quiz results count the day each quiz was handed in');
+  });
+});
+
 describe('file names', () => {
   it('say what it is grouped by and the day', () => {
     expect(trainingReportFileName({ by: 'course' }, 'xlsx', '2026-11-11')).toBe('Learning Hub report by course 2026-11-11.xlsx');

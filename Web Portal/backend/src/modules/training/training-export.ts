@@ -39,12 +39,17 @@ const summaryValues = (r: ReportRow): XlsxValue[] => [r.people, r.assigned, r.se
 
 /** R2: what the period's dates are about, in every file's header. */
 const datesLine = (r: Pick<TrainingReport, 'dates'>) => (r.dates === 'finished' ? 'Dates by: Finished the course' : 'Dates by: Got the course');
+/** 1.23.33: quiz results always count the day each quiz was handed in (as the page says), whatever "Dates by" is. */
+const QUIZ_DATES_XLSX = 'Quiz results: by the day they were handed in';
+const QUIZ_DATES_PDF = 'Quiz results count the day each quiz was handed in.';
 const lastSeen = (iso: string | null, timeZone: string) => (iso ? formatDay(zonedDayKey(new Date(iso), timeZone)) : '—');
 
 /** The report as an Excel workbook: Summary, Overdue, Certificates expiring, Quizzes. */
 export function buildTrainingReportXlsx(r: TrainingReport, meta: ReportFileMeta): Buffer {
   const now = meta.now ?? new Date();
-  const notes = [`By ${BY_LABEL[r.by].toLowerCase()} · ${SCOPE_LABEL[r.scope]}`, datesLine(r), ...meta.filters, printedLine(now, meta.timeZone, meta.generatedBy)];
+  const scopeLine = `By ${BY_LABEL[r.by].toLowerCase()} · ${SCOPE_LABEL[r.scope]}`;
+  const notes = [scopeLine, datesLine(r), ...meta.filters, printedLine(now, meta.timeZone, meta.generatedBy)];
+  const quizNotes = [scopeLine, QUIZ_DATES_XLSX, ...meta.filters, printedLine(now, meta.timeZone, meta.generatedBy)];
   const summary: XlsxSheet = {
     name: 'Summary',
     title: TITLE,
@@ -74,7 +79,7 @@ export function buildTrainingReportXlsx(r: TrainingReport, meta: ReportFileMeta)
   const quizzes: XlsxSheet = {
     name: 'Quizzes',
     title: 'Quizzes',
-    notes,
+    notes: quizNotes,
     columns: [
       { header: 'Quiz' },
       { header: 'Course' },
@@ -109,9 +114,11 @@ export function buildTrainingReportXlsx(r: TrainingReport, meta: ReportFileMeta)
   return buildXlsx(sheets, { title: TITLE, brand: BRAND }, now);
 }
 
-/** A table, turned landscape when it can't fit across a portrait page; or a plain line when there is nothing. */
-function tableOrNote(doc: PdfDocument, heading: string, cols: TableColumn[], rows: string[][], none: string): void {
-  doc.heading(heading, { topGap: PDF_STANDARD.space.l, keepWith: rows.length ? doc.tableHeight(cols, rows, { firstRows: 2 }) : 20 });
+/** A table, turned landscape when it can't fit across a portrait page; or a plain line when there is nothing. `about`: a line under the heading. */
+function tableOrNote(doc: PdfDocument, heading: string, cols: TableColumn[], rows: string[][], none: string, about?: string): void {
+  const aboutHeight = about ? 16 : 0;
+  doc.heading(heading, { topGap: PDF_STANDARD.space.l, keepWith: (rows.length ? doc.tableHeight(cols, rows, { firstRows: 2 }) : 20) + aboutHeight });
+  if (about) doc.text(about, { size: PDF_STANDARD.type.small, color: MUTED });
   if (rows.length === 0) {
     doc.text(none, { size: PDF_STANDARD.type.small, color: MUTED });
     return;
@@ -176,6 +183,7 @@ export function buildTrainingReportPdf(r: TrainingReport, meta: ReportFileMeta):
     ],
     r.quizzes.filter((q) => q.attempts > 0).map((q) => [q.title, q.courseTitle, q.moduleTitle ?? '—', String(q.attempts), String(q.people), pct(q.passRate), pct(q.averageScore), String(q.questions)]),
     'No quiz attempts yet.',
+    QUIZ_DATES_PDF,
   );
   if (r.modules && r.learners) {
     tableOrNote(
