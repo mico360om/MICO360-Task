@@ -112,7 +112,7 @@ export function makeFixture(): Fixture {
     runsAnyProject: async (userId) => [...projects.keys()].some((p) => runs(userId, p)),
     project: async (projectId) => {
       const p = projects.get(projectId);
-      return p && !p.deleted ? { name: p.name, code: 'RIG', number: 'C-77', clientName: 'Oman Drilling Co.', color: '#8B1E1E', icon: null, imageUrl: null, status: p.status, ...(p.archived !== undefined ? { archived: p.archived } : {}), ownerId: p.ownerId } : null;
+      return p && !p.deleted ? { name: p.name, code: 'RIG', number: 'C-77', clientName: 'Fabrikam Logistics', color: '#8B1E1E', icon: null, imageUrl: null, status: p.status, ...(p.archived !== undefined ? { archived: p.archived } : {}), ownerId: p.ownerId } : null;
     },
     task: async (taskId) => {
       const t = tasks.get(taskId);

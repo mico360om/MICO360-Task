@@ -257,8 +257,8 @@ describe('targetColumnFor (where a card dropped on a status lands in its own pro
 // for an older server's rows) and their categories; the board's "External company" filter became the
 // Guest, Guest company and Category filters (lib/guest-category-filter).
 describe('guests and categories on the board', () => {
-  const acme = { count: 2, name: 'Ahmed Al Said', company: 'Acme', names: ['Ahmed Al Said', 'Sara Nasser'], companies: ['Acme', 'PDO'] };
-  const guests = [{ id: 'g1', name: 'Ahmed Al Said', company: 'Acme' }, { id: 'g2', name: 'Sara Nasser', company: 'PDO' }];
+  const acme = { count: 2, name: 'Ahmed Al Said', company: 'Acme', names: ['Ahmed Al Said', 'Sara Nasser'], companies: ['Acme', 'NWT'] };
+  const guests = [{ id: 'g1', name: 'Ahmed Al Said', company: 'Acme' }, { id: 'g2', name: 'Sara Nasser', company: 'NWT' }];
   const categories = [{ id: 'k1', name: 'Electrical', color: 'teal', retired: false }];
   const withContacts = [{ ...tasks[0]!, externalSummary: acme, guests, categories }, { ...tasks[1]!, externalSummary: null, guests: [], categories: [] }];
   const projects = [{ id: 'p1', code: 'MICO', name: 'MICO360', status: 'ACTIVE', color: null }] as unknown as ApiProject[];
@@ -279,8 +279,8 @@ describe('guests and categories on the board', () => {
     ]);
     const all = composeAllProjectsBoard(withContacts, projects);
     expect(boardFilterRows(all).find((r) => r.guests?.length)).toMatchObject({ projectName: 'MICO360' });
-    const pdo = filterBoard(board, { ...EMPTY_GUEST_CATEGORY_FILTERS, guestCompany: 'pdo' });
-    expect(pdo.map((c) => c.tasks.map((t) => t.key))).toEqual([['MICO-1'], []]);
+    const nwt = filterBoard(board, { ...EMPTY_GUEST_CATEGORY_FILTERS, guestCompany: 'nwt' });
+    expect(nwt.map((c) => c.tasks.map((t) => t.key))).toEqual([['MICO-1'], []]);
     expect(filterBoard(board, { ...EMPTY_GUEST_CATEGORY_FILTERS, category: 'k1' }).map((c) => c.tasks.length)).toEqual([1, 0]);
     expect(filterBoard(board, { ...EMPTY_GUEST_CATEGORY_FILTERS, guest: 'g9' }).map((c) => c.tasks.length)).toEqual([0, 0]);
     expect(filterBoard(board, EMPTY_GUEST_CATEGORY_FILTERS)).toBe(board);

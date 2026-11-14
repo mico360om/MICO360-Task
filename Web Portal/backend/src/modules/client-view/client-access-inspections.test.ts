@@ -33,7 +33,7 @@ const shown: Record<string, ClientInspection[]> = {};
 
 beforeEach(() => {
   const source = createMemoryClientViewSource();
-  source.addProject('p1', { name: 'Rig 7 Inspection', code: 'RIG', number: null, clientName: 'Oman Drilling Co.', status: 'ACTIVE', color: '#1E6B8B', icon: null, imageUrl: null, startDate: null, targetDate: null });
+  source.addProject('p1', { name: 'Rig 7 Inspection', code: 'RIG', number: null, clientName: 'Fabrikam Logistics', status: 'ACTIVE', color: '#1E6B8B', icon: null, imageUrl: null, startDate: null, targetDate: null });
   source.addProject('p2', { name: 'Secret Other Project', code: 'SOP', number: null, clientName: null, status: 'ACTIVE', color: '#000000', icon: null, imageUrl: null, startDate: null, targetDate: null });
   shown.p1 = [report('i-shown', 'Rig daily check')];
   shown.p2 = [report('i-other', 'Other project’s inspection')];

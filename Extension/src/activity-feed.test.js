@@ -89,7 +89,7 @@ describe.skipIf(!web)('activity: src/activity-feed.js matches the web app (lib/a
     ['UPDATED', { changes: [{ field: 'inspectionPlace', from: 'Rig 3', to: 'الحفار ٤' }] }], ['UPDATED', { changes: [{ field: 'inspectionPlace', from: 'Rig 3', to: null }] }],
     // External contacts: added, changed and removed (named with their company), and older rows without names.
     ['EXTERNAL_CONTACT_ADDED', { name: 'Ahmed Al Said', company: 'Acme' }], ['EXTERNAL_CONTACT_ADDED', { name: 'سالم الهنائي', company: null }], ['EXTERNAL_CONTACT_ADDED'],
-    ['EXTERNAL_CONTACT_CHANGED', { name: 'Ahmed Al Said', company: 'Acme' }], ['EXTERNAL_CONTACT_CHANGED', { name: 'Sara Nasser', company: 'PDO' }],
+    ['EXTERNAL_CONTACT_CHANGED', { name: 'Ahmed Al Said', company: 'Acme' }], ['EXTERNAL_CONTACT_CHANGED', { name: 'Sara Nasser', company: 'NWT' }],
     ['EXTERNAL_CONTACT_REMOVED', { name: 'Ahmed Al Said', company: 'Acme' }], ['EXTERNAL_CONTACT_REMOVED', { name: 'Salim' }],
     // A project's companies changed (its history): added, removed, its main company; parts with nothing left out.
     ['PROJECT_COMPANIES_CHANGED', { added: ['Beta Co'], removed: ['Gamma Co'], main: 'Alpha Co' }], ['PROJECT_COMPANIES_CHANGED', { added: ['B', 'C', 'D'], removed: [], main: null }],

@@ -9,6 +9,7 @@ import { initDensity } from './lib/density';
 import { initAppearance } from './lib/appearance';
 import { installTruncationTips } from './lib/truncation-tips';
 import { createAppQueryClient } from './lib/query-client';
+import { bindFileLinkRefresh } from './lib/file-link-refresh';
 import { bindQueryCacheToSession } from './lib/session-lifecycle';
 import { bindQueryCacheToCompanyPick } from './lib/company-scope';
 import { initAuthSync, useAuthStore } from './stores/auth-store';
@@ -47,6 +48,9 @@ initAuthSync();
 // or the server saying their companies changed, resets every list read for the old company.
 bindCompanyPickToSession();
 bindQueryCacheToCompanyPick(queryClient);
+// 1.23.29: task and chat files come as links that work about a day — lists left open get new ones in time,
+// and a picture whose link stopped working has its list read again.
+bindFileLinkRefresh(queryClient);
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

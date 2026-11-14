@@ -402,6 +402,8 @@ model Attachment {
   uploadedBy User @relation(fields: [uploadedById], references: [id])
 
   @@index([taskId])
+  /// 1.23.29 private file links: a download finds the file's rows by its stored name.
+  @@index([storageKey])
   @@map("task_attachments")
 }
 
@@ -655,6 +657,8 @@ model ChatAttachment {
   message    ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
 
   @@index([messageId])
+  /// 1.23.29 private file links: a download finds the file's rows by its stored name.
+  @@index([storageKey])
   @@map("chat_attachments")
 }
 

@@ -11,7 +11,7 @@ const data: ClientMinutesPdfData = {
     companyAddress: 'MICO360, Muscat, Oman',
     colors: { brand: '#8B1E1E', ink: '#211B1A', muted: '#6C625F', line: '#E6DFDC' },
   },
-  project: { name: 'Rig 7 Inspection', code: 'RIG', number: 'OD-2231', clientName: 'Oman Drilling Co.', color: '#1E6B8B', icon: null, image: null },
+  project: { name: 'Rig 7 Inspection', code: 'RIG', number: 'OD-2231', clientName: 'Fabrikam Logistics', color: '#1E6B8B', icon: null, image: null },
   meeting: { title: 'Kick-off', startAt: '2026-10-05T06:00:00.000Z', endAt: '2026-10-05T07:00:00.000Z', timeZone: 'Asia/Muscat' },
   approvedAt: '2026-10-06T06:00:00.000Z',
   content: {
@@ -76,7 +76,7 @@ describe('the client copy of the minutes PDF', () => {
     expect(at('Kick-off').size).toBe(15.5);
     expect(at('Rig 7 Inspection').size).toBe(11);
     expect(at('Agreed the inspection plan for the three rigs.').size).toBe(9.5);
-    expect(pages[0]).toEqual(expect.arrayContaining(['Code', 'RIG', 'Project no.', 'OD-2231', 'Client', 'Oman Drilling Co.']));
+    expect(pages[0]).toEqual(expect.arrayContaining(['Code', 'RIG', 'Project no.', 'OD-2231', 'Client', 'Fabrikam Logistics']));
     expect(pages).toHaveLength(1);
   });
 });

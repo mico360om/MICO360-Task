@@ -269,10 +269,10 @@ describe('ProjectDetailPage', () => {
   it('shows the project number under the name, beside the code', async () => {
     const json = (b: unknown) => new Response(JSON.stringify(b), { status: 200, headers: { 'content-type': 'application/json' } });
     const base = globalThis.fetch as unknown as (u: string, i?: RequestInit) => Promise<Response>;
-    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => (String(url).endsWith('/projects/p1') ? json({ data: { ...PROJECT, number: 'PDO-2026-014' } }) : base(url, init))));
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => (String(url).endsWith('/projects/p1') ? json({ data: { ...PROJECT, number: 'NWT-2026-014' } }) : base(url, init))));
     renderPage();
     await screen.findByRole('heading', { name: 'MICO Platform' });
-    expect(await screen.findByText('Project no.', { exact: false })).toHaveTextContent('Project no. PDO-2026-014');
+    expect(await screen.findByText('Project no.', { exact: false })).toHaveTextContent('Project no. NWT-2026-014');
   });
 
   it('lets a project manager add members, picking from the people directory', async () => {
@@ -590,7 +590,7 @@ describe('ProjectDetailPage: its companies', () => {
 // 1.23 Client accounts: who may open the project in the Client portal, on its Team tab.
 describe('ProjectDetailPage: Clients with access (1.23)', () => {
   const HAMAD = {
-    id: 'cl1', name: 'Hamad Al Busaidi', organisation: 'Petroleum Development Oman', email: 'hamad@pdo.test', status: 'ACTIVE',
+    id: 'cl1', name: 'Hamad Al Busaidi', organisation: 'Northwind Trading', email: 'hamad@northwind.test', status: 'ACTIVE',
     access: ['Progress, milestones and tasks', 'Meetings and minutes', 'Comment on tasks', 'Sign off finished tasks'],
     modules: { progress: true, meetings: true }, actions: { comment: true, signOff: true, respond: false, download: false },
   };
@@ -619,7 +619,7 @@ describe('ProjectDetailPage: Clients with access (1.23)', () => {
     await openTeam();
     const section = await screen.findByRole('region', { name: 'Clients with access' });
     const hamad = within(section).getByText('Hamad Al Busaidi').closest('li')!;
-    expect(within(hamad).getByText('Petroleum Development Oman')).toBeInTheDocument();
+    expect(within(hamad).getByText('Northwind Trading')).toBeInTheDocument();
     expect(within(hamad).getByRole('list', { name: 'What Hamad Al Busaidi may do' })).toHaveTextContent(/Progress, milestones and tasks.*Meetings and minutes.*Comment on tasks.*Sign off finished tasks/);
     const noor = within(section).getByText('Noor Al Said').closest('li')!;
     expect(within(noor).getByText('Inactive')).toBeInTheDocument();

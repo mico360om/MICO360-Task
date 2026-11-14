@@ -4,7 +4,9 @@ import { prisma } from './lib/prisma';
 import { poolSizeOf, withPoolDefaults } from './lib/db-pool';
 import { buildApp } from './app';
 import { createPrismaIdempotencyStore, IDEMPOTENCY_RETENTION_MS } from './lib/idempotency';
-import { uploadResponseHeaders } from './lib/upload-safety';
+import { createFileLinks, type FileViewer } from './modules/files/file-links';
+import { createFileAccess, createPrismaFileRowsStore } from './modules/files/file-access';
+import { registerUploads } from './modules/files/file-route';
 import { corsOrigin, parseCorsOrigins } from './lib/cors-origins';
 import { registerWebApp, androidAppLink, downloadsDirFor, emailDownloadLinks } from './lib/web-app';
 import { createWelcomeService } from './modules/users/welcome-service';
@@ -651,6 +653,9 @@ async function main(): Promise<void> {
 
   // Shared file storage + allow-list for task AND chat attachments.
   const attachmentStorage = createLocalDiskStorage({ baseDir: env.UPLOAD_DIR, publicPrefix: '/uploads' });
+  // 1.23.29 Private file links: task and chat files' addresses are signed for the person they are given to
+  // (modules/files). The key is made from the server's own secret: no new setting is needed.
+  const fileLinks = createFileLinks({ secret: env.FILE_LINK_SECRET.trim() || env.JWT_ACCESS_SECRET, minutes: env.FILE_LINK_MINUTES });
 
   const chatService = createMessageService({
     conversations: createPrismaConversationRepository(prisma),
@@ -2256,6 +2261,7 @@ async function main(): Promise<void> {
   let broadcast: (projectId: string, event: string, payload: unknown) => void = () => {};
   let broadcastToUser: (userId: string, event: string, payload: unknown) => void = () => {};
   let broadcastToAudience: (audience: { projectId?: string | null; userIds?: string[] }, event: string, payload: unknown) => void = () => {};
+  let broadcastPersonal: (audience: { projectId?: string | null; userIds?: string[] }, event: string, build: (viewer: FileViewer) => unknown) => void = () => {};
 
   // Duplicate Task: a copy is made as any new task in the chosen project (the same pipeline as POST /tasks:
   // its scope, tags, contacts and assignee rules), then gets the original's watchers who can see that
@@ -2615,6 +2621,9 @@ async function main(): Promise<void> {
     dashboardLayouts: createPrismaDashboardLayoutStore(prisma),
     projectHealth: projectHealth ?? undefined,
     onChatUserEvent: (userId, event, payload) => broadcastToUser(userId, event, payload),
+    // 1.23.29: a live chat message with files, one copy per person (its links signed for them).
+    onChatPersonalEvent: (audience, event, build) => broadcastPersonal(audience, event, build),
+    fileLinks,
     chatService,
     logger,
     errorReporter,
@@ -2924,21 +2933,30 @@ async function main(): Promise<void> {
     meetingTeams: teamsMeetings,
   });
 
-  // Serve uploaded attachment files from disk at /uploads/<key> (matches the stored url).
-  // Every file gets nosniff + a sandboxing CSP, and non-images download instead of rendering,
-  // so an uploaded document can never run script on this origin.
+  // Uploaded files at /uploads/<key> (the stored url). Every file gets nosniff + a sandboxing CSP, and
+  // non-images download instead of rendering, so an uploaded document can never run script on this origin.
+  // 1.23.29 Private file links (modules/files/file-route.ts): a task's or a chat's file opens only through a
+  // link signed for someone who can see that task or conversation now (re-checked on every download); a
+  // current photo, project picture or company logo as before; any other name 404.
   const { default: fastifyStatic } = await import('@fastify/static');
   const { resolve } = await import('node:path');
   const uploadsRoot = resolve(process.cwd(), env.UPLOAD_DIR);
   mkdirSync(uploadsRoot, { recursive: true });
   // Avatar thumbnails: /uploads/faces/<photo key>.webp, made on first request for a photo from before.
   await registerAvatarFaceRoute(app, avatarFaces);
-  await app.register(fastifyStatic, {
+  const fileAccess = createFileAccess({
+    store: createPrismaFileRowsStore(prisma),
+    canViewTask: (userId, roles, taskId) => projectAccess.canViewTask(userId, roles, taskId),
+    canSeeConversation: (conversationId, userId) => chatService.canUserAccessConversation(conversationId, userId),
+  });
+  await registerUploads(app, {
     root: uploadsRoot,
-    prefix: '/uploads/',
-    setHeaders: (reply, filePath) => {
-      for (const [name, value] of Object.entries(uploadResponseHeaders(filePath))) reply.header(name, value);
-    },
+    links: fileLinks,
+    access: fileAccess,
+    // The guard's own account read and 10-second cache (a session ended here is forgotten at once).
+    accountState: (userId, o) => authGuard.accountState(userId, o),
+    appUrl: env.APP_URL,
+    productName: env.PRODUCT_NAME,
   });
 
   // Serve brand assets (logo) so emails can reference a publicly-hosted logo image.
@@ -2984,6 +3002,7 @@ async function main(): Promise<void> {
   };
   broadcastToUser = realtime.broadcastToUser;
   broadcastToAudience = realtime.broadcastToAudience;
+  broadcastPersonal = realtime.broadcastPersonal;
   // A new notification reaches its person's open pages (the bell refreshes; a meeting reminder pops up).
   onNotificationDelivered = (n) =>
     realtime.broadcastToUser(n.userId, 'notification:new', {
@@ -2993,6 +3012,7 @@ async function main(): Promise<void> {
   // its chat channel (SEC-07).
   onSessionsRevoked = (userId) => realtime.disconnectUser(userId);
   onMemberRemoved = async (projectId, userId) => {
+    fileAccess.forget(userId); // 1.23.29: their links to the project's files stop at once
     dashboardPriorities.changedFor(userId); // 1.23.4: nothing of the project stays on their priorities
     projectHealth?.changed(projectId); // 1.23.5: its managers and workload may have changed
     realtime.leaveProject(userId, projectId);
@@ -3006,6 +3026,9 @@ async function main(): Promise<void> {
   const refreshCompanyAccess = (userIds: string[], projectIds: string[] = []): void => {
     dashboardPriorities.changed(); // 1.23.4: whose projects these are changed — priorities are read again
     projectHealth?.changed(); // 1.23.5: an archived company archives its projects
+    // 1.23.29: who may open which files is asked again at once (not within 10 seconds).
+    if (projectIds.length) fileAccess.forget();
+    else for (const userId of userIds) fileAccess.forget(userId);
     if (userIds.length) void realtime.refreshAccess(userIds).catch((err) => logger.error('realtime: refreshing company access failed', { err, userIds }));
     for (const projectId of projectIds) void realtime.refreshProjectAudience(projectId).catch((err) => logger.error('realtime: refreshing a project’s audience failed', { err, projectId }));
   };

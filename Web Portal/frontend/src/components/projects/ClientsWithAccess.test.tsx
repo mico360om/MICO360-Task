@@ -11,8 +11,8 @@ const NO_ACTIONS = { comment: false, signOff: false, respond: false, download: f
 const HAMAD = {
   id: 'cl1',
   name: 'Hamad Al Busaidi',
-  organisation: 'Petroleum Development Oman',
-  email: 'hamad@pdo.test',
+  organisation: 'Northwind Trading',
+  email: 'hamad@northwind.test',
   status: 'ACTIVE',
   role: 'CONTRIBUTOR',
   access: ['Contributor', 'View tasks', 'View meetings & minutes', 'Download reports', 'Receive notifications', 'Comment', 'Upload documents', 'Reply to invites'],

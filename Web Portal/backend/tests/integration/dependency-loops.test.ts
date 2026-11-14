@@ -1,16 +1,17 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { PrismaClient } from '@prisma/client';
 import { createPrismaDependencyRepository } from '../../src/modules/tasks/prisma-dependency-repository';
 import { createPrismaTaskLookup } from '../../src/modules/tasks/prisma-assignee-repository';
 import { createDependencyService } from '../../src/modules/tasks/dependency-service';
 import { batch4aWorld, outcome } from './batch4a-helpers';
+import { testPrisma } from './test-prisma';
 
 // Review fix #12 + N12 (13 Nov 2026): two people linking A→B and B→A at the same moment both
 // succeeded (30/30), making a loop; a loop could also form through a task in the Recycle Bin and
 // appear when it was restored. Links are now added one at a time across the site (a hold on a
 // job_locks row taken first), the loop check follows links through binned tasks too, and the check
 // and the insert are one transaction. Requires a running MySQL (TEST_DATABASE_URL) with migrations applied.
-const prisma = new PrismaClient({ datasources: { db: { url: process.env.TEST_DATABASE_URL } } });
+// As the server's client (lib/prisma.ts): save conflicts are tried again, as on the live site (1.23.31).
+const prisma = testPrisma();
 const world = batch4aWorld(prisma, 'DLP');
 const svc = createDependencyService({ repo: createPrismaDependencyRepository(prisma), taskLookup: createPrismaTaskLookup(prisma) });
 const TRIALS = 15;

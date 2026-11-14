@@ -27,6 +27,12 @@ const EnvSchema = z.object({
   // Key for secrets stored in the database (AI provider API keys). Optional: without it a key is
   // derived from JWT_ACCESS_SECRET, so set it before rotating that secret. Use 32+ random characters.
   SECRETS_ENCRYPTION_KEY: z.string().optional().default(''),
+  // 1.23.29 private file links (task and chat files): optional. Blank = a key made from JWT_ACCESS_SECRET for
+  // file links alone; changing either ends every file link at once (lists made afterwards carry new ones).
+  FILE_LINK_SECRET: z.string().optional().default(''),
+  // Testing only: how long a file link lasts, in minutes (5 to 1800). Default 1800 = 30 hours (a link given
+  // in a 6-hour block works 24–30 hours).
+  FILE_LINK_MINUTES: z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), z.coerce.number().int().min(5).max(1800).default(1800)),
   OTP_TTL_SECONDS: z.coerce.number().int().positive().default(600),
   OTP_LENGTH: z.coerce.number().int().min(4).max(10).default(6),
   PASSWORD_RESET_TTL_SECONDS: z.coerce.number().int().positive().default(3600),
@@ -176,6 +182,8 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
     }
     const secretsKey = parsed.data.SECRETS_ENCRYPTION_KEY.trim();
     if (secretsKey && secretsKey.length < 32) weak.push('SECRETS_ENCRYPTION_KEY must be at least 32 characters in production');
+    const fileKey = parsed.data.FILE_LINK_SECRET.trim();
+    if (fileKey && fileKey.length < 32) weak.push('FILE_LINK_SECRET must be at least 32 characters in production');
     if (weak.length) throw new Error(`Insecure production secrets:\n${weak.map((w) => `  - ${w}`).join('\n')}`);
   }
   return parsed.data;

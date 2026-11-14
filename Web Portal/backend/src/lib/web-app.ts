@@ -252,7 +252,8 @@ export async function registerWebApp(app: FastifyInstance, opts: { root: string;
 
   app.addHook('onSend', async (req, reply, payload) => {
     const type = String(reply.getHeader('content-type') ?? '');
-    if (type.startsWith('text/html')) applyPageHeaders(req, reply);
+    // 1.23.29: the uploads route's own page (a file link that no longer works) keeps its stricter policy.
+    if (type.startsWith('text/html') && !req.url.startsWith('/uploads/')) applyPageHeaders(req, reply);
     return payload;
   });
 

@@ -63,7 +63,7 @@ beforeEach(async () => {
 describe('External contacts on MySQL (integration)', () => {
   it('adds contacts at the end of the list and keeps every field', async () => {
     const first = await repo.add(taskId, fields('Ahmed Al Said', { company: 'Acme', designation: 'Site lead', email: 'ahmed@acme.com', phone: '+968 9912 3456', remarks: 'Call before 10' }), userId, 20);
-    const second = await repo.add(taskId, fields('Sara Nasser', { company: 'PDO' }), userId, 20);
+    const second = await repo.add(taskId, fields('Sara Nasser', { company: 'NWT' }), userId, 20);
     expect(first).toMatchObject({ taskId, name: 'Ahmed Al Said', company: 'Acme', designation: 'Site lead', email: 'ahmed@acme.com', phone: '+968 9912 3456', remarks: 'Call before 10', position: 0, createdById: userId });
     expect(second?.position).toBe(1);
     expect((await repo.list(taskId)).map((c) => c.name)).toEqual(['Ahmed Al Said', 'Sara Nasser']);
@@ -99,7 +99,7 @@ describe('External contacts on MySQL (integration)', () => {
     const elsewhere = (await prisma.task.create({ data: { key: 'XCON2-1', title: 'Other', projectId: otherProjectId, columnId: elsewhereColumn, createdById: userId } })).id;
     await repo.add(taskId, fields('Ahmed Al Said', { company: 'Acme' }), userId, 20);
     await new Promise((r) => setTimeout(r, 20));
-    await repo.add(t2, fields('Salim Hinai', { company: 'Al Amal Trading' }), userId, 20);
+    await repo.add(t2, fields('Salim Hinai', { company: 'Northwind Allied Trading' }), userId, 20); // found by "al" (Allied)
     await repo.add(gone, fields('Alia Deleted', { company: 'Gone' }), userId, 20);
     await repo.add(elsewhere, fields('Ali Elsewhere', { company: 'Other' }), userId, 20);
     const hits = await repo.searchProject(projectId, 'al', 50);
@@ -109,20 +109,20 @@ describe('External contacts on MySQL (integration)', () => {
     expect(await repo.searchProject(projectId, 'zz', 50)).toEqual([]);
   });
 
-  it('finds a word start after a hyphen or a bracket too ("Al-Hassan", "Oman (PDO)")', async () => {
-    await repo.add(taskId, fields('Khalid Al-Hassan', { company: 'Petroleum Development Oman (PDO)' }), userId, 20);
+  it('finds a word start after a hyphen or a bracket too ("Al-Hassan", "Oman (NWT)")', async () => {
+    await repo.add(taskId, fields('Khalid Al-Hassan', { company: 'Northwind Trading (NWT)' }), userId, 20);
     expect((await repo.searchProject(projectId, 'hassan', 50)).map((c) => c.name)).toEqual(['Khalid Al-Hassan']);
-    expect((await repo.searchProject(projectId, 'pdo', 50)).map((c) => c.name)).toEqual(['Khalid Al-Hassan']);
+    expect((await repo.searchProject(projectId, 'nwt', 50)).map((c) => c.name)).toEqual(['Khalid Al-Hassan']);
     expect(await repo.searchProject(projectId, 'assan', 50)).toEqual([]);
   });
 
   it('task rows sum up their contacts, and a single task carries them in full', async () => {
     await repo.add(taskId, fields('Ahmed Al Said', { company: 'Acme' }), userId, 20);
-    await repo.add(taskId, fields('Sara Nasser', { company: 'PDO' }), userId, 20);
+    await repo.add(taskId, fields('Sara Nasser', { company: 'NWT' }), userId, 20);
     const [row] = await tasks.list({ projectId });
-    expect(row?.externalSummary).toEqual({ count: 2, name: 'Ahmed Al Said', company: 'Acme', names: ['Ahmed Al Said', 'Sara Nasser'], companies: ['Acme', 'PDO'] });
+    expect(row?.externalSummary).toEqual({ count: 2, name: 'Ahmed Al Said', company: 'Acme', names: ['Ahmed Al Said', 'Sara Nasser'], companies: ['Acme', 'NWT'] });
     const one = await tasks.findById(taskId);
-    expect(one?.externalContacts?.map((c) => [c.name, c.company])).toEqual([['Ahmed Al Said', 'Acme'], ['Sara Nasser', 'PDO']]);
+    expect(one?.externalContacts?.map((c) => [c.name, c.company])).toEqual([['Ahmed Al Said', 'Acme'], ['Sara Nasser', 'NWT']]);
     expect(one?.externalSummary?.count).toBe(2);
     const bare = (await prisma.task.create({ data: { key: 'XCON-9', title: 'None', projectId, columnId, createdById: userId } })).id;
     expect((await tasks.findById(bare))?.externalSummary).toBeNull();

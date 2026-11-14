@@ -15,7 +15,7 @@ const guest = (id: string, name: string, company: string | null, extra: Record<s
   id, companyId: 'co1', name, company, designation: null, email: null, phone: null, notes: null, retiredAt: null, mergedIntoId: null, createdById: 'u1', createdAt: '', updatedAt: '', ...extra,
 });
 const AHMED = guest('g1', 'Ahmed Al Harthy', 'Acme', { email: 'ahmed@acme.com', phone: '+968 9912 3456' });
-const SARA = guest('g2', 'Sara Nasser', 'PDO');
+const SARA = guest('g2', 'Sara Nasser', 'NWT');
 
 type Call = { url: string; method: string; body: Record<string, unknown> | null };
 let calls: Call[];
@@ -108,11 +108,11 @@ describe('GuestPicker', () => {
     await userEvent.click(screen.getByRole('button', { name: GUEST_WORDS.newGuest }));
     const form = screen.getByRole('group', { name: GUEST_WORDS.newGuest });
     expect(within(form).getByRole('textbox', { name: /^Name/ })).toHaveValue('Huda');
-    await userEvent.type(within(form).getByRole('textbox', { name: 'Company' }), 'Daleel');
+    await userEvent.type(within(form).getByRole('textbox', { name: 'Company' }), 'Acme');
     await userEvent.click(within(form).getByRole('button', { name: 'Add guest' }));
-    await waitFor(() => expect(onPick).toHaveBeenCalledWith(expect.objectContaining({ id: 'g9', name: 'Huda', company: 'Daleel' })));
+    await waitFor(() => expect(onPick).toHaveBeenCalledWith(expect.objectContaining({ id: 'g9', name: 'Huda', company: 'Acme' })));
     const create = calls.find((c) => c.method === 'POST' && c.url.endsWith('/projects/p1/guests'))!;
-    expect(create.body).toEqual({ name: 'Huda', company: 'Daleel', designation: null, email: null, phone: null });
+    expect(create.body).toEqual({ name: 'Huda', company: 'Acme', designation: null, email: null, phone: null });
     // Back to the search.
     expect(screen.queryByRole('group', { name: GUEST_WORDS.newGuest })).toBeNull();
   });
@@ -173,9 +173,9 @@ describe('NewGuestForm', () => {
   it('guests with the same name but other details are listed softly, each can be used', async () => {
     checkReply = () => ({ same: [], similar: [SARA] });
     const { form, onDone } = renderForm({ initialName: 'Sara Nasser' });
-    await userEvent.type(within(form).getByRole('textbox', { name: 'Company' }), 'Shell');
+    await userEvent.type(within(form).getByRole('textbox', { name: 'Company' }), 'Fabrikam');
     expect(await within(form).findByText(GUEST_WORDS.similar)).toBeInTheDocument();
-    await userEvent.click(within(form).getByRole('button', { name: 'Use Sara Nasser (PDO)' }));
+    await userEvent.click(within(form).getByRole('button', { name: 'Use Sara Nasser (NWT)' }));
     expect(onDone).toHaveBeenCalledWith(expect.objectContaining({ id: 'g2' }));
   });
 

@@ -81,10 +81,10 @@ describe('naming external contacts', () => {
     expect(
       summarizeExternalContacts([
         { name: 'Ahmed Al Said', company: 'Acme' },
-        { name: 'Sara Nasser', company: 'PDO' },
+        { name: 'Sara Nasser', company: 'NWT' },
         { name: 'Ali', company: 'acme' },
       ]),
-    ).toEqual({ count: 3, name: 'Ahmed Al Said', company: 'Acme', names: ['Ahmed Al Said', 'Sara Nasser', 'Ali'], companies: ['Acme', 'PDO'] });
+    ).toEqual({ count: 3, name: 'Ahmed Al Said', company: 'Acme', names: ['Ahmed Al Said', 'Sara Nasser', 'Ali'], companies: ['Acme', 'NWT'] });
   });
 
   it('writes the card line, with how many more there are', () => {
@@ -111,7 +111,7 @@ describe('finding tasks by their external contacts', () => {
   it('matches a contact’s name or company, ignoring case', () => {
     expect(matchesExternalContact(summary, 'sara')).toBe(true);
     expect(matchesExternalContact(summary, 'acme')).toBe(true);
-    expect(matchesExternalContact(summary, 'pdo')).toBe(false);
+    expect(matchesExternalContact(summary, 'nwt')).toBe(false);
     expect(matchesExternalContact(null, 'sara')).toBe(false);
   });
 
@@ -124,12 +124,12 @@ describe('finding tasks by their external contacts', () => {
   it('lists the companies to filter by, A to Z, each once', () => {
     expect(
       externalCompanyOptions([
-        { externalSummary: summarizeExternalContacts([{ name: 'A', company: 'PDO' }, { name: 'B', company: 'acme' }]) },
+        { externalSummary: summarizeExternalContacts([{ name: 'A', company: 'NWT' }, { name: 'B', company: 'acme' }]) },
         { externalSummary: null },
         {},
         { externalSummary: summarizeExternalContacts([{ name: 'C', company: 'Acme' }]) },
       ]),
-    ).toEqual(['acme', 'PDO']);
+    ).toEqual(['acme', 'NWT']);
   });
 });
 

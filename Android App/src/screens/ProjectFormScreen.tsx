@@ -435,7 +435,7 @@ function ProjectForm({ project, navigation }: { project: ApiProject | null; navi
         </View>
 
         <View>
-          <TextField label="Client (optional)" value={draft.clientName} onChangeText={(t) => set({ clientName: t })} maxLength={NAME_MAX} placeholder={clients.length ? 'Type or pick a client' : 'e.g. Petroleum Development Oman'} editable={!frozen} />
+          <TextField label="Client (optional)" value={draft.clientName} onChangeText={(t) => set({ clientName: t })} maxLength={NAME_MAX} placeholder={clients.length ? 'Type or pick a client' : 'e.g. Northwind Trading'} editable={!frozen} />
           {clients.length ? (
             <View style={s.clients}>
               {clients.map((name) => (
@@ -448,7 +448,7 @@ function ProjectForm({ project, navigation }: { project: ApiProject | null; navi
         </View>
 
         <View>
-          <TextField label="Project number (optional)" value={draft.number} onChangeText={(t) => set({ number: t })} maxLength={PROJECT_NUMBER_MAX} autoCorrect={false} placeholder="e.g. PDO-2026-014" editable={!frozen} />
+          <TextField label="Project number (optional)" value={draft.number} onChangeText={(t) => set({ number: t })} maxLength={PROJECT_NUMBER_MAX} autoCorrect={false} placeholder="e.g. NWT-2026-014" editable={!frozen} />
           <Text style={s.note}>The client’s job or contract number, if there is one.</Text>
         </View>
 

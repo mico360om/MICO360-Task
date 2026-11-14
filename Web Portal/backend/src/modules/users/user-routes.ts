@@ -23,6 +23,7 @@ import { IGNORED_PASSWORD_AUDIT, ignoredPasswordMessage, resolveWayIn, temporary
 import { TEMPORARY_PASSWORD_STYLES } from '../../lib/temporary-password';
 import { invitationDaysSchema } from '../settings/settings-service';
 import { cleanDepartmentName, DEPARTMENT_NAME_MAX, type Departments } from './prisma-departments';
+import { viewerOfRequest, type FileLinks } from '../files/file-links';
 
 // Password strength (8+ chars, a letter and a digit) is enforced by the service for every endpoint.
 const password = z.string().min(1).max(200);
@@ -141,6 +142,8 @@ export interface UserRouteDeps {
   avatarFaces?: { prepare(url: string, content: Buffer): Promise<void>; discard?(url: string): Promise<void> };
   /** "Download my data"; when absent, GET /users/me/export isn't offered. */
   exportData?: DataExporter;
+  /** 1.23.29 private file links: the export's task files are signed for the person (working about a day). */
+  fileLinks?: FileLinks;
   /** Company time zone — dates the export file name. */
   timeZone?: string;
   /** Welcome emails ("Set your password" links); when absent, they aren't offered. */
@@ -182,8 +185,14 @@ export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDe
   if (deps.exportData) {
     const exportData = deps.exportData;
     app.get('/users/me/export', { preHandler: guard.authenticate }, async (req, reply) => {
-      const data = await exportData(req.user!.id);
-      if (!data) return reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Account not found.' } });
+      const found = await exportData(req.user!.id);
+      if (!found) return reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Account not found.' } });
+      // 1.23.29: each task file's address is a link signed for this person (an unsigned one no longer opens).
+      const links = deps.fileLinks;
+      const viewer = viewerOfRequest(req);
+      const data = links
+        ? { ...found, attachments: found.attachments.map((a) => (a && typeof a === 'object' && typeof (a as { url?: unknown }).url === 'string' ? { ...a, url: links.signUrl((a as { url: string }).url, viewer) } : a)) }
+        : found;
       logAudit(req, 'user.data_exported', req.user!.id);
       return reply
         .header('Content-Type', 'application/json; charset=utf-8')

@@ -34,7 +34,7 @@ const row = (o: Partial<ProjectOverview> & Pick<ProjectOverview, 'id' | 'name' |
 
 export const LIST: ProjectOverview[] = [
   row({
-    id: 'p1', name: 'Rig Inspection', code: 'RIG', number: '4471', clientName: 'PDO', status: 'ACTIVE', ownerId: 'u1', owner: ANN, targetDate: '2026-10-20T00:00:00.000Z',
+    id: 'p1', name: 'Rig Inspection', code: 'RIG', number: '4471', clientName: 'NWT', status: 'ACTIVE', ownerId: 'u1', owner: ANN, targetDate: '2026-10-20T00:00:00.000Z',
     stats: { total: 40, done: 25, open: 15, overdue: 3, nextDue: '2026-10-30', lastActivityAt: '2026-10-30T06:00:00.000Z' },
     team: [ANN, OMAR, SARA, ZED], teamCount: 6, mine: true, canManage: true,
   }),
@@ -55,7 +55,7 @@ export const LIST: ProjectOverview[] = [
     team: [OMAR, ANN], teamCount: 2,
   }),
   row({
-    id: 'p6', name: 'Delta 10', code: 'DEL', number: 'PDO-9', status: 'ARCHIVED', targetDate: '2025-08-01',
+    id: 'p6', name: 'Delta 10', code: 'DEL', number: 'NWT-9', status: 'ARCHIVED', targetDate: '2025-08-01',
     stats: { total: 3, done: 2, open: 1, overdue: 1, nextDue: null, lastActivityAt: '2025-12-01T10:00:00.000Z' },
   }),
 ];

@@ -55,14 +55,14 @@ describe('the duplicate rule', () => {
     expect(isSameGuest(a, { name: 'Sara', company: 'Acme', email: 'site@acme.com', phone: '24000000' })).toBe(false);
   });
   it('the same name with different details is a different person; with no details at all, the same', () => {
-    expect(isSameGuest({ name: 'Ahmed', company: 'Acme' }, { name: 'Ahmed', company: 'PDO' })).toBe(false);
+    expect(isSameGuest({ name: 'Ahmed', company: 'Acme' }, { name: 'Ahmed', company: 'NWT' })).toBe(false);
     expect(isSameGuest({ name: 'Ahmed', company: 'Acme' }, { name: 'Ahmed' })).toBe(false);
     expect(isSameGuest({ name: 'Ahmed' }, { name: ' ahmed ' })).toBe(true);
   });
   it('the New guest check splits the list into the same person and same-name others', () => {
     const list = [
       { id: 'g1', name: 'Ahmed Al Harthy', company: 'Acme' },
-      { id: 'g2', name: 'Ahmed Al Harthy', company: 'PDO' },
+      { id: 'g2', name: 'Ahmed Al Harthy', company: 'NWT' },
       { id: 'g3', name: 'Sara', company: 'Acme' },
     ];
     const m = guestMatches({ name: 'ahmed al harthy', company: 'acme' }, list);
@@ -88,7 +88,7 @@ describe('names, lines and filters', () => {
     expect(guestsCardLine([ahmed, sara, sara])).toBe('Guest: Ahmed (Acme) and 2 more');
     expect(withGuestsText([])).toBe('');
     expect(withGuestsText([ahmed])).toBe('with guest Ahmed (Acme)');
-    expect(withGuestsText([ahmed, sara, { name: 'Ali', company: 'BP' }])).toBe('with guests Ahmed (Acme), Sara and Ali (BP)');
+    expect(withGuestsText([ahmed, sara, { name: 'Ali', company: 'Globex' }])).toBe('with guests Ahmed (Acme), Sara and Ali (Globex)');
   });
   it('filters by guest and by guest company', () => {
     expect(hasGuest([ahmed], 'g1')).toBe(true);

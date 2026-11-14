@@ -496,7 +496,7 @@ describe('Minutes PDF route: the project header', () => {
   it('prints the project’s picture, code and number at the top of a project meeting’s minutes', async () => {
     const read: string[] = [];
     const app = await makeApp({}, undefined, undefined, {
-      resolveProject: async () => ({ name: 'Falcon CRM', code: 'FAL', number: 'PDO-2026-014', clientName: 'Acme Corp', status: 'ACTIVE', ownerId: null, startDate: null, targetDate: null, color: '#1E5A8B', imageUrl: '/uploads/projects/falcon.jpg' }),
+      resolveProject: async () => ({ name: 'Falcon CRM', code: 'FAL', number: 'NWT-2026-014', clientName: 'Acme Corp', status: 'ACTIVE', ownerId: null, startDate: null, targetDate: null, color: '#1E5A8B', imageUrl: '/uploads/projects/falcon.jpg' }),
       readProjectImage: async (url: string) => { read.push(url); return jpeg; },
     }, true);
     const auth = `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}`;
@@ -507,7 +507,7 @@ describe('Minutes PDF route: the project header', () => {
     const { pages, contents } = inspectPdf(res.rawPayload);
     expect(read).toEqual(['/uploads/projects/falcon.jpg']);
     // Its code, number and client are among the facts under the title.
-    expect(pages[0]).toEqual(expect.arrayContaining(['Code', 'FAL', 'Project no.', 'PDO-2026-014', 'Client', 'Acme Corp']));
+    expect(pages[0]).toEqual(expect.arrayContaining(['Code', 'FAL', 'Project no.', 'NWT-2026-014', 'Client', 'Acme Corp']));
     expect(contents[0]).toMatch(/\/I\d+ Do/);
   });
 

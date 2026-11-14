@@ -155,7 +155,7 @@ describe('My Tasks (4d): the website’s filters, chips and sort', () => {
   it('finds my tasks by an external contact’s name or company, filters them by company, and names the contacts', () => {
     const withContacts = enrichMyTasks(
       [
-        task('7', { title: 'Rig check', externalSummary: { count: 2, name: 'Ahmed Al Said', company: 'Acme', names: ['Ahmed Al Said', 'Sara'], companies: ['Acme', 'PDO'] } }),
+        task('7', { title: 'Rig check', externalSummary: { count: 2, name: 'Ahmed Al Said', company: 'Acme', names: ['Ahmed Al Said', 'Sara'], companies: ['Acme', 'NWT'] } }),
         task('8', { title: 'Office move' }),
       ],
       projects,
@@ -163,7 +163,7 @@ describe('My Tasks (4d): the website’s filters, chips and sort', () => {
     );
     const ids = (o: { q?: string; company?: string }) => filterMyTasks(withContacts, f(), { timeZone: TZ, now: NOW, ...o }).map((r) => r.task.id);
     expect(ids({ q: 'sara' })).toEqual(['7']);
-    expect(ids({ q: 'pdo' })).toEqual(['7']);
+    expect(ids({ q: 'nwt' })).toEqual(['7']);
     expect(ids({ company: 'acme' })).toEqual(['7']);
     expect(ids({ company: '' })).toEqual(['7', '8']);
     expect(myTaskLabel(withContacts[0]!)).toBe('MICO-7, Rig check. Alpha Tower. To Do. Normal priority. No due date. 0% done. External: Ahmed Al Said (Acme) and 1 more.');

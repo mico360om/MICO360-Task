@@ -10,6 +10,7 @@ import { pastedFiles } from '../../lib/clipboard-files';
 import { detectPlatform, isTypingTarget } from '../../lib/shortcuts';
 import { markFound } from '../../lib/useFoundAnchor';
 import type { OfficePreview } from '../../api/attachments';
+import { reportFileLinkFailed } from '../../lib/file-link-refresh';
 
 /** Loads the text of a Word / Excel / PowerPoint attachment (the server unpacks it). */
 export type LoadOfficePreview = (attachmentId: string) => Promise<OfficePreview>;
@@ -88,6 +89,8 @@ function FilePreview({ a, href, mode, loadOffice, onClose }: { a: DrawerAttachme
       }
       try {
         const r = await fetch(href);
+        // 1.23.29: a link that no longer works (403) asks for new links; the list's new one runs this again.
+        if (r.status === 403) reportFileLinkFailed(href);
         if (!r.ok) throw new Error(String(r.status));
         if (mode === 'pdf') {
           url = URL.createObjectURL(new Blob([await r.arrayBuffer()], { type: 'application/pdf' }));

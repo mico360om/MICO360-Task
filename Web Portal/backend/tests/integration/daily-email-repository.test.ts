@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { PrismaClient } from '@prisma/client';
 import { createPrismaDailyEmailRepository, createPrismaDailyEmailCheckStore, DAILY_EMAIL_CHECK_KEY } from '../../src/modules/daily-emails/prisma-daily-email-repository';
 import { isSettingKey } from '../../src/modules/settings/settings-service';
+import { testPrisma } from './test-prisma';
 
 // Requires a running MySQL (TEST_DATABASE_URL) with migrations applied.
-const prisma = new PrismaClient({ datasources: { db: { url: process.env.TEST_DATABASE_URL } } });
+// As the server's client (lib/prisma.ts): save conflicts are tried again, as on the live site (1.23.31).
+const prisma = testPrisma();
 const repo = createPrismaDailyEmailRepository(prisma);
 let userId = '';
 

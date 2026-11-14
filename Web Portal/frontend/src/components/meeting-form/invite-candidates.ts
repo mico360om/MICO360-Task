@@ -59,7 +59,7 @@ export function invitablePeople<T extends { id: string }>(candidates: CompanyPer
   return [...colleagues, ...clients.filter((c) => !known.has(c.id))];
 }
 
-/** "Client · PDO" for a client (1.23), else "@username" — the hint beside a name in a people picker. */
+/** "Client · NWT" for a client (1.23), else "@username" — the hint beside a name in a people picker. */
 export function personHint(p: { username?: string; client?: boolean; organisation?: string | null }): string | undefined {
   if (p.client) return p.organisation ? `Client · ${p.organisation}` : 'Client';
   return p.username ? `@${p.username}` : undefined;

@@ -28,8 +28,8 @@ const contact = {
   status: { label: 'To do', category: 'TODO', done: false }, date: null, people: null, matches: [], target: { type: 'contact', taskId: 't1', contactId: 'c1' },
 };
 const client = {
-  kind: 'contact', sub: 'client', id: 'client:pdo', title: 'Petroleum Development Oman', titleRanges: [], context: 'Client of 3 projects', project: null,
-  status: null, date: null, people: null, matches: [], target: { type: 'client', name: 'Petroleum Development Oman' },
+  kind: 'contact', sub: 'client', id: 'client:nwt', title: 'Northwind Trading', titleRanges: [], context: 'Client of 3 projects', project: null,
+  status: null, date: null, people: null, matches: [], target: { type: 'client', name: 'Northwind Trading' },
 };
 const COUNTS = { task: 1, project: 0, meeting: 0, note: 0, minutes: 0, file: 0, inspection: 0, checklist: 1, contact: 2 };
 const OWNER_CHIPS = {
@@ -165,10 +165,10 @@ describe('Search page — the new kinds', () => {
     await userEvent.click(screen.getByText('Khalid Al Balushi').closest('button')!);
     expect(where()).toContain('contact=c1');
     expect(where()).not.toContain('item=');
-    const c = screen.getByText('Petroleum Development Oman').closest('a')!;
+    const c = screen.getByText('Northwind Trading').closest('a')!;
     expect(c).toHaveTextContent('Client');
     expect(c).toHaveTextContent('Client of 3 projects');
-    expect(c).toHaveAttribute('href', '/projects?client=Petroleum%20Development%20Oman');
+    expect(c).toHaveAttribute('href', '/projects?client=Northwind%20Trading');
   });
 });
 

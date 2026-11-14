@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { Prisma, PrismaClient } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { createPrismaTaskRepository, createPrismaProjectLookup } from '../../src/modules/tasks/prisma-task-repository';
 import { createTaskService } from '../../src/modules/tasks/task-service';
 import { createPrismaTaskMoveRepository } from '../../src/modules/tasks/prisma-task-move-repository';
@@ -10,9 +10,11 @@ import { createRecurrenceService } from '../../src/modules/tasks/recurrence-serv
 import { createTaskSearchIndex } from '../../src/modules/search/task-search-index';
 import { createTaskSearchEngine } from '../../src/modules/search/task-search-engine';
 import { runBackfill } from './company-helpers';
+import { testPrisma } from './test-prisma';
 
 // Requires a running MySQL (TEST_DATABASE_URL) with migrations applied.
-const prisma = new PrismaClient({ datasources: { db: { url: process.env.TEST_DATABASE_URL } } });
+// As the server's client (lib/prisma.ts): save conflicts are tried again, as on the live site (1.23.31).
+const prisma = testPrisma();
 const TZ = 'Asia/Muscat';
 // 10:00 on 24 Oct in Muscat.
 const NOW = new Date('2026-10-24T06:00:00Z');

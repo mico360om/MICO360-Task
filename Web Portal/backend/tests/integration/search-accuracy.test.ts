@@ -35,7 +35,7 @@ async function seed(): Promise<void> {
     const done = await prisma.kanbanColumn.create({ data: { projectId: ids[key]!, name: 'Done', category: 'DONE', position: 1 } });
     return { todo: todo.id, done: done.id, code: `${code}${TAG}` };
   };
-  const P1 = await project('P1', 'RGO', { name: 'North Field Rig Overhaul', description: 'Major overhaul of drilling rig 7 including mast inspection and mud pump replacement.', clientName: 'Petroleum Development Oman' });
+  const P1 = await project('P1', 'RGO', { name: 'North Field Rig Overhaul', description: 'Major overhaul of drilling rig 7 including mast inspection and mud pump replacement.', clientName: 'Northwind Trading' });
   const P2 = await project('P2', 'SRX', { name: 'Sohar Refinery Expansion', description: 'New hydrocracker unit and tank farm.' });
   const P3 = await project('P3', 'PMA', { name: 'مشروع صيانة المضخات', description: 'صيانة دورية للمضخات في محطة الضخ الرئيسية' });
   const n: Record<string, number> = {};
@@ -69,7 +69,7 @@ async function seed(): Promise<void> {
   await task('T10', P1, 'P1', 'Safety stand-down meeting follow-up');
   await task('T11', P2, 'P2', 'Hydrocracker reactor foundation');
   await task('T12', P2, 'P2', 'Tank farm fire water piping', { description: 'Hydrotest the fire water ring main' });
-  await task('T13', P2, 'P2', 'Heat exchanger bundle pulling', { contact: { name: 'Khalid Al Balushi', company: 'Larsen & Toubro' } });
+  await task('T13', P2, 'P2', 'Heat exchanger bundle pulling', { contact: { name: 'Khalid Al Balushi', company: 'Globex Engineering' } });
   await task('T14', P2, 'P2', 'Instrument loop checks');
   await task('T15', P2, 'P2', 'Commissioning procedure review');
   await task('T16', P3, 'P3', 'إصلاح المضخة رقم ٣', { description: 'تغيير مانع التسرب الميكانيكي' });
@@ -205,10 +205,10 @@ const QUESTIONS: [string, string[]][] = [
   ['@T5hash', ['T5']],
   // Projects, clients and contacts
   ['North Field', ['P1']],
-  ['Petroleum Development Oman', ['P1', 'CL1']],
+  ['Northwind Trading', ['P1', 'CL1']],
   ['tank farm', ['P2', 'T12']],
   ['Khalid Al Balushi', ['T13', 'C1']],
-  ['Larsen', ['T13', 'C1']],
+  ['Globex', ['T13', 'C1']],
   // 1.23.6 Checklist items, and the client named on a project
   ['verify zero energy', ['CK1', 'T5']],
   ['apply locks', ['CK2', 'T5']],
@@ -224,7 +224,7 @@ const keyOf = (name: string) =>
   // 1.23.6: a checklist item; a contact and a client are "Clients & contacts" results.
   : name.startsWith('CK') ? `checklist:${ids[name]}`
   : name === 'C1' ? `contact:contact:${ids.C1}`
-  : name === 'CL1' ? 'contact:client:petroleum development oman'
+  : name === 'CL1' ? 'contact:client:northwind trading'
   : `${KIND[name[0]!]}:${ids[name]}`;
 
 beforeAll(async () => {
@@ -234,7 +234,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   const projectIds = [ids.P1, ids.P2, ids.P3].filter((x): x is string => !!x);
-  await prisma.searchIndex.deleteMany({ where: { kind: 'client', recordId: 'petroleum development oman' } });
+  await prisma.searchIndex.deleteMany({ where: { kind: 'client', recordId: 'northwind trading' } });
   await prisma.searchIndex.deleteMany({ where: { OR: [{ projectId: { in: projectIds } }, { taskId: { in: Object.entries(ids).filter(([k]) => /^T\d+$/.test(k)).map(([, v]) => v) } }, { meetingId: { in: [ids.M1, ids.M2, ids.M3].filter((x): x is string => !!x) } }, { recordId: { in: [ids.F1, ids.F2, ids.F3, ids.F4, ids.I1, ids.I2].filter((x): x is string => !!x) } }] } });
   await prisma.inspection.deleteMany({ where: { projectId: { in: projectIds } } });
   await prisma.decision.deleteMany({ where: { createdById: owner } });

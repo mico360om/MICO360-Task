@@ -183,7 +183,7 @@ describe('TaskCard on a board of several projects', () => {
 // and from its external contacts in short only when an older server sends no guests.
 describe('TaskCard: guests', () => {
   it('says who outside the company is named on it: the first guest, and how many more', () => {
-    render(<TaskCard task={{ ...task, guests: [{ id: 'g1', name: 'Ahmed Al Said', company: 'Acme' }, { id: 'g2', name: 'Sara', company: null }, { id: 'g3', name: 'Huda', company: 'PDO' }] }} />);
+    render(<TaskCard task={{ ...task, guests: [{ id: 'g1', name: 'Ahmed Al Said', company: 'Acme' }, { id: 'g2', name: 'Sara', company: null }, { id: 'g3', name: 'Huda', company: 'NWT' }] }} />);
     expect(screen.getByText('Guest: Ahmed Al Said (Acme) and 2 more')).toBeInTheDocument();
     expect(screen.queryByText(/^External:/)).toBeNull();
   });

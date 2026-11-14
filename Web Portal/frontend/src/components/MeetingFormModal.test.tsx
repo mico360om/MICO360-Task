@@ -31,13 +31,13 @@ beforeEach(() => {
     if (u.endsWith('/users/directory')) return json({ data: directory });
     if (u.endsWith('/meetings/free-times')) return json({ data: freeReply });
     if (u.endsWith('/projects') && method === 'GET') {
-      return json({ data: [{ id: 'p4', name: 'Pump Station Upgrade', code: 'PUMP', number: 'PDO-2026-020', status: 'ACTIVE' }, { id: 'p1', name: 'Rig Inspection', code: 'RIG1', number: null, status: 'ACTIVE' }] });
+      return json({ data: [{ id: 'p4', name: 'Pump Station Upgrade', code: 'PUMP', number: 'NWT-2026-020', status: 'ACTIVE' }, { id: 'p1', name: 'Rig Inspection', code: 'RIG1', number: null, status: 'ACTIVE' }] });
     }
     if (u.endsWith('/ai/parse-meeting')) {
       return json({
         data: {
           title: 'Weekly site review', description: null, date: '2026-10-26', startTime: '10:00', minutes: 90, recurrence: null,
-          project: { id: 'p4', code: 'PUMP', number: 'PDO-2026-020', name: 'Pump Station Upgrade' }, location: 'Rig 1 site office', onlineLink: null,
+          project: { id: 'p4', code: 'PUMP', number: 'NWT-2026-020', name: 'Pump Station Upgrade' }, location: 'Rig 1 site office', onlineLink: null,
           people: { found: [{ id: 'u2', name: 'Sara Al Balushi' }], choices: [], notFound: [] }, guests: [], agenda: ['Pump test results'],
         },
       });

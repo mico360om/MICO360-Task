@@ -589,7 +589,7 @@ export function ProjectFormDialog({ project, onClose, onSaved, templateId }: { p
           onChange={(e) => set({ clientName: e.target.value })}
           dir="auto"
           maxLength={NAME_MAX}
-          placeholder={clients.length ? 'Type or pick a client' : 'e.g. Petroleum Development Oman'}
+          placeholder={clients.length ? 'Type or pick a client' : 'e.g. Northwind Trading'}
           className={input(false)}
         />
         <datalist id={ids.clients}>{clients.map((c) => <option key={c} value={c} />)}</datalist>
@@ -603,7 +603,7 @@ export function ProjectFormDialog({ project, onClose, onSaved, templateId }: { p
           maxLength={PROJECT_NUMBER_MAX}
           spellCheck={false}
           aria-describedby={ids.numberNote}
-          placeholder="e.g. PDO-2026-014"
+          placeholder="e.g. NWT-2026-014"
           className={`${input(false)} font-mono`}
         />
         <p id={ids.numberNote} className="mt-1 text-xs text-ink-2">The client’s job or contract number, if there is one.</p>

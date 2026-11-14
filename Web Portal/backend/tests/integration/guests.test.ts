@@ -97,8 +97,8 @@ describe('the company guest list', () => {
 
   it('finds guests by name, company, email or phone digits; retired and merged ones are not picked', async () => {
     const a = await guests.createForProject(p1, { name: 'Ahmed', company: 'Acme', phone: '+968 9912 3456' }, owner);
-    const s = await guests.createForProject(p1, { name: 'Sara', company: 'PDO', email: 'sara@pdo.co.om' }, owner);
-    await guests.createForProject(p1, { name: 'Ali', company: 'BP' }, owner);
+    const s = await guests.createForProject(p1, { name: 'Sara', company: 'NWT', email: 'sara@northwind.example' }, owner);
+    await guests.createForProject(p1, { name: 'Ali', company: 'Globex' }, owner);
     expect((await guests.listForProject(p1, 'acme')).map((g) => g.id)).toEqual([a.id]);
     expect((await guests.listForProject(p1, '99123')).map((g) => g.id)).toEqual([a.id]);
     expect((await guests.listForProject(p1, 'sara@')).map((g) => g.id)).toEqual([s.id]);
@@ -108,7 +108,7 @@ describe('the company guest list', () => {
 
   it('the duplicate check: the same person, and same-name others', async () => {
     const a = await guests.createForProject(p1, { name: 'Ahmed', company: 'Acme' }, owner);
-    const b = await guests.createForProject(p1, { name: 'Ahmed', company: 'PDO' }, owner);
+    const b = await guests.createForProject(p1, { name: 'Ahmed', company: 'NWT' }, owner);
     const m = await guests.duplicatesFor(p2, { name: 'AHMED', company: 'acme' });
     expect(m.same.map((g) => g.id)).toEqual([a.id]);
     expect(m.similar.map((g) => g.id)).toEqual([b.id]);
@@ -225,10 +225,10 @@ describe('the old external-contact way in (Android app, extension) works on gues
     const t = await task(p1, todo, { assignees: [other] });
     const g = await guests.createForProject(p1, { name: 'Ahmed', company: 'Acme', designation: 'Lead' }, owner);
     const c = await service.add(t, { name: 'Ahmed', company: 'Acme' }, owner);
-    const { after } = await service.update(c.id, { company: 'PDO' });
+    const { after } = await service.update(c.id, { company: 'NWT' });
     const row = await prisma.taskExternalContact.findUnique({ where: { id: after.id } });
     expect(row?.guestId).not.toBe(g.id);
-    expect(row).toMatchObject({ name: 'Ahmed', company: 'PDO' });
+    expect(row).toMatchObject({ name: 'Ahmed', company: 'NWT' });
     expect(row?.designation).toBe('Lead');
     expect(await prisma.guestContact.findUnique({ where: { id: g.id } })).toMatchObject({ company: 'Acme', designation: 'Lead' });
     const back = await service.update(after.id, { company: 'Acme', designation: 'Manager', remarks: 'note' });
@@ -238,10 +238,10 @@ describe('the old external-contact way in (Android app, extension) works on gues
   });
 
   it('suggestions come from the company’s guest list', async () => {
-    await guests.createForProject(p1, { name: 'Ahmed Al-Hassan', company: 'Oman (PDO)' }, owner);
+    await guests.createForProject(p1, { name: 'Ahmed Al-Hassan', company: 'Oman (NWT)' }, owner);
     expect((await service.suggest(p2, 'has')).map((s) => s.name)).toEqual(['Ahmed Al-Hassan']);
     expect(await service.suggest(pB, 'has')).toEqual([]);
-    expect((await service.suggest(p1, 'pd'))[0]).toMatchObject({ ...none, name: 'Ahmed Al-Hassan', company: 'Oman (PDO)' });
+    expect((await service.suggest(p1, 'nw'))[0]).toMatchObject({ ...none, name: 'Ahmed Al-Hassan', company: 'Oman (NWT)' });
   });
 
   it('a new task sent with contacts links guests in the same write', async () => {

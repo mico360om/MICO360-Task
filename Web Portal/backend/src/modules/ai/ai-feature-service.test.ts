@@ -138,7 +138,7 @@ describe('AiFeatureService: which model answers', () => {
 
 describe('AiFeatureService: describing a task in plain English', () => {
   const projects = [
-    { id: 'p1', code: 'RIG1', number: 'PDO-2026-014', name: 'Rig Inspection Portal', status: 'ACTIVE' as const },
+    { id: 'p1', code: 'RIG1', number: 'NWT-2026-014', name: 'Rig Inspection Portal', status: 'ACTIVE' as const },
     { id: 'p2', code: 'WEB', number: null, name: 'Company Website', status: 'ACTIVE' as const },
     { id: 'p3', code: 'OLD', number: '1999', name: 'Old Archive Project', status: 'ARCHIVED' as const },
     // companies: all its companies archived — it counts as archived, whatever its status.
@@ -211,7 +211,7 @@ describe('AiFeatureService: describing a task in plain English', () => {
     const { svc, prompts } = describing({ title: 'X' });
     await svc.parseTask({ text: 'x', today: '2026-09-14' }, me);
     expect(prompts[0]).toContain('RIG1');
-    expect(prompts[0]).toContain('PDO-2026-014');
+    expect(prompts[0]).toContain('NWT-2026-014');
     expect(prompts[0]).toContain('Company Website');
     expect(prompts[0]).not.toContain('Old Archive Project');
     expect(prompts[0]).not.toContain('Shut Company Project');
@@ -233,15 +233,15 @@ describe('AiFeatureService: describing a task in plain English', () => {
   });
 
   it('suggests the project the AI names, by code, number or name', async () => {
-    for (const named of ['RIG1', 'pdo-2026-014', 'Rig Inspection Portal']) {
+    for (const named of ['RIG1', 'nwt-2026-014', 'Rig Inspection Portal']) {
       const { svc } = describing({ title: 'Check the forms', project: named });
-      expect((await svc.parseTask({ text: 'check the forms', today: '2026-09-14' }, me)).project, named).toEqual({ id: 'p1', code: 'RIG1', number: 'PDO-2026-014', name: 'Rig Inspection Portal' });
+      expect((await svc.parseTask({ text: 'check the forms', today: '2026-09-14' }, me)).project, named).toEqual({ id: 'p1', code: 'RIG1', number: 'NWT-2026-014', name: 'Rig Inspection Portal' });
     }
   });
 
   it('suggests the project whose code or number is written in the note, even when the AI misses it', async () => {
     const byNumber = describing({ title: 'Check the forms', project: null });
-    expect((await byNumber.svc.parseTask({ text: 'check the forms for PDO-2026-014 by friday', today: '2026-09-14' }, me)).project?.id).toBe('p1');
+    expect((await byNumber.svc.parseTask({ text: 'check the forms for NWT-2026-014 by friday', today: '2026-09-14' }, me)).project?.id).toBe('p1');
     const byCode = describing({ title: 'Fix the header', project: 'RIG1' });
     expect((await byCode.svc.parseTask({ text: 'WEB: fix the header', today: '2026-09-14' }, me)).project?.id).toBe('p2');
     // A code is matched as written (in capitals): the word "web" in a note is not the WEB project.
@@ -411,7 +411,7 @@ describe('AiFeatureService on MICO360 AI (its API guide)', () => {
 
 describe('AiFeatureService: filling the meeting form from a sentence', () => {
   const projects = [
-    { id: 'p4', code: 'PUMP', number: 'PDO-2026-020', name: 'Pump Station Upgrade', status: 'ACTIVE' as const },
+    { id: 'p4', code: 'PUMP', number: 'NWT-2026-020', name: 'Pump Station Upgrade', status: 'ACTIVE' as const },
     { id: 'p2', code: 'WEB', number: null, name: 'Company Website', status: 'ACTIVE' as const },
   ];
   const people = [
@@ -447,7 +447,7 @@ describe('AiFeatureService: filling the meeting form from a sentence', () => {
       startTime: '10:00',
       minutes: 90,
       recurrence: { freq: 'WEEKLY', interval: 1, weekdays: [1] },
-      project: { id: 'p4', code: 'PUMP', number: 'PDO-2026-020', name: 'Pump Station Upgrade' },
+      project: { id: 'p4', code: 'PUMP', number: 'NWT-2026-020', name: 'Pump Station Upgrade' },
       location: 'Rig 1 site office',
       onlineLink: 'https://meet.example/x',
       people: nobody,
@@ -527,10 +527,10 @@ describe('AiFeatureService: filling the meeting form from a sentence', () => {
   it('turns emails into guests named from before the @', async () => {
     const { svc } = meetingAi({
       title: 'Handover',
-      guests: [{ email: 'sami.k@contractor.om', name: 'Sami Al Kindi' }, { email: 'HUDA@pdo.co.om', name: '' }, { email: 'made.up@nowhere.com', name: 'Ghost' }],
+      guests: [{ email: 'sami.k@contractor.om', name: 'Sami Al Kindi' }, { email: 'HUDA@northwind.example', name: '' }, { email: 'made.up@nowhere.com', name: 'Ghost' }],
     });
-    const out = await svc.parseMeeting({ text: 'handover with sami.k@contractor.om and huda@pdo.co.om', today: '2026-10-21' }, me);
-    expect(out.guests).toEqual([{ email: 'sami.k@contractor.om', name: 'Sami Al Kindi' }, { email: 'huda@pdo.co.om', name: 'huda' }]);
+    const out = await svc.parseMeeting({ text: 'handover with sami.k@contractor.om and huda@northwind.example', today: '2026-10-21' }, me);
+    expect(out.guests).toEqual([{ email: 'sami.k@contractor.om', name: 'Sami Al Kindi' }, { email: 'huda@northwind.example', name: 'huda' }]);
   });
 
   it('keeps an online link only if the sentence has it', async () => {

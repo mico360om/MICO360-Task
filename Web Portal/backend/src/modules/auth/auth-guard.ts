@@ -8,8 +8,11 @@ import { assertManagerView, inManagerView, type ManagerViewLookup } from './mana
 
 declare module 'fastify' {
   interface FastifyRequest {
-    /** `managerView`: an administrator with Manager View on (manager-view.ts). */
-    user?: { id: string; roles: string[]; managerView?: boolean };
+    /**
+     * `managerView`: an administrator with Manager View on (manager-view.ts). `ver`: the session's token
+     * version, already checked against the account (1.23.29: file links are signed with it).
+     */
+    user?: { id: string; roles: string[]; managerView?: boolean; ver?: number };
   }
 }
 
@@ -34,6 +37,8 @@ export interface AuthGuardOptions {
   userState?: UserStateLookup;
   /** How long a looked-up state is reused in-process. Default 10 seconds. */
   cacheTtlMs?: number;
+  /** Most accounts remembered at once (the oldest goes first). Default 10,000. */
+  cacheMaxEntries?: number;
   now?: () => number;
   /**
    * Manager View's project-settings rule (does this person run the project). Absent: an administrator in
@@ -60,16 +65,22 @@ function assertRouteFor(req: FastifyRequest, roles: readonly string[]): void {
 
 /** Route guards for JWT auth (T2.2) and role-based access control (T2.4). */
 export function createAuthGuard(tokenService: TokenService, opts: AuthGuardOptions = {}) {
-  const { userState, cacheTtlMs = 10_000, now = () => Date.now(), managerView: managerViewLookup } = opts;
+  const { userState, cacheTtlMs = 10_000, now = () => Date.now(), managerView: managerViewLookup, cacheMaxEntries = MAX_CACHE_ENTRIES } = opts;
   const cache = new Map<string, { at: number; state: Promise<UserState | null> }>();
+
+  /** Remember an account; when full, the oldest goes (1.23.29 review: never everyone's at once). */
+  function remember(userId: string, state: Promise<UserState | null>): void {
+    cache.delete(userId);
+    while (cache.size >= cacheMaxEntries) cache.delete(cache.keys().next().value!);
+    cache.set(userId, { at: now(), state });
+    state.catch(() => cache.delete(userId));
+  }
 
   function lookup(userId: string, fresh: boolean): Promise<UserState | null> {
     const hit = cache.get(userId);
     if (!fresh && hit && now() - hit.at < cacheTtlMs) return hit.state;
-    if (cache.size >= MAX_CACHE_ENTRIES) cache.clear();
     const state = userState!(userId);
-    cache.set(userId, { at: now(), state });
-    state.catch(() => cache.delete(userId));
+    remember(userId, state);
     return state;
   }
 
@@ -121,18 +132,19 @@ export function createAuthGuard(tokenService: TokenService, opts: AuthGuardOptio
     if (!claims.sub || claims.type !== 'access') throw new UnauthorizedError();
     const tokenRoles = Array.isArray(claims.roles) ? (claims.roles as string[]) : [];
 
+    const ver = typeof claims.ver === 'number' ? claims.ver : 0;
     if (!userState) {
-      req.user = { id: claims.sub, roles: tokenRoles };
+      req.user = { id: claims.sub, roles: tokenRoles, ver };
       assertRouteFor(req, tokenRoles);
       return;
     }
 
-    const state = await currentState(claims.sub, typeof claims.ver === 'number' ? claims.ver : 0);
+    const state = await currentState(claims.sub, ver);
     if (!state) {
       throw new UnauthorizedError('Your session has ended. Please sign in again.');
     }
     const managerView = inManagerView({ roles: state.roles, managerView: state.managerView });
-    req.user = { id: claims.sub, roles: state.roles, ...(managerView ? { managerView: true } : {}) };
+    req.user = { id: claims.sub, roles: state.roles, ver, ...(managerView ? { managerView: true } : {}) };
     assertRouteFor(req, state.roles);
     // Manager View: the one central check (manager-view.ts) — admin pages refused, project settings only for
     // a project they run, everything else as an administrator.
@@ -155,7 +167,26 @@ export function createAuthGuard(tokenService: TokenService, opts: AuthGuardOptio
     cache.delete(userId);
   }
 
-  return { authenticate, requireRoles, forgetUser, sessionCurrent };
+  /**
+   * 1.23.29 private file links: an account's live state (active, token version, roles) for the file route,
+   * through the same short cache as every request (`fresh`: read it again now). Null without live account
+   * state — a link can't be checked then, so it is refused.
+   */
+  async function accountState(userId: string, opts: { fresh?: boolean } = {}): Promise<UserState | null> {
+    if (!userState) return null;
+    const hit = cache.get(userId);
+    if (opts.fresh !== true && hit && now() - hit.at < cacheTtlMs) return hit.state;
+    // One read for a burst (a page of pictures): the read in flight is shared. A link can name anyone, so an
+    // account that doesn't exist is forgotten as soon as that's known (review, 1.23.29): made-up ids can't
+    // crowd real sessions out of this shared cache, and nothing stale stays for an account that's gone.
+    const state = userState(userId);
+    remember(userId, state);
+    const found = await state;
+    if (!found && cache.get(userId)?.state === state) cache.delete(userId);
+    return found;
+  }
+
+  return { authenticate, requireRoles, forgetUser, sessionCurrent, accountState };
 }
 
 export type AuthGuard = ReturnType<typeof createAuthGuard>;

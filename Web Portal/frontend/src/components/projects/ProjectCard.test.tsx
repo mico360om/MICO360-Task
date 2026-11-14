@@ -16,7 +16,7 @@ function project(extra: Partial<Omit<ProjectOverviewWithHealth, 'stats'>> & { st
     code: 'RIG',
     number: 'C-2041',
     name: 'Rig Inspection Portal',
-    clientName: 'Gulf Energy',
+    clientName: 'Northwind Trading',
     status: 'ACTIVE',
     color: '#3A6EA5',
     icon: null,
@@ -53,7 +53,7 @@ describe('ProjectCard', () => {
   it('names the project as the link that opens it, with code · number · client underneath', () => {
     renderCard();
     expect(screen.getByRole('link', { name: 'Rig Inspection Portal' })).toHaveAttribute('href', '/projects/p1');
-    expect(screen.getByTestId('project-meta')).toHaveTextContent('RIG · No. C-2041 · Gulf Energy');
+    expect(screen.getByTestId('project-meta')).toHaveTextContent('RIG · No. C-2041 · Northwind Trading');
   });
 
   it('hands the Projects page’s order on to the project it opens (Previous / Next project, 1.22)', async () => {

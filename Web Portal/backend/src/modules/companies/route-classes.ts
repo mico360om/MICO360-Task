@@ -52,6 +52,10 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   'GET /client/inspections/:inspectionId': 'public',
   'GET /client/inspections/:inspectionId/pdf': 'public',
   'GET /backups/download': 'public',
+  // 1.23.29 private file links: a stored file. A task's or a chat's file opens only through a link signed for
+  // one person (u, e, s), re-checked on every download: an active account with the same session version that
+  // can see the task or conversation now (modules/files/file-route.ts). Photos, project pictures and logos stay public.
+  'GET /uploads/:file': 'public',
   'GET /backups/google/callback': 'public',
 
   // ---- own ------------------------------------------------------------------------------------

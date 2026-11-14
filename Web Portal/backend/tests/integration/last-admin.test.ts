@@ -1,13 +1,14 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { PrismaClient } from '@prisma/client';
 import { createPrismaUserRepository } from '../../src/modules/users/prisma-user-repository';
 import { createUserService } from '../../src/modules/users/user-service';
+import { testPrisma } from './test-prisma';
 
 // Review fix #8 (13 Nov 2026): two administrators removing each other at the same moment must never
 // leave the site without one. Requires a running MySQL (TEST_DATABASE_URL) with migrations applied.
 // Only this file's people (emails ending in @lastadmin.test) are made and removed; any other active
 // administrator in the shared test database is set aside (inactive) for the file and put back after.
-const prisma = new PrismaClient({ datasources: { db: { url: process.env.TEST_DATABASE_URL } } });
+// As the server's client (lib/prisma.ts): save conflicts are tried again, as on the live site (1.23.31).
+const prisma = testPrisma();
 const repo = createPrismaUserRepository(prisma);
 const revoked: string[] = [];
 const svc = createUserService({ users: repo, revokeSessions: async (id) => void revoked.push(id) });

@@ -79,11 +79,11 @@ describe('external contacts: suggestions from the project', () => {
   it('suggests each earlier contact once (the newest details), newest first, at most 10', async () => {
     await s.service.add('t1', { name: 'Ahmed Al Said', company: 'Acme', phone: '+968 1111' }, 'u1');
     await s.service.add('t2', { name: 'ahmed al said', company: 'acme', phone: '+968 2222' }, 'u1');
-    await s.service.add('t2', { name: 'Aisha Hamed', company: 'PDO' }, 'u1');
+    await s.service.add('t2', { name: 'Aisha Hamed', company: 'NWT' }, 'u1');
     await s.service.add('t3', { name: 'Ahmed Elsewhere', company: 'Other' }, 'u1');
     const hits = await s.service.suggest('p1', 'a');
     expect(hits).toEqual([
-      { name: 'Aisha Hamed', company: 'PDO', designation: null, email: null, phone: null, remarks: null },
+      { name: 'Aisha Hamed', company: 'NWT', designation: null, email: null, phone: null, remarks: null },
       { name: 'ahmed al said', company: 'acme', designation: null, email: null, phone: '+968 2222', remarks: null },
     ]);
     for (let i = 0; i < 15; i++) await s.service.add('t1', { name: `Bader ${i}` }, 'u1');
@@ -92,10 +92,10 @@ describe('external contacts: suggestions from the project', () => {
   });
 
   it('finds a contact by the start of any word of the name or company', async () => {
-    await s.service.add('t1', { name: 'Salim Hinai', company: 'Al Amal Trading' }, 'u1');
-    expect((await s.service.suggest('p1', 'ama')).map((c) => c.name)).toEqual(['Salim Hinai']);
+    await s.service.add('t1', { name: 'Salim Hinai', company: 'Northwind Trading' }, 'u1');
+    expect((await s.service.suggest('p1', 'tra')).map((c) => c.name)).toEqual(['Salim Hinai']);
     expect((await s.service.suggest('p1', 'hin')).map((c) => c.name)).toEqual(['Salim Hinai']);
-    expect(await s.service.suggest('p1', 'mal')).toEqual([]);
+    expect(await s.service.suggest('p1', 'win')).toEqual([]);
   });
 });
 

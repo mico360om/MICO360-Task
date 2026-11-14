@@ -36,7 +36,7 @@ beforeEach(async () => {
   const bo = await user(EMAILS[1]!, 'Bo');
   await user(EMAILS[2]!, 'Outsider');
   const project = await prisma.project.create({
-    data: { code: CODE, number: 'PDO-2026-014', name: 'TX Export Project', color: '#1E5A8B', icon: 'rocket', imageUrl: '/uploads/projects/tx.png', createdById: ada.id, ownerId: ada.id, members: { create: [{ userId: bo.id }] } },
+    data: { code: CODE, number: 'NWT-2026-014', name: 'TX Export Project', color: '#1E5A8B', icon: 'rocket', imageUrl: '/uploads/projects/tx.png', createdById: ada.id, ownerId: ada.id, members: { create: [{ userId: bo.id }] } },
   });
   const column = await prisma.kanbanColumn.create({ data: { projectId: project.id, name: 'Doing', category: 'IN_PROGRESS', position: 0 } });
   await runBackfill(prisma); // companies: everyone and every project here in the one company, as after the upgrade
@@ -61,7 +61,7 @@ describe('Task export source (integration)', () => {
     expect(t).toMatchObject({
       projectName: 'TX Export Project',
       projectCode: CODE,
-      projectNumber: 'PDO-2026-014',
+      projectNumber: 'NWT-2026-014',
       projectColor: '#1E5A8B',
       projectIcon: 'rocket',
       projectImageUrl: '/uploads/projects/tx.png',

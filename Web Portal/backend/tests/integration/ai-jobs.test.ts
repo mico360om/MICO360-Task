@@ -1,15 +1,16 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { PrismaClient } from '@prisma/client';
 import { createPrismaAiJobStore } from '../../src/modules/ai-jobs/prisma-ai-job-store';
 import { createAiJobRunner, type AiJobHandler } from '../../src/modules/ai-jobs/ai-job-runner';
 import { createPrismaMicoAiRepository } from '../../src/modules/mico-ai/prisma-mico-ai-repository';
 import { createPrismaFinalMinutesRepository } from '../../src/modules/meetings/final-minutes-repository';
 import { createFinalMinutesAi } from '../../src/modules/meetings/final-minutes-ai';
+import { testPrisma } from './test-prisma';
 
 // Requires a running MySQL (TEST_DATABASE_URL) with migrations applied. 1.22 (§10): AI jobs in the
 // ai_jobs table — one active job per thing, a take that two servers can't both win, a lease that a
 // stopped server loses, and jobs that go with their meeting or MICO AI answer.
-const prisma = new PrismaClient({ datasources: { db: { url: process.env.TEST_DATABASE_URL } } });
+// As the server's client (lib/prisma.ts): save conflicts are tried again, as on the live site (1.23.31).
+const prisma = testPrisma();
 const store = createPrismaAiJobStore(prisma);
 const USER = 'ai-jobs-test-omar';
 let meetingId = '';

@@ -360,10 +360,10 @@ describe('external contacts in a task’s history', () => {
   it('folds a quick run into one line, naming a few; a contact changed twice is named once', () => {
     const added = buildTimeline([
       e('a3', 'EXTERNAL_CONTACT_ADDED', 'Sara Ali', 1, { name: 'Salim', company: null }),
-      e('a2', 'EXTERNAL_CONTACT_ADDED', 'Sara Ali', 2, { name: 'Sara Nasser', company: 'PDO' }),
+      e('a2', 'EXTERNAL_CONTACT_ADDED', 'Sara Ali', 2, { name: 'Sara Nasser', company: 'NWT' }),
       e('a1', 'EXTERNAL_CONTACT_ADDED', 'Sara Ali', 3, acme),
     ]);
-    expect(added.map((i) => [i.text, i.count])).toEqual([['added 3 external contacts: Ahmed Al Said (Acme), Sara Nasser (PDO) and Salim', 3]]);
+    expect(added.map((i) => [i.text, i.count])).toEqual([['added 3 external contacts: Ahmed Al Said (Acme), Sara Nasser (NWT) and Salim', 3]]);
     const changed = buildTimeline([e('a2', 'EXTERNAL_CONTACT_CHANGED', 'Sara Ali', 1, acme), e('a1', 'EXTERNAL_CONTACT_CHANGED', 'Sara Ali', 2, acme)]);
     expect(changed.map((i) => i.text)).toEqual(['changed an external contact: Ahmed Al Said (Acme)']);
     const removed = buildTimeline([e('a2', 'EXTERNAL_CONTACT_REMOVED', 'Sara Ali', 1, acme), e('a1', 'EXTERNAL_CONTACT_REMOVED', 'Sara Ali', 2, { name: 'Salim' })]);

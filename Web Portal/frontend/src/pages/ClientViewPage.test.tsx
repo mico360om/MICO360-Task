@@ -8,7 +8,7 @@ import type { ClientInspection, ClientView, ClientViewApi } from '../api/client-
 
 const VIEW: ClientView = {
   viewer: { name: 'Fatma Al Harthy', email: 'fatma@client.example' },
-  project: { name: 'Rig 7 Inspection', code: 'RIG', number: 'OD-2231', clientName: 'Oman Drilling Co.', status: 'ACTIVE', statusLabel: 'In progress', color: '#1E6B8B', icon: null, imageUrl: null },
+  project: { name: 'Rig 7 Inspection', code: 'RIG', number: 'OD-2231', clientName: 'Fabrikam Logistics', status: 'ACTIVE', statusLabel: 'In progress', color: '#1E6B8B', icon: null, imageUrl: null },
   progress: { percentDone: 38 },
   timeline: { startDate: '2026-10-01', targetDate: '2026-11-20', today: '2026-10-26', elapsedPercent: 50 },
   milestones: [{ key: 'RIG-1', title: 'مسح الموقع', status: 'Done', dueDate: '2026-10-10' }],

@@ -11,7 +11,7 @@ function input(over: Partial<ClientViewInput> = {}): ClientViewInput {
       name: 'Rig 7 Inspection',
       code: 'RIG',
       number: 'OD-2231',
-      clientName: 'Oman Drilling Co.',
+      clientName: 'Fabrikam Logistics',
       status: 'ACTIVE',
       color: '#1E6B8B',
       icon: 'drill',

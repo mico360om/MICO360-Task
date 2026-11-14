@@ -23,10 +23,12 @@ import { createColumnService } from '../../src/modules/projects/column-service';
 import { createPrismaColumnRepository } from '../../src/modules/projects/prisma-column-repository';
 import { runBackfill } from './company-helpers';
 import { portabilityProblems } from '../../src/lib/sql-portability';
+import { testPrisma } from './test-prisma';
 
 // Scheduled inspections on MySQL (TEST_DATABASE_URL, migrations applied). Only this file's project
 // (code SCHED), its forms and its people (*@sched.mico360.test) are made and removed.
-const prisma = new PrismaClient({ datasources: { db: { url: process.env.TEST_DATABASE_URL } } });
+// As the server's client (lib/prisma.ts): save conflicts are tried again, as on the live site (1.23.31).
+const prisma = testPrisma();
 const TZ = 'Asia/Muscat';
 const NOW = new Date('2026-10-01T06:00:00Z'); // 10:00 on 1 Oct in Muscat
 const port = createPrismaRecurrencePort(prisma, { timeZone: TZ, now: () => NOW });

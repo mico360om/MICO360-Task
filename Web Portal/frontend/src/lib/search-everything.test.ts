@@ -23,7 +23,7 @@ describe('search everything — the website’s side', () => {
   });
 
   it('1.23.6: where the new kinds open', () => {
-    expect(targetLink(hit({ kind: 'contact', target: { type: 'client', name: 'Petroleum Development Oman' } }))).toBe('/projects?client=Petroleum%20Development%20Oman');
+    expect(targetLink(hit({ kind: 'contact', target: { type: 'client', name: 'Northwind Trading' } }))).toBe('/projects?client=Northwind%20Trading');
     expect(targetLink(hit({ kind: 'contact', target: { type: 'account', userId: 'u 1' } }))).toBe('/admin/users?open=u%201');
     expect(targetLink(hit({ kind: 'checklist', target: { type: 'checklist', taskId: 't1', itemId: 'i1' } }))).toBeNull();
     expect(taskPanelOf(hit({ kind: 'checklist', target: { type: 'checklist', taskId: 't1', itemId: 'i1' } }))).toEqual({ task: 't1', mark: ['item', 'i1'] });

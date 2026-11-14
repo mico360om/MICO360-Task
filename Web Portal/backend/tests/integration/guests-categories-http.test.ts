@@ -102,7 +102,7 @@ describe('guests through the routes', () => {
 
   it('the old way in (app, extension): a contact on a task with no team member is accepted, its creator added', async () => {
     const column = await columnOf(world.projects.PA);
-    const made = await api.post(world.as.cat, '/tasks', { title: 'From the app', projectId: world.projects.PA, columnId: column, assigneeIds: [], externalContacts: [{ name: 'Sara Nasser', company: 'PDO' }] });
+    const made = await api.post(world.as.cat, '/tasks', { title: 'From the app', projectId: world.projects.PA, columnId: column, assigneeIds: [], externalContacts: [{ name: 'Sara Nasser', company: 'NWT' }] });
     expect(made.statusCode).toBe(201);
     const task = json<{ id: string; assignees: { id: string }[] }>(made);
     expect(task.assignees.map((a) => a.id)).toEqual([world.people.cat]);

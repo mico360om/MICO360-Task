@@ -103,3 +103,27 @@ describe('Attachments: files and clients (1.23.7)', () => {
     expect(screen.queryByText(/client/i)).not.toBeInTheDocument();
   });
 });
+
+// 1.23.29 Private file links: a preview whose link no longer works asks for new links once, and loads with them.
+describe('Attachments: a file link that no longer works (1.23.29)', () => {
+  it('a refused PDF preview (403) reports its link, and the new link the list brings loads it', async () => {
+    const reported: string[] = [];
+    const refresh = await import('../../lib/file-link-refresh');
+    const spy = vi.spyOn(refresh, 'reportFileLinkFailed').mockImplementation((url) => { reported.push(url); });
+    const oldUrl = '/uploads/q.pdf?u=cmu1&e=mhx4k0&s=OLD';
+    const newUrl = '/uploads/q.pdf?u=cmu1&e=mhy4k0&s=NEW';
+    vi.stubGlobal('fetch', vi.fn(async (href: string) => (href.endsWith('s=OLD') ? new Response('', { status: 403 }) : new Response(new Blob(['%PDF-1.4']), { status: 200 }))));
+    const createObjectURL = vi.fn(() => 'blob:preview');
+    vi.stubGlobal('URL', Object.assign(URL, { createObjectURL, revokeObjectURL: vi.fn() }));
+    const file = (url: string): DrawerAttachment[] => [{ id: 'q', filename: 'quote.pdf', url, sizeBytes: 10, mimeType: 'application/pdf' }];
+    const { rerender } = render(<AttachmentsSection attachments={file(oldUrl)} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Preview quote.pdf' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Preview of quote.pdf' });
+    await waitFor(() => expect(reported).toHaveLength(1));
+    expect(reported[0]).toContain('s=OLD');
+    rerender(<AttachmentsSection attachments={file(newUrl)} />);
+    await waitFor(() => expect(within(dialog).getByTitle('PDF: quote.pdf')).toBeInTheDocument());
+    spy.mockRestore();
+    vi.unstubAllGlobals();
+  });
+});

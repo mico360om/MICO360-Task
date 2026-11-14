@@ -383,11 +383,11 @@ describe('TaskTable — 1.24 Guests and Categories columns', () => {
   const HSE = { id: 'k2', name: 'HSE', color: 'pink', retired: false };
   const CIVIL = { id: 'k3', name: 'Civil', color: 'gold', retired: true };
   const ROWS = [
-    task({ id: 'a', key: 'MICO-1', title: 'Wiring', guests: [{ id: 'g1', name: 'Sara Nasser', company: 'PDO' }, { id: 'g2', name: 'Ahmed', company: null }], categories: [HSE, ELEC, CIVIL] }),
+    task({ id: 'a', key: 'MICO-1', title: 'Wiring', guests: [{ id: 'g1', name: 'Sara Nasser', company: 'NWT' }, { id: 'g2', name: 'Ahmed', company: null }], categories: [HSE, ELEC, CIVIL] }),
     task({ id: 'b', key: 'MICO-2', title: 'Survey', guests: [{ id: 'g3', name: 'Ahmed Al Said', company: 'Acme' }], categories: [ELEC] }),
     task({ id: 'c', key: 'MICO-3', title: 'Internal', guests: [], categories: [] }),
     // An older server's row: its contacts in short.
-    task({ id: 'd', key: 'MICO-4', title: 'Old', externalSummary: { count: 1, name: 'Salim', company: 'Petrogas', names: ['Salim'], companies: ['Petrogas'] } }),
+    task({ id: 'd', key: 'MICO-4', title: 'Old', externalSummary: { count: 1, name: 'Salim', company: 'Contoso', names: ['Salim'], companies: ['Contoso'] } }),
   ];
   const titles = () => screen.getAllByRole('rowheader').map((h) => h.textContent?.match(/Wiring|Survey|Internal|Old/)?.[0]);
 
@@ -406,8 +406,8 @@ describe('TaskTable — 1.24 Guests and Categories columns', () => {
     localStorage.setItem('mico360.u.u1.table.test', JSON.stringify({ sort: null, filters: {}, shown: ['guests', 'categories'] }));
     show({ tasks: ROWS });
     const guests = within(row('MICO-1')).getAllByTestId('table-guest');
-    expect(guests.map((g) => g.textContent)).toEqual(['Guest: Sara Nasser (PDO)', 'Guest: Ahmed']);
-    expect(within(row('MICO-4')).getByTestId('table-guest')).toHaveTextContent('Salim (Petrogas)');
+    expect(guests.map((g) => g.textContent)).toEqual(['Guest: Sara Nasser (NWT)', 'Guest: Ahmed']);
+    expect(within(row('MICO-4')).getByTestId('table-guest')).toHaveTextContent('Salim (Contoso)');
     expect(within(row('MICO-3')).queryByTestId('table-guest')).toBeNull();
   });
 

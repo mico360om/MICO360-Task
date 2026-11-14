@@ -9,10 +9,10 @@ describe('task history: guests and categories (1.24)', () => {
   it('words guest lines as assigning and removing guests', () => {
     const items = buildTaskTimeline([
       e('3', 'EXTERNAL_CONTACT_REMOVED', 50, { name: 'Sara' }),
-      e('2', 'EXTERNAL_CONTACT_ADDED', 2, { name: 'Ali', company: 'BP', guestId: 'g2' }),
+      e('2', 'EXTERNAL_CONTACT_ADDED', 2, { name: 'Ali', company: 'Globex', guestId: 'g2' }),
       e('1', 'EXTERNAL_CONTACT_ADDED', 1, { name: 'Ahmed', company: 'Acme', guestId: 'g1' }),
     ]);
-    expect(items.map((i) => i.text)).toEqual(['removed guest Sara', 'assigned guests Ahmed (Acme) and Ali (BP)']);
+    expect(items.map((i) => i.text)).toEqual(['removed guest Sara', 'assigned guests Ahmed (Acme) and Ali (Globex)']);
     expect(items[1]).toMatchObject({ id: '2', kind: 'external', count: 2 });
   });
   it('a changed guest is re-linked or edited', () => {

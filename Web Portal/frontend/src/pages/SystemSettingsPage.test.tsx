@@ -17,7 +17,7 @@ beforeEach(() => {
       calls.push({ url: String(url), method: init?.method ?? 'GET' });
       if (String(url).endsWith('/tasks/carry-forward')) return json({ data: { carried: 3 } });
       if (String(url).includes('/training/settings')) return json({ data: { tourOff: [], companies: [{ id: 'co-a', name: 'Alpha Co' }] } });
-      return json({ data: [{ key: 'companyName', value: 'MICO Energy' }] });
+      return json({ data: [{ key: 'companyName', value: 'Contoso Engineering' }] });
     }),
   );
 });
@@ -99,19 +99,19 @@ describe('SystemSettingsPage', () => {
   it('renders system settings from the API', async () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('companyName')).toBeInTheDocument());
-    expect(screen.getByText('MICO Energy')).toBeInTheDocument();
+    expect(screen.getByText('Contoso Engineering')).toBeInTheDocument();
   });
 
   it('never prints raw setting JSON such as AI provider keys (SEC-05)', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => json({ data: [
-      { key: 'companyName', value: 'MICO Energy' },
+      { key: 'companyName', value: 'Contoso Engineering' },
       { key: 'carryForward.enabled', value: false },
       { key: 'carryForward.statuses', value: ['TODO', 'BLOCKED'] },
       { key: 'ai.config', value: { providers: [{ name: 'OpenAI', apiKey: 'sk-live-SECRET123' }] } },
       { key: 'integrations.webhook', value: { url: 'https://x', token: 'tok-SECRET' } },
     ] })));
     renderPage();
-    await waitFor(() => expect(screen.getByText('MICO Energy')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Contoso Engineering')).toBeInTheDocument());
     expect(screen.getByText('Off')).toBeInTheDocument();
     expect(screen.getByText('To do, Blocked')).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/SECRET/);

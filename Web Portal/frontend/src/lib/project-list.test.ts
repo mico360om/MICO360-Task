@@ -75,17 +75,17 @@ describe('the list’s state in the address', () => {
 });
 
 describe('search', () => {
-  const rig = project({ name: 'Rig Inspection Portal', code: 'RIG', clientName: 'Gulf Energy', number: 'C-2041' });
+  const rig = project({ name: 'Rig Inspection Portal', code: 'RIG', clientName: 'Northwind Trading', number: 'C-2041' });
 
   it('matches the name, code, client or project number, whatever the case', () => {
-    for (const q of ['inspection', 'rig', 'GULF', 'c-2041', 'Energy']) expect(matchesSearch(rig, q)).toBe(true);
+    for (const q of ['inspection', 'rig', 'NORTHWIND', 'c-2041', 'Trading']) expect(matchesSearch(rig, q)).toBe(true);
     expect(matchesSearch(rig, 'falcon')).toBe(false);
   });
 
   it('needs every word to match, in any of those', () => {
-    expect(matchesSearch(rig, 'gulf portal')).toBe(true);
+    expect(matchesSearch(rig, 'northwind portal')).toBe(true);
     expect(matchesSearch(rig, '  portal   2041 ')).toBe(true);
-    expect(matchesSearch(rig, 'gulf mobile')).toBe(false);
+    expect(matchesSearch(rig, 'northwind mobile')).toBe(false);
   });
 
   it('matches everything when empty', () => {
@@ -151,14 +151,14 @@ describe('owner and “only my projects”', () => {
   });
 
   it('1.23.6: the projects of one client — case and spaces don’t matter; read from the address', () => {
-    const a = project({ name: 'Rig Portal', clientName: 'Petroleum Development Oman' });
-    const b = project({ name: 'Rig Mobile', clientName: '  petroleum   development oman ' });
-    const c = project({ name: 'Falcon', clientName: 'OQ' });
+    const a = project({ name: 'Rig Portal', clientName: 'Northwind Trading' });
+    const b = project({ name: 'Rig Mobile', clientName: '  northwind   trading ' });
+    const c = project({ name: 'Falcon', clientName: 'Acme' });
     const d = project({ name: 'Nobody', clientName: null });
-    expect(filterProjects([a, b, c, d], { ...DEFAULT_LIST_STATE, client: 'Petroleum Development Oman' })).toEqual([a, b]);
-    expect(filterProjects([a, b, c, d], { ...DEFAULT_LIST_STATE, client: 'OQ', q: 'falcon' })).toEqual([c]);
-    expect(readListState(new URLSearchParams('client=OQ'))).toMatchObject({ client: 'OQ' });
-    expect(writeListState(new URLSearchParams('client=OQ'), { client: '' }).toString()).toBe('');
+    expect(filterProjects([a, b, c, d], { ...DEFAULT_LIST_STATE, client: 'Northwind Trading' })).toEqual([a, b]);
+    expect(filterProjects([a, b, c, d], { ...DEFAULT_LIST_STATE, client: 'Acme', q: 'falcon' })).toEqual([c]);
+    expect(readListState(new URLSearchParams('client=Acme'))).toMatchObject({ client: 'Acme' });
+    expect(writeListState(new URLSearchParams('client=Acme'), { client: '' }).toString()).toBe('');
   });
 
   it('offers the people who own projects, by name, once each', () => {

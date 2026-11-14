@@ -14,7 +14,7 @@ const SPEC: ClientPreviewSpec = {
   clientId: null,
   firstName: 'Huda',
   lastName: 'Client',
-  organisation: 'Gulf Builders',
+  organisation: 'Fabrikam Logistics',
   email: 'huda@client.test',
   projects: [
     { projectId: 'p1', role: 'CONTRIBUTOR', modules: { progress: true, meetings: true }, actions: { comment: true, signOff: false, respond: true, download: true, upload: true, notify: true } },
@@ -111,7 +111,7 @@ describe('1.23.7 Preview as client (the dialog)', () => {
     expect(dialog).toHaveAttribute('aria-modal', 'true');
     expect(dialog).toContainElement(document.activeElement as HTMLElement);
     expect(document.body.style.overflow).toBe('hidden');
-    expect(within(dialog).getByText('Huda Client · Gulf Builders')).toBeInTheDocument();
+    expect(within(dialog).getByText('Huda Client · Fabrikam Logistics')).toBeInTheDocument();
     // The portal's pages load as their own chunk: the first import in a test takes over a second.
     expect(await within(dialog).findByText(PREVIEW_ONLY, {}, { timeout: 5000 })).toBeInTheDocument();
     expect(await within(dialog).findByRole('heading', { level: 1, name: 'Your projects' })).toBeInTheDocument();

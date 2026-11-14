@@ -76,7 +76,7 @@ beforeEach(() => {
   clock = Date.parse('2026-10-26T08:00:00Z');
   store = createMemoryClientShareStore(() => new Date(clock));
   source = createMemoryClientViewSource();
-  source.addProject('p1', { name: 'Rig 7 Inspection', code: 'RIG', number: 'OD-2231', clientName: 'Oman Drilling Co.', status: 'ACTIVE', color: '#1E6B8B', icon: null, imageUrl: '/uploads/p/rig.png', startDate: null, targetDate: null });
+  source.addProject('p1', { name: 'Rig 7 Inspection', code: 'RIG', number: 'OD-2231', clientName: 'Fabrikam Logistics', status: 'ACTIVE', color: '#1E6B8B', icon: null, imageUrl: '/uploads/p/rig.png', startDate: null, targetDate: null });
   source.addProject('p2', { name: 'Secret Other Project', code: 'SOP', number: null, clientName: null, status: 'ACTIVE', color: '#000000', icon: null, imageUrl: null, startDate: null, targetDate: null });
   invitations = [];
   codes = [];
@@ -97,7 +97,7 @@ describe('sharing a project with a client (staff side)', () => {
       clientName: 'Fatma Al Harthy',
       sharedByName: 'Omar Ahmed',
       projectName: 'Rig 7 Inspection',
-      projectDetails: ['RIG', 'Oman Drilling Co.'],
+      projectDetails: ['RIG', 'Fabrikam Logistics'],
       projectImageUrl: 'https://task.mico360.test/uploads/p/rig.png',
       email: 'fatma@client.example',
     });

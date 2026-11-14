@@ -133,6 +133,71 @@ describe('auth guard with live user state (token version, status, current roles)
     await app.close();
   });
 
+  // 1.23.29 private file links: a link is signed with the person's session version, and the file route
+  // reads the account through the guard's own short cache.
+  it('puts the session version on the request (what file links are signed with)', async () => {
+    const s = stateStore({ u1: { tokenVersion: 4, active: true, roles: ['EMPLOYEE'] } });
+    const { app, tokenService } = await makeApp(s.opts);
+    const { accessToken } = await tokenService.issueTokens({ id: 'u1', roles: ['EMPLOYEE'], tokenVersion: 4 });
+    const res = await app.inject({ method: 'GET', url: '/me', headers: bearer(accessToken) });
+    expect(res.json().data).toMatchObject({ id: 'u1', ver: 4 });
+    await app.close();
+  });
+
+  it('accountState reads the account through the same 10-second cache (fresh on request)', async () => {
+    const s = stateStore({ u1: { tokenVersion: 2, active: true, roles: ['EMPLOYEE'] } });
+    const guard = createAuthGuard(makeTokenService(), s.opts);
+    expect(await guard.accountState('u1')).toMatchObject({ tokenVersion: 2, active: true });
+    s.set('u1', { tokenVersion: 3, active: false, roles: ['EMPLOYEE'] });
+    expect((await guard.accountState('u1'))?.tokenVersion).toBe(2); // cached
+    expect(s.lookups).toBe(1);
+    expect(await guard.accountState('u1', { fresh: true })).toMatchObject({ tokenVersion: 3, active: false });
+    s.advance(10_001);
+    expect((await guard.accountState('u1'))?.active).toBe(false);
+    expect(await guard.accountState('nobody')).toBeNull();
+  });
+
+  // Review (1.23.29): a file link can name any person; made-up ones must not crowd real sessions out.
+  it('accountState never remembers an unknown person (made-up ids in file links can’t fill the shared cache)', async () => {
+    const s = stateStore({ u1: { tokenVersion: 0, active: true, roles: ['EMPLOYEE'] } });
+    const guard = createAuthGuard(makeTokenService(), { ...s.opts, cacheMaxEntries: 3 });
+    expect(await guard.accountState('u1')).not.toBeNull(); // u1 remembered
+    for (let i = 0; i < 10; i++) expect(await guard.accountState(`made-up-${i}`)).toBeNull();
+    const before = s.lookups;
+    expect(await guard.accountState('u1')).not.toBeNull();
+    expect(s.lookups).toBe(before); // still remembered: the made-up ids took no place
+  });
+
+  it('accountState: a burst of pictures for one account not yet remembered reads it once', async () => {
+    const s = stateStore({ u1: { tokenVersion: 0, active: true, roles: ['EMPLOYEE'] } });
+    const guard = createAuthGuard(makeTokenService(), s.opts);
+    const all = await Promise.all(Array.from({ length: 5 }, () => guard.accountState('u1')));
+    expect(all.every((x) => x?.active)).toBe(true);
+    expect(s.lookups).toBe(1);
+    await Promise.all(Array.from({ length: 5 }, () => guard.accountState('nobody')));
+    expect(await guard.accountState('nobody')).toBeNull(); // still never remembered
+    expect(s.lookups).toBe(3); // the burst shared one read; the later call read again
+  });
+
+  it('a full cache lets its oldest entry go, never everyone’s at once', async () => {
+    const s = stateStore({ a: { tokenVersion: 0, active: true, roles: [] }, b: { tokenVersion: 0, active: true, roles: [] }, c: { tokenVersion: 0, active: true, roles: [] } });
+    const guard = createAuthGuard(makeTokenService(), { ...s.opts, cacheMaxEntries: 2 });
+    await guard.accountState('a');
+    await guard.accountState('b');
+    await guard.accountState('c'); // a goes
+    const before = s.lookups;
+    await guard.accountState('b');
+    await guard.accountState('c');
+    expect(s.lookups).toBe(before);
+    await guard.accountState('a');
+    expect(s.lookups).toBe(before + 1);
+  });
+
+  it('accountState is null without live account state (a link can never be checked, so it is refused)', async () => {
+    const guard = createAuthGuard(makeTokenService());
+    expect(await guard.accountState('u1')).toBeNull();
+  });
+
   it('accepts a newer token straight away even while an older state is cached', async () => {
     const s = stateStore({ u1: { tokenVersion: 0, active: true, roles: ['EMPLOYEE'] } });
     const { app, tokenService } = await makeApp(s.opts);

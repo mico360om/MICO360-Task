@@ -32,7 +32,7 @@ export const card = (over: Partial<PortalProjectCard> = {}): PortalProjectCard =
 });
 
 export const home = (projects: PortalProjectCard[] = [card()]): PortalHome => ({
-  me: { name: 'Huda Client', email: 'huda@client.test', organisation: 'Gulf Builders' },
+  me: { name: 'Huda Client', email: 'huda@client.test', organisation: 'Fabrikam Logistics' },
   projects,
   timeZone: 'Asia/Muscat',
 });
@@ -53,7 +53,7 @@ export const taskItem = (over: Partial<PortalTaskItem> = {}): PortalTaskItem => 
 export const projectView = (over: Partial<PortalProjectView> = {}): PortalProjectView => {
   const c = card();
   return {
-    project: { id: c.id, code: c.code, number: c.number, name: c.name, status: c.status, statusLabel: c.statusLabel, color: c.color, icon: c.icon, imageUrl: c.imageUrl, company: c.company, clientName: 'Gulf Builders' },
+    project: { id: c.id, code: c.code, number: c.number, name: c.name, status: c.status, statusLabel: c.statusLabel, color: c.color, icon: c.icon, imageUrl: c.imageUrl, company: c.company, clientName: 'Fabrikam Logistics' },
     modules: { progress: true, meetings: true },
     actions: { comment: true, signOff: true, respond: true, download: true },
     progress: {

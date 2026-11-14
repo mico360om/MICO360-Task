@@ -28,7 +28,7 @@ async function cleanup() {
 }
 
 async function project(code: string) {
-  const p = await prisma.project.create({ data: { code, name: `Project ${code}`, createdById: ownerId, ownerId, clientName: 'Oman Drilling Co.' } });
+  const p = await prisma.project.create({ data: { code, name: `Project ${code}`, createdById: ownerId, ownerId, clientName: 'Fabrikam Logistics' } });
   const todo = await prisma.kanbanColumn.create({ data: { projectId: p.id, name: 'Waiting on Ahmed', category: 'TODO', position: 0 } });
   const done = await prisma.kanbanColumn.create({ data: { projectId: p.id, name: 'Done', category: 'DONE', position: 1 } });
   return { id: p.id, todo: todo.id, done: done.id };

@@ -21,7 +21,7 @@ beforeEach(() => {
   tasks = [
     task('t1', 'MICO-1', 'Rig inspection', [{ id: 'g1', name: 'Ahmed Al Said', company: 'Acme' }]),
     task('t2', 'MICO-2', 'Pipeline survey', [
-      { id: 'g2', name: 'Salim', company: 'PDO' },
+      { id: 'g2', name: 'Salim', company: 'NWT' },
       { id: 'g3', name: 'Ali', company: null },
       { id: 'g4', name: 'Huda', company: 'acme' },
     ]),
@@ -45,7 +45,7 @@ describe('My Tasks: guests', () => {
   it('each task says who outside the company is named on it', async () => {
     renderPage();
     expect(await screen.findByText('Guest: Ahmed Al Said (Acme)')).toBeInTheDocument();
-    expect(screen.getByText('Guest: Salim (PDO) and 2 more')).toBeInTheDocument();
+    expect(screen.getByText('Guest: Salim (NWT) and 2 more')).toBeInTheDocument();
     expect(screen.queryByText(/^External:/)).toBeNull();
   });
 
@@ -61,7 +61,7 @@ describe('My Tasks: guests', () => {
     await screen.findByText('Rig inspection');
     expect(screen.queryByRole('button', { name: 'Filter by external company' })).toBeNull();
     await userEvent.click(screen.getByRole('button', { name: 'Filter by guest company' }));
-    await userEvent.click(await screen.findByRole('option', { name: 'PDO' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'NWT' }));
     await waitFor(() => expect(screen.queryByText('Rig inspection')).toBeNull());
     expect(screen.getByText('Pipeline survey')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Filter by guest company' }));

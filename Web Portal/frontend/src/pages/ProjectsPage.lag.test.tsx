@@ -27,7 +27,7 @@ const project = (id: string, name: string, status: ProjectOverview['status'], ex
   imageUrl: null, ownerId: null, targetDate: null, owner: null, team: [], teamCount: 0, mine: false, stats: { total: 0, done: 0, open: 0, overdue: 0, nextDue: null, lastActivityAt: '2026-10-20T00:00:00.000Z' }, ...extra,
 });
 const LIST = [
-  project('p1', 'Rig Inspection Portal', 'ACTIVE', { clientName: 'Gulf Energy' }),
+  project('p1', 'Rig Inspection Portal', 'ACTIVE', { clientName: 'Northwind Trading' }),
   project('p2', 'Falcon CRM', 'ON_HOLD'),
   project('p3', 'Mobile App', 'PLANNING'),
 ];
@@ -60,10 +60,10 @@ describe('ProjectsPage while the address catches up', () => {
     renderPage();
     await screen.findByRole('link', { name: 'Rig Inspection Portal' });
     const box = screen.getByRole('searchbox', { name: 'Search projects' });
-    await userEvent.type(box, 'gulf portal');
-    expect(box).toHaveValue('gulf portal');
+    await userEvent.type(box, 'northwind portal');
+    expect(box).toHaveValue('northwind portal');
     expect(cardNames()).toEqual(['Rig Inspection Portal']);
-    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('/projects?q=gulf+portal'));
+    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('/projects?q=northwind+portal'));
   });
 
   it('moves one tab per arrow key, however fast they come', async () => {

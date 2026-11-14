@@ -5,7 +5,7 @@ import { ValidationError } from '../../lib/http-errors';
 
 const data: MinutesData = {
   brand: { productName: 'MICO360 Tasks', companyName: 'MICO360' },
-  project: { name: 'Rig Inspection Portal', code: 'RIG1', number: 'PDO-2026-014' },
+  project: { name: 'Rig Inspection Portal', code: 'RIG1', number: 'NWT-2026-014' },
   meeting: {
     title: 'Weekly progress review',
     statusLabel: 'Completed',
@@ -65,7 +65,7 @@ describe('minutesFacts: what the AI is given', () => {
     const facts = minutesFacts(data);
     for (const s of [
       'Meeting: Weekly progress review',
-      'Project: Rig Inspection Portal (RIG1, PDO-2026-014)',
+      'Project: Rig Inspection Portal (RIG1, NWT-2026-014)',
       'Present: Khurram',
       'Absent: Sara',
       '1. Progress since last week (presenter Bilal, covered)',

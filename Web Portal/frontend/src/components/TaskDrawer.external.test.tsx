@@ -30,7 +30,7 @@ beforeEach(() => {
     'fetch',
     vi.fn(async (url: string) => {
       const u = String(url);
-      if (u.includes('/projects/p1/guests')) return json({ data: [{ id: 'g5', companyId: 'co1', name: 'Huda Saleh', company: 'Daleel', designation: null, email: null, phone: null, notes: null, retiredAt: null, mergedIntoId: null, createdById: null, createdAt: '', updatedAt: '' }] });
+      if (u.includes('/projects/p1/guests')) return json({ data: [{ id: 'g5', companyId: 'co1', name: 'Huda Saleh', company: 'Acme', designation: null, email: null, phone: null, notes: null, retiredAt: null, mergedIntoId: null, createdById: null, createdAt: '', updatedAt: '' }] });
       return json({ data: [] });
     }),
   );
@@ -160,7 +160,7 @@ describe('TaskDrawer: guests under Assigned', () => {
     expect(screen.getByRole('combobox', { name: 'Find a teammate' })).toBeInTheDocument();
     await userEvent.click(within(mode).getByRole('radio', { name: GUEST_WORDS.guest }));
     expect(screen.queryByRole('combobox', { name: 'Find a teammate' })).toBeNull();
-    await userEvent.click(await screen.findByRole('option', { name: /^Huda Saleh \(Daleel\)/ }));
+    await userEvent.click(await screen.findByRole('option', { name: /^Huda Saleh \(Acme\)/ }));
     expect(onAddGuest).toHaveBeenCalledWith('g5');
     expect(onAssignUser).not.toHaveBeenCalled();
   });

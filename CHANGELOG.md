@@ -25,6 +25,15 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - Learning Hub (admins): assign a course to several people at once, shown as one entry you can withdraw whole or per person.
 - Learning Hub (admins): any course can have modules — add, rename, reorder or remove them, move lessons between them, and choose who sees each one.
 
+## [1.23.31] - 2026-11-14
+
+### Improvements
+- Example text and sample data no longer use real company names.
+
+### Security
+- Files on tasks and in chats open only for people who can still see that task or chat; copied links stop working after about a day.
+- Old profile photos stop opening once replaced.
+
 ## [1.23.30] - 2026-11-13
 
 ### Improvements

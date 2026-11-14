@@ -1,18 +1,19 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { PrismaClient } from '@prisma/client';
 import { createPrismaAssigneeRepository, createPrismaTaskLookup } from '../../src/modules/tasks/prisma-assignee-repository';
 import { createAssigneeService } from '../../src/modules/tasks/assignee-service';
 import { createPrismaTaskRepository, createPrismaProjectLookup } from '../../src/modules/tasks/prisma-task-repository';
 import { createTaskService } from '../../src/modules/tasks/task-service';
 import { runBackfill } from './company-helpers';
 import { batch4aWorld, outcome } from './batch4a-helpers';
+import { testPrisma } from './test-prisma';
 
 // N12 (13 Nov 2026): the Workload page's "hand this task to someone else" (POST /tasks/:id/assignees/swap)
 // checked the version it was given before writing, but the write neither checked nor moved it on — so
 // an edit made at the same moment, or later from the version read before the swap, could overwrite it.
 // The swap is now one step with the version (409 VERSION_CONFLICT when stale), and it moves the version
 // on like every other task edit. The version stays optional. Requires a running MySQL (TEST_DATABASE_URL).
-const prisma = new PrismaClient({ datasources: { db: { url: process.env.TEST_DATABASE_URL } } });
+// As the server's client (lib/prisma.ts): save conflicts are tried again, as on the live site (1.23.31).
+const prisma = testPrisma();
 const world = batch4aWorld(prisma, 'ASW');
 const assignees = createAssigneeService({ repo: createPrismaAssigneeRepository(prisma), taskLookup: createPrismaTaskLookup(prisma) });
 const tasks = createTaskService({ tasks: createPrismaTaskRepository(prisma), projects: createPrismaProjectLookup(prisma) });

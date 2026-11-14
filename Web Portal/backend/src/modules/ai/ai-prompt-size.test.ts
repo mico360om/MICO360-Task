@@ -64,7 +64,7 @@ describe('every AI conversation fits MICO360 AI’s 32,000 characters, at the la
   describe('a real company’s lists (100 projects, 300 people)', () => {
     const FIRST = ['Mohammed', 'Ahmed', 'Said', 'Khalid', 'Fatma', 'Aisha', 'Salim', 'Hamed', 'Maryam', 'Yousuf', 'Badriya', 'Nasser'];
     const LAST = ['Al Balushi', 'Al Hinai', 'Al Rawahi', 'Al Kindi', 'Al Busaidi', 'Al Harthy', 'Al Lawati', 'Al Mahrouqi', 'Al Siyabi', 'Al Wahaibi'];
-    const realProjects = Array.from({ length: 100 }, (_, i) => ({ id: id(i), code: `SUB${String(i).padStart(3, '0')}`, number: `PDO-2026-${String(i).padStart(4, '0')}`, name: `Construction of 33/11kV Primary Substation at Al Khuwair Block ${i}`, status: 'ACTIVE' }));
+    const realProjects = Array.from({ length: 100 }, (_, i) => ({ id: id(i), code: `SUB${String(i).padStart(3, '0')}`, number: `NWT-2026-${String(i).padStart(4, '0')}`, name: `Construction of 33/11kV Primary Substation at Al Khuwair Block ${i}`, status: 'ACTIVE' }));
     const realPeople = [
       ...Array.from({ length: 299 }, (_, i) => ({ id: id(i), firstName: FIRST[i % FIRST.length]!, lastName: `${LAST[i % LAST.length]!}${i}`, username: `${FIRST[i % FIRST.length]!.toLowerCase()}.${i}` })),
       { id: id(999), firstName: 'Zuhair', lastName: 'Al Zadjali', username: 'zuhair.z' }, // last by name

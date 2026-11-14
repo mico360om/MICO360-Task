@@ -23,7 +23,7 @@ const draft = (extra: Partial<AiMeetingDraft> = {}): AiMeetingDraft => ({
   startTime: '10:00',
   minutes: 90,
   recurrence: null,
-  project: { id: 'p4', code: 'PUMP', number: 'PDO-2026-020', name: 'Pump Station Upgrade' },
+  project: { id: 'p4', code: 'PUMP', number: 'NWT-2026-020', name: 'Pump Station Upgrade' },
   location: 'Rig 1 site office',
   onlineLink: null,
   people: { found: [{ id: 'u2', name: 'Sara Al Balushi' }], choices: [], notFound: [] },
@@ -47,7 +47,7 @@ function renderIt(opts: { answer?: AiMeetingDraft | Error; current?: Partial<Des
         initial={blank}
         onApply={onApply}
         withPeopleAndAgenda={opts.withPeopleAndAgenda ?? true}
-        projects={[{ id: 'p4', name: 'Pump Station Upgrade', code: 'PUMP', number: 'PDO-2026-020' }]}
+        projects={[{ id: 'p4', name: 'Pump Station Upgrade', code: 'PUMP', number: 'NWT-2026-020' }]}
         people={[]}
         repeatText={() => 'Repeats every week on Mon'}
       />

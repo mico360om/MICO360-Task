@@ -39,7 +39,7 @@ describe('Describe it in plain English (4a, the website’s DescribeTask)', () =
     dueDate: '2026-10-19',
     priority: null,
     recurrence: { freq: 'WEEKLY', interval: 1, weekdays: [1] },
-    project: { id: 'p2', code: 'OPS', number: 'PDO-7', name: 'Ops Board' },
+    project: { id: 'p2', code: 'OPS', number: 'NWT-7', name: 'Ops Board' },
   };
 
   it('also suggests a description, a repeat and the project', () => {
@@ -48,7 +48,7 @@ describe('Describe it in plain English (4a, the website’s DescribeTask)', () =
       ['Description: Include the inspection photos.', true, null],
       ['Due date: Mon 19 Oct 2026', true, null],
       ['Repeat: Repeats every week on Mon', true, null],
-      ['Project: Ops Board · OPS · PDO-7', true, 'MICO360 Platform'],
+      ['Project: Ops Board · OPS · NWT-7', true, 'MICO360 Platform'],
     ]);
   });
 

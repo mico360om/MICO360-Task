@@ -147,12 +147,12 @@ describe('the task panel’s Previous / Next', () => {
     const form = screen.getByRole('group', { name: GUEST_WORDS.newGuest });
     await userEvent.click(screen.getByRole('button', { name: 'Next task' }));
     expect(onNext).toHaveBeenCalledTimes(1); // nothing typed yet
-    await userEvent.type(within(form).getByRole('textbox', { name: 'Company' }), 'Petroleum Dev');
+    await userEvent.type(within(form).getByRole('textbox', { name: 'Company' }), 'Northwind Tra');
     await userEvent.click(screen.getByRole('button', { name: 'Next task' }));
     const ask = screen.getByRole('alertdialog', { name: 'Discard your changes?' });
     await userEvent.click(within(ask).getByRole('button', { name: 'Keep editing' }));
     expect(onNext).toHaveBeenCalledTimes(1);
-    expect(within(form).getByRole('textbox', { name: 'Company' })).toHaveValue('Petroleum Dev');
+    expect(within(form).getByRole('textbox', { name: 'Company' })).toHaveValue('Northwind Tra');
     screen.getByRole('button', { name: 'Close' }).focus();
     press('KeyJ', 'j');
     expect(screen.getByRole('alertdialog', { name: 'Discard your changes?' })).toBeInTheDocument();

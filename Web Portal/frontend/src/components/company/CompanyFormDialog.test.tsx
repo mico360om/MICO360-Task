@@ -365,7 +365,7 @@ describe('the Projects panel', () => {
 describe('CompanyFormDialog: a big form (1.22)', () => {
   it('960px from 1024px: name, code, logo and sender on the left; week and working hours on the right; the whole name in the title', async () => {
     windowWidth(1280);
-    const long = apiCompany({ id: 'cl', name: 'Oman Offshore Inspection and Integrity Management Company', code: 'OOI' });
+    const long = apiCompany({ id: 'cl', name: 'Fabrikam Offshore Inspection and Integrity Management Company', code: 'FOI' });
     companyServer({ companies: [long, betaApi] });
     open(long);
     const d = dialog();

@@ -1,14 +1,15 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { PrismaClient } from '@prisma/client';
 import { inspectionStoreContract } from '../../src/modules/inspections/inspection-store.contract';
 import { createPrismaInspectionStore } from '../../src/modules/inspections/prisma-inspection-store';
 import type { AnswerRecord, Counts } from '../../src/modules/inspections/inspection-store';
 import { createInspectionPorts } from '../../src/modules/inspections/prisma-inspection-ports';
 import { runBackfill } from './company-helpers';
+import { testPrisma } from './test-prisma';
 
 // Requires a running MySQL (TEST_DATABASE_URL) with migrations applied. Only this file's projects
 // (codes INA, INB) and its person (insp-owner@mico360.test) are made and removed.
-const prisma = new PrismaClient({ datasources: { db: { url: process.env.TEST_DATABASE_URL } } });
+// As the server's client (lib/prisma.ts): save conflicts are tried again, as on the live site (1.23.31).
+const prisma = testPrisma();
 const store = createPrismaInspectionStore(prisma);
 const CODES = ['INA', 'INB'];
 const EMAIL = 'insp-owner@mico360.test';
