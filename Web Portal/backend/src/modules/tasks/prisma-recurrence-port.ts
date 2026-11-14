@@ -36,6 +36,9 @@ export interface PrismaRecurrencePortOptions {
   repairPageSize?: number;
 }
 
+/** The timeline lines of a task's status changes (task-status-effects lineOf). */
+const STATUS_LINES = ['APPROVAL_REQUESTED', 'APPROVED', 'SENT_BACK', 'APPROVAL_WITHDRAWN', 'COMPLETED', 'REOPENED', 'MOVED'] as const;
+
 /**
  * Prisma-backed recurrence port. Spawning the next instance also clears the
  * source task's rule, so the rule always travels forward to the newest instance in the series.
@@ -51,6 +54,27 @@ export interface PrismaRecurrencePortOptions {
 export function createPrismaRecurrencePort(prisma: PrismaClient, opts: PrismaRecurrencePortOptions = {}): RecurrenceTaskPort {
   const timeZone = opts.timeZone ?? defaultCompanyTimeZone();
   const now = opts.now ?? (() => new Date());
+
+  /**
+   * 1.24.0 (#14 repair): of these finished tasks (none ticked now), the ones whose approval was turned off
+   * while they waited — what completing them did: on their timeline the last status line is "completed" and
+   * the one before it "waiting for approval" (no approved, sent back or withdrawn between). A completion like
+   * that makes its next copy keep approval (keepApprovalOnCopy), so a repaired copy does too.
+   */
+  async function approvalSwitchedOff(taskIds: string[]): Promise<Set<string>> {
+    if (!taskIds.length) return new Set();
+    const lines = await prisma.activity.findMany({
+      where: { taskId: { in: taskIds }, action: { in: [...STATUS_LINES] } },
+      select: { taskId: true, action: true },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    });
+    const lastTwo = new Map<string, string[]>();
+    for (const l of lines) {
+      const seen = lastTwo.get(l.taskId!) ?? [];
+      if (seen.length < 2) lastTwo.set(l.taskId!, [...seen, l.action]);
+    }
+    return new Set([...lastTwo].filter(([, [last, before]]) => last === 'COMPLETED' && before === 'APPROVAL_REQUESTED').map(([id]) => id));
+  }
 
   return {
     async spawnNext(sourceTaskId, nextDueDate, rule, spawnOpts = {}) {
@@ -127,8 +151,9 @@ export function createPrismaRecurrencePort(prisma: PrismaClient, opts: PrismaRec
                 // A scheduled check: every copy is carried out with the same form, at the same place.
                 inspectionFormId: source.inspectionFormId ?? undefined,
                 inspectionPlace: source.inspectionPlace ?? undefined,
-                // Needs approval: every copy does too (each starts fresh — not waiting, not approved).
-                needsApproval: source.needsApproval,
+                // Needs approval: every copy does too (each starts fresh — not waiting, not approved). 1.24.0: a
+                // repaired copy also when approval was turned off on its source alone while it waited.
+                needsApproval: source.needsApproval || spawnOpts.keepApproval === true,
                 // Release B: its own reminder schedule (Notification & Scheduling) goes with the series.
                 reminderScheduleId: source.reminderScheduleId ?? undefined,
                 estimatedHours: source.estimatedHours ?? undefined,
@@ -223,7 +248,7 @@ export function createPrismaRecurrencePort(prisma: PrismaClient, opts: PrismaRec
       for (let cursor: string | undefined; ; ) {
         const heads = await prisma.task.findMany({
           where,
-          select: { id: true, dueDate: true, startDate: true, recurrenceRule: true, recurrenceParentId: true, version: true },
+          select: { id: true, dueDate: true, startDate: true, recurrenceRule: true, recurrenceParentId: true, version: true, needsApproval: true },
           orderBy: [{ completedAt: 'asc' }, { id: 'asc' }],
           take: page,
           ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
@@ -234,7 +259,12 @@ export function createPrismaRecurrencePort(prisma: PrismaClient, opts: PrismaRec
         const copied = new Set(
           (await prisma.task.findMany({ where: { recurrenceSourceId: { in: heads.map((h) => h.id) } }, select: { recurrenceSourceId: true } })).map((c) => c.recurrenceSourceId),
         );
-        for (const h of heads) if (!copied.has(h.id)) found.push({ ...h, recurrenceRule: h.recurrenceRule as unknown as RecurrenceRule | null });
+        const missing = heads.filter((h) => !copied.has(h.id));
+        const switchedOff = await approvalSwitchedOff(missing.filter((h) => !h.needsApproval).map((h) => h.id));
+        for (const h of missing) {
+          const head: RecurringTask = { id: h.id, dueDate: h.dueDate, startDate: h.startDate, recurrenceRule: h.recurrenceRule as unknown as RecurrenceRule | null, recurrenceParentId: h.recurrenceParentId, version: h.version };
+          found.push(switchedOff.has(h.id) ? { ...head, keepApproval: true } : head);
+        }
         if (heads.length < page) break;
         cursor = heads[heads.length - 1]!.id;
       }

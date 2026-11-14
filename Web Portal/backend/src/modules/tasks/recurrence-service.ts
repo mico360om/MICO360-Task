@@ -11,6 +11,11 @@ export interface RecurringTask {
   recurrenceParentId: string | null;
   /** #14 repair: its version when the sweep read it (a change since, e.g. Pause, and no copy is made this time). */
   version?: number;
+  /**
+   * 1.24.0 (#14 repair): approval was turned off on this task alone while it waited, and that completed it —
+   * so its next copy still needs approval, as completing it gives the copy (task-status-effects keepApprovalOnCopy).
+   */
+  keepApproval?: boolean;
 }
 
 export interface SpawnedTask {
@@ -23,6 +28,8 @@ export interface SpawnOptions {
   onlyIfDone?: boolean;
   /** #14 repair: …and only if its version is still this one (nobody changed it, or its repeat, since it was read). */
   version?: number;
+  /** 1.24.0 (#14 repair): the copy needs approval even though the source no longer does (RecurringTask.keepApproval). */
+  keepApproval?: boolean;
 }
 
 export interface RecurrenceTaskPort {
@@ -170,7 +177,7 @@ export function createRecurrenceService({ tasks, now = () => new Date(), timeZon
       // Switched off, or an on-schedule series (the schedule makes its copies): nothing to repair.
       if (!raw || raw.createNext === 'ON_SCHEDULE') continue;
       try {
-        const copy = await spawnFollowing(head, raw, { onlyIfDone: true, ...(head.version !== undefined ? { version: head.version } : {}) });
+        const copy = await spawnFollowing(head, raw, { onlyIfDone: true, ...(head.version !== undefined ? { version: head.version } : {}), ...(head.keepApproval ? { keepApproval: true } : {}) });
         if (copy) made.push({ headId: head.id, copy });
       } catch (err) {
         // One broken series must not stop the others; the next sweep tries it again.
