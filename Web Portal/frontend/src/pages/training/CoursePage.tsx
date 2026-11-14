@@ -8,5 +8,5 @@ import { useCourse } from '../../components/training/training-queries';
 export function CoursePage() {
   const { id = '' } = useParams();
   usePageName(useCourse(id).data?.title);
-  return <CourseView key={id} courseId={id} renderHeader={(title) => <PageHeader title={title} />} />;
+  return <CourseView key={id} courseId={id} renderHeader={(title) => <PageHeader wrap title={title} />} />;
 }

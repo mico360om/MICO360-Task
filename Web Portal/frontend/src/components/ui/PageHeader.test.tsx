@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { PageHeader } from './PageHeader';
+import { PageHeader, PageTitle } from './PageHeader';
 import { Breadcrumbs } from './Breadcrumbs';
 
 describe('PageHeader', () => {
@@ -114,5 +114,26 @@ describe('Breadcrumbs', () => {
       delete (HTMLElement.prototype as unknown as Record<string, unknown>).scrollWidth;
       delete (HTMLElement.prototype as unknown as Record<string, unknown>).clientWidth;
     }
+  });
+});
+
+/**
+ * 1.23.33: a list page's title stays on one line (cut with "…" when long), but a lesson's or a course's name is the
+ * page's content: `wrap` lets it run onto the next line instead ("Run the meeting and send the minutes" on a phone).
+ */
+describe('PageTitle / PageHeader wrap', () => {
+  it('a list page’s title stays on one line (truncate) by default', () => {
+    render(<PageTitle title="User & Profile Management" />, { wrapper: MemoryRouter });
+    expect(screen.getByRole('heading', { level: 1 }).className).toMatch(/\btruncate\b/);
+  });
+
+  it('wrap: the title runs onto more lines instead of being cut (PageTitle and PageHeader)', () => {
+    const { unmount } = render(<PageTitle wrap title="Run the meeting and send the minutes" />, { wrapper: MemoryRouter });
+    const h1 = screen.getByRole('heading', { level: 1 });
+    expect(h1.className).not.toMatch(/\btruncate\b/);
+    expect(h1.className).toMatch(/break-words/);
+    unmount();
+    render(<PageHeader wrap title="Copy of MICO360 Tasks User Training" />, { wrapper: MemoryRouter });
+    expect(screen.getByRole('heading', { level: 1 }).className).not.toMatch(/\btruncate\b/);
   });
 });

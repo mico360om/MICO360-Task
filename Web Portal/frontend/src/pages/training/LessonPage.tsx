@@ -8,5 +8,5 @@ import { usePageName } from '../../lib/page-meta';
 export function LessonPage() {
   const { courseId = '', lessonId = '' } = useParams();
   usePageName(useLessonView(lessonId).data?.title);
-  return <LessonPlayer key={lessonId} courseId={courseId} lessonId={lessonId} renderTitle={(title) => <PageTitle title={title} />} />;
+  return <LessonPlayer key={lessonId} courseId={courseId} lessonId={lessonId} renderTitle={(title) => <PageTitle wrap title={title} />} />;
 }

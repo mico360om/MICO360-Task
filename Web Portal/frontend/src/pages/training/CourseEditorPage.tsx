@@ -88,6 +88,7 @@ export function CourseEditorPage() {
     <div data-page="course-editor" className="min-w-0">
       {crumbs(<bdi>{course.title}</bdi>)}
       <PageHeader
+        wrap
         title={course.title}
         actions={
           <Link to={`/training/courses/${encodeURIComponent(course.id)}`} className={buttonClass('secondary', 'md', '!min-h-[44px]')}>
