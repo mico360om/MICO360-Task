@@ -14,6 +14,9 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### Improvements
+- Learning Hub: everyone who hasn't finished MICO360 Tasks User Training sees it as Up next, ready to start.
+
 ## [1.23.33] - 2026-11-14
 
 ### Bug fixes

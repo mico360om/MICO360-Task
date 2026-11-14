@@ -157,6 +157,14 @@ describe('dashboardFocus: which course fills the dashboard', () => {
   it('no training at all: null (the empty state)', () => {
     expect(dashboardFocus(learningGroups(myTraining({ assigned: [], inProgress: [], completed: [], certificates: [] })))).toBeNull();
   });
+
+  it('1.23.34: nothing open — the built-in course offered by the server fills it (not “All done”), before a finished one', () => {
+    const offered = moduleCard({ mine: mine({ ...moduleCard().mine, enrolled: false, assigned: false, status: 'NOT_STARTED', progressPct: 0, lessonsDone: 0, modules: { done: 0, total: 3 } }) });
+    expect(dashboardFocus(learningGroups(myTraining({ assigned: [], inProgress: [], completed: [], certificates: [], suggested: offered })))).toMatchObject({ course: { id: 'u1' }, allDone: false });
+    expect(dashboardFocus(learningGroups(myTraining({ assigned: [], inProgress: [], completed: [done()], suggested: offered })))).toMatchObject({ course: { id: 'u1' }, allDone: false });
+    // Something assigned: that one, as today.
+    expect(dashboardFocus(learningGroups(myTraining({ suggested: offered })))).toMatchObject({ course: { id: 'c1' }, allDone: false });
+  });
 });
 
 describe('moduleKeyOf: a module’s feature — the server’s key, else its name', () => {

@@ -3,7 +3,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { card, detail, mine, myTraining } from '../../components/training/training-fixtures';
+import { card, detail, mine, moduleCard, moduleDetail, myTraining } from '../../components/training/training-fixtures';
 import { MyTrainingPage } from './MyTrainingPage';
 
 /** The staff training API, replaced (hoisted: the side and the queries take it when they load). */
@@ -120,6 +120,43 @@ describe('My learning (12 Nov: Up next, To do, Done)', () => {
     expect(more).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByText('Safety induction')).toBeInTheDocument();
     expect(screen.getByText('Expired')).toBeInTheDocument();
+  });
+
+  it('1.23.34 nothing assigned or started: MICO360 Tasks User Training as Up next with Start — optional (no Mandatory, no due day); the ring, the tiles and the certificate card as usual; Start opens its first lesson', async () => {
+    const fresh = mine({ enrolled: false, assigned: false, mandatory: false, status: 'NOT_STARTED', progressPct: 0, dueDay: null, lastLessonId: null, startedAt: null, lessonsDone: 0, nextLessonId: 'g1', modules: { done: 0, total: 3 }, next: { lessonId: 'g1', lessonTitle: 'Find your way around', moduleTitle: 'Getting started' } });
+    const base = moduleDetail();
+    const d = moduleDetail({
+      mine: fresh,
+      resumeLessonId: 'g1',
+      lessons: base.lessons.map((l) => ({ ...l, done: false })),
+      modules: base.modules.map((m) => ({ ...m, status: 'NOT_STARTED' as const, lessonsDone: 0, doneAt: null, nextLessonId: m.lessonIds[0]! })),
+    });
+    staff.me.mockResolvedValue(myTraining({ assigned: [], inProgress: [], completed: [], certificates: [], counts: { assigned: 0, inProgress: 0, notStarted: 0, completed: 0, overdue: 0, review: 0 }, suggested: moduleCard({ mine: fresh }) }));
+    staff.course.mockResolvedValue(d);
+    staff.start.mockResolvedValue({ ...d, mine: { ...fresh, enrolled: true, startedAt: '2026-11-14T08:00:00.000Z' } });
+    renderAt();
+    const upNext = await screen.findByRole('region', { name: 'Up next' });
+    expect(screen.queryByText('Nothing to do right now')).toBeNull();
+    expect(within(upNext).getByRole('link', { name: 'MICO360 Tasks User Training' })).toHaveAttribute('href', '/training/courses/u1');
+    expect(await within(upNext).findByText('· Module 1 of 3')).toBeInTheDocument();
+    expect(within(upNext).getByRole('heading', { name: 'Getting started', level: 3 })).toBeInTheDocument();
+    expect(within(upNext).queryByText('Mandatory')).toBeNull();
+    expect(within(upNext).queryByText(/^Due |Overdue/)).toBeNull();
+    expect(screen.getByRole('region', { name: 'Your progress' })).toContainElement(screen.getByRole('img', { name: '0 of 3 modules done' }));
+    expect(await screen.findByText('Finish 3 more modules to get it')).toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: /^Module \d+:/ })).toHaveLength(3);
+    expect(screen.queryByRole('region', { name: /^Other courses/ })).toBeNull();
+    await userEvent.click(within(upNext).getByRole('button', { name: 'Start' }));
+    await waitFor(() => expect(staff.start).toHaveBeenCalledWith('u1'));
+    expect(screen.getByTestId('where')).toHaveTextContent('/training/courses/u1/lessons/g1');
+  });
+
+  it('1.23.34 an assigned course stays Up next; the offered course is not added beside it', async () => {
+    staff.me.mockResolvedValue(myTraining({ inProgress: [], completed: [], certificates: [], suggested: moduleCard({ mine: mine({ enrolled: false, assigned: false, mandatory: false, status: 'NOT_STARTED', progressPct: 0, dueDay: null, lessonsDone: 0, modules: { done: 0, total: 3 } }) }) }));
+    renderAt();
+    const upNext = await screen.findByRole('region', { name: 'Up next' });
+    expect(within(upNext).getByRole('link', { name: 'Tasks basics' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'MICO360 Tasks User Training' })).toBeNull();
   });
 
   it('nothing to do: one line and Browse all courses (no zero tiles)', async () => {

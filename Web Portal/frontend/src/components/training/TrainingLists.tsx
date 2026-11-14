@@ -81,9 +81,10 @@ const DONE_FOLD = 6;
  * next by today's rule) — Up next, its progress ring, every module of theirs as a tile, its certificate — and the other
  * open courses beside it; then "Done" (a Done card carries its certificate; more than 6 fold behind "Show all N") and
  * "Older certificates" only when some certificate has no Done card (R6). Everything done: "All done, well done". Nothing
- * at all: one line and `onBrowse` ("Browse all courses").
+ * at all: one line and `onBrowse` ("Browse all courses"). 1.23.34: with nothing open, the built-in course the server
+ * offers (optional: no Mandatory, no due day) fills it as Up next — Start, the ring "0 of N", the tiles, the certificate.
  */
-export function MyLearningSections({ data, onBrowse }: { data: Pick<MyTraining, 'assigned' | 'inProgress' | 'completed' | 'certificates'>; onBrowse?: () => void }) {
+export function MyLearningSections({ data, onBrowse }: { data: Pick<MyTraining, 'assigned' | 'inProgress' | 'completed' | 'certificates' | 'suggested'>; onBrowse?: () => void }) {
   const g = learningGroups(data);
   const focus = dashboardFocus(g);
   const cert = useCertificateDownload();

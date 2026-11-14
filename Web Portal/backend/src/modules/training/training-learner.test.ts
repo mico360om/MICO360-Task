@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { movedTarget, orderAssigned, progressBody, resumeLesson, tourShows, watchFallbackSeconds } from './training-learner';
+import { movedTarget, offersBuiltIn, orderAssigned, progressBody, resumeLesson, tourShows, watchFallbackSeconds } from './training-learner';
 import type { PairState } from './training-read';
 
 const launched = new Date('2026-11-15T00:00:00Z');
@@ -75,5 +75,28 @@ describe('1.23.30: old links and Continue', () => {
     expect(resumeLesson(state({ modules: true, continueAt: { unitId: 'm1', lessonId: 'c' } }), outline([{ id: 'a' }, { id: 'b', review: true }, { id: 'c' }], 'b'))).toBe('b');
     expect(resumeLesson(state({ modules: true, continueAt: null }), outline([{ id: 'a' }, { id: 'b' }, { id: 'c' }], 'a'))).toBe('a');
     expect(resumeLesson(state({ modules: true, continueAt: null, lessons: [] }), outline([], null))).toBeNull();
+  });
+});
+
+describe('1.23.34 the built-in course as an optional Up next (offersBuiltIn)', () => {
+  const ok = { published: true, learnable: true, listed: false, assigned: false, lessonCount: 20, status: 'NOT_STARTED' as const };
+  it('offered to someone with nothing of it yet: published, theirs to take, lessons of theirs', () => {
+    expect(offersBuiltIn(ok)).toBe(true);
+    // Their progress from before an assignment was withdrawn still counts: offered, part done.
+    expect(offersBuiltIn({ ...ok, status: 'IN_PROGRESS' })).toBe(true);
+  });
+  it('never when it is on their lists already (started, assigned or finished: it is there as it is today)', () => {
+    expect(offersBuiltIn({ ...ok, listed: true })).toBe(false);
+  });
+  it('never as an assignment (it is optional: no Mandatory, no due day)', () => {
+    expect(offersBuiltIn({ ...ok, assigned: true })).toBe(false);
+  });
+  it('finished (or reviewing / retaking a finished course): not offered', () => {
+    for (const status of ['COMPLETED', 'REVIEW', 'RETAKE'] as const) expect(offersBuiltIn({ ...ok, status })).toBe(false);
+  });
+  it('archived, unpublished or not theirs (course or every module hidden): not offered', () => {
+    expect(offersBuiltIn({ ...ok, published: false })).toBe(false);
+    expect(offersBuiltIn({ ...ok, learnable: false })).toBe(false);
+    expect(offersBuiltIn({ ...ok, lessonCount: 0 })).toBe(false);
   });
 });

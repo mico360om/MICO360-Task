@@ -236,6 +236,13 @@ export interface MyTraining {
   inProgress: CourseCard[];
   completed: CourseCard[];
   certificates: CertificateRef[];
+  /**
+   * 1.23.34: the built-in course (staff: MICO360 Tasks User Training; the Client portal: Client portal basics) offered
+   * to someone who hasn't finished it and doesn't have it on the lists above: optional — not assigned, no due day, not
+   * in the counts. Null: finished, already listed, assigned, or not published / not theirs. The website shows it as
+   * Up next only when nothing else is open.
+   */
+  suggested: CourseCard | null;
 }
 
 export interface LessonOutline {
