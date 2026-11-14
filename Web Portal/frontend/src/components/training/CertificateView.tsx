@@ -65,10 +65,12 @@ export function CertificateView({ certificate: cert }: { certificate: Certificat
             aria-label="View the certificate full size"
             aria-haspopup="dialog"
             onClick={() => setFull(true)}
-            className="absolute inset-0 cursor-zoom-in rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
+            className="absolute inset-0 cursor-zoom-in rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
           />
         </div>
-        <p className="text-center text-xs text-ink-2 sm:hidden">Tap to view full size</p>
+        <p aria-hidden="true" className="text-center text-xs text-ink-2 sm:hidden">
+          Tap to view full size
+        </p>
       </div>
       {full ? <CertificateFullSize certificate={cert} onClose={closeFull} /> : null}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">

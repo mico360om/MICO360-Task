@@ -183,6 +183,8 @@ describe('the certificate on the course page (1.23.35: the PDF’s new design, o
     expect(open.parentElement!.contains(frameOf())).toBe(true);
     const hint = within(region()).getByText('Tap to view full size');
     expect(hint.className).toMatch(/\bsm:hidden\b/);
+    // Said once: the button already says it to a screen reader.
+    expect(hint).toHaveAttribute('aria-hidden', 'true');
     expect(screen.queryByRole('dialog')).toBeNull();
     await userEvent.click(open);
     const dialog = screen.getByRole('dialog', { name: 'Certificate, full size' });
@@ -191,7 +193,15 @@ describe('the certificate on the course page (1.23.35: the PDF’s new design, o
     expect(within(dialog).getByText('Mariam Al Balushi')).toBeInTheDocument();
     const zoom = dialog.querySelector<HTMLElement>('[data-certificate-zoom]')!;
     expect(zoom.className).toMatch(/\boverflow-auto\b/);
-    expect(zoom.style.touchAction).toMatch(/pinch-zoom/);
+    expect(zoom.className).toMatch(/\boverscroll-contain\b/);
+    // Pinch-zoom is never switched off here (no touch-action of its own).
+    expect(zoom.getAttribute('style') ?? '').not.toMatch(/touch-action/);
+    // A keyboard can scroll it: a named, focusable region (the dialog's Tab cycle reaches it).
+    expect(zoom).toHaveAttribute('role', 'region');
+    expect(zoom).toHaveAttribute('tabindex', '0');
+    expect(zoom).toHaveAccessibleName('The certificate (scroll to see all of it)');
+    // The page behind stays still while it is open.
+    expect(document.body.style.overflow).toBe('hidden');
     const sheet = zoom.querySelector<HTMLElement>('[data-certificate-zoom-paper]')!;
     expect(sheet.style.minWidth).toBe('56rem');
     expect(within(dialog).getByRole('img', { name: 'QR code: check certificate TC-UT7A-UT7B-UT7C online' })).toBeInTheDocument();
@@ -204,12 +214,29 @@ describe('the certificate on the course page (1.23.35: the PDF’s new design, o
     const close = within(screen.getByRole('dialog', { name: 'Certificate, full size' })).getByRole('button', { name: 'Close' });
     expect(close.className).toMatch(/min-h-11/);
     expect(close).toHaveFocus();
+    // Tab moves between Close and the scrolling certificate (the keyboard's way to scroll it).
+    await userEvent.tab();
+    expect(screen.getByRole('region', { name: 'The certificate (scroll to see all of it)' })).toHaveFocus();
+    await userEvent.tab();
+    expect(close).toHaveFocus();
     await userEvent.click(close);
+    expect(document.body.style.overflow).toBe('');
     expect(screen.queryByRole('dialog')).toBeNull();
     await waitFor(() => expect(open).toHaveFocus());
     await userEvent.click(open);
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await waitFor(() => expect(open).toHaveFocus());
+  });
+
+  it('full size: focus comes back to the certificate even when the click didn’t focus it (Safari)', async () => {
+    show(fakeLearner());
+    const open = within(region()).getByRole('button', { name: 'View the certificate full size' });
+    (document.activeElement as HTMLElement | null)?.blur();
+    fireEvent.click(open);
+    const close = within(screen.getByRole('dialog', { name: 'Certificate, full size' })).getByRole('button', { name: 'Close' });
+    fireEvent.click(close);
     expect(screen.queryByRole('dialog')).toBeNull();
     await waitFor(() => expect(open).toHaveFocus());
   });
