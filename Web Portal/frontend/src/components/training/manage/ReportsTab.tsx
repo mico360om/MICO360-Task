@@ -21,6 +21,9 @@ const SCOPE_LABELS: Record<TrainingReport['scope'], string> = { ALL: 'All people
 const DATES_LABELS: Record<ReportDates, string> = { got: 'Got the course', finished: 'Finished the course' };
 const DATES_NOTE: Record<ReportDates, string> = { got: 'got the course', finished: 'finished the course' };
 const PHONE_QUERY = '(max-width: 47.9375em)';
+// The name columns of the report tables keep at least 10rem: their names wrap anywhere, so without a floor the number
+// columns took the width and a name broke a letter or two a line (68px at 1024). The table scrolls in its region instead.
+const NAME_COL = 'min-w-[10rem]';
 
 /** The report's question as the API takes it (empty filters left out). */
 export function reportQuery(by: ReportBy, courseId: string, from: string, to: string, dates: ReportDates = 'got'): ReportQuery {
@@ -189,7 +192,7 @@ export function ReportsTab({ readOnly = false }: { readOnly?: boolean }) {
                 <table aria-labelledby={ids.rows} className="w-full min-w-[40rem] text-sm">
                   <thead>
                     <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-ink-2">
-                      <th scope="col" className="py-2 pe-3 font-semibold">{BY_LABELS[r.by]}</th>
+                      <th scope="col" className={`${NAME_COL} py-2 pe-3 font-semibold`}>{BY_LABELS[r.by]}</th>
                       {COLUMNS.map((c) => <th key={c.key} scope="col" className="px-2 py-2 text-right font-semibold">{c.label}</th>)}
                     </tr>
                   </thead>
@@ -215,7 +218,7 @@ export function ReportsTab({ readOnly = false }: { readOnly?: boolean }) {
                   <table aria-labelledby={ids.modules} className="w-full min-w-[28rem] text-sm">
                     <thead>
                       <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-ink-2">
-                        <th scope="col" className="py-2 pe-3 font-semibold">Module</th>
+                        <th scope="col" className={`${NAME_COL} py-2 pe-3 font-semibold`}>Module</th>
                         {['People', 'Done', 'In progress', 'Not started'].map((h) => <th key={h} scope="col" className="px-2 py-2 text-right font-semibold">{h}</th>)}
                       </tr>
                     </thead>
@@ -247,7 +250,7 @@ export function ReportsTab({ readOnly = false }: { readOnly?: boolean }) {
                   <table aria-labelledby={ids.learners} className="w-full min-w-[30rem] text-sm">
                     <thead>
                       <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-ink-2">
-                        <th scope="col" className="py-2 pe-3 font-semibold">Person</th>
+                        <th scope="col" className={`${NAME_COL} py-2 pe-3 font-semibold`}>Person</th>
                         <th scope="col" className="px-2 py-2 text-right font-semibold">Modules done</th>
                         <th scope="col" className="px-2 py-2 text-left font-semibold">Last activity</th>
                         <th scope="col" className="px-2 py-2 text-left font-semibold">Certificate</th>
@@ -348,8 +351,8 @@ export function ReportsTab({ readOnly = false }: { readOnly?: boolean }) {
                 <table aria-labelledby="tc-rep-quizzes" className="w-full min-w-[40rem] text-sm">
                   <thead>
                     <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-ink-2">
-                      <th scope="col" className="py-2 pe-3 font-semibold">Quiz</th>
-                      <th scope="col" className="px-2 py-2 font-semibold">Course / module</th>
+                      <th scope="col" className={`${NAME_COL} py-2 pe-3 font-semibold`}>Quiz</th>
+                      <th scope="col" className={`${NAME_COL} px-2 py-2 font-semibold`}>Course / module</th>
                       {['Attempts', 'People', 'Pass rate', 'Average', 'Questions'].map((h) => <th key={h} scope="col" className="px-2 py-2 text-right font-semibold">{h}</th>)}
                       <th scope="col" className="px-2 py-2 text-right font-semibold"><span className="sr-only">Details</span></th>
                     </tr>

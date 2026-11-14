@@ -35,6 +35,27 @@ describe('Training Center → Reports', () => {
     expect(name.className).not.toMatch(/(^|\s)flex-1(\s|$)/);
   });
 
+  it('the name columns of every report table keep at least 10rem, so the number columns never squeeze a name to a letter a line (the table scrolls instead)', async () => {
+    api.report.mockResolvedValue(
+      report({
+        modules: [{ moduleId: 'm1', title: 'Getting started', people: 5, done: 3, inProgress: 1, notStarted: 1 }],
+        learners: [{ userId: 'u-sam', name: 'Sam Shared', modulesDone: 2, modulesRequired: 8, lastActivityAt: null, certificate: null }],
+      }),
+    );
+    renderManage(<ReportsTab />);
+    const named = [
+      ['By course', 'Course'],
+      ['By module', 'Module'],
+      ['By person', 'Person'],
+      ['Quiz results', 'Quiz'],
+      ['Quiz results', 'Course / module'],
+    ] as const;
+    for (const [table, column] of named) {
+      const header = within(await screen.findByRole('table', { name: table })).getByRole('columnheader', { name: column });
+      expect(header.className, `${table} → ${column}`).toContain('min-w-[10rem]');
+    }
+  });
+
   it('totals, the rows by course, overdue people, certificates expiring and quiz results — for everyone (administrator)', async () => {
     renderManage(<ReportsTab />);
     const region = await screen.findByRole('region', { name: 'Training reports' });

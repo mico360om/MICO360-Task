@@ -27,6 +27,7 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ### Bug fixes
 - In a project's Categories, long category names show on one or two lines instead of one letter per line.
+- In Learning Hub reports, long course, module and person names in the tables no longer break mid-word; a wide table scrolls sideways instead.
 
 ## [1.23.31] - 2026-11-14
 
