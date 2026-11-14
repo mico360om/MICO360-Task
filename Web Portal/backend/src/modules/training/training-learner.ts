@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { HttpError, ValidationError } from '../../lib/http-errors';
 import { CLIENT_WORDS } from '../clients/client-kind';
+import { resolveBrand } from '../email/brand';
 import { canLearn, inScope, isManager, moduleShown } from './training-access';
 import { buildCertificatePdf, certificateFileName } from './training-certificate-pdf';
 import { certificateStatus, normaliseCode, verifyLink } from './training-certificates';
@@ -352,8 +353,31 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync, 
 
   // ── Cards ──
 
-  async function certificateRefs(rows: { id: string; code: string; courseId: string; courseTitle: string; issuedAt: Date; expiresAt: Date | null; revokedAt: Date | null; learnerName?: string; completedAt?: Date | null }[]): Promise<CertificateRef[]> {
+  /** A certificate as the website shows it; with 1.23.35's fields for the on-screen certificate (the PDF's facts and company). */
+  type CertificateRow = {
+    id: string;
+    code: string;
+    courseId: string;
+    courseTitle: string;
+    issuedAt: Date;
+    expiresAt: Date | null;
+    revokedAt: Date | null;
+    learnerName?: string;
+    completedAt?: Date | null;
+    companyId?: string | null;
+    scorePct?: number | null;
+    issuerName?: string | null;
+    issuerTitle?: string | null;
+    revokedReason?: string | null;
+  };
+  async function certificateRefs(rows: CertificateRow[]): Promise<CertificateRef[]> {
     const now = ctx.clock();
+    // Each company once (a person has a few certificates); a brand that can't be read is the site's.
+    const companies = new Map<string | null, { name: string; logoUrl: string | null }>();
+    for (const id of new Set(rows.map((c) => c.companyId ?? null))) {
+      const b = ctx.screenBrand ? await ctx.screenBrand(id).catch(() => null) : null;
+      companies.set(id, { name: b?.companyName?.trim() || resolveBrand().companyName, logoUrl: b?.logoUrl ?? null });
+    }
     return rows.map((c) => ({
       id: c.id,
       code: c.code,
@@ -365,6 +389,12 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync, 
       completedAt: (c.completedAt ?? c.issuedAt).toISOString(),
       learnerName: c.learnerName ?? '',
       verifyUrl: verifyLink(ctx.appUrl, c.code),
+      scorePct: c.scorePct ?? null,
+      issuerName: c.issuerName ?? null,
+      issuerTitle: c.issuerTitle ?? null,
+      revokedAt: iso(c.revokedAt),
+      revokedReason: c.revokedAt ? (c.revokedReason ?? null) : null,
+      company: companies.get(c.companyId ?? null)!,
     }));
   }
 
@@ -1121,6 +1151,7 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync, 
           signature,
           verifyUrl: verifyLink(ctx.appUrl, c.code),
           status: certificateStatus(c, now),
+          revokedAt: c.revokedAt,
           revokedReason: c.revokedReason,
           company: brand,
           timeZone: ctx.timeZone,

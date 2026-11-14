@@ -23,7 +23,7 @@ import type { EmbeddingLevels } from 'bidi-js';
 
 const bidi = bidiFactory();
 
-export type FontKey = 'latin' | 'latin-bold' | 'latin-italic' | 'latin-bold-italic' | 'display' | 'arabic' | 'arabic-bold' | 'fallback' | 'fallback-bold';
+export type FontKey = 'latin' | 'latin-bold' | 'latin-italic' | 'latin-bold-italic' | 'display' | 'display-black' | 'script' | 'arabic' | 'arabic-bold' | 'fallback' | 'fallback-bold';
 
 /**
  * Font files, resolved from the installed npm packages (see package.json). The brand type of the
@@ -37,6 +37,9 @@ const FONT_FILES: Record<FontKey, string> = {
   'latin-italic': '@expo-google-fonts/ibm-plex-sans/400Regular_Italic/IBMPlexSans_400Regular_Italic.ttf',
   'latin-bold-italic': '@expo-google-fonts/ibm-plex-sans/600SemiBold_Italic/IBMPlexSans_600SemiBold_Italic.ttf',
   display: '@expo-google-fonts/archivo/700Bold/Archivo_700Bold.ttf',
+  // 1.23.35: the certificate's heading (Archivo Black) and the learner's name (Great Vibes, a script face; SIL OFL).
+  'display-black': '@expo-google-fonts/archivo/900Black/Archivo_900Black.ttf',
+  script: '@expo-google-fonts/great-vibes/400Regular/GreatVibes_400Regular.ttf',
   arabic: '@expo-google-fonts/noto-naskh-arabic/400Regular/NotoNaskhArabic_400Regular.ttf',
   'arabic-bold': '@expo-google-fonts/noto-naskh-arabic/700Bold/NotoNaskhArabic_700Bold.ttf',
   fallback: '@expo-google-fonts/noto-sans/400Regular/NotoSans_400Regular.ttf',
@@ -242,9 +245,14 @@ export interface LayoutOptions {
   maxWidth?: number;
   /** Force the paragraph direction; default is auto (first strong character, UAX #9 P2/P3). */
   direction?: 'ltr' | 'rtl';
-  /** 'display' sets Latin text in the heading face (Archivo); Arabic always uses Naskh. */
-  family?: 'text' | 'display';
+  /**
+   * 'display' sets Latin text in the heading face (Archivo), 'display-black' in Archivo Black, 'script' in Great Vibes
+   * (a handwriting face: the certificate's name); Arabic always uses Naskh, and a character the face lacks the text face.
+   */
+  family?: TextFamily;
 }
+
+export type TextFamily = 'text' | 'display' | 'display-black' | 'script';
 
 interface Paragraph {
   text: string;
@@ -259,12 +267,12 @@ interface Paragraph {
 
 type FaceAt = (i: number) => { bold: boolean; italic: boolean };
 
-function assignFonts(text: string, levels: Uint8Array, faceAt: FaceAt, family: 'text' | 'display' = 'text'): FontKey[] {
+function assignFonts(text: string, levels: Uint8Array, faceAt: FaceAt, family: TextFamily = 'text'): FontKey[] {
   const fonts: FontKey[] = new Array<FontKey>(text.length);
   for (let i = 0; i < text.length; i++) {
     const { bold, italic } = faceAt(i);
     const body: FontKey = bold ? (italic ? 'latin-bold-italic' : 'latin-bold') : italic ? 'latin-italic' : 'latin';
-    const latin: FontKey = family === 'display' ? 'display' : body;
+    const latin: FontKey = family === 'text' ? body : family;
     const arabic: FontKey = bold ? 'arabic-bold' : 'arabic';
     // Who draws a character the chosen face lacks: the text face, Naskh, then Noto Sans.
     const fallbacks: FontKey[] = [body, arabic, bold ? 'fallback-bold' : 'fallback'];
@@ -511,7 +519,7 @@ export function layoutStyledText(runs: StyledRun[], opts: LayoutOptions): TextLi
 }
 
 /** Width in points of a single line of text (no wrapping; embedded newlines → widest line). */
-export function measureText(text: string, size: number, bold = false, family: 'text' | 'display' = 'text'): number {
+export function measureText(text: string, size: number, bold = false, family: TextFamily = 'text'): number {
   return layoutText(text, { size, bold, family }).reduce((w, l) => Math.max(w, l.width), 0);
 }
 

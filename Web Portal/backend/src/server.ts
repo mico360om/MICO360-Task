@@ -2115,6 +2115,11 @@ async function main(): Promise<void> {
     printable: (raw) => imageShrinker.toPrintable(raw),
     companyOfPerson: async (userId) => (await companyBranding.forPerson(userId)).companyId,
     pdfBrand: async (companyId) => companyBranding.pdf(await companyBranding.forCompany(companyId)),
+    // 1.23.35: the on-screen certificate names the company the PDF prints, with its logo's address.
+    screenBrand: async (companyId) => {
+      const b = await companyBranding.forCompany(companyId);
+      return { companyName: b.named ? b.name : null, logoUrl: b.logoUrl };
+    },
     audit: (e) => auditService.record({ userId: e.userId, ip: e.ip, module: 'training', action: e.action, entityId: e.entityId, oldValue: e.oldValue ?? null, newValue: e.newValue ?? null }).then(() => {}),
     logger: logger.job('training'),
   });

@@ -11,6 +11,8 @@ import { HttpError } from '../../src/lib/http-errors';
 import { validationErrorBody } from '../../src/lib/validation-errors';
 import { shiftDayKey, todayKey } from '../../src/lib/due-date';
 import { createTokenService } from '../../src/modules/auth/token-service';
+import { inspectPdf } from '../../src/lib/pdf-inspect';
+import { resolveBrand } from '../../src/modules/email/brand';
 import { createAuthGuard, type AuthGuard } from '../../src/modules/auth/auth-guard';
 import { clientRouteClass, routeKeyOf } from '../../src/modules/clients/client-route-table';
 import { isClientRoles } from '../../src/modules/clients/client-kind';
@@ -448,6 +450,14 @@ describe('progress, order and completion (a course in order, with a certificate)
     expect(me.completed.map((c) => c.id)).toContain(staff.id);
     expect(me.certificates.map((c) => c.code)).toEqual([cert.code]);
     expect(me.completed.find((c) => c.id === staff.id)!.mine).toMatchObject({ status: 'COMPLETED', progressPct: 100, certificate: { code: cert.code, status: 'VALID' } });
+    // 1.23.35: the on-screen certificate shows what the PDF prints — the score, the issuer, the company (the site's
+    // name here: this test's site has no company brand set up) — added fields only.
+    expect(me.certificates[0]).toMatchObject({ scorePct: 100, issuerName: 'Amy Alphaonly', issuerTitle: 'Training lead', revokedAt: null, revokedReason: null, company: { name: resolveBrand().companyName, logoUrl: null } });
+    // With the company brand wired (as the server does): the certificate's own company's name and logo.
+    const branded = createTrainingLearner(trainingContext({ ...ctx, screenBrand: async (companyId) => ({ companyName: companyId === w.companies.A ? 'Contoso Alpha' : null, logoUrl: '/uploads/contoso.png' }) }), sync);
+    const mine = await branded.me(w.people.ana, 'staff');
+    expect(mine.certificates[0]!.company).toEqual({ name: 'Contoso Alpha', logoUrl: '/uploads/contoso.png' });
+    expect(mine.completed.find((c) => c.id === staff.id)!.mine.certificate!.company).toEqual({ name: 'Contoso Alpha', logoUrl: '/uploads/contoso.png' });
   });
 
   it('a double click completes once: one certificate', async () => {
@@ -500,6 +510,26 @@ describe('certificates', () => {
     await prisma.user.update({ where: { id: w.people.bob }, data: { trainingManager: true } });
     expect((await call('bob', 'GET', `/training/certificates/${anaCert.id}/pdf`)).status).toBe(404);
     await prisma.user.update({ where: { id: w.people.bob }, data: { trainingManager: false } });
+  });
+
+  it('1.23.35: the PDF is one A4 landscape page; a revoked one says when and why under its stamp', async () => {
+    const page = (buf: Buffer) => inspectPdf(buf).pages[0]!.join(' | ');
+    const own = await raw('ana', 'GET', `/training/certificates/${anaCert.id}/pdf`);
+    const pdf = Buffer.from(own.rawPayload);
+    expect(pdf.toString('latin1')).toMatch(/\/MediaBox \[0 0 841\.89 595\.28\]/);
+    expect(inspectPdf(pdf).pages).toHaveLength(1);
+    expect(page(pdf)).toContain('Issued by');
+    expect(page(pdf)).toContain('Training lead');
+    const at = new Date('2026-11-12T08:00:00Z');
+    await prisma.trainingCertificate.update({ where: { id: anaCert.id }, data: { revokedAt: at, revokedReason: 'Replaced after the retake' } });
+    try {
+      const revoked = page(Buffer.from((await raw('ana', 'GET', `/training/certificates/${anaCert.id}/pdf`)).rawPayload));
+      for (const words of ['REVOKED', 'Revoked on', '12 Nov 2026', 'Reason', 'Replaced after the retake']) expect(revoked).toContain(words);
+      const me = await data<MyTraining>(call('ana', 'GET', '/training/me'));
+      expect(me.certificates.find((c) => c.id === anaCert.id)).toMatchObject({ status: 'REVOKED', revokedAt: at.toISOString(), revokedReason: 'Replaced after the retake' });
+    } finally {
+      await prisma.trainingCertificate.update({ where: { id: anaCert.id }, data: { revokedAt: null, revokedReason: null } });
+    }
   });
 
   it('expiry → a retake (lessons count again); finishing again issues a new certificate and replaces the old', async () => {
