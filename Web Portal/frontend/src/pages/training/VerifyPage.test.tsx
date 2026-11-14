@@ -100,4 +100,14 @@ describe('Check a certificate (/verify, public)', () => {
     await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('/verify/TC-ABCD-EFGH-JKLM'));
     expect(await screen.findByText('Mariam Al Balushi')).toBeInTheDocument();
   });
+
+  // 1.23.33: on a phone the form is a column, where `flex-1` (flex-basis 0) squeezed the box to the 32 px touch floor.
+  it('the code box keeps its 44 px height on a phone: it only grows sideways beside Check (sm and up)', async () => {
+    answer = () => json({}, 404);
+    renderAt('/verify');
+    const box = await screen.findByLabelText('Certificate code');
+    expect(box.className).toMatch(/(^|\s)h-11(\s|$)/);
+    expect(box.className).toMatch(/(^|\s)sm:flex-1(\s|$)/);
+    expect(box.className).not.toMatch(/(^|\s)flex-1(\s|$)/);
+  });
 });

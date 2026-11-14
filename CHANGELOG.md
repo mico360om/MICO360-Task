@@ -19,6 +19,7 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - Learning Hub course: lessons and quiz answers now match the site — “Assigned” in a task's details, the Projects “All” tab, the Calendar's bars, drag and Show button, your password under Your profile, System Settings' cards (Companies, Error log) and the Training manager switch.
 - Learning Hub (admins): Manage → Courses no longer lists archived courses among the current ones (such as the old short courses); “Show the archived courses” or Status → Archived lists them.
 - Learning Hub: a long lesson or course name runs onto a second line on a phone instead of being cut off with “…”.
+- Check a certificate (/verify): the code box is full height on a phone, easy to tap.
 
 ## [1.23.32] - 2026-11-14
 
