@@ -16,6 +16,7 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ### Improvements
 - Learning Hub: everyone who hasn't finished MICO360 Tasks User Training sees it as Up next, ready to start.
+- Learning Hub (Manage): each lesson has an Edit button, and a video without its link shows “Add the link”.
 
 ## [1.23.33] - 2026-11-14
 

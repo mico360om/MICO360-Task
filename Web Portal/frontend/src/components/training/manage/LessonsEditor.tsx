@@ -10,7 +10,7 @@ import { ChoiceGroup, FormRow, ManageDialog } from './ManageDialog';
 import { Glyph, IconButton, LESSON_GLYPH, LESSON_KIND_LABELS, Notice, SectionCard, count, minutesText, problemText, sizeText } from './manage-ui';
 import { tc, useCourseCache } from './manage-queries';
 import { moduleChoice, modulesInOrder } from './ModulesEditor';
-import { TOUCH_TALL } from '../../../lib/touch';
+import { TOUCH_SQUARE, TOUCH_TALL } from '../../../lib/touch';
 import { DOCUMENT_TYPES, FilePickButton, UploadProgress, useUpload } from './uploads';
 import { StepsEditor } from './StepsEditor';
 import { QuizEditor } from './QuizEditor';
@@ -45,10 +45,26 @@ export function lessonGroups(course: Pick<ManageCourse, 'lessons' | 'modules'>):
 }
 
 /**
+ * Brings a lesson that was just opened into view (1.23.34): nothing when it is on screen already; a lesson taller than
+ * the window shows from its top, a shorter one just enough to be seen whole.
+ */
+function reveal(el: HTMLElement) {
+  const r = el.getBoundingClientRect();
+  const vh = window.innerHeight || document.documentElement.clientHeight;
+  if (r.top >= 0 && r.bottom <= vh) return;
+  const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? true;
+  el.scrollIntoView?.({ block: r.height > vh * 0.8 ? 'start' : 'nearest', behavior: still ? 'auto' : 'smooth' });
+}
+
+/**
  * The lessons in order: open one to edit it, move it up or down, delete it, or add a lesson. In a course with
  * modules they are shown under their modules (moving up or down stays within the module) and each one has a Module
  * choice that moves it to another module (last in it) or to no module. Each module has its own Add lesson (1.23.32:
  * the new lesson goes last in it); Add lesson above adds one with no module.
+ * 1.23.34 (owner: where does a video's link go?): each lesson has a visible Edit button (a pencil; "Edit" beside it
+ * from 640 px) opening the same panel as its title (which shows a chevron and underlines on hover); a video without
+ * its link says "… · Add the link", which opens it with the focus in the link field; an opened lesson is scrolled
+ * into view.
  */
 export function LessonsEditor({ course }: { course: ManageCourse }) {
   const cache = useCourseCache(course.id);
@@ -61,6 +77,11 @@ export function LessonsEditor({ course }: { course: ManageCourse }) {
   const [moving, setMoving] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const controls = useRef(new Map<string, HTMLButtonElement | HTMLSelectElement>());
+  /** The lesson rows, to bring one into view once it opens (`revealNext`). */
+  const rows = useRef(new Map<string, HTMLLIElement>());
+  const revealNext = useRef<string | null>(null);
+  /** "Add the link": the video lesson whose link field takes the focus, and a count so pressing it again refocuses. */
+  const [linkAsk, setLinkAsk] = useState<{ id: string; n: number } | null>(null);
   /** The control to focus once it is ready; `inModule`: only once the lesson shows in that module (null: no module). */
   const focusNext = useRef<{ key: string; lessonId?: string; inModule?: string | null } | null>(null);
   const groups = lessonGroups(course);
@@ -82,13 +103,32 @@ export function LessonsEditor({ course }: { course: ManageCourse }) {
     }
   });
 
-  const toggle = (id: string) =>
+  // An opened lesson is brought into view (after it is drawn open).
+  useEffect(() => {
+    const id = revealNext.current;
+    if (!id) return;
+    revealNext.current = null;
+    const el = rows.current.get(id);
+    if (el && open.has(id)) reveal(el);
+  });
+
+  const toggle = (id: string) => {
+    setLinkAsk(null);
+    const opening = !open.has(id);
+    if (opening) revealNext.current = id;
     setOpen((s) => {
       const n = new Set(s);
       if (n.has(id)) n.delete(id);
       else n.add(id);
       return n;
     });
+  };
+
+  /** "Add the link": the video lesson opens (if it isn't) and its link field takes the focus. */
+  const askLink = (id: string) => {
+    setOpen((s) => new Set([...s, id]));
+    setLinkAsk((a) => ({ id, n: (a?.n ?? 0) + 1 }));
+  };
 
   /** Up or down within its group; the whole course order is sent, group by group. */
   async function move(group: LessonGroup, index: number, by: -1 | 1) {
@@ -150,17 +190,40 @@ export function LessonsEditor({ course }: { course: ManageCourse }) {
     const panelId = `tc-lesson-${l.id}`;
     const last = group.lessons.length - 1;
     return (
-      <li key={l.id} className="rounded-xl border border-line">
-        <div className="flex items-center gap-2 px-3 py-2">
+      <li
+        key={l.id}
+        ref={(el) => {
+          if (el) rows.current.set(l.id, el);
+          else rows.current.delete(l.id);
+        }}
+        className="scroll-mb-4 scroll-mt-24 rounded-xl border border-line"
+      >
+        <div className="flex flex-wrap items-center gap-2 px-3 py-2">
           <span className="w-6 flex-none text-sm font-semibold text-ink-2" aria-hidden="true">{`${i + 1}.`}</span>
           <span className="grid h-8 w-8 flex-none place-items-center rounded-lg bg-brand/10 text-brand" aria-hidden="true">{LESSON_GLYPH[l.kind]}</span>
-          <div className="min-w-0 flex-1">
-            <button type="button" aria-expanded={isOpen} aria-controls={panelId} onClick={() => toggle(l.id)} className="block max-w-full text-left text-sm font-semibold text-ink [overflow-wrap:anywhere] hover:text-brand [@media(pointer:coarse)]:!min-h-11">
+          <div className="min-w-0 flex-[1_1_11rem]">
+            <button type="button" aria-expanded={isOpen} aria-controls={panelId} onClick={() => toggle(l.id)} className="group block max-w-full text-left text-sm font-semibold text-ink [overflow-wrap:anywhere] hover:text-brand hover:underline [@media(pointer:coarse)]:!min-h-11">
               {l.title}
+              <svg data-chevron viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={`ms-1 inline-block align-[-2px] text-ink-2 transition-transform group-hover:text-brand motion-reduce:transition-none ${isOpen ? 'rotate-180' : ''}`}>
+                <path d="m6 9 6 6 6-6" />
+              </svg>
             </button>
             <p className="text-xs text-ink-2">
               {`${LESSON_KIND_LABELS[l.kind]} · ${minutesText(l.minutes)}`}
-              {l.kind === 'VIDEO' && !l.video ? <span className="text-warning"> · Hidden from learners until it has its link</span> : null}
+              {l.kind === 'VIDEO' && !l.video ? (
+                <>
+                  <span className="text-warning"> · Hidden from learners until it has its link</span>
+                  {' · '}
+                  <button
+                    type="button"
+                    aria-label={`Add the link to “${l.title}”`}
+                    onClick={() => askLink(l.id)}
+                    className="rounded font-semibold text-brand underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-brand/40 [@media(pointer:coarse)]:inline-flex [@media(pointer:coarse)]:!min-h-11 [@media(pointer:coarse)]:items-center"
+                  >
+                    Add the link
+                  </button>
+                </>
+              ) : null}
             </p>
             {withModules ? (
               <div className="mt-1 flex flex-wrap items-center gap-2">
@@ -179,7 +242,18 @@ export function LessonsEditor({ course }: { course: ManageCourse }) {
               </div>
             ) : null}
           </div>
-          <div className="flex flex-none items-center">
+          <div className="ms-auto flex flex-none items-center">
+            <button
+              type="button"
+              aria-label={`Edit “${l.title}”`}
+              aria-expanded={isOpen}
+              aria-controls={panelId}
+              onClick={() => toggle(l.id)}
+              className={`inline-flex h-8 flex-none items-center justify-center gap-1 rounded-lg px-2 text-sm font-semibold text-ink-2 transition-colors hover:bg-ground hover:text-ink aria-expanded:bg-brand/10 aria-expanded:text-brand ${TOUCH_SQUARE}`}
+            >
+              {Glyph.edit}
+              <span className="hidden sm:inline">Edit</span>
+            </button>
             <IconButton label={`Move “${l.title}” up`} disabled={i === 0 || moving} onClick={() => void move(group, i, -1)} buttonRef={(el) => keep(el, `${l.id}:up`)}>
               {Glyph.up}
             </IconButton>
@@ -200,7 +274,7 @@ export function LessonsEditor({ course }: { course: ManageCourse }) {
         </div>
         {isOpen ? (
           <div id={panelId} className="border-t border-line px-3 py-3">
-            <LessonEditor key={l.id} lesson={l} courseId={course.id} />
+            <LessonEditor key={l.id} lesson={l} courseId={course.id} linkFocus={linkAsk?.id === l.id ? linkAsk.n : 0} />
           </div>
         ) : null}
       </li>
@@ -402,9 +476,16 @@ function AddLessonDialog({ courseId, module, withModules, onClose, onAdded }: { 
   );
 }
 
-/** One lesson open for editing: its title, minutes and introduction (a video its link), then what its kind holds. */
-function LessonEditor({ lesson, courseId }: { lesson: ManageLesson; courseId: string }) {
+/**
+ * One lesson open for editing: its title, minutes and introduction (a video its link), then what its kind holds.
+ * `linkFocus` (1.23.34, "Add the link"): above 0, a video's link field takes the focus — again each time it grows.
+ */
+function LessonEditor({ lesson, courseId, linkFocus = 0 }: { lesson: ManageLesson; courseId: string; linkFocus?: number }) {
   const cache = useCourseCache(courseId);
+  const linkRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (linkFocus > 0) linkRef.current?.focus();
+  }, [linkFocus]);
   const ids = { title: useId(), minutes: useId(), link: useId(), linkHint: useId() };
   const start = { title: lesson.title, minutes: String(lesson.minutes), body: lesson.body ?? '', videoUrl: lesson.videoUrl ?? '' };
   const [saved, setSaved] = useState(start);
@@ -462,7 +543,7 @@ function LessonEditor({ lesson, courseId }: { lesson: ManageLesson; courseId: st
         </div>
         {lesson.kind === 'VIDEO' ? (
           <FormRow label="YouTube or Vimeo link" htmlFor={ids.link} hint="Unlisted videos are fine. The link is checked when you save." hintId={ids.linkHint}>
-            <input id={ids.link} type="url" inputMode="url" value={draft.videoUrl} onChange={(e) => set({ videoUrl: e.target.value })} onKeyDown={stayOnEnter} maxLength={LIMITS.videoUrl} placeholder="https://www.youtube.com/watch?v=…" aria-describedby={ids.linkHint} className={fieldClass(false, 'w-full')} dir="ltr" />
+            <input ref={linkRef} id={ids.link} type="url" inputMode="url" value={draft.videoUrl} onChange={(e) => set({ videoUrl: e.target.value })} onKeyDown={stayOnEnter} maxLength={LIMITS.videoUrl} placeholder="https://www.youtube.com/watch?v=…" aria-describedby={ids.linkHint} className={fieldClass(false, 'w-full')} dir="ltr" />
           </FormRow>
         ) : null}
         <div className="flex flex-col gap-1.5">

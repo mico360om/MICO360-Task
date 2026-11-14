@@ -193,6 +193,77 @@ describe('Course editor: lessons', () => {
     await waitFor(() => expect(within(lessons).queryByText(/Hidden from learners until it has its link/)).toBeNull());
   });
 
+  it('1.23.34: each lesson has an Edit button that opens and closes the same panel as its title (aria-expanded / aria-controls) — every kind', async () => {
+    const kinds = [
+      lesson({ id: 'v', kind: 'VIDEO', title: 'Watch how' }),
+      lesson({ id: 'g', kind: 'GUIDE', title: 'Make a task' }),
+      lesson({ id: 'd', kind: 'DOCUMENT', title: 'The handbook' }),
+      lesson({ id: 'q', kind: 'QUIZ', title: 'Check yourself' }),
+    ];
+    const lessons = await open(...kinds);
+    for (const l of kinds) {
+      const edit = within(lessons).getByRole('button', { name: `Edit “${l.title}”` });
+      const title = within(lessons).getByRole('button', { name: l.title });
+      expect(edit).toHaveTextContent('Edit');
+      expect(edit).toHaveAttribute('aria-expanded', 'false');
+      expect(title.querySelector('svg[data-chevron]')).not.toBeNull();
+      await userEvent.click(edit);
+      expect(edit).toHaveAttribute('aria-expanded', 'true');
+      expect(title).toHaveAttribute('aria-expanded', 'true');
+      const panel = document.getElementById(edit.getAttribute('aria-controls')!)!;
+      expect(panel).toBe(document.getElementById(title.getAttribute('aria-controls')!));
+      expect(within(panel).getByRole('form', { name: `Lesson “${l.title}”` })).toBeInTheDocument();
+      await userEvent.click(edit);
+      expect(edit).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.queryByRole('form', { name: `Lesson “${l.title}”` })).toBeNull();
+    }
+  });
+
+  it('1.23.34: a video without its link says “Hidden from learners until it has its link · Add the link”; Add the link opens it with the focus in the link field', async () => {
+    const v = lesson({ id: 'v', kind: 'VIDEO', title: 'Video: Getting started' });
+    const g = lesson({ id: 'g', kind: 'GUIDE', title: 'Make a task' });
+    const lessons = await open(v, g);
+    const row = within(lessons).getByRole('button', { name: 'Video: Getting started' }).closest('li')!;
+    expect(row).toHaveTextContent('Hidden from learners until it has its link · Add the link');
+    // Only a video waiting for its link has it.
+    expect(within(lessons).getAllByRole('button', { name: /^Add the link/ })).toHaveLength(1);
+    await userEvent.click(within(row).getByRole('button', { name: 'Add the link to “Video: Getting started”' }));
+    const field = await within(row).findByRole('textbox', { name: 'YouTube or Vimeo link' });
+    await waitFor(() => expect(field).toHaveFocus());
+    expect(within(row).getByRole('button', { name: 'Edit “Video: Getting started”' })).toHaveAttribute('aria-expanded', 'true');
+    // Pressed again while open: the focus goes back to the field.
+    field.blur();
+    await userEvent.click(within(row).getByRole('button', { name: /^Add the link/ }));
+    await waitFor(() => expect(field).toHaveFocus());
+    const saved = { ...v, videoUrl: 'https://youtu.be/abc123def45', video: { provider: 'YOUTUBE' as const, videoId: 'abc123def45', embedUrl: 'https://www.youtube-nocookie.com/embed/abc123def45', watchUrl: 'https://www.youtube.com/watch?v=abc123def45' } };
+    api.updateLesson.mockResolvedValueOnce(saved);
+    api.manageCourse.mockResolvedValue(withLessons(saved, g));
+    await userEvent.type(field, 'https://youtu.be/abc123def45');
+    await userEvent.click(within(row).getByRole('button', { name: 'Save lesson' }));
+    await waitFor(() => expect(within(lessons).queryByText(/Hidden from learners/)).toBeNull());
+    expect(within(lessons).queryByRole('button', { name: /^Add the link/ })).toBeNull();
+  });
+
+  it('1.23.34: opening a lesson brings it into view when it is off screen', async () => {
+    const scroll = vi.fn();
+    const before = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scroll;
+    try {
+      const lessons = await open(lesson({ id: 'g', kind: 'GUIDE', title: 'Make a task' }));
+      const row = within(lessons).getByRole('button', { name: 'Make a task' }).closest('li')!;
+      vi.spyOn(row, 'getBoundingClientRect').mockReturnValue({ top: 500, bottom: 5000, height: 4500, left: 0, right: 300, width: 300, x: 0, y: 500, toJSON: () => ({}) });
+      await userEvent.click(within(row).getByRole('button', { name: 'Edit “Make a task”' }));
+      await waitFor(() => expect(scroll).toHaveBeenCalled());
+      expect(scroll.mock.contexts[0]).toBe(row);
+      // Closing it doesn't scroll.
+      scroll.mockClear();
+      await userEvent.click(within(row).getByRole('button', { name: 'Edit “Make a task”' }));
+      expect(scroll).not.toHaveBeenCalled();
+    } finally {
+      Element.prototype.scrollIntoView = before;
+    }
+  });
+
   it('a lesson’s title and minutes are saved (only what changed)', async () => {
     await open(lesson({ id: 'g', kind: 'GUIDE', title: 'Make a task', minutes: 5 }));
     const panel = await expand('Make a task');
