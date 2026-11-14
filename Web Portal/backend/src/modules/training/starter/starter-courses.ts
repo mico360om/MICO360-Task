@@ -15,8 +15,11 @@ import type { StarterCourse, StarterLesson, StarterModule, StarterQuestion } fro
  * lesson's earlier titles are kept in `was`. No downloads: the old how-to slide PDFs are gone (1.23.25).
  */
 
-/** Raised whenever this content changes, so sites update the starter courses nobody edited (R1). */
-export const STARTER_REVISION = 3;
+/**
+ * Raised whenever this content changes, so sites update the starter courses nobody edited (R1). 4 (1.23.33): the
+ * pictures retaken with sample names only, and the words checked against the site of 1.23.32.
+ */
+export const STARTER_REVISION = 4;
 
 /** 1.23.30: the one staff course, "MICO360 Tasks User Training" (its starter key). */
 export const USER_TRAINING_KEY = 'starter:user-training';
@@ -116,13 +119,13 @@ const gettingStarted: StarterLesson[] = [
         title: 'Notifications',
         body: '<p>The bell at the top shows new notices: tasks given to you, mentions, reminders and answers. Click one to open what it is about.</p>',
         image: 'start-notifications.webp',
-        alt: 'The notifications list open under the bell, with a task given to you and a mention.',
+        alt: 'The notifications list open under the bell, with a new comment on your task and tasks given to you.',
       },
       {
         title: 'Your settings',
         body: '<p>Click your picture at the top right to open the account menu, then choose <strong>Settings</strong> to change your profile, password and notifications. Under <strong>Calendar &amp; dates</strong> you choose the day your week starts on and your time zone.</p>',
         image: 'start-settings.webp',
-        alt: 'The account menu open under the person’s picture, with Your profile, Settings, Keyboard shortcuts and Tour of the site.',
+        alt: 'The account menu open under the person’s picture, with Your profile, Settings, Keyboard shortcuts, Tour of the site, About and version history and Log out.',
       },
       {
         title: 'The Learning Hub',
@@ -579,7 +582,7 @@ const calendar: StarterLesson[] = [
         title: 'Choose what you see',
         body: '<p>Use <strong>All projects</strong>, <strong>Everyone</strong> and <strong>My tasks</strong> to narrow the calendar. <strong>More filters</strong> picks statuses and priorities and shows or hides completed tasks and meetings. <strong>Legend</strong> explains the colours.</p>',
         image: 'calendar-filters.webp',
-        alt: 'The More filters panel with Status and Priority boxes, and Include options such as Show completed tasks and Show meetings.',
+        alt: 'The More filters panel with Status and Priority boxes, and Include options such as Show completed tasks and Show tasks of archived projects.',
       },
     ],
   },
@@ -640,7 +643,7 @@ const projects: StarterLesson[] = [
         title: 'Open Projects',
         body: '<p>Click <strong>Projects</strong> in the side menu to see the projects you are part of. The tabs at the top show them by status: <strong>Active</strong>, <strong>Planning</strong>, <strong>On hold</strong>, <strong>Completed</strong> and <strong>Archived</strong>.</p>',
         image: 'projects-list.webp',
-        alt: 'The Projects page with status tabs, a search box and four project cards showing progress, open and overdue tasks, the next due date and the manager.',
+        alt: 'The Projects page with status tabs, a search box and three project cards showing progress, open and overdue tasks, the next due date and the manager.',
       },
       {
         title: 'Read a project card',
@@ -1044,7 +1047,7 @@ const admin: StarterLesson[] = [
         title: 'Change an account',
         body: '<p>Click <strong>Edit</strong> on a person’s row. Under <strong>Roles &amp; permissions</strong> tick Administrator or Employee, and under <strong>Account status</strong> choose Active, Inactive or Suspended. Click <strong>Save changes</strong>.</p>',
         image: 'admin-edit-user.webp',
-        alt: 'The Manage account window: the person’s profile on the left, and Account status and Roles & permissions on the right.',
+        alt: 'The Manage account window: the person’s profile on the left; Account status, Roles & permissions and Training on the right.',
       },
       {
         title: 'When someone leaves',
@@ -1061,7 +1064,7 @@ const admin: StarterLesson[] = [
         title: 'System Settings',
         body: '<p>Click <strong>System Settings</strong> in the Admin group for the company-wide settings: Notification &amp; Scheduling (working days, holidays, reminders), KPI targets, <strong>Companies</strong>, task carry-forward, the weekly management summary, accounts, the daily email, backups and the Learning Hub tour.</p>',
         image: 'admin-settings.webp',
-        alt: 'The System Settings page with the Notification & Scheduling, KPI targets, Task carry-forward, Weekly management summary and Accounts cards.',
+        alt: 'The System Settings page with the Notification & Scheduling, KPI targets, Companies, Task carry-forward and Current settings cards.',
       },
       {
         title: 'Third Party and Companies',

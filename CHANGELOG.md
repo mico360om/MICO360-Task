@@ -14,6 +14,9 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### Bug fixes
+- Learning Hub course: the pictures were retaken on the current version, with sample names only (no real company names), and their descriptions match them.
+
 ## [1.23.32] - 2026-11-14
 
 ### Improvements

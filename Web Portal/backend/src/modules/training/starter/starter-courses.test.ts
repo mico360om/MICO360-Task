@@ -90,7 +90,7 @@ const courseText = (c: StarterCourse) => plain(c.lessons, [c.title, c.summary, .
 
 describe('starter content revision 3: the two built-in courses', () => {
   it('revision 3: the combined staff course first (position -1), then the client guide; stable unique keys', () => {
-    expect(STARTER_REVISION).toBe(3);
+    expect(STARTER_REVISION).toBe(4);
     expect(USER_TRAINING_KEY).toBe('starter:user-training');
     expect(STARTER_COURSES.map((c) => c.key)).toEqual(KEYS);
     expect(training().position).toBe(-1);
@@ -463,5 +463,30 @@ describe('starter content revision 3: files', () => {
       expect(meta.width ?? 0, f).toBeLessThanOrEqual(1280);
     }
     expect(total).toBeLessThanOrEqual(3 * 1024 * 1024);
+  });
+});
+
+/**
+ * 1.23.33 (revision 4): the pictures were retaken on 1.23.32 with sample names only (owner rule 13 Nov: Contoso
+ * Engineering, Fabrikam Logistics, Northwind Trading — the 1.23.27 pictures showed a real company as the sample client).
+ * Every picture was checked by eye (recipe: .superpowers/lhq/starter/capture-starter.mjs); this keeps the files clean
+ * for the release's word checks too.
+ */
+describe('starter content revision 4: the pictures', () => {
+  it('no picture’s bytes read as a retired name (a release check greps the files: a random byte run must not trip it)', () => {
+    const retired = ['oxy', 'gulf', 'pdo', 'acme', 'prolens'];
+    for (const f of filesInFolder) {
+      const text = readFileSync(join(ASSETS, f)).toString('latin1');
+      for (const w of retired) expect(new RegExp(`(^|[^A-Za-z0-9_])${w}([^A-Za-z0-9_]|$)`, 'i').test(text), `${f} holds “${w}”`).toBe(false);
+    }
+  });
+
+  it('the descriptions say what the retaken pictures show', () => {
+    const alt = (image: string) => steps(training()).find((s) => s.image === image)?.alt ?? '';
+    expect(alt('admin-settings.webp')).toMatch(/Companies/);
+    expect(alt('calendar-filters.webp')).not.toMatch(/Show meetings/);
+    expect(alt('start-notifications.webp')).not.toMatch(/mention/);
+    expect(alt('projects-list.webp')).toMatch(/three project cards/);
+    expect(alt('admin-edit-user.webp')).toMatch(/Training/);
   });
 });
