@@ -65,6 +65,16 @@ describe('Learning Hub → Manage → Courses', () => {
     expect(screen.getByRole('button', { name: 'Show the 2 archived courses' })).toBeInTheDocument();
   });
 
+  it('1.23.33: a search that matches only archived courses offers them (“No courses match” + Show the archived course)', async () => {
+    renderManage(<CoursesTab />);
+    await screen.findByRole('list', { name: 'Courses' });
+    api.courses.mockResolvedValue({ courses: [courseRow({ id: 'c3', title: 'Old board', moduleKey: 'board', status: 'ARCHIVED' })] });
+    await userEvent.type(screen.getByRole('searchbox', { name: 'Search courses' }), 'old');
+    expect(await screen.findByText('No courses match')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Show the 1 archived course' }));
+    await waitFor(() => expect(api.courses).toHaveBeenLastCalledWith({ status: 'ARCHIVED', module: '', q: 'old', audience: '' }));
+  });
+
   it('filters by status, audience and module on the server, and searches as you type', async () => {
     renderManage(<CoursesTab />);
     await screen.findByRole('list', { name: 'Courses' });

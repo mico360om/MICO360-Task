@@ -126,7 +126,7 @@ export function CoursesTab() {
         archived && !filtered ? (
           <EmptyState title="Every course is archived" description="Archived courses aren’t listed here. Show them, or make a new course." action={showArchived} />
         ) : filtered ? (
-          <EmptyState title="No courses match" description="Try another status, audience, module or search." />
+          <EmptyState title="No courses match" description="Try another status, audience, module or search." action={showArchived ?? undefined} />
         ) : (
           <EmptyState
             title="No courses yet"
