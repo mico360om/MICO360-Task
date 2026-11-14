@@ -13,11 +13,11 @@ import { resolve } from 'node:path';
 import PDFDocument from 'pdfkit';
 import { drawTextLine, layoutText, measureText, registerPdfFonts, type FontKey } from '../../lib/pdf-text';
 import { printableImage } from '../../lib/pdf-image';
-import { formatDay, slugPart } from '../../lib/export-format';
+import { slugPart } from '../../lib/export-format';
 import { zonedDayKey } from '../../lib/due-date';
 import { resolveBrand } from '../email/brand';
 import { qrMatrix } from './training-qr';
-import { CERT_COLORS, CERT_PAGE, CERT_SCAN, CERT_SHAPES, CERT_STAMP, CERT_TEXT, CERT_WREATH, certNameSize, certQrBox, certificateRows, certificateStamp, certificateWords, shapePath, type CertFace, type CertMeasure } from './certificate-art';
+import { CERT_COLORS, CERT_PAGE, CERT_SCAN, CERT_SHAPES, CERT_STAMP, CERT_TEXT, CERT_WREATH, certNameSize, certQrBox, certificateDay, certificateRows, certificateStamp, certificateWords, shapePath, type CertFace, type CertMeasure } from './certificate-art';
 import type { CertificateStatus } from './training-types';
 
 export interface CertificatePdf {
@@ -81,7 +81,8 @@ const FIXED_FONT: Record<CertFace, FontKey> = { heading: 'display-black', text: 
 
 /** The certificate as a PDF (one A4 landscape page). */
 export function buildCertificatePdf(c: CertificatePdf, _opts: { printedBy?: string | null; now?: Date } = {}): Buffer {
-  const day = (at: Date) => formatDay(zonedDayKey(at, c.timeZone));
+  // The certificate's dates in full ("14 November 2026"), in the site's zone.
+  const day = (at: Date) => certificateDay(zonedDayKey(at, c.timeZone));
   const doc = new PDFDocument({
     size: 'A4',
     layout: 'landscape',

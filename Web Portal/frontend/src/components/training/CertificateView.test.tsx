@@ -43,7 +43,7 @@ describe('the certificate on the course page (1.23.35: the PDF’s new design, o
     expect(word('through')).toEqual(['Issued through MICO360 Tasks · Learning Hub']);
     // Issued on another day than finished (the change day): Completed, then Issued; no expiry: Never.
     expect(word('label')).toEqual(['Completed', 'Issued', 'Expires', 'Certificate ID']);
-    expect(word('value')).toEqual(['3 Nov 2026', '5 Nov 2026', 'Never', 'TC-UT7A-UT7B-UT7C']);
+    expect(word('value')).toEqual(['3 November 2026', '5 November 2026', 'Never', 'TC-UT7A-UT7B-UT7C']);
     const name = paper().querySelector('[data-certificate-word="name"]')!;
     expect(name.getAttribute('font-family')).toMatch(/Great Vibes/);
     expect(name.getAttribute('fill')).toBe('#8B1E1E');
@@ -77,8 +77,8 @@ describe('the certificate on the course page (1.23.35: the PDF’s new design, o
     expect(paper().querySelectorAll('path').length).toBe(paper().querySelectorAll('g[aria-hidden="true"] path').length);
     expect(within(paper() as unknown as HTMLElement).getByRole('img', { name: 'MICO360 Tasks' }).tagName.toLowerCase()).toBe('image');
     expect(facts()).toEqual([
-      ['Completed', '3 Nov 2026'],
-      ['Issued', '5 Nov 2026'],
+      ['Completed', '3 November 2026'],
+      ['Issued', '5 November 2026'],
       ['Expires', 'Never'],
       ['Certificate ID', 'TC-UT7A-UT7B-UT7C'],
     ]);
@@ -99,9 +99,9 @@ describe('the certificate on the course page (1.23.35: the PDF’s new design, o
   it('the score, the expiry and Issued by when the certificate has them; the company’s own logo, else MICO360’s', () => {
     const a = show(fakeLearner(), certificate({ issuedAt: '2026-11-03T09:00:00.000Z', expiresAt: '2027-11-03T09:00:00.000Z', scorePct: 96, issuerName: 'Tariq Training', issuerTitle: 'Training manager' }));
     expect(facts()).toEqual([
-      ['Completed and issued', '3 Nov 2026'],
+      ['Completed and issued', '3 November 2026'],
       ['Quiz score', '96%'],
-      ['Expires', '3 Nov 2027'],
+      ['Expires', '3 November 2027'],
       ['Certificate ID', 'TC-UT7A-UT7B-UT7C'],
       ['Issued by', 'Tariq Training, Training manager'],
     ]);
@@ -133,12 +133,12 @@ describe('the certificate on the course page (1.23.35: the PDF’s new design, o
     const a = show(fakeLearner(), certificate({ status: 'EXPIRED', expiresAt: '2026-11-10T08:00:00.000Z' }));
     expect(within(region()).getByText('Expired')).toBeInTheDocument();
     expect(paper().querySelector('[data-certificate-stamp]')!.textContent).toBe('EXPIRED');
-    expect(facts()).toContainEqual(['Expired on', '10 Nov 2026']);
+    expect(facts()).toContainEqual(['Expired on', '10 November 2026']);
     a.unmount();
     show(fakeLearner(), certificate({ status: 'REVOKED', revokedAt: '2026-11-12T08:00:00.000Z', revokedReason: 'Replaced after the retake' }));
     expect(within(region()).getByText('Revoked')).toBeInTheDocument();
     expect(paper().querySelector('[data-certificate-stamp]')!.textContent).toBe('REVOKED');
-    expect(facts()).toContainEqual(['Revoked on', '12 Nov 2026']);
+    expect(facts()).toContainEqual(['Revoked on', '12 November 2026']);
     expect(facts()).toContainEqual(['Reason', 'Replaced after the retake']);
   });
 
@@ -171,6 +171,62 @@ describe('the certificate on the course page (1.23.35: the PDF’s new design, o
     expect(screen.getByRole('img', { name: /QR code/ })).toBeInTheDocument();
     expect(within(region()).queryAllByRole('link')).toHaveLength(0);
     expect(within(region()).getByRole('button', { name: 'Download certificate (PDF)' })).toBeInTheDocument();
+  });
+
+  it('tap to enlarge: the certificate is one big button (outside the paper) that opens it full size; a hint on phones', async () => {
+    show(fakeLearner());
+    const open = within(region()).getByRole('button', { name: 'View the certificate full size' });
+    // It covers the whole certificate and is a sibling of the paper (the paper's words stay readable on their own).
+    expect(open.className).toMatch(/\babsolute\b/);
+    expect(open.className).toMatch(/\binset-0\b/);
+    expect(frameOf().contains(open)).toBe(false);
+    expect(open.parentElement!.contains(frameOf())).toBe(true);
+    const hint = within(region()).getByText('Tap to view full size');
+    expect(hint.className).toMatch(/\bsm:hidden\b/);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await userEvent.click(open);
+    const dialog = screen.getByRole('dialog', { name: 'Certificate, full size' });
+    expect(dialog).toHaveAttribute('aria-modal', 'true');
+    // The same certificate inside, at a readable width that may scroll sideways, pinch-zoom allowed.
+    expect(within(dialog).getByText('Mariam Al Balushi')).toBeInTheDocument();
+    const zoom = dialog.querySelector<HTMLElement>('[data-certificate-zoom]')!;
+    expect(zoom.className).toMatch(/\boverflow-auto\b/);
+    expect(zoom.style.touchAction).toMatch(/pinch-zoom/);
+    const sheet = zoom.querySelector<HTMLElement>('[data-certificate-zoom-paper]')!;
+    expect(sheet.style.minWidth).toBe('56rem');
+    expect(within(dialog).getByRole('img', { name: 'QR code: check certificate TC-UT7A-UT7B-UT7C online' })).toBeInTheDocument();
+  });
+
+  it('full size: Close (a 44 px target) and Esc close it, and focus goes back to the certificate', async () => {
+    show(fakeLearner());
+    const open = within(region()).getByRole('button', { name: 'View the certificate full size' });
+    await userEvent.click(open);
+    const close = within(screen.getByRole('dialog', { name: 'Certificate, full size' })).getByRole('button', { name: 'Close' });
+    expect(close.className).toMatch(/min-h-11/);
+    expect(close).toHaveFocus();
+    await userEvent.click(close);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await waitFor(() => expect(open).toHaveFocus());
+    await userEvent.click(open);
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await waitFor(() => expect(open).toHaveFocus());
+  });
+
+  it('full size in the Client portal too', async () => {
+    show(fakeLearner(), certificate(), true);
+    await userEvent.click(within(region()).getByRole('button', { name: 'View the certificate full size' }));
+    const dialog = screen.getByRole('dialog', { name: 'Certificate, full size' });
+    expect(within(dialog).getByText('Mariam Al Balushi')).toBeInTheDocument();
+    expect(within(dialog).queryAllByRole('link')).toHaveLength(0);
+  });
+
+  it('dates in full on the certificate (owner, 14 Nov), never the short form', () => {
+    show(fakeLearner());
+    const days = [...paper().querySelectorAll('[data-certificate-word="value"]')].map((v) => v.textContent ?? '');
+    expect(days).toContain('3 November 2026');
+    expect(days.join(' ')).not.toMatch(/\b\d{1,2} (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4}/);
   });
 
   it('an older server’s answer (no company or score fields) still shows the certificate', () => {

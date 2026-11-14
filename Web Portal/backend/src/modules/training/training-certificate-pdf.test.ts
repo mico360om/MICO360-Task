@@ -86,13 +86,15 @@ describe('certificate PDF: one A4 landscape page like the owner’s picture (1.2
     const pages = textOf(buf);
     expect(pages).toHaveLength(1);
     const text = pages[0]!;
-    for (const words of ['CERTIFICATE', 'OF COMPLETION', 'THIS CERTIFIES THAT', 'Ana Alpha', 'has successfully completed', 'Tasks basics', resolveBrand().companyName, 'Issued through MICO360 Tasks · Learning Hub', 'Completed and issued', '2 Nov 2026', 'Expires', 'Never', 'Certificate ID', 'TC-ABCD-EFGH-JKMN', 'Scan to verify']) {
+    for (const words of ['CERTIFICATE', 'OF COMPLETION', 'THIS CERTIFIES THAT', 'Ana Alpha', 'has successfully completed', 'Tasks basics', resolveBrand().companyName, 'Issued through MICO360 Tasks · Learning Hub', 'Completed and issued', '2 November 2026', 'Expires', 'Never', 'Certificate ID', 'TC-ABCD-EFGH-JKMN', 'Scan to verify']) {
       expect(text).toContain(words);
     }
     // The order of the left column, as in the picture.
     const order = ['CERTIFICATE', 'OF COMPLETION', 'THIS CERTIFIES THAT', 'Ana Alpha', 'has successfully completed', 'Tasks basics', resolveBrand().companyName, 'Issued through MICO360 Tasks · Learning Hub', 'Completed and issued', 'Expires', 'Certificate ID'];
     const ys = order.map((t) => lineWith(buf, t)?.y ?? NaN);
     expect(ys.every((y, i) => i === 0 || y > ys[i - 1]!), JSON.stringify(ys)).toBe(true);
+    // The owner (14 Nov): dates in full on the certificate, never the short "2 Nov 2026".
+    expect(text).not.toMatch(/\b\d{1,2} (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4}/);
     // No score, no expiry, nobody named: those rows are left out; no stamp.
     expect(text).not.toContain('Quiz score');
     expect(text).not.toContain('Issued by');
@@ -142,7 +144,7 @@ describe('certificate PDF: one A4 landscape page like the owner’s picture (1.2
       { printedBy: 'Ana Alpha', now: new Date('2026-11-11T08:00:00Z') },
     );
     const text = textOf(buf)[0]!;
-    for (const words of ['Quiz score', '85%', 'Expires', '11 Nov 2027', 'Issued by', 'Tariq Training, Training manager', 'Contoso LLC', 'Completed', '2 Nov 2026', 'Issued', '11 Nov 2026']) expect(text).toContain(words);
+    for (const words of ['Quiz score', '85%', 'Expires', '11 November 2027', 'Issued by', 'Tariq Training, Training manager', 'Contoso LLC', 'Completed', '2 November 2026', 'Issued', '11 November 2026']) expect(text).toContain(words);
     // Issued on another day than finished: two rows, Completed then Issued.
     expect(lineWith(buf, 'Completed and issued')).toBeUndefined();
     // The company's logo and the signature (both the 155 px test picture); the built-in logo isn't used.
@@ -194,10 +196,10 @@ describe('certificate PDF: one A4 landscape page like the owner’s picture (1.2
 
   it('expired or revoked: a large faint diagonal stamp, and the date and reason in the rows', () => {
     const expired = buildCertificatePdf({ ...base, status: 'EXPIRED', expiresAt: new Date('2026-11-01T08:00:00Z') });
-    for (const words of ['EXPIRED', 'Expired on', '1 Nov 2026']) expect(textOf(expired)[0]).toContain(words);
+    for (const words of ['EXPIRED', 'Expired on', '1 November 2026']) expect(textOf(expired)[0]).toContain(words);
     const revoked = buildCertificatePdf({ ...base, status: 'REVOKED', revokedAt: new Date('2026-11-12T08:00:00Z'), revokedReason: 'Replaced after the retake' });
     const text = textOf(revoked)[0]!;
-    for (const words of ['REVOKED', 'Revoked on', '12 Nov 2026', 'Reason', 'Replaced after the retake']) expect(text).toContain(words);
+    for (const words of ['REVOKED', 'Revoked on', '12 November 2026', 'Reason', 'Replaced after the retake']) expect(text).toContain(words);
     expect(lineWith(revoked, 'REVOKED')!.size).toBeGreaterThanOrEqual(60);
     // Faint (a fill opacity under 0.2) and turned (a rotation in its transform).
     expect(revoked.toString('latin1')).toMatch(/\/ca 0\.1\d*/);

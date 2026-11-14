@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CERT_PAGE, CERT_SHAPES, CERT_WREATH, CERT_WREATH_AT, certQrBox, certificateRows, certificateStamp, certificateWords, hasArabicLetters, shapePath } from './certificate-art';
+import { CERT_PAGE, CERT_SHAPES, CERT_WREATH, CERT_WREATH_AT, certQrBox, certificateDay, certificateRows, certificateStamp, certificateWords, hasArabicLetters, shapePath } from './certificate-art';
 
 const day = (d: string) => d;
 const facts = { code: 'TC-AAAA-BBBB-CCCC', completedAt: '3 Nov 2026', issuedAt: '3 Nov 2026', expiresAt: null, scorePct: null, issuerName: null, issuerTitle: null, status: 'VALID' as const };
@@ -42,6 +42,15 @@ describe('the certificate’s detail rows (shared by the PDF and the website)', 
     expect(certificateStamp('VALID')).toBeNull();
     expect(certificateStamp('REVOKED')?.text).toBe('REVOKED');
     expect(certificateStamp('EXPIRED')?.text).toBe('EXPIRED');
+  });
+});
+
+describe('the certificate’s dates (owner, 14 Nov: in full, as on his picture)', () => {
+  it('a day as "14 November 2026" (the rest of the site keeps "14 Nov 2026")', () => {
+    expect(certificateDay('2026-11-14')).toBe('14 November 2026');
+    expect(certificateDay('2027-01-03')).toBe('3 January 2027');
+    expect(certificateDay('2026-09-30T00:00:00')).toBe('30 September 2026');
+    expect(certificateDay('not a day')).toBe('');
   });
 });
 

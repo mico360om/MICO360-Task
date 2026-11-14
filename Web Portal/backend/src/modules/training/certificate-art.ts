@@ -198,6 +198,18 @@ export const CERT_TEXT = {
   bottom: 566,
 } as const;
 
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+/**
+ * A day on the certificate, in full as on the owner's picture (14 Nov: "14 November 2026"); the rest of the site keeps
+ * its short "14 Nov 2026". `key` is the day as 'YYYY-MM-DD' (in the site's zone on the PDF, the device's on screen).
+ */
+export function certificateDay(key: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(key);
+  const month = m ? MONTH_NAMES[Number(m[2]) - 1] : undefined;
+  return m && month ? `${Number(m[3])} ${month} ${m[1]}` : '';
+}
+
 /** A detail row: what it is and its value. */
 export interface CertRow {
   key: 'completed' | 'issued' | 'score' | 'expires' | 'revoked' | 'reason' | 'code' | 'issuer';

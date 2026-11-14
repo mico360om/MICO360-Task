@@ -3,7 +3,7 @@ import { assetUrl } from '../../api/client';
 import type { CertificateRef } from '../../api/training';
 import logo from '../../assets/logo.png';
 import { QrCode, qrModuleCount } from './QrCode';
-import { instantDay } from './training-words';
+import { dayKeyIn } from '../../lib/day-words';
 import {
   CERT_COLORS,
   CERT_PAGE,
@@ -13,6 +13,7 @@ import {
   CERT_TEXT,
   CERT_WREATH,
   certQrBox,
+  certificateDay,
   certificateRows,
   certificateStamp,
   certificateWords,
@@ -73,6 +74,12 @@ function useFontsLoaded(): number {
 
 const pct = (v: number, of: number) => `${(v / of) * 100}%`;
 
+/** A day on the certificate in full ("14 November 2026", the owner's), where the person is (the device's zone). */
+const fullDay = (iso: string) => {
+  const at = new Date(iso);
+  return Number.isNaN(at.getTime()) ? '' : certificateDay(dayKeyIn(at));
+};
+
 /** Where a company's logo loads from: a stored '/uploads/…' on the API's address, a full http(s) address as it is; else none. */
 function companyLogoSrc(url: string | null): string | null {
   if (!url) return null;
@@ -97,7 +104,7 @@ export function CertificatePaper({ certificate: cert }: { certificate: Certifica
     () =>
       certificateRows(
         { code: cert.code, completedAt, issuedAt: cert.issuedAt, expiresAt: cert.expiresAt, scorePct: cert.scorePct ?? null, issuerName: cert.issuerName ?? null, issuerTitle: cert.issuerTitle ?? null, status: cert.status, revokedAt: cert.revokedAt ?? null, revokedReason: cert.revokedReason ?? null },
-        instantDay,
+        fullDay,
       ),
     [cert, completedAt],
   );

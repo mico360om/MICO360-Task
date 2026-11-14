@@ -524,7 +524,7 @@ describe('certificates', () => {
     await prisma.trainingCertificate.update({ where: { id: anaCert.id }, data: { revokedAt: at, revokedReason: 'Replaced after the retake' } });
     try {
       const revoked = page(Buffer.from((await raw('ana', 'GET', `/training/certificates/${anaCert.id}/pdf`)).rawPayload));
-      for (const words of ['REVOKED', 'Revoked on', '12 Nov 2026', 'Reason', 'Replaced after the retake']) expect(revoked).toContain(words);
+      for (const words of ['REVOKED', 'Revoked on', '12 November 2026', 'Reason', 'Replaced after the retake']) expect(revoked).toContain(words);
       const me = await data<MyTraining>(call('ana', 'GET', '/training/me'));
       expect(me.certificates.find((c) => c.id === anaCert.id)).toMatchObject({ status: 'REVOKED', revokedAt: at.toISOString(), revokedReason: 'Replaced after the retake' });
     } finally {

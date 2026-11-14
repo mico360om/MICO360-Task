@@ -81,7 +81,7 @@ describe('a course’s page', () => {
     expect(box.compareDocumentPosition(screen.getByText('Create, assign and finish tasks.')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(within(box).getByText('TC-ABCD-EFGH-JKLM')).toBeInTheDocument();
     expect(within(box).getByText('Valid')).toBeInTheDocument();
-    expect(within(box).getByText('5 Nov 2027')).toBeInTheDocument();
+    expect(within(box).getByText('5 November 2027')).toBeInTheDocument();
     expect(within(box).getByRole('link', { name: 'Check it online' })).toHaveAttribute('href', '/verify/TC-ABCD-EFGH-JKLM');
     await userEvent.click(within(box).getByRole('button', { name: /Download certificate/ }));
     await waitFor(() => expect(saved.map((s) => s.name)).toEqual(['certificate-TC-ABCD-EFGH-JKLM.pdf']));
@@ -167,7 +167,7 @@ describe('a course’s page', () => {
     expect(within(box).getByText('Mariam Al Balushi')).toBeInTheDocument();
     // 1.23.35: the certificate's rows — Completed, then its day.
     const completed = within(box).getByText('Completed');
-    expect(box.querySelector(`[data-certificate-word="value"][data-certificate-row="${completed.getAttribute('data-certificate-row')}"]`)).toHaveTextContent('3 Nov 2026');
+    expect(box.querySelector(`[data-certificate-word="value"][data-certificate-row="${completed.getAttribute('data-certificate-row')}"]`)).toHaveTextContent('3 November 2026');
     expect(within(box).getByRole('img', { name: /QR code/ })).toBeInTheDocument();
     one.unmount();
     page(fakeLearner({ course: vi.fn(async () => done()) }), '/portal/training/courses/c1', true);
