@@ -1,31 +1,28 @@
 import { useState } from 'react';
-import type { LessonDone, LessonView } from '../../api/training';
-import { STATUS_CLASS } from '../../lib/colour-classes';
+import type { LessonView } from '../../api/training';
 import { downloadBlob, fileNameOf } from '../../lib/download';
 import { useMediaQuery } from '../../lib/useMediaQuery';
 import { Button } from '../ui/Button';
-import type { LessonNext } from './GuideLesson';
-import { LessonFooter } from './LessonFooter';
 import { useLearner } from './learner';
-import { DownloadIcon, TOUCH_MIN, TickIcon, sizeText, trainingProblem, useBlobUrl } from './training-ui';
+import { DownloadIcon, TOUCH_MIN, sizeText, trainingProblem, useBlobUrl } from './training-ui';
 
 /** A phone (or a narrow window): the PDF opens full screen instead of inside the page (design call 6). */
 export const PHONE_QUERY = '(pointer: coarse), (max-width: 47.99em)';
 
 /**
  * A document lesson: a PDF shown in the page on a desktop; on a phone "Open full screen" and "Download" instead
- * (a small frame is no way to read it there). Other files are a download. The lesson's one Next ("Next lesson",
- * "Finish course") marks it read and goes on (12 Nov §4); it sits in the lesson's footer bar with "Previous lesson"
- * and "Read" (13 Nov new look). Open full screen and Download stay with the document.
+ * (a small frame is no way to read it there). Other files are a download. The lesson's one way on ("Next: <lesson>",
+ * "Finish course") marks it read and goes on (12 Nov §4) — it is the page's main button (1.23.36: the panel beside
+ * the lesson, or the bar at the bottom of a phone), and "Done" shows on the header line. Open full screen and
+ * Download stay with the document.
  */
-export function DocumentLesson({ lesson, onDone, next }: { lesson: LessonView; onDone: (done: LessonDone) => void; next: LessonNext }) {
+export function DocumentLesson({ lesson }: { lesson: LessonView }) {
   const { api } = useLearner();
   const doc = lesson.document;
   const phone = useMediaQuery(PHONE_QUERY);
   const pdf = doc?.mimeType === 'application/pdf';
   const inline = useBlobUrl((id) => api.file(id).then((b) => new Blob([b], { type: 'application/pdf' })), pdf && !phone ? doc?.id : null);
-  const [done, setDone] = useState(lesson.progress.done);
-  const [busy, setBusy] = useState<'done' | 'open' | 'download' | null>(null);
+  const [busy, setBusy] = useState<'open' | 'download' | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   if (!doc) {
@@ -34,7 +31,6 @@ export function DocumentLesson({ lesson, onDone, next }: { lesson: LessonView; o
         <div className="card card-pad">
           <p className="text-sm text-ink-2">This lesson’s document isn’t attached yet.</p>
         </div>
-        <LessonFooter lesson={lesson} />
       </div>
     );
   }
@@ -71,25 +67,6 @@ export function DocumentLesson({ lesson, onDone, next }: { lesson: LessonView; o
     }
   };
 
-  const finish = async () => {
-    if (done) {
-      next.go(null);
-      return;
-    }
-    setBusy('done');
-    setError(null);
-    try {
-      const out = await api.complete(lesson.id);
-      setDone(true);
-      onDone(out);
-      next.go(out);
-    } catch (err) {
-      setError(trainingProblem(err, 'Couldn’t finish this lesson.'));
-    } finally {
-      setBusy(null);
-    }
-  };
-
   return (
     <div className="flex flex-col gap-3">
       {pdf && !phone ? (
@@ -120,22 +97,6 @@ export function DocumentLesson({ lesson, onDone, next }: { lesson: LessonView; o
           Download
         </Button>
       </div>
-      <LessonFooter
-        lesson={lesson}
-        status={
-          done ? (
-            <span className={`inline-flex items-center gap-1.5 text-sm font-semibold ${STATUS_CLASS.DONE.text}`}>
-              <TickIcon />
-              Read
-            </span>
-          ) : null
-        }
-        next={
-          <Button className={TOUCH_MIN} loading={busy === 'done'} onClick={() => void finish()}>
-            {next.label}
-          </Button>
-        }
-      />
       {error ? (
         <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
           {error}

@@ -13,8 +13,9 @@ const LISTEN_EVERY_MS = 500;
 const LISTEN_TRIES = 40;
 
 /**
- * A video lesson: the YouTube or Vimeo player inside the lesson, its position saved every few seconds and
- * resumed next time, done at 90 % watched. When the player's events never arrive (blocked, an old browser),
+ * A video lesson: the YouTube or Vimeo player at the lesson's full width, its position saved every few seconds and
+ * resumed next time, done at 90 % watched (said plainly under it: "Watch to the end to finish this lesson", a slim bar,
+ * then "Done"). When the player's events never arrive (blocked, an old browser),
  * "Mark as watched" appears after the lesson's minimum time; the link to open the video outside is always there.
  */
 export function VideoLesson({ lesson, onDone }: { lesson: LessonView; onDone: (done: LessonDone) => void }) {
@@ -189,19 +190,23 @@ export function VideoLesson({ lesson, onDone }: { lesson: LessonView; onDone: (d
           referrerPolicy="strict-origin-when-cross-origin"
         />
       </div>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-ink-2" aria-live="polite">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        {/* 1.23.36: plain words and a slim bar of how much is watched (the lesson is still done at 90 %). */}
+        <div aria-live="polite" className="min-w-0 flex-1 basis-56">
           {done ? (
-            <span className="inline-flex items-center gap-1.5 font-semibold text-success">
+            <p className="inline-flex items-center gap-1.5 text-sm font-semibold text-success">
               <TickIcon />
-              Watched
-            </span>
-          ) : heard ? (
-            `Watched ${pct}% — the lesson is done at 90%.`
+              Done
+            </p>
           ) : (
-            'Your place is saved as you watch.'
+            <div className="flex max-w-xs flex-col gap-1.5">
+              <p className="text-sm text-ink-2">Watch to the end to finish this lesson</p>
+              <div role="progressbar" aria-label="Watched" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} className="h-1 w-full overflow-hidden rounded-full bg-line">
+                <div className="h-full rounded-full bg-brand transition-[width] motion-reduce:transition-none" style={{ width: `${pct}%` }} />
+              </div>
+            </div>
           )}
-        </p>
+        </div>
         <div className="flex flex-wrap items-center gap-2">
           {!done && fallback && !heard ? (
             <Button variant="secondary" size="sm" className={TOUCH_MIN} loading={busy} onClick={() => void complete()}>

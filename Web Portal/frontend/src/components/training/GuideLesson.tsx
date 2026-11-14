@@ -1,43 +1,42 @@
-import { useEffect, useRef, useState } from 'react';
-import type { LessonDone, LessonStep, LessonView } from '../../api/training';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import type { LessonStep, LessonView } from '../../api/training';
 import { useDialog } from '../../hooks/useDialog';
 import { RichNoteView } from '../rich-text/RichNoteView';
 import { Button } from '../ui/Button';
 import { ModalPortal } from '../ui/ModalPortal';
 import { dialogLayer, dialogPanel } from '../ui/dialog-size';
-import { LessonFooter } from './LessonFooter';
+import { LessonControls, WayButton, type LessonWay } from './LessonNav';
 import { useLearner } from './learner';
-import { TOUCH_MIN, TickIcon, trainingProblem, useBlobUrl } from './training-ui';
-
-/** The lesson's one way on (12 Nov §4): "Next lesson", "Finish course" or "Back to the course", and what it does. */
-export interface LessonNext {
-  label: string;
-  /** After the lesson is done: `d` is what the server said (null: it was done before). */
-  go: (d: LessonDone | null) => void;
-}
+import { TOUCH_MIN, TickIcon, useBlobUrl } from './training-ui';
 
 /**
- * A step-by-step guide (12 Nov §4): one step at a time — "Step 2 of 6" and a thin bar, its picture (tap or click to
- * enlarge) and words, Back and one Next. On the last step the Next is the lesson's own ("Next lesson" or "Finish
- * course"): it finishes the guide and goes on. The place is saved as you go and resumed next time. Back and Next sit
- * in the lesson's footer bar (13 Nov new look); on the first step its start is the lesson before ("Previous lesson").
+ * A step-by-step guide (12 Nov §4; 1.23.36 look): one step at a time — "Step 2 of 6" with a dot for each step (press
+ * one to go there; no second bar on the page), its picture (tap or click to enlarge) and words, then Back and Next
+ * between the steps. On the last step the forward button is the lesson's own ("Next: <the next lesson>", "Finish
+ * course"): it finishes the guide and goes on (LessonPlayer's `way`). The place is saved as you go and resumed next
+ * time. Under 1024 px Back and Next sit in the lesson's bar at the bottom of the window (on the first step its Back
+ * is the lesson before: `back`); from 1024 px at the foot of the step's card.
  */
-export function GuideLesson({ lesson, onDone, next }: { lesson: LessonView; onDone: (done: LessonDone) => void; next: LessonNext }) {
+export function GuideLesson({ lesson, done, way, back, onStep, onMoved }: { lesson: LessonView; done: boolean; way: LessonWay; back?: ReactNode; onStep?: (atEnd: boolean) => void; onMoved?: () => void }) {
   const { api } = useLearner();
   const steps = lesson.steps;
   const last = Math.max(0, steps.length - 1);
   const [index, setIndex] = useState(() => Math.min(Math.max(0, lesson.progress.stepIndex), last));
-  const [done, setDone] = useState(lesson.progress.done);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const moved = useRef(false);
+  const atEnd = index >= last;
+
+  // The page's main button finishes the guide only on its last step.
+  useEffect(() => {
+    onStep?.(atEnd);
+  }, [atEnd]);
 
   const go = (to: number) => {
     const target = Math.min(Math.max(0, to), last);
     if (target === index) return;
     moved.current = true;
     setIndex(target);
+    onMoved?.();
     // The place is saved as they go (a failure only means they start a step earlier next time).
     void api.saveProgress(lesson.id, { stepIndex: target }).catch(() => undefined);
   };
@@ -47,96 +46,72 @@ export function GuideLesson({ lesson, onDone, next }: { lesson: LessonView; onDo
     if (moved.current) heading.current?.focus();
   }, [index]);
 
-  const finish = async () => {
-    if (done) {
-      next.go(null);
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    try {
-      const out = await api.complete(lesson.id);
-      setDone(true);
-      onDone(out);
-      next.go(out);
-    } catch (err) {
-      setError(trainingProblem(err, 'Couldn’t finish this guide.'));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const finishButton = (
-    <Button className={TOUCH_MIN} loading={busy} onClick={() => void finish()}>
-      {next.label}
-    </Button>
-  );
-
-  const problem = error ? (
-    <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
-      {error}
-    </p>
-  ) : null;
-
   if (steps.length === 0) {
     return (
-      <div className="flex flex-col gap-4">
-        <div className="card card-pad">
-          <p className="text-sm text-ink-2">This guide has no steps yet.</p>
-        </div>
-        <LessonFooter lesson={lesson} next={finishButton} />
-        {problem}
+      <div className="card card-pad">
+        <p className="text-sm text-ink-2">This guide has no steps yet.</p>
       </div>
     );
   }
 
   const step = steps[index]!;
-  const pct = Math.round(((index + 1) / steps.length) * 100);
   const where = `Step ${index + 1} of ${steps.length}`;
+  const controls = (inBar: boolean) => (
+    <>
+      {index > 0 ? (
+        <Button variant="secondary" className={`flex-none ${TOUCH_MIN}`} onClick={() => go(index - 1)}>
+          Back
+        </Button>
+      ) : inBar ? (
+        back
+      ) : null}
+      {index < last ? (
+        <Button className={`ms-auto flex-none ${TOUCH_MIN}`} onClick={() => go(index + 1)}>
+          Next
+        </Button>
+      ) : (
+        <WayButton way={way} className="ms-auto max-w-full" />
+      )}
+    </>
+  );
   return (
-    <div className="flex min-w-0 flex-col gap-4">
-      <section aria-labelledby={`step-${step.id}`} className="card card-pad flex min-w-0 flex-col gap-4">
-        <div className="flex flex-col gap-1.5">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-xs font-semibold uppercase tracking-wide text-ink-3">{where}</p>
-            {done ? (
-              <span className="inline-flex items-center gap-1 text-xs font-semibold text-success">
-                <TickIcon size={13} />
-                Done
-              </span>
-            ) : null}
-          </div>
-          <div role="progressbar" aria-label={where} aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} className="h-1 overflow-hidden rounded-full bg-ground">
-            <div className="h-full rounded-full bg-brand transition-[width] motion-reduce:transition-none" style={{ width: `${pct}%` }} />
-          </div>
-          <h2 id={`step-${step.id}`} ref={heading} tabIndex={-1} className="mt-1 font-display text-lg font-bold text-ink outline-none">
-            {step.title || `Step ${index + 1}`}
-          </h2>
+    <section aria-labelledby={`step-${step.id}`} className="card card-pad flex min-w-0 flex-col gap-4">
+      <div className="flex flex-col gap-1.5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-ink-3">{where}</p>
+          {done ? (
+            <span className="inline-flex items-center gap-1 text-xs font-semibold text-success">
+              <TickIcon size={13} />
+              Done
+            </span>
+          ) : null}
         </div>
-        {step.image ? <StepPicture step={step} /> : null}
-        {step.body ? <RichNoteView html={step.body} className="text-sm text-ink" /> : null}
-      </section>
-      <LessonFooter
-        lesson={lesson}
-        back={
-          index > 0 ? (
-            <Button variant="secondary" className={TOUCH_MIN} onClick={() => go(index - 1)}>
-              Back
-            </Button>
-          ) : undefined
-        }
-        next={
-          index < last ? (
-            <Button className={TOUCH_MIN} onClick={() => go(index + 1)}>
-              Next
-            </Button>
-          ) : (
-            finishButton
-          )
-        }
-      />
-      {problem}
-    </div>
+        <ol aria-label="Steps" className="-ms-1 flex flex-wrap items-center">
+          {steps.map((s, i) => (
+            <li key={s.id}>
+              <button
+                type="button"
+                onClick={() => go(i)}
+                aria-label={s.title ? `Step ${i + 1}: ${s.title}` : `Step ${i + 1}`}
+                aria-current={i === index ? 'step' : undefined}
+                className="group grid h-6 min-w-6 place-items-center rounded-full px-1 outline-none focus-visible:ring-2 focus-visible:ring-brand/40 [@media(pointer:coarse)]:!h-11 [@media(pointer:coarse)]:!min-h-11 [@media(pointer:coarse)]:!min-w-11"
+              >
+                <span
+                  aria-hidden="true"
+                  className={`block h-2 rounded-full transition-all motion-reduce:transition-none ${i === index ? 'w-5 bg-brand' : i < index ? 'w-2 bg-brand/45 group-hover:bg-brand/70' : 'w-2 bg-line group-hover:bg-ink-3'}`}
+                />
+              </button>
+            </li>
+          ))}
+        </ol>
+        <h2 id={`step-${step.id}`} ref={heading} tabIndex={-1} className="mt-1 font-display text-lg font-bold text-ink outline-none">
+          {step.title || `Step ${index + 1}`}
+        </h2>
+      </div>
+      {step.image ? <StepPicture step={step} /> : null}
+      {step.body ? <RichNoteView html={step.body} className="text-sm text-ink" /> : null}
+      <LessonControls inline={() => <div className="flex flex-wrap items-center gap-2 border-t border-line pt-4">{controls(false)}</div>}>{controls(true)}</LessonControls>
+    </section>
   );
 }
 

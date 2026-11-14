@@ -59,6 +59,8 @@ const NOT_ON_THE_SCALE = new Set([
   'components/training/Tour.tsx',
   // Bulk changes: the phone's sheet of actions, rising from the foot of the screen (a sheet).
   'components/bulk/BulkBar.tsx',
+  // 1.23.36 Learning Hub lessons: "Lessons in this module" on a phone, rising from the foot of the screen (a sheet).
+  'components/training/LessonNav.tsx',
 ]);
 const src = resolve(__dirname, '../..');
 const files = (dir: string): string[] =>

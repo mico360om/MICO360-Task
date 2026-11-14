@@ -6,8 +6,8 @@ const TONE_ARC = { success: 'stroke-success', danger: 'stroke-danger' } as const
  * done, brand red while under way and the Done green once full — with "done / total" in the middle. One image for
  * screen readers, named by `label` ("1 of 8 modules done"); its drawing and digits are not read again.
  *
- * A quiz's score gives its own middle (`text`: "75%"), the result's colour (`tone`) and the pass mark as a small notch
- * across the ring (`mark`, 0–1 of the way round).
+ * A quiz's score gives its own middle (`text`: "75%") and the result's colour (`tone`). 1.23.36: no pass-mark notch —
+ * the owner read it as a stray black mark; the pass mark is said in words beside the ring.
  */
 export function ProgressRing({
   done,
@@ -16,7 +16,6 @@ export function ProgressRing({
   label,
   text,
   tone,
-  mark,
 }: {
   done: number;
   total: number;
@@ -24,7 +23,6 @@ export function ProgressRing({
   label: string;
   text?: string;
   tone?: keyof typeof TONE_ARC;
-  mark?: number;
 }) {
   const stroke = Math.max(4, Math.round(size / 10));
   const r = (size - stroke) / 2;
@@ -33,10 +31,6 @@ export function ProgressRing({
   const complete = total > 0 && share >= 1;
   const on = share * length;
   const c = size / 2;
-  // The notch: across the track at `mark` of the way round (the drawing is turned so 0 is at the top, clockwise).
-  const at = mark === undefined ? null : Math.min(1, Math.max(0, mark)) * 2 * Math.PI;
-  const inner = r - stroke / 2 - 1;
-  const outer = r + stroke / 2 + 1;
   const arcClass = tone ? TONE_ARC[tone] : complete ? 'stroke-status-done' : 'stroke-brand';
   return (
     <div role="img" aria-label={label} data-complete={complete ? 'true' : undefined} className="relative inline-grid flex-none place-items-center" style={{ width: size, height: size }}>
@@ -53,18 +47,6 @@ export function ProgressRing({
             strokeLinecap={complete ? 'butt' : 'round'}
             strokeDasharray={`${on} ${length}`}
             className={`transition-[stroke-dasharray] duration-500 motion-reduce:transition-none ${arcClass}`}
-          />
-        ) : null}
-        {at !== null ? (
-          <line
-            data-ring-mark
-            x1={c + inner * Math.cos(at)}
-            y1={c + inner * Math.sin(at)}
-            x2={c + outer * Math.cos(at)}
-            y2={c + outer * Math.sin(at)}
-            strokeWidth={2}
-            strokeLinecap="round"
-            className="stroke-ink"
           />
         ) : null}
       </svg>

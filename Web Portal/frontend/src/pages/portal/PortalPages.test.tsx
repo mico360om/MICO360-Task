@@ -1204,8 +1204,11 @@ describe('Learning Hub in the Client portal', () => {
     await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('/portal/training/courses/pc1/lessons/l2'));
     expect(api.trainingStart).toHaveBeenCalledWith('pc1');
     expect(await screen.findByRole('heading', { level: 1, name: 'Make a task' })).toBeInTheDocument();
-    // One step: its one Next finishes the lesson and opens the next one.
-    await userEvent.click(screen.getByRole('button', { name: 'Next lesson' }));
+    // 1.23.36: the same lesson page as staff — the course's lessons beside it ("In this course").
+    const beside = await screen.findByRole('navigation', { name: 'In this course' });
+    expect(within(beside).getByRole('link', { name: 'Course page' })).toHaveAttribute('href', '/portal/training/courses/pc1');
+    // One step: its Next ("Next: <the next lesson>") finishes the lesson and opens the next one.
+    await userEvent.click(within(screen.getByRole('region', { name: 'Open a project' })).getByRole('button', { name: /^Next: / }));
     await waitFor(() => expect(api.trainingComplete).toHaveBeenCalledWith('l2'));
     await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('/portal/training/courses/pc1/lessons/l3'));
     expect(calls).toEqual([]);

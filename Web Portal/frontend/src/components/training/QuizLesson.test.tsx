@@ -20,8 +20,8 @@ const hiddenResult = (over: Parameters<typeof result>[0] = {}) =>
 
 const QUIZ: QuizInfo = { passMark: 75, maxAttempts: 3, attemptsUsed: 0, timeLimitMinutes: null, questionCount: 4, best: null, openAttemptId: null, lastAttemptId: null, canStart: true, reason: null };
 const quizLesson = (quiz: Partial<QuizInfo> = {}, over: Parameters<typeof lesson>[0] = {}) => lesson({ id: 'l4', kind: 'QUIZ', title: 'Check yourself', nextLessonId: null, quiz: { ...QUIZ, ...quiz }, ...over });
-const take = (api: ReturnType<typeof fakeLearner>, onDone = vi.fn(), quiz: Partial<QuizInfo> = {}, over: Parameters<typeof lesson>[0] = {}) =>
-  renderOnSide(<QuizLesson lesson={quizLesson(quiz, over)} onDone={onDone} />, { api, path: '/training/courses/c1/lessons/l4' });
+const take = (api: ReturnType<typeof fakeLearner>, onDone = vi.fn(), quiz: Partial<QuizInfo> = {}, over: Parameters<typeof lesson>[0] = {}, covers: string[] = []) =>
+  renderOnSide(<QuizLesson lesson={quizLesson(quiz, over)} onDone={onDone} covers={covers} />, { api, path: '/training/courses/c1/lessons/l4' });
 const answerAll = async () => {
   await userEvent.click(await screen.findByRole('radio', { name: 'Top bar' }));
   await userEvent.click(screen.getByRole('button', { name: 'Next' }));
@@ -34,11 +34,18 @@ const answerAll = async () => {
 afterEach(() => vi.useRealTimers());
 
 describe('a quiz lesson (12 Nov §5)', () => {
-  it('the start: one line (questions, pass mark, tries) and Start quiz — no fact tiles, no “Time limit: None”', async () => {
+  it('the start page (1.23.36): what to expect — questions, pass mark, tries, minutes — what it covers, then Start quiz', async () => {
     const api = fakeLearner();
-    take(api);
-    expect(screen.getByText('4 questions · pass with 75% · 3 tries left')).toBeInTheDocument();
-    for (const gone of ['Pass mark', 'Time limit', 'None', 'Attempts', '0 of 3 used']) expect(screen.queryByText(gone)).toBeNull();
+    take(api, vi.fn(), {}, { minutes: 3 }, ['Find your way around', 'Video: Getting started']);
+    const facts = within(screen.getByRole('list', { name: 'About this quiz' }));
+    expect(facts.getAllByRole('listitem').map((li) => li.textContent)).toEqual(['4 questions', 'Pass mark 75%', '3 tries left', 'About 3 min']);
+    const covers = within(screen.getByRole('list', { name: 'This quiz covers' }));
+    expect(covers.getAllByRole('listitem').map((li) => li.textContent)).toEqual(['Find your way around', 'Video: Getting started']);
+    expect(screen.getByText('This quiz covers:')).toBeInTheDocument();
+    for (const gone of ['Time limit', 'None', 'Attempts', '0 of 3 used']) expect(screen.queryByText(gone)).toBeNull();
+    // No way on or back inside the quiz: the lesson's panel (or the phone's bar) holds it.
+    expect(document.querySelector('[data-lesson-footer]')).toBeNull();
+    expect(screen.queryByRole('link')).toBeNull();
     await userEvent.click(screen.getByRole('button', { name: 'Start quiz' }));
     expect(api.startAttempt).toHaveBeenCalledWith('l4');
     expect(await screen.findByText('Question 1 of 4')).toBeInTheDocument();
@@ -96,26 +103,26 @@ describe('a quiz lesson (12 Nov §5)', () => {
     const heading = await screen.findByRole('heading', { level: 2, name: 'Not passed this time — 50%' });
     expect(heading).toHaveFocus();
     expect(screen.getByText('1 of 2 right · pass mark 75% · 2 tries left')).toBeInTheDocument();
-    // 13 Nov new look: a small ring with the score, the pass mark as a notch on it.
+    // A small ring with the score — and no stray mark on it (1.23.36: the pass mark is said in words beside it).
     const ring = screen.getByRole('img', { name: 'Score 50%, pass mark 75%' });
     expect(ring).toHaveTextContent('50%');
     expect(ring.querySelector('[data-ring-arc]')!.getAttribute('class')).toContain('stroke-danger');
-    expect(ring.querySelector('[data-ring-mark]')).not.toBeNull();
-    // Not passed: no way on yet (the bar holds only the lesson before).
-    const bar = within(document.querySelector<HTMLElement>('[data-lesson-footer]')!);
-    expect(bar.getAllByRole('link').map((l) => l.textContent)).toEqual(['Previous lesson']);
+    expect(ring.querySelector('[data-ring-mark]')).toBeNull();
+    expect(ring.querySelectorAll('line')).toHaveLength(0);
+    // No footer bar inside the quiz (the lesson's panel or bar holds the way on).
+    expect(document.querySelector('[data-lesson-footer]')).toBeNull();
     const wrong = screen.getByRole('list', { name: 'Wrong answers' });
     expect(within(wrong).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['Put the steps in order.']);
     expect(screen.queryByText('Right answer')).toBeNull();
     expect(screen.queryByText('The right order')).toBeNull();
-    expect(screen.queryByRole('button', { name: 'See your answers' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /you got right/ })).toBeNull();
     expect(onDone).not.toHaveBeenCalled();
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
     await waitFor(() => expect(api.startAttempt).toHaveBeenCalledTimes(2));
     expect(await screen.findByText('Question 1 of 4')).toBeInTheDocument();
   });
 
-  it('passed and the course finished: the score, Course completed with the certificate, then Next; the answers folded; no Try again', async () => {
+  it('passed and the course finished: the score, Course completed with the certificate, then Next (My learning); no Try again', async () => {
     const api = fakeLearner({ submit: vi.fn(async () => result({ scorePct: 100, passed: true, answersShown: true, attemptsLeft: 2, courseCompleted: true, certificateId: 'cert1' })) });
     vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:x');
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
@@ -133,35 +140,85 @@ describe('a quiz lesson (12 Nov §5)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Download certificate (PDF)' }));
     await waitFor(() => expect(api.certificatePdf).toHaveBeenCalledWith('cert1'));
     expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
-    // The answers are folded behind “See your answers”.
+    // The right answer is folded (one click shows the ones they got right).
     expect(screen.queryByRole('article', { name: 'Where is New task?' })).toBeNull();
-    await userEvent.click(screen.getByRole('button', { name: 'See your answers' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Show the 1 you got right' }));
     expect(within(screen.getByRole('article', { name: 'Where is New task?' })).getByText('Right answer')).toBeInTheDocument();
-    // Next: the course is finished → My learning (where Up next is), at the end of the footer bar.
-    expect(within(document.querySelector<HTMLElement>('[data-lesson-footer]')!).getByRole('link', { name: 'Next' })).toBeInTheDocument();
+    // Next: the course is finished → My learning (where Up next is), under Course completed.
+    expect(screen.getAllByRole('link')).toHaveLength(1);
     await userEvent.click(screen.getByRole('link', { name: 'Next' }));
     expect(screen.getByTestId('where')).toHaveTextContent(/^\/training$/);
   });
 
-  it('passed with lessons after it: Next lesson', async () => {
+  it('passed with lessons after it: no Course completed, and the way on is the lesson’s (no link inside the quiz)', async () => {
     const api = fakeLearner({ submit: vi.fn(async () => result({ scorePct: 100, passed: true, answersShown: true, courseCompleted: false })) });
-    take(api, vi.fn(), {}, { nextLessonId: 'l5' });
+    const onDone = vi.fn();
+    take(api, onDone, {}, { nextLessonId: 'l5' });
     await userEvent.click(screen.getByRole('button', { name: 'Start quiz' }));
     await answerAll();
     await userEvent.click(screen.getByRole('button', { name: 'Hand in' }));
-    expect(await screen.findByRole('link', { name: 'Next lesson' })).toHaveAttribute('href', '/training/courses/c1/lessons/l5');
+    expect(await screen.findByRole('heading', { level: 2, name: 'You passed — 100%' })).toBeInTheDocument();
+    expect(onDone).toHaveBeenCalledWith(expect.objectContaining({ courseCompleted: false, nextLessonId: 'l5' }));
     expect(screen.queryByRole('heading', { name: 'Course completed' })).toBeNull();
+    expect(screen.queryByRole('link')).toBeNull();
   });
 
-  it('back on a quiz already passed: “You passed”, See your answers and Next — no Try again', async () => {
+  it('the review (1.23.36): wrong answers first and open; the right ones folded under “Show the N you got right”, all at once', async () => {
+    const r = result();
+    const third = { ...r.questions[0]!, id: 'q3', prompt: 'Which button saves?', chosen: ['o9'], options: [{ id: 'o9', text: 'Save', correct: true, position: 0, feedback: null }], explanation: 'Save keeps it.' };
+    const api = fakeLearner({ submit: vi.fn(async () => result({ scorePct: 67, passed: false, answersShown: true, attemptsLeft: 0, questions: [r.questions[0]!, r.questions[1]!, third] })) });
+    take(api);
+    await userEvent.click(screen.getByRole('button', { name: 'Start quiz' }));
+    await answerAll();
+    await userEvent.click(screen.getByRole('button', { name: 'Hand in' }));
+    await screen.findByRole('heading', { level: 2, name: 'Not passed this time — 67%' });
+    // The wrong one, open, keeps its own number and its “Why”.
+    const wrong = within(screen.getByRole('list', { name: 'Answers you got wrong' }));
+    expect(wrong.getAllByRole('article').map((a) => a.querySelector('h3')!.textContent)).toEqual(['Put the steps in order.']);
+    expect(wrong.getByText(/Question 2/)).toBeInTheDocument();
+    expect(wrong.getByText('Open it first, then type, then save.')).toBeInTheDocument();
+    // The right ones: folded, then all at once, in their order, with their numbers.
+    const show = screen.getByRole('button', { name: 'Show the 2 you got right' });
+    expect(show).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('article', { name: 'Where is New task?' })).toBeNull();
+    await userEvent.click(show);
+    expect(screen.getByRole('button', { name: 'Hide the 2 you got right' })).toHaveAttribute('aria-expanded', 'true');
+    const right = within(screen.getByRole('list', { name: 'Answers you got right' }));
+    expect(right.getAllByRole('article').map((a) => a.querySelector('h3')!.textContent)).toEqual(['Where is New task?', 'Which button saves?']);
+    expect(right.getByText(/Question 1/)).toBeInTheDocument();
+    expect(right.getByText(/Question 3/)).toBeInTheDocument();
+    expect(right.getByText('Save keeps it.')).toBeInTheDocument();
+    // Wrong ones come first on the page.
+    const firstWrong = screen.getByRole('article', { name: 'Put the steps in order.' });
+    const firstRight = screen.getByRole('article', { name: 'Where is New task?' });
+    expect(firstWrong.compareDocumentPosition(firstRight) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('every answer right: just “Show the N you got right”', async () => {
+    const all = result({ scorePct: 100, passed: true, answersShown: true, questions: [result().questions[0]!] });
+    const api = fakeLearner({ submit: vi.fn(async () => all) });
+    take(api);
+    await userEvent.click(screen.getByRole('button', { name: 'Start quiz' }));
+    await answerAll();
+    await userEvent.click(screen.getByRole('button', { name: 'Hand in' }));
+    await screen.findByRole('heading', { level: 2, name: 'You passed — 100%' });
+    expect(screen.getByText('1 of 1 right · pass mark 75%')).toBeInTheDocument();
+    expect(screen.queryByRole('list', { name: 'Answers you got wrong' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Show the 1 you got right' })).toBeInTheDocument();
+  });
+
+  it('back on a quiz already passed: “You passed” and See your answers — no Try again', async () => {
     const api = fakeLearner({ result: vi.fn(async () => result({ scorePct: 100, passed: true, answersShown: true })) });
-    take(api, vi.fn(), { attemptsUsed: 1, best: { scorePct: 100, passed: true }, lastAttemptId: 'a0' }, { nextLessonId: 'l5' });
+    const onActivity = vi.fn();
+    renderOnSide(<QuizLesson lesson={quizLesson({ attemptsUsed: 1, best: { scorePct: 100, passed: true }, lastAttemptId: 'a0' }, { nextLessonId: 'l5' })} onDone={vi.fn()} onActivity={onActivity} />, { api, path: '/training/courses/c1/lessons/l4' });
     expect(screen.getByText('You passed with 100%.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Start quiz|Try again/ })).toBeNull();
-    expect(screen.getByRole('link', { name: 'Next lesson' })).toHaveAttribute('href', '/training/courses/c1/lessons/l5');
     await userEvent.click(screen.getByRole('button', { name: 'See your answers' }));
     expect(api.result).toHaveBeenCalledWith('a0');
-    expect(await screen.findByRole('article', { name: 'Where is New task?' })).toBeInTheDocument();
+    expect(onActivity).toHaveBeenCalled();
+    expect(await screen.findByRole('article', { name: 'Put the steps in order.' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Show the 1 you got right' }));
+    expect(screen.getByRole('article', { name: 'Where is New task?' })).toBeInTheDocument();
   });
 
   it('no attempts left: the right answers can be seen; no Try again', async () => {
@@ -172,7 +229,6 @@ describe('a quiz lesson (12 Nov §5)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Hand in' }));
     expect(await screen.findByText('1 of 2 right · pass mark 75% · no tries left')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
-    await userEvent.click(screen.getByRole('button', { name: 'See your answers' }));
     const order = screen.getByRole('article', { name: 'Put the steps in order.' });
     expect(within(within(order).getByText('The right order').parentElement!).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['Open the form', 'Type a title', 'Save']);
     expect(within(order).getByText('Open it first, then type, then save.')).toBeInTheDocument();
@@ -198,7 +254,8 @@ describe('a quiz lesson (12 Nov §5)', () => {
     const now = Date.now();
     const api = fakeLearner({ startAttempt: vi.fn(async () => paper({ deadlineAt: new Date(now + 61_500).toISOString(), answers: { qs: ['o2'] } })) });
     take(api, vi.fn(), { timeLimitMinutes: 10 });
-    expect(screen.getByText('4 questions · pass with 75% · 3 tries left · 10 min to answer')).toBeInTheDocument();
+    expect(within(screen.getByRole('list', { name: 'About this quiz' })).getByText('10 min to answer')).toBeInTheDocument();
+    expect(screen.getByText(/The clock starts when you start/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Start quiz' }));
     await act(async () => {
       await Promise.resolve();

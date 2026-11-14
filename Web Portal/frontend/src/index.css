@@ -742,3 +742,14 @@
 :root[data-theme='dark'] .cat-swatch {
   background-color: var(--cat-dark-fill);
 }
+
+/* 1.23.36 Learning Hub lesson pages: the "In this module" panel (computer) and the Back / Next bar (phone) stay in view
+   with position: sticky. The staff shell's <main> clips sideways with overflow-x: hidden, which makes it a scroll
+   container that never scrolls — nothing inside it could stick. On a lesson page only, it clips with `clip` instead
+   (the same clipping, no scroll container); every other page keeps its frame. A browser without `clip` keeps `hidden`:
+   the panel and the bar then scroll with the page (the panel sits at the top of its column). */
+@supports (overflow-x: clip) {
+  main#main-content:has([data-lesson-layout]) {
+    overflow-x: clip;
+  }
+}
