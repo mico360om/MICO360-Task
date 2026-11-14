@@ -109,6 +109,14 @@ export interface EmailBrands {
   meeting(meetingId: string): Promise<TemplateOptions | undefined>;
 }
 
+/**
+ * 1.23.35: the on-screen certificate's company: its name as the certificate PDF prints it (its own while the site has 2+
+ * active companies; null: the site's) and its logo when the file can be read (null: MICO360's, as the PDF falls back).
+ */
+export function certificateScreenBrand(b: CompanyBrand): { companyName: string | null; logoUrl: string | null } {
+  return { companyName: b.named ? b.name : null, logoUrl: b.logoUrl && b.logoSize ? b.logoUrl : null };
+}
+
 /** PDF and email brands over the resolver (a task's and an inspection's project read here). */
 export function createDocumentBrands(branding: CompanyBranding, prisma: PrismaClient): { pdf: PdfBrands; email: EmailBrands } {
   const site = () => branding.siteBrand();

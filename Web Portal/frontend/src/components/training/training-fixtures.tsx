@@ -147,6 +147,12 @@ export const certificate = (over: Partial<CertificateRef> = {}): CertificateRef 
   completedAt: '2026-11-03T08:00:00.000Z',
   learnerName: 'Mariam Al Balushi',
   verifyUrl: 'https://tasks.example.com/verify/TC-UT7A-UT7B-UT7C',
+  scorePct: null,
+  issuerName: null,
+  issuerTitle: null,
+  revokedAt: null,
+  revokedReason: null,
+  company: { name: 'Contoso Engineering LLC', logoUrl: null },
   ...over,
 });
 

@@ -55,7 +55,7 @@ import { createProjectCompanies, type OnProjectAudienceChanged } from './modules
 import { createPrismaMeetingInvitees } from './modules/meetings/meeting-invitees';
 import { createMeetingCompanyRule } from './modules/meetings/meeting-company';
 import { createPrismaPersonOptions, keepKnownPeople } from './modules/companies/person-options';
-import { createCompanyBranding, createDocumentBrands } from './modules/companies/company-branding';
+import { certificateScreenBrand, createCompanyBranding, createDocumentBrands } from './modules/companies/company-branding';
 import { createCompanyTime, usableHoursTarget } from './modules/companies/company-time';
 import { createTaskService } from './modules/tasks/task-service';
 import { createPrismaTaskRepository, createPrismaProjectLookup, createPrismaCarryForwardRepo } from './modules/tasks/prisma-task-repository';
@@ -2115,6 +2115,8 @@ async function main(): Promise<void> {
     printable: (raw) => imageShrinker.toPrintable(raw),
     companyOfPerson: async (userId) => (await companyBranding.forPerson(userId)).companyId,
     pdfBrand: async (companyId) => companyBranding.pdf(await companyBranding.forCompany(companyId)),
+    // 1.23.35: the on-screen certificate names the company the PDF prints, with its logo's address.
+    screenBrand: async (companyId) => certificateScreenBrand(await companyBranding.forCompany(companyId)),
     audit: (e) => auditService.record({ userId: e.userId, ip: e.ip, module: 'training', action: e.action, entityId: e.entityId, oldValue: e.oldValue ?? null, newValue: e.newValue ?? null }).then(() => {}),
     logger: logger.job('training'),
   });

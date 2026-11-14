@@ -31,6 +31,8 @@ export interface TrainingDeps {
   companyOfPerson?(userId: string): Promise<string | null>;
   /** A company's PDF brand (its name and logo; null company: the site's). */
   pdfBrand?(companyId: string | null): Promise<{ companyName: string | null; logo: Buffer | null }>;
+  /** 1.23.35: the same brand for the on-screen certificate: the company's name as the PDF prints it (null: the site's) and its logo's address. */
+  screenBrand?(companyId: string | null): Promise<{ companyName: string | null; logoUrl: string | null }>;
   audit?(e: { userId: string; ip: string | null; action: string; entityId: string | null; oldValue?: unknown; newValue?: unknown }): Promise<void>;
   logger?: { info(msg: string, meta?: Record<string, unknown>): void; warn(msg: string, meta?: Record<string, unknown>): void; error?(msg: string, meta?: Record<string, unknown>): void };
 }

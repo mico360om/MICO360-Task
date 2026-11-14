@@ -184,6 +184,16 @@ export interface CertificateRef {
   completedAt: string;
   learnerName: string;
   verifyUrl: string;
+  /** 1.23.35 (the on-screen certificate shows what the PDF prints; absent from older servers and the manage list): */
+  /** the quiz score (null: the course has no quiz). */
+  scorePct?: number | null;
+  /** Who issued it ("Issued by" name, title); null: nobody named. */
+  issuerName?: string | null;
+  issuerTitle?: string | null;
+  revokedAt?: string | null;
+  revokedReason?: string | null;
+  /** The learner's company on the certificate (else the site's name), with its logo ('/uploads/…'; null: MICO360's). */
+  company?: { name: string; logoUrl: string | null };
 }
 
 /** The person's own state on a course (none yet: NOT_STARTED, enrolled false). */

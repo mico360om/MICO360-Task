@@ -19,6 +19,11 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - Learning Hub lessons: one line and one progress bar under the title; a video says "Watch to the end to finish this lesson"; a step-by-step guide shows a dot for each step (press one to go there).
 - Learning Hub quizzes: the start page says how many questions, the pass mark, the tries, the time and what the quiz covers; the result shows the wrong answers first, with the right ones folded under "Show the ones you got right", and no message left over from the lesson before. The score ring no longer has a stray mark on it.
 
+## [1.23.35] - 2026-11-15
+
+### Improvements
+- Learning Hub certificates have a new design: landscape, your name in script, the QR code in a laurel wreath.
+
 ## [1.23.34] - 2026-11-14
 
 ### Improvements
