@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.23.32] - 2026-11-14
+
 ### Improvements
 - The Learning Hub has a new look: your progress, every module and your certificate on one screen.
 - The built-in courses are now one course, MICO360 Tasks User Training, with modules for each part of the site; you see only the modules for your role.
