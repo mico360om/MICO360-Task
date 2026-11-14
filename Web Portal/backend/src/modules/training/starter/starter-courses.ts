@@ -590,12 +590,12 @@ const calendar: StarterLesson[] = [
     single(
       'On which day does a task show on the calendar?',
       [
-        right('On its due date', 'Yes — tasks sit on the day they are due.'),
+        right('On its due date', 'Yes — and a task with a start date is a bar from its start to its due date (⚑).'),
         wrong('On the day it was created', 'It shows on its due date.'),
         wrong('On the first day of the month', 'It shows on its due date.'),
         wrong('Only on today', 'Every task with a due date shows on that day.'),
       ],
-      'Tasks show on their due date; meetings show at their start time.',
+      'A task shows on its due date, or as a bar from its start to its due date when it has a start date; meetings show at their start time.',
     ),
     single(
       'What happens when you drag a task to another day?',

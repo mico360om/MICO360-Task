@@ -88,7 +88,7 @@ const plain = (lessons: readonly StarterLesson[], extra: string[] = []): string 
     .replace(/&amp;/g, '&');
 const courseText = (c: StarterCourse) => plain(c.lessons, [c.title, c.summary, ...(c.modules ?? []).map((m) => m.title)]);
 
-describe('starter content revision 3: the two built-in courses', () => {
+describe('starter content (revision 3, 4): the two built-in courses', () => {
   it('revision 3: the combined staff course first (position -1), then the client guide; stable unique keys', () => {
     expect(STARTER_REVISION).toBe(4);
     expect(USER_TRAINING_KEY).toBe('starter:user-training');
@@ -437,7 +437,7 @@ describe('starter content revision 3: words', () => {
   });
 });
 
-describe('starter content revision 3: files', () => {
+describe('starter content (revision 3, 4): files', () => {
   it('every picture is in assets/training/starter (no step names a missing file)', () => {
     for (const f of referenced) expect(filesInFolder, f).toContain(f);
   });
@@ -538,6 +538,13 @@ describe('starter content revision 4: the words match the site', () => {
 
   it('Projects: the status tabs start with All', () => {
     expect(stepOf('module:projects', 'Open Projects').body).toMatch(/<strong>All<\/strong>, <strong>Active<\/strong>/);
+  });
+
+  it('Calendar quiz: “On which day does a task show?” agrees with the step (a task with a start date is a bar); prompt and options kept', () => {
+    const q = quizOf('module:calendar').find((x) => x.prompt === 'On which day does a task show on the calendar?')!;
+    expect(q.options.map((o) => o.text)).toEqual(['On its due date', 'On the day it was created', 'On the first day of the month', 'Only on today']);
+    expect(q.options[0]!.feedback).toMatch(/bar from its start to its due date/);
+    expect(q.explanation).toMatch(/bar from its start to its due date/);
   });
 
   it('Calendar: a task with a start date is a bar, dragging moves its dates, Show picks meetings (not More filters)', () => {
