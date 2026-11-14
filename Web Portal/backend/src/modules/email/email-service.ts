@@ -27,10 +27,12 @@ import {
   clientReplyEmail,
   clientNoticeEmail,
   signInCodeEmail,
+  trustedBrowserEmail,
   emailChangedEmail,
   type EmailChangedParams,
   type PasswordResetEmailOptions,
   type SignInCodeOptions,
+  type TrustedBrowserParams,
   type ClientInvitationParams,
   type ClientCodeParams,
   type ClientReplyParams,
@@ -237,6 +239,9 @@ export function createEmailService({ transport, isSuppressed, log, logger }: Ema
     /** Onboarding: the code that finishes a sign-in (confirming the email address). */
     sendSignInCode: (email: string, code: string, opts: SignInCodeOptions) =>
       deliver('sign-in-code', email, signInCodeEmail(code, opts), { ...sender(opts), essential: true, secretLinks: true }),
+    /** 1.24 two-step sign-in: "New trusted browser for your admin account" (sign-in mail: never dropped for an old bounce). */
+    sendTrustedBrowser: (email: string, params: TrustedBrowserParams, opts?: TemplateOptions) =>
+      deliver('trusted-browser', email, trustedBrowserEmail(params, opts), { ...sender(opts), essential: true }),
     /** Onboarding: to the old address when an administrator changes it. */
     sendEmailChanged: (email: string, params: EmailChangedParams, opts?: TemplateOptions) =>
       deliver('email-changed', email, emailChangedEmail(params, opts), { ...sender(opts), essential: true }),

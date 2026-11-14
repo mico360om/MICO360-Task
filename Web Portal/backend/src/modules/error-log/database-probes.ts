@@ -160,6 +160,15 @@ export function databaseProbes({
       await prisma.user.findFirst({ where: { id: NOWHERE }, select: { emailVerifiedAt: true, invitedAt: true, activatedAt: true, loginOtps: { where: { purpose: 'WELCOME', consumedAt: null, expiresAt: { gt: since } }, select: { expiresAt: true }, take: 1 } } });
     },
   });
+  // 1.24 two-step sign-in: the trusted browsers an administrator's sign-in reads (Prisma's own, so a missed
+  // migration shows at start-up, not at an administrator's sign-in).
+  probes.push({
+    name: 'trusted browsers (two-step sign-in)',
+    run: async () => {
+      await prisma.trustedBrowser.count({ where: { userId: NOWHERE, sessionVersion: 0, revokedAt: null, expiresAt: { gt: new Date(0) } } });
+      await prisma.trustedBrowser.findUnique({ where: { id: NOWHERE } });
+    },
+  });
   // 1.23.6: temporary passwords and cancelled invitations (the forced change reads these at every sign-in;
   // the daily send limit counts invitation links).
   probes.push({

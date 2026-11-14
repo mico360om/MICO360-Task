@@ -6,7 +6,7 @@ import { CodeNotSentError, SignInExpiredError, TooManyCodesError, TooManyWrongCo
 /**
  * Onboarding: ONE reusable sign-in challenge — the password was right, a 6-digit code goes to the
  * account's email address, and the code finishes the sign-in. Today it confirms an email address
- * (VERIFY_EMAIL); two-step sign-in (1.24) adds its own kind and reuses everything here.
+ * (VERIFY_EMAIL); two-step sign-in for administrators (1.24) is its own kind, TWO_STEP, and reuses everything here.
  *
  * Rules: a code is 6 digits, lives 10 minutes from its send, works once, and is compared in constant
  * time (lib/sign-in-code). A challenge lives 30 minutes at most and dies after 5 wrong codes; an account
@@ -14,7 +14,14 @@ import { CodeNotSentError, SignInExpiredError, TooManyCodesError, TooManyWrongCo
  * again while a challenge is open reuses it — a new token, the same code, no new email — so a double
  * click or a reload never voids the code already in the inbox. Codes and tokens are never logged.
  */
-export type ChallengeKind = 'VERIFY_EMAIL';
+export type ChallengeKind = 'VERIFY_EMAIL' | 'TWO_STEP';
+
+/** 1.24: why a code was refused, for the two-step audit log (never the code itself). */
+export type ChallengeFailure = 'wrong-code' | 'too-many-wrong-codes';
+export interface VerifyOptions {
+  /** Told who typed a wrong code (or ran out of tries) on a live challenge; it can't change the answer. */
+  onFailure?: (who: { userId: string; kind: ChallengeKind }, reason: ChallengeFailure) => Promise<unknown> | unknown;
+}
 
 export interface ChallengeRow {
   id: string;
@@ -74,6 +81,11 @@ export interface SignInChallengeDeps {
 
 /** What the website is told about a challenge (never the code; the token only when it is new). */
 export interface ChallengeView {
+  /**
+   * 1.24: the website offers "Trust this browser for 30 days" under the code (an administrator's two-step
+   * sign-in). Set by the sign-in route, never by the challenge itself.
+   */
+  trustOffered?: boolean;
   /** The secret the website sends back with the code (or to ask for another). */
   token: string;
   kind: ChallengeKind;
@@ -165,7 +177,7 @@ export function createSignInChallenges(deps: SignInChallengeDeps) {
   }
 
   /** "Send another code": a new code (the earlier one stops), at most one a minute and 5 an hour. */
-  async function resend(token: string): Promise<ResendResult> {
+  async function resend(token: string, opts: { onSent?: (who: { userId: string; kind: ChallengeKind }) => Promise<unknown> | unknown } = {}): Promise<ResendResult> {
     const at = now();
     const row = await openByToken(token, at);
     // Its wrong codes ran out: no new code can help — sign in again for a fresh one.
@@ -180,6 +192,11 @@ export function createSignInChallenges(deps: SignInChallengeDeps) {
     const expiresAt = codeExpiry(at, row.createdAt);
     if (!(await store.recordSend(row.id, { codeHash: hashSignInCode(code, key, row.id), at, expiresAt }))) throw new SignInExpiredError();
     await send(row, code);
+    try {
+      await opts.onSent?.({ userId: row.userId, kind: row.kind });
+    } catch {
+      // Bookkeeping only (1.24: the two-step audit row): the code has gone.
+    }
     return { codeSent: true, resendAt: iso(new Date(at.getTime() + RESEND_GAP_MS)), expiresAt: iso(expiresAt) };
   }
 
@@ -187,7 +204,7 @@ export function createSignInChallenges(deps: SignInChallengeDeps) {
    * The code for this challenge: right → the challenge is used up and its person and kind come back
    * (the caller finishes the sign-in). Every guess is counted before it is compared.
    */
-  async function verify(token: string, code: string): Promise<{ userId: string; kind: ChallengeKind; sentTo: string }> {
+  async function verify(token: string, code: string, opts: VerifyOptions = {}): Promise<{ userId: string; kind: ChallengeKind; sentTo: string }> {
     const at = now();
     const row = await store.findByTokenHash(hashChallengeToken(token));
     if (!row || !isOpen(row, at)) {
@@ -195,11 +212,19 @@ export function createSignInChallenges(deps: SignInChallengeDeps) {
       codeMatches(code, '0'.repeat(64), key, 'none');
       throw new SignInExpiredError();
     }
+    const failed = async (reason: ChallengeFailure, error: Error): Promise<never> => {
+      try {
+        await opts.onFailure?.({ userId: row.userId, kind: row.kind }, reason);
+      } catch {
+        // Bookkeeping only: the answer stays the refusal.
+      }
+      throw error;
+    };
     if ((await store.failuresSince(row.userId, new Date(at.getTime() - HOUR))) >= WRONG_CODES_PER_HOUR) {
-      throw new TooManyWrongCodesError('Too many wrong codes in the last hour. Try again later, or ask your administrator for help.');
+      return failed('too-many-wrong-codes', new TooManyWrongCodesError('Too many wrong codes in the last hour. Try again later, or ask your administrator for help.'));
     }
-    if (!(await store.claimAttempt(row.id, WRONG_CODES_PER_CHALLENGE))) throw new TooManyWrongCodesError();
-    if (!codeMatches(code, row.codeHash, key, row.id)) throw new WrongCodeError();
+    if (!(await store.claimAttempt(row.id, WRONG_CODES_PER_CHALLENGE))) return failed('too-many-wrong-codes', new TooManyWrongCodesError());
+    if (!codeMatches(code, row.codeHash, key, row.id)) return failed('wrong-code', new WrongCodeError());
     if (!(await store.consume(row.id, at))) throw new SignInExpiredError();
     return { userId: row.userId, kind: row.kind, sentTo: row.sentTo };
   }

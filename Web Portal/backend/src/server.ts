@@ -310,6 +310,8 @@ import { createMapStore } from './modules/error-log/stack';
 // an administrator's "Send password reset", the forms' duplicate check.
 import { hkdfSync } from 'node:crypto';
 import { createSignInChallenges } from './modules/auth/sign-in-challenge';
+import { createTwoStep, noticeTime } from './modules/auth/two-step';
+import { createPrismaTrustedBrowserStore } from './modules/auth/prisma-trusted-browser-store';
 import { createPrismaSignInChallengeStore, endEveryCode } from './modules/auth/prisma-sign-in-challenge-store';
 import { createEmailVerification, createPrismaVerificationRepo } from './modules/auth/email-verification';
 import { createOnboardingEvents, type OnboardingEvents } from './modules/users/onboarding-events';
@@ -2190,6 +2192,36 @@ async function main(): Promise<void> {
     logger,
     emailOptions: documentBrands.email.person, // companies: the person's primary company
   });
+  // 1.24 two-step sign-in for administrators: the trusted-browser cookie is signed with a key of its own,
+  // derived from the server's secret. ADMIN_TWO_STEP=off is the break-glass switch (warned about below).
+  const trustedBrowserKey = Buffer.from(hkdfSync('sha256', env.SECRETS_ENCRYPTION_KEY || env.JWT_ACCESS_SECRET, 'mico360-trusted-browser', 'trusted-browser', 32)).toString('hex');
+  const twoStep = createTwoStep({
+    switchedOn: env.ADMIN_TWO_STEP === 'on',
+    mailConfigured: () => emailService.isConfigured(),
+    store: createPrismaTrustedBrowserStore(prisma),
+    key: trustedBrowserKey,
+    logger,
+    // "New trusted browser for your admin account: Chrome on Windows, 14 Nov 10:12" in the company's time,
+    // under the person's company brand.
+    notifyTrusted: async (user, info) =>
+      emailService.sendTrustedBrowser(user.email, { browser: info.browser, when: noticeTime(info.at, companyTz) }, await documentBrands.email.person(user.id).catch(() => undefined)),
+  });
+  // 1.24: while it is off (the switch, or no mail provider at all) the Error log says so once each start,
+  // with an audit row; administrators also see a red banner on every page.
+  void jobs.ready
+    .then(async () => {
+      const state = twoStep.state();
+      if (jobs.stopping || state.on) return;
+      const words =
+        state.reason === 'switched-off'
+          ? 'Two-step sign-in for administrators is switched off on the server (ADMIN_TWO_STEP=off): administrators sign in with their password alone. Remove the setting to switch it back on.'
+          : 'Two-step sign-in for administrators is off: email isn’t set up on the server, so no sign-in code can be sent. Administrators sign in with their password alone until email works.';
+      logger.job('two-step sign-in').error(words);
+      await auditService.record({ userId: null, ip: null, module: 'auth', action: 'auth.two_step.switched_off', entityId: null, newValue: { reason: state.reason } });
+    })
+    .catch(() => {
+      // A warning that can't be written never stops the server.
+    });
   // 1.23.6: the "Choose your own password" step after a temporary password: its tickets are signed with
   // a key of their own, derived from the server's secret.
   const firstPasswordKey = Buffer.from(hkdfSync('sha256', env.SECRETS_ENCRYPTION_KEY || env.JWT_ACCESS_SECRET, 'mico360-first-password', 'first-password', 32)).toString('hex');
@@ -2638,6 +2670,11 @@ async function main(): Promise<void> {
     signInChallenges,
     emailVerification,
     firstPassword,
+    // 1.24 two-step sign-in for administrators (the trusted-browser cookie is Secure in production; a
+    // renewal from a page at APP_URL counts as the website's).
+    twoStep,
+    secureCookies: env.NODE_ENV === 'production',
+    websiteOrigin: env.APP_URL,
     invitationDays: () => settingsService.invitationDays(),
     adminPasswordReset: passwordResetService,
     identityLookup: createPrismaIdentityLookup(prisma),
