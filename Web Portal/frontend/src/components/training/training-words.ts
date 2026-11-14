@@ -126,7 +126,7 @@ export function byUrgency(a: CourseCard, b: CourseCard): number {
  * after a finished course with modules new for the person's role (dashboardFocus puts that one first); while anything
  * else is open it isn't listed here (it stays in All courses).
  */
-export function learningGroups(d: Pick<MyTraining, 'assigned' | 'inProgress' | 'completed' | 'certificates' | 'suggested'>): { upNext: CourseCard | null; todo: CourseCard[]; done: CourseCard[]; olderCertificates: CertificateRef[] } {
+export function learningGroups(d: Pick<MyTraining, 'assigned' | 'inProgress' | 'completed' | 'certificates'> & Partial<Pick<MyTraining, 'suggested'>>): { upNext: CourseCard | null; todo: CourseCard[]; done: CourseCard[]; olderCertificates: CertificateRef[] } {
   const seen = new Set<string>();
   const open = [...d.assigned, ...d.inProgress].filter((c) => c.mine.status !== 'COMPLETED' && !seen.has(c.id) && (seen.add(c.id), true)).sort(byUrgency);
   const done = d.completed.filter((c) => !seen.has(c.id) && (seen.add(c.id), true));

@@ -288,6 +288,7 @@ export const EMPTY_PORTAL_TRAINING: PortalTraining = {
   inProgress: [],
   completed: [],
   certificates: [],
+  suggested: null,
   catalogue: [],
   tour: { show: false },
 };

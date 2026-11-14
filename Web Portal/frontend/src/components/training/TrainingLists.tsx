@@ -84,7 +84,7 @@ const DONE_FOLD = 6;
  * at all: one line and `onBrowse` ("Browse all courses"). 1.23.34: with nothing open, the built-in course the server
  * offers (optional: no Mandatory, no due day) fills it as Up next — Start, the ring "0 of N", the tiles, the certificate.
  */
-export function MyLearningSections({ data, onBrowse }: { data: Pick<MyTraining, 'assigned' | 'inProgress' | 'completed' | 'certificates' | 'suggested'>; onBrowse?: () => void }) {
+export function MyLearningSections({ data, onBrowse }: { data: Pick<MyTraining, 'assigned' | 'inProgress' | 'completed' | 'certificates'> & Partial<Pick<MyTraining, 'suggested'>>; onBrowse?: () => void }) {
   const g = learningGroups(data);
   const focus = dashboardFocus(g);
   const cert = useCertificateDownload();

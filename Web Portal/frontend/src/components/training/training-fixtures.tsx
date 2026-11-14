@@ -195,6 +195,7 @@ export const myTraining = (over: Partial<MyTraining> = {}): MyTraining => ({
     }),
   ],
   certificates: [{ id: 'cert1', code: 'TC-ABCD-EFGH-JKLM', courseId: 'c4', courseTitle: 'Kanban board', issuedAt: '2026-11-05T08:00:00.000Z', expiresAt: '2027-11-05T08:00:00.000Z', status: 'VALID', completedAt: '2026-11-05T08:00:00.000Z', learnerName: 'Sam Shared', verifyUrl: 'https://tasks.example.com/verify/TC-ABCD-EFGH-JKLM' }],
+  suggested: null,
   ...over,
 });
 
