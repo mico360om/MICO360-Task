@@ -55,7 +55,7 @@ export function VerifyPage() {
           <span className="flex">
             <BrandLogo className="h-10" />
           </span>
-          <Link to={signedIn ? '/training' : '/login'} className="tap text-sm font-semibold text-brand hover:underline">
+          <Link to={signedIn ? '/training' : '/login'} className="tap inline-flex items-center text-sm font-semibold text-brand hover:underline [@media(pointer:coarse)]:!min-h-11">
             {signedIn ? 'Learning Hub' : 'Sign in'}
           </Link>
         </div>

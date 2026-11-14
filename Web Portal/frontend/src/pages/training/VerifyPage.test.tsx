@@ -110,4 +110,11 @@ describe('Check a certificate (/verify, public)', () => {
     expect(box.className).toMatch(/(^|\s)sm:flex-1(\s|$)/);
     expect(box.className).not.toMatch(/(^|\s)flex-1(\s|$)/);
   });
+
+  it('the “Sign in” link at the top is 44 px tall on a touch screen', async () => {
+    answer = () => json({}, 404);
+    renderAt('/verify');
+    const link = await screen.findByRole('link', { name: 'Sign in' });
+    expect(link.className).toContain('[@media(pointer:coarse)]:!min-h-11');
+  });
 });
