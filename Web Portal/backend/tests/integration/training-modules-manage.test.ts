@@ -365,7 +365,10 @@ describe('a module change on a published course', () => {
     // Off because its old short course was removed before the change (C2): an administrator may switch it on.
     const off = await prisma.trainingModule.create({ data: { courseId: sc.id, position: 1, title: 'Chat', moduleKey: 'chat', starterKey: 'module:chat', enabled: false, offReason: 'REMOVED' } });
     for (const [i, m] of [on, off].entries()) await prisma.trainingLesson.create({ data: { courseId: sc.id, moduleId: m.id, position: i, kind: 'GUIDE', title: `Read ${m.title}`, steps: { create: [{ position: 0, title: 'One', body: '<p>One</p>' }] } } });
+    // Stamped as the starter loader does (lessons and course carry the publish moment): a lesson saved in the same
+    // millisecond as `at` can be stored a millisecond later (DATETIME(3) rounding) and read as "edited".
     const at = new Date();
+    await prisma.trainingLesson.updateMany({ where: { courseId: sc.id }, data: { updatedAt: at } });
     await prisma.trainingCourse.update({ where: { id: sc.id }, data: { publishedAt: at, updatedAt: at } });
     const stamp = () => prisma.trainingCourse.findUniqueOrThrow({ where: { id: sc.id }, select: { updatedAt: true, updatedById: true } });
     const read = async () => {
