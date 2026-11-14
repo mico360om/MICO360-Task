@@ -352,7 +352,7 @@ export function ReminderEditor({ task, timeZone, people, onChanged, compact = fa
           {list.map((r) => (
             <li key={r.id} className={`flex flex-wrap items-center gap-2 rounded-lg border border-line px-2.5 py-1.5 text-sm ${r.muted ? 'opacity-75' : ''}`}>
               <span className="text-warning"><BellIcon size={13} muted={r.muted} /></span>
-              <span className="min-w-0 flex-1">
+              <span className="min-w-0 flex-[1_1_10rem]">
                 <span className="block text-ink">{describeReminder(r, timeZone, timed(r.anchor))}</span>
                 <span className="block text-[11px] text-ink-2">
                   {[

@@ -239,7 +239,7 @@ export function GuestContactsPage() {
         <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-brand/30 bg-brand/5 px-3 py-2">
           <span className="text-sm font-semibold text-ink">{tickedText(tickedList.length)}</span>
           {!canMerge ? (
-            <p id={ids.reason} className={`min-w-0 flex-1 text-sm ${mixed ? 'font-medium text-danger' : 'text-ink-2'}`}>
+            <p id={ids.reason} className={`min-w-0 flex-[1_1_10rem] text-sm ${mixed ? 'font-medium text-danger' : 'text-ink-2'}`}>
               {mixed ? MIXED_COMPANIES : TICK_TWO}
             </p>
           ) : (

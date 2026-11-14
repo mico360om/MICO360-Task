@@ -60,7 +60,7 @@ export function DownloadsSection({ course }: { course: ManageCourse }) {
             {course.resources.map((f) => (
               <li key={f.id} className="flex flex-wrap items-center gap-3 px-3 py-2">
                 <span className="text-ink-2" aria-hidden="true">{Glyph.document}</span>
-                <div className="min-w-0 flex-1">
+                <div className="min-w-0 flex-[1_1_10rem]">
                   <p dir="auto" className="text-sm font-medium text-ink [overflow-wrap:anywhere]">{f.name}</p>
                   <p className="text-xs text-ink-2">{sizeText(f.sizeBytes)}</p>
                 </div>

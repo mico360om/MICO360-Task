@@ -349,14 +349,16 @@ export function CategoriesEditor({ projectId }: { projectId: string }) {
               }}
             />
           ) : (
-            <span className={`flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 ${c.retired ? 'text-ink-2' : 'text-ink'}`}>
+            // The name asks for 10rem before the buttons share its line (a 0 basis let it shrink to one
+            // letter a line); when both don't fit, the buttons go to the next line, from the row's start.
+            <span className={`flex min-w-0 flex-[1_1_10rem] flex-wrap items-baseline gap-x-2 ${c.retired ? 'text-ink-2' : 'text-ink'}`}>
               <bdi className="min-w-0 text-sm font-medium [overflow-wrap:anywhere]">{c.name}</bdi>
               {c.retired ? <span className="rounded bg-ground px-1.5 text-[11px] font-medium text-ink-2">{CATEGORY_WORDS.retired}</span> : null}
               {manage && c.taskCount !== undefined ? <span className="text-xs text-ink-3">{tasksText(c.taskCount)}</span> : null}
             </span>
           )}
           {manage && !renamingThis ? (
-            <span className="ms-auto flex flex-wrap items-center gap-1">
+            <span className="flex flex-wrap items-center gap-1">
               <button type="button" data-focus-key="up" onClick={() => move(c.id, -1, 'up')} disabled={i === 0} aria-label={`${CATEGORY_WORDS.moveUp} ${c.name}`} title={`${CATEGORY_WORDS.moveUp} (Alt+↑)`} aria-keyshortcuts="Alt+ArrowUp" className={ICON_BUTTON}>
                 {ARROW(true)}
               </button>

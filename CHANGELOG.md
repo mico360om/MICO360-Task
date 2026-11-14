@@ -14,6 +14,9 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### Bug fixes
+- In a project's Categories, long category names show on one or two lines instead of one letter per line.
+
 ## [1.23.31] - 2026-11-14
 
 ### Improvements

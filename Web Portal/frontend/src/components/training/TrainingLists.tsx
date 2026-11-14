@@ -233,7 +233,7 @@ function CertificateList({ certificates }: { certificates: CertificateRef[] }) {
               <span className="grid h-9 w-9 flex-none place-items-center rounded-full bg-brand/10 text-brand">
                 <AwardIcon />
               </span>
-              <div className="min-w-0 flex-1">
+              <div className="min-w-0 flex-[1_1_10rem]">
                 <p className="break-words font-semibold text-ink">{c.courseTitle}</p>
                 <p className="text-xs text-ink-2">
                   <span className="font-mono">{c.code}</span> · Issued {instantDay(c.issuedAt)}
