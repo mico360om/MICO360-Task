@@ -103,3 +103,13 @@ export function nextWay(a: { course: CourseDetail | undefined; lessonId: string;
   }
   return { kind: 'lesson', label: `Next: ${next.title}`, lessonId, prefix: 'Next: ', title: next.title };
 }
+
+/**
+ * When the lesson page has two columns (the lesson and "In this module" beside it), by the room the lesson gets — it
+ * stays about 640 px or more (coordinator, 15 Nov): staff from 1280 px while the side menu is full (240 px), from
+ * 1024 px when it is folded to its icon rail; the Client portal (no side menu) from 1024 px. Below: one column, the
+ * "Lessons in this module" sheet and the bottom bar.
+ */
+export function twoColumnQuery({ portal, menuFolded }: { portal: boolean; menuFolded: boolean }): string {
+  return portal || menuFolded ? '(min-width: 64em)' : '(min-width: 80em)';
+}

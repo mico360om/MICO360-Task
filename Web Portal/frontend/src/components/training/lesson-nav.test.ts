@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { lessonOutline, nextWay, outlineButtonText, outlineHeading, quizCovers } from './lesson-nav';
+import { lessonOutline, nextWay, outlineButtonText, outlineHeading, quizCovers, twoColumnQuery } from './lesson-nav';
 import { detail, moduleDetail } from './training-fixtures';
 
 describe('the lesson’s outline beside it (1.23.36: “In this module”)', () => {
@@ -93,5 +93,17 @@ describe('the Next button’s words (1.23.36)', () => {
   it('before the course has loaded (or a next lesson it doesn’t list): plain “Next lesson”', () => {
     expect(nextWay({ course: undefined, lessonId: 'l2', nextLessonId: 'l3', doneAfter: false, finishesCourse: false })).toMatchObject({ kind: 'lesson', label: 'Next lesson', lessonId: 'l3' });
     expect(nextWay({ course: c, lessonId: 't2', nextLessonId: 'zz', doneAfter: false, finishesCourse: false })).toMatchObject({ kind: 'lesson', label: 'Next lesson', lessonId: 'zz' });
+  });
+});
+
+describe('when the lesson page has two columns (15 Nov: the lesson column stays about 640 px or more)', () => {
+  it('staff with the full side menu: from 1280 px; with the menu folded to its icons: from 1024 px', () => {
+    expect(twoColumnQuery({ portal: false, menuFolded: false })).toBe('(min-width: 80em)');
+    expect(twoColumnQuery({ portal: false, menuFolded: true })).toBe('(min-width: 64em)');
+  });
+
+  it('the Client portal (no side menu): from 1024 px', () => {
+    expect(twoColumnQuery({ portal: true, menuFolded: false })).toBe('(min-width: 64em)');
+    expect(twoColumnQuery({ portal: true, menuFolded: true })).toBe('(min-width: 64em)');
   });
 });

@@ -6,6 +6,7 @@ import { ApiError } from '../../lib/api-client';
 import { LessonPlayer } from './LessonPlayer';
 import { detail, fakeLearner, lesson, moduleDetail, paper, renderOnSide, result } from './training-fixtures';
 import { windowWidth } from '../../test/window-width';
+import { useAppearanceStore } from '../../lib/appearance';
 
 const STEPS = [
   { id: 's1', position: 0, title: 'Open My Tasks', body: '<p>Choose <strong>My Tasks</strong> in the menu.</p>', image: { fileId: 'img1', alt: 'The menu with My Tasks' } },
@@ -591,5 +592,44 @@ describe('review fixes (1.23.36)', () => {
     await userEvent.click(within(await screen.findByRole('region', { name: 'Save it' })).getByRole('link', { name: 'Next: Getting started quiz' }));
     await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('/training/courses/u1/lessons/g2'));
     expect(screen.queryByText(/^Module done/)).toBeNull();
+  });
+});
+
+describe('two columns by the room the lesson gets (15 Nov)', () => {
+  afterEach(() => useAppearanceStore.getState().set({ sidebarCollapsed: false }));
+
+  it('1100 px with the full side menu: one column — the sheet button and the bar, no panel', async () => {
+    windowWidth(1100);
+    useAppearanceStore.getState().set({ sidebarCollapsed: false });
+    modulePlayer(fakeLearner({ course: vi.fn(async () => moduleDetail()), lesson: vi.fn(async () => inTasks()) }));
+    expect(await screen.findByRole('button', { name: 'Lessons in this module · 2 of 3' })).toBeInTheDocument();
+    expect(screen.queryByRole('navigation', { name: 'In this module' })).toBeNull();
+    expect(document.querySelector('[data-lesson-bar]')).not.toBeNull();
+  });
+
+  it('1100 px with the side menu folded to its icons: two columns — the panel beside the lesson', async () => {
+    windowWidth(1100);
+    useAppearanceStore.getState().set({ sidebarCollapsed: true });
+    modulePlayer(fakeLearner({ course: vi.fn(async () => moduleDetail()), lesson: vi.fn(async () => inTasks()) }));
+    expect(await screen.findByRole('navigation', { name: 'In this module' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Lessons in this module/ })).toBeNull();
+    expect(document.querySelector('[data-lesson-bar]')).toBeNull();
+  });
+
+  it('1280 px with the full side menu: two columns', async () => {
+    windowWidth(1280);
+    modulePlayer(fakeLearner({ course: vi.fn(async () => moduleDetail()), lesson: vi.fn(async () => inTasks()) }));
+    expect(await screen.findByRole('navigation', { name: 'In this module' })).toBeInTheDocument();
+  });
+
+  it('the Client portal at 1100 px (no side menu): two columns', async () => {
+    windowWidth(1100);
+    renderOnSide(<LessonPlayer courseId="u1" lessonId="t2" renderTitle={(t) => <h1>{t}</h1>} />, {
+      api: fakeLearner({ course: vi.fn(async () => moduleDetail()), lesson: vi.fn(async () => inTasks()) }),
+      path: '/portal/training/courses/u1/lessons/t2',
+      route: '/portal/training/courses/:courseId/lessons/:lessonId',
+      portal: true,
+    });
+    expect(await screen.findByRole('navigation', { name: 'In this module' })).toBeInTheDocument();
   });
 });

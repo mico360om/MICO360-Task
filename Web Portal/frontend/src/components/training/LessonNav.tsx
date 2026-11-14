@@ -12,14 +12,12 @@ import { LessonKindIcon, LockIcon, TOUCH_MIN, TickIcon } from './training-ui';
 import { LESSON_KIND_WORDS, minutesText } from './training-words';
 
 /**
- * The lesson page's way around (1.23.36, "Lesson + module outline"): on a computer (1024 px and wider) an "In this
- * module" panel beside the lesson that stays in view — the module's lessons with their states, "1 of 3 done", the one
+ * The lesson page's way around (1.23.36, "Lesson + module outline"): with room for two columns (twoColumnQuery: 1280 px
+ * with the full side menu, 1024 px with it folded or in the Client portal) an "In this module" panel beside the lesson
+ * that stays in view — the module's lessons with their states, "1 of 3 done", the one
  * main button ("Next: <lesson>") and All modules; under 1024 px a "Lessons in this module · 2 of 3" button that opens
  * the same list as a sheet, and a bar at the bottom of the window with Back and the main button.
  */
-
-/** Two columns (the panel beside the lesson) from here; the sheet and the bottom bar below it. */
-export const WIDE_LESSON_QUERY = '(min-width: 64em)';
 
 /** The lesson's one way on, as the panel and the bar show it (LessonPlayer decides it). */
 export interface LessonWay {

@@ -5,6 +5,7 @@ import type { LessonDone, LessonView } from '../../api/training';
 import { useDialog } from '../../hooks/useDialog';
 import { ApiError } from '../../lib/api-client';
 import { STATUS_CLASS } from '../../lib/colour-classes';
+import { useSidebarCollapsed } from '../../lib/appearance';
 import { useMediaQuery } from '../../lib/useMediaQuery';
 import { RichNoteView } from '../rich-text/RichNoteView';
 import { Button, buttonClass } from '../ui/Button';
@@ -14,11 +15,11 @@ import { dialogLayer, dialogPanel } from '../ui/dialog-size';
 import { CourseFinished } from './CourseFinished';
 import { DocumentLesson } from './DocumentLesson';
 import { GuideLesson } from './GuideLesson';
-import { BackToLesson, LessonBar, LessonBarProvider, OutlinePanel, OutlineSheet, OutlineSheetButton, WIDE_LESSON_QUERY, WayButton, WayError, type LessonWay } from './LessonNav';
+import { BackToLesson, LessonBar, LessonBarProvider, OutlinePanel, OutlineSheet, OutlineSheetButton, WayButton, WayError, type LessonWay } from './LessonNav';
 import { QuizLesson } from './QuizLesson';
 import { VideoLesson } from './VideoLesson';
 import { coursePath, lessonPath, useLearner } from './learner';
-import { lessonOutline, nextWay, quizCovers, type LessonOutlineModel } from './lesson-nav';
+import { lessonOutline, nextWay, quizCovers, twoColumnQuery, type LessonOutlineModel } from './lesson-nav';
 import { courseChanged, useCourse, useLessonView } from './training-queries';
 import { LessonKindIcon, TOUCH_MIN, TickIcon, courseMoved, trainingProblem } from './training-ui';
 import { LESSON_KIND_WORDS, lessonsText, minutesText } from './training-words';
@@ -37,9 +38,10 @@ function arrivalNote(state: unknown): ArrivalNote {
  * One lesson (staff and the Client portal). 1.23.36 ("Lesson + module outline", owner 14 Nov):
  *  - the header: breadcrumbs, the title, ONE line — the kind's icon · "Module 1 · Getting started — Lesson 1 of 3" ·
  *    minutes (· Done) — and ONE bar of the module's progress, named for screen readers;
- *  - from 1024 px two columns: the lesson (up to 880 px; a video at its full width) and beside it "In this module",
+ *  - with room for two columns (1280 px with the full side menu; 1024 px with it folded, or in the Client portal — the
+ *    lesson keeps about 640 px): the lesson (up to 880 px; a video at its full width) and beside it "In this module",
  *    which stays in view: the module's lessons with their states, "1 of 3 done", the one main button and All modules;
- *  - under 1024 px: "Lessons in this module · 2 of 3" opens that list as a sheet, and a bar at the bottom of the window
+ *  - in one column: "Lessons in this module · 2 of 3" opens that list as a sheet, and a bar at the bottom of the window
  *    holds Back and the main button (a guide's steps and a quiz's questions put their own Back / Next there);
  *  - the main button says where it goes: "Next: <lesson>", "Next module: <name>", "Back to the course", or "Finish
  *    course" on the lesson that finishes it. On a guide's last step and on a document it finishes the lesson, then goes
@@ -58,7 +60,10 @@ export function LessonPlayer({ courseId, lessonId, renderTitle }: { courseId: st
   const location = useLocation();
   const q = useLessonView(lessonId);
   const course = useCourse(courseId);
-  const wide = useMediaQuery(WIDE_LESSON_QUERY, true);
+  // Two columns when the lesson keeps about 640 px beside the panel (15 Nov): 1280 px with the full side menu, 1024 px
+  // with it folded (or in the Client portal).
+  const menuFolded = useSidebarCollapsed();
+  const wide = useMediaQuery(twoColumnQuery({ portal: side.portal, menuFolded }), true);
   const [done, setDone] = useState<LessonDone | null>(null);
   // Review I2: finished here, on this visit (latched: the course read again afterwards says COMPLETED).
   const [finishedHere, setFinishedHere] = useState(false);
@@ -277,7 +282,8 @@ export function LessonPlayer({ courseId, lessonId, renderTitle }: { courseId: st
     <LessonBarProvider value={bar}>
       <div
         data-lesson-layout
-        className={`grid w-full min-w-0 gap-6 ${wide ? (side.portal ? 'grid-cols-[minmax(0,1fr)_17.5rem]' : 'grid-cols-[minmax(0,55rem)_17.5rem] xl:grid-cols-[minmax(0,55rem)_18.75rem]') : 'grid-cols-1'}`}
+        // The panel 256 px beside the lesson up to 1279 px (a folded menu: the lesson keeps 640 px), 280–300 px from 1280.
+        className={`grid w-full min-w-0 ${wide ? (side.portal ? 'grid-cols-[minmax(0,1fr)_16rem] gap-4 xl:grid-cols-[minmax(0,1fr)_17.5rem] xl:gap-6' : 'grid-cols-[minmax(0,55rem)_16rem] gap-4 xl:grid-cols-[minmax(0,55rem)_18.75rem] xl:gap-6') : 'grid-cols-1 gap-6'}`}
       >
         <div className="min-w-0 self-start">{body}</div>
         {wide ? (
