@@ -39,10 +39,30 @@ describe('Learning Hub → Manage → Courses', () => {
     expect(within(minutes).getByText('Draft')).toBeInTheDocument();
     expect(within(minutes).queryByText('Starter')).toBeNull();
     expect(within(minutes).getByText(/Meetings & minutes · Staff · Intermediate · 1 lesson · 1 h 30 min/)).toBeInTheDocument();
-    expect(within(within(list).getByRole('link', { name: 'Old board' }).closest('li')!).getByText('Archived')).toBeInTheDocument();
+    // 1.23.33: archived courses are left out of the default list (as Projects' "All" leaves archived projects out).
+    expect(within(list).queryByRole('link', { name: 'Old board' })).toBeNull();
     const portal = within(list).getByRole('link', { name: 'Portal tour' }).closest('li')!;
     expect(within(portal).getByText('Changes not published')).toBeInTheDocument();
     expect(within(portal).getByText(/Client portal · Clients/)).toBeInTheDocument();
+  });
+
+  it('1.23.33: archived courses are left out of the default list, one click away (“Show the 1 archived course”, or Status → Archived)', async () => {
+    renderManage(<CoursesTab />);
+    const list = await screen.findByRole('list', { name: 'Courses' });
+    expect(within(list).getAllByRole('link').map((l) => l.textContent)).toEqual(['Tasks basics', 'Meeting minutes', 'Portal tour']);
+    await userEvent.click(screen.getByRole('button', { name: 'Show the 1 archived course' }));
+    await waitFor(() => expect(api.courses).toHaveBeenLastCalledWith({ status: 'ARCHIVED', module: '', q: '', audience: '' }));
+    expect(screen.getByRole('combobox', { name: 'Status' })).toHaveValue('ARCHIVED');
+    expect(within(await screen.findByRole('list', { name: 'Courses' })).getByRole('link', { name: 'Old board' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /archived course/ })).toBeNull();
+  });
+
+  it('1.23.33: when every course is archived, the default list says so and offers to show them (not “No courses yet”)', async () => {
+    api.courses.mockResolvedValue({ courses: [courseRow({ id: 'a1', title: 'Old board', status: 'ARCHIVED' }), courseRow({ id: 'a2', title: 'Old chat', status: 'ARCHIVED' })] });
+    renderManage(<CoursesTab />);
+    expect(await screen.findByText('Every course is archived')).toBeInTheDocument();
+    expect(screen.queryByText('No courses yet')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Show the 2 archived courses' })).toBeInTheDocument();
   });
 
   it('filters by status, audience and module on the server, and searches as you type', async () => {

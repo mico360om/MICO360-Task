@@ -45,6 +45,8 @@ export function CourseNoticeLine({ text, className = '' }: { text: string; class
 /**
  * The Courses tab: every course (drafts too), filtered by status, audience and module and searched by title; New
  * course; and a ⋯ menu on each course (Edit, Preview as learner, Assign, Publish…, Duplicate, Archive, Delete).
+ * 1.23.33: Status "All" leaves archived courses out (as Projects' "All" does — on a site that had the 1.23.27 short
+ * courses, ten of them are archived); "Show the N archived courses" (or Status → Archived) lists them.
  */
 export function CoursesTab() {
   const ids = { status: useId(), audience: useId(), module: useId(), search: useId() };
@@ -56,8 +58,15 @@ export function CoursesTab() {
   const [creating, setCreating] = useState(false);
   const [notice, setNotice] = useState<RowNotice | null>(null);
   const coursesQ = useManageCourses({ status, module: moduleKey, q, audience });
-  const courses = coursesQ.data?.courses ?? [];
+  const fetched = coursesQ.data?.courses ?? [];
+  const courses = status ? fetched : fetched.filter((c) => c.status !== 'ARCHIVED');
+  const archived = fetched.length - courses.length;
   const filtered = !!(status || audience || moduleKey || q);
+  const showArchived = archived ? (
+    <Button variant="secondary" onClick={() => setStatus('ARCHIVED')} className="!min-h-[44px] self-start">
+      {archived === 1 ? 'Show the 1 archived course' : `Show the ${archived.toLocaleString('en-US')} archived courses`}
+    </Button>
+  ) : null;
 
   return (
     <div className="flex min-w-0 flex-col gap-4">
@@ -87,7 +96,7 @@ export function CoursesTab() {
             </select>
           </div>
         </FilterField>
-        {!(coursesQ.isSuccess && courses.length === 0 && !filtered) ? (
+        {!(coursesQ.isSuccess && fetched.length === 0 && !filtered) ? (
           <Button onClick={() => setCreating(true)} className="!min-h-[44px]">
             {Glyph.plus}
             New course
@@ -114,7 +123,9 @@ export function CoursesTab() {
       ) : coursesQ.isLoading ? (
         <div className="skeleton h-48 rounded-2xl" role="status" aria-label="Loading courses" />
       ) : courses.length === 0 ? (
-        filtered ? (
+        archived && !filtered ? (
+          <EmptyState title="Every course is archived" description="Archived courses aren’t listed here. Show them, or make a new course." action={showArchived} />
+        ) : filtered ? (
           <EmptyState title="No courses match" description="Try another status, audience, module or search." />
         ) : (
           <EmptyState
@@ -150,6 +161,7 @@ export function CoursesTab() {
           ))}
         </ul>
       )}
+      {courses.length ? showArchived : null}
       {creating ? <NewCourseDialog onClose={() => setCreating(false)} /> : null}
     </div>
   );
