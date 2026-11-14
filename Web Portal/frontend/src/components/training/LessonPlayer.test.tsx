@@ -249,6 +249,8 @@ describe('on a phone or tablet (under 1024 px, 1.23.36)', () => {
   it('“Lessons in this module · 2 of 3” opens the same list as a sheet; no panel beside the lesson', async () => {
     modulePlayer(fakeLearner({ course: vi.fn(async () => moduleDetail()), lesson: vi.fn(async () => inTasks()) }));
     const open = await screen.findByRole('button', { name: 'Lessons in this module · 2 of 3' });
+    // 44 px on a touch screen: the important class (a plain min-h-11 loses to index.css's touch floor for buttons).
+    expect(open.className).toContain('[@media(pointer:coarse)]:!min-h-11');
     expect(screen.queryByRole('navigation', { name: 'In this module' })).toBeNull();
     await userEvent.click(open);
     const sheet = within(screen.getByRole('dialog', { name: 'Tasks' }));

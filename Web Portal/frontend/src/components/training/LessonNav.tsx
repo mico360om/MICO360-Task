@@ -178,7 +178,7 @@ export function OutlineSheetButton({ outline, open, onOpen, buttonRef }: { outli
       aria-haspopup="dialog"
       aria-expanded={open}
       onClick={onOpen}
-      className="flex min-h-11 w-full items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-start text-sm font-semibold text-ink outline-none transition-colors hover:bg-ground focus-visible:ring-2 focus-visible:ring-brand/40 sm:w-auto sm:self-start"
+      className={`flex min-h-11 w-full items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-start text-sm font-semibold text-ink outline-none transition-colors hover:bg-ground focus-visible:ring-2 focus-visible:ring-brand/40 sm:w-auto sm:self-start ${TOUCH_MIN}`}
     >
       <ListIcon />
       <span className="min-w-0 flex-1">{outlineButtonText(outline)}</span>

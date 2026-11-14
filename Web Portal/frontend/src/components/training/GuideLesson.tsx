@@ -110,7 +110,7 @@ export function GuideLesson({ lesson, done, way, back, onStep, onMoved }: { less
       </div>
       {step.image ? <StepPicture step={step} /> : null}
       {step.body ? <RichNoteView html={step.body} className="text-sm text-ink" /> : null}
-      <LessonControls inline={() => <div className="flex flex-wrap items-center gap-2 border-t border-line pt-4">{controls(false)}</div>}>{controls(true)}</LessonControls>
+      <LessonControls inline={() => <div data-step-controls className="flex flex-wrap items-center gap-2 border-t border-line pt-4">{controls(false)}</div>}>{controls(true)}</LessonControls>
     </section>
   );
 }
