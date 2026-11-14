@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.23.31] - 2026-11-14
+
 ### Improvements
 - Example text and sample data no longer use real company names.
 
