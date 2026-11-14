@@ -4,6 +4,8 @@ import { act, cleanup, render, screen, waitFor, within } from '@testing-library/
 import userEvent from '@testing-library/user-event';
 import { TaskDrawerContainer } from './TaskDrawerContainer';
 import { useAuthStore } from '../stores/auth-store';
+import { enqueueOffline } from '../lib/offline-replay';
+import { clearQueue, getQueue, localStorageQueueStore } from '../lib/offline-queue';
 
 // Comments live: the panel's own connection to the project room (no real socket in tests).
 type SocketHandler = (...a: unknown[]) => void;
@@ -1100,5 +1102,26 @@ describe('TaskDrawerContainer — a task in the Recycle Bin', () => {
     openDeleted(() => json({ error: { code: 'NOT_FOUND', message: 'Task not found.' } }, 404));
     expect(await screen.findByText('This task was deleted.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Restore' })).toBeNull();
+  });
+});
+
+describe('TaskDrawerContainer — 1.24.0: a status change saved here drops an older queued board move', () => {
+  it('the person’s offline board move of this task, queued before, can no longer replay over it', async () => {
+    clearQueue(localStorageQueueStore);
+    enqueueOffline('task.move', { id: 't1', toColumnId: 'c1' }); // an old offline board move, still waiting
+    enqueueOffline('task.move', { id: 't2', toColumnId: 'c9' }); // another task's: stays
+    await new Promise((r) => setTimeout(r, 5));
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <TaskDrawerContainer taskId="t1" onClose={() => {}} />
+      </QueryClientProvider>,
+    );
+    const status = await screen.findByRole('combobox', { name: 'Status' });
+    await waitFor(() => expect(within(status).getByRole('option', { name: 'Done' })).toBeInTheDocument());
+    await userEvent.selectOptions(status, 'c9');
+    const fetchMock = vi.mocked(fetch);
+    await waitFor(() => expect(fetchMock.mock.calls.some(([url, init]) => String(url).endsWith('/tasks/t1/move') && (init as RequestInit | undefined)?.method === 'PATCH')).toBe(true));
+    await waitFor(() => expect(getQueue(localStorageQueueStore).map((m) => (m.payload as { id: string }).id)).toEqual(['t2']));
   });
 });

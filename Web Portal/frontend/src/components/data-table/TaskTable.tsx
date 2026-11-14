@@ -46,6 +46,7 @@ import { CATEGORY_WORDS } from '../../lib/task-categories';
 import { TaskFormDialog } from '../task-form/TaskFormDialog';
 import { SelectAllBox, shiftHeld } from '../bulk/select-boxes';
 import { selectBoxName } from '../../lib/bulk-selection';
+import { moveTaskOnline } from '../../lib/offline-replay';
 
 export interface TaskTableProps {
   /** Which page's table (what it remembers for the person: sort, filters, columns). */
@@ -256,7 +257,7 @@ export function TaskTable({
   const setDue = (t: ApiTask, day: string | null) => save(t, { dueDate: day }, async () => ({ dueDate: (await api.update(t.id, { dueDate: day })).dueDate }));
   const setStatus = (t: ApiTask, col: ApiColumn) =>
     save(t, { columnId: col.id, columnCategory: col.category }, async () => {
-      const moved = await api.move(t.id, col.id);
+      const moved = await moveTaskOnline(api, t.id, col.id);
       // Needs approval and finished by someone who can't approve: it waits (the board's words).
       const waits = approvalNotice(col.id, moved);
       if (waits) setNotice(waits);

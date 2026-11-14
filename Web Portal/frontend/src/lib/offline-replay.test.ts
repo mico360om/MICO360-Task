@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { enqueueOffline, flushOfflineQueue, pendingCount, failedChanges, discardChange } from './offline-replay';
+import { enqueueOffline, flushOfflineQueue, pendingCount, failedChanges, discardChange, moveTaskOnline } from './offline-replay';
 import { clearQueue, getQueue, localStorageQueueStore } from './offline-queue';
 import { useAuthStore } from '../stores/auth-store';
 import { useTaskNotice } from './task-notice';
@@ -119,5 +119,58 @@ describe('offline-replay', () => {
     expect(request).toHaveBeenCalledWith('mico360-sync-queue', { ifAvailable: true }, expect.any(Function));
     expect(fetchMock).not.toHaveBeenCalled();
     expect(res.remaining).toBe(1);
+  });
+
+  describe('1.24.0: a move saved online anywhere drops an older queued board move', () => {
+    const queued = () => getQueue(localStorageQueueStore).map((m) => `${(m.payload as { id: string }).id}→${(m.payload as { toColumnId: string }).toColumnId}`);
+
+    it('drops the mover’s moves of that task queued before it was sent — not other tasks’, not someone else’s', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        vi.setSystemTime(new Date('2026-11-14T08:00:00.000Z'));
+        signIn('bob');
+        enqueueOffline('task.move', { id: 't1', toColumnId: 'c-bob' });
+        useAuthStore.getState().logout('expired'); // Bob's queue is kept for him
+        signIn('alice');
+        enqueueOffline('task.move', { id: 't1', toColumnId: 'c-old' });
+        enqueueOffline('task.move', { id: 't2', toColumnId: 'c-other' });
+        vi.setSystemTime(new Date('2026-11-14T08:00:05.000Z'));
+        const move = vi.fn(async (id: string, columnId: string) => ({ id, columnId }) as never);
+        await expect(moveTaskOnline({ move }, 't1', 'c-new')).resolves.toEqual({ id: 't1', columnId: 'c-new' });
+        expect(move).toHaveBeenCalledWith('t1', 'c-new');
+        expect(queued()).toEqual(['t1→c-bob', 't2→c-other']);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('keeps a move queued while it was on its way (the newer one), and keeps everything when it fails', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        vi.setSystemTime(new Date('2026-11-14T08:00:00.000Z'));
+        enqueueOffline('task.move', { id: 't1', toColumnId: 'c-old' });
+        vi.setSystemTime(new Date('2026-11-14T08:00:05.000Z'));
+        let answer!: () => void;
+        const held = new Promise<void>((r) => (answer = r));
+        const move = vi.fn(async (id: string, columnId: string) => {
+          await held;
+          return { id, columnId } as never;
+        });
+        const sent = moveTaskOnline({ move }, 't1', 'c-new');
+        vi.setSystemTime(new Date('2026-11-14T08:00:06.000Z'));
+        enqueueOffline('task.move', { id: 't1', toColumnId: 'c-later' });
+        answer();
+        await sent;
+        expect(queued()).toEqual(['t1→c-later']);
+
+        const refused = vi.fn(async () => {
+          throw new Error('offline');
+        });
+        await expect(moveTaskOnline({ move: refused }, 't1', 'c-x')).rejects.toThrow('offline');
+        expect(queued()).toEqual(['t1→c-later']);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 });

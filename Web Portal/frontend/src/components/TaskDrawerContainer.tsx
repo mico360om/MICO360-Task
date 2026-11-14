@@ -49,6 +49,7 @@ import { DeletedTaskPanel } from './recycle-bin/DeletedTaskPanel';
 import { BIN_KEY } from '../api/recycle-bin';
 import { binNoticeFor, showBinNotice } from '../lib/bin-notice';
 import { archivedTasksKey, mayArchiveTasks, showArchiveNotice } from '../lib/task-archive';
+import { moveTaskOnline } from '../lib/offline-replay';
 
 export interface TaskDrawerContainerProps {
   taskId: string;
@@ -279,7 +280,7 @@ function TaskDrawerPanel({ taskId, onClose, stepper, mergeNotice, focusItemId }:
   });
 
   const moveM = useMutation({
-    mutationFn: (columnId: string) => tasksApi(apiClient).move(taskId, columnId),
+    mutationFn: (columnId: string) => moveTaskOnline(tasksApi(apiClient), taskId, columnId),
     onSuccess: refreshTaskViews,
   });
 

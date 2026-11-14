@@ -28,6 +28,7 @@ import { KindIcon } from './search/KindIcon';
 import { KIND_META, everythingAddress, savedAddress, targetLink, type SearchHit } from '../lib/search-everything';
 import { countLabel, useSavedCounts, useSavedSearches } from '../lib/useSavedSearches';
 import { ArchivedBadge } from './task-archive/ArchivedBadge';
+import { moveTaskOnline } from '../lib/offline-replay';
 
 /** "open …" typed (the open command, or a page: "open calendar"). */
 const OPEN_VERB = /^open\s/i;
@@ -173,7 +174,7 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
       const cols = await columnsApi(apiClient).list(task.projectId);
       const done = cols.find((c) => c.category === 'DONE' && c.enabled) ?? cols.find((c) => c.category === 'DONE');
       if (!done) throw new Error(`${task.key}: this project has no “Done” column.`);
-      const moved = await tasksApi(apiClient).move(task.id, done.id);
+      const moved = await moveTaskOnline(tasksApi(apiClient), task.id, done.id);
       // Targeted refresh — every task view, but not the entire cache (audit, chat…).
       void invalidateTaskQueries(qc);
       // A task that needs approval waits for a project manager instead of completing.
@@ -199,7 +200,7 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
       const s = statusText.toLowerCase();
       const col = cols.find((c) => c.name.toLowerCase() === s) ?? cols.find((c) => c.name.toLowerCase().includes(s)) ?? cols.find((c) => c.category.toLowerCase().includes(s.replace(/\s+/g, '_')));
       if (!col) throw new Error(`${task.key}: no column matching “${statusText}”.`);
-      await tasksApi(apiClient).move(task.id, col.id);
+      await moveTaskOnline(tasksApi(apiClient), task.id, col.id);
       // Targeted refresh — every task view, but not the entire cache (audit, chat…).
       void invalidateTaskQueries(qc);
       return `Moved ${task.key} → ${col.name} ✓`;

@@ -18,7 +18,7 @@ import { recurrenceSummary } from '../../lib/recurrence-summary';
 import { useCompanyTimeZone } from '../../lib/company-clock';
 import { dueDayWarning, useWorkingTime } from '../../lib/useWorkingTime';
 import { notificationSettingsApi } from '../../api/notification-settings';
-import { enqueueOffline } from '../../lib/offline-replay';
+import { enqueueOffline, moveTaskOnline } from '../../lib/offline-replay';
 import { newIdempotencyKey } from '../../lib/offline-queue';
 import { invalidateTaskQueries } from '../../lib/task-cache';
 import { useDialog } from '../../hooks/useDialog';
@@ -834,7 +834,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
         keep({ rule: draft.rule });
       }
       if (draft.columnId !== done.columnId) {
-        latest = await tasksApi(apiClient).move(t.id, draft.columnId);
+        latest = await moveTaskOnline(tasksApi(apiClient), t.id, draft.columnId);
         version.current = latest.version ?? version.current;
         keep({ columnId: draft.columnId });
       }

@@ -14,6 +14,9 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### Bug fixes
+- Changing a task's status from its details panel, the Table, the edit form, the dashboard, search, the calendar or an inspection now also cancels an older board move of it that was waiting to sync, so the task can't jump back later.
+
 ## [1.23.32] - 2026-11-14
 
 ### Improvements

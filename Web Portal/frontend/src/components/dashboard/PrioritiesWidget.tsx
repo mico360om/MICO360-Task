@@ -39,6 +39,7 @@ import { badgeToneClass } from '../ui/Badge';
 import { SendBackDialog } from '../approvals/SendBackDialog';
 import { MergedToast } from '../task-merge/MergedToast';
 import { DUE_SOON_CLASS, OVERDUE_CLASS, PRIORITY_CLASS, STATUS_CLASS } from '../../lib/colour-classes';
+import { moveTaskOnline } from '../../lib/offline-replay';
 
 const messageOf = (e: unknown, fallback: string) => (e instanceof Error && e.message ? e.message : fallback);
 /** A quick action's button: small, finger-sized on a touch screen. */
@@ -198,7 +199,7 @@ export function PrioritiesWidget({ onOpenTask, list }: { onOpenTask: (taskId: st
     act(
       row,
       async () => {
-        const moved = await tasks.move(t.id, t.doneColumnId!);
+        const moved = await moveTaskOnline(tasks, t.id, t.doneColumnId!);
         const waits = approvalNotice(t.doneColumnId!, moved);
         // Waiting for approval in the very column it was in (a Review column, or a project without one):
         // moving it "back" would change nothing, so there is no Undo (review I1).
@@ -207,7 +208,7 @@ export function PrioritiesWidget({ onOpenTask, list }: { onOpenTask: (taskId: st
           text: waits ?? `Completed ${t.key}.`,
           openTaskId: t.id,
           undo: stays ? undefined : async () => {
-            await tasks.move(t.id, t.columnId);
+            await moveTaskOnline(tasks, t.id, t.columnId);
             return waits ? `${t.key} no longer waits for approval.` : `${t.key} is open again.`;
           },
         };
