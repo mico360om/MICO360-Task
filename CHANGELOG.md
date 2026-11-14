@@ -16,6 +16,7 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ### Bug fixes
 - Learning Hub course: the pictures were retaken on the current version, with sample names only (no real company names), and their descriptions match them.
+- Learning Hub course: lessons and quiz answers now match the site — “Assigned” in a task's details, the Projects “All” tab, the Calendar's bars, drag and Show button, your password under Your profile, System Settings' cards (Companies, Error log) and the Training manager switch.
 
 ## [1.23.32] - 2026-11-14
 

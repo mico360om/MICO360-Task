@@ -123,13 +123,13 @@ const gettingStarted: StarterLesson[] = [
       },
       {
         title: 'Your settings',
-        body: '<p>Click your picture at the top right to open the account menu, then choose <strong>Settings</strong> to change your profile, password and notifications. Under <strong>Calendar &amp; dates</strong> you choose the day your week starts on and your time zone.</p>',
+        body: '<p>Click your picture at the top right to open the account menu. <strong>Your profile</strong> has your details and your password. <strong>Settings</strong> has your notifications and how the site looks; under <strong>Calendar &amp; dates</strong> you choose the day your week starts on and your time zone.</p>',
         image: 'start-settings.webp',
         alt: 'The account menu open under the person’s picture, with Your profile, Settings, Keyboard shortcuts, Tour of the site, About and version history and Log out.',
       },
       {
         title: 'The Learning Hub',
-        body: '<p>The <strong>Learning Hub</strong> has one course, <strong>MICO360 Tasks User Training</strong>. You see the modules for your role, and <strong>Continue</strong> picks up where you stopped. Finish every module to get a certificate with a QR code to check it. <strong>Tour of the site</strong>, in the account menu, shows you around again.</p>',
+        body: '<p>The <strong>Learning Hub</strong> has <strong>MICO360 Tasks User Training</strong> and any other courses your company adds. You see the modules for your role; <strong>Continue</strong> picks up where you stopped. Finish them all for a certificate with a QR code. <strong>Tour of the site</strong>, in the account menu, shows you around again.</p>',
       },
     ],
   },
@@ -203,13 +203,13 @@ const tasks: StarterLesson[] = [
       },
       {
         title: 'Start a new task',
-        body: '<p>Click <strong>New Task</strong> at the top of any page (or press <strong>N</strong>). The <strong>New task</strong> window opens.</p>',
+        body: '<p>Click <strong>New Task</strong> at the top of any page (or press <strong>N</strong> on most pages). The <strong>New task</strong> window opens.</p>',
         image: 'tasks-new-task.webp',
         alt: 'The New task window with the Project, Column and Task title fields on the left, and Priority, Due date, Repeat and Assignees on the right.',
       },
       {
         title: 'Fill in the details',
-        body: '<p>Pick the <strong>Project</strong> and type a <strong>Task title</strong> — the only thing you must fill in. Add a <strong>Due date</strong>, a <strong>Priority</strong> and the <strong>Assignees</strong> if you like.</p>',
+        body: '<p>The <strong>Project</strong> and its <strong>Column</strong> are filled in for you (change them if you like). Type a <strong>Task title</strong> — the only thing you must type. Add a <strong>Due date</strong>, a <strong>Priority</strong> and the <strong>Assignees</strong> if you like.</p>',
       },
       {
         title: 'Save it',
@@ -231,7 +231,7 @@ const tasks: StarterLesson[] = [
       },
       {
         title: 'Change the status, priority or date',
-        body: '<p>In <strong>Details</strong>, pick a new <strong>Status</strong> as the work moves on — for example from To Do to In Progress. You can also change the <strong>Priority</strong>, the <strong>Due date</strong>, the <strong>Repeat</strong> and the people under <strong>Assignees</strong>.</p>',
+        body: '<p>In <strong>Details</strong>, pick a new <strong>Status</strong> as the work moves on — for example from To Do to In Progress. You can also change the <strong>Priority</strong>, the <strong>Due date</strong>, the <strong>Repeat</strong> and the people under <strong>Assigned</strong>.</p>',
         image: 'tasks-details.webp',
         alt: 'The Details box of a task: Status To Do, Priority High, a due date, Repeat “Does not repeat” and two assignees.',
       },
@@ -263,21 +263,21 @@ const tasks: StarterLesson[] = [
       'My Tasks, in the side menu, shows everything assigned to you.',
     ),
     single(
-      'When you add a task, what must you fill in?',
+      'When you add a task, what must you type in?',
       [
-        right('Only the task title', 'Yes — everything else is optional.'),
+        right('Only the task title', 'Yes — the project and column are filled in for you; everything else is optional.'),
         wrong('The due date', 'A due date is optional.'),
         wrong('The assignees', 'People are optional; you can add them later.'),
         wrong('The description', 'A description is optional.'),
       ],
-      'Only the Task title is required. Everything else — description, due date, priority, people — is optional.',
+      'Only the Task title must be typed. The project and column are filled in for you; the description, due date, priority and people are optional.',
     ),
     single(
       'What can you do in a task’s details panel?',
       [
         right('Change its status, tick checklist steps and write a comment', 'Yes — all three are in the panel.'),
         wrong('Only read it', 'You can change it there too: its status, checklists and comments.'),
-        wrong('Change your own password', 'Your password is changed in Settings, not in a task.'),
+        wrong('Change your own password', 'Your password is changed in Your profile, not in a task.'),
         wrong('Start a new project', 'Projects are started on the Projects page.'),
       ],
       'The details panel holds the status, checklists and comments of the task.',
@@ -290,7 +290,7 @@ const tasks: StarterLesson[] = [
         wrong('Send a chat message', 'Chat doesn’t make tasks.'),
         wrong('Open the Calendar first', 'You can, but New Task works on every page.'),
       ],
-      'New Task is at the top of every page; N opens it too.',
+      'New Task is at the top of every page; N opens it on most pages too.',
     ),
     single(
       'How do you mention a colleague in a comment?',
@@ -327,7 +327,7 @@ const board: StarterLesson[] = [
       },
       {
         title: 'Read a card',
-        body: '<p>A card shows the task number, title, priority, due date, checklist and comment counts, progress and the people on it. A red date means the task is overdue. Click a card to open the task.</p>',
+        body: '<p>A card shows the task number, title, priority, due date, checklist and comment counts, progress and the people on it. A red <strong>Overdue</strong> badge means the task is late. Click a card to open the task.</p>',
       },
       {
         title: 'See the whole month',
@@ -404,7 +404,7 @@ const board: StarterLesson[] = [
     single(
       'Which of these does a card show?',
       [
-        right('The due date, the priority and the people on the task', 'Yes — a red date means the task is overdue.'),
+        right('The due date, the priority and the people on the task', 'Yes — a red Overdue badge means it is late.'),
         wrong('The project’s budget', 'Cards don’t show money.'),
         wrong('Every comment in full', 'A card counts the comments; open the task to read them.'),
         wrong('Only the task’s title', 'A card shows much more: number, priority, due date, counts, progress and people.'),
@@ -527,12 +527,12 @@ const meetings: StarterLesson[] = [
     single(
       'How do the final minutes reach people?',
       [
-        right('One email, with the minutes attached as a PDF', 'Yes — everyone on To and Cc gets the same email.'),
+        right('One email, with the minutes attached as a PDF', 'Yes — everyone on To and Cc gets the minutes as a PDF.'),
         wrong('A chat message in the project channel', 'The minutes are emailed, with a PDF.'),
         wrong('One email for each section of the minutes', 'Everyone gets one email with one PDF.'),
         wrong('They don’t: people read them on the meeting’s page only', 'Email minutes… sends them to the people you choose.'),
       ],
-      'Everyone on the To and Cc lists gets the same email, with the PDF attached.',
+      'Everyone on the To and Cc lists gets an email with the minutes attached as a PDF.',
     ),
     single(
       'What does “Make it a task” do on an Action Item note?',
@@ -558,7 +558,7 @@ const calendar: StarterLesson[] = [
     steps: [
       {
         title: 'Open the calendar',
-        body: '<p>Click <strong>Calendar</strong> in the side menu. Tasks show on their due date and meetings at their start time. Switch between <strong>Month</strong>, <strong>Week</strong>, <strong>Day</strong> and <strong>Agenda</strong> at the top; <strong>Today</strong> takes you back to today.</p>',
+        body: '<p>Click <strong>Calendar</strong> in the side menu. A task shows on its due date, or as a bar from its start to its due date (⚑) when it has a start date. Meetings show at their start time. Switch between <strong>Month</strong>, <strong>Week</strong>, <strong>Day</strong> and <strong>Agenda</strong>; <strong>Today</strong> goes back to today.</p>',
         image: 'calendar-month.webp',
         alt: 'The Calendar in Month view: tasks and meetings on their days, with the Month, Week, Day and Agenda buttons and the filters at the top.',
       },
@@ -570,7 +570,7 @@ const calendar: StarterLesson[] = [
       },
       {
         title: 'Move a task to another day',
-        body: '<p>Drag a task to another day to change its due date. A message lets you <strong>Undo</strong> it. Finished tasks can’t be moved.</p>',
+        body: '<p>Drag a task to another day to move it: a bar moves its start and due dates together, and dragging its ⚑ changes only the due date. A message lets you <strong>Undo</strong> it. Finished tasks can’t be moved.</p>',
       },
       {
         title: 'Add a task on a day',
@@ -580,7 +580,7 @@ const calendar: StarterLesson[] = [
       },
       {
         title: 'Choose what you see',
-        body: '<p>Use <strong>All projects</strong>, <strong>Everyone</strong> and <strong>My tasks</strong> to narrow the calendar. <strong>More filters</strong> picks statuses and priorities and shows or hides completed tasks and meetings. <strong>Legend</strong> explains the colours.</p>',
+        body: '<p>Use <strong>All projects</strong>, <strong>Everyone</strong> and <strong>My tasks</strong> to narrow the calendar. <strong>More filters</strong> picks statuses and priorities and shows or hides completed tasks. <strong>Show</strong> chooses whether tasks, meetings, planned time and your reminders appear. <strong>Legend</strong> explains the colours.</p>',
         image: 'calendar-filters.webp',
         alt: 'The More filters panel with Status and Priority boxes, and Include options such as Show completed tasks and Show tasks of archived projects.',
       },
@@ -600,12 +600,12 @@ const calendar: StarterLesson[] = [
     single(
       'What happens when you drag a task to another day?',
       [
-        right('Its due date changes to that day', 'Yes — and a message lets you Undo it.'),
+        right('Its dates move to that day', 'Yes — and a message lets you Undo it.'),
         wrong('A copy of the task is made on that day', 'Nothing is copied; the same task moves.'),
         wrong('The task is deleted', 'Dragging never deletes a task.'),
-        wrong('Nothing: the calendar is only for looking', 'Dragging a task gives it a new due date.'),
+        wrong('Nothing: the calendar is only for looking', 'Dragging a task moves its dates.'),
       ],
-      'Dragging a task to another day changes its due date; a message lets you Undo the move.',
+      'Dragging a task to another day moves its dates (a bar’s start and due together); a message lets you Undo the move.',
     ),
     single(
       'Which views does the calendar have?',
@@ -641,7 +641,7 @@ const projects: StarterLesson[] = [
     steps: [
       {
         title: 'Open Projects',
-        body: '<p>Click <strong>Projects</strong> in the side menu to see the projects you are part of. The tabs at the top show them by status: <strong>Active</strong>, <strong>Planning</strong>, <strong>On hold</strong>, <strong>Completed</strong> and <strong>Archived</strong>.</p>',
+        body: '<p>Click <strong>Projects</strong> in the side menu to see the projects you are part of. The tabs at the top show them by status: <strong>All</strong>, <strong>Active</strong>, <strong>Planning</strong>, <strong>On hold</strong>, <strong>Completed</strong> and <strong>Archived</strong>. <strong>All</strong> shows every project except the archived ones.</p>',
         image: 'projects-list.webp',
         alt: 'The Projects page with status tabs, a search box and three project cards showing progress, open and overdue tasks, the next due date and the manager.',
       },
@@ -918,7 +918,7 @@ const chat: StarterLesson[] = [
     single(
       'What does the red number on Chat in the side menu mean?',
       [
-        right('You have unread messages', 'Yes — muted conversations aren’t counted.'),
+        right('You have unread messages', 'Yes — muted and archived conversations aren’t counted.'),
         wrong('Your tasks are overdue', 'Overdue tasks show in My Tasks.'),
         wrong('Chat is switched off', 'It counts unread messages.'),
         wrong('The number of projects you have', 'It counts unread messages.'),
@@ -1045,7 +1045,7 @@ const admin: StarterLesson[] = [
       },
       {
         title: 'Change an account',
-        body: '<p>Click <strong>Edit</strong> on a person’s row. Under <strong>Roles &amp; permissions</strong> tick Administrator or Employee, and under <strong>Account status</strong> choose Active, Inactive or Suspended. Click <strong>Save changes</strong>.</p>',
+        body: '<p>Click <strong>Edit</strong> on a person’s row. Under <strong>Roles &amp; permissions</strong> tick Administrator or Employee, and under <strong>Account status</strong> choose Active, Inactive or Suspended. Under <strong>Training</strong>, <strong>Training manager</strong> lets someone run the Learning Hub without other administrator powers. Click <strong>Save changes</strong>.</p>',
         image: 'admin-edit-user.webp',
         alt: 'The Manage account window: the person’s profile on the left; Account status, Roles & permissions and Training on the right.',
       },
@@ -1062,13 +1062,13 @@ const admin: StarterLesson[] = [
     steps: [
       {
         title: 'System Settings',
-        body: '<p>Click <strong>System Settings</strong> in the Admin group for the company-wide settings: Notification &amp; Scheduling (working days, holidays, reminders), KPI targets, <strong>Companies</strong>, task carry-forward, the weekly management summary, accounts, the daily email, backups and the Learning Hub tour.</p>',
+        body: '<p>Click <strong>System Settings</strong> in the Admin group for the company-wide settings: Notification &amp; Scheduling (working days, holidays, reminders), KPI targets, <strong>Companies</strong>, Task carry-forward, the Weekly management summary, Accounts, the Learning Hub tour, the Daily email, Backups and the Error log.</p>',
         image: 'admin-settings.webp',
         alt: 'The System Settings page with the Notification & Scheduling, KPI targets, Companies, Task carry-forward and Current settings cards.',
       },
       {
         title: 'Third Party and Companies',
-        body: '<p><strong>Third Party</strong>, in the Admin group, holds <strong>Clients</strong>, where you make client accounts and choose which projects each client sees, and <strong>Guest contacts</strong>, people outside the company named on tasks. <strong>Companies</strong> is inside System Settings: click <strong>Open Companies</strong>.</p>',
+        body: '<p><strong>Third Party</strong>, in the Admin group, has two pages. <strong>Clients</strong> is where you make client accounts and choose the projects each client sees. <strong>Guest contacts</strong> are people outside the company named on tasks. <strong>Companies</strong> is inside System Settings: click <strong>Open Companies</strong>.</p>',
       },
       {
         title: 'AI Management',

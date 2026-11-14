@@ -490,3 +490,87 @@ describe('starter content revision 4: the pictures', () => {
     expect(alt('admin-edit-user.webp')).toMatch(/Training/);
   });
 });
+
+/**
+ * 1.23.33 (revision 4): the full Learning Hub check read every lesson against the site of 1.23.32. Its words now say
+ * what the site shows; the pictures were retaken with sample names only (owner rule 13 Nov: Contoso Engineering,
+ * Fabrikam Logistics, Northwind Trading — never a real company).
+ */
+describe('starter content revision 4: the words match the site', () => {
+  const stepOf = (module: string, title: string): StarterStep => {
+    const s = guideSteps(lessonsOf(module)).find((x) => x.title === title);
+    if (!s) throw new Error(`no step ${title}`);
+    return s;
+  };
+  const quizOf = (module: string): StarterQuestion[] => lessonsOf(module).flatMap((l) => (l.kind === 'QUIZ' ? l.quiz.questions : []));
+
+  it('Tasks: the details panel’s people are under Assigned (the New task window keeps Assignees)', () => {
+    expect(stepOf('module:tasks', 'Change the status, priority or date').body).toContain('<strong>Assigned</strong>');
+    expect(stepOf('module:tasks', 'Change the status, priority or date').body).not.toContain('Assignees');
+    expect(stepOf('module:tasks', 'Fill in the details').body).toContain('<strong>Assignees</strong>');
+  });
+
+  it('Tasks: the project and column are filled in for you; the title is the one thing you must type', () => {
+    expect(stepOf('module:tasks', 'Fill in the details').body).toMatch(/<strong>Column<\/strong>/);
+    expect(stepOf('module:tasks', 'Fill in the details').body).toMatch(/only thing you must type/);
+    const q = quizOf('module:tasks').find((x) => /what must you type/.test(x.prompt));
+    expect(q?.options.filter((o) => o.correct).map((o) => o.text)).toEqual(['Only the task title']);
+  });
+
+  it('Your settings: the password is on Your profile, Settings holds notifications and Calendar & dates', () => {
+    const s = stepOf('module:getting-started', 'Your settings');
+    expect(s.body).toContain('<strong>Your profile</strong>');
+    expect(s.body).toContain('<strong>Calendar &amp; dates</strong>');
+    expect(s.body).not.toMatch(/Settings<\/strong> to change your profile, password/);
+    expect(courseText(training())).not.toMatch(/password is changed in Settings/);
+  });
+
+  it('The Learning Hub step: the built-in course, and other courses your company may add', () => {
+    const s = stepOf('module:getting-started', 'The Learning Hub');
+    expect(s.body).not.toMatch(/has one course/);
+    expect(s.body).toMatch(/other courses/);
+  });
+
+  it('Kanban: an overdue card shows a red Overdue badge', () => {
+    expect(stepOf('module:board', 'Read a card').body).toContain('<strong>Overdue</strong>');
+    expect(courseText(training())).not.toMatch(/A red date means/);
+  });
+
+  it('Projects: the status tabs start with All', () => {
+    expect(stepOf('module:projects', 'Open Projects').body).toMatch(/<strong>All<\/strong>, <strong>Active<\/strong>/);
+  });
+
+  it('Calendar: a task with a start date is a bar, dragging moves its dates, Show picks meetings (not More filters)', () => {
+    expect(stepOf('module:calendar', 'Open the calendar').body).toMatch(/start date/);
+    const move = stepOf('module:calendar', 'Move a task to another day').body;
+    expect(move).toMatch(/⚑/);
+    expect(move).toMatch(/<strong>Undo<\/strong>/);
+    const see = stepOf('module:calendar', 'Choose what you see');
+    expect(see.body).toContain('<strong>Show</strong>');
+    expect(see.body).not.toMatch(/completed tasks and meetings/);
+    expect(see.alt).not.toMatch(/Show meetings/);
+    expect(see.alt).toMatch(/Show tasks of archived projects/);
+  });
+
+  it('Admin settings: System Settings lists its cards in the page’s order, with Companies and the Error log; Training manager is taught', () => {
+    const sys = stepOf('module:admin', 'System Settings');
+    const order = ['Notification &amp; Scheduling', 'KPI targets', 'Companies', 'Task carry-forward', 'Weekly management summary', 'Accounts', 'Learning Hub', 'Daily email', 'Backups', 'Error log'];
+    let at = -1;
+    for (const w of order) {
+      const i = sys.body.indexOf(w);
+      expect(i, w).toBeGreaterThan(at);
+      at = i;
+    }
+    expect(sys.alt).toMatch(/Companies/);
+    expect(stepOf('module:admin', 'Change an account').body).toContain('<strong>Training manager</strong>');
+  });
+
+  it('small facts: Chat’s badge leaves out muted and archived conversations; N opens a page’s own New…', () => {
+    expect(courseText(training())).toMatch(/muted and archived conversations aren’t counted/);
+    expect(stepOf('module:tasks', 'Start a new task').body).toMatch(/<strong>N<\/strong> on most pages/);
+  });
+
+  it('no real company or client name anywhere in the words (sample names only)', () => {
+    for (const c of STARTER_COURSES) expect(courseText(c)).not.toMatch(/\b(gulf energy|oxy|pdo|petroleum development|occidental|prolens)\b/i);
+  });
+});
