@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.23.35] - 2026-11-15
+
 ### Improvements
 - Learning Hub certificates have a new design: landscape, your name in script, the QR code in a laurel wreath.
 
