@@ -88,9 +88,9 @@ const plain = (lessons: readonly StarterLesson[], extra: string[] = []): string 
     .replace(/&amp;/g, '&');
 const courseText = (c: StarterCourse) => plain(c.lessons, [c.title, c.summary, ...(c.modules ?? []).map((m) => m.title)]);
 
-describe('starter content (revision 3, 4): the two built-in courses', () => {
+describe('starter content (revision 3, 4, 5): the two built-in courses', () => {
   it('revision 3: the combined staff course first (position -1), then the client guide; stable unique keys', () => {
-    expect(STARTER_REVISION).toBe(4);
+    expect(STARTER_REVISION).toBe(5);
     expect(USER_TRAINING_KEY).toBe('starter:user-training');
     expect(STARTER_COURSES.map((c) => c.key)).toEqual(KEYS);
     expect(training().position).toBe(-1);
@@ -437,13 +437,13 @@ describe('starter content revision 3: words', () => {
   });
 });
 
-describe('starter content (revision 3, 4): files', () => {
+describe('starter content (revision 3, 4, 5): files', () => {
   it('every picture is in assets/training/starter (no step names a missing file)', () => {
     for (const f of referenced) expect(filesInFolder, f).toContain(f);
   });
 
-  it('the folder holds the same 48 pictures, every one used, and nothing else (no PDFs, videos, audio or slides)', () => {
-    expect(filesInFolder).toHaveLength(48);
+  it('the folder holds the 67 pictures (48, and 19 more in revision 5), every one used, and nothing else (no PDFs, videos, audio or slides)', () => {
+    expect(filesInFolder).toHaveLength(67);
     for (const f of filesInFolder) {
       expect(referenced.has(f), `${f} is not used by any starter course`).toBe(true);
       expect(extname(f), f).toBe('.webp');
@@ -488,6 +488,82 @@ describe('starter content revision 4: the pictures', () => {
     expect(alt('start-notifications.webp')).not.toMatch(/mention/);
     expect(alt('projects-list.webp')).toMatch(/three project cards/);
     expect(alt('admin-edit-user.webp')).toMatch(/Training/);
+  });
+});
+
+/**
+ * 1.23.36 (revision 5): the steps that had no picture got one where a real screen exists (owner-approved lesson pages
+ * design), taken on 1.23.33 as the person the course is for, sample names only (recipe:
+ * .superpowers/lp/starter/capture-starter.mjs, `webp-new`). Titles, steps and ids are unchanged: only pictures were added.
+ */
+describe('starter content revision 5: pictures for the steps that had none', () => {
+  const NEW_PICTURES: [string, string][] = [
+    ['The Learning Hub', 'start-learning-hub.webp'],
+    ['Filter and sort the list', 'tasks-filters.webp'],
+    ['Tick off checklist steps', 'tasks-checklist.webp'],
+    ['Read a card', 'board-card.webp'],
+    ['Add a task to a column', 'board-add.webp'],
+    ['Read a project card', 'projects-card.webp'],
+    ['Add people and an agenda', 'meetings-people.webp'],
+    ['End the meeting', 'meetings-end.webp'],
+    ['Follow up', 'meetings-follow-up.webp'],
+    ['Edit, delete or mute', 'chat-actions.webp'],
+    ['Filter by project or person', 'reports-filter.webp'],
+    ['Pick a period', 'reports-period.webp'],
+    ['Export', 'reports-export.webp'],
+    ['When someone leaves', 'admin-deactivate.webp'],
+    ['Third Party and Companies', 'admin-clients.webp'],
+    ['AI Management', 'admin-ai.webp'],
+    ['Check what happened', 'admin-logs.webp'],
+    ['Ask a question or share a file', 'portal-comment.webp'],
+    ['Notices and your password', 'portal-notices.webp'],
+  ];
+  /**
+   * Still without a picture, on purpose: the same screen as the step before (Fill in the details, Save it, One day at a
+   * time, Name it, Choose the status…, Create it, Choose how they get in, Send a message, Find your chats again), an
+   * action rather than a still screen (Use the keyboard, Move a task to another day), a list the browser draws itself
+   * (Finish the task: the Status list), or an AI answer, which no picture ever shows.
+   */
+  const NO_PICTURE = [
+    'Fill in the details',
+    'Save it',
+    'Finish the task',
+    'One day at a time',
+    'Use the keyboard',
+    'Name it',
+    'Choose the status, owner and team',
+    'Create it',
+    'Move a task to another day',
+    'Send a message',
+    'Check the answer',
+    'Changes only when you confirm',
+    'Find your chats again',
+    'Choose how they get in',
+  ];
+  const all = () => STARTER_COURSES.flatMap((c) => steps(c));
+
+  it('each of the 19 steps shows its new picture (one step each, a file of its own)', () => {
+    for (const [title, image] of NEW_PICTURES) {
+      const found = all().filter((s) => s.title === title);
+      expect(found, title).toHaveLength(1);
+      expect(found[0]!.image, title).toBe(image);
+    }
+    expect(new Set(NEW_PICTURES.map(([, image]) => image)).size).toBe(NEW_PICTURES.length);
+    for (const [, image] of NEW_PICTURES) expect(all().filter((s) => s.image === image), image).toHaveLength(1);
+  });
+
+  it('only the steps with no distinct still screen are left without a picture', () => {
+    expect(all().filter((s) => !s.image).map((s) => s.title).sort()).toEqual([...NO_PICTURE].sort());
+  });
+
+  it('the new descriptions say what the pictures show', () => {
+    const alt = (image: string) => all().find((s) => s.image === image)?.alt ?? '';
+    expect(alt('start-learning-hub.webp')).toMatch(/My learning/);
+    expect(alt('start-learning-hub.webp')).toMatch(/Continue/);
+    expect(alt('meetings-follow-up.webp')).toMatch(/From meeting/);
+    expect(alt('admin-deactivate.webp')).toMatch(/Deactivate/);
+    expect(alt('admin-logs.webp')).toMatch(/Audit Logs/);
+    expect(alt('portal-notices.webp')).toMatch(/Change password/);
   });
 });
 

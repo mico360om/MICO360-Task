@@ -18,8 +18,9 @@ import type { StarterCourse, StarterLesson, StarterModule, StarterQuestion } fro
 /**
  * Raised whenever this content changes, so sites update the starter courses nobody edited (R1). 4 (1.23.33): the
  * pictures retaken with sample names only, and the words checked against the site of 1.23.32.
+ * 5 (1.23.36): pictures for the steps that had none (where a real screen exists).
  */
-export const STARTER_REVISION = 4;
+export const STARTER_REVISION = 5;
 
 /** 1.23.30: the one staff course, "MICO360 Tasks User Training" (its starter key). */
 export const USER_TRAINING_KEY = 'starter:user-training';
@@ -133,6 +134,8 @@ const gettingStarted: StarterLesson[] = [
       {
         title: 'The Learning Hub',
         body: '<p>The <strong>Learning Hub</strong> has <strong>MICO360 Tasks User Training</strong> and any other courses your company adds. You see the modules for your role; <strong>Continue</strong> picks up where you stopped. Finish them all for a certificate with a QR code. <strong>Tour of the site</strong>, in the account menu, shows you around again.</p>',
+        image: 'start-learning-hub.webp',
+        alt: 'My learning in the Learning Hub: Up next with the Continue button, your modules with what is done, how many modules are done and what is left for the certificate.',
       },
     ],
   },
@@ -203,6 +206,8 @@ const tasks: StarterLesson[] = [
       {
         title: 'Filter and sort the list',
         body: '<p>Use the boxes under the chips to show one project, a status, a priority, a person or a due date. <strong>Sort</strong> puts the list in order, for example by due date.</p><p>The small buttons on the right switch between the grid, list and table views.</p>',
+        image: 'tasks-filters.webp',
+        alt: 'My Tasks with the Sort list open (Due date, Priority, Progress, Title), beside the boxes for project, status, priority, person and due date and the grid, list and table buttons.',
       },
       {
         title: 'Start a new task',
@@ -241,6 +246,8 @@ const tasks: StarterLesson[] = [
       {
         title: 'Tick off checklist steps',
         body: '<p>Under <strong>Checklists</strong>, tick each step when it is done. The task’s progress follows the steps you tick.</p>',
+        image: 'tasks-checklist.webp',
+        alt: 'A task’s Checklists: the first of three steps ticked and crossed out, “1/3 completed” and the progress bar, with Add an item and Add checklist below.',
       },
       {
         title: 'Write a comment',
@@ -331,6 +338,8 @@ const board: StarterLesson[] = [
       {
         title: 'Read a card',
         body: '<p>A card shows the task number, title, priority, due date, checklist and comment counts, progress and the people on it. A red <strong>Overdue</strong> badge means the task is late. Click a card to open the task.</p>',
+        image: 'board-card.webp',
+        alt: 'One card on the board: the task number MICO-13, High priority, its title, the due date, 1 of 3 checklist steps, one comment, its progress and the two people on it.',
       },
       {
         title: 'See the whole month',
@@ -364,6 +373,8 @@ const board: StarterLesson[] = [
       {
         title: 'Add a task to a column',
         body: '<p>Click <strong>+</strong> at the top of a column to add a task straight into it.</p>',
+        image: 'board-add.webp',
+        alt: 'The New task window opened from + on the To Do column: the project is MICO360 Platform and the Column is already To Do; a task title is typed.',
       },
       {
         title: 'Change the columns',
@@ -452,6 +463,8 @@ const meetings: StarterLesson[] = [
       {
         title: 'Add people and an agenda',
         body: '<p>Under <strong>People</strong>, add team members, or a guest by email. Under <strong>Agenda</strong>, add the topics. <strong>Free times</strong> suggests times that suit everyone. Then click <strong>Schedule meeting</strong>.</p>',
+        image: 'meetings-people.webp',
+        alt: 'The People and Agenda parts of the Schedule a meeting window: two team members added, the boxes for a guest, and two agenda topics, with Add item and Draft agenda.',
       },
       {
         title: 'Send the invitations',
@@ -482,6 +495,8 @@ const meetings: StarterLesson[] = [
       {
         title: 'End the meeting',
         body: '<p>Click <strong>End meeting</strong> when you finish. A meeting whose end time has passed is completed by itself.</p>',
+        image: 'meetings-end.webp',
+        alt: 'The top of a meeting going on now: In progress and Live, the date, time and place, and the End meeting button on the right.',
       },
       {
         title: 'Write the final minutes',
@@ -498,6 +513,8 @@ const meetings: StarterLesson[] = [
       {
         title: 'Follow up',
         body: '<p>A task made in the meeting shows <strong>From meeting</strong> in its details. When the task is done, its action item closes too.</p>',
+        image: 'meetings-follow-up.webp',
+        alt: 'The top of a task’s details panel with the link “From meeting: Weekly project sync”: the task was made in that meeting.',
       },
     ],
   },
@@ -651,6 +668,8 @@ const projects: StarterLesson[] = [
       {
         title: 'Read a project card',
         body: '<p>Each card shows the progress, how many tasks are open and overdue, the next due date, the team and the target date. The word Green, Amber or Red is the project’s health — click it to see why.</p>',
+        image: 'projects-card.webp',
+        alt: 'One project card: Rig Inspection Portal, Active, health Red, its client, 9% done, 10 open, 4 overdue, next due Today, the team, the manager and the target date.',
       },
       {
         title: 'Open a project',
@@ -763,10 +782,14 @@ const reports: StarterLesson[] = [
       {
         title: 'Filter by project or person',
         body: '<p>Under <strong>Filter</strong>, pick a project in <strong>All projects</strong> or a person in <strong>All team</strong>. The tiles, charts and exports follow the filter. <strong>Clear</strong> shows everything again.</p>',
+        image: 'reports-filter.webp',
+        alt: 'Reports, under Filter: the All team list open with the people to choose from, beside All projects and Include archived.',
       },
       {
         title: 'Pick a period',
         body: '<p>Under <strong>Trends &amp; burndown</strong>, click <strong>7d</strong>, <strong>30d</strong> or <strong>90d</strong>, or type your own dates, to see how work was completed over that time.</p>',
+        image: 'reports-period.webp',
+        alt: 'Trends & burndown: the 7d, 30d and 90d buttons and the two date boxes, with the tasks completed, new tasks, velocity and overdue tasks for that time.',
       },
       {
         title: 'Compare projects',
@@ -783,6 +806,8 @@ const reports: StarterLesson[] = [
       {
         title: 'Export',
         body: '<p>At the top, choose what to export under <strong>Export</strong> — the full report or one section — and click <strong>Excel</strong>, <strong>PDF</strong> or <strong>CSV</strong>. CSV works for one section at a time.</p>',
+        image: 'reports-export.webp',
+        alt: 'The top of Reports with the Export list open (the full report or one section) beside the Excel, PDF and CSV buttons.',
       },
     ],
   },
@@ -874,6 +899,8 @@ const chat: StarterLesson[] = [
       {
         title: 'Edit, delete or mute',
         body: '<p>Under <strong>More actions</strong> (⋯) on your own message you can <strong>Edit</strong> or <strong>Delete</strong> it. The ⋯ next to a conversation lets you add it to favorites, mute its notifications or archive it.</p>',
+        image: 'chat-actions.webp',
+        alt: 'A chat channel with More actions (⋯) open on your own message: Copy text, Edit and Delete.',
       },
     ],
   },
@@ -1055,6 +1082,8 @@ const admin: StarterLesson[] = [
       {
         title: 'When someone leaves',
         body: '<p>Make the account <strong>Inactive</strong>. The person is signed out everywhere at once; their tasks, comments and history stay.</p>',
+        image: 'admin-deactivate.webp',
+        alt: 'Choosing Inactive asks first: “Deactivate Nadia Ahmed?”, what happens (signed out everywhere; tasks and history stay), an optional reason and Deactivate.',
       },
     ],
   },
@@ -1072,14 +1101,20 @@ const admin: StarterLesson[] = [
       {
         title: 'Third Party and Companies',
         body: '<p><strong>Third Party</strong>, in the Admin group, has two pages. <strong>Clients</strong> is where you make client accounts and choose the projects each client sees. <strong>Guest contacts</strong> are people outside the company named on tasks. <strong>Companies</strong> is inside System Settings: click <strong>Open Companies</strong>.</p>',
+        image: 'admin-clients.webp',
+        alt: 'The New client window (Third Party → Clients): the client’s name, email and organisation, how they get in, and Project access with one project and what they may do there.',
       },
       {
         title: 'AI Management',
         body: '<p>In <strong>AI Management</strong> you connect an AI provider and choose the default models. MICO AI and the AI buttons around the site use them.</p>',
+        image: 'admin-ai.webp',
+        alt: 'AI Management: Providers & API access, and Connect a provider with the Service (here MICO360 AI), the name, the API key and Connect & load models.',
       },
       {
         title: 'Check what happened',
         body: '<p>Click your picture at the top right: the account menu under your name has <strong>Audit Logs</strong>, who did what and when; <strong>Error Log</strong>, problems in people’s browsers and on the server, kept for 30 days; and the <strong>Recycle Bin</strong>, deleted tasks kept for 60 days, which you can restore.</p>',
+        image: 'admin-logs.webp',
+        alt: 'The administrator’s account menu under their picture: Your profile, Settings, Recycle Bin, Error Log, Audit Logs and more.',
       },
     ],
   },
@@ -1183,6 +1218,8 @@ const portal: StarterCourse = {
         {
           title: 'Ask a question or share a file',
           body: '<p>Under <strong>Comments</strong>, write a question or a note for the project team and click <strong>Send comment</strong>. Under <strong>Files</strong> you can download documents, and upload one when your access allows it.</p>',
+          image: 'portal-comment.webp',
+          alt: 'A task in the Client portal: Files with a document from the team to download and Upload a document, and Comments with a question typed and Send comment.',
         },
         {
           title: 'Read the minutes',
@@ -1193,6 +1230,8 @@ const portal: StarterCourse = {
         {
           title: 'Notices and your password',
           body: '<p>The bell at the top shows your notices. <strong>Notification settings</strong>, at the bottom of the page, chooses what you are told about. <strong>Change password</strong> is at the top.</p>',
+          image: 'portal-notices.webp',
+          alt: 'The Client portal’s Notifications page under the bell, with a new document notice, Notification settings, and Change password at the top.',
         },
       ],
     },
