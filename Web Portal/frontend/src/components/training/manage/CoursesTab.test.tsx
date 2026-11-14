@@ -57,6 +57,22 @@ describe('Learning Hub → Manage → Courses', () => {
     expect(screen.queryByRole('button', { name: /archived course/ })).toBeNull();
   });
 
+  it('1.23.33: after “Show the archived courses” the focus is on Status (it reads Archived, and is the way back)', async () => {
+    renderManage(<CoursesTab />);
+    await screen.findByRole('list', { name: 'Courses' });
+    await userEvent.click(screen.getByRole('button', { name: 'Show the 1 archived course' }));
+    expect(screen.getByRole('combobox', { name: 'Status' })).toHaveFocus();
+  });
+
+  it('1.23.33: no “Show the archived courses” under a load error (a failed reload keeps the old list’s data)', async () => {
+    renderManage(<CoursesTab />);
+    await screen.findByRole('list', { name: 'Courses' });
+    api.courses.mockRejectedValue(new ApiError(500, 'INTERNAL', 'Server error'));
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Audience' }), 'STAFF');
+    await screen.findByRole('button', { name: /Try again|Retry/ });
+    expect(screen.queryByRole('button', { name: /archived course/ })).toBeNull();
+  });
+
   it('1.23.33: when every course is archived, the default list says so and offers to show them (not “No courses yet”)', async () => {
     api.courses.mockResolvedValue({ courses: [courseRow({ id: 'a1', title: 'Old board', status: 'ARCHIVED' }), courseRow({ id: 'a2', title: 'Old chat', status: 'ARCHIVED' })] });
     renderManage(<CoursesTab />);

@@ -52,6 +52,8 @@ describe('Learning Hub → Manage → Courses: the ⋯ menu on each course', () 
     await userEvent.keyboard('{Escape}');
     expect(items(await openMenu('Calendar tips'))).toEqual(['Edit', 'Preview as learner', 'Publish again', 'Duplicate', 'Archive']);
     await userEvent.keyboard('{Escape}');
+    // 1.23.33: an archived course is out of the default list; "Show the 1 archived course" lists it.
+    await userEvent.click(screen.getByRole('button', { name: 'Show the 1 archived course' }));
     expect(items(await openMenu('Old chat guide'))).toEqual(['Edit', 'Preview as learner', 'Publish again', 'Duplicate']);
   });
 
