@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import qrcode from 'qrcode-generator';
 import { ApiError } from '../../lib/api-client';
@@ -110,8 +110,16 @@ describe('the certificate on the course page (1.23.35: the PDF’s new design, o
     show(fakeLearner(), certificate({ company: { name: 'Fabrikam LLC', logoUrl: '/uploads/fabrikam.png' } }));
     expect(paper().querySelector('image')!.getAttribute('href')).toMatch(/\/uploads\/fabrikam\.png$/);
     expect(paper().querySelector('image')).toHaveAttribute('aria-label', 'Fabrikam LLC logo');
-    expect(paper().querySelector('image')).toHaveAttribute('aria-label', 'Fabrikam LLC logo');
     expect(word('company')).toEqual(['Fabrikam LLC']);
+  });
+
+  it('a logo kept at another address is used as it is; one that won’t load falls back to MICO360’s', () => {
+    show(fakeLearner(), certificate({ company: { name: 'Northwind', logoUrl: 'https://files.example.com/northwind.png' } }));
+    const img = paper().querySelector('image')!;
+    expect(img.getAttribute('href')).toBe('https://files.example.com/northwind.png');
+    fireEvent.error(img);
+    expect(paper().querySelector('image')!.getAttribute('href')).not.toMatch(/northwind/);
+    expect(paper().querySelector('image')).toHaveAttribute('aria-label', 'MICO360 Tasks');
   });
 
   it('an Arabic name is set in Naskh, not the script face', () => {

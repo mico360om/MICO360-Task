@@ -430,7 +430,19 @@ function planAt(c: CertWordsInput, measure: CertMeasure, s: number): CertPlan {
  * the bottom margin, everything under the logo shrinking together.
  */
 export function certificateWords(c: CertWordsInput, measure: CertMeasure): CertPlan {
-  let plan = planAt(c, measure, 1);
-  for (let s = 0.975; plan.bottom > CERT_TEXT.bottom && s >= 0.6 - 1e-9; s -= 0.025) plan = planAt(c, measure, s);
+  // Each piece of text is measured once per face (at 100 pt): widths grow with the size, letter spacing is added per
+  // character. The fitting below tries many sizes and scales, so this keeps a long certificate quick.
+  const widths = new Map<string, number>();
+  const cached: CertMeasure = (text, face, size, spacing = 0) => {
+    const key = `${face}:${text}`;
+    let at100 = widths.get(key);
+    if (at100 === undefined) {
+      at100 = measure(text, face, 100);
+      widths.set(key, at100);
+    }
+    return (at100 * size) / 100 + spacing * Array.from(text).length;
+  };
+  let plan = planAt(c, cached, 1);
+  for (let s = 0.975; plan.bottom > CERT_TEXT.bottom && s >= 0.6 - 1e-9; s -= 0.025) plan = planAt(c, cached, s);
   return plan;
 }

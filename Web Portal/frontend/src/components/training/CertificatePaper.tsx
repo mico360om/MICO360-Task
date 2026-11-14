@@ -73,6 +73,13 @@ function useFontsLoaded(): number {
 
 const pct = (v: number, of: number) => `${(v / of) * 100}%`;
 
+/** Where a company's logo loads from: a stored '/uploads/…' on the API's address, a full http(s) address as it is; else none. */
+function companyLogoSrc(url: string | null): string | null {
+  if (!url) return null;
+  if (url.startsWith('/')) return assetUrl(url) ?? null;
+  return /^https?:\/\//i.test(url) ? url : null;
+}
+
 /**
  * The certificate itself (1.23.35), the same design as its PDF: one A4 landscape page drawn in an SVG scaled to the
  * width (its shape kept), light like paper in both themes — the red angled shapes, the logo (the company's, else
@@ -104,13 +111,17 @@ export function CertificatePaper({ certificate: cert }: { certificate: Certifica
   const stamp = certificateStamp(cert.status);
   const stampWidth = stamp ? measure(stamp.text, 'heading', CERT_STAMP.size) : 0;
   const stampHeight = CERT_STAMP.size * 0.686;
-  const logoSrc = (cert.company?.logoUrl ? assetUrl(cert.company.logoUrl) : undefined) ?? logo;
+  // The company's logo ('/uploads/…' on the API's address, or a full http(s) address), else MICO360's; MICO360's too when it won't load.
+  const companyLogo = companyLogoSrc(cert.company?.logoUrl ?? null);
+  const [brokenLogo, setBrokenLogo] = useState<string | null>(null);
+  const ownLogo = companyLogo && brokenLogo !== companyLogo ? companyLogo : null;
+  const logoSrc = ownLogo ?? logo;
   const { logo: L } = CERT_TEXT;
 
   return (
     <div data-certificate-frame dir="ltr" className="relative w-full overflow-hidden rounded-md shadow-sm ring-1 ring-black/10" style={{ aspectRatio: `${W} / ${H}`, backgroundColor: '#ffffff', color: CERT_COLORS.ink }}>
       {/* The certificate's words are the drawing's own text (read in order, top to bottom); the shapes are decoration. */}
-      <svg data-certificate-paper role="group" aria-label="Certificate of completion" viewBox={`0 0 ${W} ${H}`} className="absolute inset-0 block h-full w-full" style={{ direction: 'ltr' }}>
+      <svg data-certificate-paper role="group" aria-label="Certificate of completion" viewBox={`0 0 ${W} ${H}`} textRendering="geometricPrecision" className="absolute inset-0 block h-full w-full" style={{ direction: 'ltr' }}>
         <g aria-hidden="true">
           <rect width={W} height={H} fill={CERT_COLORS.paper} />
           {CERT_SHAPES.map((s, i) => (
@@ -120,7 +131,7 @@ export function CertificatePaper({ certificate: cert }: { certificate: Certifica
             <path key={`w${i}`} d={d} fill={CERT_WREATH.color} />
           ))}
         </g>
-        <image role="img" aria-label={cert.company?.logoUrl ? `${companyName || 'Company'} logo` : 'MICO360 Tasks'} href={logoSrc} x={L.x} y={L.top} width={L.width} height={L.height} preserveAspectRatio="xMinYMid meet" />
+        <image role="img" aria-label={ownLogo ? `${companyName || 'Company'} logo` : 'MICO360 Tasks'} href={logoSrc} onError={() => setBrokenLogo(ownLogo)} x={L.x} y={L.top} width={L.width} height={L.height} preserveAspectRatio="xMinYMid meet" />
         <rect aria-hidden="true" x={plan.rule.x} y={plan.rule.y} width={plan.rule.width} height={plan.rule.height} fill={CERT_COLORS.red} />
         {plan.words.map((w, i) => (
           <text key={i} data-certificate-word={w.role} data-certificate-row={w.row} x={w.x} y={w.baseline} fontFamily={FONT[w.face].family} fontWeight={FONT[w.face].weight} fontSize={w.size} letterSpacing={w.spacing || undefined} fill={w.color}>

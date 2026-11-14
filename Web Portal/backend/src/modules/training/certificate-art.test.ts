@@ -129,3 +129,48 @@ describe('the words’ layout (certificateWords, the same for the PDF and the sc
     expect(plan.signature!.top + plan.signature!.height).toBeLessThan(issuer.baseline);
   });
 });
+
+describe('the layout’s cost (1.23.35 review)', () => {
+  it('measures each piece of text once per face, however many sizes and scales it tries', () => {
+    let calls = 0;
+    const counting = (text: string, _face: string, size: number, spacing = 0) => {
+      calls++;
+      return Array.from(text).length * (size * 0.5 + spacing);
+    };
+    const rows = certificateRows({ ...facts, issuedAt: '5 Nov 2026', scorePct: 90, status: 'REVOKED', revokedAt: '9 Nov 2026', revokedReason: 'word '.repeat(60).trim(), issuerName: 'Tariq Training '.repeat(8).trim(), issuerTitle: 'Training manager' }, day);
+    const plan = certificateWords({ learnerName: 'Bartholomew '.repeat(6).trim(), courseTitle: 'word '.repeat(80).trim(), companyName: 'Contoso '.repeat(20).trim(), productName: 'MICO360 Tasks', rows, signature: { width: 300, height: 100 } }, counting);
+    expect(plan.bottom).toBeLessThanOrEqual(566);
+    expect(calls).toBeLessThan(2500);
+  });
+});
+
+describe('the wreath’s curves stay clear of the QR square', () => {
+  it('every point along every leaf’s and stem’s curve (sampled) is outside the white square', () => {
+    const box = certQrBox(21);
+    for (const d of CERT_WREATH.paths) {
+      const tokens = d.match(/[MLCZ]|-?\d+(?:\.\d+)?/g)!;
+      let i = 0;
+      let cur = [0, 0];
+      let start = [0, 0];
+      const pts: number[][] = [];
+      const num = () => Number(tokens[i++]);
+      while (i < tokens.length) {
+        const cmd = tokens[i++];
+        if (cmd === 'M' || cmd === 'L') {
+          const p = [num(), num()];
+          if (cmd === 'M') start = p;
+          pts.push(p);
+          cur = p;
+        } else if (cmd === 'C') {
+          const [c1, c2, e] = [[num(), num()], [num(), num()], [num(), num()]];
+          for (let t = 0; t <= 1; t += 0.05) {
+            const u = 1 - t;
+            pts.push([0, 1].map((k) => u * u * u * cur[k]! + 3 * u * u * t * c1[k]! + 3 * u * t * t * c2[k]! + t * t * t * e[k]!));
+          }
+          cur = e;
+        } else if (cmd === 'Z') cur = start;
+      }
+      for (const [x, y] of pts) expect(x! > box.x - 1 && x! < box.x + box.size + 1 && y! > box.y - 1 && y! < box.y + box.size + 1, `${x},${y}`).toBe(false);
+    }
+  });
+});
