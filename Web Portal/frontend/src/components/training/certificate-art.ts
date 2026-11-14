@@ -53,9 +53,9 @@ export const CERT_SHAPES: readonly CertShape[] = [
   { points: [[0, 138], [44, 112], [44, 128], [0, 154]], color: CERT_COLORS.deep, opacity: 0.9 },
   { points: [[0, 154], [44, 128], [44, 176], [0, 202]], color: CERT_COLORS.light, opacity: 0.2 },
   // Translucent panels left of the strip.
-  { points: [[574, 34], [STRIP, 146], [STRIP, 334], [574, 222]], color: CERT_COLORS.light, opacity: 0.17 },
-  { points: [[652, 26], [STRIP, 93], [STRIP, 268], [652, 201]], color: CERT_COLORS.mid, opacity: 0.16 },
-  { points: [[690, 236], [STRIP, 281], [STRIP, 566], [690, 521]], color: CERT_COLORS.light, opacity: 0.13 },
+  { points: [[574, 34], [STRIP, 146], [STRIP, 334], [574, 222]], color: CERT_COLORS.light, opacity: 0.24 },
+  { points: [[652, 26], [STRIP, 93], [STRIP, 268], [652, 201]], color: CERT_COLORS.mid, opacity: 0.22 },
+  { points: [[690, 236], [STRIP, 281], [STRIP, 566], [690, 521]], color: CERT_COLORS.light, opacity: 0.18 },
   // The strip and its bands.
   { points: [[STRIP, 0], [W, 0], [W, H], [STRIP, H]], color: CERT_COLORS.mid, opacity: 1 },
   { points: [[STRIP, 0], [W, 0], [W, 30], [STRIP, 0]], color: CERT_COLORS.light, opacity: 0.6 },
@@ -193,7 +193,7 @@ export const CERT_TEXT = {
   company: { gap: 41, size: 15 },
   through: { gap: 18, size: 12 },
   rule: { gap: 19, width: 400 },
-  rows: { gap: 30, pitch: 23.5, size: 12.5, valueX: 240 },
+  rows: { gap: 30, pitch: 23.5, size: 13, valueX: 240 },
   /** The last line's baseline stays above this. */
   bottom: 566,
 } as const;
@@ -258,5 +258,179 @@ export const CERT_STAMP = { cx: 330, cy: 372, angle: -18, size: 92, opacity: 0.1
 
 /** Arabic letters in a name: it is set in Noto Naskh Arabic (a script font has none). */
 export function hasArabicLetters(text: string): boolean {
-  return /[؀-ۿݐ-ݿࡰ-ࣿﭐ-﷿ﹰ-﻿]/.test(text);
+  return /\p{Script=Arabic}/u.test(text);
+}
+
+// ── The words' layout (shared, so the PDF and the screen place every line the same way) ──
+
+/** The faces the words are set in: Archivo Black, IBM Plex Sans regular and semibold, Great Vibes, Noto Naskh Arabic. */
+export type CertFace = 'heading' | 'text' | 'text-bold' | 'script' | 'arabic';
+
+/** How wide `text` is in `face` at `size` points, with `spacing` points after each character (the PDF and the browser each measure). */
+export type CertMeasure = (text: string, face: CertFace, size: number, spacing?: number) => number;
+
+/** One line of words, placed: its left end, its baseline, its face and size. */
+export interface CertWord {
+  role: 'heading' | 'subheading' | 'certifies' | 'name' | 'completed' | 'course' | 'company' | 'through' | 'label' | 'value';
+  /** The row a label or value belongs to. */
+  row?: CertRow['key'];
+  text: string;
+  face: CertFace;
+  size: number;
+  spacing: number;
+  x: number;
+  baseline: number;
+  color: string;
+}
+
+export interface CertPlan {
+  words: CertWord[];
+  /** The thin red line over the rows. */
+  rule: { x: number; y: number; width: number; height: number };
+  /** The issuer's signature, small above the Issued by row (null: none). */
+  signature: { x: number; top: number; width: number; height: number } | null;
+  /** The last line's baseline. */
+  bottom: number;
+  /** 1: as in the owner's picture; smaller when a certificate has more to say than fits (everything under the logo shrinks together). */
+  scale: number;
+}
+
+export interface CertWordsInput {
+  learnerName: string;
+  courseTitle: string;
+  /** The issuer block's company name. */
+  companyName: string;
+  /** "MICO360 Tasks" (Issued through … · Learning Hub). */
+  productName: string;
+  rows: CertRow[];
+  /** The signature picture's size in pixels (its shape), or null. */
+  signature: { width: number; height: number } | null;
+}
+
+/** Words wrapped to `width` on spaces; a word wider than the line is broken where it must be. */
+function wrapWords(text: string, face: CertFace, size: number, width: number, measure: CertMeasure): string[] {
+  const lines: string[] = [];
+  let line = '';
+  for (const word of text.split(/\s+/).filter(Boolean)) {
+    const longer = line ? `${line} ${word}` : word;
+    if (measure(longer, face, size) <= width) {
+      line = longer;
+      continue;
+    }
+    if (line) lines.push(line);
+    line = '';
+    if (measure(word, face, size) <= width) {
+      line = word;
+      continue;
+    }
+    for (const ch of Array.from(word)) {
+      if (line && measure(line + ch, face, size) > width) {
+        lines.push(line);
+        line = ch;
+      } else line += ch;
+    }
+  }
+  if (line) lines.push(line);
+  return lines.length ? lines : [''];
+}
+
+/** Text fitted into at most `maxLines` lines of `width`: from `size` down to `min` in half points; then cut with "…". */
+function fitWords(text: string, face: CertFace, o: { size: number; min: number; width: number; maxLines: number }, measure: CertMeasure): { lines: string[]; size: number; cut: boolean } {
+  for (let size = o.size; size >= o.min - 1e-9; size -= 0.5) {
+    const lines = wrapWords(text, face, size, o.width, measure);
+    if (lines.length <= o.maxLines) return { lines, size, cut: false };
+  }
+  const size = o.min;
+  const all = wrapWords(text, face, size, o.width, measure);
+  const rest = Array.from(all.slice(o.maxLines - 1).join(' '));
+  let lo = 0;
+  let hi = rest.length;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (measure(`${rest.slice(0, mid).join('').trimEnd()}…`, face, size) <= o.width) lo = mid;
+    else hi = mid - 1;
+  }
+  return { lines: [...all.slice(0, o.maxLines - 1), `${rest.slice(0, lo).join('').trimEnd()}…`], size, cut: true };
+}
+
+const NAME_ARABIC_SIZE = 44;
+
+/** The size the learner's name is set at: its largest, or smaller so it fits the column on one line. */
+export function certNameSize(name: string, measure: CertMeasure, scale = 1): number {
+  const t = CERT_TEXT;
+  const arabic = hasArabicLetters(name);
+  const largest = (arabic ? NAME_ARABIC_SIZE : t.name.size) * scale;
+  const width = measure(name.trim(), arabic ? 'arabic' : 'script', largest);
+  const room = t.right - t.x + (arabic ? 0 : t.x - t.name.x);
+  return width <= room ? largest : Math.max(4, Math.floor(((largest * room) / width) * 100) / 100);
+}
+
+/** The words at scale `s`, top to bottom (see certificateWords). */
+function planAt(c: CertWordsInput, measure: CertMeasure, s: number): CertPlan {
+  const t = CERT_TEXT;
+  const top = t.logo.top + t.logo.height;
+  const column = t.right - t.x;
+  const y = (base: number) => top + (base - top) * s;
+  const words: CertWord[] = [];
+  const put = (w: Omit<CertWord, 'x' | 'spacing'> & { x?: number; spacing?: number }) => words.push({ x: t.x, spacing: 0, ...w });
+
+  put({ role: 'heading', text: 'CERTIFICATE', face: 'heading', size: t.heading.size * s, baseline: y(t.heading.baseline), color: CERT_COLORS.ink });
+  put({ role: 'subheading', text: 'OF COMPLETION', face: 'heading', size: t.subheading.size * s, spacing: t.subheading.spacing * s, baseline: y(t.subheading.baseline), color: CERT_COLORS.red });
+  put({ role: 'certifies', text: 'THIS CERTIFIES THAT', face: 'text-bold', size: t.certifies.size * s, spacing: t.certifies.spacing * s, baseline: y(t.certifies.baseline), color: CERT_COLORS.ink });
+  const name = c.learnerName.trim();
+  const arabic = hasArabicLetters(name);
+  put({ role: 'name', text: name, face: arabic ? 'arabic' : 'script', size: certNameSize(name, measure, s), x: arabic ? t.x : t.name.x, baseline: y(t.name.baseline), color: CERT_COLORS.red });
+  put({ role: 'completed', text: 'has successfully completed', face: 'text', size: t.completed.size * s, spacing: t.completed.spacing * s, baseline: y(t.completed.baseline), color: CERT_COLORS.muted });
+
+  // The course: one line at 31 pt, shrinking to 20; else two lines (20 → 16); else three (16 → 13), the last cut if it must be.
+  const title = c.courseTitle.trim();
+  let course = fitWords(title, 'text-bold', { size: t.course.size * s, min: t.course.min * s, width: column, maxLines: 1 }, measure);
+  if (course.cut) course = fitWords(title, 'text-bold', { size: 20 * s, min: 16 * s, width: column, maxLines: 2 }, measure);
+  if (course.cut) course = fitWords(title, 'text-bold', { size: 16 * s, min: 13 * s, width: column, maxLines: 3 }, measure);
+  let at = y(t.course.baseline);
+  course.lines.forEach((text, i) => {
+    if (i > 0) at += course.size * 1.22;
+    put({ role: 'course', text, face: 'text-bold', size: course.size, baseline: at, color: CERT_COLORS.ink });
+  });
+
+  // The issuer block: the company, "Issued through …", the thin red line.
+  at += t.company.gap * s;
+  const company = fitWords(c.companyName.trim(), 'text-bold', { size: t.company.size * s, min: 11 * s, width: column, maxLines: 1 }, measure);
+  put({ role: 'company', text: company.lines[0] ?? '', face: 'text-bold', size: company.size, baseline: at, color: CERT_COLORS.ink });
+  at += t.through.gap * s;
+  put({ role: 'through', text: `Issued through ${c.productName} · Learning Hub`, face: 'text', size: t.through.size * s, baseline: at, color: CERT_COLORS.muted });
+  at += t.rule.gap * s;
+  const rule = { x: t.x, y: at, width: t.rule.width, height: 0.8 };
+
+  // The rows: the label, its value in the column on the right (wrapped: two lines for a reason or an issuer).
+  const size = t.rows.size * s;
+  let signature: CertPlan['signature'] = null;
+  at += (t.rows.gap - t.rows.pitch) * s;
+  for (const row of c.rows) {
+    at += t.rows.pitch * s;
+    if (row.key === 'issuer' && c.signature && c.signature.width > 0 && c.signature.height > 0) {
+      const height = 26 * s;
+      signature = { x: t.rows.valueX, top: at - size * 0.95, width: Math.min(130 * s, (c.signature.width / c.signature.height) * height), height };
+      at += height + 2 * s;
+    }
+    put({ role: 'label', row: row.key, text: row.label, face: 'text', size, baseline: at, color: CERT_COLORS.muted });
+    const value = fitWords(row.value, 'text-bold', { size, min: size * 0.8, width: t.right - t.rows.valueX, maxLines: row.key === 'reason' || row.key === 'issuer' ? 2 : 1 }, measure);
+    value.lines.forEach((text, i) => {
+      if (i > 0) at += value.size * 1.25;
+      put({ role: 'value', row: row.key, text, face: 'text-bold', size: value.size, x: t.rows.valueX, baseline: at, color: CERT_COLORS.ink });
+    });
+  }
+  return { words, rule, signature, bottom: at, scale: s };
+}
+
+/**
+ * Where every line of words goes, as in the owner's picture: the heading, the name (shrunk to one line when long), the
+ * course (wrapped when long), the issuer block and the rows. A certificate with more to say than fits (a long course
+ * title, a revoked one's reason, an issuer with a signature) is set at the largest scale whose last line stays above
+ * the bottom margin, everything under the logo shrinking together.
+ */
+export function certificateWords(c: CertWordsInput, measure: CertMeasure): CertPlan {
+  let plan = planAt(c, measure, 1);
+  for (let s = 0.975; plan.bottom > CERT_TEXT.bottom && s >= 0.6 - 1e-9; s -= 0.025) plan = planAt(c, measure, s);
+  return plan;
 }

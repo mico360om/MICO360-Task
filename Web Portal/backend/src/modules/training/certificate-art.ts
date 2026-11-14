@@ -53,9 +53,9 @@ export const CERT_SHAPES: readonly CertShape[] = [
   { points: [[0, 138], [44, 112], [44, 128], [0, 154]], color: CERT_COLORS.deep, opacity: 0.9 },
   { points: [[0, 154], [44, 128], [44, 176], [0, 202]], color: CERT_COLORS.light, opacity: 0.2 },
   // Translucent panels left of the strip.
-  { points: [[574, 34], [STRIP, 146], [STRIP, 334], [574, 222]], color: CERT_COLORS.light, opacity: 0.17 },
-  { points: [[652, 26], [STRIP, 93], [STRIP, 268], [652, 201]], color: CERT_COLORS.mid, opacity: 0.16 },
-  { points: [[690, 236], [STRIP, 281], [STRIP, 566], [690, 521]], color: CERT_COLORS.light, opacity: 0.13 },
+  { points: [[574, 34], [STRIP, 146], [STRIP, 334], [574, 222]], color: CERT_COLORS.light, opacity: 0.24 },
+  { points: [[652, 26], [STRIP, 93], [STRIP, 268], [652, 201]], color: CERT_COLORS.mid, opacity: 0.22 },
+  { points: [[690, 236], [STRIP, 281], [STRIP, 566], [690, 521]], color: CERT_COLORS.light, opacity: 0.18 },
   // The strip and its bands.
   { points: [[STRIP, 0], [W, 0], [W, H], [STRIP, H]], color: CERT_COLORS.mid, opacity: 1 },
   { points: [[STRIP, 0], [W, 0], [W, 30], [STRIP, 0]], color: CERT_COLORS.light, opacity: 0.6 },
@@ -193,7 +193,7 @@ export const CERT_TEXT = {
   company: { gap: 41, size: 15 },
   through: { gap: 18, size: 12 },
   rule: { gap: 19, width: 400 },
-  rows: { gap: 30, pitch: 23.5, size: 12.5, valueX: 240 },
+  rows: { gap: 30, pitch: 23.5, size: 13, valueX: 240 },
   /** The last line's baseline stays above this. */
   bottom: 566,
 } as const;

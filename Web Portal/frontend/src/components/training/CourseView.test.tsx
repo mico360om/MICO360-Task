@@ -165,7 +165,9 @@ describe('a course’s page', () => {
     const one = page(fakeLearner({ course: vi.fn(async () => done()) }));
     const box = (await screen.findByRole('heading', { name: 'Certificate' })).closest('section')!;
     expect(within(box).getByText('Mariam Al Balushi')).toBeInTheDocument();
-    expect(within(box).getByText('Completed 3 Nov 2026')).toBeInTheDocument();
+    // 1.23.35: the certificate's rows — Completed, then its day.
+    const completed = within(box).getByText('Completed');
+    expect(box.querySelector(`[data-certificate-word="value"][data-certificate-row="${completed.getAttribute('data-certificate-row')}"]`)).toHaveTextContent('3 Nov 2026');
     expect(within(box).getByRole('img', { name: /QR code/ })).toBeInTheDocument();
     one.unmount();
     page(fakeLearner({ course: vi.fn(async () => done()) }), '/portal/training/courses/c1', true);

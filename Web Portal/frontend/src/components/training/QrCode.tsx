@@ -10,7 +10,7 @@ const QUIET = 4;
  * a white square with a 4-module quiet zone — put it on a white tile (`bg-white text-black`) so it scans in dark mode
  * too. Nothing is drawn for an empty value or one too long for a QR code.
  */
-export function QrCode({ value, size, label }: { value: string; size: number; label: string }) {
+export function QrCode({ value, size, label, className = 'block' }: { value: string; size: number; label: string; className?: string }) {
   const drawn = useMemo(() => {
     if (!value) return null;
     try {
@@ -27,9 +27,22 @@ export function QrCode({ value, size, label }: { value: string; size: number; la
   }, [value]);
   if (!drawn) return null;
   return (
-    <svg role="img" aria-label={label} viewBox={`0 0 ${drawn.side} ${drawn.side}`} width={size} height={size} shapeRendering="crispEdges" className="block">
+    <svg role="img" aria-label={label} viewBox={`0 0 ${drawn.side} ${drawn.side}`} width={size} height={size} shapeRendering="crispEdges" className={className}>
       <rect width={drawn.side} height={drawn.side} fill="#fff" />
       <path d={drawn.d} fill="currentColor" />
     </svg>
   );
+}
+
+/** How many modules a side the QR code of `value` has (no quiet zone); null for an empty value or one too long. */
+export function qrModuleCount(value: string): number | null {
+  if (!value) return null;
+  try {
+    const qr = qrcode(0, 'M');
+    qr.addData(value);
+    qr.make();
+    return qr.getModuleCount();
+  } catch {
+    return null;
+  }
 }
