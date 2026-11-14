@@ -27,6 +27,14 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('Training Center → Reports', () => {
+  it('an overdue row keeps a real basis for the person and course, so the badge wraps under instead of squeezing them', async () => {
+    renderManage(<ReportsTab />);
+    const overdue = await screen.findByRole('region', { name: 'Overdue' });
+    const name = within(overdue).getByText('Sam Shared').closest('[data-overdue-name]')!;
+    expect(name.className).toContain('flex-[1_1_10rem]');
+    expect(name.className).not.toMatch(/(^|\s)flex-1(\s|$)/);
+  });
+
   it('totals, the rows by course, overdue people, certificates expiring and quiz results — for everyone (administrator)', async () => {
     renderManage(<ReportsTab />);
     const region = await screen.findByRole('region', { name: 'Training reports' });

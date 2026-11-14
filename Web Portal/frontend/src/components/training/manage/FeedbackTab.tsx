@@ -147,7 +147,7 @@ export function FeedbackTab() {
                         {g.items.map((f) => (
                           <li key={f.id} className="flex flex-wrap items-start gap-x-3 gap-y-1 px-3 py-2">
                             <Stars value={f.rating ?? 0} />
-                            <div className="min-w-0 flex-1">
+                            <div data-feedback-body className="min-w-0 flex-[1_1_10rem]">
                               {f.body ? <p dir="auto" className="whitespace-pre-line text-sm text-ink [overflow-wrap:anywhere]">{f.body}</p> : <p className="text-sm text-ink-3">No comment</p>}
                               <p className="text-xs text-ink-2">{[f.byName, instantWords(f.createdAt, timeZone)].filter(Boolean).join(' · ')}</p>
                             </div>

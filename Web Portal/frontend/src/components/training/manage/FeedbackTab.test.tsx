@@ -29,6 +29,14 @@ beforeEach(() => {
 });
 
 describe('Training Center → Feedback', () => {
+  it('a rating row keeps a real basis for its words, so they never shrink to one letter a line beside the stars', async () => {
+    renderManage(<FeedbackTab />);
+    const ratings = await screen.findByRole('region', { name: 'Ratings' });
+    const body = within(ratings).getByText('Clear and short.').closest('[data-feedback-body]')!;
+    expect(body.className).toContain('flex-[1_1_10rem]');
+    expect(body.className).not.toMatch(/(^|\s)flex-1(\s|$)/);
+  });
+
   it('questions (open ones can be answered, answered ones show the answer), problems reported and ratings', async () => {
     renderManage(<FeedbackTab />);
     const questions = await screen.findByRole('region', { name: 'Questions' });
