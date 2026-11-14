@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { PrismaClient } from '@prisma/client';
+import { testPrisma } from './test-prisma';
 import { randomBytes } from 'node:crypto';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -26,7 +27,7 @@ import type { StarterCourse, StarterLesson } from '../../src/modules/training/st
 // no notice; the client guide gives its certificate (C3); one bell row per enrolled staff member; a second start
 // changes nothing and a half-way failure finishes on the next start. Every key is this file's own (tagged).
 const url = process.env.TEST_DATABASE_URL!;
-const prisma = new PrismaClient({ datasources: { db: { url } } });
+const prisma = testPrisma(url);
 const TZ = 'Asia/Muscat';
 /** The change: 20 Nov 2026, 10:00 in Muscat. */
 const NOW = new Date('2026-11-20T06:00:00.000Z');
@@ -1037,6 +1038,7 @@ describe('one-course conversion: what it never holds up or loses', () => {
     const safety = (await prisma.trainingLesson.findFirstOrThrow({ where: { courseId: w.extra } })).id;
     const elsewhere = (await prisma.trainingProgress.create({ data: { userId: w.people.wd, courseId: w.extra, lessonId: safety, stepIndex: 0 } })).id;
     // A second connection that waits at most 2 s for a row lock.
+    // Plain client on purpose: it must NOT retry, so the 2 s lock wait proves the conversion holds no lock.
     const other = new PrismaClient({ datasources: { db: { url: `${url}${url.includes('?') ? '&' : '?'}connection_limit=1` } } });
     let waited = -1;
     try {

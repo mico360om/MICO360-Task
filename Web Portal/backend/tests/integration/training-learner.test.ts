@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { PrismaClient } from '@prisma/client';
+import { testPrisma } from './test-prisma';
 import Fastify, { type FastifyInstance } from 'fastify';
 import rateLimit from '@fastify/rate-limit';
 import { ZodError } from 'zod';
@@ -30,7 +30,7 @@ import type { AttemptPaper, AttemptResult, CourseCard, CourseDetail, LessonDone,
 // retakes, a question bank, time limits; papers never holding the answers), certificates (codes, the public
 // check, PDFs, expiry → retake → a new certificate), feedback notices and the first-time tour.
 const url = process.env.TEST_DATABASE_URL!;
-const prisma = new PrismaClient({ datasources: { db: { url } } });
+const prisma = testPrisma(url);
 const TZ = 'Asia/Muscat';
 const PNG = readFileSync(resolve(__dirname, '../../assets/logo-pdf.png'));
 const PDF = Buffer.from('%PDF-1.4\n%training learner test\n', 'utf8');

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { PrismaClient } from '@prisma/client';
+import { testPrisma } from './test-prisma';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { ZodError } from 'zod';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -21,7 +21,7 @@ import type { AssignmentRow, ManageCourse, ManageLesson } from '../../src/module
 // Assigning a course to several ticked people at once (R4): one USER assignment per person and course sharing
 // a batchId, shown as one "<n> people" entry, withdrawn one by one or all together.
 const url = process.env.TEST_DATABASE_URL!;
-const prisma = new PrismaClient({ datasources: { db: { url } } });
+const prisma = testPrisma(url);
 const TZ = 'Asia/Muscat';
 
 let w: CompanyWorld;

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { PrismaClient } from '@prisma/client';
+import { testPrisma } from './test-prisma';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -19,7 +19,7 @@ import { loadPerson } from '../../src/modules/training/prisma-training-store';
 // certificate valid, and finishing the new modules issues an updated certificate; a retake needs every module
 // again; hidden, switched-off and unlinked-only modules never count.
 const url = process.env.TEST_DATABASE_URL!;
-const prisma = new PrismaClient({ datasources: { db: { url } } });
+const prisma = testPrisma(url);
 const TZ = 'Asia/Muscat';
 
 let w: CompanyWorld;

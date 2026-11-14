@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { PrismaClient } from '@prisma/client';
+import { testPrisma } from './test-prisma';
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -17,7 +17,7 @@ import type { StarterCourse, StarterLesson, StarterQuestion } from '../../src/mo
 // once loaded (a deleted starter course never comes back), skipped by its starter key when the flag is
 // missing, text-only when an asset is missing, and one load at a time.
 const url = process.env.TEST_DATABASE_URL!;
-const prisma = new PrismaClient({ datasources: { db: { url } } });
+const prisma = testPrisma(url);
 const tag = randomBytes(3).toString('hex');
 const KEYS = { tasks: `starter:test-${tag}-tasks`, video: `starter:test-${tag}-video`, missing: `starter:test-${tag}-missing` };
 

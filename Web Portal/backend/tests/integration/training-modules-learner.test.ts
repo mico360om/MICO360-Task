@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { PrismaClient } from '@prisma/client';
+import { testPrisma } from './test-prisma';
 import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
 import rateLimit from '@fastify/rate-limit';
 import { randomBytes } from 'node:crypto';
@@ -26,7 +26,7 @@ import type { CourseDetail } from '../../src/modules/training/training-types';
 // course's link (or one of its lessons removed as a duplicate) answers COURSE_MOVED with where it lives now; and
 // certificates carry the completion day, the name and the check link.
 const url = process.env.TEST_DATABASE_URL!;
-const prisma = new PrismaClient({ datasources: { db: { url } } });
+const prisma = testPrisma(url);
 const TZ = 'Asia/Muscat';
 const PNG = readFileSync(resolve(__dirname, '../../assets/logo-pdf.png'));
 /** The conversion's record, under a key of this file's own (the site's `training.oneCourse` is never touched). */

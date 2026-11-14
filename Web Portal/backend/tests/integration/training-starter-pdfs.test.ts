@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { PrismaClient, type Prisma } from '@prisma/client';
+import { testPrisma } from './test-prisma';
 import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -14,7 +15,7 @@ import type { StarterCourse } from '../../src/modules/training/starter/starter-t
 // starter identity — and nothing else: other downloads, pictures, lessons, progress, enrolments,
 // certificates and every course's edit stamps (updatedAt, updatedById, version, publishedAt) stay as they are.
 const url = process.env.TEST_DATABASE_URL!;
-const prisma = new PrismaClient({ datasources: { db: { url } } });
+const prisma = testPrisma(url);
 const KEYS = ['starter:tasks', 'starter:meetings', 'starter:board'];
 
 const WEBP = Buffer.concat([Buffer.from('RIFF'), Buffer.from([0x1a, 0, 0, 0]), Buffer.from('WEBPVP8 '), Buffer.alloc(14, 1)]);

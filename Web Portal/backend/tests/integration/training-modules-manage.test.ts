@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { PrismaClient } from '@prisma/client';
+import { testPrisma } from './test-prisma';
 import Fastify, { type FastifyInstance } from 'fastify';
 import multipart from '@fastify/multipart';
 import { ZodError } from 'zod';
@@ -29,7 +30,7 @@ import type { FileRef, ManageCourse, ManageCourseRow, ManageLesson } from '../..
 // files) as an unpublished draft with nobody's progress; the Manage list's Audience filter and its facts (notice,
 // limited to, ever published, modules).
 const url = process.env.TEST_DATABASE_URL!;
-const prisma = new PrismaClient({ datasources: { db: { url } } });
+const prisma = testPrisma(url);
 const TZ = 'Asia/Muscat';
 const MB = 1024 * 1024;
 const PNG = readFileSync(resolve(__dirname, '../../assets/logo-pdf.png'));
@@ -805,6 +806,7 @@ describe('saving a guide’s steps (cleanup batch)', () => {
     expect(await places()).toEqual({ [w.people.ana]: 1, [w.people.ben]: 1, [w.people.cat]: 0 });
 
     // While the clamp's transaction is open, a second connection (waiting at most 2 s for a row lock) saves elsewhere.
+    // Plain client on purpose: it must NOT retry, so the 2 s lock wait proves the clamp holds no lock.
     const second = new PrismaClient({ datasources: { db: { url: `${url}${url.includes('?') ? '&' : '?'}connection_limit=1` } } });
     let waited = -1;
     try {

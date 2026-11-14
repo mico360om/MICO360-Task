@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { PrismaClient } from '@prisma/client';
+import { testPrisma } from './test-prisma';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -20,7 +20,7 @@ import { newCertificateCode } from '../../src/modules/training/training-certific
 // the others; and the 15-minute membership sync (a later joiner gets it, a leaver's unfinished training is
 // withdrawn, a finished course kept).
 const url = process.env.TEST_DATABASE_URL!;
-const prisma = new PrismaClient({ datasources: { db: { url } } });
+const prisma = testPrisma(url);
 const TZ = 'Asia/Muscat';
 const T0 = todayKey(TZ);
 const at = (days: number, hhmm = '10:00') => new Date(`${shiftDayKey(T0, days)}T${hhmm}:00+04:00`);
