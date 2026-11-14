@@ -99,6 +99,31 @@ describe('training words', () => {
     expect(learningGroups({ assigned: [review], inProgress: [], completed: [], certificates: [] }).upNext?.id).toBe('rv');
   });
 
+  it('1.23.34: the built-in course the server offers fills Up next only when nothing else is open — never To do; assigned and started courses come first', () => {
+    const offered = card({ id: 'u1', title: 'MICO360 Tasks User Training', mine: mine({ enrolled: false, assigned: false, mandatory: false, status: 'NOT_STARTED', progressPct: 0, dueDay: null, lessonsDone: 0 }) });
+    const none = { assigned: [], inProgress: [], completed: [], certificates: [] };
+    // Nothing assigned or started: it is Up next (optional: no Mandatory, no due day — the card's own state).
+    expect(learningGroups({ ...none, suggested: offered })).toEqual({ upNext: offered, todo: [], done: [], olderCertificates: [] });
+    // An assigned course stays first; the offered one isn't added to To do.
+    const assigned = card({ id: 'a1', mine: mine({ dueDay: '2026-11-30' }) });
+    expect(learningGroups({ ...none, assigned: [assigned], suggested: offered })).toMatchObject({ upNext: { id: 'a1' }, todo: [] });
+    // A course started by themselves too.
+    const started = card({ id: 's1', mine: mine({ assigned: false, mandatory: false, dueDay: null }) });
+    expect(learningGroups({ ...none, inProgress: [started], suggested: offered })).toMatchObject({ upNext: { id: 's1' }, todo: [] });
+    // Finished courses only: it is Up next, the finished ones in Done.
+    const done = card({ id: 'dn', mine: mine({ status: 'COMPLETED', progressPct: 100, dueDay: null }) });
+    expect(learningGroups({ ...none, completed: [done], suggested: offered })).toMatchObject({ upNext: { id: 'u1' }, done: [{ id: 'dn' }] });
+    // A finished course with modules new for their role is Up next again first (dashboardFocus).
+    const grown = card({ id: 'gr', mine: mine({ status: 'COMPLETED', progressPct: 100, dueDay: null, newForRole: 2 }) });
+    expect(learningGroups({ ...none, completed: [grown], suggested: offered }).upNext).toBeNull();
+    // Never twice, never a finished one (the server doesn't send those; the page doesn't count on it).
+    expect(learningGroups({ ...none, completed: [{ ...offered, mine: mine({ status: 'COMPLETED', progressPct: 100, dueDay: null }) }], suggested: offered }).upNext).toBeNull();
+    expect(learningGroups({ ...none, suggested: { ...offered, mine: { ...offered.mine, status: 'COMPLETED' } } }).upNext).toBeNull();
+    // An older server (no field) or none offered: the empty state as before.
+    expect(learningGroups({ ...none, suggested: null }).upNext).toBeNull();
+    expect(learningGroups(none).upNext).toBeNull();
+  });
+
   it('the quiz’s one line: how many questions, the pass mark, tries and any time limit', () => {
     expect(quizStartLine({ questionCount: 5, passMark: 70, maxAttempts: null, attemptsUsed: 0, timeLimitMinutes: null })).toBe('5 questions · pass with 70% · try as often as you like');
     expect(quizStartLine({ questionCount: 3, passMark: 70, maxAttempts: null, attemptsUsed: 2, timeLimitMinutes: null })).toBe('3 questions · pass with 70% · try as often as you like');

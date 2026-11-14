@@ -24,6 +24,9 @@ export const STARTER_REVISION = 4;
 /** 1.23.30: the one staff course, "MICO360 Tasks User Training" (its starter key). */
 export const USER_TRAINING_KEY = 'starter:user-training';
 
+/** The client guide, "Client portal basics" (its starter key; 1.23.34 offers it as the portal's Up next). */
+export const CLIENT_GUIDE_KEY = 'starter:portal';
+
 /** The starter keys 1.23.24 loaded (revision 1): a site that ran it has them, or an administrator deleted them. */
 export const LEGACY_STARTER_KEYS: readonly string[] = [
   'starter:tasks',
@@ -1133,7 +1136,7 @@ const admin: StarterLesson[] = [
 // 12 Nov: no sign-in lesson (a client who reads it is signed in already); the project pages come first.
 
 const portal: StarterCourse = {
-  key: 'starter:portal',
+  key: CLIENT_GUIDE_KEY,
   title: 'Client portal basics',
   summary: 'Follow your projects, sign off finished work, and read the meeting minutes shared with you.',
   moduleKey: 'portal',

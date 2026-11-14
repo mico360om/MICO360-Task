@@ -1158,6 +1158,27 @@ describe('Learning Hub in the Client portal', () => {
     expect(calls).toEqual([]);
   });
 
+  it('1.23.34 /portal/training, nothing assigned: the client guide the server offers is Up next with Start (no Mandatory, no due day), not listed again below; Start opens its first lesson', async () => {
+    const fresh = courseMine({ enrolled: false, assigned: false, mandatory: false, status: 'NOT_STARTED', progressPct: 0, dueDay: null, lessonsDone: 0, lastLessonId: null, startedAt: null, nextLessonId: 'l1' });
+    const offered = courseCard({ id: 'pc1', title: 'Client portal basics', moduleKey: 'portal', audience: 'CLIENTS', mine: fresh });
+    const other = courseCard({ id: 'pc2', title: 'Sign-off basics', moduleKey: 'portal', audience: 'CLIENTS', mine: fresh });
+    api.training.mockResolvedValue({ ...EMPTY_PORTAL_TRAINING, catalogue: [offered, other], suggested: offered });
+    api.trainingCourse.mockResolvedValue(courseDetail({ id: 'pc1', title: 'Client portal basics', moduleKey: 'portal', audience: 'CLIENTS', mine: fresh, resumeLessonId: 'l1', lessons: courseDetail().lessons.map((l) => ({ ...l, done: false, locked: false })) }));
+    api.trainingStart.mockResolvedValue(courseDetail({ id: 'pc1', resumeLessonId: 'l1' }));
+    renderAt('/portal/training');
+    const upNext = await screen.findByRole('region', { name: 'Up next' });
+    expect(screen.queryByText('Nothing to do right now')).toBeNull();
+    expect(within(upNext).getByRole('link', { name: 'Client portal basics' })).toHaveAttribute('href', '/portal/training/courses/pc1');
+    expect(within(upNext).queryByText('Mandatory')).toBeNull();
+    expect(within(upNext).queryByText(/^Due |Overdue/)).toBeNull();
+    expect(screen.getAllByRole('link', { name: 'Client portal basics' })).toHaveLength(1);
+    expect(within(screen.getByRole('region', { name: /^More courses \(1\)/ })).getByRole('link', { name: 'Sign-off basics' })).toBeInTheDocument();
+    expect(within(await screen.findByRole('region', { name: 'Certificate' })).getByText('Finish 4 more lessons to get it')).toBeInTheDocument();
+    await userEvent.click(within(upNext).getByRole('button', { name: 'Start' }));
+    await waitFor(() => expect(api.trainingStart).toHaveBeenCalledWith('pc1'));
+    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('/portal/training/courses/pc1/lessons/l1'));
+  });
+
   it('/portal/training with nothing to do: one line, the courses below (filters only above 3 courses)', async () => {
     const list = [1, 2, 3, 4].map((n) => courseCard({ id: `p${n}`, title: `Portal course ${n}`, moduleKey: 'portal', audience: 'CLIENTS', mine: courseMine({ enrolled: false, assigned: false, mandatory: false, status: 'NOT_STARTED', progressPct: 0, dueDay: null }) }));
     api.training.mockResolvedValue({ ...EMPTY_PORTAL_TRAINING, catalogue: list.slice(0, 3) });
