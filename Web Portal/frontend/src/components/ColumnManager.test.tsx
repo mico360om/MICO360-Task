@@ -127,12 +127,12 @@ describe('Columns table (1.23.37)', () => {
     expect(screen.getByRole('button', { name: 'Delete Done' })).not.toHaveAttribute('aria-disabled');
   });
 
-  it('one task reads in the singular; a project’s only column can’t go', () => {
+  it('one task reads in the singular; an empty only column can still go (today’s server rule)', () => {
     show([{ ...columns[0]!, taskCount: 1 }, { ...columns[1]!, taskCount: 0 }]);
     expect(screen.getByRole('button', { name: 'Delete Backlog' })).toHaveAccessibleDescription('Move its 1 task first');
     cleanup();
     show([{ ...columns[0]!, taskCount: 0 }]);
-    expect(screen.getByRole('button', { name: 'Delete Backlog' })).toHaveAccessibleDescription('A project needs at least one column');
+    expect(screen.getByRole('button', { name: 'Delete Backlog' })).not.toHaveAttribute('aria-disabled');
   });
 
   it('adds a column with its status chosen at once', async () => {
@@ -146,10 +146,28 @@ describe('Columns table (1.23.37)', () => {
 
   it('its buttons are 44 px tall on a phone and a touch screen (height, which no compact rule shrinks)', async () => {
     show([{ ...columns[0]!, taskCount: 0 }, { ...columns[1]!, taskCount: 0 }]);
-    expect(screen.getByRole('button', { name: 'Add column' }).className).toMatch(/max-md:h-11/);
+    expect(screen.getByRole('button', { name: 'Add column' }).className).toMatch(/max-lg:h-11/);
     await userEvent.click(screen.getByRole('button', { name: 'Delete Done' }));
-    expect(screen.getByRole('button', { name: /^delete$/i }).className).toMatch(/max-md:h-11/);
+    expect(screen.getByRole('button', { name: /^delete$/i }).className).toMatch(/max-lg:h-11/);
     expect(screen.getByRole('button', { name: 'Cancel deleting Done' }).className).toMatch(/\[@media\(pointer:coarse\)\]:h-11/);
+  });
+
+  it('a reason shown once is not shown again by itself when the count changes (3 → 0 → 2)', async () => {
+    const h = { onAdd: vi.fn(), onRename: vi.fn(), onToggleEnabled: vi.fn(), onDelete: vi.fn(), onMove: vi.fn() };
+    const { rerender } = render(<ColumnManager columns={[{ ...columns[0]!, taskCount: 3 }, columns[1]!]} {...h} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Delete Backlog' }));
+    expect(within(screen.getByRole('listitem', { name: 'Backlog' })).getByRole('status')).toHaveTextContent('Move its 3 tasks first');
+    rerender(<ColumnManager columns={[{ ...columns[0]!, taskCount: 0 }, columns[1]!]} {...h} />);
+    rerender(<ColumnManager columns={[{ ...columns[0]!, taskCount: 2 }, columns[1]!]} {...h} />);
+    expect(within(screen.getByRole('listitem', { name: 'Backlog' })).queryByRole('status')).toBeNull();
+  });
+
+  it('is a table from lg (1024 px) up and cards below; touch targets are 44 px tall without widening the table’s cells', () => {
+    show();
+    expect(screen.getByTestId('columns-head').className).toMatch(/lg:grid/);
+    const up = screen.getByRole('button', { name: 'Move Backlog up' }).className;
+    expect(up).toMatch(/max-lg:w-11/);
+    expect(up).not.toMatch(/\(pointer:coarse\)\]:w-11/);
   });
 
   it('keeps the table to about 960 px', () => {

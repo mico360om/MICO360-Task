@@ -92,7 +92,7 @@ export function createPrismaColumnRepository(prisma: PrismaClient, opts: PrismaC
     },
     async countLiveTasksByColumn(projectId) {
       // s137: the same tasks as countLiveTasks (not archived, not in the Recycle Bin), every column at once.
-      const rows = await prisma.task.groupBy({ by: ['columnId'], where: { projectId, deletedAt: null, archivedAt: null }, _count: { _all: true } });
+      const rows = await prisma.task.groupBy({ by: ['columnId'], where: { column: { projectId }, deletedAt: null, archivedAt: null }, _count: { _all: true } });
       return new Map(rows.map((r) => [r.columnId, r._count._all]));
     },
     async countLiveTasks(id) {

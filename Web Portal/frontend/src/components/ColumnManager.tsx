@@ -38,15 +38,15 @@ export interface ColumnManagerProps {
 }
 
 /**
- * s137: one grid for the header and every row (md and wider): drag · colour · Name · Status · Tasks · Visible ·
+ * s137: one grid for the header and every row (lg, 1024 px, and wider): drag · colour · Name · Status · Tasks · Visible ·
  * ↑↓ · Delete, the whole table at most 960 px wide. Narrower, each column is a small card (the same controls).
  */
-const ROW_GRID = 'md:grid md:grid-cols-[1.75rem_1.75rem_minmax(8rem,28rem)_9.5rem_4rem_4.5rem_5rem_2.75rem] md:items-center md:gap-2';
+const ROW_GRID = 'lg:grid lg:grid-cols-[1.75rem_1.75rem_minmax(8rem,28rem)_9.5rem_4rem_4.5rem_5rem_2.75rem] lg:items-center lg:gap-2';
 /** 44 px on a phone and on any touch screen; compact with a mouse. */
-const TAP = 'max-md:h-11 max-md:w-11 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11';
-const TAP_FIELD = 'max-md:min-h-11 [@media(pointer:coarse)]:min-h-11';
+const TAP = 'max-lg:h-11 max-lg:w-11 [@media(pointer:coarse)]:h-11'; // the table's cells keep their widths on a touch screen
+const TAP_FIELD = 'max-lg:min-h-11 [@media(pointer:coarse)]:min-h-11';
 /** A text button: its height (the compact density's min-height rule would beat a min-height). */
-const TAP_BUTTON = 'max-md:h-11 [@media(pointer:coarse)]:h-11';
+const TAP_BUTTON = 'max-lg:h-11 [@media(pointer:coarse)]:h-11';
 
 const taskWord = (n: number) => `${n} ${n === 1 ? 'task' : 'tasks'}`;
 
@@ -54,7 +54,7 @@ const taskWord = (n: number) => `${n} ${n === 1 ? 'task' : 'tasks'}`;
  * Admin column management: add / rename / remap status / show-hide / reorder / delete (T7.5). 1.23.8: no
  * colour picker — one colour scheme (owner, 7 Nov): a column wears its status kind's colour, so every board
  * looks the same. s137 (1.23.37): a compact table with each column's task count; Delete waits, saying why,
- * while a column holds tasks or is the project's only one; a new column's status is chosen as it is added.
+ * while a column holds tasks; a new column's status is chosen as it is added.
  */
 export function ColumnManager({
   columns,
@@ -108,14 +108,13 @@ export function ColumnManager({
 
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <SortableContext items={ordered.map((c) => c.id)} strategy={verticalListSortingStrategy}>
-          <ul className="flex flex-col gap-2 md:gap-1.5">
+          <ul className="flex flex-col gap-2 lg:gap-1.5">
             {ordered.map((c, i) => (
               <ColumnRow
                 key={c.id}
                 col={c}
                 first={i === 0}
                 last={i === ordered.length - 1}
-                only={ordered.length === 1}
                 confirming={confirmingId === c.id}
                 onRename={onRename}
                 onSetCategory={onSetCategory}
@@ -165,7 +164,7 @@ export function ColumnManager({
               if (nameError) setNameError(null);
             }}
             placeholder="e.g. In Review"
-            className={fieldClass(!!nameError, `min-w-0 flex-1 basis-48 md:max-w-[28rem] ${TAP_FIELD}`)}
+            className={fieldClass(!!nameError, `min-w-0 flex-1 basis-48 lg:max-w-[28rem] ${TAP_FIELD}`)}
           />
           <select
             aria-label="Status of the new column"
@@ -193,8 +192,6 @@ interface ColumnRowProps {
   col: ManagedColumn;
   first: boolean;
   last: boolean;
-  /** The project's only column: a project needs one. */
-  only: boolean;
   confirming: boolean;
   onRename: (id: string, name: string) => void;
   onSetCategory?: (id: string, category: ColumnCategory) => void;
@@ -205,10 +202,10 @@ interface ColumnRowProps {
   onConfirmDelete: () => void;
 }
 
-function ColumnRow({ col, first, last, only, confirming, onRename, onSetCategory, onToggleEnabled, onMove, onAskDelete, onCancelDelete, onConfirmDelete }: ColumnRowProps) {
+function ColumnRow({ col, first, last, confirming, onRename, onSetCategory, onToggleEnabled, onMove, onAskDelete, onCancelDelete, onConfirmDelete }: ColumnRowProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: col.id });
   const reasonId = useId();
-  const [saidWhy, setSaidWhy] = useState(false);
+  const [saidWhy, setSaidWhy] = useState<string | null>(null);
   const style: React.CSSProperties = {
     transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
     transition,
@@ -217,8 +214,8 @@ function ColumnRow({ col, first, last, only, confirming, onRename, onSetCategory
   };
   const meta = statusMeta(col.category);
   const count = col.taskCount;
-  // Today's rules (the server's too): a column with live tasks, or a project's only column, stays.
-  const cantDelete = count !== undefined && count > 0 ? `Move its ${taskWord(count)} first` : only ? 'A project needs at least one column' : null;
+  // Today's rule (the server's): a column with live tasks stays until they are moved.
+  const cantDelete = count !== undefined && count > 0 ? `Move its ${taskWord(count)} first` : null;
   const iconButton = `grid h-8 w-8 flex-none place-items-center rounded-lg transition-colors ${TAP}`;
 
   return (
@@ -226,10 +223,10 @@ function ColumnRow({ col, first, last, only, confirming, onRename, onSetCategory
       ref={setNodeRef}
       style={style}
       aria-label={col.name}
-      className={`flex flex-col gap-2 rounded-xl border bg-surface p-2 transition-colors md:gap-y-1 md:py-1.5 md:pl-1 ${ROW_GRID} ${isDragging ? 'border-brand/40 shadow-lift' : 'border-line'} ${col.enabled ? '' : 'opacity-70'}`}
+      className={`flex flex-col gap-2 rounded-xl border bg-surface p-2 transition-colors lg:gap-y-1 lg:py-1.5 lg:pl-1 ${ROW_GRID} ${isDragging ? 'border-brand/40 shadow-lift' : 'border-line'} ${col.enabled ? '' : 'opacity-70'}`}
     >
       {/* Top of a phone's card: drag, colour, name and status. */}
-      <div className="flex flex-wrap items-center gap-2 md:contents">
+      <div className="flex flex-wrap items-center gap-2 lg:contents">
         <button
           type="button"
           aria-label={`Drag ${col.name}`}
@@ -248,7 +245,7 @@ function ColumnRow({ col, first, last, only, confirming, onRename, onSetCategory
           dir="auto"
           defaultValue={col.name}
           onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== col.name) onRename(col.id, v); }}
-          className={fieldClass(false, `min-w-0 flex-1 font-medium md:w-full ${TAP_FIELD}`)}
+          className={fieldClass(false, `min-w-0 flex-1 font-medium lg:w-full ${TAP_FIELD}`)}
         />
 
         {onSetCategory ? (
@@ -269,17 +266,17 @@ function ColumnRow({ col, first, last, only, confirming, onRename, onSetCategory
       </div>
 
       {/* Bottom of a phone's card: its tasks, Visible, the arrows and Delete. */}
-      <div className="flex items-center justify-between gap-2 md:contents">
-        <span className="text-sm tabular-nums text-ink-2 md:text-center">
+      <div className="flex items-center justify-between gap-2 lg:contents">
+        <span className="text-sm tabular-nums text-ink-2 lg:text-center">
           <span aria-hidden>
             {count === undefined ? '–' : count}
-            <span className="md:hidden"> {count === 1 ? 'task' : 'tasks'}</span>
+            <span className="lg:hidden"> {count === 1 ? 'task' : 'tasks'}</span>
           </span>
           <span className="sr-only">{count === undefined ? 'Task count not known' : taskWord(count)}</span>
         </span>
 
-        <label className={`flex flex-none items-center justify-center gap-2 md:justify-self-center ${TAP_FIELD}`} title={col.enabled ? 'Visible on the board' : 'Hidden from the board'}>
-          <span className="text-xs text-ink-2 md:hidden" aria-hidden>Visible</span>
+        <label className={`flex flex-none items-center justify-center gap-2 lg:justify-self-center ${TAP_FIELD}`} title={col.enabled ? 'Visible on the board' : 'Hidden from the board'}>
+          <span className="text-xs text-ink-2 lg:hidden" aria-hidden>Visible</span>
           <input type="checkbox" aria-label={`Enable ${col.name}`} checked={col.enabled} onChange={(e) => onToggleEnabled(col.id, e.target.checked)} className="peer sr-only" />
           {/* The knob is inside the track, so it is moved from the track (`peer-checked` only reaches siblings of the box). */}
           <span data-switch-track className="relative h-5 w-9 cursor-pointer rounded-full bg-line transition-colors peer-checked:bg-brand peer-checked:[&>span]:translate-x-4 peer-focus-visible:ring-2 peer-focus-visible:ring-brand/40">
@@ -298,13 +295,13 @@ function ColumnRow({ col, first, last, only, confirming, onRename, onSetCategory
 
         <button
           type="button"
-          onClick={() => (cantDelete ? setSaidWhy(true) : onAskDelete())}
+          onClick={() => (cantDelete ? setSaidWhy(cantDelete) : onAskDelete())}
           aria-label={`Delete ${col.name}`}
           aria-disabled={cantDelete ? true : undefined}
           aria-describedby={cantDelete ? reasonId : undefined}
           aria-expanded={cantDelete ? undefined : confirming}
           title={cantDelete ?? undefined}
-          className={`${iconButton} md:justify-self-center ${cantDelete ? 'cursor-not-allowed text-ink-3 opacity-40' : confirming ? 'bg-danger-soft text-danger' : 'text-ink-3 hover:bg-danger-soft hover:text-danger'}`}
+          className={`${iconButton} lg:justify-self-center ${cantDelete ? 'cursor-not-allowed text-ink-3 opacity-40' : confirming ? 'bg-danger-soft text-danger' : 'text-ink-3 hover:bg-danger-soft hover:text-danger'}`}
         >
           <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M6 6v14a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6M10 11v6M14 11v6" /></svg>
         </button>
@@ -313,7 +310,7 @@ function ColumnRow({ col, first, last, only, confirming, onRename, onSetCategory
 
       {/* The confirmation, under the row (a 44 px cell has no room for two buttons). */}
       {confirming && !cantDelete ? (
-        <div className="flex flex-wrap items-center justify-end gap-2 md:col-[3/-1] md:pb-1">
+        <div className="flex flex-wrap items-center justify-end gap-2 lg:col-[3/-1] lg:pb-1">
           <span className="me-auto text-xs text-ink-2">Delete the “{col.name}” column?</span>
           <button type="button" onClick={onConfirmDelete} className={`rounded-lg bg-danger px-3 py-1 text-xs font-semibold text-white transition-colors hover:brightness-95 ${TAP_BUTTON}`}>Delete</button>
           <button type="button" onClick={onCancelDelete} aria-label={`Cancel deleting ${col.name}`} className={`rounded-lg px-3 py-1 text-xs font-medium text-ink-2 transition-colors hover:bg-ground ${TAP_BUTTON}`}>Cancel</button>
@@ -321,8 +318,8 @@ function ColumnRow({ col, first, last, only, confirming, onRename, onSetCategory
       ) : null}
 
       {/* Pressed while it can't go: the reason, under the row. */}
-      {cantDelete && saidWhy ? (
-        <p role="status" className="text-xs text-ink-2 md:col-[3/-1] md:pb-1">{cantDelete}</p>
+      {cantDelete && saidWhy === cantDelete ? (
+        <p role="status" className="text-xs text-ink-2 lg:col-[3/-1] lg:pb-1">{cantDelete}</p>
       ) : null}
     </li>
   );

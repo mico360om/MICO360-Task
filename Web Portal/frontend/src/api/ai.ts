@@ -257,10 +257,10 @@ export function aiApi(client: ApiClient) {
   };
 }
 
-/** What a plain-English note fills in; a field the note says nothing about is null (or absent, from an older server). */
 /** s137: how much a described task's title and description say. */
 export type DescribeDetail = 'short' | 'default' | 'detailed';
 
+/** What a plain-English note fills in; a field the note says nothing about is null (or absent, from an older server). */
 export interface AiTaskDraft {
   title: string;
   description?: string | null;

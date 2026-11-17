@@ -10,7 +10,6 @@ import { EmptyNote, FlagIcon } from './parts';
 import { ClientEyeIcon } from '../TaskCard';
 import { TOUCH_TALL } from '../../lib/touch';
 import { EmptyState } from '../ui/EmptyState';
-import { Button } from '../ui/Button';
 import { ApprovalChip } from '../approvals/ApprovalChip';
 import { GuestsLine } from '../GuestsLine';
 import { RowCategoryChips } from '../RowCategoryChips';

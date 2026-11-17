@@ -576,6 +576,8 @@ describe('Describe it in plain English', () => {
     expect(calls.filter((c) => c.url.endsWith('/ai/parse-task')).at(-1)!.body).toMatchObject({ detail: 'default' });
     // Changing the level after a result: press Fill task details again; nothing is applied until you choose.
     await userEvent.click(within(level()).getByRole('radio', { name: 'Detailed' }));
+    expect(screen.getByRole('group', { name: 'Suggested details' })).toBeInTheDocument(); // the old suggestions wait for Fill task details
+    expect(calls.filter((c) => c.url.endsWith('/ai/parse-task'))).toHaveLength(1);
     await userEvent.click(screen.getByRole('button', { name: 'Fill task details' }));
     await screen.findByRole('group', { name: 'Suggested details' });
     expect(calls.filter((c) => c.url.endsWith('/ai/parse-task')).at(-1)!.body).toMatchObject({ detail: 'detailed' });

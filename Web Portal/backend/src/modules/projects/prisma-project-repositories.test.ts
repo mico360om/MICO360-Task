@@ -146,6 +146,6 @@ describe('createPrismaColumnRepository.countLiveTasksByColumn', () => {
     const groupBy = vi.fn(async () => [{ columnId: 'c1', _count: { _all: 3 } }, { columnId: 'c2', _count: { _all: 1 } }]);
     const repo = createPrismaColumnRepository({ task: { groupBy } } as unknown as PrismaClient);
     expect([...(await repo.countLiveTasksByColumn!('p1'))]).toEqual([['c1', 3], ['c2', 1]]);
-    expect(groupBy).toHaveBeenCalledWith({ by: ['columnId'], where: { projectId: 'p1', deletedAt: null, archivedAt: null }, _count: { _all: true } });
+    expect(groupBy).toHaveBeenCalledWith({ by: ['columnId'], where: { column: { projectId: 'p1' }, deletedAt: null, archivedAt: null }, _count: { _all: true } });
   });
 });

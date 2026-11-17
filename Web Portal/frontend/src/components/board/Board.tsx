@@ -237,8 +237,12 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
 
   // s137: whenever the board's tasks are read again (a card moved in or out, a task added), Manage columns'
   // task counts are too, so Delete's "Move its 3 tasks first" stays true.
+  // (Only on a newer read: opening the panel fetches them anyway.)
   const boardUpdatedAt = boardQ.dataUpdatedAt;
+  const countsSeenAt = useRef(boardUpdatedAt);
   useEffect(() => {
+    if (countsSeenAt.current === boardUpdatedAt) return;
+    countsSeenAt.current = boardUpdatedAt;
     if (manageColumns && projectId) void qc.invalidateQueries({ queryKey: ['columns', projectId, 'counts'] });
   }, [boardUpdatedAt, manageColumns, projectId, qc]);
 
@@ -635,20 +639,16 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
 
   // The board's own buttons: in the page's header, or (no header: a project page's Board tab) in the day row.
   // A read-only project's board has none.
-  const actions = projectId && !locked ? (
-    <>
-      {/* Whoever runs the project (the server says) and admins change its columns. */}
-      {(settingsAdmin || project?.canManage === true) && !isAll ? (
-        <button
-          onClick={() => setManageColumns((v) => !v)}
-          aria-expanded={manageColumns}
-          className={`rounded-xl border border-line bg-surface px-3 py-2 text-sm font-semibold text-ink transition-colors hover:border-brand/30 hover:bg-ground ${TOUCH_TALL}`}
-        >
-          {manageColumns ? 'Done' : 'Manage columns'}
-        </button>
-      ) : null}
-      {/* s137: no New task of its own — the top bar's New task starts in this project (and N opens it). */}
-    </>
+  // s137: its only button is Manage columns (no New task of its own — the top bar's starts in this project, and
+  // N opens it); without column rights there is nothing to place.
+  const actions = projectId && !locked && (settingsAdmin || project?.canManage === true) && !isAll ? (
+    <button
+      onClick={() => setManageColumns((v) => !v)}
+      aria-expanded={manageColumns}
+      className={`rounded-xl border border-line bg-surface px-3 py-2 text-sm font-semibold text-ink transition-colors hover:border-brand/30 hover:bg-ground ${TOUCH_TALL}`}
+    >
+      {manageColumns ? 'Done' : 'Manage columns'}
+    </button>
   ) : null;
 
   return (
@@ -757,7 +757,7 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
           {isAll ? <p className="ms-auto hidden text-sm text-ink-2 lg:block">All projects — drag a card to change its status in its own project.</p> : null}
           {/* 1.22: who can open this project's board (not on All projects). */}
           {!isAll && project ? <div className="ms-auto"><BoardPeople project={project} /></div> : null}
-          {header ? null : <div className={`flex flex-wrap items-center gap-2 ${!isAll && project ? '' : 'ms-auto'}`}>{actions}</div>}
+          {header || !actions ? null : <div className={`flex flex-wrap items-center gap-2 ${!isAll && project ? '' : 'ms-auto'}`}>{actions}</div>}
         </div>
       ) : null}
 
@@ -977,7 +977,7 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
 /** What a board day with no tasks on it says: why it may be empty, and what to do. */
 export function emptyDayText(day: string, today: string): string {
   if (day === today) return 'Nothing on today’s board yet. Add a task with “New task” or a column’s +.';
-  if (day > today) return 'Nothing planned for this day yet. A task added here waits on this day’s board.';
+  if (day > today) return 'Nothing planned for this day yet. A task added with a column’s + waits on this day’s board.';
   return 'Nothing was on the board this day. Tasks still open move on to the next day by themselves.';
 }
 

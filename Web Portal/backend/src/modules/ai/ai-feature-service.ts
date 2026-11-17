@@ -918,11 +918,11 @@ export function createAiFeatureService({
 
 export type AiFeatureService = ReturnType<typeof createAiFeatureService>;
 
-/** What a plain-English note fills in (null where it says nothing). */
 /** s137: how much a described task's title and description say ("Short · Default · Detailed"); missing = default. */
 export const DESCRIBE_DETAILS = ['short', 'default', 'detailed'] as const;
 export type DescribeDetail = (typeof DESCRIBE_DETAILS)[number];
 
+/** What a plain-English note fills in (null where it says nothing). */
 export interface DescribedTask {
   title: string;
   description: string | null;
