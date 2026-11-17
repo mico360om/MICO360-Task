@@ -42,6 +42,10 @@ export async function registerColumnRoutes(app: FastifyInstance, deps: ColumnRou
     if (deps.canViewProject && !(await deps.canViewProject(req.user!.id, req.user!.roles ?? [], id))) {
       return reply.status(403).send({ error: { code: 'FORBIDDEN', message: 'You do not have access to this project.' } });
     }
+    // s137: Manage columns asks for each column's task count; only whoever may change the columns gets it.
+    if ((req.query as { counts?: string } | undefined)?.counts === '1' && (await authz.canManageProject(req.user!.id, req.user!.roles ?? [], id))) {
+      return { data: await columnService.listColumnsWithCounts(id) };
+    }
     return { data: await columnService.listColumns(id) };
   });
 

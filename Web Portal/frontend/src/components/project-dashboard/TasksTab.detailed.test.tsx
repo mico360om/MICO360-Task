@@ -29,7 +29,6 @@ describe('Detailed rows on a project’s Tasks tab (1.23.8 review)', () => {
             filter="all"
             onFilter={() => {}}
             onOpen={() => {}}
-            onNew={() => {}}
             project={{ id: 'p1', name: 'MICO', code: 'MICO' } as unknown as ApiProject}
             columns={[]}
           />
@@ -40,5 +39,21 @@ describe('Detailed rows on a project’s Tasks tab (1.23.8 review)', () => {
     expect(row.querySelector('p')).toBeNull();
     expect(row.querySelector('[data-testid="card-description"]')!.tagName).toBe('SPAN');
     expect(row.querySelector('[data-testid="card-checklist"]')).toHaveTextContent('1/4');
+  });
+});
+
+// s137: one New task — the top bar's, which already starts in this project. The empty tab only points to it.
+describe('An empty project’s Tasks tab (1.23.37)', () => {
+  it('has no New task button of its own and says where New task is', () => {
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter>
+          <TasksTab groups={[]} today="2026-11-10" timeZone="Asia/Muscat" loading={false} filter="all" onFilter={() => {}} onOpen={() => {}} canAdd project={{ id: 'p1', name: 'MICO', code: 'MICO' } as unknown as ApiProject} columns={[]} />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    expect(screen.getByText('No tasks in this project yet')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /new task/i })).toBeNull();
+    expect(screen.getByText(/New task at the top/)).toBeInTheDocument();
   });
 });

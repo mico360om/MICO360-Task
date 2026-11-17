@@ -129,14 +129,15 @@ describe('ProjectDetailPage: the Board tab (1.22.3)', () => {
     expect(within(panel).queryByRole('navigation')).toBeNull();
   });
 
-  it('has what the Board page has: the day, the people strip, Manage columns and New task', async () => {
+  it('has what the Board page has: the day, the people strip, Manage columns and a column’s + (s137: New task is the top bar’s)', async () => {
     renderPage();
     const panel = await screen.findByRole('tabpanel', { name: 'Board' });
     await within(panel).findByRole('region', { name: 'To Do' });
     expect(within(panel).getByLabelText('Board date')).toBeInTheDocument();
     expect(await within(panel).findByRole('button', { name: /People on this project: 1/ })).toBeInTheDocument();
     expect(within(panel).getByRole('button', { name: 'Manage columns' })).toBeInTheDocument();
-    await userEvent.click(within(panel).getByRole('button', { name: /\+ new task/i }));
+    expect(within(panel).queryByRole('button', { name: /new task/i })).toBeNull(); // s137
+    await userEvent.click(within(panel).getByRole('button', { name: 'Add a task to To Do' }));
     expect(await screen.findByRole('dialog', { name: /new task/i })).toBeInTheDocument();
   });
 

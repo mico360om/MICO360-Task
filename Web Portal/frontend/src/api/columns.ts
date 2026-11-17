@@ -22,6 +22,9 @@ export type ColumnPatch = Partial<NewColumnInput> & { enabled?: boolean; positio
 export function columnsApi(client: ApiClient) {
   return {
     list: (projectId: string) => client.get<{ data: ApiColumn[] }>(`/projects/${projectId}/columns`).then((r) => r.data),
+    /** s137: Manage columns — each column with its live task count (given only to whoever may change the columns). */
+    listCounted: (projectId: string) =>
+      client.get<{ data: Array<ApiColumn & { taskCount?: number }> }>(`/projects/${projectId}/columns?counts=1`).then((r) => r.data),
     add: (projectId: string, input: NewColumnInput) =>
       client.post<{ data: ApiColumn }>(`/projects/${projectId}/columns`, input).then((r) => r.data),
     update: (columnId: string, patch: ColumnPatch) =>

@@ -31,7 +31,6 @@ import { EMPTY_GUEST_CATEGORY_FILTERS, projectCategoryChoices } from '../../lib/
 import { useProjectCategories } from '../../lib/useProjectCategories';
 import { useBoardRealtime, type BoardEvent } from '../../lib/useBoardRealtime';
 import { LoadError } from '../ui/LoadError';
-import { useShortcut } from '../shortcuts/ShortcutProvider';
 import { MoveTaskDialog, useMoveTargets, type MoveTaskRef } from '../MoveTaskDialog';
 import { EmptyState } from '../ui/EmptyState';
 import { TOUCH_SQUARE, TOUCH_TALL } from '../../lib/touch';
@@ -87,7 +86,7 @@ export interface BoardProps {
   hiddenProjects?: ReadonlySet<string>;
   /**
    * The page's own header (the Board page: its title and project picker), given the board's buttons
-   * (Manage columns, New task) to place among its actions. Without one — a project page's Board tab,
+   * (Manage columns; s137: New task is the top bar's) to place among its actions. Without one — a project page's Board tab,
    * under the project's own header — the buttons sit at the end of the board's day row.
    */
   header?: (actions: ReactNode) => ReactNode;
@@ -187,9 +186,10 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
   }, [settingsAdmin, boardDate, todayKey, qc]);
 
   const columnsQ = useQuery({
-    queryKey: ['columns', projectId],
+    queryKey: ['columns', projectId, 'counts'], // s137: its own entry (the plain list is cached elsewhere); invalidating ['columns', id] refreshes it too
     enabled: Boolean(projectId) && !isAll && manageColumns,
-    queryFn: () => columnsApi(apiClient).list(projectId as string),
+    // s137: with each column's task count (the Tasks column, and why Delete waits).
+    queryFn: () => columnsApi(apiClient).listCounted(projectId as string),
   });
 
   const refreshBoard = () => {
@@ -542,7 +542,6 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
     else setNewTaskColumn(columnId ?? boardColumns[0]?.id ?? '');
     setAddingTask(true);
   }
-  useShortcut('new', () => openAddTask(), { enabled: boardColumns.length > 0 && !locked });
 
   // Live board: refetch when another client creates/moves/updates/deletes/reassigns a task (T7.4).
   const onLiveEvent = useCallback(
@@ -641,9 +640,7 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
           {manageColumns ? 'Done' : 'Manage columns'}
         </button>
       ) : null}
-      <Button onClick={() => openAddTask()} disabled={boardColumns.length === 0} title="New task" shortcut="new" className={TOUCH_TALL}>
-        + New task
-      </Button>
+      {/* s137: no New task of its own — the top bar's New task starts in this project (and N opens it). */}
     </>
   ) : null;
 
@@ -764,7 +761,7 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
           <h2 className="eyebrow mb-3">Columns</h2>
           <ColumnManager
             columns={columnsQ.data ?? []}
-            onAdd={(name) => void columnAction(() => columnsApi(apiClient).add(projectId, { name }))}
+            onAdd={(name, category) => void columnAction(() => columnsApi(apiClient).add(projectId, { name, category }))}
             onRename={(id, name) => void columnAction(() => columnsApi(apiClient).update(id, { name }))}
             onSetCategory={(id, category) => void columnAction(() => columnsApi(apiClient).update(id, { category }))}
             onToggleEnabled={(id, enabled) => void columnAction(() => columnsApi(apiClient).update(id, { enabled }))}

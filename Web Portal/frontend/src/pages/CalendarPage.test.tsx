@@ -675,6 +675,15 @@ describe('CalendarPage — rescheduling', () => {
     const create = await screen.findByRole('dialog', { name: 'New task' });
     expect(within(create).getByLabelText(/due date/i)).toHaveValue('2026-10-22');
   });
+
+  // s137: the toolbar's button says the day it adds on ("Add on 16 Oct"); it is no longer a second "New task".
+  it('the toolbar button reads “Add on <day>” and starts the task on that day', async () => {
+    renderPage('/calendar?view=day&date=2026-10-16');
+    await userEvent.click(await screen.findByRole('button', { name: 'Add on 16 Oct' }));
+    const create = await screen.findByRole('dialog', { name: 'New task' });
+    expect(within(create).getByLabelText(/due date/i)).toHaveValue('2026-10-16');
+    expect(screen.queryByRole('button', { name: '+ Task' })).not.toBeInTheDocument();
+  });
 });
 
 describe('CalendarPage — agenda, states and phones', () => {

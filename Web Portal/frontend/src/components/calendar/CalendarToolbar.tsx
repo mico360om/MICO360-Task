@@ -22,7 +22,7 @@ const pill = 'h-9 whitespace-nowrap rounded-xl border px-3 text-sm font-semibold
  * "+ Task" on the right. Its two groups join the title's line (display: contents), so where there
  * isn't room the right-hand group moves to the next line whole.
  */
-export function CalendarToolbar({ view, onView, period, unit, onPrev, onNext, onToday, cursor, onGoTo, onNew, layout, onLayout }: {
+export function CalendarToolbar({ view, onView, period, unit, onPrev, onNext, onToday, cursor, onGoTo, onNew, newDayLabel, layout, onLayout }: {
   view: CalendarView;
   onView: (v: CalendarView) => void;
   period: string;
@@ -37,6 +37,8 @@ export function CalendarToolbar({ view, onView, period, unit, onPrev, onNext, on
   cursor: string;
   onGoTo: (day: string) => void;
   onNew?: () => void;
+  /** s137: the day the button adds on ("16 Oct"): it reads "Add on 16 Oct", not a second "New task". */
+  newDayLabel?: string;
 }) {
   const newHint = useShortcutHint('new');
   return (
@@ -93,7 +95,7 @@ export function CalendarToolbar({ view, onView, period, unit, onPrev, onNext, on
           />
         </label>
         {onNew ? (
-          <button type="button" onClick={onNew} title={newHint ? newHint.title('New task') : undefined} aria-keyshortcuts={newHint?.aria} className="h-9 rounded-xl bg-brand-gradient px-3.5 text-sm font-semibold text-white shadow-brand max-sm:hidden [@media(pointer:coarse)]:h-11">+ Task</button>
+          <button type="button" onClick={onNew} title={newHint ? newHint.title(newDayLabel ? `Add a task on ${newDayLabel}` : 'New task') : undefined} aria-keyshortcuts={newHint?.aria} className="h-9 whitespace-nowrap rounded-xl bg-brand-gradient px-3.5 text-sm font-semibold text-white shadow-brand max-sm:hidden [@media(pointer:coarse)]:h-11">{newDayLabel ? `Add on ${newDayLabel}` : '+ Task'}</button>
         ) : null}
       </div>
     </div>
