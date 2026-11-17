@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.23.36] - 2026-11-17
+
 ### Improvements
 - Learning Hub lessons: a list of the module's lessons beside each lesson (ticks for those done, one click to any of them), a bigger video, and a clear Next button that names the next lesson ("Next: Quiz: Getting started", "Next module: Tasks"). On a phone, "Lessons in this module" opens the same list, and Back and Next stay at the bottom of the screen. The same in the Client portal.
 - Learning Hub lessons: one line and one progress bar under the title; a video says "Watch to the end to finish this lesson"; a step-by-step guide shows a dot for each step (press one to go there).
