@@ -235,6 +235,13 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
     },
   });
 
+  // s137: whenever the board's tasks are read again (a card moved in or out, a task added), Manage columns'
+  // task counts are too, so Delete's "Move its 3 tasks first" stays true.
+  const boardUpdatedAt = boardQ.dataUpdatedAt;
+  useEffect(() => {
+    if (manageColumns && projectId) void qc.invalidateQueries({ queryKey: ['columns', projectId, 'counts'] });
+  }, [boardUpdatedAt, manageColumns, projectId, qc]);
+
   const moveMut = useMutation({
     // Move to the column, then re-sequence it so the card stays where it was dropped.
     mutationFn: async ({ id, toColumnId, orderedIds }: MoveVars) => {

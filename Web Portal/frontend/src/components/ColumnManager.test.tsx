@@ -144,6 +144,14 @@ describe('Columns table (1.23.37)', () => {
     expect(screen.getByLabelText(/add a column/i)).toHaveValue('');
   });
 
+  it('its buttons are 44 px tall on a phone and a touch screen (height, which no compact rule shrinks)', async () => {
+    show([{ ...columns[0]!, taskCount: 0 }, { ...columns[1]!, taskCount: 0 }]);
+    expect(screen.getByRole('button', { name: 'Add column' }).className).toMatch(/max-md:h-11/);
+    await userEvent.click(screen.getByRole('button', { name: 'Delete Done' }));
+    expect(screen.getByRole('button', { name: /^delete$/i }).className).toMatch(/max-md:h-11/);
+    expect(screen.getByRole('button', { name: 'Cancel deleting Done' }).className).toMatch(/\[@media\(pointer:coarse\)\]:h-11/);
+  });
+
   it('keeps the table to about 960 px', () => {
     show();
     expect(screen.getByTestId('columns-table').className).toMatch(/max-w-\[960px\]/);

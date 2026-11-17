@@ -45,6 +45,8 @@ const ROW_GRID = 'md:grid md:grid-cols-[1.75rem_1.75rem_minmax(8rem,28rem)_9.5re
 /** 44 px on a phone and on any touch screen; compact with a mouse. */
 const TAP = 'max-md:h-11 max-md:w-11 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11';
 const TAP_FIELD = 'max-md:min-h-11 [@media(pointer:coarse)]:min-h-11';
+/** A text button: its height (the compact density's min-height rule would beat a min-height). */
+const TAP_BUTTON = 'max-md:h-11 [@media(pointer:coarse)]:h-11';
 
 const taskWord = (n: number) => `${n} ${n === 1 ? 'task' : 'tasks'}`;
 
@@ -175,7 +177,7 @@ export function ColumnManager({
           </select>
           <button
             type="submit"
-            className={`inline-flex flex-none items-center gap-1.5 rounded-lg bg-brand px-3.5 py-2 text-sm font-semibold text-white shadow-brand transition-colors hover:bg-brand-2 max-sm:w-full max-sm:justify-center ${TAP_FIELD}`}
+            className={`inline-flex flex-none items-center gap-1.5 rounded-lg bg-brand px-3.5 py-2 text-sm font-semibold text-white shadow-brand transition-colors hover:bg-brand-2 max-sm:w-full max-sm:justify-center ${TAP_BUTTON}`}
           >
             <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
             Add column
@@ -294,26 +296,29 @@ function ColumnRow({ col, first, last, only, confirming, onRename, onSetCategory
           </button>
         </div>
 
-        {confirming ? (
-          <div className="flex flex-none items-center gap-1 md:justify-self-end">
-            <button type="button" onClick={onConfirmDelete} className={`rounded-lg bg-danger px-2 py-1 text-xs font-semibold text-white transition-colors hover:brightness-95 ${TAP_FIELD}`}>Delete</button>
-            <button type="button" onClick={onCancelDelete} aria-label={`Cancel deleting ${col.name}`} className={`rounded-lg px-2 py-1 text-xs font-medium text-ink-2 transition-colors hover:bg-ground ${TAP_FIELD}`}>Cancel</button>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => (cantDelete ? setSaidWhy(true) : onAskDelete())}
-            aria-label={`Delete ${col.name}`}
-            aria-disabled={cantDelete ? true : undefined}
-            aria-describedby={cantDelete ? reasonId : undefined}
-            title={cantDelete ?? undefined}
-            className={`${iconButton} md:justify-self-center ${cantDelete ? 'cursor-not-allowed text-ink-3 opacity-40' : 'text-ink-3 hover:bg-danger-soft hover:text-danger'}`}
-          >
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M6 6v14a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6M10 11v6M14 11v6" /></svg>
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={() => (cantDelete ? setSaidWhy(true) : onAskDelete())}
+          aria-label={`Delete ${col.name}`}
+          aria-disabled={cantDelete ? true : undefined}
+          aria-describedby={cantDelete ? reasonId : undefined}
+          aria-expanded={cantDelete ? undefined : confirming}
+          title={cantDelete ?? undefined}
+          className={`${iconButton} md:justify-self-center ${cantDelete ? 'cursor-not-allowed text-ink-3 opacity-40' : confirming ? 'bg-danger-soft text-danger' : 'text-ink-3 hover:bg-danger-soft hover:text-danger'}`}
+        >
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M6 6v14a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6M10 11v6M14 11v6" /></svg>
+        </button>
         {cantDelete ? <span id={reasonId} className="sr-only">{cantDelete}</span> : null}
       </div>
+
+      {/* The confirmation, under the row (a 44 px cell has no room for two buttons). */}
+      {confirming && !cantDelete ? (
+        <div className="flex flex-wrap items-center justify-end gap-2 md:col-[3/-1] md:pb-1">
+          <span className="me-auto text-xs text-ink-2">Delete the “{col.name}” column?</span>
+          <button type="button" onClick={onConfirmDelete} className={`rounded-lg bg-danger px-3 py-1 text-xs font-semibold text-white transition-colors hover:brightness-95 ${TAP_BUTTON}`}>Delete</button>
+          <button type="button" onClick={onCancelDelete} aria-label={`Cancel deleting ${col.name}`} className={`rounded-lg px-3 py-1 text-xs font-medium text-ink-2 transition-colors hover:bg-ground ${TAP_BUTTON}`}>Cancel</button>
+        </div>
+      ) : null}
 
       {/* Pressed while it can't go: the reason, under the row. */}
       {cantDelete && saidWhy ? (
