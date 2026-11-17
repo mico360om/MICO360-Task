@@ -611,12 +611,23 @@ export function createAiFeatureService({
     return provider && isMico360Provider(provider) ? CONVERSATION_LIMIT - FRAMING_ROOM : null;
   }
 
+  /**
+   * s137: "Describe it in plain English" detail level. Only the title and description guidance
+   * changes; dates, repeat, priority and project are asked for the same way at every level.
+   */
+  const DESCRIBE_DETAIL_GUIDANCE: Record<DescribeDetail, string> = {
+    short: 'Title: 3 to 6 words, without date, priority, repeat or project words. Description: one short sentence with the key detail the note gives beyond the title; else null.',
+    default: 'Title: concise, without date, priority, repeat or project words. Description: only details the note gives beyond the title, in a sentence or two; else null.',
+    detailed:
+      'Title: concise, without date, priority, repeat or project words. Description: a fuller description: a sentence or two of context with every detail the note gives (people, places, items, amounts), then a "What to do:" list of 3 to 6 short points, one per line starting with "- ".',
+  };
+
   const PROJECTS_HEADER = '\nProjects (code | number | name), one per line:\n';
   const projectLine = (p: DescribableProject, short: boolean) => `${p.code} | ${p.number ?? '-'} | ${short ? cut(p.name, PROMPT_NAME_CHARS) : p.name}`;
   /** A project the text names by its code, number or whole name. */
   const projectNamed = (text: string) => (p: DescribableProject) => matchProject(text, null, [p]) !== null || (normalise(p.name).length > 3 && normalise(text).includes(normalise(p.name)));
 
-  async function parseTask(input: { text: string; today?: string }, requester?: AiRequester): Promise<DescribedTask> {
+  async function parseTask(input: { text: string; today?: string; detail?: DescribeDetail }, requester?: AiRequester): Promise<DescribedTask> {
     // "Today" is the company-local date: before 04:00 in Muscat the UTC date is still yesterday.
     const today = input.today ?? todayKey(timeZone, now());
     const projects = await promptProjects(requester);
@@ -626,7 +637,7 @@ export function createAiFeatureService({
       '{"title": string, "description": string|null, "dueDate": string|null, "priority": "LOW"|"NORMAL"|"HIGH"|"URGENT"|null,',
       ' "repeat": null | {"freq": "DAILY"|"WEEKLY"|"MONTHLY"|"QUARTERLY"|"YEARLY", "interval": number, "weekdays"?: number[] (0=Sunday…6=Saturday, WEEKLY only), "dayOfMonth"?: number (MONTHLY/QUARTERLY), "until"?: "YYYY-MM-DD", "count"?: number},',
       ' "project": string|null}.',
-      'Title: concise, without date, priority, repeat or project words. Description: only details the note gives beyond the title, in a sentence or two; else null.',
+      DESCRIBE_DETAIL_GUIDANCE[input.detail ?? 'default'],
       'dueDate: YYYY-MM-DD, resolving relative dates like "Friday" or "tomorrow"; null if none. Repeat: only if the note says the task repeats; else null.',
       projects.length ? 'project: the code of the project from the list the note is about; null if none fits.' : 'project: null.',
     ].join('\n');
@@ -908,6 +919,10 @@ export function createAiFeatureService({
 export type AiFeatureService = ReturnType<typeof createAiFeatureService>;
 
 /** What a plain-English note fills in (null where it says nothing). */
+/** s137: how much a described task's title and description say ("Short · Default · Detailed"); missing = default. */
+export const DESCRIBE_DETAILS = ['short', 'default', 'detailed'] as const;
+export type DescribeDetail = (typeof DESCRIBE_DETAILS)[number];
+
 export interface DescribedTask {
   title: string;
   description: string | null;

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { TaskFormDialog } from './TaskFormDialog';
 import type { ApiTask } from '../../api/tasks';
@@ -561,6 +561,29 @@ describe('Describe it in plain English', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('The AI assistant is turned off.');
     expect(screen.getByLabelText(/describe it in plain english/i)).toHaveValue('something vague');
     expect(screen.getByLabelText(/^task title/i)).toHaveValue('');
+  });
+
+  // s137: a Short · Default · Detailed choice, Default preselected every time the form opens.
+  it('offers Short · Default · Detailed (Default chosen) and sends the level picked', async () => {
+    renderDialog();
+    await ready();
+    const level = () => screen.getByRole('radiogroup', { name: 'Detail' });
+    expect(within(level()).getAllByRole('radio').map((o) => (o as HTMLInputElement).labels?.[0]?.textContent)).toEqual(['Short', 'Default', 'Detailed']);
+    expect(within(level()).getByRole('radio', { name: 'Default' })).toBeChecked();
+    await userEvent.type(screen.getByLabelText(/describe it in plain english/i), 'review the report by Friday');
+    await userEvent.click(screen.getByRole('button', { name: 'Fill task details' }));
+    await screen.findByRole('group', { name: 'Suggested details' });
+    expect(calls.filter((c) => c.url.endsWith('/ai/parse-task')).at(-1)!.body).toMatchObject({ detail: 'default' });
+    // Changing the level after a result: press Fill task details again; nothing is applied until you choose.
+    await userEvent.click(within(level()).getByRole('radio', { name: 'Detailed' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Fill task details' }));
+    await screen.findByRole('group', { name: 'Suggested details' });
+    expect(calls.filter((c) => c.url.endsWith('/ai/parse-task')).at(-1)!.body).toMatchObject({ detail: 'detailed' });
+    expect(screen.getByLabelText(/^task title/i)).toHaveValue('');
+    cleanup();
+    renderDialog();
+    await ready();
+    expect(within(level()).getByRole('radio', { name: 'Default' })).toBeChecked();
   });
 });
 

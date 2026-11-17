@@ -238,8 +238,8 @@ export function aiApi(client: ApiClient) {
     breakdown: (title: string, description?: string) =>
       client.post<{ data: { items: string[] } }>('/ai/breakdown', { title, description }).then((r) => r.data.items),
     /** Turn a free-text note into a structured task draft. */
-    parseTask: (text: string, today?: string) =>
-      client.post<{ data: AiTaskDraft }>('/ai/parse-task', { text, ...(today ? { today } : {}) }).then((r) => r.data),
+    parseTask: (text: string, today?: string, detail?: DescribeDetail) =>
+      client.post<{ data: AiTaskDraft }>('/ai/parse-task', { text, ...(today ? { today } : {}), ...(detail ? { detail } : {}) }).then((r) => r.data),
     /** Fill the meeting form from a sentence. */
     parseMeeting: (text: string, today?: string) =>
       client.post<{ data: AiMeetingDraft }>('/ai/parse-meeting', { text, ...(today ? { today } : {}) }).then((r) => r.data),
@@ -258,6 +258,9 @@ export function aiApi(client: ApiClient) {
 }
 
 /** What a plain-English note fills in; a field the note says nothing about is null (or absent, from an older server). */
+/** s137: how much a described task's title and description say. */
+export type DescribeDetail = 'short' | 'default' | 'detailed';
+
 export interface AiTaskDraft {
   title: string;
   description?: string | null;

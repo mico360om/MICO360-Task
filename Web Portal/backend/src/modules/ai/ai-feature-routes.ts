@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import type { AiFeatureService, DraftAgendaInput } from './ai-feature-service';
+import { DESCRIBE_DETAILS, type AiFeatureService, type DraftAgendaInput } from './ai-feature-service';
 import type { AuthGuard } from '../auth/auth-guard';
 import { NO_PICK, type PickOf } from '../companies/company-pick';
 
@@ -9,6 +9,8 @@ const title = z.string().trim().min(1).max(300);
 const description = z.string().max(4000);
 const breakdownSchema = z.object({ title, description: description.optional() });
 const parseSchema = z.object({ text: z.string().trim().min(1).max(1000), today: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() });
+// s137: the describe box's optional detail level (the Android app and extension don't send it: default).
+const parseTaskSchema = parseSchema.extend({ detail: z.enum(DESCRIBE_DETAILS).optional() });
 const count = z.number().int().min(0).max(1_000_000);
 const summarySchema = z.object({
   name: z.string().trim().min(1).max(200),
@@ -57,7 +59,7 @@ export async function registerAiFeatureRoutes(app: FastifyInstance, deps: AiFeat
   });
 
   app.post('/ai/parse-task', { preHandler: guard.authenticate }, async (req) => {
-    const body = parseSchema.parse(req.body);
+    const body = parseTaskSchema.parse(req.body);
     // companies: the project it suggests is one of the person's in the picked company.
     return { data: await aiFeatureService.parseTask(body, { ...requester(req), pick: await (deps.pickOf ?? NO_PICK)(req) }) };
   });

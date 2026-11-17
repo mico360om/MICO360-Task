@@ -1,6 +1,6 @@
 import { useId, useState } from 'react';
 import type { Priority } from '../../api/tasks';
-import type { AiTaskDraft } from '../../api/ai';
+import type { AiTaskDraft, DescribeDetail } from '../../api/ai';
 import type { RecurrenceRule } from '../../lib/recurrence';
 import { ApiError } from '../../lib/api-client';
 import { formatDueDay } from '../../lib/due-display';
@@ -38,6 +38,13 @@ interface Suggestion {
   checked: boolean;
 }
 
+/** s137: the detail levels, in the order shown (Default in the middle, chosen to start with). */
+const DETAIL_LEVELS: Array<{ value: DescribeDetail; label: string; hint: string }> = [
+  { value: 'short', label: 'Short', hint: 'A short title and a one-sentence description' },
+  { value: 'default', label: 'Default', hint: 'A concise title and a sentence or two' },
+  { value: 'detailed', label: 'Detailed', hint: 'A fuller description with a short list of what to do' },
+];
+
 const dayText = (key: string) => formatDueDay(key, 'UTC', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
 const sameRule = (a: RecurrenceRule | null, b: RecurrenceRule | null) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 const projectText = (p: DescribeProject) => [p.name, p.code, p.number].filter(Boolean).join(' · ');
@@ -50,7 +57,8 @@ const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…`
  * offered when the task's project can still be chosen, and only one of `projects`.
  */
 export function DescribeTask({ onParse, current, initial, onApply, projects, projectChosen = false, repeatText }: {
-  onParse: (text: string) => Promise<AiTaskDraft>;
+  /** s137: `detail` is the Short · Default · Detailed choice (only the title and description length differ). */
+  onParse: (text: string, detail: DescribeDetail) => Promise<AiTaskDraft>;
   /** The form's values now, and when it opened (what isn't yours, e.g. a day picked on the calendar). */
   current: DescribedFields;
   initial: DescribedFields;
@@ -67,6 +75,8 @@ export function DescribeTask({ onParse, current, initial, onApply, projects, pro
   const [reading, setReading] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [found, setFound] = useState<Suggestion[] | null>(null);
+  // s137: Default every time the form opens; a new choice applies the next time you press Fill task details.
+  const [detail, setDetail] = useState<DescribeDetail>('default');
 
   function suggestionsFrom(draft: AiTaskDraft): Suggestion[] {
     const out: Suggestion[] = [];
@@ -117,7 +127,7 @@ export function DescribeTask({ onParse, current, initial, onApply, projects, pro
     setProblem(null);
     setFound(null);
     try {
-      setFound(suggestionsFrom(await onParse(t)));
+      setFound(suggestionsFrom(await onParse(t, detail)));
     } catch (err) {
       setProblem(err instanceof ApiError && err.message && !/^Request failed/.test(err.message) ? err.message : 'Couldn’t read that description. Try rephrasing it, or fill in the details yourself.');
     } finally {
@@ -152,6 +162,26 @@ export function DescribeTask({ onParse, current, initial, onApply, projects, pro
         placeholder="e.g. “Send the RIG1 site report to Omar every Monday, with the inspection photos”"
         className="mt-2 block min-h-[4.5rem] w-full resize-y rounded-xl border border-line bg-surface px-3.5 py-2.5 text-sm leading-relaxed text-ink outline-none transition-colors placeholder:text-ink-3 focus:border-brand focus:ring-2 focus:ring-brand/20"
       />
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <span id={`${id}-detail`} className="text-xs font-semibold text-ink-2">Detail</span>
+        <div role="radiogroup" aria-labelledby={`${id}-detail`} className="inline-flex rounded-lg border border-line bg-surface p-0.5">
+          {DETAIL_LEVELS.map((level) => (
+            <label key={level.value} title={level.hint} className="relative">
+              <input
+                type="radio"
+                name={`${id}-detail`}
+                value={level.value}
+                checked={detail === level.value}
+                onChange={() => setDetail(level.value)}
+                className="peer absolute inset-0 m-0 h-full w-full cursor-pointer opacity-0"
+              />
+              <span className="flex min-h-[32px] items-center rounded-md px-2.5 text-xs font-semibold text-ink-2 transition-colors peer-checked:bg-brand peer-checked:text-white peer-hover:text-ink peer-checked:peer-hover:text-white peer-focus-visible:ring-2 peer-focus-visible:ring-brand/40 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:px-3.5">
+                {level.label}
+              </span>
+            </label>
+          ))}
+        </div>
+      </div>
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
         <span className="text-xs text-ink-2 [@media(pointer:coarse)]:hidden">Ctrl + Enter also works.</span>
         <Button type="button" variant="secondary" size="sm" loading={reading} disabled={!text.trim()} onClick={() => void read()} className="ms-auto min-h-[36px]">

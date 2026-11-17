@@ -14,6 +14,9 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### Improvements
+- "Describe it in plain English" (New task): choose how much the assistant writes — Short, Default or Detailed. Short gives a title of a few words and a one-sentence description; Detailed gives a fuller description with a short "What to do" list. Default is chosen each time the form opens; you still tick the details you want and press "Use selected details".
+
 ## [1.23.36] - 2026-11-17
 
 ### Improvements
