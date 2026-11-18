@@ -316,7 +316,7 @@ export const MessageItem = memo(function MessageItem({
     <div
       dir="ltr"
       data-toolbar
-      className={`absolute bottom-full z-10 mb-1.5 flex items-center after:absolute after:inset-x-0 after:top-full after:h-2 after:content-['']  gap-0.5 rounded-xl border border-line bg-surface p-0.5 shadow-soft transition-opacity duration-150 ${
+      className={`absolute bottom-full z-10 mb-1.5 flex items-center after:absolute after:inset-x-0 after:top-full after:h-2 after:content-[''] gap-0.5 rounded-xl border border-line bg-surface p-0.5 shadow-soft transition-opacity duration-150 ${
         popover ? 'opacity-100' : revealed ? 'opacity-100' : 'pointer-events-none opacity-0 [@media(hover:hover)]:group-hover/msg:pointer-events-auto [@media(hover:hover)]:group-hover/msg:opacity-100 group-focus-within/msg:pointer-events-auto group-focus-within/msg:opacity-100'
       } ${mine ? 'end-0' : 'start-0'}`}
     >

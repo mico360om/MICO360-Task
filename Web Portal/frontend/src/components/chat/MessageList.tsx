@@ -160,7 +160,7 @@ export function MessageList({
         aria-label="Messages"
         aria-busy={loading || loadingOlder || undefined}
         tabIndex={0}
-        className="flex-1 overflow-y-auto overscroll-contain px-2 pb-3 pt-1 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand/30 sm:px-4"
+        className="isolate flex-1 overflow-y-auto overscroll-contain px-2 pb-3 pt-1 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand/30 sm:px-4"
       >
         {loading ? (
           <div className="flex flex-col gap-4 py-4" aria-label="Loading messages">
@@ -197,7 +197,7 @@ export function MessageList({
             {olderError ? <p role="alert" className="mb-2 text-center text-xs text-danger">Couldn’t load older messages.</p> : null}
             {days.map((day) => (
               <div key={day.key}>
-                <div role="separator" aria-label={day.label} className="sticky top-1 z-[5] my-2 flex justify-center">
+                <div role="separator" aria-label={day.label} className="sticky top-1 z-30 my-2 flex justify-center">
                   <span className="rounded-full border border-line bg-surface/95 px-3 py-0.5 text-[11px] font-semibold text-ink-2 shadow-soft backdrop-blur">{day.label}</span>
                 </div>
                 {day.items.map((item) =>
