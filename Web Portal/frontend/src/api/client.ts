@@ -117,7 +117,9 @@ async function callRefresh(refreshToken: string): Promise<RefreshCall> {
     res = await fetch(`${baseUrl}/auth/refresh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refreshToken }),
+      // 1.24: the website says it is the website (it can take the code step): an administrator's session
+      // renews only here, never on the Android app or the extension.
+      body: JSON.stringify({ refreshToken, acceptChallenge: true }),
       ...(controller ? { signal: controller.signal } : {}),
     });
     if (res.ok) reply = ((await res.json()) as { data?: unknown } | null)?.data;

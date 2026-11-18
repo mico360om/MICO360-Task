@@ -200,7 +200,7 @@ export interface RequestOptions {
 }
 
 export interface ApiClient {
-  get<T = unknown>(path: string): Promise<T>;
+  get<T = unknown>(path: string, opts?: RequestOptions): Promise<T>;
   post<T = unknown>(path: string, body?: unknown, opts?: RequestOptions): Promise<T>;
   put<T = unknown>(path: string, body?: unknown): Promise<T>;
   patch<T = unknown>(path: string, body?: unknown): Promise<T>;
@@ -570,7 +570,7 @@ export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthoriz
   /** The client's calls, as whoever is signed in (asUser undefined) or only as one person (forUser). */
   function clientFor(asUser?: string): ApiClient {
     return {
-      get: (path) => request('GET', path, undefined, undefined, asUser),
+      get: (path, opts) => request('GET', path, undefined, opts, asUser),
       post: (path, body, opts) => request('POST', path, body, opts, asUser),
       put: (path, body) => request('PUT', path, body, undefined, asUser),
       patch: (path, body) => request('PATCH', path, body, undefined, asUser),

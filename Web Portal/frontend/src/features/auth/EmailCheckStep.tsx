@@ -12,8 +12,8 @@ import type { ChallengeResend, SignInChallenge } from '../../api/auth';
  */
 export interface EmailCheckStepProps {
   challenge: SignInChallenge;
-  /** Send the code; resolves when signed in. */
-  onVerify: (code: string) => Promise<void>;
+  /** Send the code (and, 1.24, whether to trust this browser); resolves when signed in. */
+  onVerify: (code: string, trustBrowser: boolean) => Promise<void>;
   onResend: () => Promise<ChallengeResend>;
   /** Back to the password step (a different account), with a reason when the step ended. */
   onBack: (reason?: string) => void;
@@ -26,6 +26,9 @@ const REUSED = 'We emailed you a code a moment ago — use that one. It works fo
 
 export function EmailCheckStep({ challenge, onVerify, onResend, onBack }: EmailCheckStepProps) {
   const [code, setCode] = useState('');
+  // 1.24 two-step sign-in: "Trust this browser for 30 days", on by default (an administrator's step only).
+  const [trust, setTrust] = useState(true);
+  const trustOffered = challenge.trustOffered === true;
   const [error, setError] = useState<string | null>(null);
   const [fieldError, setFieldError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(challenge.codeSent ? null : REUSED);
@@ -59,7 +62,7 @@ export function EmailCheckStep({ challenge, onVerify, onResend, onBack }: EmailC
     setFieldError(null);
     setBusy(true);
     try {
-      await onVerify(digits);
+      await onVerify(digits, trustOffered && trust);
     } catch (err) {
       const message = problem(err, 'That code didn’t work. Please try again.');
       if (err instanceof ApiError && ENDED.has(err.code ?? '')) {
@@ -125,6 +128,24 @@ export function EmailCheckStep({ challenge, onVerify, onResend, onBack }: EmailC
         <p id="email-check-hint" className="text-xs text-ink-2">The code works once, for 10 minutes. Check your spam folder if it hasn’t arrived.</p>
         <FieldError id="email-check-code-error">{fieldError}</FieldError>
       </div>
+
+      {trustOffered ? (
+        <label className="flex items-start gap-2.5 text-sm text-ink [@media(pointer:coarse)]:min-h-11">
+          <input
+            type="checkbox"
+            checked={trust}
+            onChange={(e) => setTrust(e.target.checked)}
+            aria-describedby="email-check-trust-hint"
+            className="mt-0.5 h-4 w-4 flex-none rounded border-line accent-brand"
+          />
+          <span>
+            <span className="font-medium">Trust this browser for 30 days</span>
+            <span id="email-check-trust-hint" className="block text-xs text-ink-2">
+              No code on this browser for 30 days. Untick it on a shared computer.
+            </span>
+          </span>
+        </label>
+      ) : null}
 
       {error ? (
         <p id="email-check-error" role="alert" className="text-sm text-danger">

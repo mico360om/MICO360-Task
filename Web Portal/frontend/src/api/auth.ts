@@ -22,7 +22,10 @@ export interface LinkStatus {
 export interface SignInChallenge {
   /** Sent back with the code (or to ask for another). Kept in memory only. */
   token: string;
-  kind: 'VERIFY_EMAIL';
+  /** VERIFY_EMAIL: confirm the address; TWO_STEP (1.24): an administrator's second step. */
+  kind: 'VERIFY_EMAIL' | 'TWO_STEP';
+  /** 1.24: offer "Trust this browser for 30 days" under the code (an administrator's sign-in). */
+  trustOffered?: boolean;
   /** "a•••@acme.com" */
   sentTo: string;
   /** False when signing in again reused the open step: the code already sent still works. */

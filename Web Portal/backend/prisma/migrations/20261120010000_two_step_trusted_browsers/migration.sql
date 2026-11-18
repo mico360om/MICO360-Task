@@ -1,7 +1,7 @@
 -- Two-step sign-in for administrators (1.24.0): the browsers an administrator trusted at the code step.
--- The browser keeps a signed cookie naming its row; a row counts only while it isn't revoked ("Forget all
+-- The browser keeps a signed cookie naming its row. A row counts only while it isn't revoked ("Forget all
 -- trusted browsers"), hasn't passed its 30 days and was made under the person's current session version.
--- Add-only (one new table); nothing existing changes.
+-- Add-only (one new table), nothing existing changes.
 
 -- CreateTable
 CREATE TABLE `trusted_browsers` (

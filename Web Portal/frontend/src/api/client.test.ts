@@ -36,7 +36,7 @@ describe('refreshTokens (shared across tabs)', () => {
     const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => json({ data: { user, accessToken: 'at9', refreshToken: 'rt9' } }));
     vi.stubGlobal('fetch', fetchMock);
     expect(await refreshTokens('at1')).toBe('refreshed');
-    expect(JSON.parse(String(fetchMock.mock.calls[0]![1]!.body))).toEqual({ refreshToken: 'rt1' });
+    expect(JSON.parse(String(fetchMock.mock.calls[0]![1]!.body))).toEqual({ refreshToken: 'rt1', acceptChallenge: true });
     expect(localStorage.getItem('mico360.refreshToken')).toBe('rt9');
   });
 

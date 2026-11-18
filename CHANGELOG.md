@@ -14,6 +14,12 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### Security
+- Admins confirm their sign-in with a code sent by email on each new browser (then every 30 days). "Trust this browser for 30 days" under the code skips it on that browser; a password change or Sign out everywhere asks again everywhere, and a short email says when a browser becomes trusted.
+- Admins sign in on the website only: the Android app and the Chrome extension say "Admins sign in on the website (two-step sign-in)", and an admin's app or extension session ends at its next renewal. Staff, managers and clients are unaffected. Signing in with an emailed code alone is not offered to admins.
+- Settings → Security (admins): two-step sign-in's state, how many browsers are trusted, and "Forget all trusted browsers". Each step is in the Audit log.
+- For a dead email service, the server setting ADMIN_TWO_STEP=off switches the code step off; while it is off the Error log says so at start-up and admins see a red banner on every page.
+
 ## [1.23.38] - 2026-11-18
 
 ### Bug fixes
