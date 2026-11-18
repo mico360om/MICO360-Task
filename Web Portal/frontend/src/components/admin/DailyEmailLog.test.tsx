@@ -712,7 +712,8 @@ describe('System Settings → Daily email: what the list says', () => {
     // Sending everyone's now: the list shows what matches as it goes.
     await user.click(screen.getByRole('button', { name: 'Send today’s emails now' }));
     await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Send now' }));
-    expect(await screen.findByText('No one matches these filters.')).toBeInTheDocument();
+    // qa124: the screen-reader status can say the same words at the same moment (it flaked under load): the visible line.
+    await waitFor(() => expect(screen.getAllByText('No one matches these filters.').some((e) => !e.classList.contains('sr-only'))).toBe(true));
   });
 
   it('the same words are read out again after another change (a longer search; another day with as many people)', async () => {
