@@ -87,7 +87,7 @@ describe('the migration', () => {
   const dir = join(__dirname, '..', '..', 'prisma', 'migrations');
   it('is one add-only table in the lane’s range, written alike for MySQL 8 and MariaDB', () => {
     const folders = readdirSync(dir).filter((d) => d.includes('two_step'));
-    expect(folders).toEqual(['20261120010000_two_step_trusted_browsers']);
+    expect(folders).toEqual(['20261121010000_two_step_trusted_browsers']);
     const sql = readFileSync(join(dir, folders[0]!, 'migration.sql'), 'utf8');
     expect(sql).not.toMatch(/--[^\n]*;/);
     const statements = sql.split(';').map((s) => s.replace(/^\s*--.*$/gm, '').trim()).filter(Boolean);

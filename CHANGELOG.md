@@ -20,6 +20,12 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - Settings → Security (admins): two-step sign-in's state, how many browsers are trusted, and "Forget all trusted browsers". Each step is in the Audit log.
 - For a dead email service, the server setting ADMIN_TWO_STEP=off switches the code step off; while it is off the Error log says so at start-up and admins see a red banner on every page.
 
+## [1.23.39] - 2026-11-18
+
+### Improvements
+- The loading screen shows the MICO360 logo while the site opens.
+
+
 ## [1.23.38] - 2026-11-18
 
 ### Bug fixes
