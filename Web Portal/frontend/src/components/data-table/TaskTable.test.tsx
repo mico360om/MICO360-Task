@@ -5,6 +5,8 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { TaskTable, type TaskTableProps } from './TaskTable';
 import { useAuthStore } from '../../stores/auth-store';
+import { enqueueOffline } from '../../lib/offline-replay';
+import { getQueue, localStorageQueueStore } from '../../lib/offline-queue';
 import type { ApiTask } from '../../api/tasks';
 import type { ApiProject } from '../../api/projects';
 import type { ApiColumn } from '../../api/columns';
@@ -169,6 +171,18 @@ describe('TaskTable', () => {
     await user.click(screen.getByRole('option', { name: 'Doing' }));
     expect(within(row('MICO-1')).getByRole('button', { name: 'Status of MICO-1: Doing' })).toBeInTheDocument();
     await waitFor(() => expect(calls.find((c) => c.method === 'PATCH')).toMatchObject({ url: expect.stringContaining('/tasks/t1/move'), body: { columnId: 'c-ip' } }));
+  });
+
+  it('1.24.0: a status change saved here drops the person’s older queued board move of that task', async () => {
+    enqueueOffline('task.move', { id: 't1', toColumnId: 'c-todo' }); // an old offline board move, still waiting
+    enqueueOffline('task.move', { id: 't3', toColumnId: 'c-done' }); // another task's: stays
+    await new Promise((r) => setTimeout(r, 5));
+    const user = userEvent.setup();
+    show();
+    await user.click(within(row('MICO-1')).getByRole('button', { name: 'Status of MICO-1: To Do' }));
+    await user.click(screen.getByRole('option', { name: 'Doing' }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'PATCH' && c.url.includes('/tasks/t1/move'))).toBe(true));
+    await waitFor(() => expect(getQueue(localStorageQueueStore).map((m) => (m.payload as { id: string }).id)).toEqual(['t3']));
   });
 
   it('a task that needs approval goes to wait, as on the board, and says so', async () => {

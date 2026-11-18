@@ -224,6 +224,102 @@ describe('the hourly sweep repairs a missed next copy (review fix #14)', () => {
   });
 });
 
+// 1.24.0 (left over from batch 4a, #14 M4): a copy the sweep repairs gets the "Needs approval" tick completing
+// the task would have given it. A normal copy takes the series' own tick — and keeps approval on when an
+// approver turned it off on that waiting task only (keepApprovalOnCopy); the repaired copy did not.
+describe('1.24.0: a repaired copy needs approval exactly when a normal next copy would', () => {
+  async function approvalWorld() {
+    const b = await setup();
+    const worker = await world.user(false);
+    await prisma.kanbanColumn.create({ data: { projectId: b.p.id, name: 'Review', category: 'REVIEW', position: 5 } });
+    let failNext = false;
+    const flaky = {
+      ...port,
+      spawnNext: async (...a: Parameters<typeof port.spawnNext>) => {
+        if (failNext) {
+          failNext = false;
+          throw new Error('simulated transient database error');
+        }
+        return port.spawnNext(...a);
+      },
+    };
+    const onComplete = createRecurrenceService({ tasks: flaky, timeZone: TZ });
+    const effects = createStatusChangeEffects({
+      column: (id) => prisma.kanbanColumn.findUnique({ where: { id }, select: { name: true, category: true } }),
+      nextCopy: (task) => onComplete.onTaskCompleted({ id: task.id, dueDate: task.dueDate, recurrenceRule: task.recurrenceRule, recurrenceParentId: task.recurrenceParentId }),
+      announceCopy: async () => {},
+      followActionItems: async () => {},
+      recipients: async () => [],
+      notify: async () => {},
+      // The timeline, as the server writes it (activityService.record).
+      record: (e) => prisma.activity.create({ data: { taskId: e.taskId, projectId: e.projectId, userId: e.userId, action: e.action, meta: e.meta as Prisma.InputJsonValue } }),
+      keepApprovalOnCopy: (copyId) => prisma.task.update({ where: { id: copyId }, data: { needsApproval: true } }),
+      onError: () => {},
+    });
+    const svc = createTaskService({
+      tasks: createPrismaTaskRepository(prisma),
+      projects: createPrismaProjectLookup(prisma),
+      timeZone: TZ,
+      approvals: {
+        canApprove: async (userId) => userId === b.owner.id,
+        columnsOf: (projectId) => prisma.kanbanColumn.findMany({ where: { projectId }, select: { id: true, category: true, position: true, enabled: true } }),
+      },
+      onMoved: (t, prev, actor, extra) => effects(t, prev, actor, extra ?? {}),
+    });
+    const repeating = (needsApproval: boolean) =>
+      world.task(b.p.id, b.p.code, b.todo.id, b.owner.id, { dueDate: new Date(), needsApproval, recurrenceRule: daily as unknown as Prisma.InputJsonValue });
+    return { b, worker, svc, repeating, copyFailsNext: () => void (failNext = true) };
+  }
+  const tickOfCopy = async (id: string) => (await prisma.task.findFirstOrThrow({ where: { recurrenceSourceId: id }, select: { needsApproval: true } })).needsApproval;
+
+  it('approval switched off on the waiting task only, its copy failing: the repaired copy still needs approval', async () => {
+    const { b, worker, svc, repeating, copyFailsNext } = await approvalWorld();
+    const t = await repeating(true);
+    // The worker finishes it: it waits for approval.
+    expect((await svc.moveTask(t.id, b.done.id, undefined, worker.id)).approvalRequestedAt).toBeTruthy();
+    // The approver turns approval off for this one: it completes; making its next copy fails once.
+    copyFailsNext();
+    const off = await svc.updateTask(t.id, { needsApproval: false }, undefined, 'one', b.owner.id);
+    expect(off).toMatchObject({ needsApproval: false, approvalRequestedAt: null });
+    expect(off.completedAt).toBeTruthy();
+    expect(await copiesOf(t.id)).toBe(0);
+    expect((await recurrence.repairMissedCopies()).map((m) => m.headId)).toEqual([t.id]);
+    expect(await tickOfCopy(t.id)).toBe(true);
+  });
+
+  it('as a normal copy otherwise: a series without approval, one unticked before it was finished, and one approved', async () => {
+    const { b, worker, svc, repeating, copyFailsNext } = await approvalWorld();
+    // Never needed approval: finished, copy fails.
+    const plain = await repeating(false);
+    copyFailsNext();
+    await svc.moveTask(plain.id, b.done.id, undefined, worker.id);
+    // Unticked for the whole series by its manager while it was still open, then finished.
+    const unticked = await repeating(true);
+    await svc.updateTask(unticked.id, { needsApproval: false }, undefined, 'one', b.owner.id);
+    copyFailsNext();
+    await svc.moveTask(unticked.id, b.done.id, undefined, worker.id);
+    // Needs approval, waited, approved: the series keeps its tick.
+    const approved = await repeating(true);
+    await svc.moveTask(approved.id, b.done.id, undefined, worker.id);
+    copyFailsNext();
+    await svc.approveTask(approved.id, b.owner.id);
+    for (const t of [plain, unticked, approved]) expect(await copiesOf(t.id)).toBe(0);
+    expect((await recurrence.repairMissedCopies()).map((m) => m.headId).sort()).toEqual([plain.id, unticked.id, approved.id].sort());
+    expect(await tickOfCopy(plain.id)).toBe(false);
+    expect(await tickOfCopy(unticked.id)).toBe(false);
+    expect(await tickOfCopy(approved.id)).toBe(true);
+  });
+
+  it('a normal completion of the same switch-off keeps approval on its copy (the rule the repair follows)', async () => {
+    const { b, worker, svc, repeating } = await approvalWorld();
+    const t = await repeating(true);
+    await svc.moveTask(t.id, b.done.id, undefined, worker.id);
+    await svc.updateTask(t.id, { needsApproval: false }, undefined, 'one', b.owner.id);
+    expect(await tickOfCopy(t.id)).toBe(true);
+    expect(await recurrence.repairMissedCopies()).toEqual([]);
+  });
+});
+
 /** Review fix #14: the owner's read-only count (MariaDB and MySQL alike), given in the ledger and the report. */
 const PHPMYADMIN_COUNT_SQL = `SELECT COUNT(*) AS series_to_repair
 FROM tasks t

@@ -209,3 +209,18 @@ export function describeChange(m: QueuedMutation): string {
 export function forgetQueuedMoves(taskId: string, sentAt: number, ownerId: string | null = currentUserId()): void {
   if (ownerId) dropQueuedMoves(localStorageQueueStore, ownerId, taskId, sentAt);
 }
+
+/**
+ * 1.24.0 (left over from review fix #16): move a task online from anywhere but the Board — the task panel's
+ * Status, the Table, the edit form, the dashboard, search, the calendar, an inspection. Once it is saved, the
+ * mover's moves of that task queued before it was sent are dropped (as the Board's own moves do), so an older
+ * offline board move can't replay later and put the task back. The mover is taken as it is sent; a move
+ * queued while it was on its way is newer and stays; a failed move drops nothing.
+ */
+export async function moveTaskOnline<T>(api: { move: (id: string, columnId: string) => Promise<T> }, taskId: string, columnId: string): Promise<T> {
+  const sentAt = Date.now();
+  const ownerId = currentUserId();
+  const moved = await api.move(taskId, columnId);
+  forgetQueuedMoves(taskId, sentAt, ownerId);
+  return moved;
+}

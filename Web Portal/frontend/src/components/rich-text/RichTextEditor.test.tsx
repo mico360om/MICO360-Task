@@ -4,6 +4,7 @@ import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { Editor } from '@tiptap/react';
 import { RichTextEditor } from './RichTextEditor';
+import { TOUCH_SQUARE } from '../../lib/touch';
 
 type KeyMidUpdate = { after: string; text: string };
 
@@ -151,5 +152,16 @@ describe('RichTextEditor', () => {
     await selectAll();
     await userEvent.keyboard('{Backspace}');
     await waitFor(() => expect(spy).toHaveBeenLastCalledWith(''));
+  });
+});
+
+describe('RichTextEditor — 1.24.0 touch targets', () => {
+  it('every formatting button is 44 px square on a touch screen (TOUCH_SQUARE); the toolbar wraps', async () => {
+    render(<RichTextEditor value="" onChange={() => {}} ariaLabel="New note" />);
+    const bar = await screen.findByRole('toolbar', { name: 'Formatting for new note' });
+    expect(bar.className).toContain('flex-wrap');
+    const buttons = Array.from(bar.querySelectorAll('button'));
+    expect(buttons.length).toBeGreaterThan(3);
+    for (const b of buttons) expect(b.className).toContain(TOUCH_SQUARE);
   });
 });

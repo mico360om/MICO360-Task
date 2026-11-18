@@ -48,6 +48,7 @@ import { useWorkingTime } from '../lib/useWorkingTime';
 import { dayOffReason } from '../lib/working-days';
 import { approvalNotice } from '../lib/approvals';
 import { useDensity } from '../lib/density';
+import { moveTaskOnline } from '../lib/offline-replay';
 
 const VIEWS: CalendarView[] = ['month', 'week', 'day', 'agenda'];
 const isDay = (s: string | null): s is string => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(`${s}T00:00:00Z`));
@@ -570,7 +571,7 @@ export function CalendarPage() {
       const columns = await columnsApi(apiClient).list(t.projectId);
       const done = columns.find((c) => c.category === 'DONE');
       if (!done) return fail(`${t.key}’s project has no Done column.`);
-      const moved = await tasksApi(apiClient).move(t.id, done.id);
+      const moved = await moveTaskOnline(tasksApi(apiClient), t.id, done.id);
       refresh();
       const waits = approvalNotice(done.id, moved);
       setToast({
@@ -581,8 +582,7 @@ export function CalendarPage() {
             ? undefined
             : () => {
                 setToast(null);
-                void tasksApi(apiClient)
-                  .move(t.id, t.columnId)
+                void moveTaskOnline(tasksApi(apiClient), t.id, t.columnId)
                   .then(() => {
                     refresh();
                     setToast({ tone: 'moved', text: `${t.key} is open again.` });

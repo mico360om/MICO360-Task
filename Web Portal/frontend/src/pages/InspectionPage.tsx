@@ -28,6 +28,7 @@ import { InspectionClientSwitch } from '../components/inspections/InspectionClie
 import { dateTimeText, dayText, followUpNotice, InspectIcon, OutcomePill, problemText } from '../components/inspections/inspection-ui';
 import { TOUCH_SQUARE, TOUCH_TALL } from '../lib/touch';
 import { TaskKey } from '../components/TaskKey';
+import { moveTaskOnline } from '../lib/offline-replay';
 
 const api = () => inspectionsApi(apiClient);
 type Confirm = 'reopen' | 'take-over' | 'delete' | 'discard' | null;
@@ -167,7 +168,7 @@ export function InspectionPage() {
     onError: (e) => setProblem(problemText(e, 'That didn’t work. Check your connection and try again.')),
   });
   const doneM = useMutation({
-    mutationFn: (offer: NonNullable<DraftView['finishedOffer']>) => tasksApi(apiClient).move(offer.id, offer.doneColumnId),
+    mutationFn: (offer: NonNullable<DraftView['finishedOffer']>) => moveTaskOnline(tasksApi(apiClient), offer.id, offer.doneColumnId),
     onSuccess: (moved, offer) => {
       if (ownerId) outbox.ackFinished(ownerId, id);
       // A task that needs approval waits for a project manager instead of being done.

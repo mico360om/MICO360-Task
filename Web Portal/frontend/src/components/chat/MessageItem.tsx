@@ -8,6 +8,7 @@ import { MAX_MESSAGE_LENGTH, formatSize, type ReceiptStatus, type ShownMessage }
 import { ReactionPopover } from './EmojiPicker';
 import { Menu, type MenuItem } from './Popover';
 import { AlertIcon, ClockIcon, CopyIcon, DownloadIcon, EditIcon, FileIcon, MoreIcon, ReplyIcon, SmileIcon, Ticks, TrashIcon } from './icons';
+import { TOUCH_SQUARE } from '../../lib/touch';
 
 /** Show the character counter once a draft gets close to the limit. */
 export const COUNTER_FROM = 3500;
@@ -284,7 +285,7 @@ function Editor({ initial, onSave, onCancel }: { initial: string; onSave: (body:
   );
 }
 
-const toolButton = 'grid h-8 w-8 place-items-center rounded-lg text-ink-2 transition-colors hover:bg-ground hover:text-ink focus-visible:bg-ground';
+const toolButton = `grid h-8 w-8 place-items-center rounded-lg text-ink-2 transition-colors hover:bg-ground hover:text-ink focus-visible:bg-ground ${TOUCH_SQUARE}`;
 
 /** One message: the bubble, what it answers, its files and reactions, and the actions on it. */
 export const MessageItem = memo(function MessageItem({
@@ -315,7 +316,7 @@ export const MessageItem = memo(function MessageItem({
     <div
       dir="ltr"
       data-toolbar
-      className={`absolute bottom-full z-10 mb-1 flex items-center gap-0.5 rounded-xl border border-line bg-surface p-0.5 shadow-soft transition-opacity duration-150 ${
+      className={`absolute bottom-full z-10 mb-1.5 flex items-center after:absolute after:inset-x-0 after:top-full after:h-2 after:content-[''] gap-0.5 rounded-xl border border-line bg-surface p-0.5 shadow-soft transition-opacity duration-150 ${
         popover ? 'opacity-100' : revealed ? 'opacity-100' : 'pointer-events-none opacity-0 [@media(hover:hover)]:group-hover/msg:pointer-events-auto [@media(hover:hover)]:group-hover/msg:opacity-100 group-focus-within/msg:pointer-events-auto group-focus-within/msg:opacity-100'
       } ${mine ? 'end-0' : 'start-0'}`}
     >
@@ -345,7 +346,7 @@ export const MessageItem = memo(function MessageItem({
         if ((e.target as HTMLElement).closest('button, a, textarea')) return;
         actions.reveal(revealed ? null : m.id);
       }}
-      className={`group/msg relative flex gap-2 rounded-xl px-1 transition-colors duration-700 ${mine ? 'flex-row-reverse' : ''} ${groupStart ? 'mt-3' : 'mt-0.5'} ${highlighted ? 'bg-brand/10' : ''}`}
+      className={`group/msg relative flex gap-2 rounded-xl px-1 transition-colors duration-700 [@media(hover:hover)]:hover:z-20 focus-within:z-20 ${revealed ? 'z-20' : ''} ${mine ? 'flex-row-reverse' : ''} ${groupStart ? 'mt-3' : 'mt-0.5'} ${highlighted ? 'bg-brand/10' : ''}`}
     >
       {mine ? null : groupStart ? (
         <span className="mt-5 flex-none" aria-hidden="true"><Avatar name={authorName} size="md" src={authorAvatar} /></span>

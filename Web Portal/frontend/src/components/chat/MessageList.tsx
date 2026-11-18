@@ -160,7 +160,7 @@ export function MessageList({
         aria-label="Messages"
         aria-busy={loading || loadingOlder || undefined}
         tabIndex={0}
-        className="flex-1 overflow-y-auto overscroll-contain px-2 pb-3 pt-1 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand/30 sm:px-4"
+        className="isolate flex-1 overflow-y-auto overscroll-contain px-2 pb-3 pt-1 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand/30 sm:px-4"
       >
         {loading ? (
           <div className="flex flex-col gap-4 py-4" aria-label="Loading messages">
