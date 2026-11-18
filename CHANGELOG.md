@@ -19,6 +19,7 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - A repeating task's next copy that the hourly check has to make late now still needs approval when an approver had turned approval off for the previous task only, as it would have when made on time.
 - Error log (administrators): a request still running after 10 minutes is now listed there, so a stuck one can be found.
 - On a phone or tablet, the formatting buttons of meeting notes, lesson text and guide steps are now full size (44 px), easy to tap; the row wraps when it runs out of room.
+- Chat: moving the pointer up from a message to its Reply / reaction buttons no longer loses them to the message above (a photo there used to open instead); on a phone those buttons are full size.
 
 ## [1.23.38] - 2026-11-18
 

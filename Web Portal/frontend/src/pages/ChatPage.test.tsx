@@ -1,3 +1,4 @@
+import { TOUCH_SQUARE } from '../lib/touch';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { render, screen, waitFor, fireEvent, act, within } from '@testing-library/react';
@@ -645,6 +646,21 @@ describe('ChatPage on a phone: the list and the conversation take turns', () => 
     expect(mine).toHaveClass('bottom-full', 'end-0');
     expect(theirs).toHaveClass('bottom-full', 'start-0');
     expect(mine.className).not.toMatch(/sm:(right|left)-full/);
+  });
+
+  it('1.24.0: the toolbar reaches down to its own message (no gap where the message above takes the pointer), and its buttons are 44 px on touch', async () => {
+    c1Messages = [message({ id: 'theirs2', userId: 'u1', body: 'above' }), message({ id: 'mine2', userId: 'me', body: 'reply' })];
+    await openChannelWith('reply');
+    const bar = rowOf('reply').querySelector('[data-toolbar]')! as HTMLElement;
+    // A see-through strip under it, part of the toolbar: moving up from the bubble never leaves this message.
+    expect(bar.className).toMatch(/after:top-full/);
+    expect(bar.className.split(' ')).toContain('after:h-2');
+    expect(bar).not.toHaveClass('mb-1');
+    expect(bar).toHaveClass('mb-1.5');
+    // While shown it sits above every other message.
+    expect(rowOf('reply').className).toMatch(/\[@media\(hover:hover\)\]:hover:z-20/);
+    expect(rowOf('reply').className).toMatch(/focus-within:z-20/);
+    for (const b of Array.from(bar.querySelectorAll('button'))) expect(b.className).toContain(TOUCH_SQUARE);
   });
 });
 
