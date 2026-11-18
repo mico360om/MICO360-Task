@@ -1,18 +1,19 @@
 import { useId, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { DIFFICULTIES, MODULE_LABELS, type CatalogueFilters, type CertificateRef, type CourseCard, type CourseDetail, type Difficulty, type MyTraining, type TrainingModule } from '../../api/training';
-import { OVERDUE_CLASS, STATUS_CLASS } from '../../lib/colour-classes';
+import { OVERDUE_CLASS } from '../../lib/colour-classes';
 import { downloadBlob, fileNameOf } from '../../lib/download';
 import { useMediaQuery } from '../../lib/useMediaQuery';
 import { Button, buttonClass } from '../ui/Button';
 import { CertificatePanel } from './CertificatePanel';
+import { CourseCompleteBanner, FinishedUnits } from './CourseComplete';
 import { ModuleIcon } from './ModuleIcon';
 import { LessonTile, ModuleTile } from './ModuleTile';
 import { ProgressRing } from './ProgressRing';
 import { courseIconKey, dashboardFocus, lessonsLeft, mainAction, MAIN_ACTION_WORDS, minutesLeftText, moduleKeyOf, upNextModule } from './dashboard-rules';
 import { coursePath, lessonPath, useLearner } from './learner';
 import { useCourse } from './training-queries';
-import { AwardIcon, BookIcon, CardChipView, CourseCardView, DownloadIcon, MandatoryChip, NewForRoleChip, TickIcon, TOUCH_MIN, trainingProblem, useCourseGo } from './training-ui';
+import { AwardIcon, BookIcon, CardChipView, CourseCardView, DownloadIcon, MandatoryChip, NewForRoleChip, TOUCH_MIN, trainingProblem, useCourseGo } from './training-ui';
 import { CERTIFICATE_WORDS, DIFFICULTY_WORDS, LESSON_KIND_WORDS, cardChip, dueText, instantDay, learningGroups, lessonsText, minutesText, modulesText, progressWords } from './training-words';
 
 /**
@@ -80,7 +81,7 @@ const DONE_FOLD = 6;
  * My learning as a learning dashboard (13 Nov new look, staff and the Client portal): the course that fills it (Up
  * next by today's rule) — Up next, its progress ring, every module of theirs as a tile, its certificate — and the other
  * open courses beside it; then "Done" (a Done card carries its certificate; more than 6 fold behind "Show all N") and
- * "Older certificates" only when some certificate has no Done card (R6). Everything done: "All done, well done". Nothing
+ * "Older certificates" only when some certificate has no Done card (R6). Everything done (s137): the Course complete banner (CourseComplete.tsx), the modules folded, that course not listed again under Done. Nothing
  * at all: one line and `onBrowse` ("Browse all courses"). 1.23.34: with nothing open, the built-in course the server
  * offers (optional: no Mandatory, no due day) fills it as Up next — Start, the ring "0 of N", the tiles, the certificate.
  */
@@ -90,6 +91,8 @@ export function MyLearningSections({ data, onBrowse }: { data: Pick<MyTraining, 
   const cert = useCertificateDownload();
   const [allDone, setAllDone] = useState(false);
   const doneId = useId();
+  // s137: the finished course in the banner above isn't listed again under Done.
+  const done = focus?.allDone ? g.done.filter((c) => c.id !== focus.course.id) : g.done;
   const certificateButton = (c: CourseCard) =>
     c.mine.certificate && c.mine.certificate.status !== 'REVOKED' ? (
       <button
@@ -106,7 +109,7 @@ export function MyLearningSections({ data, onBrowse }: { data: Pick<MyTraining, 
   return (
     <div className="flex flex-col gap-6">
       {focus ? (
-        <LearningDashboard course={focus.course} allDone={focus.allDone} others={g.todo} onBrowse={onBrowse} />
+        <LearningDashboard course={focus.course} allDone={focus.allDone} others={g.todo} />
       ) : (
         <div className="card card-pad flex flex-wrap items-center justify-between gap-3">
           <p className="inline-flex items-center gap-2 font-semibold text-ink">
@@ -122,10 +125,10 @@ export function MyLearningSections({ data, onBrowse }: { data: Pick<MyTraining, 
           ) : null}
         </div>
       )}
-      {g.done.length ? (
-        <Group title="Done" count={g.done.length}>
-          <CourseGrid id={doneId} courses={allDone ? g.done : g.done.slice(0, DONE_FOLD)} extra={certificateButton} />
-          {g.done.length > DONE_FOLD ? (
+      {done.length ? (
+        <Group title="Done" count={done.length}>
+          <CourseGrid id={doneId} courses={allDone ? done : done.slice(0, DONE_FOLD)} extra={certificateButton} />
+          {done.length > DONE_FOLD ? (
             <button
               type="button"
               aria-expanded={allDone}
@@ -133,7 +136,7 @@ export function MyLearningSections({ data, onBrowse }: { data: Pick<MyTraining, 
               onClick={() => setAllDone((v) => !v)}
               className={`self-start text-sm font-semibold text-brand underline-offset-2 hover:underline ${TOUCH_MIN}`}
             >
-              {allDone ? 'Show fewer' : `Show all ${g.done.length}`}
+              {allDone ? 'Show fewer' : `Show all ${done.length}`}
             </button>
           ) : null}
         </Group>
@@ -157,12 +160,12 @@ const DASHBOARD_WIDE = '(min-width: 64em)';
  * once with `useCourse` (the course page's own cached read); until it comes (or if it can't), Up next and the ring
  * work from the list's card.
  */
-function LearningDashboard({ course: c, allDone, others, onBrowse }: { course: CourseCard; allDone: boolean; others: CourseCard[]; onBrowse?: () => void }) {
+function LearningDashboard({ course: c, allDone, others }: { course: CourseCard; allDone: boolean; others: CourseCard[] }) {
   const q = useCourse(c.id);
   const wide = useMediaQuery(DASHBOARD_WIDE);
   const d = q.data ?? null;
   const next = d && !allDone ? upNextModule(d) : null;
-  const upNext = <div className="min-w-0">{allDone ? <AllDoneCard course={c} onBrowse={onBrowse} /> : <UpNextCard course={c} detail={d} next={next} />}</div>;
+  const upNext = <div className="min-w-0"><UpNextCard course={c} detail={d} next={next} /></div>;
   const tiles = d ? (
     <div className="min-w-0 empty:hidden">
       <UnitGrid course={d} next={next} resumeLessonId={allDone ? null : (c.mine.next?.lessonId ?? d.resumeLessonId)} />
@@ -187,6 +190,16 @@ function LearningDashboard({ course: c, allDone, others, onBrowse }: { course: C
       <OtherCourses courses={others} />
     </div>
   ) : null;
+  // s137 (1.23.37): finished — the Course complete banner, the modules folded into one line, then the other courses.
+  if (allDone) {
+    return (
+      <div data-learning-dashboard={c.id} data-finished className="flex flex-col gap-4">
+        <CourseCompleteBanner course={c} />
+        {d ? <FinishedUnits course={d} /> : tiles}
+        {more}
+      </div>
+    );
+  }
   // The page's order is the reading order at every size: two columns from 1024 px; below, one column with Progress
   // right after Up next (the DOM follows, so a screen reader hears what the eye sees).
   return wide ? (
@@ -306,41 +319,6 @@ function UpNextCard({ course: c, detail: d, next }: { course: CourseCard; detail
           {go.error}
         </p>
       ) : null}
-    </section>
-  );
-}
-
-/** Everything done: "All done, well done", Review (opening where it resumes) and Browse all courses. */
-function AllDoneCard({ course: c, onBrowse }: { course: CourseCard; onBrowse?: () => void }) {
-  const go = useCourseGo(c);
-  const id = useId();
-  return (
-    <section aria-labelledby={id} data-all-done={c.id} className={`card card-pad flex flex-col gap-3 border-s-4 ${STATUS_CLASS.DONE.edge}`}>
-      <div className="flex min-w-0 items-start gap-3">
-        <span aria-hidden="true" className={`grid h-12 w-12 flex-none place-items-center rounded-2xl ${STATUS_CLASS.DONE.chip}`}>
-          <TickIcon size={24} />
-        </span>
-        <div className="min-w-0 flex-1">
-          <h2 id={id} className="font-display text-xl font-bold text-ink">
-            All done, well done
-          </h2>
-          <p className="mt-1 break-words text-sm text-ink-2">
-            You finished <bdi className="font-semibold text-ink">{c.title}</bdi>.
-          </p>
-        </div>
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        {go.needsStart ? null : (
-          <Link to={go.to} className={buttonClass('primary', 'lg', BIG_BUTTON)}>
-            {MAIN_ACTION_WORDS.review}
-          </Link>
-        )}
-        {onBrowse ? (
-          <Button variant="secondary" size="lg" className={BIG_BUTTON} onClick={onBrowse}>
-            Browse all courses
-          </Button>
-        ) : null}
-      </div>
     </section>
   );
 }

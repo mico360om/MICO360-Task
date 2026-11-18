@@ -274,22 +274,90 @@ describe('My learning: the learning dashboard (13 Nov new look)', () => {
     expect(screen.getByRole('link', { name: 'Module 4: Other lessons, Not started · 4 min, up next' })).toHaveAttribute('href', '/training/courses/u1?moduleId=other');
   });
 
-  it('everything finished: “All done, well done” with Review, the certificate ready, every tile ticked', async () => {
-    const done = moduleCard({ mine: mine({ ...moduleCard().mine, status: 'COMPLETED', progressPct: 100, completedAt: '2026-11-10T08:00:00.000Z', modules: { done: 3, total: 3 }, next: null, nextLessonId: 'g1', certificate: certificate() }) });
-    const all = moduleDetail({ mine: done.mine, resumeLessonId: 'g1', lessons: moduleDetail().lessons.map((l) => ({ ...l, done: true })), modules: moduleDetail().modules.map((m) => ({ ...m, status: 'DONE' as const, lessonsDone: m.lessonCount, doneAt: '2026-11-10T08:00:00.000Z', nextLessonId: null })) });
-    renderOnSide(<MyLearningSections data={myTraining({ assigned: [], inProgress: [], completed: [done], certificates: [certificate()] })} onBrowse={vi.fn()} />, { api: fakeLearner({ course: vi.fn(async () => all) }) });
-    const finished = screen.getByRole('region', { name: 'All done, well done' });
+  // s137 (1.23.37): the finished course is a "Course complete" banner with the certificate, then the modules folded away.
+  const finishedCourse = (cert: ReturnType<typeof certificate> | null = certificate({ scorePct: 96 }), over: Partial<ReturnType<typeof moduleCard>> = {}) => {
+    const done = moduleCard({ ...over, mine: mine({ ...moduleCard().mine, status: 'COMPLETED', progressPct: 100, completedAt: '2026-11-14T08:00:00.000Z', modules: { done: 3, total: 3 }, next: null, nextLessonId: 'g1', certificate: cert }) });
+    const all = moduleDetail({ ...over, mine: done.mine, resumeLessonId: 'g1', lessons: moduleDetail().lessons.map((l) => ({ ...l, done: true })), modules: moduleDetail().modules.map((m) => ({ ...m, status: 'DONE' as const, lessonsDone: m.lessonCount, doneAt: '2026-11-12T08:00:00.000Z', nextLessonId: null })) });
+    return { done, all };
+  };
+
+  it('everything finished: a “Course complete” banner — title, finished day and score, code, the certificate small, View / Download PDF / Copy check link', async () => {
+    const { done, all } = finishedCourse();
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    renderOnSide(<MyLearningSections data={myTraining({ assigned: [], inProgress: [], completed: [done], certificates: [done.mine.certificate!] })} onBrowse={vi.fn()} />, { api: fakeLearner({ course: vi.fn(async () => all) }) });
+    const banner = screen.getByRole('region', { name: 'Course complete' });
+    expect(within(banner).getByRole('heading', { level: 3, name: 'MICO360 Tasks User Training' })).toBeInTheDocument();
+    expect(within(banner).getByText('Finished 14 November 2026 · Score 96%')).toBeInTheDocument();
+    expect(within(banner).getByText('TC-UT7A-UT7B-UT7C', { selector: 'span.font-mono' })).toBeInTheDocument();
+    expect(screen.queryByText('All done, well done')).toBeNull();
     expect(screen.queryByRole('region', { name: 'Up next' })).toBeNull();
-    expect(within(finished).getByRole('link', { name: 'Review' })).toHaveAttribute('href', '/training/courses/u1/lessons/g1');
-    expect(within(finished).getByRole('button', { name: 'Browse all courses' })).toBeInTheDocument();
-    expect(await screen.findByText('Certificate ready')).toBeInTheDocument();
-    await waitFor(() => expect(tiles()).toHaveLength(3));
-    for (const li of tiles()) expect(li.querySelector('[data-state]')).toHaveAttribute('data-state', 'DONE');
-    expect(screen.getByRole('img', { name: '3 of 3 modules done' })).toBeInTheDocument();
-    expect(screen.queryByText(/min left$/)).toBeNull();
-    expect(screen.queryByRole('link', { name: /up next$/ })).toBeNull();
-    // The Done list stays, with the certificate.
-    expect(within(screen.getByRole('region', { name: /^Done/ })).getByRole('button', { name: 'Certificate (PDF): MICO360 Tasks User Training' })).toBeInTheDocument();
+    // The ring card, the side certificate card and the Done card of this same course are gone.
+    expect(screen.queryByRole('img', { name: '3 of 3 modules done' })).toBeNull();
+    expect(screen.queryByText('Certificate ready')).toBeNull();
+    expect(screen.queryByRole('region', { name: /^Done/ })).toBeNull();
+    // Copy check link: the /verify link, then "Copied".
+    await userEvent.click(within(banner).getByRole('button', { name: 'Copy check link' }));
+    expect(writeText).toHaveBeenCalledWith('https://tasks.example.com/verify/TC-UT7A-UT7B-UT7C');
+    expect(await within(banner).findByText('Copied')).toBeInTheDocument();
+    expect(within(banner).getByRole('button', { name: 'Download PDF' })).toBeInTheDocument();
+    // View certificate and the small certificate both open it full size.
+    await userEvent.click(within(banner).getByRole('button', { name: 'View certificate' }));
+    expect(screen.getByRole('dialog', { name: 'Certificate, full size' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Close' }));
+    await userEvent.click(within(banner).getByRole('button', { name: 'View the certificate full size' }));
+    expect(screen.getByRole('dialog', { name: 'Certificate, full size' })).toBeInTheDocument();
+  });
+
+  it('the modules fold into one line, “3 of 3 modules done · Review any”; opened: a row each with a tick, its name, the day and a link', async () => {
+    const { done, all } = finishedCourse();
+    renderOnSide(<MyLearningSections data={myTraining({ assigned: [], inProgress: [], completed: [done], certificates: [done.mine.certificate!] })} />, { api: fakeLearner({ course: vi.fn(async () => all) }) });
+    const fold = await screen.findByRole('button', { name: '3 of 3 modules done · Review any' });
+    expect(fold).toHaveAttribute('aria-expanded', 'false');
+    expect(document.querySelectorAll('[data-unit-grid] > li')).toHaveLength(0);
+    await userEvent.click(fold);
+    expect(fold).toHaveAttribute('aria-expanded', 'true');
+    const list = document.getElementById(fold.getAttribute('aria-controls')!)!;
+    const rows = within(list).getAllByRole('listitem');
+    expect(rows).toHaveLength(3);
+    expect(within(rows[0]!).getByRole('link', { name: 'Getting started' })).toHaveAttribute('href', '/training/courses/u1?moduleId=gs');
+    expect(within(rows[0]!).getByText('Done 12 Nov 2026')).toBeInTheDocument();
+  });
+
+  it('a course without certificates: the banner has only Review; other finished courses still show in Done', async () => {
+    const { done, all } = finishedCourse(null, { certificateOn: false });
+    const other = card({ id: 'c9', title: 'Kanban board', mine: mine({ status: 'COMPLETED', progressPct: 100, dueDay: null, completedAt: '2026-11-05T08:00:00.000Z' }) });
+    renderOnSide(<MyLearningSections data={myTraining({ assigned: [], inProgress: [], completed: [done, other], certificates: [] })} />, { api: fakeLearner({ course: vi.fn(async () => all) }) });
+    const banner = screen.getByRole('region', { name: 'Course complete' });
+    expect(within(banner).getByText('Finished 14 November 2026')).toBeInTheDocument();
+    expect(within(banner).getByRole('link', { name: 'Review' })).toHaveAttribute('href', '/training/courses/u1/lessons/g1');
+    expect(within(banner).queryByRole('button', { name: /certificate|Copy|Download/ })).toBeNull();
+    const doneList = screen.getByRole('region', { name: /^Done/ });
+    expect(within(doneList).getByRole('link', { name: 'Kanban board' })).toBeInTheDocument();
+    expect(within(doneList).queryByRole('link', { name: 'MICO360 Tasks User Training' })).toBeNull();
+  });
+
+  it('an expired certificate says so and keeps View and Download; a revoked one says so and offers Review only', async () => {
+    const expired = finishedCourse(certificate({ status: 'EXPIRED', expiresAt: '2026-11-15T08:00:00.000Z' }));
+    const a = renderOnSide(<MyLearningSections data={myTraining({ assigned: [], inProgress: [], completed: [expired.done], certificates: [expired.done.mine.certificate!] })} />, { api: fakeLearner({ course: vi.fn(async () => expired.all) }) });
+    let banner = screen.getByRole('region', { name: 'Course complete' });
+    expect(within(banner).getByText('This certificate expired on 15 November 2026.')).toBeInTheDocument();
+    expect(within(banner).getByRole('button', { name: 'Download PDF' })).toBeInTheDocument();
+    a.unmount();
+    const revoked = finishedCourse(certificate({ status: 'REVOKED', revokedAt: '2026-11-16T08:00:00.000Z' }));
+    renderOnSide(<MyLearningSections data={myTraining({ assigned: [], inProgress: [], completed: [revoked.done], certificates: [revoked.done.mine.certificate!] })} />, { api: fakeLearner({ course: vi.fn(async () => revoked.all) }) });
+    banner = screen.getByRole('region', { name: 'Course complete' });
+    expect(within(banner).getByText('This certificate was revoked.')).toBeInTheDocument();
+    expect(within(banner).queryByRole('button', { name: /Download|Copy|View/ })).toBeNull();
+    expect(within(banner).getByRole('link', { name: 'Review' })).toBeInTheDocument();
+  });
+
+  it('in the Client portal: no Copy check link (no link out of the portal)', async () => {
+    const { done, all } = finishedCourse();
+    renderOnSide(<MyLearningSections data={myTraining({ assigned: [], inProgress: [], completed: [done], certificates: [done.mine.certificate!] })} />, { api: fakeLearner({ course: vi.fn(async () => all) }), portal: true });
+    const banner = screen.getByRole('region', { name: 'Course complete' });
+    expect(within(banner).getByRole('button', { name: 'Download PDF' })).toBeInTheDocument();
+    expect(within(banner).queryByRole('button', { name: 'Copy check link' })).toBeNull();
   });
 
   it('finished, then modules new for their role: Up next is the first new module (Continue), the certificate says an updated one comes', async () => {
@@ -396,26 +464,27 @@ describe('My learning: the learning dashboard (13 Nov new look)', () => {
   });
 
   it('Done folds after 6 cards: “Show all 7” opens the rest (and folds them again); each Done card keeps Certificate (PDF)', async () => {
-    const done = Array.from({ length: 7 }, (_, i) =>
+    // s137: 8 finished — the first is the Course complete banner, the other 7 are listed under Done.
+    const done = Array.from({ length: 8 }, (_, i) =>
       card({ id: `d${i}`, title: `Done course ${i + 1}`, mine: mine({ status: 'COMPLETED', progressPct: 100, dueDay: null, completedAt: '2026-11-05T08:00:00.000Z', certificate: certificate({ id: `cert-${i}`, courseId: `d${i}`, courseTitle: `Done course ${i + 1}` }) }) }),
     );
     renderOnSide(<MyLearningSections data={myTraining({ assigned: [], inProgress: [], completed: done, certificates: done.map((c) => c.mine.certificate!) })} />, { api: fakeLearner() });
     const region = screen.getByRole('region', { name: /^Done/ });
     expect(within(region).getAllByRole('article')).toHaveLength(6);
-    expect(within(region).queryByRole('link', { name: 'Done course 7' })).toBeNull();
+    expect(within(region).queryByRole('link', { name: 'Done course 8' })).toBeNull();
     const more = within(region).getByRole('button', { name: 'Show all 7' });
     expect(more).toHaveAttribute('aria-expanded', 'false');
     expect(document.getElementById(more.getAttribute('aria-controls')!)).not.toBeNull();
     await userEvent.click(more);
     expect(more).toHaveAttribute('aria-expanded', 'true');
     expect(within(region).getAllByRole('article')).toHaveLength(7);
-    expect(within(region).getByRole('button', { name: 'Certificate (PDF): Done course 7' })).toBeInTheDocument();
+    expect(within(region).getByRole('button', { name: 'Certificate (PDF): Done course 8' })).toBeInTheDocument();
     await userEvent.click(within(region).getByRole('button', { name: 'Show fewer' }));
     expect(within(region).getAllByRole('article')).toHaveLength(6);
   });
 
   it('6 Done cards or fewer: no fold', () => {
-    const done = Array.from({ length: 6 }, (_, i) => card({ id: `d${i}`, title: `Done course ${i + 1}`, mine: mine({ status: 'COMPLETED', progressPct: 100, dueDay: null }) }));
+    const done = Array.from({ length: 7 }, (_, i) => card({ id: `d${i}`, title: `Done course ${i + 1}`, mine: mine({ status: 'COMPLETED', progressPct: 100, dueDay: null }) }));
     renderOnSide(<MyLearningSections data={myTraining({ assigned: [], inProgress: [], completed: done, certificates: [] })} />, { api: fakeLearner() });
     expect(within(screen.getByRole('region', { name: /^Done/ })).getAllByRole('article')).toHaveLength(6);
     expect(screen.queryByRole('button', { name: /^Show all/ })).toBeNull();
