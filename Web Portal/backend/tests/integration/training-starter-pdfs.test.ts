@@ -148,6 +148,9 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
+/** Files at any depth (1.23.39: Learning Hub files are kept in upload folders). */
+const filesIn = (dir: string) => (readdirSync(dir, { recursive: true, withFileTypes: true }) as import('node:fs').Dirent[]).filter((e) => e.isFile() && !e.name.startsWith('.')).length;
+
 describe('1.23.25: the old starter how-to PDFs are removed once', () => {
   it('knows the two downloads by the names and starter courses 1.23.24 gave them', () => {
     expect(OLD_STARTER_PDFS).toEqual([
@@ -162,14 +165,14 @@ describe('1.23.25: the old starter how-to PDFs are removed once', () => {
     expect(slides.map((f) => f.name)).toEqual(['Meetings how-to slides (PDF)', 'Tasks how-to slides (PDF)']);
     for (const f of slides) expect(existsSync(join(privateDir, f.storageKey))).toBe(true);
     const before = await snapshot();
-    const filesOnDisk = readdirSync(privateDir).length;
+    const filesOnDisk = filesIn(privateDir);
 
     const r = removal();
     expect(await r.run()).toEqual({ already: false, removed: 2, filesLeft: 0, lessonsUnlinked: 0, restored: 0 });
 
     expect(await theSlides()).toEqual([]);
     for (const f of slides) expect(existsSync(join(privateDir, f.storageKey))).toBe(false);
-    expect(readdirSync(privateDir).length).toBe(filesOnDisk - 2);
+    expect(filesIn(privateDir)).toBe(filesOnDisk - 2);
     const after = await snapshot();
     const gone = new Set(slides.map((f) => f.id));
     expect(after).toEqual({ ...before, files: before.files.filter((f) => !gone.has(f.id)) });
@@ -236,14 +239,14 @@ describe('1.23.25: the old starter how-to PDFs are removed once', () => {
     await loadAsShipped();
     expect((await removal().run()).removed).toBe(2);
     const before = await snapshot();
-    const onDisk = readdirSync(privateDir).sort();
+    const onDisk = (readdirSync(privateDir, { recursive: true }) as string[]).sort();
 
     expect(await removal().run()).toEqual({ already: true, removed: 0, filesLeft: 0, lessonsUnlinked: 0, restored: 0 });
     // Safe to re-run even if the record were lost: nothing else is touched, and the record is written again.
     await prisma.systemSetting.delete({ where: { key: REMOVED_STARTER_PDFS_KEY } });
     expect(await removal(() => new Date('2026-11-14T05:00:00.000Z')).run()).toEqual({ already: false, removed: 0, filesLeft: 0, lessonsUnlinked: 0, restored: 0 });
     expect(await snapshot()).toEqual(before);
-    expect(readdirSync(privateDir).sort()).toEqual(onDisk);
+    expect((readdirSync(privateDir, { recursive: true }) as string[]).sort()).toEqual(onDisk);
     expect((await prisma.systemSetting.findUniqueOrThrow({ where: { key: REMOVED_STARTER_PDFS_KEY } })).value).toEqual({ at: '2026-11-14T05:00:00.000Z', removed: 0, leftKeys: [] });
   });
 
