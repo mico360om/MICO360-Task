@@ -14,6 +14,10 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### Improvements
+- The loading screen shows the MICO360 logo while the site opens.
+
+
 ## [1.23.38] - 2026-11-18
 
 ### Bug fixes
