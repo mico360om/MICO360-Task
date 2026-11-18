@@ -60,6 +60,8 @@ export interface ApiUser {
   reportsToId?: string | null;
   /** Training Center: may create, publish and assign training and read its reports (no other administrator powers). */
   trainingManager?: boolean;
+  /** 1.24.0 Employee Appreciation: may send and schedule appreciations for their own companies. Staff only. */
+  appreciationManager?: boolean;
   /** Their department (Training Center assignments can target one). */
   departmentId?: string | null;
   departmentName?: string | null;
@@ -204,6 +206,8 @@ export interface UserPatch {
   reportsToId?: string | null;
   /** Training Center: the Training manager permission. Staff only. */
   trainingManager?: boolean;
+  /** 1.24.0 Employee Appreciation: the Appreciation manager permission. Staff only. */
+  appreciationManager?: boolean;
   /** An existing department's name (matched whatever its capitals) or a new one; null or '': none. */
   departmentName?: string | null;
 }

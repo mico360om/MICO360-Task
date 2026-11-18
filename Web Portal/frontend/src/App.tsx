@@ -91,6 +91,8 @@ const PortalTrainingLessonPage = lazyPage(loadPortal, 'PortalTrainingLessonPage'
 const MyTrainingPage = lazyPage(() => import('./pages/training/MyTrainingPage'), 'MyTrainingPage');
 const CoursePage = lazyPage(() => import('./pages/training/CoursePage'), 'CoursePage');
 const LessonPage = lazyPage(() => import('./pages/training/LessonPage'), 'LessonPage');
+const AppreciationsPage = lazy(loadWithRecovery(() => import('./pages/AppreciationsPage').then((m) => ({ default: m.AppreciationsPage }))));
+const MyAppreciationsPage = lazy(loadWithRecovery(() => import('./pages/MyAppreciationsPage').then((m) => ({ default: m.MyAppreciationsPage }))));
 const TrainingCenterPage = lazy(loadWithRecovery(() => import('./pages/training/TrainingCenterPage')));
 const CourseEditorPage = lazy(loadWithRecovery(() => import('./pages/training/CourseEditorPage')));
 const VerifyPage = lazyPage(() => import('./pages/training/VerifyPage'), 'VerifyPage');
@@ -240,6 +242,10 @@ export function App() {
             <Route path="/training/courses/:courseId/lessons/:lessonId" element={<LessonPage />} />
             <Route path="/training/manage" element={<TrainingCenterPage />} />
             <Route path="/training/manage/courses/:id" element={<CourseEditorPage />} />
+            {/* 1.24.0 Employee Appreciation: My appreciations (anyone on staff); the Appreciations page (administrators
+                and Appreciation managers — the server decides, the page says so to anyone else). */}
+            <Route path="/appreciations/mine" element={<MyAppreciationsPage />} />
+            <Route path="/admin/appreciations" element={<AppreciationsPage />} />
             <Route element={<AdminRoute />}>
               <Route path="/reports" element={<ReportsPage />} />
             </Route>

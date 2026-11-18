@@ -279,6 +279,16 @@ const ADMIN: NavItem[] = [
   { label: 'System Settings', to: '/admin/settings', icon: I.sliders },
 ];
 
+/** 1.24.0 Employee Appreciation: a ribbon medal — kept out of `I`, the icon set the Android app copies (its menu has no such page). */
+const APPRECIATIONS_ICON = (
+  <>
+    <path d="M8 3l2.5 6M16 3l-2.5 6" />
+    <circle cx="12" cy="14.5" r="5.5" />
+    <path d="M12 12l.9 1.8 2 .3-1.4 1.4.3 2-1.8-.9-1.8.9.3-2-1.4-1.4 2-.3z" />
+  </>
+);
+export const APPRECIATIONS_PAGE: NavItem = { label: 'Appreciations', to: '/admin/appreciations', icon: APPRECIATIONS_ICON };
+
 /** Recycle Bin: a bin — kept out of `I`, the icon set the Android app copies (its menu has no such page). */
 const RECYCLE_BIN_ICON = (
   <>
@@ -337,6 +347,12 @@ export interface SidebarProps {
   chatUnread?: number;
   /** Training Center: courses past their due day, a red count on Training (none at 0). */
   trainingOverdue?: number;
+  /**
+   * 1.24.0 Employee Appreciation: may manage appreciations (administrators outside Manager View and Appreciation
+   * managers — the server's answer). Adds Appreciations to the Admin group, which an Appreciation manager then sees
+   * with that page alone.
+   */
+  appreciations?: boolean;
 }
 
 function NavIcon({ children }: { children: ReactNode }) {
@@ -1085,7 +1101,7 @@ function FoldButton({ onTabletOpen, tabletOpen = false }: { onTabletOpen?: () =>
  * each with its name for screen readers and as a tooltip; on a phone it folds away behind the ☰ button
  * (MobileMenu in AppShell).
  */
-export function Sidebar({ isAdmin, adminMenu = isAdmin, chatUnread = 0, canLead = false, trainingOverdue = 0 }: SidebarProps) {
+export function Sidebar({ isAdmin, adminMenu = isAdmin, chatUnread = 0, canLead = false, trainingOverdue = 0, appreciations = false }: SidebarProps) {
   const nav = useRef<HTMLElement>(null);
   // 1.23.8 A tablet's unfolded menu: over the page, until a page is chosen, a tap outside or Escape.
   const tablet = useMediaQuery(RAIL_WIDTHS);
@@ -1102,14 +1118,14 @@ export function Sidebar({ isAdmin, adminMenu = isAdmin, chatUnread = 0, canLead 
       aria-label="Main"
       className="sticky top-0 hidden h-screen w-16 flex-none flex-col overflow-hidden border-r border-line bg-surface/95 transition-[width] duration-200 ease-out md:flex lg:w-60 rail:w-16 supports-[height:100dvh]:h-dvh"
     >
-      <SidebarBody isAdmin={isAdmin} adminMenu={adminMenu} chatUnread={chatUnread} canLead={canLead} trainingOverdue={trainingOverdue} rail onTabletOpen={() => setOverlay(true)} tabletOpen={overlay} />
+      <SidebarBody isAdmin={isAdmin} adminMenu={adminMenu} chatUnread={chatUnread} canLead={canLead} trainingOverdue={trainingOverdue} appreciations={appreciations} rail onTabletOpen={() => setOverlay(true)} tabletOpen={overlay} />
       <RailTooltip root={nav} />
     </nav>
     {overlay ? (
       <MenuDrawer className="hidden md:block lg:hidden" onClose={() => setOverlay(false)}>
         {(close) => (
           <nav aria-label="Main" className="flex min-h-0 flex-1 flex-col">
-            <SidebarBody isAdmin={isAdmin} adminMenu={adminMenu} chatUnread={chatUnread} canLead={canLead} trainingOverdue={trainingOverdue} onNavigate={close} onCollapse={close} />
+            <SidebarBody isAdmin={isAdmin} adminMenu={adminMenu} chatUnread={chatUnread} canLead={canLead} trainingOverdue={trainingOverdue} appreciations={appreciations} onNavigate={close} onCollapse={close} />
           </nav>
         )}
       </MenuDrawer>
@@ -1129,6 +1145,7 @@ export function SidebarBody({
   chatUnread = 0,
   canLead = false,
   trainingOverdue = 0,
+  appreciations = false,
   rail = false,
   onTabletOpen,
   tabletOpen,
@@ -1183,7 +1200,9 @@ export function SidebarBody({
         <NavGroup label="Workspace" items={WORKSPACE.filter((i) => (isAdmin || !i.adminOnly) && (isAdmin || canLead || !i.leadsOnly))} onNavigate={onNavigate} trainingOverdue={trainingOverdue} rail={rail} first />
         {withData ? <SavedNav onNavigate={onNavigate} rail={rail} /> : null}
         <NavGroup label="Communication" items={COMMUNICATION} onNavigate={onNavigate} chatUnread={chatUnread} rail={rail} />
-        {adminMenu ? <NavGroup label="Admin" items={ADMIN} onNavigate={onNavigate} rail={rail} flyout={ADMIN_GROUP_ICON} /> : null}
+        {adminMenu || appreciations ? (
+          <NavGroup label="Admin" items={[...(adminMenu ? ADMIN : []), ...(appreciations ? [APPRECIATIONS_PAGE] : [])]} onNavigate={onNavigate} rail={rail} flyout={ADMIN_GROUP_ICON} />
+        ) : null}
       </div>
 
       <div className={`border-t border-line px-3 py-2 ${rail ? 'rail:px-2.5' : ''}`}>

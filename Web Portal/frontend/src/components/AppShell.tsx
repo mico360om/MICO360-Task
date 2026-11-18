@@ -5,6 +5,9 @@ import { Sidebar, SidebarBody } from './Sidebar';
 import { useManagementLink } from '../lib/useManagementLink';
 import { ChatSoundNotifier } from './ChatSoundNotifier';
 import { MeetingReminderPopup } from './MeetingReminderPopup';
+import { AppreciationPopup } from './appreciation/AppreciationPopup';
+import { useMyAppreciations } from './appreciation/useMyAppreciations';
+import { APPRECIATIONS_ME_KEY } from '../api/appreciations';
 import { UpdateToast } from './UpdateToast';
 import { AddToHomeScreenGuide } from './install/AddToHomeScreenGuide';
 import { GlobalSearch } from './GlobalSearch';
@@ -52,7 +55,7 @@ const opensWhenArchived = (path: string) => OPEN_WHEN_ARCHIVED.some((p) => path 
  * and the Close button dismiss it, and focus then returns to the menu button. (It used to be a
  * plain panel: Escape did nothing and Tab went to the page hidden behind it.)
  */
-function MobileMenu({ isAdmin, adminMenu, canLead, chatUnread, trainingOverdue, onClose }: { isAdmin: boolean; adminMenu: boolean; canLead: boolean; chatUnread: number; trainingOverdue: number; onClose: () => void }) {
+function MobileMenu({ isAdmin, adminMenu, canLead, chatUnread, trainingOverdue, appreciations, onClose }: { isAdmin: boolean; adminMenu: boolean; canLead: boolean; chatUnread: number; trainingOverdue: number; appreciations: boolean; onClose: () => void }) {
   // 1.23.8: it slides in and out (components/MenuDrawer), as a tablet's unfolded menu does.
   return (
     <MenuDrawer className="md:hidden" onClose={onClose}>
@@ -70,7 +73,7 @@ function MobileMenu({ isAdmin, adminMenu, canLead, chatUnread, trainingOverdue, 
             </svg>
           </button>
           <nav aria-label="Main" className="flex min-h-0 flex-1 flex-col">
-            <SidebarBody isAdmin={isAdmin} adminMenu={adminMenu} canLead={canLead} chatUnread={chatUnread} trainingOverdue={trainingOverdue} onNavigate={close} />
+            <SidebarBody isAdmin={isAdmin} adminMenu={adminMenu} canLead={canLead} chatUnread={chatUnread} trainingOverdue={trainingOverdue} appreciations={appreciations} onNavigate={close} />
           </nav>
           {/* Companies: on the smallest phones the top bar has no room for the picker — it is here. */}
           <CompanyPicker place="menu" />
@@ -106,6 +109,8 @@ export function AppShell() {
   // Manager View (owner, 10 Nov): an administrator's switch, read once per sign-in; while on, no Admin menu.
   useManagerViewSync();
   const adminMenu = useEffectiveAdmin();
+  // 1.24.0 Employee Appreciation: today's appreciations (the popup) and whether the Appreciations page is theirs.
+  const appreciations = useMyAppreciations().data?.canManage === true;
   // How wide this page is (capped at 1680px unless it is built around a wide grid — the list is in
   // lib/page-layout.ts) and whether it sizes itself to the window. The top bar, the page and the
   // footer share one frame, so their edges line up on any screen.
@@ -153,7 +158,10 @@ export function AppShell() {
     async function flush() {
       if (!navigator.onLine) return;
       const res = await flushOfflineQueue();
-      if (res.synced > 0) void invalidateTaskQueries(qc);
+      if (res.synced > 0) {
+        void invalidateTaskQueries(qc);
+        void qc.invalidateQueries({ queryKey: APPRECIATIONS_ME_KEY }); // 1.24.0: an offline Accept was sent
+      }
     }
     const onVisible = () => {
       if (document.visibilityState === 'visible') void flush();
@@ -180,10 +188,10 @@ export function AppShell() {
         Skip to content
       </a>
 
-      <Sidebar isAdmin={isAdmin()} adminMenu={adminMenu} canLead={canLead} chatUnread={chatUnread} trainingOverdue={trainingOverdue} />
+      <Sidebar isAdmin={isAdmin()} adminMenu={adminMenu} canLead={canLead} chatUnread={chatUnread} trainingOverdue={trainingOverdue} appreciations={appreciations} />
 
       {/* Mobile drawer */}
-      {drawerOpen ? <MobileMenu isAdmin={isAdmin()} adminMenu={adminMenu} canLead={canLead} chatUnread={chatUnread} trainingOverdue={trainingOverdue} onClose={() => setDrawerOpen(false)} /> : null}
+      {drawerOpen ? <MobileMenu isAdmin={isAdmin()} adminMenu={adminMenu} canLead={canLead} chatUnread={chatUnread} trainingOverdue={trainingOverdue} appreciations={appreciations} onClose={() => setDrawerOpen(false)} /> : null}
 
       <div className="flex min-w-0 flex-1 flex-col">
         {/* 56px tall, like the sidebar's logo row beside it: their bottom lines meet as one. Its
@@ -262,6 +270,7 @@ export function AppShell() {
       {/* A meeting reminder pops up in the corner of every page (after the page in reading order, so
           "Skip to content" stays first); every new notification refreshes the bell. */}
       <MeetingReminderPopup />
+      <AppreciationPopup />
       {/* 1.22.3: "Task MICO-143 created · Open" after the task form (or an offline task's sync). */}
       <TaskNoticeToast />
       {/* Training Center: the first-time tour (by itself once for a new account; again from My training). */}

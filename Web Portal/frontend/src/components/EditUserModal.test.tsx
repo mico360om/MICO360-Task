@@ -572,6 +572,17 @@ describe('EditUserModal: training (Reports to, Department, Training manager)', (
     expect(server.lastBody('PUT', '/users/u-sam')).toMatchObject({ reportsToId: 'u-lina', departmentName: 'Site crews', trainingManager: true });
   });
 
+  it('1.24.0: the Appreciation manager switch is sent when changed', async () => {
+    const server = serve();
+    open(withTraining());
+    const s = section();
+    await userEvent.click(within(s).getByRole('switch', { name: 'Appreciation manager' }));
+    await save();
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(server.lastBody('PUT', '/users/u-sam')).toMatchObject({ appreciationManager: true });
+    expect(server.lastBody('PUT', '/users/u-sam')).not.toHaveProperty('trainingManager');
+  });
+
   it('left as they were, none of them is sent (a name change never touches them)', async () => {
     const server = serve();
     open(withTraining({ trainingManager: true }));

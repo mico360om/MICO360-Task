@@ -249,3 +249,28 @@ describe('Sidebar: the Learning Hub', () => {
     expect(document.querySelector('[data-tour="training"]')).toHaveAttribute('href', '/training');
   });
 });
+
+// 1.24.0 Employee Appreciation: the Admin group gains Appreciations for whoever may manage them.
+describe('Sidebar: Appreciations', () => {
+  const show = (isAdmin: boolean, appreciations: boolean, adminMenu = isAdmin) =>
+    render(
+      <MemoryRouter>
+        <Sidebar isAdmin={isAdmin} adminMenu={adminMenu} appreciations={appreciations} />
+      </MemoryRouter>,
+    );
+  it('an Appreciation manager (not an administrator) sees the Admin group with Appreciations alone', () => {
+    show(false, true);
+    expect(screen.getByRole('link', { name: 'Appreciations' })).toHaveAttribute('href', '/admin/appreciations');
+    expect(screen.queryByRole('link', { name: 'User Management' })).not.toBeInTheDocument();
+  });
+  it('an administrator sees it after the other Admin pages; an employee never', () => {
+    show(true, true);
+    const names = screen.getAllByRole('link').map((l) => l.textContent);
+    expect(names.indexOf('Appreciations')).toBeGreaterThan(names.indexOf('User Management'));
+  });
+  it('nobody else sees it (and no Admin group)', () => {
+    show(false, false);
+    expect(screen.queryByRole('link', { name: 'Appreciations' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Admin')).not.toBeInTheDocument();
+  });
+});

@@ -128,6 +128,13 @@ export function ProfileMenu({ canLead }: ProfileMenuProps = {}) {
               </svg>
               Settings
             </Link>
+            {/* 1.24.0 Employee Appreciation: the person's own appreciations. */}
+            <Link to="/appreciations/mine" role="menuitem" onClick={() => setOpen(false)} className={itemClass}>
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M8 3l2.5 6M16 3l-2.5 6" /><circle cx="12" cy="14.5" r="5.5" />
+              </svg>
+              My appreciations
+            </Link>
             {bin || adminPages ? (
               <>
                 <div role="separator" className="my-1 border-t border-line" />

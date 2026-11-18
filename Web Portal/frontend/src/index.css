@@ -717,6 +717,24 @@
   .reveal[data-delay='5'] { transition-delay: 300ms; }
 }
 
+/* 1.24.0 Employee Appreciation: a gentle shimmer across the themed banner and popup header (off with reduced motion). */
+.appreciation-shimmer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(110deg, transparent 30%, rgba(255, 255, 255, 0.16) 50%, transparent 70%);
+  background-size: 250% 100%;
+  animation: appreciation-shimmer 4.5s ease-in-out 3;
+  background-position: 120% 0;
+}
+@keyframes appreciation-shimmer {
+  from { background-position: 120% 0; }
+  to { background-position: -120% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .appreciation-shimmer { display: none; }
+}
+
 /* Respect users who prefer reduced motion: no transforms, no infinite loops, instant reveals. */
 @media (prefers-reduced-motion: reduce) {
   html {

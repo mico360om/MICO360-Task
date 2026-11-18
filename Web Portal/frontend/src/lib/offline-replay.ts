@@ -1,10 +1,12 @@
 import { apiClient } from '../api/client';
 import { tasksApi, type NewTaskInput } from '../api/tasks';
+import { appreciationsApi } from '../api/appreciations';
 import { useAuthStore } from '../stores/auth-store';
 import { ApiError, SessionChangedError } from './api-client';
 import {
   enqueue,
   failedItems,
+  pendingItems,
   flushQueue,
   localStorageQueueStore,
   queueSize,
@@ -17,7 +19,8 @@ import {
 } from './offline-queue';
 import { showTaskNotice, taskSavedNotice } from './task-notice';
 
-export type OfflineKind = 'task.create' | 'task.move';
+// 1.24.0 Employee Appreciation: Accept pressed without a connection (sent when back online; the page shows it accepted at once).
+export type OfflineKind = 'task.create' | 'task.move' | 'appreciation.accept';
 
 const fail = (message: string) => Object.assign(new Error(message), { permanent: true });
 const pause = (message: string) => Object.assign(new Error(message), { pause: true });
@@ -61,6 +64,11 @@ async function replayMutation(m: QueuedMutation): Promise<void> {
       // A move is idempotent by nature (PATCH to a target column); the API takes no expectedVersion for it.
       const p = m.payload as { id: string; toColumnId: string };
       await api.move(p.id, p.toColumnId);
+      return;
+    }
+    if (m.kind === 'appreciation.accept') {
+      // Accepting twice is harmless (the server answers the first time), so a replay needs no key of its own.
+      await appreciationsApi(apiClient.forUser(m.ownerId)).accept((m.payload as { id: string }).id);
       return;
     }
     throw fail(`Unknown change type ${m.kind}`);
@@ -152,6 +160,13 @@ export function flushOfflineQueue(): Promise<FlushResult> {
   return flushing;
 }
 
+/** 1.24.0: the appreciations the signed-in person accepted offline that are still waiting to be sent. */
+export function queuedAppreciationAccepts(): Set<string> {
+  const ownerId = currentUserId();
+  if (!ownerId) return new Set();
+  return new Set(pendingItems(localStorageQueueStore, ownerId).filter((m) => m.kind === 'appreciation.accept').map((m) => (m.payload as { id: string }).id));
+}
+
 /** How many of the signed-in user's changes are waiting to sync. */
 export function pendingCount(): number {
   const ownerId = currentUserId();
@@ -179,6 +194,7 @@ export function describeChange(m: QueuedMutation): string {
   const p = (m.payload ?? {}) as { title?: string; id?: string };
   if (m.kind === 'task.create') return `New task “${p.title ?? 'Untitled'}”`;
   if (m.kind === 'task.move') return 'Task moved to another column';
+  if (m.kind === 'appreciation.accept') return 'Appreciation accepted';
   return m.kind;
 }
 

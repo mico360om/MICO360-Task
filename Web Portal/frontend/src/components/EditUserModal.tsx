@@ -482,6 +482,8 @@ export const TRAINING_FIELD_WORDS = {
   reportsToHint: 'Overdue mandatory training is escalated to this person; empty: the Training managers.',
   departmentHint: 'Pick one or type a new name. Empty: no department.',
   managerHint: 'Can create, publish and assign training and see training reports — no other administrator powers.',
+  /** 1.24.0 Employee Appreciation. */
+  appreciationHint: 'Can send and schedule appreciations to people in their own companies, edit the templates and see the history — no other administrator powers.',
 } as const;
 
 /**
@@ -496,6 +498,9 @@ function useTrainingFields(user: ApiUser) {
   const [reportsTo, setReportsTo] = useState(savedReportsTo);
   const [department, setDepartment] = useState(savedDepartment);
   const [manager, setManager] = useState(savedManager);
+  // 1.24.0 Employee Appreciation: the Appreciation manager permission.
+  const savedAppreciation = user.appreciationManager === true;
+  const [appreciation, setAppreciation] = useState(savedAppreciation);
   const dirQ = useQuery({ queryKey: ['directory'], queryFn: () => usersApi(apiClient).directory() });
   const deptQ = useQuery({ queryKey: ['users', 'departments'], queryFn: () => usersApi(apiClient).departments() });
   const people = (Array.isArray(dirQ.data) ? dirQ.data : []).filter((p) => p.active !== false && p.id !== user.id);
@@ -510,6 +515,7 @@ function useTrainingFields(user: ApiUser) {
     ...(reportsTo !== savedReportsTo ? { reportsToId: reportsTo || null } : {}),
     ...(department.trim() !== savedDepartment ? { departmentName: department.trim() || null } : {}),
     ...(manager !== savedManager ? { trainingManager: manager } : {}),
+    ...(appreciation !== savedAppreciation ? { appreciationManager: appreciation } : {}),
   };
   const section = (
     <section aria-labelledby="eu-training-title" className="flex flex-col gap-3">
@@ -533,6 +539,13 @@ function useTrainingFields(user: ApiUser) {
           <div id="eu-training-manager-hint" className="text-xs text-ink-2">{TRAINING_FIELD_WORDS.managerHint}</div>
         </div>
         <Toggle on={manager} onChange={() => setManager((v) => !v)} label="Training manager" describedBy="eu-training-manager-hint" />
+      </div>
+      <div className="flex items-center justify-between gap-4 rounded-lg border border-line p-2.5">
+        <div className="min-w-0">
+          <div className="text-sm font-medium text-ink">Appreciation manager</div>
+          <div id="eu-appreciation-manager-hint" className="text-xs text-ink-2">{TRAINING_FIELD_WORDS.appreciationHint}</div>
+        </div>
+        <Toggle on={appreciation} onChange={() => setAppreciation((v) => !v)} label="Appreciation manager" describedBy="eu-appreciation-manager-hint" />
       </div>
     </section>
   );

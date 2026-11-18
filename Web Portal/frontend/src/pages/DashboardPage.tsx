@@ -44,6 +44,9 @@ import { dashboardColumns, dashboardSpans, rowsForHeight } from '../lib/dashboar
 import { useElementWidth, useWindowHeight } from '../lib/useElementWidth';
 import { OverdueTrainingLink } from '../components/training/OverdueTrainingLink';
 import { InstallAppCard } from '../components/install/InstallAppCard';
+import { AppreciationBanner } from '../components/appreciation/AppreciationBanner';
+import { useMyAppreciations } from '../components/appreciation/useMyAppreciations';
+import { themeGradient } from '../lib/appreciation';
 
 /** Traffic-light colour for a completion percentage, so the bar reads its health at a glance (1.23.8: the health colours). */
 const completionColor = (pct: number): string => healthColour(pct >= 67 ? 'ON_TRACK' : pct >= 34 ? 'AT_RISK' : 'LATE');
@@ -119,6 +122,10 @@ export function DashboardPage() {
   // Tasks open in the app shell's task panel, through ?task= in the address (reload, Back, a shared link).
   const openTask = useOpenTask();
   const timeZone = useCompanyTimeZone();
+  // 1.24.0 Employee Appreciation: on the person's day, the band takes the newest appreciation's theme and its
+  // banner shows below it. Without one, nothing here changes (no class, no space, no layout shift).
+  const appreciations = useMyAppreciations();
+  const appreciation = appreciations.live[0] ?? null;
 
   const projectsQ = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi(apiClient).list() });
   const myTasksQ = useQuery({ queryKey: ['my-tasks'], queryFn: () => tasksApi(apiClient).mine() });
@@ -406,7 +413,10 @@ export function DashboardPage() {
   return (
     <div className="flex flex-col gap-6">
       {/* Welcome: one compact band — the greeting on the left, the ways in on the right. */}
-      <div className="relative overflow-hidden rounded-2xl bg-brand-gradient px-5 py-4 text-white shadow-brand animate-fade-in-up sm:px-6">
+      <div
+        className={`relative overflow-hidden rounded-2xl ${appreciation ? '' : 'bg-brand-gradient '}px-5 py-4 text-white shadow-brand animate-fade-in-up sm:px-6`}
+        {...(appreciation ? { style: { backgroundImage: themeGradient(appreciation.theme) }, 'data-appreciation-theme': appreciation.theme } : {})}
+      >
         <div className="pointer-events-none absolute -right-10 -top-16 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
         <div className="pointer-events-none absolute -bottom-16 right-24 h-32 w-32 rounded-full bg-black/10 blur-2xl" />
         <div className="relative flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
@@ -450,6 +460,8 @@ export function DashboardPage() {
 
       {/* Training Center: courses past their due day (red), opening My training. */}
       <OverdueTrainingLink />
+
+      {appreciation ? <AppreciationBanner a={appreciation} more={appreciations.live.length - 1} onAccept={appreciations.accept} problem={appreciations.problem} /> : null}
 
       {/* Installable website (13 Nov): "Install MICO360 Tasks on this device", until installed or Not now. */}
       <InstallAppCard />

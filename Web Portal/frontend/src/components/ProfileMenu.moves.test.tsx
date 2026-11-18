@@ -50,7 +50,7 @@ describe('the account menu: Recycle Bin, Error Log, Audit Logs', () => {
     show(['ADMIN'], { canLead: true });
     const menu = await open();
     const list = names(menu);
-    expect(list.slice(0, 5)).toEqual(['Your profile', 'Settings', 'Recycle Bin', 'Error Log', 'Audit Logs']);
+    expect(list.slice(0, 6)).toEqual(['Your profile', 'Settings', 'My appreciations', 'Recycle Bin', 'Error Log', 'Audit Logs']); // 1.24.0: My appreciations after Settings
     expect(within(menu).getByRole('menuitem', { name: 'Recycle Bin' })).toHaveAttribute('href', '/recycle-bin');
     expect(within(menu).getByRole('menuitem', { name: 'Error Log' })).toHaveAttribute('href', '/admin/error-log');
     expect(within(menu).getByRole('menuitem', { name: 'Audit Logs' })).toHaveAttribute('href', '/admin/audit');
@@ -69,7 +69,7 @@ describe('the account menu: Recycle Bin, Error Log, Audit Logs', () => {
   it('someone who runs a project: the Recycle Bin only', async () => {
     show(['EMPLOYEE'], { canLead: true });
     const menu = await open();
-    expect(names(menu).slice(0, 3)).toEqual(['Your profile', 'Settings', 'Recycle Bin']);
+    expect(names(menu).slice(0, 4)).toEqual(['Your profile', 'Settings', 'My appreciations', 'Recycle Bin']);
     expect(within(menu).queryByRole('menuitem', { name: 'Error Log' })).toBeNull();
     expect(within(menu).queryByRole('menuitem', { name: 'Audit Logs' })).toBeNull();
   });

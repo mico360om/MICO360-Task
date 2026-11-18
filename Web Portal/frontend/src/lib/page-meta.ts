@@ -50,6 +50,9 @@ const PAGES: [pattern: RegExp, title: string, indexable?: boolean][] = [
   [/^\/admin\/companies$/, 'Companies'],
   [/^\/admin\/guests$/, 'Guest contacts'],
   [/^\/admin\/clients$/, 'Clients'],
+  // 1.24.0 Employee Appreciation: the managers' page and the person's own list.
+  [/^\/admin\/appreciations$/, 'Appreciations'],
+  [/^\/appreciations\/mine$/, 'My appreciations'],
   // The Learning Hub (staff; the Training Center): My learning / Catalogue, a course, a lesson, Manage / Reports and a
   // course's editor — each page names itself first ("My learning · Learning Hub · MICO360 Tasks").
   [/^\/training(\/.*)?$/, 'Learning Hub'],
