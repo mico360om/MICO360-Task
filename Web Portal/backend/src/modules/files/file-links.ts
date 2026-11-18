@@ -32,7 +32,6 @@ export interface FileLinkParts {
   s: string;
 }
 
-const UPLOADS = '/uploads/';
 const USER_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const EXPIRY = /^[0-9a-z]{1,12}$/;
 /** HMAC-SHA256 in base64url without padding: 43 characters. */

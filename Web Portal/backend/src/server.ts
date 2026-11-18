@@ -108,6 +108,8 @@ import { createAvatarFaces, prismaIsAvatar, registerAvatarFaceRoute } from './mo
 import { createPrismaAttachmentRepository } from './modules/tasks/prisma-attachment-repository';
 import { createLocalDiskStorage } from './modules/tasks/local-disk-storage';
 import { createUploadPlaces } from './modules/files/upload-places';
+import { createUploadMover } from './modules/files/upload-move';
+import { createPrismaMoveStore } from './modules/files/prisma-upload-move';
 import { removeStoredFile } from './lib/stored-files';
 import { createAccessionDayStep } from './modules/notify-policy/accession-day';
 import { createDependencyService } from './modules/tasks/dependency-service';
@@ -3081,6 +3083,25 @@ async function main(): Promise<void> {
   const taskSearchSweeps = startTaskSearchSweeps({ index: taskSearchIndex, lock: jobLock, logger });
   // 1.23: search_index's heals, files never read, files waiting for AI OCR and meaning vectors.
   const searchSweeps = startSearchSweeps({ index: searchIndex, files: fileTexts, semantic: searchSemantic, lock: jobLock, logger });
+
+  // 1.23.38 Upload folders (modules/files/upload-move.ts): at start-up and daily, on one instance, every stored
+  // file not in its <company>/<YYYY>/<MM>/<uploader>/<type>/ folder yet is copied there, checked (size and
+  // checksum), its rows pointed at it and old → new recorded in file_key_aliases; a missing file or a bad copy
+  // goes to the Error log and stays where it is. Originals are removed 30 days after their move.
+  const uploadMover = createUploadMover({
+    store: createPrismaMoveStore(prisma, { uploads: uploadsRoot, training: trainingFilesDirFor(env, process.cwd()) }),
+    dirs: { uploads: uploadsRoot, training: trainingFilesDirFor(env, process.cwd()) },
+    logger: logger.job('upload-folders'),
+    shouldStop: () => jobs.stopping,
+  });
+  const runUploadFolders = () =>
+    runExclusive(jobLock, 'upload-folders', 60 * 60 * 1000, () => new Date(), async () => {
+      const moved = await uploadMover.run();
+      if (moved.planned) logger.info('Upload folders: files moved into their folders', moved);
+      const swept = await uploadMover.sweep();
+      if (swept.removed || swept.kept || swept.failed) logger.info('Upload folders: originals kept 30 days removed', swept);
+    }).catch(sweepFailed('upload-folders', 'moving uploads into their folders'));
+  jobs.every(24 * 60 * 60 * 1000, runUploadFolders);
 
   // 1.22.4 the Error log keeps 30 days: once a day (and at start-up), on one instance, occurrences
   // older than that and rows not seen since go.
