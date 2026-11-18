@@ -893,6 +893,7 @@ export function CalendarPage() {
             navigate({ date: d });
           }}
           onNew={canCreate ? () => setCreateOn(split ? selected : cursor) : undefined}
+          newDayLabel={dayLabel(split ? selected : cursor, { day: 'numeric', month: 'short' })}
           layout={wide && view !== 'agenda' ? prefs.layout : undefined}
           onLayout={(l) => savePrefs.mutate({ layout: l })}
         />

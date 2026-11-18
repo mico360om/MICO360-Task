@@ -101,7 +101,7 @@ function renderPage(path = '/board') {
 }
 
 async function fillNewTask() {
-  await userEvent.click(await screen.findByRole('button', { name: /\+ new task/i }));
+  await userEvent.click((await screen.findAllByRole('button', { name: /^Add a task to / }))[0]!); // s137: the board has no own New task: a column's +
   const dialog = await screen.findByRole('dialog', { name: /new task/i });
   await userEvent.type(within(dialog).getByLabelText(/task title/i), 'Ship it');
   fireEvent.change(within(dialog).getByLabelText(/due date/i), { target: { value: '2026-10-05' } });
@@ -252,7 +252,7 @@ describe('BoardPage', () => {
       p2Status = status;
       localStorage.clear();
       const { unmount } = renderPage();
-      expect(await screen.findByRole('button', { name: /\+ new task/i })).toBeInTheDocument();
+      expect((await screen.findAllByRole('button', { name: /^Add a task to/ })).length).toBeGreaterThan(0); // s137: a column's + (no own New task)
       await userEvent.click(screen.getByRole('button', { name: 'Select project' }));
       await userEvent.click(await screen.findByRole('option', { name: /Operations/ }));
       expect(await screen.findByRole('region', { name: 'Ops To Do' })).toBeInTheDocument();
@@ -263,10 +263,22 @@ describe('BoardPage', () => {
       // Back on an open project: everything is offered again.
       await userEvent.click(screen.getByRole('button', { name: 'Select project' }));
       await userEvent.click(await screen.findByRole('option', { name: /MICO360 Platform/ }));
-      expect(await screen.findByRole('button', { name: /\+ new task/i })).toBeInTheDocument();
+      expect((await screen.findAllByRole('button', { name: /^Add a task to/ })).length).toBeGreaterThan(0); // s137: a column's + (no own New task)
       expect(screen.queryByText(/reopen it first/)).toBeNull();
       unmount();
     }
+  });
+
+  // s137: one New task — the top bar's (it starts in this project). The board keeps a column's + and Manage columns.
+  it('has no New task button of its own; a column’s + still adds into that column', async () => {
+    renderPage();
+    await screen.findByText('Prepare report');
+    expect(screen.queryByRole('button', { name: /new task/i })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Manage columns' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add a task to To Do' })).toBeInTheDocument();
+    // N belongs to the top bar's New task: the board no longer takes it for its own form.
+    await userEvent.keyboard('n');
+    expect(screen.queryByRole('dialog', { name: /new task/i })).toBeNull();
   });
 
   it('offers Manage columns to an employee who runs the project, and not to one who doesn’t', async () => {
@@ -313,7 +325,7 @@ describe('BoardPage', () => {
   it('fits short screens: the new-task fields scroll while "Create task" stays in view', async () => {
     renderPage();
     await screen.findByText('Prepare report');
-    await userEvent.click(await screen.findByRole('button', { name: /\+ new task/i }));
+    await userEvent.click((await screen.findAllByRole('button', { name: /^Add a task to / }))[0]!); // s137: the board has no own New task: a column's +
     const dialog = await screen.findByRole('dialog', { name: /new task/i });
     expect(dialog.className).toMatch(/sm:max-h-\[calc\(var\(--visible-height\)-2rem\)\]/);
     const body = within(dialog).getByLabelText(/task title/i).closest('.overflow-y-auto')!;
@@ -323,7 +335,7 @@ describe('BoardPage', () => {
   it('creates a repeating task from the board', async () => {
     renderPage();
     await screen.findByText('Prepare report');
-    await userEvent.click(await screen.findByRole('button', { name: /\+ new task/i }));
+    await userEvent.click((await screen.findAllByRole('button', { name: /^Add a task to / }))[0]!); // s137: the board has no own New task: a column's +
     const dialog = await screen.findByRole('dialog', { name: /new task/i });
     await userEvent.type(within(dialog).getByLabelText(/task title/i), 'Month-end close');
     fireEvent.change(within(dialog).getByLabelText(/^due date/i), { target: { value: '2026-10-30' } });
@@ -394,6 +406,19 @@ describe('BoardPage', () => {
     localStorage.setItem(userStorageKey('u1', 'board.projectId'), 'p2');
     renderPage('/board');
     expect(await screen.findByRole('region', { name: 'Ops To Do' })).toBeInTheDocument();
+  });
+
+  // s137: Manage columns asks for the columns with their task counts, and adds a column with its status.
+  it('Manage columns reads the task counts and adds a column with the status chosen', async () => {
+    renderPage();
+    await screen.findByText('Prepare report');
+    await userEvent.click(screen.getByRole('button', { name: /manage columns/i }));
+    await screen.findByRole('combobox', { name: 'Status of To Do' });
+    expect(calls.some((c) => c.method === 'GET' && c.url.endsWith('/projects/p1/columns?counts=1'))).toBe(true);
+    await userEvent.type(screen.getByLabelText(/add a column/i), 'Checks');
+    await userEvent.selectOptions(screen.getByLabelText('Status of the new column'), 'REVIEW');
+    await userEvent.click(screen.getByRole('button', { name: 'Add column' }));
+    await waitFor(() => expect(calls.find((c) => c.method === 'POST' && c.url.endsWith('/projects/p1/columns'))?.body).toEqual({ name: 'Checks', category: 'REVIEW' }));
   });
 
   it('shows why a column change failed (e.g. deleting a column that still has tasks)', async () => {

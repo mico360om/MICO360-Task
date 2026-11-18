@@ -928,7 +928,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
   ) : null;
   const describeField = !editing && !duplicating && !noProjects ? (
     <DescribeTask
-      onParse={(text) => aiApi(apiClient).parseTask(text, todayKey(timeZone))}
+      onParse={(text, detail) => aiApi(apiClient).parseTask(text, todayKey(timeZone), detail)}
       current={{ title: draft.title, description: draft.description, dueDate: draft.dueDate, priority: draft.priority, rule: draft.rule, projectId: draft.projectId }}
       initial={{ title: saved.title, description: saved.description, dueDate: saved.dueDate, priority: saved.priority, rule: saved.rule, projectId: saved.projectId }}
       projects={projectFixed ? undefined : openProjects}

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
-import { createCompanyBranding, fitLogo } from './company-branding';
+import { certificateScreenBrand, createCompanyBranding, fitLogo, type CompanyBrand } from './company-branding';
 import { solidPng } from '../../lib/test-images';
 
 /**
@@ -207,5 +207,17 @@ describe('fitLogo', () => {
     expect(fitLogo({ width: 300, height: 100 }, 160, 30)).toEqual({ width: 90, height: 30 });
     expect(fitLogo({ width: 1000, height: 100 }, 160, 30)).toEqual({ width: 160, height: 16 });
     expect(fitLogo({ width: 50, height: 200 }, 160, 30)).toEqual({ width: 8, height: 30 });
+  });
+});
+
+describe('the on-screen certificate’s company (1.23.35)', () => {
+  const brand = (over: Partial<CompanyBrand>): CompanyBrand => ({ companyId: 'co1', name: 'Site Co', named: false, ownName: 'Contoso', logoUrl: null, logoSize: null, timeZone: 'Asia/Muscat', weekStart: 0, workingHours: { start: '08:00', end: '17:00' } as unknown as CompanyBrand['workingHours'], senderName: null, ...over });
+  it('names the company as the PDF prints it: its own name with 2+ companies, else the site’s (null)', () => {
+    expect(certificateScreenBrand(brand({ named: true, name: 'Contoso' })).companyName).toBe('Contoso');
+    expect(certificateScreenBrand(brand({ named: false })).companyName).toBeNull();
+  });
+  it('gives its logo only when the file can be read (else MICO360’s, as the PDF falls back)', () => {
+    expect(certificateScreenBrand(brand({ logoUrl: '/uploads/contoso.png', logoSize: { width: 300, height: 100 } })).logoUrl).toBe('/uploads/contoso.png');
+    expect(certificateScreenBrand(brand({ logoUrl: '/uploads/missing.png', logoSize: null })).logoUrl).toBeNull();
   });
 });

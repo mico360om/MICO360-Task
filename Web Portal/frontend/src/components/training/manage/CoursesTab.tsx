@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AUDIENCES, COURSE_STATUSES, MODULE_LABELS, TRAINING_MODULES, type Audience, type CourseStatus, type ManageCourseRow, type TrainingModule } from '../../../api/training';
 import { useDebouncedValue } from '../../../hooks/useDebouncedValue';
@@ -45,6 +45,8 @@ export function CourseNoticeLine({ text, className = '' }: { text: string; class
 /**
  * The Courses tab: every course (drafts too), filtered by status, audience and module and searched by title; New
  * course; and a ⋯ menu on each course (Edit, Preview as learner, Assign, Publish…, Duplicate, Archive, Delete).
+ * 1.23.33: Status "All" leaves archived courses out (as Projects' "All" does — on a site that had the 1.23.27 short
+ * courses, ten of them are archived); "Show the N archived courses" (or Status → Archived) lists them.
  */
 export function CoursesTab() {
   const ids = { status: useId(), audience: useId(), module: useId(), search: useId() };
@@ -55,9 +57,25 @@ export function CoursesTab() {
   const q = useDebouncedValue(search.trim(), 250);
   const [creating, setCreating] = useState(false);
   const [notice, setNotice] = useState<RowNotice | null>(null);
+  const statusRef = useRef<HTMLSelectElement>(null);
   const coursesQ = useManageCourses({ status, module: moduleKey, q, audience });
-  const courses = coursesQ.data?.courses ?? [];
+  const fetched = coursesQ.data?.courses ?? [];
+  const courses = status ? fetched : fetched.filter((c) => c.status !== 'ARCHIVED');
+  const archived = fetched.length - courses.length;
   const filtered = !!(status || audience || moduleKey || q);
+  const showArchived = archived ? (
+    <Button
+      variant="secondary"
+      onClick={() => {
+        setStatus('ARCHIVED');
+        // The button goes with the list it was under: the focus moves to Status (it reads Archived, and is the way back).
+        statusRef.current?.focus();
+      }}
+      className="!min-h-[44px] self-start"
+    >
+      {archived === 1 ? 'Show the 1 archived course' : `Show the ${archived.toLocaleString('en-US')} archived courses`}
+    </Button>
+  ) : null;
 
   return (
     <div className="flex min-w-0 flex-col gap-4">
@@ -66,7 +84,7 @@ export function CoursesTab() {
           <input id={ids.search} type="search" value={search} onChange={(e) => setSearch(e.target.value)} maxLength={100} placeholder="Course title" className={fieldClass(false, 'w-full')} />
         </FilterField>
         <FilterField label="Status" htmlFor={ids.status} className="min-w-[9rem] flex-1">
-          <select id={ids.status} value={status} onChange={(e) => setStatus(e.target.value as CourseStatus | '')} className={fieldClass(false, 'w-full')}>
+          <select ref={statusRef} id={ids.status} value={status} onChange={(e) => setStatus(e.target.value as CourseStatus | '')} className={fieldClass(false, 'w-full')}>
             <option value="">All</option>
             {COURSE_STATUSES.map((s) => <option key={s} value={s}>{COURSE_STATUS_LABELS[s]}</option>)}
           </select>
@@ -87,7 +105,7 @@ export function CoursesTab() {
             </select>
           </div>
         </FilterField>
-        {!(coursesQ.isSuccess && courses.length === 0 && !filtered) ? (
+        {!(coursesQ.isSuccess && fetched.length === 0 && !filtered) ? (
           <Button onClick={() => setCreating(true)} className="!min-h-[44px]">
             {Glyph.plus}
             New course
@@ -114,8 +132,10 @@ export function CoursesTab() {
       ) : coursesQ.isLoading ? (
         <div className="skeleton h-48 rounded-2xl" role="status" aria-label="Loading courses" />
       ) : courses.length === 0 ? (
-        filtered ? (
-          <EmptyState title="No courses match" description="Try another status, audience, module or search." />
+        archived && !filtered ? (
+          <EmptyState title="Every course is archived" description="Archived courses aren’t listed here. Show them, or make a new course." action={showArchived} />
+        ) : filtered ? (
+          <EmptyState title="No courses match" description="Try another status, audience, module or search." action={showArchived ?? undefined} />
         ) : (
           <EmptyState
             title="No courses yet"
@@ -150,6 +170,7 @@ export function CoursesTab() {
           ))}
         </ul>
       )}
+      {courses.length && !coursesQ.isError ? showArchived : null}
       {creating ? <NewCourseDialog onClose={() => setCreating(false)} /> : null}
     </div>
   );

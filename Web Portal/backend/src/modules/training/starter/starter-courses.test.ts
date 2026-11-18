@@ -88,9 +88,9 @@ const plain = (lessons: readonly StarterLesson[], extra: string[] = []): string 
     .replace(/&amp;/g, '&');
 const courseText = (c: StarterCourse) => plain(c.lessons, [c.title, c.summary, ...(c.modules ?? []).map((m) => m.title)]);
 
-describe('starter content revision 3: the two built-in courses', () => {
+describe('starter content (revision 3, 4, 5): the two built-in courses', () => {
   it('revision 3: the combined staff course first (position -1), then the client guide; stable unique keys', () => {
-    expect(STARTER_REVISION).toBe(3);
+    expect(STARTER_REVISION).toBe(5);
     expect(USER_TRAINING_KEY).toBe('starter:user-training');
     expect(STARTER_COURSES.map((c) => c.key)).toEqual(KEYS);
     expect(training().position).toBe(-1);
@@ -437,13 +437,13 @@ describe('starter content revision 3: words', () => {
   });
 });
 
-describe('starter content revision 3: files', () => {
+describe('starter content (revision 3, 4, 5): files', () => {
   it('every picture is in assets/training/starter (no step names a missing file)', () => {
     for (const f of referenced) expect(filesInFolder, f).toContain(f);
   });
 
-  it('the folder holds the same 48 pictures, every one used, and nothing else (no PDFs, videos, audio or slides)', () => {
-    expect(filesInFolder).toHaveLength(48);
+  it('the folder holds the 67 pictures (48, and 19 more in revision 5), every one used, and nothing else (no PDFs, videos, audio or slides)', () => {
+    expect(filesInFolder).toHaveLength(67);
     for (const f of filesInFolder) {
       expect(referenced.has(f), `${f} is not used by any starter course`).toBe(true);
       expect(extname(f), f).toBe('.webp');
@@ -463,5 +463,197 @@ describe('starter content revision 3: files', () => {
       expect(meta.width ?? 0, f).toBeLessThanOrEqual(1280);
     }
     expect(total).toBeLessThanOrEqual(3 * 1024 * 1024);
+  });
+});
+
+/**
+ * 1.23.33 (revision 4): the pictures were retaken on 1.23.32 with sample names only (owner rule 13 Nov: Contoso
+ * Engineering, Fabrikam Logistics, Northwind Trading — the 1.23.27 pictures showed a real company as the sample client).
+ * Every picture was checked by eye (recipe: .superpowers/lhq/starter/capture-starter.mjs); this keeps the files clean
+ * for the release's word checks too.
+ */
+describe('starter content revision 4: the pictures', () => {
+  it('no picture’s bytes read as a retired name (a release check greps the files: a random byte run must not trip it)', () => {
+    const retired = ['oxy', 'gulf', 'pdo', 'acme', 'prolens'];
+    for (const f of filesInFolder) {
+      const text = readFileSync(join(ASSETS, f)).toString('latin1');
+      for (const w of retired) expect(new RegExp(`(^|[^A-Za-z0-9_])${w}([^A-Za-z0-9_]|$)`, 'i').test(text), `${f} holds “${w}”`).toBe(false);
+    }
+  });
+
+  it('the descriptions say what the retaken pictures show', () => {
+    const alt = (image: string) => steps(training()).find((s) => s.image === image)?.alt ?? '';
+    expect(alt('admin-settings.webp')).toMatch(/Companies/);
+    expect(alt('calendar-filters.webp')).not.toMatch(/Show meetings/);
+    expect(alt('start-notifications.webp')).not.toMatch(/mention/);
+    expect(alt('projects-list.webp')).toMatch(/three project cards/);
+    expect(alt('admin-edit-user.webp')).toMatch(/Training/);
+  });
+});
+
+/**
+ * 1.23.36 (revision 5): the steps that had no picture got one where a real screen exists (owner-approved lesson pages
+ * design), taken on 1.23.33 as the person the course is for, sample names only (recipe:
+ * .superpowers/lp/starter/capture-starter.mjs, `webp-new`). Titles, steps and ids are unchanged: only pictures were added.
+ */
+describe('starter content revision 5: pictures for the steps that had none', () => {
+  const NEW_PICTURES: [string, string][] = [
+    ['The Learning Hub', 'start-learning-hub.webp'],
+    ['Filter and sort the list', 'tasks-filters.webp'],
+    ['Tick off checklist steps', 'tasks-checklist.webp'],
+    ['Read a card', 'board-card.webp'],
+    ['Add a task to a column', 'board-add.webp'],
+    ['Read a project card', 'projects-card.webp'],
+    ['Add people and an agenda', 'meetings-people.webp'],
+    ['End the meeting', 'meetings-end.webp'],
+    ['Follow up', 'meetings-follow-up.webp'],
+    ['Edit, delete or mute', 'chat-actions.webp'],
+    ['Filter by project or person', 'reports-filter.webp'],
+    ['Pick a period', 'reports-period.webp'],
+    ['Export', 'reports-export.webp'],
+    ['When someone leaves', 'admin-deactivate.webp'],
+    ['Third Party and Companies', 'admin-clients.webp'],
+    ['AI Management', 'admin-ai.webp'],
+    ['Check what happened', 'admin-logs.webp'],
+    ['Ask a question or share a file', 'portal-comment.webp'],
+    ['Notices and your password', 'portal-notices.webp'],
+  ];
+  /**
+   * Still without a picture, on purpose: the same screen as the step before (Fill in the details, Save it, One day at a
+   * time, Name it, Choose the status…, Create it, Choose how they get in, Send a message, Find your chats again), an
+   * action rather than a still screen (Use the keyboard, Move a task to another day), a list the browser draws itself
+   * (Finish the task: the Status list), or an AI answer, which no picture ever shows.
+   */
+  const NO_PICTURE = [
+    'Fill in the details',
+    'Save it',
+    'Finish the task',
+    'One day at a time',
+    'Use the keyboard',
+    'Name it',
+    'Choose the status, owner and team',
+    'Create it',
+    'Move a task to another day',
+    'Send a message',
+    'Check the answer',
+    'Changes only when you confirm',
+    'Find your chats again',
+    'Choose how they get in',
+  ];
+  const all = () => STARTER_COURSES.flatMap((c) => steps(c));
+
+  it('each of the 19 steps shows its new picture (one step each, a file of its own)', () => {
+    for (const [title, image] of NEW_PICTURES) {
+      const found = all().filter((s) => s.title === title);
+      expect(found, title).toHaveLength(1);
+      expect(found[0]!.image, title).toBe(image);
+    }
+    expect(new Set(NEW_PICTURES.map(([, image]) => image)).size).toBe(NEW_PICTURES.length);
+    for (const [, image] of NEW_PICTURES) expect(all().filter((s) => s.image === image), image).toHaveLength(1);
+  });
+
+  it('only the steps with no distinct still screen are left without a picture', () => {
+    expect(all().filter((s) => !s.image).map((s) => s.title).sort()).toEqual([...NO_PICTURE].sort());
+  });
+
+  it('the new descriptions say what the pictures show', () => {
+    const alt = (image: string) => all().find((s) => s.image === image)?.alt ?? '';
+    expect(alt('start-learning-hub.webp')).toMatch(/My learning/);
+    expect(alt('start-learning-hub.webp')).toMatch(/Continue/);
+    expect(alt('meetings-follow-up.webp')).toMatch(/From meeting/);
+    expect(alt('admin-deactivate.webp')).toMatch(/Deactivate/);
+    expect(alt('admin-logs.webp')).toMatch(/Audit Logs/);
+    expect(alt('portal-notices.webp')).toMatch(/Change password/);
+  });
+});
+
+/**
+ * 1.23.33 (revision 4): the full Learning Hub check read every lesson against the site of 1.23.32. Its words now say
+ * what the site shows; the pictures were retaken with sample names only (owner rule 13 Nov: Contoso Engineering,
+ * Fabrikam Logistics, Northwind Trading — never a real company).
+ */
+describe('starter content revision 4: the words match the site', () => {
+  const stepOf = (module: string, title: string): StarterStep => {
+    const s = guideSteps(lessonsOf(module)).find((x) => x.title === title);
+    if (!s) throw new Error(`no step ${title}`);
+    return s;
+  };
+  const quizOf = (module: string): StarterQuestion[] => lessonsOf(module).flatMap((l) => (l.kind === 'QUIZ' ? l.quiz.questions : []));
+
+  it('Tasks: the details panel’s people are under Assigned (the New task window keeps Assignees)', () => {
+    expect(stepOf('module:tasks', 'Change the status, priority or date').body).toContain('<strong>Assigned</strong>');
+    expect(stepOf('module:tasks', 'Change the status, priority or date').body).not.toContain('Assignees');
+    expect(stepOf('module:tasks', 'Fill in the details').body).toContain('<strong>Assignees</strong>');
+  });
+
+  it('Tasks: the project and column are filled in for you; the title is the one thing you must type', () => {
+    expect(stepOf('module:tasks', 'Fill in the details').body).toMatch(/<strong>Column<\/strong>/);
+    expect(stepOf('module:tasks', 'Fill in the details').body).toMatch(/only thing you must type/);
+    const q = quizOf('module:tasks').find((x) => /what must you type/.test(x.prompt));
+    expect(q?.options.filter((o) => o.correct).map((o) => o.text)).toEqual(['Only the task title']);
+  });
+
+  it('Your settings: the password is on Your profile, Settings holds notifications and Calendar & dates', () => {
+    const s = stepOf('module:getting-started', 'Your settings');
+    expect(s.body).toContain('<strong>Your profile</strong>');
+    expect(s.body).toContain('<strong>Calendar &amp; dates</strong>');
+    expect(s.body).not.toMatch(/Settings<\/strong> to change your profile, password/);
+    expect(courseText(training())).not.toMatch(/password is changed in Settings/);
+  });
+
+  it('The Learning Hub step: the built-in course, and other courses your company may add', () => {
+    const s = stepOf('module:getting-started', 'The Learning Hub');
+    expect(s.body).not.toMatch(/has one course/);
+    expect(s.body).toMatch(/other courses/);
+  });
+
+  it('Kanban: an overdue card shows a red Overdue badge', () => {
+    expect(stepOf('module:board', 'Read a card').body).toContain('<strong>Overdue</strong>');
+    expect(courseText(training())).not.toMatch(/A red date means/);
+  });
+
+  it('Projects: the status tabs start with All', () => {
+    expect(stepOf('module:projects', 'Open Projects').body).toMatch(/<strong>All<\/strong>, <strong>Active<\/strong>/);
+  });
+
+  it('Calendar quiz: “On which day does a task show?” agrees with the step (a task with a start date is a bar); prompt and options kept', () => {
+    const q = quizOf('module:calendar').find((x) => x.prompt === 'On which day does a task show on the calendar?')!;
+    expect(q.options.map((o) => o.text)).toEqual(['On its due date', 'On the day it was created', 'On the first day of the month', 'Only on today']);
+    expect(q.options[0]!.feedback).toMatch(/bar from its start to its due date/);
+    expect(q.explanation).toMatch(/bar from its start to its due date/);
+  });
+
+  it('Calendar: a task with a start date is a bar, dragging moves its dates, Show picks meetings (not More filters)', () => {
+    expect(stepOf('module:calendar', 'Open the calendar').body).toMatch(/start date/);
+    const move = stepOf('module:calendar', 'Move a task to another day').body;
+    expect(move).toMatch(/⚑/);
+    expect(move).toMatch(/<strong>Undo<\/strong>/);
+    const see = stepOf('module:calendar', 'Choose what you see');
+    expect(see.body).toContain('<strong>Show</strong>');
+    expect(see.body).not.toMatch(/completed tasks and meetings/);
+    expect(see.alt).not.toMatch(/Show meetings/);
+    expect(see.alt).toMatch(/Show tasks of archived projects/);
+  });
+
+  it('Admin settings: System Settings lists its cards in the page’s order, with Companies and the Error log; Training manager is taught', () => {
+    const sys = stepOf('module:admin', 'System Settings');
+    const order = ['Notification &amp; Scheduling', 'KPI targets', 'Companies', 'Task carry-forward', 'Weekly management summary', 'Accounts', 'Learning Hub', 'Daily email', 'Backups', 'Error log'];
+    let at = -1;
+    for (const w of order) {
+      const i = sys.body.indexOf(w);
+      expect(i, w).toBeGreaterThan(at);
+      at = i;
+    }
+    expect(sys.alt).toMatch(/Companies/);
+    expect(stepOf('module:admin', 'Change an account').body).toContain('<strong>Training manager</strong>');
+  });
+
+  it('small facts: Chat’s badge leaves out muted and archived conversations; N opens a page’s own New…', () => {
+    expect(courseText(training())).toMatch(/muted and archived conversations aren’t counted/);
+    expect(stepOf('module:tasks', 'Start a new task').body).toMatch(/<strong>N<\/strong> on most pages/);
+  });
+
+  it('no real company or client name anywhere in the words (sample names only)', () => {
+    for (const c of STARTER_COURSES) expect(courseText(c)).not.toMatch(/\b(gulf energy|oxy|pdo|petroleum development|occidental|prolens)\b/i);
   });
 });

@@ -55,13 +55,14 @@ export function VerifyPage() {
           <span className="flex">
             <BrandLogo className="h-10" />
           </span>
-          <Link to={signedIn ? '/training' : '/login'} className="tap text-sm font-semibold text-brand hover:underline">
+          <Link to={signedIn ? '/training' : '/login'} className="tap inline-flex items-center text-sm font-semibold text-brand hover:underline [@media(pointer:coarse)]:!min-h-11">
             {signedIn ? 'Learning Hub' : 'Sign in'}
           </Link>
         </div>
         <section className="rounded-2xl border border-line bg-surface p-5 shadow-soft sm:p-8">
           <PageTitle title="Check a certificate" />
           <p className="mt-1 text-sm text-ink-2">Enter the code printed on a MICO360 Tasks training certificate to see whether it is valid.</p>
+          {/* A column on a phone (the box keeps its 44 px: flex-1 there squeezed it to the 32 px touch floor), a row from sm. */}
           <form onSubmit={submit} className="mt-4 flex flex-col gap-2 sm:flex-row">
             <label htmlFor={`${id}-code`} className="sr-only">
               Certificate code
@@ -74,7 +75,7 @@ export function VerifyPage() {
               autoComplete="off"
               spellCheck={false}
               maxLength={40}
-              className="h-11 min-w-0 flex-1 rounded-xl border border-line bg-surface px-3 font-mono text-sm uppercase text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/30"
+              className="h-11 w-full min-w-0 rounded-xl border sm:w-auto sm:flex-1 border-line bg-surface px-3 font-mono text-sm uppercase text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/30"
             />
             <Button type="submit" className="!min-h-11">
               Check

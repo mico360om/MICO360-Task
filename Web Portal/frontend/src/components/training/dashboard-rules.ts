@@ -15,12 +15,14 @@ export const MAIN_ACTION_WORDS: Record<MainAction, string> = { start: 'Start', c
 /**
  * The one main button: Start when nothing is done, Continue when part done (or modules are new for their role), Review
  * when the course is finished (a review of changed lessons too: the chip says "Review the changes"). A retake starts
- * again: Start until a lesson of the new round is done.
+ * again: Start until a lesson of the new round is done. 1.23.34: a course not theirs any more with lessons done (an
+ * assignment withdrawn part-way, offered again) is Continue — its call starts it again, then opens where they stopped.
  */
 export function mainAction(mine: Pick<MyCourseState, 'enrolled' | 'status' | 'progressPct' | 'lessonsDone' | 'newForRole'>): MainAction {
   if (mine.status === 'COMPLETED') return mine.newForRole > 0 ? 'continue' : 'review';
   if (mine.status === 'REVIEW') return 'review';
-  if (!mine.enrolled || mine.status === 'NOT_STARTED') return 'start';
+  if (!mine.enrolled) return mine.status === 'IN_PROGRESS' && mine.lessonsDone > 0 ? 'continue' : 'start';
+  if (mine.status === 'NOT_STARTED') return 'start';
   if (mine.status === 'RETAKE' && mine.progressPct === 0 && mine.lessonsDone === 0) return 'start';
   return 'continue';
 }

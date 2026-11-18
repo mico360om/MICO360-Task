@@ -37,6 +37,9 @@ describe('a video lesson: YouTube through its embed’s messages (no YouTube scr
     const onDone = vi.fn();
     const { container } = renderOnSide(<VideoLesson lesson={lesson({ kind: 'VIDEO', video: YT, progress: { done: false, videoSeconds: 10, watchedPct: 0, stepIndex: 0 } })} onDone={onDone} />, { api });
     const frame = container.querySelector('iframe')!;
+    // 1.23.36: plain words from the start, with a slim bar of how much is watched (the 90 % rule itself is unchanged).
+    expect(screen.getByText('Watch to the end to finish this lesson')).toBeInTheDocument();
+    expect(screen.getByRole('progressbar', { name: 'Watched' })).toHaveAttribute('aria-valuenow', '0');
     const src = new URL(frame.src);
     expect(src.origin + src.pathname).toBe('https://www.youtube-nocookie.com/embed/abcdefghijk');
     expect(src.searchParams.get('enablejsapi')).toBe('1');
@@ -64,18 +67,20 @@ describe('a video lesson: YouTube through its embed’s messages (no YouTube scr
     send({ event: 'infoDelivery', info: { currentTime: 15 } });
     expect(api.saveProgress).toHaveBeenCalledTimes(2);
     expect(api.saveProgress).toHaveBeenLastCalledWith('l2', { videoSeconds: 15, videoDuration: 100, watchedPct: 5 });
-    expect(screen.getByText('Watched 5% — the lesson is done at 90%.')).toBeInTheDocument();
+    expect(screen.getByRole('progressbar', { name: 'Watched' })).toHaveAttribute('aria-valuenow', '5');
+    expect(screen.getByText('Watch to the end to finish this lesson')).toBeInTheDocument();
+    expect(screen.queryByText(/90/)).toBeNull();
 
     // Messages from anywhere else are ignored: another origin, or YouTube's origin from another window (or none).
     send({ event: 'infoDelivery', info: { currentTime: 16 } }, 'https://evil.example');
-    expect(screen.getByText('Watched 5% — the lesson is done at 90%.')).toBeInTheDocument();
+    expect(screen.getByRole('progressbar', { name: 'Watched' })).toHaveAttribute('aria-valuenow', '5');
     const other = document.createElement('iframe');
     document.body.appendChild(other);
     for (const source of [other.contentWindow, null, window]) {
       act(() => void window.dispatchEvent(new MessageEvent('message', { data: JSON.stringify({ event: 'infoDelivery', info: { currentTime: 16 } }), origin: 'https://www.youtube-nocookie.com', source })));
     }
     other.remove();
-    expect(screen.getByText('Watched 5% — the lesson is done at 90%.')).toBeInTheDocument();
+    expect(screen.getByRole('progressbar', { name: 'Watched' })).toHaveAttribute('aria-valuenow', '5');
     expect(api.saveProgress).toHaveBeenCalledTimes(2);
 
     // A jump to the end doesn't count as watching.
@@ -91,7 +96,15 @@ describe('a video lesson: YouTube through its embed’s messages (no YouTube scr
     expect(api.complete).toHaveBeenCalledWith('l2');
     expect(api.saveProgress).toHaveBeenLastCalledWith('l2', expect.objectContaining({ watchedPct: 90 }));
     expect(onDone).toHaveBeenCalledWith(expect.objectContaining({ nextLessonId: 'l3' }));
-    expect(screen.getByText('Watched')).toBeInTheDocument();
+    expect(screen.getByText('Done')).toBeInTheDocument();
+    expect(screen.queryByText('Watch to the end to finish this lesson')).toBeNull();
+    expect(screen.queryByRole('progressbar')).toBeNull();
+  });
+
+  it('a video watched before: “Done” under the player, no bar', () => {
+    renderOnSide(<VideoLesson lesson={lesson({ kind: 'VIDEO', video: YT, progress: { done: true, videoSeconds: 0, watchedPct: 100, stepIndex: 0 } })} onDone={vi.fn()} />, { api: fakeLearner() });
+    expect(screen.getByText('Done')).toBeInTheDocument();
+    expect(screen.queryByRole('progressbar')).toBeNull();
   });
 
   it('the link to open it on YouTube is always there', () => {

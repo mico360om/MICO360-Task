@@ -19,7 +19,6 @@ import { CategoryChips } from '../components/CategoryChip';
 import { RowCategoryChips } from '../components/RowCategoryChips';
 import { GuestCategoryFilterBoxes, type GuestCategoryFilterState } from '../components/GuestCategoryFilters';
 import { EMPTY_GUEST_CATEGORY_FILTERS, guestCategoryFiltersActive, matchesGuestCategory } from '../lib/guest-category-filter';
-import { NewTaskButton } from '../components/NewTaskButton';
 import { statusMeta, STATUS_ORDER } from '../lib/taskStatus';
 import { taskRef, useBulkSelection, type SelRef } from '../lib/bulk-selection';
 import { SelectAllBox, TaskSelectBox } from '../components/bulk/select-boxes';
@@ -345,7 +344,6 @@ export function MyTasksPage() {
         title="My Tasks"
         learn="tasks"
         subtitle="Everything assigned to you, across every project."
-        actions={<NewTaskButton onCreated={() => tasksQ.refetch()} />}
       />
 
       {/* Tasks waiting for my approval (people who run a project, and admins). */}

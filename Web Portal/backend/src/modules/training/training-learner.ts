@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { HttpError, ValidationError } from '../../lib/http-errors';
 import { CLIENT_WORDS } from '../clients/client-kind';
+import { resolveBrand } from '../email/brand';
 import { canLearn, inScope, isManager, moduleShown } from './training-access';
 import { buildCertificatePdf, certificateFileName } from './training-certificate-pdf';
 import { certificateStatus, normaliseCode, verifyLink } from './training-certificates';
@@ -15,6 +16,7 @@ import { lessonOutline, type OutlineItem } from './training-state';
 import type { TrainingSync } from './training-sync';
 import {
   DIFFICULTIES,
+  type EnrolmentStatus,
   FEEDBACK_KINDS,
   LIMITS,
   ONE_COURSE_KEY,
@@ -46,6 +48,7 @@ import {
   type VerifyResult,
 } from './training-types';
 import { videoInfo } from './training-video';
+import { CLIENT_GUIDE_KEY, USER_TRAINING_KEY } from './starter/starter-courses';
 
 /**
  * Taking training (owner request; rulings R1–R3, R6, R9–R12, R15): My training, the catalogue, a course, its
@@ -211,11 +214,25 @@ const LAUNCHED_KEY = 'training.launchedAt';
 const TOUR_KEY = 'training.tour';
 const DUMMY_CODE = 'TC-2222-2222-2222';
 
-/** `oneCourseKey`: the conversion record's settings key (tests use their own). */
-export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync, o: { oneCourseKey?: string } = {}) {
+/**
+ * 1.23.34 (owner 14 Nov, "Show the course as Up next"): is the built-in course offered to this person as an optional
+ * Up next? Only when it is published and theirs to take, isn't on their lists already (an active enrolment: started,
+ * assigned or finished — it shows there as before), isn't assigned (offered, it is never mandatory or due), has lessons
+ * of theirs (their own modules only), and they haven't finished it (a review or a retake comes after finishing).
+ */
+export function offersBuiltIn(i: { published: boolean; learnable: boolean; listed: boolean; assigned: boolean; lessonCount: number; status: EnrolmentStatus }): boolean {
+  return i.published && i.learnable && !i.listed && !i.assigned && i.lessonCount > 0 && (i.status === 'NOT_STARTED' || i.status === 'IN_PROGRESS');
+}
+
+/**
+ * `oneCourseKey`: the conversion record's settings key; `builtInKeys`: the starter keys of the course My training
+ * offers each side (tests use their own).
+ */
+export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync, o: { oneCourseKey?: string; builtInKeys?: Partial<Record<LearnerMode, string>> } = {}) {
   const { prisma } = ctx;
   const finish = createTrainingFinish(ctx);
   const oneCourseKey = o.oneCourseKey ?? ONE_COURSE_KEY;
+  const builtInKey: Record<LearnerMode, string> = { staff: o.builtInKeys?.staff ?? USER_TRAINING_KEY, client: o.builtInKeys?.client ?? CLIENT_GUIDE_KEY };
   /** The person already loaded, for the state reads (a course with modules is read as they see it). */
   const asked = (p: PersonRecord) => new Map([[p.id, p]]);
 
@@ -352,8 +369,31 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync, 
 
   // ── Cards ──
 
-  async function certificateRefs(rows: { id: string; code: string; courseId: string; courseTitle: string; issuedAt: Date; expiresAt: Date | null; revokedAt: Date | null; learnerName?: string; completedAt?: Date | null }[]): Promise<CertificateRef[]> {
+  /** A certificate as the website shows it; with 1.23.35's fields for the on-screen certificate (the PDF's facts and company). */
+  type CertificateRow = {
+    id: string;
+    code: string;
+    courseId: string;
+    courseTitle: string;
+    issuedAt: Date;
+    expiresAt: Date | null;
+    revokedAt: Date | null;
+    learnerName?: string;
+    completedAt?: Date | null;
+    companyId?: string | null;
+    scorePct?: number | null;
+    issuerName?: string | null;
+    issuerTitle?: string | null;
+    revokedReason?: string | null;
+  };
+  async function certificateRefs(rows: CertificateRow[]): Promise<CertificateRef[]> {
     const now = ctx.clock();
+    // Each company once (a person has a few certificates); a brand that can't be read is the site's.
+    const companies = new Map<string | null, { name: string; logoUrl: string | null }>();
+    for (const id of new Set(rows.map((c) => c.companyId ?? null))) {
+      const b = ctx.screenBrand ? await ctx.screenBrand(id).catch(() => null) : null;
+      companies.set(id, { name: b?.companyName?.trim() || resolveBrand().companyName, logoUrl: b?.logoUrl ?? null });
+    }
     return rows.map((c) => ({
       id: c.id,
       code: c.code,
@@ -365,6 +405,12 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync, 
       completedAt: (c.completedAt ?? c.issuedAt).toISOString(),
       learnerName: c.learnerName ?? '',
       verifyUrl: verifyLink(ctx.appUrl, c.code),
+      scorePct: c.scorePct ?? null,
+      issuerName: c.issuerName ?? null,
+      issuerTitle: c.issuerTitle ?? null,
+      revokedAt: iso(c.revokedAt),
+      revokedReason: c.revokedAt ? (c.revokedReason ?? null) : null,
+      company: companies.get(c.companyId ?? null)!,
     }));
   }
 
@@ -446,9 +492,27 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync, 
     return out;
   }
 
+  /**
+   * 1.23.34: the built-in course of this side (found by its starter key, never by its title) as an optional Up next
+   * (offersBuiltIn), read as the person sees it (`loadState`: only reads — nothing is settled or written for an
+   * offered course); null when not offered. A course on their lists, unpublished or not theirs isn't read further.
+   */
+  async function suggestedOf(p: PersonRecord, mode: LearnerMode, listed: ReadonlySet<string>): Promise<CourseCard | null> {
+    const course = await prisma.trainingCourse.findUnique({ where: { starterKey: builtInKey[mode] }, select: COURSE });
+    if (!course || listed.has(course.id)) return null;
+    const published = course.status === 'PUBLISHED';
+    const theirs = learnable(course, p, mode);
+    if (!published || !theirs) return null;
+    const state = await loadState(ctx, p.id, course.id, p);
+    const e = state.enrolment;
+    if (!offersBuiltIn({ published, learnable: theirs, listed: !!e && !e.withdrawnAt, assigned: state.state.assigned, lessonCount: state.lessons.length, status: state.state.status })) return null;
+    return (await cardsFor(p, [course], new Map([[pairKey(p.id, course.id), state]]))).get(course.id) ?? null;
+  }
+
   async function myTrainingOf(p: PersonRecord, mode: LearnerMode): Promise<MyTraining> {
     const list = await myCourses(p, mode);
     const cards = await cardsFor(p, list.map((x) => x.course), new Map(list.map((x) => [pairKey(p.id, x.course.id), x.state])));
+    const suggested = await suggestedOf(p, mode, new Set(list.map((x) => x.course.id)));
     const assigned: CourseCard[] = [];
     const inProgress: CourseCard[] = [];
     const completed: { card: CourseCard; at: number }[] = [];
@@ -477,6 +541,7 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync, 
       inProgress,
       completed: completed.sort((a, b) => b.at - a.at).map((x) => x.card),
       certificates: await certificateRefs(certRows.filter((c) => audiences.get(c.courseId) === AUDIENCE[mode])),
+      suggested,
     };
   }
 
@@ -1121,6 +1186,7 @@ export function createTrainingLearner(ctx: TrainingContext, sync: TrainingSync, 
           signature,
           verifyUrl: verifyLink(ctx.appUrl, c.code),
           status: certificateStatus(c, now),
+          revokedAt: c.revokedAt,
           revokedReason: c.revokedReason,
           company: brand,
           timeZone: ctx.timeZone,

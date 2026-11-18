@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 
 /**
  * The app ships its own fonts. Loading them from another site (Google Fonts) stalled every page
@@ -38,9 +39,19 @@ describe('fonts are bundled with the app', () => {
     expect(faces.length).toBeGreaterThan(0);
     for (const face of faces) {
       expect(face).toMatch(/font-display:\s*swap/);
-      const file = /url\(['"]?(\.\/assets\/fonts\/[^'")]+\.woff2)['"]?\)/.exec(face)?.[1];
-      expect(file, face.slice(0, 80)).toBeTruthy();
-      expect(existsSync(resolve(root, 'src', file!)), file).toBe(true);
+      // 1.23.35: a face may also be a font file from an installed @expo-google-fonts package (the certificate's Great
+      // Vibes, the same file the server's PDF uses); Vite bundles it like the others.
+      const local = /url\(['"]?(\.\/assets\/fonts\/[^'")]+\.woff2)['"]?\)/.exec(face)?.[1];
+      const pkg = /url\(['"]?(@expo-google-fonts\/[a-z0-9-]+\/[^'")]+\.ttf)['"]?\)/.exec(face)?.[1];
+      expect(local ?? pkg, face.slice(0, 80)).toBeTruthy();
+      if (local) expect(existsSync(resolve(root, 'src', local)), local).toBe(true);
+      else expect(existsSync(createRequire(import.meta.url).resolve(pkg!)), pkg).toBe(true);
     }
+  });
+
+  it('the certificate’s script face comes from its package, with its licence beside the others', () => {
+    const vibes = faces.find((f) => /font-family:\s*'Great Vibes'/.test(f));
+    expect(vibes).toMatch(/url\('@expo-google-fonts\/great-vibes\/400Regular\/GreatVibes_400Regular\.ttf'\)/);
+    expect(existsSync(resolve(root, 'src/assets/fonts/LICENSE-Great-Vibes.txt'))).toBe(true);
   });
 });
