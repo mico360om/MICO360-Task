@@ -1,5 +1,5 @@
 import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type { PrismaClient } from '@prisma/client';
@@ -70,10 +70,11 @@ export function createAvatarFaces(deps: AvatarFacesDeps): AvatarFaces {
   async function write(fileName: string, content: Buffer): Promise<string | null> {
     const face = await deps.toFace(content);
     if (!face) return null;
-    await mkdir(folder, { recursive: true });
-    const path = join(folder, fileName);
+    // 1.23.38: a face mirrors its photo's folders (faces/shared/<YYYY>/<MM>/<person>/profile-photos/…).
+    const path = join(folder, ...fileName.split('/'));
+    await mkdir(dirname(path), { recursive: true });
     // Written whole under another name, then moved into place: a reader never gets half a picture.
-    const part = join(folder, `.${randomUUID()}.part`);
+    const part = join(dirname(path), `.${randomUUID()}.part`);
     try {
       await writeFile(part, face);
       await rename(part, path);
@@ -120,10 +121,10 @@ export function createAvatarFaces(deps: AvatarFacesDeps): AvatarFaces {
     async find(fileName) {
       const original = originalUrlOfFace(fileName);
       if (!original) return null;
-      const path = join(folder, fileName);
+      const path = join(folder, ...fileName.split('/'));
       if (await isFile(path)) return { file: path };
       // No stored photo behind the name: nothing more is asked (a made-up name never reaches the database).
-      if (!(await isFile(join(deps.dir, original.slice('/uploads/'.length))))) return null;
+      if (!(await isFile(join(deps.dir, ...original.slice('/uploads/'.length).split('/'))))) return null;
       // Nothing to try (no picture library, or it failed before): the photo itself, at once.
       if (!canMake() || failed.has(fileName)) return { fallback: original };
       const already = making.get(fileName);
@@ -140,7 +141,7 @@ export function createAvatarFaces(deps: AvatarFacesDeps): AvatarFaces {
       // A copy being made right now is waited for, so it can't land after the delete.
       await making.get(fileName)?.catch(() => null);
       failed.delete(fileName);
-      await removeStoredFile({ remove: (name) => rm(join(folder, name), { force: true }) }, fileName, { logger: { warn }, what: 'a replaced profile photo’s face copy' });
+      await removeStoredFile({ remove: (name) => rm(join(folder, ...name.split('/')), { force: true }) }, fileName, { logger: { warn }, what: 'a replaced profile photo’s face copy' });
     },
   };
 }
@@ -156,10 +157,13 @@ export const FACE_CACHE_CONTROL = 'private, max-age=31536000, immutable';
 /** No copy for now: the photo itself, asked again after an hour (the library may be back). */
 const FALLBACK_CACHE_CONTROL = 'private, max-age=3600';
 
-/** GET /uploads/faces/:file — public like every upload; it takes precedence over the uploads folder's route. */
+/**
+ * GET /uploads/faces/<photo key>.webp — public like every upload; it takes precedence over the uploads
+ * folder's route. 1.23.38: the photo key may have folders; `find` takes only a well-formed one.
+ */
 export async function registerAvatarFaceRoute(app: FastifyInstance, faces: AvatarFaces): Promise<void> {
-  app.get('/uploads/faces/:file', async (req, reply) => {
-    const { file } = req.params as { file: string };
+  app.get('/uploads/faces/*', async (req, reply) => {
+    const file = String((req.params as { '*'?: unknown })['*'] ?? '');
     const found = await faces.find(file);
     if (!found) return reply.code(404).header('Cache-Control', 'no-store').send({ error: { code: 'NOT_FOUND', message: 'Not found.' } });
     if ('fallback' in found) return reply.code(302).header('Cache-Control', FALLBACK_CACHE_CONTROL).header('Location', found.fallback).send();

@@ -1,8 +1,8 @@
 import { mkdir, writeFile, rm, readFile } from 'node:fs/promises';
-import { basename, join } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { dirname, join } from 'node:path';
 import type { AttachmentStorage, UploadedFile } from './attachment-repository';
 import { extensionForMime } from '../../lib/upload-safety';
+import { buildUploadKey, parseUploadKey, uploadUrlOf, type UploadPlace } from '../files/upload-paths';
 
 export interface LocalDiskStorageDeps {
   /** Directory on disk where files are written. */
@@ -16,26 +16,38 @@ export interface LocalDiskStorageDeps {
  * unguessable name whose extension comes from the validated MIME type — never from
  * the uploader's filename, so an upload can't become an .html/.svg page on our
  * origin. Swap this adapter for an S3/GCS one without touching the service.
+ *
+ * 1.23.38 Upload folders: a new file goes to <company>/<YYYY>/<MM>/<uploader>/<type>/<uuid>.<ext>
+ * (modules/files/upload-paths.ts). Files are read and removed only by a key `parseUploadKey` accepts:
+ * those folders, or a 1.23.31 plain name — nothing can reach outside the uploads folder.
  */
 export function createLocalDiskStorage({ baseDir, publicPrefix }: LocalDiskStorageDeps): AttachmentStorage {
-  async function save(file: UploadedFile) {
-    await mkdir(baseDir, { recursive: true });
-    const storageKey = `${randomUUID()}${extensionForMime(file.mimeType)}`;
-    await writeFile(join(baseDir, storageKey), file.content);
+  const pathOf = (storageKey: string): string | null => {
+    const parsed = parseUploadKey(storageKey);
+    return parsed ? join(baseDir, ...parsed.key.split('/')) : null;
+  };
+
+  async function save(file: UploadedFile, place: UploadPlace) {
+    const storageKey = buildUploadKey({ ...place, ext: extensionForMime(file.mimeType) });
+    const path = join(baseDir, ...storageKey.split('/'));
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, file.content);
     return {
       storageKey,
-      url: `${publicPrefix}/${storageKey}`,
+      url: publicPrefix === '/uploads' ? uploadUrlOf(storageKey) : `${publicPrefix}/${storageKey}`,
       sizeBytes: file.content.length,
     };
   }
 
   async function remove(storageKey: string): Promise<void> {
-    await rm(join(baseDir, storageKey), { force: true });
+    const path = pathOf(storageKey);
+    if (path) await rm(path, { force: true });
   }
 
   async function read(storageKey: string): Promise<Buffer> {
-    // Keys are our own random names; basename() keeps a bad key from leaving the folder.
-    return readFile(join(baseDir, basename(storageKey)));
+    const path = pathOf(storageKey);
+    if (!path) throw new Error('Not a stored file’s key.');
+    return readFile(path);
   }
 
   return { save, remove, read };

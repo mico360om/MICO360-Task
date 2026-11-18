@@ -6,8 +6,8 @@
  * older photo the first time it is asked for, and sends the photo itself when it can't.
  */
 
-/** Our stored pictures' keys: a random UUID and the extension of its checked picture type. */
-const PICTURE_KEY = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:png|jpg|jpeg|webp|gif)$/;
+/** Our stored pictures' keys: a random UUID and the extension of its checked picture type (1.23.38: in a profile photo's folders). */
+const PICTURE_KEY = /^(?:[A-Za-z0-9_-]{1,64}\/\d{4}\/(?:0[1-9]|1[0-2])\/[A-Za-z0-9_-]{1,64}\/profile-photos\/)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:png|jpg|jpeg|webp|gif)$/;
 
 /** The face copy's address for a photo, or null when it isn't one of our stored pictures. */
 export function faceUrlOf(avatarUrl: string | null | undefined): string | null {

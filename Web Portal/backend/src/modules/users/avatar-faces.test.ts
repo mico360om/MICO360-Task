@@ -194,3 +194,28 @@ describe('review fix #24: a replaced or removed photo’s face copy is deleted',
     await expect(faces.discard(`/uploads/${KEY}`)).resolves.toBeUndefined(); // already gone: fine
   });
 });
+
+// 1.23.38 Upload folders: a photo at shared/<YYYY>/<MM>/<person>/profile-photos/<uuid>.<ext> has its face at
+// the same folders under faces/, served at /uploads/faces/<photo key>.webp.
+describe('faces of photos in the upload folders', () => {
+  const NESTED = `shared/2026/11/ckuser1/profile-photos/${KEY}`;
+  it('writes, finds, serves and discards a nested face', async () => {
+    mkdirSync(join(dir, 'shared', '2026', '11', 'ckuser1', 'profile-photos'), { recursive: true });
+    writeFileSync(join(dir, ...NESTED.split('/')), 'original');
+    const { faces } = make({
+      readOriginal: vi.fn(async (key: string) => (key === NESTED ? Buffer.from('original') : Promise.reject(new Error('gone')))),
+      isAvatar: vi.fn(async (url: string) => url === `/uploads/${NESTED}`),
+    });
+    // Made on the first request (a photo moved into its folders has no face copy there yet).
+    expect(await faces.find(`${NESTED}.webp`)).toEqual({ file: join(dir, 'faces', ...NESTED.split('/')) + '.webp' });
+    const app = Fastify();
+    await registerAvatarFaceRoute(app, faces);
+    const res = await app.inject({ method: 'GET', url: `/uploads/faces/${NESTED}.webp` });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toBe('face-webp');
+    expect((await app.inject({ method: 'GET', url: `/uploads/faces/shared/2026/11/ckuser1/profile-photos/../../../../${KEY}.webp` })).statusCode).toBe(404);
+    await faces.discard(`/uploads/${NESTED}`);
+    expect(existsSync(join(dir, 'faces', ...NESTED.split('/')) + '.webp')).toBe(false);
+    await app.close();
+  });
+});

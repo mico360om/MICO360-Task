@@ -1,6 +1,6 @@
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { buildUploadKey, parseUploadKey } from '../files/upload-paths';
 import { ValidationError } from '../../lib/http-errors';
 import { sniffMime } from '../../lib/magic-mime';
 import { extensionForMime, fileContentMismatchMessage, fileTooLargeMessage, fileTypeNotAllowedMessage, safeUploadName } from '../../lib/upload-safety';
@@ -73,8 +73,11 @@ export function checkTrainingUpload(file: TrainingUpload, kind: FileKind): { mim
 }
 
 export interface TrainingFileStore {
-  /** Writes the bytes under a new random key (extension from the checked type); returns the key. */
-  save(content: Buffer, mimeType: string): Promise<string>;
+  /**
+   * Writes the bytes under a new random key (extension from the checked type); returns the key. 1.23.38:
+   * shared/<YYYY>/<MM>/<uploader | system>/learning-hub/<uuid>.<ext> (modules/files/upload-paths.ts).
+   */
+  save(content: Buffer, mimeType: string, uploaderId?: string | null): Promise<string>;
   read(storageKey: string): Promise<Buffer>;
   remove(storageKey: string): Promise<void>;
   readonly dir: string;
@@ -83,20 +86,23 @@ export interface TrainingFileStore {
 export function createTrainingFileStore(dir: string): TrainingFileStore {
   return {
     dir,
-    async save(content, mimeType) {
-      await mkdir(dir, { recursive: true });
-      const key = `${randomUUID()}${extensionForMime(mimeType)}`;
-      await writeFile(join(dir, key), content);
+    async save(content, mimeType, uploaderId) {
+      const key = buildUploadKey({ companyId: null, userId: uploaderId ?? null, type: 'learning-hub', ext: extensionForMime(mimeType) });
+      const path = join(dir, ...key.split('/'));
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, content);
       return key;
     },
     async read(storageKey) {
-      // Keys are our own random names; basename() keeps a bad key from leaving the folder.
-      if (basename(storageKey) !== storageKey) throw new Error('Not a training file key.');
-      return readFile(join(dir, storageKey));
+      // Only a key this server makes (folders, or a 1.23.31 plain name): a bad key can't leave the folder.
+      const parsed = parseUploadKey(storageKey);
+      if (!parsed) throw new Error('Not a training file key.');
+      return readFile(join(dir, ...parsed.key.split('/')));
     },
     async remove(storageKey) {
-      if (basename(storageKey) !== storageKey) return;
-      await rm(join(dir, storageKey), { force: true });
+      const parsed = parseUploadKey(storageKey);
+      if (!parsed) return;
+      await rm(join(dir, ...parsed.key.split('/')), { force: true });
     },
   };
 }

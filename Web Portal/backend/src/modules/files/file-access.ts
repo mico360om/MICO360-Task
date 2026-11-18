@@ -1,4 +1,6 @@
 import type { PrismaClient } from '@prisma/client';
+import { parseUploadKey } from './upload-paths';
+import { PROJECT_COMPANY_SELECT } from './upload-places';
 
 /**
  * 1.23.29 Private file links (design §7.2): what a stored file under /uploads is, and whether a person may
@@ -22,11 +24,22 @@ export interface FileChatRow {
   deleted: boolean;
 }
 
-export type FileClass = { kind: 'unknown' } | { kind: 'public' } | { kind: 'protected'; taskIds: string[]; chats: FileChatRow[] };
+export type FileClass =
+  | { kind: 'unknown' }
+  | { kind: 'public' }
+  | {
+      kind: 'protected';
+      taskIds: string[];
+      chats: FileChatRow[];
+      /** 1.23.38: the companies of the projects behind the file's rows (absent: not read). */
+      companyIds?: string[];
+    };
 
 export interface FileRowsStore {
   /** The task and chat rows that keep this stored file (none: not a task's or a chat's file). */
-  rowsOf(storageKey: string): Promise<{ taskIds: string[]; chats: FileChatRow[] }>;
+  rowsOf(storageKey: string): Promise<{ taskIds: string[]; chats: FileChatRow[]; companyIds?: string[] }>;
+  /** 1.23.38 Upload folders: the key an old name moved to (file_key_aliases), or null. */
+  aliasOf?(storageKey: string): Promise<string | null>;
   /** Is this '/uploads/<key>' someone's current photo, a project's picture or a company's logo? */
   isPublicPicture(url: string): Promise<boolean>;
   /** The task is not in the Recycle Bin and its project is not deleted. */
@@ -47,11 +60,19 @@ export interface FileAccessDeps {
    * seconds, as the decisions: an undone merge moves a file's rows back, an erase removes them (review, 1.23.29).
    */
   protectedTtlMs?: number;
+  /**
+   * 1.23.38 Upload folders: the person's active companies, for the company in a file's path (absent: none,
+   * so only the file's own projects' companies and administrators pass).
+   */
+  companiesOf?: (userId: string) => Promise<string[]>;
   /** How long a person's "may open" is remembered, per task or conversation. Default 10 seconds. */
   decisionTtlMs?: number;
   /** Most entries in each memory. Default 10,000. */
   maxEntries?: number;
 }
+
+/** How many times an old name is followed through file_key_aliases. */
+const MAX_ALIAS_HOPS = 5;
 
 /** A small memory with a time limit per entry; the least recently used go first when it is full. */
 function ttlCache<V>(ttlMs: number, max: number, now: () => number) {
@@ -103,14 +124,56 @@ export function createFileAccess(deps: FileAccessDeps) {
   function classify(storageKey: string): Promise<FileClass> {
     return kinds.get(storageKey, async () => {
       const rows = await deps.store.rowsOf(storageKey);
-      if (rows.taskIds.length > 0 || rows.chats.length > 0) return { kind: 'protected', taskIds: [...new Set(rows.taskIds)], chats: rows.chats };
+      if (rows.taskIds.length > 0 || rows.chats.length > 0) {
+        return { kind: 'protected', taskIds: [...new Set(rows.taskIds)], chats: rows.chats, ...(rows.companyIds ? { companyIds: [...new Set(rows.companyIds)] } : {}) };
+      }
       return (await deps.store.isPublicPicture(`/uploads/${storageKey}`)) ? { kind: 'public' } : { kind: 'unknown' };
     }, undefined, kindTtl);
   }
 
-  /** May this person open a protected file now: any row that keeps it lets them in. */
-  async function mayOpen(person: { id: string; roles: string[] }, file: FileClass): Promise<boolean> {
+  /**
+   * 1.23.38 Upload folders (design "Old links"): the file a name stands for — itself, or, for a name nobody
+   * keeps, the key it moved to (followed at most a few times: a file re-filed after its project moved).
+   */
+  async function resolve(storageKey: string): Promise<{ file: string; kind: FileClass }> {
+    const seen = new Set<string>();
+    let key = storageKey;
+    for (let hop = 0; hop < MAX_ALIAS_HOPS; hop++) {
+      seen.add(key);
+      const kind = await classify(key);
+      if (kind.kind !== 'unknown' || !deps.store.aliasOf) return { file: key, kind };
+      const next = await deps.store.aliasOf(key);
+      if (!next || seen.has(next) || !parseUploadKey(next)) break;
+      key = next;
+    }
+    return { file: storageKey, kind: { kind: 'unknown' } };
+  }
+
+  /**
+   * 1.23.38 Upload folders (design "Access"): the company in the path is one this person may see — an
+   * administrator; `shared` or a plain name; one of their active companies; or one of the companies of the
+   * project behind the file (a team member from a second company of a shared project).
+   */
+  async function companyAllowed(person: { id: string; roles: string[] }, file: FileClass & { kind: 'protected' }, fileKey: string): Promise<boolean> {
+    const parsed = parseUploadKey(fileKey);
+    if (!parsed) return false;
+    if (parsed.companyId === null || person.roles.includes('ADMIN')) return true;
+    if (file.companyIds?.includes(parsed.companyId)) return true;
+    const mine = deps.companiesOf ? await deps.companiesOf(person.id) : [];
+    return mine.includes(parsed.companyId);
+  }
+
+  /**
+   * May this person open a protected file now: any row that keeps it lets them in — and (1.23.38, when the
+   * file's key is given) the company in its path is one they may see.
+   */
+  async function mayOpen(person: { id: string; roles: string[] }, file: FileClass, fileKey?: string): Promise<boolean> {
     if (file.kind !== 'protected') return false;
+    if (!(await rowAllows(person, file))) return false;
+    return fileKey === undefined ? true : companyAllowed(person, file, fileKey);
+  }
+
+  async function rowAllows(person: { id: string; roles: string[] }, file: FileClass & { kind: 'protected' }): Promise<boolean> {
     for (const taskId of file.taskIds) {
       // Both checks: canViewTask lets an administrator through a binned task; the Bin shows names and sizes only.
       const ok = await decisions.get(`${person.id}|t|${taskId}`, async () => (await deps.store.taskIsLive(taskId)) && (await deps.canViewTask(person.id, person.roles, taskId)), yes);
@@ -132,7 +195,7 @@ export function createFileAccess(deps: FileAccessDeps) {
     decisions.forget(userId === undefined ? undefined : `${userId}|`);
   }
 
-  return { classify, mayOpen, forget };
+  return { classify, resolve, mayOpen, forget };
 }
 
 export type FileAccess = ReturnType<typeof createFileAccess>;
@@ -142,12 +205,26 @@ export function createPrismaFileRowsStore(prisma: PrismaClient): FileRowsStore {
   return {
     async rowsOf(storageKey) {
       const [tasks, chats] = await Promise.all([
-        prisma.attachment.findMany({ where: { storageKey }, select: { taskId: true } }),
-        prisma.chatAttachment.findMany({ where: { storageKey }, select: { message: { select: { conversationId: true, deletedAt: true } } } }),
+        prisma.attachment.findMany({ where: { storageKey }, select: { taskId: true, task: { select: { projectId: true } } } }),
+        prisma.chatAttachment.findMany({
+          where: { storageKey },
+          select: { message: { select: { conversationId: true, deletedAt: true, conversation: { select: { projectId: true } } } } },
+        }),
       ]);
+      // 1.23.38: the companies of the projects behind the rows (the company check in the path).
+      const projectIds = [
+        ...new Set([...tasks.map((t) => t.task?.projectId), ...chats.map((c) => c.message.conversation?.projectId)].filter((id): id is string => !!id)),
+      ];
+      const projects = projectIds.length ? await prisma.project.findMany({ where: { id: { in: projectIds } }, select: PROJECT_COMPANY_SELECT }) : [];
+      const companyIds = new Set<string>();
+      for (const p of projects) {
+        if (p.mainCompanyId) companyIds.add(p.mainCompanyId);
+        for (const c of p.companies) companyIds.add(c.companyId);
+      }
       return {
         taskIds: tasks.map((t) => t.taskId),
         chats: chats.map((c) => ({ conversationId: c.message.conversationId, deleted: c.message.deletedAt !== null })),
+        companyIds: [...companyIds],
       };
     },
     async isPublicPicture(url) {
@@ -158,6 +235,10 @@ export function createPrismaFileRowsStore(prisma: PrismaClient): FileRowsStore {
         prisma.company.findFirst({ where: { logoUrl: url }, select: { id: true } }),
       ]);
       return user !== null || project !== null || company !== null;
+    },
+    async aliasOf(storageKey) {
+      const row = await prisma.fileKeyAlias.findFirst({ where: { area: 'uploads', oldKey: storageKey }, select: { newKey: true } });
+      return row?.newKey ?? null;
     },
     async taskIsLive(taskId) {
       const live = await prisma.task.findFirst({ where: { id: taskId, deletedAt: null, project: { is: { deletedAt: null } } }, select: { id: true } });

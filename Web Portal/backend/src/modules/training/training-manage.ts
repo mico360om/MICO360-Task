@@ -940,7 +940,7 @@ export function createTrainingManage(ctx: TrainingContext, sync: TrainingSync, o
         ctx.logger?.warn('training: a picture could not be made smaller (kept as uploaded)', { err: String((err as Error)?.message ?? err) });
       }
     }
-    const storageKey = await ctx.files.save(content, checked.mimeType);
+    const storageKey = await ctx.files.save(content, checked.mimeType, actor.id);
     try {
       const last = courseId ? await prisma.trainingFile.findFirst({ where: { courseId }, orderBy: [{ position: 'desc' }], select: { position: true } }) : null;
       const row = await prisma.trainingFile.create({

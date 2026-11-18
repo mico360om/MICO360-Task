@@ -151,3 +151,21 @@ describe('file links: checking one', () => {
     expect(createFileLinks({ secret: SECRET, minutes: 10, now: () => t0 + 10 * 60_000 }).fresh(short.parse(p.query)!)).toBe(false);
   });
 });
+
+// 1.23.38 Upload folders: a key with folders keeps its slashes in the signed address (the app and the
+// extension accept /uploads/… paths without `..` or a backslash), and is signed over the key itself.
+describe('file links: keys in folders', () => {
+  const NESTED = 'ckco1/2026/11/ckuser1/task-files/1b4e28ba-2d11-4a2e-8c3b-0f5b2b6e9a10.pdf';
+  it('signs and checks a nested key; signUrl signs it and still leaves face copies alone', () => {
+    const links = createFileLinks({ secret: 's', now: () => 1_800_000_000_000 });
+    const link = links.sign(NESTED, { id: 'amal', ver: 0 });
+    expect(link.startsWith(`/uploads/${NESTED}?u=amal&e=`)).toBe(true);
+    expect(isSignedUploadUrl(link)).toBe(true);
+    expect(links.signUrl(`/uploads/${NESTED}`, { id: 'amal', ver: 0 })).toBe(link);
+    expect(links.signUrl(`/uploads/faces/${NESTED}.webp`, { id: 'amal', ver: 0 })).toBe(`/uploads/faces/${NESTED}.webp`);
+    const q = Object.fromEntries(new URL(link, 'http://x').searchParams);
+    const parts = links.parse(q)!;
+    expect(links.verify(NESTED, parts, 0)).toBe(true);
+    expect(links.verify(NESTED.replace('ckco1', 'ckco2'), parts, 0)).toBe(false);
+  });
+});

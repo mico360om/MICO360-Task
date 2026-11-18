@@ -2,6 +2,7 @@ import { ValidationError } from './http-errors';
 import { sniffMime, SNIFFABLE } from './magic-mime';
 import { imageDimensions } from './image-dimensions';
 import type { AttachmentStorage } from '../modules/tasks/attachment-repository';
+import type { UploadPlace } from '../modules/files/upload-paths';
 
 /** Image types accepted for avatars and project images. */
 export const ALLOWED_IMAGE_MIME = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
@@ -35,6 +36,8 @@ export async function storeImageUpload(
   storage: AttachmentStorage,
   file: UploadedImage,
   opts: ImageRules,
+  /** 1.23.38: the picture's folders (profile photo or project picture). */
+  place: UploadPlace,
 ): Promise<{ url: string; storageKey: string }> {
   if (file.content.length === 0) throw new ValidationError('File is empty.');
   if (file.content.length > opts.maxBytes) throw new ValidationError(`Images can be up to ${mb(opts.maxBytes)}; this one is ${mb(file.content.length)}.`);
@@ -55,6 +58,6 @@ export async function storeImageUpload(
       throw new ValidationError(`Images need to be at least ${opts.minSide} × ${opts.minSide} pixels.`);
     }
   }
-  const stored = await storage.save({ filename: file.filename, mimeType: file.mimeType, content: file.content });
+  const stored = await storage.save({ filename: file.filename, mimeType: file.mimeType, content: file.content }, place);
   return { url: stored.url, storageKey: stored.storageKey };
 }

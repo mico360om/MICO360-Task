@@ -28,3 +28,22 @@ describe('a photo’s face copy address', () => {
     expect(FACE_SIDE).toBe(256);
   });
 });
+
+// 1.23.38 Upload folders: a photo kept at shared/<YYYY>/<MM>/<person>/profile-photos/<uuid>.<ext> gets its
+// face copy at the same folders under /uploads/faces/.
+describe('a photo in the upload folders', () => {
+  const NESTED = `shared/2026/11/ckuser1/profile-photos/${KEY}`;
+  it('mirrors the photo’s folders under /uploads/faces/, and goes back', () => {
+    expect(faceUrlOf(`/uploads/${NESTED}`)).toBe(`/uploads/faces/${NESTED}.webp`);
+    expect(originalUrlOfFace(`${NESTED}.webp`)).toBe(`/uploads/${NESTED}`);
+  });
+
+  it('only a profile photo’s folders, and nothing that climbs out', () => {
+    for (const url of [`/uploads/ckco1/2026/11/ckuser1/task-files/${KEY}`, `/uploads/shared/2026/11/ckuser1/profile-photos/../${KEY}`, `/uploads/shared/2026/11/ckuser1/profile-photos/${KEY.replace('.png', '.pdf')}`]) {
+      expect(faceUrlOf(url), url).toBeNull();
+    }
+    for (const name of [`shared/2026/11/ckuser1/task-files/${KEY}.webp`, `shared/2026/11/ckuser1/profile-photos/../../${KEY}.webp`, `shared\\2026\\11\\u\\profile-photos\\${KEY}.webp`]) {
+      expect(originalUrlOfFace(name), name).toBeNull();
+    }
+  });
+});

@@ -273,7 +273,7 @@ export function createCompanyService(deps: CompanyServiceDeps) {
     if (!LOGO_TYPES.includes(mimetype) || buffer.length === 0 || buffer.length > LOGO_MAX_BYTES || sniffMime(buffer) !== mimetype) fail(W.logo);
     const content = deps.shrink ? await deps.shrink(buffer, mimetype) : buffer;
     const storage = deps.storage;
-    const saved = await storage.save({ filename: `company-logo-${id}`, mimeType: mimetype, content });
+    const saved = await storage.save({ filename: `company-logo-${id}`, mimeType: mimetype, content }, { companyId: id, userId: actor.id, type: 'company-logos' });
     let updated: CompanyRecord;
     try {
       updated = await repo.update(id, { logoUrl: saved.url });

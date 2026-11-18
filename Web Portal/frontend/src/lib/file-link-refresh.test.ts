@@ -54,6 +54,10 @@ describe('linkExpiry', () => {
     expect(linkExpiry('/uploads/a.png')).toBeNull();
     expect(linkExpiry('/uploads/faces/a.png.webp')).toBeNull();
     expect(linkExpiry('')).toBeNull();
+    // 1.23.38 Upload folders: a signed file in its company's folders; never a face copy or a path that climbs out.
+    expect(linkExpiry('/uploads/ckco1/2026/11/ckuser1/task-files/a.png?u=x&e=mhx4k0&s=abc')).toBe(parseInt('mhx4k0', 36) * 1000);
+    expect(linkExpiry('/uploads/faces/shared/2026/11/u/profile-photos/a.png.webp?u=x&e=mhx4k0&s=abc')).toBeNull();
+    expect(linkExpiry('/uploads/a/../../b.png?u=x&e=mhx4k0&s=abc')).toBeNull();
   });
 });
 

@@ -1,4 +1,5 @@
 import { createHmac, hkdfSync, timingSafeEqual } from 'node:crypto';
+import { parseUploadKey, uploadUrlOf } from './upload-paths';
 
 /**
  * 1.23.29 Private file links (docs/superpowers/specs/2026-11-13-private-file-links-design.md §7.1).
@@ -36,8 +37,8 @@ const USER_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const EXPIRY = /^[0-9a-z]{1,12}$/;
 /** HMAC-SHA256 in base64url without padding: 43 characters. */
 const SIGNATURE = /^[A-Za-z0-9_-]{43}$/;
-/** A stored task or chat file's address: /uploads/<one name>, nothing more. */
-const STORED_URL = /^\/uploads\/([^/?#\\]+)$/;
+/** A stored task or chat file's address: /uploads/<key> (1.23.38: the key may have folders), nothing more. */
+const STORED_URL = /^\/uploads\/([^?#\\]+)$/;
 
 export interface FileLinkOptions {
   /** The server's secret (JWT_ACCESS_SECRET; FILE_LINK_SECRET when set). A key for file links alone is made from it. */
@@ -67,7 +68,8 @@ export function createFileLinks(opts: FileLinkOptions) {
   /** The signed address of a stored file for this person. */
   function sign(storageKey: string, viewer: FileViewer): string {
     const e = expiry();
-    return `${UPLOADS}${encodeURIComponent(storageKey)}?u=${encodeURIComponent(viewer.id)}&e=${e}&s=${mac(storageKey, viewer.id, e, viewer.ver)}`;
+    // 1.23.38: each folder of the key encoded on its own, so the slashes stay slashes.
+    return `${uploadUrlOf(storageKey)}?u=${encodeURIComponent(viewer.id)}&e=${e}&s=${mac(storageKey, viewer.id, e, viewer.ver)}`;
   }
 
   /** A stored `/uploads/<key>` address, signed; anything else (another site, a face copy, empty) as it is. */
@@ -80,7 +82,8 @@ export function createFileLinks(opts: FileLinkOptions) {
     } catch {
       return url;
     }
-    return sign(storageKey, viewer);
+    // Only a key this server stores (a face copy's /uploads/faces/… address is left as it is).
+    return !storageKey.includes('/') || parseUploadKey(storageKey) ? sign(storageKey, viewer) : url;
   }
 
   /** The link's parts from a request's query, or null when one is missing, repeated or malformed. */
@@ -116,7 +119,7 @@ export type FileLinks = ReturnType<typeof createFileLinks>;
 
 /** Is this an address the server signed (a stored file's path with u, e and s)? */
 export function isSignedUploadUrl(url: string): boolean {
-  return /^\/uploads\/[^/?#\\]+\?u=[A-Za-z0-9_-]+&e=[0-9a-z]+&s=[A-Za-z0-9_-]+$/.test(url);
+  return /^\/uploads\/[^?#\\]+\?u=[A-Za-z0-9_-]+&e=[0-9a-z]+&s=[A-Za-z0-9_-]+$/.test(url);
 }
 
 /** A list of stored files with each `url` signed for the viewer (by its storage key). */

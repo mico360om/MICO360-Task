@@ -107,6 +107,7 @@ import { createImageShrinker } from './lib/image-shrink';
 import { createAvatarFaces, prismaIsAvatar, registerAvatarFaceRoute } from './modules/users/avatar-faces';
 import { createPrismaAttachmentRepository } from './modules/tasks/prisma-attachment-repository';
 import { createLocalDiskStorage } from './modules/tasks/local-disk-storage';
+import { createUploadPlaces } from './modules/files/upload-places';
 import { removeStoredFile } from './lib/stored-files';
 import { createAccessionDayStep } from './modules/notify-policy/accession-day';
 import { createDependencyService } from './modules/tasks/dependency-service';
@@ -653,6 +654,8 @@ async function main(): Promise<void> {
 
   // Shared file storage + allow-list for task AND chat attachments.
   const attachmentStorage = createLocalDiskStorage({ baseDir: env.UPLOAD_DIR, publicPrefix: '/uploads' });
+  // 1.23.38 Upload folders: new files go under their company's folder (modules/files/upload-places.ts).
+  const uploadPlaces = createUploadPlaces(prisma);
   // 1.23.29 Private file links: task and chat files' addresses are signed for the person they are given to
   // (modules/files). The key is made from the server's own secret: no new setting is needed.
   const fileLinks = createFileLinks({ secret: env.FILE_LINK_SECRET.trim() || env.JWT_ACCESS_SECRET, minutes: env.FILE_LINK_MINUTES });
@@ -703,6 +706,7 @@ async function main(): Promise<void> {
     allowedMimeTypes: attachmentAllowedMime,
     maxTotalBytesPerTask: env.UPLOAD_MAX_TOTAL_BYTES_PER_TASK,
     shrinkImage: imageShrinker.shrink,
+    companyOfTask: (taskId) => uploadPlaces.companyOfTask(taskId),
     // 1.23: a file added or removed — its task's files are searched as they are now, and the text in a
     // new file is read in the background (never holding up the upload).
     onChanged: (taskId) => {
@@ -2733,6 +2737,7 @@ async function main(): Promise<void> {
     commentService,
     attachmentService,
     chatAttachmentStorage: attachmentStorage,
+    uploadPlaces,
     avatarFaces,
     attachmentAllowedMime,
     attachmentMaxSizeBytes: env.UPLOAD_MAX_BYTES,
@@ -2950,6 +2955,8 @@ async function main(): Promise<void> {
     store: createPrismaFileRowsStore(prisma),
     canViewTask: (userId, roles, taskId) => projectAccess.canViewTask(userId, roles, taskId),
     canSeeConversation: (conversationId, userId) => chatService.canUserAccessConversation(conversationId, userId),
+    // 1.23.38 Upload folders: the company in a file's path must be one the person may see.
+    companiesOf: (userId) => companyAccess.activeCompanyIds(userId),
   });
   await registerUploads(app, {
     root: uploadsRoot,

@@ -3158,3 +3158,21 @@ model TaskBulkAction {
   @@index([actorId, createdAt])
   @@map("task_bulk_actions")
 }
+
+/// 1.23.38 Upload folders: where an old stored name moved (docs/superpowers/specs/2026-11-18-upload-folders-design.md).
+/// Rows are only added (the move), never changed except `originalRemovedAt` (the 30-day sweep removed the
+/// old copy). `/uploads/<old key>` is found through this table, then checked as the file it moved to.
+model FileKeyAlias {
+  id                String    @id @default(cuid())
+  /// 'uploads' (UPLOAD_DIR, served at /uploads) or 'training' (the private Training folder).
+  area              String    @db.VarChar(16)
+  oldKey            String    @db.VarChar(200)
+  newKey            String    @db.VarChar(200)
+  movedAt           DateTime  @default(now())
+  /// The old copy was removed (30 days after the move); null: still on disk.
+  originalRemovedAt DateTime?
+
+  @@unique([area, oldKey])
+  @@index([originalRemovedAt, movedAt])
+  @@map("file_key_aliases")
+}

@@ -22,6 +22,8 @@ export interface AttachmentServiceDeps {
   maxTotalBytesPerTask?: number;
   /** Makes a picture smaller before it is stored (the same bytes back when it can't). */
   shrinkImage?: (content: Buffer, mimeType: string) => Promise<Buffer>;
+  /** 1.23.38 Upload folders: the company a task's files are kept under (its project's; null: shared). */
+  companyOfTask?: (taskId: string) => Promise<string | null>;
   /** After a change to the words of a task (the task search index re-reads it). */
   onChanged?: (taskId: string) => void | Promise<void>;
   /** Review fix #23: where a file that couldn't be deleted from storage is reported. */
@@ -38,6 +40,7 @@ export function createAttachmentService({
   allowedMimeTypes,
   maxTotalBytesPerTask,
   shrinkImage,
+  companyOfTask,
   onChanged,
   logger,
   fileRetryPauseMs,
@@ -78,7 +81,10 @@ export function createAttachmentService({
     // 1.23.7 (security review): the name as kept — no hidden characters, it fits its column, and a client's
     // file ends in the extension of the type it was checked as.
     const filename = safeUploadName(file.filename, file.mimeType, { client: opts.fromClient === true });
-    const { storageKey, url, sizeBytes } = await storage.save({ ...file, filename, content });
+    const { storageKey, url, sizeBytes } = await storage.save(
+      { ...file, filename, content },
+      { companyId: companyOfTask ? await companyOfTask(taskId) : null, userId: uploadedById, type: 'task-files' },
+    );
     let created: AttachmentRecord;
     try {
       created = await repo.create({

@@ -1,3 +1,4 @@
+import type { UploadPlace } from '../files/upload-paths';
 export interface AttachmentRecord {
   id: string;
   taskId: string;
@@ -44,7 +45,8 @@ export interface UploadedFile {
 
 /** Where file bytes actually live (local disk now; S3/GCS-ready). */
 export interface AttachmentStorage {
-  save(file: UploadedFile): Promise<{ storageKey: string; url: string; sizeBytes: number }>;
+  /** 1.23.38: `place` names the file's folders (company, uploader, kind, month): modules/files/upload-paths.ts. */
+  save(file: UploadedFile, place: UploadPlace): Promise<{ storageKey: string; url: string; sizeBytes: number }>;
   remove(storageKey: string): Promise<void>;
   /** The stored bytes (for in-app previews); absent when the store can't read back. */
   read?(storageKey: string): Promise<Buffer>;
