@@ -1154,7 +1154,8 @@ describe('Learning Hub in the Client portal', () => {
     const main = screen.getByRole('main');
     for (const a of within(main).queryAllByRole('link', { hidden: true })) expect(a.getAttribute('href'), a.textContent ?? '').toMatch(/^\/portal(\/|$)/);
     expect(within(main).queryByText('Check it online')).toBeNull();
-    expect(calls).toEqual([]);
+    // qa124: the certificate's days are in the company's time zone, read from the public /config (clients may read it).
+    expect(calls.filter((u) => !/\/config$/.test(u))).toEqual([]);
   });
 
   it('1.23.34 /portal/training, nothing assigned: the client guide the server offers is Up next with Start (no Mandatory, no due day), not listed again below; Start opens its first lesson', async () => {
