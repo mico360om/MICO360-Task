@@ -195,7 +195,7 @@ describe('review fix #24: a replaced or removed photo’s face copy is deleted',
   });
 });
 
-// 1.23.38 Upload folders: a photo at shared/<YYYY>/<MM>/<person>/profile-photos/<uuid>.<ext> has its face at
+// 1.23.39 Upload folders: a photo at shared/<YYYY>/<MM>/<person>/profile-photos/<uuid>.<ext> has its face at
 // the same folders under faces/, served at /uploads/faces/<photo key>.webp.
 describe('faces of photos in the upload folders', () => {
   const NESTED = `shared/2026/11/ckuser1/profile-photos/${KEY}`;

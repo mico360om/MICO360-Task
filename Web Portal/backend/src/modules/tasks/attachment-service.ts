@@ -22,7 +22,7 @@ export interface AttachmentServiceDeps {
   maxTotalBytesPerTask?: number;
   /** Makes a picture smaller before it is stored (the same bytes back when it can't). */
   shrinkImage?: (content: Buffer, mimeType: string) => Promise<Buffer>;
-  /** 1.23.38 Upload folders: the company a task's files are kept under (its project's; null: shared). */
+  /** 1.23.39 Upload folders: the company a task's files are kept under (its project's; null: shared). */
   companyOfTask?: (taskId: string) => Promise<string | null>;
   /** After a change to the words of a task (the task search index re-reads it). */
   onChanged?: (taskId: string) => void | Promise<void>;

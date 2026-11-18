@@ -10,7 +10,7 @@ import { parseUploadKey } from './upload-paths';
  * 1.23.29 Private file links (design §7.2): GET /uploads/<key> (Fastify adds HEAD) replaces the open folder.
  *
  *   1. the name: one of our keys (upload-paths.ts: no `..`, no backslash, no NUL, no `%`, at most 200 characters);
- *      1.23.38: an old name moved into the folders is found through file_key_aliases
+ *      1.23.39: an old name moved into the folders is found through file_key_aliases
  *   2. what it is (file-access.ts): protected, public or unknown (404)
  *   3. public (a current photo, project picture or logo): sent as before, no link asked for
  *   4. protected: the link's parts and expiry (no database), the account (active, not a client; the guard's
@@ -51,7 +51,7 @@ const NEWER_VERSIONS = 5;
 /**
  * The stored name a request asks for, or null for anything else. Only a name this server could have stored
  * is looked up (anything else never reaches the database): a 1.23.31 plain name (a random UUID and an
- * extension), or 1.23.38's <company>/<YYYY>/<MM>/<uploader>/<type>/<uuid>.<ext> — no `..`, backslash, NUL,
+ * extension), or 1.23.39's <company>/<YYYY>/<MM>/<uploader>/<type>/<uuid>.<ext> — no `..`, backslash, NUL,
  * `%`, space or any other character, at most 200 characters (upload-paths.ts).
  */
 export function storedName(raw: unknown): string | null {
@@ -157,7 +157,7 @@ export async function registerUploads(app: FastifyInstance, deps: UploadsDeps): 
     return null;
   }
 
-  // 1.23.38 Upload folders: the key may have folders (<company>/<YYYY>/<MM>/<uploader>/<type>/<name>), so the
+  // 1.23.39 Upload folders: the key may have folders (<company>/<YYYY>/<MM>/<uploader>/<type>/<name>), so the
   // route takes the rest of the path; storedName refuses anything that isn't exactly one of our keys.
   app.get('/uploads/*', async (req, reply) => {
     const ip = req.ip;

@@ -85,3 +85,20 @@ describe('moving names', () => {
     expect(refiledKey(`${UUID}.png`, 'c2')).toBeNull();
   });
 });
+
+// Review (1.23.39): v0.1.0 names kept the uploader's own extension, spaces and all; the folder parts are
+// matched case-sensitively, so SHARED/… or FACES/… is never a company.
+describe('review fixes', () => {
+  it('still accepts a v0.1.0 name with a space in its extension', () => {
+    expect(parseUploadKey(`${UUID}.my file.docx`)?.legacy).toBe(true);
+    expect(parseUploadKey(`${UUID}.my file/../x`)).toBeNull();
+  });
+  it('folder parts are case-sensitive', () => {
+    // Reserved top folders in any case are refused (Windows folders ignore case).
+    expect(parseUploadKey(`SHARED/2026/03/u1/task-files/${UUID}.png`)).toBeNull();
+    expect(parseUploadKey(`FACES/2026/03/u1/task-files/${UUID}.png`)).toBeNull();
+    expect(parseUploadKey(`Downloads/2026/03/u1/task-files/${UUID}.png`)).toBeNull();
+    expect(parseUploadKey(`c1/2026/03/u1/TASK-FILES/${UUID}.png`)).toBeNull();
+    expect(parseUploadKey(`c1/2026/03/u1/task-files/${UUID.toUpperCase()}.png`)).toBeNull();
+  });
+});

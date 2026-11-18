@@ -70,7 +70,7 @@ export function createAvatarFaces(deps: AvatarFacesDeps): AvatarFaces {
   async function write(fileName: string, content: Buffer): Promise<string | null> {
     const face = await deps.toFace(content);
     if (!face) return null;
-    // 1.23.38: a face mirrors its photo's folders (faces/shared/<YYYY>/<MM>/<person>/profile-photos/…).
+    // 1.23.39: a face mirrors its photo's folders (faces/shared/<YYYY>/<MM>/<person>/profile-photos/…).
     const path = join(folder, ...fileName.split('/'));
     await mkdir(dirname(path), { recursive: true });
     // Written whole under another name, then moved into place: a reader never gets half a picture.
@@ -159,7 +159,7 @@ const FALLBACK_CACHE_CONTROL = 'private, max-age=3600';
 
 /**
  * GET /uploads/faces/<photo key>.webp — public like every upload; it takes precedence over the uploads
- * folder's route. 1.23.38: the photo key may have folders; `find` takes only a well-formed one.
+ * folder's route. 1.23.39: the photo key may have folders; `find` takes only a well-formed one.
  */
 export async function registerAvatarFaceRoute(app: FastifyInstance, faces: AvatarFaces): Promise<void> {
   app.get('/uploads/faces/*', async (req, reply) => {

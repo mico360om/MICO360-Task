@@ -1,7 +1,7 @@
 import type { PrismaClient } from '@prisma/client';
 
 /**
- * 1.23.38 Upload folders: the company a new file is kept under (design "Company"). A project's company is
+ * 1.23.39 Upload folders: the company a new file is kept under (design "Company"). A project's company is
  * its main company, else the first company it is linked to; a task's and a project channel's are their
  * project's. Null (the `shared` folder): a direct chat, or a project with no company.
  */

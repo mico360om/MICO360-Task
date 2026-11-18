@@ -1,4 +1,4 @@
--- 1.23.38 Upload folders: old stored names and where their files moved (add-only; the files are moved by
+-- 1.23.39 Upload folders: old stored names and where their files moved (add-only; the files are moved by
 -- the server after the upgrade, not here).
 
 -- CreateTable

@@ -25,7 +25,7 @@ describe('LocalDiskStorage', () => {
     }, PLACE);
     expect(sizeBytes).toBe(11);
     expect(url).toBe(`/uploads/${storageKey}`);
-    // 1.23.38: <company>/<YYYY>/<MM>/<uploader>/<type>/<uuid>.<ext>
+    // 1.23.39: <company>/<YYYY>/<MM>/<uploader>/<type>/<uuid>.<ext>
     expect(storageKey).toMatch(/^ckco1\/2026\/11\/ckuser1\/task-files\/[0-9a-f-]{36}\.txt$/);
     const onDisk = await readFile(join(dir, storageKey));
     expect(onDisk.toString()).toBe('hello world');

@@ -51,7 +51,7 @@ export async function removeStoredFile(storage: StoredFileRemover, storageKey: s
 }
 
 /**
- * The storage key of one of our own /uploads/<key> addresses (one file at the top of the folder, or — 1.23.38
+ * The storage key of one of our own /uploads/<key> addresses (one file at the top of the folder, or — 1.23.39
  * Upload folders — a key in our exact folder shape), else null.
  */
 export function storedKeyOf(url: string | null | undefined): string | null {

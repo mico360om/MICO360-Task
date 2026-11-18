@@ -94,7 +94,7 @@ describe('the private file store', () => {
     const dir = join(mkdtempSync(join(tmpdir(), 'tf-')), 'training-files');
     const store = createTrainingFileStore(dir);
     const key = await store.save(PDF, 'application/pdf', 'ckuser1');
-    // 1.23.38 Upload folders: shared/<YYYY>/<MM>/<uploader>/learning-hub/<uuid>.<ext>
+    // 1.23.39 Upload folders: shared/<YYYY>/<MM>/<uploader>/learning-hub/<uuid>.<ext>
     expect(key).toMatch(/^shared\/\d{4}\/\d{2}\/ckuser1\/learning-hub\/[0-9a-f-]{36}\.pdf$/);
     expect((await store.read(key)).equals(PDF)).toBe(true);
     expect(await store.save(PDF, 'application/pdf')).toMatch(/^shared\/\d{4}\/\d{2}\/system\/learning-hub\//);

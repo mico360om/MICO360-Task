@@ -9,7 +9,7 @@ import { createPrismaMoveStore } from '../../src/modules/files/prisma-upload-mov
 import { createFileAccess, createPrismaFileRowsStore } from '../../src/modules/files/file-access';
 import { createUploadPlaces } from '../../src/modules/files/upload-places';
 
-// 1.23.38 Upload folders on a real database (MySQL 8 and MariaDB 11.8): every kind of stored file moves into
+// 1.23.39 Upload folders on a real database (MySQL 8 and MariaDB 11.8): every kind of stored file moves into
 // <company|shared>/<YYYY>/<MM>/<uploader>/<type>/, its rows follow, old names resolve through
 // file_key_aliases, a second run changes nothing, and originals go after 30 days.
 

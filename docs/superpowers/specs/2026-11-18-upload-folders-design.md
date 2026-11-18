@@ -37,5 +37,5 @@
   - previews, downloads, the PDF and Excel reports with pictures, email logos, profile photos and Learning Hub pictures all work;
   - old links work;
   - file counts and checksums match.
-- **Then:** suites, a fresh reviewer, the battery, el-check. Ships after 1.23.37 as **1.23.38**.
+- **Then:** suites, a fresh reviewer, the battery, el-check. Ships after 1.23.37 as **1.23.39**.
 - The Android app and extension need no change; they use the URLs the server gives them.

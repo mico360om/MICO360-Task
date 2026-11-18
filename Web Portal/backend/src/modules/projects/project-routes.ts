@@ -95,7 +95,7 @@ export interface ProjectRouteDeps {
   /** File storage for project images; when absent, the image upload endpoint is disabled. */
   storage?: AttachmentStorage;
   imageMaxBytes?: number;
-  /** 1.23.38 Upload folders: the company a project's picture is kept under (null: shared). */
+  /** 1.23.39 Upload folders: the company a project's picture is kept under (null: shared). */
   companyOfProject?: (projectId: string) => Promise<string | null>;
   /**
    * Who may change a project (its owner, named manager or MANAGER members, and admins). Without it,

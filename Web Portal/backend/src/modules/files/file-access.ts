@@ -31,14 +31,14 @@ export type FileClass =
       kind: 'protected';
       taskIds: string[];
       chats: FileChatRow[];
-      /** 1.23.38: the companies of the projects behind the file's rows (absent: not read). */
+      /** 1.23.39: the companies of the projects behind the file's rows (absent: not read). */
       companyIds?: string[];
     };
 
 export interface FileRowsStore {
   /** The task and chat rows that keep this stored file (none: not a task's or a chat's file). */
   rowsOf(storageKey: string): Promise<{ taskIds: string[]; chats: FileChatRow[]; companyIds?: string[] }>;
-  /** 1.23.38 Upload folders: the key an old name moved to (file_key_aliases), or null. */
+  /** 1.23.39 Upload folders: the key an old name moved to (file_key_aliases), or null. */
   aliasOf?(storageKey: string): Promise<string | null>;
   /** Is this '/uploads/<key>' someone's current photo, a project's picture or a company's logo? */
   isPublicPicture(url: string): Promise<boolean>;
@@ -61,7 +61,7 @@ export interface FileAccessDeps {
    */
   protectedTtlMs?: number;
   /**
-   * 1.23.38 Upload folders: the person's active companies, for the company in a file's path (absent: none,
+   * 1.23.39 Upload folders: the person's active companies, for the company in a file's path (absent: none,
    * so only the file's own projects' companies and administrators pass).
    */
   companiesOf?: (userId: string) => Promise<string[]>;
@@ -132,7 +132,7 @@ export function createFileAccess(deps: FileAccessDeps) {
   }
 
   /**
-   * 1.23.38 Upload folders (design "Old links"): the file a name stands for — itself, or, for a name nobody
+   * 1.23.39 Upload folders (design "Old links"): the file a name stands for — itself, or, for a name nobody
    * keeps, the key it moved to (followed at most a few times: a file re-filed after its project moved).
    */
   async function resolve(storageKey: string): Promise<{ file: string; kind: FileClass }> {
@@ -150,7 +150,7 @@ export function createFileAccess(deps: FileAccessDeps) {
   }
 
   /**
-   * 1.23.38 Upload folders (design "Access"): the company in the path is one this person may see — an
+   * 1.23.39 Upload folders (design "Access"): the company in the path is one this person may see — an
    * administrator; `shared` or a plain name; one of their active companies; or one of the companies of the
    * project behind the file (a team member from a second company of a shared project).
    */
@@ -164,7 +164,7 @@ export function createFileAccess(deps: FileAccessDeps) {
   }
 
   /**
-   * May this person open a protected file now: any row that keeps it lets them in — and (1.23.38, when the
+   * May this person open a protected file now: any row that keeps it lets them in — and (1.23.39, when the
    * file's key is given) the company in its path is one they may see.
    */
   async function mayOpen(person: { id: string; roles: string[] }, file: FileClass, fileKey?: string): Promise<boolean> {
@@ -211,7 +211,7 @@ export function createPrismaFileRowsStore(prisma: PrismaClient): FileRowsStore {
           select: { message: { select: { conversationId: true, deletedAt: true, conversation: { select: { projectId: true } } } } },
         }),
       ]);
-      // 1.23.38: the companies of the projects behind the rows (the company check in the path).
+      // 1.23.39: the companies of the projects behind the rows (the company check in the path).
       const projectIds = [
         ...new Set([...tasks.map((t) => t.task?.projectId), ...chats.map((c) => c.message.conversation?.projectId)].filter((id): id is string => !!id)),
       ];

@@ -36,7 +36,7 @@ export async function storeImageUpload(
   storage: AttachmentStorage,
   file: UploadedImage,
   opts: ImageRules,
-  /** 1.23.38: the picture's folders (profile photo or project picture). */
+  /** 1.23.39: the picture's folders (profile photo or project picture). */
   place: UploadPlace,
 ): Promise<{ url: string; storageKey: string }> {
   if (file.content.length === 0) throw new ValidationError('File is empty.');

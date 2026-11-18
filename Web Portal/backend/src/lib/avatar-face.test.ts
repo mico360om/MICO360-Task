@@ -29,7 +29,7 @@ describe('a photo’s face copy address', () => {
   });
 });
 
-// 1.23.38 Upload folders: a photo kept at shared/<YYYY>/<MM>/<person>/profile-photos/<uuid>.<ext> gets its
+// 1.23.39 Upload folders: a photo kept at shared/<YYYY>/<MM>/<person>/profile-photos/<uuid>.<ext> gets its
 // face copy at the same folders under /uploads/faces/.
 describe('a photo in the upload folders', () => {
   const NESTED = `shared/2026/11/ckuser1/profile-photos/${KEY}`;

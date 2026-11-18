@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createUploadMover, ORIGINALS_KEPT_DAYS, type MoveStore, type PlannedMove, type AliasRow } from './upload-move';
 
-// 1.23.38 Upload folders (design "Moving the existing files"): copy each file to its new path, check that the
+// 1.23.39 Upload folders (design "Moving the existing files"): copy each file to its new path, check that the
 // size and checksum match, point its rows at it and record old → new — resumable, idempotent, never deleting
 // before the copy is verified; a missing file or a bad copy is logged and left where it is; originals go
 // after 30 days.
@@ -269,5 +269,42 @@ describe('the 30-day sweep of originals', () => {
     const r = await mover.sweep();
     expect(r.kept).toBe(1);
     expect(existsSync(at(uploads, `${UUID1}.pdf`))).toBe(true);
+  });
+});
+
+// Review (1.23.39): a copy something already points at is never removed or overwritten.
+describe('copies in use', () => {
+  const NEW = `coA/2026/11/u1/task-files/${UUID1}.pdf`;
+  it('a run that finds the rows already moved (another instance did it) keeps the copy', async () => {
+    put(uploads, `${UUID1}.pdf`, 'task file');
+    put(uploads, NEW, 'task file');
+    const store = fakeStore([{ id: 'r1', area: 'uploads', key: NEW, want: NEW }]);
+    store.plan = async () => [{ area: 'uploads', oldKey: `${UUID1}.pdf`, newKey: NEW, rows: [{ table: 'attachment', id: 'r1' }] }];
+    const mover = createUploadMover({ store, dirs: { uploads, training }, logger: logger(), now: () => new Date(now) });
+    expect(await mover.run()).toMatchObject({ moved: 0, gone: 1 });
+    expect(readFileSync(at(uploads, NEW), 'utf8')).toBe('task file');
+  });
+
+  it('a different file already at the new key that a row uses is not overwritten', async () => {
+    put(uploads, `${UUID1}.pdf`, 'mine');
+    put(uploads, NEW, 'someone else’s');
+    const store = fakeStore([
+      { id: 'r1', area: 'uploads', key: `${UUID1}.pdf`, want: NEW },
+      { id: 'r2', area: 'uploads', key: NEW, want: NEW },
+    ]);
+    const log = logger();
+    const mover = createUploadMover({ store, dirs: { uploads, training }, logger: log, now: () => new Date(now) });
+    expect(await mover.run()).toMatchObject({ moved: 0, failed: 1 });
+    expect(readFileSync(at(uploads, NEW), 'utf8')).toBe('someone else’s');
+    expect(store.rows[0]!.key).toBe(`${UUID1}.pdf`);
+  });
+
+  it('a missing file is logged once per server run, not on every run', async () => {
+    const store = fakeStore([{ id: 'r1', area: 'uploads', key: `${UUID1}.pdf`, want: NEW }]);
+    const log = logger();
+    const mover = createUploadMover({ store, dirs: { uploads, training }, logger: log, now: () => new Date(now) });
+    await mover.run();
+    await mover.run();
+    expect(log.error).toHaveBeenCalledTimes(1);
   });
 });

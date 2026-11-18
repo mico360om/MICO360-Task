@@ -656,7 +656,7 @@ async function main(): Promise<void> {
 
   // Shared file storage + allow-list for task AND chat attachments.
   const attachmentStorage = createLocalDiskStorage({ baseDir: env.UPLOAD_DIR, publicPrefix: '/uploads' });
-  // 1.23.38 Upload folders: new files go under their company's folder (modules/files/upload-places.ts).
+  // 1.23.39 Upload folders: new files go under their company's folder (modules/files/upload-places.ts).
   const uploadPlaces = createUploadPlaces(prisma);
   // 1.23.29 Private file links: task and chat files' addresses are signed for the person they are given to
   // (modules/files). The key is made from the server's own secret: no new setting is needed.
@@ -2957,7 +2957,7 @@ async function main(): Promise<void> {
     store: createPrismaFileRowsStore(prisma),
     canViewTask: (userId, roles, taskId) => projectAccess.canViewTask(userId, roles, taskId),
     canSeeConversation: (conversationId, userId) => chatService.canUserAccessConversation(conversationId, userId),
-    // 1.23.38 Upload folders: the company in a file's path must be one the person may see.
+    // 1.23.39 Upload folders: the company in a file's path must be one the person may see.
     companiesOf: (userId) => companyAccess.activeCompanyIds(userId),
   });
   await registerUploads(app, {
@@ -3084,7 +3084,7 @@ async function main(): Promise<void> {
   // 1.23: search_index's heals, files never read, files waiting for AI OCR and meaning vectors.
   const searchSweeps = startSearchSweeps({ index: searchIndex, files: fileTexts, semantic: searchSemantic, lock: jobLock, logger });
 
-  // 1.23.38 Upload folders (modules/files/upload-move.ts): at start-up and daily, on one instance, every stored
+  // 1.23.39 Upload folders (modules/files/upload-move.ts): at start-up and every 15 minutes, on one instance, every stored
   // file not in its <company>/<YYYY>/<MM>/<uploader>/<type>/ folder yet is copied there, checked (size and
   // checksum), its rows pointed at it and old → new recorded in file_key_aliases; a missing file or a bad copy
   // goes to the Error log and stays where it is. Originals are removed 30 days after their move.
@@ -3095,13 +3095,16 @@ async function main(): Promise<void> {
     shouldStop: () => jobs.stopping,
   });
   const runUploadFolders = () =>
-    runExclusive(jobLock, 'upload-folders', 60 * 60 * 1000, () => new Date(), async () => {
+    // Review: the lease outlasts the longest first move (a big uploads folder); a run hands it back as it ends.
+    runExclusive(jobLock, 'upload-folders', 6 * 60 * 60 * 1000, () => new Date(), async () => {
       const moved = await uploadMover.run();
       if (moved.planned) logger.info('Upload folders: files moved into their folders', moved);
       const swept = await uploadMover.sweep();
       if (swept.removed || swept.kept || swept.failed) logger.info('Upload folders: originals kept 30 days removed', swept);
     }).catch(sweepFailed('upload-folders', 'moving uploads into their folders'));
-  jobs.every(24 * 60 * 60 * 1000, runUploadFolders);
+  // Every 15 minutes (nothing to do on most runs): a task or project that moved to another company has its
+  // files re-filed soon, so the company check in the path never keeps its people out for long (review I2).
+  jobs.every(15 * 60 * 1000, runUploadFolders);
 
   // 1.22.4 the Error log keeps 30 days: once a day (and at start-up), on one instance, occurrences
   // older than that and rows not seen since go.

@@ -189,7 +189,7 @@ describe('who may open a protected file now', () => {
   });
 });
 
-// 1.23.38 Upload folders (design "Access"): the company in a file's path must be one the person may see —
+// 1.23.39 Upload folders (design "Access"): the company in a file's path must be one the person may see —
 // one of their active companies, or one of the companies of the project behind the file (a shared project).
 // Administrators see all; `shared` and the 1.23.31 plain names carry no company. The row check still decides first.
 describe('the company in the path', () => {
@@ -251,7 +251,7 @@ describe('the company in the path', () => {
   });
 });
 
-// 1.23.38 Upload folders (design "Old links"): an old name is found through file_key_aliases, then checked
+// 1.23.39 Upload folders (design "Old links"): an old name is found through file_key_aliases, then checked
 // exactly as the file it moved to.
 describe('old names through the alias table', () => {
   const OLD = '1b4e28ba-2d11-4a2e-8c3b-0f5b2b6e9a10.pdf';

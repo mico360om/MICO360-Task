@@ -19,7 +19,7 @@ const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR
 const PDF = Buffer.from('%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n');
 const dir = mkdtempSync(join(tmpdir(), 'pf-route-'));
 const files: Record<string, Buffer> = { '00000002-aaaa-4bbb-8ccc-7461736b6669.pdf': PDF, '00000003-aaaa-4bbb-8ccc-7461736b7069.png': PNG, '00000004-aaaa-4bbb-8ccc-636861747069.png': PNG, '00000005-aaaa-4bbb-8ccc-646d66696c65.pdf': PDF, '00000009-aaaa-4bbb-8ccc-70686f746f30.png': PNG, '00000001-aaaa-4bbb-8ccc-6f6c6470686f.png': PNG, '00000006-aaaa-4bbb-8ccc-6f727068616e.png': PNG, '0000000a-aaaa-4bbb-8ccc-6c6f676f3030.png': PNG };
-// 1.23.38: files in the new folders.
+// 1.23.39: files in the new folders.
 const NESTED_PDF = 'coA/2026/11/amal/task-files/0000000b-aaaa-4bbb-8ccc-6e6573746564.pdf';
 const NESTED_LOGO = 'coA/2026/11/system/company-logos/0000000c-aaaa-4bbb-8ccc-6c6f676f6e65.png';
 const NESTED_FOREIGN = 'coX/2026/11/amal/task-files/0000000d-aaaa-4bbb-8ccc-666f7265696e.pdf';
@@ -52,7 +52,7 @@ let taskFiles: Map<string, string[]>;
 let chatFiles: Map<string, FileChatRow[]>;
 let pictures: Set<string>;
 let storeAsked: string[];
-// 1.23.38 Upload folders: old names → new keys, people's companies, and the companies behind a file's rows.
+// 1.23.39 Upload folders: old names → new keys, people's companies, and the companies behind a file's rows.
 let aliases: Map<string, string>;
 let companiesOfUser: Map<string, string[]>;
 let rowCompanies: Map<string, string[]>;
@@ -379,7 +379,7 @@ describe('nonsense and floods', () => {
   });
 });
 
-// 1.23.38 Upload folders (design "Access" and "Old links").
+// 1.23.39 Upload folders (design "Access" and "Old links").
 describe('files in the new folders', () => {
   it('a task’s file in its company folder opens through its signed link, nested path and all', async () => {
     taskFiles.set(NESTED_PDF, ['t1']);

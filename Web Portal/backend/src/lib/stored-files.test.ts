@@ -49,7 +49,7 @@ describe('storedKeyOf', () => {
     expect(storedKeyOf('/uploads/')).toBeNull();
     expect(storedKeyOf('/uploads/../secret')).toBeNull();
     expect(storedKeyOf('/uploads/faces/a.png.webp')).toBeNull();
-    // 1.23.38 Upload folders: a key with folders, only in our exact shape.
+    // 1.23.39 Upload folders: a key with folders, only in our exact shape.
     const nested = 'shared/2026/11/ckuser1/profile-photos/0f8fad5b-d9cb-469f-a165-70867728950e.png';
     expect(storedKeyOf(`/uploads/${nested}`)).toBe(nested);
     expect(storedKeyOf('/uploads/shared/2026/11/ckuser1/profile-photos/../../x.png')).toBeNull();

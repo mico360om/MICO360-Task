@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { parseUploadKey } from './upload-paths';
 
 /**
- * 1.23.38 Upload folders (docs/superpowers/specs/2026-11-18-upload-folders-design.md, "Moving the existing
+ * 1.23.39 Upload folders (docs/superpowers/specs/2026-11-18-upload-folders-design.md, "Moving the existing
  * files"): every stored file whose key isn't its folder key yet is moved, at start-up and daily, on one
  * instance (job lock "upload-folders"):
  *
@@ -89,6 +89,8 @@ export function createUploadMover(deps: UploadMoverDeps) {
   const now = deps.now ?? (() => new Date());
   const read = deps.fs?.readFile ?? ((p: string) => fsp.readFile(p));
   const log = deps.logger;
+  /** Missing files already reported by this server (reported once, not on every run). */
+  const reportedMissing = new Set<string>();
 
   async function moveOne(m: PlannedMove): Promise<'moved' | 'missing' | 'failed' | 'gone'> {
     const dir = deps.dirs[m.area];
@@ -104,6 +106,8 @@ export function createUploadMover(deps: UploadMoverDeps) {
       original = await read(from);
     } catch (err) {
       if (isMissing(err)) {
+        if (reportedMissing.has(`${m.area}|${m.oldKey}`)) return 'missing';
+        if (reportedMissing.size < 10_000) reportedMissing.add(`${m.area}|${m.oldKey}`);
         log.error('Upload folders: a file to move is missing from the disk; its record is left as it is', where);
         return 'missing';
       }
@@ -118,7 +122,14 @@ export function createUploadMover(deps: UploadMoverDeps) {
     } catch {
       there = null;
     }
+    let wrote = false;
     if (!there || there.length !== want.size || digest(there) !== want.sha256) {
+      // Review: a different file already there that something points at is never overwritten.
+      if (there && (await deps.store.stillUsed(m.area, m.newKey))) {
+        log.error('Upload folders: another file is already at the new name; this one was not moved', where);
+        return 'failed';
+      }
+      wrote = true;
       const part = join(dirname(to), `.${randomUUID()}.part`);
       try {
         await fsp.mkdir(dirname(to), { recursive: true });
@@ -138,7 +149,7 @@ export function createUploadMover(deps: UploadMoverDeps) {
       copy = null;
     }
     if (!copy || copy.length !== want.size || digest(copy) !== want.sha256) {
-      await fsp.rm(to, { force: true }).catch(() => {});
+      if (wrote || !(await deps.store.stillUsed(m.area, m.newKey))) await fsp.rm(to, { force: true }).catch(() => {});
       log.error('Upload folders: the copy’s size or checksum did not match; the file was not moved', { ...where, size: want.size, copySize: copy?.length ?? null });
       return 'failed';
     }
@@ -151,8 +162,9 @@ export function createUploadMover(deps: UploadMoverDeps) {
       return 'failed';
     }
     if (changed === 0) {
-      // Nothing keeps the old name any more (deleted while it was copied): the copy isn't kept either.
-      await fsp.rm(to, { force: true }).catch(() => {});
+      // Nothing keeps the old name any more (deleted while it was copied, or another instance moved it): the
+      // copy goes only when this run wrote it and nothing points at it (review: never a copy in use).
+      if (wrote && !(await deps.store.stillUsed(m.area, m.newKey))) await fsp.rm(to, { force: true }).catch(() => {});
       return 'gone';
     }
     return 'moved';

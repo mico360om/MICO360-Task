@@ -152,7 +152,7 @@ describe('file links: checking one', () => {
   });
 });
 
-// 1.23.38 Upload folders: a key with folders keeps its slashes in the signed address (the app and the
+// 1.23.39 Upload folders: a key with folders keeps its slashes in the signed address (the app and the
 // extension accept /uploads/… paths without `..` or a backslash), and is signed over the key itself.
 describe('file links: keys in folders', () => {
   const NESTED = 'ckco1/2026/11/ckuser1/task-files/1b4e28ba-2d11-4a2e-8c3b-0f5b2b6e9a10.pdf';

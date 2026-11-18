@@ -10,7 +10,7 @@
 /** A face copy is this many pixels square: sharp on a 2× screen for the biggest face drawn (128 px). */
 export const FACE_SIDE = 256;
 
-/** Our stored pictures' keys: a random UUID and the extension of its checked picture type (1.23.38: in a profile photo's folders). */
+/** Our stored pictures' keys: a random UUID and the extension of its checked picture type (1.23.39: in a profile photo's folders). */
 const PICTURE_KEY = /^(?:[A-Za-z0-9_-]{1,64}\/\d{4}\/(?:0[1-9]|1[0-2])\/[A-Za-z0-9_-]{1,64}\/profile-photos\/)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:png|jpg|jpeg|webp|gif)$/;
 
 /** The face copy's address for a photo, or null when it isn't one of our stored pictures. */

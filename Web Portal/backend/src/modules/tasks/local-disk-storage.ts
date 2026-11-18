@@ -17,7 +17,7 @@ export interface LocalDiskStorageDeps {
  * the uploader's filename, so an upload can't become an .html/.svg page on our
  * origin. Swap this adapter for an S3/GCS one without touching the service.
  *
- * 1.23.38 Upload folders: a new file goes to <company>/<YYYY>/<MM>/<uploader>/<type>/<uuid>.<ext>
+ * 1.23.39 Upload folders: a new file goes to <company>/<YYYY>/<MM>/<uploader>/<type>/<uuid>.<ext>
  * (modules/files/upload-paths.ts). Files are read and removed only by a key `parseUploadKey` accepts:
  * those folders, or a 1.23.31 plain name — nothing can reach outside the uploads folder.
  */

@@ -27,7 +27,7 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   'GET /version': 'public',
   'POST /auth/login': 'public',
   // Avatar thumbnails (11 Nov): a photo's face copy — public like every upload, made only for a current photo.
-  'GET /uploads/faces/*': 'public', // 1.23.38: the face copy mirrors the photo's folders
+  'GET /uploads/faces/*': 'public', // 1.23.39: the face copy mirrors the photo's folders
   'POST /auth/logout': 'public',
   'POST /auth/refresh': 'public',
   'POST /auth/otp/request': 'public',
@@ -55,7 +55,7 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   // 1.23.29 private file links: a stored file. A task's or a chat's file opens only through a link signed for
   // one person (u, e, s), re-checked on every download: an active account with the same session version that
   // can see the task or conversation now (modules/files/file-route.ts). Photos, project pictures and logos stay public.
-  'GET /uploads/*': 'public', // 1.23.38: the key may have folders (upload-paths.ts)
+  'GET /uploads/*': 'public', // 1.23.39: the key may have folders (upload-paths.ts)
   'GET /backups/google/callback': 'public',
 
   // ---- own ------------------------------------------------------------------------------------

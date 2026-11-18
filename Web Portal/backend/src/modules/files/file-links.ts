@@ -36,7 +36,7 @@ const USER_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const EXPIRY = /^[0-9a-z]{1,12}$/;
 /** HMAC-SHA256 in base64url without padding: 43 characters. */
 const SIGNATURE = /^[A-Za-z0-9_-]{43}$/;
-/** A stored task or chat file's address: /uploads/<key> (1.23.38: the key may have folders), nothing more. */
+/** A stored task or chat file's address: /uploads/<key> (1.23.39: the key may have folders), nothing more. */
 const STORED_URL = /^\/uploads\/([^?#\\]+)$/;
 
 export interface FileLinkOptions {
@@ -67,7 +67,7 @@ export function createFileLinks(opts: FileLinkOptions) {
   /** The signed address of a stored file for this person. */
   function sign(storageKey: string, viewer: FileViewer): string {
     const e = expiry();
-    // 1.23.38: each folder of the key encoded on its own, so the slashes stay slashes.
+    // 1.23.39: each folder of the key encoded on its own, so the slashes stay slashes.
     return `${uploadUrlOf(storageKey)}?u=${encodeURIComponent(viewer.id)}&e=${e}&s=${mac(storageKey, viewer.id, e, viewer.ver)}`;
   }
 

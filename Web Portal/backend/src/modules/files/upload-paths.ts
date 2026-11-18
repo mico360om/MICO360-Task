@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { extensionForMime } from '../../lib/upload-safety';
 
 /**
- * 1.23.38 Upload folders (docs/superpowers/specs/2026-11-18-upload-folders-design.md): every stored file
+ * 1.23.39 Upload folders (docs/superpowers/specs/2026-11-18-upload-folders-design.md): every stored file
  * is kept at
  *
  *   <companyId | shared>/<YYYY>/<MM>/<uploaderUserId | system>/<type>/<uuid>.<ext>
@@ -49,7 +49,7 @@ const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 const EXT = /^\.[A-Za-z0-9]{1,10}$/;
 /** The 1.23.31 names: a random UUID, and an extension (v0.1.0 kept the uploader's own). */
 const LEGACY = new RegExp(`^${UUID}(?:\\.[^/\\\\%\\0]{1,40})?$`, 'i');
-const NEW_FORM = new RegExp(`^([A-Za-z0-9_-]{1,64})/(\\d{4})/(0[1-9]|1[0-2])/([A-Za-z0-9_-]{1,64})/(${UPLOAD_TYPES.join('|')})/(${UUID}(?:\\.[A-Za-z0-9]{1,10})?)$`, 'i');
+const NEW_FORM = new RegExp(`^([A-Za-z0-9_-]{1,64})/(\\d{4})/(0[1-9]|1[0-2])/([A-Za-z0-9_-]{1,64})/(${UPLOAD_TYPES.join('|')})/(${UUID}(?:\\.[A-Za-z0-9]{1,10})?)$`);
 
 export interface ParsedUploadKey {
   key: string;
@@ -65,13 +65,15 @@ export interface ParsedUploadKey {
 /** A stored name this server could have made, or null for anything else (never looked up). */
 export function parseUploadKey(raw: unknown): ParsedUploadKey | null {
   if (typeof raw !== 'string' || raw.length === 0 || raw.length > MAX_KEY) return null;
-  if (/[\\%\0\s?#]/.test(raw) || raw.includes('..')) return null;
+  if (/[\\%\0]/.test(raw) || raw.includes('..')) return null;
+  // A 1.23.31 plain name exactly as that release took it (v0.1.0's own extensions may hold a space).
   if (LEGACY.test(raw)) return { key: raw, legacy: true, companyId: null, type: null, name: raw };
+  if (/[\s?#]/.test(raw)) return null;
   const m = NEW_FORM.exec(raw);
   if (!m) return null;
   const company = m[1]!;
-  if (company !== SHARED && RESERVED_TOP.has(company)) return null;
-  if (!(UPLOAD_TYPES as readonly string[]).includes(m[5]!)) return null; // the type is matched case-sensitively
+  // Review: reserved top folders in any case (Windows folders ignore case); `shared` only as written.
+  if (company !== SHARED && RESERVED_TOP.has(company.toLowerCase())) return null;
   return { key: raw, legacy: false, companyId: company === SHARED ? null : company, type: m[5] as UploadType, name: m[6]! };
 }
 

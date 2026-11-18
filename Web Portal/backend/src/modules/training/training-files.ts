@@ -74,7 +74,7 @@ export function checkTrainingUpload(file: TrainingUpload, kind: FileKind): { mim
 
 export interface TrainingFileStore {
   /**
-   * Writes the bytes under a new random key (extension from the checked type); returns the key. 1.23.38:
+   * Writes the bytes under a new random key (extension from the checked type); returns the key. 1.23.39:
    * shared/<YYYY>/<MM>/<uploader | system>/learning-hub/<uuid>.<ext> (modules/files/upload-paths.ts).
    */
   save(content: Buffer, mimeType: string, uploaderId?: string | null): Promise<string>;

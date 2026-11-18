@@ -6,7 +6,7 @@ import { pathInside, type AliasRow, type MoveArea, type MoveRowRef, type MoveSto
 import { storedKeyOf } from '../../lib/stored-files';
 
 /**
- * 1.23.38 Upload folders: the database side of the move (upload-move.ts). Which files are not in their
+ * 1.23.39 Upload folders: the database side of the move (upload-move.ts). Which files are not in their
  * folder yet — a 1.23.31 plain name, or a folder whose company is no longer one of its project's companies
  * (a project that moved: re-filed) — and how their rows are pointed at the new key. Every update is
  * conditional on the old key, so a row changed or deleted meanwhile is left alone.

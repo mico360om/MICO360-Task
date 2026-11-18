@@ -299,7 +299,7 @@ export interface AppDeps extends AuthRouteDeps {
   attachmentAllowedMime?: string[];
   /** Makes an attached picture smaller before it is stored (chat; tasks get it in their service). */
   shrinkImage?: (content: Buffer, mimeType: string) => Promise<Buffer>;
-  /** 1.23.38 Upload folders: the company a project's / a conversation's new files are kept under. */
+  /** 1.23.39 Upload folders: the company a project's / a conversation's new files are kept under. */
   uploadPlaces?: import('./modules/files/upload-places').UploadPlaces;
   /** Whether pictures are made smaller on this server (null until checked), shown on /health. */
   pictureShrinking?: () => boolean | null;

@@ -38,7 +38,7 @@ function signedLink(url: string): { path: string; expiresAt: number } | null {
   } catch {
     return null;
   }
-  // 1.23.38 Upload folders: the key may have folders (never a face copy's address).
+  // 1.23.39 Upload folders: the key may have folders (never a face copy's address).
   if (!/^\/uploads\/(?!faces\/)[^?#\\]+$/.test(u.pathname) || u.pathname.includes('/../')) return null;
   const e = u.searchParams.get('e');
   if (!u.searchParams.get('u') || !u.searchParams.get('s') || !e || !/^[0-9a-z]{1,12}$/.test(e)) return null;

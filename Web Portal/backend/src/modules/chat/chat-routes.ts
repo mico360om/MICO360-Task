@@ -51,7 +51,7 @@ export interface ChatRouteDeps {
   attachmentAllowedMime?: string[];
   /** Makes a picture smaller before it is stored (the same bytes back when it can't). */
   shrinkImage?: (content: Buffer, mimeType: string) => Promise<Buffer>;
-  /** 1.23.38 Upload folders: the company a conversation's files are kept under (a project channel's; null: shared). */
+  /** 1.23.39 Upload folders: the company a conversation's files are kept under (a project channel's; null: shared). */
   companyOfConversation?: (conversationId: string) => Promise<string | null>;
   /** companies: the caller's project ids in a picked company (the conversation list and chat search keep only those channels). */
   accessibleProjectIds?: (userId: string, roles: string[], pick?: string | null) => Promise<string[] | null>;
