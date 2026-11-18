@@ -10,6 +10,7 @@ import { PageTitle } from '../../components/ui/PageHeader';
 import { AwardIcon } from '../../components/training/training-ui';
 import { CERTIFICATE_WORDS, instantDay } from '../../components/training/training-words';
 import { useAuthStore } from '../../stores/auth-store';
+import { useCompanyTimeZone } from '../../lib/useCompanyTimeZone';
 
 const api = trainingApi(apiClient);
 
@@ -37,6 +38,7 @@ export function VerifyPage() {
   const id = useId();
   useEffect(() => setTyped(code), [code]);
 
+  const timeZone = useCompanyTimeZone();
   const q = useQuery({ queryKey: ['verify', code], queryFn: () => api.verify(code), enabled: Boolean(code), retry: false, staleTime: 60_000 });
 
   const submit = (e: FormEvent) => {
@@ -113,11 +115,11 @@ export function VerifyPage() {
                   <dt className="text-ink-2">Name</dt>
                   <dd className="break-words font-semibold text-ink">{q.data.learnerName}</dd>
                   <dt className="text-ink-2">Completed</dt>
-                  <dd className="text-ink">{instantDay(q.data.completedAt || q.data.issuedAt)}</dd>
+                  <dd className="text-ink">{instantDay(q.data.completedAt || q.data.issuedAt, timeZone)}</dd>
                   <dt className="text-ink-2">Issued</dt>
-                  <dd className="text-ink">{instantDay(q.data.issuedAt)}</dd>
+                  <dd className="text-ink">{instantDay(q.data.issuedAt, timeZone)}</dd>
                   <dt className="text-ink-2">Expires</dt>
-                  <dd className="text-ink">{q.data.expiresAt ? instantDay(q.data.expiresAt) : 'Never'}</dd>
+                  <dd className="text-ink">{q.data.expiresAt ? instantDay(q.data.expiresAt, timeZone) : 'Never'}</dd>
                 </dl>
                 {q.data.status === 'REVOKED' ? <p className="text-sm text-ink-2">This certificate was withdrawn and no longer counts.</p> : null}
                 {q.data.status === 'EXPIRED' ? <p className="text-sm text-ink-2">This certificate has passed its expiry date.</p> : null}

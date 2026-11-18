@@ -11,9 +11,11 @@ import { MAIN_ACTION_WORDS } from './dashboard-rules';
 import { coursePath, lessonPath, useLearner } from './learner';
 import { DownloadIcon, TickIcon, TOUCH_MIN, trainingProblem, useCourseGo } from './training-ui';
 import { instantDay, lessonsText, modulesText } from './training-words';
+import { useCompanyTimeZone } from '../../lib/useCompanyTimeZone';
 
 /** "14 November 2026" (the person's own day). */
-const longDay = (at: string) => instantDayText(at, undefined, { month: 'long' });
+/** qa124: in the company's time zone, as on the certificate PDF. */
+const longDay = (at: string, timeZone: string) => instantDayText(at, timeZone, { month: 'long' });
 const ACTION = `${TOUCH_MIN} !min-h-[44px]`;
 
 /**
@@ -24,6 +26,7 @@ const ACTION = `${TOUCH_MIN} !min-h-[44px]`;
  * the certificate goes under the words.
  */
 export function CourseCompleteBanner({ course: c }: { course: CourseCard }) {
+  const timeZone = useCompanyTimeZone();
   const side = useLearner();
   const go = useCourseGo(c);
   const id = useId();
@@ -40,7 +43,7 @@ export function CourseCompleteBanner({ course: c }: { course: CourseCard }) {
 
   const finishedAt = m.completedAt ?? cert?.completedAt ?? null;
   const score = cert?.scorePct ?? null;
-  const line = [finishedAt ? `Finished ${longDay(finishedAt)}` : null, score !== null ? `Score ${score}%` : null].filter(Boolean).join(' · ');
+  const line = [finishedAt ? `Finished ${longDay(finishedAt, timeZone)}` : null, score !== null ? `Score ${score}%` : null].filter(Boolean).join(' · ');
 
   const download = async () => {
     if (!showCert) return;
@@ -94,7 +97,7 @@ export function CourseCompleteBanner({ course: c }: { course: CourseCard }) {
           </p>
         ) : null}
         {cert?.status === 'EXPIRED' ? (
-          <p className="text-sm font-semibold text-warning">{cert.expiresAt ? `This certificate expired on ${longDay(cert.expiresAt)}.` : 'This certificate has expired.'}</p>
+          <p className="text-sm font-semibold text-warning">{cert.expiresAt ? `This certificate expired on ${longDay(cert.expiresAt, timeZone)}.` : 'This certificate has expired.'}</p>
         ) : null}
         {cert?.status === 'REVOKED' ? <p className="text-sm font-semibold text-danger">This certificate was revoked.</p> : null}
         <div className="mt-1 flex flex-wrap items-center gap-2">
@@ -152,6 +155,7 @@ export function CourseCompleteBanner({ course: c }: { course: CourseCard }) {
  * any" — that opens to small rows: a tick, the name (a link to it) and the day it was done.
  */
 export function FinishedUnits({ course: d }: { course: CourseDetail }) {
+  const timeZone = useCompanyTimeZone();
   const side = useLearner();
   const [open, setOpen] = useState(false);
   const listId = useId();
@@ -186,7 +190,7 @@ export function FinishedUnits({ course: d }: { course: CourseDetail }) {
             <Link to={r.to} className={`min-w-0 flex-1 break-words rounded text-sm font-medium text-ink outline-none hover:text-brand hover:underline focus-visible:ring-2 focus-visible:ring-brand/40 inline-flex min-h-8 items-center max-sm:!min-h-11 ${TOUCH_MIN}`}>
               <bdi>{r.title}</bdi>
             </Link>
-            {r.done && r.at ? <span className="flex-none text-xs text-ink-2">Done {instantDay(r.at)}</span> : null}
+            {r.done && r.at ? <span className="flex-none text-xs text-ink-2">Done {instantDay(r.at, timeZone)}</span> : null}
           </li>
         ))}
       </ul>

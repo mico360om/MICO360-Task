@@ -4,6 +4,7 @@ import type { CertificateRef } from '../../api/training';
 import logo from '../../assets/logo.png';
 import { QrCode, qrModuleCount } from './QrCode';
 import { dayKeyIn } from '../../lib/day-words';
+import { useCompanyTimeZone } from '../../lib/useCompanyTimeZone';
 import {
   CERT_COLORS,
   CERT_PAGE,
@@ -74,10 +75,10 @@ function useFontsLoaded(): number {
 
 const pct = (v: number, of: number) => `${(v / of) * 100}%`;
 
-/** A day on the certificate in full ("14 November 2026", the owner's), where the person is (the device's zone). */
-const fullDay = (iso: string) => {
+/** A day on the certificate in full ("14 November 2026", the owner's), in the company's time zone as on its PDF (qa124). */
+const fullDay = (iso: string, timeZone: string) => {
   const at = new Date(iso);
-  return Number.isNaN(at.getTime()) ? '' : certificateDay(dayKeyIn(at));
+  return Number.isNaN(at.getTime()) ? '' : certificateDay(dayKeyIn(at, timeZone));
 };
 
 /** Where a company's logo loads from: a stored '/uploads/…' on the API's address, a full http(s) address as it is; else none. */
@@ -97,6 +98,7 @@ function companyLogoSrc(url: string | null): string | null {
  */
 export function CertificatePaper({ certificate: cert }: { certificate: CertificateRef }) {
   const fontsLoaded = useFontsLoaded();
+  const timeZone = useCompanyTimeZone();
   // An older server's answer without the day finished: the day it was issued.
   const completedAt = cert.completedAt || cert.issuedAt;
   const companyName = cert.company?.name ?? '';
@@ -104,9 +106,9 @@ export function CertificatePaper({ certificate: cert }: { certificate: Certifica
     () =>
       certificateRows(
         { code: cert.code, completedAt, issuedAt: cert.issuedAt, expiresAt: cert.expiresAt, scorePct: cert.scorePct ?? null, issuerName: cert.issuerName ?? null, issuerTitle: cert.issuerTitle ?? null, status: cert.status, revokedAt: cert.revokedAt ?? null, revokedReason: cert.revokedReason ?? null },
-        fullDay,
+        (iso) => fullDay(iso, timeZone),
       ),
-    [cert, completedAt],
+    [cert, completedAt, timeZone],
   );
   const plan = useMemo(
     () => certificateWords({ learnerName: cert.learnerName, courseTitle: cert.courseTitle, companyName, productName: 'MICO360 Tasks', rows, signature: null }, measure),

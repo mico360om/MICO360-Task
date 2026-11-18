@@ -265,4 +265,15 @@ describe('the certificate on the course page (1.23.35: the PDF’s new design, o
     expect(word('name')).toEqual(['Mariam Al Balushi']);
     expect(facts().map((f) => f[0])).toEqual(['Completed', 'Issued', 'Expires', 'Certificate ID']);
   });
+
+  it('gives its days in the company’s time zone, as the PDF does (not the device’s; qa124)', async () => {
+    // 02:00 UTC on 3 Nov: 2 Nov in New York (the company here), 3 Nov in Muscat (this device).
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => new Response(JSON.stringify(String(url).includes('/config') ? { data: { timeZone: 'America/New_York' } } : {}), { status: String(url).includes('/config') ? 200 : 404, headers: { 'content-type': 'application/json' } })));
+    try {
+      show(fakeLearner(), certificate({ completedAt: '2026-11-03T02:00:00.000Z', issuedAt: '2026-11-03T02:00:00.000Z' }));
+      await waitFor(() => expect(word('value')[0]).toBe('2 November 2026'));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });

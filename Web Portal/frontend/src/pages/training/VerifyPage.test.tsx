@@ -117,4 +117,14 @@ describe('Check a certificate (/verify, public)', () => {
     const link = await screen.findByRole('link', { name: 'Sign in' });
     expect(link.className).toContain('[@media(pointer:coarse)]:!min-h-11');
   });
+  it('shows the dates in the company’s time zone, as the certificate PDF does (not the device’s; qa124)', async () => {
+    // 02:00 UTC on 3 Nov is 2 Nov in New York (the company here) and 3 Nov in Muscat (this device).
+    const late = { ...FACTS, completedAt: '2026-11-03T02:00:00.000Z', issuedAt: '2026-11-03T02:00:00.000Z', expiresAt: null };
+    answer = (url) =>
+      url.includes('/training/verify/') ? json({ data: { ...late, status: 'VALID' } }) : url.includes('/config') ? json({ data: { timeZone: 'America/New_York' } }) : json({}, 404);
+    renderAt('/verify/TC-ABCD-EFGH-JKLM');
+    expect(await screen.findByText('Mariam Al Balushi')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('Completed').nextElementSibling).toHaveTextContent('2 Nov 2026'));
+    expect(screen.getByText('Issued').nextElementSibling).toHaveTextContent('2 Nov 2026');
+  });
 });

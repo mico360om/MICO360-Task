@@ -59,7 +59,8 @@ export function shortDay(key: string, now: Date = new Date()): string {
 }
 
 /** An instant's day in the device's zone: "3 Nov 2026". */
-export const instantDay = (iso: string) => instantDayText(iso);
+/** qa124: a certificate's days are given in the company's time zone (as its PDF), when one is passed. */
+export const instantDay = (iso: string, timeZone?: string) => instantDayText(iso, timeZone);
 
 /** "Due 14 Nov" (null without a due day). */
 export function dueText(mine: Pick<MyCourseState, 'dueDay'>, now: Date = new Date()): string | null {

@@ -35,6 +35,7 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - Error log (administrators): a request still running after 10 minutes is now listed there, so a stuck one can be found.
 - On a phone or tablet, the formatting buttons of meeting notes, lesson text and guide steps are now full size (44 px), easy to tap; the row wraps when it runs out of room.
 - Chat: moving the pointer up from a message to its Reply / reaction buttons no longer loses them to the message above (a photo there used to open instead); on a phone those buttons are full size.
+- Learning Hub: a certificate's dates on screen (the certificate, Finished, My certificates) and on the public Check a certificate page are now given in the company's time zone, the same as on its PDF; before, a device in another time zone could show the day before or after.
 
 ## [1.23.41] - 2026-11-18
 

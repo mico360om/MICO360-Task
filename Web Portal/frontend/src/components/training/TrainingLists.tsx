@@ -14,6 +14,7 @@ import { courseIconKey, dashboardFocus, lessonsLeft, mainAction, MAIN_ACTION_WOR
 import { coursePath, lessonPath, useLearner } from './learner';
 import { useCourse } from './training-queries';
 import { AwardIcon, BookIcon, CardChipView, CourseCardView, DownloadIcon, MandatoryChip, NewForRoleChip, TOUCH_MIN, trainingProblem, useCourseGo } from './training-ui';
+import { useCompanyTimeZone } from '../../lib/useCompanyTimeZone';
 import { CERTIFICATE_WORDS, DIFFICULTY_WORDS, LESSON_KIND_WORDS, cardChip, dueText, instantDay, learningGroups, lessonsText, minutesText, modulesText, progressWords } from './training-words';
 
 /**
@@ -467,6 +468,7 @@ function OlderCertificates({ certificates }: { certificates: CertificateRef[] })
 }
 
 function CertificateList({ certificates }: { certificates: CertificateRef[] }) {
+  const timeZone = useCompanyTimeZone();
   const cert = useCertificateDownload();
   return (
     <div className="card overflow-hidden">
@@ -481,8 +483,8 @@ function CertificateList({ certificates }: { certificates: CertificateRef[] }) {
               <div className="min-w-0 flex-[1_1_10rem]">
                 <p className="break-words font-semibold text-ink">{c.courseTitle}</p>
                 <p className="text-xs text-ink-2">
-                  <span className="font-mono">{c.code}</span> · Issued {instantDay(c.issuedAt)}
-                  {c.expiresAt ? ` · Expires ${instantDay(c.expiresAt)}` : ''}
+                  <span className="font-mono">{c.code}</span> · Issued {instantDay(c.issuedAt, timeZone)}
+                  {c.expiresAt ? ` · Expires ${instantDay(c.expiresAt, timeZone)}` : ''}
                 </p>
               </div>
               <span className={`rounded-md px-2 py-0.5 text-xs font-semibold ${tone}`}>{CERTIFICATE_WORDS[c.status]}</span>
