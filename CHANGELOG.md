@@ -14,6 +14,11 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### Improvements
+- My Priorities Today on the Dashboard is a compact list in groups — Today, Overdue, Approvals, Blocked, Upcoming and Team — showing five in each, with Show more.
+- Each priority is one line: a tick to complete it, the task number and title, its project, when it's due ("Today", "27 days late", "Fri 20 Nov") and who is on it; Reschedule, Assign and Open are in one ⋯ menu, and clicking the row opens the task.
+- Overdue has "Move all to today" and "Reschedule all…": it asks first, moves only the tasks you may change, and one Undo puts them all back.
+
 ## [1.23.39] - 2026-11-18
 
 ### Improvements

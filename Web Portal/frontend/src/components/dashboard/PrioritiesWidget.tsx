@@ -818,18 +818,25 @@ function PriorityItem({ row, today, weekStart, busy, locked, problem, onOpenTask
               <PriorityBadge priority={priority} />
             </span>
           ) : null}
+          {row.kind === 'approval' && t ? (
+            // In the first line, so the second keeps the whole width on a phone.
+            <button type="button" className={`${ACTION_MAIN} ms-auto flex-none`} aria-label={approveLabel(t.key)} disabled={disabled} onClick={() => onApprove(t)}>
+              {busy ? 'Approving…' : 'Approve'}
+            </button>
+          ) : null}
         </div>
-        <div data-row-line="2" className="-mt-1.5 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 pb-1.5 text-xs text-ink-2 md:mt-0 md:flex-none md:flex-nowrap md:pb-0">
-          {note ? <span className="min-w-0 max-w-full md:max-w-[14rem]">{note}</span> : null}
+        <div data-row-line="2" className="-mt-1.5 flex min-w-0 items-center gap-x-3 pb-1.5 text-xs text-ink-2 md:mt-0 md:flex-none md:pb-0">
+          {note ? <span className="flex min-w-0 shrink md:max-w-[14rem]">{note}</span> : null}
           {t ? (
-            <span className="inline-flex min-w-0 max-w-[12rem] items-center gap-1 md:w-40">
+            <span className={`inline-flex min-w-0 items-center gap-1 md:w-40 md:flex-none ${note ? 'max-md:flex-none' : 'shrink'}`}>
               <ProjectAvatar project={t.project} size="xs" />
-              <bdi className="truncate" title={t.project.name}>
+              {/* A phone with a note beside it: the project's picture only (its name is still read out). */}
+              <bdi className={`truncate ${note ? 'max-md:sr-only' : ''}`} title={t.project.name}>
                 {t.project.name}
               </bdi>
             </span>
           ) : null}
-          {due ? <span className={`md:w-24 ${due.late ? 'font-semibold text-danger' : 'text-ink-2'}`}>{due.text}</span> : null}
+          {due ? <span className={`flex-none md:w-24 ${due.late ? 'font-semibold text-danger' : 'text-ink-2'}`}>{due.text}</span> : null}
           {t ? <Faces people={t.assignees} /> : null}
         </div>
         {problem ? (
@@ -838,11 +845,6 @@ function PriorityItem({ row, today, weekStart, busy, locked, problem, onOpenTask
           </p>
         ) : null}
       </div>
-      {row.kind === 'approval' && t ? (
-        <button type="button" className={`${ACTION_MAIN} mt-2 flex-none md:mt-0`} aria-label={approveLabel(t.key)} disabled={disabled} onClick={() => onApprove(t)}>
-          {busy ? 'Approving…' : 'Approve'}
-        </button>
-      ) : null}
       <MoreMenu
         name={name}
         disabled={disabled}
@@ -913,10 +915,10 @@ function Tick({ label, reason, waiting, onTick }: { label: string; reason: strin
 
 /** Up to three faces, then "+2"; the names for screen readers. */
 function Faces({ people }: { people: { id: string; name: string }[] }) {
-  if (people.length === 0) return <span className="text-ink-2 md:w-[4.25rem]">Unassigned</span>;
+  if (people.length === 0) return <span className="flex-none text-ink-2 md:w-[4.25rem]">Unassigned</span>;
   const shown = people.slice(0, 3);
   return (
-    <span className="inline-flex items-center md:w-[4.25rem]">
+    <span className="inline-flex flex-none items-center md:w-[4.25rem]">
       <span aria-hidden="true" className={`flex -space-x-1.5 ${DENSE_STACK}`}>
         {shown.map((p) => (
           <Avatar key={p.id} name={p.name} size="sm" dense />
