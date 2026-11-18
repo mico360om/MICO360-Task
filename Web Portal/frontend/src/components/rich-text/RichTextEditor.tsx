@@ -6,6 +6,7 @@ import Link from '@tiptap/extension-link';
 import Placeholder from '@tiptap/extension-placeholder';
 import { TextSelection } from '@tiptap/pm/state';
 import { safeHref } from '../../lib/rich-note';
+import { TOUCH_SQUARE } from '../../lib/touch';
 
 /** Put the cursor at the end of what is selected (a chain step). */
 const caretAfter = ({ tr }: { tr: import('@tiptap/pm/state').Transaction }) => {
@@ -66,7 +67,7 @@ function ToolButton({ label, keys, active, onClick, children }: { label: string;
       // Keep the words selected: the editor keeps its focus while a button is pressed.
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
-      className={`grid h-8 w-8 place-items-center rounded-md transition-colors ${active ? 'bg-brand/15 text-brand' : 'text-ink-2 hover:bg-ground hover:text-ink'}`}
+      className={`grid h-8 w-8 place-items-center rounded-md transition-colors ${TOUCH_SQUARE} ${active ? 'bg-brand/15 text-brand' : 'text-ink-2 hover:bg-ground hover:text-ink'}`}
     >
       {children}
     </button>

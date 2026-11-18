@@ -18,6 +18,7 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - Changing a task's status from its details panel, the Table, the edit form, the dashboard, search, the calendar or an inspection now also cancels an older board move of it that was waiting to sync, so the task can't jump back later.
 - A repeating task's next copy that the hourly check has to make late now still needs approval when an approver had turned approval off for the previous task only, as it would have when made on time.
 - Error log (administrators): a request still running after 10 minutes is now listed there, so a stuck one can be found.
+- On a phone or tablet, the formatting buttons of meeting notes, lesson text and guide steps are now full size (44 px), easy to tap; the row wraps when it runs out of room.
 
 ## [1.23.38] - 2026-11-18
 
