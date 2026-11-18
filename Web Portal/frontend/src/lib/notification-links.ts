@@ -32,7 +32,7 @@ export function notificationTarget(n: Pick<ApiNotification, 'entityType' | 'enti
   // 1.24.0 Employee Appreciation: "You've been appreciated" opens the Dashboard (its banner and Accept).
   if (type === 'appreciation') return { kind: 'path', to: '/dashboard' };
   // 1.24.1: "<name> accepted your appreciation: “…”" (the sender) opens that record in Scheduled & history.
-  if (type === 'appreciation-note') return { kind: 'path', to: n.entityId ? `/appreciations?tab=history&row=${encodeURIComponent(n.entityId)}` : '/appreciations?tab=history' };
+  if (type === 'appreciation-note') return { kind: 'path', to: n.entityId ? `/admin/appreciations?tab=history&row=${encodeURIComponent(n.entityId)}` : '/admin/appreciations?tab=history' };
   return null;
 }
 

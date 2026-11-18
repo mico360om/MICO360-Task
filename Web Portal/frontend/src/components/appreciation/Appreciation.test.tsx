@@ -149,7 +149,7 @@ describe('the bell notice', () => {
   });
   it('1.24.1: “… accepted your appreciation: …” opens that record in Scheduled & history', async () => {
     const { notificationTarget } = await import('../../lib/notification-links');
-    expect(notificationTarget({ entityType: 'appreciation-note', entityId: 'ap1' })).toEqual({ kind: 'path', to: '/appreciations?tab=history&row=ap1' });
+    expect(notificationTarget({ entityType: 'appreciation-note', entityId: 'ap1' })).toEqual({ kind: 'path', to: '/admin/appreciations?tab=history&row=ap1' });
   });
 });
 

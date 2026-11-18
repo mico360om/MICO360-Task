@@ -32,7 +32,7 @@ const show = (path: string) => {
     <QueryClientProvider client={qc}>
       <MemoryRouter initialEntries={[path]}>
         <Routes>
-          <Route path="/appreciations" element={<><AppreciationsPage /><Where /></>} />
+          <Route path="/admin/appreciations" element={<><AppreciationsPage /><Where /></>} />
           <Route path="/appreciations/mine" element={<MyAppreciationsPage />} />
         </Routes>
       </MemoryRouter>
@@ -53,7 +53,7 @@ afterEach(() => useAuthStore.setState({ user: null, isAuthenticated: false } as 
 describe('the note in Scheduled & history', () => {
   it('shows the note under the row it belongs to (none without one)', async () => {
     api.list.mockResolvedValue({ total: 2, page: 1, pageSize: 50, rows: [M(), M({ id: 'ap2', recipient: { id: 'u-ali', name: 'Ali Noor' }, acceptNote: null })] });
-    show('/appreciations?tab=history');
+    show('/admin/appreciations?tab=history');
     const list = await screen.findByRole('list', { name: 'Appreciations' });
     const rows = within(list).getAllByRole('listitem');
     expect(within(rows[0]!).getByText('Note from Sara Khan')).toBeInTheDocument();
@@ -63,12 +63,12 @@ describe('the note in Scheduled & history', () => {
 
   it('opened from the bell notice (?row=): only that record, with “Show all” back to the full list', async () => {
     api.list.mockResolvedValue({ total: 1, page: 1, pageSize: 50, rows: [M()] });
-    show('/appreciations?tab=history&row=ap1');
+    show('/admin/appreciations?tab=history&row=ap1');
     await screen.findByText('Note from Sara Khan');
     expect(api.list).toHaveBeenCalledWith(expect.objectContaining({ id: 'ap1' }));
     await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Show all' })));
     await waitFor(() => expect(api.list).toHaveBeenLastCalledWith(expect.not.objectContaining({ id: 'ap1' })));
-    expect(screen.getByTestId('where').textContent).toBe('/appreciations?tab=history');
+    expect(screen.getByTestId('where').textContent).toBe('/admin/appreciations?tab=history');
   });
 });
 
