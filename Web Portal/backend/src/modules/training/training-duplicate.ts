@@ -75,7 +75,7 @@ export function createTrainingDuplicate(ctx: TrainingContext, d: DuplicateDeps) 
           ctx.logger?.warn('training: a file could not be read for a copy of its course (left out)', { courseId: c.id, fileId: f.id, err: String((err as Error)?.message ?? err) });
           continue;
         }
-        copies.push({ from: f, storageKey: await ctx.files.save(content, f.mimeType), sizeBytes: content.length });
+        copies.push({ from: f, storageKey: await ctx.files.save(content, f.mimeType, actor.id), sizeBytes: content.length });
       }
     } catch (err) {
       await removeCopies();

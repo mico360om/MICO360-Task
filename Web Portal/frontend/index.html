@@ -25,36 +25,25 @@
           radial-gradient(1100px 480px at 100% -8%, rgba(168, 51, 38, 0.08), transparent 60%),
           #f4f2f0;
       }
-      #app-splash svg {
-        width: 64px;
-        height: 64px;
+      #app-splash img {
+        width: 205px;
+        height: auto;
+        max-width: 60vw;
         animation: splash-pulse 1.4s ease-in-out infinite;
-        filter: drop-shadow(0 10px 24px rgba(139, 30, 30, 0.28));
       }
       @keyframes splash-pulse {
         0%, 100% { transform: scale(1); opacity: 1; }
         50% { transform: scale(0.92); opacity: 0.72; }
       }
       @media (prefers-reduced-motion: reduce) {
-        #app-splash svg { animation: none; }
+        #app-splash img { animation: none; }
       }
     </style>
   </head>
   <body>
     <div id="root">
       <div id="app-splash" aria-label="Loading MICO360 Tasks" role="status">
-        <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-          <defs>
-            <linearGradient id="sp-t" x1="6" y1="4" x2="42" y2="44" gradientUnits="userSpaceOnUse">
-              <stop offset="0" stop-color="#C7513F" />
-              <stop offset="0.55" stop-color="#8B1E1E" />
-              <stop offset="1" stop-color="#5E1414" />
-            </linearGradient>
-          </defs>
-          <rect x="3" y="3" width="42" height="42" rx="13" fill="url(#sp-t)" />
-          <circle cx="15.5" cy="24.5" r="2.6" fill="#ffffff" />
-          <path d="M15.5 24.5 L22 31 L33 18" stroke="#ffffff" stroke-width="5.2" stroke-linecap="round" stroke-linejoin="round" />
-        </svg>
+        <img src="/brand/logo.png" alt="" width="205" height="96" />
       </div>
     </div>
     <script type="module" src="/src/main.tsx"></script>

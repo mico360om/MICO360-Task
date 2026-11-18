@@ -262,6 +262,7 @@ export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDe
       deps.storage,
       { filename: file.filename, mimeType: file.mimetype, content },
       { maxBytes: deps.avatarMaxBytes ?? 5 * 1024 * 1024 },
+      { companyId: null, userId: req.user!.id, type: 'profile-photos' },
     );
     // The faces' small copy, from the same bytes (an older photo gets one when first asked for).
     await deps.avatarFaces?.prepare(url, content);

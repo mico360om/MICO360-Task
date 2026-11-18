@@ -38,7 +38,8 @@ function signedLink(url: string): { path: string; expiresAt: number } | null {
   } catch {
     return null;
   }
-  if (!/^\/uploads\/[^/]+$/.test(u.pathname)) return null;
+  // 1.23.39 Upload folders: the key may have folders (never a face copy's address).
+  if (!/^\/uploads\/(?!faces\/)[^?#\\]+$/.test(u.pathname) || u.pathname.includes('/../')) return null;
   const e = u.searchParams.get('e');
   if (!u.searchParams.get('u') || !u.searchParams.get('s') || !e || !/^[0-9a-z]{1,12}$/.test(e)) return null;
   return { path: u.pathname, expiresAt: parseInt(e, 36) * 1000 };

@@ -51,6 +51,8 @@ export interface ChatRouteDeps {
   attachmentAllowedMime?: string[];
   /** Makes a picture smaller before it is stored (the same bytes back when it can't). */
   shrinkImage?: (content: Buffer, mimeType: string) => Promise<Buffer>;
+  /** 1.23.39 Upload folders: the company a conversation's files are kept under (a project channel's; null: shared). */
+  companyOfConversation?: (conversationId: string) => Promise<string | null>;
   /** companies: the caller's project ids in a picked company (the conversation list and chat search keep only those channels). */
   accessibleProjectIds?: (userId: string, roles: string[], pick?: string | null) => Promise<string[] | null>;
   /** companies: the request's picked company (X-Company-Id). Absent: no pick. */
@@ -239,7 +241,10 @@ export async function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDe
     const kept = deps.shrinkImage ? await deps.shrinkImage(content, file.mimetype) : content;
     // N6: the name as kept and shown (no hidden or right-to-left characters, fits its column, never empty).
     const fileName = safeUploadName(file.filename, file.mimetype);
-    const stored = await storage.save({ filename: fileName, mimeType: file.mimetype, content: kept });
+    const stored = await storage.save(
+      { filename: fileName, mimeType: file.mimetype, content: kept },
+      { companyId: deps.companyOfConversation ? await deps.companyOfConversation(id) : null, userId: req.user!.id, type: 'chat-files' },
+    );
     // A file this request stored but no message keeps: removed (tried again, else logged — never left quietly).
     const dropStored = () => removeStoredFile(storage, stored.storageKey, { logger: { warn: (m, c) => req.log.warn(c ?? {}, m) }, what: 'an unused chat upload' });
     let result;

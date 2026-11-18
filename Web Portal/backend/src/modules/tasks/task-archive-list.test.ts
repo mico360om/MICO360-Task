@@ -106,11 +106,23 @@ describe('GET /tasks and archived tasks', () => {
 
 describe('GET /calendar and an archived series head', () => {
   it('archiving the newest copy doesn’t stop its series: its days are still projected; the copy itself isn’t listed', async () => {
-    const res = await get('/calendar?from=2026-11-12&to=2026-12-02');
+    // Date-relative (the days are projected from today): a three-week window from today.
+    const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+    const from = day(Date.now());
+    const to = day(Date.now() + 21 * 86_400_000);
+    const res = await get(`/calendar?from=${from}&to=${to}`);
     expect(res.statusCode).toBe(200);
     const data = res.json().data as { tasks: { title: string }[]; occurrences: { taskId: string; date: string }[]; series: { title: string }[] };
     expect(data.series.map((s) => s.title)).toEqual(['Archived weekly head']);
-    expect(data.occurrences.map((o) => o.date)).toEqual(['2026-11-17', '2026-11-24', '2026-12-01']);
+    // Weekly from its Tuesday 10 Nov 2026: every projected day is a week apart, on that cadence, inside the window.
+    const dates = data.occurrences.map((o) => o.date);
+    expect(dates.length).toBeGreaterThanOrEqual(2);
+    const weekday = Date.parse('2026-11-10T00:00:00Z');
+    for (const d of dates) {
+      expect((Date.parse(`${d}T00:00:00Z`) - weekday) % (7 * 86_400_000), d).toBe(0);
+      expect(d > '2026-11-10' && d >= day(Date.now() - 86_400_000) && d <= to, d).toBe(true);
+    }
+    for (let i = 1; i < dates.length; i++) expect(Date.parse(dates[i]!) - Date.parse(dates[i - 1]!)).toBe(7 * 86_400_000);
     expect(data.tasks.map((t) => t.title)).not.toContain('Archived weekly head');
   });
 });

@@ -125,6 +125,9 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
+/** Files at any depth (1.23.39: Learning Hub files are kept in upload folders). */
+const filesIn = (dir: string) => (readdirSync(dir, { recursive: true, withFileTypes: true }) as import('node:fs').Dirent[]).filter((e) => e.isFile() && !e.name.startsWith('.')).length;
+
 describe('Training starter content (R17)', () => {
   it('loads every course once: rows, files copied into the private folder, published vs draft, and both flags', async () => {
     const out = await starter(fixture()).run();
@@ -206,10 +209,10 @@ describe('Training starter content (R17)', () => {
 
   it('never again once loaded: a second run adds nothing, and a deleted starter course does not come back', async () => {
     await starter(fixture()).run();
-    const filesBefore = readdirSync(privateDir).length;
+    const filesBefore = filesIn(privateDir);
     expect(await starter(fixture()).run()).toEqual({ loaded: 0, skipped: 0, already: true });
     expect((await ourCourses()).length).toBe(2);
-    expect(readdirSync(privateDir).length).toBe(filesBefore);
+    expect(filesIn(privateDir)).toBe(filesBefore);
 
     const tasks = await prisma.trainingCourse.findUniqueOrThrow({ where: { starterKey: KEYS.tasks } });
     await prisma.trainingFile.deleteMany({ where: { courseId: tasks.id } });
@@ -234,10 +237,10 @@ describe('Training starter content (R17)', () => {
   it('without the flag, courses already there are skipped by their starter key (nothing doubled)', async () => {
     await starter(fixture()).run();
     await prisma.systemSetting.delete({ where: { key: STARTER_LOADED_KEY } });
-    const filesBefore = readdirSync(privateDir).length;
+    const filesBefore = filesIn(privateDir);
     expect(await starter(fixture()).run()).toEqual({ loaded: 0, skipped: 2, already: false });
     expect((await ourCourses()).length).toBe(2);
-    expect(readdirSync(privateDir).length).toBe(filesBefore);
+    expect(filesIn(privateDir)).toBe(filesBefore);
     expect(await prisma.systemSetting.count({ where: { key: STARTER_LOADED_KEY } })).toBe(1);
   });
 
@@ -284,7 +287,7 @@ describe('Training starter content (R17)', () => {
     expect(await prisma.systemSetting.count({ where: { key: STARTER_LOADED_KEY } })).toBe(0);
     expect(log.warnings.some((w) => /could not be loaded/.test(w.msg) && w.meta?.course === KEYS.video)).toBe(true);
     // Only the loaded course's two files stay in the private folder (the failed one's first picture was removed).
-    expect(readdirSync(privateDir).length).toBe(2);
+    expect(filesIn(privateDir)).toBe(2);
     // The next start loads the missing one and sets the flag.
     // (The course loaded on the first try is also brought to this revision — the same words, so nothing changes.)
     expect(await createTrainingStarter({ prisma, files: store, courses: [courses[0]!, bad], assetsDir: assets, logger: logger() }).run()).toMatchObject({ loaded: 1, skipped: 1, already: false });
@@ -508,11 +511,11 @@ describe('Starter update to a new revision (R1, R4, R3)', () => {
       return { lessons: c.lessons.map((l) => [l.id, l.updatedAt.getTime()]), files: (await prisma.trainingFile.findMany({ where: { courseId: c.id }, orderBy: { id: 'asc' } })).map((f) => f.id) };
     };
     const first = await snapshot();
-    const filesOnDisk = readdirSync(privateDir).length;
+    const filesOnDisk = filesIn(privateDir);
     const out = await upgrader(rev2(), 2).run();
     expect(out.updated).toBeUndefined();
     expect(await snapshot()).toEqual(first);
-    expect(readdirSync(privateDir).length).toBe(filesOnDisk);
+    expect(filesIn(privateDir)).toBe(filesOnDisk);
   });
 
   it('a pasted video link is not an edit: the next revision still reaches the course, and keeps the link', async () => {

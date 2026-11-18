@@ -188,3 +188,115 @@ describe('who may open a protected file now', () => {
     expect(await access.mayOpen(amal, { kind: 'unknown' })).toBe(false);
   });
 });
+
+// 1.23.39 Upload folders (design "Access"): the company in a file's path must be one the person may see —
+// one of their active companies, or one of the companies of the project behind the file (a shared project).
+// Administrators see all; `shared` and the 1.23.31 plain names carry no company. The row check still decides first.
+describe('the company in the path', () => {
+  const UUID = '1b4e28ba-2d11-4a2e-8c3b-0f5b2b6e9a10';
+  const inCo = (co: string) => `${co}/2026/11/u1/task-files/${UUID}.pdf`;
+  let companies: Map<string, string[]>;
+  let co: ReturnType<typeof createFileAccess>;
+  let rowCompanies: string[];
+  beforeEach(() => {
+    companies = new Map([['amal', ['coA']], ['basim', ['coB']]]);
+    rowCompanies = ['coA'];
+    const store: FileRowsStore = {
+      ...f.store,
+      async rowsOf(key) {
+        const rows = await f.store.rowsOf(key);
+        return { ...rows, companyIds: rowCompanies };
+      },
+    };
+    co = createFileAccess({
+      store,
+      canViewTask: async (userId, roles, taskId) => roles.includes('ADMIN') || (canViewTask.get(taskId)?.has(userId) ?? false),
+      canSeeConversation: async (cid, userId) => canSeeConversation.get(cid)?.has(userId) ?? false,
+      companiesOf: async (userId) => companies.get(userId) ?? [],
+      now: () => clock,
+    });
+  });
+
+  it('a person of the path’s company opens it', async () => {
+    f.s.taskFiles.set(inCo('coA'), ['t1']);
+    expect(await co.mayOpen(amal, await co.classify(inCo('coA')), inCo('coA'))).toBe(true);
+  });
+
+  it('a team member from a second company of a shared project opens it (the project’s companies)', async () => {
+    f.s.taskFiles.set(inCo('coA'), ['t1']);
+    rowCompanies = ['coA', 'coB'];
+    expect(await co.mayOpen(basim, await co.classify(inCo('coA')), inCo('coA'))).toBe(true);
+  });
+
+  it('a path naming a company unrelated to both the person and the file is refused, even when the row check passes', async () => {
+    f.s.taskFiles.set(inCo('coX'), ['t1']);
+    expect(await co.mayOpen(basim, await co.classify(inCo('coX')), inCo('coX'))).toBe(false);
+    expect(await co.mayOpen(amal, await co.classify(inCo('coX')), inCo('coX'))).toBe(false);
+  });
+
+  it('administrators see every company; shared and plain names carry none', async () => {
+    f.s.taskFiles.set(inCo('coX'), ['t1']);
+    expect(await co.mayOpen(admin, await co.classify(inCo('coX')), inCo('coX'))).toBe(true);
+    const shared = `shared/2026/11/u1/chat-files/${UUID}.png`;
+    f.s.chatFiles.set(shared, [{ conversationId: 'c1', deleted: false }]);
+    expect(await co.mayOpen(amal, await co.classify(shared), shared)).toBe(true);
+    f.s.taskFiles.set(`${UUID}.pdf`, ['t1']);
+    expect(await co.mayOpen(basim, await co.classify(`${UUID}.pdf`), `${UUID}.pdf`)).toBe(true);
+  });
+
+  it('the row check still comes first: the right company alone opens nothing', async () => {
+    f.s.taskFiles.set(inCo('coB'), ['t1']);
+    companies.set('carla', ['coB']);
+    expect(await co.mayOpen({ id: 'carla', roles: ['EMPLOYEE'] }, await co.classify(inCo('coB')), inCo('coB'))).toBe(false);
+  });
+});
+
+// 1.23.39 Upload folders (design "Old links"): an old name is found through file_key_aliases, then checked
+// exactly as the file it moved to.
+describe('old names through the alias table', () => {
+  const OLD = '1b4e28ba-2d11-4a2e-8c3b-0f5b2b6e9a10.pdf';
+  const NEW = `coA/2026/11/u1/task-files/1b4e28ba-2d11-4a2e-8c3b-0f5b2b6e9a10.pdf`;
+  let aliases: Map<string, string>;
+  let al: ReturnType<typeof createFileAccess>;
+  beforeEach(() => {
+    aliases = new Map([[OLD, NEW]]);
+    al = createFileAccess({
+      store: { ...f.store, aliasOf: async (key) => aliases.get(key) ?? null },
+      canViewTask: async (userId, roles, taskId) => roles.includes('ADMIN') || (canViewTask.get(taskId)?.has(userId) ?? false),
+      canSeeConversation: async () => false,
+      now: () => clock,
+    });
+  });
+
+  it('resolves an old name to the moved file, with its rows', async () => {
+    f.s.taskFiles.set(NEW, ['t1']);
+    const found = await al.resolve(OLD);
+    expect(found.file).toBe(NEW);
+    expect(found.kind).toMatchObject({ kind: 'protected', taskIds: ['t1'] });
+  });
+
+  it('a current name is itself; an unknown old name stays unknown', async () => {
+    f.s.taskFiles.set(NEW, ['t1']);
+    expect((await al.resolve(NEW)).file).toBe(NEW);
+    expect((await al.resolve('00000000-aaaa-4bbb-8ccc-6e6f7468696e.png')).kind).toEqual({ kind: 'unknown' });
+  });
+
+  it('follows a file moved twice (re-filed after its project moved), but never loops', async () => {
+    const THIRD = NEW.replace('coA/', 'coB/');
+    aliases.set(NEW, THIRD);
+    f.s.taskFiles.set(THIRD, ['t1']);
+    expect((await al.resolve(OLD)).file).toBe(THIRD);
+    aliases.set(THIRD, OLD);
+    f.s.taskFiles.delete(THIRD);
+    clock += 60_000; // past what was remembered
+    expect((await al.resolve(OLD)).kind).toEqual({ kind: 'unknown' });
+  });
+
+  it('a public picture by its old address', async () => {
+    const PIC_OLD = '0000000a-aaaa-4bbb-8ccc-6c6f676f3030.png';
+    const PIC_NEW = 'coA/2026/11/system/company-logos/0000000a-aaaa-4bbb-8ccc-6c6f676f3030.png';
+    aliases.set(PIC_OLD, PIC_NEW);
+    f.s.pictures.add(`/uploads/${PIC_NEW}`);
+    expect(await al.resolve(PIC_OLD)).toEqual({ file: PIC_NEW, kind: { kind: 'public' } });
+  });
+});

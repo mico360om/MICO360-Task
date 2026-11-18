@@ -19,6 +19,27 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - On the day (00:00–23:59 company time) the person's Dashboard takes the template's colours with a banner showing the message and who sent it, and a one-time popup with the company logo asks them to Accept. Once accepted or closed it never shows again on any device; closing leaves Accept in the banner. Accepting works offline too and is sent when back online. Everything goes back to normal at midnight. A bell notice says "You've been appreciated"; email is off unless turned on in Notification & Scheduling.
 - Scheduled & history: every appreciation with its status (Scheduled, Active, Accepted, Expired, Cancelled), filters by person, status, template and dates, Edit or Cancel until the day starts, and Export to Excel. Everyone has "My appreciations" in the account menu. Sending, edits, cancellations, acceptances, expiries, templates and the permission are in the Audit log.
 
+## [1.23.41] - 2026-11-18
+
+### Improvements
+- My Priorities Today on the Dashboard is a compact list in groups — Today, Overdue, Approvals, Blocked, Upcoming and Team — showing five in each, with Show more.
+- Each priority is one line: a tick to complete it, the task number and title, its project, when it's due ("Today", "27 days late", "Fri 20 Nov") and who is on it; Reschedule, Assign and Open are in one ⋯ menu, and clicking the row opens the task.
+- Overdue has "Move all to today" and "Reschedule all…": it asks first, moves only the tasks you may change, and one Undo puts them all back.
+
+## [1.23.40] - 2026-11-18
+
+### Improvements
+- Uploaded files are now kept in folders by company, year, month, the person who uploaded them and the kind of file (task files, chat files, profile photos, project pictures, company logos, Learning Hub files). Files already on the site are moved into these folders the first time the new version starts; each copy is checked before anything points at it, and a file that can't be moved stays where it was and is listed in the Error log.
+- Links to files from before the move keep working: in emails, PDFs and bookmarks they open the moved file, with the same checks as before. The old copies are removed 30 days after the move.
+
+### Security
+- A task or chat file opens only when the company in its folder is one the person may see (or they are an administrator), on top of the existing private file link checks. File addresses are checked strictly: anything that isn't exactly one of the server's own file names (folders that climb out, backslashes, odd characters) is refused.
+
+## [1.23.39] - 2026-11-18
+
+### Improvements
+- The loading screen shows the MICO360 logo while the site opens.
+
 ## [1.23.38] - 2026-11-18
 
 ### Bug fixes

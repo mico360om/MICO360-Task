@@ -87,7 +87,7 @@ beforeAll(async () => {
   await prisma.checklistItem.create({ data: { taskId: w.tasks.TA2, listId: list.id, text: 'Gauges', position: 1 } });
   // Files: a PDF and a picture, and a drawing of a type this server doesn't take any more.
   const file = async (filename: string, mimeType: string, content: string) => {
-    const { storageKey, url, sizeBytes } = await storage.save({ filename, mimeType, content: Buffer.from(content) });
+    const { storageKey, url, sizeBytes } = await storage.save({ filename, mimeType, content: Buffer.from(content) }, { companyId: null, userId: w.people.cat, type: 'task-files' });
     await prisma.attachment.create({ data: { taskId: w.tasks.TA2, uploadedById: w.people.cat, filename, mimeType, sizeBytes, storageKey, url } });
   };
   await file('plan.txt', 'text/plain', 'the plan');
