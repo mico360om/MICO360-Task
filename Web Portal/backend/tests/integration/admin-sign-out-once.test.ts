@@ -9,7 +9,7 @@ import { testPrisma } from './test-prisma';
 const prisma = testPrisma();
 const DOMAIN = '@asonce.test';
 const NOW = new Date('2026-11-19T06:00:00.000Z');
-const step = () => createAdminSignOutOnce({ prisma, now: () => NOW });
+const step = () => createAdminSignOutOnce({ prisma, now: () => NOW, twoStepOn: () => true });
 
 async function role(name: string) {
   return prisma.role.upsert({ where: { name }, update: {}, create: { name } });
@@ -46,6 +46,14 @@ afterAll(async () => {
 });
 
 describe('1.24.0: every administrator signs in again once (two-step sign-in)', () => {
+  it('waits while two-step sign-in is off (ADMIN_TWO_STEP=off or no email): nothing changed, nothing recorded', async () => {
+    const r = await createAdminSignOutOnce({ prisma, now: () => NOW, twoStepOn: () => false }).run();
+    expect(r).toEqual({ already: false, waiting: true, userIds: [] });
+    expect(await versionOf(admin)).toBe(3);
+    expect(await liveTokens(admin)).toBe(1);
+    expect(await prisma.systemSetting.findUnique({ where: { key: ADMIN_SIGN_OUT_KEY } })).toBeNull();
+  });
+
   it('ends each administrator’s sessions once: session version raised, live refresh tokens revoked; staff and clients untouched', async () => {
     const r = await step().run();
     expect(r.already).toBe(false);
@@ -73,7 +81,7 @@ describe('1.24.0: every administrator signs in again once (two-step sign-in)', (
     // An administrator signs in again after the release: a new live session.
     await prisma.refreshToken.create({ data: { userId: admin, tokenHash: randomBytes(16).toString('hex'), expiresAt: new Date(NOW.getTime() + 86_400_000) } });
     const again = await step().run();
-    expect(again).toEqual({ already: true, userIds: [] });
+    expect(again).toEqual({ already: true, waiting: false, userIds: [] });
     expect(await versionOf(admin)).toBe(4);
     expect(await liveTokens(admin)).toBe(1);
     expect(await prisma.auditLog.count({ where: { action: 'auth.two_step.admins_signed_out' } })).toBe(1);

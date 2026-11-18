@@ -12,7 +12,8 @@ import { ADMIN_ROLE } from './two-step';
  * the change, before it; a later start-up (or a second server starting at the same moment, which waits on that
  * key and then finds it taken) does nothing. Database writes only (no isolation statement, no side effects), so
  * the save-retry layer may run it again whole. Start-up runs it before the server takes requests, so a sign-in
- * made under 1.24.0 is never ended by it.
+ * made under 1.24.0 is not ended by it (only if that first try fails — database away — the retry, at the database's
+ * return and then every 10 minutes, may also end a sign-in made in between). While two-step sign-in is off it waits.
  */
 export const ADMIN_SIGN_OUT_KEY = 'auth.adminSignOut124';
 export const ADMIN_SIGN_OUT_ACTION = 'auth.two_step.admins_signed_out';
@@ -20,6 +21,8 @@ export const ADMIN_SIGN_OUT_ACTION = 'auth.two_step.admins_signed_out';
 export interface AdminSignOutRun {
   /** It had run before: nothing was changed. */
   already: boolean;
+  /** Two-step sign-in is off (ADMIN_TWO_STEP=off, or no email): nothing changed or recorded — it runs once it is on. */
+  waiting: boolean;
   /** The administrators whose sessions it ended (empty when already). */
   userIds: string[];
 }
@@ -27,6 +30,11 @@ export interface AdminSignOutRun {
 export interface AdminSignOutDeps {
   prisma: PrismaClient;
   now?: () => Date;
+  /**
+   * Is two-step sign-in on? While it is off, ending the sessions would only let administrators straight back in with
+   * a password, and recording it would mean those sessions are never ended once it comes on (review I1).
+   */
+  twoStepOn: () => boolean;
 }
 
 const isUniqueClash = (err: unknown) => (err as { code?: string })?.code === 'P2002';
@@ -36,7 +44,8 @@ export function createAdminSignOutOnce(deps: AdminSignOutDeps): { run(): Promise
   const now = deps.now ?? (() => new Date());
   return {
     async run() {
-      if (await prisma.systemSetting.findUnique({ where: { key: ADMIN_SIGN_OUT_KEY }, select: { key: true } })) return { already: true, userIds: [] };
+      if (await prisma.systemSetting.findUnique({ where: { key: ADMIN_SIGN_OUT_KEY }, select: { key: true } })) return { already: true, waiting: false, userIds: [] };
+      if (!deps.twoStepOn()) return { already: false, waiting: true, userIds: [] };
       const at = now();
       try {
         const userIds = await prisma.$transaction(async (tx) => {
@@ -51,10 +60,10 @@ export function createAdminSignOutOnce(deps: AdminSignOutDeps): { run(): Promise
           await tx.auditLog.create({ data: { userId: null, module: 'auth', action: ADMIN_SIGN_OUT_ACTION, entityId: null, newValue: { admins: ids.length } } });
           return ids;
         });
-        return { already: false, userIds };
+        return { already: false, waiting: false, userIds };
       } catch (err) {
         // Another server did it at the same moment: theirs is the record.
-        if (isUniqueClash(err)) return { already: true, userIds: [] };
+        if (isUniqueClash(err)) return { already: true, waiting: false, userIds: [] };
         throw err;
       }
     },

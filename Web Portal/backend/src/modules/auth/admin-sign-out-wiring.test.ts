@@ -9,12 +9,12 @@ const server = readFileSync(resolve(__dirname, '../../server.ts'), 'utf8');
 
 describe('1.24.0 one-time administrator sign-out: start-up wiring', () => {
   it('server.ts runs the step before app.listen, and a failure never stops the server (it is tried again later)', () => {
-    const run = server.indexOf('adminSignOutOnce.run()');
+    const run = server.indexOf('await runAdminSignOut()');
     const listen = server.indexOf('await app.listen(');
     expect(run).toBeGreaterThan(0);
     expect(listen).toBeGreaterThan(0);
     expect(run).toBeLessThan(listen);
-    expect(server).toMatch(/createAdminSignOutOnce\(\{ prisma \}\)/);
+    expect(server).toMatch(/createAdminSignOutOnce\(\{ prisma, twoStepOn: \(\) => twoStep\.state\(\)\.on \}\)/);
     // A failed first try (database away at start-up) is retried on a timer until it is recorded as done.
     expect(server).toMatch(/name: 'admin-sign-out-124'/);
   });

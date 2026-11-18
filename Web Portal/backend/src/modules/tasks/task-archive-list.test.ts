@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { buildApp } from '../../app';
 import { createTaskService } from './task-service';
 import { createTokenService } from '../auth/token-service';

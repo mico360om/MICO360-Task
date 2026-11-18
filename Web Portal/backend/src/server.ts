@@ -3231,10 +3231,10 @@ async function main(): Promise<void> {
   // from before end ONCE (session version raised, refresh tokens revoked; recorded so it never repeats). Run
   // before the server takes requests, so a 1.24.0 sign-in is never ended by it. If the database is away now,
   // it is tried again every 10 minutes until it is recorded (staff, managers and clients are never touched).
-  const adminSignOutOnce = createAdminSignOutOnce({ prisma });
+  const adminSignOutOnce = createAdminSignOutOnce({ prisma, twoStepOn: () => twoStep.state().on });
   const runAdminSignOut = async () => {
     const r = await adminSignOutOnce.run();
-    if (r.already) return;
+    if (r.already || r.waiting) return;
     for (const id of r.userIds) authGuard.forgetUser(id);
     logger.job('two-step sign-in').info('1.24.0: every administrator signs in again (password + code) — their earlier sessions ended once', { admins: r.userIds.length });
   };
