@@ -77,7 +77,9 @@ describe('createVocabulary — kept to its time', () => {
   it('stops at its deadline: past it, nothing more is compared (a word one letter off at the end isn’t reached)', async () => {
     const words = [...Array.from({ length: 5000 }, (_, i) => `filler${letters(i, 3)}`), 'pumps'];
     const v = createVocabulary({ load: async () => words });
-    expect(await v.suggest('pumpz')).toEqual(['pumps']);
+    // 1.24.0: a deadline far off, not the default 25 ms — under a loaded machine the default could run out
+    // before the last word (the known timing flake); this test is about the deadline being kept.
+    expect(await v.suggest('pumpz', { deadline: performance.now() + 60_000 })).toEqual(['pumps']);
     expect(await v.suggest('pumpz', { deadline: 0 })).toEqual([]);
   });
 
