@@ -15,6 +15,18 @@ export function acceptedWords(iso: string, timeZone: string): string {
   return new Date(iso).toLocaleString('en-GB', { timeZone, day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
+/** 1.24.1: the note for the manager left with an accept (My appreciations and Scheduled & history). */
+export function AcceptNoteQuote({ label, note }: { label: string; note: string }) {
+  return (
+    <div className="mt-2 rounded-lg border-s-4 border-line bg-ground px-3 py-2" data-accept-note>
+      <p className="text-xs font-semibold text-ink-2">{label}</p>
+      <p dir="auto" className="mt-0.5 whitespace-pre-line break-words text-sm text-ink">
+        {note}
+      </p>
+    </div>
+  );
+}
+
 /**
  * Employee Appreciation (1.24.0): My appreciations (account menu) — every appreciation whose day has come, newest
  * first, with its message, day and when it was accepted.
@@ -52,6 +64,7 @@ export function MyAppreciationsPage() {
                   {dayWords(a.day)} · from <bdi className="font-medium text-ink">{a.sender.name}</bdi> · <bdi>{a.company.name}</bdi>
                   {a.acceptedAt ? <> · Accepted {acceptedWords(a.acceptedAt, timeZone)}</> : null}
                 </p>
+                {a.acceptNote ? <AcceptNoteQuote label="Your note" note={a.acceptNote} /> : null}
               </div>
             </li>
           ))}

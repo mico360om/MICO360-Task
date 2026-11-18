@@ -14,6 +14,9 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### Improvements
+- Accepting an appreciation can now include an optional note for your manager (up to 500 characters), in the popup or from the Dashboard banner's Accept, online or offline. The person who sent it gets a bell notice with the start of the note; the sender, administrators and Appreciation managers for that company see it in Scheduled & history and in the Excel export, and you see your own in My appreciations. The note can't be changed after accepting, and the Audit log records only that a note was left.
+
 ## [1.24.0] - 2026-11-18
 
 ### New features

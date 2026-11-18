@@ -19,6 +19,8 @@ export interface ApiAppreciation {
   endsAt: string;
   status: AppreciationStatus;
   acceptedAt: string | null;
+  /** 1.24.1: the note for the manager left with the accept (the person, the sender and managers in scope see it). */
+  acceptNote: string | null;
   popupClosedAt: string | null;
   sender: { id: string; name: string };
   company: { name: string; logoUrl: string | null };
@@ -67,6 +69,8 @@ export interface ApiAppreciationPerson {
 }
 
 export interface AppreciationFilters {
+  /** 1.24.1: one record (the sender's bell notice opens it). */
+  id?: string;
   personId?: string;
   status?: AppreciationStatus | '';
   templateId?: string;
@@ -88,7 +92,9 @@ export function appreciationsApi(client: ApiClient) {
   return {
     me: () => client.get<{ data: ApiAppreciationsMe }>('/appreciations/me').then((r) => r.data),
     history: () => client.get<{ data: ApiAppreciation[] }>('/appreciations/me/history').then((r) => r.data),
-    accept: (id: string) => client.post<{ data: { acceptedAt: string; already: boolean } }>(`/appreciations/me/${encodeURIComponent(id)}/accept`, {}).then((r) => r.data),
+    /** 1.24.1: with an optional note for the manager (never changed after; noteSaved false when it was already accepted). */
+    accept: (id: string, note: string | null = null) =>
+      client.post<{ data: { acceptedAt: string; already: boolean; noteSaved?: boolean } }>(`/appreciations/me/${encodeURIComponent(id)}/accept`, note ? { note } : {}).then((r) => r.data),
     closePopup: (id: string) => client.post<{ data: { popupClosedAt: string } }>(`/appreciations/me/${encodeURIComponent(id)}/close`, {}).then((r) => r.data),
     // ---- managing ----
     templates: (archived = false) => client.get<{ data: ApiAppreciationTemplate[] }>(`/appreciations/manage/templates${archived ? '?archived=1' : ''}`).then((r) => r.data),

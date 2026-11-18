@@ -68,7 +68,9 @@ async function replayMutation(m: QueuedMutation): Promise<void> {
     }
     if (m.kind === 'appreciation.accept') {
       // Accepting twice is harmless (the server answers the first time), so a replay needs no key of its own.
-      await appreciationsApi(apiClient.forUser(m.ownerId)).accept((m.payload as { id: string }).id);
+      // 1.24.1: the optional note for the manager goes with it (refused with the accept after the day ends).
+      const p = m.payload as { id: string; note?: string | null };
+      await appreciationsApi(apiClient.forUser(m.ownerId)).accept(p.id, p.note ?? null);
       return;
     }
     throw fail(`Unknown change type ${m.kind}`);

@@ -6,22 +6,25 @@ import { dialogLayer, dialogPanel } from '../ui/dialog-size';
 import { themeGradient, dayWords } from '../../lib/appreciation';
 import { AppreciationIconSvg, CompanyMark, ConfettiBurst } from './AppreciationArt';
 import { useMyAppreciations } from './useMyAppreciations';
+import { NoteField } from './AcceptNote';
 import type { ApiAppreciation } from '../../api/appreciations';
 
 /**
  * Employee Appreciation (1.24.0): the one-time popup, on any page, for each of today's appreciations that is
  * neither accepted nor closed — one after another. Its state is the server's: once accepted or closed it never
  * shows again, on this or any other device. Closing leaves "Accept" in the Dashboard's banner.
+ * 1.24.1: an optional note for the manager goes with Accept.
  */
 export function AppreciationPopup() {
   const { live, accept, closePopup, problem } = useMyAppreciations();
   const next = live.find((a) => !a.acceptedAt && !a.popupClosedAt);
   if (!next) return null;
-  return <PopupFor key={next.id} a={next} onAccept={() => accept(next.id)} onClose={() => void closePopup(next.id)} problem={problem} />;
+  return <PopupFor key={next.id} a={next} onAccept={(note) => accept(next.id, note)} onClose={() => void closePopup(next.id)} problem={problem} />;
 }
 
-function PopupFor({ a, onAccept, onClose, problem }: { a: ApiAppreciation; onAccept: () => Promise<boolean>; onClose: () => void; problem: string | null }) {
+function PopupFor({ a, onAccept, onClose, problem }: { a: ApiAppreciation; onAccept: (note: string) => Promise<boolean>; onClose: () => void; problem: string | null }) {
   const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState('');
   const ref = useDialog<HTMLDivElement>(busy ? () => {} : onClose, { initialFocus: 'container' });
   return (
     <ModalPortal>
@@ -62,6 +65,9 @@ function PopupFor({ a, onAccept, onClose, problem }: { a: ApiAppreciation; onAcc
             <p className="mt-3 text-sm text-ink-2">
               From <bdi className="font-semibold text-ink">{a.sender.name}</bdi>
             </p>
+            <div className="mt-4">
+              <NoteField value={note} onChange={setNote} disabled={busy} />
+            </div>
             {problem ? (
               <p role="alert" className="mt-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
                 {problem}
@@ -76,7 +82,7 @@ function PopupFor({ a, onAccept, onClose, problem }: { a: ApiAppreciation; onAcc
                 className="[@media(pointer:coarse)]:!min-h-11"
                 onClick={async () => {
                   setBusy(true);
-                  await onAccept();
+                  await onAccept(note);
                   setBusy(false);
                 }}
               >

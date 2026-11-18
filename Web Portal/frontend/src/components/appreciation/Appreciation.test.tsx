@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { useAuthStore } from '../../stores/auth-store';
@@ -19,7 +19,7 @@ vi.mock('../../api/appreciations', async (orig) => ({ ...(await orig<typeof impo
 
 const A: ApiAppreciation = {
   id: 'ap1', batchId: 'b1', title: 'Great Teamwork', message: 'Thank you, Sara Khan, for the great teamwork.', theme: 'ocean', icon: 'team', animation: 'none',
-  day: '2026-11-18', startsAt: '2026-11-17T20:00:00.000Z', endsAt: '2026-11-18T20:00:00.000Z', status: 'ACTIVE', acceptedAt: null, popupClosedAt: null,
+  day: '2026-11-18', startsAt: '2026-11-17T20:00:00.000Z', endsAt: '2026-11-18T20:00:00.000Z', status: 'ACTIVE', acceptedAt: null, acceptNote: null, popupClosedAt: null,
   sender: { id: 'u-omar', name: 'Omar Said' }, company: { name: 'Contoso', logoUrl: null },
 };
 const me = (live: ApiAppreciation[]) => ({ canManage: false, today: '2026-11-18', serverNow: '2026-11-18T05:00:00.000Z', live });
@@ -62,7 +62,7 @@ describe('the one-time popup', () => {
     expect(dialog).toHaveTextContent('Thank you, Sara Khan');
     expect(dialog).toHaveTextContent('From Omar Said');
     await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Accept appreciation' })));
-    expect(api.accept).toHaveBeenCalledWith('ap1');
+    expect(api.accept).toHaveBeenCalledWith('ap1', null); // 1.24.1: no note typed
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(screen.getByText(/^Accepted/)).toBeInTheDocument();
   });
@@ -146,5 +146,70 @@ describe('the bell notice', () => {
   it('“You’ve been appreciated” opens the Dashboard', async () => {
     const { notificationTarget } = await import('../../lib/notification-links');
     expect(notificationTarget({ entityType: 'appreciation', entityId: 'ap1' })).toEqual({ kind: 'path', to: '/dashboard' });
+  });
+  it('1.24.1: “… accepted your appreciation: …” opens that record in Scheduled & history', async () => {
+    const { notificationTarget } = await import('../../lib/notification-links');
+    expect(notificationTarget({ entityType: 'appreciation-note', entityId: 'ap1' })).toEqual({ kind: 'path', to: '/appreciations?tab=history&row=ap1' });
+  });
+});
+
+describe('a note for your manager (1.24.1)', () => {
+  const NOTE = 'Add a note for your manager (optional)';
+
+  it('the popup has an optional note (500 characters at most); Accept sends it trimmed', async () => {
+    api.me.mockResolvedValue(me([A]));
+    api.accept.mockResolvedValue({ acceptedAt: '2026-11-18T05:01:00.000Z', already: false, noteSaved: true });
+    show();
+    const dialog = await screen.findByRole('dialog', { name: 'Great Teamwork' });
+    const box = within(dialog).getByRole('textbox', { name: NOTE });
+    expect(box).toHaveAttribute('maxLength', '500');
+    expect(box).not.toBeRequired();
+    fireEvent.change(box, { target: { value: '  Thank you, Omar!  ' } });
+    expect(within(dialog).getByText('20 of 500')).toBeInTheDocument();
+    await act(async () => fireEvent.click(within(dialog).getByRole('button', { name: 'Accept appreciation' })));
+    expect(api.accept).toHaveBeenCalledWith('ap1', 'Thank you, Omar!');
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  });
+
+  it('the banner’s Accept (popup closed) opens a small dialog with the same note; Cancel accepts nothing', async () => {
+    api.me.mockResolvedValue(me([{ ...A, popupClosedAt: '2026-11-18T04:00:00.000Z' }]));
+    api.accept.mockResolvedValue({ acceptedAt: '2026-11-18T05:01:00.000Z', already: false, noteSaved: true });
+    show();
+    const acceptButton = await screen.findByRole('button', { name: 'Accept' });
+    await act(async () => fireEvent.click(acceptButton));
+    let dialog = screen.getByRole('dialog', { name: 'Accept “Great Teamwork”' });
+    await act(async () => fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' })));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(api.accept).not.toHaveBeenCalled();
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Accept' })));
+    dialog = screen.getByRole('dialog', { name: 'Accept “Great Teamwork”' });
+    fireEvent.change(within(dialog).getByRole('textbox', { name: NOTE }), { target: { value: 'Great team!' } });
+    await act(async () => fireEvent.click(within(dialog).getByRole('button', { name: 'Accept appreciation' })));
+    expect(api.accept).toHaveBeenCalledWith('ap1', 'Great team!');
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(screen.getByText(/^Accepted/)).toBeInTheDocument();
+  });
+
+  it('offline: the note goes into the queue with the accept', async () => {
+    api.me.mockResolvedValue(me([A]));
+    api.accept.mockRejectedValue(new TypeError('Failed to fetch'));
+    show();
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog).getByRole('textbox', { name: NOTE }), { target: { value: 'Sent from the field' } });
+    await act(async () => fireEvent.click(within(dialog).getByRole('button', { name: 'Accept appreciation' })));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    const all = Object.keys(localStorage).map((k) => localStorage.getItem(k) ?? '').join('\n');
+    expect(all).toContain('appreciation.accept');
+    expect(all).toContain('Sent from the field');
+  });
+
+  it('already accepted on another device: says the note was not added', async () => {
+    api.me.mockResolvedValue(me([A]));
+    api.accept.mockResolvedValue({ acceptedAt: '2026-11-18T04:00:00.000Z', already: true, noteSaved: false });
+    show();
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog).getByRole('textbox', { name: NOTE }), { target: { value: 'Late words' } });
+    await act(async () => fireEvent.click(within(dialog).getByRole('button', { name: 'Accept appreciation' })));
+    expect(await screen.findByText('This appreciation was already accepted, so your note wasn’t added.')).toBeInTheDocument();
   });
 });

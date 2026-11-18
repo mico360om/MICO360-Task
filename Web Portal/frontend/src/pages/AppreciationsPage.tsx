@@ -25,7 +25,7 @@ import { ApiError } from '../lib/api-client';
 import { downloadBlob } from '../lib/download';
 import { TOUCH_SQUARE, TOUCH_TALL } from '../lib/touch';
 import { useAuthStore } from '../stores/auth-store';
-import { acceptedWords } from './MyAppreciationsPage';
+import { AcceptNoteQuote, acceptedWords } from './MyAppreciationsPage';
 import { useCompanyTimeZone } from '../lib/company-clock';
 
 const api = appreciationsApi(apiClient);
@@ -254,7 +254,17 @@ function HistoryTab({ today }: { today: string }) {
   const qc = useQueryClient();
   const id = useId();
   const timeZone = useCompanyTimeZone();
-  const [f, setF] = useState<AppreciationFilters>({ page: 1 });
+  // 1.24.1: the sender's bell notice opens one record (?row=<id>); "Show all" goes back to the whole list.
+  const [params, setParams] = useSearchParams();
+  const [f, setF] = useState<AppreciationFilters>(() => ({ page: 1, ...(params.get('row') ? { id: params.get('row')! } : {}) }));
+  const showAll = () => {
+    setF(({ id: _id, ...o }) => ({ ...o, page: 1 }));
+    setParams((p) => {
+      const n = new URLSearchParams(p);
+      n.delete('row');
+      return n;
+    }, { replace: true });
+  };
   const list = useQuery({ queryKey: KEYS.list(f), queryFn: () => api.list(f), placeholderData: keepPreviousData });
   const people = useQuery({ queryKey: KEYS.people('', ''), queryFn: () => api.people('', '') });
   const templates = useQuery({ queryKey: KEYS.templates(true), queryFn: () => api.templates(true) });
@@ -336,6 +346,12 @@ function HistoryTab({ today }: { today: string }) {
         </Button>
       </div>
       {problem ? <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{problem}</p> : null}
+      {f.id ? (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-sm text-ink-2" data-one-record>
+          Showing one appreciation.
+          <Button variant="secondary" size="sm" className={TOUCH_TALL} onClick={showAll}>Show all</Button>
+        </div>
+      ) : null}
       {list.isError ? (
         <LoadError what="the history" onRetry={() => void list.refetch()} />
       ) : !data ? (
@@ -359,6 +375,7 @@ function HistoryTab({ today }: { today: string }) {
                   {dayWords(r.day)} · <bdi>{r.company.name}</bdi> · by <bdi>{r.sender.name}</bdi>
                   {r.acceptedAt ? <> · accepted {acceptedWords(r.acceptedAt, timeZone)}</> : null}
                 </p>
+                {r.acceptNote ? <AcceptNoteQuote label={`Note from ${r.recipient.name}`} note={r.acceptNote} /> : null}
               </div>
               {r.status === 'SCHEDULED' ? (
                 <div className="flex gap-2">
