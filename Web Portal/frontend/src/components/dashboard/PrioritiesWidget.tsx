@@ -7,6 +7,7 @@ import { tasksApi } from '../../api/tasks';
 import { assigneesApi } from '../../api/assignees';
 import { membersApi } from '../../api/members';
 import { meetingsApi } from '../../api/meetings';
+import { usersApi } from '../../api/users';
 import { bulkApi } from '../../api/bulk';
 import { invalidateTaskQueries } from '../../lib/task-cache';
 import { approvalNotice, approvedNotice, approveLabel, isWaitingForApproval, sentBackNotice } from '../../lib/approvals';
@@ -41,6 +42,7 @@ import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { DayCalendar } from '../ui/DateTimeField';
 import { LoadError } from '../ui/LoadError';
 import { SendBackDialog } from '../approvals/SendBackDialog';
+import { OVERDUE_CLASS } from '../../lib/colour-classes';
 import { MergedToast } from '../task-merge/MergedToast';
 
 const messageOf = (e: unknown, fallback: string) => (e instanceof Error && e.message ? e.message : fallback);
@@ -183,6 +185,9 @@ export function PrioritiesWidget({ onOpenTask, list }: { onOpenTask: (taskId: st
   useNotificationRealtime(soon, undefined, listens);
 
   const rows = useMemo(() => (data?.items ?? []).filter((r) => !gone.has(r.id)), [data, gone]);
+  // The faces' photos: the company directory the other pages use (the priorities answer carries names only).
+  const directoryQ = useQuery({ queryKey: ['directory'], queryFn: () => usersApi(apiClient).directory(), staleTime: 300_000, enabled: rows.some((r) => (r.task?.assignees.length ?? 0) > 0) });
+  const photos = useMemo(() => new Map((Array.isArray(directoryQ.data) ? directoryQ.data : []).map((u) => [u.id, u.avatarUrl ?? null])), [directoryQ.data]);
   const inChip = chip === 'all' ? rows.length : rows.filter((r) => r.chips.includes(chip)).length;
   const counts = data?.counts;
 
@@ -498,6 +503,7 @@ export function PrioritiesWidget({ onOpenTask, list }: { onOpenTask: (taskId: st
       locked={busy !== null}
       problem={problem?.id === row.id ? problem.text : null}
       showProject={grouped}
+      photos={photos}
       onExplain={(text) => setProblem({ id: row.id, text })}
       onOpenTask={(id, at) => (at ? onOpenTask(id, taskIds, at) : onOpenTask(id, taskIds))}
       onComplete={(t) => void complete(row, t)}
@@ -599,7 +605,7 @@ export function PrioritiesWidget({ onOpenTask, list }: { onOpenTask: (taskId: st
               <div key={b.id} data-priority-group={b.id}>
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line pb-1.5">
                   <h3 id={hid} className="text-xs font-semibold uppercase tracking-wide text-ink-2">
-                    {b.label} <span className={`ms-1 rounded-full px-1.5 py-0.5 text-[11px] font-semibold ${b.id === 'overdue' && n > 0 ? 'bg-danger-soft text-danger' : 'bg-ground text-ink-2'}`}>{b.count}</span>
+                    {b.label} <span className={`ms-1 rounded-full px-1.5 py-0.5 text-[11px] font-semibold ${b.id === 'overdue' && n > 0 ? `${OVERDUE_CLASS.chip}` : 'bg-ground text-ink-2'}`}>{b.count}</span>
                   </h3>
                   {b.id === 'overdue' ? (
                     <OverdueActions rows={late} today={today} weekStart={weekStart} disabled={busy !== null} onAsk={(day) => setAsking({ day, ...movableOverdue(late) })} />
@@ -757,6 +763,8 @@ interface ItemProps {
   problem: string | null;
   /** The project on each row (not on one project's own Next actions). */
   showProject: boolean;
+  /** People's photos by id (initials when there is none). */
+  photos: ReadonlyMap<string, string | null>;
   /** A tap on a tick that can't be used: say why (a touch screen has no tooltip). */
   onExplain: (text: string) => void;
   onOpenTask: (taskId: string, at?: { item?: string }) => void;
@@ -786,7 +794,7 @@ function completeBlock(t: PriorityTask): string | null {
  * One row, on one line (two on a phone): the tick, the task number and title (and Urgent / High), its
  * project, due day and people, and one ⋯ menu. A click on the row (not on a control) opens it, as Open does.
  */
-function PriorityItem({ row, today, weekStart, busy, locked, problem, showProject, onExplain, onOpenTask, onComplete, onReschedule, onAssign, onApprove, onSendBack, onItemDone, onItemReschedule, onStepTick, onStepReschedule }: ItemProps) {
+function PriorityItem({ row, today, weekStart, busy, locked, problem, showProject, photos, onExplain, onOpenTask, onComplete, onReschedule, onAssign, onApprove, onSendBack, onItemDone, onItemReschedule, onStepTick, onStepReschedule }: ItemProps) {
   const navigate = useNavigate();
   const t = row.task;
   const a = row.actionItem;
@@ -887,8 +895,8 @@ function PriorityItem({ row, today, weekStart, busy, locked, problem, showProjec
               </bdi>
             </span>
           ) : null}
-          {due ? <span className={`flex-none [@container(min-width:44rem)]:w-24 ${due.late ? 'font-semibold text-danger' : 'text-ink-2'}`}>{due.text}</span> : null}
-          {t ? <Faces people={t.assignees} /> : null}
+          {due ? <span className={`flex-none [@container(min-width:44rem)]:w-24 ${due.late ? `font-semibold ${OVERDUE_CLASS.text}` : 'text-ink-2'}`}>{due.text}</span> : null}
+          {t ? <Faces people={t.assignees} photos={photos} /> : null}
         </div>
         {problem ? (
           <p role="alert" className="pb-1 text-xs font-medium text-danger [@container(min-width:44rem)]:basis-full">
@@ -967,14 +975,14 @@ function Tick({ label, reason, waiting, onTick, onExplain }: { label: string; re
 }
 
 /** Up to three faces, then "+2"; the names for screen readers. */
-function Faces({ people }: { people: { id: string; name: string }[] }) {
+function Faces({ people, photos }: { people: { id: string; name: string }[]; photos: ReadonlyMap<string, string | null> }) {
   if (people.length === 0) return <span className="flex-none text-ink-2 [@container(min-width:44rem)]:w-[4.25rem]">Unassigned</span>;
   const shown = people.slice(0, 3);
   return (
     <span className="inline-flex flex-none items-center [@container(min-width:44rem)]:w-[4.25rem]">
       <span aria-hidden="true" className={`flex -space-x-1.5 ${DENSE_STACK}`}>
         {shown.map((p) => (
-          <Avatar key={p.id} name={p.name} size="sm" dense />
+          <Avatar key={p.id} name={p.name} src={photos.get(p.id) ?? null} size="sm" dense />
         ))}
         {people.length > 3 ? <span className={`grid h-6 w-6 place-items-center rounded-full border border-line bg-ground text-[10px] font-semibold text-ink-2 ${DENSE_FACE}`}>+{people.length - 3}</span> : null}
       </span>

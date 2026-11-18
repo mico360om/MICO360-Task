@@ -202,7 +202,7 @@ describe('one-line rows', () => {
     expect(within(r).getByRole('button', { name: 'Open RIG-4: Pump check' })).toHaveTextContent('RIG-4');
     expect(within(r).getByText('Urgent')).toBeInTheDocument();
     expect(within(r).getByText('Rig Inspection')).toBeInTheDocument();
-    expect(within(r).getByText('27 days late').className).toMatch(/text-danger/);
+    expect(within(r).getByText('27 days late').className).toMatch(/text-overdue/);
     expect(within(row('task:t2')).getByText('Fri 13 Nov')).toBeInTheDocument();
     expect(within(r).getAllByTitle(/^(Amal Said|Badr Ali|Cyrus Lee|Dana Fox)$/)).toHaveLength(3);
     expect(within(r).getByText('+1')).toBeInTheDocument();
