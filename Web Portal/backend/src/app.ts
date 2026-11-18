@@ -12,6 +12,7 @@ import type { Logger } from './lib/logger';
 import { DATABASE_BUSY_MESSAGE, databaseConnectionCode } from './lib/db-connection';
 import { registerIdempotency, type IdempotencyStore } from './lib/idempotency';
 import { registerRequestTiming } from './lib/request-timing';
+import { registerLongRequestWarning } from './lib/long-request';
 import { registerEmailWebhookRoutes } from './modules/email/email-webhook-routes';
 import type { EmailWebhookService } from './modules/email/email-webhook-service';
 import { registerAuthRoutes, type AuthRouteDeps } from './modules/auth/auth-routes';
@@ -535,6 +536,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   const app = Fastify({ logger: false, trustProxy: (deps.trustProxy ?? false) as boolean | string | string[] });
   // 1.23.3: each API answer says the server's time and its time in the database (Server-Timing), first of all.
   registerRequestTiming(app);
+  // 1.24.0: a request still running after 10 minutes (the repeat-request lease) is written once to the Error log.
+  registerLongRequestWarning(app, { logger: deps.logger });
 
   // The verified user of a request (HMAC check only — no database), used to key rate limits
   // and idempotency records per user instead of per IP (a whole office can share one IP).
