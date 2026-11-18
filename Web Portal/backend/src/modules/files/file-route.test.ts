@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../../app';
 import { createTokenService } from '../auth/token-service';
@@ -19,8 +19,18 @@ const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR
 const PDF = Buffer.from('%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n');
 const dir = mkdtempSync(join(tmpdir(), 'pf-route-'));
 const files: Record<string, Buffer> = { '00000002-aaaa-4bbb-8ccc-7461736b6669.pdf': PDF, '00000003-aaaa-4bbb-8ccc-7461736b7069.png': PNG, '00000004-aaaa-4bbb-8ccc-636861747069.png': PNG, '00000005-aaaa-4bbb-8ccc-646d66696c65.pdf': PDF, '00000009-aaaa-4bbb-8ccc-70686f746f30.png': PNG, '00000001-aaaa-4bbb-8ccc-6f6c6470686f.png': PNG, '00000006-aaaa-4bbb-8ccc-6f727068616e.png': PNG, '0000000a-aaaa-4bbb-8ccc-6c6f676f3030.png': PNG };
+// 1.23.39: files in the new folders.
+const NESTED_PDF = 'coA/2026/11/amal/task-files/0000000b-aaaa-4bbb-8ccc-6e6573746564.pdf';
+const NESTED_LOGO = 'coA/2026/11/system/company-logos/0000000c-aaaa-4bbb-8ccc-6c6f676f6e65.png';
+const NESTED_FOREIGN = 'coX/2026/11/amal/task-files/0000000d-aaaa-4bbb-8ccc-666f7265696e.pdf';
+files[NESTED_PDF] = PDF;
+files[NESTED_LOGO] = PNG;
+files[NESTED_FOREIGN] = PDF;
 beforeAll(() => {
-  for (const [name, bytes] of Object.entries(files)) writeFileSync(join(dir, name), bytes);
+  for (const [name, bytes] of Object.entries(files)) {
+    mkdirSync(dirname(join(dir, name)), { recursive: true });
+    writeFileSync(join(dir, name), bytes);
+  }
 });
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
@@ -42,6 +52,10 @@ let taskFiles: Map<string, string[]>;
 let chatFiles: Map<string, FileChatRow[]>;
 let pictures: Set<string>;
 let storeAsked: string[];
+// 1.23.39 Upload folders: old names → new keys, people's companies, and the companies behind a file's rows.
+let aliases: Map<string, string>;
+let companiesOfUser: Map<string, string[]>;
+let rowCompanies: Map<string, string[]>;
 let app: FastifyInstance;
 const links = createFileLinks({ secret: 'pf-route-access-secret' });
 
@@ -51,19 +65,21 @@ async function makeApp() {
     store: {
       async rowsOf(key) {
         storeAsked.push(key);
-        return { taskIds: taskFiles.get(key) ?? [], chats: chatFiles.get(key) ?? [] };
+        return { taskIds: taskFiles.get(key) ?? [], chats: chatFiles.get(key) ?? [], ...(rowCompanies.has(key) ? { companyIds: rowCompanies.get(key)! } : {}) };
       },
+      async aliasOf(key) { storeAsked.push(`alias:${key}`); return aliases.get(key) ?? null; },
       async isPublicPicture(url) { return pictures.has(url); },
       async taskIsLive(taskId) { return !deadTasks.has(taskId); },
     },
     canViewTask: async (userId, roles, taskId) => roles.includes('ADMIN') || (taskViewers.get(taskId)?.has(userId) ?? false),
     canSeeConversation: async (cid, userId) => convViewers.get(cid)?.has(userId) ?? false,
+    companiesOf: async (userId) => companiesOfUser.get(userId) ?? [],
     // No memory between the steps of a test: each refusal reason is seen at once.
     classifyTtlMs: 0,
     decisionTtlMs: 0,
   });
   // A stand-in for the face route (registered first in server.ts): the deeper path is never this route's.
-  a.get('/uploads/faces/:file', async () => 'a face');
+  a.get('/uploads/faces/*', async () => 'a face');
   await registerUploads(a, { root: dir, links, access, accountState: async (id) => accounts.get(id) ?? null, appUrl: 'https://task.example' });
   await a.ready();
   return a;
@@ -83,6 +99,9 @@ beforeEach(async () => {
   chatFiles = new Map([['00000004-aaaa-4bbb-8ccc-636861747069.png', [{ conversationId: 'c1', deleted: false }]], ['00000005-aaaa-4bbb-8ccc-646d66696c65.pdf', [{ conversationId: 'd1', deleted: false }]]]);
   pictures = new Set(['/uploads/00000009-aaaa-4bbb-8ccc-70686f746f30.png', '/uploads/0000000a-aaaa-4bbb-8ccc-6c6f676f3030.png']);
   storeAsked = [];
+  aliases = new Map();
+  companiesOfUser = new Map([['amal', ['coA']], ['basim', ['coB']]]);
+  rowCompanies = new Map();
   app = await makeApp();
 });
 
@@ -357,5 +376,72 @@ describe('nonsense and floods', () => {
     clock += 60_001;
     expect((await from('10.0.0.1', links.sign(taskPic, amal))).statusCode).toBe(200);
     await a.close();
+  });
+});
+
+// 1.23.39 Upload folders (design "Access" and "Old links").
+describe('files in the new folders', () => {
+  it('a task’s file in its company folder opens through its signed link, nested path and all', async () => {
+    taskFiles.set(NESTED_PDF, ['t1']);
+    rowCompanies.set(NESTED_PDF, ['coA']);
+    const link = links.sign(NESTED_PDF, amal);
+    expect(link.startsWith(`/uploads/${NESTED_PDF}?`)).toBe(true);
+    const res = await get(link);
+    expect(res.statusCode).toBe(200);
+    expect(res.rawPayload.equals(PDF)).toBe(true);
+    expect(res.headers['content-disposition']).toBe('attachment');
+  });
+
+  it('the company check: a path naming a company unrelated to the person and the file is refused (403)', async () => {
+    taskFiles.set(NESTED_FOREIGN, ['t1']);
+    rowCompanies.set(NESTED_FOREIGN, ['coA']);
+    expect((await get(links.sign(NESTED_FOREIGN, amal))).statusCode).toBe(403);
+    expect((await get(links.sign(NESTED_FOREIGN, { id: 'root', ver: 0 }))).statusCode).toBe(200);
+  });
+
+  it('a logo in the new folders is public, as before', async () => {
+    pictures.add(`/uploads/${NESTED_LOGO}`);
+    expect((await get(`/uploads/${NESTED_LOGO}`)).statusCode).toBe(200);
+  });
+
+  it('an old link (emails, PDFs, bookmarks) finds the moved file through the alias, with the same checks', async () => {
+    const OLD = '0000000e-aaaa-4bbb-8ccc-6f6c646c696e.pdf';
+    aliases.set(OLD, NESTED_PDF);
+    taskFiles.set(NESTED_PDF, ['t1']);
+    rowCompanies.set(NESTED_PDF, ['coA']);
+    // A link signed for the old name before the move still works for someone who may open the task.
+    const res = await get(links.sign(OLD, amal));
+    expect(res.statusCode).toBe(200);
+    expect(res.rawPayload.equals(PDF)).toBe(true);
+    // Unsigned, or for someone who can't see the task: refused as before.
+    expect((await get(`/uploads/${OLD}`)).statusCode).toBe(403);
+    taskViewers.get('t1')!.delete('amal');
+    expect((await get(links.sign(OLD, amal))).statusCode).toBe(403);
+  });
+
+  it('an old logo address in an email still shows the logo', async () => {
+    const OLD = '0000000f-aaaa-4bbb-8ccc-6f6c646c6f67.png';
+    aliases.set(OLD, NESTED_LOGO);
+    pictures.add(`/uploads/${NESTED_LOGO}`);
+    expect((await get(`/uploads/${OLD}`)).statusCode).toBe(200);
+  });
+
+  it('bad nested names never reach the database: 404', async () => {
+    for (const url of [
+      '/uploads/coA/2026/11/amal/task-files/../../../../../secret.pdf',
+      '/uploads/coA/2026/11/amal/task-files/..%2F..%2Fsecret.pdf',
+      '/uploads/coA%5C2026%5C11%5Camal%5Ctask-files%5C0000000b-aaaa-4bbb-8ccc-6e6573746564.pdf',
+      '/uploads/coA/2026/11/amal/task-files/0000000b-aaaa-4bbb-8ccc-6e6573746564.pdf%00',
+      '/uploads/coA/2026/11/amal/other/0000000b-aaaa-4bbb-8ccc-6e6573746564.pdf',
+      '/uploads/coA/2026/13/amal/task-files/0000000b-aaaa-4bbb-8ccc-6e6573746564.pdf',
+      '/uploads/coA/2026/11/amal/task-files/0000000b-aaaa-4bbb-8ccc-6e6573746564.pdf/x',
+      '/uploads/coA/2026/11/am al/task-files/0000000b-aaaa-4bbb-8ccc-6e6573746564.pdf',
+      '/uploads//coA/2026/11/amal/task-files/0000000b-aaaa-4bbb-8ccc-6e6573746564.pdf',
+      `/uploads/${'a'.repeat(300)}`,
+    ]) {
+      const res = await get(url);
+      expect(res.statusCode, url).toBe(404);
+    }
+    expect(storeAsked).toEqual([]);
   });
 });

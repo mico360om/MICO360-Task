@@ -93,13 +93,20 @@ describe('the private file store', () => {
   it('saves under a random key with the checked type’s extension, reads it back, removes it', async () => {
     const dir = join(mkdtempSync(join(tmpdir(), 'tf-')), 'training-files');
     const store = createTrainingFileStore(dir);
-    const key = await store.save(PDF, 'application/pdf');
-    expect(key).toMatch(/^[0-9a-f-]{36}\.pdf$/);
+    const key = await store.save(PDF, 'application/pdf', 'ckuser1');
+    // 1.23.39 Upload folders: shared/<YYYY>/<MM>/<uploader>/learning-hub/<uuid>.<ext>
+    expect(key).toMatch(/^shared\/\d{4}\/\d{2}\/ckuser1\/learning-hub\/[0-9a-f-]{36}\.pdf$/);
     expect((await store.read(key)).equals(PDF)).toBe(true);
-    // A key can never leave the folder.
+    expect(await store.save(PDF, 'application/pdf')).toMatch(/^shared\/\d{4}\/\d{2}\/system\/learning-hub\//);
+    // A key can never leave the folder; a 1.23.31 plain name is still read.
     await expect(store.read('../secret.txt')).rejects.toThrow();
+    await expect(store.read('shared/../../secret.txt')).rejects.toThrow();
+    const { writeFileSync } = await import('node:fs');
+    writeFileSync(join(dir, '1b4e28ba-2d11-4a2e-8c3b-0f5b2b6e9a10.pdf'), PDF);
+    expect((await store.read('1b4e28ba-2d11-4a2e-8c3b-0f5b2b6e9a10.pdf')).equals(PDF)).toBe(true);
     await store.remove(key);
-    expect(readdirSync(dir)).toEqual([]);
+    await expect(store.read(key)).rejects.toThrow();
+    expect(readdirSync(dir)).toContain('shared');
   });
 });
 

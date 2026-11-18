@@ -19,6 +19,15 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - Each priority is one line: a tick to complete it, the task number and title, its project, when it's due ("Today", "27 days late", "Fri 20 Nov") and who is on it; Reschedule, Assign and Open are in one ⋯ menu, and clicking the row opens the task.
 - Overdue has "Move all to today" and "Reschedule all…": it asks first, moves only the tasks you may change, and one Undo puts them all back.
 
+## [1.23.40] - 2026-11-18
+
+### Improvements
+- Uploaded files are now kept in folders by company, year, month, the person who uploaded them and the kind of file (task files, chat files, profile photos, project pictures, company logos, Learning Hub files). Files already on the site are moved into these folders the first time the new version starts; each copy is checked before anything points at it, and a file that can't be moved stays where it was and is listed in the Error log.
+- Links to files from before the move keep working: in emails, PDFs and bookmarks they open the moved file, with the same checks as before. The old copies are removed 30 days after the move.
+
+### Security
+- A task or chat file opens only when the company in its folder is one the person may see (or they are an administrator), on top of the existing private file link checks. File addresses are checked strictly: anything that isn't exactly one of the server's own file names (folders that climb out, backslashes, odd characters) is refused.
+
 ## [1.23.39] - 2026-11-18
 
 ### Improvements
@@ -29,7 +38,6 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ### Bug fixes
 - My Tasks has one New Task button (the top bar's); a task added from the top bar shows straight away on the page you're on.
-
 
 ## [1.23.37] - 2026-11-18
 

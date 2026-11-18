@@ -107,6 +107,9 @@ import { createImageShrinker } from './lib/image-shrink';
 import { createAvatarFaces, prismaIsAvatar, registerAvatarFaceRoute } from './modules/users/avatar-faces';
 import { createPrismaAttachmentRepository } from './modules/tasks/prisma-attachment-repository';
 import { createLocalDiskStorage } from './modules/tasks/local-disk-storage';
+import { createUploadPlaces } from './modules/files/upload-places';
+import { createUploadMover } from './modules/files/upload-move';
+import { createPrismaMoveStore } from './modules/files/prisma-upload-move';
 import { removeStoredFile } from './lib/stored-files';
 import { createAccessionDayStep } from './modules/notify-policy/accession-day';
 import { createDependencyService } from './modules/tasks/dependency-service';
@@ -653,6 +656,8 @@ async function main(): Promise<void> {
 
   // Shared file storage + allow-list for task AND chat attachments.
   const attachmentStorage = createLocalDiskStorage({ baseDir: env.UPLOAD_DIR, publicPrefix: '/uploads' });
+  // 1.23.39 Upload folders: new files go under their company's folder (modules/files/upload-places.ts).
+  const uploadPlaces = createUploadPlaces(prisma);
   // 1.23.29 Private file links: task and chat files' addresses are signed for the person they are given to
   // (modules/files). The key is made from the server's own secret: no new setting is needed.
   const fileLinks = createFileLinks({ secret: env.FILE_LINK_SECRET.trim() || env.JWT_ACCESS_SECRET, minutes: env.FILE_LINK_MINUTES });
@@ -703,6 +708,7 @@ async function main(): Promise<void> {
     allowedMimeTypes: attachmentAllowedMime,
     maxTotalBytesPerTask: env.UPLOAD_MAX_TOTAL_BYTES_PER_TASK,
     shrinkImage: imageShrinker.shrink,
+    companyOfTask: (taskId) => uploadPlaces.companyOfTask(taskId),
     // 1.23: a file added or removed — its task's files are searched as they are now, and the text in a
     // new file is read in the background (never holding up the upload).
     onChanged: (taskId) => {
@@ -2733,6 +2739,7 @@ async function main(): Promise<void> {
     commentService,
     attachmentService,
     chatAttachmentStorage: attachmentStorage,
+    uploadPlaces,
     avatarFaces,
     attachmentAllowedMime,
     attachmentMaxSizeBytes: env.UPLOAD_MAX_BYTES,
@@ -2950,6 +2957,8 @@ async function main(): Promise<void> {
     store: createPrismaFileRowsStore(prisma),
     canViewTask: (userId, roles, taskId) => projectAccess.canViewTask(userId, roles, taskId),
     canSeeConversation: (conversationId, userId) => chatService.canUserAccessConversation(conversationId, userId),
+    // 1.23.39 Upload folders: the company in a file's path must be one the person may see.
+    companiesOf: (userId) => companyAccess.activeCompanyIds(userId),
   });
   await registerUploads(app, {
     root: uploadsRoot,
@@ -3074,6 +3083,28 @@ async function main(): Promise<void> {
   const taskSearchSweeps = startTaskSearchSweeps({ index: taskSearchIndex, lock: jobLock, logger });
   // 1.23: search_index's heals, files never read, files waiting for AI OCR and meaning vectors.
   const searchSweeps = startSearchSweeps({ index: searchIndex, files: fileTexts, semantic: searchSemantic, lock: jobLock, logger });
+
+  // 1.23.39 Upload folders (modules/files/upload-move.ts): at start-up and every 15 minutes, on one instance, every stored
+  // file not in its <company>/<YYYY>/<MM>/<uploader>/<type>/ folder yet is copied there, checked (size and
+  // checksum), its rows pointed at it and old → new recorded in file_key_aliases; a missing file or a bad copy
+  // goes to the Error log and stays where it is. Originals are removed 30 days after their move.
+  const uploadMover = createUploadMover({
+    store: createPrismaMoveStore(prisma, { uploads: uploadsRoot, training: trainingFilesDirFor(env, process.cwd()) }),
+    dirs: { uploads: uploadsRoot, training: trainingFilesDirFor(env, process.cwd()) },
+    logger: logger.job('upload-folders'),
+    shouldStop: () => jobs.stopping,
+  });
+  const runUploadFolders = () =>
+    // Review: the lease outlasts the longest first move (a big uploads folder); a run hands it back as it ends.
+    runExclusive(jobLock, 'upload-folders', 6 * 60 * 60 * 1000, () => new Date(), async () => {
+      const moved = await uploadMover.run();
+      if (moved.planned) logger.info('Upload folders: files moved into their folders', moved);
+      const swept = await uploadMover.sweep();
+      if (swept.removed || swept.kept || swept.failed) logger.info('Upload folders: originals kept 30 days removed', swept);
+    }).catch(sweepFailed('upload-folders', 'moving uploads into their folders'));
+  // Every 15 minutes (nothing to do on most runs): a task or project that moved to another company has its
+  // files re-filed soon, so the company check in the path never keeps its people out for long (review I2).
+  jobs.every(15 * 60 * 1000, runUploadFolders);
 
   // 1.22.4 the Error log keeps 30 days: once a day (and at start-up), on one instance, occurrences
   // older than that and rows not seen since go.

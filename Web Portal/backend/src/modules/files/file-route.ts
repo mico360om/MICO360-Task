@@ -4,11 +4,13 @@ import { isClientRoles } from '../clients/client-kind';
 import type { UserState } from '../auth/auth-guard';
 import type { FileLinks } from './file-links';
 import type { FileAccess } from './file-access';
+import { parseUploadKey } from './upload-paths';
 
 /**
- * 1.23.29 Private file links (design §7.2): GET /uploads/:file (Fastify adds HEAD) replaces the open folder.
+ * 1.23.29 Private file links (design §7.2): GET /uploads/<key> (Fastify adds HEAD) replaces the open folder.
  *
- *   1. the name: one plain file name (no path, no `..`, no backslash, no NUL, no `%`, at most 200 characters)
+ *   1. the name: one of our keys (upload-paths.ts: no `..`, no backslash, no NUL, no `%`, at most 200 characters);
+ *      1.23.39: an old name moved into the folders is found through file_key_aliases
  *   2. what it is (file-access.ts): protected, public or unknown (404)
  *   3. public (a current photo, project picture or logo): sent as before, no link asked for
  *   4. protected: the link's parts and expiry (no database), the account (active, not a client; the guard's
@@ -40,21 +42,20 @@ export interface UploadsDeps {
   now?: () => number;
 }
 
-const MAX_NAME = 200;
-/** The names this server stores: a random UUID, and an extension (v0.1.0 kept the uploader's own). */
-const STORED_KEY = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:\.[^/\\%\0]{1,40})?$/i;
 const MINUTE = 60_000;
 /** Most addresses whose refusals are counted at once (the oldest go first). */
 const MAX_COUNTED = 10_000;
 /** How many session versions newer than the remembered one a signature is tried with (no database read). */
 const NEWER_VERSIONS = 5;
 
-/** The stored name a request asks for, or null for anything that isn't one plain file name. */
+/**
+ * The stored name a request asks for, or null for anything else. Only a name this server could have stored
+ * is looked up (anything else never reaches the database): a 1.23.31 plain name (a random UUID and an
+ * extension), or 1.23.39's <company>/<YYYY>/<MM>/<uploader>/<type>/<uuid>.<ext> — no `..`, backslash, NUL,
+ * `%`, space or any other character, at most 200 characters (upload-paths.ts).
+ */
 export function storedName(raw: unknown): string | null {
-  if (typeof raw !== 'string' || raw.length === 0 || raw.length > MAX_NAME) return null;
-  if (/[/\\%\0]/.test(raw) || raw.includes('..')) return null;
-  // Only a name this server could have stored is looked up (anything else never reaches the database).
-  return STORED_KEY.test(raw) ? raw : null;
+  return parseUploadKey(raw)?.key ?? null;
 }
 
 const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -156,30 +157,34 @@ export async function registerUploads(app: FastifyInstance, deps: UploadsDeps): 
     return null;
   }
 
-  app.get('/uploads/:file', async (req, reply) => {
+  // 1.23.39 Upload folders: the key may have folders (<company>/<YYYY>/<MM>/<uploader>/<type>/<name>), so the
+  // route takes the rest of the path; storedName refuses anything that isn't exactly one of our keys.
+  app.get('/uploads/*', async (req, reply) => {
     const ip = req.ip;
     if (refusals.blocked(ip)) {
       return reply.code(429).header('Cache-Control', 'no-store').header('Retry-After', '60').send({ error: { code: 'RATE_LIMITED', message: 'Too many requests. Please wait a moment and try again.' } });
     }
-    const key = storedName((req.params as { file?: unknown }).file);
+    const key = storedName((req.params as { '*'?: unknown })['*']);
     if (!key) {
       refusals.count(ip);
       return notFound(reply);
     }
-    const kind = await deps.access.classify(key);
+    // An old name (emails, PDFs, bookmarks) is found through file_key_aliases: `file` is where it is now.
+    const { file, kind } = await deps.access.resolve(key);
     if (kind.kind === 'unknown') {
       refusals.count(ip);
       return notFound(reply);
     }
-    if (kind.kind === 'public') return reply.sendFile(key);
-    // A task's or a chat's file: the cheap checks first, then the account, then the access queries.
+    if (kind.kind === 'public') return reply.sendFile(file);
+    // A task's or a chat's file: the cheap checks first, then the account, then the access queries. The
+    // signature is over the name the link was made for (an old link keeps working after the move).
     const link = deps.links.parse(req.query);
     if (!link || !deps.links.fresh(link)) return refused(reply);
     const account = await signer(key, link);
-    if (!account || !(await deps.access.mayOpen({ id: link.u, roles: account.roles }, kind))) {
+    if (!account || !(await deps.access.mayOpen({ id: link.u, roles: account.roles }, kind, file))) {
       refusals.count(ip); // a link was tried and refused: it cost the account read (and the access check)
       return refused(reply);
     }
-    return reply.sendFile(key);
+    return reply.sendFile(file);
   });
 }

@@ -1,3 +1,5 @@
+import { parseUploadKey } from '../modules/files/upload-paths';
+
 /**
  * Review fix #23 (batch 4b): removing a stored upload (task and chat files, profile photos, project pictures,
  * company logos — everything under /uploads) once nothing points at it any more.
@@ -48,9 +50,13 @@ export async function removeStoredFile(storage: StoredFileRemover, storageKey: s
   return false;
 }
 
-/** The storage key of one of our own /uploads/<key> addresses (one file, at the top of the folder), else null. */
+/**
+ * The storage key of one of our own /uploads/<key> addresses (one file at the top of the folder, or — 1.23.39
+ * Upload folders — a key in our exact folder shape), else null.
+ */
 export function storedKeyOf(url: string | null | undefined): string | null {
   if (!url || !url.startsWith('/uploads/')) return null;
   const key = url.slice('/uploads/'.length);
-  return key && !key.includes('/') && !key.includes('\\') && !key.startsWith('.') ? key : null;
+  if (key.includes('/')) return parseUploadKey(key)?.key ?? null;
+  return key && !key.includes('\\') && !key.startsWith('.') ? key : null;
 }
