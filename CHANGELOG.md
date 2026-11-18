@@ -19,6 +19,12 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - On the day (00:00–23:59 company time) the person's Dashboard takes the template's colours with a banner showing the message and who sent it, and a one-time popup with the company logo asks them to Accept. Once accepted or closed it never shows again on any device; closing leaves Accept in the banner. Accepting works offline too and is sent when back online. Everything goes back to normal at midnight. A bell notice says "You've been appreciated"; email is off unless turned on in Notification & Scheduling.
 - Scheduled & history: every appreciation with its status (Scheduled, Active, Accepted, Expired, Cancelled), filters by person, status, template and dates, Edit or Cancel until the day starts, and Export to Excel. Everyone has "My appreciations" in the account menu. Sending, edits, cancellations, acceptances, expiries, templates and the permission are in the Audit log.
 
+### Security
+- Admins confirm their sign-in with a code sent by email on each new browser (then every 30 days). "Trust this browser for 30 days" under the code skips it on that browser; a password change or Sign out everywhere asks again everywhere, and a short email says when a browser becomes trusted.
+- Admins sign in on the website only: the Android app and the Chrome extension say "Admins sign in on the website (two-step sign-in)", and an admin's app or extension session ends at its next renewal. Staff, managers and clients are unaffected. Signing in with an emailed code alone is not offered to admins.
+- Settings → Security (admins): two-step sign-in's state, how many browsers are trusted, and "Forget all trusted browsers". Each step is in the Audit log.
+- For a dead email service, the server setting ADMIN_TWO_STEP=off switches the code step off; while it is off the Error log says so at start-up and admins see a red banner on every page.
+
 ### Bug fixes
 - Changing a task's status from its details panel, the Table, the edit form, the dashboard, search, the calendar or an inspection now also cancels an older board move of it that was waiting to sync, so the task can't jump back later.
 - A repeating task's next copy that the hourly check has to make late now still needs approval when an approver had turned approval off for the previous task only, as it would have when made on time.

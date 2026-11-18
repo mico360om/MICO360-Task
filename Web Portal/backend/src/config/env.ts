@@ -72,6 +72,13 @@ const EnvSchema = z.object({
     .optional()
     .transform((v) => (v ?? '').trim().toLowerCase() || 'on')
     .pipe(z.enum(['on', 'off'])),
+  // 1.24 two-step sign-in for administrators: on by default (no setting needed). 'off' (also false / 0 / no)
+  // is the break-glass switch for a dead email service: an Error-log warning at start-up and a red banner
+  // for administrators while it is off. Anything else keeps it on (a typo never switches security off).
+  ADMIN_TWO_STEP: z
+    .string()
+    .optional()
+    .transform((v): 'on' | 'off' => (['off', 'false', '0', 'no'].includes((v ?? '').trim().toLowerCase()) ? 'off' : 'on')),
   // Folder for the hosted Android app (MICO360-Tasks.apk) that deploys keep; blank = `downloads`
   // beside UPLOAD_DIR. Served at /downloads/MICO360-Tasks.apk before any copy in WEB_ROOT.
   DOWNLOADS_DIR: z.string().optional().default(''),

@@ -210,6 +210,8 @@ model User {
   savedSearchPins      SavedSearchPin[]      @relation("SavedSearchPinner")
   /// Sign-in challenges (password → emailed code → session): confirming the email address today.
   signInChallenges     SignInChallenge[]
+  /// 1.24 two-step sign-in: the browsers an administrator trusted at the code step (30 days each).
+  trustedBrowsers      TrustedBrowser[]
 
   @@index([status])
   @@index([departmentId])
@@ -1421,6 +1423,26 @@ model SignInChallenge {
 
   @@index([userId, createdAt])
   @@map("sign_in_challenges")
+}
+
+/// 1.24 two-step sign-in: a browser an administrator trusted at the code step. The browser keeps a signed,
+/// httpOnly cookie naming this row; it counts only while unrevoked, unexpired (30 days) and made under the
+/// person's current session version (a password change or Sign out everywhere ends them all at once).
+model TrustedBrowser {
+  id             String    @id @default(cuid())
+  userId         String
+  /// The person's tokenVersion when it was trusted.
+  sessionVersion Int
+  /// "Chrome on Windows" (from the browser's own description; never the full user-agent).
+  label          String    @db.VarChar(120)
+  createdAt      DateTime  @default(now())
+  expiresAt      DateTime
+  /// "Forget all trusted browsers".
+  revokedAt      DateTime?
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@map("trusted_browsers")
 }
 
 model DeviceToken {

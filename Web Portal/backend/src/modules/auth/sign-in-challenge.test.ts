@@ -262,3 +262,44 @@ describe('Review fixes: a challenge used up by wrong codes never traps the perso
     expect(store.rows[0]!.consumedAt).not.toBeNull();
   });
 });
+
+// 1.24 two-step sign-in: its own kind on the same challenge, and failures it can audit.
+describe('Sign-in challenge: TWO_STEP (1.24)', () => {
+  it('works as VERIFY_EMAIL does, emailed as its own kind; a VERIFY_EMAIL challenge is never reused for it', async () => {
+    const svc = make();
+    const verifying = await svc.start(ada, 'VERIFY_EMAIL');
+    const view = await svc.start(ada, 'TWO_STEP');
+    expect(view).toMatchObject({ kind: 'TWO_STEP', sentTo: 'a•••@acme.com', codeSent: true });
+    expect(sent.map((s) => s.kind)).toEqual(['VERIFY_EMAIL', 'TWO_STEP']);
+    expect(await svc.verify(view.token, lastCode())).toEqual({ userId: 'u1', kind: 'TWO_STEP', sentTo: 'ada@acme.com' });
+    expect(verifying.token).not.toBe(view.token);
+  });
+
+  it('tells the caller who typed a wrong code, and when the tries ran out (never the code)', async () => {
+    const svc = make();
+    const view = await svc.start(ada, 'TWO_STEP');
+    const failures: { userId: string; kind: string; reason: string }[] = [];
+    const onFailure = async (who: { userId: string; kind: string }, reason: string) => void failures.push({ ...who, reason });
+    const wrong = lastCode() === '000000' ? '111111' : '000000';
+    for (let i = 0; i < 5; i++) expect(await err(svc.verify(view.token, wrong, { onFailure }))).toMatchObject({ code: 'WRONG_CODE' });
+    expect(await err(svc.verify(view.token, lastCode(), { onFailure }))).toMatchObject({ code: 'TOO_MANY_WRONG_CODES' });
+    expect(failures).toEqual([
+      ...Array.from({ length: 5 }, () => ({ userId: 'u1', kind: 'TWO_STEP', reason: 'wrong-code' })),
+      { userId: 'u1', kind: 'TWO_STEP', reason: 'too-many-wrong-codes' },
+    ]);
+    expect(JSON.stringify(failures)).not.toContain(lastCode());
+  });
+
+  it('an unknown or ended token tells no one (there is no person to name)', async () => {
+    const failures: unknown[] = [];
+    expect(await err(make().verify('nope', '123456', { onFailure: async (w) => void failures.push(w) }))).toMatchObject({ code: 'SIGN_IN_EXPIRED' });
+    expect(failures).toEqual([]);
+  });
+
+  it('a failure hook that throws never changes the answer', async () => {
+    const svc = make();
+    const view = await svc.start(ada, 'TWO_STEP');
+    const wrong = lastCode() === '000000' ? '111111' : '000000';
+    expect(await err(svc.verify(view.token, wrong, { onFailure: async () => { throw new Error('audit down'); } }))).toMatchObject({ code: 'WRONG_CODE' });
+  });
+});

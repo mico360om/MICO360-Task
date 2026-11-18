@@ -35,6 +35,7 @@ import { CompanyPicker } from './company/CompanyPicker';
 import { CompanyNotice } from './company/CompanyNotice';
 import { ArchivedProjectNotice } from './projects/ArchivedProjectNotice';
 import { DatabaseBusyNotice } from './DatabaseBusyNotice';
+import { TwoStepOffBanner } from './settings/TwoStepSettings';
 import { ArchivedCompanyState } from './company/ArchivedCompanyState';
 import { TaskNoticeToast } from './TaskNoticeToast';
 import { BinUndoToast } from './recycle-bin/BinUndoToast';
@@ -243,6 +244,8 @@ export function AppShell() {
         <ArchivedProjectNotice frameClass={frame} />
         {/* 1.23.1: "The database is busy — please try again in a moment." when the server's database was away. */}
         <DatabaseBusyNotice frameClass={frame} />
+        {/* 1.24: "Two-step sign-in is switched off on the server." (administrators, while it is off). */}
+        <TwoStepOffBanner frameClass={frame} />
 
         {/* At least a window tall (less the top bar), so the footer starts below the fold and
             isn't shoved down as the page's content arrives (a layout shift on every page that

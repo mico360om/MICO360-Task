@@ -16,6 +16,7 @@ import { registerLongRequestWarning } from './lib/long-request';
 import { registerEmailWebhookRoutes } from './modules/email/email-webhook-routes';
 import type { EmailWebhookService } from './modules/email/email-webhook-service';
 import { registerAuthRoutes, type AuthRouteDeps } from './modules/auth/auth-routes';
+import { registerTwoStepRoutes } from './modules/auth/two-step-routes';
 import { createAuthGuard, type AuthGuard, type UserStateLookup } from './modules/auth/auth-guard';
 import type { ManagerViewLookup } from './modules/auth/manager-view';
 import { registerManagerViewRoutes, type ManagerViewStore } from './modules/users/manager-view-routes';
@@ -722,6 +723,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await app.register(
     async (api) => {
       await registerAuthRoutes(api, deps);
+      // 1.24 two-step sign-in: Settings → Security (trusted browsers) and the red break-glass banner.
+      if (deps.twoStep && deps.signInChallenges) await registerTwoStepRoutes(api, { twoStep: deps.twoStep, guard, audit: deps.auditService, secureCookies: deps.secureCookies });
       if (deps.about) await registerAboutRoutes(api, { release: deps.about.release, guard });
       // Register multipart ONCE for the whole API (task/chat attachments + avatar/project images use req.file()).
       if (deps.attachmentService || deps.chatService || deps.chatAttachmentStorage || deps.companyService /* companies: logos */ || deps.portal /* 1.23.7: client uploads */ || deps.training /* Training Center files (25 MB per request) */) {

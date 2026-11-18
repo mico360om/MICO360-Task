@@ -156,3 +156,22 @@ export class SameAsTemporaryPasswordError extends AuthError {
     super('Choose a new password — not the temporary one.', 'SAME_AS_TEMPORARY', 400);
   }
 }
+
+/**
+ * 1.24 two-step sign-in: an administrator signs in on the website (password, then an emailed code). The
+ * Android app and the extension can't show the code step, so they are refused with these words — said
+ * only after the right password, like ACCOUNT_INACTIVE.
+ */
+export const ADMIN_WEBSITE_ONLY_MESSAGE = 'Admins sign in on the website (two-step sign-in).';
+export class AdminWebsiteOnlyError extends AuthError {
+  constructor() {
+    super(ADMIN_WEBSITE_ONLY_MESSAGE, 'ADMIN_WEBSITE_ONLY', 403);
+  }
+}
+
+/** 1.24: "Sign in with an emailed code" alone is one factor (the mailbox): administrators use their password and a code. */
+export class AdminPasswordAndCodeError extends AuthError {
+  constructor() {
+    super('Admins sign in with their password and a code.', 'ADMIN_PASSWORD_AND_CODE', 403);
+  }
+}

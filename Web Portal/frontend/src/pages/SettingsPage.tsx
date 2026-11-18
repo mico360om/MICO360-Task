@@ -19,6 +19,7 @@ import { WeeklySummarySettings } from '../components/settings/WeeklySummarySetti
 import { MyProjectsSettings } from '../components/settings/MyProjectsSettings';
 import { MicrosoftTeamsSettings } from '../components/settings/MicrosoftTeamsSettings';
 import { DensitySetting } from '../components/settings/DensitySetting';
+import { TwoStepSettings } from '../components/settings/TwoStepSettings';
 import { ColumnWidthSetting, SidebarSetting } from '../components/board/ColumnWidthButton';
 
 const THEME_OPTIONS: ThemeChoice[] = ['light', 'dark', 'system'];
@@ -225,6 +226,8 @@ export function SettingsPage() {
             </div>
             {unsent !== null ? <SignOutWarning unsent={unsent} onConfirm={() => signOut({ force: true })} onCancel={cancel} className="mt-3" /> : null}
           </div>
+          {/* 1.24: two-step sign-in and trusted browsers (administrators only). */}
+          <TwoStepSettings />
         </section>
       </div>
     </div>

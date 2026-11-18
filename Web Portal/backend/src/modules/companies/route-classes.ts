@@ -729,4 +729,7 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   'GET /appreciations/manage/export.xlsx': 'people',
   'PATCH /appreciations/manage/:id': 'people',
   'POST /appreciations/manage/:id/cancel': 'people',
+  // 1.24 two-step sign-in: an administrator's own sign-in (Settings → Security; the break-glass banner).
+  'GET /auth/two-step': 'own',
+  'POST /auth/two-step/forget': 'own',
 };

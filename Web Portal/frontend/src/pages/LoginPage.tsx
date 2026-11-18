@@ -90,6 +90,8 @@ export function LoginPage() {
   // the "Keep me signed in" choice made on the password step.
   const [challenge, setChallenge] = useState<SignInChallenge | null>(null);
   const [keepChoice, setKeepChoice] = useState(true);
+  // 1.24: "Trust this browser" ticked at the code step, kept for "Choose your own password" after it.
+  const [trustChoice, setTrustChoice] = useState(false);
   // 1.23.6: "Choose your own password" after a temporary one (the step ticket, in memory only).
   const [passwordStep, setPasswordStep] = useState<PasswordStep | null>(null);
 
@@ -127,7 +129,8 @@ export function LoginPage() {
     try {
       // Onboarding: this page can take the emailed-code step and (1.23.6) the "Choose your own password"
       // step after a temporary password (the app and the extension can't, yet).
-      const res = await api.post<SignInResponse>('/auth/login', { identifier, password, acceptChallenge: true, acceptPasswordChange: true });
+      // 1.24: credentials so this browser's trusted-browser cookie (httpOnly) goes with it.
+      const res = await api.post<SignInResponse>('/auth/login', { identifier, password, acceptChallenge: true, acceptPasswordChange: true }, { credentials: 'include' });
       if ('challenge' in res.data) {
         setKeepChoice(keepSignedIn);
         setChallenge(res.data.challenge);
@@ -188,15 +191,18 @@ export function LoginPage() {
       }
       setSession(res.data, { remember: keepSignedIn });
     } catch (e) {
+      // 1.24: an administrator's code alone never signs in: a reload mustn't come back to this step.
+      if (e instanceof ApiError && e.code === 'ADMIN_PASSWORD_AND_CODE') forgetCodeStep();
       fail(e);
     } finally {
       setLoading(false);
     }
   }
 
-  async function verifyChallenge(code: string) {
+  async function verifyChallenge(code: string, trustBrowser: boolean) {
     if (!challenge) return;
-    const res = await api.post<StepResponse>('/auth/challenge/verify', { challenge: challenge.token, code, acceptPasswordChange: true });
+    const res = await api.post<StepResponse>('/auth/challenge/verify', { challenge: challenge.token, code, acceptPasswordChange: true, ...(challenge.trustOffered ? { trustBrowser } : {}) }, { credentials: 'include' });
+    setTrustChoice(trustBrowser);
     setChallenge(null);
     if ('changePassword' in res.data) {
       setPasswordStep(res.data.changePassword);
@@ -208,7 +214,7 @@ export function LoginPage() {
   /** 1.23.6: their own password in place of the temporary one; then the session. */
   async function choosePassword(password: string) {
     if (!passwordStep) return;
-    const res = await api.post<AuthResponse>('/auth/password/first-change', { ticket: passwordStep.ticket, password });
+    const res = await api.post<AuthResponse>('/auth/password/first-change', { ticket: passwordStep.ticket, password, ...(trustChoice ? { trustBrowser: true } : {}) }, { credentials: 'include' });
     setPasswordStep(null);
     setSession(res.data, { remember: keepChoice });
   }
@@ -226,6 +232,7 @@ export function LoginPage() {
 
   function leaveChallenge(reason?: string) {
     setChallenge(null);
+    setTrustChoice(false);
     clearMessages();
     if (reason) setError(reason);
   }
@@ -314,7 +321,8 @@ export function LoginPage() {
               <>
                 <h1 className="font-display text-[1.7rem] font-extrabold tracking-tight text-ink">Check your email</h1>
                 <p className="mt-1 text-sm text-ink-2">
-                  Enter the 6-digit code we sent to <bdi className="font-semibold text-ink">{challenge.sentTo}</bdi> to confirm it’s your email address.
+                  Enter the 6-digit code we sent to <bdi className="font-semibold text-ink">{challenge.sentTo}</bdi>{' '}
+                  {challenge.kind === 'TWO_STEP' ? 'to finish signing in. Administrators confirm each new browser with a code.' : 'to confirm it’s your email address.'}
                 </p>
                 <div className="mt-6">
                   <EmailCheckStep key={challenge.token} challenge={challenge} onVerify={verifyChallenge} onResend={resendChallenge} onBack={leaveChallenge} />

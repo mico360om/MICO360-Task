@@ -185,6 +185,17 @@ describe('LoginPage', () => {
       expect(sent).toContainEqual({ url: expect.stringContaining('/auth/otp/verify'), body: { identifier: 'ada@mico360.test', code: '482913', acceptPasswordChange: true } });
     });
 
+    it('1.24: an administrator’s code alone is refused: the words show, and a reload no longer comes back to the code step', async () => {
+      otpVerify = () => json({ error: { code: 'ADMIN_PASSWORD_AND_CODE', message: 'Admins sign in with their password and a code.' } }, 403);
+      await askForCode();
+      expect(JSON.stringify(sessionStorage)).toContain('ada@mico360.test');
+      await userEvent.type(screen.getByLabelText(/one-time code/i), '482913');
+      await userEvent.click(screen.getByRole('button', { name: /verify & sign in/i }));
+      expect(await screen.findByRole('alert')).toHaveTextContent('Admins sign in with their password and a code.');
+      expect(JSON.stringify(sessionStorage)).not.toContain('ada@mico360.test');
+      expect(useAuthStore.getState().isAuthenticated).toBe(false);
+    });
+
     it('says why a wrong code was refused and keeps the code step open', async () => {
       await askForCode();
       await userEvent.type(screen.getByLabelText(/one-time code/i), '111111');

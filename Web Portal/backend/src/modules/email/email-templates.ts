@@ -91,18 +91,32 @@ export function passwordResetEmail(link: string, opts?: PasswordResetEmailOption
 }
 
 export interface SignInCodeOptions extends TemplateOptions {
-  /** What the code is for: VERIFY_EMAIL (confirm the address at sign-in); two-step sign-in adds its own. */
-  kind: 'VERIFY_EMAIL';
+  /** What the code is for: VERIFY_EMAIL (confirm the address at sign-in), TWO_STEP (1.24: an administrator's second step). */
+  kind: 'VERIFY_EMAIL' | 'TWO_STEP';
   expiresInMinutes: number;
 }
 
 /**
- * Onboarding: the code that finishes a sign-in by confirming the email address. The code is in the body
- * only, never the subject (the email log keeps subjects).
+ * Onboarding: the code that finishes a sign-in by confirming the email address; 1.24, an administrator's
+ * two-step sign-in code ("Your MICO360 Tasks sign-in code"). The code is in the body only, never the
+ * subject (the email log keeps subjects).
  */
 export function signInCodeEmail(code: string, opts: SignInCodeOptions): EmailContent {
   const product = productName(opts);
   const minutes = Math.max(1, Math.round(opts.expiresInMinutes));
+  if (opts.kind === 'TWO_STEP') {
+    return build(
+      `Your ${product} sign-in code`,
+      'Enter this code to finish signing in',
+      'Your sign-in code',
+      [
+        { kind: 'text', text: `Enter this code on the sign-in page to finish signing in to ${product}. It expires in ${minutes} minutes and works once.` },
+        { kind: 'code', code, note: 'Never share this code with anyone.' },
+        { kind: 'callout', text: 'If you didn’t just sign in, someone may know your password: change it now.', tone: 'warning' },
+      ],
+      opts,
+    );
+  }
   return build(
     `Confirm your email address for ${product}`,
     'Enter this code to confirm your email address and finish signing in',
@@ -111,6 +125,28 @@ export function signInCodeEmail(code: string, opts: SignInCodeOptions): EmailCon
       { kind: 'text', text: `Enter this code on the sign-in page to confirm this is your email address and finish signing in to ${product}. It expires in ${minutes} minutes and works once.` },
       { kind: 'code', code, note: 'Never share this code with anyone.' },
       { kind: 'callout', text: 'If you didn’t just sign in, someone may know your password: change it, or tell your administrator.', tone: 'warning' },
+    ],
+    opts,
+  );
+}
+
+export interface TrustedBrowserParams {
+  /** "Chrome on Windows". */
+  browser: string;
+  /** "14 Nov 10:12", in the company's time. */
+  when: string;
+}
+
+/** 1.24 two-step sign-in: an administrator ticked "Trust this browser for 30 days" (no code, no link). */
+export function trustedBrowserEmail(params: TrustedBrowserParams, opts?: TemplateOptions): EmailContent {
+  const product = productName(opts);
+  return build(
+    `New trusted browser for your ${product} admin account`,
+    'Security notice: a browser was trusted for your admin account',
+    'New trusted browser',
+    [
+      { kind: 'text', text: `New trusted browser for your admin account: ${params.browser}, ${params.when}. It won’t be asked for a sign-in code for 30 days.` },
+      { kind: 'callout', text: 'If this wasn’t you, change your password. That also ends every trusted browser.', tone: 'warning' },
     ],
     opts,
   );

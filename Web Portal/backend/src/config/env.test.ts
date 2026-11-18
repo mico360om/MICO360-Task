@@ -189,3 +189,21 @@ describe('file links (1.23.29)', () => {
     expect(() => loadEnv({ ...prod, FILE_LINK_SECRET: 'short' } as NodeJS.ProcessEnv)).toThrow(/FILE_LINK_SECRET/);
   });
 });
+
+// 1.24 two-step sign-in: on by default, needs no new setting; ADMIN_TWO_STEP=off is the break-glass switch.
+describe('ADMIN_TWO_STEP (1.24 two-step sign-in)', () => {
+  const twoStep = (v?: string) => loadEnv({ ...base, NODE_ENV: 'development', ...(v === undefined ? {} : { ADMIN_TWO_STEP: v }) } as NodeJS.ProcessEnv).ADMIN_TWO_STEP;
+  it('on unless switched off ("off", "false", "0" or "no", any case, spaces ignored)', () => {
+    expect(twoStep()).toBe('on');
+    expect(twoStep('')).toBe('on');
+    expect(twoStep('on')).toBe('on');
+    for (const off of ['off', ' OFF ', 'Off', 'false', '0', 'no']) expect(twoStep(off)).toBe('off');
+  });
+  it('anything else keeps it on (a typo never switches security off, and never stops the server)', () => {
+    expect(twoStep('of')).toBe('on');
+    expect(twoStep('maybe')).toBe('on');
+  });
+  it('production starts without it', () => {
+    expect(loadEnv({ ...base, NODE_ENV: 'production', JWT_ACCESS_SECRET: 'a'.repeat(40), JWT_REFRESH_SECRET: 'b'.repeat(40) } as NodeJS.ProcessEnv).ADMIN_TWO_STEP).toBe('on');
+  });
+});
