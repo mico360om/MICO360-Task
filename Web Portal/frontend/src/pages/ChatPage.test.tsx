@@ -663,14 +663,17 @@ describe('ChatPage on a phone: the list and the conversation take turns', () => 
     for (const b of Array.from(bar.querySelectorAll('button'))) expect(b.className).toContain(TOUCH_SQUARE);
   });
 
-  it('1.24.0 review: a lifted message stays inside the list — the list is its own layer, and the day line stays above it', async () => {
+  it('1.24.0 review: a lifted message stays inside the list — the list is its own layer, and the day line stays under a pointed-at message', async () => {
     c1Messages = [message({ id: 'theirs3', userId: 'u1', body: 'above' }), message({ id: 'mine3', userId: 'me', body: 'below' })];
     await openChannelWith('below');
     const row = rowOf('below');
     // The scrolling list isolates its rows: their z-20 never reaches the "new messages" / "latest" buttons beside it.
     const list = row.closest('.overflow-y-auto') as HTMLElement;
     expect(list).toHaveClass('isolate');
-    for (const sep of Array.from(document.querySelectorAll('[role="separator"].sticky'))) expect(sep).toHaveClass('z-30');
+    // The day line stays under a lifted row (z-20): the first message's toolbar, just below "Today", must win.
+    const seps = Array.from(document.querySelectorAll('[role="separator"].sticky'));
+    expect(seps.length).toBeGreaterThan(0);
+    for (const sep of seps) expect(sep).toHaveClass('z-[5]');
   });
 });
 
