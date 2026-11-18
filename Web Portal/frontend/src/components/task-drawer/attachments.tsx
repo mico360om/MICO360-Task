@@ -10,6 +10,7 @@ import { pastedFiles } from '../../lib/clipboard-files';
 import { detectPlatform, isTypingTarget } from '../../lib/shortcuts';
 import { markFound } from '../../lib/useFoundAnchor';
 import type { OfficePreview } from '../../api/attachments';
+import { dateTimeText } from '../../lib/day-words';
 import { reportFileLinkFailed } from '../../lib/file-link-refresh';
 
 /** Loads the text of a Word / Excel / PowerPoint attachment (the server unpacks it). */
@@ -27,6 +28,8 @@ export interface DrawerAttachment {
   fromClient?: boolean;
   /** 1.23.7: "Show to client" — the project's clients who may view tasks see it in the portal. */
   clientVisible?: boolean;
+  /** When it was uploaded (ISO); shown as "Uploaded 18 Nov 2026, 10:42" (owner, 18 Nov). */
+  createdAt?: string;
 }
 
 /** 1.23.7: show a file to the project's clients (or not); rejects with the reason to show. */
@@ -300,6 +303,9 @@ function AttachmentRow({
           </a>
           <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
             <span className="text-xs text-ink-3">{formatSize(a.sizeBytes)}</span>
+            {a.createdAt ? (
+              <time dateTime={a.createdAt} className="text-xs text-ink-3">{`Uploaded ${dateTimeText(a.createdAt)}`}</time>
+            ) : null}
             {/* 1.23.7: a client's file is marked as a client's comment is. */}
             {a.fromClient ? (
               <span title="Uploaded by a client in the Client portal">

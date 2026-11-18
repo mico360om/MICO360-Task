@@ -126,4 +126,12 @@ describe('Attachments: a file link that no longer works (1.23.29)', () => {
     spy.mockRestore();
     vi.unstubAllGlobals();
   });
+
+  it('shows when each file was uploaded, with the date and time (owner, 18 Nov)', () => {
+    render(<AttachmentsSection attachments={[{ id: 'a1', filename: 'spec.pdf', url: '/uploads/a1.pdf', sizeBytes: 2048, createdAt: '2026-11-18T06:42:00.000Z' }]} />);
+    const when = screen.getByText(/Uploaded /);
+    expect(when.tagName).toBe('TIME');
+    expect(when).toHaveAttribute('dateTime', '2026-11-18T06:42:00.000Z');
+    expect(when.textContent).toMatch(/18 Nov 2026, \d{1,2}:\d{2}/);
+  });
 });

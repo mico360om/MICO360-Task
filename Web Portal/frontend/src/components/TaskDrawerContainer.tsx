@@ -590,6 +590,7 @@ function TaskDrawerPanel({ taskId, onClose, stepper, mergeNotice, focusItemId }:
               url: a.url,
               sizeBytes: a.sizeBytes,
               mimeType: a.mimeType,
+              createdAt: a.createdAt,
               // The server lets the uploader, or an admin, delete a file.
               canDelete: a.uploadedById === myId || isAdmin,
               // 1.23.7: a client's file, and whether the project's clients see it.
