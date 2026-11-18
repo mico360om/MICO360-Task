@@ -218,6 +218,21 @@ describe('edit and cancel before the start only', () => {
   });
 });
 
+describe('review fixes', () => {
+  it('someone made inactive after scheduling gets no notice on the day; the people list puts the record’s company first', async () => {
+    clock = new Date('2026-11-18T10:00:00.000Z');
+    const { ids } = await send(w.people.admin, [w.people.bob], '2026-11-29');
+    await prisma.user.update({ where: { id: w.people.bob }, data: { status: 'INACTIVE' } });
+    clock = new Date('2026-11-29T06:00:00.000Z');
+    await s.sweep();
+    expect(notices.map((n) => n.entityId)).not.toContain(ids[0]);
+    await prisma.user.update({ where: { id: w.people.bob }, data: { status: 'ACTIVE' } });
+    const cat = (await s.people(w.people.admin, { search: 'Both' })).find((p) => p.id === w.people.cat)!;
+    expect(cat.companies[0]!.id).toBe(w.companies.B); // cat's primary
+    expect(s.today()).toBe('2026-11-29');
+  });
+});
+
 describe('templates', () => {
   it('six built-ins once; built-ins are protected; a copy can be changed and archived', async () => {
     expect(await s.ensureBuiltIns()).toBe(0); // already there

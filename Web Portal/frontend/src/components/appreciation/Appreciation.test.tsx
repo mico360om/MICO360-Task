@@ -141,3 +141,10 @@ describe('shared with the server', () => {
     expect(fillPlaceholders('{name} · {company} · {date}', { name: 'Sara Khan', company: 'Contoso', day: '2026-11-18' })).toBe('Sara Khan · Contoso · 18 Nov 2026');
   });
 });
+
+describe('the bell notice', () => {
+  it('“You’ve been appreciated” opens the Dashboard', async () => {
+    const { notificationTarget } = await import('../../lib/notification-links');
+    expect(notificationTarget({ entityType: 'appreciation', entityId: 'ap1' })).toEqual({ kind: 'path', to: '/dashboard' });
+  });
+});

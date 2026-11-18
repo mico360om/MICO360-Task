@@ -98,7 +98,7 @@ export function AppreciationsPage() {
         ))}
       </div>
       <div id={`${tabsId}-panel`} role="tabpanel" aria-labelledby={`${tabsId}-${tab}`}>
-        {tab === 'send' ? <SendTab today={mine.data.today} onSent={() => setParams({ tab: 'history' }, { replace: true })} /> : tab === 'history' ? <HistoryTab today={mine.data.today} /> : <TemplatesTab />}
+        {tab === 'send' ? <SendTab today={mine.data.today} onSent={() => setParams({ tab: 'history' }, { replace: true })} /> : tab === 'history' ? <HistoryTab today={mine.data.today} /> : <TemplatesTab today={mine.data.today} />}
       </div>
     </div>
   );
@@ -425,7 +425,7 @@ function EditDialog({ row, today, onClose, onSaved }: { row: ApiManagedAppreciat
 }
 
 // ── Templates ────────────────────────────────────────────────────────────────
-function TemplatesTab() {
+function TemplatesTab({ today }: { today: string }) {
   const qc = useQueryClient();
   const [archived, setArchived] = useState(false);
   const templates = useQuery({ queryKey: KEYS.templates(archived), queryFn: () => api.templates(archived) });
@@ -485,12 +485,12 @@ function TemplatesTab() {
           ))}
         </ul>
       )}
-      {editing ? <TemplateDialog template={editing.template} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); refresh(); }} /> : null}
+      {editing ? <TemplateDialog today={today} template={editing.template} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); refresh(); }} /> : null}
     </div>
   );
 }
 
-function TemplateDialog({ template, onClose, onSaved }: { template: ApiAppreciationTemplate | null; onClose: () => void; onSaved: () => void }) {
+function TemplateDialog({ template, today, onClose, onSaved }: { template: ApiAppreciationTemplate | null; today: string; onClose: () => void; onSaved: () => void }) {
   const id = useId();
   const builtIn = !!template?.builtIn;
   const [name, setName] = useState(template ? (builtIn ? `${template.name} (copy)` : template.name) : '');
@@ -520,7 +520,7 @@ function TemplateDialog({ template, onClose, onSaved }: { template: ApiAppreciat
           <input id={`${id}-name`} className={fieldClass(false)} maxLength={LIMITS.name} value={name} onChange={(e) => setName(e.target.value)} />
         </div>
         <ContentFields value={content} onChange={setContent} />
-        <AppreciationPreview value={content} name="Sara Khan" company={{ name: 'Contoso', logoUrl: null }} day={new Date().toISOString().slice(0, 10)} sender="Omar Said" />
+        <AppreciationPreview value={content} name="Sara Khan" company={{ name: 'Contoso', logoUrl: null }} day={today} sender="Omar Said" />
       </div>
     </FormDialog>
   );

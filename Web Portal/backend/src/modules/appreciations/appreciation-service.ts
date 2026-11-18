@@ -360,16 +360,16 @@ export function createAppreciationService(d: AppreciationDeps) {
           s ? { OR: [{ firstName: { contains: s } }, { lastName: { contains: s } }, { username: { contains: s } }, { email: { contains: s } }] } : {},
         ],
       },
-      select: { ...PERSON, avatarUrl: true, companies: { where: { company: { status: 'ACTIVE' } }, select: { company: { select: { id: true, name: true } } } } },
+      select: { ...PERSON, avatarUrl: true, primaryCompanyId: true, companies: { where: { company: { status: 'ACTIVE' } }, select: { company: { select: { id: true, name: true } } } } },
       orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }, { id: 'asc' }],
       take: 200,
     });
-    return rows.map((u) => ({
-      id: u.id,
-      name: nameOf(u),
-      avatarUrl: u.avatarUrl,
-      companies: u.companies.map((c) => c.company).filter((c) => !scope || scope.includes(c.id)),
-    }));
+    return rows.map((u) => {
+      const theirs = u.companies.map((c) => c.company).filter((c) => !scope || scope.includes(c.id));
+      // The one a record would be sent within comes first (their primary company when it is in scope).
+      theirs.sort((a, b) => Number(b.id === u.primaryCompanyId) - Number(a.id === u.primaryCompanyId));
+      return { id: u.id, name: nameOf(u), avatarUrl: u.avatarUrl, companies: theirs };
+    });
   }
 
   // ── Send, edit, cancel ──────────────────────────────────────────────────────────────────────────
@@ -403,6 +403,7 @@ export function createAppreciationService(d: AppreciationDeps) {
     const batchId = randomUUID();
     const made: string[] = [];
     await prisma.$transaction(async (tx) => {
+      made.length = 0; // the save-retry layer may run this again after a rolled-back try
       for (const recipientId of ids) {
         const r = await tx.appreciation.create({
           data: {
@@ -425,7 +426,8 @@ export function createAppreciationService(d: AppreciationDeps) {
         made.push(r.id);
       }
     });
-    await d.audit({ userId, action: 'APPRECIATION_CREATED', entityId: batchId, newValue: { title: input.title, day: input.day, recipients: ids.length, ids: made }, ip });
+    // The records are saved: a failing audit write must not turn into an error (and a second send on retry).
+    await d.audit({ userId, action: 'APPRECIATION_CREATED', entityId: batchId, newValue: { title: input.title, day: input.day, recipients: ids.length, ids: made }, ip }).catch(() => undefined);
     // Today's: active at once (the bell notice now, not at the next sweep).
     if (startsAt.getTime() <= at.getTime()) await activate(made);
     return { batchId, ids: made };
@@ -541,6 +543,8 @@ export function createAppreciationService(d: AppreciationDeps) {
       const done = await prisma.appreciation.updateMany({ where: { id, activatedAt: null, cancelledAt: null, startsAt: { lte: at }, endsAt: { gt: at } }, data: { activatedAt: at } });
       if (done.count !== 1) continue; // already done (another instance, or it was cancelled or ended)
       const r = await prisma.appreciation.findUniqueOrThrow({ where: { id } });
+      // Made inactive (or a client) since it was scheduled: no notice (their Dashboard isn't shown either).
+      if ((await prisma.user.count({ where: { AND: [{ id: r.recipientId }, STAFF_ACTIVE] } })) === 0) continue;
       const [v] = await views([r], at);
       await d.notify({ userId: r.recipientId, type: NOTICE_TYPE, title: W.noticeTitle(r.title), body: `From ${v!.sender.name}`, entityType: 'appreciation', entityId: r.id, projectId: null }).catch(() => undefined);
       await d.audit({ userId: null, action: 'APPRECIATION_ACTIVATED', entityId: id, newValue: { recipientId: r.recipientId, day: r.day } });
@@ -574,7 +578,10 @@ export function createAppreciationService(d: AppreciationDeps) {
     return { activated, expired };
   }
 
-  return { me, accept, closePopup, mine, ensureBuiltIns, templates, createTemplate, updateTemplate, duplicateTemplate, archiveTemplate, companies, people, schedule, update, cancel, list, exportRows, sweep, activate };
+  /** Today in the company time zone (file names). */
+  const today = () => companyToday(now(), timeZone);
+
+  return { today, me, accept, closePopup, mine, ensureBuiltIns, templates, createTemplate, updateTemplate, duplicateTemplate, archiveTemplate, companies, people, schedule, update, cancel, list, exportRows, sweep, activate };
 }
 
 export type AppreciationService = ReturnType<typeof createAppreciationService>;

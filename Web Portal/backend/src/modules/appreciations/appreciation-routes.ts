@@ -124,7 +124,7 @@ export async function registerAppreciationRoutes(app: FastifyInstance, deps: App
   app.get('/appreciations/manage', auth, async (req) => ({ data: await service.list(me(req), filters(req)) }));
   app.get('/appreciations/manage/export.xlsx', auth, async (req, reply) => {
     const rows = await service.exportRows(me(req), filters(req));
-    const day = new Date().toISOString().slice(0, 10);
+    const day = service.today();
     return reply
       .header('Content-Type', XLSX_CONTENT_TYPE)
       .header('Content-Disposition', `attachment; filename="Appreciations ${dayWords(day)}.xlsx"`)

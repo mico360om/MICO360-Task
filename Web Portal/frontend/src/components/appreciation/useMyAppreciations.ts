@@ -77,6 +77,8 @@ export function useMyAppreciations() {
         return true;
       } catch (e) {
         if (!(e instanceof ApiError) && enqueueOffline('appreciation.accept', { id })) {
+          // The queue now says accepted (until it is sent — or refused, which then shows it as not accepted).
+          acceptedHere.delete(`${user?.id}:${id}`);
           setQueuedTick((n) => n + 1);
           return true;
         }

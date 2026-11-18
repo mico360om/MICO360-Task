@@ -50,6 +50,7 @@ async function app() {
     exportRows: rec('exportRows', [row]),
     update: rec('update', row),
     cancel: rec('cancel', row),
+    today: () => '2026-11-18',
   } as unknown as AppreciationService;
   const a = await buildApp({ authService, tokenService, appreciations: { service, timeZone: 'Asia/Muscat' } });
   const as = async (id: string, roles: string[] = ['EMPLOYEE']) => ({ authorization: `Bearer ${(await tokenService.issueTokens({ id, roles })).accessToken}` });
@@ -98,7 +99,7 @@ describe('appreciation routes', () => {
     const r = await a.inject({ method: 'GET', url: '/api/v1/appreciations/manage/export.xlsx?status=ACCEPTED', headers: await as('mgr') });
     expect(r.statusCode).toBe(200);
     expect(r.headers['content-type']).toContain('spreadsheetml');
-    expect(r.headers['content-disposition']).toMatch(/^attachment; filename="Appreciations \d+ \w{3} \d{4}\.xlsx"$/);
+    expect(r.headers["content-disposition"]).toBe("attachment; filename=\"Appreciations 18 Nov 2026.xlsx\""); // the company’s day
     expect(r.rawPayload.subarray(0, 2).toString()).toBe('PK');
   });
 });

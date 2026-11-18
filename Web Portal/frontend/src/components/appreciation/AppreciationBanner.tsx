@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import { useCompanyTimeZone } from '../../lib/company-clock';
 import { Link } from 'react-router-dom';
 import { themeGradient } from '../../lib/appreciation';
 import type { ApiAppreciation } from '../../api/appreciations';
 import { AppreciationIconSvg, CompanyMark } from './AppreciationArt';
 
-const timeWords = (iso: string) => new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+/** "09:14" in the company time zone (as My appreciations and the history say it). */
+const timeWords = (iso: string, timeZone: string) => new Date(iso).toLocaleTimeString('en-GB', { timeZone, hour: '2-digit', minute: '2-digit' });
 
 /**
  * Employee Appreciation (1.24.0): the Dashboard's banner on the day — the newest of today's appreciations, with
@@ -13,6 +15,9 @@ const timeWords = (iso: string) => new Date(iso).toLocaleTimeString(undefined, {
  */
 export function AppreciationBanner({ a, more, onAccept, problem }: { a: ApiAppreciation; more: number; onAccept: (id: string) => Promise<boolean>; problem: string | null }) {
   const [busy, setBusy] = useState(false);
+  const timeZone = useCompanyTimeZone();
+  // After Accept the button becomes words: focus moves to the banner's heading rather than being lost.
+  const heading = useRef<HTMLHeadingElement>(null);
   return (
     <section
       aria-labelledby="appreciation-banner-title"
@@ -29,7 +34,7 @@ export function AppreciationBanner({ a, more, onAccept, problem }: { a: ApiAppre
             <AppreciationIconSvg icon={a.icon} size={14} />
             You’ve been appreciated
           </p>
-          <h2 id="appreciation-banner-title" dir="auto" className="mt-0.5 font-display text-xl font-extrabold tracking-tightish">
+          <h2 ref={heading} tabIndex={-1} id="appreciation-banner-title" dir="auto" className="mt-0.5 outline-none font-display text-xl font-extrabold tracking-tightish">
             {a.title}
           </h2>
           <p dir="auto" className="mt-1 whitespace-pre-line text-sm text-white">
@@ -54,11 +59,11 @@ export function AppreciationBanner({ a, more, onAccept, problem }: { a: ApiAppre
         </div>
         <div className="flex flex-none items-center self-center">
           {a.acceptedAt ? (
-            <span data-accepted className="inline-flex items-center gap-1.5 rounded-xl bg-white/15 px-3 py-2 text-sm font-semibold">
+            <span data-accepted role="status" className="inline-flex items-center gap-1.5 rounded-xl bg-white/15 px-3 py-2 text-sm font-semibold">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M5 12.5l4.5 4.5L19 7.5" />
               </svg>
-              Accepted {timeWords(a.acceptedAt)}
+              Accepted {timeWords(a.acceptedAt, timeZone)}
             </span>
           ) : (
             <button
@@ -66,8 +71,9 @@ export function AppreciationBanner({ a, more, onAccept, problem }: { a: ApiAppre
               disabled={busy}
               onClick={async () => {
                 setBusy(true);
-                await onAccept(a.id);
+                const ok = await onAccept(a.id);
                 setBusy(false);
+                if (ok) heading.current?.focus();
               }}
               className="inline-flex !min-h-[44px] items-center rounded-xl bg-white px-4 py-2 text-sm font-semibold text-[#1F1A19] shadow-soft transition-all hover:-translate-y-0.5 hover:shadow-lift focus-visible:outline-white disabled:opacity-70"
             >

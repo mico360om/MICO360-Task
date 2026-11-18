@@ -51,7 +51,7 @@ export function ContentFields({ value, onChange, errors = {} }: { value: Appreci
         <legend className="mb-1.5 text-sm font-medium text-ink">Colour theme</legend>
         <div className="flex flex-wrap gap-2">
           {APPRECIATION_THEMES.map((t) => (
-            <label key={t} className={`relative inline-flex cursor-pointer items-center gap-2 rounded-xl border px-2.5 py-1.5 text-sm ${TOUCH_SQUARE} ${value.theme === t ? 'border-brand ring-2 ring-brand/30' : 'border-line'}`}>
+            <label key={t} className={`relative inline-flex cursor-pointer items-center gap-2 rounded-xl border px-2.5 py-1.5 text-sm ${TOUCH_SQUARE} has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[rgb(var(--c-brand-text))] ${value.theme === t ? 'border-brand ring-2 ring-brand/30' : 'border-line'}`}>
               <input type="radio" name={`${id}-theme`} value={t} checked={value.theme === t} onChange={() => set('theme', t)} className="sr-only" />
               <span aria-hidden="true" className="h-5 w-5 rounded-full" style={{ backgroundImage: themeGradient(t) }} />
               {THEME_LOOK[t].label}
@@ -63,7 +63,7 @@ export function ContentFields({ value, onChange, errors = {} }: { value: Appreci
         <legend className="mb-1.5 text-sm font-medium text-ink">Icon</legend>
         <div className="flex flex-wrap gap-2">
           {APPRECIATION_ICONS.map((i) => (
-            <label key={i} title={ICON_LABEL[i]} className={`grid h-11 w-11 cursor-pointer place-items-center rounded-xl border text-ink ${value.icon === i ? 'border-brand bg-brand/10 ring-2 ring-brand/30' : 'border-line'}`}>
+            <label key={i} title={ICON_LABEL[i]} className={`grid h-11 w-11 cursor-pointer place-items-center rounded-xl border text-ink has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[rgb(var(--c-brand-text))] ${value.icon === i ? 'border-brand bg-brand/10 ring-2 ring-brand/30' : 'border-line'}`}>
               <input type="radio" name={`${id}-icon`} value={i} checked={value.icon === i} onChange={() => set('icon', i)} className="sr-only" aria-label={ICON_LABEL[i]} />
               <AppreciationIconSvg icon={i} size={20} />
             </label>

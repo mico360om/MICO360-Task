@@ -29,6 +29,8 @@ export function notificationTarget(n: Pick<ApiNotification, 'entityType' | 'enti
   if (type === 'training-course' || type === 'training-my') return { kind: 'path', to: '/training' };
   if (type === 'training-overdue') return { kind: 'path', to: '/training/manage?tab=reports' };
   if (type === 'training-feedback') return { kind: 'path', to: '/training/manage?tab=feedback' };
+  // 1.24.0 Employee Appreciation: "You've been appreciated" opens the Dashboard (its banner and Accept).
+  if (type === 'appreciation') return { kind: 'path', to: '/dashboard' };
   return null;
 }
 
