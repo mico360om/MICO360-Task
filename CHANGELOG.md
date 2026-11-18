@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.23.37] - 2026-11-18
+
 ### Improvements
 - Learning Hub: a finished course shows your certificate and score on My learning, with the modules folded away.
 - One "New task" button: the Kanban board and a project's Tasks tab no longer have their own — the New Task button at the top starts in the project you are looking at, and N still opens it. A column's + still adds straight into that column.
