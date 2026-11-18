@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.23.40] - 2026-11-18
+
 ### Improvements
 - Uploaded files are now kept in folders by company, year, month, the person who uploaded them and the kind of file (task files, chat files, profile photos, project pictures, company logos, Learning Hub files). Files already on the site are moved into these folders the first time the new version starts; each copy is checked before anything points at it, and a file that can't be moved stays where it was and is listed in the Error log.
 - Links to files from before the move keep working: in emails, PDFs and bookmarks they open the moved file, with the same checks as before. The old copies are removed 30 days after the move.
