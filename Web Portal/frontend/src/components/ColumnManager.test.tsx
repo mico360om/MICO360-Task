@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { cleanup, render, screen, fireEvent, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ColumnManager } from './ColumnManager';
 import type { ApiColumn } from '../api/columns';
@@ -34,7 +34,7 @@ describe('ColumnManager', () => {
     const h = setup();
     await userEvent.type(screen.getByLabelText(/add a column/i), 'Review');
     await userEvent.click(screen.getByRole('button', { name: /add column/i }));
-    expect(h.onAdd).toHaveBeenCalledWith('Review');
+    expect(h.onAdd).toHaveBeenCalledWith('Review', 'TODO'); // s137: a new column's status starts as To Do
   });
 
   it('toggles a column enabled', async () => {
@@ -84,6 +84,94 @@ describe('one colour scheme (1.23.8): a column wears its status kind’s colour'
 
   it('says the colour follows the status', () => {
     setup();
-    expect(screen.getByText(/A column’s colour follows its status./)).toBeInTheDocument();
+    expect(screen.getByText('Colours follow the status')).toBeInTheDocument(); // s137: the header's hint
+  });
+});
+
+// s137: a compact Columns table — Name · Status · Tasks · Visible · ↑↓ · Delete, task counts, a guarded Delete, add with a status.
+describe('Columns table (1.23.37)', () => {
+  const counted = [
+    { ...columns[0]!, taskCount: 3 },
+    { ...columns[1]!, taskCount: 0 },
+  ];
+  const show = (cols = counted, extra = {}) => {
+    const h = { onAdd: vi.fn(), onRename: vi.fn(), onToggleEnabled: vi.fn(), onDelete: vi.fn(), onMove: vi.fn(), onSetCategory: vi.fn(), ...extra };
+    render(<ColumnManager columns={cols} {...h} />);
+    return h;
+  };
+
+  it('has a header row with the labels and two hints', () => {
+    show();
+    const head = screen.getByTestId('columns-head');
+    expect(head).toHaveTextContent(/Name.*Status.*Tasks.*Visible/);
+    expect(screen.getByText('Colours follow the status')).toBeInTheDocument();
+    expect(screen.getByText('Hidden columns keep their tasks')).toBeInTheDocument();
+  });
+
+  it('shows each column’s task count', () => {
+    show();
+    expect(within(screen.getByRole('listitem', { name: 'Backlog' })).getByText('3 tasks', { selector: '.sr-only' })).toBeInTheDocument();
+    expect(within(screen.getByRole('listitem', { name: 'Done' })).getByText('0 tasks', { selector: '.sr-only' })).toBeInTheDocument();
+  });
+
+  it('a column with tasks can’t be deleted, and says why ("Move its 3 tasks first")', async () => {
+    const h = show();
+    const del = screen.getByRole('button', { name: 'Delete Backlog' });
+    expect(del).toHaveAttribute('aria-disabled', 'true');
+    expect(del).toHaveAccessibleDescription('Move its 3 tasks first');
+    await userEvent.click(del);
+    expect(screen.queryByRole('button', { name: /^delete$/i })).toBeNull();
+    expect(h.onDelete).not.toHaveBeenCalled();
+    expect(within(screen.getByRole('listitem', { name: 'Backlog' })).getByText('Move its 3 tasks first', { selector: '[role="status"] *, [role="status"]' })).toBeInTheDocument();
+    // An empty column still deletes after its confirmation.
+    expect(screen.getByRole('button', { name: 'Delete Done' })).not.toHaveAttribute('aria-disabled');
+  });
+
+  it('one task reads in the singular; an empty only column can still go (today’s server rule)', () => {
+    show([{ ...columns[0]!, taskCount: 1 }, { ...columns[1]!, taskCount: 0 }]);
+    expect(screen.getByRole('button', { name: 'Delete Backlog' })).toHaveAccessibleDescription('Move its 1 task first');
+    cleanup();
+    show([{ ...columns[0]!, taskCount: 0 }]);
+    expect(screen.getByRole('button', { name: 'Delete Backlog' })).not.toHaveAttribute('aria-disabled');
+  });
+
+  it('adds a column with its status chosen at once', async () => {
+    const h = show();
+    await userEvent.type(screen.getByLabelText(/add a column/i), 'In Review');
+    await userEvent.selectOptions(screen.getByLabelText('Status of the new column'), 'REVIEW');
+    await userEvent.click(screen.getByRole('button', { name: 'Add column' }));
+    expect(h.onAdd).toHaveBeenCalledWith('In Review', 'REVIEW');
+    expect(screen.getByLabelText(/add a column/i)).toHaveValue('');
+  });
+
+  it('its buttons are 44 px tall on a phone and a touch screen (height, which no compact rule shrinks)', async () => {
+    show([{ ...columns[0]!, taskCount: 0 }, { ...columns[1]!, taskCount: 0 }]);
+    expect(screen.getByRole('button', { name: 'Add column' }).className).toMatch(/max-lg:h-11/);
+    await userEvent.click(screen.getByRole('button', { name: 'Delete Done' }));
+    expect(screen.getByRole('button', { name: /^delete$/i }).className).toMatch(/max-lg:h-11/);
+    expect(screen.getByRole('button', { name: 'Cancel deleting Done' }).className).toMatch(/\[@media\(pointer:coarse\)\]:h-11/);
+  });
+
+  it('a reason shown once is not shown again by itself when the count changes (3 → 0 → 2)', async () => {
+    const h = { onAdd: vi.fn(), onRename: vi.fn(), onToggleEnabled: vi.fn(), onDelete: vi.fn(), onMove: vi.fn() };
+    const { rerender } = render(<ColumnManager columns={[{ ...columns[0]!, taskCount: 3 }, columns[1]!]} {...h} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Delete Backlog' }));
+    expect(within(screen.getByRole('listitem', { name: 'Backlog' })).getByRole('status')).toHaveTextContent('Move its 3 tasks first');
+    rerender(<ColumnManager columns={[{ ...columns[0]!, taskCount: 0 }, columns[1]!]} {...h} />);
+    rerender(<ColumnManager columns={[{ ...columns[0]!, taskCount: 2 }, columns[1]!]} {...h} />);
+    expect(within(screen.getByRole('listitem', { name: 'Backlog' })).queryByRole('status')).toBeNull();
+  });
+
+  it('is a table from lg (1024 px) up and cards below; touch targets are 44 px tall without widening the table’s cells', () => {
+    show();
+    expect(screen.getByTestId('columns-head').className).toMatch(/lg:grid/);
+    const up = screen.getByRole('button', { name: 'Move Backlog up' }).className;
+    expect(up).toMatch(/max-lg:w-11/);
+    expect(up).not.toMatch(/\(pointer:coarse\)\]:w-11/);
+  });
+
+  it('keeps the table to about 960 px', () => {
+    show();
+    expect(screen.getByTestId('columns-table').className).toMatch(/max-w-\[960px\]/);
   });
 });

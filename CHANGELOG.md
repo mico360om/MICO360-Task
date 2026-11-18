@@ -21,6 +21,15 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 ### Security
 - A task or chat file opens only when the company in its folder is one the person may see (or they are an administrator), on top of the existing private file link checks. File addresses are checked strictly: anything that isn't exactly one of the server's own file names (folders that climb out, backslashes, odd characters) is refused.
 
+## [1.23.37] - 2026-11-18
+
+### Improvements
+- Learning Hub: a finished course shows your certificate and score on My learning, with the modules folded away.
+- One "New task" button: the Kanban board and a project's Tasks tab no longer have their own — the New Task button at the top starts in the project you are looking at, and N still opens it. A column's + still adds straight into that column.
+- Calendar: the toolbar's add button says the day it adds on ("Add on 16 Nov").
+- Board "Manage columns" is a tidy table (Name, Status, Tasks, Visible, order, Delete) that no longer stretches across wide screens. It shows how many tasks each column holds; Delete waits, and says why, while a column still has tasks ("Move its 3 tasks first") or is the project's only one. A new column's status is chosen as you add it. On a phone each column is a small card.
+- "Describe it in plain English" (New task): choose how much the assistant writes — Short, Default or Detailed. Short gives a title of a few words and a one-sentence description; Detailed gives a fuller description with a short "What to do" list. Default is chosen each time the form opens; you still tick the details you want and press "Use selected details".
+
 ## [1.23.36] - 2026-11-17
 
 ### Improvements

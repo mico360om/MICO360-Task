@@ -1,5 +1,5 @@
 import { ConflictError } from '../../lib/http-errors';
-import type { ColumnCategory, ColumnHold, ColumnRecord, ColumnRepository, UpdateColumnData } from './column-repository';
+import type { ColumnCategory, ColumnHold, ColumnRecord, ColumnRepository, CountedColumn, UpdateColumnData } from './column-repository';
 import { statusTones } from '../../lib/colour-scheme';
 
 export interface AddColumnInput {
@@ -33,6 +33,12 @@ function tasksInColumnRefusal(held: ColumnHold): ConflictError {
 export function createColumnService({ columns, waitingTasksIn }: ColumnServiceDeps) {
   async function listColumns(projectId: string): Promise<ColumnRecord[]> {
     return columns.listForProject(projectId);
+  }
+
+  /** s137: the columns with each one's live task count (0 when the repository can't count). */
+  async function listColumnsWithCounts(projectId: string): Promise<CountedColumn[]> {
+    const [list, counts] = await Promise.all([columns.listForProject(projectId), columns.countLiveTasksByColumn?.(projectId) ?? Promise.resolve(new Map<string, number>())]);
+    return list.map((c) => ({ ...c, taskCount: counts.get(c.id) ?? 0 }));
   }
 
   async function addColumn(projectId: string, input: AddColumnInput): Promise<ColumnRecord> {
@@ -106,7 +112,7 @@ export function createColumnService({ columns, waitingTasksIn }: ColumnServiceDe
     return columns.remove(id);
   }
 
-  return { listColumns, addColumn, updateColumn, reorderColumns, removeColumn };
+  return { listColumns, listColumnsWithCounts, addColumn, updateColumn, reorderColumns, removeColumn };
 }
 
 export type ColumnService = ReturnType<typeof createColumnService>;

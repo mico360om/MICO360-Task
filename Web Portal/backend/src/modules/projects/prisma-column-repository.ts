@@ -90,6 +90,11 @@ export function createPrismaColumnRepository(prisma: PrismaClient, opts: PrismaC
         },
       );
     },
+    async countLiveTasksByColumn(projectId) {
+      // s137: the same tasks as countLiveTasks (not archived, not in the Recycle Bin), every column at once.
+      const rows = await prisma.task.groupBy({ by: ['columnId'], where: { column: { projectId }, deletedAt: null, archivedAt: null }, _count: { _all: true } });
+      return new Map(rows.map((r) => [r.columnId, r._count._all]));
+    },
     async countLiveTasks(id) {
       // Task archive: an archived task never keeps a column from going (it is parked, as binned ones are).
       return prisma.task.count({ where: { columnId: id, deletedAt: null, archivedAt: null } });

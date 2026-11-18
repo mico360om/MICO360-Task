@@ -10,6 +10,9 @@ export interface ColumnRecord {
   enabled: boolean;
 }
 
+/** s137: a column with its live task count (Manage columns: "Tasks", and why Delete waits). */
+export type CountedColumn = ColumnRecord & { taskCount: number };
+
 export interface CreateColumnData {
   projectId: string;
   name: string;
@@ -56,6 +59,8 @@ export interface ColumnRepository {
   reorder?(projectId: string, orderedIds: string[]): Promise<ColumnRecord[] | null>;
   /** How many live (not deleted) tasks sit in the column. */
   countLiveTasks(id: string): Promise<number>;
+  /** s137: each column's live task count (as countLiveTasks), by column id; columns with none are left out. Absent (old fakes): no counts. */
+  countLiveTasksByColumn?(projectId: string): Promise<Map<string, number>>;
   /**
    * Remove an empty column, returning its project id (so callers can scope a broadcast). Deleted
    * tasks that still reference it are moved to another column of the project first; throws a

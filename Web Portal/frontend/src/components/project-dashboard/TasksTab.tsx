@@ -10,7 +10,6 @@ import { EmptyNote, FlagIcon } from './parts';
 import { ClientEyeIcon } from '../TaskCard';
 import { TOUCH_TALL } from '../../lib/touch';
 import { EmptyState } from '../ui/EmptyState';
-import { Button } from '../ui/Button';
 import { ApprovalChip } from '../approvals/ApprovalChip';
 import { GuestsLine } from '../GuestsLine';
 import { RowCategoryChips } from '../RowCategoryChips';
@@ -140,7 +139,7 @@ export function TasksTab({
   filter,
   onFilter,
   onOpen,
-  onNew,
+  canAdd = false,
   project,
   columns,
   readOnly = null,
@@ -152,8 +151,8 @@ export function TasksTab({
   filter: TaskFilter;
   onFilter: (f: TaskFilter) => void;
   onOpen: (taskId: string) => void;
-  /** Add a task to this project (absent when it takes no new work). */
-  onNew?: () => void;
+  /** s137: the project takes new work: the empty tab points to the top bar's New task (it has no button of its own). */
+  canAdd?: boolean;
   /** The project and its columns, for the Table view (without them there is only the list). */
   project?: ApiProject;
   columns?: ApiColumn[];
@@ -206,8 +205,7 @@ export function TasksTab({
     body = (
       <EmptyState
         title="No tasks in this project yet"
-        description="Tasks are the work to be done: each has its people, a due date and a place on the board."
-        action={onNew ? <Button onClick={onNew} className={TOUCH_TALL}>+ New task</Button> : undefined}
+        description={`Tasks are the work to be done: each has its people, a due date and a place on the board.${canAdd ? ' Add one with New task at the top of the page.' : ''}`}
       />
     );
   } else body = (

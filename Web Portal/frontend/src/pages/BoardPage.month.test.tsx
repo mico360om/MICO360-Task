@@ -16,10 +16,12 @@ vi.mock('../lib/useBoardRealtime', () => ({ useBoardRealtime: () => {} }));
 
 // A stand-in board: each column's cards with their month line, and buttons that do what a drag would.
 vi.mock('../components/KanbanBoard', () => ({
-  KanbanBoard: ({ columns, onMove, onReorder }: { columns: KanbanColumnData[]; onMove?: (key: string, to: string, index: number) => void; onReorder?: unknown }) => (
+  KanbanBoard: ({ columns, onMove, onReorder, onAddTask }: { columns: KanbanColumnData[]; onMove?: (key: string, to: string, index: number) => void; onReorder?: unknown; onAddTask?: (columnId: string) => void }) => (
     <div data-testid="kanban" data-reorder={onReorder ? 'on' : 'off'}>
       {columns.map((c) => (
         <section key={c.id} aria-label={c.name}>
+          {/* s137: a column's + (the board has no New task of its own). */}
+          {onAddTask ? <button onClick={() => onAddTask(c.id)}>{`Add a task to ${c.name}`}</button> : null}
           {c.tasks.map((t) => (
             <div key={t.key} data-testid="card">
               {t.key} · {t.dateLine?.text ?? 'no line'}
@@ -331,7 +333,7 @@ describe('Kanban Board: the month’s cards', () => {
     renderPage('/board?project=p1&month=2026-11');
     await waitFor(() => expect(card('MICO-1')).toBeTruthy());
     created = task('t9', 'MICO-9', { startDate: day('2026-12-01'), dueDate: day('2026-12-18') });
-    await userEvent.click(screen.getByRole('button', { name: /\+ new task/i }));
+    await userEvent.click(screen.getAllByRole('button', { name: /^Add a task to / })[0]!); // s137: a column's +
     const dialog = await screen.findByRole('dialog', { name: 'New task' });
     expect(within(dialog).getByText('board day: none')).toBeInTheDocument();
     await userEvent.click(within(dialog).getByRole('button', { name: 'Fake create' }));
@@ -344,7 +346,7 @@ describe('Kanban Board: the month’s cards', () => {
     renderPage('/board?project=p1&month=2026-11');
     await waitFor(() => expect(card('MICO-1')).toBeTruthy());
     created = task('t9', 'MICO-9', { startDate: '2026-11-07T08:00:00.000Z', dueDate: day('2026-11-28') });
-    await userEvent.click(screen.getByRole('button', { name: /\+ new task/i }));
+    await userEvent.click(screen.getAllByRole('button', { name: /^Add a task to / })[0]!); // s137: a column's +
     await userEvent.click(within(await screen.findByRole('dialog', { name: 'New task' })).getByRole('button', { name: 'Fake create' }));
     expect(screen.queryByText(/Saved — it’s in/)).not.toBeInTheDocument();
   });
@@ -366,7 +368,7 @@ describe('Kanban Board: Month on All projects and on a read-only project', () =>
     renderPage('/board?project=p3&month=2026-11');
     await waitFor(() => expect(card('OLD-1')).toBeTruthy());
     expect(within(card('OLD-1')!).queryByRole('button')).toBeNull();
-    expect(screen.queryByRole('button', { name: /\+ new task/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Add a task to / })).not.toBeInTheDocument(); // s137
     expect(screen.getByRole('group', { name: 'Month: November 2026' })).toBeInTheDocument();
   });
 });
@@ -448,7 +450,7 @@ describe('Kanban Board: month view review fixes', () => {
     renderPage('/board?project=p1&month=2026-11');
     await waitFor(() => expect(card('MICO-1')).toBeTruthy());
     created = task('t9', 'MICO-9', { startDate: day('2026-12-01'), dueDate: day('2026-12-18') });
-    await userEvent.click(screen.getByRole('button', { name: /\+ new task/i }));
+    await userEvent.click(screen.getAllByRole('button', { name: /^Add a task to / })[0]!); // s137: a column's +
     await userEvent.click(within(await screen.findByRole('dialog', { name: 'New task' })).getByRole('button', { name: 'Fake create' }));
     expect(await screen.findByText('Saved — it’s in Dec.')).toBeInTheDocument();
     // Day and back: it doesn't come back.
@@ -457,7 +459,7 @@ describe('Kanban Board: month view review fixes', () => {
     await screen.findByRole('group', { name: 'Month: November 2026' });
     expect(screen.queryByText('Saved — it’s in Dec.')).not.toBeInTheDocument();
     // Another project: not there either.
-    await userEvent.click(screen.getByRole('button', { name: /\+ new task/i }));
+    await userEvent.click(screen.getAllByRole('button', { name: /^Add a task to / })[0]!); // s137: a column's +
     await userEvent.click(within(await screen.findByRole('dialog', { name: 'New task' })).getByRole('button', { name: 'Fake create' }));
     expect(await screen.findByText('Saved — it’s in Dec.')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Select project' }));
