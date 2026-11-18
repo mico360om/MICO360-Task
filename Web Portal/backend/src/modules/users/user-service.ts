@@ -199,6 +199,7 @@ export function createUserService({ users, revokeSessions, onSessionsRevoked, is
     // has neither "Reports to" nor the Training manager permission (roles never change kind: current's).
     const client = isClientRoles(current.roles);
     if (client && patch.trainingManager === true) throw fieldProblem('trainingManager', 'A client account can’t be a Training manager.');
+    if (client && patch.appreciationManager === true) throw fieldProblem('appreciationManager', 'A client account can’t be an Appreciation manager.');
     if (patch.reportsToId !== undefined && patch.reportsToId !== null) {
       if (client) throw fieldProblem('reportsToId', 'A client account has no “Reports to”.');
       if (patch.reportsToId === id) throw fieldProblem('reportsToId', 'A person can’t report to themselves.');

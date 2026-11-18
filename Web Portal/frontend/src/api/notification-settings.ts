@@ -24,6 +24,8 @@ export const POLICY_KINDS = [
   'meetings',
   // Training Center: every training notice in one row (bell and push on, email off by default).
   'training',
+  // Employee Appreciation (1.24.0): "You've been appreciated" (bell and push on, email off by default).
+  'appreciation',
 ] as const;
 export type PolicyKind = (typeof POLICY_KINDS)[number];
 

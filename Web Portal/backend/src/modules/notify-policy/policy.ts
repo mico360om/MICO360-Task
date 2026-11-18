@@ -33,6 +33,8 @@ export const POLICY_KINDS = [
   'meetings',
   // Training Center (R13): every training notice in one row — bell and push on, email off by default.
   'training',
+  // Employee Appreciation (1.24.0): "You've been appreciated" — bell and push on, email off by default.
+  'appreciation',
 ] as const;
 export type PolicyKind = (typeof POLICY_KINDS)[number];
 
@@ -56,6 +58,7 @@ export const KIND_TYPES: Record<PolicyKind, readonly string[]> = {
   projectAdded: ['PROJECT_ADDED'],
   meetings: ['MEETING_REMINDER'],
   training: ['TRAINING_ASSIGNED', 'TRAINING_DUE_SOON', 'TRAINING_OVERDUE', 'TRAINING_EXPIRING', 'TRAINING_QUESTION'],
+  appreciation: ['APPRECIATION'],
 };
 
 /** The reminders the planner makes; an admin can turn each off for the company. */

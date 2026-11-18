@@ -160,6 +160,9 @@ model User {
   // report on training - no other administrator powers) and when they finished or skipped the first-time tour.
   reportsToId                String?    @db.VarChar(191)
   trainingManager            Boolean    @default(false)
+  // Employee Appreciation (1.24.0): the Appreciation manager permission (send, schedule and see the history of
+  // appreciations for the people of their own companies, and edit the templates; administrators always can).
+  appreciationManager        Boolean    @default(false)
   tourDoneAt                 DateTime?
   createdAt                  DateTime   @default(now())
   updatedAt                  DateTime   @updatedAt
@@ -3157,4 +3160,63 @@ model TaskBulkAction {
 
   @@index([actorId, createdAt])
   @@map("task_bulk_actions")
+}
+
+// ---------------------------------------------------------------------------
+// Employee Appreciation (1.24.0, owner 18 Nov 2026): templates and one record per person appreciated.
+// ---------------------------------------------------------------------------
+model AppreciationTemplate {
+  id          String    @id @default(cuid())
+  /// A built-in template's key (outstanding, teamwork, …); null for one people made. Built-ins are never changed.
+  builtInKey  String?   @unique @db.VarChar(32)
+  name        String    @db.VarChar(80)
+  title       String    @db.VarChar(120)
+  /// The message with {name}, {company} and {date} placeholders.
+  message     String    @db.Text
+  theme       String    @db.VarChar(16)
+  icon        String    @db.VarChar(16)
+  animation   String    @db.VarChar(16)
+  archivedAt  DateTime?
+  createdById String?   @db.VarChar(191)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@map("appreciation_templates")
+}
+
+model Appreciation {
+  id            String    @id @default(cuid())
+  /// One send to several people: each person has their own record with the same batch id.
+  batchId       String    @db.VarChar(191)
+  recipientId   String    @db.VarChar(191)
+  /// The recipient's company it was sent within (scope and branding); null = the site's.
+  companyId     String?   @db.VarChar(191)
+  templateId    String?   @db.VarChar(191)
+  title         String    @db.VarChar(120)
+  /// The message as written, placeholders kept ({name}, {company}, {date}); filled in when shown.
+  message       String    @db.Text
+  theme         String    @db.VarChar(16)
+  icon          String    @db.VarChar(16)
+  animation     String    @db.VarChar(16)
+  /// The day (YYYY-MM-DD) in the company time zone, and its start and end instants (00:00 to the next 00:00).
+  day           String    @db.VarChar(10)
+  startsAt      DateTime
+  endsAt        DateTime
+  senderId      String    @db.VarChar(191)
+  /// Set once by the sweep when the day starts (the bell notice went out); expiredAt when it ended unaccepted.
+  activatedAt   DateTime?
+  expiredAt     DateTime?
+  acceptedAt    DateTime?
+  /// The popup was closed without accepting (it never comes back, on any device).
+  popupClosedAt DateTime?
+  cancelledAt   DateTime?
+  cancelledById String?   @db.VarChar(191)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([recipientId, startsAt])
+  @@index([batchId])
+  @@index([startsAt])
+  @@index([companyId, startsAt])
+  @@map("appreciations")
 }

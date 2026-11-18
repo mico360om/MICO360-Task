@@ -74,6 +74,7 @@ function toSummary(u: UserWithRoles): UserSummary {
     myProjectsOnly: u.myProjectsOnly,
     reportsToId: u.reportsToId,
     trainingManager: u.trainingManager,
+    appreciationManager: u.appreciationManager,
     departmentName: u.department?.name ?? null,
   };
 }

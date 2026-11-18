@@ -479,6 +479,13 @@ describe('UserService — Training Center: “Reports to” and the Training man
     await expect(svc.updateUser(client.id, { trainingManager: false, reportsToId: null })).resolves.toMatchObject({ trainingManager: false, reportsToId: null });
   });
 
+  it('Employee Appreciation: a staff member may be made an Appreciation manager and back; never a client account', async () => {
+    const { svc, ada, client } = await setup();
+    await expect(svc.updateUser(ada.id, { appreciationManager: true })).resolves.toMatchObject({ appreciationManager: true });
+    await expect(svc.updateUser(ada.id, { appreciationManager: false })).resolves.toMatchObject({ appreciationManager: false });
+    await expect(svc.updateUser(client.id, { appreciationManager: true })).rejects.toMatchObject({ status: 400, details: { field: 'appreciationManager' } });
+  });
+
   it('the Training manager permission changes no roles and ends no sessions', async () => {
     const { svc, revoked } = make();
     const u = await svc.createUser(person());

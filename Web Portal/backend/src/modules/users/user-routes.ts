@@ -83,6 +83,8 @@ const updateSchema = z.object({
   // permission (never for a client), and their department by name ('' or null clears; found or made).
   reportsToId: idString.nullable().optional(),
   trainingManager: z.boolean().optional(),
+  // Employee Appreciation (1.24.0): the Appreciation manager permission (never for a client).
+  appreciationManager: z.boolean().optional(),
   departmentName: z.string().trim().max(DEPARTMENT_NAME_MAX).nullable().optional(),
 });
 /** companies: several people's companies at once (User Management's bulk assign). */
@@ -426,7 +428,7 @@ export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDe
       updated = await userService.getUser(id);
     }
     // Onboarding: which details really changed, by name.
-    const changed = (['firstName', 'lastName', 'username', 'email', 'departmentId', 'myProjectsOnly', 'reportsToId', 'trainingManager'] as const).filter((k) => (before[k] ?? null) !== (updated[k] ?? null));
+    const changed = (['firstName', 'lastName', 'username', 'email', 'departmentId', 'myProjectsOnly', 'reportsToId', 'trainingManager', 'appreciationManager'] as const).filter((k) => (before[k] ?? null) !== (updated[k] ?? null));
     if (before.roles.slice().sort().join() !== updated.roles.slice().sort().join()) changed.push('roles' as never);
     if (JSON.stringify((before.companies ?? []).map((c) => c.id).sort()) !== JSON.stringify((updated.companies ?? []).map((c) => c.id).sort()) || before.primaryCompanyId !== updated.primaryCompanyId) changed.push('companies' as never);
     await logAudit(req, 'user.update', id, { ...(companiesChange ? { ...body, companyIds, primaryCompanyId } : body), ...(departmentName !== undefined ? { departmentName: cleanDepartmentName(departmentName) } : {}), changed });

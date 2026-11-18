@@ -55,6 +55,8 @@ export interface UserSummary {
    */
   reportsToId?: string | null;
   trainingManager?: boolean;
+  /** Employee Appreciation (1.24.0): the Appreciation manager permission. Admin views only. */
+  appreciationManager?: boolean;
   departmentName?: string | null;
 }
 
@@ -118,6 +120,8 @@ export interface UpdateUserData {
   reportsToId?: string | null;
   /** Training Center: the Training manager permission (never for a client account). */
   trainingManager?: boolean;
+  /** Employee Appreciation (1.24.0): the Appreciation manager permission (never for a client account). */
+  appreciationManager?: boolean;
   /** Onboarding: null when the email changes (they confirm the new one at their next sign-in). */
   emailVerifiedAt?: Date | null;
 }

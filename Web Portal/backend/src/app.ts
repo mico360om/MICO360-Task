@@ -130,6 +130,7 @@ import { registerInspectionRoutes, type InspectionRouteDeps } from './modules/in
 import { registerManagementRoutes, type ManagementRouteDeps } from './modules/management/management-routes';
 import { registerKpiRoutes, type KpiRouteDeps } from './modules/kpis/kpi-routes';
 import { registerTraining, type TrainingRoutesBundle } from './modules/training/training-wiring';
+import { registerAppreciationRoutes, type AppreciationRouteDeps } from './modules/appreciations/appreciation-routes';
 import { registerBackupRoutes, type BackupRouteDeps } from './modules/backups/backup-routes';
 import { registerMicrosoftRoutes, type MicrosoftRouteDeps } from './modules/integrations/microsoft/microsoft-routes';
 import type { MeetingTeamsLinks } from './modules/meetings/meeting-routes';
@@ -449,6 +450,8 @@ export interface AppDeps extends AuthRouteDeps {
   kpis?: Omit<KpiRouteDeps, 'guard' | 'pickOf' | 'pdfBrand' | 'canViewProject'>;
   /** Training Center (owner, 11 Nov 2026): My training, the Client portal's Help & training, the Training Center, reports. */
   training?: TrainingRoutesBundle;
+  /** Employee Appreciation (1.24.0): the person's own appreciations and the Appreciations page (rules in the service). */
+  appreciations?: Omit<AppreciationRouteDeps, 'guard'> & { timeZone: string };
   /** System Settings → Backups: the copies, "Back up now", downloads and Google Drive (administrators only). */
   backups?: Omit<BackupRouteDeps, 'guard' | 'audit'>;
   /**
@@ -1353,6 +1356,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       // Training Center: staff learning (/training/*), the public certificate check, the portal's Help & training
       // (/portal/training/*), the Training Center (manage) and its reports — every rule checked by the services.
       if (deps.training) await registerTraining(api, { ...deps.training, guard });
+      // Employee Appreciation (1.24.0): staff only (the route table refuses a client); who manages is the service's rule.
+      if (deps.appreciations) await registerAppreciationRoutes(api, { ...deps.appreciations, guard });
       // 1.23: Settings → Microsoft Teams and Make Teams link (staff only; the meeting's own view and edit rules).
       if (deps.microsoft) {
         await registerMicrosoftRoutes(api, { ...deps.microsoft, canViewMeeting: deps.microsoft.canViewMeeting ?? canViewMeetingQuietly, guard, audit: deps.auditService });

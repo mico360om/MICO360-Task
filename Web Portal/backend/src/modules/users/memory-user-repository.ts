@@ -84,6 +84,7 @@ export function createMemoryUserRepository() {
         myProjectsOnly: false,
         reportsToId: null,
         trainingManager: false,
+        appreciationManager: false,
         ...tempFields(data.temporary),
       };
       if ([...rows.values()].some((r) => same(r.user.email, data.email) || same(r.user.username, data.username))) {

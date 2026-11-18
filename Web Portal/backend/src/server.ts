@@ -122,6 +122,7 @@ import { createPrismaUserRepository as createPrismaUserMgmtRepository } from './
 import { createNotificationService } from './modules/notifications/notification-service';
 import { createKpisFromPrisma } from './modules/kpis/kpi-wiring';
 import { createTrainingFromPrisma } from './modules/training/training-wiring';
+import { createAppreciationService } from './modules/appreciations/appreciation-service';
 import { createTrainingFileStore, trainingFilesDirFor } from './modules/training/training-files';
 import { releaseOf, stampDueChange, type StampDeps } from './modules/kpis/kpi-stamps';
 import { createPrismaNotificationRepository, createPrismaPreferenceStore, createPrismaReminderLogStore, pruneReminderLog } from './modules/notifications/prisma-notification-repository';
@@ -2146,6 +2147,32 @@ async function main(): Promise<void> {
     }).catch(sweepFailed('training-membership', 'training membership sync'));
   jobs.every(15 * 60 * 1000, runTrainingMembership, { firstAfterMs: 2 * 60 * 1000 });
 
+  // ── Employee Appreciation (1.24.0, owner 18 Nov 2026) ─────────────────────
+  // A day in the company time zone; statuses come from the clock. Every minute, on one instance: the bell
+  // notice when an appreciation's day starts, and the audit entry when one ends unaccepted. The six built-in
+  // templates are added once at boot. APPRECIATION_CLOCK_OFFSET_MS moves this module's clock on a TEST server
+  // only (the e2e crosses midnight with it); it is ignored in production.
+  const appreciationClockOffset = env.NODE_ENV !== 'production' ? Number(process.env.APPRECIATION_CLOCK_OFFSET_MS ?? 0) || 0 : 0;
+  const appreciations = createAppreciationService({
+    prisma,
+    timeZone: companyTz,
+    ...(appreciationClockOffset ? { now: () => new Date(Date.now() + appreciationClockOffset) } : {}),
+    notify: (n) => notificationService.notify(n),
+    audit: (e) => auditService.record({ userId: e.userId, ip: e.ip ?? null, module: 'appreciations', action: e.action, entityId: e.entityId, oldValue: e.oldValue ?? null, newValue: e.newValue ?? null }).then(() => {}),
+    brand: async (companyId) => {
+      const b = await companyBranding.forCompany(companyId);
+      return { name: b.ownName ?? b.name, logoUrl: b.logoUrl };
+    },
+  });
+  const runAppreciations = () =>
+    runExclusive(jobLock, 'appreciations', SWEEP_LEASE_MS, () => new Date(), async () => {
+      await appreciations.sweep();
+    }).catch(sweepFailed('appreciations', 'appreciation sweep'));
+  jobs.every(60 * 1000, runAppreciations, { firstAfterMs: 30 * 1000 });
+  void runExclusive(jobLock, 'appreciation-templates', SWEEP_LEASE_MS, () => new Date(), async () => {
+    await appreciations.ensureBuiltIns();
+  }).catch(sweepFailed('appreciation-templates', 'appreciation built-in templates'));
+
   const weeklySummaryService = createWeeklySummaryFromPrisma(prisma, {
     management: managementService,
     settings: managementSettings,
@@ -2920,6 +2947,8 @@ async function main(): Promise<void> {
       reports: training.reports,
       userName: async (id) => (await resolveUserNames([id])).get(id) ?? null,
     },
+    // Employee Appreciation (1.24.0).
+    appreciations: { service: appreciations, timeZone: companyTz },
     backups: backups.routes,
     // 1.23 automatic Teams links: Settings → Microsoft Teams, the meeting form's tick and Make Teams link.
     microsoft: {

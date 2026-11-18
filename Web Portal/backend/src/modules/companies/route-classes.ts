@@ -709,4 +709,24 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   'POST /tasks/:id/unarchive': 'object',
   'POST /tasks/bulk': 'object',
   'POST /tasks/bulk/:bulkId/undo': 'own',
+  // Employee Appreciation (1.24.0): the person's own (today's, accept, close the popup, My appreciations); managing
+  // (administrators and Appreciation managers, checked by the service): the people and records of the manager's
+  // own companies (administrators: all); the templates are one shared catalogue.
+  'GET /appreciations/me': 'own',
+  'GET /appreciations/me/history': 'own',
+  'POST /appreciations/me/:id/accept': 'own',
+  'POST /appreciations/me/:id/close': 'own',
+  'GET /appreciations/manage/templates': 'shared',
+  'POST /appreciations/manage/templates': 'shared',
+  'PUT /appreciations/manage/templates/:id': 'shared',
+  'POST /appreciations/manage/templates/:id/copy': 'shared',
+  'POST /appreciations/manage/templates/:id/archive': 'shared',
+  'POST /appreciations/manage/templates/:id/unarchive': 'shared',
+  'GET /appreciations/manage/companies': 'people',
+  'GET /appreciations/manage/people': 'people',
+  'POST /appreciations/manage': 'people',
+  'GET /appreciations/manage': 'people',
+  'GET /appreciations/manage/export.xlsx': 'people',
+  'PATCH /appreciations/manage/:id': 'people',
+  'POST /appreciations/manage/:id/cancel': 'people',
 };
