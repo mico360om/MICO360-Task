@@ -15,13 +15,22 @@ let w: CompanyWorld;
 let clock = new Date('2026-11-18T19:59:00.000Z'); // 23:59 on 18 Nov, company time
 const notices: Array<{ userId: string; title: string; entityId: string | null }> = [];
 const audits: Array<{ action: string; entityId: string | null; userId: string | null }> = [];
+// 1.24.1: everything a notice / audit entry carried (the note checks read these).
+const fullNotices: Array<{ userId: string; type: string; title: string; body: string | null; entityType: string | null; entityId: string | null }> = [];
+const fullAudits: Array<{ action: string; entityId: string | null; newValue?: unknown }> = [];
 const svc = (timeZone = TZ) =>
   createAppreciationService({
     prisma,
     timeZone,
     now: () => clock,
-    notify: async (n) => notices.push({ userId: n.userId, title: n.title, entityId: n.entityId }),
-    audit: async (e) => void audits.push({ action: e.action, entityId: e.entityId, userId: e.userId }),
+    notify: async (n) => {
+      fullNotices.push({ userId: n.userId, type: n.type, title: n.title, body: n.body, entityType: n.entityType, entityId: n.entityId });
+      return notices.push({ userId: n.userId, title: n.title, entityId: n.entityId });
+    },
+    audit: async (e) => {
+      fullAudits.push({ action: e.action, entityId: e.entityId, newValue: e.newValue });
+      audits.push({ action: e.action, entityId: e.entityId, userId: e.userId });
+    },
     brand: async (companyId) => ({ name: companyId ? (await prisma.company.findUniqueOrThrow({ where: { id: companyId } })).name : 'MICO360', logoUrl: null }),
   });
 const s = svc();
@@ -54,6 +63,8 @@ beforeEach(() => {
   clock = new Date('2026-11-18T19:59:00.000Z');
   notices.length = 0;
   audits.length = 0;
+  fullNotices.length = 0;
+  fullAudits.length = 0;
 });
 
 describe('who manages, and for whom', () => {
@@ -250,5 +261,77 @@ describe('templates', () => {
     expect((await s.templates(w.people.amy, { archived: true })).find((t) => t.id === copy.id)!.archived).toBe(true);
     expect(audits.filter((a) => a.action === 'APPRECIATION_TEMPLATE_SAVED').length).toBeGreaterThanOrEqual(3);
     expect(await code(s.createTemplate(w.people.ana, { name: 'n', title: 't', message: 'm', theme: 'ruby', icon: 'star', animation: 'none' }))).toBe('403');
+  });
+});
+
+describe('a note for the manager with the accept (1.24.1)', () => {
+  it('accept with a note: saved trimmed, the sender’s bell notice quotes it, the audit says a note was left (not its text)', async () => {
+    clock = new Date('2026-12-02T06:00:00.000Z');
+    const { ids } = await send(w.people.amy, [w.people.ana], '2026-12-02');
+    fullNotices.length = 0;
+    const NOTE = 'Thank you, Amy!\nIt means a lot.';
+    const r = await s.accept(w.people.ana, ids[0]!, `  ${NOTE}  `);
+    expect(r).toMatchObject({ already: false, noteSaved: true });
+    expect((await prisma.appreciation.findUniqueOrThrow({ where: { id: ids[0]! } })).acceptNote).toBe(NOTE);
+    const n = fullNotices.filter((x) => x.userId === w.people.amy);
+    expect(n).toHaveLength(1);
+    expect(n[0]).toMatchObject({ type: 'APPRECIATION', entityType: 'appreciation-note', entityId: ids[0] });
+    expect(n[0]!.title).toMatch(/^Ana Alpha \w+ accepted your appreciation: “Thank you, Amy! It means a lot\.”$/);
+    const entry = fullAudits.find((a) => a.action === 'APPRECIATION_ACCEPTED' && a.entityId === ids[0])!;
+    expect(entry.newValue).toMatchObject({ noteLeft: true });
+    expect(JSON.stringify(entry.newValue)).not.toContain('means a lot');
+    // The employee sees their own note; the sender and an administrator see it in the history (and the export rows).
+    expect((await s.mine(w.people.ana)).find((v) => v.id === ids[0])!.acceptNote).toBe(NOTE);
+    expect((await s.list(w.people.amy, { id: ids[0] })).rows.map((x) => [x.id, x.acceptNote])).toEqual([[ids[0], NOTE]]);
+    expect((await s.list(w.people.admin, { id: ids[0] })).rows[0]!.acceptNote).toBe(NOTE);
+    expect((await s.exportRows(w.people.admin, { personId: w.people.ana })).find((x) => x.id === ids[0])!.acceptNote).toBe(NOTE);
+  });
+
+  it('no note (or only spaces): nothing for the sender, the audit says no note; a long note is cut to 80 characters in the notice', async () => {
+    clock = new Date('2026-12-03T06:00:00.000Z');
+    const { ids } = await send(w.people.admin, [w.people.ana, w.people.cat], '2026-12-03');
+    fullNotices.length = 0;
+    await s.accept(w.people.ana, ids[0]!, '   ');
+    expect(fullNotices.filter((x) => x.userId === w.people.admin)).toEqual([]);
+    expect((await prisma.appreciation.findUniqueOrThrow({ where: { id: ids[0]! } })).acceptNote).toBeNull();
+    expect(fullAudits.find((a) => a.action === 'APPRECIATION_ACCEPTED' && a.entityId === ids[0])!.newValue).toMatchObject({ noteLeft: false });
+    const long = 'a'.repeat(75) + ' bcdefghij klm';
+    await s.accept(w.people.cat, ids[1]!, long);
+    const t = fullNotices.find((x) => x.userId === w.people.admin)!.title;
+    expect(t).toMatch(/accepted your appreciation: “a{75} bcde…”$/);
+    // Over 500 characters is refused (nothing saved, not accepted).
+    const third = (await send(w.people.admin, [w.people.bob], '2026-12-03')).ids[0]!;
+    expect(await code(s.accept(w.people.bob, third, 'x'.repeat(501)))).toBe('400');
+    expect((await prisma.appreciation.findUniqueOrThrow({ where: { id: third } })).acceptedAt).toBeNull();
+  });
+
+  it('the note can’t be changed after accepting, nor left after the day ends', async () => {
+    clock = new Date('2026-12-04T06:00:00.000Z');
+    const { ids } = await send(w.people.admin, [w.people.ben, w.people.bob], '2026-12-04');
+    await s.accept(w.people.ben, ids[0]!, 'First words');
+    fullNotices.length = 0;
+    const again = await s.accept(w.people.ben, ids[0]!, 'Changed words');
+    expect(again).toMatchObject({ already: true, noteSaved: false });
+    expect((await prisma.appreciation.findUniqueOrThrow({ where: { id: ids[0]! } })).acceptNote).toBe('First words');
+    expect(fullNotices).toEqual([]);
+    // An offline replay of the same accept and note: harmless, still the first.
+    expect((await s.accept(w.people.ben, ids[0]!, 'First words')).already).toBe(true);
+    // After midnight: refused like the accept, nothing saved.
+    clock = new Date('2026-12-04T20:00:00.000Z');
+    expect(await code(s.accept(w.people.bob, ids[1]!, 'Late thanks'))).toBe('409 APPRECIATION_EXPIRED');
+    expect((await prisma.appreciation.findUniqueOrThrow({ where: { id: ids[1]! } })).acceptNote).toBeNull();
+  });
+
+  it('who reads it: the sender and managers in scope; a manager of another company, an employee and someone else’s own list never', async () => {
+    clock = new Date('2026-12-05T06:00:00.000Z');
+    const forBob = (await send(w.people.admin, [w.people.bob], '2026-12-05')).ids[0]!; // company B
+    await s.accept(w.people.bob, forBob, 'Thanks from Beta');
+    expect((await s.list(w.people.admin, { id: forBob })).rows[0]!.acceptNote).toBe('Thanks from Beta');
+    expect((await s.list(w.people.amy, { id: forBob })).rows).toEqual([]); // amy manages company A only
+    expect((await s.exportRows(w.people.amy, {})).map((x) => x.id)).not.toContain(forBob);
+    expect(await code(s.list(w.people.ben, { id: forBob }))).toBe('403');
+    expect(await code(s.exportRows(w.people.ana, {}))).toBe('403');
+    expect((await s.mine(w.people.ben)).map((v) => v.id)).not.toContain(forBob);
+    expect((await s.me(w.people.ben)).live.map((v) => v.id)).not.toContain(forBob);
   });
 });

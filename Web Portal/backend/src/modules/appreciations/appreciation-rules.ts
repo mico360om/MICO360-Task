@@ -18,7 +18,7 @@ export const APPRECIATION_STATUSES = ['SCHEDULED', 'ACTIVE', 'ACCEPTED', 'EXPIRE
 export type AppreciationStatus = (typeof APPRECIATION_STATUSES)[number];
 
 /** Limits on what people type. */
-export const LIMITS = { name: 80, title: 120, message: 1000, recipients: 200, daysAhead: 366 } as const;
+export const LIMITS = { name: 80, title: 120, message: 1000, recipients: 200, daysAhead: 366, note: 500, noteInNotice: 80 } as const;
 
 export interface TemplateContent {
   name: string;
@@ -162,4 +162,24 @@ export const APPRECIATION_WORDS = {
   builtIn: 'Built-in templates can’t be changed. Save your changes as a copy.',
   templateGone: 'That template was not found.',
   noticeTitle: (title: string) => `You've been appreciated: ${title}`,
+  noteTooLong: 'A note can be at most 500 characters.',
 } as const;
+
+/**
+ * 1.24.1: the optional note for the manager left with an accept — plain text, trimmed; control characters other
+ * than line breaks and tabs are dropped; empty means no note (null).
+ */
+export function cleanNote(note: string | null | undefined): string | null {
+  if (typeof note !== 'string') return null;
+  // eslint-disable-next-line no-control-regex
+  const t = note.replace(/\r\n?/g, '\n').replace(/[\u0000-\u0008\u000B-\u001F\u007F]/g, '').trim();
+  return t ? t : null;
+}
+
+/** The sender's bell notice: “<name> accepted your appreciation: “<first 80 characters>…”” (on one line). */
+export function noteNoticeTitle(name: string, note: string): string {
+  const flat = note.replace(/\s+/g, ' ').trim();
+  const chars = [...flat];
+  const cut = chars.length > LIMITS.noteInNotice ? `${chars.slice(0, LIMITS.noteInNotice).join('').trimEnd()}…` : flat;
+  return `${name} accepted your appreciation: “${cut}”`;
+}

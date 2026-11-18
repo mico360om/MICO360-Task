@@ -4,6 +4,8 @@ import { createTokenService } from '../auth/token-service';
 import { createAuthService } from '../auth/auth-service';
 import { ForbiddenError } from '../../lib/http-errors';
 import type { AppreciationService } from './appreciation-service';
+import { appreciationXlsx } from './appreciation-routes';
+import { unzipText } from '../../lib/xlsx-inspect';
 
 // Employee Appreciation over HTTP: signed-out 401, a client account refused by the route table, bodies checked,
 // the service asked as the signed-in person, the Excel file sent as an attachment.
@@ -23,7 +25,7 @@ const row = {
   id: 'a1', batchId: 'b1', title: 'Great Teamwork', message: 'Thanks Sara', theme: 'ocean', icon: 'team', animation: 'none', day: '2026-11-18',
   startsAt: '2026-11-17T20:00:00.000Z', endsAt: '2026-11-18T20:00:00.000Z', status: 'ACCEPTED', acceptedAt: '2026-11-18T05:00:00.000Z', popupClosedAt: null,
   sender: { id: 'm', name: 'Omar Said' }, company: { name: 'Contoso', logoUrl: null }, recipient: { id: 'sara', name: 'Sara Khan' }, companyId: 'c1',
-  templateId: null, templateName: null, createdAt: '2026-11-17T08:00:00.000Z', cancelledAt: null, rawMessage: 'Thanks {name}',
+  templateId: null, templateName: null, createdAt: '2026-11-17T08:00:00.000Z', cancelledAt: null, rawMessage: 'Thanks {name}', acceptNote: 'Thank you, it means a lot',
 };
 
 async function app() {
@@ -101,5 +103,33 @@ describe('appreciation routes', () => {
     expect(r.headers['content-type']).toContain('spreadsheetml');
     expect(r.headers["content-disposition"]).toBe("attachment; filename=\"Appreciations 18 Nov 2026.xlsx\""); // the company’s day
     expect(r.rawPayload.subarray(0, 2).toString()).toBe('PK');
+  });
+
+  // 1.24.1: an optional note for the manager with the accept.
+  it('accept takes an optional note (trimmed, up to 500 characters, plain text); anything else is refused', async () => {
+    const { a, as, calls } = await app();
+    const post = async (payload?: unknown) => a.inject({ method: 'POST', url: '/api/v1/appreciations/me/a1/accept', headers: await as('emp'), ...(payload === undefined ? {} : { payload: payload as object }) });
+    expect((await post()).statusCode).toBe(200);
+    expect((await post({})).statusCode).toBe(200);
+    expect((await post({ note: '  Thank you!  ' })).statusCode).toBe(200);
+    expect((await post({ note: '   ' })).statusCode).toBe(200);
+    expect((await post({ note: 'x'.repeat(500) })).statusCode).toBe(200);
+    expect((await post({ note: 'x'.repeat(501) })).statusCode).toBe(400);
+    expect((await post({ note: 5 })).statusCode).toBe(400);
+    expect((await post({ note: null })).statusCode).toBe(200);
+    expect(calls.filter(([n]) => n === 'accept').map(([, args]) => args[2])).toEqual([null, null, 'Thank you!', null, 'x'.repeat(500), null]);
+  });
+
+  it('the history can be asked for one record (the sender’s bell notice links to it)', async () => {
+    const { a, as, calls } = await app();
+    expect((await a.inject({ method: 'GET', url: '/api/v1/appreciations/manage?id=a1', headers: await as('mgr') })).statusCode).toBe(200);
+    expect(calls.find(([n]) => n === 'list')![1][1]).toMatchObject({ id: 'a1' });
+    expect((await a.inject({ method: 'GET', url: '/api/v1/appreciations/manage?id=bad%20id', headers: await as('mgr') })).statusCode).toBe(400);
+  });
+
+  it('the Excel file has a Note column (the note as written)', () => {
+    const xml = unzipText(appreciationXlsx([row as never], 'Asia/Muscat', new Date('2026-11-18T06:00:00.000Z'))).get('xl/worksheets/sheet1.xml')!;
+    expect(xml).toContain('Note');
+    expect(xml).toContain('Thank you, it means a lot');
   });
 });

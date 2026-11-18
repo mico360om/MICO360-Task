@@ -43,7 +43,14 @@ const editBody = z
   .strict()
   .refine((b) => Object.keys(b).length > 0, 'Nothing to change.');
 
+// 1.24.1: Accept may carry an optional note for the manager (plain text, trimmed, up to 500 characters).
+const acceptBody = z
+  .object({ note: z.string().trim().max(LIMITS.note, `A note can be at most ${LIMITS.note} characters.`).nullable().optional() })
+  .nullable()
+  .optional();
+
 const listQuery = z.object({
+  id: z.string().regex(ID).optional(),
   personId: z.string().regex(ID).optional(),
   status: z.enum(APPRECIATION_STATUSES).optional(),
   templateId: z.string().regex(ID).optional(),
@@ -73,9 +80,10 @@ export function appreciationXlsx(rows: ManagedRow[], timeZone: string, now: Date
           { header: 'Template' },
           { header: 'Status' },
           { header: 'Accepted at' },
+          { header: 'Note', wrap: true },
           { header: 'Sent by' },
         ],
-        rows: rows.map((r) => [{ date: r.day }, r.recipient.name, r.company.name, r.title, r.message, r.templateName ?? '', STATUS_WORDS[r.status] ?? r.status, at(r.acceptedAt), r.sender.name]),
+        rows: rows.map((r) => [{ date: r.day }, r.recipient.name, r.company.name, r.title, r.message, r.templateName ?? '', STATUS_WORDS[r.status] ?? r.status, at(r.acceptedAt), r.acceptNote ?? '', r.sender.name]),
       },
     ],
     { title: 'Employee appreciations', brand: '#B91C1C' },
@@ -97,7 +105,11 @@ export async function registerAppreciationRoutes(app: FastifyInstance, deps: App
   // ── The person's own ────────────────────────────────────────────────────────
   app.get('/appreciations/me', auth, async (req) => ({ data: await service.me(me(req)) }));
   app.get('/appreciations/me/history', auth, async (req) => ({ data: await service.mine(me(req)) }));
-  app.post('/appreciations/me/:id/accept', auth, async (req) => ({ data: await service.accept(me(req), idOf(req), req.ip) }));
+  app.post('/appreciations/me/:id/accept', auth, async (req) => {
+    const id = idOf(req);
+    const note = acceptBody.parse(req.body ?? undefined)?.note || null;
+    return { data: await service.accept(me(req), id, note, req.ip) };
+  });
   app.post('/appreciations/me/:id/close', auth, async (req) => ({ data: await service.closePopup(me(req), idOf(req)) }));
 
   // ── Managing ────────────────────────────────────────────────────────────────

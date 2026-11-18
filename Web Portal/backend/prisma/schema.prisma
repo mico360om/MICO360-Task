@@ -3229,6 +3229,8 @@ model Appreciation {
   activatedAt   DateTime?
   expiredAt     DateTime?
   acceptedAt    DateTime?
+  /// 1.24.1: the optional note for the manager left with the accept (plain text, up to 500 characters); never changed after.
+  acceptNote    String?   @db.Text
   /// The popup was closed without accepting (it never comes back, on any device).
   popupClosedAt DateTime?
   cancelledAt   DateTime?

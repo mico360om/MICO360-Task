@@ -8,7 +8,9 @@ import {
   BUILT_IN_TEMPLATES,
   LIMITS,
   canManageAppreciations,
+  cleanNote,
   companyToday,
+  noteNoticeTitle,
   dayWindow,
   fillPlaceholders,
   isLiveNow,
@@ -60,6 +62,8 @@ export interface AppreciationView {
   endsAt: string;
   status: AppreciationStatus;
   acceptedAt: string | null;
+  /** 1.24.1: the note for the manager left with the accept (the person themselves, the sender, managers in scope). */
+  acceptNote: string | null;
   popupClosedAt: string | null;
   sender: { id: string; name: string };
   company: { name: string; logoUrl: string | null };
@@ -96,6 +100,8 @@ export interface ScheduleInput {
 export type EditInput = Partial<Omit<ScheduleInput, 'recipientIds' | 'templateId'>>;
 
 export interface ListFilters {
+  /** 1.24.1: one record (the sender's bell notice opens it); still within the manager's scope. */
+  id?: string;
   personId?: string;
   status?: AppreciationStatus;
   templateId?: string;
@@ -188,6 +194,7 @@ export function createAppreciationService(d: AppreciationDeps) {
         endsAt: r.endsAt.toISOString(),
         status: statusOf(r, at),
         acceptedAt: iso(r.acceptedAt),
+        acceptNote: r.acceptNote,
         popupClosedAt: iso(r.popupClosedAt),
         sender: { id: r.senderId, name: nameOf(people.get(r.senderId)) },
         company: brand,
@@ -218,19 +225,42 @@ export function createAppreciationService(d: AppreciationDeps) {
     return r;
   }
 
-  /** Accept: once, on its day. A second accept (another device, an offline replay) answers the first one's time. */
-  async function accept(userId: string, id: string, ip: string | null = null): Promise<{ acceptedAt: string; already: boolean }> {
+  /**
+   * 1.24.1: the sender's bell notice when a note is left (it opens the record in Scheduled & history). None when
+   * someone appreciated themselves, or the sender is no longer active staff. A failing notice never fails the accept.
+   */
+  async function tellSender(r: Row, note: string): Promise<void> {
+    if (r.senderId === r.recipientId) return;
+    try {
+      if ((await prisma.user.count({ where: { AND: [{ id: r.senderId }, STAFF_ACTIVE] } })) === 0) return;
+      const who = await prisma.user.findUnique({ where: { id: r.recipientId }, select: PERSON });
+      await d.notify({ userId: r.senderId, type: NOTICE_TYPE, title: noteNoticeTitle(nameOf(who), note), body: r.title, entityType: 'appreciation-note', entityId: r.id, projectId: null });
+    } catch {
+      /* the accept and its note are saved; the notice is a courtesy */
+    }
+  }
+
+  /**
+   * Accept: once, on its day, with an optional note for the manager (1.24.1). A second accept (another device, an
+   * offline replay) answers the first one's time and never changes the note (noteSaved: false). The note is saved in
+   * the same single write as the accept, so a note after the day ends is refused like the accept.
+   */
+  async function accept(userId: string, id: string, rawNote: string | null = null, ip: string | null = null): Promise<{ acceptedAt: string; already: boolean; noteSaved: boolean }> {
     const at = now();
+    const note = cleanNote(rawNote);
+    if (note && note.length > LIMITS.note) throw new ValidationError(W.noteTooLong, { field: 'note' });
     const done = await prisma.appreciation.updateMany({
       where: { id, recipientId: userId, acceptedAt: null, cancelledAt: null, startsAt: { lte: at }, endsAt: { gt: at } },
-      data: { acceptedAt: at },
+      data: { acceptedAt: at, acceptNote: note },
     });
     const r = await ownRow(userId, id);
     if (done.count === 1) {
-      await d.audit({ userId, action: 'APPRECIATION_ACCEPTED', entityId: id, newValue: { acceptedAt: at.toISOString(), title: r.title }, ip });
-      return { acceptedAt: at.toISOString(), already: false };
+      // The audit says whether a note was left, never its words.
+      await d.audit({ userId, action: 'APPRECIATION_ACCEPTED', entityId: id, newValue: { acceptedAt: at.toISOString(), title: r.title, noteLeft: !!note }, ip });
+      if (note) await tellSender(r, note);
+      return { acceptedAt: at.toISOString(), already: false, noteSaved: !!note };
     }
-    if (r.acceptedAt) return { acceptedAt: r.acceptedAt.toISOString(), already: true };
+    if (r.acceptedAt) return { acceptedAt: r.acceptedAt.toISOString(), already: true, noteSaved: false };
     if (r.cancelledAt) throw new ConflictError(W.cancelled);
     if (at.getTime() >= r.endsAt.getTime()) throw new HttpError(W.expired, 'APPRECIATION_EXPIRED', 409);
     throw new ConflictError(W.notYet);
@@ -489,6 +519,7 @@ export function createAppreciationService(d: AppreciationDeps) {
       AND: [
         scopeWhere(scope),
         statusWhere(f.status, at),
+        f.id ? { id: f.id } : {},
         f.personId ? { recipientId: f.personId } : {},
         f.templateId ? { templateId: f.templateId } : {},
         f.from ? { day: { gte: f.from } } : {},
