@@ -14,6 +14,10 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### Improvements
+- A task's files show when each was uploaded (date and time).
+
+
 ## [1.23.41] - 2026-11-18
 
 ### Improvements
