@@ -183,7 +183,7 @@ export function FinishedUnits({ course: d }: { course: CourseDetail }) {
             <span aria-hidden="true" className={`grid h-6 w-6 flex-none place-items-center rounded-full ${r.done ? STATUS_CLASS.DONE.chip : 'bg-ground text-ink-3'}`}>
               {r.done ? <TickIcon size={13} /> : null}
             </span>
-            <Link to={r.to} className={`min-w-0 flex-1 break-words rounded text-sm font-medium text-ink outline-none hover:text-brand hover:underline focus-visible:ring-2 focus-visible:ring-brand/40 ${TOUCH_MIN} inline-flex items-center`}>
+            <Link to={r.to} className={`min-w-0 flex-1 break-words rounded text-sm font-medium text-ink outline-none hover:text-brand hover:underline focus-visible:ring-2 focus-visible:ring-brand/40 inline-flex min-h-8 items-center max-sm:min-h-11 [@media(pointer:coarse)]:min-h-11`}>
               <bdi>{r.title}</bdi>
             </Link>
             {r.done && r.at ? <span className="flex-none text-xs text-ink-2">Done {instantDay(r.at)}</span> : null}
