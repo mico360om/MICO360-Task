@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.23.38] - 2026-11-18
+
 ### Bug fixes
 - My Tasks has one New Task button (the top bar's); a task added from the top bar shows straight away on the page you're on.
 
