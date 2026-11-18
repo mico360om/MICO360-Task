@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { buildApp } from '../../app';
 import { createTaskService } from './task-service';
 import { createTokenService } from '../auth/token-service';
@@ -106,7 +106,10 @@ describe('GET /tasks and archived tasks', () => {
 
 describe('GET /calendar and an archived series head', () => {
   it('archiving the newest copy doesn’t stop its series: its days are still projected; the copy itself isn’t listed', async () => {
-    const res = await get('/calendar?from=2026-11-12&to=2026-12-02');
+    // 1.24.0: on a fixed day before the dates below (days already past aren't projected; it broke on 18 Nov).
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-14T08:00:00.000Z'));
+    const res = await get('/calendar?from=2026-11-12&to=2026-12-02').finally(() => vi.useRealTimers());
     expect(res.statusCode).toBe(200);
     const data = res.json().data as { tasks: { title: string }[]; occurrences: { taskId: string; date: string }[]; series: { title: string }[] };
     expect(data.series.map((s) => s.title)).toEqual(['Archived weekly head']);
