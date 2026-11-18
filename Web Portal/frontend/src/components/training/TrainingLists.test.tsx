@@ -322,7 +322,7 @@ describe('My learning: the learning dashboard (13 Nov new look)', () => {
     expect(rows).toHaveLength(3);
     expect(within(rows[0]!).getByRole('link', { name: 'Getting started' })).toHaveAttribute('href', '/training/courses/u1?moduleId=gs');
     expect(within(rows[0]!).getByText('Done 12 Nov 2026')).toBeInTheDocument();
-    expect(within(rows[0]!).getByRole('link', { name: 'Getting started' }).className).toMatch(/max-sm:min-h-11/); // 44 px on a phone
+    expect(within(rows[0]!).getByRole('link', { name: 'Getting started' }).className).toMatch(/max-sm:!min-h-11/); // 44 px on a phone
   });
 
   it('a course without certificates: the banner has only Review; other finished courses still show in Done', async () => {
