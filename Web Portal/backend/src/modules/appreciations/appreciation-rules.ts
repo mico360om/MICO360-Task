@@ -162,24 +162,34 @@ export const APPRECIATION_WORDS = {
   builtIn: 'Built-in templates can’t be changed. Save your changes as a copy.',
   templateGone: 'That template was not found.',
   noticeTitle: (title: string) => `You've been appreciated: ${title}`,
-  noteTooLong: 'A note can be at most 500 characters.',
+  noteTooLong: `A note can be at most ${LIMITS.note} characters.`,
 } as const;
 
 /**
- * 1.24.1: the optional note for the manager left with an accept — plain text, trimmed; control characters other
- * than line breaks and tabs are dropped; empty means no note (null).
+ * 1.24.1: the optional note for the manager left with an accept — plain text, trimmed; control characters (C0
+ * other than line breaks and tabs, DEL, C1), the bidi override/isolate marks that could reorder the sender's
+ * notice, and zero-width spaces / BOM are dropped; empty means no note (null).
  */
 export function cleanNote(note: string | null | undefined): string | null {
   if (typeof note !== 'string') return null;
-  // eslint-disable-next-line no-control-regex
-  const t = note.replace(/\r\n?/g, '\n').replace(/[\u0000-\u0008\u000B-\u001F\u007F]/g, '').trim();
+  const t = note
+    .replace(/\r\n?/g, '\n')
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u202A-\u202E\u2066-\u2069\u200B\uFEFF]/g, '')
+    .trim();
   return t ? t : null;
 }
 
-/** The sender's bell notice: “<name> accepted your appreciation: “<first 80 characters>…”” (on one line). */
+const clip = (s: string, max: number): string => {
+  const chars = [...s];
+  return chars.length > max ? `${chars.slice(0, max).join('').trimEnd()}…` : s;
+};
+
+/**
+ * The sender's bell notice: “<name> accepted your appreciation: “<first 80 characters>…”” (on one line). The name
+ * is clipped to 60 characters so the title always fits the notifications table's 191.
+ */
 export function noteNoticeTitle(name: string, note: string): string {
   const flat = note.replace(/\s+/g, ' ').trim();
-  const chars = [...flat];
-  const cut = chars.length > LIMITS.noteInNotice ? `${chars.slice(0, LIMITS.noteInNotice).join('').trimEnd()}…` : flat;
-  return `${name} accepted your appreciation: “${cut}”`;
+  return `${clip(name, 60)} accepted your appreciation: “${clip(flat, LIMITS.noteInNotice)}”`;
 }

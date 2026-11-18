@@ -37,9 +37,9 @@ function PopupFor({ a, onAccept, onClose, problem }: { a: ApiAppreciation; onAcc
           aria-modal="true"
           aria-labelledby="appreciation-title"
           aria-describedby="appreciation-message"
-          className={`card relative ${dialogPanel('small')} animate-scale-in overflow-hidden p-0 outline-none`}
+          className={`card relative ${dialogPanel('small')} animate-scale-in flex flex-col overflow-hidden p-0 outline-none`}
         >
-          <div className="relative overflow-hidden px-5 pb-5 pt-5 text-white" style={{ backgroundImage: themeGradient(a.theme) }}>
+          <div className="relative flex-none overflow-hidden px-5 pb-5 pt-5 text-white" style={{ backgroundImage: themeGradient(a.theme) }}>
             {a.animation === 'shimmer' ? <span className="appreciation-shimmer" aria-hidden="true" /> : null}
             <ConfettiBurst id={a.id} animation={a.animation} />
             <div className="relative flex items-center gap-3">
@@ -58,7 +58,7 @@ function PopupFor({ a, onAccept, onClose, problem }: { a: ApiAppreciation; onAcc
               {a.title}
             </h2>
           </div>
-          <div className="p-5">
+          <div className="min-h-0 overflow-y-auto p-5" data-popup-body>
             <p id="appreciation-message" dir="auto" className="whitespace-pre-line text-base leading-relaxed text-ink">
               {a.message}
             </p>

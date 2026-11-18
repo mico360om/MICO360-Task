@@ -40,7 +40,7 @@ export function NoteField({ value, onChange, disabled }: { value: string; onChan
 }
 
 /** The banner's Accept (the popup was closed): a small window with the same optional note. */
-export function AcceptNoteDialog({ a, onAccept, onClose }: { a: ApiAppreciation; onAccept: (note: string) => Promise<void>; onClose: () => void }) {
+export function AcceptNoteDialog({ a, onAccept, onClose, problem = null }: { a: ApiAppreciation; onAccept: (note: string) => Promise<void>; onClose: () => void; problem?: string | null }) {
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const ref = useDialog<HTMLDivElement>(busy ? () => {} : onClose);
@@ -59,6 +59,11 @@ export function AcceptNoteDialog({ a, onAccept, onClose }: { a: ApiAppreciation;
           <div className="mt-4">
             <NoteField value={note} onChange={setNote} disabled={busy} />
           </div>
+          {problem ? (
+            <p role="alert" className="mt-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
+              {problem}
+            </p>
+          ) : null}
           <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <Button variant="secondary" onClick={onClose} disabled={busy} className="[@media(pointer:coarse)]:!min-h-11">
               Cancel

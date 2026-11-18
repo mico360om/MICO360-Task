@@ -1,4 +1,5 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { clearNoteNotice, useNoteNotice } from '../../lib/appreciation-note-notice';
 import { useCompanyTimeZone } from '../../lib/company-clock';
 import { Link } from 'react-router-dom';
 import { themeGradient } from '../../lib/appreciation';
@@ -17,6 +18,15 @@ const timeWords = (iso: string, timeZone: string) => new Date(iso).toLocaleTimeS
  */
 export function AppreciationBanner({ a, more, onAccept, problem }: { a: ApiAppreciation; more: number; onAccept: (id: string, note?: string | null) => Promise<boolean>; problem: string | null }) {
   const [asking, setAsking] = useState(false);
+  // While an accept from the dialog is on its way the page already shows it accepted: keep the dialog until it answers.
+  const [sending, setSending] = useState(false);
+  // Accepted meanwhile on another device (a refresh): the dialog has nothing left to do.
+  useEffect(() => {
+    if (a.acceptedAt && !sending) setAsking(false);
+  }, [a.acceptedAt, sending]);
+  // "…your note wasn’t added" is said once, here: gone when the banner goes.
+  const notice = useNoteNotice((st) => st.text);
+  useEffect(() => () => clearNoteNotice(), []);
   const timeZone = useCompanyTimeZone();
   // After Accept the button becomes words: focus moves to the banner's heading rather than being lost.
   const heading = useRef<HTMLHeadingElement>(null);
@@ -59,6 +69,11 @@ export function AppreciationBanner({ a, more, onAccept, problem }: { a: ApiAppre
               {problem}
             </p>
           ) : null}
+          {notice ? (
+            <p role="status" data-note-notice className="mt-2 rounded-lg bg-white px-3 py-1.5 text-sm text-[#1F1A19]">
+              {notice}
+            </p>
+          ) : null}
         </div>
         <div className="flex flex-none items-center self-center">
           {a.acceptedAt ? (
@@ -81,17 +96,22 @@ export function AppreciationBanner({ a, more, onAccept, problem }: { a: ApiAppre
           )}
         </div>
       </div>
-      {asking && !a.acceptedAt ? (
+      {asking && (!a.acceptedAt || sending) ? (
         <AcceptNoteDialog
           a={a}
+          problem={sending ? null : problem}
           onClose={() => {
             setAsking(false);
             window.setTimeout(() => button.current?.focus(), 0);
           }}
           onAccept={async (note) => {
+            setSending(true);
             const ok = await onAccept(a.id, note);
+            setSending(false);
+            // Refused (the day ended, server trouble): the dialog stays open with the typed note and says why.
+            if (!ok) return;
             setAsking(false);
-            if (ok) window.setTimeout(() => heading.current?.focus(), 0);
+            window.setTimeout(() => heading.current?.focus(), 0);
           }}
         />
       ) : null}

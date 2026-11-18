@@ -256,9 +256,11 @@ function HistoryTab({ today }: { today: string }) {
   const timeZone = useCompanyTimeZone();
   // 1.24.1: the sender's bell notice opens one record (?row=<id>); "Show all" goes back to the whole list.
   const [params, setParams] = useSearchParams();
-  const [f, setF] = useState<AppreciationFilters>(() => ({ page: 1, ...(params.get('row') ? { id: params.get('row')! } : {}) }));
+  // Read from the address on every render, so a notice opened while this tab is already showing still applies.
+  const [base, setF] = useState<AppreciationFilters>({ page: 1 });
+  const rowId = params.get('row');
+  const f: AppreciationFilters = rowId ? { ...base, id: rowId, page: 1 } : base;
   const showAll = () => {
-    setF(({ id: _id, ...o }) => ({ ...o, page: 1 }));
     setParams((p) => {
       const n = new URLSearchParams(p);
       n.delete('row');
@@ -272,7 +274,10 @@ function HistoryTab({ today }: { today: string }) {
   const [cancelling, setCancelling] = useState<ApiManagedAppreciation | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
-  const set = (k: keyof AppreciationFilters, v: string) => setF((o) => ({ ...o, [k]: v || undefined, page: 1 }));
+  const set = (k: keyof AppreciationFilters, v: string) => {
+    setF((o) => ({ ...o, [k]: v || undefined, page: 1 }));
+    if (rowId) showAll(); // filtering means the whole list again
+  };
   const refresh = () => void qc.invalidateQueries({ queryKey: ['appreciations'] });
   const cancel = useMutation({
     mutationFn: (rowId: string) => api.cancel(rowId),

@@ -21,6 +21,30 @@ afterEach(() => {
 });
 
 describe('offline-replay', () => {
+  it('1.24.1: a queued appreciation accept carries its note; an old {id} entry still replays; a note not added is said', async () => {
+    const { useNoteNotice, clearNoteNotice } = await import('./appreciation-note-notice');
+    clearNoteNotice();
+    const bodies: unknown[] = [];
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body ?? '{}')));
+      return json({ data: { acceptedAt: '2026-11-18T05:00:00.000Z', already: bodies.length === 2, noteSaved: bodies.length !== 2 } });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    enqueueOffline('appreciation.accept', { id: 'ap1', note: 'From the yard' });
+    await flushOfflineQueue();
+    expect(fetchMock.mock.calls[0]![0]).toContain('/appreciations/me/ap1/accept');
+    expect(bodies[0]).toEqual({ note: 'From the yard' });
+    expect(useNoteNotice.getState().text).toBeNull();
+    enqueueOffline('appreciation.accept', { id: 'ap2', note: 'Too late' }); // accepted meanwhile elsewhere
+    await flushOfflineQueue();
+    expect(useNoteNotice.getState().text).toBe('This appreciation was already accepted, so your note wasn’t added.');
+    clearNoteNotice();
+    enqueueOffline('appreciation.accept', { id: 'ap3' }); // queued by 1.24.0
+    await flushOfflineQueue();
+    expect(bodies[2]).toEqual({});
+    expect(useNoteNotice.getState().text).toBeNull();
+  });
+
   it('a task made offline says "Task MICO-143 saved" once it syncs (1.22.3)', async () => {
     useTaskNotice.setState({ notice: null });
     vi.stubGlobal('fetch', vi.fn(async () => json({ data: { id: 't9', key: 'MICO-143', title: 'X' } }, 201)));

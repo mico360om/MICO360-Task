@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   BUILT_IN_TEMPLATES,
   canManageAppreciations,
+  cleanNote,
   companyToday,
+  noteNoticeTitle,
   dayWindow,
   fillPlaceholders,
   isLiveNow,
@@ -84,5 +86,25 @@ describe('who manages', () => {
   it('administrators reach every company, managers their own', () => {
     expect(scopeOfManager({ ...base, admin: true, companyIds: ['a'] })).toBeNull();
     expect(scopeOfManager({ ...base, appreciationManager: true, companyIds: ['a', 'b'] })).toEqual(['a', 'b']);
+  });
+});
+
+describe('the note for the manager (1.24.1)', () => {
+  it('plain text: trimmed, CRLF made LF, line breaks and tabs kept; control, bidi-override and zero-width marks dropped', () => {
+    const c = (...codes: number[]) => String.fromCodePoint(...codes);
+    expect(cleanNote(`  Hi${c(13, 10)}there${c(9)}!  `)).toBe(`Hi${c(10)}there${c(9)}!`);
+    expect(cleanNote(`a${c(0, 7, 27, 127, 133, 0x202e, 0x2066, 0x200b, 0xfeff)}b`)).toBe('ab');
+    expect(cleanNote(`شكرا ${c(0x200f)}جزيلا`)).toBe(`شكرا ${c(0x200f)}جزيلا`); // a right-to-left mark is kept
+    expect(cleanNote(`  ${c(0x202e)} `)).toBeNull();
+    expect(cleanNote(null)).toBeNull();
+    expect(cleanNote(5 as never)).toBeNull();
+  });
+
+  it('the notice title: one line, the note cut at 80, a long name cut at 60 (fits 191)', () => {
+    const c = (n: number) => String.fromCodePoint(n);
+    expect(noteNoticeTitle('Sara Khan', `Thanks${c(10)}a lot`)).toBe('Sara Khan accepted your appreciation: “Thanks a lot”');
+    const t = noteNoticeTitle('N'.repeat(191), 'x'.repeat(500));
+    expect([...t].length).toBeLessThanOrEqual(191);
+    expect(t).toBe(`${'N'.repeat(60)}… accepted your appreciation: “${'x'.repeat(80)}…”`);
   });
 });

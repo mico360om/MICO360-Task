@@ -1,6 +1,7 @@
 import { apiClient } from '../api/client';
 import { tasksApi, type NewTaskInput } from '../api/tasks';
 import { appreciationsApi } from '../api/appreciations';
+import { showNoteNotAdded } from './appreciation-note-notice';
 import { useAuthStore } from '../stores/auth-store';
 import { ApiError, SessionChangedError } from './api-client';
 import {
@@ -70,7 +71,9 @@ async function replayMutation(m: QueuedMutation): Promise<void> {
       // Accepting twice is harmless (the server answers the first time), so a replay needs no key of its own.
       // 1.24.1: the optional note for the manager goes with it (refused with the accept after the day ends).
       const p = m.payload as { id: string; note?: string | null };
-      await appreciationsApi(apiClient.forUser(m.ownerId)).accept(p.id, p.note ?? null);
+      const r = await appreciationsApi(apiClient.forUser(m.ownerId)).accept(p.id, p.note ?? null);
+      // Accepted meanwhile on another device: the note was not added — the Dashboard banner says so.
+      if (p.note && r.already && !r.noteSaved) showNoteNotAdded();
       return;
     }
     throw fail(`Unknown change type ${m.kind}`);

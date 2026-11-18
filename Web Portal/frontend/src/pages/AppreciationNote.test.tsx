@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { useAuthStore } from '../stores/auth-store';
@@ -24,7 +24,13 @@ const M = (over: Partial<ApiManagedAppreciation> = {}): ApiManagedAppreciation =
 
 function Where() {
   const l = useLocation();
-  return <p data-testid="where">{l.pathname + l.search}</p>;
+  const go = useNavigate();
+  return (
+    <>
+      <p data-testid="where">{l.pathname + l.search}</p>
+      <button type="button" data-testid="go-row" onClick={() => go('/admin/appreciations?tab=history&row=ap9')}>go</button>
+    </>
+  );
 }
 const show = (path: string) => {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -69,6 +75,16 @@ describe('the note in Scheduled & history', () => {
     await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Show all' })));
     await waitFor(() => expect(api.list).toHaveBeenLastCalledWith(expect.not.objectContaining({ id: 'ap1' })));
     expect(screen.getByTestId('where').textContent).toBe('/admin/appreciations?tab=history');
+  });
+
+  it('review fix: a notice opened while the history tab is already showing still opens its record', async () => {
+    api.list.mockResolvedValue({ total: 1, page: 1, pageSize: 50, rows: [M()] });
+    show('/admin/appreciations?tab=history');
+    await screen.findByText('Note from Sara Khan');
+    expect(api.list).toHaveBeenLastCalledWith(expect.not.objectContaining({ id: expect.anything() }));
+    await act(async () => fireEvent.click(screen.getByTestId('go-row')));
+    await waitFor(() => expect(api.list).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'ap9' })));
+    expect(screen.getByRole('button', { name: 'Show all' })).toBeInTheDocument();
   });
 });
 

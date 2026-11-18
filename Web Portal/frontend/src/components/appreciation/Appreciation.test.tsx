@@ -190,6 +190,19 @@ describe('a note for your manager (1.24.1)', () => {
     expect(screen.getByText(/^Accepted/)).toBeInTheDocument();
   });
 
+  it('review fix: a refused accept keeps the banner dialog open with the typed note and says why', async () => {
+    api.me.mockResolvedValue(me([{ ...A, popupClosedAt: '2026-11-18T04:00:00.000Z' }]));
+    api.accept.mockRejectedValue(new ApiError(500, 'INTERNAL', 'Something went wrong on our side.'));
+    show();
+    const acceptButton = await screen.findByRole('button', { name: 'Accept' });
+    await act(async () => fireEvent.click(acceptButton));
+    const dialog = screen.getByRole('dialog', { name: 'Accept “Great Teamwork”' });
+    fireEvent.change(within(dialog).getByRole('textbox', { name: NOTE }), { target: { value: 'Keep me' } });
+    await act(async () => fireEvent.click(within(dialog).getByRole('button', { name: 'Accept appreciation' })));
+    await waitFor(() => expect(within(screen.getByRole('dialog')).getByRole('alert')).toHaveTextContent('Something went wrong on our side.'));
+    expect(within(screen.getByRole('dialog')).getByRole('textbox', { name: NOTE })).toHaveValue('Keep me');
+  });
+
   it('offline: the note goes into the queue with the accept', async () => {
     api.me.mockResolvedValue(me([A]));
     api.accept.mockRejectedValue(new TypeError('Failed to fetch'));

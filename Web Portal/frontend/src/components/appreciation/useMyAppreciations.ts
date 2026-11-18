@@ -1,17 +1,13 @@
 import { useCallback, useMemo, useState } from 'react';
-import { create } from 'zustand';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../../api/client';
 import { appreciationsApi, APPRECIATIONS_ME_KEY, type ApiAppreciation, type ApiAppreciationsMe } from '../../api/appreciations';
 import { ApiError } from '../../lib/api-client';
 import { enqueueOffline, queuedAppreciationAccepts } from '../../lib/offline-replay';
 import { useAuthStore } from '../../stores/auth-store';
+import { clearNoteNotice, showNoteNotAdded } from '../../lib/appreciation-note-notice';
 
 const api = appreciationsApi(apiClient);
-/** 1.24.1: Accept with a note, but another device (or an earlier try) had already accepted it: the note is not added. */
-export const NOTE_NOT_ADDED = 'This appreciation was already accepted, so your note wasn’t added.';
-/** Shared by every use of the hook: the popup (which closes on accept) and the Dashboard's banner (which says it). */
-const useNoteNotice = create<{ text: string | null }>(() => ({ text: null }));
 
 /**
  * What this page did and the server may not have answered yet (a read that was already on its way when the person
@@ -23,7 +19,7 @@ const closedHere = new Map<string, string>();
 export function forgetLocalAppreciations(): void {
   acceptedHere.clear();
   closedHere.clear();
-  useNoteNotice.setState({ text: null });
+  clearNoteNotice();
 }
 
 /**
@@ -48,7 +44,6 @@ export function useMyAppreciations() {
   // Bumped when an accept is queued offline, so the overlay below is read again.
   const [queuedTick, setQueuedTick] = useState(0);
   const [problem, setProblem] = useState<string | null>(null);
-  const noteNotice = useNoteNotice((st) => st.text);
 
   const live: ApiAppreciation[] = useMemo(() => {
     void queuedTick;
@@ -76,7 +71,7 @@ export function useMyAppreciations() {
   const accept = useCallback(
     async (id: string, rawNote?: string | null): Promise<boolean> => {
       setProblem(null);
-      useNoteNotice.setState({ text: null });
+      clearNoteNotice();
       const note = rawNote?.trim() ? rawNote.trim() : null;
       const before = q.data?.live.find((a) => a.id === id);
       const at = new Date().toISOString();
@@ -86,7 +81,8 @@ export function useMyAppreciations() {
       try {
         const r = await api.accept(id, note);
         patch(id, { acceptedAt: r.acceptedAt, status: 'ACCEPTED', ...(r.already ? {} : { acceptNote: note }) });
-        if (r.already && note && !r.noteSaved) useNoteNotice.setState({ text: NOTE_NOT_ADDED });
+        // The banner says so (a plain notice; lib/appreciation-note-notice).
+        if (r.already && note && !r.noteSaved) showNoteNotAdded();
         return true;
       } catch (e) {
         if (!(e instanceof ApiError) && enqueueOffline('appreciation.accept', note ? { id, note } : { id })) {
@@ -121,16 +117,5 @@ export function useMyAppreciations() {
     [patch, qc, user?.id],
   );
 
-  return {
-    query: q,
-    data: q.data,
-    live,
-    accept,
-    closePopup,
-    problem: problem ?? noteNotice,
-    clearProblem: () => {
-      setProblem(null);
-      useNoteNotice.setState({ text: null });
-    },
-  };
+  return { query: q, data: q.data, live, accept, closePopup, problem, clearProblem: () => setProblem(null) };
 }
