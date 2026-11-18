@@ -31,7 +31,6 @@ import { Breadcrumbs } from '../components/ui/Breadcrumbs';
 import { ProjectSteps } from '../components/projects/ProjectSteps';
 import { ClientsWithAccess } from '../components/projects/ClientsWithAccess';
 import { ProjectReminders } from '../components/project-dashboard/ProjectReminders';
-import { NewTaskModal } from '../components/NewTaskModal';
 import { useCurrentProject } from '../components/CurrentProject';
 import { ProjectCompanies } from '../components/company/ProjectCompanies';
 import { ShortcutHint, useShortcut, useShortcutHint } from '../components/shortcuts/ShortcutProvider';
@@ -284,10 +283,9 @@ export function ProjectDetailPage() {
   // Archived or completed: no new tasks or meetings, and (1.22.3 review) its Board tab takes no changes.
   const readOnly = project ? projectReadOnly(project) : null;
   const canSchedule = !!project && readOnly === null;
-  // N adds a task to this project (a meeting on the Meetings tab; on the Board tab, the board's own:
-  // to its first column, on its day); E edits the project.
-  const [newTask, setNewTask] = useState(false);
-  useShortcut('new', () => (tab === 'meetings' ? setNewMeeting(true) : setNewTask(true)), { enabled: canSchedule && tab !== 'board' });
+  // N on the Meetings tab adds a meeting; elsewhere (s137) it is the top bar's New task, which starts in
+  // this project (useCurrentProject above). E edits the project.
+  useShortcut('new', () => setNewMeeting(true), { enabled: canSchedule && tab === 'meetings' });
   useShortcut('edit', () => setEditing(true), { enabled: canEditProject && !!project });
   const editHint = useShortcutHint('edit');
 
@@ -436,7 +434,6 @@ export function ProjectDetailPage() {
       {sharing && project ? (
         <ClientSharePanel projectId={id} projectName={project.name} emailEnabled={configQ.data?.emailEnabled ?? true} archived={archived} onClose={() => setSharing(false)} />
       ) : null}
-      {newTask ? <NewTaskModal projectId={id} onClose={() => setNewTask(false)} /> : null}
       {savingTemplate && project ? <SaveProjectTemplateDialog projectId={id} projectName={project.name} onClose={() => setSavingTemplate(false)} /> : null}
 
       {/* Stat tiles — a snapshot of every task by where it stands */}
@@ -527,7 +524,7 @@ export function ProjectDetailPage() {
             filter={taskFilter}
             onFilter={setTaskFilter}
             onOpen={setOpenTaskId}
-            onNew={canSchedule ? () => setNewTask(true) : undefined}
+            canAdd={canSchedule}
             // 1.23.0: List | Table — the table changed in place, read-only on an archived or completed project.
             project={project}
             columns={columns}

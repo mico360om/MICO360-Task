@@ -1141,19 +1141,18 @@ describe('Learning Hub in the Client portal', () => {
     expect(calls).toEqual([]);
   });
 
-  it('/portal/training, the guide finished: “All done, well done”, Certificate ready with View and Download PDF — still no link out of the portal', async () => {
+  it('/portal/training, the guide finished (s137): the Course complete banner with View certificate and Download PDF — no Copy check link, still no link out of the portal', async () => {
     const cert = { id: 'cert5', code: 'TC-PORT-AL55-AAAA', courseId: 'pc1', courseTitle: 'Client portal basics', issuedAt: '2026-11-05T08:00:00.000Z', expiresAt: null, status: 'VALID' as const, completedAt: '2026-11-05T08:00:00.000Z', learnerName: 'Huda Client', verifyUrl: 'https://tasks.example.com/verify/TC-PORT-AL55-AAAA' };
     const done = courseCard({ id: 'pc1', title: 'Client portal basics', moduleKey: 'portal', audience: 'CLIENTS', mine: courseMine({ status: 'COMPLETED', progressPct: 100, lessonsDone: 4, dueDay: null, overdue: false, completedAt: '2026-11-05T08:00:00.000Z', certificate: cert }) });
     api.training.mockResolvedValue({ ...myTraining({ assigned: [], inProgress: [], completed: [done], certificates: [cert] }), catalogue: [done], tour: { show: false } });
     api.trainingCourse.mockResolvedValue(courseDetail({ id: 'pc1', title: 'Client portal basics', moduleKey: 'portal', audience: 'CLIENTS', mine: done.mine, lessons: courseDetail().lessons.map((l) => ({ ...l, done: true, locked: false })) }));
     renderAt('/portal/training');
-    expect(await screen.findByRole('region', { name: 'All done, well done' })).toBeInTheDocument();
-    const certificate = await screen.findByRole('region', { name: 'Certificate' });
-    expect(within(certificate).getByText('Certificate ready')).toBeInTheDocument();
-    expect(within(certificate).getByRole('link', { name: 'View the certificate' })).toHaveAttribute('href', '/portal/training/courses/pc1');
-    expect(within(certificate).getByRole('button', { name: 'Download PDF of the certificate' })).toBeInTheDocument();
+    const banner = await screen.findByRole('region', { name: 'Course complete' });
+    expect(within(banner).getByRole('button', { name: 'View certificate' })).toBeInTheDocument();
+    expect(within(banner).getByRole('button', { name: 'Download PDF' })).toBeInTheDocument();
+    expect(within(banner).queryByRole('button', { name: 'Copy check link' })).toBeNull();
     const main = screen.getByRole('main');
-    for (const a of within(main).getAllByRole('link')) expect(a.getAttribute('href'), a.textContent ?? '').toMatch(/^\/portal(\/|$)/);
+    for (const a of within(main).queryAllByRole('link', { hidden: true })) expect(a.getAttribute('href'), a.textContent ?? '').toMatch(/^\/portal(\/|$)/);
     expect(within(main).queryByText('Check it online')).toBeNull();
     expect(calls).toEqual([]);
   });

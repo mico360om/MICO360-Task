@@ -52,6 +52,28 @@ describe('AI feature routes', () => {
     await app.close();
   });
 
+  // s137: the optional detail level reaches the prompt; a missing one is Default; anything else is refused.
+  it('passes the describe detail level to the prompt and refuses an unknown one', async () => {
+    const prompts: string[] = [];
+    const fetchImpl = (async (_url: string, init?: RequestInit) => {
+      prompts.push(JSON.parse(String(init!.body)).messages[0].content);
+      return new Response(JSON.stringify({ choices: [{ message: { content: '{"title":"x"}' } }] }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const aiFeatureService = createAiFeatureService({ repo: createMemoryAiConfigRepository(config), fetchImpl, limits: { perMinute: 20, perDay: 50 } });
+    const app = await buildApp({ authService, tokenService, aiFeatureService });
+    const headers = { authorization: `Bearer ${(await tokenService.issueTokens({ id: 'u1', roles: ['EMPLOYEE'] })).accessToken}` };
+    const post = (payload: object) => app.inject({ method: 'POST', url: '/api/v1/ai/parse-task', headers, payload });
+    expect((await post({ text: 'call the bank', detail: 'short' })).statusCode).toBe(200);
+    expect(prompts[0]).toMatch(/Title: 3 to 6 words/);
+    expect((await post({ text: 'call the bank', detail: 'detailed' })).statusCode).toBe(200);
+    expect(prompts[1]).toMatch(/"What to do:" list/);
+    expect((await post({ text: 'call the bank' })).statusCode).toBe(200);
+    expect(prompts[2]).toContain('in a sentence or two');
+    expect((await post({ text: 'call the bank', detail: 'huge' })).statusCode).toBe(400);
+    expect(prompts).toHaveLength(3);
+    await app.close();
+  });
+
   it('rate-limits each signed-in user (429 AI_RATE_LIMITED)', async () => {
     const { app, headers } = await makeApp();
     const breakdown = () => app.inject({ method: 'POST', url: '/api/v1/ai/breakdown', headers, payload: { title: 'Monthly report' } });

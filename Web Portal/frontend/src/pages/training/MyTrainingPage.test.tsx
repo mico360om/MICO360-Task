@@ -182,13 +182,15 @@ describe('My learning (12 Nov: Up next, To do, Done)', () => {
     expect(screen.getByTestId('where')).toHaveTextContent('/training?tab=catalogue');
   });
 
-  it('done but nothing to do: “All done, well done” in place of Up next (Review), the Done list below', async () => {
+  it('done but nothing to do (s137): the “Course complete” banner with its certificate in place of Up next; the course isn’t listed again under Done', async () => {
     staff.me.mockResolvedValue(myTraining({ assigned: [], inProgress: [] }));
     renderAt();
-    const finished = await screen.findByRole('region', { name: 'All done, well done' });
-    expect(within(finished).getByRole('link', { name: 'Review' })).toHaveAttribute('href', '/training/courses/c4/lessons/l2');
+    const finished = await screen.findByRole('region', { name: 'Course complete' });
+    expect(within(finished).getByRole('heading', { level: 3, name: 'Kanban board' })).toBeInTheDocument();
+    expect(within(finished).getByText('Finished 5 November 2026')).toBeInTheDocument();
+    expect(within(finished).getByRole('button', { name: 'View certificate' })).toBeInTheDocument();
     expect(screen.queryByText('Nothing to do right now')).toBeNull();
-    expect(screen.getByRole('region', { name: /^Done/ })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: /^Done/ })).toBeNull();
   });
 
   it('the subtitle: “Your training, one part at a time.”', async () => {

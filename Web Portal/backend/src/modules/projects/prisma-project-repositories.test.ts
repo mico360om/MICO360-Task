@@ -139,3 +139,13 @@ describe('createPrismaColumnRepository.remove', () => {
     expect(tx.task.updateMany).not.toHaveBeenCalled();
   });
 });
+
+// s137: Manage columns' task counts — live tasks only (the ones that keep a column from being deleted).
+describe('createPrismaColumnRepository.countLiveTasksByColumn', () => {
+  it('counts each column’s live tasks in one grouped query (not archived, not in the Recycle Bin)', async () => {
+    const groupBy = vi.fn(async () => [{ columnId: 'c1', _count: { _all: 3 } }, { columnId: 'c2', _count: { _all: 1 } }]);
+    const repo = createPrismaColumnRepository({ task: { groupBy } } as unknown as PrismaClient);
+    expect([...(await repo.countLiveTasksByColumn!('p1'))]).toEqual([['c1', 3], ['c2', 1]]);
+    expect(groupBy).toHaveBeenCalledWith({ by: ['columnId'], where: { column: { projectId: 'p1' }, deletedAt: null, archivedAt: null }, _count: { _all: true } });
+  });
+});
